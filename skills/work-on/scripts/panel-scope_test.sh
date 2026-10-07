@@ -100,6 +100,17 @@ SHIM
 chmod +x "$SHIM_BIN/koto"
 export SHIM_STORE
 
+# --record starts the decider shadow in the background. By default it is a
+# stand-in that logs its arguments, so no case runs review-shadow.py itself.
+SHADOW_LOG="$WORKDIR/shadow.log"
+cat > "$WORKDIR/shadow-stub" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$SHADOW_LOG"
+STUB
+chmod +x "$WORKDIR/shadow-stub"
+export SHADOW_LOG
+export REVIEW_SHADOW_SITE_CMD="$WORKDIR/shadow-stub"
+
 # --- fixtures -----------------------------------------------------------------
 #
 # fixture <name>: a repository whose main holds src/a.sh and src/b.sh (lines
@@ -513,6 +524,109 @@ else
 fi
 [ "$PRC" -eq 0 ] && rm -f "$POUT"
 [ -z "$(ls "$WORKDIR/ptmp")" ] && pass "every packet was cleaned up" || fail "packets left behind: $(ls "$WORKDIR/ptmp")"
+
+echo "--- script: --record starts the decider shadow and never waits on it"
+
+# wait_for_log <n>: up to 5 seconds for the background stand-in to log n lines.
+wait_for_log() {
+    local i=0
+    while [ "$i" -lt 50 ]; do
+        [ -f "$SHADOW_LOG" ] && [ "$(wc -l < "$SHADOW_LOG" | tr -d ' ')" -ge "$1" ] && return 0
+        sleep 0.1
+        i=$((i + 1))
+    done
+    return 1
+}
+
+fixture shadow
+rm -f "$SHADOW_LOG"
+record scrutiny "$ALL_PASS"
+HEAD_SHA=$(cd "$FX/repo" && git rev-parse HEAD)
+TOP=$(cd "$FX/repo" && git rev-parse --show-toplevel)
+if wait_for_log 1; then
+    [ "$(cat "$SHADOW_LOG")" = "site work-on --session shadow --panel scrutiny --head $HEAD_SHA --repo-path $TOP" ] \
+        && pass "--record scrutiny starts the shadow with identifiers only" \
+        || fail "shadow called with [$(cat "$SHADOW_LOG")]"
+else
+    fail "--record scrutiny never started the shadow"
+fi
+for p in review light; do
+    rm -f "$SHADOW_LOG"
+    seat=pragmatic; [ "$p" = light ] && seat=reviewer
+    record "$p" "[{\"seat\":\"$seat\",\"blocking_count\":0}]"
+    wait_for_log 1 && grep -q -- "--panel $p " "$SHADOW_LOG" \
+        && pass "--record $p starts the shadow" || fail "--record $p: shadow log [$(cat "$SHADOW_LOG" 2>/dev/null)]"
+done
+for optin in "" 0 1; do
+    rm -f "$SHADOW_LOG"
+    printf '%s\n' "$ALL_PASS" > "$WORKDIR/round.json"
+    (cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITES="$optin" "$SCRIPT" --record scrutiny "$SESSION" \
+        "$WORKDIR/round.json" 2>"$WORKDIR/stderr")
+    wait_for_log 1 && pass "--record starts the shadow with REVIEW_SHADOW_SITES=[$optin]; the site command applies the opt-in" \
+        || fail "--record skipped the shadow with REVIEW_SHADOW_SITES=[$optin]"
+done
+rm -f "$SHADOW_LOG"
+record qa '[{"seat":"tester","blocking_count":0}]'
+sleep 0.5
+[ ! -s "$SHADOW_LOG" ] && pass "--record qa starts no shadow (QA is agent-only)" || fail "qa started the shadow"
+
+LEDGER_BEFORE=$(jq -c '.seats["scrutiny/completeness"] | del(.rev)' "$SHIM_STORE/$SESSION/verdict_ledger.json")
+for variant in fail missing hang; do
+    case "$variant" in
+        fail) printf '#!/usr/bin/env bash\nexit 3\n' > "$WORKDIR/shadow-bad"; chmod +x "$WORKDIR/shadow-bad"
+              CMD="$WORKDIR/shadow-bad" ;;
+        missing) CMD="$WORKDIR/no-such-shadow" ;;
+        hang) printf '#!/usr/bin/env bash\nsleep 20\n' > "$WORKDIR/shadow-bad"; chmod +x "$WORKDIR/shadow-bad"
+              CMD="$WORKDIR/shadow-bad" ;;
+    esac
+    printf '%s\n' "$ALL_PASS" > "$WORKDIR/round.json"
+    START=$SECONDS
+    OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITE_CMD="$CMD" "$SCRIPT" --record scrutiny "$SESSION" "$WORKDIR/round.json" 2>"$WORKDIR/stderr")
+    RC=$?
+    ELAPSED=$((SECONDS - START))
+    expect_rc "--record with the shadow [$variant]" 0
+    [ "$ELAPSED" -lt 5 ] && pass "--record returns at once with the shadow [$variant] (${ELAPSED}s)" \
+        || fail "--record waited ${ELAPSED}s on the shadow [$variant]"
+    [ "$(jq -c '.seats["scrutiny/completeness"] | del(.rev)' "$SHIM_STORE/$SESSION/verdict_ledger.json")" = "$LEDGER_BEFORE" ] \
+        && pass "the ledger is the same with the shadow [$variant]" || fail "the ledger changed with the shadow [$variant]"
+done
+
+echo "--- script: through the real review-shadow.py, an unset opt-in is recorded, not silent"
+
+if command -v python3 >/dev/null 2>&1; then
+    fixture realshadow
+    (cd "$FX/repo" && printf '# demo\n\n## Repo Visibility: Public\n' > CLAUDE.md && git add CLAUDE.md \
+        && git commit -q -m "docs: visibility") >/dev/null 2>&1
+    printf '## Acceptance Criteria\n\n- [ ] `src/a.sh` prints 50 lines.\n' > "$SHIM_STORE/$SESSION/context.md"
+    printf '{"panel":"scrutiny","decisions":[{"seat":"completeness","decision":"full"}]}' \
+        > "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+    printf '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/a.sh"}]}]\n' > "$WORKDIR/round.json"
+    STORE="$WORKDIR/shadow-store"
+    (cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITE_CMD="" REVIEW_SHADOW_SITES="" JEV_API_KEY="" \
+        KOTO_DECIDER_API_KEY="" REVIEW_SHADOW_HOME="$STORE" "$SCRIPT" --record scrutiny "$SESSION" "$WORKDIR/round.json" \
+        2>"$WORKDIR/stderr")
+    RC=$?
+    expect_rc "--record with the real shadow" 0
+    REC=""
+    i=0
+    while [ "$i" -lt 100 ] && [ -z "$REC" ]; do
+        REC=$(find "$STORE" -name '*.json' 2>/dev/null | head -1)
+        [ -n "$REC" ] || sleep 0.1
+        i=$((i + 1))
+    done
+    if [ -n "$REC" ]; then
+        [ "$(jq -r '.not_graded_reason' "$REC")" = not-opted-in ] \
+            && pass "the record says the decider wasn't asked (not-opted-in)" \
+            || fail "record reason [$(jq -r '.not_graded_reason' "$REC")]"
+        [ "$(jq -r '.seats[0].seat + "=" + .seats[0].verdict' "$REC")" = "completeness=pass" ] \
+            && pass "the record holds the seat's verdict from the ledger" \
+            || fail "record seats [$(jq -c '.seats' "$REC")]"
+    else
+        fail "the real shadow wrote no record"
+    fi
+else
+    echo "SKIP: python3 not on PATH"
+fi
 
 echo "--- script: refusals"
 

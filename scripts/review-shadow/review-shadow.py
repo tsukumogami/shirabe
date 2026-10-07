@@ -36,8 +36,18 @@ CATEGORIES_FILE = HERE / "categories.json"
 
 VALUE_KEYS = ("pass", "fail")
 OBSERVERS = ("script", "jev")
-ARTIFACT_KINDS = ("pull-request",)
-SLICE_KINDS = ("pr-text", "pr-summary", "code-hunks", "doc-pairs")
+ARTIFACT_KINDS = ("pull-request", "brief", "prd", "plan", "local-change")
+# Which slicers can feed a criterion of each artifact kind. A site criterion
+# names the artifact it judges, so a pull-request criterion can never be asked
+# of a brief, or a brief criterion of a pull request.
+SLICE_KINDS_BY_ARTIFACT = {
+    "pull-request": ("pr-text", "pr-summary", "code-hunks", "doc-pairs"),
+    "brief": ("brief-journey", "summary-pair"),
+    "prd": ("prd-ac",),
+    "plan": ("plan-ac-block",),
+    "local-change": ("ac-hunks", "code-hunks"),
+}
+SLICE_KINDS = tuple(dict.fromkeys(k for kinds in SLICE_KINDS_BY_ARTIFACT.values() for k in kinds))
 CLASSES = ("covered", "closed-uncovered", "open-judgment")
 PANEL_KINDS = ("scrutiny", "review", "qa", "pre-merge")
 RULE_ID = re.compile(r"rs-[0-9]{3}")
@@ -96,6 +106,8 @@ def load_criteria(path=CRITERIA_FILE, repo_root=REPO_ROOT):
             raise ConfigError(f"{where}: unknown artifact_kind {c['artifact_kind']!r}")
         if c["slice_kind"] not in SLICE_KINDS:
             raise ConfigError(f"{where}: unknown slice_kind {c['slice_kind']!r}")
+        if c["slice_kind"] not in SLICE_KINDS_BY_ARTIFACT[c["artifact_kind"]]:
+            raise ConfigError(f"{where}: slice_kind {c['slice_kind']!r} doesn't read a {c['artifact_kind']} artifact")
         if c["observer"] not in OBSERVERS:
             raise ConfigError(f"{where}: observer must be script or jev")
         if c["observer"] == "script":
@@ -121,11 +133,13 @@ def load_criteria(path=CRITERIA_FILE, repo_root=REPO_ROOT):
     return data
 
 
-def active(criteria):
-    """The criteria a run grades: every criterion not shipped off, plus any the
-    caller turned on with --enable (recorded on the criteria object by grade)."""
+def active(criteria, artifact_kind="pull-request"):
+    """The criteria a run grades: every criterion of the artifact kind being
+    graded that isn't shipped off, plus any the caller turned on with --enable
+    (recorded on the criteria object by grade)."""
     on = set(criteria.get("_enabled", ()))
-    return [c for c in criteria["criteria"] if c.get("enabled", True) or c["rule_id"] in on]
+    return [c for c in criteria["criteria"]
+            if c["artifact_kind"] == artifact_kind and (c.get("enabled", True) or c["rule_id"] in on)]
 
 
 def load_categories(criteria, path=CATEGORIES_FILE):
@@ -883,9 +897,10 @@ CHECKS = {"attribution": check_attribution, "private_terms": check_private_terms
 
 
 def run_scripts(criteria, pt, terms):
-    """Every script criterion over the pr-text slice, in file order."""
+    """Every script criterion over the pr-text slice, in file order. Script
+    criteria exist only for pull requests (the loader refuses any other)."""
     out = []
-    for c in active(criteria):
+    for c in active(criteria, "pull-request"):
         if c["observer"] != "script":
             continue
         if c.get("applies_to") == "public" and not pt["public"]:
@@ -1007,12 +1022,13 @@ def worst(verdicts):
 
 # --- Grade -------------------------------------------------------------------
 
-def run_jev(criteria, slices, send, batched):
-    """Every Jev criterion over its slices. One request per slice carries every
-    criterion of that slice kind, or one per criterion when unbatched."""
+def run_jev(criteria, slices, send, batched, artifact_kind="pull-request"):
+    """Every Jev criterion of one artifact kind over its slices. One request per
+    slice carries every criterion of that slice kind, or one per criterion when
+    unbatched."""
     verdicts, rounds, unread = [], [], 0
     by_kind = {}
-    for c in active(criteria):
+    for c in active(criteria, artifact_kind):
         if c["observer"] == "jev":
             by_kind.setdefault(c["slice_kind"], []).append(c)
     for kind, crits in by_kind.items():
@@ -1178,6 +1194,869 @@ def new_record(repo, pr, head, **fields):
            "host": socket.gethostname(), "criteria_version": criteria_version(), "tool": tool_version()}
     rec.update(fields)
     return rec
+
+
+# --- Site records ------------------------------------------------------------
+#
+# A site record pairs the verdicts of a review site's seats (a jury in the scope
+# chain, a /work-on panel) with the decider's verdicts on the same artifact.
+# docs/designs/DESIGN-jev-closed-criteria.md is the design. Its identity is the
+# site, the subject (a topic slug or an issue) and a hash of the graded inputs,
+# which plays the part a head sha plays for a pull request.
+
+SITES = ("brief", "prd", "review-plan", "work-on")
+SITE_RECORD_SCHEMA = "review-shadow/record/v2"
+SUBJECT_ARG = re.compile(r"[a-z0-9][a-z0-9-]{0,79}")
+ARTIFACT_SHA_ARG = re.compile(r"[0-9a-f]{64}")
+
+
+def check_site(value):
+    if value not in SITES:
+        raise ValueError(f"site must be one of {SITES}")
+    return value
+
+
+def check_subject(value):
+    """A topic slug, or issue-<n> for /work-on: one path segment, never a path."""
+    if not SUBJECT_ARG.fullmatch(value or ""):
+        raise ValueError("a site subject must match [a-z0-9][a-z0-9-]*")
+    return value
+
+
+def is_site_record(rec):
+    return (rec.get("subject") or {}).get("kind") == "site"
+
+
+def new_site_record(repo, site, subject_id, artifact_sha, **fields):
+    """A v2 record for one shadow run of one site. `seats` holds every shadowed
+    seat's verdict; the caller adds the decider's verdicts beside it."""
+    import socket
+    import uuid
+    check_repo(repo)
+    check_site(site)
+    check_subject(subject_id)
+    if not ARTIFACT_SHA_ARG.fullmatch(artifact_sha or ""):
+        raise ValueError("artifact_sha must be a sha256 hex digest")
+    rec = {"schema": SITE_RECORD_SCHEMA, "trial": "jev-review-shadow", "run_id": uuid.uuid4().hex[:16],
+           "recorded_at": now_iso(), "repo": repo,
+           "subject": {"kind": "site", "site": site, "subject_id": subject_id, "artifact_sha": artifact_sha},
+           "seats": [], "in_sample": False,
+           "session_id": os.environ.get("CLAUDE_CODE_SESSION_ID") or None,
+           "host": socket.gethostname(), "criteria_version": criteria_version(), "tool": tool_version()}
+    rec.update(fields)
+    return rec
+
+
+def site_record_path(home, rec):
+    owner, name = rec["repo"].split("/", 1)
+    s = rec["subject"]
+    stamp = rec["recorded_at"].replace("-", "").replace(":", "")
+    return (home / "records" / owner / name / "site" / s["site"] / s["subject_id"] / s["artifact_sha"][:12]
+            / f"{stamp}-{rec['run_id']}.json")
+
+
+def write_site_record(home, rec):
+    path = site_record_path(home, rec)
+    write_private(path, rec, home)
+    return path
+
+
+# --- Site inputs ---------------------------------------------------------------
+#
+# Every site's decider input is cut by a script from files on disk (and, for
+# /work-on, the run's koto context and git history). The commands take
+# identifiers only; nothing an agent writes reaches a slice.
+
+# The artifact kind each site grades. A site name is where a review happens; an
+# artifact kind is what is read, so /review-plan reads a plan and /work-on a
+# local change.
+SITE_ARTIFACT = {"brief": "brief", "prd": "prd", "review-plan": "plan", "work-on": "local-change"}
+WORK_ON_PANELS = ("scrutiny", "review", "light")
+TOPIC_ARG = re.compile(r"[a-z0-9][a-z0-9-]{0,79}")
+SESSION_ARG = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,199}")
+MAX_SITE_FILES = 64
+MAX_SITE_BYTES = 4 * 1024 * 1024
+# A path that looks like it holds a secret is never read into a slice.
+SECRET_PATH = re.compile(
+    r"(?:^|/)(?:\.env[^/]*|[^/]*\.(?:pem|key|p12|pfx|tfvars)|id_rsa[^/]*|id_ed25519[^/]*|\.npmrc|\.netrc"
+    r"|[^/]*credentials[^/]*|[^/]*secret[^/]*)$", re.I)
+# The diff options every site diff carries: a repository's own diff drivers
+# (diff.external, a textconv filter) must not run a command during assembly.
+GIT_DIFF = ("diff", "--no-ext-diff", "--no-textconv", "--no-color")
+# The workflows' scratch directory, where seats leave their verdict files. Built
+# from a constant so this file names no path inside it (the scratch-path check).
+SCRATCH_DIR = "wip"
+
+
+def check_identifier(value, name, pattern):
+    """An identifier argument: never empty, never option-shaped, and matching its grammar."""
+    if not value or value.startswith("-") or not pattern.fullmatch(value):
+        raise ValueError(f"{name} is not a valid identifier")
+    return value
+
+
+class SiteFiles:
+    """Reads files under one repository root and nothing outside it. A path is
+    joined to the root and resolved with symlinks followed; one that lands
+    outside the root, or that is itself a symlink, is refused. The number of
+    files and bytes read is capped, so a manifest can't make a run read the disk."""
+
+    def __init__(self, root):
+        self.root = Path(os.path.realpath(root))
+        self.read_files = {}
+        self.total = 0
+
+    def resolve(self, rel):
+        if not rel or rel.startswith("/") or ".." in rel.split("/"):
+            raise ValueError(f"path {rel!r} must be relative to the repository and stay inside it")
+        joined = self.root / rel
+        if joined.is_symlink():
+            raise ValueError(f"path {rel!r} is a symlink, which a site never reads")
+        real = Path(os.path.realpath(joined))
+        if os.path.commonpath([str(real), str(self.root)]) != str(self.root):
+            raise ValueError(f"path {rel!r} resolves outside the repository")
+        return real
+
+    def read(self, rel):
+        """The file's text, or None when it doesn't exist."""
+        path = self.resolve(rel)
+        if not path.is_file():
+            return None
+        if len(self.read_files) >= MAX_SITE_FILES:
+            raise ValueError("a site read more files than its cap allows")
+        data = path.read_bytes()
+        self.total += len(data)
+        if self.total > MAX_SITE_BYTES:
+            raise ValueError("a site read more bytes than its cap allows")
+        text = data.decode("utf-8", "replace").replace("\r\n", "\n")
+        self.read_files[rel] = text
+        return text
+
+
+def git_in(root, *args):
+    out = subprocess.run(["git", "-C", str(root), "-c", "core.quotepath=off", *args], capture_output=True,
+                         text=True, errors="replace", timeout=60)
+    if out.returncode != 0:
+        raise FetchError(f"git {args[0]} failed")
+    return out.stdout
+
+
+def work_tree_root(path):
+    """The repository root a site reads from: `path` must be the top of a git work tree."""
+    real = os.path.realpath(path)
+    try:
+        top = git_in(real, "rev-parse", "--show-toplevel").strip()
+    except (FetchError, OSError, subprocess.TimeoutExpired):
+        raise ValueError("--repo-path is not a git work tree")
+    if os.path.realpath(top) != real:
+        raise ValueError("--repo-path must be the top of its git work tree")
+    return Path(real)
+
+
+def repo_identity(root):
+    """owner/name from the origin remote, or local/<directory> when there is none."""
+    try:
+        url = git_in(root, "remote", "get-url", "origin").strip()
+    except (FetchError, OSError, subprocess.TimeoutExpired):
+        url = ""
+    m = re.search(r"[:/]([A-Za-z0-9._-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?$", url)
+    if m and REPO_ARG.fullmatch(f"{m.group(1)}/{m.group(2)}") and not {m.group(1), m.group(2)} & {".", ".."}:
+        return f"{m.group(1)}/{m.group(2)}"
+    name = re.sub(r"[^A-Za-z0-9._-]", "-", root.name) or "repo"
+    return f"local/{name.strip('.') or 'repo'}"
+
+
+def frontmatter(text):
+    """Top-level keys of a document's YAML frontmatter that hold a plain scalar or a
+    literal block (`key: |` followed by indented lines). Anything else is skipped."""
+    if not text.startswith("---\n"):
+        return {}
+    end = text.find("\n---\n", 4)
+    if end < 0:
+        return {}
+    out, key, block = {}, None, []
+    for line in text[4:end].split("\n"):
+        if key is not None:
+            if line.startswith((" ", "\t")) or not line.strip():
+                block.append(line)
+                continue
+            out[key] = "\n".join(b.strip() for b in block).strip()
+            key, block = None, []
+        m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*):\s*(.*)$", line)
+        if not m:
+            continue
+        if m.group(2) in ("|", "|-", ">", ">-"):
+            key, block = m.group(1), []
+        else:
+            out[m.group(1)] = m.group(2).strip()
+    if key is not None:
+        out[key] = "\n".join(b.strip() for b in block).strip()
+    return out
+
+
+def sections(text, level="## "):
+    """{heading: body} for each heading at `level` outside fenced code."""
+    out, cur, body, fenced = {}, None, [], False
+    for line in text.split("\n"):
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        if not fenced and line.startswith(level) and not line.startswith(level + "#"):
+            if cur is not None:
+                out[cur] = "\n".join(body).strip()
+            cur, body = line[len(level):].strip(), []
+        elif cur is not None:
+            body.append(line)
+    if cur is not None:
+        out[cur] = "\n".join(body).strip()
+    return out
+
+
+def prose_blocks(text):
+    """Blank-line-separated blocks: the whole sub-units a section is cut at."""
+    return [b.strip() for b in re.split(r"\n\s*\n", text) if b.strip()]
+
+
+CHECKBOX = re.compile(r"^\s*[-*] \[[ xX]\] ")
+
+
+def checklist(text):
+    """(group label, item) for each checkbox item. An item runs on through its
+    indented continuation lines; its group is the nearest heading or plain line
+    above it (such as "Input assembly (R4, R9):")."""
+    items, group, cur = [], "", None
+    for line in text.split("\n"):
+        if CHECKBOX.match(line):
+            if cur is not None:
+                items.append((group, "\n".join(cur)))
+            cur = [line.rstrip()]
+        elif cur is not None and line.strip() and line.startswith((" ", "\t")):
+            cur.append(line.rstrip())
+        else:
+            if cur is not None:
+                items.append((group, "\n".join(cur)))
+                cur = None
+            if line.strip() and not line.lstrip().startswith(("- ", "* ", "```")):
+                group = line.strip().lstrip("#").strip()
+    if cur is not None:
+        items.append((group, "\n".join(cur)))
+    return items
+
+
+def pack_unit(kind, n, fixed, label, head, parts, joiner="\n\n"):
+    """One unit as one slice: `fixed` inputs, plus `label` holding `head` and the
+    whole `parts`, in order, that fit the bound. A part that doesn't fit is
+    dropped and counted, and the next is still tried, so one large hunk or
+    paragraph doesn't cost the unit everything after it. A unit none of whose
+    parts fits stays one over-bound slice holding all of it, which is never sent."""
+    def body(ps):
+        return joiner.join(x for x in [head] + ps if x)
+    whole = make_slice(kind, n, dict(fixed, **{label: body(parts)}), {"dropped": 0})
+    if not whole["over_bound"]:
+        return whole
+    kept, dropped = [], 0
+    for part in parts:
+        if make_slice(kind, n, dict(fixed, **{label: body(kept + [part])}))["over_bound"]:
+            dropped += 1
+        else:
+            kept.append(part)
+    if not kept:
+        return whole
+    return make_slice(kind, n, dict(fixed, **{label: body(kept)}), {"dropped": dropped})
+
+
+def slice_brief_journeys(art):
+    """One slice per ### journey under User Journeys, cut at its paragraphs."""
+    journeys = sections(art["sections"].get("User Journeys", ""), "### ")
+    out = []
+    for n, (title, text) in enumerate(journeys.items(), 1):
+        out.append(pack_unit("brief-journey", n, {}, "journey", f"### {title}", prose_blocks(text)))
+    return out
+
+
+def slice_summary_pairs(art):
+    """Each frontmatter summary beside the section it summarizes, the section cut at
+    its paragraphs. A pair missing either half sends nothing."""
+    out = []
+    for field, heading in (("problem", "Problem Statement"), ("outcome", "User Outcome")):
+        summary, section = art["frontmatter"].get(field, ""), art["sections"].get(heading, "")
+        if summary and section:
+            out.append(pack_unit("summary-pair", len(out) + 1, {"summary": summary}, "section", "",
+                                 prose_blocks(section)))
+    return out
+
+
+def slice_prd_acs(art):
+    """One slice per acceptance criterion, with its group label."""
+    out = []
+    for n, (group, item) in enumerate(checklist(art["sections"].get("Acceptance Criteria", "")), 1):
+        fixed = {"group": group} if group else {}
+        out.append(pack_unit("prd-ac", n, fixed, "criterion", "", [item]))
+    return out
+
+
+def slice_plan_ac_blocks(art):
+    """One slice per issue outline: its title and its criteria, cut at whole items."""
+    out = []
+    for n, issue in enumerate(art["issues"], 1):
+        items = [item for _, item in checklist(issue["criteria"])]
+        s = pack_unit("plan-ac-block", n, {"issue": issue["title"]}, "criteria", "", items, "\n")
+        s["meta"]["issue_id"] = issue.get("issue_id")  # ties a category C finding to this slice; not recorded
+        out.append(s)
+    return out
+
+
+ANCHOR = re.compile(r"`([^`\n]{3,120})`|(?<![\w/.-])(--[a-z][a-z0-9-]{2,})|"
+                    r"(?<![\w-])([A-Za-z0-9_.-]*/[A-Za-z0-9_./-]+|[A-Za-z0-9_-]+\.[A-Za-z][A-Za-z0-9]{0,5})\b")
+
+
+def anchor_terms(text):
+    """The literal terms a criterion is matched to hunks by: backticked tokens,
+    --flags, and tokens holding a / or a file extension."""
+    terms = set()
+    for m in ANCHOR.finditer(text):
+        t = next(g for g in m.groups() if g)
+        t = t.strip().rstrip(".,;:)")
+        if len(t) >= 3:
+            terms.add(t)
+    return terms
+
+
+def slice_ac_hunks(art):
+    """Each acceptance criterion with the hunks that mention one of its anchor
+    terms (in the path or a changed line), packed whole up to the bound. A
+    criterion with no anchor term or no matching hunk sends nothing and is listed
+    as unanswered with reason no-anchor."""
+    out, unmatched = [], []
+    for n, (_, item) in enumerate(art["criteria"], 1):
+        terms = anchor_terms(item)
+        units = []
+        for f in art["files"]:
+            if not f["patch"]:
+                continue
+            # Room for the criterion and the "--- <path>\n" header beside each hunk
+            # unit, so a unit that fits on its own also fits in the slice it is
+            # sent in. hunk_units adds its own path length again, and the 8 covers
+            # the header's "--- " and newline plus the joiner, with a little to
+            # spare: a conservative bound only splits a hunk sooner.
+            plen = utf8_len(item) + 2 * utf8_len(f["path"]) + 8
+            for h in split_hunks(f["patch"]):
+                changed = "\n".join(line[1:] for line in h.split("\n")[1:] if line[:1] in "+-")
+                if terms and any(t in f["path"] or t in changed for t in terms):
+                    units += [f"--- {f['path']}\n{u}" for u in hunk_units(h, plen)]
+        if not units:
+            unmatched.append({"unit": f"ac-hunks-{n}", "reason": "no-anchor"})
+            continue
+        out.append(pack_unit("ac-hunks", n, {"criterion": item}, "hunks", "", units, "\n"))
+    return out, unmatched
+
+
+def build_site_slices(art):
+    """Slices per slice kind for one site artifact, plus units that sent nothing."""
+    kind = art["artifact_kind"]
+    if kind == "brief":
+        return {"brief-journey": slice_brief_journeys(art), "summary-pair": slice_summary_pairs(art)}, []
+    if kind == "prd":
+        return {"prd-ac": slice_prd_acs(art)}, []
+    if kind == "plan":
+        return {"plan-ac-block": slice_plan_ac_blocks(art)}, []
+    ac, unmatched = slice_ac_hunks(art)
+    return {"ac-hunks": ac, "code-hunks": slice_code_hunks({"files": art["files"]})}, unmatched
+
+
+def koto_context(session, key):
+    try:
+        out = subprocess.run(["koto", "context", "get", session, key], capture_output=True, text=True,
+                             errors="replace", timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+def local_change_files(root, base, head):
+    """Changed files between two commits with their patches, secret-looking paths
+    left out. Every diff carries --no-ext-diff --no-textconv."""
+    fields = git_in(root, *GIT_DIFF, "--name-status", "-z", "-M", base, head).split("\0")
+    files, i = [], 0
+    status_word = {"A": "added", "D": "removed", "M": "modified", "R": "renamed", "C": "copied", "T": "modified"}
+    while i < len(fields) and fields[i]:
+        code = fields[i]
+        if code[0] in "RC":
+            old, path, i = fields[i + 1], fields[i + 2], i + 3
+        else:
+            old, path, i = None, fields[i + 1], i + 2
+        if SECRET_PATH.search(path) or (old and SECRET_PATH.search(old)):
+            continue
+        files.append({"path": path, "previous_path": old, "status": status_word.get(code[0], "modified"),
+                      "additions": 0, "deletions": 0, "patch": None})
+    for f in files[:MAX_SITE_FILES * 4]:
+        if f["status"] == "removed":
+            continue
+        diff = git_in(root, *GIT_DIFF, "-U3", "-M", base, head, "--", f["path"])
+        f["patch"] = (diff[diff.find("\n@@") + 1:] if "\n@@" in diff else "").rstrip("\n")
+    return files
+
+
+def resolve_commit(root, ref):
+    sha = git_in(root, "rev-parse", "--verify", "--end-of-options", f"{ref}^{{commit}}").strip()
+    if not HEAD_ARG.fullmatch(sha):
+        raise FetchError("a commit could not be resolved")
+    return sha
+
+
+def assemble_site(args):
+    """Read one site's artifact from disk into the dict its slicers cut. Raises
+    ValueError for a bad argument and FetchError when an input can't be read."""
+    site = check_site(args.site)
+    root = work_tree_root(args.repo_path or ".")
+    files = SiteFiles(root)
+    art = {"site": site, "artifact_kind": SITE_ARTIFACT[site], "root": root, "repo": repo_identity(root)}
+    if site in ("brief", "prd", "review-plan"):
+        topic = check_identifier(args.topic, "--topic", TOPIC_ARG)
+        art["subject_id"] = topic
+    if site == "brief":
+        text = files.read(f"docs/briefs/BRIEF-{topic}.md")
+        if text is None:
+            raise FetchError("the brief isn't on disk")
+        art.update(frontmatter=frontmatter(text), sections=sections(text))
+    elif site == "prd":
+        text = files.read(f"docs/prds/PRD-{topic}.md")
+        if text is None:
+            raise FetchError("the PRD isn't on disk")
+        art.update(frontmatter=frontmatter(text), sections=sections(text))
+    elif site == "review-plan":
+        manifest = files.read(f"{SCRATCH_DIR}/plan_{topic}_manifest.json")
+        if manifest is None:
+            raise FetchError("the plan manifest isn't on disk")
+        try:
+            data = json.loads(manifest)
+        except ValueError:
+            raise FetchError("the plan manifest isn't JSON")
+        entries = data if isinstance(data, list) else (data.get("issues") or data.get("results") or [])
+        pattern = re.compile(rf"{SCRATCH_DIR}/plan_{re.escape(topic)}_issue_[A-Za-z0-9_-]+\.md")
+        art["issues"] = []
+        for e in entries[:MAX_SITE_FILES]:
+            rel = e.get("file") if isinstance(e, dict) else None
+            if not isinstance(rel, str) or not pattern.fullmatch(rel):
+                continue  # only the plan's own issue outlines are read
+            body = files.read(rel)
+            if body is None:
+                continue
+            title = e.get("title") if isinstance(e.get("title"), str) else rel
+            issue_id = str(e.get("issue_id")) if e.get("issue_id") is not None else None
+            art["issues"].append({"title": title, "issue_id": issue_id, "file": rel,
+                                  "criteria": sections(body).get("Acceptance Criteria", "")})
+    else:
+        session = check_identifier(args.session, "--session", SESSION_ARG)
+        if args.panel not in WORK_ON_PANELS:
+            raise ValueError(f"--panel must be one of {WORK_ON_PANELS}")
+        if args.issue:
+            check_pr(args.issue)
+        head = check_head(args.head) if args.head else resolve_commit(root, "HEAD")
+        base = (koto_context(session, "impl_base") or "").strip()
+        if not HEAD_ARG.fullmatch(base):
+            raise FetchError("the session has no impl_base")
+        if args.issue:
+            out = subprocess.run(["gh", "issue", "view", str(int(args.issue)), "--json", "body", "-q", ".body"],
+                                 capture_output=True, text=True, errors="replace", timeout=60, cwd=str(root))
+            if out.returncode != 0:
+                raise FetchError(f"gh issue view failed: {gh_hint('issues', out.stderr)}")
+            criteria_text = out.stdout
+            art["subject_id"] = f"issue-{int(args.issue)}"
+        else:
+            criteria_text = koto_context(session, "context.md") or ""
+            art["subject_id"] = re.sub(r"[^a-z0-9-]", "-", session.lower()).strip("-")[-80:].lstrip("-") or "session"
+        acs = sections(criteria_text).get("Acceptance Criteria") or criteria_text
+        art.update(session=session, panel=args.panel, base=base, head=head, criteria=checklist(acs),
+                   criteria_text=criteria_text, files=local_change_files(root, base, head))
+    art["read_files"] = files.read_files
+    return art
+
+
+def artifact_sha(art, slices):
+    """A hash of what was graded: every slice's hash, in order, and the files read."""
+    h = hashlib.sha256()
+    for kind in sorted(slices):
+        for s in slices[kind]:
+            h.update(s["sha256"].encode())
+    for rel in sorted(art.get("read_files", {})):
+        h.update(rel.encode() + b"\0" + hashlib.sha256(art["read_files"][rel].encode()).hexdigest().encode())
+    return h.hexdigest()
+
+
+PACKET_SCRIPT = REPO_ROOT / "scripts" / "review-packet.sh"
+
+
+def seat_packet_args(art):
+    """The review-packet.sh arguments the site's seats are commissioned with."""
+    site, topic = art["site"], art.get("subject_id")
+    if site == "brief":
+        return ["doc", "--doc", f"docs/briefs/BRIEF-{topic}.md", "--format", "skills/brief/references/brief-format.md",
+                "--extra", f"{SCRATCH_DIR}/brief_{topic}_context.md"]
+    if site == "prd":
+        return ["doc", "--doc", f"docs/prds/PRD-{topic}.md", "--format", "skills/prd/references/prd-format.md",
+                "--extra", f"{SCRATCH_DIR}/prd_{topic}_scope.md"]
+    if site == "review-plan":
+        extras = [f"{SCRATCH_DIR}/plan_{topic}_analysis.md", f"{SCRATCH_DIR}/plan_{topic}_dependencies.md"]
+        analysis = art.get("read_files", {}).get(f"{SCRATCH_DIR}/plan_{topic}_analysis.md") or ""
+        m = re.search(r"^Path:\s*(docs/\S+\.md)\s*$", analysis, re.M)
+        if m:
+            extras.append(m.group(1))
+        # The category seats also read every issue body, as the commissioning line says.
+        extras += [issue["file"] for issue in art.get("issues", [])]
+        out = ["doc", "--doc", f"{SCRATCH_DIR}/plan_{topic}_decomposition.md",
+               "--format", "skills/review-plan/references/phases/phase-3-ac-discriminability.md"]
+        for e in extras:
+            out += ["--extra", e]
+        return out
+    return None  # work-on: built in seat_packet_bytes, which needs a criteria file
+
+
+def seat_packet_bytes(art):
+    """The byte size of the packet the site's seats read, or (None, reason)."""
+    import tempfile
+    if not PACKET_SCRIPT.is_file():
+        return None, "no-packet-script"
+    tmp = None
+    try:
+        args = seat_packet_args(art)
+        if args is None:
+            fd, tmp = tempfile.mkstemp(prefix="review-shadow-criteria.")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                f.write(art.get("criteria_text") or "")
+            args = ["code", "--session", art["session"], "--criteria", tmp]
+        out = subprocess.run([str(PACKET_SCRIPT), *args], capture_output=True, text=True, errors="replace",
+                             timeout=120, cwd=str(art["root"]))
+        if out.returncode != 0:
+            return None, f"packet-exit-{out.returncode}"
+        path = Path(out.stdout.strip().splitlines()[-1]) if out.stdout.strip() else None
+        if path is None or not path.is_file():
+            return None, "packet-missing"
+        size = path.stat().st_size
+        path.unlink()
+        return size, None
+    except (OSError, subprocess.TimeoutExpired):
+        return None, "packet-unavailable"
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+# --- Site grading ---------------------------------------------------------------
+#
+# Each shadowed seat and the decider criteria it is compared with. A seat
+# verdict covers its whole checklist and a criterion one closed question, so the
+# report compares them directionally; see the design's Decision 2.
+SITE_SEATS = {
+    "brief": {"content-quality": ("rs-011",), "structural-format": ("rs-012",)},
+    "prd": {"clarity": ("rs-013",), "testability": ("rs-013",)},
+    "review-plan": {"category-c": ("rs-014",)},
+    "work-on:scrutiny": {"completeness": ("rs-015",)},
+    "work-on:review": {"maintainer": ("rs-016", "rs-017")},
+    "work-on:light": {"reviewer": ("rs-015", "rs-016", "rs-017")},
+}
+# Slices sent per run; the rest are unanswered with run-cap. 32 rather than 16
+# because one slice per acceptance criterion is the PRD site's unit and a large
+# PRD has more than 16 (this repository's own PRD for this feature has 19); at
+# 16, rs-013 could never reach a verdict on it. The time cap still bounds a run.
+SITE_SLICE_CAP = 32
+# Slice meta that ties a slice to its source for attribution and never reaches a
+# record (an issue id names what a private plan is about).
+UNRECORDED_META = ("issue_id",)
+SITE_TIME_CAP = 60.0  # seconds from the first send; later slices are run-cap
+SEAT_MARKER = {"brief": re.compile(r"^\*\*Verdict:\*\*\s*(PASS|FAIL)\b", re.M),
+               "prd": re.compile(r"^##\s*Verdict:\s*(PASS|FAIL)\b", re.M)}
+SEAT_FILE = {"content-quality": "brief_{t}_phase4_content-quality.md",
+             "structural-format": "brief_{t}_phase4_structural-format.md",
+             "clarity": "prd_{t}_phase4_clarity.md", "testability": "prd_{t}_phase4_testability.md"}
+
+
+def site_key(art):
+    return f"work-on:{art['panel']}" if art["site"] == "work-on" else art["site"]
+
+
+def seat_entry(seat, rule_ids, verdict, reason=None, attributed=None, blocking=0):
+    return {"seat": seat, "rule_ids": list(rule_ids), "verdict": verdict, "reason": reason,
+            "blocking_findings": blocking, "attributed": attributed or {}}
+
+
+def hunk_spans(text):
+    """(path, first new line, last new line) for each hunk in an ac-hunks or code-hunks
+    slice, so a seat's finding can be tied to a slice without keeping its path."""
+    spans, path = [], None
+    for line in text.split("\n"):
+        if line.startswith("--- "):
+            path = line[4:].strip()
+            continue
+        m = re.match(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", line)
+        if m and path:
+            start = int(m.group(1))
+            spans.append((path, start, start + max(int(m.group(2) or 1), 1) - 1))
+    return spans
+
+
+def slice_spans(s):
+    if s["kind"] == "ac-hunks":
+        return hunk_spans(s["inputs"]["hunks"])
+    if s["kind"] == "code-hunks":
+        return hunk_spans(f"--- {s['inputs']['path']}\n{s['inputs']['hunks']}")
+    return []
+
+
+def finding_in_slice(finding, s):
+    path, lines = finding.get("path"), str(finding.get("lines") or "")
+    m = re.match(r"^(\d+)(?:-(\d+))?$", lines)
+    for p, a, b in slice_spans(s):
+        if p != path:
+            continue
+        if not m:
+            return True
+        lo, hi = int(m.group(1)), int(m.group(2) or m.group(1))
+        if lo <= b and hi >= a:
+            return True
+    return False
+
+
+def read_doc_seats(art, files, slices):
+    """The brief or PRD jury's verdicts, from the pinned verdict files its seats
+    write. A verdict file older than the document it judged is stale."""
+    seats, topic = [], art["subject_id"]
+    doc = files.resolve(f"docs/briefs/BRIEF-{topic}.md" if art["site"] == "brief" else f"docs/prds/PRD-{topic}.md")
+    for seat, rule_ids in SITE_SEATS[art["site"]].items():
+        rel = f"{SCRATCH_DIR}/research/" + SEAT_FILE[seat].format(t=topic)
+        text = files.read(rel)
+        if text is None:
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-missing"))
+            continue
+        m = SEAT_MARKER[art["site"]].search(text)
+        if not m:
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-unparsed"))
+        elif files.resolve(rel).stat().st_mtime < doc.stat().st_mtime:
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-stale"))
+        else:
+            seats.append(seat_entry(seat, rule_ids, "pass" if m.group(1) == "PASS" else "fail"))
+    return seats
+
+
+def read_plan_seat(art, files, slices):
+    """/review-plan's category C verdict: fail when its review_result holds a
+    category C finding. Each finding's affected_issue_ids tie it to the issue slices."""
+    topic, rule_ids = art["subject_id"], SITE_SEATS["review-plan"]["category-c"]
+    # Both files can exist when a loop-back round was followed by a proceed round
+    # (or the reverse). The verdict on the plan as it stands carries the higher
+    # review_result round; when the rounds are equal or absent, the proceed file.
+    candidates = []
+    for order, name in enumerate((f"plan_{topic}_review.md", f"plan_{topic}_review_loopback.md")):
+        body = files.read(f"{SCRATCH_DIR}/{name}")
+        if body is not None:
+            m = re.search(r"^\s*round:\s*(\d+)\s*$", body, re.M)
+            candidates.append((int(m.group(1)) if m else -1, -order, body))
+    text = max(candidates)[2] if candidates else None
+    if text is None:
+        return [seat_entry("category-c", rule_ids, "unreadable", "seat-verdict-missing")]
+    if not re.search(r"^\s*verdict:\s*\"?(proceed|loop-back)\"?\s*$", text, re.M):
+        return [seat_entry("category-c", rule_ids, "unreadable", "seat-verdict-unparsed")]
+    findings = re.split(r"^\s*-\s+(?=category:)", text, flags=re.M)[1:]
+    c_findings = [f for f in findings if re.match(r"category:\s*\"?C\"?\s*$", f.split("\n", 1)[0].strip())]
+    affected = set()
+    for f in c_findings:
+        m = re.search(r"affected_issue_ids:\s*\[([^\]]*)\]", f)
+        if m:
+            affected |= {x.strip().strip("\"'#") for x in m.group(1).split(",") if x.strip()}
+    attributed = {s["id"]: (str(s["meta"].get("issue_id")) in affected) for s in slices.get("plan-ac-block", [])}
+    verdict = "fail" if c_findings else "pass"
+    return [seat_entry("category-c", rule_ids, verdict, attributed=attributed, blocking=len(c_findings))]
+
+
+def criteria_hash(session):
+    """The hash panel-scope.sh stamps as a verdict's ac_sha: context.md, a fixed
+    separator, then plan.md, hashed as a git blob."""
+    blob = (koto_context(session, "context.md") or "") + "\n--- plan ---\n" + (koto_context(session, "plan.md") or "")
+    data = blob.encode("utf-8")
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def read_ledger_seats(art, slices, slice_kind_of):
+    """The /work-on panel's verdicts from the session's verdict ledger, for the
+    seats spawned this round (a full or rerun decision); a kept seat was paired
+    when it ran, and a re-check judged only its own findings."""
+    panel, session = art["panel"], art["session"]
+    try:
+        ledger = json.loads(koto_context(session, "verdict_ledger.json") or "")
+        scope = json.loads(koto_context(session, f"{panel}_scope.json") or "")
+    except ValueError:
+        ledger, scope = None, None
+    decisions = {d.get("seat"): d.get("decision") for d in (scope or {}).get("decisions", []) if isinstance(d, dict)}
+    seats, ac_sha = [], None
+    for seat, rule_ids in SITE_SEATS[f"work-on:{panel}"].items():
+        if decisions.get(seat) not in ("full", "rerun"):
+            continue
+        entry = ((ledger or {}).get("seats") or {}).get(f"{panel}/{seat}")
+        if ledger is None or entry is None:
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-missing"))
+            continue
+        if entry.get("verdict") not in ("passed", "blocking"):
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-unparsed"))
+            continue
+        if ac_sha is None:
+            ac_sha = criteria_hash(session)
+        # A ledger entry written before panel-scope.sh stamped ac_sha has none; its
+        # judged_at still pins it to a commit, so it is compared on that alone.
+        if entry.get("judged_at") != art["head"] or (entry.get("ac_sha") and entry["ac_sha"] != ac_sha):
+            seats.append(seat_entry(seat, rule_ids, "unreadable", "seat-verdict-stale"))
+            continue
+        findings = [f for f in entry.get("findings") or [] if isinstance(f, dict)]
+        kinds = sorted({slice_kind_of[r] for r in rule_ids if r in slice_kind_of})
+        attributed = {s["id"]: any(finding_in_slice(f, s) for f in findings)
+                      for kind in kinds for s in slices.get(kind, [])}
+        seats.append(seat_entry(seat, rule_ids, "pass" if entry["verdict"] == "passed" else "fail",
+                                attributed=attributed, blocking=len(findings)))
+    return seats
+
+
+def read_site_seats(art, slices, criteria):
+    files = SiteFiles(art["root"])
+    if art["site"] in ("brief", "prd"):
+        return read_doc_seats(art, files, slices)
+    if art["site"] == "review-plan":
+        return read_plan_seat(art, files, slices)
+    return read_ledger_seats(art, slices, {c["rule_id"]: c["slice_kind"] for c in criteria["criteria"]})
+
+
+def declared_public(root):
+    """True only when the repository's CLAUDE.md declares itself public: a site
+    sends drafts and local commits, so an undeclared repository counts as private."""
+    p = Path(root) / "CLAUDE.md"
+    text = p.read_text(encoding="utf-8", errors="replace") if p.is_file() and not p.is_symlink() else ""
+    return bool(re.search(r"^##\s*Repo Visibility:\s*Public\b", text, re.M | re.I))
+
+
+def slice_has_private_term(s, terms):
+    if not terms:
+        return False
+    text = "\n".join(s["inputs"].values())
+    low = text.lower()
+    for t in terms:
+        folded, exact = term_forms(t)
+        if any(f in low for f in folded) or any(e in text for e in exact):
+            return True
+    return False
+
+
+def grade_site(criteria, art, slices, unmatched, send, terms, gate_reason=None, clock=None):
+    """Every site criterion over its slices, one slice at a time so the caps hold.
+    `gate_reason` (private-repo, not-opted-in, no-key) marks everything unanswered
+    without sending. Returns the record body."""
+    import time
+    clock = clock or time.monotonic
+    kind = art["artifact_kind"]
+    wanted = {r for rids in SITE_SEATS[site_key(art)].values() for r in rids}
+    crit = [c for c in active(criteria, kind) if c["rule_id"] in wanted]
+    one = dict(criteria, criteria=crit)
+    verdicts, rounds, unread, sent, started = [], [], 0, 0, None
+    for sk in sorted({c["slice_kind"] for c in crit}):
+        rule_ids = [c["rule_id"] for c in crit if c["slice_kind"] == sk]
+        for s in slices.get(sk, []):
+            reason = gate_reason
+            if reason is None and slice_has_private_term(s, terms):
+                reason = "private-term"  # after redaction (in make_slice), before the bound
+            if reason is None and not s["over_bound"]:
+                if sent >= SITE_SLICE_CAP or (started is not None and clock() - started > SITE_TIME_CAP):
+                    reason = "run-cap"
+            if reason is not None:
+                verdicts += [{"rule_id": r, "slice": s["id"], "verdict": "unanswered", "observer": "jev",
+                              "probabilities": None, "reason": reason} for r in rule_ids]
+                continue
+            if started is None:
+                started = clock()
+            if not s["over_bound"]:
+                sent += 1
+            v, r, u = run_jev(one, {sk: [s]}, send, True, kind)
+            verdicts += v
+            rounds += r
+            unread += u
+    for u in unmatched:
+        verdicts += [{"rule_id": c["rule_id"], "slice": u["unit"], "verdict": "unanswered", "observer": "jev",
+                      "probabilities": None, "reason": u["reason"]} for c in crit if c["slice_kind"] == "ac-hunks"]
+    rows = []
+    for c in crit:
+        vs = [v["verdict"] for v in verdicts if v["rule_id"] == c["rule_id"]]
+        rows.append({"rule_id": c["rule_id"], "verdict": worst(vs), "slices": len(vs)})
+    if gate_reason:
+        status, why = "not-graded", gate_reason
+    else:
+        jev_slices = sum(len(slices.get(sk, [])) for sk in {c["slice_kind"] for c in crit})
+        status, why = run_status(rows, rounds, jev_slices, False, verdicts)
+    all_slices = [dict({k: s[k] for k in ("id", "kind", "bytes", "sha256", "over_bound")},
+                       **{k: v for k, v in s["meta"].items() if k not in UNRECORDED_META})
+                  for sk in sorted(slices) for s in slices[sk]]
+    return {"mode": "batched", "slices": all_slices, "verdicts": verdicts, "criteria": rows, "rounds": rounds,
+            "models": sorted({r["model"] for r in rounds if r["model"]}), "unread_usage_attempts": unread,
+            "tokens": {"input": sum(r["input_tokens"] or 0 for r in rounds),
+                       "output": sum(r["output_tokens"] or 0 for r in rounds)},
+            "status": status, "not_graded_reason": why, "unanswered_units": unmatched}
+
+
+def site_gate(root):
+    """(reason, transport). The reason nothing may be sent, or None with a
+    transport when the run may send. Checked in this order, so the most
+    fundamental refusal is the one recorded: the repository isn't declared public,
+    the user hasn't opted in with REVIEW_SHADOW_SITES=1, or there is no key."""
+    if not declared_public(root):
+        return "private-repo", None
+    if os.environ.get("REVIEW_SHADOW_SITES") != "1":
+        return "not-opted-in", None
+    key = os.environ.get("JEV_API_KEY") or os.environ.get("KOTO_DECIDER_API_KEY")
+    if not key:
+        return "no-key", None
+    return None, https_transport(JEV_ENDPOINT, key, 20.0)
+
+
+def cmd_site(args, criteria):
+    """Shadow one site. Every failure after the arguments are checked prints a
+    reason and exits 0: the caller never reads this command's result."""
+    try:
+        art = assemble_site(args)
+        slices, unmatched = build_site_slices(art)
+    except (FetchError, OSError, subprocess.TimeoutExpired) as e:
+        print(f"review-shadow: site {args.site}: nothing graded: {e}", file=sys.stderr)
+        return 0
+    if args.measure:
+        wanted = {r for rids in SITE_SEATS[site_key(art)].values() for r in rids}
+        kinds = {c["slice_kind"] for c in criteria["criteria"] if c["rule_id"] in wanted}
+        for kind in (k for k in slices if k in kinds):
+            for s in slices[kind]:
+                extra = " over-bound" if s["over_bound"] else ""
+                dropped = s["meta"].get("dropped")
+                print(f"slice {s['id']} {s['bytes']}{extra}" + (f" dropped={dropped}" if dropped else ""))
+        for u in unmatched:
+            print(f"unit {u['unit']} unanswered {u['reason']}")
+        size, why = seat_packet_bytes(art)
+        print(f"seat-packet {size}" if size is not None else f"seat-packet unavailable {why}")
+        return 0
+    try:
+        seats = read_site_seats(art, slices, criteria)
+        if not seats:
+            print(f"review-shadow: site {args.site}: no seat ran this round; nothing recorded")
+            return 0
+        gate, send = site_gate(art["root"])
+        terms = load_private_terms(os.environ.get("REVIEW_SHADOW_PRIVATE_TERMS"))
+        body = grade_site(criteria, art, slices, unmatched, send, terms, gate)
+        rec = new_site_record(art["repo"], art["site"], art["subject_id"], artifact_sha(art, slices),
+                              panel=art.get("panel"), in_sample=bool(args.in_sample), seats=seats, **body)
+        path = write_site_record(store_home(), rec)
+    except (ConfigError, FetchError, OSError, ValueError, subprocess.TimeoutExpired) as e:
+        print(f"review-shadow: site {args.site}: nothing recorded: {e}", file=sys.stderr)
+        return 0
+    line = f"{path} status={rec['status']}"
+    if rec.get("not_graded_reason"):
+        line += f" reason={rec['not_graded_reason']}"
+    if rec.get("not_graded_reason") == "not-opted-in":
+        line += " (decider not asked: set REVIEW_SHADOW_SITES=1 to collect decider verdicts)"
+    print(line)
+    return 0
 
 
 def cmd_grade(args, criteria):
@@ -1362,8 +2241,84 @@ def rollups(kind, dk):
     return ((kind, dk), (kind, "all"), ("all", dk), ("all", "all"))
 
 
+def site_rates(rows):
+    """Figures over rows of (decider outcome, seat verdict, attributed) for one site
+    seat or criterion. The comparison is directional: a seat verdict covers its
+    whole checklist and a criterion one closed question, so a seat block the
+    decider passed is a false pass only when a seat finding falls in a graded
+    slice; the rest are unattributed and count only toward the upper bound."""
+    n = len(rows)
+    passes = sum(1 for o, s, a in rows if o == "pass")
+    agree = sum(1 for o, s, a in rows if (o, s) in (("pass", "pass"), ("fail", "fail")))
+    attributed = sum(1 for o, s, a in rows if o == "pass" and s == "fail" and a)
+    unattributed = sum(1 for o, s, a in rows if o == "pass" and s == "fail" and not a)
+    return {"n": n, "agreement": None if n == 0 else agree / n, "decider_passes": passes,
+            "decider_only_fails": sum(1 for o, s, a in rows if o == "fail" and s == "pass"),
+            "attributed_false_passes": attributed, "unattributed_seat_blocks": unattributed,
+            "false_pass_upper95": binom_upper(attributed + unattributed, passes),
+            "no_verdict": sum(1 for o, s, a in rows if o == "none")}
+
+
+def site_report_data(site_records, criteria):
+    """Per-site and per-criterion agreement between seats and the decider, out-of-sample
+    and in-sample apart, from the latest record per site, subject and artifact."""
+    latest = {}
+    for r in site_records:
+        s = r["subject"]
+        key = (r["repo"], s["site"], r.get("panel"), s["subject_id"], s["artifact_sha"], bool(r.get("in_sample")))
+        if key not in latest or r["recorded_at"] > latest[key]["recorded_at"]:
+            latest[key] = r
+    slice_kind_of = {c["rule_id"]: c["slice_kind"] for c in criteria["criteria"]}
+
+    def attributed_in(seat, kinds):
+        # Attribution is per slice; a criterion is charged only with findings in
+        # the slices it graded (an ac-hunks criterion never with a code-hunks one).
+        return any(v for k, v in seat.get("attributed", {}).items()
+                   if any(k.startswith(f"{kind}-") for kind in kinds))
+
+    out = {}
+    for pop, in_sample in (("out-of-sample", False), ("in-sample", True)):
+        seats, crits, not_graded, unreadable = {}, {}, {}, {}
+        for key, r in sorted(latest.items()):
+            if key[5] != in_sample:
+                continue
+            site = r["subject"]["site"] + (f":{r['panel']}" if r.get("panel") else "")
+            if r.get("status") == "not-graded":
+                not_graded[site] = not_graded.get(site, 0) + 1
+                continue
+            verdict_of = {c["rule_id"]: VERDICT_OUTCOME[c["verdict"]] for c in r.get("criteria", [])}
+            for seat in r.get("seats", []):
+                if seat["verdict"] not in ("pass", "fail"):
+                    per_site = unreadable.setdefault(site, {})
+                    per_site[seat["seat"]] = per_site.get(seat["seat"], 0) + 1
+                    continue
+                outs = [verdict_of[rid] for rid in seat["rule_ids"] if rid in verdict_of]
+                if not outs:
+                    continue
+                o = "fail" if "fail" in outs else ("pass" if all(x == "pass" for x in outs) else "none")
+                kinds = {slice_kind_of.get(rid) for rid in seat["rule_ids"]}
+                seats.setdefault(site, {}).setdefault(seat["seat"], []).append(
+                    (o, seat["verdict"], attributed_in(seat, kinds)))
+                for rid in seat["rule_ids"]:
+                    if rid in verdict_of:
+                        crits.setdefault(site, {}).setdefault(rid, []).append(
+                            (verdict_of[rid], seat["verdict"], attributed_in(seat, {slice_kind_of.get(rid)})))
+        out[pop] = {"seats": {site: {k: site_rates(v) for k, v in by.items()} for site, by in seats.items()},
+                    "criteria": {site: {k: site_rates(v) for k, v in by.items()} for site, by in crits.items()},
+                    "not_graded": not_graded, "seat_unreadable": unreadable}
+    out["tokens"] = {"input": sum(r.get("tokens", {}).get("input", 0) for r in site_records),
+                     "output": sum(r.get("tokens", {}).get("output", 0) for r in site_records),
+                     "records": len(site_records)}
+    return out
+
+
 def report_data(home, criteria, categories, mode="batched"):
     records, outcomes = load_store(home)
+    # Site records have no pull request or head; the pull-request tables, the
+    # mode comparison and the spend line read pull-request records only, and
+    # the site tables read the rest.
+    site_records = [r for r in records if is_site_record(r)]
+    records = [r for r in records if not is_site_record(r)]
     by_head_kind = {}
     for o in outcomes:
         by_head_kind.setdefault((o["repo"], o["pr"], o["head_sha"], o["panel_kind"]), []).append(o)
@@ -1441,7 +2396,40 @@ def report_data(home, criteria, categories, mode="batched"):
                     diffs.append({"repo": repo, "pr": pr, "head": head, "rule_id": rid,
                                   "batched": a.get(rid), "unbatched": b.get(rid)})
     result["mode_differences"] = diffs
+    result["sites"] = site_report_data(site_records, criteria)
     return result
+
+
+def print_site_report(sites):
+    print("\n# Review sites in decider shadow\n")
+    print("A seat verdict covers the seat's whole checklist and a decider verdict one closed criterion, so a "
+          "seat block the decider passed is counted as a false pass only when a seat finding falls in a "
+          "graded slice; the 95% upper bound counts every such block.\n")
+    cols = ("| {} | runs | agreement | decider passes | decider-only fails | attributed false passes "
+            "| unattributed seat blocks | false-pass 95% upper bound | no verdict |")
+    for pop in ("out-of-sample", "in-sample"):
+        p = sites[pop]
+        label = "the test" if pop == "out-of-sample" else "manual re-grades; not the test"
+        print(f"## {pop} ({label})\n")
+        if not p["seats"] and not p["not_graded"] and not p["seat_unreadable"]:
+            print("No site runs.\n")
+            continue
+        for title, key, name in (("Per seat", "seats", "site | seat"), ("Per criterion", "criteria", "site | criterion")):
+            print(f"{title}:\n")
+            print(cols.format(name))
+            print("|---|---|---|---|---|---|---|---|---|---|")
+            for a, b, g in ((a, b, g) for a in sorted(p[key]) for b, g in sorted(p[key][a].items())):
+                print(f"| {a} | {b} | {g['n']} | {_pct(g['agreement'])} | {g['decider_passes']} "
+                      f"| {g['decider_only_fails']} | {g['attributed_false_passes']} | {g['unattributed_seat_blocks']} "
+                      f"| {_pct(g['false_pass_upper95'])} | {g['no_verdict']}/{g['n']} |")
+            print()
+        not_graded = ", ".join(f"{k} {v}" for k, v in sorted(p["not_graded"].items())) or "none"
+        unreadable = ", ".join(f"{site} {seat} {v}" for site in sorted(p["seat_unreadable"])
+                               for seat, v in sorted(p["seat_unreadable"][site].items())) or "none"
+        print(f"Runs not graded (no decider verdict), by site: {not_graded}.")
+        print(f"Seat verdicts unreadable, by seat: {unreadable}.\n")
+    t = sites["tokens"]
+    print(f"Site Jev spend: {t['input']} input and {t['output']} output tokens over {t['records']} records.")
 
 
 def _pct(x):
@@ -1503,6 +2491,8 @@ def print_report(data):
         print()
     t = data["tokens"]
     print(f"Trial Jev spend: {t['input']} input and {t['output']} output tokens over {t['records']} records.")
+    if "sites" in data:
+        print_site_report(data["sites"])
 
 
 def cmd_report(args, criteria):
@@ -1612,8 +2602,19 @@ def main(argv=None):
     sp.add_argument("--base", default="origin/main")
     sp.add_argument("--body-file")
     sp.add_argument("--private-terms")
+    st = sub.add_parser("site", help="shadow one review site's seats with the decider (--measure: sizes only)")
+    st.add_argument("site", choices=SITES)
+    st.add_argument("--topic", help="the topic slug (brief, prd, review-plan)")
+    st.add_argument("--session", help="the /work-on koto session (work-on)")
+    st.add_argument("--panel", choices=WORK_ON_PANELS, help="the /work-on panel (work-on)")
+    st.add_argument("--head", help="the commit the /work-on diff ends at (default HEAD)")
+    st.add_argument("--issue", help="read /work-on's acceptance criteria from this issue")
+    st.add_argument("--repo-path", help="the repository root (default: the current directory)")
+    st.add_argument("--measure", action="store_true", help="print slice and seat-packet sizes; send and write nothing")
+    st.add_argument("--in-sample", action="store_true", help="mark the record in-sample (a manual re-grade)")
     args = ap.parse_args(argv)
-    commands = {"scan": cmd_scan, "grade": cmd_grade, "outcome": cmd_outcome, "report": cmd_report}
+    commands = {"scan": cmd_scan, "grade": cmd_grade, "outcome": cmd_outcome, "report": cmd_report,
+                "site": cmd_site}
     if args.command in commands:
         try:
             criteria = load_criteria()

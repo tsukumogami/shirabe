@@ -39,7 +39,7 @@ class TestLoader(unittest.TestCase):
     def test_shipped_files_load(self):
         crit = rs.load_criteria()
         rs.load_categories(crit)
-        self.assertEqual(len(crit["criteria"]), 10)
+        self.assertEqual(len(crit["criteria"]), 17)
         for c in crit["criteria"]:
             self.assertEqual(set(c["values"]), {"pass", "fail"})
             self.assertEqual(len(c["escape"]), 1)
@@ -1243,6 +1243,787 @@ class TestGhHints(unittest.TestCase):
             hint = rs.gh_hint(endpoint, stderr)
             self.assertIn(want, hint)
             self.assertNotIn("api.github.com", hint)
+
+
+def site_criterion(rule_id="rs-900", artifact_kind="prd", slice_kind="prd-ac"):
+    """A Jev criterion for a site artifact, for tests that need one before any ships."""
+    return {"rule_id": rule_id, "rule_ref": "CLAUDE.md", "group": "correctness", "artifact_kind": artifact_kind,
+            "slice_kind": slice_kind, "observer": "jev", "question": "Is this criterion binary?",
+            "values": {"pass": "It is.", "fail": "It isn't."}, "escape": {"unclear": "Can't tell."},
+            "threshold": 0.9}
+
+
+class TestSiteKinds(unittest.TestCase):
+    """Site artifact kinds, the artifact-kind filter, and v2 site records."""
+
+    def setUp(self):
+        self.good = json.loads((HERE / "criteria.json").read_text(encoding="utf-8"))
+        self.tmp = tempfile.mkdtemp()
+        self.home = Path(tempfile.mkdtemp()) / "store"
+        os.environ["REVIEW_SHADOW_HOME"] = str(self.home)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+
+    def with_site(self, *extra):
+        data = copy.deepcopy(self.good)
+        data["criteria"] += list(extra)
+        crit = rs.load_criteria(_write(self.tmp, "c.json", data))
+        return crit
+
+    def test_every_site_kind_has_its_slicers(self):
+        for kind in ("brief", "prd", "plan", "local-change"):
+            self.assertIn(kind, rs.ARTIFACT_KINDS)
+        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["brief"], ("brief-journey", "summary-pair"))
+        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["prd"], ("prd-ac",))
+        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["plan"], ("plan-ac-block",))
+        self.assertEqual(rs.SLICE_KINDS_BY_ARTIFACT["local-change"], ("ac-hunks", "code-hunks"))
+        for kind in ("brief-journey", "summary-pair", "prd-ac", "plan-ac-block", "ac-hunks"):
+            self.assertIn(kind, rs.SLICE_KINDS)
+
+    def test_a_slice_kind_from_another_artifact_is_refused(self):
+        cases = [("prd", "brief-journey"), ("brief", "prd-ac"), ("plan", "code-hunks"),
+                 ("local-change", "pr-summary"), ("pull-request", "ac-hunks")]
+        for artifact, slice_kind in cases:
+            with self.subTest(artifact=artifact, slice_kind=slice_kind):
+                data = copy.deepcopy(self.good)
+                data["criteria"].append(site_criterion(artifact_kind=artifact, slice_kind=slice_kind))
+                with self.assertRaises(rs.ConfigError) as cm:
+                    rs.load_criteria(_write(self.tmp, "c.json", data))
+                self.assertIn("doesn't read", str(cm.exception))
+
+    def test_a_script_criterion_on_a_site_artifact_is_refused(self):
+        bad = dict(site_criterion(), observer="script", check="attribution")
+        data = copy.deepcopy(self.good)
+        data["criteria"].append(bad)
+        with self.assertRaises(rs.ConfigError):
+            rs.load_criteria(_write(self.tmp, "c.json", data))
+
+    def test_active_selects_one_artifact_kind(self):
+        crit = self.with_site(site_criterion())
+        self.assertEqual([c["rule_id"] for c in rs.active(crit, "prd")], ["rs-013", "rs-900"])
+        self.assertNotIn("rs-900", [c["rule_id"] for c in rs.active(crit)])
+        self.assertEqual([c["rule_id"] for c in rs.active(crit, "brief")], ["rs-011", "rs-012"])
+
+    def test_a_site_criterion_never_runs_on_a_pull_request(self):
+        crit = self.with_site(site_criterion(), site_criterion("rs-901", "local-change", "code-hunks"))
+        log = []
+        body = rs.grade(crit, fetched(), ("Zorblax",), stub_send(log=log))
+        asked = {rid for _, rids in log for rid in rids}
+        self.assertTrue(asked)
+        self.assertFalse(asked & {"rs-900", "rs-901"})
+        graded = {v["rule_id"] for v in body["verdicts"]} | {c["rule_id"] for c in body["criteria"]}
+        self.assertFalse(graded & {"rs-900", "rs-901"})
+
+    def test_no_pull_request_criterion_runs_for_a_site_kind(self):
+        crit = self.with_site(site_criterion())
+        log = []
+        slices = {"prd-ac": [rs.make_slice("prd-ac", 1, {"criterion": "- [ ] It exits 0."})],
+                  "pr-summary": [rs.make_slice("pr-summary", 1, {"pr_body_part1": "x", "diff_summary": "y"})]}
+        verdicts, _, _ = rs.run_jev(crit, slices, stub_send(log=log), True, "prd")
+        self.assertEqual({v["rule_id"] for v in verdicts}, {"rs-013", "rs-900"})
+        self.assertEqual(log, [("jev", ["rs-013", "rs-900"])])
+
+    def test_site_record_path_schema_and_modes(self):
+        home = rs.store_home()
+        sha = "b" * 64
+        rec = rs.new_site_record("octo/demo", "prd", "jev-closed-criteria", sha, status="not-graded")
+        self.assertEqual(rec["schema"], "review-shadow/record/v2")
+        self.assertEqual(rec["subject"], {"kind": "site", "site": "prd", "subject_id": "jev-closed-criteria",
+                                          "artifact_sha": sha})
+        self.assertEqual(rec["seats"], [])
+        path = rs.write_site_record(home, rec)
+        rel = path.relative_to(home)
+        self.assertEqual(rel.parts[:7], ("records", "octo", "demo", "site", "prd", "jev-closed-criteria", "b" * 12))
+        self.assertTrue(rel.parts[7].endswith(f"-{rec['run_id']}.json"))
+        self.assertEqual(oct(path.stat().st_mode & 0o777), "0o600")
+        d = path.parent
+        while d != home.parent:
+            self.assertEqual(oct(d.stat().st_mode & 0o777), "0o700", d)
+            d = d.parent
+        self.assertEqual(json.loads(path.read_text())["subject"]["site"], "prd")
+
+    def test_site_record_identity_is_checked(self):
+        for args in [("octo/demo", "qa", "t", "b" * 64), ("octo/demo", "prd", "../x", "b" * 64),
+                     ("octo/demo", "prd", "t", "abc"), ("../demo", "prd", "t", "b" * 64)]:
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                rs.new_site_record(*args)
+
+    def test_pull_request_report_ignores_site_records(self):
+        crit = rs.load_criteria()
+        cats = rs.load_categories(crit)
+        rec = rs.new_record("octo/demo", 1, HEAD, mode="batched", status="unanimous-pass", diff_kind="code",
+                            criteria=[{"rule_id": "rs-007", "verdict": "pass", "slices": 1}],
+                            tokens={"input": 10, "output": 1})
+        rs.write_record(self.home, rec)
+        rs.record_outcome(self.home, "octo/demo", 1, HEAD, "pre-merge", "claude:run-1", [])
+
+        def rendered():
+            import contextlib
+            import io
+            data = rs.report_data(self.home, crit, cats)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rs.print_report(data)
+            data.pop("sites", None)  # the site tables come after the pull-request ones
+            return json.dumps(data, sort_keys=True), out.getvalue().split("\n# Review sites")[0]
+        before = rendered()
+        site = rs.new_site_record("octo/demo", "prd", "topic", "c" * 64, status="dissent",
+                                  tokens={"input": 500, "output": 50}, mode="batched")
+        rs.write_site_record(self.home, site)
+        self.assertEqual(rendered(), before)
+
+    def test_an_empty_store_prints_zero_site_counts(self):
+        import contextlib
+        import io
+        crit = rs.load_criteria()
+        data = rs.report_data(self.home, crit, rs.load_categories(crit))
+        self.assertEqual(data["sites"]["out-of-sample"],
+                         {"seats": {}, "criteria": {}, "not_graded": {}, "seat_unreadable": {}})
+        self.assertEqual(data["sites"]["tokens"], {"input": 0, "output": 0, "records": 0})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rs.print_report(data)
+        self.assertIn("No site runs.", out.getvalue())
+        self.assertIn("Site Jev spend: 0 input and 0 output tokens over 0 records.", out.getvalue())
+
+
+SITE_FIXTURES = HERE / "fixtures" / "sites"
+SCRATCH = "wip"  # built, so this file names no path inside the scratch directory
+
+
+def git(repo, *args):
+    import subprocess
+    out = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+    if out.returncode != 0:
+        raise AssertionError(f"git {args} failed: {out.stderr}")
+    return out.stdout.strip()
+
+
+def site_repo(files):
+    """A throwaway git repository (outside this one) holding `files` {path: text}, committed."""
+    root = Path(os.path.realpath(tempfile.mkdtemp()))
+    git(root, "init", "-q")
+    git(root, "config", "user.email", "t@example.com")
+    git(root, "config", "user.name", "t")
+    for rel, text in files.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+    git(root, "add", "-A")
+    git(root, "commit", "-q", "-m", "base", "--allow-empty")
+    return root
+
+
+def site_args(site, root, **kw):
+    import argparse
+    base = {"site": site, "topic": None, "session": None, "panel": None, "head": None, "issue": None,
+            "repo_path": str(root), "measure": True, "in_sample": False}
+    base.update(kw)
+    return argparse.Namespace(**base)
+
+
+def plan_files(topic="demo"):
+    manifest = {"issues": [
+        {"issue_id": "1", "title": "feat(drafts): list open drafts", "file": f"{SCRATCH}/plan_{topic}_issue_1_body.md"},
+        {"issue_id": "2", "title": "feat(drafts): mark read drafts", "file": f"{SCRATCH}/plan_{topic}_issue_2_body.md"},
+        {"issue_id": "3", "title": "outside the plan's outlines", "file": "docs/elsewhere.md"}]}
+    return {f"{SCRATCH}/plan_{topic}_manifest.json": json.dumps(manifest),
+            f"{SCRATCH}/plan_{topic}_issue_1_body.md": (SITE_FIXTURES / "plan_demo_issue_1_body.md").read_text(),
+            f"{SCRATCH}/plan_{topic}_issue_2_body.md": (SITE_FIXTURES / "plan_demo_issue_2_body.md").read_text(),
+            "docs/elsewhere.md": "## Acceptance Criteria\n\n- [ ] never read\n"}
+
+
+class TestSiteInputs(unittest.TestCase):
+    """The site command's arguments, assemblers, slicers and measure mode."""
+
+    def slices(self, site, files, **kw):
+        root = site_repo(files)
+        art = rs.assemble_site(site_args(site, root, **kw))
+        return art, rs.build_site_slices(art)
+
+    def test_brief_units(self):
+        art, (slices, unmatched) = self.slices(
+            "brief", {"docs/briefs/BRIEF-demo.md": (SITE_FIXTURES / "demo-brief.md").read_text()}, topic="demo")
+        journeys = slices["brief-journey"]
+        self.assertEqual([s["id"] for s in journeys], ["brief-journey-1", "brief-journey-2"])
+        self.assertTrue(journeys[0]["inputs"]["journey"].startswith("### The author checks the list"))
+        self.assertEqual([s["bytes"] for s in journeys], [151, 109])
+        pairs = slices["summary-pair"]
+        self.assertEqual(len(pairs), 2)
+        self.assertEqual(pairs[0]["inputs"]["summary"], "Authors lose track of which drafts a reviewer has already read.")
+        self.assertIn("They end up asking in chat.", pairs[0]["inputs"]["section"])
+        self.assertEqual([s["bytes"] for s in pairs], [179, 127])
+        self.assertEqual(unmatched, [])
+        self.assertEqual(art["subject_id"], "demo")
+
+    def test_prd_units_carry_their_group(self):
+        _, (slices, _) = self.slices(
+            "prd", {"docs/prds/PRD-demo.md": (SITE_FIXTURES / "demo-prd.md").read_text()}, topic="demo")
+        acs = slices["prd-ac"]
+        self.assertEqual(len(acs), 3)
+        self.assertEqual(acs[0]["inputs"]["group"], "Listing (R1, R2):")
+        self.assertIn("and one nobody opened shows `unread`.", acs[1]["inputs"]["criterion"])
+        self.assertEqual(acs[2]["inputs"]["group"], "Errors (R3):")
+        self.assertEqual([s["bytes"] for s in acs], [68, 118, 75])
+
+    def test_plan_units_read_only_the_plan_outlines(self):
+        art, (slices, _) = self.slices("review-plan", plan_files(), topic="demo")
+        blocks = slices["plan-ac-block"]
+        self.assertEqual([s["inputs"]["issue"] for s in blocks],
+                         ["feat(drafts): list open drafts", "feat(drafts): mark read drafts"])
+        self.assertNotIn("docs/elsewhere.md", art["read_files"])
+        self.assertEqual(blocks[0]["inputs"]["criteria"].count("- [ ]"), 2)
+        self.assertEqual([s["bytes"] for s in blocks], [129, 93])
+
+    def test_bound_keeps_whole_sub_units(self):
+        exact = rs.pack_unit("prd-ac", 1, {}, "criterion", "", ["x" * rs.BOUND])
+        self.assertFalse(exact["over_bound"])
+        self.assertEqual(exact["bytes"], 2560)
+        one_over = rs.pack_unit("prd-ac", 1, {}, "criterion", "", ["x" * (rs.BOUND + 1)])
+        self.assertTrue(one_over["over_bound"])
+        self.assertEqual(one_over["inputs"]["criterion"], "x" * (rs.BOUND + 1))  # never truncated
+        parts = ["a" * 1000, "b" * 1000, "c" * 1000]  # 3,004 bytes with joiners: over by whole parts
+        cut = rs.pack_unit("brief-journey", 1, {}, "journey", "### J", parts)
+        self.assertFalse(cut["over_bound"])
+        self.assertEqual(cut["meta"]["dropped"], 1)
+        self.assertNotIn("c" * 1000, cut["inputs"]["journey"])
+        multibyte = rs.pack_unit("prd-ac", 1, {}, "criterion", "", ["é" * 1280])  # 2,560 bytes, 1,280 chars
+        self.assertFalse(multibyte["over_bound"])
+
+    def test_a_large_part_does_not_cost_the_parts_after_it(self):
+        parts = ["a" * 300, "b" * 3000, "c" * 300]
+        s = rs.pack_unit("ac-hunks", 1, {"criterion": "- [ ] x"}, "hunks", "", parts, "\n")
+        self.assertFalse(s["over_bound"])
+        self.assertEqual(s["meta"]["dropped"], 1)
+        self.assertIn("c" * 300, s["inputs"]["hunks"])
+        none_fit = rs.pack_unit("ac-hunks", 1, {}, "hunks", "", ["d" * 3000], "\n")
+        self.assertTrue(none_fit["over_bound"])
+
+    def test_ac_hunks_slices_fit_beside_a_long_criterion(self):
+        criterion = "## Acceptance Criteria\n\n- [ ] `scripts/a.sh` " + "explains the long behaviour " * 30 + "\n"
+        body = "#!/bin/sh\n" + "".join(f"# step {i}\necho {i}\n\n" for i in range(400))
+        _, (slices, _) = self.work_on(criterion, {"scripts/a.sh": body})
+        self.assertTrue(slices["ac-hunks"])
+        self.assertTrue(all(not s["over_bound"] for s in slices["ac-hunks"]))
+
+    def test_anchor_terms(self):
+        terms = rs.anchor_terms("- [ ] `drafts list` reads scripts/a.sh, takes --dry-run and edits config.toml.")
+        self.assertTrue({"drafts list", "scripts/a.sh", "--dry-run", "config.toml"} <= terms)
+        self.assertEqual(rs.anchor_terms("- [ ] It works well."), set())
+
+    def work_on(self, criteria, change, **kw):
+        root = site_repo({"scripts/a.sh": "#!/bin/sh\necho one\n", "README.md": "demo\n"})
+        base = git(root, "rev-parse", "HEAD")
+        for rel, text in change.items():
+            p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(text, encoding="utf-8")
+        git(root, "add", "-A")
+        git(root, "commit", "-q", "-m", "change")
+        ctx = {"impl_base": base + "\n", "context.md": criteria}
+        real = rs.koto_context
+        rs.koto_context = lambda session, key: ctx.get(key)
+        self.addCleanup(setattr, rs, "koto_context", real)
+        art = rs.assemble_site(site_args("work-on", root, session="wf.child", panel="scrutiny", **kw))
+        return art, rs.build_site_slices(art)
+
+    def test_ac_hunks_match_anchor_terms(self):
+        criteria = "## Acceptance Criteria\n\n- [ ] `scripts/a.sh` prints two.\n- [ ] It is fast.\n"
+        art, (slices, unmatched) = self.work_on(criteria, {"scripts/a.sh": "#!/bin/sh\necho two\n",
+                                                            "notes.txt": "unrelated\n"})
+        acs = slices["ac-hunks"]
+        self.assertEqual(len(acs), 1)
+        self.assertIn("--- scripts/a.sh", acs[0]["inputs"]["hunks"])
+        self.assertNotIn("notes.txt", acs[0]["inputs"]["hunks"])
+        self.assertEqual(unmatched, [{"unit": "ac-hunks-2", "reason": "no-anchor"}])
+        self.assertEqual(art["subject_id"], "wf-child")
+
+    def test_secret_paths_are_never_read(self):
+        criteria = "- [ ] `.env` and `scripts/a.sh` change.\n"
+        art, (slices, _) = self.work_on(criteria, {".env": "TOKEN=x\n", "keys/id_rsa": "k\n",
+                                                   "scripts/a.sh": "#!/bin/sh\necho two\n"})
+        self.assertEqual([f["path"] for f in art["files"]], ["scripts/a.sh"])
+        self.assertNotIn("TOKEN", json.dumps(slices))
+
+    def test_every_site_diff_disables_diff_drivers(self):
+        import subprocess
+        seen = []
+        real = rs.subprocess.run
+
+        def spy(cmd, **kw):
+            if cmd[:1] == ["git"] and "diff" in cmd:
+                seen.append(cmd)
+            return real(cmd, **kw)
+        rs.subprocess.run = spy
+        self.addCleanup(setattr, rs.subprocess, "run", real)
+        self.work_on("- [ ] `scripts/a.sh` prints two.\n", {"scripts/a.sh": "#!/bin/sh\necho two\n"})
+        self.assertTrue(seen)
+        for cmd in seen:
+            self.assertIn("--no-ext-diff", cmd)
+            self.assertIn("--no-textconv", cmd)
+
+    def test_arguments_are_refused(self):
+        root = site_repo({"docs/prds/PRD-demo.md": "x"})
+        cases = [dict(site="prd", topic="-demo"), dict(site="prd", topic="Demo"), dict(site="prd", topic="a/b"),
+                 dict(site="prd", topic=None),
+                 dict(site="work-on", session="-x", panel="scrutiny"),
+                 dict(site="work-on", session="wf", panel="qa"),
+                 dict(site="work-on", session="wf", panel="review", head="HEAD"),
+                 dict(site="work-on", session="wf", panel="review", issue="12a")]
+        for kw in cases:
+            with self.subTest(kw=kw), self.assertRaises(ValueError):
+                rs.assemble_site(site_args(kw.pop("site"), root, **kw))
+        with self.assertRaises(ValueError):
+            rs.assemble_site(site_args("prd", root / "docs", topic="demo"))  # not the work-tree top
+
+    def test_paths_outside_the_repository_are_refused(self):
+        root = site_repo({"docs/x.md": "x"})
+        outside = Path(tempfile.mkdtemp()) / "secret.md"
+        outside.write_text("secret")
+        (root / "docs" / "link.md").symlink_to(outside)
+        files = rs.SiteFiles(root)
+        for rel in ("../x.md", "/etc/hosts", "docs/link.md"):
+            with self.subTest(rel=rel), self.assertRaises(ValueError):
+                files.read(rel)
+        self.assertEqual(files.read("docs/x.md"), "x")
+
+    def test_measure_prints_sizes_and_sends_and_writes_nothing(self):
+        import contextlib
+        import io
+        home = Path(tempfile.mkdtemp()) / "store"
+        os.environ["REVIEW_SHADOW_HOME"] = str(home)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+        root = site_repo({"docs/prds/PRD-demo.md": (SITE_FIXTURES / "demo-prd.md").read_text()})
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = rs.cmd_site(site_args("prd", root, topic="demo"), rs.load_criteria())
+        self.assertEqual(rc, 0)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(lines[:3], ["slice prd-ac-1 68", "slice prd-ac-2 118", "slice prd-ac-3 75"])
+        self.assertRegex(lines[-1], r"^seat-packet ([0-9]+|unavailable \S+)$")
+        self.assertFalse(home.exists())
+
+    def test_measure_on_this_repository(self):
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = rs.main(["site", "prd", "--topic", "jev-closed-criteria", "--repo-path", str(rs.REPO_ROOT),
+                          "--measure"])
+        self.assertEqual(rc, 0)
+        self.assertIn("slice prd-ac-1 ", out.getvalue())
+
+
+PUBLIC_CLAUDE_MD = "# demo\n\n## Repo Visibility: Public\n"
+SENTINEL = "SENTINELq7zx"
+
+
+class TestSiteGrading(unittest.TestCase):
+    """Seat-verdict readers, send gates, caps and the paired site record."""
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp()) / "store"
+        self.env = {"REVIEW_SHADOW_HOME": str(self.home), "REVIEW_SHADOW_SITES": "1", "JEV_API_KEY": "k-test"}
+        for k, v in self.env.items():
+            os.environ[k] = v
+            self.addCleanup(os.environ.pop, k, None)
+        os.environ.pop("KOTO_DECIDER_API_KEY", None)
+        os.environ.pop("REVIEW_SHADOW_PRIVATE_TERMS", None)
+        self.log = []
+        self.use_send(stub_send(log=self.log))
+        self.crit = rs.load_criteria()
+
+    def use_send(self, send):
+        real = rs.https_transport
+        rs.https_transport = lambda endpoint, key, timeout: send
+        self.addCleanup(setattr, rs, "https_transport", real)
+
+    def run_site(self, site, root, **kw):
+        import contextlib
+        import io
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            rc = rs.cmd_site(site_args(site, root, measure=False, **kw), self.crit)
+        self.assertEqual(rc, 0)
+        recs = sorted(self.home.rglob("*.json"), key=lambda p: p.stat().st_mtime_ns) if self.home.exists() else []
+        return out.getvalue(), [json.loads(p.read_text()) for p in recs], recs
+
+    def brief_repo(self, verdicts=None, brief=None, claude_md=PUBLIC_CLAUDE_MD):
+        text = brief or (SITE_FIXTURES / "demo-brief.md").read_text()
+        files = {"docs/briefs/BRIEF-demo.md": text}
+        if claude_md is not None:
+            files["CLAUDE.md"] = claude_md
+        root = site_repo(files)
+        for seat, body in (verdicts or {}).items():
+            p = root / SCRATCH / "research" / f"brief_demo_phase4_{seat}.md"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(body)
+        return root
+
+    def test_one_record_pairs_seat_and_decider_verdicts(self):
+        brief = (SITE_FIXTURES / "demo-brief.md").read_text().replace("before standup", f"before {SENTINEL}")
+        root = self.brief_repo({"content-quality": "# Review\n\n**Verdict:** PASS\n",
+                                "structural-format": "# Review\n\n**Verdict:** FAIL\n"}, brief=brief)
+        out, recs, paths = self.run_site("brief", root, topic="demo")
+        self.assertEqual(len(recs), 1)
+        rec = recs[0]
+        self.assertEqual(rec["schema"], "review-shadow/record/v2")
+        self.assertEqual({s["seat"]: s["verdict"] for s in rec["seats"]},
+                         {"content-quality": "pass", "structural-format": "fail"})
+        self.assertEqual({s["seat"]: s["rule_ids"] for s in rec["seats"]},
+                         {"content-quality": ["rs-011"], "structural-format": ["rs-012"]})
+        per_unit = {(v["rule_id"], v["slice"]): v["verdict"] for v in rec["verdicts"]}
+        self.assertEqual(per_unit, {("rs-011", "brief-journey-1"): "pass", ("rs-011", "brief-journey-2"): "pass",
+                                    ("rs-012", "summary-pair-1"): "pass", ("rs-012", "summary-pair-2"): "pass"})
+        self.assertEqual({c["rule_id"]: c["verdict"] for c in rec["criteria"]}, {"rs-011": "pass", "rs-012": "pass"})
+        self.assertEqual(rec["status"], "unanimous-pass")
+        self.assertNotIn(SENTINEL, paths[0].read_text())
+        self.assertIn("status=unanimous-pass", out)
+
+    def test_seat_verdict_reasons(self):
+        root = self.brief_repo({"structural-format": "# Review\n\nVerdict: looks fine\n"})
+        _, recs, _ = self.run_site("brief", root, topic="demo")
+        seats = {s["seat"]: (s["verdict"], s["reason"]) for s in recs[-1]["seats"]}
+        self.assertEqual(seats["content-quality"], ("unreadable", "seat-verdict-missing"))
+        self.assertEqual(seats["structural-format"], ("unreadable", "seat-verdict-unparsed"))
+        old = self.brief_repo({"content-quality": "**Verdict:** PASS\n"})
+        verdict = old / SCRATCH / "research" / "brief_demo_phase4_content-quality.md"
+        doc = old / "docs" / "briefs" / "BRIEF-demo.md"
+        os.utime(verdict, (doc.stat().st_mtime - 60, doc.stat().st_mtime - 60))
+        _, recs, _ = self.run_site("brief", old, topic="demo")
+        seats = {s["seat"]: (s["verdict"], s["reason"]) for s in recs[-1]["seats"]}
+        self.assertEqual(seats["content-quality"], ("unreadable", "seat-verdict-stale"))
+
+    def test_prd_reader_reads_the_heading_marker(self):
+        root = site_repo({"docs/prds/PRD-demo.md": (SITE_FIXTURES / "demo-prd.md").read_text(),
+                          "CLAUDE.md": PUBLIC_CLAUDE_MD})
+        for seat, v in (("clarity", "PASS"), ("testability", "FAIL")):
+            p = root / SCRATCH / "research" / f"prd_demo_phase4_{seat}.md"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(f"# Review\n\n## Verdict: {v}\nOne line.\n")
+        _, recs, _ = self.run_site("prd", root, topic="demo")
+        self.assertEqual({s["seat"]: s["verdict"] for s in recs[0]["seats"]}, {"clarity": "pass", "testability": "fail"})
+        self.assertEqual(len([v for v in recs[0]["verdicts"] if v["rule_id"] == "rs-013"]), 3)
+
+    def plan_repo(self, review_name, review_text):
+        files = plan_files()
+        files["CLAUDE.md"] = PUBLIC_CLAUDE_MD
+        files[f"{SCRATCH}/{review_name}"] = review_text
+        return site_repo(files)
+
+    def test_review_plan_reader_attributes_category_c(self):
+        review = ("---\nreview_result:\n  verdict: \"loop-back\"\n  loop_target: 4\n  critical_findings:\n"
+                  "    - category: \"C\"\n      description: x\n      affected_issue_ids: [2]\n"
+                  "    - category: \"A\"\n      description: y\n      affected_issue_ids: [1]\n---\n")
+        root = self.plan_repo("plan_demo_review_loopback.md", review)
+        _, recs, _ = self.run_site("review-plan", root, topic="demo")
+        seat = recs[0]["seats"][0]
+        self.assertEqual((seat["seat"], seat["verdict"], seat["blocking_findings"]), ("category-c", "fail", 1))
+        self.assertEqual(seat["attributed"], {"plan-ac-block-1": False, "plan-ac-block-2": True})
+        clean = self.plan_repo("plan_demo_review.md", "review_result:\n  verdict: proceed\n  critical_findings: []\n")
+        _, recs, _ = self.run_site("review-plan", clean, topic="demo")
+        self.assertEqual(recs[-1]["seats"][0]["verdict"], "pass")
+
+    def work_on_repo(self, ledger_for, decisions=("full",), panel="scrutiny", seat="completeness",
+                     criteria="## Acceptance Criteria\n\n- [ ] `scripts/a.sh` prints two.\n- [ ] It is fast.\n"):
+        root = site_repo({"scripts/a.sh": "#!/bin/sh\n# says one\necho one\n", "CLAUDE.md": PUBLIC_CLAUDE_MD})
+        base = git(root, "rev-parse", "HEAD")
+        (root / "scripts" / "a.sh").write_text("#!/bin/sh\n# says two\necho two\n")
+        git(root, "commit", "-q", "-am", "change")
+        head = git(root, "rev-parse", "HEAD")
+        ctx = {"impl_base": base, "context.md": criteria, "plan.md": "plan\n"}
+        ac_sha = rs.hashlib.sha1(b"blob %d\0" % len((criteria + "\n--- plan ---\nplan\n").encode())
+                                 + (criteria + "\n--- plan ---\nplan\n").encode()).hexdigest()
+        ctx["verdict_ledger.json"] = json.dumps({"rev": 1, "seats": {f"{panel}/{seat}": ledger_for(head, ac_sha)}})
+        ctx[f"{panel}_scope.json"] = json.dumps({"decisions": [{"seat": seat, "decision": d} for d in decisions]})
+        real = rs.koto_context
+        rs.koto_context = lambda session, key: ctx.get(key)
+        self.addCleanup(setattr, rs, "koto_context", real)
+        return root, head
+
+    def test_work_on_ledger_pairing_and_attribution(self):
+        root, head = self.work_on_repo(lambda head, ac: {
+            "verdict": "blocking", "judged_at": head, "ac_sha": ac,
+            "findings": [{"summary": "wrong output", "path": "scripts/a.sh", "lines": "3"}]})
+        _, recs, paths = self.run_site("work-on", root, session="wf.child", panel="scrutiny", head=head)
+        rec = recs[0]
+        seat = rec["seats"][0]
+        self.assertEqual((seat["seat"], seat["verdict"], seat["rule_ids"]), ("completeness", "fail", ["rs-015"]))
+        self.assertEqual(seat["attributed"], {"ac-hunks-1": True})
+        self.assertNotIn("scripts/a.sh", json.dumps(seat))
+        self.assertEqual({v["rule_id"] for v in rec["verdicts"]}, {"rs-015"})
+        no_anchor = [v for v in rec["verdicts"] if v["slice"] == "ac-hunks-2"]
+        self.assertEqual([(v["verdict"], v["reason"]) for v in no_anchor], [("unanswered", "no-anchor")])
+        self.assertEqual(rec["criteria"], [{"rule_id": "rs-015", "verdict": "unanswered", "slices": 2}])
+        self.assertEqual(rec["subject"]["site"], "work-on")
+        self.assertEqual(rec["panel"], "scrutiny")
+
+    def test_work_on_stale_and_kept_seats(self):
+        root, head = self.work_on_repo(lambda head, ac: {"verdict": "passed", "judged_at": "0" * 40, "ac_sha": ac})
+        _, recs, _ = self.run_site("work-on", root, session="wf.child", panel="scrutiny", head=head)
+        self.assertEqual(recs[-1]["seats"][0]["reason"], "seat-verdict-stale")
+        root, head = self.work_on_repo(lambda head, ac: {"verdict": "passed", "judged_at": head, "ac_sha": "f" * 40})
+        _, recs, _ = self.run_site("work-on", root, session="wf.child", panel="scrutiny", head=head)
+        self.assertEqual(recs[-1]["seats"][0]["reason"], "seat-verdict-stale")
+        n = len(recs)
+        for decision in ("keep", "recheck"):
+            root, head = self.work_on_repo(lambda head, ac: {"verdict": "passed", "judged_at": head, "ac_sha": ac},
+                                           decisions=(decision,))
+            out, recs, _ = self.run_site("work-on", root, session="wf.child", panel="scrutiny", head=head)
+            self.assertEqual(len(recs), n, decision)
+            self.assertIn("nothing recorded", out)
+
+    def test_gates_send_nothing_and_say_why(self):
+        cases = [("private-repo", {}, None), ("not-opted-in", {"REVIEW_SHADOW_SITES": "0"}, PUBLIC_CLAUDE_MD),
+                 ("no-key", {"JEV_API_KEY": ""}, PUBLIC_CLAUDE_MD)]
+        for reason, env, claude_md in cases:
+            with self.subTest(reason=reason):
+                for k, v in self.env.items():
+                    os.environ[k] = env.get(k, v)
+                root = self.brief_repo({"content-quality": "**Verdict:** PASS\n"}, claude_md=claude_md)
+                out, recs, _ = self.run_site("brief", root, topic="demo")
+                rec = recs[-1]
+                self.assertEqual((rec["status"], rec["not_graded_reason"]), ("not-graded", reason))
+                self.assertTrue(all(v["reason"] == reason for v in rec["verdicts"]))
+                self.assertIn(f"reason={reason}", out)
+                self.assertEqual(rec["seats"][0]["verdict"], "pass")
+        self.assertEqual(self.log, [])
+
+    def test_an_unset_opt_in_says_so_where_the_verdict_would_go(self):
+        os.environ["REVIEW_SHADOW_SITES"] = ""
+        out, recs, _ = self.run_site("brief", self.brief_repo(), topic="demo")
+        self.assertIn("reason=not-opted-in", out)
+        self.assertIn("set REVIEW_SHADOW_SITES=1", out)
+        self.assertEqual(recs[-1]["not_graded_reason"], "not-opted-in")
+
+    def test_provider_errors_and_timeouts_exit_zero(self):
+        for status, reason in ((500, "provider"), (None, "transport")):
+            with self.subTest(reason=reason):
+                self.use_send(lambda body, s=status: (s, b""))
+                out, recs, _ = self.run_site("brief", self.brief_repo(), topic="demo")
+                rec = recs[-1]
+                self.assertEqual((rec["status"], rec["not_graded_reason"]), ("not-graded", reason))
+                self.assertTrue(all(v["reason"] == reason for v in rec["verdicts"]))
+
+    def test_rollup_is_the_worst_unit_and_keeps_over_bound(self):
+        calls = []
+
+        def send(body):
+            calls.append(body)
+            verdict = "fail" if len(calls) == 1 else "pass"
+            return stub_send(verdict_for=lambda r: verdict)(body)
+        self.use_send(send)
+        long_journey = "### The long journey\n\n" + "word " * 700
+        brief = (SITE_FIXTURES / "demo-brief.md").read_text().replace("## Scope Boundary", long_journey + "\n\n## Scope Boundary")
+        _, recs, _ = self.run_site("brief", self.brief_repo(brief=brief), topic="demo")
+        rec = recs[-1]
+        rows = {c["rule_id"]: c["verdict"] for c in rec["criteria"]}
+        self.assertEqual(rows["rs-011"], "fail")
+        over = [v for v in rec["verdicts"] if v["slice"] == "brief-journey-3"]
+        self.assertEqual([(v["verdict"], v["reason"]) for v in over], [("unanswered", "over-bound")])
+
+    def test_redaction_then_private_term_then_bound(self):
+        terms = Path(tempfile.mkdtemp()) / "terms.txt"
+        terms.write_text("Zorblax\n")
+        os.environ["REVIEW_SHADOW_PRIVATE_TERMS"] = str(terms)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_PRIVATE_TERMS", None)
+        token = "ghp_" + "Zorblax" + "A" * 20  # a credential holding the term: redaction removes both
+        over_with_term = "### Over the bound\n\nZorblax " + "word " * 700
+        brief = ((SITE_FIXTURES / "demo-brief.md").read_text()
+                 .replace("before standup", f"before standup with {token}")
+                 .replace("## Scope Boundary", over_with_term + "\n\n## Scope Boundary"))
+        bodies = []
+        self.use_send(lambda body: (bodies.append(body), stub_send()(body))[1])
+        _, recs, _ = self.run_site("brief", self.brief_repo(brief=brief), topic="demo")
+        by_slice = {v["slice"]: v for v in recs[-1]["verdicts"] if v["rule_id"] == "rs-011"}
+        self.assertEqual(by_slice["brief-journey-1"]["verdict"], "pass")  # redacted, so no term left to find
+        self.assertEqual(by_slice["brief-journey-3"]["reason"], "private-term")  # checked before the bound
+        self.assertTrue(bodies)
+        self.assertTrue(all("Zorblax" not in json.dumps(b["state"]) for b in bodies))
+
+    def test_slice_and_time_caps(self):
+        real_cap = rs.SITE_SLICE_CAP
+        rs.SITE_SLICE_CAP = 1
+        self.addCleanup(setattr, rs, "SITE_SLICE_CAP", real_cap)
+        _, recs, _ = self.run_site("brief", self.brief_repo(), topic="demo")
+        reasons = [v["reason"] for v in recs[-1]["verdicts"]]
+        self.assertEqual(reasons.count("run-cap"), 3)
+        rs.SITE_SLICE_CAP = real_cap
+        ticks = iter([0.0, 100.0, 100.0, 100.0, 100.0, 100.0])
+        art = rs.assemble_site(site_args("brief", self.brief_repo(), topic="demo"))
+        slices, unmatched = rs.build_site_slices(art)
+        body = rs.grade_site(self.crit, art, slices, unmatched, stub_send(), None, clock=lambda: next(ticks))
+        self.assertEqual([v["reason"] for v in body["verdicts"]].count("run-cap"), 3)
+
+    def test_a_large_prd_fits_one_run(self):
+        # The cap is 32 because a PRD's unit is one acceptance criterion; at 16, a
+        # 19-criterion PRD (this feature's own) would leave rs-013 without a verdict.
+        items = "\n".join(f"- [ ] `cmd {i}` exits {i}." for i in range(1, 20))
+        prd = f"---\nstatus: Draft\n---\n\n## Acceptance Criteria\n\n{items}\n"
+        root = site_repo({"docs/prds/PRD-demo.md": prd, "CLAUDE.md": PUBLIC_CLAUDE_MD})
+        for seat in ("clarity", "testability"):
+            p = root / SCRATCH / "research" / f"prd_demo_phase4_{seat}.md"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text("## Verdict: PASS\n")
+        _, recs, _ = self.run_site("prd", root, topic="demo")
+        verdicts = recs[-1]["verdicts"]
+        self.assertEqual(len(verdicts), 19)
+        self.assertNotIn("run-cap", [v["reason"] for v in verdicts])
+        self.assertEqual(recs[-1]["criteria"], [{"rule_id": "rs-013", "verdict": "pass", "slices": 19}])
+
+    def test_issue_ids_never_reach_the_record(self):
+        review = "review_result:\n  verdict: proceed\n  critical_findings: []\n"
+        _, recs, paths = self.run_site("review-plan", self.plan_repo("plan_demo_review.md", review), topic="demo")
+        self.assertNotIn("issue_id", paths[-1].read_text())
+
+    def test_bad_arguments_still_exit_two(self):
+        self.assertEqual(rs.main(["site", "brief", "--topic", "Bad", "--repo-path", str(self.brief_repo())]), 2)
+
+    def test_missing_artifact_exits_zero_and_records_nothing(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = rs.main(["site", "brief", "--topic", "absent", "--repo-path", str(self.brief_repo())])
+        self.assertEqual(rc, 0)
+        self.assertIn("nothing graded", err.getvalue())
+        self.assertFalse(self.home.exists())
+
+
+class TestSiteReport(unittest.TestCase):
+    """A hand-built store of site records, figures worked out below run by run.
+
+    work-on:scrutiny, seat completeness, criterion rs-015, out-of-sample:
+      r1 decider pass, seat pass                       -> agreement
+      r2 decider fail, seat fail                       -> agreement
+      r3 decider fail, seat pass                       -> decider-only fail
+      r4 decider pass, seat fail, finding in a slice   -> attributed false pass
+      r5 decider pass, seat fail, nothing attributed   -> unattributed seat block
+      r6 decider unanswered, seat pass                 -> no verdict
+      r7 seat unreadable                               -> counted apart, not a run
+      r8 not graded (not-opted-in)                     -> counted apart, not a run
+    Runs 6; agreement 2/6; decider passes 3; decider-only fails 1; attributed 1;
+    unattributed 1; upper bound = binom_upper(2, 3); no verdict 1/6.
+    r1 also has an older record for the same artifact, which the latest replaces.
+    """
+
+    def setUp(self):
+        self.home = Path(tempfile.mkdtemp()) / "store"
+        self.n = 0
+
+    def record(self, i, crit_verdict, seat_verdict, attributed=False, status="dissent", reason=None,
+               in_sample=False, stamp=None, seat_reason=None):
+        self.n += 1
+        seat = {"seat": "completeness", "rule_ids": ["rs-015"], "verdict": seat_verdict, "reason": seat_reason,
+                "blocking_findings": 1 if seat_verdict == "fail" else 0,
+                "attributed": {"ac-hunks-1": attributed}}
+        rec = rs.new_site_record("octo/demo", "work-on", "issue-7", f"{i:064x}", panel="scrutiny",
+                                 in_sample=in_sample, seats=[seat], status=status, not_graded_reason=reason,
+                                 criteria=[{"rule_id": "rs-015", "verdict": crit_verdict, "slices": 1}],
+                                 tokens={"input": 100, "output": 10})
+        rec["recorded_at"] = stamp or f"2026-10-06T00:00:{self.n:02d}Z"
+        rs.write_site_record(self.home, rec)
+
+    def build(self):
+        self.record(1, "fail", "fail", stamp="2026-10-05T00:00:00Z")  # replaced by the later r1
+        self.record(1, "pass", "pass")
+        self.record(2, "fail", "fail")
+        self.record(3, "fail", "pass")
+        self.record(4, "pass", "fail", attributed=True)
+        self.record(5, "pass", "fail")
+        self.record(6, "unanswered", "pass")
+        self.record(7, "pass", "unreadable", seat_reason="seat-verdict-stale")
+        self.record(8, "unanswered", "pass", status="not-graded", reason="not-opted-in")
+        self.record(9, "pass", "fail", in_sample=True)
+
+    def sites(self):
+        crit = rs.load_criteria()
+        return rs.report_data(self.home, crit, rs.load_categories(crit))["sites"]
+
+    def test_figures(self):
+        self.build()
+        p = self.sites()["out-of-sample"]
+        g = p["seats"]["work-on:scrutiny"]["completeness"]
+        self.assertEqual(g["n"], 6)
+        self.assertAlmostEqual(g["agreement"], 2 / 6)
+        self.assertEqual((g["decider_passes"], g["decider_only_fails"]), (3, 1))
+        self.assertEqual((g["attributed_false_passes"], g["unattributed_seat_blocks"]), (1, 1))
+        self.assertAlmostEqual(g["false_pass_upper95"], rs.binom_upper(2, 3))
+        self.assertEqual(g["no_verdict"], 1)
+        self.assertEqual(p["criteria"]["work-on:scrutiny"]["rs-015"], g)
+        self.assertEqual(p["not_graded"], {"work-on:scrutiny": 1})
+        self.assertEqual(p["seat_unreadable"], {"work-on:scrutiny": {"completeness": 1}})
+
+    def test_in_sample_is_apart(self):
+        self.build()
+        p = self.sites()["in-sample"]
+        g = p["seats"]["work-on:scrutiny"]["completeness"]
+        self.assertEqual((g["n"], g["unattributed_seat_blocks"]), (1, 1))
+
+    def test_zero_blocks_and_no_runs(self):
+        self.record(1, "pass", "pass")
+        g = self.sites()["out-of-sample"]["seats"]["work-on:scrutiny"]["completeness"]
+        self.assertEqual((g["attributed_false_passes"], g["unattributed_seat_blocks"]), (0, 0))
+        self.assertAlmostEqual(g["false_pass_upper95"], rs.binom_upper(0, 1))
+        self.assertEqual(rs.site_rates([])["false_pass_upper95"], None)
+        self.assertEqual(self.sites()["in-sample"]["seats"], {})
+
+    def test_printed_and_json(self):
+        import contextlib
+        import io
+        self.build()
+        os.environ["REVIEW_SHADOW_HOME"] = str(self.home)
+        self.addCleanup(os.environ.pop, "REVIEW_SHADOW_HOME", None)
+        for argv in (["report"], ["report", "--json"]):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(rs.main(argv), 0)
+            text = out.getvalue()
+            if argv[-1] == "--json":
+                self.assertIn("completeness", json.loads(text)["sites"]["out-of-sample"]["seats"]["work-on:scrutiny"])
+            else:
+                self.assertIn("| work-on:scrutiny | completeness | 6 | 33% | 3 | 1 | 1 | 1 |", text)
+                self.assertIn("Runs not graded (no decider verdict), by site: work-on:scrutiny 1.", text)
+                self.assertIn("Site Jev spend: 1000 input and 100 output tokens over 10 records.", text)
+
+    def test_per_criterion_attribution_reads_only_its_slices(self):
+        seat = {"seat": "reviewer", "rule_ids": ["rs-015", "rs-016"], "verdict": "fail", "reason": None,
+                "blocking_findings": 1, "attributed": {"ac-hunks-1": False, "code-hunks-1": True}}
+        rec = rs.new_site_record("octo/demo", "work-on", "issue-7", "e" * 64, panel="light", seats=[seat],
+                                 status="unanimous-pass", criteria=[{"rule_id": "rs-015", "verdict": "pass", "slices": 1},
+                                                                    {"rule_id": "rs-016", "verdict": "pass", "slices": 1}])
+        rs.write_site_record(self.home, rec)
+        p = self.sites()["out-of-sample"]
+        self.assertEqual(p["criteria"]["work-on:light"]["rs-015"]["unattributed_seat_blocks"], 1)
+        self.assertEqual(p["criteria"]["work-on:light"]["rs-016"]["attributed_false_passes"], 1)
+        self.assertEqual(p["seats"]["work-on:light"]["reviewer"]["attributed_false_passes"], 1)
+
+    def test_review_plan_reads_the_later_round(self):
+        files = plan_files()
+        files["CLAUDE.md"] = PUBLIC_CLAUDE_MD
+        files[f"{SCRATCH}/plan_demo_review.md"] = "review_result:\n  verdict: proceed\n  round: 2\n  critical_findings: []\n"
+        files[f"{SCRATCH}/plan_demo_review_loopback.md"] = (
+            "review_result:\n  verdict: loop-back\n  round: 1\n  critical_findings:\n    - category: C\n"
+            "      affected_issue_ids: [1]\n")
+        root = site_repo(files)
+        art = rs.assemble_site(site_args("review-plan", root, topic="demo"))
+        slices, _ = rs.build_site_slices(art)
+        self.assertEqual(rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]["verdict"], "pass")
+
+    def test_review_plan_prefers_proceed_on_equal_rounds(self):
+        files = plan_files()
+        files["CLAUDE.md"] = PUBLIC_CLAUDE_MD
+        files[f"{SCRATCH}/plan_demo_review.md"] = "review_result:\n  verdict: proceed\n  critical_findings: []\n"
+        files[f"{SCRATCH}/plan_demo_review_loopback.md"] = (
+            "review_result:\n  verdict: loop-back\n  critical_findings:\n    - category: C\n"
+            "      affected_issue_ids: [1]\n")
+        root = site_repo(files)
+        art = rs.assemble_site(site_args("review-plan", root, topic="demo"))
+        slices, _ = rs.build_site_slices(art)
+        self.assertEqual(rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]["verdict"], "pass")
+        (root / SCRATCH / "plan_demo_review_loopback.md").write_text(
+            "review_result:\n  verdict: loop-back\n  round: 2\n  critical_findings:\n    - category: C\n"
+            "      affected_issue_ids: [1]\n")
+        self.assertEqual(rs.read_plan_seat(art, rs.SiteFiles(root), slices)[0]["verdict"], "fail")
 
 
 def _refuse_real_opener(*a, **k):

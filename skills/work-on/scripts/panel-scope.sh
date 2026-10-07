@@ -254,6 +254,30 @@ put() {
         || die 66 "koto context add failed for $1 on session [$SESSION]"
 }
 
+# The decider shadow for the round just recorded: review-shadow.py's site
+# command reads these verdicts from the ledger and records the decider's beside
+# them (docs/designs/DESIGN-jev-closed-criteria.md). It runs in the background
+# with its output discarded, so --record's status, ledger and timing are what
+# they would be without it; it runs whether or not REVIEW_SHADOW_SITES opts in,
+# because the site command records an unset opt-in rather than staying silent.
+# REVIEW_SHADOW_SITE_CMD replaces the command, for tests.
+shadow_site() {
+    local cmd root
+    case "$PANEL" in scrutiny|review|light) ;; *) return 0 ;; esac
+    # This script lives at skills/work-on/scripts/ under the plugin root.
+    cmd="${REVIEW_SHADOW_SITE_CMD:-$(cd "$(dirname "$0")/../../.." && pwd)/scripts/review-shadow/review-shadow.py}"
+    [ -x "$cmd" ] || return 0
+    # A stand-in command needs no python3; the real script does.
+    [ -n "${REVIEW_SHADOW_SITE_CMD:-}" ] || command -v python3 >/dev/null 2>&1 || return 0
+    # HEAD resolved above, so this is a work tree and the call can't fail here.
+    root=$(git rev-parse --show-toplevel) || return 0
+    # The shadow's own output is discarded on purpose: nothing reads it, and its
+    # result is the record it writes.
+    ( "$cmd" site work-on --session "$SESSION" --panel "$PANEL" --head "$HEAD" --repo-path "$root" \
+        </dev/null >/dev/null 2>&1 & )
+    return 0
+}
+
 # ---------------------------------------------------------------- --record ----
 
 if [ "$MODE" = "--record" ]; then
@@ -315,6 +339,7 @@ if [ "$MODE" = "--record" ]; then
                 findings: ($s.findings // [])
               })' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
     put "$LEDGER" "$WORK/ledger"
+    shadow_site
     exit 0
 fi
 
