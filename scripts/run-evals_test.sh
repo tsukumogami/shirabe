@@ -228,6 +228,21 @@ if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
 else
   fail "report on a foreground session (rc=$RC): $OUT"
 fi
+# unfinished, for a run where some scenarios graded: the unfinished agents
+# alone, never the did-not-execute claim, and nothing when all completed.
+classify unfinished "$FIXTURES/agent-stopped.jsonl"
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "Did not finish: With-skill execute eval run (status: stopped)" \
+  && ! printf '%s' "$OUT" | grep -q "DID NOT EXECUTE"; then
+  pass "unfinished on a stopped agent: exit 0, the agent and its status only"
+else
+  fail "unfinished on a stopped agent (rc=$RC): $OUT"
+fi
+classify unfinished "$FIXTURES/agents-foreground.jsonl"
+if [ "$RC" -eq 0 ] && [ -z "$OUT" ]; then
+  pass "unfinished on a foreground session: exit 0, silent"
+else
+  fail "unfinished on a foreground session (rc=$RC): $OUT"
+fi
 
 classify report "$T/missing.jsonl" acceptEdits
 if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE"; then
@@ -884,6 +899,23 @@ if [ "$RC" -eq 0 ] && [ "$(probe direct_rc)" = 0 ] && [ "$(probe kotobin_rc)" = 
   pass "koto: every route to koto keeps its store in the run's scratch root, never in \$HOME/.koto"
 else
   fail "koto store (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] home_koto=$(ls -A "$FAKE_HOME" 2>/dev/null) probe=[$(cat "$PROBE_OUT" 2>/dev/null)] -- $OUT"
+fi
+
+# KOTO_BIN as a bare name resolves through the caller's PATH when the run
+# starts, so the wrapper runs that koto and never itself; one that names
+# nothing stops the run before any session.
+koto_run "$T/koto-probe.sh" KOTO_BIN=koto PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
+SEEN_STORE=$(grep -cx "$T/shirabe-eval-scratch\.[A-Za-z0-9]*/koto-home" "$KOTO_SEEN" 2>/dev/null) || SEEN_STORE=0
+if [ "$RC" -eq 0 ] && [ "$SEEN_STORE" -eq 4 ] && [ ! -e "$FAKE_HOME/.koto" ]; then
+  pass "koto: a bare-name KOTO_BIN is resolved first, and every call still lands in the run's store"
+else
+  fail "koto, bare KOTO_BIN (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] -- $OUT"
+fi
+koto_run "$T/koto-probe.sh" KOTO_BIN="$T/no-such-koto" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
+if [ "$RC" -eq 2 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "KOTO_BIN \[$T/no-such-koto\] names no executable koto"; then
+  pass "koto: a KOTO_BIN naming nothing stops the run before any session, exit 2"
+else
+  fail "koto, KOTO_BIN naming nothing (rc=$RC): $OUT"
 fi
 
 # The tripwire: a run that leaves a file naming its scratch root in

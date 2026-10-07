@@ -35,7 +35,12 @@ Usage:
       while it still ran, "failed" when it failed, "none" when nothing was
       heard of it. That agent's scenario has no grades.
       Exit 0 when it executed, 4 when it did not, 2 when the transcript holds
-      nothing to decide from.
+      nothing to decide from. The runner asks for it when nothing was graded.
+  classify-eval-session.py unfinished <transcript>
+      Print only the agents that never completed, as report does, and nothing
+      when every agent completed. Exit 0, or 2 when the transcript cannot be
+      read. The runner asks for it when some scenarios graded and others did
+      not, where report's did-not-execute claim cannot apply.
 """
 
 import json
@@ -204,6 +209,22 @@ def mode_overridden(summary, requested):
     return bool(requested and actual and actual != requested)
 
 
+def unfinished(summary, transcript):
+    """Name each agent the session launched that never completed, if any."""
+    if not summary["stopped_agents"]:
+        return
+    print("")
+    print("  EVAL AGENT DID NOT FINISH")
+    print("  An agent the session launched never completed, so its scenario has no")
+    print("  outputs or grades. Status \"stopped\" means the session ended while the")
+    print("  agent still ran, which is the runner's fault, not the skill's; \"failed\"")
+    print("  means the agent failed on its own; \"none\" means the transcript ended")
+    print("  with no word on it.")
+    for agent in summary["stopped_agents"]:
+        print(f"    Did not finish: {agent['description']} (status: {agent['status']})")
+    print(f"    Transcript: {transcript}")
+
+
 def report(summary, transcript, requested):
     if summary["verdict"] == "executed":
         # The run graded nothing but the session did execute, so the suite or
@@ -214,17 +235,7 @@ def report(summary, transcript, requested):
             print(f"  Note: the nested session ran in permission mode"
                   f" {summary['permission_mode']}, not the {requested} the runner requested.")
             print(f"    Transcript: {transcript}")
-        if summary["stopped_agents"]:
-            print("")
-            print("  EVAL AGENT DID NOT FINISH")
-            print("  An agent the session launched never completed, so its scenario has no")
-            print("  outputs or grades. Status \"stopped\" means the session ended while the")
-            print("  agent still ran, which is the runner's fault, not the skill's; \"failed\"")
-            print("  means the agent failed on its own; \"none\" means the transcript ended")
-            print("  with no word on it.")
-            for agent in summary["stopped_agents"]:
-                print(f"    Did not finish: {agent['description']} (status: {agent['status']})")
-            print(f"    Transcript: {transcript}")
+        unfinished(summary, transcript)
         return EXIT_EXECUTED
     if summary["verdict"] == "unknown":
         print("")
@@ -258,7 +269,7 @@ def report(summary, transcript, requested):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("verdict", "result-text", "report"):
+    if len(argv) < 3 or argv[1] not in ("verdict", "result-text", "report", "unfinished"):
         print(__doc__.strip(), file=sys.stderr)
         return EXIT_UNREADABLE
     command, transcript = argv[1], argv[2]
@@ -278,6 +289,9 @@ def main(argv):
     if command == "result-text":
         if summary["result_text"]:
             print(summary["result_text"])
+        return 0
+    if command == "unfinished":
+        unfinished(summary, transcript)
         return 0
     requested = argv[3] if len(argv) > 3 else None
     return report(summary, transcript, requested)

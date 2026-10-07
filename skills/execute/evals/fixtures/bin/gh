@@ -118,13 +118,15 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
   mkdir -p "$STATE_DIR"
   DB="$STATE_DIR/db.json"
 
-  # The push URL of origin where the shim runs. The harness's origins are bare
-  # repositories named by absolute path; a relative URL would be read from
-  # whatever directory a later call runs in, so it is not recorded.
+  # The push URL of origin where the shim runs, when it is an absolute path:
+  # the harness's origins are bare repositories named that way. A relative
+  # URL would be read from whatever directory a later call runs in, and a
+  # network one would put a real remote's ls-remote behind every gh call, so
+  # neither is recorded.
   origin_url() {
     local u
     u=$(git remote get-url --push origin 2>/dev/null) || return 1
-    case "$u" in /*|*://*|*@*:*) printf '%s' "$u" ;; *) return 1 ;; esac
+    case "$u" in /*) printf '%s' "$u" ;; *) return 1 ;; esac
   }
 
   if [ ! -f "$DB" ]; then

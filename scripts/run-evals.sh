@@ -953,29 +953,40 @@ setup_eval_scratch() {
 # (KOTO_BIN when the caller set it, else the koto on PATH) with HOME set to
 # $scratch/koto-home. KOTO_SESSIONS_BASE would move the sessions somewhere
 # else again, so the wrapper clears it. The nested session reaches the wrapper
-# three ways, and none of them depends on PATH order inside the session, which
-# a login-shell snapshot can rearrange:
+# three ways:
 #   - the session's PATH has the wrapper's directory first;
 #   - KOTO_BIN is unset in the session, so koto-open.sh's ${KOTO_BIN:-koto}
 #     resolves through PATH like every other call;
 #   - EVAL_KOTO_WRAPPER names the wrapper, and the eval koto shim's passthrough
 #     execs it before it looks at PATH at all.
-# With no koto to wrap, the wrapper refuses instead of letting some other PATH
-# entry supply one. Every command koto runs (gates, default actions) inherits
-# the scratch HOME too: a gate that reads git or gh config sees none, which is
-# why the tier-2 clones carry a local git identity.
+# Only the last holds whatever PATH order the session ends up with. A
+# login-shell snapshot that puts another koto ahead of the wrapper would send a
+# direct `koto` call, or koto-open.sh's, to that koto and the real HOME; an
+# execute scenario puts the shim first on every command, so its calls take the
+# third route, and koto_store_tripwire is the backstop for the rest. With no
+# koto to wrap, the wrapper refuses instead of letting some other PATH entry
+# supply one. Every command koto runs (gates, default actions) inherits the
+# scratch HOME too: a gate that reads git or gh config sees none, which is why
+# the tier-2 clones carry a local git identity.
 #
 # The store goes when the scratch root does. Sets EVAL_KOTO_BIN to the
-# wrapper's directory; call it directly, not in $(...). koto_store_tripwire
-# checks afterwards that the run left nothing in $HOME/.koto.
+# wrapper's directory; call it directly, not in $(...). Returns 1 when
+# KOTO_BIN names nothing executable, or resolves to the wrapper itself.
 EVAL_KOTO_BIN=""
 setup_eval_koto() {
   local scratch="$1" real wrapper
   EVAL_KOTO_BIN=""
-  real="${KOTO_BIN:-}"
-  [ -n "$real" ] || real=$(command -v koto 2>/dev/null) || real=""
   mkdir -p "$scratch/koto-home" "$scratch/koto-bin" || return 1
   wrapper="$scratch/koto-bin/koto"
+  if [ -n "${KOTO_BIN:-}" ]; then
+    # A bare name resolves through PATH now, before the wrapper's directory is
+    # put in front of it, so the wrapper never execs itself.
+    real=$(command -v -- "$KOTO_BIN" 2>/dev/null) || real=""
+    case "$real" in /*) ;; *) echo "  Error: KOTO_BIN [$KOTO_BIN] names no executable koto." >&2; return 1 ;; esac
+  else
+    real=$(command -v koto 2>/dev/null) || real=""
+  fi
+  case "$real" in "$scratch/koto-bin/"*) echo "  Error: koto resolves to this run's own wrapper." >&2; return 1 ;; esac
   {
     printf '#!/bin/sh\n'
     if [ -n "$real" ]; then
@@ -993,10 +1004,12 @@ setup_eval_koto() {
 
 # koto_store_tripwire <scratch> <marker>: return 1, naming the files, when
 # anything under $HOME/.koto changed since <marker> was made and mentions the
-# run's scratch root, which every path a scenario works in sits under. Other
-# work on the host writes there too, so a change alone proves nothing; a
-# mention of this run's own directory does. It catches writes, not reads: the
-# wrapper above is what keeps reads out.
+# run's scratch root, which every path a tier-2 scenario works in sits under.
+# Other work on the host writes there too, so a change alone proves nothing; a
+# mention of this run's own directory does. It sees only such writes: not
+# reads, not a write from a session working in the live tree (where tier-1
+# scenarios start), and not one that records no path. The wrapper above is
+# what keeps those out.
 koto_store_tripwire() {
   local scratch="$1" marker="$2" hits
   [ -d "$HOME/.koto" ] || return 0
@@ -1440,6 +1453,10 @@ print(json.load(open(sys.argv[1]))['graded'])
     if [ "$classify_rc" -eq 4 ]; then
       validate_rc=4
     fi
+  elif [ "$validate_rc" -eq 2 ]; then
+    # Some scenarios graded and some didn't: the session ran, but an agent of
+    # one it launched may have been stopped before it finished. Name it.
+    python3 "$CLASSIFY_SESSION" unfinished "$transcript" || true
   fi
 
   # Step 4c: A run that reached the real koto store is an infrastructure
