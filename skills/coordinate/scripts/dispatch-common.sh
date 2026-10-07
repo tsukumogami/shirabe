@@ -14,15 +14,25 @@
 #
 #   dc_invocation <brief-input-file> [<return-path>]
 #       Prints the worker's invocation: `/shirabe:<entry> <positional>
-#       <run_mode flags> <entry_args flags>`, then `--koto-leg=<return-path>`
-#       when a return path other than `message` is given. The one place the
-#       invocation is built: the brief shows it, the dispatch prompt carries
-#       it, and the holding's mode is the flags part of it, so the three can't
-#       disagree.
+#       <run_mode flags> <entry_args flags>`, then `--review-floor=<x>` and
+#       `--review-ceiling=<y>` from the input's `review_level` when it gives
+#       them, then `--koto-leg=<return-path>` when a return path other than
+#       `message` is given. The one place the invocation is built: the brief
+#       shows it, the dispatch prompt carries it, and the holding's mode is
+#       the run_mode and entry_args part of it, so the three can't disagree.
 #
 #   dc_mode <brief-input-file>
 #       Prints the flags part of the invocation (run_mode, then entry_args
-#       flags), the holding's `mode` cell.
+#       flags), the holding's `mode` cell. The review-level flags stay out of
+#       it: a re-brief rebuilds run_mode from this cell and keeps the input's
+#       review_level, so carrying them here would give them twice.
+#
+#   dc_unit_forms <pick-json-file>
+#   dc_unit_matches <unit> <pick-json-file>
+#       The Unit cell values pick_facts reads as covering a unit it listed
+#       (coord/pick.json), and whether <unit> is one: a roadmap feature's tag
+#       or `<tag>: <title>`, an issue's `#<n>` or `<host>#<n>`. A holding
+#       written with any other value is invisible to pick.
 #
 #   dc_niwa_slug <topic>
 #       Prints the slug niwa derives from `niwa dispatch --name <topic>`: the
@@ -178,6 +188,32 @@ dc_valid_topic() {
     [[ $1 =~ $DC_RE_TOPIC ]]
 }
 
+# dc_unit_forms <pick-json-file>: print, one per line, every Unit cell value
+# that covers a unit pick_facts listed, by pick-facts.sh's own rule: a roadmap
+# feature's heading tag or `<tag>: <title>`, an issue's `#<n>` or
+# `<host>#<n>`, with the host pick_facts recorded. Returns 2 when the file
+# isn't pick_facts' JSON. pick-facts_test.sh holds the two rules together.
+dc_unit_forms() {
+    jq -r '
+        if (.units | type) != "array" then error("no units") else . end
+        | .scope as $s | (.host // "") as $h | .units[]
+        | if $s == "roadmap" then .unit, (if (.title // "") == "" then empty else "\(.unit): \(.title)" end)
+          else .unit, (if $h != "" then $h + .unit else empty end) end' "$1" 2>/dev/null || return 2
+}
+
+# dc_unit_matches <unit> <pick-json-file>: 0 when <unit> is a Unit cell value
+# pick would read as covering one of the units it listed (dc_unit_forms), so
+# a holding written with it is never invisible to pick; 1 when it isn't (an
+# empty or multi-line unit never is); 2 when the file can't be read as
+# pick_facts' JSON.
+dc_unit_matches() {
+    local forms
+    forms=$(dc_unit_forms "$2") || return 2
+    case "$1" in '' | *'
+'*) return 1 ;; esac
+    printf '%s\n' "$forms" | grep -Fxq -- "$1"
+}
+
 dc_niwa_slug() {
     local s
     s=$(printf '%s' "$1" | tr 'A-Z' 'a-z' | sed -e 's/[^a-z0-9][^a-z0-9]*/_/g' -e 's/^_*//' -e 's/_*$//')
@@ -207,7 +243,11 @@ dc_invocation() {
     local inv
     inv=$(jq -r "$DC_JQ_TOKENS"' as $t
         | ($t[0] | if test("\\s") then "\"" + . + "\"" else . end) as $pos
-        | "/shirabe:" + .entry_point + " " + ([$pos] + $t[1:] | join(" "))' "$1") || return 2
+        | (if (.review_level | type) == "object" then
+             ([ (.review_level.floor // empty | strings | "--review-floor=" + .),
+                (.review_level.ceiling // empty | strings | "--review-ceiling=" + .) ])
+           else [] end) as $bound
+        | "/shirabe:" + .entry_point + " " + ([$pos] + $t[1:] + $bound | join(" "))' "$1") || return 2
     case "${2:-message}" in
         message) ;;
         *) inv="$inv --koto-leg=$2" ;;

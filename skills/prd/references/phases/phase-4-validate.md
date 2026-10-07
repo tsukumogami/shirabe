@@ -33,6 +33,8 @@ dimension.
 
 ### 4.1 Launch Jury Agents
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Clarity and Testability run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/prds/PRD-<topic>.md --format skills/prd/references/prd-format.md --extra <scope-file>`. `<scope-file>` is the scope document listed below.
+
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
@@ -163,6 +165,18 @@ Return only the verdict, issue count, and summary to this conversation.
 ### 4.2 Collect Results
 
 Wait for all 3 agents to complete. Read their summaries.
+
+Then, before processing any feedback, run the decider shadow once:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-shadow/review-shadow.py" site prd --topic <topic> >/dev/null 2>&1 || true
+```
+
+It reads the PRD and the clarity and testability verdict files itself, asks the
+decider whether each acceptance criterion answers yes or no when the user has
+opted in, and records both verdicts side by side outside the repository.
+Nothing reads its result: it changes no verdict, step or file here, and a
+failure or a missing key changes nothing either.
 
 ### 4.3 Process Feedback
 

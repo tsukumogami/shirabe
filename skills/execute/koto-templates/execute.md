@@ -109,6 +109,30 @@ variables:
     default: "false"
     values: ["true", "false"]
     rebind: true
+  # The review-level bound every work-on child carries. Rebind, as MERGE is: a
+  # bound is this invocation's setting, and execute-open.sh passes it only when
+  # the flag is given, so an attach without it resets the bound to empty and
+  # the children spawned from then on are unbounded, never bounded by an
+  # earlier invocation's flags. Children already spawned keep the bound they
+  # were materialized with; a child's own copy is not rebind (work-on.md).
+  REVIEW_FLOOR:
+    description: >-
+      The lowest review level a work-on child may choose, from /execute's
+      --review-floor flag: light, standard or full, or empty for no floor.
+      spawn_and_await sets it on every child task's vars only when it isn't
+      empty. Rebindable, like MERGE.
+    required: false
+    pattern: ^(light|standard|full)?$
+    rebind: true
+  REVIEW_CEILING:
+    description: >-
+      The highest review level a work-on child may choose without a recorded
+      reason, from /execute's --review-ceiling flag, or empty for none. Set on
+      every child task's vars only when it isn't empty. Rebindable, like
+      MERGE.
+    required: false
+    pattern: ^(light|standard|full)?$
+    rebind: true
 
 states:
   write_set_record:
@@ -1329,13 +1353,13 @@ existing approval behavior is unchanged.
 TMP=$(mktemp)
 TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})
 SETTLED_BRANCH="{{SETTLED_BRANCH}}"
-TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p]')
+TASKS_WITH_BRANCH=$(echo "$TASKS" | jq --arg b "$SETTLED_BRANCH" --arg p "${CLAUDE_PLUGIN_ROOT}" --arg f "{{REVIEW_FLOOR}}" --arg c "{{REVIEW_CEILING}}" '[.[] | .vars.SHARED_BRANCH = $b | .vars.PLUGIN_ROOT = $p | if $f != "" then .vars.REVIEW_FLOOR = $f else . end | if $c != "" then .vars.REVIEW_CEILING = $c else . end]')
 echo "{\"tasks\": $TASKS_WITH_BRANCH}" > "$TMP"
 koto next {{SESSION_NAME}} --with-data @"$TMP" --no-cleanup
 rm -f "$TMP"
 ```
 
-koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches.
+koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. When this run was given a review-level bound (`--review-floor`, `--review-ceiling`), every child also receives it as `REVIEW_FLOOR` and `REVIEW_CEILING`; an empty one is left off the task, so a run without the flags builds exactly the tasks it did before.
 
 **What earlier children found reaches later ones through koto, not through a file** (per `docs/decisions/DECISION-contradiction-cross-issue-context-no-consumer-2026-09-28.md`). Every child keeps its session (its ticks carry `--no-cleanup`), so the `summary.md` it wrote at finalization stays readable after it finishes. A later child reads its predecessors' summaries itself, at analysis: `koto workflows --children {{SESSION_NAME}}` names them, and `koto context get <child> summary.md` reads each one that reached `done`, once per child, never polled or re-read in a loop. The read count is deliberately small because each `koto context get` is logged and uploaded as an event. You read no summaries yourself, build no context file, and add nothing to a child's context between children. The child side of this read is `skills/work-on/references/phases/phase-3-analysis.md` (Earlier Children's Summaries); keep the two in sync.
 

@@ -54,9 +54,9 @@ facts() { # facts: report_facts reads the arrival and seals its verdict; the run
     log_to "$S" report_facts report_link
 }
 link() { OUT=$(bash "$HL" --session "$S" "${W_RM[@]}" 2>"$T/err"); RC=$?; }
-message() { # message <unit> <pull_request>: a message report, read by report_facts
+message() { # message <unit> <pull_request> [event]: a message report, read by report_facts
     session
-    log_evidence "$S" wait "$(jq -nc --arg u "$1" --arg p "$2" '{event: "report", unit: $u, report: "PR is up", pull_request: $p}')"
+    log_evidence "$S" wait "$(jq -nc --arg u "$1" --arg p "$2" --arg e "${3:-report}" '{event: $e, unit: $u, report: "PR is up", pull_request: $p}')"
     facts
 }
 HOLD=$(jq -nc --argjson a "$(h alpha feat/alpha '[#12](https://github.com/acme/widgets/pull/12)')" \
@@ -110,6 +110,24 @@ message zeta "acme/widgets#20"
 seed "$(printf '%s' "$HOLD" | jq -c 'map(if .worker == "zeta" then .pull_request = "[#20](https://github.com/ACME/Widgets/pull/20)" else . end)')"
 link
 eq "already linked, the repository in another case: nothing to do" "0 already linked" "$RC $OUT"
+
+echo "== the repository as GitHub spells it =="
+# The stand-in matches a repository in any case, as GitHub does, and spells
+# it back as GitHub does: the link takes GitHub's spelling, not the report's.
+seed "$HOLD"
+message zeta "ACME/Widgets#20"
+link
+eq "a report naming the repository in another case: written with GitHub's spelling" \
+    '0 {"branch":"feat/zeta-work","pull_request":"[#20](https://github.com/acme/widgets/pull/20)"}' "$RC $(row zeta)"
+grep -q -- '--repo ACME/Widgets' "$GH_DB.calls"; eq "and the pull request was read under the report's spelling" 0 $?
+
+echo "== a progress report's pull request (shirabe#491) =="
+seed "$HOLD"
+message zeta "acme/widgets#20" progress
+eq "report_facts sealed link for a progress report's pull request" "link 20 zeta" "${CAP% sealed:*}"
+link
+eq "a progress report's pull request is written" \
+    '0 {"branch":"feat/zeta-work","pull_request":"[#20](https://github.com/acme/widgets/pull/20)"}' "$RC $(row zeta)"
 
 echo "== refusals =="
 seed "$HOLD"

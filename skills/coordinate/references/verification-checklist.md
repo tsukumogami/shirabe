@@ -117,6 +117,36 @@ number, and a worker is inline code, as in every table the human sees. If a
 pull request's head moves after you hand the table over, it drops back to
 unverified until you read it again.
 
+Every row has passed the land check: the worker's Review panel table at a fresh
+reviewed head, the body's mechanical checks, and your goal-fit call. Under the
+table, for each pull request, give the squash message the merge should carry
+(`message` in `coord/land.json`, the title and Part 1 as plain text) and say the
+seats' verdicts are in the body's Review panel section, so the person merging
+reads neither a second panel nor a hand-built message.
+
+## The Review Panel Table
+
+A worker's pull request body carries its own review round in Part 2, the panel
+the land step reads instead of running one
+(`docs/designs/current/DESIGN-coordinate-merge-policy.md`):
+
+```markdown
+## Review panel
+
+| Seat | Model | Run | Verdict | Reviewed head |
+|---|---|---|---|---|
+| architect | sonnet | <run id> | pass | <40-hex sha> |
+| maintainer | sonnet | <run id> | pass | <40-hex sha> |
+| pragmatic | sonnet | <run id> | pass | <40-hex sha> |
+```
+
+One row per seat, at least three, each with its own Seat and a Run unique to
+that seat's run (an agent or session id, or `comment-<id>` for a review comment
+the seat's verdict was posted as), every Verdict `pass`, and one Reviewed head
+for all rows: the head itself, or one that only merge-ins of the base branch
+have moved past since. `scripts/panel-evidence.sh` is the parser; its header
+lists every rule.
+
 ## Confirming a Merge
 
 For each file the pull request changed, compare its blob sha on the default

@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "criteria": [
     {
       "rule_id": "rs-001",
@@ -179,6 +179,125 @@
       },
       "threshold": 0.9,
       "enabled": false
+    },
+    {
+      "rule_id": "rs-011",
+      "rule_ref": "skills/brief/references/phases/phase-4-validate.md",
+      "group": "journey-concrete",
+      "artifact_kind": "brief",
+      "slice_kind": "brief-journey",
+      "observer": "jev",
+      "question": "Does this user journey name a specific user, the situation that brings them to the feature, and what they get from it?",
+      "values": {
+        "pass": "The journey names a particular role (not just \"the user\"), a triggering situation, and an outcome the user experiences.",
+        "fail": "The journey leaves out the user's role, the trigger, or the outcome, or names only \"the user\"."
+      },
+      "escape": {
+        "unclear": "The journey is empty or unreadable, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-012",
+      "rule_ref": "skills/brief/references/phases/phase-4-validate.md",
+      "group": "summary-agrees",
+      "artifact_kind": "brief",
+      "slice_kind": "summary-pair",
+      "observer": "jev",
+      "question": "Does the frontmatter summary agree with the section it summarizes?",
+      "values": {
+        "pass": "The summary restates or paraphrases what the section says, or covers only part of it.",
+        "fail": "The summary states a different problem or outcome, or a fact the section contradicts."
+      },
+      "escape": {
+        "unclear": "A text is empty or unreadable, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-013",
+      "rule_ref": "skills/prd/references/prd-format.md",
+      "group": "ac-binary",
+      "artifact_kind": "prd",
+      "slice_kind": "prd-ac",
+      "observer": "jev",
+      "question": "Can this acceptance criterion be answered yes or no by someone who didn't write it?",
+      "values": {
+        "pass": "The criterion names an observable result a tester could check and get a definite yes or no.",
+        "fail": "Answering it takes subjective judgment, or it names no observable result."
+      },
+      "escape": {
+        "unclear": "The criterion is empty or unreadable, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-014",
+      "rule_ref": "skills/review-plan/references/templates/ac-discriminability-taxonomy.md",
+      "group": "ac-transition",
+      "artifact_kind": "plan",
+      "slice_kind": "plan-ac-block",
+      "observer": "jev",
+      "question": "Does every criterion in this issue that checks an end state or a created artifact also check, in itself or in another criterion of the list, the operation that produces it?",
+      "values": {
+        "pass": "Each end-state or existence criterion is paired with a before-state, a command's output, or content only the operation would produce.",
+        "fail": "Some criterion checks only an end state or an artifact's presence that an implementation could reach without doing the operation."
+      },
+      "escape": {
+        "unclear": "The list is empty or unreadable, or has no end-state criterion, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-015",
+      "rule_ref": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+      "group": "ac-implemented",
+      "artifact_kind": "local-change",
+      "slice_kind": "ac-hunks",
+      "observer": "jev",
+      "question": "Do these diff hunks contain a change that would make this acceptance criterion true?",
+      "values": {
+        "pass": "The hunks show code or text that does what the criterion describes.",
+        "fail": "The hunks touch what the criterion names but don't do what it describes, or do the opposite."
+      },
+      "escape": {
+        "unclear": "The hunks don't include the code the criterion is about, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-016",
+      "rule_ref": "skills/work-on/references/phases/phase-4b-review.md",
+      "group": "comment-reason",
+      "artifact_kind": "local-change",
+      "slice_kind": "code-hunks",
+      "observer": "jev",
+      "question": "In these diff hunks, does every added comment give a reason rather than restate the code?",
+      "values": {
+        "pass": "Each added comment says why (a constraint, a rejected option, an ordering that matters) or adds something the code doesn't show.",
+        "fail": "An added comment only restates what the code beside it does."
+      },
+      "escape": {
+        "unclear": "The hunks add no comment or are unreadable, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-017",
+      "rule_ref": "skills/work-on/references/phases/phase-4b-review.md",
+      "group": "stale-comment",
+      "artifact_kind": "local-change",
+      "slice_kind": "code-hunks",
+      "observer": "jev",
+      "question": "In these diff hunks, does every code comment still describe the code as it reads after the change?",
+      "values": {
+        "pass": "Every comment in the hunks is consistent with the code after the change.",
+        "fail": "A comment in the hunks describes behaviour the changed code no longer has, or code that isn't there."
+      },
+      "escape": {
+        "unclear": "The hunks have no comment or are unreadable, so it can't be judged."
+      },
+      "threshold": 0.9
     }
   ]
 }

@@ -34,12 +34,12 @@ rationale: |
 
 Planned
 
-Authored under `/scope`'s chain; the parent owns the approval gate. Six decisions
-were evaluated. Two ran as delegated evaluations with empirical verification
-against koto 0.11.6; four were resolved inline after the delegated evaluations
-died on a session limit, per the decision-bypass-with-inline-resolution shape in
+Authored under `/scope`'s chain, which approved it inside the design hop. Six
+decisions were evaluated. The two critical-tier ones ran through `/decision`, with
+empirical verification against koto 0.11.6; the four standard-tier ones were
+resolved inline, per the decision-bypass-with-inline-resolution shape in
 `references/fixes/sub-agent-dispatch.md`, and the frontmatter records that. The
-verification those four would have run was run directly rather than dropped, and
+verification those four would have had was run directly rather than dropped, and
 every claim below that rests on reasoning rather than a command says so.
 
 ## Context and Problem Statement

@@ -20,7 +20,10 @@
 #   api --method GET repos/R/pulls/<n>/files...             files
 #   api --method GET repos/R/commits/<sha>/check-runs...    checkruns
 #   api --method GET repos/R/commits/<sha>/status...        statuses
+#   api --method GET repos/R/check-runs/<id>/annotations... annotations-<id>
 #   api --method GET repos/R/contents/<path>?ref=<ref>      contents-<ref>-<path, / as __>
+#   api --method GET repos/R/commits/<sha>                  commit-<sha>
+#   api --method GET repos/R/compare/<base>...<head>        compare-<base>...<head>
 #   api --method GET repos/R/issues/<n>                     issue-<n>
 #   api --method GET repos/R                                repo
 #   pr view <n> --repo R --json ...                         prview-<n>
@@ -73,6 +76,11 @@ case "${1-} ${2-}" in
             repos/*/*/pulls/*/files) key=files ;;
             repos/*/*/commits/*/check-runs) key=checkruns ;;
             repos/*/*/commits/*/status) key=statuses ;;
+            repos/*/*/check-runs/*/annotations) id=${path_noq%/annotations}; key="annotations-${id##*/}" ;;
+            repos/*/*/commits/*/*) refuse "unexpected path: $path" ;;
+            repos/*/*/commits/*) key="commit-${path_noq##*/}" ;;
+            repos/*/*/compare/*) key="compare-${path_noq##*/compare/}"
+                                 case "$key" in */*) refuse "a compare with a slash: $path" ;; esac ;;
             repos/*/*/contents/*)
                 rest=${path_noq#repos/*/*/contents/}
                 ref=${path#*\?ref=}

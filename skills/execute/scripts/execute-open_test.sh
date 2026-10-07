@@ -13,6 +13,10 @@
 #     exit 64 and no koto call
 #     a multi-pr PLAN: error=multi-pr, exit 64, no koto call, /work-on named;
 #     a single-pr PLAN is not refused and reaches koto
+#     the pairs a stub koto is handed: without the review-level flags exactly
+#     PLAN_DOC, PLAN_SLUG, PLUGIN_ROOT, MERGE and PAUSE_BEFORE_FINALIZE, as
+#     before the flags existed; --review-floor= and --review-ceiling= add one
+#     REVIEW_FLOOR or REVIEW_CEILING pair per occurrence
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
@@ -31,6 +35,11 @@
 #       an accepted run bound to the leg
 #     a retained paused_for_review session: replaced, and the resume passes
 #       PAUSE_BEFORE_FINALIZE=false
+#     --review-floor=standard --review-ceiling=full: both variables set on
+#       the session; resumed without them, both rebound to empty, never
+#       inherited, like MERGE; --review-floor=medium: invalid_var, no session;
+#       a repeated --review-ceiling: duplicate_var; a coordinated PLAN takes
+#       the bound too
 #     a coordinated PLAN: execute-coordinated.md under the same execute-<slug>
 #       name; on a live execute.md session koto's template_mismatch (session
 #       unchanged, outcome=error step=execute:refused, recorded on the leg
@@ -150,6 +159,41 @@ OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bas
 [ $? -eq 64 ] && [ ! -s "$WORK/stub.log" ] && pass "own refusal: a missing tokens file" \
     || fail "missing tokens file"
 
+# The pairs the tokens become, read from a stub that keeps a copy of the vars
+# file koto would have been handed (koto-open.sh removes the original).
+PAIRS_BIN="$WORK/pairs-bin"
+mkdir -p "$PAIRS_BIN"
+cat > "$PAIRS_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+prev=""
+for a in "$@"; do
+    [ "$prev" = "--vars-file" ] && cp -- "$a" "${KOTO_STUB_VARS:?}"
+    prev="$a"
+done
+exit 1
+STUB
+chmod +x "$PAIRS_BIN/koto"
+pairs_of() { # pairs_of <json tokens>
+    rm -f "$WORK/vars.json"
+    tokens "$1"
+    (cd "$FIXREPO" && KOTO_STUB_VARS="$WORK/vars.json" PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" >/dev/null 2>&1)
+}
+pairs_eq() { # pairs_eq <label> <want> <jq filter>
+    local got
+    got=$(jq -c "$3" "$WORK/vars.json" 2>/dev/null)
+    if [ "$got" = "$2" ]; then pass "$1"; else fail "$1: want [$2], got [$got]"; fi
+}
+pairs_of '["docs/plans/PLAN-t.md","--merge"]'
+pairs_eq "no review-level flags: the pairs are the ones before the flags existed" \
+    '["PLAN_DOC","PLAN_SLUG","PLUGIN_ROOT","MERGE","PAUSE_BEFORE_FINALIZE"]' 'map(.[0])'
+pairs_of '["docs/plans/PLAN-t.md","--review-floor=standard","--review-ceiling=full"]'
+pairs_eq "--review-floor=standard --review-ceiling=full: one pair each" \
+    '[["REVIEW_FLOOR","standard"],["REVIEW_CEILING","full"]]' 'map(select(.[0] | startswith("REVIEW_")))'
+pairs_of '["docs/plans/PLAN-t.md","--review-ceiling=light","--review-ceiling=full","--review-floor"]'
+pairs_eq "a repeat is two pairs and a bare flag its literal token, both left to koto" \
+    '[["REVIEW_FLOOR","--review-floor"],["REVIEW_CEILING","light"],["REVIEW_CEILING","full"]]' \
+    'map(select(.[0] | startswith("REVIEW_")))'
+
 # --- engine-backed ------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1; then
@@ -261,6 +305,30 @@ if [ "$RC" -eq 0 ] && line 'opened=attached' && [ "$(session_var execute-fresh M
 else
     fail "resume without --merge: MERGE [$(session_var execute-fresh MERGE)]"
 fi
+
+# The review-level bound: set on the session when given, and, being rebind
+# like MERGE, rebound to empty by a resume that doesn't pass it.
+run_open '["docs/plans/PLAN-bounded.md","--review-floor=standard","--review-ceiling=full"]'
+if [ "$RC" -eq 0 ] && [ "$(session_var execute-bounded REVIEW_FLOOR)" = standard ] \
+    && [ "$(session_var execute-bounded REVIEW_CEILING)" = full ]; then
+    pass "--review-floor=standard --review-ceiling=full: both set on the session"
+else
+    fail "bounded: exit $RC, floor [$(session_var execute-bounded REVIEW_FLOOR)], ceiling [$(session_var execute-bounded REVIEW_CEILING)]; $ERR"
+fi
+run_open '["docs/plans/PLAN-bounded.md"]'
+if [ "$RC" -eq 0 ] && line 'opened=attached' && [ "$(session_var execute-bounded REVIEW_FLOOR)" = "" ] \
+    && [ "$(session_var execute-bounded REVIEW_CEILING)" = "" ]; then
+    pass "resumed without the bound flags: both rebound to empty, never inherited"
+else
+    fail "bounded resume: out [$OUT], floor [$(session_var execute-bounded REVIEW_FLOOR)], ceiling [$(session_var execute-bounded REVIEW_CEILING)]"
+fi
+if [ "$(session_var execute-fresh REVIEW_FLOOR)" = "<unset>" ] || [ "$(session_var execute-fresh REVIEW_FLOOR)" = "" ]; then
+    pass "a run without the flags carries no review floor"
+else
+    fail "unbounded run: REVIEW_FLOOR [$(session_var execute-fresh REVIEW_FLOOR)]"
+fi
+refusal "--review-floor=medium" '["docs/plans/PLAN-medium.md","--review-floor=medium"]' invalid_var execute-medium
+refusal "a repeated --review-ceiling" '["docs/plans/PLAN-twice.md","--review-ceiling=light","--review-ceiling=full"]' duplicate_var execute-twice
 
 # A live session from another template: refused at attach, untouched.
 cat > "$WORK/other.md" <<'OTHER'
@@ -450,6 +518,17 @@ if [ "$(k status execute-swap | jq -r .current_state)" = paused_for_review ]; th
     fi
 else
     fail "could not walk execute-swap to paused_for_review"
+fi
+
+# A coordinated PLAN takes the bound too.
+printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: coordinated\n---\n\n# PLAN: cbound\n' \
+    > "$FIXREPO/docs/plans/PLAN-cbound.md"
+run_open '["docs/plans/PLAN-cbound.md","--review-floor=light"]'
+if [ "$RC" -eq 0 ] && [ "$(built_from execute-cbound)" = execute-coordinated.md ] \
+    && [ "$(session_var execute-cbound REVIEW_FLOOR)" = light ]; then
+    pass "a coordinated PLAN with --review-floor=light: execute-coordinated.md, REVIEW_FLOOR=light"
+else
+    fail "coordinated bound: exit $RC, template [$(built_from execute-cbound)], floor [$(session_var execute-cbound REVIEW_FLOOR)]; $ERR"
 fi
 
 echo

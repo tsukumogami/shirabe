@@ -21,7 +21,13 @@
 #                   must be the topic dispatch_check sealed (`ok <topic>`);
 #                   another topic is a conflict. Written: is compared with
 #                   the DISPATCH_CHECK capture, not the evidence, since the
-#                   dispatch path writes the holding before `sent`
+#                   dispatch path writes the holding before `sent`. When the
+#                   pick this dispatch came from chose send_execution, the
+#                   row must also read Phase `executing`: a send that changed
+#                   nothing never confirms (shirabe#553)
+#   leg_spent       (`replaced`) the evidence's topic's row on a leg other
+#                   than the spent one (the WAIT_REQ and WAIT_LEG captures),
+#                   and no row on the spent leg (shirabe#506)
 #   surface         (merge_table) the unit's row has a Verified head; the unit
 #                   is the one the run's latest arrival before the source
 #                   names (below).
@@ -29,7 +35,9 @@
 #                   (the human directed a hold the workspace doesn't require),
 #                   the row's Phase must also be `held`
 #   merge_confirm,  from MERGE_CONFIRM / MERGED_FACTS: `merged <pr> <sha>` means
-#   merged_facts    the unit's Holdings row no longer links #<pr>;
+#   merged_facts    the unit's Holdings row is still there with its Pull
+#                   request cell blank: a confirmed merge clears the cell
+#                   and keeps the row until the teardown removes it;
 #                   `unconfirmed <pr> <sha>` means a Side effects row whose
 #                   Target names <owner/repo>#<pr> (or its github.com URL),
 #                   the repository being the one the unit's row links, with
@@ -267,7 +275,7 @@ ESEQ=$ENT_SEQ
 SOURCE=$ENT_FROM
 
 case "$SOURCE" in
-dispatch|surface|teardown|destroy|decision_apply|posture_ask)
+dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent)
     evidence "$SOURCE" "$ESEQ"; EV=$EVJ
     [ -n "$EV" ] || { VERDICT=conflict; REASON="no evidence from $SOURCE before record"; finish; }
     EVT=$(printf '%s' "$EV" | jq -r .timestamp)
@@ -277,7 +285,7 @@ dispatch|surface|teardown|destroy|decision_apply|posture_ask)
     # this case pattern is the list. dispatch keeps its DISPATCH_CHECK
     # capture (below), and teardown and destroy, which write after it, keep
     # the evidence's own time.
-    case "$SOURCE" in surface|decision_apply|posture_ask) step_start "$SOURCE" "$EVSEQ" ;; esac
+    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent) step_start "$SOURCE" "$EVSEQ" ;; esac
     MIN=${EVT:0:16}
     ;;
 merge_confirm|merged_facts)
@@ -313,6 +321,18 @@ dispatch)
     fi
     EXPECT="a Holdings row for topic $TOPIC"
     [ -n "$TOPIC" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t'))" || OKX=0
+    # A send_execution moves the holding from scoping-ahead to executing; one
+    # that left it scoping ahead sent nothing, and never confirms.
+    entry pick "$ESEQ"; PSEQ=$ENT_SEQ
+    if [ -n "$PSEQ" ]; then
+        evidence pick "$ESEQ"
+        if [ -n "$EVJ" ] && [ "$(printf '%s' "$EVJ" | jq -r '.seq')" -gt "$PSEQ" ] \
+            && [ "$(printf '%s' "$EVJ" | jq -r '.fields.choice // ""')" = send_execution ] \
+            && [ "$(printf '%s' "$EVJ" | jq -r '.fields.unit // ""')" = "$TOPIC" ]; then
+            EXPECT="the Holdings row for topic $TOPIC at Phase executing: send_execution moves it from scoping-ahead, and a row still scoping ahead means no execution was sent"
+            holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t') and .phase == \"executing\")" || OKX=0
+        fi
+    fi
     # The dispatch path writes the holding before `sent` (dispatch's
     # holding_recorded gate requires it), so the row is fresh for this
     # dispatch when it was written after dispatch_check passed the topic, not
@@ -322,6 +342,20 @@ dispatch)
     [ $? -eq 2 ] && lib_die2 "cannot read the session log"
     CAP=$(printf '%s' "$CAP" | tail -1)
     [ -n "$CAP" ] && EVT=$(printf '%s' "$CAP" | jq -r .timestamp)
+    ;;
+leg_spent)
+    has_value replaced || { VERDICT=conflict; REASON="leg_spent reached record without replaced"; finish; }
+    TOPIC=$(printf '%s' "$EV" | jq -r '.fields.topic // ""')
+    [[ $TOPIC =~ $RE_TOPIC ]] || { VERDICT=conflict; REASON="leg_spent's evidence names no topic"; finish; }
+    # The spent leg is the one the wait read: the latest WAIT_REQ and
+    # WAIT_LEG captures, which only the engine writes.
+    SREQ=$(bash "$HERE/coord-log.sh" captures --session "$SESSION" --name WAIT_REQ --before "$ESEQ" 2> /dev/null | tail -1 | jq -r '.value // ""')
+    SLEG=$(bash "$HERE/coord-log.sh" captures --session "$SESSION" --name WAIT_LEG --before "$ESEQ" 2> /dev/null | tail -1 | jq -r '.value // ""')
+    [ -n "$SREQ" ] && [ -n "$SLEG" ] || { VERDICT=conflict; REASON="the log names no spent leg before leg_spent"; finish; }
+    SPENT="leg $SREQ:$SLEG"
+    EXPECT="the Holdings row for $TOPIC on a new leg in place of the spent $SPENT, and no row on $SPENT"
+    holds "any(.holdings[]; .worker == \$t and (.return_path | startswith(\"leg \")) and .return_path != \$s)
+        and (any(.holdings[]; .return_path == \$s) | not)" --arg t "$TOPIC" --arg s "$SPENT" || OKX=0
     ;;
 surface)
     has_value merge_table || { VERDICT=conflict; REASON="surface reached record without merge_table"; finish; }
@@ -397,8 +431,12 @@ merge_confirm|merged_facts)
     if [ "$KIND" = merged ]; then
         # The unit's own row: another unit's #$PR in another repository is
         # not this one.
-        EXPECT="the Holdings row for $UNIT no longer links #$PR"
-        [ -n "$ROW" ] && [ "$ROW_PR" = "$PR" ] && OKX=0
+        # The row stays until teardown (destroy removes it), so a row
+        # already gone is not what this step writes.
+        EXPECT="the Holdings row for $UNIT kept, with its Pull request cell cleared of #$PR"
+        if [ -z "$ROW" ]; then OKX=0
+        elif [ -n "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" ]; then OKX=0
+        fi
     elif [ -z "$ROW" ] || [ "$ROW_PR" != "$PR" ]; then
         # Without the unit's row linking it, #$PR's repository can't be told,
         # and a bare #$PR could be another unit's.

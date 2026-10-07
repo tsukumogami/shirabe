@@ -129,6 +129,8 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     eq "$L: evidence --before bounds the window" 3 "$(bash "$CL" evidence --session "$S" --state wait --before 5 | jq .seq)"
     eq "$L: evidence --after bounds the window" 6 "$(bash "$CL" evidence --session "$S" --state wait --after 5 | jq .seq)"
     eq "$L: evidence --where matches a field" 3 "$(bash "$CL" evidence --session "$S" --state wait --where event=report | jq .seq)"
+    eq "$L: evidence --where with alternatives matches either" 5 "$(bash "$CL" evidence --session "$S" --state wait --where 'event=report|merged' | jq .seq)"
+    eq "$L: evidence --where alternatives that match nothing are none" 1 "$(bash "$CL" evidence --session "$S" --state wait --where 'event=nope|never' >/dev/null; echo $?)"
     eq "$L: evidence --where twice matches both" 5 "$(bash "$CL" evidence --session "$S" --state wait --where event=merged --where unit=beta | jq .seq)"
     bash "$CL" evidence --session "$S" --state wait --where unit=gamma; eq "$L: evidence --where with no match is none" 1 $?
     eq "$L: evidence --has skips evidence without the field" 5 "$(bash "$CL" evidence --session "$S" --state wait --has unit | jq .seq)"
@@ -136,6 +138,7 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     # unit: the message path.
     eq "$L: unit is the latest wait evidence naming a unit" "topic beta" "$(bash "$CL" unit --session "$S")"
     eq "$L: unit --event takes that event's evidence" "topic alpha" "$(bash "$CL" unit --session "$S" --event report)"
+    eq "$L: unit --event with alternatives takes the latest of either" "topic beta" "$(bash "$CL" unit --session "$S" --event 'report|merged')"
     eq "$L: unit --event takes the evidence even when it names no unit" "topic " "$(bash "$CL" unit --session "$S" --event tick)"
     eq "$L: unit --before bounds the window" "topic alpha" "$(bash "$CL" unit --session "$S" --before 5)"
     bash "$CL" unit --session "$S" --before 3; eq "$L: unit with no arrival is none" 1 $?

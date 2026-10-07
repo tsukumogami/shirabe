@@ -186,6 +186,19 @@ log_to "$S" wait quiet_check; log_to "$S" quiet_check wait
 report '{"event":"quiet","unit":"beta"}'
 eq "only a report event names the reporting unit" "holding 12 alpha" "${OUT% sealed:*}"
 
+echo "== progress (a checkpoint report, shirabe#491) =="
+report '{"event":"progress","unit":"alpha","report":"checkpoint 1 reached"}'
+eq "progress for a linked holding goes back to the hub" "progress 12 alpha" "${OUT% sealed:*}"
+tok_shape "progress is in koto's capture alphabet" "$OUT"
+report '{"event":"progress","unit":"zeta","report":"checkpoint 1 reached"}'
+eq "progress naming no pull request goes back to the hub" "progress none zeta" "${OUT% sealed:*}"
+report '{"event":"progress","unit":"zeta","report":"PR is up","pull_request":"acme/widgets#20"}'
+eq "progress naming a pull request its holding lacks is linked first" "link 20 zeta" "${OUT% sealed:*}"
+report '{"event":"progress","unit":"zeta","report":"PR is up","pull_request":"acme/other#3"}'
+eq "progress naming a pull request out of scope is refused as a report is" "refused zeta out-of-scope-repo" "${OUT% sealed:*}"
+report '{"event":"report","unit":"alpha"}'
+eq "a report after progress is classified as before" "holding 12 alpha" "${OUT% sealed:*}"
+
 echo "== failures =="
 db '.fail = [{match: "pr view 12", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 report '{"event":"report","unit":"alpha"}'

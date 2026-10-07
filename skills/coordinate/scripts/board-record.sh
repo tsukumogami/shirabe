@@ -22,13 +22,31 @@
 #
 # Token, sealed to the latest entry into verify_board:
 #   verified <pr> <head>         the board is green at <head>, read from the
-#                                checks
+#                                checks, and the body's Review panel table,
+#                                if it has one, parses
+#   unevidenced <pr> none        the board is green but the body's Review
+#                                panel table is malformed (panel-evidence.sh):
+#                                a panel claim with seats that can't be told
+#                                apart never becomes a verified head; the
+#                                parsed table is coord/board.json's
+#                                `evidence` and its rule a reason coded
+#                                `unevidenced` (that file's `verdict` stays
+#                                the board's own, `verified`). A body that
+#                                can't be read is board-unreadable, reason
+#                                `evidence-read`
 #   actions-green <pr> none      the board is green judged from the Actions
 #                                jobs, because the token can't read checks;
 #                                the required set may be short, so it is for
 #                                a person, never for landing
 #   unverified <pr> none         the board failed
 #   pending <pr> none            the board is still running
+#   not-run <pr> none            a job at the head never ran (it completed
+#                                red with no step: GitHub refused to start
+#                                it, as for an account billing block), and
+#                                nothing else failed or still runs: no
+#                                verdict on the
+#                                code, and not the worker's to fix; the
+#                                reasons in coord/board.json say why
 #   board-unreadable <pr> none   the board or the record couldn't be read, or
 #                                the read ran out of time: no verdict on the
 #                                code
@@ -92,7 +110,7 @@ esac
 bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state verify --after "${ENT%% *}" >/dev/null 2>&1 || no_prediction
 
 T=$(mktemp "${TMPDIR:-/tmp}/board-record.XXXXXX") || exit 2
-trap 'rm -f "$T"' EXIT
+trap 'rm -f "$T" "$T".*' EXIT
 # stopped <word> <code> <detail> [<pr>]: a verdict with no board read behind
 # it, written in board-verdict.sh's shape (nothing read: no head, source,
 # state, jobs or required set) so coord/board.json has one shape. The token's
@@ -145,12 +163,33 @@ if [ -z "$TOKEN" ]; then
     case "$V" in
         verified) bl_sha_ok "$H" || { echo "$PROG: verified without a head" >&2; exit 2; }
                   TOKEN="verified $PR $H" ;;
-        unverified|pending|actions-green) TOKEN="$V $PR none" ;;
+        unverified|pending|actions-green|not-run) TOKEN="$V $PR none" ;;
         error:pr-state) TOKEN="not-open $PR none" ;;
         error:board-read|error:deadline) TOKEN="board-unreadable $PR none" ;;
         *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;
     esac
 fi
+# A green board with a malformed Review panel table in the body is a panel
+# claim the land step can't read, seats that can't be told apart included:
+# no verified head is recorded on it. No table yet is fine here; land refuses
+# it later. docs/designs/current/DESIGN-coordinate-merge-policy.md, Decision 1.
+case "$TOKEN" in
+    verified\ *)
+        if bl_gh "$T.pr" pr view "$PR" --repo "$REPO" --json body; then
+            EV=$(jq -r '.body // ""' "$T.pr" | bash "$HERE/panel-evidence.sh" -) || EV=
+            case "$(printf '%s' "$EV" | jq -r '.status // ""')" in
+                ok|absent) ;;
+                malformed)
+                    jq --argjson e "$EV" '.reasons += [{code: "unevidenced", detail: ("the Review panel table is malformed: " + $e.reason)}] | .evidence = $e' "$T" > "$T.e" && mv "$T.e" "$T"
+                    TOKEN="unevidenced $PR none" ;;
+                *) echo "$PROG: the body's Review panel couldn't be parsed" >&2; exit 2 ;;
+            esac
+        else
+            jq '.reasons += [{code: "evidence-read", detail: "the pull request body could not be read"}]' "$T" > "$T.e" && mv "$T.e" "$T"
+            TOKEN="board-unreadable $PR none"
+        fi
+        rm -f "$T.pr" "$T.pr.err" "$T.pr.fail" ;;
+esac
 case "$TOKEN" in
     verified\ *|unverified\ *|pending\ *) ;;
     *) echo "$PROG: $TOKEN: $(jq -c '[.reasons[]? | .code + (if .detail then ": " + .detail else "" end)]' "$T")" >&2 ;;

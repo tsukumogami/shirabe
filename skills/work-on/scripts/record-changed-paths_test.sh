@@ -401,6 +401,11 @@ echo "stub: refusing \$1" >&2
 exit 64
 STUB
 chmod +x "$FAKE_ROOT/skills/work-on/scripts/record-changed-paths.sh"
+# The review level's script and what it reads, reached through the fake root,
+# so its rebinds keep PLUGIN_ROOT pointing there.
+ln -s "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" "$FAKE_ROOT/skills/work-on/scripts/review-level.sh"
+ln -s "$PLUGIN_ROOT/skills/work-on/koto-templates" "$FAKE_ROOT/skills/work-on/koto-templates"
+ln -s "$PLUGIN_ROOT/skills/work-on/references" "$FAKE_ROOT/skills/work-on/references"
 
 RESP=""
 STATE=""
@@ -442,6 +447,15 @@ to_implementation() {
     to_analysis "$1" "${2:-}"
     printf 'plan\n' | ctx add "$1" plan.md
     tick "$1" '{"plan_outcome":"plan_ready"}'
+    choose_level "$1" "${2:-}"
+}
+
+# choose_level <session> [<plugin root>]: the review level, chosen before
+# implementation; full keeps every panel on the code route. The script is run
+# from the session's own plugin root, which its rebind passes as PLUGIN_ROOT.
+choose_level() {
+    (cd "$FX/repo" && "${2:-$PLUGIN_ROOT}/skills/work-on/scripts/review-level.sh" set "$1" full) >/dev/null 2>&1
+    tick "$1"
 }
 
 # The routing question, reached through changed_paths_record with no evidence.
@@ -577,6 +591,7 @@ else
 fi
 printf 'plan\n' | ctx add e-plan plan.md
 tick e-plan '{"plan_outcome":"plan_ready"}'
+choose_level e-plan
 commit_file src/mine.go
 tick e-plan '{"implementation_status":"complete"}'
 if ctx get e-plan changed_paths.txt | grep -q sibling; then

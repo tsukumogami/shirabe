@@ -10,7 +10,7 @@
 # declare, is the declared floor: the policy allows no version number here, and
 # preflight on an older koto names the missing flags.
 # The records catch a koto older than 0.13.0 only. shirabe's koto minimum is
-# 0.14.1 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
+# 0.15.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
 # keeps its session, a child's result is delivered under --no-cleanup, and
 # `koto next --to` is refused past a failing non-overridable gate) is behaviour
 # with no flag to declare, so no record here carries it. The preflight compares
@@ -39,6 +39,9 @@ koto	context get	-	always
 # only writes. git reads the origin remote for the host at roadmap scope.
 gh	-	-	always
 git	-	-	always
+# The land check runs the repository's PR-body rule over the pull request's
+# title and body before it builds the squash message.
+shirabe	validate	--pr-body,--pr-title,--format	always
 # The reconcile pass. reconcile-pass.sh clears and writes its reconcile/ keys,
 # and reconcile-check.sh stops a read's children at its deadline with pkill.
 # It also reads a request leg and the workspace manager's listing, declared

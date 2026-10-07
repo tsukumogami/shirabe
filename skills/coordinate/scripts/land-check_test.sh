@@ -1,7 +1,16 @@
 #!/usr/bin/env bash
-# land-check_test.sh -- land-check.sh prints permit, deny, confirm, dirty and
-# moved for their fixtures, judging the live head against the unit's own
-# verify capture, and narrowing the start's posture with a fresh read.
+# land-check_test.sh -- land-check.sh prints permit, deny, confirm, dirty,
+# moved and unready for their fixtures, judging the live head against the
+# unit's own verify capture, reading the worker's Review panel and the body,
+# and narrowing the start's posture with a fresh read.
+#
+# The worker's round: no table (no-evidence), seats sharing a Run or a Seat,
+# too few seats, a failing seat (each unready with its reason), and a ready
+# one under deny with coord/land.json's message and files. The reviewed head:
+# fresh one main merge-in behind; stale for a file main didn't touch, a
+# non-merge commit, a second parent not on main, more than ten merge-ins, a
+# comparison at the 300-file limit; a failed read (exit 2). The body: failing
+# PR-body checks, and a Part 1 the message builder refuses.
 #
 # Covers: each token; a head that moved before or during the re-read; the
 # posture's narrowing both ways (a start deny isn't widened by a permit now,
@@ -37,7 +46,7 @@ scenario() {
     printf '%s\n' "$2" > "$BT_STATE/posture"
     rm -f "$BT_STATE/posture.rc"
     bt_board complete-board
-    printf '{"mergeStateStatus":"%s"}\n' "${3:-CLEAN}" > "$GH_BOARD_DIR/prview-12.out"
+    bt_prview "${3:-CLEAN}"
     bt_record_body '[]'
 }
 token() { bash "$LC" --session "$S" --repo acme/widgets "$@" 2>"$T/err" | sed 's/ sealed:.*//'; }
@@ -144,6 +153,92 @@ bt_enter "$S" verify_board
 bt_sealed "$S" verify_board VERIFIED "verified 13 $MOVED"
 bt_enter "$S" land
 eq "--pr picks the unit's own capture from an earlier visit" "permit 12 $H" "$(token --pr 12)"
+
+echo "== the worker's review round =="
+# reason: the unready reason land-check.sh gave on stderr.
+reason() { sed -n 's/^land-check: unready: //p' "$T/err" | head -1; }
+body() { bt_body "$@" > "$T/body"; bt_prview CLEAN "$T/body"; }
+scenario "$PERMIT" "$PERMIT"
+printf '%s\n\n---\n\nNo panel here.\n' "$BT_PART1" > "$T/body"; bt_prview CLEAN "$T/body"
+eq "a body with no Review panel is unready" "unready 12 $H" "$(token)"
+eq "  ... for no-evidence" no-evidence "$(reason)"
+scenario "$PERMIT" "$PERMIT"
+bt_body | sed 's/comment-102/comment-101/' > "$T/body"; bt_prview CLEAN "$T/body"
+eq "two seats sharing a Run are unready" "unready 12 $H" "$(token)"
+eq "  ... for malformed:run-repeated" malformed:run-repeated "$(reason)"
+scenario "$PERMIT" "$PERMIT"
+bt_body | sed 's/| maintainer |/| Architect |/' > "$T/body"; bt_prview CLEAN "$T/body"
+eq "two rows naming one seat are unready (malformed:seat-repeated)" malformed:seat-repeated "$(token >/dev/null; reason)"
+scenario "$PERMIT" "$PERMIT"
+bt_body | grep -v pragmatic > "$T/body"; bt_prview CLEAN "$T/body"
+eq "two seats are too few" too-few-seats "$(token >/dev/null; reason)"
+scenario "$PERMIT" "$PERMIT"
+body "$H" fail
+eq "a failing seat is not unanimous" "unready 12 $H" "$(token)"
+eq "  ... for not-unanimous" not-unanimous "$(reason)"
+scenario "$PERMIT" "readable merge:deny close:permit teardown:permit"
+eq "a ready pull request under a denied merge is deny" "deny 12 $H" "$(token)"
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>/dev/null)
+bash "$CL" check --session "$S" --state land --sealed "$OUT" >/dev/null 2>&1 \
+    && eq "  ... and coord/land.json carries the message, equal to the title and Part 1" \
+        "$(printf 'feat(land): read the round\n\nReads the worker'"'"'s review round in the land step.')" \
+        "$("$KOTO_BIN" context get "$S" coord/land.json | jq -r .message)" \
+    || bad "  ... the sealed deny token checks"
+eq "  ... and the changed files" '["skills/x.sh"]' "$("$KOTO_BIN" context get "$S" coord/land.json | jq -c .files)"
+
+echo "== the reviewed head =="
+OLD=2222222222222222222222222222222222222222
+MAINC=3333333333333333333333333333333333333333
+# fresh_case <files-merged-in> <files-main-changed> [parents-count]: the head
+# $H is a merge of $OLD (the reviewed head) and $MAINC (on main).
+fresh_case() {
+    scenario "$PERMIT" "$PERMIT"
+    body "$OLD"
+    if [ "${3:-2}" = 2 ]; then
+        jq -nc --arg a "$OLD" --arg b "$MAINC" '{parents: [{sha: $a}, {sha: $b}]}' > "$GH_BOARD_DIR/commit-$H.out"
+    else
+        jq -nc --arg a "$OLD" '{parents: [{sha: $a}]}' > "$GH_BOARD_DIR/commit-$H.out"
+    fi
+    echo '{"status":"behind","files":[]}' > "$GH_BOARD_DIR/compare-main...$MAINC.out"
+    jq -nc --argjson f "$2" '{status: "ahead", files: [$f[] | {filename: .}]}' > "$GH_BOARD_DIR/compare-$OLD...$MAINC.out"
+    jq -nc --argjson f "$1" '{status: "ahead", files: [$f[] | {filename: .}]}' > "$GH_BOARD_DIR/compare-$OLD...$H.out"
+}
+fresh_case '["a.md"]' '["a.md","b.md"]'
+eq "a reviewed head one main merge-in behind is fresh" "permit 12 $H" "$(token)"
+fresh_case '["a.md","mine.sh"]' '["a.md"]'
+eq "a merge-in that touches a file main didn't is unready" "unready 12 $H" "$(token)"
+eq "  ... for stale:files" stale:files "$(reason)"
+fresh_case '["a.md"]' '["a.md"]' 1
+eq "a commit after the round that isn't a merge is stale:not-a-merge" stale:not-a-merge "$(token >/dev/null; reason)"
+fresh_case '["a.md"]' '["a.md"]'
+echo '{"status":"ahead","files":[]}' > "$GH_BOARD_DIR/compare-main...$MAINC.out"
+eq "a second parent not on main is stale:not-on-base" stale:not-on-base "$(token >/dev/null; reason)"
+fresh_case '["a.md"]' "$(jq -nc '[range(300) | "f\(.).md"]')"
+eq "a comparison at the 300-file limit is stale:too-many-files" stale:too-many-files "$(token >/dev/null; reason)"
+# A chain of eleven main merge-ins, each fresh on its own: past the cap of ten.
+fresh_case '["a.md"]' '["a.md"]'
+prev=$H
+for i in 1 2 3 4 5 6 7 8 9 10 11; do
+    p=$(printf '%040d' "$i")
+    jq -nc --arg a "$p" --arg b "$MAINC" '{parents: [{sha: $a}, {sha: $b}]}' > "$GH_BOARD_DIR/commit-$prev.out"
+    echo '{"status":"ahead","files":[{"filename":"a.md"}]}' > "$GH_BOARD_DIR/compare-$p...$MAINC.out"
+    echo '{"status":"ahead","files":[{"filename":"a.md"}]}' > "$GH_BOARD_DIR/compare-$p...$prev.out"
+    prev=$p
+done
+eq "more than ten merge-ins is stale:too-many-merges" stale:too-many-merges "$(token >/dev/null; reason)"
+fresh_case '["a.md"]' '["a.md"]'
+echo 1 > "$GH_BOARD_DIR/commit-$H.rc"; echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/commit-$H.err"; rm -f "$GH_BOARD_DIR/commit-$H.out"
+bash "$LC" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a failed commit read: exit 2" 2 $?
+
+echo "== the body checks and the message =="
+scenario "$PERMIT" "$PERMIT"
+echo '{"schema":"shirabe-pr-body/v1","outcome":"violations","findings":[{"line":1,"message":"bad title"}]}' > "$BT_STATE/shirabe.out"
+eq "a body failing the PR-body checks is unready" "unready 12 $H" "$(token)"
+eq "  ... for body-checks" body-checks "$(reason)"
+rm -f "$BT_STATE/shirabe.out"
+scenario "$PERMIT" "$PERMIT"
+bt_body | sed '1s/.*/Co-Authored-By: someone/' > "$T/body"; bt_prview CLEAN "$T/body"
+eq "a Part 1 with an attribution line is unready for message" message "$(token >/dev/null; reason)"
 
 echo "== reads and repository =="
 scenario "$PERMIT" "$PERMIT"

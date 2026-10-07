@@ -9,15 +9,6 @@ effective intent, and the unconditional self-heal of any stale
 the initial state-file written and the phase pointer advanced to
 Phase 1.
 
-Argument checking is not a prose step here any more. The topic slug,
-`--intent`, `--max-rounds`, the `--upstream` shape, and every repeated
-or conflicting flag are constrained koto variables in
-`skills/scope/koto-templates/scope.md`, and `koto init` refuses a value
-they do not admit before any session or state file exists. The checks
-that need the working tree run in the template's `intake` state. What
-Phase 0 does by hand is tokenize, hand the tokens over, and set up the
-run once koto has accepted it.
-
 ## Tokenizing and the Residue Rule
 
 `/scope` splits `$ARGUMENTS` into tokens as typed: the positional
@@ -154,35 +145,6 @@ publish retry or one of the `--intent` shortcuts, or end the run at
 `done_refused` for a PLAN under way; `intake` ends it at
 `done_refused` or `done_error` when it refused the invocation or could
 not check it.
-
-## The Intake and Branch Checks Are States, Not Steps Here
-
-`intake` is the template's initial state. Its default action,
-`skills/scope/scripts/run-intake.sh`, resolves the run's effective
-intent, `RUN_INTENT`, and runs the two checks that need the working
-tree — the `--upstream` battery below and the recorded-intent check —
-then writes its verdict to the session's context, where
-non-overridable gates route it. A refusal ends the run at
-`done_refused` with the check's `reason`; the state file, if one
-exists, is left unchanged.
-
-The run's branch is settled next. `branch_check` reads `git
-symbolic-ref --quiet --short HEAD` on entry, delivers it to every
-later state as `{{BRANCH}}`, and gates on a named branch that is
-neither `main` nor `master`. A run that reaches `setup` is already on
-a branch it can commit hops to.
-
-This used to be a sentence in `setup`'s directive with nothing
-enforcing it, which meant a run started on the default branch did
-`/brief`'s whole hop before the first per-hop commit refused it.
-Phase 0 therefore does not check the branch, and `setup_result:
-blocked` no longer covers it.
-
-The Per-Hop Commit preconditions in
-`skills/scope/references/phases/phase-2-chain-orchestration.md` still recover
-and re-check the branch for themselves. That is deliberate: they run as agent
-shell in a reference file, where the template's `{{BRANCH}}` substitution does
-not reach, and a commit that verifies its own target is worth the second read.
 
 ## Topic-Slug Validation
 
@@ -331,29 +293,6 @@ one is recorded on the PLAN alone, because the PLAN is deleted by the
 same cascade that deletes the roadmap and goes first — see
 `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`.
 
-A private roadmap dropped here is dropped for both children, so the
-brief loses its grounding as well as the plan losing its link. That is
-the pre-existing shape of this check rather than a consequence of the
-split, and it is the case worth revisiting now that reading and
-recording have different targets.
-Public documents must not reference private ones (see the
-visibility-direction table in
-[`${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`](${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md)),
-and that rule is enforced by content governance rather than by
-tooling: `shirabe validate`'s resolution check returns nothing for a
-cross-repo value, so a public document carrying a private cross-repo
-upstream validates clean today and always will. `/scope` owns the
-check the validator cannot make.
-
-The shape and battery refuse the run while the visibility check omits
-the field and continues, and the difference is not an inconsistency.
-A `wip/` or untracked path is malformed input the author can fix by
-re-invoking with the canonical path; continuing without an upstream
-would hide the mistake. A private upstream in a public repo is a
-legitimate value that this repo cannot record — the feature is still
-worth scoping, so the chain proceeds and the link is what gets
-dropped.
-
 ## Recording the Effective Intent
 
 `intake` resolved the run's effective intent before `setup`, and the
@@ -372,23 +311,6 @@ The run's other settings are the session's variables and are read
 from the `setup` directive rather than re-parsed: `EXEC_MODE`,
 `COORDINATION`, `MAX_ROUNDS` (empty means the default of 5), and
 `UPSTREAM`.
-
-## Slug Re-Validation on Resume
-
-Slugs RECOVERED from on-disk artifact paths during resume —
-specifically, Slot 5 file-glob matches against
-`docs/{briefs,prds,designs/current,designs,plans}/<TYPE>-<topic>.md`
-and Slot 6 matches against `wip/{brief,prd,design,plan}_<topic>_*`
-— SHALL be re-validated against `^[a-z0-9-]+$` BEFORE entering
-interpolation into any emitted shell command or state-file write
-path. An unparseable slug rejects the resume entry, surfaces a
-diagnostic naming the offending path, and routes to R8 bail-
-handling. The resume MUST NOT silently proceed with an unvalidated
-slug.
-
-The re-validation closes the path-traversal surface that would
-otherwise open if an attacker placed a maliciously-named artifact
-under `docs/` to be discovered by Slot 5's ladder match.
 
 ## Stale `parent_orchestration:` Self-Heal
 
@@ -424,8 +346,8 @@ session: scope-<topic>
 intent: <continue|stop|none>                  # RUN_INTENT, always present
 chain_started: <ISO-8601 timestamp>
 last_updated: <ISO-8601 timestamp>
-phase_pointer: phase-0
-exit: UNSET
+phase_pointer: 0
+exit:
 exit_artifacts: []
 planned_chain: []
 consumed_upstream: <canonical upstream path>   # only when validation passed
@@ -433,7 +355,11 @@ consumed_upstream: <canonical upstream path>   # only when validation passed
 
 The 5-field minimum (`topic`, `last_updated`, `phase_pointer`,
 `exit`, `exit_artifacts`) is filled with their initial values;
-the `/scope`-specific extensions (`session`, `intent`,
+`phase_pointer` is the integer phase `0`, never `phase-0`, and `exit:`
+is empty: `skills/scope/scripts/resume-probe.sh` accepts only `0`-`4`
+as a pointer and reads only an empty, `null` or `~` exit as unset, so
+a `phase-0` pointer or a literal `UNSET` exit routes a resume to the
+malformed-state row. The `/scope`-specific extensions (`session`, `intent`,
 `chain_started`, `planned_chain`) are also written. Other
 `/scope`-specific fields are absent at Phase 0 per invariant I-5;
 they appear only when their triggering condition fires later in the
@@ -459,7 +385,7 @@ which is the intended shape — nothing records a private path in a
 public repo, including the state file, which is itself durable on
 the pushed feature branch.
 
-Phase 0 advances the `phase_pointer:` to `phase-1` immediately
+Phase 0 advances the `phase_pointer:` to `1` immediately
 before returning control to Phase 1, so a resume against the
 written state enters at Phase 1's discovery prompts. The write
 follows the tick that advanced the session out of `setup`, never
@@ -471,7 +397,7 @@ what a resume with no session to consult has to trust.
 
 The initial write above is the one exception, and it is the case the
 rule already covers: the session is still in `setup` when Phase 0
-writes `phase_pointer: phase-0`, so the value comes from `/scope`'s
+writes `phase_pointer: 0`, so the value comes from `/scope`'s
 own phase.
 
 ## Worktree-Discipline Trigger Is Not in Phase 0

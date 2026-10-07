@@ -9,6 +9,11 @@
 #     isn't an array of strings, and the flag on a plan-backed child or a PLAN
 #     path are this script's own refusals: exit 64, error=usage, no koto call,
 #     and the tokens file and its directory removed
+#     the review-level bound: --review-floor=/--review-ceiling= tokens become
+#     REVIEW_FLOOR/REVIEW_CEILING pairs, one per occurrence; without them the
+#     pairs are exactly ISSUE_NUMBER, ARTIFACT_PREFIX and PLUGIN_ROOT, as
+#     before the flags existed, and no REVIEW_LEVEL is passed for a session
+#     with no ledger
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     an issue-backed run opened under --koto-leg is bound to the leg, driven
@@ -24,6 +29,14 @@
 #       refusal is recorded on the leg, and no session is left behind
 #     a retained terminal session: koto's session_terminal refusal, recorded
 #       on the leg
+#     --review-floor=medium: koto's invalid_var at init, recorded on the leg,
+#       no session
+#     a run opened with --review-floor=standard has a `bound` line with that
+#       floor before its first `choose`, and a light choice under it is refused
+#     a resume through this script of a session whose ledger records a level
+#       keeps REVIEW_LEVEL at that level (an attach resets every rebind
+#       variable it isn't passed), where a bare attach empties it; a resume
+#       naming a different floor is koto's var_mismatch
 #
 # Usage: work-on-open_test.sh
 # Exit codes: 0 all pass (or koto absent), 1 a failure
@@ -110,6 +123,39 @@ OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \
     bash "$OPEN" --workflow issue_7 "$WORK/missing.json" 2>/dev/null)
 [ $? -eq 64 ] && [ ! -s "$WORK/stub.log" ] && pass "own refusal: a missing tokens file" \
     || fail "missing tokens file: out [$OUT]"
+
+# The pairs the tokens become, read from a stub that keeps a copy of the vars
+# file koto would have been handed (koto-open.sh removes the original). The
+# stub answers every other call (the ledger read) as an absent key.
+PAIRS_BIN="$WORK/pairs-bin"
+mkdir -p "$PAIRS_BIN"
+cat > "$PAIRS_BIN/koto" <<'STUB'
+#!/usr/bin/env bash
+prev=""
+for a in "$@"; do
+    [ "$prev" = "--vars-file" ] && cp -- "$a" "${KOTO_STUB_VARS:?}"
+    prev="$a"
+done
+exit 1
+STUB
+chmod +x "$PAIRS_BIN/koto"
+pairs_of() { # pairs_of <json tokens>
+    rm -f "$WORK/vars.json"
+    tokens "$1"
+    (cd "$FIXREPO" && KOTO_STUB_VARS="$WORK/vars.json" PATH="$PAIRS_BIN:$PATH" \
+        bash "$OPEN" --workflow issue_7 --var ISSUE_NUMBER=7 --var ARTIFACT_PREFIX=issue_7 "$TOKENS" >/dev/null 2>&1)
+}
+pairs_of '["7","--koto-leg=r1:work-on"]'
+eq "no bound flags: the pairs are the ones before the flags existed" \
+    '["ISSUE_NUMBER","ARTIFACT_PREFIX","PLUGIN_ROOT"]' "$(jq -c 'map(.[0])' "$WORK/vars.json" 2>/dev/null)"
+pairs_of '["7","--review-floor=standard","--review-ceiling=full","--koto-leg=r1:work-on"]'
+eq "--review-floor=standard --review-ceiling=full: the bound pairs" \
+    '[["REVIEW_FLOOR","standard"],["REVIEW_CEILING","full"]]' \
+    "$(jq -c 'map(select(.[0] | startswith("REVIEW_")))' "$WORK/vars.json" 2>/dev/null)"
+pairs_of '["7","--review-floor=light","--review-floor=full","--review-ceiling","--koto-leg=r1:work-on"]'
+eq "a repeat is two pairs and a bare flag its literal token, both left to koto" \
+    '[["REVIEW_FLOOR","light"],["REVIEW_FLOOR","full"],["REVIEW_CEILING","--review-ceiling"]]' \
+    "$(jq -c 'map(select(.[0] | startswith("REVIEW_")))' "$WORK/vars.json" 2>/dev/null)"
 
 # --- engine-backed ------------------------------------------------------------
 
@@ -199,6 +245,100 @@ eq "koto's refusal code" "refused=session_terminal" "$OUT"
 eq "the refusal is recorded on the leg" '"refused"' "$(leg "$REQ" .result_source)"
 eq "the recorded reason" '"session-terminal"' "$(leg "$REQ" .result.payload.reason)"
 eq "the terminal session is untouched" done_blocked "$(state_of issue_7)"
+
+# --- the review-level bound -----------------------------------------------------
+
+# A floor outside the three names: koto's pattern refuses it at init, and the
+# refusal is recorded on the leg.
+REQ=$(new_request '{}')
+run_open task_badfloor "[\"tidy\",\"--review-floor=medium\",\"--koto-leg=$REQ:work-on\"]" --var ARTIFACT_PREFIX=task_badfloor
+eq "--review-floor=medium: exit 2" 2 "$RC"
+eq "koto's refusal code" "refused=invalid_var" "$OUT"
+eq "the refusal is recorded on the leg" '"refused"' "$(leg "$REQ" .result_source)"
+eq "no session is left behind" none "$(state_of task_badfloor)"
+
+# The cases below tick into review_level_choice, whose action runs
+# review-level.sh, so PLUGIN_ROOT must reach this checkout. koto admits a
+# value only inside its allowlist, so a checkout path outside it is reached
+# through a symlink.
+REAL_ROOT="$REPO_ROOT"
+case "$REAL_ROOT" in
+    *[!a-zA-Z0-9._/:@\ -]*) ln -s "$REPO_ROOT" "$WORK/plugin"; REAL_ROOT="$WORK/plugin" ;;
+esac
+RL="$REAL_ROOT/skills/work-on/scripts/review-level.sh"
+ledger_events() { k context get "$1" review_level.jsonl 2>/dev/null | jq -r .event | tr '\n' ' ' | sed 's/ $//'; }
+# session_var <session> <VAR> -- the effective value from the session's log:
+# the init event's variables with every variables_rebound event applied.
+session_var() {
+    local dir
+    dir=$(k session dir "$1" 2>/dev/null) || { echo "<no session>"; return; }
+    cat "$dir"/*.state.jsonl 2>/dev/null | jq -rs --arg v "$2" '
+        reduce (.[] | select(.type == "workflow_initialized" or .type == "variables_rebound")) as $e
+            ({}; . + ($e.payload.variables // {})) | .[$v] // "<unset>"'
+}
+# to_choice <session> -- from entry to review_level_choice, as an issue-backed
+# run that skips its setup states.
+to_choice() {
+    tick "$1" --with-data '{"mode":"issue_backed","issue_number":"42"}'
+    tick "$1" --with-data '{"status":"override"}'
+    tick "$1" --with-data '{"status":"override"}'
+    tick "$1" --with-data '{"staleness_signal":"override"}'
+    printf '# Issue\n\n## Acceptance Criteria\n\n- [ ] it works\n' | k context add "$1" context.md >/dev/null 2>&1
+    printf 'plan\n' | k context add "$1" plan.md >/dev/null 2>&1
+    tick "$1" --with-data '{"plan_outcome":"plan_ready"}'
+}
+
+# Opened through this script with --review-floor=standard: the bound line,
+# with that floor, is in the ledger before any choice.
+REQ=$(new_request '{}')
+CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_42 "[\"42\",\"--review-floor=standard\",\"--koto-leg=$REQ:work-on\"]" \
+    --var ISSUE_NUMBER=42 --var ARTIFACT_PREFIX=issue_42
+eq "--review-floor=standard under --koto-leg: exit 0" 0 "$RC"
+eq "the session's REVIEW_FLOOR" standard "$(session_var issue_42 REVIEW_FLOOR)"
+to_choice issue_42
+eq "plan_ready with no level waits at review_level_choice" review_level_choice "$(state_of issue_42)"
+eq "the ledger holds the bound line and no choice yet" bound "$(ledger_events issue_42)"
+eq "the bound line records floor standard" standard \
+    "$(k context get issue_42 review_level.jsonl 2>/dev/null | jq -r 'select(.event == "bound") | .floor')"
+(cd "$FIXREPO" && "$RL" set issue_42 light --reason small >/dev/null 2>&1)
+eq "a light choice under the standard floor is refused" 1 "$?"
+(cd "$FIXREPO" && "$RL" set issue_42 standard >/dev/null 2>&1)
+eq "a standard choice is recorded" 0 "$?"
+eq "the ledger reads bound, then choose" "bound choose" "$(ledger_events issue_42)"
+
+# A resume through this script keeps the chosen level. The session is opened
+# the plain way (SKILL.md's direct init, with the bound as --var), its level
+# chosen, and a bare attach shows what the script guards against: the attach
+# resets REVIEW_LEVEL, which isn't passed.
+k init issue_43 --template "$TEMPLATE" --var ISSUE_NUMBER=43 --var ARTIFACT_PREFIX=issue_43 \
+    --var PLUGIN_ROOT="$REAL_ROOT" --var REVIEW_FLOOR=standard >/dev/null 2>&1
+eq "the direct init with --var REVIEW_FLOOR=standard" standard "$(session_var issue_43 REVIEW_FLOOR)"
+to_choice issue_43
+(cd "$FIXREPO" && "$RL" set issue_43 full >/dev/null 2>&1)
+eq "the level is chosen" full "$(session_var issue_43 REVIEW_LEVEL)"
+eq "review-level.sh level reads it from the ledger" full "$(cd "$FIXREPO" && "$RL" level issue_43 2>/dev/null)"
+k init issue_43 --template "$TEMPLATE" --attach-live --var PLUGIN_ROOT="$REAL_ROOT" >/dev/null 2>&1
+eq "control: a bare attach empties REVIEW_LEVEL" "" "$(session_var issue_43 REVIEW_LEVEL)"
+(cd "$FIXREPO" && "$RL" set issue_43 full >/dev/null 2>&1)
+REQ=$(new_request '{"ISSUE_NUMBER":"43"}')
+CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43 "[\"43\",\"--review-floor=standard\",\"--koto-leg=$REQ:work-on\"]" \
+    --var ISSUE_NUMBER=43 --var ARTIFACT_PREFIX=issue_43
+eq "a resume through work-on-open.sh: exit 0" 0 "$RC"
+case "$OUT" in *opened=attached*) pass "the live session is attached" ;; *) fail "resume output: [$OUT] [$ERR]" ;; esac
+eq "the resume keeps REVIEW_LEVEL at the ledger's level" full "$(session_var issue_43 REVIEW_LEVEL)"
+eq "and the bound it was opened with" standard "$(session_var issue_43 REVIEW_FLOOR)"
+eq "the resumed session is bound to the leg" '"issue_43"' "$(leg "$REQ" .bound_child)"
+eq "and still waits where it was" review_level_choice "$(state_of issue_43)"
+
+# The bound doesn't move inside a run: REVIEW_FLOOR isn't rebind in
+# work-on.md, so a resume naming a different floor is refused.
+REQ=$(new_request '{"ISSUE_NUMBER":"43"}')
+CLAUDE_PLUGIN_ROOT="$REAL_ROOT" run_open issue_43 "[\"43\",\"--review-floor=full\",\"--koto-leg=$REQ:work-on\"]" \
+    --var ISSUE_NUMBER=43 --var ARTIFACT_PREFIX=issue_43
+eq "a resume with a different floor: exit 2" 2 "$RC"
+eq "koto's refusal code" "refused=var_mismatch" "$OUT"
+eq "the session keeps its floor" standard "$(session_var issue_43 REVIEW_FLOOR)"
+eq "and its level" full "$(session_var issue_43 REVIEW_LEVEL)"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

@@ -48,6 +48,25 @@
 #      design (the gate above keeps such a report out of verify), so its
 #      sealed verdict is board-record_test.sh's and its arm the structure
 #      test's.
+#  17. a merge confirmed at merge_confirm holds record until the unit's
+#      Pull request cell is cleared, and the row stays (the shirabe#490
+#      comment): a row still linking the pull request waits, the row written
+#      back with the cell empty confirms, and the run goes on to pick with
+#      the row in the record.
+#  18. send_execution for a scoping-ahead holding: dispatch-worker.sh, run as
+#      the agent runs it at dispatch, renders the execution brief, opens an
+#      /execute leg in koto's request store and rewrites the holding to
+#      executing; record confirms it and the run reaches pick. A dispatch
+#      that leaves the holding scoping ahead holds at record.
+#  19. a checkpoint report is progress (shirabe#491): on the message path
+#      it goes through take_report, report_facts and report_questions back to
+#      wait with no classification and no phase change; one naming a pull
+#      request its holding lacks goes through report_link, where
+#      holding-link.sh writes it; one asking a question opens a decision entry
+#      and still isn't classified; a leg-bound worker's progress message is
+#      accepted, not refused, and goes back to wait without touching its leg;
+#      the same worker's later terminal report is classified as before. (19
+#      sits before 17 in this file, beside the cases it reuses fixtures from.)
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -84,7 +103,9 @@ mkdir -p "$GH_BOARD_DIR"
 # verify_board and land make, which go to testdata/gh-board when its case
 # directory holds a response for them: the board's GraphQL snapshot (any
 # GraphQL query but the author/editor one) and the REST reads only the board
-# makes (runs, jobs, rules, branch, the ref, files, checks).
+# makes (runs, jobs, rules, branch, the ref, files, checks), and the merge
+# confirmation's reads (the pull request's state and files, the repository,
+# each file's blob) when the case directory holds them.
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 key=
@@ -101,12 +122,19 @@ case "${1-} ${2-}" in
             repos/*/*/pulls/*/files) key=files ;;
             repos/*/*/commits/*/check-runs) key=checkruns ;;
             repos/*/*/commits/*/status) key=statuses ;;
+            repos/*/*/contents/*) ls "$GH_BOARD_DIR"/contents-* >/dev/null 2>&1 && exec "$COORD_TESTDATA/gh-board" "$@" ;;
+            repos/*/*/*) ;;
+            repos/*/*) key=repo ;;
         esac ;;
+    "pr view") key="prview-${3-}" ;;
 esac
 if [ -n "$key" ] && ls "$GH_BOARD_DIR/$key".* >/dev/null 2>&1; then exec "$COORD_TESTDATA/gh-board" "$@"; fi
 exec "$COORD_TESTDATA/gh" "$@"
 EOF
 chmod +x "$T/bin/gh"
+# The land check runs the repository's PR-body rule through the shirabe
+# binary; the stand-in answers clean, so the run never needs a real one.
+ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
 
 # A clock the quiet case can move forward: with $T/clock holding a number of
 # seconds, `date` without -d/-r reads that much later. Every other case runs
@@ -466,9 +494,10 @@ land_row() { # land_row [verified-head]
         pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}')"
 }
 land_run() {
-    db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
+    # The body carries the worker's Review panel at the head, which land reads.
+    db '.prs = [{repo: "acme/widgets", number: 12, title: "feat: the loader", body: $b, state: "OPEN", isDraft: false,
         isCrossRepository: false, baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice",
-        mergeStateStatus: "CLEAN"}]' --arg h "$H"
+        mergeStateStatus: "CLEAN"}]' --arg h "$H" --arg b "$(bt_body)"
     bt_board complete-board
     to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(land_row)" '.holdings = [$h]')" "$2" || return 1
     [ "$(at --with-data '{"choice":"hold"}')" = wait ] || return 1
@@ -489,10 +518,11 @@ if land_run landing 110; then
     eq "11: land is not entered before the head is recorded" 0 "$(entered land)"
     record_verified
     eq "11: record-holding.sh (agent-run) records the verified head" 0 $?
-    eq "11: with the head recorded, land permits and reaches land_merge" land_merge "$(at)"
+    eq "11: with the head recorded, land reads the round and permits, to goal_fit" goal_fit "$(at)"
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name LAND)" in
         "permit 12 $H "*) ok "11: LAND is the sealed permit" ;; *) bad "11: LAND is the sealed permit" ;;
     esac
+    eq "11: a fit pull request reaches land_merge" land_merge "$(at --with-data '{"fit":"fits","rationale":"delivers Feature 1"}')"
 else
     bad "11: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
@@ -511,6 +541,132 @@ else
     bad "11: reach verified_confirm for the moved head" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+# ---- 19. a checkpoint report is progress --------------------------------------
+echo "== 19. a checkpoint report is progress, on either return path =="
+PROG_ROWS() {
+    jq -nc --argjson a "$(holding feat-1 '{"unit": "Feature 1", "branch": "", "verified_head": "", "pull_request": "", "return_path": "message"}')" \
+        --argjson b "$(holding feat-2 '{"unit": "Feature 2", "branch": "", "verified_head": "", "pull_request": "", "return_path": "leg req-x:deliver"}')" '[$a, $b]'
+}
+db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
+    isCrossRepository: false, baseRefName: "main", headRefName: "feat/w-head", headRefOid: $h, author: "alice",
+    mergeStateStatus: "CLEAN"}]' --arg h "$H"
+if to_pick progress "$(record_json roadmap progress | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 191 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    eq "19 message: progress naming no pull request goes back to wait" wait \
+        "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 1 reached: scoping started."}')"
+    from_to take_report report_facts && from_to report_facts report_questions && from_to report_questions wait \
+        && ok "19 message: through take_report, report_facts and report_questions" \
+        || bad "19 message: through take_report, report_facts and report_questions"
+    eq "19 message: never classified" 0 "$(entered classify_report)"
+    eq "19 message: progress naming a pull request its holding lacks goes to report_link" report_link \
+        "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 2: PR is up.","pull_request":"acme/widgets#12"}')"
+    write_as_agent holding-link.sh
+    eq "19 message: holding-link.sh writes it" 0 $?
+    eq "19 message: written goes back to wait through report_facts" wait "$(at --with-data '{"linked":"written"}')"
+    live_body 191 | jq -e '.holdings[] | select(.worker == "feat-1") | .pull_request == "[#12](https://github.com/acme/widgets/pull/12)" and .phase == "executing"' >/dev/null \
+        && ok "19 message: the holding carries the pull request, its phase unchanged" || bad "19 message: the holding carries the pull request" "$(live_body 191 | jq -c .holdings)"
+    eq "19 message: still never classified" 0 "$(entered classify_report)"
+    RF0=$(entered report_facts)
+    eq "19 leg: a leg-bound worker's progress is accepted and goes back to wait" wait \
+        "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 1 reached."}')"
+    eq "19 leg: it was read by report_facts, as progress, not refused at take_report" "$((RF0 + 1)) progress" "$(entered report_facts) $(cd "$WD" && koto context get "$S" report_source 2>/dev/null)"
+    eq "19 leg: it never went to surface" 0 "$(entered surface)"
+    eq "19 leg: and its leg was never read" 0 "$(entered wait_leg)"
+    eq "19 leg: a report message from it is still refused at take_report" wait \
+        "$(at --with-data '{"event":"report","unit":"feat-2","report":"Done."}')"
+    eq "19 leg: still not classified" 0 "$(entered classify_report)"
+    eq "19 terminal: the message worker's later report is classified" classify_report \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"Done: PR #12 is ready.","pull_request":"acme/widgets#12"}')"
+else
+    bad "19: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# A checkpoint report that asks a question: its question is read and opens a
+# decision entry; the report is still never classified.
+if to_pick progressq "$(record_json roadmap progressq | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 192 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    eq "19 question: progress asking a question opens a decision entry" decision_open \
+        "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 3 reached.\nQuestions:\n1. Should the loader pin v2?"}')"
+    eq "19 question: and is never classified" 0 "$(entered classify_report)"
+else
+    bad "19 question: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 17. a confirmed merge clears the Pull request cell -----------------------
+echo "== 17. a confirmed merge clears the Pull request cell and keeps the row =="
+if land_run merging 112; then
+    record_verified
+    # A fit with follow-ups goes on exactly as a fit does.
+    if [ "$(at)" = goal_fit ] \
+        && [ "$(at --with-data '{"fit":"fits_with_follow_ups","rationale":"delivers Feature 1; follow-up: document the loader flags"}')" = land_merge ]; then
+        # The merge landed the verified content: MERGED, and the one file's
+        # blob on main equals the head's.
+        bt_merged MERGED '["src/main.go"]'; bt_blob main src/main.go aaaa; bt_blob "$H" src/main.go aaaa
+        eq "17: a confirmed merge goes on to record" record "$(at --with-data '{"merge":"attempted"}')"
+        case "$(bash "$PS/coord-log.sh" capture --session "$S" --name MERGE_CONFIRM)" in
+            "merged 12 $H "*) ok "17: MERGE_CONFIRM reads merged" ;; *) bad "17: MERGE_CONFIRM reads merged" ;;
+        esac
+        rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+        eq "17: record holds while the row still links the pull request" record "$(at)"
+        case "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>/dev/null | jq -r .expectation)" in
+            *"kept, with its Pull request cell cleared of #12"*) ok "17: the expectation says to clear the cell and keep the row" ;;
+            *) bad "17: the expectation says to clear the cell and keep the row" "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>&1)" ;;
+        esac
+        # The agent clears the cell, as the directive says: the row read back,
+        # pull_request emptied, nothing else changed.
+        (cd "$WD" && bash "$PS/record-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"
+        write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
+        eq "17: record-holding.sh (agent-run) clears the cell" 0 $?
+        eq "17: with the cell cleared, record confirms and the run goes on to pick" pick "$(at)"
+        live_body 112 | jq -e --arg h "$H" '[.holdings[] | select(.worker == "feat-1")]
+            | length == 1 and .[0].pull_request == "" and .[0].verified_head == $h' >/dev/null \
+            && ok "17: the row stays, with its Verified head and no pull request" || bad "17: the row stays, with its Verified head and no pull request" "$(live_body 112 | jq -c .holdings)"
+    else
+        bad "17: reach land_merge" "$(cat "$T/tick.err" 2>/dev/null)"
+    fi
+else
+    bad "17: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+# ---- 18. send_execution moves a scoping-ahead holding to executing ------------
+echo "== 18. send_execution moves a scoping-ahead holding to executing =="
+SCOPING_ROW=$(holding feat-1 "$(jq -nc '{unit: "Feature 1", entry_point: "scope", mode: "--auto --intent=continue", phase: "scoping-ahead",
+    pull_request: "", branch: "", return_path: "message"}')")
+cat > "$T/exec-brief.json" <<'EOF'
+{"topic": "feat-1", "repo": "acme/widgets", "unit": "Feature 1: first", "entry_point": "execute",
+ "entry_args": ["docs/plans/PLAN-feat-1.md"], "run_mode": "--auto", "phase": "executing",
+ "authority": "You are working for the owner on acme/widgets.", "goal": "Feature 1 ships.",
+ "checkpoints": ["The PR is ready with every CI job green."], "acceptance": ["CI is green per job."],
+ "dispatcher_session": "coord-engine"}
+EOF
+send_exec_to_dispatch() { # send_exec_to_dispatch <name> <number>: a run at dispatch on send_execution
+    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$SCOPING_ROW" '.holdings = [$h]')" "$2" || return 1
+    [ "$(at --with-data '{"choice":"send_execution","unit":"feat-1"}')" = dispatch ]
+}
+if send_exec_to_dispatch execsend 118; then
+    (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/exec-brief.json" >/dev/null)
+    # The workspace root the dispatch script renders briefs under, for this
+    # one run of it.
+    : > "$T/work/.niwa/workspace.toml"
+    OUT=$(cd "$WD" && bash "$PS/dispatch-worker.sh" --session "$S" 2>"$T/dw.err"); rc=$?
+    rm -f "$T/work/.niwa/workspace.toml"
+    eq "18: dispatch-worker.sh sends the execution (exit 0)" 0 "$rc"
+    case "$OUT" in *already-dispatched*) bad "18: never already-dispatched" "$OUT" ;; *brief=*) ok "18: it prints the execution brief" ;; *) bad "18: it prints the execution brief" "$OUT $(cat "$T/dw.err")" ;; esac
+    live_body 118 | jq -e '.holdings[0] | .phase == "executing" and .entry_point == "execute" and (.return_path | test("^leg [^:]+:execute$"))' >/dev/null \
+        && ok "18: the holding reads executing, on /execute's new leg" || bad "18: the holding reads executing, on /execute's new leg" "$(live_body 118 | jq -c '.holdings')"
+    eq "18: record confirms the moved phase and the run reaches pick" pick "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+else
+    bad "18: reach dispatch on send_execution" "at=$(now_at) $(cat "$T/open.err" "$T/tick.err" 2>/dev/null) $(cd "$WD" && koto context get "$S" coord/dispatch_check.json 2>/dev/null)"
+fi
+if send_exec_to_dispatch execnone 119; then
+    # Nothing was sent: the holding is still scoping ahead, so record holds.
+    eq "18: a send that changed nothing holds at record" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    case "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>/dev/null | jq -r .expectation)" in
+        *"means no execution was sent"*) ok "18: and says no execution was sent" ;;
+        *) bad "18: and says no execution was sent" "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>&1)" ;;
+    esac
+else
+    bad "18: reach dispatch on send_execution, unchanged" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
 
 # ---- 16. a report's pull request reaches the holding --------------------------
 echo "== 16. a report's pull request reaches an empty holding; done with none doesn't stick =="

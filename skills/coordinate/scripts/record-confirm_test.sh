@@ -4,7 +4,7 @@
 #
 # Covers, with a passing and a failing fixture each: dispatch (the topic's
 # row), surface (the unit's Verified head), merge_confirm and merged_facts
-# (merged: the unit's row no longer links the pull request; unconfirmed: a
+# (merged: the unit's row kept with its Pull request cell cleared; unconfirmed: a
 # Side effects row naming owner/repo#n at the sha), teardown (done and kept),
 # decision_apply (reversal and deferral), posture_ask, and --verified
 # (confirmed, waiting, moved). A multi-repository record where acme/widgets#12
@@ -91,6 +91,57 @@ log_to "$S" dispatch record "$EVT"
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "dispatch: a topic named only in the evidence, with no dispatch_check pass, is a conflict" conflict "$(confirm)"
 
+echo "== dispatch after send_execution (shirabe#553) =="
+send_exec() { # a run that picked send_execution for alpha, passed dispatch_check and dispatched it
+    session
+    log_to "$S" pick_facts pick 2026-09-26T09:50:00.000Z
+    log_evidence "$S" pick '{"choice":"send_execution","unit":"alpha"}' 2026-09-26T09:51:00.000Z
+    checked alpha
+    log_evidence "$S" dispatch '{"dispatched":"sent","topic":"alpha"}' "$EVT"
+    log_to "$S" dispatch record "$EVT"
+}
+send_exec
+body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"executing","entry_point":"/shirabe:execute"}')" '.holdings = [$h]')"
+eq "send_execution: the row moved to executing confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"scoping-ahead","entry_point":"/shirabe:scope"}')" '.holdings = [$h]')"
+eq "send_execution: a row still scoping ahead never confirms" waiting "$(confirm)"
+bash "$C" --session "$S" >/dev/null 2>&1
+jq -r '.expectation' "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null | grep -q 'means no execution was sent' \
+    && ok "send_execution: the expectation says no execution was sent" || bad "send_execution: the expectation says no execution was sent" "$(cat "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null)"
+session
+log_to "$S" pick_facts pick 2026-09-26T09:50:00.000Z
+log_evidence "$S" pick '{"choice":"dispatch","unit":"alpha"}' 2026-09-26T09:51:00.000Z
+checked alpha
+log_evidence "$S" dispatch '{"dispatched":"sent","topic":"alpha"}' "$EVT"
+log_to "$S" dispatch record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"scoping-ahead","entry_point":"/shirabe:scope"}')" '.holdings = [$h]')"
+eq "a plain dispatch of a scoping-ahead row confirms as before" confirmed "$(confirm)"
+
+echo "== leg_spent: a spent leg replaced (shirabe#506) =="
+LS_REPLACED='{"move":"replaced","topic":"alpha"}'
+leg_spent_run() { # leg_spent_run <evidence>: the wait read leg req-1:scope for alpha, spent; leg_spent replaced it
+    session
+    log_to "$S" wait leg_pick 2026-09-26T09:50:00.000Z
+    log_capture "$S" WAIT_REQ req-1 2026-09-26T09:50:00.000Z
+    log_to "$S" leg_pick wait_leg 2026-09-26T09:50:00.000Z
+    log_capture "$S" WAIT_LEG scope 2026-09-26T09:50:00.000Z
+    log_to "$S" wait_leg leg_spent 2026-09-26T09:50:00.000Z
+    log_evidence "$S" leg_spent "$1" "$EVT"
+    log_to "$S" leg_spent record "$EVT"
+}
+leg_spent_run "$LS_REPLACED"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"leg req-2:scope"}')" '.holdings = [$h]')"
+eq "leg_spent: the topic's row on a new leg confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"leg req-1:scope"}')" '.holdings = [$h]')"
+eq "leg_spent: the row still on the spent leg waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"message"}')" '.holdings = [$h]')"
+eq "leg_spent: a row moved to the message path isn't a replaced leg" waiting "$(confirm)"
+body "$(rec | jq -c --argjson a "$(holding alpha '{"return_path":"leg req-2:scope"}')" --argjson b "$(holding beta '{"return_path":"leg req-1:scope"}')" '.holdings = [$a, $b]')"
+eq "leg_spent: another row still on the spent leg waits" waiting "$(confirm)"
+leg_spent_run '{"move":"replaced"}'
+body "$(rec | jq -c --argjson h "$(holding alpha '{"return_path":"leg req-2:scope"}')" '.holdings = [$h]')"
+eq "leg_spent: replaced with no topic is a conflict" conflict "$(confirm)"
+
 echo "== surface =="
 session
 log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:50:00.000Z
@@ -130,15 +181,21 @@ for src in merge_confirm merged_facts; do
     log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
     sealed_capture "$src" "$KEY" "merged 12 $SHA_HEAD"
     log_to "$S" "$src" record "$EVT"
+    # A confirmed merge clears the unit's Pull request cell and keeps its row
+    # until teardown (the shirabe#490 comment of 2026-09-28).
+    body "$(rec | jq -c --argjson h "$(holding alpha '{"pull_request":""}')" '.holdings = [$h]')"
+    eq "$src merged: the unit's row kept with its Pull request cell cleared confirms" confirmed "$(confirm)"
     body "$(rec | jq -c --argjson h "$(holding beta '{"pull_request":"[#13](https://github.com/acme/widgets/pull/13)"}')" '.holdings = [$h]')"
-    eq "$src merged: no row linking the pull request confirms" confirmed "$(confirm)"
+    eq "$src merged: the unit's row gone waits, since the row stays until teardown" waiting "$(confirm)"
+    body "$(rec | jq -c --argjson h "$(holding alpha '{"pull_request":"[#14](https://github.com/acme/widgets/pull/14)"}')" '.holdings = [$h]')"
+    eq "$src merged: the unit's row linking another pull request waits" waiting "$(confirm)"
     body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
     eq "$src merged: a row still linking #12 waits" waiting "$(confirm)"
     # Two units hold #12, in two repositories.
     body "$(rec | jq -c --argjson a "$(holding alpha)" --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g, $a]')"
     eq "$src merged: the unit's widgets#12 row still there waits beside gadgets#12" waiting "$(confirm)"
-    body "$(rec | jq -c --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g]')"
-    eq "$src merged: widgets#12's row gone confirms though gadgets#12's row stays" confirmed "$(confirm)"
+    body "$(rec | jq -c --argjson a "$(holding alpha '{"pull_request":""}')" --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g, $a]')"
+    eq "$src merged: widgets#12's cell cleared confirms though gadgets#12's row stays" confirmed "$(confirm)"
     session
     log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
     sealed_capture "$src" "$KEY" "unconfirmed 12 $SHA_HEAD"
@@ -385,8 +442,10 @@ session
 leg_arrival req-1 execute
 sealed_capture merge_confirm MERGE_CONFIRM "merged 12 $SHA_HEAD"
 log_to "$S" merge_confirm record "$EVT"
+body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" --argjson t "$(holding theta "$(printf '%s' "$THETA_X" | jq -c '.pull_request = ""')")" '.holdings = [$a, $t]')"
+eq "leg merge_confirm: the leg's unit with its cell cleared confirms though alpha links gadgets#12" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" '.holdings = [$a]')"
-eq "leg merge_confirm: the leg's unit gone confirms though alpha links gadgets#12" confirmed "$(confirm)"
+eq "leg merge_confirm: the leg's unit gone waits" waiting "$(confirm)"
 body "$(rec | jq -c --argjson a "$(holding alpha "$GADGETS12")" --argjson t "$(holding theta "$THETA_X")" '.holdings = [$a, $t]')"
 eq "leg merge_confirm: the leg's holding still linking #12 waits" waiting "$(confirm)"
 

@@ -63,9 +63,17 @@ stateDiagram-v2
     escalate_send --> decision_answer : evidence.decision: present, evidence.round: present, sent: answered
     failure --> dispatch_check : move: redispatch
     failure --> decision_raise : move: escalate
-    land --> land_merge : gates.land_verdict.exit_code: 80
-    land --> surface : gates.land_verdict.exit_code: 81
-    land --> surface : gates.land_verdict.exit_code: 82
+    goal_fit --> land_merge : fit: fits, gates.goal_fit_land.exit_code: 80
+    goal_fit --> surface : fit: fits, gates.goal_fit_land.exit_code: 81
+    goal_fit --> surface : fit: fits, gates.goal_fit_land.exit_code: 82
+    goal_fit --> land_merge : fit: fits_with_follow_ups, gates.goal_fit_land.exit_code: 80
+    goal_fit --> surface : fit: fits_with_follow_ups, gates.goal_fit_land.exit_code: 81
+    goal_fit --> surface : fit: fits_with_follow_ups, gates.goal_fit_land.exit_code: 82
+    goal_fit --> rebrief : fit: gap
+    land --> goal_fit : gates.land_verdict.exit_code: 80
+    land --> goal_fit : gates.land_verdict.exit_code: 81
+    land --> goal_fit : gates.land_verdict.exit_code: 82
+    land --> rebrief : gates.land_verdict.exit_code: 83
     land --> verify : gates.land_verdict.exit_code: 53
     land --> failure : gates.land_verdict.exit_code: 84
     land_merge --> merge_confirm : merge: attempted
@@ -73,6 +81,8 @@ stateDiagram-v2
     land_merge --> surface : merge: held
     leg_pick --> wait_leg : gates.leg_target.matches: true
     leg_pick --> wait : gates.leg_target.matches: false
+    leg_spent --> record : move: replaced
+    leg_spent --> surface : move: surface
     merge_confirm --> record : gates.merge_confirm_verdict.exit_code: 90
     merge_confirm --> record : gates.merge_confirm_verdict.exit_code: 91
     merged_facts --> record : gates.merged_facts_verdict.exit_code: 90
@@ -129,13 +139,18 @@ stateDiagram-v2
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 61
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 62
     report_facts --> report_link : gates.report_facts_verdict.exit_code: 63
+    report_facts --> report_questions : gates.report_facts_verdict.exit_code: 64
     report_link --> report_facts : linked: written
     report_link --> surface : linked: refused
     report_questions --> decision_open : gates.report_questions_verdict.exit_code: 170
     report_questions --> classify_report : gates.report_holding.exit_code: 60, gates.report_questions_verdict.exit_code: 11
     report_questions --> wait : gates.report_holding.exit_code: 61, gates.report_questions_verdict.exit_code: 11
     report_questions --> wait : gates.report_holding.exit_code: 62, gates.report_questions_verdict.exit_code: 11
-    report_questions --> rebrief : gates.report_questions_verdict.exit_code: 171
+    report_questions --> wait : gates.report_holding.exit_code: 64, gates.report_questions_verdict.exit_code: 11
+    report_questions --> rebrief : gates.report_holding.exit_code: 60, gates.report_questions_verdict.exit_code: 171
+    report_questions --> rebrief : gates.report_holding.exit_code: 61, gates.report_questions_verdict.exit_code: 171
+    report_questions --> rebrief : gates.report_holding.exit_code: 62, gates.report_questions_verdict.exit_code: 171
+    report_questions --> wait : gates.report_holding.exit_code: 64, gates.report_questions_verdict.exit_code: 171
     report_questions --> surface : gates.report_questions_verdict.exit_code: 172
     roadmap_blocked --> wait : noted: noted
     roadmap_close --> roadmap_close_step : gates.roadmap_close_verdict.exit_code: 130
@@ -187,11 +202,14 @@ stateDiagram-v2
     verify_board --> failure : gates.verify_board_verdict.exit_code: 71
     verify_board --> wait : gates.verify_board_verdict.exit_code: 72
     verify_board --> wait : gates.verify_board_verdict.exit_code: 73
+    verify_board --> wait : gates.verify_board_verdict.exit_code: 78
+    verify_board --> rebrief : gates.verify_board_verdict.exit_code: 79
     verify_board --> surface : gates.verify_board_verdict.exit_code: 74
     verify_board --> surface : gates.verify_board_verdict.exit_code: 75
     verify_board --> surface : gates.verify_board_verdict.exit_code: 76
     verify_board --> wait : gates.verify_board_verdict.exit_code: 77
     wait --> take_report : event: report
+    wait --> take_report : event: progress
     wait --> leg_pick : event: leg
     wait --> quiet_check : event: quiet
     wait --> decision_apply : event: decision
@@ -204,10 +222,10 @@ stateDiagram-v2
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}
     wait_leg --> take_report : gates.leg_result.disposition: resolved, gates.leg_result.source: promoted
-    wait_leg --> surface : gates.leg_result.disposition: resolved, gates.leg_result.source: explicit
-    wait_leg --> surface : gates.leg_result.disposition: resolved, gates.leg_result.source: refused
-    wait_leg --> surface : gates.leg_result.disposition: abandoned
-    wait_leg --> surface : gates.leg_result.disposition: missing
+    wait_leg --> leg_spent : gates.leg_result.disposition: resolved, gates.leg_result.source: explicit
+    wait_leg --> leg_spent : gates.leg_result.disposition: resolved, gates.leg_result.source: refused
+    wait_leg --> leg_spent : gates.leg_result.disposition: abandoned
+    wait_leg --> leg_spent : gates.leg_result.disposition: missing
     wait_leg --> leg_pick : gates.leg_result.disposition: open, watch: rescan
     wait_leg --> wait : gates.leg_result.disposition: open, watch: back
     done --> [*]
@@ -240,6 +258,9 @@ stateDiagram-v2
     end note
     note left of escalate
         gate: escalate_verdict
+    end note
+    note left of goal_fit
+        gate: goal_fit_land
     end note
     note left of land
         gate: land_verdict

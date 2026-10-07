@@ -6,18 +6,32 @@
 #   prompt  the -p prompt
 #   cwd     the directory it was started in
 #   tmpdir  the TMPDIR it was started with
+#   env     for each of GH_TOKEN, GITHUB_TOKEN and SSH_AUTH_SOCK, whether it
+#           was set (NAME=set or NAME=unset); never the value
+#   calls   one line per invocation, so a --runs test can count sessions
 #
-# Then behaves as $STUB_CLAUDE_MODE says:
+# Then behaves as $STUB_CLAUDE_MODE says, or, when $STUB_CLAUDE_SEQUENCE holds a
+# space-separated list of modes, as the Nth word says on the Nth invocation
+# since the log directory was created (the last word repeats):
 #   plan     prints the plan-mode fixture transcript and writes nothing
 #   denied   prints the all-denied fixture transcript and writes nothing
 #   failed   prints the all-failed fixture transcript and writes nothing
 #   grade    writes outputs and a passing grading.json for every scenario in the
 #            workspace named in the prompt, then prints the executed transcript
+#   failgrade  as grade, but every criterion is graded as failed
 #   nograde  writes outputs but no grading.json, then prints the executed
 #            transcript (the session ran; the suite graded nothing)
 #   partial  grades only the first scenario, then prints the plan-mode
 #            transcript (some grades exist, so the session ran whatever the
 #            transcript says)
+#
+# When $STUB_CLAUDE_HOOK names an executable, it runs first, with the prompt
+# file as its argument, while the runner's scratch root and tier-2 clone still
+# exist. It sees what a real session would: the session's environment, with
+# the run's koto wrapper first on PATH, EVAL_KOTO_WRAPPER set and TMPDIR the
+# scratch root. Tests use it to act inside the run. Its stdout goes to stderr,
+# because the stub's stdout is the transcript the classifier reads, and its
+# exit status is ignored, so a hook reports through a file of its own.
 #
 # The workspace is read from the prompt line "The eval workspace is prepared
 # at: <dir>" that run-evals.sh writes; if that line changes, the grade and
@@ -42,28 +56,52 @@ done
 printf '%s' "$prompt" > "$log/prompt"
 pwd > "$log/cwd"
 printf '%s\n' "${TMPDIR:-}" > "$log/tmpdir"
+{
+  if [ -n "${GH_TOKEN+x}" ]; then echo GH_TOKEN=set; else echo GH_TOKEN=unset; fi
+  if [ -n "${GITHUB_TOKEN+x}" ]; then echo GITHUB_TOKEN=set; else echo GITHUB_TOKEN=unset; fi
+  if [ -n "${SSH_AUTH_SOCK+x}" ]; then echo SSH_AUTH_SOCK=set; else echo SSH_AUTH_SOCK=unset; fi
+} > "$log/env"
+echo call >> "$log/calls"
+
+if [ -n "${STUB_CLAUDE_HOOK:-}" ]; then
+  "$STUB_CLAUDE_HOOK" "$log/prompt" >&2 || true
+fi
+
+mode="${STUB_CLAUDE_MODE:-plan}"
+if [ -n "${STUB_CLAUDE_SEQUENCE:-}" ]; then
+  n=$(wc -l < "$log/calls" | tr -d ' ')
+  # shellcheck disable=SC2086
+  set -- $STUB_CLAUDE_SEQUENCE
+  while [ "$n" -gt 1 ] && [ $# -gt 1 ]; do
+    shift
+    n=$((n - 1))
+  done
+  mode="$1"
+fi
 
 workspace=$(printf '%s\n' "$prompt" | sed -n 's/^The eval workspace is prepared at: //p' | head -n 1)
 
 write_outputs() {
-  local with_grading="$1" dir
+  local with_grading="$1" dir passed=true
+  [ "$with_grading" = failing ] && passed=false
   for dir in "$workspace"/*/; do
     [ -f "$dir/eval_metadata.json" ] || continue
     echo "with skill" > "$dir/with_skill/outputs/response.md"
     echo "without skill" > "$dir/without_skill/outputs/response.md"
-    if [ "$with_grading" = yes ] || [ "$with_grading" = first ]; then
-      echo '{"expectations": [{"text": "stub criterion", "passed": true, "evidence": "stub"}]}' \
+    if [ "$with_grading" = yes ] || [ "$with_grading" = first ] || [ "$with_grading" = failing ]; then
+      echo '{"expectations": [{"text": "stub criterion", "passed": '"$passed"', "evidence": "stub"}]}' \
         > "$dir/with_skill/grading.json"
       [ "$with_grading" = first ] && with_grading=no
     fi
   done
 }
 
-case "${STUB_CLAUDE_MODE:-plan}" in
+case "$mode" in
   plan)    cat "$here/plan-mode.jsonl" ;;
   denied)  cat "$here/all-denied.jsonl" ;;
   failed)  cat "$here/all-failed.jsonl" ;;
   grade)   write_outputs yes; cat "$here/executed.jsonl" ;;
+  failgrade) write_outputs failing; cat "$here/executed.jsonl" ;;
   nograde) write_outputs no; cat "$here/executed.jsonl" ;;
   partial) write_outputs first; cat "$here/plan-mode.jsonl" ;;
   *)       echo "stub claude: unknown STUB_CLAUDE_MODE" >&2; exit 64 ;;

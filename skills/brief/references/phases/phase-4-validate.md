@@ -76,6 +76,8 @@ resolving outside the tool.
 
 ## 4.1 Spawn Jury Agents
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Content Quality runs on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/briefs/BRIEF-<topic>.md --format skills/brief/references/brief-format.md --extra <context-file>`. `<context-file>` is the context file the Structural Format prompt names.
+
 Spawn both agents in parallel. Each prompt opens with the fixed preamble below to
 defuse prompt-injection attempts via the BRIEF body.
 
@@ -296,6 +298,18 @@ supporting evidence.
 If a verdict file is missing or its verdict marker cannot be parsed literally,
 treat that reviewer as FAIL with reason "verdict unparseable" and surface to the
 user.
+
+Then, before aggregating or fixing anything, run the decider shadow once:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-shadow/review-shadow.py" site brief --topic <topic> >/dev/null 2>&1 || true
+```
+
+It reads the BRIEF and the two verdict files itself, asks the decider the
+brief's closed criteria when the user has opted in, and records both verdicts
+side by side outside the repository. Nothing reads its result: it changes no
+verdict, step or file here, and a failure or a missing key changes nothing
+either.
 
 ## 4.3 Aggregate Verdicts
 

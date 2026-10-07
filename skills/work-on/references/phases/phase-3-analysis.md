@@ -72,7 +72,7 @@ prior context on the issue).
 
 ```bash
 OUTCOME_FIELD=plan_outcome
-for KEY in plan.md scrutiny_results.json review_results.json qa_results.json summary.md; do
+for KEY in plan.md scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
   koto context remove <WF> "$KEY" >/dev/null 2>&1
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then

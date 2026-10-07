@@ -40,7 +40,7 @@ NONE=$(state none.md 'topic: demo
 intent: none
 ')
 PRE=$(state pre.md 'topic: demo
-exit: UNSET
+exit:
 ')
 BOGUS=$(state bogus.md 'intent: later
 ')

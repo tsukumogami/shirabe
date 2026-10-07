@@ -23,6 +23,8 @@
 #   - executed_report takes no evidence and routes on non-overridable
 #     context-matches gates; /scope ships no owned-pr script of its own;
 #   - the frontmatter description's state count matches the states declared.
+#   - the child-dispatch reference keeps a child's verdict and lists the
+#     publishing and routing steps a child skips under the sentinel.
 #
 # Usage: bash skills/scope/scripts/scope-template_test.sh
 # Exit 0 when every case holds. The compiled-template cases need koto and jq and
@@ -251,9 +253,93 @@ else
     bad "every owned-pr.sh call resolves to skills/execute/scripts/owned-pr.sh" "$CALLS"
 fi
 eq "hop_plan's landed edge requires plan_mode_consistent" 'true' \
-    "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | .when["gates.plan_mode_consistent.exit_code"]] == [0]')"
+    "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | .when["gates.plan_mode_consistent.exit_code"]] | length > 0 and all(. == 0)')"
 eq "a plan-mode mismatch routes to bail" 'true' \
     "$(q '[.states.hop_plan.transitions[] | select(.target == "bail" and .when["gates.plan_mode_consistent.exit_code"] == 1)] | length == 1')"
+
+# Filing issues needs an approval on every path: hop_plan reaches fold only when
+# the PLAN files nothing, or files with filing permitted and an approval
+# recorded; every other filing outcome routes to bail. Both gates refuse
+# overrides, and the filing gate reads the PLAN and the run's execution mode.
+eq "hop_plan: fold needs filing exit 0, or 3 with a recorded approval" 'true' \
+    "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | [.when["gates.plan_filing.exit_code"], .when["gates.filing_approval.matches"]]] | sort == [[0,null],[3,true]]')"
+eq "hop_plan: filing without an approval, or under --auto without a header, bails" 'true' \
+    "$(q '[.states.hop_plan.transitions[] | select(.target == "bail" and .when["gates.plan_filing.exit_code"] != null) | [.when["gates.plan_filing.exit_code"], .when["gates.filing_approval.matches"]]] | sort == [[1,null],[3,false]]')"
+eq "hop_plan: the filing gates refuse overrides" 'false' \
+    "$(q '[.states.hop_plan.gates.plan_filing.overridable, .states.hop_plan.gates.filing_approval.overridable] | any')"
+eq "hop_plan: filing_approval reads plan_filing_approval" '"plan_filing_approval"' \
+    "$(q '.states.hop_plan.gates.filing_approval.key')"
+eq "hop_plan: plan_filing runs check-plan-filing.sh with EXEC_MODE" 'true' \
+    "$(q '.states.hop_plan.gates.plan_filing.command | contains("check-plan-filing.sh") and contains("--exec-mode \"{{EXEC_MODE}}\"")')"
+
+# An abandoned run writes no PLAN (a committed Draft PLAN fails the lifecycle
+# check), so the abandonment gate must not accept a marker on the PLAN's path.
+eq "exit_abandonment's marker gate never reads the PLAN's path" 'false' \
+    "$(q '.states.exit_abandonment.gates.forced_artifact_present.command | contains("docs/plans/")')"
+FORCED=$(awk '/^forced_artifact\(\)/{f=1} f{print} f&&/^}/{exit}' "$HERE/print-scope-exit.sh")
+if [ -z "$FORCED" ]; then
+    bad "print-scope-exit.sh never reports a PLAN as the abandoned artifact" "forced_artifact() not found"
+elif printf '%s\n' "$FORCED" | grep -v '^[[:space:]]*#' | grep -q 'docs/plans/'; then
+    bad "print-scope-exit.sh never reports a PLAN as the abandoned artifact" "forced_artifact() names docs/plans/"
+else
+    ok "print-scope-exit.sh never reports a PLAN as the abandoned artifact"
+fi
+
+# An intent-changing upstream change is the running agent's call, recorded as a
+# decision, with a concrete escalation target for every way a run is set up.
+ESC=$(awk '/^- \*\*Escalation phase\.\*\*/{f=1} f&&/^The check.s recording fields/{exit} f' \
+    "$HERE/../references/phases/phase-2-chain-orchestration.md")
+for want in 'koto decisions record' '`--koto-leg`' 'coordinator' 'Running solo' 'Under `--auto` with no' 'escalation stops the run'; do
+    case "$ESC" in
+        *"$want"*) ok "Phase 2's escalation names: $want" ;;
+        *) bad "Phase 2's escalation names: $want" "Escalation phase text missing it" ;;
+    esac
+done
+
+# /charter shares /scope's Phase 2 worktree flow, so the two must agree with the
+# merge-only reference: no /charter or /scope text tells the agent to rebase,
+# and /charter's citation of worktree-discipline.md names phases it has.
+WD="$HERE/../../../references/worktree-discipline.md"
+CHARTER="$HERE/../../charter"
+REBASE=$(grep -rniE '(^|[^_a-z])rebas(e|ing)' "$CHARTER" "$HERE/.." --include='*.md' 2>/dev/null \
+    | grep -v '/evals/' | grep -viE 'never (by )?rebas|worktree_rebases|rebased_at|force-push-after-rebase' || true)
+if [ -z "$REBASE" ]; then
+    ok "no /charter or /scope instruction tells the agent to rebase"
+else
+    bad "no /charter or /scope instruction tells the agent to rebase" "$REBASE"
+fi
+for phase in 'Merge phase' 'Impact-analysis phase' 'Escalation phase'; do
+    if grep -q "^## $phase\$" "$WD" && grep -F 'worktree-discipline.md' "$CHARTER/SKILL.md" | grep -q "$phase"; then
+        ok "/charter cites worktree-discipline.md's $phase, which exists"
+    else
+        bad "/charter cites worktree-discipline.md's $phase, which exists" "heading or citation missing"
+    fi
+done
+
+# The child-dispatch contract the hops rely on: under the sentinel a child keeps
+# its verdict and skips every step that publishes or routes, so /scope's one
+# push at exit stays true. The dispatch reference once had children leave their
+# artifact unapproved for the parent, which /design and /plan cannot start from.
+DISPATCH="$HERE/../../../references/fixes/sub-agent-dispatch.md"
+PHASE2="$HERE/../references/phases/phase-2-chain-orchestration.md"
+SCOPE_ROWS=$(grep -E '^\| `/(brief|prd|design|plan)` \|' "$DISPATCH")
+if [ -n "$SCOPE_ROWS" ] && ! printf '%s\n' "$SCOPE_ROWS" | grep -q 'Parent-delegated-approval'; then
+    ok "the dispatch reference no longer delegates a /scope child's approval to the parent"
+else
+    bad "the dispatch reference no longer delegates a /scope child's approval to the parent" "$SCOPE_ROWS"
+fi
+SKIPS=$(awk '/^## What a child keeps and what it skips under \/scope/{f=1;next} f&&/^## /{exit} f' "$DISPATCH")
+for step in '**push**' '**pull request**' '**branch creation**' '**cleanup commit**' '**routing prompts**'; do
+    case "$SKIPS" in
+        *"$step"*) ok "the dispatch reference's skip list names $step" ;;
+        *) bad "the dispatch reference's skip list names $step" "section missing or step absent" ;;
+    esac
+done
+if grep -q 'What a child keeps' "$PHASE2"; then
+    ok "Phase 2 cites the dispatch reference's keep-and-skip section"
+else
+    bad "Phase 2 cites the dispatch reference's keep-and-skip section" ""
+fi
 
 echo
 echo "passed: $PASS   failed: $FAIL"

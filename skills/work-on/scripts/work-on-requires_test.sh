@@ -3,10 +3,11 @@
 # --koto-leg, as preflight reports it.
 # Part of the work-on skill
 #
-# skills/work-on/requires.tsv declares no koto init entry flag for a run
-# without --koto-leg, and declares the entry flags the flag needs
-# (--vars-file, --attach-live, --koto-leg) in a `mode:koto-leg` record. Against
-# a stand-in koto whose `init --help` predates those flags, this asserts:
+# skills/work-on/requires.tsv declares one koto init entry flag for every run,
+# --attach-live (review-level.sh set rebinds REVIEW_LEVEL with it), and declares
+# the entry flags --koto-leg needs (--vars-file, --attach-live, --koto-leg) in a
+# `mode:koto-leg` record. Against a stand-in koto whose `init --help` predates
+# --vars-file and --koto-leg, this asserts:
 #
 #   - the load-time preflight (`skill-preflight.sh work-on`) prints nothing
 #     when that koto reports shirabe's koto minimum: a run without the flag is
@@ -47,9 +48,15 @@ for f in --vars-file --attach-live --koto-leg; do
     esac
 done
 ALWAYS_FLAGS=$(awk -F'\t' '$1 == "koto" && $2 == "init" && $4 == "always" { print $3 }' "$REQ")
+# --attach-live is the one entry flag every run needs: review-level.sh set
+# rebinds REVIEW_LEVEL with it. The other two stay --koto-leg's alone.
 case "$ALWAYS_FLAGS" in
-    *--koto-leg*|*--attach-live*|*--vars-file*) bad "the always init record declares no entry flag" "[$ALWAYS_FLAGS]" ;;
-    *) ok "the always init record declares no entry flag" ;;
+    *--koto-leg*|*--vars-file*) bad "the always init record declares no --koto-leg-only entry flag" "[$ALWAYS_FLAGS]" ;;
+    *) ok "the always init record declares no --koto-leg-only entry flag" ;;
+esac
+case ",$ALWAYS_FLAGS," in
+    *,--attach-live,*) ok "the always init record declares --attach-live, which review-level.sh set needs" ;;
+    *) bad "the always init record declares --attach-live, which review-level.sh set needs" "[$ALWAYS_FLAGS]" ;;
 esac
 DELIVER_FLAGS=$(awk -F'\t' '$1 == "koto" && $2 == "init" { print $3 }' "$REPO/skills/deliver/requires.tsv")
 for f in $(printf '%s' "$MODE_FLAGS" | tr ',' ' '); do
@@ -59,8 +66,9 @@ for f in $(printf '%s' "$MODE_FLAGS" | tr ',' ' '); do
     esac
 done
 
-# A koto from before the entry flags: `init --help` knows only --template and
-# --var; every other subcommand answers with the flags /work-on always needs.
+# A koto without the --koto-leg entry flags: `init --help` knows --template,
+# --var and --attach-live (which every run needs, and which predates the
+# floor); every other subcommand answers with the flags /work-on always needs.
 # Its `version` prints $KOTO_STUB_VERSION, so one stand-in covers the surface
 # cases at the minimum and the minimum case below it.
 MINIMUM=$(bash "$REPO/scripts/assert-koto-floor.sh" --print-floor)
@@ -68,8 +76,8 @@ mkdir -p "$T/bin" "$T/cwd"
 cat >"$T/bin/koto" <<'OLD'
 #!/usr/bin/env bash
 case "$*" in
-    "init --help") printf 'Usage: koto init <NAME> --template <T>\n\nOptions:\n      --template <T>\n      --var <K=V>\n  -h, --help\n' ;;
-    *"--help"|"help") printf 'Usage: koto %s\n\nCommands:\n  init\n  next\n  workflows\n  status\n  session\n  rewind\n  context\n  decisions\n  list\n  cleanup\n  add\n  get\n  exists\n  remove\n  record\n\nOptions:\n      --with-data <D>\n      --no-cleanup\n      --from-file <F>\n      --children <NAME>\n  -h, --help\n' "$1" ;;
+    "init --help") printf 'Usage: koto init <NAME> --template <T>\n\nOptions:\n      --template <T>\n      --var <K=V>\n      --attach-live\n  -h, --help\n' ;;
+    *"--help"|"help") printf 'Usage: koto %s\n\nCommands:\n  init\n  next\n  workflows\n  status\n  session\n  rewind\n  context\n  decisions\n  overrides\n  list\n  cleanup\n  add\n  get\n  exists\n  remove\n  record\n\nOptions:\n      --with-data <D>\n      --no-cleanup\n      --from-file <F>\n      --children <NAME>\n      --gate <G>\n      --rationale <R>\n  -h, --help\n' "$1" ;;
     "version"|"--version") printf 'koto %s\n' "$KOTO_STUB_VERSION" ;;
     *) printf "error: unrecognized subcommand '%s'\n" "$1" >&2; exit 2 ;;
 esac

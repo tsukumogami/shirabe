@@ -14,6 +14,8 @@
 #   the verdict script is found by directory, never PATH        (location case)
 #   every refusal prints merge-refused:<verdict>, no merge      (refusal cases)
 #   the merge call, byte for byte, per method                   (merge cases)
+#   a message file: --subject and --body-file for squash and
+#   merge, ignored for rebase; a malformed file refused         (message cases)
 #   a failing merge call is not retried                         (row 18)
 #   merge-called is never read as merged                        (end to end)
 #   no merge call carries --admin, --auto, or --delete-branch
@@ -68,7 +70,13 @@ case "$1 ${2:-}" in
         esac
         ;;
     "pr checks") key=checks ;;
-    "pr merge") key=merge ;;
+    "pr merge") key=merge
+        # Keep what a --body-file held: merge-exec.sh removes its copy.
+        prev=
+        for a in "$@"; do
+            [ "$prev" = --body-file ] && cp "$a" "$fix/body.seen"
+            prev=$a
+        done ;;
     "api "*)
         case "$2" in
             repos/*/*/rules/branches/*) key=rules ;;
@@ -283,6 +291,45 @@ if [ -e "$WORK/planted-ran" ]; then
 else
     pass "location: the merge-verdict.sh planted on PATH was never run"
 fi
+
+# The optional message file: subject and body for a squash or a merge, nothing
+# for a rebase, and a malformed file refused before any gh call.
+MSG="$WORK/message.txt"
+printf 'feat(x): the subject\n\nThe body, line one.\nLine two.\n' > "$MSG"
+for METHOD in squash merge rebase; do
+    new_case "message-$METHOD"
+    case "$METHOD" in
+        squash) fixture repo '{"allow_squash_merge":true,"allow_merge_commit":false,"allow_rebase_merge":false}' ;;
+        merge)  fixture repo '{"allow_squash_merge":false,"allow_merge_commit":true,"allow_rebase_merge":false}' ;;
+        rebase) fixture repo '{"allow_squash_merge":false,"allow_merge_commit":false,"allow_rebase_merge":true}' ;;
+    esac
+    expect "a message file with $METHOD" "merge-called:$METHOD:$HEAD" o/r 7 "$HEAD" "$MSG"
+    CALL=$(grep '^pr merge' "$CASE/calls.log")
+    if [ "$METHOD" = rebase ]; then
+        if [ "$CALL" = "pr merge 7 --repo o/r --rebase --match-head-commit $HEAD" ]; then
+            pass "rebase: the message file is ignored"
+        else
+            fail "rebase: [$CALL]"
+        fi
+    else
+        case "$CALL" in
+            "pr merge 7 --repo o/r --$METHOD --match-head-commit $HEAD --subject feat(x): the subject --body-file "*)
+                pass "$METHOD: the subject and a body file follow the fixed call" ;;
+            *) fail "$METHOD: [$CALL]" ;;
+        esac
+        if [ "$(cat "$CASE/body.seen" 2>/dev/null)" = "$(printf 'The body, line one.\nLine two.')" ]; then
+            pass "$METHOD: the body file holds everything after the blank line"
+        else
+            fail "$METHOD: body [$(cat "$CASE/body.seen" 2>/dev/null)]"
+        fi
+    fi
+done
+expect_usage "a message file that doesn't exist" o/r 7 "$HEAD" "$WORK/no-such-file"
+printf '\nbody\n' > "$WORK/empty-subject.txt"
+expect_usage "a message file with an empty subject" o/r 7 "$HEAD" "$WORK/empty-subject.txt"
+printf 'subject\nnot blank\n' > "$WORK/no-blank.txt"
+expect_usage "a message file whose second line isn't blank" o/r 7 "$HEAD" "$WORK/no-blank.txt"
+expect_usage "five arguments" o/r 7 "$HEAD" "$MSG" extra
 
 new_case merge-fails
 echo 1 > "$CASE/merge.rc"

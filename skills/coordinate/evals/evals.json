@@ -240,7 +240,8 @@
         "The verified head is written into the holding in the record before any merge step",
         "The head is re-read on entering the land step, and a moved head goes back to verification",
         "The merge is pinned to the verified head and made because the workspace permits it, not handed to the human",
-        "After the merge, the change is confirmed on the default branch by reading the changed files there"
+        "After the merge, the change is confirmed on the default branch by reading the changed files there",
+        "The coordinator runs no review panel of its own: the land step reads the worker's Review panel table from the pull request body, and the merge carries a squash message built from the title and Part 1"
       ],
       "requirements": [
         "R10",
@@ -378,7 +379,7 @@
     {
       "id": 20,
       "name": "restart-reconciles-a-merged-holding",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, restarted after your previous session ended. The workflow found your record, and the engine has run the reconcile pass: the session is now in the reconcile state. Your record, written 2026-09-25, lists plugin-registry with pull request #412 as open. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: roadmap plugin-system. Record written 2026-09-25T16:40:00Z; reconciled 2026-09-27T09:12:00Z. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\n- `plugin-registry`: pull request: record said open, now merged (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: head moved past the verified head (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: branch: record said feat/plugin-registry, now branch gone (written 2026-09-25T16:40:00Z; measured).\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | Feature 4: plugin sandbox | `plugin-sandbox` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Not verified\nNone.\n\nWrite your first report up to the human, then say what you submit to the workflow and what you do next.",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, restarted after your previous session ended. The workflow found your record, and the engine has run the reconcile pass: the session is now in the reconcile state. Your record, written 2026-09-25, lists plugin-registry with pull request #412 as open. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: roadmap plugin-system. Record written 2026-09-25T16:40:00Z; reconciled 2026-09-27T09:12:00Z. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\n- `plugin-registry`: pull request: record said open, now merged (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: head moved past the verified head (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: branch: record said feat/plugin-registry, now branch gone (written 2026-09-25T16:40:00Z; measured).\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | Feature 4: plugin sandbox | `plugin-sandbox` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Disposed deferrals\nNone.\n\n## Not verified\nNone.\n\nWrite your first report up to the human, then say what you submit to the workflow and what you do next.",
       "expected_output": "The coordinator reports the sealed report as it stands, with Changed since then before the one table, Where things stand, naming plugin-registry as open in the record and merged now. It runs none of the reads itself, notes that the reconcile scripts ran from the installed plugin root outside the repository, submits reconciled: reported after the report is up, writes no reconcile/ key, and drops plugin-registry from the holdings at the next record update.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
@@ -389,7 +390,7 @@
         "The coordinator runs no gh, git or niwa read to re-check the holdings itself; it presents the report the reconcile pass produced",
         "The report up, or what the coordinator says about it, states that the reconcile scripts ran from outside the repository being worked on (the installed plugin root)",
         "It submits reconciled: reported only after the report is up, and writes no reconcile/ context key",
-        "plugin-registry is to be dropped from the holdings at the next record update, not treated as still open"
+        "plugin-registry is treated as merged, not still open: no merge of #412 is attempted again, and its row goes when its worker is torn down"
       ],
       "requirements": [
         "reconcile R7",
