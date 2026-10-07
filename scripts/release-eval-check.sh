@@ -2,9 +2,9 @@
 #
 # release-eval-check.sh - shirabe's eval check for /shirabe:release
 #
-# Runs the evals of the skills changed since the last release, compares their
-# pass rates with the previous release's eval-pass-rates.json asset, and leaves
-# a record for the release to attach. Declared in
+# Runs the evals of the skills changed since the last release, compares each
+# one's pass rate with the newest earlier release whose eval-pass-rates.json
+# asset measured it, and leaves a record for the release to attach. Declared in
 # .claude/shirabe-extensions/release.md; see
 # docs/designs/current/DESIGN-evals-at-release.md (Decision 3).
 #
