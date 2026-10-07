@@ -405,10 +405,10 @@ metadata_model() {
 }
 
 run_runner grade demo
-if [ "$RC" -eq 0 ] && [ "$(arg_after --model)" = sonnet ] \
+if [ "$RC" -eq 0 ] && ! grep -qx -- "--model" "$LOG/args" \
   && [ "$(metadata_model demo demo-scenario)" = sonnet ] \
   && grep -q "demo-scenario: .*with-skill agent and its baseline agent on model sonnet" "$LOG/prompt"; then
-  pass "model: sonnet by default, for the session, the metadata and the per-eval line"
+  pass "model: by default the grader session gets no --model, and a tier-1 scenario runs on sonnet"
 else
   fail "model default (rc=$RC): --model=$(arg_after --model) metadata=$(metadata_model demo demo-scenario)"
 fi
@@ -417,10 +417,62 @@ EVAL_MODEL=opus run_runner grade demo
 if [ "$RC" -eq 0 ] && [ "$(arg_after --model)" = opus ] \
   && [ "$(metadata_model demo demo-scenario)" = opus ] \
   && grep -q "demo-scenario: .*on model opus" "$LOG/prompt"; then
-  pass "model: EVAL_MODEL=opus reaches the session, the metadata and the per-eval line"
+  pass "model: EVAL_MODEL=opus reaches the grader session, the metadata and the per-eval line"
 else
   fail "EVAL_MODEL=opus (rc=$RC): --model=$(arg_after --model) metadata=$(metadata_model demo demo-scenario)"
 fi
+
+# The liveness scenario is not tier 1, so by default it inherits the session's
+# model: no override in its metadata or its instruction line.
+run_runner grade live
+if [ "$RC" -eq 0 ] && ! grep -qx -- "--model" "$LOG/args" \
+  && [ "$(metadata_model live liveness)" = inherit ] \
+  && grep -q "liveness: .*with no model override, so they run on this session's model" "$LOG/prompt"; then
+  pass "model: by default a scenario that is not tier 1 inherits the session's model"
+else
+  fail "model inherit (rc=$RC): metadata=$(metadata_model live liveness)"
+fi
+
+EVAL_MODEL=opus run_runner grade live
+if [ "$RC" -eq 0 ] && [ "$(arg_after --model)" = opus ] \
+  && [ "$(metadata_model live liveness)" = opus ]; then
+  pass "model: an explicit EVAL_MODEL also reaches a scenario that is not tier 1"
+else
+  fail "model inherit with EVAL_MODEL (rc=$RC): metadata=$(metadata_model live liveness)"
+fi
+
+# Tier-2 scenarios are checked through --prep-only: a full run would stand up
+# the isolated clone, which is not what these cases test.
+mkdir -p "$SUITE/tiers/evals"
+echo "# tiers skill" > "$SUITE/tiers/SKILL.md"
+cat > "$SUITE/tiers/evals/evals.json" <<'EOF'
+{"skill_name": "tiers", "evals": [
+  {"id": 1, "name": "tier1-scenario", "tier": 1, "mode": "plan_only", "prompt": "one",
+   "expected_output": "one", "files": [], "expectations": ["stub criterion"]},
+  {"id": 2, "name": "tier2-scenario", "tier": 2, "mode": "execute", "prompt": "two",
+   "expected_output": "two", "files": [], "expectations": ["stub criterion"]},
+  {"id": 3, "name": "tier2-pinned", "tier": 2, "mode": "execute", "model": "haiku",
+   "prompt": "three", "expected_output": "three", "files": [], "expectations": ["stub criterion"]}
+]}
+EOF
+run_runner plan --prep-only tiers
+if [ "$RC" -eq 0 ] && [ ! -e "$LOG/args" ] \
+  && [ "$(metadata_model tiers tier1-scenario)" = sonnet ] \
+  && [ "$(metadata_model tiers tier2-scenario)" = inherit ] \
+  && [ "$(metadata_model tiers tier2-pinned)" = haiku ]; then
+  pass "model: by default tier 1 gets sonnet, tier 2 inherits, and a tier-2 model key is kept"
+else
+  fail "model tiers (rc=$RC): t1=$(metadata_model tiers tier1-scenario) t2=$(metadata_model tiers tier2-scenario) pinned=$(metadata_model tiers tier2-pinned)"
+fi
+EVAL_MODEL=opus run_runner plan --prep-only tiers
+if [ "$RC" -eq 0 ] && [ "$(metadata_model tiers tier1-scenario)" = opus ] \
+  && [ "$(metadata_model tiers tier2-scenario)" = opus ] \
+  && [ "$(metadata_model tiers tier2-pinned)" = haiku ]; then
+  pass "model: with EVAL_MODEL set both tiers take it, and a scenario's own key still wins"
+else
+  fail "model tiers with EVAL_MODEL (rc=$RC): t1=$(metadata_model tiers tier1-scenario) t2=$(metadata_model tiers tier2-scenario) pinned=$(metadata_model tiers tier2-pinned)"
+fi
+rm -rf "$SUITE/tiers"
 
 mkdir -p "$SUITE/pinned/evals"
 echo "# pinned skill" > "$SUITE/pinned/SKILL.md"
@@ -582,8 +634,9 @@ fi
 git_t tag v0.1.0
 run_select grade
 if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "No skill with evals changed since v0.1.0." \
+  && [ "$(git -C "$REPO" rev-parse HEAD)" = "$(git -C "$REPO" rev-parse 'v0.1.0^{commit}')" ] \
   && [ ! -e "$LOG/args" ]; then
-  pass "selection: nothing changed since the tag prints so, exits 0 and starts no session"
+  pass "selection: a run on the tagged commit selects nothing, says so, exits 0 and starts no session"
 else
   fail "selection, nothing changed (rc=$RC): $OUT"
 fi
@@ -635,6 +688,30 @@ if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | tr '\n' ' ')" = "alpha beta de
   pass "selection: a rename selects both the skill the file left and the one it joined"
 else
   fail "selection, rename (rc=$RC): $OUT"
+fi
+
+# A shallow clone that fetched no tags (the shape CI's default checkout has)
+# finds no v* tag, so a run with no skill name selects every skill with evals
+# and runs them, rather than nothing.
+SHALLOW="$T/shallow"
+git clone -q --depth 1 --no-tags "file://$REPO" "$SHALLOW" >/dev/null 2>&1
+rm -rf "$LOG"
+RC=0
+OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$SHALLOW" RUN_EVALS_SKILLS_DIR="$SHALLOW/skills" \
+  STUB_CLAUDE_MODE=grade STUB_CLAUDE_LOG_DIR="$LOG" PATH="$FIXTURES/bin:$PATH" \
+  TMPDIR="$T" bash "$RUNNER" 2>&1) || RC=$?
+if [ "$RC" -eq 0 ] && [ "$(git -C "$SHALLOW" rev-parse --is-shallow-repository)" = true ] \
+  && [ -z "$(git -C "$SHALLOW" tag -l)" ] \
+  && printf '%s' "$OUT" | grep -q "No v\* tag found" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: alpha ===" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: beta ===" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: delta ===" \
+  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: gamma ===" \
+  && ! printf '%s' "$OUT" | grep -q "Preparing evals for skill: noevals" \
+  && printf '%s' "$OUT" | grep -q "All skills passed."; then
+  pass "selection: a shallow clone with no tags runs every skill with evals"
+else
+  fail "selection, shallow clone (rc=$RC): $OUT"
 fi
 
 # A root git cannot read is an error, not "no tag" selecting every skill.

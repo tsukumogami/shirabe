@@ -16,8 +16,10 @@
 #   --summary-out <file>  Write a machine-readable summary of the skills run
 #
 # Environment:
-#   EVAL_MODEL  The model the nested session runs on, and the default model for
-#               each scenario's agents (default: sonnet). See "Models" below.
+#   EVAL_MODEL  When set: the model the nested session (the grader) runs on,
+#               and the default for every scenario that names none. Unset: the
+#               session keeps the CLI default, tier-1 scenarios run on sonnet,
+#               and the rest inherit the session's model. See "Models" below.
 #
 # Each skill's evals live at skills/<name>/evals/evals.json.
 # Results go to skills/<name>/evals/workspace/iteration-<N>/.
@@ -125,12 +127,21 @@
 #   nothing; it is what the release eval check reads.
 #
 # Models
-#   The nested session runs on EVAL_MODEL, else sonnet. Each scenario runs its
-#   with-skill and baseline agents on its own `model` key in evals.json, else
-#   EVAL_MODEL, else sonnet: prep writes the resolved value into the scenario's
-#   eval_metadata.json as `model`, and the per-eval instruction line tells the
-#   session to spawn both agents on it. A session flag alone would not reach
-#   those agents, which pick their own model unless told. Every value must match
+#   The nested session, which also grades every scenario, gets --model only
+#   when the caller sets EVAL_MODEL; otherwise it runs on the claude CLI's own
+#   default, as it always has, so a default run's grader is unchanged. Each
+#   scenario's with-skill and baseline agents run on, in order:
+#     - the scenario's own `model` key in evals.json;
+#     - for a tier-1 scenario (tier absent or 1, plan_only: it checks the
+#       structure or routing a skill describes, and is not the preflight
+#       liveness scenario), EVAL_MODEL, else sonnet;
+#     - for any other scenario (tier 2, execute; the liveness scenario),
+#       EVAL_MODEL when the caller set it, else "inherit": no model override,
+#       so the agents run on the session's model as they did before.
+#   Prep writes the resolved value into the scenario's eval_metadata.json as
+#   `model`, and the per-eval instruction line tells the session to spawn both
+#   agents on it, or with no override for "inherit". A session flag alone would
+#   not reach those agents, which pick their own model unless told. Every value must match
 #   ^[A-Za-z0-9][A-Za-z0-9._:-]*$ (it cannot start with -), and the harness
 #   refuses a run or a suite that carries one that doesn't.
 #
@@ -292,7 +303,7 @@ usage() {
   echo "  --runs <N>            Repeat the run N times and report a pass rate across them"
   echo "  --summary-out <file>  Write a run-evals-summary/v1 JSON summary of the skills run"
   echo ""
-  echo "  EVAL_MODEL=<model>    Model for the nested session and the scenarios' default (sonnet)"
+  echo "  EVAL_MODEL=<model>    Grader and scenario model; unset, tier-1 scenarios run on sonnet and the rest inherit"
   echo ""
   echo "  Running one scenario N times:"
   echo "    $0 --scenario baseline-malformed-state --runs 5 scope"
@@ -319,6 +330,10 @@ valid_model() {
   return 0
 }
 
+# EVAL_MODEL_EXPLICIT is the caller's EVAL_MODEL, empty when none was given.
+# Only an explicit value changes the nested session's model (the grader) and
+# the model of scenarios that don't name one and aren't tier 1; see "Models".
+EVAL_MODEL_EXPLICIT="${EVAL_MODEL:-}"
 EVAL_MODEL="${EVAL_MODEL:-sonnet}"
 if ! valid_model "$EVAL_MODEL"; then
   # 3, like a refused suite, and not 1: a caller reading 1 as "assertions
@@ -326,8 +341,14 @@ if ! valid_model "$EVAL_MODEL"; then
   echo "Error: EVAL_MODEL must match ^[A-Za-z0-9][A-Za-z0-9._:-]*\$; refusing to run"
   exit 3
 fi
-# Prep's Python reads it from the environment.
-export EVAL_MODEL
+# Prep's Python reads both from the environment.
+export EVAL_MODEL EVAL_MODEL_EXPLICIT
+# The nested session's model flag: none unless the caller named a model, so a
+# default run grades on the same model it always has.
+EVAL_SESSION_MODEL_ARGS=()
+if [ -n "$EVAL_MODEL_EXPLICIT" ]; then
+  EVAL_SESSION_MODEL_ARGS=(--model "$EVAL_MODEL_EXPLICIT")
+fi
 
 # Peel the options off the front of the argument list. They are options rather
 # than positional arguments because they modify a run rather than name one, and
@@ -555,18 +576,30 @@ fixtures_root = os.path.join(evals_dir, "fixtures")
 repo_root = os.environ["REPO_ROOT"]
 selected = os.environ.get("EVAL_SCENARIO_FILTER", "")
 
-# The model each scenario's agents run on: its own model key, else EVAL_MODEL
-# (validated by the shell before this runs), else sonnet. Every scenario is
-# checked before anything is written, so a refused suite leaves no iteration.
+# The model each scenario's agents run on (see "Models" in the header): its own
+# model key; else, for a tier-1 scenario (plan_only, the structure and routing
+# checks), EVAL_MODEL or sonnet; else EVAL_MODEL when the caller gave one, and
+# otherwise "inherit", meaning the agents run on the nested session's model as
+# they always have. EVAL_MODEL was validated by the shell before this runs.
+# Every scenario is checked before anything is written, so a refused suite
+# leaves no iteration.
 MODEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*")
-default_model = os.environ.get("EVAL_MODEL") or "sonnet"
+tier1_default = os.environ.get("EVAL_MODEL") or "sonnet"
+other_default = os.environ.get("EVAL_MODEL_EXPLICIT") or "inherit"
+
+
+def is_tier1(eval_item):
+    return eval_item.get("tier", 1) == 1 and eval_item.get("preflight") != "live"
+
+
 models = {}
 bad_models = []
 for eval_item in data["evals"]:
     eval_name = eval_item.get("name", f"eval-{eval_item['id']}")
     if selected and eval_name != selected:
         continue
-    model = eval_item.get("model", default_model)
+    model = eval_item.get("model",
+                          tier1_default if is_tier1(eval_item) else other_default)
     if not isinstance(model, str) or not MODEL_PATTERN.fullmatch(model):
         bad_models.append(eval_name)
         continue
@@ -1093,9 +1126,9 @@ def scenario_model(name):
     """The model prep resolved and wrote into the scenario's metadata."""
     try:
         with open(os.path.join(iter_dir, name, "eval_metadata.json")) as fh:
-            return json.load(fh).get("model") or "sonnet"
+            return json.load(fh).get("model") or "inherit"
     except (OSError, ValueError):
-        return "sonnet"
+        return "inherit"
 
 
 lines = []
@@ -1106,8 +1139,13 @@ for ev in data["evals"]:
         continue
     # Both agents of a scenario run on its model: a session flag alone would
     # not reach the agents the session spawns.
-    model_text = (f" Spawn this eval's with-skill agent and its baseline agent on model "
-                  f"{scenario_model(name)} (set it as each agent's model).")
+    model = scenario_model(name)
+    if model == "inherit":
+        model_text = (" Spawn this eval's with-skill agent and its baseline agent with no "
+                      "model override, so they run on this session's model.")
+    else:
+        model_text = (f" Spawn this eval's with-skill agent and its baseline agent on model "
+                      f"{model} (set it as each agent's model).")
     # The liveness eval is the one scenario that must run with the injected
     # preflight check ENABLED. The harness exports SHIRABE_PREFLIGHT_DISABLE=1
     # for everything else (see the header block); clearing it here is what
@@ -1247,7 +1285,7 @@ PROMPT
     unset GH_TOKEN GITHUB_TOKEN SSH_AUTH_SOCK
     TMPDIR="$scratch" claude -p "$prompt" \
       "${EVAL_CLAUDE_PERMISSION_ARGS[@]}" \
-      --model "$EVAL_MODEL" \
+      ${EVAL_SESSION_MODEL_ARGS[@]+"${EVAL_SESSION_MODEL_ARGS[@]}"} \
       --add-dir "$scratch" \
       --output-format stream-json --verbose
   ) > "$transcript" || claude_exit=$?
