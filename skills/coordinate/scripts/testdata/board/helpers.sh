@@ -19,9 +19,11 @@ bt_setup() {
     local f S="$T/plugin/skills/coordinate/scripts"
     mkdir -p "$S" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
-             merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-parse.sh record-render.sh record-codec.jq; do
+             merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-parse.sh record-render.sh record-codec.jq \
+             panel-evidence.sh squash-message.sh; do
         cp "$HERE/$f" "$S/$f"
     done
+    ln -sf "$TD/board/stand-in-shirabe" "$T/bin/shirabe"
     cp "$TD/board/stand-in-posture-read.sh" "$S/posture-read.sh"
     cp "$TD/board/stand-in-record-holding.sh" "$S/record-holding.sh"
     cp "$TD/board/stand-in-merge-exec.sh" "$T/plugin/skills/execute/scripts/merge-exec.sh"
@@ -128,6 +130,24 @@ bt_holdings() { # bt_holdings <pr-links...>: Holdings rows linking each
 
 # bt_merged <state> <files-json>: pull request #12's view, and the default
 # branch; then bt_blob <ref> <path> <sha|absent|fail> for each blob read.
+# bt_body [reviewed-head] [verdict-of-third-seat]: a pull request body with a
+# Part 1 and a three-seat Review panel table at <reviewed-head> ($H).
+BT_PART1='Reads the worker'"'"'s **review round** in the `land` step.'
+bt_body() {
+    local r=${1:-$H} v=${2:-pass}
+    printf '%s\n\n---\n\n## Review panel\n\n| Seat | Model | Run | Verdict | Reviewed head |\n|---|---|---|---|---|\n' "$BT_PART1"
+    printf '| architect | sonnet | comment-101 | pass | %s |\n| maintainer | sonnet | comment-102 | pass | %s |\n| pragmatic | sonnet | comment-103 | %s | %s |\n' "$r" "$r" "$v" "$r"
+}
+# bt_prview <merge-state> [body-file]: pull request #12's view for land-check
+# (default body: bt_body).
+bt_prview() {
+    local b
+    if [ -n "${2-}" ]; then b=$(cat "$2"); else b=$(bt_body); fi
+    jq -nc --arg s "$1" --arg b "$b" \
+        '{mergeStateStatus: $s, body: $b, title: "feat(land): read the round", baseRefName: "main",
+          files: [{path: "skills/x.sh", additions: 1, deletions: 0}]}' > "$GH_BOARD_DIR/prview-12.out"
+}
+
 bt_merged() {
     jq -nc --arg s "$1" --argjson f "$2" '{state: $s, files: [$f[] | {path: ., additions: 1, deletions: 0}]}' > "$GH_BOARD_DIR/prview-12.out"
     echo '{"full_name":"acme/widgets","default_branch":"main"}' > "$GH_BOARD_DIR/repo.out"

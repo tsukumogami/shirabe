@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# Stand-in shirabe for the land tests, linked as `shirabe` on PATH. Answers
+# only `validate --pr-body <file> --pr-title <t> --format json`: prints
+# $BT_STATE/shirabe.out when present (exit $BT_STATE/shirabe.rc, default 2),
+# else a clean outcome. Logs its arguments to $BT_STATE/shirabe.calls.
+printf '%s\n' "$*" >> "$BT_STATE/shirabe.calls"
+[ "${1-} ${2-}" = "validate --pr-body" ] || { echo "stand-in shirabe: unexpected call: $*" >&2; exit 9; }
+if [ -f "$BT_STATE/shirabe.out" ]; then
+    cat "$BT_STATE/shirabe.out"
+    exit "$(cat "$BT_STATE/shirabe.rc" 2>/dev/null || echo 2)"
+fi
+echo '{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'

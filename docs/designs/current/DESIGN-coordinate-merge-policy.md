@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Current
 upstream: docs/prds/PRD-coordinate-skill.md
 problem: |
   The coordinate skill's land step merges a pull request on a verified CI
@@ -51,7 +51,13 @@ rationale: |
 
 ## Status
 
-Accepted
+Current
+
+Decisions 1 to 5 and 7 are implemented. Decision 6, holds, follows in its own
+pull request, and until it lands `land_merge` keeps `merge: held`. The goal-fit
+state ships without its shadow decider: the decider needs a modes-table row and
+forty golden fixtures, which follow once `goal_fit` has run on real pull
+requests.
 
 ## Context and Problem Statement
 
@@ -332,9 +338,11 @@ message file, passed as `--subject` and `--body-file` when the method is
 `squash` or `merge`; a `rebase` merge has no message of its own, and the file is
 ignored. Its header and its test, which pin the exact `gh pr merge` call, change
 with it. That script is the execute skill's, outside this feature's directory,
-so the implementation asks for the change explicitly. Until it lands,
-`land-merge.sh` refuses a permitted merge, close-outs included, rather than let
-the repository's default land the whole body.
+so the implementation asked for the change explicitly, and the process owner
+approved it on 2026-10-07 as the one change outside `skills/coordinate/`; it
+lands with the land check. Without a message `land-merge.sh` refuses a
+permitted merge, close-outs included, rather than let the repository's default
+land the whole body.
 
 "Graded against the diff" splits along Decision 3: the mechanical checks are
 the land step's, and whether the text describes the diff is a seat's.
@@ -459,11 +467,14 @@ already has: a gate on `goal_fit` re-reads the sealed LAND capture through
 `permit` to `land_merge` and `deny` or `confirm` to `surface`. `gap` goes to
 `rebrief`, whose brief says what to correct or what follow-up to propose.
 
-The question is decider-shaped, so the field carries a decider in shadow mode,
-as `classify_report`'s does: its answer is recorded beside the coordinator's
-and never acted on, with the brief input and the pull request's Part 1 and file
-list as its inputs, both read from `coord/land.json`, which `land-check.sh`
-writes. The coordinator's answer routes.
+The question is decider-shaped, so the field is meant to carry a decider in
+shadow mode, as `classify_report`'s does: its answer recorded beside the
+coordinator's and never acted on. Its inputs would be the pull request's
+changed files, message and evidence from `coord/land.json`, which `land-check.sh`
+writes, and the brief input the coordinator wrote at dispatch
+(`brief_input.json`), acceptable for a decider nothing acts on. It follows the
+first implementation, once there are real goal-fit calls to build its fixtures
+from. The coordinator's answer routes.
 
 It runs after the closed checks, so the judgment is spent only on a pull
 request that is otherwise ready, and before the posture's routes, so a merge
@@ -559,16 +570,15 @@ The diagram shows only what changes: `land`'s `moved` and `dirty` arms stay.
 |---|---|---|
 | `skills/coordinate/scripts/panel-evidence.sh` | new: parse the Review panel table | 1 |
 | `skills/coordinate/scripts/squash-message.sh` | new: build the message | 1 |
-| `skills/coordinate/scripts/reviewed-head.sh` | new: the freshness walk | 1 |
+| `skills/coordinate/scripts/board-lib.sh` | new: `bl_reviewed_fresh`, the freshness walk, inside the land check's 24-second read budget | 1 |
 | `skills/coordinate/scripts/land-check.sh` | evidence, freshness, message before the posture | 1 |
 | `skills/coordinate/scripts/board-record.sh` | `unevidenced` for a malformed table | 1 |
 | `skills/coordinate/scripts/land-merge.sh` | rebuild and carry the message, close-outs included | 1 |
 | `skills/coordinate/scripts/coord-verdict.sh` and `coord-verdict-table_test.sh` | the new words | 1 |
 | `skills/coordinate/koto-templates/coordinate.md` and `coordinate.mermaid.md` | the new arms, `goal_fit`, the land directives | 1 |
-| `skills/coordinate/koto-templates/coordinate.goal_fit.fit.decider.jsonl` | the shadow decider's fixtures | 1 |
 | `skills/coordinate/SKILL.md`, `references/loop.md`, `references/verification-checklist.md`, `references/brief-template.md` | the merge-order table names the evidence and message; the worker's body carries the table; `goal_fit` | 1 |
 | `skills/coordinate/requires.tsv` | `shirabe validate --pr-body` | 1 |
-| `skills/execute/scripts/merge-exec.sh` and its test | an optional message file (asked for separately) | 1 |
+| `skills/execute/scripts/merge-exec.sh` and its test | an optional message file, approved as the one change outside `skills/coordinate/` | 1 |
 | `skills/coordinate/scripts/record-codec.jq`, `record-render.sh`, `record-parse.sh`, `references/record-template.md` | the Holds section | 2 |
 | `skills/coordinate/scripts/land-check.sh` | the hold read | 2 |
 | `skills/coordinate/scripts/merge-confirm.sh`, `merged-facts.sh`, `record-confirm.sh` | the merger, and the Reversals row for a merge made while held; Phase `held` from `land` | 2 |
@@ -619,7 +629,8 @@ what the coordinator may do: every new verdict narrows the path to a merge.
 
 - Workers must write the table exactly; a typo is a rebrief.
 - The run ids are claims, and nothing on GitHub proves a seat ran.
-- A permitted merge depends on a change to the execute skill's merge script.
+- A permitted merge depends on a change to the execute skill's merge script,
+  the one change outside `skills/coordinate/`.
 - An edit inside a file the base branch also changed can ride in with a
   merge-in after the round.
 
@@ -629,7 +640,7 @@ what the coordinator may do: every new verdict narrows the path to a merge.
   rule broke.
 - The ids are there to be audited, and the strategy's sender-identity decision
   already accepts that the harness can't vouch for a session.
-- Until the merge script takes a message, a permitted merge refuses rather than
-  land the whole body; no workspace loses a correct merge, it gets a hand-over.
+- The merge script takes the message in the same pull request as the land
+  check, so no permitted merge lands the whole body.
 - The merge-in residue is what the hand rule already accepted, and the goal-fit
   read happens on the head being merged.

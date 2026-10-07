@@ -11,10 +11,15 @@
 # --match-head-commit, so a push landing between the verdict and the merge
 # makes GitHub refuse it.
 #
-# Usage: merge-exec.sh <owner/repo> <pr> <expected-head>
+# Usage: merge-exec.sh <owner/repo> <pr> <expected-head> [<message-file>]
 #
-# Exactly three positional arguments, no flags, and nothing passed through.
-# Closed patterns, checked before any gh call:
+# Three positional arguments and an optional fourth, no flags, and nothing
+# passed through. The fourth names a readable regular file holding the commit
+# message: its first line is the subject and everything after the blank line
+# that follows it is the body. For a squash or merge it is passed as --subject
+# and --body-file; a rebase has no message of its own, so it is ignored there.
+# /coordinate's land-merge.sh passes the squash message it built from the pull
+# request's Part 1. Closed patterns, checked before any gh call:
 #   <owner/repo>     ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$  (neither half `.`/`..`)
 #   <pr>             ^[1-9][0-9]*$
 #   <expected-head>  ^[0-9a-f]{40}$  (`none` is refused: with no recorded head
@@ -39,8 +44,9 @@
 #
 # Exit codes:
 #   0 — a line is on stdout (merge-called or merge-refused)
-#   2 — usage error: wrong argument count or a value outside its pattern.
-#       stdout is empty and no gh call was made.
+#   2 — usage error: wrong argument count, a value outside its pattern, or a
+#       message file that isn't a readable regular file with a non-empty
+#       first line. stdout is empty and no gh call was made.
 #
 # Exact gh invocations: those merge-verdict.sh makes with
 # `--repo <repo> --pr <pr> --merge true --expected-head <expected-head>` (its
@@ -48,6 +54,8 @@
 #
 #   gh pr merge <pr> --repo <repo> --<method> --match-head-commit <expected-head>
 #
+# followed, with a message file and a squash or merge, by
+# `--subject <first line> --body-file <a copy of the rest>`,
 # with <method> taken from the fresh verdict and stdin from /dev/null. There is
 # no --admin, no --auto, no --delete-branch, and no retry with another method
 # or option when the call fails.
@@ -62,15 +70,24 @@ RE_MERGEABLE='^mergeable:(squash|merge|rebase):[0-9a-f]{40}$'
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: merge-exec.sh <owner/repo> <pr> <expected-head>" >&2
+    echo "usage: merge-exec.sh <owner/repo> <pr> <expected-head> [<message-file>]" >&2
     exit 2
 }
 
-[ $# -eq 3 ] || usage_error "expected exactly 3 arguments, got $#"
+[ $# -eq 3 ] || [ $# -eq 4 ] || usage_error "expected 3 or 4 arguments, got $#"
 
 REPO="$1"
 PR="$2"
 EXPECTED="$3"
+MSGFILE="${4-}"
+SUBJECT=
+if [ -n "$MSGFILE" ] || [ $# -eq 4 ]; then
+    case "$MSGFILE" in -*|"") usage_error "[$MSGFILE] is not a message file" ;; esac
+    [ -f "$MSGFILE" ] && [ -r "$MSGFILE" ] || usage_error "[$MSGFILE] is not a readable regular file"
+    SUBJECT=$(head -1 "$MSGFILE")
+    [ -n "$SUBJECT" ] || usage_error "the message file's first line, the subject, is empty"
+    [ -z "$(sed -n 2p "$MSGFILE")" ] || usage_error "the message file's second line isn't blank"
+fi
 
 [[ $REPO =~ $RE_REPO ]] || usage_error "[$REPO] is not owner/repo"
 case "/$REPO/" in
@@ -118,8 +135,18 @@ case "$METHOD" in
     *) refuse "not-merged:merge-call-failed" ;;
 esac
 
+# The message, for a method that has one: the subject, and the body after the
+# blank line that follows it, copied so the file passed can't change under us.
+MSGARGS=()
+if [ -n "$SUBJECT" ] && [ "$METHOD" != rebase ]; then
+    BODYFILE=$(mktemp "${TMPDIR:-/tmp}/merge-exec-body.XXXXXX") || refuse "not-merged:merge-call-failed"
+    trap 'rm -f "$BODYFILE"' EXIT
+    tail -n +3 "$MSGFILE" > "$BODYFILE" || refuse "not-merged:merge-call-failed"
+    MSGARGS=(--subject "$SUBJECT" --body-file "$BODYFILE")
+fi
+
 echo "$PROG: merging $REPO#$PR with --$METHOD at $EXPECTED" >&2
-if gh pr merge "$PR" --repo "$REPO" "--$METHOD" --match-head-commit "$EXPECTED" </dev/null >&2; then
+if gh pr merge "$PR" --repo "$REPO" "--$METHOD" --match-head-commit "$EXPECTED" ${MSGARGS[@]+"${MSGARGS[@]}"} </dev/null >&2; then
     printf 'merge-called:%s:%s\n' "$METHOD" "$EXPECTED"
     exit 0
 fi

@@ -58,6 +58,11 @@ OUT=$(bash "$LM" --session "$S" --repo acme/widgets 2>"$T/err"); rc=$?
 eq "a permitted, fresh land capture merges: exit 0" 0 $rc
 eq "merge-exec gets the repository, the pull request and the verified sha" "acme/widgets 12 $H" "$(cat "$CALLS")"
 eq "merge-exec's line is printed" "merge-called:squash:$H" "$OUT"
+eq "and a message file built from the title and Part 1" "$(printf 'feat(x): the change\n\nPart one.')" "$(cat "$BT_STATE/merge-exec.msg" 2>/dev/null)"
+at_land; jq -c '.body = "\n\n---\n\nonly part two"' "$GH_BOARD_DIR/prview-12.out" > "$T/p" && mv "$T/p" "$GH_BOARD_DIR/prview-12.out"
+never "an empty Part 1: no message, no merge" 10
+at_land; rm -f "$GH_BOARD_DIR/prview-12.out"; echo 1 > "$GH_BOARD_DIR/prview-12.rc"; echo "gh: Server Error (HTTP 502)" > "$GH_BOARD_DIR/prview-12.err"
+never "a body that can't be read: no merge" 10
 
 echo "== never merges =="
 at_land; printf '%s\n' "readable merge:deny close:permit teardown:permit" > "$BT_STATE/posture"
@@ -106,6 +111,10 @@ closeout() { # closeout <NAME> <state>
     bt_enter "$S" "${2%_close}_step"
     rm -f "$CALLS" "$BT_STATE/merge-exec.out" "$BT_STATE/merge-exec.rc" "$BT_STATE/posture.rc"
     printf '%s\n' "$PERMIT" > "$BT_STATE/posture"
+    # The record pull request: the renderer's fixed Part 1, then the record.
+    jq -nc '{title: "docs(coordination): close the demo rotation",
+             body: "The coordination record for the demo rotation.\n\n---\n\n> This is a **coordinator record**"}' \
+        > "$GH_BOARD_DIR/prview-30.out"
 }
 closeout ROTATION_CLOSE rotation_close
 bash "$LM" --session "$S" --closeout >/dev/null 2>"$T/err"; rc=$?

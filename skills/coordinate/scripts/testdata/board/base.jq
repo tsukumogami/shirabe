@@ -12,5 +12,7 @@ include "lib";
   branch: protection(["validate"]),
   rules: [],
   files: [{filename: "src/main.go", status: "modified"}],
-  ref: {ref: "refs/heads/feat/x", object: {sha: H, type: "commit"}}
+  ref: {ref: "refs/heads/feat/x", object: {sha: H, type: "commit"}},
+  # the pull request body board-record.sh reads for its Review panel: none yet
+  "prview-12": {title: "feat(x): the change", body: "Part one.\n\n---\n\nNo panel yet."}
 }
