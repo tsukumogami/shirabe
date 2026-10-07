@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   shirabe's work-on verification map makes every skill pull request run
   `scripts/run-evals.sh`, which needs a model, a bash 4 host and a harness
@@ -42,7 +42,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
