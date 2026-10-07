@@ -17,6 +17,7 @@
 #   api --method GET repos/R/branches/<b>                   branch
 #   api --method GET repos/R/rules/branches/<b>             rules
 #   api --method GET repos/R/git/ref/heads/<b>              ref
+#   api --method GET repos/R/git/ref/tags/<t>               tag-<t>
 #   api --method GET repos/R/pulls/<n>/files...             files
 #   api --method GET repos/R/commits/<sha>/check-runs...    checkruns
 #   api --method GET repos/R/commits/<sha>/status...        statuses
@@ -73,6 +74,7 @@ case "${1-} ${2-}" in
             repos/*/*/rules/branches/*) key=rules ;;
             repos/*/*/branches/*) key=branch ;;
             repos/*/*/git/ref/heads/*) key=ref ;;
+            repos/*/*/git/ref/tags/*) key="tag-${path_noq##*/}" ;;
             repos/*/*/pulls/*/files) key=files ;;
             repos/*/*/commits/*/check-runs) key=checkruns ;;
             repos/*/*/commits/*/status) key=statuses ;;

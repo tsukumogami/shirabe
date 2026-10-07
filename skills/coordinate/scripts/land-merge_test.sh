@@ -7,7 +7,9 @@
 # called when the posture re-read denies or asks for confirmation, when
 # land's capture is stale (land entered again since it was sealed), absent,
 # not permit, or unsealed, when provenance fails (another plugin root, an
-# edited template), or when the run has a directed transition; and it must be
+# edited template), when the run has a directed transition, when a hold in
+# the record stands on the pull request now, or when its title and Part 1
+# don't build a message; and it must be
 # called with the repository, the pull request and the verified sha
 # otherwise. --closeout does the same for a rotation's or a predecessor's
 # record pull request from its close-out capture. merge-exec's own refusal
@@ -95,6 +97,18 @@ bt_enter "$S" land; bt_sealed "$S" land LAND "permit 12 $H"; bt_enter "$S" land_
 never "provenance fails: PLUGIN_ROOT is another plugin" 10
 at_land; S=coordinate-demo-nosuchsession
 never "no session log" 10
+
+echo "== a hold recorded after the land check =="
+HOLD_GO='{"hold":"go","on":"acme/widgets#12","until":"lifted","set_by":"the human","set":"2026-09-26T11:30Z","lifted":""}'
+at_land; bt_record_body '[]' "[$HOLD_GO]"
+never "a standing hold on the pull request stops the merge" 10
+grep -q 'a hold stands on #12 now: go (lifted, unmet)' "$T/err" && ok "  ... naming the hold" || bad "  ... naming the hold" "$(cat "$T/err")"
+at_land; bt_record_body '[]' "[$(printf '%s' "$HOLD_GO" | jq -c '.lifted = "2026-09-26T11:40Z by the human"')]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a lifted hold doesn't" 0 $?
+at_land; bt_record_body '[]' "[$(printf '%s' "$HOLD_GO" | jq -c '.on = "acme/widgets#13"')]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor does one on another pull request" 0 $?
+at_land; echo 1 > "$GH_BOARD_DIR/issue-7.rc"
+never "a record that can't be re-read for its holds" 10
 
 echo "== merge-exec's own answers =="
 at_land; printf 'merge-refused:unmergeable:blocked\n' > "$BT_STATE/merge-exec.out"; echo 0 > "$BT_STATE/merge-exec.rc"

@@ -64,6 +64,15 @@ bash "$HERE/predecessor-handoff.sh" --scope discipline --name ci-health --repo "
 rc_ --step handoff --file "$T/pred.md"; eq "an own handoff that is a predecessor copy is refused" 10 $?
 seed CLOSED false; rc_ --step handoff --file "$T/own.md"; eq "a closed pull request is refused" 10 $?
 seed OPEN true feat/other; rc_ --step handoff --file "$T/own.md"; eq "a pull request from another branch is refused" 10 $?
+# A hold outlives its rotation: the own handoff carries the record's holds.
+HOLD='{"hold":"go","on":"acme/widgets#12","until":"lifted","set_by":"the human","set":"2026-09-20T09:00Z","lifted":""}'
+REC_PLAIN=$REC_JSON
+REC_JSON=$(printf '%s' "$REC_PLAIN" | jq -c --argjson h "$HOLD" '.holds = [$h]')
+seed; rc_ --step handoff --file "$T/own.md"; eq "an own handoff missing the record's holds is refused" 10 $?
+grep -q "holds as they stand" "$T/err" && ok "  ... saying a hold outlives its rotation" || bad "  ... saying a hold outlives its rotation" "$(cat "$T/err")"
+handoff 2026-09-22 > "$T/own-holds.md"
+seed; rc_ --step handoff --file "$T/own-holds.md"; eq "an own handoff carrying them is committed" 0 $?
+REC_JSON=$REC_PLAIN
 seed OPEN true "$BR" true; rc_ --step handoff --file "$T/own.md"; eq "a fork's pull request is refused" 10 $?
 seed; db '.fail = [{match: "--method PUT", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 rc_ --step handoff --file "$T/own.md"; eq "a failed commit exits 11" 11 $?

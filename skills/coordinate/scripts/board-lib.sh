@@ -340,3 +340,75 @@ bl_reviewed_fresh() {
     rm -rf "$d"
     echo fresh
 }
+
+# bl_holds_on <session> <repo> <pr>: the record's holds on <repo>#<pr>, each
+# evaluated live (docs/designs/current/DESIGN-coordinate-merge-policy.md,
+# Decision 6), printed as a JSON array of the hold's row plus `state`:
+#   met         `lifted` with a Lifted cell; `merged R#m` with R#m MERGED;
+#               `tag R T` with the tag on R
+#   unmet       otherwise
+#   unreadable  the condition's read failed (a refusal, a server error, a
+#               missing pull request), other than a missing tag
+# The record is read live, as bl_human_holds_merge reads it. Returns 0
+# printed; 2 the record couldn't be read or parsed, or a read ran out of the
+# check's time (the tick re-runs it rather than call the hold unreadable).
+bl_holds_on() {
+    local s=$1 repo=$2 pr=$3 facts rrepo ref scope name d c
+    facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s") || return 2
+    rrepo=$(printf '%s' "$facts" | jq -r '.repo // ""')
+    ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
+    scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
+    name=$(printf '%s' "$facts" | jq -r '.name // ""')
+    bl_repo_ok "$rrepo" && bl_pr_ok "$ref" || return 2
+    case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-holds.XXXXXX") || return 2
+    if ! bl_gh "$d/rec" api --method GET "repos/$rrepo/issues/$ref"; then rm -rf "$d"; return 2; fi
+    jq -r '.body // ""' "$d/rec" | bash "$HERE/record-parse.sh" --container "$c" --expect-scope "$scope:$name" - > "$d/parsed" \
+        || { echo "$PROG: the record couldn't be parsed for its holds" >&2; rm -rf "$d"; return 2; }
+    bl_holds_eval "$d/parsed" "$repo" "$pr"
+    local rc=$?
+    rm -rf "$d"
+    return $rc
+}
+
+# bl_holds_eval <parsed-record-file> <repo> <pr>: bl_holds_on's evaluation,
+# over a record already read and parsed (record-parse.sh's JSON). Returns 0
+# printed; 2 the file couldn't be read.
+bl_holds_eval() {
+    local f=$1 repo=$2 pr=$3 d n i until st
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-holds.XXXXXX") || return 2
+    jq -c --arg on "$repo#$pr" '[.holds[]? | select((.on | ascii_downcase) == ($on | ascii_downcase))]' "$f" > "$d/holds" \
+        || { rm -rf "$d"; return 2; }
+    n=$(jq 'length' "$d/holds")
+    : > "$d/states"
+    i=0
+    while [ "$i" -lt "$n" ]; do
+        until=$(jq -r --argjson i "$i" '.[$i].until' "$d/holds")
+        case "$until" in
+            lifted)
+                if [ -n "$(jq -r --argjson i "$i" '.[$i].lifted' "$d/holds")" ]; then st=met; else st=unmet; fi ;;
+            merged\ *)
+                set -f; set -- $until; set +f
+                if bl_gh "$d/m" pr view "${2##*#}" --repo "${2%#*}" --json state; then
+                    if [ "$(jq -r '.state // ""' "$d/m")" = MERGED ]; then st=met; else st=unmet; fi
+                elif [ "$(cat "$d/m.fail")" = deadline ]; then rm -rf "$d"; return 2
+                else st=unreadable; fi ;;
+            tag\ *)
+                set -f; set -- $until; set +f
+                if bl_gh "$d/t" api --method GET "repos/$2/git/ref/tags/$3"; then st=met
+                else
+                    case "$(cat "$d/t.fail")" in
+                        notfound) st=unmet ;;
+                        deadline) rm -rf "$d"; return 2 ;;
+                        *) st=unreadable ;;
+                    esac
+                fi ;;
+            *) st=unreadable ;;
+        esac
+        printf '%s\n' "$st" >> "$d/states"
+        i=$((i + 1))
+    done
+    jq -c --slurpfile h "$d/holds" -R -s 'split("\n") | map(select(. != "")) as $s
+        | [$h[0] | to_entries[] | .value + {state: $s[.key]}]' "$d/states"
+    rm -rf "$d"
+}

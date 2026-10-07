@@ -76,6 +76,14 @@ eq "the predecessor's Decisions section is copied as it stands, settled entries 
     "$(printf '%s' "$PRED_DEC" | jq -S -c .decisions)" \
     "$(bash "$HERE/record-parse.sh" --format handoff "$KOTO_STORE/sessions/$S/predecessor-handoff.md" | jq -S -c .decisions)"
 
+HOLD='{"hold":"go","on":"acme/widgets#12","until":"lifted","set_by":"the human","set":"2026-09-20T09:00Z","lifted":""}'
+PRED_HOLDS=$(printf '%s' "$PRED_DEC" | jq -c --argjson h "$HOLD" '.holds = [$h]')
+seed "$(render "$PRED_HOLDS" pr 2026-09-22T17:00:00Z)"; session "predecessor 22"
+OUT=$(bash "$PH" --session "$S" 2>"$T/err"); rc=$?
+eq "a predecessor with holds renders" "0 rendered 22" "$rc ${OUT% sealed:*}"
+eq "its holds are carried as they stand: a hold outlives its rotation" "[$HOLD]" \
+    "$(bash "$HERE/record-parse.sh" --format handoff "$KOTO_STORE/sessions/$S/predecessor-handoff.md" | jq -c .holds)"
+
 echo "== unparseable =="
 seed "$(render "$PRED_JSON" pr 2026-09-22T17:00:00Z)
 stray note"; session "predecessor 22"

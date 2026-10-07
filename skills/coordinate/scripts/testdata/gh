@@ -226,8 +226,8 @@ case "$W1 $W2" in
         case "$n" in ''|*[!0-9]*) unexpected ;; esac
         need_repo "$r"
         out=$(jq -c --arg r "$r" --argjson n "$n" '
-            ([.issues[]? | select(.repo == $r and .number == $n) | {number, title, state}]
-             + [.prs[]? | select(.repo == $r and .number == $n) | {number, title, state: (if .state == "OPEN" then "open" else "closed" end),
+            ([.issues[]? | select(.repo == $r and .number == $n) | {number, title, body, state}]
+             + [.prs[]? | select(.repo == $r and .number == $n) | {number, title, body, state: (if .state == "OPEN" then "open" else "closed" end),
                 pull_request: {url: "x"}}])[0] // empty' "$GH_DB")
         [ -n "$out" ] || notfound
         emit "$out"

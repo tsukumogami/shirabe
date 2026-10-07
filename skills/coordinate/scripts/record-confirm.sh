@@ -31,13 +31,17 @@
 #   surface         (merge_table) the unit's row has a Verified head; the unit
 #                   is the one the run's latest arrival before the source
 #                   names (below).
-#                   When surface was entered from land_merge on `merge: held`
-#                   (the human directed a hold the workspace doesn't require),
-#                   the row's Phase must also be `held`
+#                   When surface was entered from land on a sealed `held`
+#                   verdict (a hold in the record that the land check read
+#                   as unmet), the row's Phase must also be `held`
 #   merge_confirm,  from MERGE_CONFIRM / MERGED_FACTS: `merged <pr> <sha>` means
 #   merged_facts    the unit's Holdings row is still there with its Pull
 #                   request cell blank: a confirmed merge clears the cell
-#                   and keeps the row until the teardown removes it;
+#                   and keeps the row until the teardown removes it, and
+#                   each hold on <pr> that is still unmet (board-lib.sh's
+#                   bl_holds_eval over the record read, conditions read
+#                   live) has a Reversals row whose Reversed names
+#                   `hold <name>` and whose Now says `merged while held`;
 #                   `unconfirmed <pr> <sha>` means a Side effects row whose
 #                   Target names <owner/repo>#<pr> (or its github.com URL),
 #                   the repository being the one the unit's row links, with
@@ -111,7 +115,8 @@ while [ $# -gt 0 ]; do
 done
 # The expectation lives in the session log, so a session is always needed.
 [ -n "$SESSION" ] || usage
-. "$HERE/record-common.sh"
+# board-lib.sh sources record-common.sh, and adds the holds evaluation.
+. "$HERE/board-lib.sh"
 lib_facts
 STATE_NAME=record
 [ "$VERIFIED" = 1 ] && STATE_NAME=verified_confirm
@@ -360,13 +365,18 @@ leg_spent)
 surface)
     has_value merge_table || { VERDICT=conflict; REASON="surface reached record without merge_table"; finish; }
     arrival_unit "$EVSEQ"
-    # Held by direction: the latest entry into surface came from land_merge,
-    # whose last evidence there says held. Read from the log, never a key.
+    # Held: the latest entry into surface came from land, whose LAND capture,
+    # sealed at that visit, reads `held` (a hold in the record the check read
+    # as unmet). Read from the log, never a key.
     entry surface "$ESEQ"; SFROM=$ENT_FROM
     HELD=0
-    if [ "$SFROM" = land_merge ]; then
-        evidence land_merge "$ESEQ"; LM=$EVJ
-        [ "$(printf '%s' "$LM" | jq -r '.fields.merge // ""')" = held ] && HELD=1
+    if [ "$SFROM" = land ]; then
+        LC=$(bash "$HERE/coord-log.sh" captures --session "$SESSION" --name LAND --before "$ESEQ")
+        [ $? -eq 2 ] && lib_die2 "cannot read the session log"
+        LV=$(printf '%s' "$LC" | tail -1 | jq -r '.value // ""')
+        if [ -n "$LV" ] && bash "$HERE/coord-log.sh" check --session "$SESSION" --state land --sealed "$LV" > /dev/null; then
+            case "$LV" in held\ *) HELD=1 ;; esac
+        fi
     fi
     if [ "$HELD" = 1 ]; then
         EXPECT="the row for $UNIT has a Verified head and Phase held"
@@ -436,6 +446,19 @@ merge_confirm|merged_facts)
         EXPECT="the Holdings row for $UNIT kept, with its Pull request cell cleared of #$PR"
         if [ -z "$ROW" ]; then OKX=0
         elif [ -n "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" ]; then OKX=0
+        fi
+        # A merge made while a hold on it stood is written down: a Reversals
+        # row naming each hold the land check would still read as unmet
+        # (its condition read live, over the record just read), so the record
+        # says who merged what it held.
+        if [ -n "$ROW" ]; then
+            UREPO=$(printf '%s' "$ROW" | jq -r '.repo // ""')
+            STANDING=$(bl_holds_eval "$T/rec.json" "$UREPO" "$PR") || lib_die2 "cannot read the holds on $UREPO#$PR"
+            for h in $(printf '%s' "$STANDING" | jq -r '.[] | select(.state != "met") | .hold'); do
+                EXPECT="$EXPECT; a Reversals row for hold $h reading \"merged while held\""
+                holds "any(.reversals[]; ((\" \" + .reversed + \" \") | contains(\" hold \" + \$h + \" \")) and (.now | test(\"merged while held\"; \"i\")))" \
+                    --arg h "$h" || OKX=0
+            done
         fi
     elif [ -z "$ROW" ] || [ "$ROW_PR" != "$PR" ]; then
         # Without the unit's row linking it, #$PR's repository can't be told,

@@ -112,8 +112,7 @@ An empty section reads `None.` in place of its table. No table carries a
 status, CI or merge-state column: those are read from GitHub every time, and
 the renderer refuses one. Phase says whether a worker is scoping a unit whose
 execution waits on another feature landing (`scoping-ahead`), executing it, or
-holding a verified pull request whose merge the human directed held although the
-workspace permits it (`held`).
+holding a verified pull request whose merge a hold in the record stops (`held`).
 A row leaves Side effects in flight once confirmed. Reversals only grow.
 A Holdings row outlives its pull request's merge: a confirmed merge blanks
 its Pull request cell and keeps its Verified head, and the row goes when the
@@ -141,9 +140,35 @@ structured cell, and a control character. Quoted text such as a CI log line
 is safe in any cell: pipes, newlines and backticks are encoded so they can't
 break a table.
 
+### The Holds section
+
+A record that holds a merge carries one more section, after Reversals and
+before Decisions, rendered only once it has a row:
+
+```markdown
+## Holds
+
+| Hold | On | Until | Set by | Set | Lifted |
+|---|---|---|---|---|---|
+| <short name> | <owner/repo#n> | <merged owner/repo#m, tag owner/repo <tag>, or lifted> | <who asked for it> | <YYYY-MM-DDTHH:MMZ> | <blank, or <YYYY-MM-DDTHH:MMZ> by <who>> |
+```
+
+A hold is a condition on another lane's state or a person's word, and the land
+check reads each one live before it reports a pull request ready: another pull
+request merged, a tag pushed, or the Lifted cell filled. One it reads as unmet,
+or can't read, is `held`, and the pull request goes to the person as held.
+`scripts/record-hold.sh` is the only writer: `--add` a hold someone asked for,
+and `--lift` one whose Until is `lifted` when the person lifts it. A hold is
+never deleted. When a pull request merges while a hold on it is unmet, write a
+Reversals row whose Reversed names `hold <name>` and whose Now says `merged
+while held` and who merged it, as GitHub names them; the record step waits for
+it. The section's grammars are the codec's (`scripts/record-codec.jq`), and the
+write core refuses any other writer's change to it.
+
 ### The Decisions section
 
-After Reversals, once the record holds a decision, comes a fifth section. It
+After Reversals and any Holds, once the record holds a decision, comes one
+more section. It
 opens with the identifier the next decision takes, and has one row per decision
 the scope opened:
 

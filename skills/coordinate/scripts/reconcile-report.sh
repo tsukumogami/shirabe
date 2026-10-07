@@ -125,8 +125,9 @@
 #
 # Phase. A row's `phase` value decides it, matched whole and ignoring case:
 # "scoping" or "scoping-ahead" is scoping ahead, "executing" is executing,
-# and "held" is held: verified, with the merge withheld by the human's
-# direction (the record feature writes it from land_merge's `merge: held`).
+# and "held" is held: verified, with the merge stopped by a hold in the record
+# that the land check read as unmet (the coordinator writes the Phase at
+# surface after land's `held` verdict).
 # A held holding waits on the human, not on its worker: its next line is
 # "held", it is in `waiting[]`, and its row in the table is under "Ready to
 # merge", since the merge is the human's to make; unless its pull request has
@@ -282,7 +283,7 @@ def next_text:
    fix_ci: "worker fixes CI",
    not_run: "CI never ran; a person clears the cause and re-runs it, not the worker",
    land: "ready to land",
-   held: "verified; merge withheld by the human\u0027s direction, waiting on them",
+   held: "verified; merge stopped by a hold in the record (the land check names it)",
    wait: "wait on worker",
    read_again: "read again, then decide", refused: "refused by the record reader",
    replace_leg: "leg spent before the worker reported; replace the leg (dispatch-worker.sh --releg), keeping the worker"}[.];

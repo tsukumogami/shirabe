@@ -34,7 +34,7 @@ koto	context get	-	always
 #
 # GitHub and git. Every check script reads GitHub with `gh api --method GET`,
 # `gh pr view/list`, `gh issue list` and GraphQL queries; the agent-run write
-# scripts (record-open.sh, record-write.sh, record-holding.sh,
+# scripts (record-open.sh, record-write.sh, record-holding.sh, record-hold.sh,
 # rotation-close.sh, land-merge.sh through /execute's merge-exec.sh) make the
 # only writes. git reads the origin remote for the host at roadmap scope.
 gh	-	-	always

@@ -154,13 +154,13 @@ eq "surface: the unit's row with a Verified head confirms" confirmed "$(confirm)
 body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
 eq "surface: the unit's row without a Verified head waits" waiting "$(confirm)"
 
-echo "== surface after a directed hold =="
+echo "== surface after a hold the land check read =="
 session
 log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:50:00.000Z
 log_to "$S" wait report_facts; log_to "$S" report_facts classify_report
-log_to "$S" classify_report verify; log_to "$S" verify land; log_to "$S" land land_merge
-log_evidence "$S" land_merge '{"merge":"held"}' "$EVT"
-log_to "$S" land_merge surface "$EVT"
+log_to "$S" classify_report verify; log_to "$S" verify land
+log_capture "$S" LAND "$(bash "$CL" seal --session "$S" --state land --token "held 12 $SHA_HEAD")" "$EVT"
+log_to "$S" land surface "$EVT"
 log_evidence "$S" surface '{"surfaced":"merge_table"}' "$EVT"
 log_to "$S" surface record "$EVT"
 HELD_X=$(jq -nc --arg s "$SHA_HEAD" '{verified_head: $s, phase: "held"}')
@@ -171,6 +171,18 @@ body "$(rec | jq -c --argjson h "$(holding alpha "$EXEC_X")" '.holdings = [$h]')
 eq "held: a Verified head with Phase executing waits" waiting "$(confirm)"
 body "$(rec | jq -c --argjson h "$(holding alpha "{\"phase\":\"held\"}")" '.holdings = [$h]')"
 eq "held: a held Phase without a Verified head waits" waiting "$(confirm)"
+# A reserved merge reaches surface from goal_fit, not land: no hold, no Phase.
+session
+log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+log_to "$S" wait report_facts; log_to "$S" report_facts classify_report
+log_to "$S" classify_report verify; log_to "$S" verify land
+log_capture "$S" LAND "$(bash "$CL" seal --session "$S" --state land --token "deny 12 $SHA_HEAD")" "$EVT"
+log_to "$S" land goal_fit; log_evidence "$S" goal_fit '{"fit":"fits","rationale":"r"}' "$EVT"
+log_to "$S" goal_fit surface "$EVT"
+log_evidence "$S" surface '{"surfaced":"merge_table"}' "$EVT"
+log_to "$S" surface record "$EVT"
+body "$(rec | jq -c --argjson h "$(holding alpha "$EXEC_X")" '.holdings = [$h]')"
+eq "a reserved merge from goal_fit confirms with Phase executing" confirmed "$(confirm)"
 
 GADGETS12='{"repo":"acme/gadgets","branch":"feat/y","pull_request":"[#12](https://github.com/acme/gadgets/pull/12)"}'
 
@@ -217,6 +229,30 @@ for src in merge_confirm merged_facts; do
     body "$(rec | jq -c --argjson se "$SE" '.side_effects = $se')"
     eq "$src unconfirmed: without the unit's row the repository can't be told, so it waits" waiting "$(confirm)"
 done
+
+echo "== a merge made while a hold stood =="
+# hold <name> <until> [lifted]: a hold on acme/widgets#12.
+hold() { jq -nc --arg h "$1" --arg u "$2" --arg l "${3-}" \
+    '{hold: $h, on: "acme/widgets#12", until: $u, set_by: "the workspace coordinator", set: "2026-09-26T09:00Z", lifted: $l}'; }
+CLEARED=$(holding alpha '{"pull_request":""}')
+WHILE_HELD='{"date":"2026-09-26T10:05Z","reversed":"hold go-signal on acme/widgets#12","now":"merged while held, by someone","reason":"merged outside the run","from":"the coordinator"}'
+session
+log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+sealed_capture merged_facts MERGED_FACTS "merged 12 $SHA_HEAD"
+log_to "$S" merged_facts record "$EVT"
+body "$(rec | jq -c --argjson a "$CLEARED" --argjson h "$(hold go-signal lifted)" '.holdings = [$a] | .holds = [$h]')"
+eq "a standing hold with no Reversals row for it waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson a "$CLEARED" --argjson h "$(hold go-signal lifted)" --argjson r "$WHILE_HELD" '.holdings = [$a] | .holds = [$h] | .reversals = [$r]')"
+eq "with a Reversals row saying it merged while held, it confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson a "$CLEARED" --argjson h "$(hold go-signal lifted '2026-09-26T09:30Z by the human')" '.holdings = [$a] | .holds = [$h]')"
+eq "a hold lifted before the merge needs no row" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson a "$CLEARED" --argjson h "$(hold after-y 'merged acme/gadgets#12')" '.holdings = [$a] | .holds = [$h]')"
+eq "a hold until another pull request merges, still open, needs its row" waiting "$(confirm)"
+body "$(rec | jq -c --argjson a "$CLEARED" --argjson h "$(hold other lifted | jq -c '.on = "acme/widgets#13"')" '.holdings = [$a] | .holds = [$h]')"
+eq "a hold on another pull request doesn't apply" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson a "$CLEARED" --argjson h "$(hold go lifted)" --argjson r "$WHILE_HELD" '.holdings = [$a] | .holds = [$h] | .reversals = [$r]')"
+eq "a row for hold go-signal doesn't stand for a hold named go" waiting "$(confirm)"
+
 session
 log_to "$S" wait merge_confirm
 log_capture "$S" MERGE_CONFIRM "merged 12 $SHA_HEAD sealed:99:abc" "$EVT"

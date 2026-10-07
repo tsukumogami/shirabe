@@ -21,15 +21,19 @@
 # 6. The body's mechanical checks (shirabe validate --pr-body, with the
 #    title), then the squash message (squash-message.sh): a failure of either
 #    is `unready`.
-# 7. The merge posture: the start's POSTURE capture narrowed by a fresh
+# 7. The record's holds on the pull request, each evaluated live
+#    (board-lib.sh's bl_holds_on): any not met, or whose condition can't be
+#    read, is `held <pr> <sha>`. A hold is reported held because this check
+#    read it, never because someone remembers it.
+# 8. The merge posture: the start's POSTURE capture narrowed by a fresh
 #    posture-read.sh (board-lib.sh's bl_merge_posture): `permit <pr> <sha>`,
 #    `deny <pr> <sha>` or `confirm <pr> <sha>`.
 # The token is sealed to the latest entry into land (captured as LAND). The
-# detail goes to context key coord/land.json as data: the verdict; for
-# `unready`, the reason (no-evidence, malformed:<rule>, too-few-seats,
-# not-unanimous, stale:<why>, body-checks or message); the changed files, the
-# evidence as parsed, the freshness result, the body checks' findings and the
-# built message, as far as the check got.
+# detail goes to context key coord/land.json as data: the verdict and the
+# pull request it is about; for `unready`, the reason (no-evidence,
+# malformed:<rule>, too-few-seats, not-unanimous, stale:<why>, body-checks or
+# message); the changed files, the evidence as parsed, the freshness result, the body checks' findings, the
+# built message and the holds with their states, as far as the check got.
 #
 # The repository is the one the record's Holdings row for #<pr> links;
 # --repo overrides it, for tests. --no-seal (tests) prints the bare token.
@@ -105,7 +109,7 @@ TITLE=$(jq -r '.title // ""' "$MS")
 BASE=$(jq -r '.baseRefName // ""' "$MS")
 bl_branch_ok "$BASE" || { echo "$PROG: base branch [$BASE]" >&2; exit 2; }
 
-DETAIL=$(jq -c '{files: [.files[]?.path]}' "$MS") || exit 2
+DETAIL=$(jq -c --arg pr "$PR" '{pr: $pr, files: [.files[]?.path]}' "$MS") || exit 2
 # detail <jq filter> [jq args...]: add to the check's detail.
 detail() {
     local f=$1
@@ -166,6 +170,13 @@ case $? in
        unready message ;;
     *) echo "$PROG: the message couldn't be built" >&2; exit 2 ;;
 esac
+
+HOLDS=$(bl_holds_on "$SESSION" "$REPO" "$PR") || { echo "$PROG: the record's holds couldn't be read" >&2; exit 2; }
+detail '.holds = $h' --argjson h "$HOLDS"
+if [ "$(printf '%s' "$HOLDS" | jq 'any(.[]; .state != "met")')" = true ]; then
+    echo "$PROG: held: $(printf '%s' "$HOLDS" | jq -r '[.[] | select(.state != "met") | "\(.hold) (\(.until), \(.state))"] | join(", ")')" >&2
+    finish "held $PR $SHA"
+fi
 
 P=$(bl_merge_posture "$SESSION") || exit 2
 finish "$P $PR $SHA"

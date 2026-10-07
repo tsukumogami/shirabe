@@ -671,7 +671,9 @@ Verified head, Dispatched, Pull request. Deferrals: Deferral, Reason, Raised, Di
 effects in flight: Action, Target, Verified head, Attempted, How to confirm. Reversals: Date,
 Reversed, Now, Reason, From, where Date is `YYYY-MM-DDTHH:MMZ` so "added since the event" can't be
 met by an earlier reversal the same day. Phase is `scoping-ahead`, `executing` or `held` (a verified pull request whose merge the human
-directed held although the workspace permits it; `merge: held` at land_merge routes to surface); Dispatch status is
+directed held although the workspace permits it; `merge: held` at land_merge routes to surface. Since
+DESIGN-coordinate-merge-policy, Phase `held` follows a Holds row the land check reads as unmet, and
+`merge: held` is gone); Dispatch status is
 `dispatching`, `dispatched` or `dispatch-failed`; Return path is `message` or
 `leg <request-id>:<leg>`; Branch is empty until known; Raised, Attempted and a carry-forward's
 time are `YYYY-MM-DDTHH:MMZ`; Disposition is empty, `filed #<n>`, `closed: <text>` or

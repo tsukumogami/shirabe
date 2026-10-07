@@ -182,7 +182,7 @@ jq '(.states.roadmap_close.transitions[] | select(.target == "roadmap_blocked"))
 NONOVR=$(jq -r '.states | to_entries[] | .key as $s | (.value.gates // {}) | to_entries[] | select(.value.overridable != false) | "\($s).\(.key)"' "$J")
 [ -z "$NONOVR" ] && pass "every gate in the template is overridable: false" || fail "every gate in the template is overridable: false" "$NONOVR"
 
-WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("record-open|record-write|record-write-core|record-holding|record-decision.sh\" --session \"[^\"]*\" --(carry|open|take|settle|escalate|hold|evidence|answer|sent)|rotation-close|land-merge|merge-exec")) | $s' "$J")
+WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("record-open|record-write|record-write-core|record-holding|record-hold\\.sh|record-decision.sh\" --session \"[^\"]*\" --(carry|open|take|settle|escalate|hold|evidence|answer|sent)|rotation-close|land-merge|merge-exec")) | $s' "$J")
 [ -z "$WRITES" ] && pass "no write script runs as an action or a gate" || fail "no write script runs as an action or a gate" "$WRITES"
 
 MEXEC=$(jq -r '.states | to_entries[] | select(((.value.directive // "") + (.value.details // "")) | test("merge-exec")) | .key' "$J")
@@ -213,6 +213,16 @@ cp "$HERE/record-decision.sh" "$HERE/record-write.sh" "$T/openers/"
 printf '\nDECISIONS_WRITER="1"\n' >> "$T/openers/record-write.sh"
 [ "$(decisions_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens it" ||
     fail "the check names another script that opens it" "$(decisions_writers "$T/openers")"
+# The Holds section the same way: only record-hold.sh sets HOLDS_WRITER=1.
+holds_writers() {
+    grep -lE '^[^#]*HOLDS_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/record-hold\.sh$' || true
+}
+HOPENERS=$(holds_writers "$HERE")
+[ -z "$HOPENERS" ] && pass "only record-hold.sh opens the Holds section" || fail "only record-hold.sh opens the Holds section" "$HOPENERS"
+grep -qE '^[^#]*HOLDS_WRITER=1' "$HERE/record-hold.sh" && pass "record-hold.sh opens it" || fail "record-hold.sh opens it"
+printf '\nHOLDS_WRITER=1\n' >> "$T/openers/record-write.sh"
+[ "$(holds_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens the Holds section" ||
+    fail "the check names another script that opens the Holds section" "$(holds_writers "$T/openers")"
 
 grep -qiE 'the human merges|a person merges' "$TPL" "$HERE/../SKILL.md" && fail "nothing says the human merges" || pass "nothing says the human merges"
 for r in loop.md brief-template.md verification-checklist.md record-template.md; do

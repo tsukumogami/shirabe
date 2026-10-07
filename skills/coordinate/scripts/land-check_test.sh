@@ -132,7 +132,7 @@ bt_record_body "[$HUMAN]"
 eq "the answer counts only when the start read was unread" "confirm 12 $H" "$(token)"
 scenario "$UNREAD" "$UNREAD"; answer permitted
 bt_record_body "[$HUMAN]"
-echo 1 > "$GH_BOARD_DIR/issue-7.rc"
+for k in 2 3; do echo 1 > "$GH_BOARD_DIR/issue-7.rc.$k"; done   # the posture's read and its retry; the first read is the holds read
 eq "a failed record read is confirm" "confirm 12 $H" "$(token)"
 
 echo "== the verify capture =="
@@ -239,6 +239,52 @@ rm -f "$BT_STATE/shirabe.out"
 scenario "$PERMIT" "$PERMIT"
 bt_body | sed '1s/.*/Co-Authored-By: someone/' > "$T/body"; bt_prview CLEAN "$T/body"
 eq "a Part 1 with an attribution line is unready for message" message "$(token >/dev/null; reason)"
+
+echo "== holds =="
+# hold <name> <on> <until> [lifted]: one Holds row.
+hold() { jq -nc --arg h "$1" --arg o "$2" --arg u "$3" --arg l "${4-}" \
+    '{hold: $h, on: $o, until: $u, set_by: "the workspace coordinator", set: "2026-09-26T09:00Z", lifted: $l}'; }
+prstate() { jq -nc --arg s "$2" '{state: $s}' > "$GH_BOARD_DIR/prview-$1.out"; }
+scenario "$PERMIT" "$PERMIT"
+bt_record_body '[]' "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
+prstate 346 OPEN
+eq "a hold until another pull request merges, still open: held" "held 12 $H" "$(token)"
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>/dev/null)
+eq "  ... and coord/land.json names it unmet" "after-346 unmet" "$("$KOTO_BIN" context get "$S" coord/land.json | jq -r '.holds[] | "\(.hold) \(.state)"')"
+scenario "$PERMIT" "$PERMIT"
+bt_record_body '[]' "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
+prstate 346 MERGED
+eq "once that pull request merged, the hold is met: permit" "permit 12 $H" "$(token)"
+scenario "$PERMIT" "readable merge:deny close:permit teardown:permit"
+bt_record_body '[]' "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
+prstate 346 CLOSED
+eq "a hold beats the posture: held, not deny" "held 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_body '[]' "[$(hold v028 acme/widgets#12 'tag acme/gadgets v0.28.0')]"
+echo '{"ref":"refs/tags/v0.28.0","object":{"sha":"abc"}}' > "$GH_BOARD_DIR/tag-v0.28.0.out"
+eq "a hold until a tag, tagged: permit" "permit 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_body '[]' "[$(hold v028 acme/widgets#12 'tag acme/gadgets v0.28.0')]"
+echo 'gh: Not Found (HTTP 404)' > "$GH_BOARD_DIR/tag-v0.28.0.err"; echo 1 > "$GH_BOARD_DIR/tag-v0.28.0.rc"
+eq "a hold until a tag, not yet tagged: held" "held 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_body '[]' "[$(hold v028 acme/widgets#12 'tag acme/gadgets v0.28.0')]"
+echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/tag-v0.28.0.err"; echo 1 > "$GH_BOARD_DIR/tag-v0.28.0.rc"
+eq "a condition that can't be read: held" "held 12 $H" "$(token)"
+grep -q 'unreadable' "$T/err" && ok "  ... naming it unreadable" || bad "  ... naming it unreadable" "$(cat "$T/err")"
+scenario "$PERMIT" "$PERMIT"
+bt_record_body '[]' "[$(hold go acme/widgets#12 lifted)]"
+eq "a hold a person lifts, standing: held" "held 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_body '[]' "[$(hold go acme/widgets#12 lifted '2026-09-26T10:00Z by the human')]"
+eq "once lifted, with who and when: permit" "permit 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_body '[]' "[$(hold other acme/widgets#13 lifted), $(hold elsewhere acme/gadgets#12 lifted)]"
+eq "holds on another pull request, or the same number elsewhere, don't apply" "permit 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_body '[]'
+echo 1 > "$GH_BOARD_DIR/issue-7.rc"
+bash "$LC" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a record that can't be read for its holds: exit 2" 2 $?
 
 echo "== reads and repository =="
 scenario "$PERMIT" "$PERMIT"

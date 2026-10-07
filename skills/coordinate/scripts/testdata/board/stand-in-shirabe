@@ -3,6 +3,8 @@
 # only `validate --pr-body <file> --pr-title <t> --format json`: prints
 # $BT_STATE/shirabe.out when present (exit $BT_STATE/shirabe.rc, default 2),
 # else a clean outcome. Logs its arguments to $BT_STATE/shirabe.calls.
+# BT_STATE is optional: a suite that doesn't set it (the full-template engine
+# test) gets the clean outcome and no log.
 [ -n "${BT_STATE-}" ] && printf '%s\n' "$*" >> "$BT_STATE/shirabe.calls"
 [ "${1-} ${2-}" = "validate --pr-body" ] || { echo "stand-in shirabe: unexpected call: $*" >&2; exit 9; }
 if [ -n "${BT_STATE-}" ] && [ -f "$BT_STATE/shirabe.out" ]; then
