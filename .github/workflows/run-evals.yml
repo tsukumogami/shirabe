@@ -1,7 +1,8 @@
 # Manual-only: this workflow runs when someone dispatches it, never on a
-# schedule. The model-graded eval signal moved to the release check (see
-# docs/designs/DESIGN-evals-at-release.md); this workflow stays so whoever
-# fixes shirabe#612 can dispatch a run and show scenarios being graded.
+# schedule. The model-graded eval signal moved to the release check (see the
+# evals-at-release design and .claude/shirabe-extensions/release.md); this
+# workflow stays so whoever fixes shirabe#612 can dispatch a run and show
+# scenarios being graded.
 #
 # A run needs three things:
 # - The isolated-checkout fix tracked in shirabe#612. Until it lands, the

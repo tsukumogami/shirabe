@@ -167,7 +167,7 @@ mktempdir() {
 # provisioned host), so `all` on Linux reports it red; its floor run is the
 # macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill"
 
 suite_scripts() {
     case "$1" in
@@ -450,6 +450,12 @@ suite_scripts() {
             # git, so every case runs on 3.2.
             echo "scripts/review-packet_test.sh"
             ;;
+        check-skill)
+            # The skills/** verification-map entry's checks. Its suite builds
+            # throwaway skills with stand-in shirabe, koto and claude and needs
+            # only bash, git and python3, so every case runs on 3.2.
+            echo "scripts/check-skill_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -487,6 +493,7 @@ suite_workflow() {
         coordinate-reconcile) echo ".github/workflows/check-coordinate-reconcile-scripts.yml" ;;
         offload-baseline)     echo ".github/workflows/check-offload-baseline.yml" ;;
         review-packet)        echo ".github/workflows/check-review-packet.yml" ;;
+        check-skill)          echo ".github/workflows/check-skill-gate.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }

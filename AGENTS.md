@@ -12,18 +12,20 @@ When adding or modifying a skill:
    expected output (what the skill should produce), and assertions (objectively
    verifiable checks).
 
-2. **Run evals using /skill-creator** before considering the work done. Use
-   `scripts/run-evals.sh <skill-name>` to set up the eval workspace, then
-   spawn agents with the skill loaded and without (baseline), grade against
-   assertions, and generate the eval viewer for human review.
+2. **Pass the skill gate.** A pull request's definition of done for a skill
+   change is `scripts/check-skill.sh <skill-name>`: `shirabe validate`, the
+   template compile, the skill's script suites, and the shape of
+   `evals/evals.json`. The pull request doesn't run the evals.
 
-3. **Iterate based on eval results.** If an eval fails or produces unexpected
-   output, fix the skill and re-run. Don't ship skills that haven't been
-   validated against their eval scenarios.
+3. **The evals run at release.** `/shirabe:release` runs the evals of every
+   skill changed since the last tag and stops on a pass-rate drop (see
+   `.claude/shirabe-extensions/release.md`). To try a scenario before then,
+   run `scripts/run-evals.sh <skill-name>` locally (see Running Evals below)
+   and iterate on the skill if it fails.
 
 This applies to:
 - New skills (write evals during skill creation)
-- Skill modifications (run existing evals + add new ones for changed behavior)
+- Skill modifications (update existing scenarios + add new ones for changed behavior)
 - Specification changes (reference files, format specs) that affect skill behavior
 
 ## Eval Structure
