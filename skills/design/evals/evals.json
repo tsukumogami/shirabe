@@ -142,6 +142,21 @@
         "Transcript sets decision_provenance: inline-resolved in the design's frontmatter because a question was resolved inline",
         "Transcript does NOT resolve the critical-tier question inline"
       ]
+    },
+    {
+      "id": 18,
+      "name": "phase-6-under-scope-keeps-verdict-skips-publishing",
+      "prompt": "/design --auto docs/prds/PRD-export-api.md -- /scope is driving this run: its state file for topic export-api carries a parent_orchestration block with invoking_child: design and rationale: fresh-chain. Phases 0-5 are done and the DESIGN is written with status Proposed. The Phase 6 reviewers returned: architecture and structural-format clear, security clear. The design touches 6 files and changes an API surface. Describe every step Phase 6 takes from here to the end of /design's run, including what it commits, pushes, asks and cleans up.",
+      "expected_output": "Under /scope's sentinel /design keeps its own verdict and status transition but leaves publishing and routing to /scope. Phase 6 writes the frontmatter and commits the design (6.6 step 1) but does not push or create a PR. At 6.7, because the run is --auto, it takes the recommended verdict (Approved) itself and names it in its output. At 6.8 it transitions the status from Proposed to Accepted and commits that, then skips the complexity assessment and the Plan or Approve routing prompt and returns control to /scope. It skips 6.9: no cleanup commit, since /scope's cleanup phase owns that. It creates or switches no branch at any point.",
+      "files": [],
+      "expectations": [
+        "Transcript commits the DESIGN but runs no git push and no gh pr create",
+        "Transcript takes the recommended verdict itself under --auto and names it in its output (e.g. Approved)",
+        "Transcript still transitions the DESIGN from Proposed to Accepted itself",
+        "Transcript does NOT present the Plan / Approve only routing question or a complexity-routing prompt, and returns control to /scope",
+        "Transcript makes no cleanup commit for intermediate files, leaving that to /scope",
+        "Transcript creates or switches no branch"
+      ]
     }
   ]
 }

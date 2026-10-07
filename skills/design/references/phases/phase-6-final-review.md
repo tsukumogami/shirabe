@@ -8,8 +8,8 @@ Ensure the design doc is complete and ready for approval:
 - Launch review agents (architecture + security)
 - Validate all required sections
 - Check that rejected alternatives have genuine depth (strawman check)
-- Add frontmatter, commit, create PR
-- Route to next step based on complexity
+- Add frontmatter, commit, create PR (under `/scope`: commit only)
+- Route to next step based on complexity (not under `/scope`)
 
 ## Resume Check
 
@@ -183,6 +183,9 @@ The frontmatter must be the first content in the file, before the `# DESIGN:` he
 
 ### 6.6 Commit and PR
 
+Under `/scope`'s `parent_orchestration` sentinel (SKILL.md, Output, "Under `/scope`"),
+run step 1 only: commit, with no push and no pull request.
+
 1. Commit: `docs(design): add design for <topic>`
 2. Push and create PR
    - If spawned from an issue: use `Ref #<N>` in PR body (not `Fixes`)
@@ -233,6 +236,11 @@ Options (mark the recommended one "(Recommended)"):
   when changes are complete. (This is the existing "Needs iteration"
   behavior, renamed.)
 
+Under `/scope`'s `parent_orchestration` sentinel, the verdict is still this step's: an
+interactive run asks the author as above, and an unattended run (`--auto`)
+takes the recommended verdict and names it in its output, as "Took the
+recommended verdict: <verdict>".
+
 ### 6.8 Handle Approval
 
 **If approved:**
@@ -251,9 +259,13 @@ Options (mark the recommended one "(Recommended)"):
    spawned_from metadata). If no extension defines this, skip parent doc updates.
 5. **PR body convention.** If spawned from an issue, use `Ref #<N>` in the PR
    body, NOT `Fixes #<N>`. The issue stays open until implementation completes.
-6. Run the complexity assessment and routing from the design SKILL.md "Output" section (the table comparing Simple vs Complex criteria, followed by the AskUserQuestion presenting Plan vs Approve options). Use `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for the AskUserQuestion formatting pattern.
+6. Under `/scope`'s `parent_orchestration` sentinel, skip this step and return control to
+   `/scope`. Otherwise, run the complexity assessment and routing from the design SKILL.md "Output" section (the table comparing Simple vs Complex criteria, followed by the AskUserQuestion presenting Plan vs Approve options). Use `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for the AskUserQuestion formatting pattern.
 
 ### 6.9 Clean Up wip/ Artifacts
+
+Under `/scope`'s `parent_orchestration` sentinel, skip this step: `/scope`'s cleanup phase
+removes these files, and `/design` makes no cleanup commit.
 
 After approval and routing, remove temporary artifacts:
 - `wip/design_<topic>_summary.md`

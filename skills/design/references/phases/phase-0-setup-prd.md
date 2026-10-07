@@ -18,6 +18,10 @@ If `wip/design_<topic>_summary.md` exists, skip to Phase 1.
 
 ### 0.1 Branch Setup
 
+Under `/scope`'s `parent_orchestration` sentinel (SKILL.md, Output, "Under `/scope`"),
+skip this step: work on the branch `/scope` invoked `/design` on, and
+create or switch no branch.
+
 If already on a `docs/<topic>` branch, skip branch creation. Otherwise:
 - Create `docs/<topic>` (kebab-case) from latest main
 - Confirm you're on the correct branch
@@ -205,7 +209,7 @@ Commit: `docs(design): initialize design for <topic> from PRD`
 ## Quality Checklist
 
 Before proceeding:
-- [ ] On branch `docs/<topic>`
+- [ ] On branch `docs/<topic>` (under `/scope`: the branch it invoked `/design` on)
 - [ ] Problem statement is in implementation terms (not a PRD copy)
 - [ ] Decision drivers include both PRD-derived and implementation-specific factors
 - [ ] `upstream:` value is either a same-repo `docs/prds/...` path, a public

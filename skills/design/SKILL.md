@@ -125,11 +125,6 @@ lifecycle, validation rules, and quality guidance.
 `references/lifecycle.md` maps each status to its directory. A superseded
 design moves to `docs/designs/archive/DESIGN-<topic>.md`.
 
-### Sections Added During Lifecycle
-
-**Implementation Issues** -- added by /plan. Contains issues table and Mermaid
-dependency diagram. See your project's diagram convention, or follow the format: an issues table with a Mermaid dependency diagram showing issue relationships.
-
 ---
 
 ## Creating a Design Document
@@ -210,9 +205,21 @@ whether it changes an API surface, whether it crosses packages), not the Simple
 or Complex label alone.
 
 **"Plan":** suggest running `/plan <design-doc-path>` to create implementation issues.
-The PR should NOT be merged yet — `/plan` will add an "Implementation Issues" section.
 
 **"Approve only":** stop here; the user handles implementation manually.
+
+**Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names `design` (the
+Resume Logic's first row), `/design` still reaches its own Phase 6 verdict
+(6.7) and makes its own status transition (6.8), and skips everything that
+publishes or routes, which `/scope` owns: no push, no pull request, no
+branch creation, no cleanup commit, and no routing prompt -- the complexity
+assessment and its Plan or Approve question above are not asked. Control
+returns to `/scope`, which decides the next hop. An interactive run asks the
+author for the verdict as usual; an unattended run (`--auto`, which
+`/design` takes from the parent's execution mode) takes the recommended
+verdict and names it in its output. This is the Parent-owned-publishing
+shape in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`, per
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
 
 ### Execution
 

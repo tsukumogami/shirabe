@@ -47,7 +47,6 @@ Define your project's specific label names in CLAUDE.md under
 
 ### During /plan phase-6 (after creating issues)
 - Status becomes "Planned" (update frontmatter and body)
-- "Implementation Issues" section added
 
 ## Quality Guidance
 
