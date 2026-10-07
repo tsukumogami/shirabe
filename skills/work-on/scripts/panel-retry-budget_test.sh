@@ -150,6 +150,13 @@ expect "another panel's lower count is not progress" budget \
 expect "qa_validation compares its own failed scenarios" budget \
     qa_validation:3=retry scrutiny:1=retry qa_validation:2=retry
 
+# light_review, the single seat of the `light` review level, is a panel of its
+# own: it spends from the same run-wide retries and is judged on its own counts.
+expect "light_review gets a third retry on a falling count" budget \
+    light_review:4=retry light_review:3=retry light_review:1=retry light_review:1=escalate
+expect "light_review shares the ceiling and is not compared with scrutiny" budget \
+    scrutiny:5=retry scrutiny:4=retry light_review:1=escalate
+
 # A refusal records nothing, and the ceiling counts recorded grants only.
 expect "a refusal leaves the record as it was" budget \
     scrutiny:7=retry scrutiny:2=retry scrutiny:2=escalate scrutiny:1=retry

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # panel-retry-budget.sh -- for /work-on: may this panel send the work back again?
 #
-# A review panel (scrutiny, review, qa_validation) that finds blocking defects
+# A review panel (scrutiny, review, qa_validation, or light_review, the single
+# seat of the `light` review level) that finds blocking defects
 # either submits `blocking_retry`, which returns the run to `implementation`, or
 # `blocking_escalate`, which ends it at `done_blocked`. This script makes that
 # call, and on a grant records the retry, so the panel directives run it before
@@ -17,8 +18,11 @@
 #   - No run gets more than CEILING retries.
 #
 # Counts are compared within one panel because the panels count different
-# things: scrutiny and review count blocking findings, qa_validation counts
-# failed scenarios.
+# things: scrutiny, review and light_review count blocking findings,
+# qa_validation counts failed scenarios. A run whose level moves between
+# `light` and the full panels has nothing to compare across that move: once
+# the floor is spent, the first blocking round on the other side has no
+# earlier round of its own and is refused.
 #
 # The record is the koto context key `panel_retries`: one line per granted
 # retry, "<panel> <count>", oldest first. The retry loops in the phase files
@@ -46,7 +50,7 @@
 # repeated count as no progress. Both mistakes stop the run sooner, never later.
 #
 # Usage: panel-retry-budget.sh <koto-session-name> <panel> <blocking-count>
-#   <panel>           scrutiny | review | qa_validation
+#   <panel>           scrutiny | review | qa_validation | light_review
 #   <blocking-count>  this round's blocking findings (failed scenarios for
 #                     qa_validation), a whole number of at least 1
 #
@@ -78,7 +82,7 @@ KEY=panel_retries
 usage() {
     echo "verdict=escalate reason=panel-retry-budget.sh was called wrongly: $1"
     echo "panel-retry-budget: $1" >&2
-    echo "usage: panel-retry-budget.sh <koto-session-name> <scrutiny|review|qa_validation> <blocking-count>" >&2
+    echo "usage: panel-retry-budget.sh <koto-session-name> <scrutiny|review|qa_validation|light_review> <blocking-count>" >&2
     exit 67
 }
 
@@ -106,7 +110,7 @@ COUNT=$3
 
 [ -n "$SESSION" ] || usage "missing session name"
 case "$PANEL" in
-    scrutiny|review|qa_validation) ;;
+    scrutiny|review|qa_validation|light_review) ;;
     *) usage "unknown panel [$PANEL]" ;;
 esac
 case "$COUNT" in
@@ -136,7 +140,7 @@ LAST_SAME=""
 while IFS=' ' read -r rec_panel rec_count rest; do
     [ -n "$rec_panel" ] || continue
     case "$rec_panel" in
-        scrutiny|review|qa_validation) ;;
+        scrutiny|review|qa_validation|light_review) ;;
         *) no_answer "the retry record ($KEY) has a line this script did not write: [$rec_panel $rec_count]" ;;
     esac
     case "$rec_count" in

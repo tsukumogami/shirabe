@@ -2315,7 +2315,7 @@ The `level_unchanged` gate holds both `passed` routes, the carried one included,
 
 Submit `light_outcome: passed` when the reviewer clears the change (it goes to `verification`), `blocking_retry` when it finds correctable issues (it routes to `implementation`, and the run comes back through the review-level check, which may raise the level), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
 
-Retries from this panel share the per-run blocking-retry count of scrutiny, review and qa_validation: a `blocking_retry` here spends from the same cap, under the same rule, that the scrutiny directive states. Once that cap is spent, submit `blocking_escalate`.
+Retry cap: retries from this panel share the run's blocking retries with scrutiny, review and qa_validation, under the rule the scrutiny directive states: the first 2 are granted whatever the counts, a third only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. Before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" light_review <count>` once for the round, where the count is the reviewer seat's `blocking_count`. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
 ## verification
 

@@ -70,6 +70,12 @@ escalates; that is today's behaviour for it.
 
 No run gets more than 3 blocking retries, whatever the counts.
 
+The `light` review level, added after this decision was taken, runs one panel,
+`light_review`, in place of the other three. It spends from the same run-wide
+retries under the same rule, and its count is compared with its own earlier
+rounds only. A run whose level moves between `light` and the full panels has
+no earlier round on the other side to compare against.
+
 Counts are compared within one panel, not across the run, because the panels
 count different things: scrutiny and review count blocking findings, QA counts
 failed scenarios. A run whose scrutiny found 7 and whose review then found 2
