@@ -280,7 +280,15 @@ export SHIRABE_PREFLIGHT_DISABLE
 # ---------------------------------------------------------------------------
 # shellcheck source=lib/koto-legacy-env.sh
 . "$SCRIPT_DIR/lib/koto-legacy-env.sh"
-koto_legacy_env_enable
+# The probe asks koto for its init help only, but it runs under a throwaway
+# HOME all the same: nothing this runner starts reaches $HOME/.koto (see
+# setup_eval_koto).
+koto_probe_home=$(mktemp -d "${TMPDIR:-/tmp}/shirabe-eval-koto-probe.XXXXXX") || {
+  echo "Error: could not create a directory for the koto probe"
+  exit 3
+}
+HOME="$koto_probe_home" koto_legacy_env_enable
+rm -rf "$koto_probe_home"
 
 # Prerequisite checks
 command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 3; }
@@ -931,6 +939,39 @@ setup_eval_scratch() {
   }
 }
 
+# The run's own koto store. koto keeps its sessions, config, coordinator
+# records and terminal index under $HOME/.koto, which on a shared host holds
+# live sessions of other work. An eval run must never read or write that: a
+# session a killed run leaves there refuses the next run of the same scenario
+# (origin_mismatch), and a real coordinator's session must not be visible to,
+# or touched by, a scenario. So each run puts a koto wrapper first on the nested
+# session's PATH that runs the real koto with HOME set to a directory inside the
+# run's scratch root; the eval koto shim's passthrough reaches the real koto
+# through it too, since it takes the next koto on PATH. The store goes when the
+# scratch root does. Sets EVAL_KOTO_BIN to the wrapper's directory, or leaves it
+# empty when there is no koto to wrap; call it directly, not in $(...).
+EVAL_KOTO_BIN=""
+setup_eval_koto() {
+  local scratch="$1" real
+  EVAL_KOTO_BIN=""
+  real=$(command -v koto 2>/dev/null) || return 0
+  [ -n "$real" ] || return 0
+  mkdir -p "$scratch/koto-home" "$scratch/koto-bin" || return 1
+  {
+    printf '#!/bin/sh\n'
+    printf '# This eval run'"'"'s koto: the real one, with its store in the run'"'"'s scratch root.\n'
+    printf 'unset KOTO_SESSIONS_BASE\n'
+    printf 'HOME=%s exec %s "$@"\n' "$(shell_quote "$scratch/koto-home")" "$(shell_quote "$real")"
+  } > "$scratch/koto-bin/koto" || return 1
+  chmod +x "$scratch/koto-bin/koto" || return 1
+  EVAL_KOTO_BIN="$scratch/koto-bin"
+}
+
+# shell_quote <string>: the string as one single-quoted sh word.
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
 cleanup_eval_scratch() {
   if [ -n "$EVAL_SCRATCH_ROOT" ] && [ -d "$EVAL_SCRATCH_ROOT" ]; then
     rm -rf "$EVAL_SCRATCH_ROOT"
@@ -1061,6 +1102,14 @@ run_skill_evals() {
     return 2
   fi
   local scratch="$EVAL_SCRATCH_ROOT"
+
+  # Every koto the nested session runs keeps its store in the scratch root,
+  # never in $HOME/.koto. Refuse rather than run against the real store.
+  if ! setup_eval_koto "$scratch"; then
+    echo "  Error: could not set up the run's own koto store; refusing to run against \$HOME/.koto." >&2
+    cleanup_run_dirs
+    return 2
+  fi
 
   # Step 1b: For skills with tier-2 evals, stand up an isolated clone so the
   # real workflow (run-cascade.sh --push, folder moves, git mv) executes against
@@ -1294,6 +1343,8 @@ PROMPT
   (
     cd "$REPO_ROOT" || exit 1
     unset GH_TOKEN GITHUB_TOKEN SSH_AUTH_SOCK
+    # The run's koto first, so no koto the session reaches uses $HOME/.koto.
+    [ -z "$EVAL_KOTO_BIN" ] || PATH="$EVAL_KOTO_BIN:$PATH"
     TMPDIR="$scratch" claude -p "$prompt" \
       "${EVAL_CLAUDE_PERMISSION_ARGS[@]}" \
       ${EVAL_SESSION_MODEL_ARGS[@]+"${EVAL_SESSION_MODEL_ARGS[@]}"} \

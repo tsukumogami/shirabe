@@ -784,6 +784,51 @@ else
   fail "tier-2 origin default (rc=$RC): $(cat "$PROBE_OUT" 2>/dev/null) -- $OUT"
 fi
 
+# No koto the nested session reaches reads or writes $HOME/.koto: each run's
+# koto keeps its store in the run's scratch root. The "real" koto here is a fake
+# that records the HOME it ran under and writes a session where that HOME says;
+# the hook calls it directly and through the eval koto shim's passthrough, and
+# afterwards the caller's HOME must hold no .koto at all.
+FAKE_HOME="$T/fake-home"
+mkdir -p "$FAKE_HOME" "$T/fake-koto"
+KOTO_SEEN="$T/koto-seen"
+cat > "$T/fake-koto/koto" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$HOME" >> "$KOTO_SEEN"
+mkdir -p "$HOME/.koto/sessions/probe"
+EOF
+chmod +x "$T/fake-koto/koto"
+cat > "$T/koto-probe.sh" <<'EOF'
+#!/usr/bin/env bash
+# Run koto as an agent would: directly, and through the eval shim's passthrough.
+{
+  koto session list
+  echo "direct_rc=$?"
+  PATH="$EVAL_SHIM_BIN:$PATH" EVAL_SCENARIO=coord-outline-one-repo koto session list
+  echo "shim_rc=$?"
+} > "$PROBE_OUT" 2>&1
+EOF
+chmod +x "$T/koto-probe.sh"
+rm -rf "$LOG" "$PROBE_OUT" "$KOTO_SEEN"
+RC=0
+OUT=$(cd "$T" && HOME="$FAKE_HOME" RUN_EVALS_SKILLS_DIR="$T/iso-suite" STUB_CLAUDE_MODE=grade STUB_CLAUDE_LOG_DIR="$LOG" \
+  STUB_CLAUDE_HOOK="$T/koto-probe.sh" PROBE_OUT="$PROBE_OUT" KOTO_SEEN="$KOTO_SEEN" \
+  EVAL_SHIM_BIN="$REPO_ROOT/skills/execute/evals/fixtures/bin" \
+  PATH="$FIXTURES/bin:$T/fake-koto:$PATH" TMPDIR="$T" \
+  bash "$ISO/scripts/run-evals.sh" isoskill 2>&1) || RC=$?
+# Three koto calls: the runner's startup help probe, in a throwaway HOME of its
+# own, and the hook's two, in the run's store.
+SEEN_STORE=$(grep -cx "$T/shirabe-eval-scratch\.[A-Za-z0-9]*/koto-home" "$KOTO_SEEN" 2>/dev/null) || SEEN_STORE=0
+SEEN_PROBE=$(grep -cx "$T/shirabe-eval-koto-probe\.[A-Za-z0-9]*" "$KOTO_SEEN" 2>/dev/null) || SEEN_PROBE=0
+SEEN_ALL=$(grep -c . "$KOTO_SEEN" 2>/dev/null) || SEEN_ALL=0
+if [ "$RC" -eq 0 ] && [ "$(probe direct_rc)" = 0 ] && [ "$(probe shim_rc)" = 0 ] \
+  && [ "$SEEN_STORE" -eq 2 ] && [ "$SEEN_PROBE" -eq 1 ] && [ "$SEEN_ALL" -eq 3 ] \
+  && [ ! -e "$FAKE_HOME/.koto" ]; then
+  pass "koto: every koto the session runs keeps its store in the run's scratch root, never in \$HOME/.koto"
+else
+  fail "koto store (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] home_koto=$(ls -A "$FAKE_HOME" 2>/dev/null) probe=[$(cat "$PROBE_OUT" 2>/dev/null)] -- $OUT"
+fi
+
 echo ""
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]
