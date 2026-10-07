@@ -252,11 +252,23 @@ recommended verdict: <verdict>".
    which labels to remove on design acceptance. If no vocabulary is defined, look
    for any `needs-*` label and remove it. The tracking label is applied later by
    /plan, not here.
+   Under `/scope`'s `parent_orchestration` sentinel, skip this step. The label
+   edit is a `gh` write that is not among the `gh` writes `/scope`'s SKILL.md
+   lists for a run (its pull request, `/plan`'s gated issue filing and the
+   coordination PR), and that list skips a child's own upstream-issue edit;
+   skipping it is this skill's reading of
+   `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`,
+   which leaves publishing to the parent. Nothing in a `/scope` run removes
+   the label instead: `/plan` removes it at its step 7.8 only when the author
+   names the upstream issue, and that is a routing prompt `/scope`'s children
+   skip. The label stays on the issue for the author to remove.
 4. **Update parent design doc** (only when the design doc has `spawned_from` in its frontmatter).
    If your project defines a label lifecycle in the extension file
    (`@.claude/shirabe-extensions/design.md`), follow those instructions for
    parent doc updates (Mermaid diagram class changes, child reference rows,
    spawned_from metadata). If no extension defines this, skip parent doc updates.
+   This is an edit to a file on the branch, not a `gh` write, so it runs
+   under `/scope`'s sentinel too.
 5. **PR body convention.** If spawned from an issue, use `Ref #<N>` in the PR
    body, NOT `Fixes #<N>`. The issue stays open until implementation completes.
 6. Under `/scope`'s `parent_orchestration` sentinel, skip this step and return control to
