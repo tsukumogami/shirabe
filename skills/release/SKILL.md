@@ -219,7 +219,7 @@ All must pass before proceeding:
 
       | Variable | Value |
       |----------|-------|
-      | `RELEASE_VERSION` | the version Phase 1 recommends, or the one given, as bare `X.Y.Z` (strip a leading `v`) |
+      | `RELEASE_VERSION` | the version Phase 1 recommends, or the one given, as bare `X.Y.Z` (strip a leading `v`). Phase 3 may still change it; the `## Release assets` step in Phase 4 gets the confirmed one |
       | `RELEASE_LAST_TAG` | Phase 1's `LAST_TAG`, empty on a first release |
       | `RELEASE_DRY_RUN` | `1` under `--dry-run`, `0` otherwise |
       | `RELEASE_CONFIRMED_DROPS` | the empty string, so a value inherited from the environment can't pre-confirm anything |
@@ -321,7 +321,8 @@ run, run each bullet under `## Release assets` in the release extension
 step 7). No heading means nothing to attach. Print each command and its file,
 then run it from the repository root with `RELEASE_VERSION` set to the
 version confirmed in Phase 3 (bare `X.Y.Z`), `RELEASE_LAST_TAG` set as in
-Phase 2, and `RELEASE_DRY_RUN=0`.
+Phase 2, `RELEASE_DRY_RUN=0`, and `RELEASE_CONFIRMED_DROPS` set to the empty
+string, as in Phase 2.
 
 - Exit 0 with a last output line `asset: <path>` names a file to attach:
 
