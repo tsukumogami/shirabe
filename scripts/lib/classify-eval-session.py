@@ -30,9 +30,10 @@ Usage:
   classify-eval-session.py report <transcript> [<requested-mode>]
       Print the named failure when the session did not execute, and a note
       when it executed in a mode other than the one requested. When it
-      executed, also name each agent the session launched that was stopped
-      before it finished: the session ended while that agent still ran, so
-      the agent's scenario has no grades.
+      executed, also name each agent the session launched that never
+      completed, with its last status: "stopped" when the session ended
+      while it still ran, "failed" when it failed, "none" when nothing was
+      heard of it. That agent's scenario has no grades.
       Exit 0 when it executed, 4 when it did not, 2 when the transcript holds
       nothing to decide from.
 """
@@ -173,10 +174,14 @@ def classify(events):
     else:
         verdict = "executed"
 
-    # An agent whose last word is not "completed" was stopped (or failed)
-    # before it finished; one with no notification at all was still running
-    # when the transcript ended. Either way its work never came back.
-    stopped_agents = [desc for desc, status in agents.values() if status != "completed"]
+    # An agent whose last word is not "completed" did not finish: "stopped"
+    # means the session ended under it, "failed" that it failed on its own,
+    # and no notification at all that it was still running when the
+    # transcript ended. Either way its work never came back. Foreground agents
+    # get the same notifications as background ones, so a run that waited for
+    # its agents lists none.
+    stopped_agents = [{"description": desc, "status": status or "none"}
+                      for desc, status in agents.values() if status != "completed"]
 
     return {
         "verdict": verdict,
@@ -211,12 +216,14 @@ def report(summary, transcript, requested):
             print(f"    Transcript: {transcript}")
         if summary["stopped_agents"]:
             print("")
-            print("  EVAL AGENT STOPPED BEFORE IT FINISHED")
-            print("  The session ended while an agent it launched was still running, so")
-            print("  that agent's scenario never produced its outputs or grades. The runner")
-            print("  is at fault, not the skill under test.")
-            for desc in summary["stopped_agents"]:
-                print(f"    Stopped: {desc}")
+            print("  EVAL AGENT DID NOT FINISH")
+            print("  An agent the session launched never completed, so its scenario has no")
+            print("  outputs or grades. Status \"stopped\" means the session ended while the")
+            print("  agent still ran, which is the runner's fault, not the skill's; \"failed\"")
+            print("  means the agent failed on its own; \"none\" means the transcript ended")
+            print("  with no word on it.")
+            for agent in summary["stopped_agents"]:
+                print(f"    Did not finish: {agent['description']} (status: {agent['status']})")
             print(f"    Transcript: {transcript}")
         return EXIT_EXECUTED
     if summary["verdict"] == "unknown":

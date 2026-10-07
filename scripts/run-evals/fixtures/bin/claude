@@ -26,8 +26,12 @@
 #            transcript says)
 #
 # When $STUB_CLAUDE_HOOK names an executable, it runs first, with the prompt
-# file as its argument and the stub's environment, while the runner's tier-2
-# clone still exists; a test uses it to look at that clone.
+# file as its argument, while the runner's scratch root and tier-2 clone still
+# exist. It sees what a real session would: the session's environment, with
+# the run's koto wrapper first on PATH, EVAL_KOTO_WRAPPER set and TMPDIR the
+# scratch root. Tests use it to act inside the run. Its stdout goes to stderr,
+# because the stub's stdout is the transcript the classifier reads, and its
+# exit status is ignored, so a hook reports through a file of its own.
 #
 # The workspace is read from the prompt line "The eval workspace is prepared
 # at: <dir>" that run-evals.sh writes; if that line changes, the grade and
@@ -60,7 +64,7 @@ printf '%s\n' "${TMPDIR:-}" > "$log/tmpdir"
 echo call >> "$log/calls"
 
 if [ -n "${STUB_CLAUDE_HOOK:-}" ]; then
-  "$STUB_CLAUDE_HOOK" "$log/prompt"
+  "$STUB_CLAUDE_HOOK" "$log/prompt" >&2 || true
 fi
 
 mode="${STUB_CLAUDE_MODE:-plan}"
