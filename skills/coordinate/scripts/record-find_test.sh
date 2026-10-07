@@ -5,7 +5,8 @@
 #
 # Covers, at roadmap scope: the record among 150 open issues through the
 # paginated listing; a closed issue, a -v2 title and a pull request with the
-# title ignored; two matches; no declaration line (foreign); each of the four
+# title ignored; two matches; a body larger than the pipe buffer found, and the
+# declaration check on a file past 64 KB; no declaration line (foreign); each of the four
 # sections missing (malformed); a record for another scope; an unauthorized
 # author and an unauthorized last editor; a failed permission read and a failed
 # listing (exit 2). At discipline scope: none, unopened, stale-branch, found,
@@ -70,6 +71,21 @@ add_issue 8 "$TITLE" "$ROADMAP_BODY"
 eq "two matches are ambiguous" "ambiguous 8 6" "$(find_rm)"
 
 echo "== roadmap: one candidate =="
+# A declaration check that stops reading at line 1 must not fail a body larger
+# than the pipe buffer (#638). Through the find: a canonical body past macOS's
+# 16 KB buffer; record-parse.sh caps a body at 64 KB, Linux's buffer.
+BIG_BODY=$(render "$(record_json roadmap plugin-system | jq -c '.deferrals = [range(0; 300) | {deferral: "deferral \(.) of a long-running lane",
+    reason: "each deferral the lane raises grows its record", raised: "2026-09-25T10:00Z", disposition: ""}]')" issue)
+[ "${#BIG_BODY}" -gt 16384 ] && [ "${#BIG_BODY}" -le 65536 ] && ok "the large body is between 16 and 64 KB" \
+    || bad "the large body is between 16 and 64 KB" "${#BIG_BODY} bytes"
+db_init; add_issue 7 "$TITLE" "$BIG_BODY"
+eq "a record body past the 16 KB pipe buffer is found and adopted" "found 7" "$(find_rm)"
+# Directly: a file past both buffers.
+{ printf '%s\n' "$BIG_BODY"; awk 'BEGIN { for (i = 0; i < 2000; i++) print "filler line past the 64 KB pipe buffer" }'; } > "$T/big.md"
+[ "$(wc -c < "$T/big.md")" -gt 65536 ] || bad "the declaration-check file is past 64 KB" "$(wc -c < "$T/big.md") bytes"
+( PROG=record-find; . "$HERE/record-common.sh"; lib_has_declaration "$T/big.md" ) \
+    && ok "lib_has_declaration finds the line in a file past 64 KB" \
+    || bad "lib_has_declaration finds the line in a file past 64 KB" "exit $?"
 db_init; add_issue 7 "$TITLE" "just an issue"
 eq "a title match without the declaration line is foreign" "foreign 7" "$(find_rm)"
 for sec in "Holdings" "Deferrals" "Side effects in flight" "Reversals"; do
