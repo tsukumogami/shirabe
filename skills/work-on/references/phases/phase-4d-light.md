@@ -67,7 +67,7 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 
 Then:
 
-- If `blocking_count > 0`: submit `light_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent takes the findings; the run then walks forward through the review-level check, which gathers the facts again and may hold the run until the level is raised (a fix that grows the change can take it past a threshold), and re-enters this phase only if the level is still `light`.
+- If `blocking_count > 0`: submit `light_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the findings; the run then walks forward through the review-level check, which gathers the facts again and may hold the run until the level is raised (a fix that grows the change can take it past a threshold), and re-enters this phase only if the level is still `light`.
 - If `blocking_count: 0`: write `light_results.json` to koto context and submit `light_outcome: passed`.
 
 ```bash
@@ -81,7 +81,7 @@ koto next <WF> --with-data '{"light_outcome": "passed"}' --no-cleanup
 
 ## Retry Loop
 
-When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=light_outcome
@@ -103,4 +103,4 @@ Every panel's key goes, not only this one's: if the level is raised on the way b
 
 ## Escalation
 
-If a blocking finding cannot be resolved, or the shared retry cap (the `light_review` directive points at the scrutiny directive's statement of it) is spent, submit `light_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.
+If a blocking finding cannot be resolved, or the retry budget in the state's directive refuses the retry, submit `light_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.

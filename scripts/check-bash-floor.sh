@@ -286,6 +286,10 @@ suite_scripts() {
             echo "skills/work-on/scripts/work-on-requires_test.sh"
             # Reads shipped files only; every case runs on the floor.
             echo "skills/work-on/scripts/settled-policy_test.sh"
+            # Its rule and fail-closed cases run the panel retry budget through
+            # a koto stand-in, so they execute on the floor; its real-session
+            # case skips without koto.
+            echo "skills/work-on/scripts/panel-retry-budget_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

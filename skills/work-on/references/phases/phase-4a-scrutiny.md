@@ -67,7 +67,7 @@ ROUND=$(mktemp)
 
 Then:
 
-- If any `blocking_count > 0`: collect blocking findings and submit `scrutiny_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
+- If any `blocking_count > 0`: collect blocking findings and submit `scrutiny_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
 - If all `blocking_count: 0`: write `scrutiny_results.json` to koto context and submit `scrutiny_outcome: passed`.
 
 ```bash
@@ -81,7 +81,7 @@ koto next <WF> --with-data '{"scrutiny_outcome": "passed"}' --no-cleanup
 
 ## Retry Loop
 
-When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=scrutiny_outcome
@@ -111,8 +111,8 @@ That second case is why this is not caution for its own sake. The gate makes the
 
 The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
 
-The run then returns to `implementation`, and when it walks forward into this phase again, spawn all three reviewers for a fresh round. When that round comes back with every `blocking_count: 0`, run the Aggregation command above with `<N>` set to this round's number. If it still finds blocking findings, run this block again, or escalate as described below.
+The run then returns to `implementation`, and when it walks forward into this phase again, spawn all three reviewers for a fresh round. When that round comes back with every `blocking_count: 0`, run the Aggregation command above with `<N>` set to this round's number. If it still finds blocking findings, run the retry budget again and then this block, or escalate as described below.
 
 ## Escalation
 
-If a blocking finding cannot be resolved, or the retry cap in the state's directive is spent, submit `scrutiny_outcome: blocking_escalate` with a clear `failure_reason`. The workflow routes to `done_blocked`.
+If a blocking finding cannot be resolved, or the retry budget in the state's directive refuses the retry, submit `scrutiny_outcome: blocking_escalate` with a clear `failure_reason`. The workflow routes to `done_blocked`.

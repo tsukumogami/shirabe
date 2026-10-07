@@ -55,7 +55,7 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 
 Then:
 
-- If `scenarios_failed > 0`: submit `qa_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' verdicts as well as this one's.
+- If `scenarios_failed > 0`: submit `qa_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' verdicts as well as this one's.
 - If all scenarios pass: write `qa_results.json` to koto context and submit `qa_outcome: passed`.
 
 ```bash
@@ -69,7 +69,7 @@ koto next <WF> --with-data '{"qa_outcome": "passed"}' --no-cleanup
 
 ## Retry Loop
 
-When a defect sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. When a defect sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=qa_outcome
@@ -93,4 +93,4 @@ Every key in the list goes, not only this panel's. A retry raised here is the wi
 
 ## Escalation
 
-If a defect cannot be resolved, or the retry cap in the state's directive is spent, submit `qa_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`. Include a `failure_reason` string — without it, the context_assignments block cannot propagate the reason to koto context.
+If a defect cannot be resolved, or the retry budget in the state's directive refuses the retry, submit `qa_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`. Include a `failure_reason` string — without it, the context_assignments block cannot propagate the reason to koto context.

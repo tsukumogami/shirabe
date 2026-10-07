@@ -348,9 +348,16 @@ leg, since one leg answers one session.
   `scripts/koto-open.sh`. Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 127 no koto or jq, and koto's own code otherwise.
+- `scripts/panel-retry-budget.sh <session-name> <panel> <count>` — decides
+  whether a review panel that found blocking issues may send the work back
+  again, and records each retry it grants in `panel_retries`. The panel
+  directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
+  64 the record could not be read or is malformed, 66 the grant could not be
+  recorded, 67 bad arguments; every exit but 0 means escalate.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh`,
   `scripts/ci-monitor-role_test.sh`, `scripts/record-changed-paths_test.sh`,
-  `scripts/work-on-open_test.sh` — the harnesses; see each file's header.
+  `scripts/work-on-open_test.sh`, `scripts/panel-retry-budget_test.sh` — the
+  harnesses; see each file's header.
 
 ### Execution Loop
 

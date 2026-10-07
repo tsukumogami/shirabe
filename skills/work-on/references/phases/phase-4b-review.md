@@ -54,7 +54,7 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 
 Then:
 
-- If any `blocking_count > 0`: collect blocking findings and submit `review_outcome: blocking_retry` via the Retry Loop below. That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
+- If any `blocking_count > 0`: collect blocking findings and submit `review_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
 - If all `blocking_count: 0`: write `review_results.json` to koto context and submit `review_outcome: passed`.
 
 ```bash
@@ -68,7 +68,7 @@ koto next <WF> --with-data '{"review_outcome": "passed"}' --no-cleanup
 
 ## Retry Loop
 
-When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=review_outcome
@@ -92,4 +92,4 @@ Every key in the list goes, not only this panel's — see `phase-4a-scrutiny.md`
 
 ## Escalation
 
-If a blocking finding cannot be resolved, or the retry cap in the state's directive is spent, submit `review_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.
+If a blocking finding cannot be resolved, or the retry budget in the state's directive refuses the retry, submit `review_outcome: blocking_escalate` with `failure_reason`. The workflow routes to `done_blocked`.

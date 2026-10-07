@@ -220,6 +220,14 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/settled-policy_test.sh
 
+      # The review panels' retry budget: the progress rule and its fail-closed
+      # cases through a koto stand-in (both legs; the macOS leg runs them on the
+      # floor through the work-on suite), then the same sequences against a real
+      # koto session, which only this leg has.
+      - name: Run panel retry budget tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/panel-retry-budget_test.sh
+
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
       # it is the same command a developer runs locally.
