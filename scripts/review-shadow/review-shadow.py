@@ -1533,8 +1533,11 @@ def slice_ac_hunks(art):
         for f in art["files"]:
             if not f["patch"]:
                 continue
-            # Room for the criterion and the path header beside each hunk unit, so a
-            # unit that fits on its own also fits in the slice it is sent in.
+            # Room for the criterion and the "--- <path>\n" header beside each hunk
+            # unit, so a unit that fits on its own also fits in the slice it is
+            # sent in. hunk_units adds its own path length again, and the 8 covers
+            # the header's "--- " and newline plus the joiner, with a little to
+            # spare: a conservative bound only splits a hunk sooner.
             plen = utf8_len(item) + 2 * utf8_len(f["path"]) + 8
             for h in split_hunks(f["patch"]):
                 changed = "\n".join(line[1:] for line in h.split("\n")[1:] if line[:1] in "+-")
