@@ -125,9 +125,12 @@ mktempdir() {
 # Exemptions - shell that CI runs and this deliberately does not floor-check:
 #
 #   scripts/run-evals.sh (run-evals.yml)
-#       Drives the `claude` CLI against live models on workflow_dispatch. An
-#       operator tool, never invoked by a skill on a user's machine, and it
-#       cannot run offline or in a container.
+#       Drives the `claude` CLI against live models. It now runs from the
+#       maintainer's /shirabe:release session, through scripts/release-eval-check.sh
+#       as declared in .claude/shirabe-extensions/release.md, on a release host
+#       that has bash 4 (the extension says so), and on workflow_dispatch. An
+#       operator tool that cannot run offline or in a container; no skill runs
+#       it on an adopter's machine, where /bin/bash may be 3.2.
 #   scripts/run-evals_test.sh, scripts/run-evals/fixtures/ (check-run-evals.yml)
 #       The runner's own suite, run offline against a stub claude on ubuntu
 #       runners. It tests an operator tool that never reaches a user's macOS
@@ -164,7 +167,7 @@ mktempdir() {
 # provisioned host), so `all` on Linux reports it red; its floor run is the
 # macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill"
 
 suite_scripts() {
     case "$1" in
@@ -447,6 +450,12 @@ suite_scripts() {
             # git, so every case runs on 3.2.
             echo "scripts/review-packet_test.sh"
             ;;
+        check-skill)
+            # The skills/** verification-map entry's checks. Its suite builds
+            # throwaway skills with stand-in shirabe, koto and claude and needs
+            # only bash, git and python3, so every case runs on 3.2.
+            echo "scripts/check-skill_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -484,6 +493,7 @@ suite_workflow() {
         coordinate-reconcile) echo ".github/workflows/check-coordinate-reconcile-scripts.yml" ;;
         offload-baseline)     echo ".github/workflows/check-offload-baseline.yml" ;;
         review-packet)        echo ".github/workflows/check-review-packet.yml" ;;
+        check-skill)          echo ".github/workflows/check-skill-gate.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }
