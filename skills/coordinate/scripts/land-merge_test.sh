@@ -110,6 +110,19 @@ bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor does one 
 at_land; echo 1 > "$GH_BOARD_DIR/issue-7.rc"
 never "a record that can't be re-read for its holds" 10
 
+echo "== a pause written after the land check =="
+at_land; bt_record_paused "[$(bt_pause s1 pause all lifted)]"
+never "a pause on all stops the merge with its own code" 12
+grep -q 'paused: pause s1 holds #12 now (on all, until lifted); submit merge: paused' "$T/err" && ok "  ... naming the pause and the value to submit" || bad "  ... naming the pause and the value to submit" "$(cat "$T/err")"
+at_land; bt_record_paused "[$(bt_pause s2 pause "Feature 2" "time 2099-01-01T00:00Z")]"
+never "a pause on the pull request's unit stops it too" 12
+at_land; bt_record_paused "[$(bt_pause s2 pause "Feature 3" lifted)]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a pause on another unit doesn't" 0 $?
+at_land; bt_record_paused "[$(bt_pause s1 pause all lifted), $(bt_pause s3 go-ahead "Feature 2" "")]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor does an all pause the unit has a go-ahead through" 0 $?
+at_land; bt_record_paused "[$(bt_pause s1 pause all "time 2000-01-01T00:00Z")]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor a pause whose minute has passed" 0 $?
+
 echo "== merge-exec's own answers =="
 at_land; printf 'merge-refused:unmergeable:blocked\n' > "$BT_STATE/merge-exec.out"; echo 0 > "$BT_STATE/merge-exec.rc"
 OUT=$(bash "$LM" --session "$S" --repo acme/widgets 2>/dev/null); rc=$?

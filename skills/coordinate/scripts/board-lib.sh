@@ -353,7 +353,20 @@ bl_reviewed_fresh() {
 # printed; 2 the record couldn't be read or parsed, or a read ran out of the
 # check's time (the tick re-runs it rather than call the hold unreadable).
 bl_holds_on() {
-    local s=$1 repo=$2 pr=$3 facts rrepo ref scope name d c
+    local s=$1 repo=$2 pr=$3 d
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-holds.XXXXXX") || return 2
+    bl_record_parsed "$s" "$d/parsed" || { rm -rf "$d"; return 2; }
+    bl_holds_eval "$d/parsed" "$repo" "$pr"
+    local rc=$?
+    rm -rf "$d"
+    return $rc
+}
+
+# bl_record_parsed <session> <out>: the run's record, read live and parsed
+# (record-parse.sh's JSON) into <out>, for the holds and the pauses. Returns 0
+# written; 2 the record couldn't be read or parsed.
+bl_record_parsed() {
+    local s=$1 out=$2 facts rrepo ref scope name c
     facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s") || return 2
     rrepo=$(printf '%s' "$facts" | jq -r '.repo // ""')
     ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
@@ -361,14 +374,68 @@ bl_holds_on() {
     name=$(printf '%s' "$facts" | jq -r '.name // ""')
     bl_repo_ok "$rrepo" && bl_pr_ok "$ref" || return 2
     case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
-    d=$(mktemp -d "${TMPDIR:-/tmp}/board-holds.XXXXXX") || return 2
-    if ! bl_gh "$d/rec" api --method GET "repos/$rrepo/issues/$ref"; then rm -rf "$d"; return 2; fi
-    jq -r '.body // ""' "$d/rec" | bash "$HERE/record-parse.sh" --container "$c" --expect-scope "$scope:$name" - > "$d/parsed" \
-        || { echo "$PROG: the record couldn't be parsed for its holds" >&2; rm -rf "$d"; return 2; }
-    bl_holds_eval "$d/parsed" "$repo" "$pr"
-    local rc=$?
-    rm -rf "$d"
-    return $rc
+    bl_gh "$out.rec" api --method GET "repos/$rrepo/issues/$ref" || return 2
+    jq -r '.body // ""' "$out.rec" | bash "$HERE/record-parse.sh" --container "$c" --expect-scope "$scope:$name" - > "$out" \
+        || { echo "$PROG: the record couldn't be parsed" >&2; return 2; }
+}
+
+# bl_pauses_on <parsed-record-file> <repo> <pr>: the record's pauses as
+# pause-read.sh evaluates them, for the unit of the Holdings row whose pull
+# request is <repo>#<pr>, printed as pause-read.sh's JSON plus `unit` and
+# `paused` (the id of the pause that holds that unit, or null)
+# (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1). Returns 0
+# printed; 2 the file couldn't be read or a condition's read ran out of time.
+bl_pauses_on() {
+    local f=$1 repo=$2 pr=$3 unit
+    unit=$(jq -r --arg r "$repo" --arg n "$pr" \
+        '[.holdings[] | select(.pull_request | test("^\\[#" + $n + "\\]\\(https://github\\.com/" + ($r | gsub("\\."; "\\.")) + "/pull/" + $n + "\\)$"; "i")) | .unit][0] // ""' "$f") || return 2
+    jq '{standing: (.standing // [])}' "$f" > "$f.standing" || return 2
+    jq -nc --arg u "$unit" 'if $u == "" then [] else [$u] end' > "$f.units" || return 2
+    bash "$HERE/pause-read.sh" --standing "$f.standing" --units "$f.units" > "$f.pauses" || return 2
+    jq -c --arg u "$unit" '. + {unit: $u, paused: (if $u == "" then .all else .covers[$u] end)}' "$f.pauses"
+}
+
+# bl_condition_state <until> <scratch-dir>: one hold or pause condition, read
+# live, printed as `met`, `unmet` or `unreadable`:
+#   lifted          unmet: only the row's own state (a Lifted cell, or a
+#                   Standing row ended) ends it, and the caller reads that
+#   time <T>        met once the host clock in UTC reaches minute T (BL_NOW,
+#                   YYYY-MM-DDTHH:MMZ, stands in for the clock in tests)
+#   merged R#m      met when R#m reads MERGED
+#   tag R T         met when the tag exists on R
+# A read that fails (a refusal, a server error, a missing pull request),
+# other than a missing tag, is `unreadable`. Returns 0 printed; 2 a read ran
+# out of the check's time (the tick re-runs it rather than call it
+# unreadable). Shared by the holds and the pauses
+# (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
+bl_condition_state() {
+    local until=$1 d=$2 now
+    case "$until" in
+        lifted) echo unmet ;;
+        time\ *)
+            # A malformed time can't be compared; it holds, as an unreadable
+            # condition does.
+            [[ ${until#time } =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$ ]] || { echo unreadable; return 0; }
+            now=${BL_NOW:-$(date -u +%Y-%m-%dT%H:%MZ)}
+            if [ "$now" \< "${until#time }" ]; then echo unmet; else echo met; fi ;;
+        merged\ *)
+            set -f; set -- $until; set +f
+            if bl_gh "$d/m" pr view "${2##*#}" --repo "${2%#*}" --json state; then
+                if [ "$(jq -r '.state // ""' "$d/m")" = MERGED ]; then echo met; else echo unmet; fi
+            elif [ "$(cat "$d/m.fail")" = deadline ]; then return 2
+            else echo unreadable; fi ;;
+        tag\ *)
+            set -f; set -- $until; set +f
+            if bl_gh "$d/t" api --method GET "repos/$2/git/ref/tags/$3"; then echo met
+            else
+                case "$(cat "$d/t.fail")" in
+                    notfound) echo unmet ;;
+                    deadline) return 2 ;;
+                    *) echo unreadable ;;
+                esac
+            fi ;;
+        *) echo unreadable ;;
+    esac
 }
 
 # bl_holds_eval <parsed-record-file> <repo> <pr>: bl_holds_on's evaluation,
@@ -387,22 +454,8 @@ bl_holds_eval() {
         case "$until" in
             lifted)
                 if [ -n "$(jq -r --argjson i "$i" '.[$i].lifted' "$d/holds")" ]; then st=met; else st=unmet; fi ;;
-            merged\ *)
-                set -f; set -- $until; set +f
-                if bl_gh "$d/m" pr view "${2##*#}" --repo "${2%#*}" --json state; then
-                    if [ "$(jq -r '.state // ""' "$d/m")" = MERGED ]; then st=met; else st=unmet; fi
-                elif [ "$(cat "$d/m.fail")" = deadline ]; then rm -rf "$d"; return 2
-                else st=unreadable; fi ;;
-            tag\ *)
-                set -f; set -- $until; set +f
-                if bl_gh "$d/t" api --method GET "repos/$2/git/ref/tags/$3"; then st=met
-                else
-                    case "$(cat "$d/t.fail")" in
-                        notfound) st=unmet ;;
-                        deadline) rm -rf "$d"; return 2 ;;
-                        *) st=unreadable ;;
-                    esac
-                fi ;;
+            merged\ *|tag\ *)
+                st=$(bl_condition_state "$until" "$d") || { rm -rf "$d"; return 2; } ;;
             *) st=unreadable ;;
         esac
         printf '%s\n' "$st" >> "$d/states"

@@ -7,7 +7,7 @@
 # Usage:
 #   record-state.sh --session S --run KEY VALUE --by WHO
 #   record-state.sh --session S --told WHO --by WHO
-#   record-state.sh --session S --standing KIND --what TEXT --owner WHO [--relayed-by WHO]
+#   record-state.sh --session S --standing KIND [--on SCOPE] [--until COND] --what TEXT --owner WHO [--relayed-by WHO]
 #   record-state.sh --session S --end ID --by WHO
 #   record-state.sh --session S --work ITEM --kind holding|local-agent --who W --next TEXT
 #   record-state.sh --session S --done ITEM
@@ -30,6 +30,13 @@
 # told this coordinator directly). When a person says it in a comment on the
 # record, or anywhere else, this is how it reaches the record: the reader
 # never counts a comment without the entry marker. It gets the next id, s<n>.
+# A pause takes --on, its scope (`all`, or one unit as pick lists it:
+# `Feature 2`, `ED1`, `#12`, `owner/repo#12`), and --until, its resume
+# condition (`lifted`, `time <YYYY-MM-DDTHH:MMZ>` in UTC, `merged
+# owner/repo#n` or `tag owner/repo <tag>`); a go-ahead may take --on, the one
+# unit it lets through a wider pause; the other kinds take neither. With a
+# session whose pick facts (coord/pick.json) list units, --on must name one of
+# them (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
 # --end removes a Standing row (a resume ends a pause; a go-ahead or approval
 # ends when used; an answer when withdrawn).
 #
@@ -64,7 +71,7 @@ set -uo pipefail
 PROG=record-state
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= MODE=
-KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT=
+KEY= VALUE= BY= WHO= KIND= WHAT= OWNER= RELAYED= ID= ITEM= NEXT= ON= UNTIL=
 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -87,6 +94,8 @@ while [ $# -gt 0 ]; do
         --what) [ $# -ge 2 ] || usage; WHAT=$2; shift 2 ;;
         --owner) [ $# -ge 2 ] || usage; OWNER=$2; shift 2 ;;
         --relayed-by) [ $# -ge 2 ] || usage; RELAYED=$2; shift 2 ;;
+        --on) [ $# -ge 2 ] || usage; ON=$2; shift 2 ;;
+        --until) [ $# -ge 2 ] || usage; UNTIL=$2; shift 2 ;;
         --kind) [ $# -ge 2 ] || usage; KIND=$2; shift 2 ;;
         --who) [ $# -ge 2 ] || usage; WHO=$2; shift 2 ;;
         --next) [ $# -ge 2 ] || usage; NEXT=$2; shift 2 ;;
@@ -95,14 +104,14 @@ while [ $# -gt 0 ]; do
     esac
 done
 case "$MODE" in
-    run) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND" ] || usage
+    run) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
          case "$KEY" in arguments|cap|coordinator) ;; *) echo "$PROG: --run takes arguments, cap or coordinator" >&2; exit 64 ;; esac ;;
-    told) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND" ] || usage ;;
+    told) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     standing) [ -n "$WHAT" ] && [ -n "$OWNER" ] && [ -z "$BY$WHO$NEXT" ] || usage ;;
-    end) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND" ] || usage ;;
-    work) [ -n "$KIND" ] && [ -n "$WHO" ] && [ -n "$NEXT" ] && [ -z "$BY$WHAT$OWNER$RELAYED" ] || usage ;;
-    done) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND" ] || usage ;;
-    list) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND" ] || usage ;;
+    end) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    work) [ -n "$KIND" ] && [ -n "$WHO" ] && [ -n "$NEXT" ] && [ -z "$BY$WHAT$OWNER$RELAYED$ON$UNTIL" ] || usage ;;
+    done) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
+    list) [ -z "$BY$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     *) usage ;;
 esac
 . "$HERE/record-common.sh"
@@ -173,6 +182,24 @@ told)
     ;;
 standing)
     case "$KIND" in pause|go-ahead|approval|answer) ;; *) echo "$PROG: --standing takes pause, go-ahead, approval or answer" >&2; exit 64 ;; esac
+    case "$KIND" in
+        pause) [ -n "$ON" ] && [ -n "$UNTIL" ] || { echo "$PROG: a pause takes --on and --until" >&2; exit 64; } ;;
+        go-ahead) [ -z "$UNTIL" ] || { echo "$PROG: a go-ahead takes no --until; it ends when used" >&2; exit 64; } ;;
+        *) [ -z "$ON$UNTIL" ] || { echo "$PROG: only a pause or a go-ahead takes --on or --until" >&2; exit 64; } ;;
+    esac
+    # The scope must be a unit pick reads, when this session's pick facts say
+    # which units those are.
+    if [ -n "$ON" ] && [ "$ON" != all ] && [ "$OVERRIDE" != 1 ] && [ -n "$SESSION" ]; then
+        if "$KOTO" context exists "$SESSION" coord/pick.json; then
+            "$KOTO" context get "$SESSION" coord/pick.json > "$WD/pick.json" || lib_die2 "cannot read coord/pick.json"
+        else
+            echo '{}' > "$WD/pick.json"
+        fi
+        if jq -e '(.units // []) | type == "array" and length > 0' "$WD/pick.json" > /dev/null; then
+            jq -e --arg u "$ON" '.host as $h | any(.units[]; .unit == $u or ($h != null and ($h + .unit) == $u))' "$WD/pick.json" > /dev/null \
+                || refuse "--on $ON is not a unit pick lists; it takes one of: $(jq -r '[.units[].unit] | join(", ")' "$WD/pick.json")"
+        fi
+    fi
     SID=$(jq -r '"s\(([(.standing // [])[] | .standing[1:] | tonumber] | max // 0) + 1)"' "$P")
     # The next id never reuses an ended one: the entries name ids, so the
     # highest id ever used is read from the stream too.
@@ -181,10 +208,10 @@ standing)
     USED=$(printf '%s' "$ENTRIES" | jq -r '[.[] | .text | scan("^(s[1-9][0-9]*)") | .[0][1:] | tonumber] | max // 0') \
         || lib_die2 "the record's entries are not JSON"
     N=${SID#s}; [ "$USED" -ge "$N" ] && SID="s$((USED + 1))"
-    jq --arg s "$SID" --arg k "$KIND" --arg w "$WHAT" --arg o "$OWNER" --arg r "$RELAYED" --arg t "$NOW" \
-        '.standing = ((.standing // []) + [{standing: $s, kind: $k, what: $w, owner: $o, relayed_by: $r, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    jq --arg s "$SID" --arg k "$KIND" --arg on "$ON" --arg u "$UNTIL" --arg w "$WHAT" --arg o "$OWNER" --arg r "$RELAYED" --arg t "$NOW" \
+        '.standing = ((.standing // []) + [{standing: $s, kind: $k, on: $on, until: $u, what: $w, owner: $o, relayed_by: $r, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=$KIND
-    ETEXT="$SID ($KIND): $WHAT. Owner: $OWNER.${RELAYED:+ Relayed by $RELAYED.}"
+    ETEXT="$SID ($KIND${ON:+ on $ON}${UNTIL:+, until $UNTIL}): $WHAT. Owner: $OWNER.${RELAYED:+ Relayed by $RELAYED.}"
     ;;
 end)
     ROW=$(jq -c --arg s "$ID" '[(.standing // [])[] | select(.standing == $s)][0] // empty' "$P")

@@ -174,6 +174,9 @@ DC_RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
 DC_RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
 DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
+# The stored set's reader, for the pauses (record-state.sh --list); tests use
+# a stand-in.
+DC_RECORD_STATE="${DC_RECORD_STATE:-$DC_HERE/record-state.sh}"
 DC_COORD_LOG="${DC_COORD_LOG:-$DC_HERE/coord-log.sh}"
 
 # The dispatch topic's grammar, which a refusal names as the accepted values.

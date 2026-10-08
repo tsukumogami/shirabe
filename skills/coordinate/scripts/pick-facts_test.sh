@@ -154,6 +154,31 @@ dc_unit_forms "$T/pick.json" | grep -qx 'Feature 4' && bad "  ... and the dispat
     || ok "  ... and the dispatch path renders no brief for it"
 dc_unit_forms "$T/pick.json" | grep -qx 'Feature 5' && ok "  ... while other units keep their forms" || bad "  ... while other units keep their forms"
 
+echo "== roadmap: pauses =="
+pause_row() { # pause_row <id> <kind> <on> <until>
+    jq -nc --arg s "$1" --arg k "$2" --arg o "$3" --arg u "$4" \
+        '{standing: $s, kind: $k, on: $o, until: $u, what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}'
+}
+seed "$(printf '%s' "$REC" | jq -c --argjson a "$(pause_row s1 pause "Feature 2" lifted)" '.standing = [$a]')"; pr 21 OPEN true; pr 23 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' 'Not started')"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"; eq "the facts are read with a pause standing" 0 $?
+eq "a unit's pause marks that unit and the holding covering it, and nothing else" "s1 s1 null null" \
+    "$(facts | jq -r '[(.units[] | select(.unit == "Feature 2") | .paused), (.holdings[] | select(.worker == "alpha") | .paused), (.units[] | select(.unit == "Feature 4") | .paused), (.holdings[] | select(.worker == "beta") | .paused)] | map(tostring) | join(" ")')"
+eq "  ... the facts list it in force, and the whole coordinator isn't paused" "s1 in-force null" "$(facts | jq -r '"\(.pauses[0].standing) \(.pauses[0].state) \(.paused_all)"')"
+seed "$(printf '%s' "$REC" | jq -c --argjson a "$(pause_row s1 pause all "time 2099-01-01T00:00Z")" --argjson g "$(pause_row s2 go-ahead "Feature 4" "")" '.standing = [$a, $g]')"; pr 21 OPEN true; pr 23 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' 'Not started')"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"
+eq "an all pause holds the coordinator and every unit but the one a go-ahead names" "s1 s1 null s2" \
+    "$(facts | jq -r '[.paused_all, (.units[] | select(.unit == "Feature 3") | .paused), (.units[] | select(.unit == "Feature 4") | .paused), .go_aheads[0].standing] | map(tostring) | join(" ")')"
+seed "$(printf '%s' "$REC" | jq -c --argjson a "$(pause_row s1 pause all "time 2000-01-01T00:00Z")" '.standing = [$a]')"; pr 21 OPEN true; pr 23 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' 'Not started')"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"
+eq "a pause whose minute has passed is met and holds nothing" "met null null" \
+    "$(facts | jq -r '[.pauses[0].state, .paused_all, (.units[] | select(.unit == "Feature 3") | .paused)] | map(tostring) | join(" ")')"
+
 echo "== roadmap: scope-complete =="
 RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7 --no-seal)
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done. Dropped Done Dropped)"

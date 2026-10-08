@@ -29,6 +29,14 @@
 # beside CAP and PARKED_BOUND from the session's variables, the cap from the
 # record's Run section when it has one.
 #
+# The record's pauses (Standing rows of kind pause, evaluated by
+# pause-read.sh): each unit and holding carries `paused`, the id of the pause
+# that holds it, or null; the facts carry every pause with its state
+# (in-force, met, unreadable), the go-aheads, and `paused_all`, the id of the
+# pause on `all` that holds the whole coordinator, or null. A paused unit is
+# never chosen, and while `paused_all` is set pick holds
+# (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
+#
 # Verdict tokens:
 #   decisions        decision-next.sh --owed pick names a rule: an unrecorded
 #                    write, an owed message, a carry, a proposed entry or one
@@ -42,10 +50,10 @@
 # The facts go to context key coord/pick.json as data (pick's decider input):
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
 #    units: [{unit, number, title, status, done, blocked,
-#    blocked_by, blocker_landed, holding, landed}], holdings: [{worker, unit, phase,
-#    dispatch_status, parked, merged, pull_request}], decisions: [{decision, question,
+#    blocked_by, blocker_landed, holding, landed, paused}], holdings: [{worker, unit, phase,
+#    dispatch_status, parked, merged, pull_request, paused}], decisions: [{decision, question,
 #    state, round, verdict, reason, recommendation, target, owed}], active,
-#    parked, cap, parked_bound}
+#    parked, cap, parked_bound, pauses, go_aheads, paused_all}
 # decisions is the record's unsettled entries (record-decision.sh --list),
 # the rows the progress table renders.
 #
@@ -160,6 +168,11 @@ else
         || lib_die2 "jq failed"
 fi
 
+# The pauses, read live, for every unit and holding listed.
+jq -c --slurpfile h "$T/counted.json" '[.[].unit] + [$h[0][].unit] | unique' "$T/units.json" > "$T/punits.json" || lib_die2 "jq failed"
+bash "$HERE/pause-read.sh" --standing "$T/state.json" --units "$T/punits.json" > "$T/pauses.json" 2> "$T/pauses.err" \
+    || lib_die2 "pause-read.sh failed: $(lib_scrub < "$T/pauses.err")"
+
 # Owed decision work comes before any other verdict.
 if [ -n "$SESSION" ]; then
     OWED_RULE=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed pick) || lib_die2 "cannot read what the decisions are owed"
@@ -167,12 +180,13 @@ if [ -n "$SESSION" ]; then
 fi
 
 jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --slurpfile d "$T/decisions.json" \
-    --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" '
-    {scope: $scope, name: $name, host: $host, units: $u[0],
-     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, pull_request}],
+    --slurpfile pz "$T/pauses.json" --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" '
+    $pz[0] as $p
+    | {scope: $scope, name: $name, host: $host, units: [$u[0][] | . + {paused: ($p.covers[.unit] // null)}],
+     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, pull_request, paused: ($p.covers[.unit] // null)}],
      decisions: [$d[0].entries[] | select(.state != "settled")
                  | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),
                     recommendation: (.recommendation // ""), target: (.target // ""), owed: (.owed // "")}],
      active: ([$h[0][] | select((.parked | not) and (.merged | not))] | length), parked: ([$h[0][] | select(.parked)] | length),
-     cap: $cap, parked_bound: $pb}' > "$T/pick.json" || lib_die2 "jq failed"
+     cap: $cap, parked_bound: $pb, pauses: $p.pauses, go_aheads: $p.go_aheads, paused_all: $p.all}' > "$T/pick.json" || lib_die2 "jq failed"
 lib_emit pick_facts "$VERDICT" coord/pick.json "$T/pick.json"

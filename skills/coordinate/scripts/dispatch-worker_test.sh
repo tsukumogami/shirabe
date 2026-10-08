@@ -400,6 +400,23 @@ reset "$INPUT_DELIVER"
 rm -f "$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "unit: no coord/pick.json to check against exits 2" 2 "$?"
 nothing_written "unit, no pick facts"
+# A unit pick marked paused: refused before anything is written.
+reset "$INPUT_DELIVER"
+printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).paused = "s4"' >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "pause: a new dispatch of a unit pick marked paused exits 10" 10 "$RC"
+has "pause: naming the pause and the value to submit" "$ERR" "pause s4 holds this unit"
+nothing_written "pause, unit"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
+printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s5" | .units[0].paused = "s5" | .units[1].paused = "s5"' >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "pause: under a pause on all any new dispatch exits 10" 10 "$?"
+nothing_written "pause, all"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
+printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).paused = "s4"' >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "pause: another unit's pause doesn't hold this one" 0 "$?"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
+printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s5" | .units[0].paused = null | .units[1].paused = "s5"' >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "pause: under a pause on all, the unit a go-ahead let through (paused null) is dispatched" 0 "$?"
 # Discipline scope: an issue as #n, or as host#n with the host pick recorded.
 PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
 for u in "#12" "acme/widgets#12"; do

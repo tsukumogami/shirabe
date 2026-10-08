@@ -148,7 +148,7 @@ core_write() {
     fi
 
     # A public host never names a private repository: not in a Holdings Repo,
-    # not in a Pull request link, not in a hold's On or Until, not in a Side
+    # not in a Pull request link, not in a hold's or a pause's On or Until, not in a Side
     # effects Target (an owner/repo token, owner/repo#n, or a github.com URL). A named repository the host can't read
     # (404) can't be shown public, so it is refused too. This finds the
     # repositories the body names and reads each one's visibility; the render
@@ -168,6 +168,8 @@ core_write() {
             [ (.holdings[] | .repo, (.pull_request | pr_link_parts | .r)),
               ((.holds // [])[] | (.on | sub("#.*$"; "")),
                 (.until | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
+              ((.standing // [])[] | ((.on // "") | select(test("/")) | sub("#.*$"; "")),
+                ((.until // "") | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
               ((.side_effects[] | (.target // "")) | tostring
                 | ( links,
                     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")

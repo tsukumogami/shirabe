@@ -127,6 +127,27 @@ refused "a decision row without its reason is refused" "recommendation and reaso
 jq '.decisions[0].recommendation = ""' "$T/dec.json" > "$T/dec-norec.json"
 refused "a decision row without its recommendation is refused" "recommendation and reason" "${MO[@]}" "$T/dec-norec.json"
 
+# Pauses: a line above the table, the paused rows saying so, the table unchanged.
+jq '.pauses = [{standing: "s4", kind: "pause", on: "all", until: "time 2026-10-07T14:00Z", what: "x", owner: "the human", relayed_by: "the process owner", set: "2026-10-01T19:37Z", state: "in-force"},
+               {standing: "s5", kind: "pause", on: "Feature 9", until: "lifted", what: "y", owner: "the human", relayed_by: "", set: "2026-10-02T13:10Z", state: "met"}]
+    | .paused_all = "s4" | (.holdings[] | select(.worker == "plugin-sandbox" or .worker == "plugin-cli")).paused = "s4"
+    | (.units[] | select(.unit == "Feature 2")).paused = "s4"' "$F" > "$T/pick-paused.json"
+POUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-paused.json" 2> "$T/err"); RC=$?
+[ "$RC" = 0 ] && ok "paused facts render" || bad "paused facts render" "exit $RC: $(cat "$T/err")"
+[ "$(printf '%s\n' "$POUT" | head -1)" = "Paused: s4 on all, since 2026-10-01 19:37 UTC, until 2026-10-07 14:00 UTC (the human, relayed by the process owner); s5 on Feature 9, since 2026-10-02 13:10 UTC, until a person resumes it (the human), met, to end" ] \
+    && ok "one line above the table names every pause, since when, until what and who" || bad "the pause line" "$(printf '%s\n' "$POUT" | head -1)"
+[ "$(printf '%s\n' "$POUT" | sed -n 3p)" = "| Kind | Unit | Session | PR | Status | Next or needs |" ] \
+    && ok "  ... and the table follows it with its six columns" || bad "  ... and the table follows it" "$POUT"
+printf '%s\n' "$POUT" | grep -qF '| `plugin-sandbox` | [#14](https://github.com/acme/widgets/pull/14) | verified; held by pause s4 |' \
+    && ok "a ready pull request a pause holds says so" || bad "a ready pull request a pause holds says so" "$POUT"
+printf '%s\n' "$POUT" | grep -qF '| `plugin-cli` |' && printf '%s\n' "$POUT" | grep -F '| `plugin-cli` |' | grep -qF '| paused (s4) |' \
+    && ok "an ongoing holding a pause holds reads paused" || bad "an ongoing holding a pause holds reads paused" "$POUT"
+printf '%s\n' "$POUT" | grep -F '| Feature 2' | grep -qF '| held by pause s4 |' \
+    && ok "a queued unit a pause holds says so in its next cell" || bad "a queued unit a pause holds says so" "$POUT"
+NOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$F" 2> "$T/err")
+[ "$(printf '%s\n' "$NOUT" | head -1)" = "| Kind | Unit | Session | PR | Status | Next or needs |" ] \
+    && ok "with no pause the table starts at its header" || bad "with no pause the table starts at its header" "$NOUT"
+
 echo
 echo "progress-view: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

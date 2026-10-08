@@ -65,9 +65,14 @@ case "$MODE" in
     read) jq -ce --arg t "$TOPIC" '.[] | select(.worker == $t)' "$ST/rows.json" || exit 1 ;;
 esac
 EOF
-chmod +x "$BIN/koto" "$T/record-holding.sh"
+# The stored set's reader: the Standing rows the test wrote, or none.
+cat >"$T/record-state.sh" <<'EOF'
+#!/usr/bin/env bash
+if [ -f "$ST/state.json" ]; then cat "$ST/state.json"; else echo '{"run":[],"standing":[],"work":[]}'; fi
+EOF
+chmod +x "$BIN/koto" "$T/record-holding.sh" "$T/record-state.sh"
 export PATH="$BIN:$PATH"
-export DC_RECORD_HOLDING="$T/record-holding.sh"
+export DC_RECORD_HOLDING="$T/record-holding.sh" DC_RECORD_STATE="$T/record-state.sh"
 
 reset() {
     rm -rf "$ST"
@@ -160,6 +165,26 @@ eq  "select: an empty record prints none" none "$(sel)"
 reset "$ROWS"
 export RECORD_MODE=refuse
 sel >/dev/null 2>&1; eq "select: a refused record read is exit 10" 10 "$?"
+
+# A paused holding's leg is passed over and left untaken.
+PROWS='[
+ {"worker":"alpha","unit":"Feature 2","dispatch_status":"dispatched","return_path":"leg req_a:scope"},
+ {"worker":"gamma","unit":"Feature 3","dispatch_status":"dispatched","return_path":"leg req_g:execute"}
+]'
+pause_state() { # pause_state <on>: one lifted pause on <on>
+    jq -nc --arg o "$1" '{run: [], work: [], standing: [{standing: "s1", kind: "pause", on: $o, until: "lifted", what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}]}' >"$ST/state.json"
+}
+reset "$PROWS"
+req req_a scope open; req req_g execute resolved
+pause_state "Feature 3"
+eq  "select: a paused holding's resolved leg is passed over for an unpaused open one" req_a "$(sel)"
+eq  "select: wait_target names the topic passed over" '["gamma"]' "$(target '.passed_over | tojson')"
+eq  "select: the passed-over leg isn't taken" "" "$(cat "$ST/ctx/taken_legs" 2>/dev/null)"
+pause_state all
+eq  "select: under a pause on all no leg is picked" none "$(sel)"
+eq  "select: and both topics are named passed over" '["alpha","gamma"]' "$(target '.passed_over | tojson')"
+rm -f "$ST/state.json"
+eq  "select: after the resume the resolved leg is offered first" req_g "$(sel)"
 
 bash "$S" select --session coord --watch-secs 5 >/dev/null 2>&1; eq "usage: an unknown flag is 64" 64 "$?"
 bash "$S" nope --session coord >/dev/null 2>&1; eq "usage: an unknown mode is 64" 64 "$?"

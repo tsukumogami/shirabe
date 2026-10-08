@@ -87,7 +87,7 @@ decision_withdraw_send decision_reply decision_reply_send decision_redirect deci
 PASSTHROUGH="take_report pick_facts classify_report"
 # Stand-ins where the run stops: states this suite doesn't drive, whatever
 # their real routes (report_link, for one, loops back to report_facts).
-TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped roadmap_status"
+TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped roadmap_status failure"
 
 # block <state>: the state's YAML block, from its `  <state>:` line to the next state's.
 block() {

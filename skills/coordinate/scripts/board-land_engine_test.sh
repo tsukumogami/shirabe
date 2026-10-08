@@ -197,6 +197,9 @@ states:
       - target: surface
         when:
           gates.verdict.exit_code: 85
+      - target: rebrief
+        when:
+          gates.verdict.exit_code: 48
   goal_fit:
     accepts:
       fit:
@@ -243,7 +246,7 @@ states:
     accepts:
       outcome:
         type: enum
-        values: [attempted, failed]
+        values: [attempted, failed, paused]
         required: true
     transitions:
       - target: merge_confirm
@@ -252,6 +255,9 @@ states:
       - target: failure
         when:
           outcome: failed
+      - target: rebrief
+        when:
+          outcome: paused
   merge_confirm:
     default_action:
       command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/merge-confirm.sh" --session "{{SESSION_NAME}}" --repo acme/widgets'
@@ -343,7 +349,8 @@ start() { # start <session> <board case> [posture] [body-file]
     printf '%s\n' "${3:-$PERMIT}" > "$BT_STATE/posture"
     bt_board "$2"
     bt_prview CLEAN ${4:+"$4"}
-    bt_record_body '[]' "${BT_HOLDS:-[]}"
+    if [ -n "${BT_STANDING:-}" ]; then bt_record_paused "$BT_STANDING" "${BT_HOLDS:-[]}"
+    else bt_record_body '[]' "${BT_HOLDS:-[]}"; fi
     rm -f "$BT_STATE/merge-exec.calls"
     # $KOTO_LEGACY_ENV_ARG: #483.
     (cd "$T/work" && koto init "$S" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") || { cat "$T/init.err"; return 1; }
@@ -410,6 +417,31 @@ BT_HOLDS=$(jq -nc '[{hold: "go-signal", on: "acme/widgets#12", until: "lifted", 
 start coordinate-demo-20260926T150018Z complete-board
 eq "once the hold is lifted, land goes on to goal_fit" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 BT_HOLDS=
+
+echo "== pauses =="
+BT_STANDING="[$(bt_pause s1 pause "Feature 2" lifted)]"
+start coordinate-demo-20260926T150021Z complete-board
+eq "a pause on the pull request's unit sends land to rebrief, before goal_fit" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+case "$(bash "$CL" capture --session "$S" --name LAND)" in "paused 12 $H sealed:"*) ok "LAND is the sealed paused" ;; *) bad "LAND is the sealed paused" ;; esac
+eq "  ... and coord/land.json names the pause" "s1 Feature 2" "$(koto context get "$S" coord/land.json 2>/dev/null | jq -r '"\(.pauses.paused) \(.pauses.unit)"')"
+BT_STANDING="[$(bt_pause s2 pause all "time 2099-01-01T00:00Z")]"
+start coordinate-demo-20260926T150022Z complete-board
+eq "a pause on all sends land to rebrief too" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+BT_STANDING="[$(bt_pause s2 pause all lifted), $(bt_pause s3 go-ahead "Feature 2" "")]"
+start coordinate-demo-20260926T150023Z complete-board
+eq "a go-ahead on the unit lets land through the pause to goal_fit" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+OUT=$(cd "$T/work" && bash "$PS/merge-order-entry.sh" --session "$S" --repo acme/widgets 2>/dev/null)
+case "$OUT" in *"- Pauses: s2 on all until lifted (in-force); let through by go-ahead s3"*) ok "the hand-over block names the pause and the go-ahead" ;; *) bad "the hand-over block names the pause and the go-ahead" "$OUT" ;; esac
+# A pause written after land permits: the merge script refuses, and
+# merge: paused goes to the re-brief.
+BT_STANDING=
+start coordinate-demo-20260926T150024Z complete-board
+tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
+eq "unpaused, a fit pull request reaches land_merge" land_merge "$(state "$(tick "$S" --with-data "$FITS")")"
+bt_record_paused "[$(bt_pause s4 pause all lifted)]"
+(cd "$T/work" && bash "$PS/land-merge.sh" --session "$S" --repo acme/widgets >/dev/null 2>"$T/err"); eq "a pause written since makes land-merge.sh exit 12" 12 $?
+[ ! -s "$BT_STATE/merge-exec.calls" ] && ok "  ... and merge-exec is never called" || bad "  ... and merge-exec is never called"
+eq "merge: paused goes to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"outcome":"paused"}')")"
 start coordinate-demo-20260926T150016Z complete-board "readable merge:deny close:permit teardown:permit"
 tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
 eq "a fit with follow-ups under a denied merge is handed to the person too" surface \

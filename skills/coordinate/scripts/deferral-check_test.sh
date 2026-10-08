@@ -419,4 +419,42 @@ reset_calls
 eq "a discipline pick with an issue's \"#1712\" as its unit is refused" "unknown-topic" "$(check)"
 [ -s "$GH_DB.calls" ] && bad "that refusal makes no read either" "$(calls)" || ok "that refusal makes no read either"
 
+echo "== check mode: pauses =="
+prow() { # prow <id> <kind> <on> <until>
+    jq -nc --arg s "$1" --arg k "$2" --arg o "$3" --arg u "$4" \
+        '{standing: $s, kind: $k, on: $o, until: $u, what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}'
+}
+with_pauses() { # with_pauses <record-json> <row>...
+    local r=$1; shift
+    printf '%s' "$r" | jq -c --argjson s "[$(IFS=,; echo "$*")]" '.standing = $s'
+}
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)" | jq -c '.deferrals = [{deferral: "open one", reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]')" "$(prow s1 pause all lifted)")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7
+OUT=$(bash "$DC" --session "$S" 2>"$T/err")
+eq "a pause on all holds a new dispatch, ahead of an open deferral" "paused s1" "${OUT% sealed:*}"
+tok_shape "paused is in koto's capture alphabet" "$OUT"
+jq -r '.reason' "$KOTO_STORE/context/$S/coord/dispatch_check.json" | grep -q 'held by pause s1: on all, until lifted' \
+    && ok "  ... the detail names the pause" || bad "  ... the detail names the pause" "$(cat "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s2 pause "Feature 2" lifted)")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a unit's pause holds sending its holding the execution" "paused s2" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 dispatch plugin-api
+eq "  ... and not a new dispatch, whose unit this check can't name" "ok plugin-api" "$(check)"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s2 pause "Feature 2" lifted)" "$(prow s3 go-ahead "Feature 2" "")")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a go-ahead on the unit lets it through" "ok a5" "$(check)"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s1 pause all lifted)" "$(prow s3 go-ahead "Feature 2" "")")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a go-ahead lets its unit through a pause on all at dispatch too" "ok a5" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 dispatch plugin-api
+eq "  ... and a new dispatch under it is left to dispatch-worker.sh, which knows its unit" "ok plugin-api" "$(check)"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s4 pause all "time 2000-01-01T00:00Z")")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a pause whose minute has passed holds nothing" "ok a5" "$(check)"
+
 done_tests deferral-check

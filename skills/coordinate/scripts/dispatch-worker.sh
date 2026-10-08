@@ -31,7 +31,12 @@
 #                      is written, naming the forms that would match. Read
 #                      only for a new dispatch: a resumed one's holding
 #                      already records its unit, and --rebrief writes no
-#                      holding
+#                      holding. A unit pick marked paused (its `paused`
+#                      set, or `paused_all` set) exits 10 before anything is
+#                      written: the dispatch check can't name a new
+#                      dispatch's unit, so this is where a unit's pause holds
+#                      one (docs/designs/DESIGN-coordinate-paused-state.md,
+#                      Decision 1)
 #
 # The run, in order, under a per-topic lock:
 #
@@ -142,6 +147,8 @@
 #      holding that links a pull request, or for an entry point that takes no
 #      leg; a send_execution whose scoping leg a worker is still bound to;
 #      nothing written
+#   10 a new dispatch of a unit a pause holds, as pick marked it; nothing
+#      written (submit `dispatched: paused`)
 #
 # Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
 # script), DISPATCH_DEADLINE_SECS. bash 3.2; needs jq.
@@ -559,6 +566,16 @@ UNITS_FILE=""
 if [ "$STATUS" != dispatching ]; then
     UNITS_FILE="$WORK/pick.json"
     ctx coord/pick.json >"$UNITS_FILE" || die 2 "cannot read coord/pick.json, the units pick_facts listed"
+    # The unit pick listed under one of its forms (dc_unit_forms' rule) and
+    # what pick_facts said holds it; pick's `paused` already lets a go-ahead's
+    # unit through a pause on all. A unit pick didn't list falls back to
+    # paused_all; render-brief.sh refuses it below anyway.
+    PAUSED=$(jq -r --arg u "$(jq -r '.unit // ""' "$INPUT")" '
+        (.host // "") as $h
+        | [.units[]? | .unit as $x | select($x == $u or ($u | startswith($x + ": ")) or ($h != "" and ($h + $x) == $u))][0] as $m
+        | if $m == null then (.paused_all // empty) else ($m.paused // empty) end' "$UNITS_FILE") \
+        || die 2 "coord/pick.json is not pick_facts' JSON"
+    [ -z "$PAUSED" ] || die 10 "pause $PAUSED holds this unit, as pick_facts read it: nothing dispatched; submit dispatched: paused"
 fi
 
 # Check the brief before anything else happens: a refused input opens no leg

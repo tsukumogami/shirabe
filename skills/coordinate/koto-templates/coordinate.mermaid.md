@@ -50,6 +50,7 @@ stateDiagram-v2
     destroy --> surface : destroyed: refused
     dispatch --> record : dispatched: sent, gates.holding_recorded.exit_code: 0
     dispatch --> failure : dispatched: failed
+    dispatch --> wait : dispatched: paused
     dispatch_check --> dispatch : gates.dispatch_check_verdict.exit_code: 40
     dispatch_check --> deferral_dispose : gates.dispatch_check_verdict.exit_code: 41
     dispatch_check --> record_find : gates.dispatch_check_verdict.exit_code: 42
@@ -58,6 +59,7 @@ stateDiagram-v2
     dispatch_check --> decision_next : gates.dispatch_check_verdict.exit_code: 45
     dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 46
     dispatch_check --> failure : gates.dispatch_check_verdict.exit_code: 47
+    dispatch_check --> wait : gates.dispatch_check_verdict.exit_code: 48
     escalate --> escalate_send : gates.escalate_verdict.exit_code: 180
     escalate --> record_conflict : gates.escalate_verdict.exit_code: 62
     escalate_send --> decision_next : sent: sent
@@ -78,8 +80,10 @@ stateDiagram-v2
     land --> verify : gates.land_verdict.exit_code: 53
     land --> failure : gates.land_verdict.exit_code: 84
     land --> surface : gates.land_verdict.exit_code: 85
+    land --> rebrief : gates.land_verdict.exit_code: 48
     land_merge --> merge_confirm : merge: attempted
     land_merge --> failure : merge: failed
+    land_merge --> rebrief : merge: paused
     leg_pick --> wait_leg : gates.leg_target.matches: true
     leg_pick --> wait : gates.leg_target.matches: false
     leg_spent --> record : move: replaced
@@ -227,6 +231,8 @@ stateDiagram-v2
     wait --> decision_evidence : event: evidence, evidence.decision: present
     wait --> decision_raise : event: raise
     wait --> roadmap_status : event: landed, vars.ROADMAP: {"is_set":true}
+    wait --> pick_facts : event: resume
+    wait --> failure : event: redispatch
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}
     wait_leg --> take_report : gates.leg_result.disposition: resolved, gates.leg_result.source: promoted

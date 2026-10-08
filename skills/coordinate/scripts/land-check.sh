@@ -13,6 +13,12 @@
 #    <sha> is `moved <pr> <sha> <new>`.
 # 3. The merge state, body, title and base branch, in one read (gh pr view
 #    --json mergeStateStatus,body,title,baseRefName,files): DIRTY is `dirty <pr>`.
+# 3a. The record's pauses (board-lib.sh's bl_pauses_on, over the record read
+#    live): a pause on `all`, or on the unit of the pull request's holding, in
+#    force or unreadable and with no go-ahead on that unit, is
+#    `paused <pr> <sha>`. It comes before the worker's evidence, so a paused
+#    pull request isn't asked for a fix before its merge could happen anyway
+#    (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
 # 4. The worker's review round, read from the body (panel-evidence.sh): no
 #    Review panel table, a malformed one, fewer than three seats or any
 #    verdict but pass is `unready <pr> <sha>`.
@@ -22,7 +28,7 @@
 #    title), then the squash message (squash-message.sh): a failure of either
 #    is `unready`.
 # 7. The record's holds on the pull request, each evaluated live
-#    (board-lib.sh's bl_holds_on): any not met, or whose condition can't be
+#    (board-lib.sh's bl_holds_eval, over the same read): any not met, or whose condition can't be
 #    read, is `held <pr> <sha>`. A hold is reported held because this check
 #    read it, never because someone remembers it.
 # 8. The merge posture: the start's POSTURE capture narrowed by a fresh
@@ -30,7 +36,8 @@
 #    `deny <pr> <sha>` or `confirm <pr> <sha>`.
 # The token is sealed to the latest entry into land (captured as LAND). The
 # detail goes to context key coord/land.json as data: the verdict and the
-# pull request it is about; for `unready`, the reason (no-evidence,
+# pull request it is about; the pauses as read (pause-read.sh's JSON, with
+# the unit and the pause that holds it); for `unready`, the reason (no-evidence,
 # malformed:<rule>, too-few-seats, not-unanimous, stale:<why>, body-checks or
 # message); the changed files, the evidence as parsed, the freshness result, the body checks' findings, the
 # built message and the holds with their states, as far as the check got.
@@ -135,6 +142,16 @@ unready() {
     finish "unready $PR $SHA"
 }
 
+# The record, read once for the pauses and the holds.
+bl_record_parsed "$SESSION" "$MS.rec" || { echo "$PROG: the record couldn't be read for its pauses and holds" >&2; exit 2; }
+PAUSES=$(bl_pauses_on "$MS.rec" "$REPO" "$PR") || { echo "$PROG: the record's pauses couldn't be read" >&2; exit 2; }
+detail '.pauses = $p' --argjson p "$PAUSES"
+PAUSED=$(printf '%s' "$PAUSES" | jq -r '.paused // empty')
+if [ -n "$PAUSED" ]; then
+    echo "$PROG: paused: $(printf '%s' "$PAUSES" | jq -r --arg s "$PAUSED" '.pauses[] | select(.standing == $s) | "\(.standing) (on \(.on), until \(.until), \(.state))"')" >&2
+    finish "paused $PR $SHA"
+fi
+
 EV=$(bash "$HERE/panel-evidence.sh" "$MS.body") || { echo "$PROG: the evidence couldn't be read" >&2; exit 2; }
 detail '.evidence = $e' --argjson e "$EV"
 case "$(printf '%s' "$EV" | jq -r .status)" in
@@ -171,7 +188,7 @@ case $? in
     *) echo "$PROG: the message couldn't be built" >&2; exit 2 ;;
 esac
 
-HOLDS=$(bl_holds_on "$SESSION" "$REPO" "$PR") || { echo "$PROG: the record's holds couldn't be read" >&2; exit 2; }
+HOLDS=$(bl_holds_eval "$MS.rec" "$REPO" "$PR") || { echo "$PROG: the record's holds couldn't be read" >&2; exit 2; }
 detail '.holds = $h' --argjson h "$HOLDS"
 if [ "$(printf '%s' "$HOLDS" | jq 'any(.[]; .state != "met")')" = true ]; then
     echo "$PROG: held: $(printf '%s' "$HOLDS" | jq -r '[.[] | select(.state != "met") | "\(.hold) (\(.until), \(.state))"] | join(", ")')" >&2

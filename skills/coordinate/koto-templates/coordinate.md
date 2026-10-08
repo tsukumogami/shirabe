@@ -597,6 +597,11 @@ states:
       - target: failure
         when:
           gates.dispatch_check_verdict.exit_code: 47  # unresolved-topic
+      # A pause in the record's Standing section holds the dispatch: back to
+      # the hub, with the pause in coord/dispatch_check.json.
+      - target: wait
+        when:
+          gates.dispatch_check_verdict.exit_code: 48  # paused
 
   deferral_dispose:
     accepts:
@@ -624,9 +629,9 @@ states:
     accepts:
       dispatched:
         type: enum
-        values: [sent, failed]
+        values: [sent, failed, paused]
         required: true
-        description: sent once dispatch-worker.sh dispatched the worker and wrote its holding; failed when the dispatch did not start.
+        description: sent once dispatch-worker.sh dispatched the worker and wrote its holding; failed when the dispatch did not start; paused when it exited 10 because a pause holds the unit, with nothing written.
       topic:
         type: string
         required: true
@@ -639,6 +644,9 @@ states:
       - target: failure
         when:
           dispatched: failed
+      - target: wait
+        when:
+          dispatched: paused
 
   record:
     default_action:
@@ -668,7 +676,7 @@ states:
     accepts:
       event:
         type: enum
-        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed]
+        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed, resume, redispatch]
         required: true
         description: What arrived, or what is due.
       unit:
@@ -745,6 +753,16 @@ states:
           event: landed
           vars.ROADMAP:
             is_set: true
+      # A pause ended, or its condition may be met: pick reads the pauses
+      # again. A paused loop with nothing in flight has no other way back.
+      - target: pick_facts
+        when:
+          event: resume
+      # A re-dispatch a pause held at dispatch_check, taken up again after the
+      # resume: the failure branch resolves the unit from this evidence.
+      - target: failure
+        when:
+          event: redispatch
       - target: rotation_close
         when:
           event: end
@@ -1583,6 +1601,12 @@ states:
       - target: surface
         when:
           gates.land_verdict.exit_code: 85  # held
+      # A pause in the record holds the pull request's unit: nothing goes to a
+      # person while paused, so the worker is re-briefed to report again at
+      # the resume.
+      - target: rebrief
+        when:
+          gates.land_verdict.exit_code: 48  # paused
 
   goal_fit:
     # The coordinator's judgment against the unit's brief; the land check's
@@ -1639,9 +1663,9 @@ states:
     accepts:
       merge:
         type: enum
-        values: [attempted, failed]
+        values: [attempted, failed, paused]
         required: true
-        description: attempted after land-merge.sh ran merge-exec.sh; failed when it refused or the merge call failed.
+        description: attempted after land-merge.sh ran merge-exec.sh; paused when it exited 12 because a pause written since the land check holds the pull request; failed when it refused otherwise or the merge call failed.
     transitions:
       - target: merge_confirm
         when:
@@ -1649,6 +1673,9 @@ states:
       - target: failure
         when:
           merge: failed
+      - target: rebrief
+        when:
+          merge: paused
 
   merge_confirm:
     default_action:
@@ -2450,6 +2477,14 @@ and drive every worker to landed work.
   request pending: it is done for pick, though not yet for its dependents. No
   brief renders for it. When the roadmap reads it Done, clear its row with
   `roadmap-status.sh --confirm`.
+- **Never a paused unit.** A unit or holding whose `paused` is set is held by
+  that pause in the record: don't dispatch it, scope it ahead or send it its
+  execution. While `paused_all` is set, the whole coordinator is paused:
+  submit `hold`, unless a go-ahead in `go_aheads` lets one unit through (its
+  `paused` reads null), which you may choose; end the go-ahead once the step
+  it allowed is done. A pause in `pauses` whose `state` is `met` holds nothing
+  any more; end its row, `record-state.sh --session {{SESSION_NAME}} --end
+  <id> --by "its condition, <until>"`, and send the resume (see `wait`).
 - **Fill every free slot.** Dispatch until active workers equal the cap
   (`cap` in `coord/pick.json`: the record's Run cap when it has one, else
   the session's `--cap`) or nothing is left; each pass through pick fills one slot and comes
@@ -2531,6 +2566,13 @@ disposition. A restart is a new run: deferrals the previous run filed or closed
 have dropped out of the record, so re-add each with its disposition before this
 run's first dispatch.
 
+A pause in the record holds a dispatch (`paused <id>`, back to `wait`): a
+pause on `all` holds every one, and a unit's pause holds sending its holding
+the execution or re-dispatching it. A new dispatch's unit isn't known here
+(pick's evidence names only the topic), so `dispatch-worker.sh` refuses a
+unit pick marked paused. The pause and why are in
+`coord/dispatch_check.json`; nothing is owed until the resume.
+
 ## deferral_dispose
 
 A deferral is open. Dispose of each one (file it as an issue, close it, or carry
@@ -2552,7 +2594,8 @@ Put the brief input in context (`koto context add {{SESSION_NAME}}
 brief_input.json --from-file <file>`, then delete the file), run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/dispatch-worker.sh" --session
 "{{SESSION_NAME}}"`, and submit `dispatched: sent`, or `dispatched: failed`
-when it exits 3 or 4, with the `topic` either way. The topic is the one
+when it exits 3 or 4, or `dispatched: paused` when it exits 10 because a pause
+holds the unit (nothing was written), with the `topic` each way. The topic is the one
 `dispatch_check` passed (`topic` in its detail, `coord/dispatch_check.json`);
 the record step refuses a dispatch under any other. The input names the entry
 point: `/shirabe:deliver` for a roadmap feature to be built, `/shirabe:scope`
@@ -2696,8 +2739,10 @@ entry, naming its `decision` (a held entry's fact included); `raise` when you
 need a decision made that no entry holds yet; `merged` when the human merged a
 pull request you handed over; `landed`, with the feature's tag as `unit`, when a
 roadmap feature's last pull request has merged and its Status should go back to
-the roadmap; `retire` to finish with a worker; `end` when the rotation or the
-scope ends.
+the roadmap; `retire` to finish with a worker; `resume` when a pause has ended
+or its condition may be met, so pick reads the pauses again; `redispatch`, with
+the unit, to take up again a re-dispatch a pause held; `end` when the
+rotation or the scope ends.
 
 Two writes come before acting, whatever event follows. When a person's word
 arrives, on the record's thread or anywhere else (a pause or a resume, a cap, a
@@ -2707,11 +2752,32 @@ answer), write it with
 `--standing <pause|go-ahead|approval|answer> --what "<what it says>" --owner
 "<the person>" --relayed-by "<who carried it>"` (no relayer when they told you
 directly), `--end <id> --by "<who>"` when it stops binding, `--run cap <n> --by
-"<who>"` for a cap. A person's own comment on the record is not an entry until
+"<who>"` for a cap. A pause also takes `--on <all or the unit>` and `--until
+<lifted | time YYYY-MM-DDTHH:MMZ | merged owner/repo#n | tag owner/repo
+TAG>`, the time in UTC (convert a person's local time); a go-ahead that lets
+one unit through a wider pause takes `--on <the unit>`, and you end it after
+the step it allowed. A person's own comment on the record is not an entry until
 you write it. And before a local agent starts work in flight (a fix round, a
 pull request it builds), write its row, `--work "<what>" --kind local-agent
 --who "local agent" --next "<step>"`, and `--done "<what>"` when it lands:
 without the row a successor can't see the work.
+
+After writing a pause, send each live worker it covers the pause line: push
+what you have at a safe point, report, then do nothing until the resume (no
+panels, evals or messages), and write each one's next step, `--work "<unit>"
+--kind holding --who <topic> --next "paused by <id>; idle until the resume"`.
+Say up which worker the message didn't reach. A resume is that row ending:
+write a person's resume with `--end <id> --by "<the person>"`, then tick
+`resume`; tick `resume` too when a wait you ran until a pause's minute
+returns, and when a notification names the pull request or tag a pause
+waits on. After a resume, send each worker in its scope the resume line (start
+the fix round it was sent, send its ready report again, or continue from its
+last checkpoint, whatever its Work row says is owed), rewrite each Work row with
+what it resumes to, and tick `leg` once if a leg was passed over while paused
+(`passed_over` in `wait_target`). A re-dispatch the pause held (its
+`coord/dispatch_check.json` read `choice: redispatch` with verdict `paused`)
+isn't offered by pick: tick `redispatch` with its unit, and submit `move:
+redispatch` again at `failure`.
 
 Arriving here from `report_questions` with a checkpoint report whose questions
 were over the bound (`overflow`), message the worker to send them again in its
@@ -3131,6 +3197,14 @@ Update the brief input with what was learned (`koto context add
 it printed, and submit `sent: sent`; submit `sent: worker_gone` when the
 worker's session no longer exists.
 
+Arriving here from `land` or `land_merge` on `paused`, there is nothing to fix:
+the brief input's what-was-learned says so, names the pause from
+`coord/land.json` (or the merge's refusal), and asks the worker to send its
+ready report again when the resume line arrives and not before. The script
+moves a leg-bound worker to the message path, so its report can come back by
+message. A re-brief for a fix while its unit is paused is sent the same way,
+with its message saying the fix starts at the resume.
+
 <!-- details -->
 
 The re-brief is for the worker in `report_topic`. Its repository, entry point
@@ -3233,7 +3307,9 @@ the seats reviewed, runs the body's mechanical checks, builds the squash message
 from the title and Part 1, reads the record's holds on the pull request, and
 re-reads the posture for the merge. `unready` sends you to `rebrief` with the
 reason in `coord/land.json`; `held` sends you to `surface`, the holds and
-their states there too.
+their states there too. `paused`, read before the evidence, sends you to
+`rebrief`: a pause in the record holds the unit, and its worker is asked to
+report again at the resume.
 
 <!-- details -->
 
@@ -3277,7 +3353,9 @@ goes to `rebrief`.
 ## land_merge
 
 The workspace permits the merge. Run `land-merge.sh` exactly once, then submit
-`merge: attempted`, or `failed` when it refused or the call failed.
+`merge: attempted`, `paused` when it exits 12 because a pause written since the
+land check holds the pull request, or `failed` when it refused otherwise or the
+call failed.
 
 <!-- details -->
 
@@ -3532,7 +3610,9 @@ worker's silent checks from this session's log.
 
 A worker is quiet when neither a message nor a push has arrived from it for 30
 minutes; check a quiet worker at most once per 30 minutes, by reading its branch
-and pull request and its session on the host. The 30-minute interval is the
+and pull request and its session on the host. A worker a pause in the record
+holds is never quiet: it was told to stop, and a sweep that skips it isn't a
+silent check. The 30-minute interval is the
 check's own and is fixed: a human's decision about intervals governs what your
 status message asks and when you follow up by hand, not when this check counts
 a silence. One silent check earns a status message;
@@ -3542,8 +3622,9 @@ bounces.
 
 ## status_message
 
-Send each quiet worker one message asking for its status, then submit
-`sent: sent`.
+Send each quiet worker one message asking for its status, and for whatever
+its Work row says is owed (a ready report after a resume, a fix round), then
+submit `sent: sent`.
 
 ## failure
 

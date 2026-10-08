@@ -94,6 +94,12 @@ case "$MODE" in
     *) exit 64 ;;
 esac
 EOF
+# record-state.sh: the stored set, with no pause standing (the leg pick reads
+# the pauses through it; pause_engine_test.sh covers a paused leg).
+cat >"$S/record-state.sh" <<'EOF'
+#!/usr/bin/env bash
+echo '{"run":[],"standing":[],"work":[]}'
+EOF
 BIN="$T/bin"
 mkdir -p "$BIN"
 # niwa: `list --json` names each worker's instance.
