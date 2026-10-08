@@ -23,12 +23,14 @@ decision: |
   `land-merge.sh` re-read before they act. Verification, record writes,
   report intake, decisions and teardown go on. A resume is the row ending: a
   person's word relayed through `record-state.sh --end`, or the stored
-  condition read as met at the next pick, with no session timer. A
+  condition read as met at the next pick, which a new `resume` wake event
+  brings, with no session timer. A
   `go-ahead` on one unit lets that unit through while a wider pause stands.
   The progress table and the merge-order block say what is paused, since
   when and until what. The wait state carries the wake rule: a worker's
-  message and the teardown agent's report are the wakes, one silent
-  `koto request watch` covers every open leg, no expiring timer is armed, and
+  message and the teardown agent's report are the wakes, one
+  `koto request watch` with a two-hour bound covers every open leg, no
+  30-minute expiring watch is armed, and
   each wake is counted per unit in a new Wakes column of the Work section.
 rationale: |
   The Standing row is already the record's one place for an event only a
@@ -57,9 +59,8 @@ one lane of its work, and the loop holds dispatch and merge and says so until it
 is resumed." The roadmap's block, its amendment of 2026-10-06 on wakes, and its
 Coordination Dependencies section set the scope. Every claim below traces to the
 roadmap, a merged pull request, a filed issue, or the process owner's
-coordinator-session record (cited as the record, by date and subject; the issue
-that holds it from 2026-10-08, and the pull request body and its archives
-before that).
+coordinator-session record (cited as the record, by date and subject, as the
+merged record-container design cites it).
 
 **Pauses are messages sent by hand.** The roadmap's block records three pauses
 on 2026-09-29 and 2026-09-30, each sent by message to every live session and
@@ -97,8 +98,8 @@ not one pull request) and in who owns it (always a person).
 
 **A usage-limit stop looks like a pause nobody sent.** On 2026-10-07 at about
 22:50 EDT the Feature 7 worker stopped at the account's usage limit: five eval
-scenarios executed nothing, their nested sessions exiting 4 or 2, and one
-scored below main's figure; when the human reported the reset at 23:01 the
+scenarios executed nothing, their nested sessions exiting 4 or 2, and a sixth
+scored 6/7 against main's 7/7; when the human reported the reset at 23:01 the
 worker was told to continue and re-run them (the record, 2026-10-07, the limit
 stop). Earlier, on 2026-09-30, the limit stopped a fix worker and the process
 owner's session together (the record, 2026-09-30, the usage limit).
@@ -172,11 +173,14 @@ A condition that can't be read holds, as an unreadable hold does. A person
 names a local time ("10am"); the coordinator writes it in UTC, and the entry
 `record-state.sh` appends says both.
 
-Approval and answer rows leave On and Until blank. A go-ahead names its unit in
-On (Decision 2). The codec reads a Standing table in the six-column form
-Feature 7 wrote, so a record written before this release parses, and renders
-the eight-column form at the next write; a pause row read from the old form is
-`all` until `lifted`, the meaning it had when written.
+Approval and answer rows leave On and Until blank, and a go-ahead names its
+unit in On with Until blank (Decision 2), so the codec allows a blank On and
+Until for those kinds and requires both for a pause. The codec, not only the
+writer, checks On's form and Until's grammar, since a hand-edited body is read
+through it too, and both cells get the text checks every Standing text cell
+gets on a public host. The Standing and Work sections shipped in no release
+yet (no tag contains tsukumogami/shirabe#643), so their tables change form
+with no compatibility read.
 
 **What a pause holds:** every step that starts a worker on work or lands what
 it pushed. Concretely, in its scope:
@@ -205,25 +209,38 @@ both call. Four places use it:
    a paused unit is never chosen; while `all` is in force, `hold`.
 2. `deferral-check.sh`, the `dispatch_check` action, refuses a pick or
    re-dispatch whose unit a pause covers: `paused <id>`, routed to `wait`,
-   with the row in `coord/dispatch_check.json`.
-3. `land-check.sh`, after the holds and before the posture, refuses a pull
-   request whose unit a pause covers: `paused <pr> <sha>`, routed to
-   `surface`, with the rows in `coord/land.json`. The surface directive writes
+   with the row in `coord/dispatch_check.json`. It comes after
+   `unknown-topic`, `unresolved-topic` and `record-changed`, which say the
+   check can't name the unit or read the record, and before every other
+   verdict, so a paused unit isn't sent to dispose of deferrals or settle
+   decisions for a dispatch that can't happen.
+3. `land-check.sh`, right after the head re-read and the merge state, before
+   the panel evidence, the body checks and the holds, refuses a pull request
+   whose unit a pause covers: `paused <pr> <sha>`, routed to `surface`, with
+   the rows in `coord/land.json`. Reading it first means a paused pull request
+   that is also unready isn't sent to a re-brief the pause would refuse. The surface directive writes
    Phase `held`, the existing word for a ready pull request waiting on
    something other than the merge, and `record-confirm.sh` requires it, as it
    does after `held`.
 4. `dispatch-worker.sh` and `land-merge.sh` re-read the pauses just before
    they act, as `land-merge.sh` already re-reads the holds, so a pause written
-   after the check still stops the launch or the merge. A refused re-brief or
-   replaced leg submits a new value, `held`, at `rebrief` and `leg_spent`,
-   both back to `wait`; the holding's Work row says what is owed at the
-   resume.
+   after the check still stops the launch or the merge. The dispatch script's
+   read is the only one a re-brief and a replaced leg meet: `rebrief` and
+   `leg_spent` run `dispatch-worker.sh` directly and never pass
+   `dispatch_check`. A refused re-brief or replaced leg submits a new value,
+   `paused`, at `rebrief` and `leg_spent`, both back to `wait`; the holding's
+   Work row says what is owed at the resume.
 
 `quiet-check.sh` treats a holding a pause covers as not silent: its worker was
-told to stop at a safe point, so its silence is what the pause asked for. After
-the resume the next sweep measures from the worker's last activity as before,
-so the first sweep after a long pause sends each quiet worker one status
-message, which is what a resumed coordinator needs to ask anyway.
+told to stop at a safe point, so its silence is what the pause asked for, and a
+sweep that skips it is not a silent check. The resume doesn't reset the
+worker's last activity: the first sweep after a long pause finds it silent and
+sends one status message, which is what a resumed coordinator needs to ask
+anyway, and only a second silence after that message goes to the failure
+branch.
+
+A close-out (`roadmap_close`, `rotation_close`, `predecessor_close`) lands the
+record, not a unit's work, so a pause doesn't hold it.
 
 #### Alternatives considered
 
@@ -254,22 +271,33 @@ A pause ends when its row ends. There are two ways:
   the resume line. Nothing waits on that write: the loop is already released
   by the read.
 
+Both need a pick to run. A paused loop with nothing in flight sits at `wait`,
+and no existing spoke from `wait` returns to `pick_facts` without a record
+change, so `wait` gains an event, `resume`, with an edge straight to
+`pick_facts`. The coordinator ticks it after writing a person's resume, when
+its wait for a pause's minute returns, and on any wake while a pause stands
+whose condition it has reason to think met (the merge or tag a pause names
+arriving as a notification).
+
 **Whole or by lane.** Ending an `all` row resumes the whole coordinator; ending
 a unit's row resumes that unit and nothing else. While `all` is in force, a
 person who lets one unit through, the 2026-09-30 case of one panel resumed
 inside a paused lane, is written as a `go-ahead` row on that unit: the
-evaluator treats a unit with a standing go-ahead as covered by no pause.
+evaluator reads go-ahead rows first, and a unit with a standing go-ahead is
+covered by no pause, `all` or its own.
 Feature 7 defined a go-ahead as "a release or another step a person allowed
 once", ended when used; the coordinator ends it after the step it allowed, the
 land or the dispatch.
 
 **A scheduled resume survives the session.** It is a `time` condition in the
 record. No timer holds it: the first pick after its minute reads it met, in
-this session or in a replacement started from the record alone. What brings
-that pick is the next wake of any kind (Decision 4). A coordinator that wants
-the resume acted on at its minute, with nothing else due, may run one silent
-background wait until that minute, the same shape the wake rule allows for a
-worker; it is a convenience that dies with the session, never the store.
+this session or in a replacement started from the record alone, whose start
+always runs a pick. In a running session, what brings that pick is a
+`resume` tick. The coordinator runs one silent background wait until the
+minute, which prints one line when the minute arrives and nothing before, and
+ticks `resume` on it. That wait is session-local and dies with the session,
+but it is never the store: a session that dies leaves the time in the record,
+and its replacement's first pick reads it.
 
 **Reports that arrive while paused** are taken, recorded and classified as
 usual, never refused. What they lead to is held: a ready pull request goes
@@ -304,9 +332,9 @@ reported rather than missed. niwa's dispatch lineage already records the parent
 session of every worker it launches. Queuing the notice for a stopped session
 until the daemon resumes it is the useful second half. Stopping or resuming
 sessions on a pause stays out of this: it is the person's separate call, and
-the roadmap puts session control out of this feature. No niwa issue covered
-this when the design was written, and it has been proposed to the workspace
-coordinator for filing.
+the roadmap puts session control out of this feature. The roadmap notes no
+niwa issue was filed for it and asks this design to file one; it is filed
+alongside this design, and the implementation's first pull request cites it.
 
 What the loop does without it, which is what the record shows coordinators
 doing by hand: after writing a pause, the coordinator messages each live worker
@@ -335,16 +363,26 @@ with one narrowing:
 - **The wakes are a worker's message and the teardown agent's report.** A
   checkpoint report, a ready report, a question, a blocker: each is a message,
   and each is ticked as its event.
-- **One silent wait covers every open leg.** While any leg-bound worker's leg
-  is open, the coordinator keeps one background `koto request watch --session
-  <this session> --timeout-secs 7200`. It blocks until a leg this session
-  waits on resolves, or the bound passes, and prints one line either way. A
-  resolve ticks `leg`; a bound that passes ticks `quiet`. It is re-armed only
-  after a tick it brought, so its bound can wake the session at most once per
-  two hours. A message-path worker needs no wait: its message is the wake.
-- **No expiring timer.** No watch that notifies on expiry whether or not
-  anything happened, no polling loop, no goal check-in. A keep-alive is set
-  only when the person asks for one.
+- **One wait covers every open leg.** While any leg-bound worker's leg is
+  open, the coordinator keeps one background `koto request watch --session
+  <this session> --timeout-secs 7200 [--since <cursor>]`. It blocks until the
+  session's wake file changes, which koto does when a leg the session waits
+  on resolves, or until the bound passes, and prints `woke` (true or false)
+  and a cursor. `woke: true` ticks `leg`, and `leg_pick` finds which leg; a
+  wake means only "look again", so `leg_pick` finding none open returns to
+  `wait`. `woke: false` is the bound, and ticks `quiet`. The coordinator
+  passes the last cursor it printed as `--since` to the next watch, holding
+  it in its own turn, not in the record or a file; a lost cursor costs at
+  most one late read, since `leg_pick` reads every leg. A message-path worker
+  needs no wait: its message is the wake.
+- **No 30-minute expiring watch.** No watch with a short cap that notifies on
+  expiry, no polling loop, no goal check-in. A keep-alive is set only when the
+  person asks for one. The leg watch's bound does notify on expiry, which the
+  rule's wording would forbid; it is kept because a watch with no deadline is
+  a hang koto refuses, and at two hours it wakes a session with open legs and
+  nothing arriving at most once per two hours, against the four an hour the
+  measured 30-minute watch took, and each such wake does the quiet check
+  that is due by then anyway.
 - **The quiet check** runs on the first wake after a worker has been silent
   for the skill's 30 minutes, as it does today; no timer is armed to make that
   wake happen. A two-hour silence with nothing else due is caught by the leg
@@ -359,20 +397,26 @@ pull-request wait and keeps one leg wait for the whole session, since
 limitation, that it doesn't watch the leg wake, is closed by the same line.
 
 **Counting wakes.** A wake is a tick of `wait` the coordinator didn't start on
-its own: events `report`, `progress`, `leg`, `quiet` and `merged`. The directive
-asks for the unit on each when there is one. The Work section gains a Wakes
-column: on every write of a holding's Work row, `record-state.sh` adds to the
-row's count the wakes this run's log holds for the holding's worker since the
-row's last write, and when a holding's row leaves Work (the holding torn down)
-it appends an entry with the unit's final count. A count starts at 0 for a row
-written in the five-column form. The rotation's handoff carries Work as it
-stands, so the next rotation reads the figure and sums the entries rather than
-recalling it. The count is a floor, never more than happened: wakes logged
-inside the minute after a write, and wakes a crashed run logged after its last
-write, aren't counted, since the row's Updated time is to the minute and a
-crashed run's log isn't read again.
+its own: events `report`, `progress`, `leg`, `quiet`, `merged` and `resume`.
+Each is attributed from the log, never from a unit the coordinator would have
+to guess: `report`, `progress` and `merged` by their evidence's unit; `leg` by
+the topic `wait-target.sh` wrote for the leg it read; `quiet` against each
+topic the sweep's QUIET capture named silent, or the run alone when it named
+none; `resume` against the run. The Work section gains a Wakes column: on
+every write of a holding's Work row, `record-state.sh` adds to the row's count
+the wakes this run's log attributes to the holding's worker after the end of
+the minute in the row's Updated cell, and when a holding's row leaves Work (the
+holding torn down) it appends an entry with the unit's final count. The
+rotation's handoff carries Work as it stands, so a unit still in flight at a
+rotation's end has its figure there, and the next rotation reads the figures
+and sums the entries rather than recalling them. With that cutoff the count is
+a floor, never more than happened: wakes logged inside the minute after a
+write, and wakes a crashed run logged after its last write, aren't counted,
+since Updated is to the minute and a crashed run's log isn't read again.
 
-**A usage-limit stop is not a pause.** A pause is a person's, and exists only
+#### A usage-limit stop
+
+A usage-limit stop is not a pause. A pause is a person's, and exists only
 as a Standing row. A limit stop is the host's: nobody writes it and nobody
 resumes it; the account's reset does. So the loop never writes a pause for one.
 It shows as a worker's runs executing nothing (nested sessions exiting without
@@ -390,14 +434,14 @@ the worker had a message and the limit had reset.
 #### Alternatives considered
 
 - **A wake event of its own** (`idle`) for a wake that brought nothing. A
-  bound that passed is a worker's silence, which `quiet` already means.
-  Rejected.
+  bound that passed is a silence, which `quiet` already means. Rejected.
 - **A record write per wake.** One body write and one comment per wake costs
   more than the wake it counts and notifies every watcher of the record.
   Rejected.
-- **Counts only in entries.** Readable by a successor, but not at a glance in
-  the body, and a successor would have to parse prose to sum them. Rejected as
-  the only form; the final entry per unit is kept as the account.
+- **Counts only in an entry at teardown.** Simpler, but a unit still in flight
+  when a rotation ends or a run crashes has no figure, and a successor would
+  parse prose to sum them. Rejected as the only form; the final entry per unit
+  is kept as the account.
 - **A wait per message-path worker on its pull request's readiness.** Declined
   above.
 
@@ -438,11 +482,11 @@ What the roadmap's block asks for that this declines:
   the coordinator does meanwhile.
 - **A wait on a pull request becoming ready** for a worker that reports by
   message. Its report is the wake already (Decision 4).
-- **The cap changes the evidence lists beside the pauses.** The roadmap's
-  Feature 9 evidence names caps as the loop's posture too, and the
-  parked-worker count the cap can't express (tsukumogami/shirabe#501). A cap
-  is already a Run row a person sets (Feature 7); counting parked workers is
-  #501's, not a pause.
+- **Caps and the parked-worker count.** The roadmap's Feature 9 evidence calls
+  a cap the loop's posture too, and names the ruling that parked workers count,
+  which the cap can't express (tsukumogami/shirabe#501). A cap is already a Run
+  row a person sets (Feature 7); counting parked workers is #501's, not a
+  pause.
 - **Stopping workers' sessions at a pause.** Session control, out of this
   feature.
 
@@ -453,9 +497,10 @@ What the roadmap's block asks for that this declines:
 ```
 dispatch_check --paused--> wait
 land           --paused--> surface        (Phase held, confirmed at record)
-rebrief        --held----> wait
-leg_spent      --held----> wait
-wait: the wake rule in its directive; `quiet` and `leg` take a unit
+rebrief        --paused--> wait           (evidence value)
+leg_spent      --paused--> wait           (evidence value)
+wait           --resume--> pick_facts
+wait: the wake rule in its directive
 ```
 
 One verdict word, `paused`, code 48, routed by `dispatch_check` and `land`. The
@@ -466,18 +511,18 @@ fixtures gain a paused case.
 
 | File | Change | Pull request |
 |---|---|---|
-| `skills/coordinate/scripts/record-codec.jq`, `references/record-template.md` | Standing's On and Until, the six-column form read | 1 |
+| `skills/coordinate/scripts/record-codec.jq`, `references/record-template.md` | Standing's On and Until, their checks | 1 |
 | `skills/coordinate/scripts/record-state.sh` | `--standing pause` and `go-ahead` take `--on` and `--until`; the unit and condition checks | 1 |
 | `skills/coordinate/scripts/pause-lib.sh` | new: which pauses cover a unit, and each one's state | 1 |
 | `skills/coordinate/scripts/board-lib.sh` | the condition reader shared by holds and pauses | 1 |
 | `skills/coordinate/scripts/pick-facts.sh`, `deferral-check.sh`, `land-check.sh`, `land-merge.sh`, `dispatch-worker.sh`, `quiet-check.sh`, `record-confirm.sh` | read the pauses and act on them | 1 |
 | `skills/coordinate/scripts/coord-verdict.sh`, `coord-verdict-table_test.sh` | `paused` | 1 |
 | `skills/coordinate/scripts/progress-view.sh`, `merge-order-entry.sh` | report the pauses | 1 |
-| `skills/coordinate/koto-templates/coordinate.md`, `coordinate.mermaid.md`, `coordinate.pick.choice.decider.jsonl`, `references/loop.md`, `SKILL.md` | the arms, the `held` values, the pause and resume directives | 1 |
-| `skills/coordinate/scripts/record-codec.jq`, `record-state.sh` | Work's Wakes column and its count; the final entry | 2 |
+| `skills/coordinate/koto-templates/coordinate.md`, `coordinate.mermaid.md`, `coordinate.pick.choice.decider.jsonl`, `scripts/decider-declarations.tsv`, `references/loop.md`, `SKILL.md` | the arms, the `paused` evidence values, the `resume` event, the pause and resume directives | 1 |
+| `skills/coordinate/scripts/record-codec.jq`, `record-state.sh`, `references/record-template.md` | Work's Wakes column and its count from the log; the final entry | 2 |
 | `skills/coordinate/koto-templates/coordinate.md`, `SKILL.md` | the wake rule in `wait`; the leg watch; the limit stop; the known limitation closed | 2 |
 | `skills/coordinate/references/brief-template.md` | a run the limit cut short is not a result | 2 |
-| tests and evals | `pause-lib_test.sh`, codec, state, pick, dispatch check, land, merge, quiet and progress cases, `pause_engine_test.sh`; eval scenarios for each changed state | 1 and 2 |
+| tests and evals | `pause-lib_test.sh`; codec, state, pick, dispatch check, land, merge, quiet, progress, handoff and structure cases; `pause_engine_test.sh`; eval scenarios for each changed state | 1 and 2 |
 
 ## Implementation Approach
 
@@ -492,7 +537,7 @@ changed state.
    request with `paused` and the row's id, while the other unit dispatches;
    ending that row releases it and only it; a pause on `all` refuses both
    units; a `time` pause whose minute has passed releases both at the next
-   pick with no timer; and a replacement session started on the record alone,
+   pick a `resume` tick brings, with no timer; and a replacement session started on the record alone,
    with a pause standing, reaches pick and finds it in force. Unit tests cover
    the evaluator's conditions, the go-ahead, the six-column read, and the
    rendering.
@@ -526,17 +571,20 @@ GitHub with the same calls holds make.
 
 ### Negative
 
-- The Standing and Work tables grow columns; records written before this read
-  through a compatibility path in the codec.
+- The Standing and Work tables grow columns, so a handoff or record written by
+  an unreleased build from main between the stored set's merge and this one
+  needs its two tables rewritten once.
 - Until the workspace manager delivers pauses, the coordinator still messages
   each worker, and a worker with no socket still needs someone else to reach
   it.
-- With nothing arriving, a scheduled resume waits for the next wake.
+- A scheduled resume in a running session rests on a session-local wait; if
+  that wait is lost and nothing else arrives, the resume waits for the next
+  wake or restart.
 
 ### Mitigations
 
-- The codec's six-column read is tested against a record written by Feature 7's
-  release.
+- No release carries the old form, and no live record holds a Standing or
+  Work section yet.
 - The Work rows record who was told; an unreachable worker is reported up.
-- The one silent wait until the resume's minute is allowed, and a person's
-  message is always a wake.
+- The one silent wait until the resume's minute brings the `resume` tick, and
+  a person's message is always a wake.
