@@ -597,7 +597,7 @@ operation caused the transition. If test scaffolding pre-creates the state, the 
 passes even if the operation does nothing.
 *Detection*: for any AC describing post-operation state, check whether it also
 requires verifying the state was absent before the operation.
-*Example*: "after running `tsuku install jq`, the `~/.tsuku/bin/jq` symlink exists"
+*Example*: "after running `tsuku install jq`, the `$HOME/.tsuku/bin/jq` symlink exists"
 — passes if the test setup creates the symlink before the test runs.
 
 **Pattern 5 — Integration scope gap**

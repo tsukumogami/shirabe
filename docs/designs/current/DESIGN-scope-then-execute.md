@@ -1871,7 +1871,7 @@ it prints from a leg against a closed pattern and drops anything else, so a
 leg can't carry control characters or prose into the report.
 
 **The koto request store is local state, and it grows.** Requests live under
-`~/.koto/requests/`. The store is unix only and isn't replicated under koto's
+`$HOME/.koto/requests/`. The store is unix only and isn't replicated under koto's
 cloud backend, so a `/deliver` run is a single-machine flow. Records hold
 topic slugs, leg inputs, and results (outcome tokens, step names, PR URLs),
 never credentials, and they accumulate until koto ships a prune verb (K9).
@@ -1999,7 +1999,7 @@ two are absent.
 - `/scope` gains its first push and non-hop commit, and `/plan` gains three
   flags and a third creation branch with an approval step multi-pr doesn't
   have.
-- Request records accumulate under `~/.koto/requests/` until a prune verb
+- Request records accumulate under `$HOME/.koto/requests/` until a prune verb
   ships, and `/deliver` is a single-machine flow.
 - `/deliver` makes read-only `gh` calls through its probes, and one of its
   arms still takes agent evidence (`child_returned`), though it can only

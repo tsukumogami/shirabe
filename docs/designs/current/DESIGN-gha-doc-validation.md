@@ -468,7 +468,7 @@ Ship GoReleaser config, release workflow, and install script.
 Deliverables:
 - `.goreleaser.yaml` — four platforms (linux/darwin × amd64/arm64), binary format, `checksums.txt`, following niwa pattern; install target binary name is `shirabe` (the platform-suffixed GoReleaser artifact is renamed on install, matching niwa's convention)
 - `.github/workflows/release-binaries.yml` — `goreleaser/goreleaser-action --skip=publish` on tag push; `gh release upload` to draft
-- `install.sh` — platform-detect, download binary + checksums, SHA256 verify, rename to `shirabe`, install to `~/.shirabe/bin/`, optional PATH setup
+- `install.sh` — platform-detect, download binary + checksums, SHA256 verify, rename to `shirabe`, install to `$HOME/.shirabe/bin/`, optional PATH setup
 - Update `expected-assets` to 5 in `finalize-release.yml` (the same file niwa uses; search for `expected-assets` in the shirabe repo to locate the exact line)
 - Enable tag protection on `tsukumogami/shirabe` before pushing the first `v1` tag: require PR review for any tag move, disallow force-push to the tag
 

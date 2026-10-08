@@ -525,8 +525,8 @@ with `scope:push`. A failed publish writes `publish_error:` into the state file
 under the parent's own prefix, which is already in this set.
 
 **Out-of-repo ephemera**, by the workflow session: the koto session store
-(`~/.koto/sessions/` under the default local backend) and koto's template
-compile cache (`$XDG_CACHE_HOME/koto`, or `~/.cache/koto` when unset). Neither
+(`$HOME/.koto/sessions/` under the default local backend) and koto's template
+compile cache (`$XDG_CACHE_HOME/koto`, or `$HOME/.cache/koto` when unset). Neither
 is in the repository and neither is cleaned by this skill. The entry adds one
 more: the args file of raw tokens and the vars file `scope-open.sh` derives
 from it, both in a private `mktemp -d` directory (or the koto session

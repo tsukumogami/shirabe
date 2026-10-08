@@ -197,8 +197,8 @@ land in.
 
 - **R18.** The "installed but not on PATH" outcome SHALL be resolved
   before any install route is offered. On a tsuku-managed host both
-  `shirabe` and `koto` resolve under `~/.tsuku/tools/current/`, on PATH
-  only in shells that sourced `~/.tsuku/env`; an agent told to
+  `shirabe` and `koto` resolve under `$HOME/.tsuku/tools/current/`, on PATH
+  only in shells that sourced `$HOME/.tsuku/env`; an agent told to
   reinstall them will do it.
 - **R19.** An emitted command SHALL be one that succeeds on the host it
   is emitted on. The report SHALL NOT emit a command whose availability
@@ -273,7 +273,7 @@ land in.
   exist, because R12's zero-output rule is otherwise unfalsifiable.
 - **R28.** The filesystem root the check consults when distinguishing
   "absent" from "present but off PATH" SHALL be overridable for
-  verification. Without an override, the `~/.tsuku/tools/current/` case
+  verification. Without an override, the `$HOME/.tsuku/tools/current/` case
   can only be tested by writing into a developer's real home directory
   and cannot be tested on a host without tsuku at all.
 
