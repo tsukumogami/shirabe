@@ -1,6 +1,7 @@
 name: Check work-on scripts
 
 on:
+  # The two paths: lists below must match; edit both together.
   pull_request:
     paths:
       # Every file under the skill, not just its scripts: retry-clearing_test.sh
@@ -10,6 +11,10 @@ on:
       # /work-on file for statements a decision record settled. An edit to any
       # of them can break a suite while leaving the scripts untouched.
       - 'skills/work-on/**'
+      # review-level_test.sh reads every skill's template for the scripts its
+      # commands name and requires each to be in the engine class, so a
+      # template that starts naming a new script has to re-run it.
+      - 'skills/*/koto-templates/**'
       # settled-policy_test.sh also reads the shared worktree reference.
       - 'references/worktree-discipline.md'
       # panel-scope_test.sh builds a re-check seat's packet from the scope it
@@ -22,6 +27,20 @@ on:
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
       # An edit to this workflow changes what runs, so it has to run the suite.
+      - '.github/workflows/check-work-on-scripts.yml'
+  # Also on main, so a change that breaks the suite shows on the push that
+  # lands it, not on the next unrelated pull request.
+  push:
+    branches: [main]
+    # Must match the pull_request paths: list above.
+    paths:
+      - 'skills/work-on/**'
+      - 'skills/*/koto-templates/**'
+      - 'references/worktree-discipline.md'
+      - 'scripts/review-packet.sh'
+      - 'scripts/check-bash-floor.sh'
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
       - '.github/workflows/check-work-on-scripts.yml'
 
 env:
