@@ -290,6 +290,13 @@ suite_scripts() {
             # a koto stand-in, so they execute on the floor; its real-session
             # case skips without koto.
             echo "skills/work-on/scripts/panel-retry-budget_test.sh"
+            # The output gate scripts against git fixtures and stand-ins; no
+            # engine. The --docs-visibility cases need the real validator and
+            # skip without it, so they run on the Linux leg.
+            echo "skills/work-on/scripts/check-branch-output_test.sh"
+            echo "skills/work-on/scripts/check-pr-output_test.sh"
+            # Reads the rule table and the files it references at HEAD.
+            echo "skills/work-on/scripts/gate-rule-refs_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It
