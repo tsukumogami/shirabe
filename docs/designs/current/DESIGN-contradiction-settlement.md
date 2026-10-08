@@ -9,7 +9,7 @@ problem: |
   acts on. Execution needs a located, reasoned list to edit from, and later
   gate and ablation work needs stable identifiers to depend on.
 decision: |
-  A 48-item inventory taken at 662f6ec (38 mechanical, 10 policy), each item
+  A 48-item inventory read at 662f6ec (38 mechanical, 10 policy; two found during execution), each item
   with a kebab-case identifier, every side located by line range and a
   file-unique excerpt, and a winner chosen by one rule: the side the code
   enforces wins, then the file the state directive points at, then the
@@ -173,7 +173,8 @@ loads every other caller's rules, which is the dead-prose problem again.
 ## Decision Outcome
 
 The inventory below has 48 items: 38 mechanical, each with a winner chosen by
-the code-first rule, and 10 policy items carried open with a recommendation.
+the code-first rule, and 10 policy items put to the policy owner with a recommendation,
+all since decided and recorded under `docs/decisions/`.
 Every PRD R2 item maps to at least one identifier. Dead prose comes to
 28.2% of `/work-on`'s raw load, 51.0% of `/execute`'s single-pr load, 62.4% of
 its coordinated load, 27.9% of `/deliver`'s and 12.2% of `/scope`'s, plus
@@ -259,7 +260,7 @@ What runs:
 - `skills/execute/scripts/push-and-record.sh#L25-L31`: pushes an explicit refspec and never with a force option. Excerpt: `# The push is exactly`
 - `skills/work-on/koto-templates/work-on.md#L1963-L1973`: pre_pr_evidence assumes history is final before it; a later rebase leaves its referents unchecked. Excerpt: `The finishing obligations that can be decided`
 
-Winner: `open`. Recommended: option 2, rebase if behind, before verification, with a plain push only.
+Winner: decided by the policy owner (record linked below). Recommended: option 2, rebase if behind, before verification, with a plain push only.
 
 - **Context.** phase-6-pr.md, which /work-on loads at pr_creation and /execute loads at every ci_monitor visit, tells the agent to rebase when behind and push with --force-with-lease. The /work-on template pushes plainly, /execute says nothing it runs force-pushes, and push-and-record.sh refuses a force push.
 - **Problem.** An agent following phase-6 either gets a rejected push under /execute or rewrites a shared branch; under /work-on a rebase after pre_pr_evidence means the gate judged a tip that no longer ships.
@@ -289,7 +290,7 @@ What runs:
 - `skills/work-on/koto-templates/work-on.md#L754-L756`: every retry edge is unconditional; nothing counts visits. Excerpt: `scrutiny_outcome: blocking_retry`
 - `skills/execute/koto-templates/execute.md#L1469-L1475`: ci_monitor fix pushes go through push-and-record.sh with no counter. Excerpt: `If the gate fails because a check failed,`
 
-Winner: `open`. Recommended: option 1, state each cap once, in the looping state's directive.
+Winner: decided by the policy owner (record linked below). Recommended: option 1, state each cap once, in the looping state's directive.
 
 - **Context.** The review panels, analysis, implementation, PR creation and CI loops each state a limit somewhere, the limits differ (2, 2+, 3, 2-3, none), and nothing in koto counts visits. The CI line tells the agent to ask the user, which /execute's --auto mandate forbids.
 - **Problem.** The agent has no single cap to apply, the panel cap's scope (per panel or shared) is unstated, and under --auto the CI instruction is unfollowable.
@@ -316,7 +317,7 @@ What runs:
 - `skills/work-on/koto-templates/work-on.md#L1272-L1278`: failing_fixed routes to done with no gate. Excerpt: `# failing_fixed: agent pushed a follow-up`
 - `skills/work-on/koto-templates/work-on.md#L1279-L1284`: the fallback edge also reaches done. Excerpt: `failure_reason: "ci_monitor: unresolvable`
 
-Winner: `open`. Recommended: option 1, failing_fixed loops back to ci_monitor and the fallback goes to done_blocked.
+Winner: decided by the policy owner (record linked below). Recommended: option 1, failing_fixed loops back to ci_monitor and the fallback goes to done_blocked.
 
 - **Context.** /work-on promises a PR with passing CI, but ci_monitor's failing_fixed outcome and its fallback edge go to done without re-checking CI.
 - **Problem.** A run can end reporting success on red or unfinished CI; which behavior is intended decides whether the run stops or keeps polling.
@@ -340,7 +341,7 @@ What runs:
 
 - `skills/plan/scripts/plan-to-tasks.sh#L744-L751`: children receive only task variables; koto schedules them. Excerpt: `$issue_source, ARTIFACT_PREFIX: $artifact_prefix,`
 
-Winner: `open`. Recommended: option 2, wire /work-on's analysis phase to read it, built outside the work tree.
+Winner: decided by the policy owner (record linked below). Recommended: option 2, wire /work-on's analysis phase to read it, built outside the work tree.
 
 - **Context.** /execute tells the agent to build current-context.md from completed children's summaries before each child, but koto schedules the children, no /work-on file reads that file, and only evals assert it.
 - **Problem.** Deleting the step removes a capability the skill advertises; keeping it leaves an instruction with no effect and a stray file in the work tree.
@@ -372,7 +373,7 @@ What runs:
 - `skills/plan/references/phases/phase-1-analysis.md#L83-L95`: /plan hard-stops unless the DESIGN is already Accepted. Excerpt: `**STOP and inform user if status is not "Accepted".**`
 - `skills/scope/references/phases/phase-2-chain-orchestration.md#L381-L418`: /scope detects a reject only through the child's discard commit. Excerpt: `## Phase-N Reject Handling`
 
-Winner: `open`. Recommended: option 1, children keep their verdict and status transition but skip push, PR, cleanup commit, branch creation and routing prompts under the sentinel.
+Winner: decided by the policy owner (record linked below). Recommended: option 1, children keep their verdict and status transition but skip push, PR, cleanup commit, branch creation and routing prompts under the sentinel.
 
 - **Context.** Each child skill runs its own approval prompt, status transition, commits and, for /brief, /prd and /design, a push and a pull request, and none of those steps checks the parent_orchestration sentinel. /scope promises one push and one PR at exit and a closed write set. The dispatch reference says children should leave artifacts unapproved for the parent, but /design and /plan require their upstream already Accepted and /scope never transitions anything.
 - **Problem.** Under /scope the children push and open PRs /scope says never happen, and the reference that defines child behavior under a parent describes a flow that would stall the chain.
@@ -396,7 +397,7 @@ What runs:
 
 - `skills/scope/scripts/testdata/design.md.fixture#L6`: a /scope fixture carries decision_provenance: inline-resolved. Excerpt: `decision_provenance: inline-resolved`
 
-Winner: `open`. Recommended: option 2, make it checkable: under the sentinel, standard-tier questions resolve inline and critical ones go to /decision; add the field to the format reference.
+Winner: decided by the policy owner (record linked below). Recommended: option 2, make it checkable: under the sentinel, standard-tier questions resolve inline and critical ones go to /decision; add the field to the format reference.
 
 - **Context.** The dispatch reference lets /design resolve decisions inline when a parent routes decisions back to itself; /design's own Phase 2 always spawns /decision, nothing defines when the fallback applies, and the provenance field is in no format reference or validator.
 - **Problem.** Whether a /scope run bypasses /decision is left to the agent's judgment.
@@ -422,7 +423,7 @@ What runs:
 
 - `skills/plan/references/phases/phase-7-creation.md#L81-L84`: default tracking is issues-and-milestone. Excerpt: `Where a level is stated it applies regardless`
 
-Winner: `open`. Recommended: option 1, approval on every filing path; under --auto, file only when CLAUDE.md declares a Tracking Level header, else emit an issueless PLAN with outlines.
+Winner: decided by the policy owner (record linked below). Recommended: option 1, approval on every filing path; under --auto, file only when CLAUDE.md declares a Tracking Level header, else emit an issueless PLAN with outlines.
 
 - **Context.** /plan's own rule says filing issues needs human approval, but the multi-pr path and single-pr-with-tracking file issues and a milestone with no approval step, and under --auto the tracking question is never asked. /scope forwards --auto to /plan on intent runs.
 - **Problem.** An unattended run can create GitHub issues and a milestone that nobody approved.
@@ -446,7 +447,7 @@ What runs:
 
 - `crates/shirabe-validate/src/lifecycle.rs#L862-L874`: the single-pr posture requires Active; L01 has no abandonment exemption. Excerpt: `` // Single-pr mid-PR. The PLAN is at `Active`: ``
 
-Winner: `open`. Recommended: option 2, abandonment never writes a PLAN, only the upstream artifacts.
+Winner: decided by the policy owner (record linked below). Recommended: option 2, abandonment never writes a PLAN, only the upstream artifacts.
 
 - **Context.** An abandonment exit triggered while /plan is running force-materializes the PLAN at Draft at its canonical path; the same reference and /plan's rules say a committed Draft PLAN is a violation, and the lifecycle check has no exemption.
 - **Problem.** An abandoned run's branch fails the lifecycle check, so the exit meant to preserve work produces a red branch.
@@ -468,7 +469,7 @@ What runs:
 
 - `skills/execute/scripts/execute-open.sh#L133-L153`: anything not coordinated, including multi-pr, runs on execute.md. Excerpt: `# The template, from the PLAN's execution_mode,`
 
-Winner: `open`. Recommended: option 1, refuse multi-pr in execute-open.sh, and add it to the listed refusals.
+Winner: decided by the policy owner (record linked below). Recommended: option 1, refuse multi-pr in execute-open.sh, and add it to the listed refusals.
 
 - **Context.** /execute's SKILL.md says multi-pr PLANs are out of scope and belong to /work-on, and /deliver and /scope route them there; execute-open.sh runs any non-coordinated PLAN, multi-pr included, on the single-pr template, and plan-to-tasks.sh can build tasks for it.
 - **Problem.** Choosing a side either adds a refusal (the run stops where it used to proceed) or blesses a path the rest of the skills route away from.
@@ -487,7 +488,7 @@ Statements:
 - `skills/scope/references/phases/phase-2-chain-orchestration.md#L111-L121`: the team lead resolves it in place when intent still holds, and escalates to the author only otherwise. Excerpt: `- **Escalation phase.** None / Informational`
 - `skills/scope/SKILL.md#L130-L132`: team-lead discipline is vacuous here, since /scope spawns nothing. Excerpt: `R19's Team-Lead Operating Discipline binds`
 
-Winner: `open`. Recommended: option 1, always put an intent-changing rebase to the author.
+Winner: decided by the policy owner (record linked below). Recommended: option 1, always put an intent-changing rebase to the author.
 
 - **Context.** When main moves under a /scope run in a way that changes something the chain relies on, SKILL.md says the run halts and asks the author; the Phase 2 reference lets the team lead, which under /scope is the same agent running the chain, decide intent still holds and fix the citation in place. SKILL.md also says there is no team lead under /scope.
 - **Problem.** Whether the running agent may approve its own continuation after an upstream change is a question of who approves, and no code enforces either side.
@@ -1631,7 +1632,7 @@ of the figure for a stated reason:
   108,128 bytes, 27,032 tokens or 11.9% of raw. The load manifest counts
   them in raw at weight 0. `scope-reference-table-vs-lazy-load` removes the
   instruction to read them; the files stay for `/charter` and for
-  maintainers, so this is a loading change, not a deletion, and Issue 19's
+  maintainers, so this is a loading change, not a deletion, and the re-count (#665)
   re-count reports it separately.
 - *Child-skill text restating a file from another skill or from `/scope`*:
   not measured span by span, so no figure is given. Each copy is needed
@@ -1645,7 +1646,8 @@ of the figure for a stated reason:
   work before moving on, so they are not treated as strictly redundant.
 - *Child text restating an open policy item's behavior*: 4,466 bytes
   over 14 spans, listed in `held_for_policy` in the inventory data.
-  It goes with those items once they are decided.
+  These spans went with those items once they were decided, in the pull
+  requests that applied each decision.
 
 Counting the parent-skill references alongside the table's figure puts
 `scope` at 24.1% of raw.
@@ -1741,6 +1743,8 @@ what those instructions permit, not about data or credentials.
 No new code paths, inputs or dependencies are introduced by this design.
 
 ## Consequences
+
+As written before execution; the outcome is under Implementation Approach.
 
 **Positive.** Each rule these skills load has one authoritative statement
 after execution, and the ones where choosing that statement is a real choice

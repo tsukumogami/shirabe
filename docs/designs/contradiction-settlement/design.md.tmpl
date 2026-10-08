@@ -9,7 +9,7 @@ problem: |
   acts on. Execution needs a located, reasoned list to edit from, and later
   gate and ablation work needs stable identifiers to depend on.
 decision: |
-  A {{N_ITEMS}}-item inventory taken at 662f6ec ({{N_MECH}} mechanical, {{N_POL}} policy), each item
+  A {{N_ITEMS}}-item inventory read at 662f6ec ({{N_MECH}} mechanical, {{N_POL}} policy; two found during execution), each item
   with a kebab-case identifier, every side located by line range and a
   file-unique excerpt, and a winner chosen by one rule: the side the code
   enforces wins, then the file the state directive points at, then the
@@ -173,7 +173,8 @@ loads every other caller's rules, which is the dead-prose problem again.
 ## Decision Outcome
 
 The inventory below has {{N_ITEMS}} items: {{N_MECH}} mechanical, each with a winner chosen by
-the code-first rule, and {{N_POL}} policy items carried open with a recommendation.
+the code-first rule, and {{N_POL}} policy items put to the policy owner with a recommendation,
+all since decided and recorded under `docs/decisions/`.
 Every PRD R2 item maps to at least one identifier. Dead prose comes to
 {{SHARE_work-on}} of `/work-on`'s raw load, {{SHARE_execute-single-pr}} of `/execute`'s single-pr load, {{SHARE_execute-coordinated}} of
 its coordinated load, {{SHARE_deliver}} of `/deliver`'s and {{SHARE_scope}} of `/scope`'s, plus
@@ -274,7 +275,7 @@ of the figure for a stated reason:
   {{PARENT_BYTES}} bytes, {{PARENT_TOKENS}} tokens or {{PARENT_SHARE}} of raw. The load manifest counts
   them in raw at weight 0. `scope-reference-table-vs-lazy-load` removes the
   instruction to read them; the files stay for `/charter` and for
-  maintainers, so this is a loading change, not a deletion, and Issue 19's
+  maintainers, so this is a loading change, not a deletion, and the re-count (#665)
   re-count reports it separately.
 - *Child-skill text restating a file from another skill or from `/scope`*:
   not measured span by span, so no figure is given. Each copy is needed
@@ -288,7 +289,8 @@ of the figure for a stated reason:
   work before moving on, so they are not treated as strictly redundant.
 - *Child text restating an open policy item's behavior*: {{HELD_BYTES}} bytes
   over {{HELD_SPANS}} spans, listed in `held_for_policy` in the inventory data.
-  It goes with those items once they are decided.
+  These spans went with those items once they were decided, in the pull
+  requests that applied each decision.
 
 Counting the parent-skill references alongside the table's figure puts
 `scope` at {{SCOPE_WITH_PARENT}} of raw.
@@ -380,6 +382,8 @@ what those instructions permit, not about data or credentials.
 No new code paths, inputs or dependencies are introduced by this design.
 
 ## Consequences
+
+As written before execution; the outcome is under Implementation Approach.
 
 **Positive.** Each rule these skills load has one authoritative statement
 after execution, and the ones where choosing that statement is a real choice

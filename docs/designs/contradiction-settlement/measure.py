@@ -20,6 +20,9 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+# Paths below are relative to the repository root, so run from there whatever
+# directory the caller is in.
+os.chdir(os.path.dirname(os.path.dirname(os.path.dirname(HERE))))
 DESIGN = "docs/designs/current/DESIGN-contradiction-settlement.md"
 PROFILES = ["work-on", "execute-single-pr", "execute-coordinated", "deliver", "scope"]
 LOC = re.compile(r"^(\S+)#L(\d+)-L(\d+)$")
@@ -234,7 +237,7 @@ def render_item(c, w):
         if not os.path.exists(rec):
             raise SystemExit("decision record missing: " + rec)
         r = d["options"][d["recommended"]]["name"]
-        w("Winner: `open`. Recommended: option %d, %s." % (d["recommended"] + 1, r[0].lower() + r[1:]))
+        w("Winner: decided by the policy owner (record linked below). Recommended: option %d, %s." % (d["recommended"] + 1, r[0].lower() + r[1:]))
         w("")
         w("- **Context.** " + d["context"])
         w("- **Problem.** " + d["problem"])
