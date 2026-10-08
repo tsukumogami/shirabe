@@ -160,6 +160,15 @@ EOF
 chmod +x "$BIN/koto" "$BIN/niwa" "$T/record-holding.sh"
 export PATH="$BIN:$PATH"
 export DC_RECORD_HOLDING="$T/record-holding.sh"
+# record-state.sh: the Run section names the coordinator's address,
+# lane-coord, unless RECORD_ADDRESS sets another or is empty.
+cat >"$T/record-state.sh" <<'EOF'
+#!/usr/bin/env bash
+[ "${RECORD_STATE_MODE:-}" = fail ] && exit 2
+jq -nc --arg a "${RECORD_ADDRESS-lane-coord}" '{run: (if $a == "" then [] else [{key: "coordinator", value: $a, set_by: "lane-coord", set: "2026-09-26T08:00Z"}] end), standing: [], work: []}'
+EOF
+chmod +x "$T/record-state.sh"
+export DC_RECORD_STATE="$T/record-state.sh"
 
 # --- the workspace -------------------------------------------------------------------
 
@@ -193,7 +202,7 @@ reset() {
     printf '%s' "$PICK_ROADMAP" >"$ST/ctx/coord/pick.json"
     rm -rf "$W/.niwa/dispatch-briefs"
     export NIWA_MODE=ok NIWA_NAME=plugin_api-1a2b3c4d
-    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP
+    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_STATE_MODE
 }
 run() { (cd "$W/inst" && bash "$S" --session coord "$@"); }
 row() { jq -r ".$1" "$ST/rows/plugin-api.json"; }
@@ -417,6 +426,42 @@ run >/dev/null 2>&1; eq "pause: another unit's pause doesn't hold this one" 0 "$
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s5" | .units[0].paused = null | .units[1].paused = "s5"' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "pause: under a pause on all, the unit a go-ahead let through (paused null) is dispatched" 0 "$?"
+# The brief's reporting address is the record's Run coordinator, never the
+# koto session name the input carries (shirabe#610).
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.reports_to = "someone-else"')"
+run >/dev/null 2>&1; eq "address: a dispatch with the record's address goes through" 0 "$?"
+has "address: the brief names the record's address" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" 'addressed to `lane-coord`, the address its record names'
+lacks "address: never the input's own value" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" 'someone-else'
+lacks "address: nor the koto session name" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" 'addressed to `coord-alpha`'
+reset "$INPUT_DELIVER"; export RECORD_ADDRESS=""
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "address: a record naming no address refuses, exit 1" 1 "$RC"
+has "address: naming the fix" "$ERR" "record-state.sh --session coord --run coordinator <address>"
+nothing_written "address, none"
+reset "$INPUT_DELIVER"; export RECORD_STATE_MODE=fail
+run >/dev/null 2>&1; eq "address: a Run section that can't be read exits 2" 2 "$?"
+nothing_written "address, unreadable"
+# A unit a person assigned at roadmap scope (shirabe#607): pick lists it with
+# `assigned`, and its id is a form the brief check takes.
+PICK_ASSIGNED='{"scope":"roadmap","name":"plugin-system","host":"acme/widgets","units":[
+  {"unit":"Feature 1","number":1,"title":"the manifest"},
+  {"unit":"acme/widgets#591","number":591,"title":"pick the review level up front","assigned":"s3"},
+  {"unit":"release acme/widgets v0.25.0","number":null,"title":"","assigned":"s4"}]}'
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "acme/widgets#591" | .entry_point = "work-on" | .entry_args = ["591"]')"
+printf '%s' "$PICK_ASSIGNED" >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "assigned: an issue a person assigned is dispatched at roadmap scope" 0 "$?"
+eq  "assigned: and becomes the Unit cell" "acme/widgets#591" "$(row unit)"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "acme/widgets#591: pick the review level up front" | .entry_point = "work-on" | .entry_args = ["591"]')"
+printf '%s' "$PICK_ASSIGNED" >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "assigned: its id with a title, a form pick doesn't read for it, is refused" 1 "$?"
+# A release (shirabe#627): no leg, no run mode, the version positional.
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "release acme/widgets v0.25.0" | .entry_point = "release" | .entry_args = ["v0.25.0"] | .run_mode = ""')"
+printf '%s' "$PICK_ASSIGNED" >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "release: an assigned release is dispatched" 0 "$?"
+eq  "release: on the message path, with no leg" "message 0" "$(row return_path) $(grep -c 'request create' "$ST/calls.log")"
+eq  "release: its holding names /release and no mode" "release|" "$(row entry_point)|$(row mode)"
+eq  "release: the worker is launched" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
+has "release: the prompt runs /shirabe:release with the version" "$(cat "$ST/prompt")" 'Run `/shirabe:release v0.25.0` in acme/widgets'
 # A unit parked on a decision: refused like a pause, nothing written.
 reset "$INPUT_DELIVER"
 printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).awaiting = "4"' >"$ST/ctx/coord/pick.json"

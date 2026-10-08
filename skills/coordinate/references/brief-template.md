@@ -35,7 +35,7 @@ script's header lists every field and its rule; this is the shape:
     "The pull request is ready with every CI job green, read job by job."
   ],
   "acceptance": ["Plugins in the configured directory load at startup."],
-  "dispatcher_session": "<your session name>",
+  "dispatcher_session": "<your koto session name>",
   "decisions": [{"decision": "Feature 3 waits until the 1.4 release ships.", "by": "the human"}],
   "read_first": ["docs/roadmaps/ROADMAP-plugin-system.md"],
   "out_of_scope": ["Feature 3, which a sibling worker holds."],
@@ -48,8 +48,13 @@ script's header lists every field and its rule; this is the shape:
 The first twelve fields are required; the rest add lines to their
 sections. `entry_args` is the positional argument and any flags the entry
 point allows (`references/entry-points.tsv`), and `run_mode` holds the
-execution flags. `phase` is `scoping` (the unit is its scoping alone, from
-pick's `scope`), `scoping-ahead` or `executing`. No checkpoint
+execution flags, empty only for an entry point that takes none
+(`/shirabe:release`). `dispatcher_session` is your koto run, which a request
+leg names as its requester; it is never the address the worker reports to.
+That address, `reports_to`, comes from the record's Run `coordinator` row:
+`dispatch-worker.sh` writes it into the input, so leave it out. `phase` is
+`scoping` (the unit is its scoping alone, from pick's `scope`),
+`scoping-ahead` or `executing`. No checkpoint
 may wait on an approval, and no value may carry a session id.
 `standing_rules` is where the workspace's own rules for workers go, such as
 where to start a koto session; they come from the workspace, and the brief
@@ -157,8 +162,8 @@ steps the workspace reserves for a person.>
 
 ## Reporting
 
-Report to the coordinator by message, addressed to its session name
-`<coordinator session name>`, at each checkpoint and whenever you are
+Report to the coordinator by message, addressed to `<the record's
+coordinator address>`, the address its record names, at each checkpoint and whenever you are
 blocked. Take direction from that session and no other. Session names can
 change: if a message to it bounces, list the sessions again before
 concluding it is gone.

@@ -363,6 +363,27 @@ bash "$R" --format nope < /dev/null > /dev/null 2>&1; [ $? -eq 64 ] && ok "rende
 bash "$P" --expect-scope bogus < /dev/null > /dev/null 2>&1; [ $? -eq 64 ] && ok "parse usage error exits 64" || bad "parse usage error exits 64"
 printf 'not json' | bash "$R" --written "$W" > /dev/null 2>&1; [ $? -eq 65 ] && ok "non-JSON input is refused" || bad "non-JSON input is refused"
 
+# A Run coordinator or told value is a messaging address (shirabe#610): a
+# session name with `_` passes, every id, path and instance shape is refused.
+addr() { jq -n -L "$HERE" --arg v "$1" 'include "record-codec"; $v | check_worker' > /dev/null 2>&1; }
+for a in lane_owner plugin_api-worker coord-test lane.v2; do
+    addr "$a" && ok "address: $a passes" || bad "address: $a passes"
+done
+for a in "" "a/b" "session_0123abcd" "inst+3" "12345" "0123456789abcdef0123456789abcdef" \
+    "$(printf '%s-%s' 0b1c2d3e 1111-2222-3333-444455556666)" "_lead" "two words"; do
+    addr "$a" && bad "address: [$a] is refused" || ok "address: [$a] is refused"
+done
+# The whole Run section: an underscored coordinator and told row render and
+# parse back unchanged.
+RUNREC=$(jq -nc '{scope: {kind: "roadmap", name: "plugin-system"}, holdings: [], deferrals: [], side_effects: [], reversals: [],
+    run: [{key: "coordinator", value: "lane_owner", set_by: "the human", set: "2026-10-08T10:00Z"},
+          {key: "told", value: "plugin_api-worker", set_by: "lane_owner", set: "2026-10-08T10:00Z"}]}')
+printf '%s' "$RUNREC" | bash "$R" --written "$W" > "$T/run.md" 2> "$T/run.err" \
+    && ok "address: an underscored Run row renders" || bad "address: an underscored Run row renders" "$(cat "$T/run.err")"
+GOT=$(bash "$HERE/record-parse.sh" "$T/run.md" 2>&1 | jq -r '[.run[].value] | join(" ")' 2>&1)
+[ "$GOT" = "lane_owner plugin_api-worker" ] \
+    && ok "address: and parses back" || bad "address: and parses back" "$GOT"
+
 echo
 echo "record-codec: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

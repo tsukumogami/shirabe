@@ -183,7 +183,7 @@ each rendered only once it has a row:
 
 | Standing | Kind | On | Until | What | Owner | Relayed by | Set |
 |---|---|---|---|---|---|---|---|
-| <s<n>> | <pause, go-ahead, approval or answer> | <a pause's or go-ahead's scope, or blank> | <a pause's resume condition, or blank> | <what it says> | <the person who decided it> | <who carried it here, or blank> | <YYYY-MM-DDTHH:MMZ> |
+| <s<n>> | <pause, go-ahead, approval, answer or assignment> | <a pause's or go-ahead's scope, an assignment's unit, or blank> | <a pause's resume condition, or blank> | <what it says> | <the person who decided it> | <who carried it here, or blank> | <YYYY-MM-DDTHH:MMZ> |
 
 ## Work
 
@@ -194,8 +194,12 @@ each rendered only once it has a row:
 
 **Run** holds the run's arguments, the cap in force (the readers of the cap
 take it over the `--cap` the session was opened with), this coordinator's
-address (a dispatch topic, never a session id) and one `told` row per party
-that has been sent that address. A new address clears the `told` rows.
+address (its messaging address: the session name a worker can message, which
+may hold `_`, or a dispatch topic; never a session id, a path or an instance
+name) and one `told` row per party
+that has been sent that address. A new address clears the `told` rows. Every
+worker's brief names that address as where to report, read from here by
+`scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
 **Standing** holds the events only a person owns while they still bind: a
 pause, a go-ahead (a release or another step allowed once), a relayed approval,
 a standing answer. Owner is the person who decided it; Relayed by is who
@@ -208,7 +212,10 @@ land check and the merge read every pause live (`scripts/pause-read.sh`) and
 refuse what one holds; a pause whose condition reads met holds nothing, and
 the coordinator ends its row. A go-ahead may name one unit in On: it lets that
 unit through any pause until it is used and ended. A resume, a used
-go-ahead or approval, or a withdrawn answer ends the row. **Work** has a next
+go-ahead or approval, or a withdrawn answer ends the row. An assignment is work a
+person assigned outside the scope, named in On as an issue (`#12`,
+`owner/repo#12`) or `release owner/repo <tag>`: pick lists it as a unit from
+then on, at roadmap scope too, and its row ends once the work is done. **Work** has a next
 step for every holding and a row for any work no holding covers, a local
 agent's above all: without its row a successor can't see it. Two kinds keep a
 unit's later work, Item the unit as pick lists it: `decision`, a unit pick

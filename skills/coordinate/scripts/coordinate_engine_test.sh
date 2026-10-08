@@ -69,6 +69,10 @@
 #      accepted, not refused, and goes back to wait without touching its leg;
 #      the same worker's later terminal report is classified as before. (19
 #      sits before 17 in this file, beside the cases it reuses fixtures from.)
+#      A leg-bound worker's checkpoint reaches the coordinator whole
+#      (shirabe#610): its question opens a decision entry whose source is the
+#      worker, and its pull request is written onto its holding, its leg
+#      never read.
 #  20. a unit waiting on a person (shirabe#549): pick's await_decision goes to
 #      decision_raise, which holds until record-state.sh parks the unit on the
 #      entry it opened; escalated and sent, the run is back at pick with the
@@ -83,6 +87,13 @@
 #      merge is confirmed, record holds until a follow-up Work row records its
 #      execution, pick then lists the unit's follow-up, and roadmap-status.sh
 #      refuses to write it Done.
+#  22. work a person assigns outside the roadmap (shirabe#607, #627): an
+#      issue and a release recorded as Standing assignment rows are listed by
+#      pick and dispatched through dispatch-worker.sh at roadmap scope, the
+#      issue on /shirabe:work-on and the release on /shirabe:release with no
+#      leg and no run mode; each brief names the record's Run coordinator
+#      address and never the koto session name (shirabe#610). (22 sits after
+#      19.)
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -629,6 +640,100 @@ if to_pick progressq "$(record_json roadmap progressq | jq -c --argjson h "$(PRO
     eq "19 question: and is never classified" 0 "$(entered classify_report)"
 else
     bad "19 question: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# A leg-bound worker's checkpoint reaches the coordinator whole (shirabe#610):
+# its question opens a decision entry and its pull request reaches its
+# holding, while its leg stays open for its result.
+if to_pick progressleg "$(record_json roadmap progressleg | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 193 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    eq "19 leg question: a leg-bound worker's checkpoint asking a question opens a decision entry" decision_open \
+        "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 1 reached.\nQuestions:\n1. Should the registry ship in 1.4?"}')"
+    eq "19 leg question: read as progress, not refused" progress "$(cd "$WD" && koto context get "$S" report_source 2>/dev/null)"
+    printf '%s' '{"1": {"question": "Should the registry ship in 1.4?", "options": ["ship -- in 1.4", "wait -- for 1.5"]}}' > "$T/q193.json"
+    write_as_agent record-decision.sh --open-from-report --text-file "$T/q193.json"
+    eq "19 leg question: record-decision.sh opens it" 0 $?
+    eq "19 leg question: a proposed entry, its source the leg-bound worker" "proposed worker feat-2" \
+        "$(live_body 193 | jq -r '[.decisions.entries[] | select(.question == "Should the registry ship in 1.4?")][0] | "\(.state) \(.source | split(" [")[0])"')"
+    tick --with-data '{"opened":"opened"}' >/dev/null
+    # The entry is the coordinator's to take up; back to the hub for the next.
+    for _ in 1 2 3 4; do [ "$(now_at)" = wait ] && break; case "$(now_at)" in
+        decision_take) write_as_agent record-decision.sh --take; tick --with-data '{"taken":"taken"}' >/dev/null ;;
+        decision_verdict) write_as_agent record-decision.sh --hold --reason "the release plan"; tick --with-data '{"verdict":"hold","rationale":"waits on the release plan"}' >/dev/null ;;
+        *) tick >/dev/null ;; esac; done
+    [ "$(now_at)" = pick ] && tick --with-data '{"choice":"hold"}' >/dev/null
+    eq "19 leg question: the run is back at wait" wait "$(now_at)"
+    eq "19 leg link: its checkpoint naming its pull request goes to report_link" report_link \
+        "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 2: PR is up.","pull_request":"acme/widgets#12"}')"
+    write_as_agent holding-link.sh
+    eq "19 leg link: holding-link.sh writes it onto the leg-bound holding" "[#12](https://github.com/acme/widgets/pull/12) leg req-x:deliver" \
+        "$(live_body 193 | jq -r '.holdings[] | select(.worker == "feat-2") | "\(.pull_request) \(.return_path)"')"
+    eq "19 leg: and its leg was never read" 0 "$(entered wait_leg)"
+else
+    bad "19 leg: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 22. assigned work and a release, dispatched at roadmap scope -------------
+echo "== 22. an issue and a release a person assigned are dispatched at roadmap scope, the brief naming the record's address =="
+# niwa, for these dispatches: `list --json` names the sessions launched so
+# far, `dispatch --name <topic>` launches one.
+mkdir -p "$T/niwa22"
+printf '[]\n' > "$T/niwa22/sessions.json"
+cat > "$T/niwa22/niwa" <<EOF
+#!/usr/bin/env bash
+case "\$1 \${2-}" in
+    "list --json") cat "$T/niwa22/sessions.json" ;;
+    "dispatch --help") : ;;
+    dispatch*) shift; t=; while [ \$# -gt 0 ]; do [ "\$1" = --name ] && t=\$2; shift; done
+        n="\$(printf '%s' "\$t" | tr '-' '_')-1a2b3c4d"
+        jq -c --arg n "\$n" '. + [{name: "w", path: "/w", session_name: \$n}]' "$T/niwa22/sessions.json" > "$T/niwa22/s.tmp" && mv "$T/niwa22/s.tmp" "$T/niwa22/sessions.json"
+        printf 'Dispatched\n  session name: %s\n' "\$n" ;;
+    *) exit 64 ;;
+esac
+EOF
+chmod +x "$T/niwa22/niwa"
+assigned_brief() { # assigned_brief <topic> <unit> <entry point> <positional> <run mode>
+    jq -nc --arg t "$1" --arg u "$2" --arg e "$3" --arg a "$4" --arg m "$5" '{topic: $t, repo: "acme/widgets", unit: $u, entry_point: $e,
+        entry_args: [$a], run_mode: $m, phase: "executing", authority: "You are working for the owner on acme/widgets.",
+        goal: "\($u) lands.", checkpoints: ["The work is done and reported."], acceptance: ["It is done."], dispatcher_session: "x"}' \
+        | jq -c --arg s "$S" '.dispatcher_session = $s'
+}
+dispatch22() { # dispatch22 <brief-json>: dispatch-worker.sh at dispatch, as the agent runs it; D22 its exit
+    printf '%s' "$1" > "$T/brief22.json"
+    (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/brief22.json" >/dev/null)
+    : > "$T/work/.niwa/workspace.toml"
+    (cd "$WD" && NIWA="$T/niwa22/niwa" bash "$PS/dispatch-worker.sh" --session "$S" >"$T/d22.out" 2>"$T/d22.err"); D22=$?
+    rm -f "$T/work/.niwa/workspace.toml"
+}
+ASSIGNED='[{"standing": "s1", "kind": "assignment", "on": "acme/widgets#591", "until": "", "what": "pick the review level up front", "owner": "the human", "relayed_by": "", "set": "2026-10-06T15:00Z"},
+    {"standing": "s2", "kind": "assignment", "on": "release acme/widgets v0.25.0", "until": "", "what": "cut v0.25.0", "owner": "the human", "relayed_by": "", "set": "2026-10-06T15:00Z"}]'
+db '.issues += [{repo: "acme/widgets", number: 591, title: "pick the review level up front", body: "", state: "open", author: "alice", editor: null}]'
+if to_pick assigned "$(record_json roadmap assigned | jq -c --argjson s "$ASSIGNED" '.standing = $s')" 220; then
+    eq "22: pick lists the assigned issue and the release beside the roadmap's features" "acme/widgets#591:s1 release acme/widgets v0.25.0:s2" \
+        "$(cd "$WD" && koto context get "$S" coord/pick.json | jq -r '[.units[] | select(.assigned != null) | "\(.unit):\(.assigned)"] | join(" ")')"
+    eq "22: the assigned issue goes through the dispatch check" dispatch "$(at --with-data '{"choice":"dispatch","unit":"fix-591"}')"
+    dispatch22 "$(assigned_brief fix-591 "acme/widgets#591" work-on 591 --auto)"
+    eq "22: dispatch-worker.sh launches it at roadmap scope" 0 "$D22"
+    eq "22: its holding's Unit is the issue" "acme/widgets#591" "$(live_body 220 | jq -r '.holdings[] | select(.worker == "fix-591") | .unit')"
+    B22=$(cat "$T/work/.niwa/dispatch-briefs/fix-591.md" 2>/dev/null)
+    case "$B22" in *'addressed to `coord-test`, the address its record names'*) ok "22: the brief names the record's address" ;;
+        *) bad "22: the brief names the record's address" "$(printf '%s' "$B22" | grep -i 'report to the coordinator') $(cat "$T/d22.err")" ;; esac
+    case "$B22" in *"$S"*) bad "22: and never the koto session name" ;; *) ok "22: and never the koto session name" ;; esac
+    eq "22: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"fix-591"}')"
+    write_as_agent record-state.sh --work "acme/widgets#591" --kind holding --who fix-591 --next "report at its first checkpoint"
+    eq "22: then back to pick, the issue covered" "pick fix-591" \
+        "$(at) $(cd "$WD" && koto context get "$S" coord/pick.json | jq -r '.units[] | select(.unit == "acme/widgets#591") | .holding.worker')"
+    eq "22: the release goes through the dispatch check" dispatch "$(at --with-data '{"choice":"dispatch","unit":"release-0-25-0"}')"
+    dispatch22 "$(assigned_brief release-0-25-0 "release acme/widgets v0.25.0" release v0.25.0 "")"
+    eq "22: dispatch-worker.sh launches the release" 0 "$D22"
+    eq "22: on the message path, entry point release, no mode" "message release " \
+        "$(live_body 220 | jq -r '.holdings[] | select(.worker == "release-0-25-0") | "\(.return_path) \(.entry_point) \(.mode)"')"
+    grep -q 'Run `/shirabe:release v0.25.0` in acme/widgets' "$T/work/.niwa/dispatch-briefs/release-0-25-0.md" 2>/dev/null \
+        && ok "22: the brief runs /shirabe:release with the version" || bad "22: the brief runs /shirabe:release with the version" "$(cat "$T/d22.err")"
+    eq "22: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"release-0-25-0"}')"
+    write_as_agent record-state.sh --work "release acme/widgets v0.25.0" --kind holding --who release-0-25-0 --next "report the tag"
+    eq "22: then back to pick" pick "$(at)"
+else
+    bad "22: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
 
 # ---- 17. a confirmed merge clears the Pull request cell -----------------------

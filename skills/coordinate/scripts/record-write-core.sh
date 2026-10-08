@@ -168,7 +168,7 @@ core_write() {
             [ (.holdings[] | .repo, (.pull_request | pr_link_parts | .r)),
               ((.holds // [])[] | (.on | sub("#.*$"; "")),
                 (.until | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
-              ((.standing // [])[] | ((.on // "") | select(test("/")) | sub("#.*$"; "")),
+              ((.standing // [])[] | ((.on // "") | select(test("/")) | if startswith("release ") then split(" ")[1] else sub("#.*$"; "") end),
                 ((.until // "") | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
               ((.side_effects[] | (.target // "")) | tostring
                 | ( links,
