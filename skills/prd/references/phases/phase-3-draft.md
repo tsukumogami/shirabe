@@ -57,7 +57,8 @@ frontmatter:
    `shirabe validate` rejects it as `R11`.
 3. **Does the path resolve in this repo?** For a same-repo path, run
    `git ls-files <path>`. If non-empty, the file is tracked rather than a
-   local scratch copy -- continue. A cross-repo `owner/repo:path` value goes
+   local scratch copy -- continue. If empty, OMIT the field and ask the
+   author for the committed path. A cross-repo `owner/repo:path` value goes
    straight to check 4.
 4. **Path is out-of-repo?** Detect this repo's visibility from CLAUDE.md
    (`## Repo Visibility:`). If public AND the canonical upstream lives in a
@@ -138,7 +139,8 @@ contribution section itself.
 
 Set frontmatter status to "Draft". If an upstream BRIEF path was detected AND
 passed validation in step 3.1, include `upstream: <path>` in frontmatter.
-Otherwise omit the field.
+Otherwise write no `upstream:` field; one already in the PRD's frontmatter
+stays as it is (step 3.1).
 
 ### 3.3 Present the Draft
 
