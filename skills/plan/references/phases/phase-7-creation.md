@@ -128,8 +128,8 @@ recorded in `docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-
   for the approval. File only when its `## Tracking Level:` header declares
   `issues` or `issues-and-milestone` at or above the level this PLAN files at
   (`issues-and-milestone` covers both; `issues` covers issues without a
-  milestone), and record a decision block in `wip/plan_<topic>_decisions.md`
-  naming the level, the header it came from, and the issues to be filed. With
+  milestone), and record a decision block in the run's decisions file (the
+  one the `--auto` flag creates) naming the level, the header it came from, and the issues to be filed. With
   no such header, file nothing: set the level to `none` and write the work
   items as outlines, as the interactive "Don't file" does.
 

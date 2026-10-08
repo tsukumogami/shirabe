@@ -312,7 +312,7 @@
       "id": 23,
       "name": "phase-7-upstream-issue-update-skipped-under-scope-sentinel",
       "prompt": "/plan docs/designs/DESIGN-scope-child.md",
-      "expected_output": "wip/scope_scope-child_state.md carries parent_orchestration.invoking_child: plan, so /plan runs as /scope's child. It still reaches its own verdict (the Phase 6 review) and makes its own status transition (step 7.5, Accepted to Planned), but at step 7.8 it asks no upstream-issue question and runs no gh issue edit, and it pushes nothing, opens no pull request, creates no branch and makes no cleanup commit: publishing belongs to /scope (shape 6, Parent-owned-publishing, in references/fixes/sub-agent-dispatch.md).",
+      "expected_output": "/scope's state file for the topic scope-child carries parent_orchestration.invoking_child: plan, so /plan runs as /scope's child. It still reaches its own verdict (the Phase 6 review) and makes its own status transition (step 7.5, Accepted to Planned), but at step 7.8 it asks no upstream-issue question and runs no gh issue edit, and it pushes nothing, opens no pull request, creates no branch and makes no cleanup commit: publishing belongs to /scope (shape 6, Parent-owned-publishing, in references/fixes/sub-agent-dispatch.md).",
       "files": [],
       "expectations": [
         "Transcript detects the parent_orchestration sentinel naming plan",
