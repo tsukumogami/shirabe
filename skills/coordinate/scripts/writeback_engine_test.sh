@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# writeback_engine_test.sh -- a landed feature's Status and Outcome written
-# back to the roadmap, the shipped coordinate.md driven through real koto
-# against the testdata/gh stand-in
+# writeback_engine_test.sh -- a landed feature's Status and Delivered line
+# written back to the roadmap, the shipped coordinate.md driven through real
+# koto against the testdata/gh stand-in
 # (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 4;
 # tsukumogami/shirabe#497).
 #
 # Proves, one line per case:
 #   1. a run whose Feature 1 merged (its holding's merge confirmed, waiting
 #      for teardown) sends `landed`: roadmap_status, where roadmap-status.sh
-#      opens the roadmap pull request with Feature 1's Status, Outcome and
+#      opens the roadmap pull request with Feature 1's Status, Delivered and
 #      Needs changed and nothing else, then record confirms its row and the
 #      run reaches pick;
 #   2. that pick doesn't offer Feature 1: it is landed, no brief renders for
@@ -90,8 +90,8 @@ PRN=$(jq -r '[.prs[] | select(.title == "docs(roadmap): record Feature 1, first,
 [ -n "$PRN" ] && ok "  ... titled for the feature" || bad "  ... titled for the feature" "$(jq -c '.prs' "$GH_DB")"
 BR=$(jq -r --argjson n "${PRN:-0}" '.prs[] | select(.number == $n) | .headRefName' "$GH_DB")
 diff <(roadmap_text "In progress") <(jq -r --arg b "$BR" '.files["acme/widgets"][$b + ":docs/roadmaps/ROADMAP-writeback.md"]' "$GH_DB") > "$T/d"
-eq "  ... changing Feature 1's Needs, Status and Outcome lines and nothing else" \
-    "$(printf '%s\n' '10d9' '< **Needs:** `needs-design` -- the shape' '12c11,12' '< **Status:** In progress' '---' '> **Status:** Done' '> **Outcome:** acme/widgets#12, the first')" "$(cat "$T/d")"
+eq "  ... changing Feature 1's Needs and Status lines, adding its Delivered line, and nothing else" \
+    "$(printf '%s\n' '10d9' '< **Needs:** `needs-design` -- the shape' '12c11,12' '< **Status:** In progress' '---' '> **Status:** Done' '> **Delivered:** acme/widgets#12, the first')" "$(cat "$T/d")"
 eq "record confirms the row and the run reaches pick" pick "$(at --with-data '{"status":"opened","unit":"Feature 1"}')"
 
 echo "== 2. pick doesn't offer the landed feature =="

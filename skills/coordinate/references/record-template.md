@@ -386,9 +386,11 @@ roadmap-status.sh --session <session> --unit "<tag>" --outcome "<what landed>"
 ```
 
 It opens a pull request on the roadmap's repository that sets the feature's
-Status to Done, writes its Outcome, removes its Needs line and regenerates
-the generated sections, changing nothing else, and adds a Side effects in
-flight row:
+Status to Done, writes `--outcome`'s text on a `**Delivered:**` line after it
+(replacing an earlier one), removes its Needs line and regenerates the
+generated sections, changing nothing else: the feature's `**Outcome:**` line
+is the promise and is never touched. In a public roadmap the text names only
+public pull requests. It adds a Side effects in flight row:
 
 ```markdown
 | roadmap-status | <tag> [#<n>](<url>) |  | <YYYY-MM-DDTHH:MMZ> | the roadmap on <default> reads <tag> Done |
@@ -396,7 +398,8 @@ flight row:
 
 While the row stands, pick lists the feature as `landed` and no brief renders
 for it; it is not Done for its dependents until the roadmap says so. Only one
-is pending at a time. Once the roadmap on the default branch reads Done,
+is pending at a time. Once the roadmap on the default branch reads Done
+(annotated or not, as in `Done -- shipped in #12`),
 `roadmap-status.sh --confirm "<tag>"` removes the row; a pull request closed
 unmerged is cleared with `--drop "<tag>" --reason "<why>"`. The skill never
 merges the roadmap pull request.

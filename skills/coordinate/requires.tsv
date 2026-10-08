@@ -43,7 +43,7 @@ git	-	-	always
 # title and body before it builds the squash message.
 shirabe	validate	--pr-body,--pr-title,--format	always
 # roadmap-status.sh regenerates a roadmap's generated sections after it
-# writes a landed feature's Status and Outcome.
+# writes a landed feature's Status and Delivered line.
 shirabe	roadmap populate	-	always
 # The reconcile pass. reconcile-pass.sh clears and writes its reconcile/ keys,
 # and reconcile-check.sh stops a read's children at its deadline with pkill.
