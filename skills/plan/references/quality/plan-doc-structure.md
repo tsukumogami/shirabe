@@ -84,7 +84,9 @@ PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle,
 identical across execution modes. Only the Draft -> Active gate
 differs, and it keys on **whether the transition will create GitHub
 issues** -- the resolved Tracking Level -- not on `execution_mode`.
-An activation that files issues waits for human approval; one that
+An activation that files issues waits for approval -- the author's, or
+under `--auto` a CLAUDE.md `## Tracking Level:` header that covers the
+filing, without which the run files nothing and writes outlines; one that
 files none auto-transitions when /plan finishes authoring.
 
 | Status | Meaning | Trigger |
@@ -154,9 +156,11 @@ decomposition it needs without creating GitHub artifacts. The PLAN
 doc is authored at Active when it files nothing, which is single-pr's
 default tracking level `none`.
 
-In multi-pr mode, Phase 4 agents write full issue body files. Phase 7
-creates GitHub issues and milestones, populates the Implementation
-Issues table with links, and transitions the PLAN doc to Active.
+In multi-pr mode, Phase 4 agents write full issue body files. At a
+filing tracking level, Phase 7 creates GitHub issues and milestones
+behind the filing approval and populates the Implementation Issues
+table with links; at `none` it writes outlines. Either way the PLAN
+doc is Active.
 
 In coordinated mode, the work lands as several PRs, one per PR group,
 in one or more repositories, in a recorded merge order with a

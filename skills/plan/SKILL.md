@@ -60,19 +60,28 @@ PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle,
 identical across execution modes. Only the Draft -> Active gate
 differs, and it keys on **whether the transition will create GitHub
 issues** -- the resolved Tracking Level -- not on `execution_mode`.
-An activation that files issues requires human approval, because that
+An activation that files issues requires approval, because that
 is the moment remote artifacts appear; one that files none auto-fires
 when /plan finishes authoring. So a `multi-pr` plan whose tracking
 level is `none` auto-fires, and a `single-pr` plan whose level is
 `issues` waits for approval. A committed PLAN at `status: Draft` is a
 violation in either case.
 
+**Every path that files issues or a milestone asks first**, whatever the
+mode: interactively the author answers the filing question, and "don't
+file" writes the PLAN at tracking level `none` with outlines. **Under
+`--auto` nobody is asked, so /plan files only when the repository's
+CLAUDE.md declares `## Tracking Level: issues` or `issues-and-milestone`**
+covering what the PLAN would file (an `issues` header covers no milestone).
+Otherwise it writes the work items as outlines in the PLAN and files nothing,
+even where the mode's default level would have filed. This is
+`docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md`;
+Phase 7's "Filing approval" step carries the procedure.
+
 `coordinated` follows the same gate. An outline-shaped coordinated PLAN
 (tracking level `none`, coordinated's default) files nothing, so it is
 authored at `Active`. A coordinated PLAN at `issues` or
-`issues-and-milestone` files issues, and it does so only behind an explicit
-filing approval: asked interactively, or resolved by
-`${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` under `--auto`.
+`issues-and-milestone` files issues only behind that filing approval.
 
 ## Decomposition Strategies
 
@@ -382,8 +391,11 @@ What Phases 4 and 7 produce depends on the execution mode:
 - **single-pr**: Phase 4 agents produce structured outlines (not full issue bodies).
   Phase 7 writes them into the PLAN doc's Issue Outlines section. No GitHub issues or
   milestone created. The PLAN is authored at Active.
-- **multi-pr**: Phase 4 agents produce full issue body files. Phase 7 creates GitHub
-  milestone and issues, populates Implementation Issues table. PLAN status set to Active.
+- **multi-pr**: Phase 4 agents produce full issue body files. At a filing tracking
+  level, Phase 7 creates the GitHub issues (and milestone) behind the filing approval
+  and populates the Implementation Issues table; at `none`, including an `--auto`
+  run whose CLAUDE.md declares no filing level, it writes outlines and files
+  nothing. PLAN status set to Active.
 - **coordinated**: at tracking level `none` (its default) Phase 4 agents produce
   structured outlines and Phase 7 writes them, each with `**Repo**:` and
   `**Group**:`, into Issue Outlines with nothing filed. At `issues` or
@@ -422,8 +434,9 @@ scope from Context Resolution throughout.
 7. **Creation**: Create PLAN doc and optional GitHub artifacts
    - Read: `references/phases/phase-7-creation.md`
    - Artifact: `docs/plans/PLAN-<topic>.md`
-   - multi-pr: GitHub milestone + issues
-   - single-pr: PLAN doc with Issue Outlines, no GitHub artifacts
+   - multi-pr: GitHub milestone + issues behind the filing approval; outlines at `none`
+   - single-pr: PLAN doc with Issue Outlines, no GitHub artifacts unless a stated
+     filing level is approved
    - coordinated: PLAN doc with Repo/Group-tagged outlines at `none`; issues with
      Repo/Group rows, behind a filing approval, only at `issues` levels
 
@@ -438,14 +451,17 @@ Final artifacts depend on execution mode:
 
 **multi-pr mode (design/prd/topic input):**
 - `docs/plans/PLAN-<topic>.md` with status Active
-- GitHub milestone (1:1 with the plan)
-- GitHub issues with complexity labels, acceptance criteria, and milestone assignment
+- At a filing level, after the filing approval: a GitHub milestone (1:1 with the
+  plan, at `issues-and-milestone`) and GitHub issues with complexity labels,
+  acceptance criteria, and milestone assignment
+- At `none`: Issue Outlines instead, and nothing filed
 - Source design doc status updated to "Planned"
 
 **single-pr mode:**
 - `docs/plans/PLAN-<topic>.md` with status Active
 - Issue Outlines section populated with structured outlines (goal, AC, dependencies)
-- No GitHub issues or milestone created
+- No GitHub issues or milestone created, unless a stated `issues` or
+  `issues-and-milestone` level is approved at the filing approval
 - Source design doc status updated to "Planned"
 - Not available for roadmap input (roadmap mode is always multi-pr)
 
@@ -460,7 +476,7 @@ Final artifacts depend on execution mode:
 **coordinated mode, tracking level `issues` or `issues-and-milestone`:**
 - `docs/plans/PLAN-<topic>.md` with status Active and the resolved `tracking_level`
 - GitHub issues (and, at `issues-and-milestone`, a milestone), filed only after
-  the explicit filing approval
+  the filing approval
 - An Implementation Issues table with a `_Repo: ... | Group: ..._` row under each
   issue and any `_Gate:` rows
 - Source design doc status updated to "Planned"

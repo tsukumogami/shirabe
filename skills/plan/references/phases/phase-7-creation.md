@@ -61,9 +61,15 @@ flag > CLAUDE.md `## Tracking Level: none|issues|issues-and-milestone` > default
 
 Where a level is stated it applies regardless of `execution_mode`. Where none is
 stated, the default is derived from the mode -- `issues-and-milestone` for
-`multi-pr`, `none` for `single-pr` and for `coordinated` -- which for single-pr
-and multi-pr is the behavior every repo has today. An unrecognized value falls
-through to that default rather than being used.
+`multi-pr`, `none` for `single-pr` and for `coordinated`. An unrecognized value
+falls through to that default rather than being used.
+
+**Under `--auto` the stack ends at CLAUDE.md.** An unattended run files only at
+a level the repository's `## Tracking Level:` header declares, so with no
+`issues` or `issues-and-milestone` header the level is `none`, whatever the mode
+default would have been: a `multi-pr` PLAN under `--auto` in a repository that
+declares nothing is written with outlines and files nothing. See "Filing
+approval" below.
 
 `coordinated` follows the same stack, with `none` as its default, and step 3.6's
 step 5a has already resolved it into the decomposition artifact's
@@ -89,9 +95,41 @@ The resolved level, not the mode, decides what gets created:
 
 Every combination of `{single-pr, multi-pr, coordinated}` and the three levels
 is reachable. A `single-pr` PLAN with `issues` files them; a `multi-pr` PLAN with
-`none` files nothing; a `coordinated` PLAN files nothing at its default `none`
-and files issues, behind an explicit approval, only at `issues` or
-`issues-and-milestone`.
+`none` files nothing; a `coordinated` PLAN files nothing at its default `none`.
+Whatever the mode, a PLAN files only behind the filing approval below.
+
+### Filing approval (every path that files)
+
+Filing creates remote artifacts, so every path that files issues or a milestone
+runs this step first, **before the first `gh issue create` or milestone call**:
+the multi-pr branch's 7.1, a single-pr PLAN at a stated `issues` or
+`issues-and-milestone` level (which runs that same 7.1), and the coordinated
+branch's 7.C2. A PLAN at `none` files nothing and skips it. The rule is
+recorded in `docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md`.
+
+- **Interactive:** ask with AskUserQuestion, naming the number of issues, the
+  repositories they will be filed in, and whether a milestone will be created:
+
+  ```
+  The tracking level for this PLAN is <issues|issues-and-milestone>, so Phase 7
+  will file <N> GitHub issues in <owner/repo>[, ...]<and create the milestone
+  "<Milestone Name>">.
+
+  - File them now (Recommended)
+  - Don't file: write the PLAN at tracking level none, with outlines instead
+  ```
+
+  On "Don't file", set the tracking level to `none` and write the PLAN in its
+  outline form: the multi-pr branch's 7.2 at `none`, the single-pr branch's
+  7.1, or 7.C3's outline-shaped branch.
+- **`--auto`:** nobody can be asked, so the repository's CLAUDE.md stands in
+  for the approval. File only when its `## Tracking Level:` header declares
+  `issues` or `issues-and-milestone` at or above the level this PLAN files at
+  (`issues-and-milestone` covers both; `issues` covers issues without a
+  milestone), and record a decision block in `wip/plan_<topic>_decisions.md`
+  naming the level, the header it came from, and the issues to be filed. With
+  no such header, file nothing: set the level to `none` and write the work
+  items as outlines, as the interactive "Don't file" does.
 
 ---
 
@@ -100,7 +138,8 @@ and files issues, behind an explicit approval, only at `issues` or
 Steps 7.1 through 7.4 apply when `execution_mode: multi-pr`.
 
 **Gated on the resolved tracking level, not on the mode.** Run 7.1 only when the
-level is `issues` or `issues-and-milestone`; under `none`, skip to 7.2 and write
+level is `issues` or `issues-and-milestone`, and only after the filing approval
+above; under `none`, skip to 7.2 and write
 the PLAN with its work items in an `## Issue Outlines` section, exactly as the
 single-pr branch does. Under `issues`, create the issues without a milestone --
 pass no `--milestone` flag to the batch script.
@@ -287,7 +326,8 @@ Steps 7.1 through 7.2 apply when `execution_mode: single-pr`.
 **Gated on the resolved tracking level, not on the mode.** Under the default
 (`none` for single-pr) no GitHub milestone or issues are created, which is
 today's behavior. Under a stated `issues` or `issues-and-milestone`, run the
-multi-pr branch's 7.1 to create them, then continue here.
+filing approval above and, when it approves, the multi-pr branch's 7.1 to
+create them, then continue here.
 
 ### 7.1 Write PLAN Artifact
 
@@ -296,9 +336,8 @@ Create `docs/plans/PLAN-<topic>.md` with the following structure.
 PLANs whose activation creates no GitHub artifacts are authored directly at
 `status: Active`: the Draft -> Active transition auto-fires as authoring
 completes under the unified PLAN lifecycle. An activation that **will** create
-GitHub issues requires human approval first, whatever the `execution_mode` --
-the gate tracks the remote artifacts, not the mode. See the approval-gate rule in
-`skills/plan/SKILL.md`.
+GitHub issues requires the filing approval above first, whatever the
+`execution_mode` -- the gate tracks the remote artifacts, not the mode.
 A committed single-pr PLAN that lands on a branch at `status: Draft`
 is a violation — the chain-aware `--lifecycle` check fails on it.
 
@@ -357,34 +396,11 @@ coordination PR -- `/execute` does that when it runs the PLAN.
   items live only in the PLAN's Issue Outlines.
 - **`issues` or `issues-and-milestone`:** run 7.C1, then 7.C2, then 7.C3.
 
-The multi-pr and single-pr branches above are unchanged; the approval step in
-7.C1 exists only on this coordinated filing path.
-
 ### 7.C1 Filing Approval (tracking level `issues` or `issues-and-milestone` only)
 
-Filing creates remote artifacts, so it runs only after an explicit approval,
-**before the first `gh issue create`**:
-
-- **Interactive:** ask with AskUserQuestion, naming the number of issues, the
-  repositories they will be filed in, and whether a milestone will be created:
-
-  ```
-  The tracking level for this coordinated PLAN is <issues|issues-and-milestone>,
-  so Phase 7 will file <N> GitHub issues in <owner/repo>[, ...]<and create the
-  milestone "<Milestone Name>">.
-
-  - File them now (Recommended)
-  - Don't file: write the PLAN at tracking level none, with outlines instead
-  ```
-
-  On "Don't file", set the tracking level to `none` and continue at 7.C3's
-  outline-shaped branch.
-- **`--auto`:** do not prompt. Resolve the approval per
-  `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` -- a stated tracking
-  level in `CLAUDE.md` is the repository's standing instruction to file, so the
-  resolution is to file -- and record a decision block in
-  `wip/plan_<topic>_decisions.md` naming the level, where it came from, and the
-  issues to be filed. Then continue to 7.C2.
+Run the filing approval under "Resolve the Tracking Level first". On approval,
+continue to 7.C2; otherwise the level is `none`, so continue at 7.C3's
+outline-shaped branch.
 
 ### 7.C2 Create GitHub Issues (tracking level `issues` or `issues-and-milestone` only)
 
@@ -662,6 +678,9 @@ Before completing:
 - [ ] PLAN artifact created at `docs/plans/PLAN-<topic>.md`
 - [ ] Frontmatter includes all required fields (`schema`, `status`, `execution_mode`, `milestone`, `issue_count`)
 - [ ] multi-pr: all issues created, milestone assigned, status is Active
+- [ ] any PLAN that filed: the filing approval ran before the first
+  `gh issue create`, and under `--auto` the level came from a CLAUDE.md
+  `## Tracking Level:` header that covers it
 - [ ] coordinated: `tracking_level` written; at `none` no `gh issue` or milestone
   call ran and every outline carries `**Repo**:` and `**Group**:`; at `issues`
   levels the filing was approved before the first `gh issue create`

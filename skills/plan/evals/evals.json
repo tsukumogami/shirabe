@@ -630,6 +630,24 @@
         "Run 2 (coordinated) advises /execute docs/plans/PLAN-release-pipeline.md",
         "Run 3 (multi-pr) advises /work-on, not /execute"
       ]
+    },
+    {
+      "id": 43,
+      "name": "auto-multi-pr-no-tracking-header-files-nothing",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto --intent=stop`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), whether it has a `## Issue Outlines` section and a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, any milestone call in the log, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`.",
+      "expected_output": "An unattended run whose CLAUDE.md declares no `## Tracking Level:` header files nothing, even though multi-pr's default level would file issues and a milestone: the PLAN is multi-pr at tracking_level: none and status Active, its work items are outlines under ## Issue Outlines with no Implementation Issues table, the gh shim logs no issue create and no milestone call, and shirabe validate exits 0.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "The PLAN's frontmatter has execution_mode: multi-pr, tracking_level: none and status: Active",
+        "The PLAN carries its work items under ## Issue Outlines and has no ## Implementation Issues table",
+        "The shim's call log contains zero `issue create` lines and no milestone call",
+        "The transcript says no issues are filed because CLAUDE.md declares no tracking level (not because of an approval question to the user)",
+        "shirabe validate on the written PLAN exits 0"
+      ]
     }
   ]
 }

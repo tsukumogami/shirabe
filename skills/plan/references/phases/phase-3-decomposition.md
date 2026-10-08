@@ -623,7 +623,8 @@ split, also the split_mode_source step 5a recorded>
 
 This choice is about how the code lands, not about what gets tracked on
 GitHub. The resolved tracking level decides whether Phase 7 files issues and
-a milestone, and it is a separate question asked separately.
+a milestone, and Phase 7 asks that separately, at its filing approval, before
+anything is filed.
 
 Use <recommended mode>, or override?
 ```
