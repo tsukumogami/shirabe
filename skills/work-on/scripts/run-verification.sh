@@ -51,10 +51,13 @@
 # (timeout_secs; TERM to the group, then KILL), and a watchdog that counts the
 # group's processes and kills the group when the count passes max_procs. Where
 # `systemd-run --user --scope` works, the command also runs in a scope with
-# TasksMax at twice max_procs: a hard ceiling for a storm between two watchdog
-# polls, set high enough that the watchdog still sees the count pass max_procs
-# and reports a runaway, rather than the command failing a fork and reading as
-# an ordinary failure. The group is killed after every command, so nothing a
+# TasksMax at twice max_procs plus 64: a hard ceiling for a storm between two
+# watchdog polls, set well above max_procs on purpose. At the ceiling a fork
+# fails, and a shell whose fork fails exits, often before the next poll; the
+# watchdog then never sees the count and the runaway reads as an ordinary
+# failure (exit 1). With the ceiling well above the bound, the watchdog sees
+# the count pass max_procs first. (TasksMax also counts threads, which the
+# watchdog doesn't, hence the fixed headroom.) The group is killed after every command, so nothing a
 # command left running outlives it. A descendant that moves to its own session
 # or process group escapes both; the schema reference states that residual.
 #
@@ -295,7 +298,7 @@ supervise() {
         timed_out=false; runaway=false
         set -m
         if [ "$scope" -eq 1 ]; then
-            systemd-run --user --scope --quiet -p "TasksMax=$((maxp * 2))" -- "${argv[@]}" </dev/null >"$log" 2>&1 &
+            systemd-run --user --scope --quiet -p "TasksMax=$((maxp * 2 + 64))" -- "${argv[@]}" </dev/null >"$log" 2>&1 &
         else
             "${argv[@]}" </dev/null >"$log" 2>&1 &
         fi

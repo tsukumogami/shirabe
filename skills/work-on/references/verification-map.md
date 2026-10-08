@@ -104,7 +104,7 @@ supervisor never calls koto. It runs each selected command in turn, as argv from
 repository root with standard input from `/dev/null`, in its own process group with its
 own deadline. A watchdog counts the processes in that group and kills the group when the
 count passes `max_procs`; where `systemd-run --user --scope` works, the command also runs
-in a scope with `TasksMax` at twice `max_procs`, a ceiling the watchdog kills below. The group is killed after every command,
+in a scope with `TasksMax` at twice `max_procs` plus 64, a ceiling the watchdog kills below. The group is killed after every command,
 so nothing a command left behind outlives it.
 
 Logs and the result live under
@@ -134,7 +134,7 @@ for the current head. A settled result is also recorded in koto context as
 | 4 | a selected command is `unattended: false`; nothing was started | `verification/needs-person` |
 | 4 | a command ran past its `timeout_secs` and was killed | `verification/timed-out` |
 | 4 | a command's process group grew past `max_procs` and was killed | `verification/runaway` |
-| 4 | a command's `run[0]` is not an executable program | `verification/not-started` |
+| 4 | a command's `run[0]` is not an executable program, or the supervisor stopped before every command ran | `verification/not-started` |
 | 4 | tracked files had uncommitted changes | `verification/dirty-tree` |
 | 2 | the result could not be read | none; the gate holds |
 
