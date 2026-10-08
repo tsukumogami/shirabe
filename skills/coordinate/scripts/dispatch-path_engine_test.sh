@@ -130,7 +130,7 @@ mkdir -p "$W/.niwa"
 SRC="$HERE/../koto-templates/coordinate.md"
 UNDER="dispatch wait leg_pick wait_leg leg_spent take_report teardown teardown_inventory promote destroy"
 # Every state an UNDER state routes to that isn't under test, as a terminal.
-ENDS="record failure report_facts surface pick_facts quiet_check decision_apply merged_facts rotation_close done_stopped
+ENDS="record failure report_facts surface pick_facts quiet_check decision_apply merged_facts rotation_close done_stopped roadmap_status
 decision_answer decision_evidence decision_raise"
 # block <state>: the state's YAML block, from its `  <state>:` line to the next
 # state's.
@@ -156,6 +156,9 @@ variables:
     required: true
   DISCIPLINE:
     description: discipline
+    default: ""
+  ROADMAP:
+    description: roadmap (wait's landed edge tests it)
     default: ""
 states:
   entry:
