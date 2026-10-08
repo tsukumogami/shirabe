@@ -117,7 +117,7 @@ echo "== 3. a pause on all, and a resume of the whole =="
 state --standing pause --on all --until lifted --what "all lanes, until a resume" --owner "the human" --relayed-by "the process owner"
 PA=$(sid pause all)
 eq "pick sees the whole coordinator paused" "pick $PA" "$(at --with-data '{"event":"resume"}') $(pick_json | jq -r '.paused_all')"
-eq "every unit is held by it, the lane with its own pause included" "$PA $PA $PA" "$(paused_of "Feature 1") $(paused_of "Feature 2") $(paused_of "Feature 3")"
+eq "every unit is held, the lane with a pause of its own by that earlier one" "$PA $P2 $PA" "$(paused_of "Feature 1") $(paused_of "Feature 2") $(paused_of "Feature 3")"
 eq "the first lane, free a moment ago, is refused" wait "$(send lane-a)"
 eq "  ... by the pause on all" "paused" "$(check_json | jq -r .verdict)"
 state --end "$PA" --by "the human"; eq "the whole is resumed" 0 $?
