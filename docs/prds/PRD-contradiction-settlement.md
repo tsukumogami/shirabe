@@ -226,7 +226,8 @@ disagreements today, so that work has nothing to depend on.
   names the recommendation; it does not name a surviving file.
 - **R10. Not settled in the scoping pull request.** The scoping pull request
   settles no `policy` item. The PLAN lists every `policy` identifier as an
-  open decision, and every work item that edits a `policy` item's statements
+  open decision (as planned; every one has since been decided and recorded
+  under `docs/decisions/`), and every work item that edits a `policy` item's statements
   is blocked on that item's recorded decision.
 
 ### Dead prose
@@ -295,6 +296,12 @@ disagreements today, so that work has nothing to depend on.
   instance name, or a job identifier.
 
 ## Acceptance Criteria
+
+These criteria, like the requirements above, describe the work as planned
+before execution, when every `policy` item was still an open decision; they
+are kept as written and left unticked. What was delivered, and the pull
+request that settled each inventory item, is recorded in the DESIGN
+(`docs/designs/current/DESIGN-contradiction-settlement.md`).
 
 Scoping pull request:
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Regenerate every figure in DESIGN-contradiction-settlement.md.
 
-Run from the repository root:
+Run from any directory inside the repository; the script changes to the
+repository root itself:
 
     python3 docs/designs/contradiction-settlement/measure.py
 
@@ -10,8 +11,11 @@ file as it is at the inventory commit (git show <commit>:<path>), checks each
 location and excerpt, recomputes byte counts, totals and shares, rebuilds the
 DESIGN and compares it with the committed file. Prints the summary figures.
 Exits 1 when a check fails or the rebuild differs; pass --write to overwrite
-the DESIGN with the rebuild instead of comparing. Standard library only. Needs the repository's full history, since it reads
-files with `git show` at the inventory commit; a shallow clone fails there.
+the DESIGN with the rebuild instead of comparing. Standard library only.
+
+The inventory commit is read with `git show`, so it must stay reachable from
+the repository's history: a shallow clone, or a history rewrite that drops
+it, makes the script stop with a message naming the commit.
 """
 import json
 import os
@@ -40,7 +44,13 @@ _cache = {}
 def text(path):
     if path not in _cache:
         out = subprocess.run(["git", "show", "%s:%s" % (COMMIT, path)],
-                             capture_output=True, check=True)
+                             capture_output=True)
+        if out.returncode != 0:
+            if subprocess.run(["git", "cat-file", "-e", COMMIT + "^{commit}"],
+                              capture_output=True).returncode != 0:
+                raise SystemExit("inventory commit %s is not reachable; fetch the full history "
+                                 "(git fetch --unshallow) and run again" % COMMIT)
+            raise SystemExit("cannot read %s at %s: %s" % (path, COMMIT, out.stderr.decode("utf-8").strip()))
         _cache[path] = out.stdout.decode("utf-8")
     return _cache[path]
 
@@ -110,6 +120,10 @@ def link(loc):
     return code("%s#L%d" % (path, a) if a == b else "%s#L%d-L%d" % (path, a, b))
 
 
+def prs(it):
+    return ", ".join("#%d" % n for n in it["settled_by"])
+
+
 def pct(x):
     return "%.1f%%" % x
 
@@ -166,6 +180,10 @@ for it in DP:
 missing_r2 = [k for k in range(1, 20) if not any(c.get("r2") == k for c in C)]
 if missing_r2:
     problems.append("PRD R2 items without an identifier: %r" % missing_r2)
+unsettled = [i["id"] for i in C + DP
+             if not i.get("settled_by") or not all(isinstance(n, int) for n in i["settled_by"])]
+if unsettled:
+    problems.append("items without the pull requests that settled them: %r" % unsettled)
 ids = [c["id"] for c in C] + [d["id"] for d in DP]
 if len(ids) != len(set(ids)):
     problems.append("duplicate identifiers")
@@ -215,6 +233,7 @@ def render_item(c, w):
     meta = "%s. Class: **%s**. Profiles: %s." % (c["title"], c["class"], ", ".join("`%s`" % p for p in c["profiles"]))
     if c.get("r2"):
         meta += " PRD R2 item %d." % c["r2"]
+    meta += " Settled by %s." % prs(c)
     w(meta)
     w("")
     w("Statements:")
@@ -293,7 +312,7 @@ def dead(w):
             w("##### `%s`" % it["id"])
             w("")
             ib = item_bytes(it)
-            head = "Profiles: %s. Size: %d bytes (about %d tokens)." % (", ".join("`%s`" % p for p in it["profiles"]), ib, ib // 4)
+            head = "Profiles: %s. Size: %d bytes (about %d tokens). Settled by %s." % (", ".join("`%s`" % p for p in it["profiles"]), ib, ib // 4, prs(it))
             sv = it.get("survivor")
             if sv and sv != "none":
                 head += " Surviving statement: %s." % (link(sv) if is_loc(sv) else sv)
