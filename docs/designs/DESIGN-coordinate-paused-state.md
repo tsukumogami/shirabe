@@ -68,8 +68,8 @@ on 2026-09-29 and 2026-09-30, each sent by message to every live session and
 each resumed the same way, once with one panel resumed while the rest of its
 lane stayed paused. Since then the human paused all lanes twice more. On
 2026-10-01 at 15:37 EDT: "We're nearing our usage limit for the week. I need you
-to pause all lanes, and schedule a resume for 10/07 at 10am", amended three
-minutes later to let each session reach a safe stop first. The process owner
+to pause all lanes, and schedule a resume for 10/07 at 10am", amended at 15:40
+to let each session reach a safe stop first. The process owner
 relayed it to two coordinators and five workers; one worker had no socket and
 got it only through its coordinator; the resume was a schedule in the process
 owner's session, with the note that if the session were gone the human would
@@ -107,7 +107,7 @@ owner's session together (the record, 2026-09-30, the usage limit).
 
 **A waiting coordinator wakes for nothing.** The roadmap's amendment of
 2026-10-06 records the performance rotation's coordinator counting its own
-wakes during one unit (tsukumogami/shirabe#591): twelve, of which seven were
+wakes during one unit, the work on tsukumogami/shirabe#591: twelve, of which seven were
 expiries of a leg watch that caps at 30 minutes and notifies whether or not
 anything happened, re-armed each time, delivering no event; two goal check-ins;
 one quiet check; and two background reconcile waits that came back still
@@ -412,8 +412,8 @@ with one narrowing:
   person asks for one. The leg watch's bound does notify on expiry, which the
   rule's wording would forbid; it is kept because a watch with no deadline is
   a hang koto refuses, and at two hours it wakes a session with open legs and
-  nothing arriving at most once per two hours, against the four an hour the
-  measured 30-minute watch took, and each such wake does the quiet check
+  nothing arriving at most once per two hours, where the measured 30-minute
+  watch could wake it four times, and each such wake does the quiet check
   that is due by then anyway.
 - **The quiet check** runs on the first wake after a worker has been silent
   for the skill's 30 minutes, as it does today; no timer is armed to make that
@@ -516,7 +516,7 @@ What the roadmap's block asks for that this declines:
   the coordinator does meanwhile.
 - **A wait on a pull request becoming ready** for a worker that reports by
   message. Its report is the wake already (Decision 4).
-- **Caps and the parked-worker count.** The roadmap's Feature 9 evidence calls
+- **Caps and the parked-worker count.** The roadmap's Feature 9 evidence paragraph calls
   a cap the loop's posture too, and names the ruling that parked workers count,
   which the cap can't express (tsukumogami/shirabe#501). A cap is already a Run
   row a person sets (Feature 7); counting parked workers is #501's, not a
