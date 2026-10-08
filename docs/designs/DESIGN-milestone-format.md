@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   A roadmap item has no field for the outcome it delivers or the check a
   non-author can run, so nothing in shirabe can require one. The roadmap's
@@ -34,7 +34,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
@@ -471,8 +471,8 @@ Deliverables:
 
 ### Phase 3: Populate
 
-Description from Outcome on v2, Evidence in issue bodies, prefixed-tag
-edges on both versions, with CLI tests.
+Description and issue body from Outcome on v2, prefixed-tag edges on
+both versions, with CLI tests.
 
 Deliverables:
 - `crates/shirabe/src/populate.rs`, `crates/shirabe/tests/populate_cli.rs`
