@@ -182,7 +182,7 @@ A feature heading uses one of two forms:
   alphabetic tag immediately followed by the feature number, no space
   between them (e.g. `### ED1:`, `### SE2:`, `### SR10:`, `### NW1:`),
   optionally followed by one lowercase letter for an item split out of
-  another (`### SR10a:`).
+  another (`### AB10a:`).
   This variant fits product-spanning roadmaps derived from a strategy,
   where a per-direction prefix keeps features grouped by their strategic
   building block.
@@ -190,7 +190,7 @@ A feature heading uses one of two forms:
 Both forms are equivalent to the tooling: features are numbered
 positionally in source order regardless of the tag, and the generated
 tables and graph name them `F<n>` by that position. A Dependencies line
-may name another feature by its tag (`ED1`, `SR10a`), by `Feature <N>`, or
+may name another feature by its tag (`ED1`, `AB10a`), by `Feature <N>`, or
 by `F<N>`: `Feature <N>` and `F<N>` mean the feature tagged `Feature <N>`
 when there is one and the Nth feature otherwise. That is what the tools
 read on either schema; on a `roadmap/v2` roadmap FC21 is stricter and takes
@@ -229,10 +229,10 @@ layout.
 **Status:** Not started
 ```
 
-The heading is `### <tag>: <title>` with a non-empty title. The tag is
-`Feature <N>` or a prefix tag, letters followed by a number and,
-optionally, one lowercase letter (`AB1`, `AB10a`), as in [Heading
-forms](#heading-forms). A field line starts at
+The heading is `### <tag>: <title>`, with a space after the colon and a
+non-empty title. The tag is `Feature <N>` or a prefix tag, letters
+followed by a number and, optionally, one lowercase letter (`AB1`,
+`AB10a`), as in [Heading forms](#heading-forms). A field line starts at
 column 0 with `**<Name>:**`, and its value runs to the first blank line,
 the next field line or the next heading. Write the fields in this order:
 
@@ -334,7 +334,7 @@ Loader' has no Evidence`). It reports:
 - a Status other than `Not started`, `In progress`, `Done` or `Dropped`;
 - a tag that repeats an earlier milestone's;
 - a `###` heading in the Features section that isn't a milestone heading,
-  including one with no title.
+  including one with no title or no space after the colon (`### AB2:Lister`).
 
 FC21 checks that the fields are there, not what they say: whether an
 Outcome names mechanism or an Evidence clause is something only the author

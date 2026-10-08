@@ -16,7 +16,7 @@
 # vars and run-facts); the override flags exist for tests only.
 #
 # --unit opens the roadmap pull request for the feature whose heading tag is
-# TAG (`Feature 7`, `ED1`, `TK10b`), the coordinator having judged that its last pull
+# TAG (`Feature 7`, `ED1`, `AB10b`), the coordinator having judged that its last pull
 # request landed: it reads the roadmap at the default branch's head, refuses a
 # TAG that isn't a feature there or already reads Done, Shipped or Dropped
 # (annotated or not, as lib_roadmap_features reads them), refuses one
@@ -109,7 +109,7 @@ lib_roadmap_path
 lib_run_ref || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 case "$MODE" in
     list) ;;
-    *) [[ $TAG =~ ^(Feature\ [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$ ]] || { echo "$PROG: $TAG is not a feature's heading tag (Feature 7, ED1, TK10b)" >&2; exit 64; } ;;
+    *) [[ $TAG =~ ^(Feature\ [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$ ]] || { echo "$PROG: $TAG is not a feature's heading tag (Feature 7, ED1, AB10b)" >&2; exit 64; } ;;
 esac
 case "$OUTCOME$REASON" in *$'\n'*|*$'\r'*) echo "$PROG: --outcome and --reason are one line" >&2; exit 64 ;; esac
 

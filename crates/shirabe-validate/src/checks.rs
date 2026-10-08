@@ -959,9 +959,10 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
     };
     let mut errs = Vec::new();
 
-    for (line, text) in non_milestone_headings(doc) {
+    let bad_headings = non_milestone_headings(doc);
+    for (line, text) in &bad_headings {
         errs.push(finding(
-            line,
+            *line,
             format!(
                 "heading '{text}' is not a milestone heading; a milestone heading is '### <tag>: <title>' with a tag like 'Feature 3' or 'AB1' -- see skills/roadmap/references/roadmap-format.md"
             ),
@@ -970,9 +971,10 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
 
     let features = parse_features(doc);
     for f in &features {
-        // A heading with no title was reported above as not a milestone
-        // heading; its fields would only repeat that finding.
-        if f.label.is_empty() {
+        // A heading with no title, or with no space after its colon, was
+        // reported above as not a milestone heading; its fields would only
+        // repeat that finding.
+        if f.label.is_empty() || bad_headings.iter().any(|(line, _)| *line == f.heading_line) {
             continue;
         }
         let at = f.heading_line;

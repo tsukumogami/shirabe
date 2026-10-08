@@ -350,5 +350,5 @@ Commit: `chore(roadmap): clean up working artifacts`
 
 Final ROADMAP at `docs/roadmaps/ROADMAP-<topic>.md` with:
 - Status "Active" (after user approval)
-- All features with correct needs-* annotations and "Not Started" status
+- All features with correct needs-* annotations and `Not started` status
 - Working artifacts cleaned up (scope doc, research files removed)

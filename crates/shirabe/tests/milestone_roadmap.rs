@@ -206,6 +206,14 @@ fn cases() -> Vec<(&'static str, String, &'static str)> {
             format!("{v}### AB2:\n\n"),
             "heading '### AB2:' is not a milestone heading",
         ),
+        (
+            // Every field is there, but the coordinator's reader needs the
+            // space after the colon and would drop the item; the heading is
+            // the one finding.
+            "no-space-after-colon",
+            v.replace("### AB10a: Registry", "### AB10a:Registry"),
+            "heading '### AB10a:Registry' is not a milestone heading",
+        ),
     ]
 }
 

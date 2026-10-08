@@ -25,7 +25,7 @@
 //! first blank line, the next column-0 `**Name:**` line or the next heading.
 //!
 //! The heading also accepts the strategy-derived prefix form
-//! `### <PREFIX><N>: <label>` (e.g. `### ED1:`, `### SE2:`, `### TK10a:`),
+//! `### <PREFIX><N>: <label>` (e.g. `### ED1:`, `### SE2:`, `### AB10a:`),
 //! where `<PREFIX>` is a short alphabetic tag immediately followed by the
 //! feature number and, optionally, one lowercase letter. Both forms number
 //! features positionally, so a `Feature M` dependency edge still resolves
@@ -524,7 +524,7 @@ fn parse_feature_heading(line: &str) -> Option<(String, String)> {
     }
 
     // Prefix form: an alphabetic tag immediately followed by the number (and
-    // optionally one lowercase letter, as in `TK10a`), then `: <label>`.
+    // optionally one lowercase letter, as in `AB10a`), then `: <label>`.
     // Require at least one leading ASCII-alphabetic character so a tag-less
     // `### 1: x` is not mistaken for a feature.
     let mut alpha_end = 0;
@@ -567,9 +567,15 @@ fn parse_number_colon_label(s: &str, suffix: bool) -> Option<(usize, String)> {
 }
 
 /// True when `line` is a milestone heading as a `roadmap/v2` roadmap requires
-/// it: a feature heading [`parse_features`] reads whose title isn't empty.
+/// it: a feature heading [`parse_features`] reads, with a space after the
+/// colon and a title that isn't empty. [`parse_features`] itself also takes
+/// `### AB2:Lister`; a milestone heading doesn't, because the coordinator's
+/// roadmap reader requires the space and would not see that item at all.
 pub fn is_milestone_heading(line: &str) -> bool {
-    matches!(parse_feature_heading(line), Some((_, label)) if !label.is_empty())
+    match parse_feature_heading(line) {
+        Some((tag, label)) => !label.is_empty() && line.starts_with(&format!("### {tag}: ")),
+        None => false,
+    }
 }
 
 /// True when `line` is a feature heading recognized by [`parse_features`]:
@@ -968,6 +974,8 @@ mod tests {
         assert!(is_milestone_heading("### Feature 2: Registry"));
         assert!(!is_milestone_heading("### AB2:"));
         assert!(!is_milestone_heading("### AB2:   "));
+        assert!(!is_milestone_heading("### AB2:Lister"));
+        assert!(!is_milestone_heading("### Feature 2:Lister"));
         assert!(!is_milestone_heading("### Stage 1 -- Runtime"));
     }
 
