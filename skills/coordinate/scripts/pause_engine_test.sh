@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pause_engine_test.sh -- the paused state, the shipped coordinate.md driven
 # through real koto against the testdata/gh stand-in
-# (docs/designs/DESIGN-coordinate-paused-state.md).
+# (docs/designs/current/DESIGN-coordinate-paused-state.md).
 #
 # A running fixture loop holds two units scoped ahead, each its own lane of
 # work (Feature 1 and Feature 2), and a third unit nobody holds. Proves, one
@@ -105,6 +105,21 @@ eq "sending the first lane its execution is refused, back to wait" wait "$(send 
 eq "  ... as paused, naming the pause" "paused $P1" "$(check_json | jq -r '"\(.verdict) \(.reason | capture("held by pause (?<s>s[0-9]+)").s)"')"
 eq "and the second lane too" wait "$(at --with-data '{"event":"resume"}' >/dev/null; send lane-b)"
 eq "  ... by its own pause" "paused $P2" "$(check_json | jq -r '"\(.verdict) \(.reason | capture("held by pause (?<s>s[0-9]+)").s)"')"
+
+echo "== 1a. what arrives while paused is taken, not refused =="
+eq "a worker's checkpoint is taken and recorded, back to wait" wait "$(at --with-data '{"event":"progress","unit":"lane-a","report":"checkpoint: the scoping pull request is open"}')"
+eq "a worker's report is taken through to classification, not refused" classify_report \
+    "$(at --with-data '{"event":"report","unit":"lane-a","report":"the scoping round found a gap; it needs a fix before the execution"}')"
+eq "  ... and a fix round goes to the re-brief, sent to start at the resume" rebrief \
+    "$(at --with-data '{"classification":"needs_fix","rationale":"a gap the worker fixes, once the pause ends"}')"
+eq "  ... back to wait" wait "$(at --with-data '{"sent":"sent"}')"
+eq "the progress table, under the real pauses, puts the Paused line above itself" \
+    "Paused: $P1 on Feature 1, since" "$(at --with-data '{"event":"resume"}' >/dev/null; pick_json | (cd "$WD" && bash "$PS/progress-view.sh") | head -1 | cut -c1-30)"
+eq "  ... and each lane's row reads paused" "2" "$(pick_json | (cd "$WD" && bash "$PS/progress-view.sh") | grep -c '| paused (s')"
+state --work "Feature 1" --kind holding --who lane-a --next "paused by $P1; idle until the resume"
+eq "the lane's Work row counts its wakes from the run's log: the checkpoint and the report" 2 \
+    "$(state --list; jq -r '.work[] | select(.item == "Feature 1") | .wakes' "$T/w.out")"
+eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
 
 echo "== 2. a resume by lane =="
 state --end "$P1" --by "the human"; eq "the first lane's pause is ended through record-state.sh" 0 $?

@@ -104,6 +104,17 @@
 #       leg; 2 read failure.
 #   coord-log.sh count --session S
 #       Prints how many events the log holds. Exit 0; 2 read failure.
+#   coord-log.sh wakes --session S [--after-time T]
+#       The run's wakes, attributed (docs/designs/current/DESIGN-coordinate-paused-state.md,
+#       Decision 4): a wake is `wait` evidence whose event is report, progress,
+#       leg, quiet, merged or resume, after T (an ISO-8601 time; every wake
+#       when absent). report, progress and merged count for their evidence's
+#       unit; leg for `leg <request>`, the request of the first WAIT_REQ
+#       capture after it and before the next `wait` evidence, when it read
+#       one; quiet for each topic the first QUIET capture after it named
+#       silent; anything else, resume included, for the run. Prints one JSON
+#       object, {"<topic>" | "leg <request>" | "": count}. Exit 0; 2 read
+#       failure.
 #
 # Exit 64 on usage errors, everywhere.
 set -uo pipefail
@@ -150,7 +161,7 @@ is_entry() { # is_entry <log> <state> <seq>
 seal_hash() { printf '%s|%s|%s|%s' "$1" "$2" "$3" "$4" | sha256; }
 
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
-SCOPE= EVENT= HAS=
+SCOPE= EVENT= HAS= AFTER_TIME=
 WHERE='[]'
 ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
@@ -168,6 +179,7 @@ while [ $# -gt 0 ]; do
         --for) [ $# -ge 2 ] || usage; FOR=$2; shift 2 ;;
         --from) [ $# -ge 2 ] || usage; FROM=$2; shift 2 ;;
         --after) [ $# -ge 2 ] || usage; AFTER=$2; shift 2 ;;
+        --after-time) [ $# -ge 2 ] || usage; AFTER_TIME=$2; shift 2 ;;
         --before) [ $# -ge 2 ] || usage; BEFORE=$2; shift 2 ;;
         --template) [ $# -ge 2 ] || usage; TEMPLATE=$2; shift 2 ;;
         --scope-slug) [ $# -ge 2 ] || usage; SLUG=$2; shift 2 ;;
@@ -433,6 +445,34 @@ unit)
     [ -n "$OUT" ] || exit 1
     [ "$OUT" = unusable ] && { echo "coord-log: the leg captures are not a request id and a leg" >&2; exit 3; }
     printf '%s\n' "$OUT"
+    ;;
+wakes)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    jq -cs --arg t "$AFTER_TIME" '
+        def secs: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+        ($t | if . == "" then null else secs end) as $cut
+        | [.[] | select(.type != null)] as $e
+        | [$e | to_entries[] | .key as $i | .value
+           | select(.type == "evidence_submitted" and .payload.state == "wait")
+           | (.payload.fields // {}) as $f
+           | select((["report", "progress", "leg", "quiet", "merged", "resume"] | index([($f.event // "") | tostring])) != null)
+           | select($cut == null or (.timestamp | secs) > $cut)
+           | ([$e[$i + 1:][] | select(.type == "evidence_submitted" and .payload.state == "wait")][0].seq // 1e18) as $next
+           | ($f.event | tostring) as $ev
+           | if ($ev == "report" or $ev == "progress" or $ev == "merged") then [(($f.unit // "") | tostring)]
+             elif $ev == "leg" then
+               ([$e[$i + 1:][] | select(.type == "variable_captured" and .payload.key == "WAIT_REQ" and .seq < $next)][0].payload.value // ""
+                | tostring | split(" ")[0] // "") as $r
+               | [if $r == "" or $r == "none" then "" else "leg " + $r end]
+             elif $ev == "quiet" then
+               ([$e[$i + 1:][] | select(.type == "variable_captured" and .payload.key == "QUIET" and .seq < $next)][0].payload.value // ""
+                | tostring | sub(" sealed:.*$"; "") | split(" ")) as $q
+               | (if ($q[0] == "first-silence" or $q[0] == "second-silence") then $q[1:] else [] end)
+               | if length == 0 then [""] else . end
+             else [""] end
+           | .[]]
+        | reduce .[] as $k ({}; .[$k] += 1)' "$LOG" || die "cannot read $LOG"
     ;;
 *) usage ;;
 esac

@@ -31,15 +31,15 @@
 #                         redispatch) is held by a pause on `all` or on that
 #                         unit, unless a go-ahead names the unit; a new
 #                         dispatch by a pause on `all` unless a go-ahead
-#                         stands. A new
-#                         dispatch's unit isn't known here (pick's evidence
-#                         names only its topic), so dispatch-worker.sh
-#                         refuses a new dispatch of a unit pick marked paused.
+#                         stands. A new dispatch's unit isn't known here
+#                         (pick's evidence names only its topic), so
+#                         dispatch-worker.sh refuses a new dispatch of a unit
+#                         pick marked paused.
 #                         It comes after unknown-topic and record-changed and
 #                         before every verdict below, so a paused dispatch
 #                         isn't sent to dispose of deferrals or settle
 #                         decisions first; the redispatch's unit is resolved
-#                         before it (docs/designs/DESIGN-coordinate-paused-state.md,
+#                         before it (docs/designs/current/DESIGN-coordinate-paused-state.md,
 #                         Decision 1)
 #   decision-owed <rule>  decision-next.sh --owed dispatch names a rule that
 #                         blocks this dispatch (the DESIGN's blocking table):

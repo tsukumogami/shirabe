@@ -18,7 +18,7 @@
 # Standing rows, read through record-state.sh --list) is passed over: its leg
 # stays unread and untaken, so nothing consumes a result whose follow-on the
 # pause would refuse, and a `leg` tick after the resume offers it
-# (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1). wait_target
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1). wait_target
 # names the topics passed over as `passed_over`.
 #
 # A leg is read once. A leg's result can't change after it resolves, and the

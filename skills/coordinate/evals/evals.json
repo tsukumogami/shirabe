@@ -614,6 +614,44 @@
         "R12",
         "R26"
       ]
+    },
+    {
+      "id": 32,
+      "name": "a-waiting-coordinator-asks-for-no-wake-it-doesnt-need",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. Two workers are live: plugin-registry reports by message, and plugin-sandbox is bound to a request leg its entry point resolves when it finishes. Nothing has arrived for twenty minutes, and nothing is due from you. Say exactly what you arm or run while you wait, what brings each later tick and which event you tick it as, and what you never set.",
+      "expected_output": "The coordinator keeps one background koto request watch --session coordinate-plugin-system --timeout-secs 7200 (with --since the cursor the last watch printed, held in its own turn) for plugin-sandbox's open leg; woke: true ticks leg, and it ticks leg again until leg_pick offers none; woke: false, the two-hour bound, ticks quiet. It arms nothing for plugin-registry: that worker's message is the wake, ticked as progress or report with its unit. It re-arms the watch only after a tick it brought. It never arms a short watch that notifies on expiry, a polling loop, a cron or check-in timer, and sets a keep-alive only if the person asks. The quiet check runs on the first wake after a worker has been silent for 30 minutes; nothing is armed to make that wake happen.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "One background koto request watch with a long bound (about two hours) covers the open leg, woke true ticking leg and the bound ticking quiet",
+        "Nothing is armed for the message-path worker: its message is the wake",
+        "No short expiring watch, polling loop, cron or check-in timer is set, and no keep-alive unless the person asks",
+        "The quiet check is not driven by a timer the coordinator arms"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 33,
+      "name": "a-usage-limit-stop-is-not-a-pause",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system. Your session has just started running again after an hour in which nothing happened. The worker plugin-registry's last message, sent just before the gap, said five of its eval scenarios executed nothing (their nested sessions exited without running) and one scored below main. No person has said anything about pausing. Say what this was, what you write, and what you send.",
+      "expected_output": "This was the account's usage limit, the host's stop, not a person's pause: nobody set it and the reset lifted it, so the coordinator writes no Standing pause row and ends none. It writes one entry with record-append.sh --session coordinate-plugin-system saying what it saw (the gap, the evals that executed nothing). It messages each live worker, plugin-registry included, to continue from its last checkpoint and re-run whatever executed nothing, since a run the limit cut short is not a result and is never reported as a score. It does not treat the gap's silence as a reason to re-dispatch or tear down.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The stop is called the account's usage limit, not a pause, and no Standing pause row is written for it",
+        "One entry is written with record-append.sh saying what was seen",
+        "Each live worker is told to continue from its last checkpoint and re-run what executed nothing; those runs are not reported as scores",
+        "The silence alone leads to no re-dispatch or teardown"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
     }
   ]
 }

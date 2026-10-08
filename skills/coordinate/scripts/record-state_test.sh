@@ -118,11 +118,13 @@ bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>"$T/err"
 eq "  ... and the next write drops its Work row" 0 "$(live | jq '(.work // []) | length')"
 
 echo "== entries =="
-eq "every change was told as an entry, kinds in order" "run run run run told run answer pause end go-ahead answer work work work work run" \
+eq "every change was told as an entry, kinds in order, a torn-down holding's final count last" "run run run run told run answer pause end go-ahead answer work work work work run work" \
     "$(entries | jq -r 'map(.kind) | join(" ")')"
 entries | jq -e 'any(.[]; .kind == "pause" and (.text | test("^s2 \\(pause on all, until lifted\\): all lanes")))' >/dev/null \
     && ok "  ... a pause's entry names its scope and condition" || bad "  ... a pause's entry names its scope and condition" "$(entries | jq -c 'map(.text)')"
 entries | jq -e '.[0].text | test("^Run arguments set to --roadmap .* by the human\\.$")' >/dev/null && ok "  ... each naming who" || bad "  ... each naming who" "$(entries | jq -r '.[0].text')"
+eq "  ... the holding's row left Work with its count" "Feature 2 (worker-f2) left Work after 0 wakes." "$(entries | jq -r '.[-1].text')"
+eq "  ... and a holding's row carries a Wakes count, a local agent's 0" "0" "$(live | jq -r '[(.work // [])[] | .wakes] | unique | join(",") | if . == "" then "0" else . end')"
 
 echo "== one writer =="
 seed "$TWO"

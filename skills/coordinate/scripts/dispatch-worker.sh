@@ -35,7 +35,7 @@
 #                      set, or `paused_all` set) exits 10 before anything is
 #                      written: the dispatch check can't name a new
 #                      dispatch's unit, so this is where a unit's pause holds
-#                      one (docs/designs/DESIGN-coordinate-paused-state.md,
+#                      one (docs/designs/current/DESIGN-coordinate-paused-state.md,
 #                      Decision 1)
 #
 # The run, in order, under a per-topic lock:

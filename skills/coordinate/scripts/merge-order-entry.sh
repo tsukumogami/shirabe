@@ -20,7 +20,7 @@
 #     through by go-ahead <id>     (only when the record holds a pause; a
 #     pull request a pause holds is never handed over, so one printed here
 #     is through by a go-ahead or by its condition met:
-#     docs/designs/DESIGN-coordinate-paused-state.md, Decision 5)
+#     docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 5)
 #   - Squash message:
 #
 #     ```text

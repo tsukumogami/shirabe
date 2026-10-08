@@ -255,7 +255,7 @@ def parse_holds($p):
 #   Until    a pause's resume condition: `lifted` (until a person ends the
 #            row), `time <YYYY-MM-DDTHH:MMZ>` (UTC), `merged owner/repo#n` or
 #            `tag owner/repo <tag>`; required on a pause, blank otherwise
-#            (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1)
+#            (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1)
 #   What     what it says, one line
 #   Owner    who decided it
 #   Relayed by  who carried it to this coordinator, blank when nobody did
@@ -265,6 +265,10 @@ def parse_holds($p):
 #   Kind     holding | local-agent
 #   Who      a holding's Worker (a dispatch topic), or who does the work
 #   Next step  what happens next, one line
+#   Wakes    a holding's wakes counted so far (record-state.sh adds this run's
+#            from the session log at each write); 0 for a local agent, and
+#            read as 0 when blank (docs/designs/current/DESIGN-coordinate-paused-state.md,
+#            Decision 4)
 #   Updated  when, YYYY-MM-DDTHH:MMZ
 #
 # The text cells (Run's arguments, Set by, Standing's What, Owner and Relayed
@@ -275,7 +279,7 @@ def state_secs: [
   {key: "standing", title: "Standing", cols: [["standing", "Standing"], ["kind", "Kind"], ["on", "On"],
     ["until", "Until"], ["what", "What"], ["owner", "Owner"], ["relayed_by", "Relayed by"], ["set", "Set"]]},
   {key: "work", title: "Work", cols: [["item", "Item"], ["kind", "Kind"], ["who", "Who"], ["next", "Next step"],
-    ["updated", "Updated"]]}];
+    ["wakes", "Wakes"], ["updated", "Updated"]]}];
 def run_keys: ["arguments", "cap", "coordinator", "told"];
 def standing_kinds: ["pause", "go-ahead", "approval", "answer"];
 def work_kinds: ["holding", "local-agent"];
@@ -295,6 +299,7 @@ def check_scell($sk; $key; $private):
   | if ($v | type) != "string" then refuse("\($n): not a string")
     elif $v | test("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]") then refuse("\($n): a control character")
     elif ($v | test("[\r\n]")) then refuse("\($n): a line break")
+    elif $v == "" and $sk == "work" and $key == "wakes" then "0"
     elif $v == "" and ($sk != "standing" or ($key != "relayed_by" and $key != "on" and $key != "until")) then refuse("\($n): empty")
     elif $v == "" then $v
     elif ($key == "set" or $key == "updated") then (if test(re_time_min) then . else refuse("\($n): not YYYY-MM-DDTHH:MMZ") end)
@@ -302,6 +307,7 @@ def check_scell($sk; $key; $private):
     elif $sk == "standing" and $key == "standing" then (if test("^s[1-9][0-9]*$") then . else refuse("standing.standing: not s<n>") end)
     elif $sk == "standing" and $key == "kind" then (if any(standing_kinds[]; . == $v) then . else refuse("standing.kind: not one of \(standing_kinds | join(", "))") end)
     elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding or local-agent") end)
+    elif $sk == "work" and $key == "wakes" then (if test("^(0|[1-9][0-9]{0,5})$") then . else refuse("work.wakes: not a count") end)
     elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `ED1`, `#12`, `owner/repo#12`)") end)
     elif $sk == "standing" and $key == "until" then (if pause_until_ok then . else refuse("standing.until: not `lifted`, `time <YYYY-MM-DDTHH:MMZ>`, `merged owner/repo#n` or `tag owner/repo <tag>`") end)
     else . end

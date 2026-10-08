@@ -2779,6 +2779,30 @@ what it resumes to, and tick `leg` once if a leg was passed over while paused
 isn't offered by pick: tick `redispatch` with its unit, and submit `move:
 redispatch` again at `failure`.
 
+**Waking.** Ask for no wake you don't need. The wakes are a worker's message
+(a checkpoint, a ready report, a question, a blocker) and your teardown
+agent's report; tick each as its event. While any leg-bound worker's leg is
+open, keep one background `koto request watch --session {{SESSION_NAME}}
+--timeout-secs 7200`, passing the cursor the last one printed as `--since`
+(hold it in your own turn, never in the record or a file): `woke: true` ticks
+`leg`, and tick `leg` again until `leg_pick` offers none; `woke: false` is the
+bound, and ticks `quiet`. Re-arm it only after a tick it brought. A
+message-path worker needs no wait: its message is the wake. While a `time`
+pause stands, one silent wait until its minute, which prints one line only
+then, brings the `resume` tick. Never arm a short watch that notifies on
+expiry, a polling loop or a check-in timer, and set a keep-alive only when the
+person asks for one. The quiet check runs on the first wake after a worker has
+been silent for 30 minutes; nothing is armed to make that wake happen.
+
+**A usage-limit stop is not a pause.** Nobody sets it and nobody resumes it:
+the account's reset does, so write no Standing row for one. It shows as a
+worker's runs executing nothing (nested sessions exiting without running), as
+silence, or as your own session stopping. Write one entry with
+`record-append.sh` saying what you saw. On the reset (your session running
+again, a person saying so, or a worker's next message), message each live
+worker to continue from its last checkpoint and re-run whatever executed
+nothing.
+
 Arriving here from `report_questions` with a checkpoint report whose questions
 were over the bound (`overflow`), message the worker to send them again in its
 brief's `Questions:` shape; nothing else asks it to.
@@ -2800,9 +2824,15 @@ worker in this run's log, writes a pull request it names onto a holding that
 has none, and comes back here: it changes no phase, is never classified, and
 never stands in for a leg's result, which is still read only through
 `wait_leg`. A progress message that asks something, or says the worker is done
-or blocked, is a `report`. koto 0.14.0 records a wake when a leg resolves (koto#250), but
-this workflow doesn't watch for it, so a leg is read when a message or
-notification makes you tick.
+or blocked, is a `report`. koto 0.14.0 records a wake when a leg this session
+requested resolves (koto#250); the leg watch above is how you hear it.
+
+Each wake counts for the record: a holding's Work row carries its Wakes, which
+`record-state.sh --work` brings up to date from this run's log at each write
+(the events report, progress, leg, quiet, merged and resume, each counted for
+the worker it names, the leg it read or the topics a quiet sweep named), and
+the final count goes into an entry when the holding's row leaves Work. Name
+the `unit` on each event when there is one.
 ## leg_pick
 
 Picking the request leg to read. koto runs this itself; tick with no evidence
@@ -3612,7 +3642,9 @@ A worker is quiet when neither a message nor a push has arrived from it for 30
 minutes; check a quiet worker at most once per 30 minutes, by reading its branch
 and pull request and its session on the host. A worker a pause in the record
 holds is never quiet: it was told to stop, and a sweep that skips it isn't a
-silent check. The 30-minute interval is the
+silent check. A silent check made before the latest `resume` tick no longer
+counts, so the first sweep after a resume sends a status message rather than
+going to the failure branch. The 30-minute interval is the
 check's own and is fixed: a human's decision about intervals governs what your
 status message asks and when you follow up by hand, not when this check counts
 a silence. One silent check earns a status message;

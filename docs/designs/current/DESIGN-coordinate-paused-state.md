@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Current
 upstream: docs/prds/PRD-coordinate-skill.md
 problem: |
   A person pauses a coordinator by sending a message to every live session
@@ -52,7 +52,11 @@ rationale: |
 
 ## Status
 
-Proposed
+Current
+
+Implemented. Decisions 1, 2, 3 and 5 landed in tsukumogami/shirabe#650 and Decision 4
+in the pull request that moved this design to current. Five details changed in implementation;
+each carries a dated correction note where it sits.
 
 ## Context and Problem Statement
 
@@ -208,9 +212,15 @@ is the loop's
 posture, not a stop: the coordinator still answers its workers and its
 dispatcher.
 
-**Where it is read.** One evaluator, `pause-lib.sh` (sourced, like
-`board-lib.sh`), takes the record's parsed Standing rows and a unit, and says
-which pauses are in force for it and why. It evaluates `merged` and `tag` with
+**Where it is read.** One evaluator, `pause-read.sh`, a script each reader runs,
+takes the record's parsed Standing rows and the units it asks about, and says
+which pauses are in force for each and why.
+
+> **Correction, 2026-10-08.** This first read: "One evaluator, `pause-lib.sh`
+> (sourced, like `board-lib.sh`)". The evaluator is a script, `pause-read.sh`,
+> because its readers already source `record-common.sh`, which sourcing a
+> second library over it would reset; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
+ It evaluates `merged` and `tag` with
 the same reads `bl_holds_eval` makes, refactored into one condition reader
 both call. These places use it:
 
@@ -254,9 +264,17 @@ both call. These places use it:
    `rebrief` like the land check's refusal (`report_topic` is still set
    there, as it is when `goal_fit` finds a gap), so a pause written during
    the goal-fit judgment leaves the worker the same way back. A dispatch
-   isn't re-read the same way:
-   `dispatch_check` runs one step before the launch, and a launch can be
-   stopped afterwards by a message.
+   isn't re-read for the race, since `dispatch_check` runs one step before
+   the launch; but `dispatch-worker.sh` refuses a new dispatch of a unit pick
+   marked paused (exit 10), and `dispatch` gains `dispatched: paused`, back to
+   `wait`, because `dispatch_check` sees only pick's topic and can't name a
+   new dispatch's unit.
+
+   > **Correction, 2026-10-08.** This first read: "A dispatch isn't re-read
+   > the same way: `dispatch_check` runs one step before the launch, and a
+   > launch can be stopped afterwards by a message." A unit's pause on a new
+   > dispatch had no reader that knew the unit, so the dispatch script
+   > refuses it with exit 10 and the new `dispatched: paused` value; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
 5. `wait-target.sh`, the `leg_pick` action, passes over a resolved leg whose
    holding a pause covers, leaving it untaken, and says so in its detail; a
    `leg` tick after the resume offers it.
@@ -264,10 +282,20 @@ both call. These places use it:
 `quiet-check.sh` treats a holding a pause covers as not silent: its worker was
 told to stop at a safe point, so its silence is what the pause asked for, and a
 sweep that skips it is not a silent check. The resume doesn't reset the
-worker's last activity: the first sweep after a long pause finds it silent and
-sends one status message, which is what a resumed coordinator needs to ask
-anyway, and only a second silence after that message goes to the failure
-branch.
+worker's last activity, but a silent check made before the run's latest
+`resume` tick no longer counts: the first sweep after a long pause finds the
+worker silent and sends one status message, which is what a resumed
+coordinator needs to ask anyway, and only a second silence after that message
+goes to the failure branch.
+
+> **Correction, 2026-10-08.** This first read: "The resume doesn't reset the
+> worker's last activity: the first sweep after a long pause finds it silent
+> and sends one status message". That was not what the check would do: a
+> silent check made before the pause still counted, so the first sweep after
+> the resume went straight to the failure branch. The mechanism changed: the
+> check now ignores silent checks made before the latest `resume` tick, which
+> is the run's latest, so one lane's resume also gives other workers one more
+> status-message cycle; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
 
 A close-out (`roadmap_close`, `rotation_close`, `predecessor_close`) lands the
 record, not a unit's work, so a pause doesn't hold it.
@@ -337,7 +365,16 @@ starts at the resume; a blocker goes to the person as a need, as it would
 unpaused. A leg-bound worker's result stays in its leg, unread.
 
 **What the resume re-enters.** Each held thing goes back through a route the
-template already has, so the resume adds no edge for re-entry beyond `resume` itself:
+template already has, and the resume adds two edges for re-entry: `resume`
+itself, and `redispatch`, a `wait` event naming a unit that routes to
+`failure`, for a re-dispatch a pause refused, since pick never offers a
+re-dispatch:
+
+> **Correction, 2026-10-08.** This first read: "so the resume adds no edge
+> for re-entry beyond `resume` itself". A re-dispatch refused as paused had no
+> way back, so `wait` gains the `redispatch` event, whose unit the failure
+> branch resolves from that evidence; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
+
 
 - a leg-bound worker's result: the resume directive has the coordinator tick
   `leg` after the resume whenever a leg was passed over (the wake that
@@ -518,9 +555,17 @@ its six columns and four kinds; the line is outside it, so the display rule
 holds. A met pause the coordinator hasn't ended yet is listed as `met, to end`.
 
 `merge-order-entry.sh`, the block under the merge-order table that a person
-reads for each ready pull request, prints the pauses and go-aheads
-`land-check.sh` read with their states, beside the holds, so a pull request
-handed over while a go-ahead lets it through a wider pause says so. That block
+reads for each ready pull request, prints the pauses `land-check.sh` read with
+their states, beside the holds, and the go-ahead `pause-read.sh` names as
+letting the unit through (its `through` field), so a pull request handed over
+while a go-ahead lets it through a wider pause says so.
+
+> **Correction, 2026-10-08.** This first read: "prints the pauses and go-aheads
+> `land-check.sh` read with their states". The block first matched go-aheads
+> itself, a second matcher that missed `#12` against `owner/repo#12`, so the
+> evaluator now reports, per unit, the go-ahead that lets it through, and
+> every reader prints that; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
+ That block
 is the skill's ready report for a pull request handed to a person. A pull
 request a pause holds isn't handed to anyone: its row in the progress table
 reads paused, and the re-brief its worker gets names the pause.
@@ -578,7 +623,7 @@ fixtures gain a paused case.
 |---|---|---|
 | `skills/coordinate/scripts/record-codec.jq`, `references/record-template.md` | Standing's On and Until, their checks | 1 |
 | `skills/coordinate/scripts/record-state.sh` | `--standing pause` and `go-ahead` take `--on` and `--until`; the unit and condition checks | 1 |
-| `skills/coordinate/scripts/pause-lib.sh` | new: which pauses cover a unit, and each one's state | 1 |
+| `skills/coordinate/scripts/pause-read.sh` | new: which pauses cover a unit, and each one's state | 1 |
 | `skills/coordinate/scripts/board-lib.sh` | the condition reader shared by holds and pauses | 1 |
 | `skills/coordinate/scripts/pick-facts.sh`, `deferral-check.sh` (with the topic resolution moved ahead of the pause read), `land-check.sh`, `land-merge.sh`, `wait-target.sh`, `quiet-check.sh` | read the pauses and act on them | 1 |
 | `skills/coordinate/scripts/coord-verdict.sh`, `coord-verdict-table_test.sh` | `paused` | 1 |

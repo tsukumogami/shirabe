@@ -339,6 +339,20 @@ holds it, so it survives this session and a replacement finds it standing.
   naming each pause, since when and until what, and every row a pause holds
   says so.
 
+## Waiting
+
+A waiting coordinator asks for no wake it doesn't need. The wakes are a
+worker's message and the teardown agent's report; one `koto request watch`
+with a two-hour bound covers every open leg, and while a `time` pause stands
+one silent wait until its minute brings the resume. No short watch that
+notifies on expiry, no polling, no check-in timer; a keep-alive only when the
+person asks. Each holding's Work row counts its wakes from the run's log at
+every write, and its final count goes into an entry when it leaves Work, so
+the next rotation reads a figure. A usage-limit stop is the host's, not a
+person's pause: no Standing row, one entry saying what was seen, and on the
+reset each worker continues from its last checkpoint and re-runs whatever
+executed nothing.
+
 ## Decisions
 
 Every decision the run meets is an entry in the record's Decisions section,
@@ -513,14 +527,12 @@ re-check is the `reconcile_pass` state. What is still open is below.
   read is the defence, at one more read per report. Reconcile makes the same
   file-list read only for a holding marked scoping ahead, to flag one whose
   pull request changes paths outside `docs/`.
-- **Leg wakes aren't watched (tsukumogami/koto#250, fixed in koto 0.14.0).**
-  koto 0.14.0 and later record a wake when a leg a session waits on resolves,
-  readable with `koto request watch`. This skill
-  doesn't watch for it yet, so the coordinator still ticks the workflow on each
-  message or notification, and a resolved leg waits for the next tick, which a
-  message, a notification or the quiet-worker check brings. A reconcile pass
-  left pending (a worker's listing re-read still 30 seconds away) waits for
-  that next tick the same way. Wakes are local to one machine either way.
+- **Wakes are local to one machine (tsukumogami/koto#250, fixed in koto
+  0.14.0).** koto records a wake when a leg a session requested resolves, and
+  the wait state's leg watch (`koto request watch` with a two-hour bound) is
+  how the coordinator hears it; a worker on another machine reports by
+  message. A reconcile pass left pending (a worker's listing re-read still 30
+  seconds away) waits for the next tick a message or the watch brings.
 - **`koto next --to` past a check (koto#251, fixed in koto 0.14.0).** koto
   0.14.0 and later refuse a directed transition past a failing non-overridable
   gate, so no check can be skipped that way. The seal stays as defence in depth:

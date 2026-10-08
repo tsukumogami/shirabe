@@ -168,6 +168,10 @@ invocation carries a request leg, your result still comes through that leg
 when your entry point finishes; a checkpoint message doesn't stand in for it,
 so keep going to the end.
 
+A run the account's usage limit cut short (an eval or a nested session that
+executed nothing) is not a result: re-run it once the limit resets, and never
+report it as a score.
+
 When the brief carries Workspace rules, this section wins over them: where
 they name another session for direction or for status reports, the worker reports
 to the coordinator above.
