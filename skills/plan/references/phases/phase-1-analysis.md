@@ -69,17 +69,6 @@ When the sentinel is ABSENT (no matching state file or no
 does NOT match `plan`, do NOT auto-transition. Fall through to
 the hard-stop table below.
 
-This is the symmetric three-skill contract: when a chain-context
-signal is present (BRIEF input for `/prd`, `parent_orchestration:`
-sentinel for `/design` and `/plan`), the skill auto-transitions
-its upstream artifact forward by one status before consuming it.
-When no chain-context signal is present, the skill applies its
-protective hard-stop. Direct `/plan` invocation against a non-
-Accepted DESIGN writes no sentinel; the sentinel check returns
-absent; the hard-stop fires. The "silent auto-promote on direct
-invocation" failure mode cannot reach this code path because the
-sentinel is the explicit signal.
-
 **STOP and inform user if status is not "Accepted".** The consumable-status
 rule is owned by the chain-status lifecycle check (`shirabe validate
 --lifecycle-chain <design-path>`); the messages below are the per-status
@@ -106,8 +95,6 @@ Do NOT proceed with issue creation unless status is "Accepted".
 |--------|--------------|
 | Draft | "This roadmap has status 'Draft'. The feature list must be locked and approved before planning. Change status to 'Active'." |
 | Done | "This roadmap has status 'Done'. All features are already delivered. No new planning needed." |
-
-Do NOT proceed with planning unless status is "Active".
 
 **If status is valid:** Continue to step 1.2.
 

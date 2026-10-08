@@ -64,11 +64,6 @@ Read `input_type` from `wip/plan_<topic>_analysis.md`:
 
 ### Decomposition Strategy Decision (separate from execution mode)
 
-This is the work-slicing decision: walking skeleton vs horizontal. It is named
-explicitly here as separate from the single-pr/multi-pr execution-mode decision
-finalized in step 3.6 -- the two are different questions and must not be
-conflated.
-
 #### 3.0 Determine Strategy
 
 Before decomposing, decide whether to use walking skeleton or horizontal decomposition.
@@ -303,13 +298,6 @@ Roadmaps use a fixed "feature-by-feature planning" strategy that maps each featu
 1:1 to a planning issue. These are not code-level issues -- they're issues that
 track the creation of upstream artifacts (PRDs, designs, spikes, decisions).
 
-A roadmap input also lands multi-pr at step 3.6 -- not because the input is a
-roadmap, but because each feature is a cohesive deliverable that lands observable
-incremental value on its own (the usable-value principle on the plan SKILL
-surface). The value-confirmation guard at step 3.5a then checks each feature
-against that standard; a feature that isn't a standalone increment is flagged as a
-mis-decomposition by name, not waved through.
-
 ### 3.R1 Map Features to Planning Issues
 
 For each feature in the analysis artifact's "Features Identified" section:
@@ -501,22 +489,6 @@ the execution mode against the surfaced rule on the plan SKILL surface. The
 SKILL-surface rule is the authoritative statement; this section is the procedure
 for applying it.
 
-**The surfaced rule** (`skills/plan/SKILL.md`, section "Execution Mode Decision"):
-
-- Default to as few PRs as the repository's resolved Delivery Preference permits;
-  `consolidated` (the default) means single-pr.
-- Escape only on a named branch from the plan profile of
-  `${CLAUDE_PLUGIN_ROOT}/references/split-triggers.md`: **Hard Constraint**,
-  **Incremental Value**, or **Stated Preference**.
-- A roadmap input is multi-pr under Incremental Value, because each feature is a
-  cohesive deliverable that lands observable value -- the value principle, not the
-  input mechanism.
-
-The branch this step selects is not bookkeeping: it is written into the produced
-PLAN's `split_rationale` frontmatter field and checked by `L09`, so a step that
-recommends a mode without naming its branch leaves the plan unable to satisfy that
-check.
-
 #### Procedure
 
 1. **Check the surfaced rule.** Read the rule on `skills/plan/SKILL.md` and apply
@@ -626,14 +598,8 @@ check.
      `_Repo: <owner/repo> | Group: <slug>_` annotation row under each issue's
      table row at `issues` or `issues-and-milestone`.
    - **Declare any non-PR gate** (a merge gate, a manual step between two
-     groups) in the decomposition artifact. At tracking level `none` it is a
-     `### Gate: <name>` block under `## Issue Outlines`, with
-     `**After**: Issue <N>[, Issue <M>...]`, `**Before**: Issue <N>[, ...]`, and
-     `**Condition**: <text>` lines, in the form
-     `../quality/plan-doc-structure.md` documents under "Coordinated Mode"; an
-     outline's `**Dependencies**:` never names a gate. At `issues` levels it is
-     the `_Gate: <name> | After: ... | Before: ..._` row. The gate name matches
-     `^[a-z][a-z0-9-]*$`.
+     groups) in the decomposition artifact, in the form
+     `../quality/plan-doc-structure.md` documents under "Coordinated Mode".
 
 6. **Present the recommendation to the user using AskUserQuestion** (interactive
    mode):

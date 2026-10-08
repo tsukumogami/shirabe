@@ -108,12 +108,7 @@ For each issue in `issue_outlines`:
    - `is_skeleton_issue` - true if this is issue ID "1", false otherwise
    - `skeleton_id` - the skeleton issue ID (typically "1")
    - `refinement_sequence` - for non-skeleton issues, their position (2, 3, 4...)
-5. Build execution mode context string:
-   - multi-pr: `"execution_mode": "multi-pr"` -- full issue body with all complexity-specific sections
-   - single-pr: `"execution_mode": "single-pr"` -- lighter structured outline
-   - coordinated at tracking level `none`: `"execution_mode": "single-pr"` -- outline depth, nothing will be filed
-   - coordinated at `issues` or `issues-and-milestone`: `"execution_mode": "multi-pr"` -- full issue body, the items will be filed
-6. Substitute placeholders in the agent prompt template:
+5. Substitute placeholders in the agent prompt template:
    - `{{DESIGN_DOC_CONTENT}}` - Full design document
    - `{{ISSUE_ID}}` - Internal ID (e.g., "1", "2", "3")
    - `{{ISSUE_TITLE}}` - This issue's title
@@ -130,7 +125,7 @@ For each issue in `issue_outlines`:
      }
      ```
      Or if not in skeleton mode: `{"skeleton_mode": false}`
-   - `{{EXECUTION_MODE}}` - JSON object: `{"execution_mode": "multi-pr"}` or `{"execution_mode": "single-pr"}` (coordinated maps to one of these by tracking level, per step 5 above)
+   - `{{EXECUTION_MODE}}` - JSON object: `{"execution_mode": "multi-pr"}` or `{"execution_mode": "single-pr"}` (coordinated maps to one of these by tracking level, per the Execution Mode section above)
    - `{{TOPIC}}` - The topic slug used in file paths (e.g., "artifact-workflow")
    - `{{REVIEW_CORRECTION_HINTS}}` - Correction hints from the prior review round (see below)
 
@@ -205,13 +200,6 @@ criterion:
 > intent). The defensive rewrite is the only safe path when the
 > grep returns empty.
 
-The grep procedure is documented in the agent prompt; the
-validator does not enforce it. Tier-3 placement (in this
-already-lazy-loaded phase reference) preserves R31 backward
-compatibility -- the prompt enrichment is additive and does not
-change the agent's success criteria when every anchor already
-exists.
-
 ### 4.5 Spawn Agents in Parallel
 
 **Critical**: Launch ALL agents in a single message with multiple Task tool calls --
@@ -226,21 +214,6 @@ For each issue, invoke Task with:
   - Output file path: `wip/plan_<topic>_issue_<id>_body.md`
   - Instructions to write the full body to that file
   - Instructions to return ONLY the structured summary
-
-**Agent output instructions** (include in each prompt):
-```
-Write the complete issue body to: wip/plan_<topic>_issue_<id>_body.md
-
-After writing the file, return ONLY this structured summary.
-Do NOT include any part of the issue body in your response.
-```
-Status: PASS | VALIDATION_FAILED | ERROR
-Complexity: <simple|testable|critical>
-File: wip/plan_<topic>_issue_<id>_body.md
-Sections: <comma-separated list of sections present>
-Dependencies: <issue IDs or "none">
-```
-```
 
 Example pattern:
 ```
@@ -286,8 +259,6 @@ Build results manifest (lightweight, no full bodies):
 ### 4.7 Validate Agent Outputs
 
 For each result where the agent reported PASS, read the output file and validate.
-
-**Validation differs by execution mode and input type.** A `coordinated` decomposition uses the single-pr validation at tracking level `none` and the multi-pr validation at `issues` or `issues-and-milestone`, matching the depth step 4.4 asked for.
 
 #### Roadmap planning issue validation (input_type: roadmap)
 
@@ -376,11 +347,7 @@ For each result with status=PASS:
   4. Update status to VALIDATION_FAILED if checks fail
 ```
 
-**Front matter validation** (same as multi-pr):
-- [ ] File starts with `---` (YAML front matter delimiter)
-- [ ] Contains `complexity:` field with value `simple`, `testable`, or `critical`
-- [ ] Contains `complexity_rationale:` field (non-empty)
-- [ ] Front matter ends with `---`
+**Front matter validation**: Same as multi-pr mode.
 
 **Skeleton-specific front matter validation**: Same as multi-pr mode.
 
@@ -484,12 +451,6 @@ Proceeding to Phase 5 with X generated issue bodies.
 - [ ] Final results array contains all issues with success/failure status
 
 ## Output
-
-Phase 4 produces these artifacts:
-
-**Files created:**
-- `wip/plan_<topic>_issue_<id>_body.md` - One file per issue containing the full body (multi-pr) or structured outline (single-pr)
-- `wip/plan_<topic>_manifest.json` - Manifest with file references and status
 
 **For Phase 5:**
 - Read `wip/plan_<topic>_manifest.json` to get file paths and complexity levels

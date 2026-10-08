@@ -133,7 +133,16 @@ status word alone, prose pushed to a paragraph after a blank line.
 
 ## Required Sections
 
-Every PLAN has these sections in order:
+The required sections, in order, depend on the PLAN's shape (see
+"Which sections a PLAN carries" below):
+
+- **Outline-shaped** -- `Status`, `Scope Summary`, `Decomposition
+  Strategy`, `Issue Outlines`, `Implementation Sequence`.
+- **Issue-carrying** -- `Status`, `Scope Summary`, `Decomposition
+  Strategy`, `Implementation Issues`, `Dependency Graph`,
+  `Implementation Sequence`.
+
+What each section holds:
 
 1. **Status** -- current lifecycle state. The first non-blank line
    is the bare status word (`Draft`, `Active`, `Done`); explanatory
@@ -146,13 +155,15 @@ Every PLAN has these sections in order:
    (e2e thin slice first), or hybrid. Names the grouping rules
    ("one issue per validator check function", "one issue per
    reference file").
-4. **Implementation Issues** -- the atomic-issue table plus issue
-   outlines (one outline per issue with Goal, Acceptance Criteria,
-   Dependencies, Type, Files).
-5. **Dependency Graph** -- the Mermaid diagram showing inter-issue
-   dependencies and class assignments (`ready`, `blocked`, `done`,
-   etc.).
-6. **Implementation Sequence** -- recommended execution order,
+4. **Issue Outlines** (outline-shaped) -- one outline per work item
+   with Goal, Acceptance Criteria and Dependencies.
+5. **Implementation Issues** (issue-carrying) -- the atomic-issue
+   table.
+6. **Dependency Graph** (issue-carrying; optional on an outline-shaped
+   `multi-pr` or `coordinated` PLAN, barred from `single-pr`) -- the
+   Mermaid diagram showing inter-issue dependencies and class
+   assignments (`ready`, `blocked`, `done`, etc.).
+7. **Implementation Sequence** -- recommended execution order,
    typically grouped by batch or critical-path level. Describes the
    "open with X, then Y" ordering for the implementing agent.
 
@@ -173,7 +184,7 @@ three-column shape:
 |--------|---------|
 | Issue | Markdown link to the issue's local anchor (within the PLAN) for single-pr mode, OR `#N` GitHub link for multi-pr mode |
 | Dependencies | Local-anchor links to blocking issues, or `None` if independent |
-| Complexity | One of `trivial`, `simple`, `testable`, `complex` |
+| Complexity | One of `simple`, `testable`, `critical` (FC05 rejects any other value) |
 
 Each issue occupies TWO rows in the table:
 
@@ -361,9 +372,10 @@ checks. The `plan/v1` FormatSpec declares:
 - **Required fields:** `status`, `execution_mode`, `milestone`,
   `issue_count`.
 - **Valid statuses:** `Draft`, `Active`, `Done`.
-- **Required sections:** `Status`, `Scope Summary`, `Decomposition
-  Strategy`, `Implementation Issues`, `Dependency Graph`,
-  `Implementation Sequence`.
+- **Required sections:** one list per shape, as "Required Sections"
+  above gives them. The outline-shaped list applies to every
+  `single-pr` PLAN and to a `multi-pr` or `coordinated` PLAN at
+  `tracking_level: none`; the issue-carrying list to the rest.
 - **Issues table columns:** `Issue`, `Dependencies`, `Complexity`.
 
 The validator-side contracts:
@@ -384,7 +396,7 @@ The validator-side contracts:
 - **FC08** -- Legend reconciles against the `classDef` set.
 - **FC09** -- doc-vs-GitHub state reconciliation (multi-pr mode).
 - **FC11** -- (when present) plan-section-structure reconciliation
-  against this format reference.
+  against the plan profile in `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md`.
 
 ## Quality Guidance
 

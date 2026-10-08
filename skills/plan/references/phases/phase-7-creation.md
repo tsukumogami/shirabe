@@ -4,23 +4,6 @@ Create the PLAN artifact and, when the resolved tracking level asks for them,
 GitHub issues and a milestone. The branch taken depends on `execution_mode`
 (`multi-pr`, `single-pr`, or `coordinated`).
 
-When the input is a roadmap, **do not** re-drive this phase to fill the
-roadmap's reserved sections by prose substitution -- that path is retired.
-The roadmap workflow now ships its own native CLI subcommand,
-`shirabe roadmap populate`, that reads the Features section using the
-shared `shirabe-validate` parser and writes the reserved sections by
-structural section replacement. Its issue-creating mode also creates one
-GitHub issue per feature with discrete `gh issue create` args. Invoke it
-via `/roadmap populate <path> --issues` to file issues, or
-`/roadmap populate <path> --no-issues` to render the sections without
-touching GitHub; always name the mode rather than relying on the
-subcommand's default (see `skills/roadmap/SKILL.md`).
-
-The `input_type: roadmap` branch in this phase remains only for the case
-where a PLAN document is being produced from a roadmap upstream (i.e., the
-author still wants the conventional PLAN artifact for a roadmap-scoped
-slice). It no longer rewrites the roadmap document itself.
-
 ## Table of Contents
 
 - [Resume Check](#resume-check)
@@ -43,9 +26,7 @@ what you want -- `--issues` to file GitHub issues, `--no-issues` to
 render the sections without them. Do not leave the mode to the
 subcommand's default.
 
-Check if `docs/plans/PLAN-<topic>.md` exists.
-
-**For all other input types**: Check if `docs/plans/PLAN-<topic>.md` exists.
+**For every input type**: Check if `docs/plans/PLAN-<topic>.md` exists.
 
 | Existing Status | Action |
 |-----------------|--------|
@@ -204,9 +185,6 @@ Complexity labels are applied via: `${CLAUDE_SKILL_DIR}/scripts/apply-complexity
 
 ### 7.2 Write Output Artifact
 
-Write the PLAN artifact. (This phase no longer rewrites a roadmap document
-itself; for roadmap input, see the redirect above.)
-
 #### 7.2b Write PLAN Artifact
 
 Create `docs/plans/PLAN-<topic>.md` with the following structure.
@@ -245,15 +223,6 @@ citing the design.** Where an issue's shape or its position in the sequence
 follows from a decision the design made, say which decision and why it forces
 that shape — not `per the DESIGN`, but the reasoning that makes this
 decomposition the right one.
-
-A plan whose strategy section only points at its design cannot fold that design,
-because the design genuinely still holds reasoning the plan does not. That is the
-right outcome when the design settled something contested. It is the wrong one
-when the design's whole contribution was deciding what order to do things in and
-the plan now encodes exactly that — which is the common case for a self-contained
-fix, and the case this matters for. `/scope` composes the design's contribution
-section from *this document's* body when it folds, so the material has to be here
-first.
 
 **Required sections** (in order):
 
@@ -347,18 +316,8 @@ issue_count: <N>
 ---
 ```
 
-When `--upstream <roadmap-path>` was supplied, `upstream:` is a sequence: the
-source document first, the ROADMAP second. The PLAN is the node that records
-the crossing from the strategic chain into the tactical one, because it is a
-working artifact the cascade deletes -- and deletes before the roadmap -- so
-the link cannot outlive its target. No durable document in the chain may name
-a roadmap.
-
-```yaml
-upstream:
-  - <source-doc-path>
-  - docs/roadmaps/ROADMAP-<name>.md
-```
+A `--upstream <roadmap-path>` makes `upstream:` a sequence, exactly as in the
+multi-pr branch's 7.2b.
 
 **Required sections** (in order):
 
@@ -369,10 +328,11 @@ upstream:
    - **Goal** -- what the issue delivers
    - **Acceptance Criteria** -- how to verify completion
    - **Dependencies** -- which internal IDs this blocks on
-5. **Dependency Graph** -- same Mermaid format as multi-pr, but nodes use internal IDs (`I1`, `I2`, ...) instead of GitHub issue numbers. Same `classDef` rules apply.
-6. **Implementation Sequence** -- critical path, parallelization opportunities, recommended order
+5. **Implementation Sequence** -- critical path, parallelization opportunities, recommended order
 
-No Implementation Issues table in single-pr mode.
+No Implementation Issues table and no Dependency Graph in single-pr mode: one
+pull request has no inter-PR order to draw, and the validator's FC14 reports a
+populated `## Dependency Graph` in a single-pr PLAN.
 
 ### 7.2 Suggest Next Steps
 
@@ -485,7 +445,8 @@ sections, in order:
    followed by one `### Gate: <name>` block per declared gate, with
    `**After**:`, `**Before**:`, and `**Condition**:` lines, in the form
    `../quality/plan-doc-structure.md` documents under "Coordinated Mode".
-5. **Dependency Graph** -- same Mermaid rules as single-pr, nodes `I1`, `I2`, ...
+5. **Dependency Graph** -- same Mermaid rules as the multi-pr branch's 7.2b, but
+   nodes use internal IDs (`I1`, `I2`, ...) instead of GitHub issue numbers
 6. **Implementation Sequence**
 
 No `## Implementation Issues` table: the validator treats a coordinated PLAN at
@@ -535,32 +496,6 @@ shirabe validate 'docs/plans/PLAN-<topic>.md'
 shirabe validate --lifecycle-chain 'docs/plans/PLAN-<topic>.md'
 ```
 
-`shirabe validate` is the reader here rather than a hand-written grep, and
-that is deliberate: a scalar-only reader returns nothing for a sequence and
-then reports "no upstream field", which silently skips the check for exactly
-the PLANs that carry two entries. One normalizer in the validator enumerates
-both written shapes and feeds every reader of the field, so the document that
-passes is the document the extractor reads.
-
-What the two invocations check between them: the required frontmatter fields
-(`schema`, `status`, `execution_mode`, `milestone`, `issue_count`), the
-required sections and the single-pr / multi-pr mutual exclusions, the outline
-shapes task extraction depends on, and -- under `R6` -- that each `upstream:`
-entry exists on disk, is tracked by git, is not a symlink, and does not
-resolve outside the repository. The last two matter because the value reaches
-a committed frontmatter field: a symlinked upstream resolves to different
-content for different readers, and one escaping the tree names something no
-other clone has. The git invocation passes every path after `--`, so a value
-beginning with a dash is a pathspec rather than an option. Validation is not
-the guarantee there; the argument boundary is.
-
-A single earlier bash pre-flight used to run here and answered the upstream
--status question differently from the lifecycle check, accepting an upstream
-at `Accepted` and rejecting one at `Current`. The lifecycle model's rule is
-the surviving one: `/plan` moves the upstream DESIGN from `Accepted` to
-`Planned` while authoring the PLAN, so a PLAN still naming an `Accepted`
-DESIGN is evidence that transition did not run.
-
 **Match handling:**
 
 - **Any `wip/...` hit in the body or frontmatter is a hard fail.** wip/ paths
@@ -592,15 +527,6 @@ DESIGN is evidence that transition did not run.
 
 **STOP if any check fails.** Fix the PLAN doc and re-run before proceeding to
 status transition.
-
-**Worked example (the failure mode this step prevents).** A planning agent
-authoring a multi-issue decomposition writes an acceptance criterion that
-says "the PR description is committed to `wip/PR-<topic>.md`." On the same
-branch, another acceptance criterion says "clean up any leftover `wip/`
-artifacts before merge." Both criteria get committed into the PLAN doc body.
-The cleanup commit deletes the wip/ file but leaves the PLAN's prose
-reference pointing at it -- the PLAN is now self-contradictory and contains
-a path that resolves to nothing.
 
 ### 7.5 Source Document Status Transition
 

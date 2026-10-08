@@ -343,8 +343,9 @@ still executes; disabling the check there would make it assert nothing.
 ## When the text is a citation, not a call
 
 A skill's files carry two kinds of `shirabe validate --x` text and nothing
-mechanical separates them. `skills/plan/SKILL.md` documents the validator's
-whole-tree mode, which CI runs and `/plan` never invokes; `skills/design/`
+mechanical separates them. A SKILL.md that documents the validator's
+whole-tree mode (`shirabe validate --lifecycle`), which CI runs and the skill
+never invokes, cites the flag; `skills/design/`
 names `shirabe validate --lifecycle-chain <prd-path>` as the authority for a
 posture check it does make. Same shape, opposite answer.
 
@@ -352,7 +353,7 @@ So the judgment is written down, in the declaration, next to the records it
 qualifies:
 
 ```
-#not-a-call-site	skills/plan/SKILL.md	shirabe	--lifecycle	Documents the validator's whole-tree mode, which CI runs; /plan does not.
+#not-a-call-site	skills/<skill>/SKILL.md	shirabe	--lifecycle	Documents the validator's whole-tree mode, which CI runs; the skill does not.
 ```
 
 Five fields. It's a comment line, so the load-time reader skips it as it skips

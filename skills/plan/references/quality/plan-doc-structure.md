@@ -16,7 +16,6 @@ content that has no shared analogue.
 - [Required Sections](#required-sections)
 - [Execution Mode Differences](#execution-mode-differences)
 - [Decomposition Strategies](#decomposition-strategies)
-- [Section Placement](#section-placement-legacy-context)
 - [Examples](#examples) (in `plan-doc-examples.md`)
 
 ## Shared References
@@ -105,21 +104,40 @@ fails L01 against this state.
 |------------|----------|---------|
 | Accepted | _(doesn't exist)_ | /design or /explore approval |
 | Planned | Draft | /plan creates the PLAN artifact |
-| Planned | Active | /plan finishes (issues created or /work-on starts) |
+| Planned | Active | /plan finishes (after the approved filing when issues are filed; as authoring completes when none are) |
 | Planned | _(updated per issue)_ | Issues implemented via /work-on |
 | Current | Done | /complete-milestone (all issues closed) |
 
 ## Required Sections
 
-Every PLAN artifact has these 7 sections, in order:
+The sections a PLAN must carry, in order, depend on its shape. These are
+the lists `shirabe validate` checks (FC04 for presence, FC15 for order).
+
+**Outline-shaped** -- every `single-pr` PLAN, and a `multi-pr` or
+`coordinated` PLAN at an explicit `tracking_level: none`:
 
 1. **Status** -- current lifecycle state
 2. **Scope Summary** -- 1-2 sentence description of what this plan covers
 3. **Decomposition Strategy** -- walking skeleton, horizontal, or feature-by-feature planning, with rationale
-4. **Issue Outlines** -- brief description of each issue before full bodies exist (populated in single-pr mode)
-5. **Implementation Issues** -- table with issue links, dependencies, complexity (populated in multi-pr mode). See `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the canonical plan profile shape, description rows, child reference rows, and strikethrough rules.
-6. **Dependency Graph** -- Mermaid diagram showing issue relationships. See `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md` for syntax rules, status classes, node format, and legend.
-7. **Implementation Sequence** -- critical path and parallelization opportunities
+4. **Issue Outlines** -- one structured outline per work item
+5. **Implementation Sequence** -- critical path and parallelization opportunities
+
+A single-pr PLAN carries no `## Dependency Graph`: FC14 reports a populated
+one. An outline-shaped `multi-pr` or `coordinated` PLAN may add one, after
+Issue Outlines, since its work lands in several pull requests.
+
+**Issue-carrying** -- a `multi-pr` or `coordinated` PLAN at `issues` or
+`issues-and-milestone`, or a coordinated PLAN with no `tracking_level`:
+
+1. **Status**
+2. **Scope Summary**
+3. **Decomposition Strategy**
+4. **Implementation Issues** -- table with issue links, dependencies, complexity. See `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the canonical plan profile shape, description rows, child reference rows, and strikethrough rules.
+5. **Dependency Graph** -- Mermaid diagram showing issue relationships. See `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md` for syntax rules, status classes, node format, and legend.
+6. **Implementation Sequence**
+
+A PLAN never populates both Issue Outlines and Implementation Issues: FC14
+reports it.
 
 ## Execution Mode Differences
 
@@ -132,7 +150,8 @@ Every PLAN artifact has these 7 sections, in order:
 In single-pr mode, Phase 4 agents produce structured outlines that
 become sub-sections under Issue Outlines. These give /work-on the
 decomposition it needs without creating GitHub artifacts. The PLAN
-doc stays at Draft and transitions to Active when /work-on starts.
+doc is authored at Active when it files nothing, which is single-pr's
+default tracking level `none`.
 
 In multi-pr mode, Phase 4 agents write full issue body files. Phase 7
 creates GitHub issues and milestones, populates the Implementation
@@ -354,13 +373,6 @@ Three decomposition strategies are available:
 | Horizontal | Refactoring, documentation, loosely coupled components | Code implementation issues |
 | Feature-by-feature planning | Roadmap input (`input_type: roadmap`) | Planning issues (artifact production) |
 
-**Feature-by-feature planning** maps each roadmap feature 1:1 to a
-planning issue. The issues track artifact creation (PRDs, designs,
-spikes, decisions) rather than code implementation. All planning
-issues are `simple` complexity. Each issue carries a `needs_label`
-indicating what upstream artifact the feature requires (needs-prd,
-needs-design, needs-spike, or needs-decision).
-
 The strategy section in the PLAN doc should explain the mapping:
 
 ```markdown
@@ -370,14 +382,6 @@ The strategy section in the PLAN doc should explain the mapping:
 the creation of its required upstream artifact. The per-feature `needs-*` label indicates
 what type of artifact each feature requires next.
 ```
-
-## Section Placement (Legacy Context)
-
-In design docs that predate the PLAN artifact, the Implementation
-Issues section was inserted directly into the design doc body,
-immediately after Status. In the PLAN artifact, this content lives in
-its own document, so placement is governed by the Required Sections
-order above.
 
 ## Examples
 
