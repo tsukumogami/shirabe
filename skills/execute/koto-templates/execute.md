@@ -749,12 +749,17 @@ states:
       # scripts/check-template-interpolation.sh refuses $NAME in a gate.)
       # `run-id.sh get` only reads: the id was minted by execute-open.sh, and a
       # failed read fails the gate rather than giving the run a new identity.
+      #
+      # owned_merge_state_clean exits 1 only when GitHub reports DIRTY, since
+      # koto routes that answer to escalate_dirty_merge_state with no evidence.
+      # A read that returned nothing (a failed lookup or gh call) is 2, which
+      # matches no edge, so the run holds and the next tick reads again.
       owned_ci_passing:
         type: command
         command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
       owned_merge_state_clean:
         type: command
-        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk 'NF && $0 != \"DIRTY\" {ok = 1} END {exit !ok}'"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk '$0 == \"DIRTY\" {dirty = 1} NF && $0 != \"DIRTY\" {ok = 1} END {exit ok ? 0 : (dirty ? 1 : 2)}'"
       # A routing gate (DESIGN-output-gates Decision 9): the same lookup the
       # two gates above run, through check-pr-output.sh --owned-pr, so its
       # answer routes. 0 is exactly one owned PR; 3 (none or several) and 2 (a

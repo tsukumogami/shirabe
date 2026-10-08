@@ -156,6 +156,19 @@ exit "${FAKE_OWNED_RC:-0}"
 EOF
 chmod +x "$WORKDIR/stub/owned-pr.sh"
 
+# owned-pr.sh's own codes, as the lookup gates answer them: 5 (the one PR on
+# the branch carries another run's marker, which adopt-or-create-pr.sh reports
+# as its exit 6) is "not one PR this run owns", answered 3, so it ends the run
+# at execute:pr-adopt like 3 and 4; a read failure is 2.
+SETUP_CMD=$(gate_command orchestrator_setup setup_owned_pr)
+for pair in 3:3 4:3 5:3 2:2; do
+    OUT=$(cd "$WORKDIR/repo" && env CHECK_PR_OUTPUT_OWNED_PR="$WORKDIR/stub/owned-pr.sh" \
+        FAKE_OWNED_RC="${pair%%:*}" sh -c "$(render "$SETUP_CMD")" 2>/dev/null)
+    RC=$?
+    [ "$RC" -eq "${pair#*:}" ] && pass "owned-pr.sh exit ${pair%%:*} reaches the lookup gates as ${pair#*:}" \
+        || fail "owned-pr.sh exit ${pair%%:*}: the lookup gate answered $RC, want ${pair#*:}"
+done
+
 for pair in orchestrator_setup:setup_owned_pr pr_finalization:final_owned_pr \
             plan_completion:ready_owned_pr ci_monitor:monitor_owned_pr; do
     st=${pair%%:*}; g=${pair#*:}
