@@ -45,6 +45,7 @@ weave them into the conversation naturally. Circle back to gaps when appropriate
 |-----------|-------------------|
 | Theme clarity | What initiative ties these features together? Why is this one tracked initiative rather than unrelated independent work? |
 | Feature identification | What are the features? Are any missing? Is each one independently describable at PRD level? |
+| Outcome and evidence | For each candidate, who can do what end to end once it lands, that they couldn't before? Who would check that, from what starting state, and what would they see? An answer that names a merge, a test run or a component is mechanism; ask again for the outcome. |
 | Dependency awareness | Which features depend on each other? Are there external dependencies outside this roadmap? |
 | Sequencing constraints | What must come first? Are constraints hard blockers or soft preferences? What can run in parallel? |
 | Downstream artifact state | What does each feature need next? Which have PRDs, designs, or implementations already? What needs-* labels apply? |
@@ -88,7 +89,9 @@ lightweight informational checkpoint, not a formal review.
 
 Present:
 1. **Theme statement** (2-3 sentences): What initiative, why coordination matters
-2. **Candidate features** (numbered list): Each with a 1-sentence rationale
+2. **Candidate milestones** (numbered list): Each with a 1-sentence rationale,
+   the outcome someone can exercise, and a sketch of the evidence that would
+   show it
 3. **Dependency sketch**: Known dependencies between features
 4. **Sequencing notes**: Hard blockers vs soft preferences, parallelization potential
 
@@ -114,7 +117,11 @@ Write the scoping output to `wip/roadmap_<topic>_scope.md`:
 
 ## Candidate Features
 1. <feature>: <rationale>
+   - Outcome: <who can do what, end to end, that they couldn't before>
+   - Evidence: <who checks, from what starting state, what they see>
 2. <feature>: <rationale>
+   - Outcome: <...>
+   - Evidence: <...>
 
 ## Dependency Sketch
 - <feature A> depends on <feature B>: <reason>

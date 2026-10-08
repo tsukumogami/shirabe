@@ -227,8 +227,9 @@ soft markers, parentheticals, sentences opening with `Soft`, resolution,
 and when an item is blocked. The picker runs on coordinator hosts.
 
 Key assumptions:
-- jq's regex engine supports `scan`, `splits`, `gsub` and the `i` flag on
-  macOS (jq 1.7.1) and on the Linux runners; no lookaround is used.
+- jq's regex engine (Oniguruma) supports `scan`, `splits`, `gsub`, inline
+  `(?i:...)` groups and lookahead on macOS (jq 1.7.1) and on the Linux
+  runners; the soft-marker step uses one lookahead.
 
 #### Chosen: keep the reading in `lib_roadmap_features`, awk to collect and jq to decide
 
@@ -383,15 +384,19 @@ is the Outcome; on `roadmap/v1` it is `description`, as today.
    - `finished`: status matches `^(Done|Shipped)([^A-Za-z0-9-]|$)`;
      `done`: `finished` or status matches `^Dropped([^A-Za-z0-9-]|$)`.
    - dependencies: empty when the paragraph's first word is `None`;
-     otherwise soft tags are collected
-     (`([A-Za-z]+[0-9]+[a-z]?)\s*\(?\s*(soft|optional|sequencing-preferred|preferred|paced by)\b`,
-     case-insensitive), `\([^()]*\)` pairs are stripped while one matches
+     otherwise each soft mention is struck where it stands: a tag followed
+     by a parenthesised marker (`soft`, `optional`, `preferred`,
+     `sequencing-preferred`, `paced by`, any case) loses the tag alone,
+     found with a lookahead so the parenthetical stays for the next step,
+     and a tag followed by a bare marker goes with its marker. A hard
+     mention of the same tag elsewhere still counts. Then
+     `\([^()]*\)` pairs are stripped while one matches
      (at most 20 passes), the text is split at `[.;]\s+`, sentences whose
      first word is `soft` (any case) are dropped, and the rest resolves
      `Feature N`, `Features N, M and K` and `F<N>` (tag `Feature N` if
      present, else position N) and tags of other items, matched as whole
-     `[A-Za-z0-9]+` tokens so no lookaround is needed, minus soft tags and
-     the item's own tag; positions sorted ascending and unique.
+     `[A-Za-z0-9]+` tokens, minus the item's own tag; positions sorted
+     ascending and unique.
 
 **Facts** (`skills/coordinate/scripts/pick-facts.sh`). The `$by` list
 counts a dependency unsatisfied unless the depended-on unit is `finished`;

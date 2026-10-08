@@ -151,11 +151,25 @@ doesn't contain downstream content.
    - Technical architecture decisions (belongs in a Design Doc)
    - Implementation tasks or issue lists (belongs in a Plan)
    - Dates or deadlines (roadmaps sequence features, not calendar time)
-3. Are all features marked "Not Started"? At creation time, no feature should
+   A milestone's Evidence clauses are not requirements: they say how someone
+   checks the Outcome, not what the feature must do, so don't report them as
+   PRD content.
+3. Are all features marked `Not started`? At creation time, no feature should
    have progress.
 4. Does the roadmap pass structural validation? Check against the format spec:
-   required sections present, frontmatter correct, status is "Draft".
-5. Are scope boundaries clear? The "covers" and "doesn't cover" should leave no
+   required sections present, frontmatter correct (`schema: roadmap/v2`),
+   status is "Draft", and `shirabe validate` reports no FC21 finding.
+5. On a `roadmap/v2` roadmap, judge each milestone's content against the
+   format reference's Milestones section. Each of these is an issue that
+   fails the review and sends the draft back:
+   - an Outcome that names mechanism (a command, file, component or
+     implementation step to build) instead of who can do what, end to end;
+   - an Evidence clause only the author could judge (the delivering session's
+     say-so, "works well"), or one that is a merged pull request, a passing
+     test run or an artifact existing;
+   - a Left open that holds part of the Outcome: something whose absence
+     would make the Outcome false.
+6. Are scope boundaries clear? The "covers" and "doesn't cover" should leave no
    ambiguity about what work falls inside this roadmap.
 
 ## Output Format
@@ -204,7 +218,9 @@ name the tiebreaker. The user overrides if they disagree.
 dependency): Fix directly, update the ROADMAP, show the user what changed.
 
 **For significant issues** (circular dependencies, missing features, downstream
-content mixed in, sequencing without rationale): Present the jury's findings to the
+content mixed in, sequencing without rationale, a mechanism Outcome, Evidence
+the author alone could judge or that is a merge, test run or artifact, a Left
+open holding part of an Outcome): Present the jury's findings to the
 user with specific recommendations. Use AskUserQuestion when the findings surface
 trade-offs or decisions. If changes are substantial (feature additions, dependency
 rewrites), loop back to Phase 3 step 3.5.

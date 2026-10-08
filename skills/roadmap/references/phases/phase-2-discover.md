@@ -47,6 +47,11 @@ the perspective of a feature completeness analyst.
    - Is each feature at the right granularity? Too broad (should be split) or too
      narrow (should be merged)?
    - Is each feature independently describable at PRD level?
+   - Does each feature state an outcome someone can exercise end to end, and
+     evidence someone other than the delivering session could judge (who
+     checks, from what starting state, what they see)? Name every feature
+     whose outcome is really a mechanism, or whose evidence is a merge, a test
+     run or an artifact existing, and propose an outcome and evidence for it.
    - Is there at least one feature? A roadmap with none has nothing to track --
      flag that as a blocking issue. One feature is fine; a one-feature roadmap
      is a legitimate progress ledger, so do not flag it.
