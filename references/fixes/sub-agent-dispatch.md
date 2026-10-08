@@ -175,9 +175,10 @@ does not need a fallback at that phase.
 
 | Skill | Phase | Applicable fallback shapes |
 |-------|-------|---------------------------|
-| `/brief` | Phase 4 finalize | Parent-owned-publishing |
+| `/brief` | Phase 5 finalize | Parent-owned-publishing |
+| `/prd` | Phase 0 setup | Parent-owned-publishing |
 | `/prd` | Phase 4 jury | Serial-self-jury, Inline-substitute-review |
-| `/prd` | Phase 5 finalize | Parent-owned-publishing |
+| `/prd` | Phase 4 approval and cleanup | Parent-owned-publishing |
 | `/design` | Phase 2 decisions | Decision-bypass-with-inline-resolution |
 | `/design` | Phase 6 jury | Serial-self-jury, Parent-owned-publishing |
 | `/plan` | Phase 6 review | Inline-substitute-review |

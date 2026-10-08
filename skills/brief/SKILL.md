@@ -113,17 +113,26 @@ wip/brief_<topic>_context.md exists                      -> Resume at Phase 1
 On main or unrelated branch                              -> Start at Phase 0
 ```
 
-Phase 0 detection: if the parent-chain sentinel is present in
-`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
-(strategic), see `references/fixes/sub-agent-dispatch.md` for the
-fallback shape that applies. Behavior under direct invocation is
-unchanged when the sentinel is absent.
+**Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names
+`brief` (the first row above), `/brief` still reaches its own Phase 5 verdict
+and makes its own status transition, and skips everything that publishes or
+routes, which `/scope` owns: no push, no pull request, no branch creation, no
+cleanup commit, and no routing prompt. Control returns to `/scope`, which
+decides the next hop. An interactive run asks the author for the verdict as
+usual; an unattended run (`--auto`, which `/brief` takes from the parent's
+execution mode) takes the recommended verdict and names it in its output.
+Phase 5 marks each step this changes. This is the Parent-owned-publishing
+shape in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`, per
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
+Without the sentinel, nothing here applies.
 
 ### Critical Requirements
 
 - **Human approval gate:** Phase 5 requires explicit human approval via
   AskUserQuestion before Draft -> Accepted. Jury PASS alone does not
-  transition status.
+  transition status. The one exception is an unattended run under
+  `/scope`, which takes the recommended verdict and names it (see "Under
+  `/scope`" above).
 
 ### Execution
 
@@ -144,7 +153,7 @@ Execute phases sequentially by reading the corresponding phase file:
 4. **Validate**: two-reviewer jury (parallel agents)
    - Instructions: `references/phases/phase-4-validate.md`
 
-5. **Finalize**: approval + status transition + PR
+5. **Finalize**: approval + status transition + PR (no PR under `/scope`)
    - Instructions: `references/phases/phase-5-finalize.md`
 
 ### Output

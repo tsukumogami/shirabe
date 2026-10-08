@@ -105,6 +105,10 @@ contribution section itself.
   real role names from the problem space, not generic "user."
 - **Requirements**: Number them R1, R2, etc. Draw from both the scope and research
   findings. Separate functional from non-functional. Each requirement should be testable.
+- **Acceptance Criteria**: Derive them from the requirements, so every requirement
+  has at least one criterion that verifies it. The quality rules (binary pass/fail,
+  happy path and important edge cases) are in `prd-format.md`'s Acceptance Criteria
+  quality guidance.
 - **Out of Scope**: Draw from the BRIEF's Scope Boundary out-list when one exists,
   plus items from the scope document and anything the research revealed should be
   excluded.

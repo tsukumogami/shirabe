@@ -234,10 +234,13 @@ Options:
 - **Request changes** -- specify what needs to change; the workflow loops back
   to Phase 3 step 3.5 to incorporate the feedback
 - **Reject** -- terminal verdict; the Draft PRD is deleted via `git rm` and a
-  discard commit lands on the current branch. The author exits the workflow;
-  no PRD ships. The discard commit is the durable observable signal of
-  rejection in both in-chain (`/scope` reads it from `git log`) and
-  out-of-chain (author re-reads the same commit) contexts.
+  discard commit lands on the current branch (step 4.6). The author exits the
+  workflow; no PRD ships.
+
+Under `/scope`'s `parent_orchestration` sentinel (see "Under `/scope`" in the
+`prd` SKILL.md), an interactive run asks as above, and an unattended run
+(`--auto`) takes the recommended verdict and names it in its output, as "Took
+the recommended verdict: <verdict>".
 
 ### 4.6 Handle Approval
 
@@ -251,9 +254,17 @@ Options:
    If no vocabulary is defined, skip label removal -- the project hasn't
    configured which labels map to PRD completion.
    Skip this step if `source_issue` is not set in the frontmatter.
-5. Create PR (or update existing PR if on a shared branch)
+   Under `/scope`'s sentinel, skip this step too: the label edit is a `gh`
+   write outside the writes `/scope`'s SKILL.md lists for a run, and
+   `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`
+   leaves publishing to the parent. The label stays on the issue for the
+   author to remove.
+5. Create PR (or update existing PR if on a shared branch). Under `/scope`'s
+   sentinel, skip this step: `/scope` pushes and opens the pull request at its
+   own exit.
 
-Then present routing options:
+Then present routing options (under `/scope`'s sentinel, skip them and return
+control to `/scope`, which decides the next hop):
 
 "The PRD is accepted. Based on the complexity, here are the recommended next steps:"
 
@@ -298,9 +309,11 @@ the workflow. Run the following ordered actions; do not skip steps.
    EOF
    ```
 
-   The first line is the conventional-commit subject (the literal substring
-   `/scope`'s Component 7.7 git-log search reads); a blank line separates the
-   subject from the rationale body.
+   The first line is the conventional-commit subject; a blank line separates
+   the subject from the rationale body. The discard commit is the durable
+   signal of rejection in both contexts: in-chain, `/scope`'s Component 7.7
+   finds the subject with a `git log` search; out-of-chain, the author re-reads
+   the same commit for the rationale.
 
 4. **Remove the durable PRD artifact.**
 
@@ -336,6 +349,10 @@ the workflow. Run the following ordered actions; do not skip steps.
 
 ### 4.7 Cleanup
 
+Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
+`wip/prd_<topic>_*` and `wip/research/prd_<topic>_*`, and `/prd` makes no
+cleanup commit.
+
 After the PR is created, clean up temporary artifacts:
 
 ```bash
@@ -350,7 +367,8 @@ Commit: `chore(prd): clean up working artifacts`
 
 - [ ] All 3 jury agents reviewed the PRD
 - [ ] All issues from jury review are resolved
-- [ ] User has approved the PRD
+- [ ] User has approved the PRD, or, in an unattended run under `/scope`, the
+      output names the recommended verdict it took
 
 ## Artifact State
 

@@ -16,6 +16,23 @@ By the end of Phase 5:
   paths remain in the artifact or anywhere else).
 - A PR is created (or an existing PR on the topic branch is updated).
 
+## Under /scope
+
+When `/scope`'s `parent_orchestration` sentinel names `brief`, Phase 5 keeps the
+verdict (5.1 to 5.3), the status transition and the acceptance commit, and skips
+what publishes or routes, which `/scope` owns
+(`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`,
+the Parent-owned-publishing shape in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`):
+
+- 5.2 is asked in an interactive run; an unattended run (`--auto`, from the
+  parent's execution mode) takes the recommended option and names it.
+- 5.4 makes no cleanup commit; `/scope`'s cleanup phase removes
+  `wip/brief_<topic>_*`. Its sweep does not cover the jury's verdict files, so
+  the acceptance commit removes those (5.3).
+- 5.5 pushes nothing and creates or edits no pull request.
+- 5.6 asks no routing question: control returns to `/scope`.
+
 ## Resume Check
 
 If the BRIEF at `docs/briefs/BRIEF-<topic>.md` already has `status: Accepted`,
@@ -87,6 +104,10 @@ Do not skip the approval step even when both reviewers pass. Jury PASS de-risks 
 approval but does not eliminate human judgment — the user may add caveats, request
 narrowing, or block on a concern the jury did not catch.
 
+The one run that does not ask is an unattended run under `/scope`'s sentinel: it
+takes the recommended option and says so in its output, as "Took the recommended
+verdict: <verdict>", then handles that outcome below.
+
 ## 5.3 Handle Approval Outcome
 
 ### If Approve
@@ -102,13 +123,20 @@ narrowing, or block on a concern the jury did not catch.
 2. Remove or empty the Open Questions section if it was present (Open Questions is
    Draft-only per the format reference; Accepted status forbids it).
 
-3. Commit the acceptance:
+3. Under `/scope`'s sentinel only, delete the jury's verdict files
+   (`wip/research/brief_<topic>_phase4_*.md`) so the acceptance commit carries
+   their removal. `/scope`'s cleanup sweep and its publish step cover
+   `wip/brief_<topic>_*` but not `wip/research/brief_<topic>_*`, and no cleanup
+   commit of this skill's own follows under the sentinel.
+
+4. Commit the acceptance:
 
    ```
    docs(brief): accept BRIEF for <topic>
    ```
 
-Proceed to step 5.4 (Cleanup).
+Proceed to step 5.4 (Cleanup), or, under `/scope`'s sentinel, return control to
+`/scope`.
 
 ### If Request Changes
 
@@ -134,6 +162,10 @@ Proceed to step 5.4 (Cleanup).
 Then exit the workflow.
 
 ## 5.4 Cleanup
+
+Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes the
+remaining working files, and `/brief` makes no cleanup commit. That includes a
+Reject's step 3: the discard commit removes only the BRIEF.
 
 Remove all working artifacts for this invocation:
 
@@ -164,6 +196,9 @@ chore(brief): clean up working artifacts for <topic>
 
 ## 5.5 Create the PR
 
+Under `/scope`'s sentinel, skip this step: `/scope` pushes and opens the pull
+request at its own exit.
+
 If a PR already exists for the topic branch (the workflow may have been running on
 a shared branch), update its description with the BRIEF acceptance summary. If no
 PR exists, create one:
@@ -184,6 +219,9 @@ Formats-map entry drives them; BRIEF has no custom check).
 
 ## 5.6 Suggest Next Steps
 
+Under `/scope`'s sentinel, skip this step and return control to `/scope`, which
+decides the next hop.
+
 After the PR is open, suggest follow-up routes:
 
 | Situation | Suggestion |
@@ -198,13 +236,15 @@ PRD; the user routes when ready.
 
 ## Quality Checklist
 
-- [ ] User explicitly approved the BRIEF (not just jury PASS)
+- [ ] User explicitly approved the BRIEF (not just jury PASS), or, in an unattended
+      run under `/scope`, the output names the recommended verdict it took
 - [ ] Transition script ran successfully and updated both frontmatter and body Status
 - [ ] Body `## Status` first line is the bare word `Accepted` on its own line (FC03)
 - [ ] Open Questions section is empty or removed (no Draft-only content remains)
-- [ ] All `wip/brief_<topic>_*` files are deleted
+- [ ] All `wip/brief_<topic>_*` files are deleted (under `/scope`, `/scope` removes
+      them; this skill removes only the verdict files, at 5.3)
 - [ ] No `wip/...` references remain in the committed BRIEF or in other branch content
-- [ ] PR is created or updated with the BRIEF summary
+- [ ] PR is created or updated with the BRIEF summary (not under `/scope`)
 - [ ] Verdict bodies were fenced in code blocks when surfaced to the user
 
 ## Artifact State
@@ -212,7 +252,8 @@ PRD; the user routes when ready.
 After this phase:
 - Final BRIEF at `docs/briefs/BRIEF-<topic>.md` with `status: Accepted`
 - All `wip/` artifacts removed
-- PR open with the BRIEF as the headlining change
+- PR open with the BRIEF as the headlining change (under `/scope`, no PR: control
+  is back with `/scope`)
 - Workflow complete; ready for downstream consumption
 
 ## Workflow Exit
