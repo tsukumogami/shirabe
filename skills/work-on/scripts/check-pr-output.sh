@@ -30,8 +30,12 @@
 #
 # owned-pr.sh is always the execute skill's copy beside this one
 # (skills/execute/scripts/owned-pr.sh under the same plugin root), never one
-# found on PATH. CHECK_PR_OUTPUT_OWNED_PR, set to a path, replaces it; it is the
-# test suite's seam, and koto's cleared environment never passes it to a gate.
+# found on PATH. A gate runs with the PATH recorded when the session was
+# created, so a PATH lookup let whatever owned-pr.sh came first there -- a
+# stale install, another checkout -- answer which pull request a run owns, and
+# the gate would route on its answer. CHECK_PR_OUTPUT_OWNED_PR, set to a path,
+# replaces the copy; it is the test suite's seam, and koto's cleared
+# environment never passes it to a gate.
 #
 # Exit status (the gate scripts' shared convention):
 #   0  the output passes (--owned-pr: exactly one owned pull request)
