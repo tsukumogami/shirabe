@@ -16,7 +16,10 @@
 #       agent review). Sections, in order:
 #         - acceptance criteria: from --criteria <file>, or from issue <N>'s
 #           body via `gh issue view` (the `Acceptance Criteria` or `Done when`
-#           section when the body has one, the whole body otherwise)
+#           section when the body has one, the whole body otherwise).
+#           --issue is refused when the session is a plan-outline child
+#           (created with ISSUE_SOURCE=plan_outline): its issue number is an
+#           item in the PLAN, so its criteria come in through --criteria
 #         - design context: the session's `context.md`, which phase 0 wrote
 #           from the design doc that names the issue, when present
 #         - changed paths: `git diff --name-status -M <base> HEAD`
@@ -78,7 +81,8 @@
 #         --seat `recheck` (commission that seat with the code packet)
 #   66 -- a read or write failed: `gh issue view`, `git diff`, or the packet
 #         file could not be created or written
-#   67 -- usage: missing or unrecognised kind, flag, or flag value
+#   67 -- usage: missing or unrecognised kind, flag, or flag value, or
+#         --issue for a plan-outline child's session
 #   127 -- recheck only: jq is not on PATH
 #
 # On any non-zero exit no packet file is left behind.
@@ -141,6 +145,28 @@ emit_capped() {
         END { print used + 0 }
     ' "$file")
     echo "[truncated: kept $kept of $total bytes; read the source directly if a finding needs the rest]"
+}
+
+# session_issue_source: print the ISSUE_SOURCE variable the session was
+# created with (`github`, `plan_outline`, or nothing), read from the
+# workflow_initialized event in its koto state log. Prints nothing when the
+# log can't be found or read, or jq is absent: the caller then treats --issue
+# as it always has, since an issue-backed run must not lose its packet to a
+# failed lookup.
+session_issue_source() {
+    local dir log v
+    command -v jq >/dev/null 2>&1 || return 0
+    dir=$(koto session dir "$SESSION" 2>/dev/null) || return 0
+    log="$dir/koto-$SESSION.state.jsonl"
+    [ -r "$log" ] || return 0
+    v=$(head -n 1 "$log" | jq -c '.schema_version' 2>/dev/null)
+    if [ "$v" != 1 ]; then
+        # Loud, because the plan-outline check goes quiet with it.
+        echo "review-packet: $SESSION's log header has schema_version ${v:-none}; this reader knows 1, so --issue is not checked against ISSUE_SOURCE" >&2
+        return 0
+    fi
+    jq -r 'select(.type? == "workflow_initialized") | .payload.variables.ISSUE_SOURCE // empty' \
+        "$log" 2>/dev/null | head -n 1
 }
 
 KIND="${1:-}"
@@ -213,6 +239,12 @@ else
         *[!0-9]*) usage "--issue must be a number, got [$ISSUE]" ;;
     esac
     [ -z "$CRITERIA" ] || [ -f "$CRITERIA" ] || die 64 "criteria file [$CRITERIA] is not a file"
+    # A plan-outline child's ISSUE_NUMBER is the item's number in its PLAN,
+    # not a GitHub issue, so `gh issue view` on it reads whatever unrelated
+    # issue or pull request the repository has under that number.
+    if [ -n "$ISSUE" ] && [ "$(session_issue_source)" = plan_outline ]; then
+        usage "session [$SESSION] is a plan-outline child: its issue number [$ISSUE] names an item in the PLAN, not a GitHub issue. Write the outline's acceptance criteria to a file and pass --criteria <file> instead of --issue"
+    fi
 fi
 
 WORK=$(mktemp -d) || die 66 "could not create a temporary directory"
