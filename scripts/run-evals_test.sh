@@ -56,7 +56,7 @@ field() { # field <name> -- read one field of the last verdict JSON in OUT
   printf '%s' "$OUT" | python3 -c "import json,sys; print(json.load(sys.stdin)[sys.argv[1]])" "$1"
 }
 
-# The four fixtures are real captures (see each file's header). The inline
+# The six fixtures are real captures (see each file's header). The inline
 # transcripts further down are hand-written, and only for shapes no real run
 # has produced here: an ExitPlanMode, a denial with no denial record.
 
@@ -200,7 +200,7 @@ fi
 # that completed is not.
 classify verdict "$FIXTURES/agent-stopped.jsonl"
 if [ "$RC" -eq 0 ] && [ "$(field verdict)" = executed ] && [ "$(field agents_launched)" = 2 ] \
-  && [ "$(field stopped_agents)" = "[{'description': 'With-skill execute eval run', 'status': 'stopped'}]" ]; then
+  && [ "$(field unfinished_agents)" = "[{'description': 'With-skill execute eval run', 'status': 'stopped'}]" ]; then
   pass "real stopped-agent session: two agents launched, only the stopped one is listed, with its status"
 else
   fail "agent-stopped verdict (rc=$RC): $OUT"
@@ -217,7 +217,7 @@ fi
 # none is listed, and the report says nothing.
 classify verdict "$FIXTURES/agents-foreground.jsonl"
 if [ "$RC" -eq 0 ] && [ "$(field verdict)" = executed ] && [ "$(field agents_launched)" = 2 ] \
-  && [ "$(field stopped_agents)" = "[]" ]; then
+  && [ "$(field unfinished_agents)" = "[]" ]; then
   pass "real foreground session: two agents launched, none listed as unfinished"
 else
   fail "agents-foreground verdict (rc=$RC): $OUT"
@@ -389,6 +389,18 @@ if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXE
   pass "runner: a partly graded run stays exit 2 whatever the transcript says"
 else
   fail "runner, partly graded (rc=$RC): $OUT"
+fi
+
+# ... and when an agent of the session was stopped before it finished, the
+# runner names it through the classifier's unfinished command: the agent and
+# its status, never the did-not-execute claim.
+run_runner partial-stopped pair
+if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "EVAL AGENT DID NOT FINISH" \
+  && printf '%s' "$OUT" | grep -q "Did not finish: With-skill execute eval run (status: stopped)" \
+  && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE"; then
+  pass "runner: a partly graded run with a stopped agent names the agent and stays exit 2"
+else
+  fail "runner, partly graded with a stopped agent (rc=$RC): $OUT"
 fi
 
 run_runner grade demo
@@ -809,6 +821,9 @@ cat > "$T/iso-suite/isoskill/evals/evals.json" <<'EOF'
 ]}
 EOF
 PROBE_OUT="$T/iso-probe.out"
+# The hooks below find the clone by the runner's prompt line "An isolated,
+# throwaway clone of this repository has been prepared at:"; it must stay in
+# step with the runner's prompt, or every tier-2 case here finds no checkout.
 cat > "$T/iso-probe.sh" <<'EOF'
 #!/usr/bin/env bash
 # Cut one node in the tier-2 clone and one in the second clone. node-cut.sh's
@@ -871,6 +886,7 @@ mkdir -p "$co/node-worktree/sub"
   echo "gh_log=$gh_log"
   echo "koto_log=$(val KOTO_CALL_LOG "$1")"
   echo "limit=$(val EXECUTE_CI_WAIT_LIMIT_SECS "$1")"
+  echo "coordination=${EVAL_COORDINATION_CHECKOUT:-}"
   echo "logged=$(cat "$co/gh-calls.log" 2>/dev/null)"
   echo "stray=$(cat "$co/node-worktree/sub/gh-calls.log" 2>/dev/null)"
 } > "$PROBE_OUT" 2>&1
@@ -891,6 +907,14 @@ if [ "$RC" -eq 0 ] && [ -n "$env_co" ] \
   pass "tier-2: a relative call log is made absolute against the checkout, so a call from a nested worktree lands in it"
 else
   fail "tier-2 env resolution (rc=$RC): $(cat "$PROBE_OUT" 2>/dev/null) -- $OUT"
+fi
+# The session is told which checkout the gh shim seeds a repository model
+# from, so a first gh call made from a node worktree or the second clone
+# still seeds the coordination PR from the checkout.
+if [ -n "$env_co" ] && [ "$(probe coordination)" = "$env_co" ]; then
+  pass "tier-2: the session's EVAL_COORDINATION_CHECKOUT names the tier-2 checkout"
+else
+  fail "tier-2 coordination checkout: [$(probe coordination)], want [$env_co]"
 fi
 
 # No koto the nested session reaches reads or writes $HOME/.koto: each run's
@@ -983,6 +1007,15 @@ if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "EVAL RUN REACHED \$HOME/.kot
   pass "koto: a run that wrote into \$HOME/.koto exits 2 and names the file"
 else
   fail "koto tripwire (rc=$RC): $OUT"
+fi
+# A run that also classified as not executed keeps its 4, which outranks the
+# tripwire's 2; the tripwire still names the file.
+koto_run "$T/koto-leak.sh" PATH="$FIXTURES/bin:$T/fake-koto:$PATH" STUB_CLAUDE_MODE=plan
+if [ "$RC" -eq 4 ] && printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE" \
+  && printf '%s' "$OUT" | grep -q "EVAL RUN REACHED \$HOME/.koto"; then
+  pass "koto: the tripwire on a run that did not execute leaves its exit 4"
+else
+  fail "koto tripwire on a not-executed run (rc=$RC): $OUT"
 fi
 # ... and a change there that doesn't name the run, another session's, passes.
 cat > "$T/koto-other.sh" <<'EOF'

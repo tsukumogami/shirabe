@@ -28,6 +28,12 @@ Environment (set by ablation.py; the wrapper refuses to start without them):
 
 When KOTO_TICK_SESSION is set the caller is koto itself, running a gate or an
 action; the call goes straight to the real koto and is not logged.
+
+The eval runner keeps its koto store out of the real HOME the same way
+(setup_eval_koto in scripts/run-evals.sh), and the two already differ: there
+HOME is the run's scratch root and KOTO_SESSIONS_BASE is cleared, while here
+HOME comes from ABLATION_KOTO_HOME and KOTO_SESSIONS_BASE passes through. Keep
+the two in step, or say here why not.
 """
 
 import json

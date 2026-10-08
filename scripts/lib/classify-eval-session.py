@@ -185,7 +185,7 @@ def classify(events):
     # transcript ended. Either way its work never came back. Foreground agents
     # get the same notifications as background ones, so a run that waited for
     # its agents lists none.
-    stopped_agents = [{"description": desc, "status": status or "none"}
+    unfinished_agents = [{"description": desc, "status": status or "none"}
                       for desc, status in agents.values() if status != "completed"]
 
     return {
@@ -200,7 +200,7 @@ def classify(events):
         "result_is_error": bool((result_event or {}).get("is_error")),
         "result_text": (result_event or {}).get("result") or "",
         "agents_launched": len(agents),
-        "stopped_agents": stopped_agents,
+        "unfinished_agents": unfinished_agents,
     }
 
 
@@ -211,16 +211,16 @@ def mode_overridden(summary, requested):
 
 def unfinished(summary, transcript):
     """Name each agent the session launched that never completed, if any."""
-    if not summary["stopped_agents"]:
+    if not summary["unfinished_agents"]:
         return
     print("")
     print("  EVAL AGENT DID NOT FINISH")
-    print("  An agent the session launched never completed, so its scenario has no")
-    print("  outputs or grades. Status \"stopped\" means the session ended while the")
-    print("  agent still ran, which is the runner's fault, not the skill's; \"failed\"")
-    print("  means the agent failed on its own; \"none\" means the transcript ended")
-    print("  with no word on it.")
-    for agent in summary["stopped_agents"]:
+    print("  An agent the session launched never completed, so its work never came")
+    print("  back. Status \"stopped\" means the session ended while the agent still")
+    print("  ran, which is the runner's fault, not the skill's; \"failed\" means the")
+    print("  agent failed on its own; \"none\" means the transcript ended with no")
+    print("  word on it.")
+    for agent in summary["unfinished_agents"]:
         print(f"    Did not finish: {agent['description']} (status: {agent['status']})")
     print(f"    Transcript: {transcript}")
 
