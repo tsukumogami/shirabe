@@ -64,7 +64,7 @@ refused "an instance name that starts with a dash" "instance name is not a plain
 verdict '' /i/w5 4b3597d2 4b3597d2-6184-4a48
 refused "an empty instance name" "instance name is not a plain name"
 verdict 'tsuku w5' /i/w5 4b3597d2 4b3597d2-6184-4a48
-refused "an instance name with a space" "instance path is not absolute"
+refused "a name holding a space, which splits the line into a relative path" "instance path is not absolute"
 verdict tsuku+w5 relative/w5 4b3597d2 4b3597d2-6184-4a48
 refused "a relative instance path" "instance path is not absolute"
 verdict tsuku+w5 /i/w5 ';rm' 4b3597d2-6184-4a48

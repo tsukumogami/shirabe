@@ -455,6 +455,7 @@ stopped
 KSEAL=$(handover | sed -n 's/^keyseal //p')
 jq -c '[.[] | .state = "waiting"]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
 eq  "a job in an unknown state since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
+has "and says so" "$(tail -1 "$T/pass.out")" "no longer the finished job"
 nothing_removed "a job in an unknown state since the verdict"
 
 fixture

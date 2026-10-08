@@ -192,6 +192,15 @@ and `destroy`. Its default action, `teardown-handoff.sh --seal`, reads:
   optional in the schema because `kept` needs none, and a `stopped` without
   it refuses here.
 
+> **Correction, 2026-10-08.** The job bullet above first read: "its state
+> must not be `working`, since the session was stopped before the
+> inventory." It now requires a state known to be finished. The review of
+> tsukumogami/shirabe#647 found that refusing only `working` would let a
+> missing, renamed or new state read as stopped, so `claude rm` could run on
+> a live job; the stricter rule was approved with that pull request, whose
+> merge carries it. Claude Code 2.1.293 was seen to show a running job as
+> `working` and a finished or stopped one as `done`.
+
 The verdict is plain lines, one fact per line (`topic <t>`, `instance <name>
 <path>`, `job <id> <session>`, `transcript <path>`, `pr <owner/repo>#<n>
 <merge sha>` per pull request, `handoff <url>`, `inventory <seal token>`),
@@ -211,15 +220,6 @@ prints). The pass takes its target only from its own read of the
 (`coord-log.sh`); the key seal it was handed is an equality check against that
 read, so a stale or edited hand-off refuses instead of pointing a pass at
 another instance.
-
-> **Correction, 2026-10-08.** The job bullet above first read: "its state
-> must not be `working`, since the session was stopped before the
-> inventory." It now requires a state known to be finished. The review of
-> tsukumogami/shirabe#647 found that refusing only `working` would let a
-> missing, renamed or new state read as stopped, so `claude rm` could run on
-> a live job; the stricter rule was approved with that pull request, whose
-> merge carries it. Claude Code 2.1.293 was seen to show a running job as
-> `working` and a finished or stopped one as `done`.
 
 **Rejected: the coordinator writes the verdict.** That's the one thing the
 template forbids, and the job id and pull request list are facts a script can
@@ -485,7 +485,7 @@ it treats one from `destroy`, reading the `destroy` evidence before it.
 
 ## Implementation Approach
 
-Two pull requests after this design, each landing before the next opens.
+Two pull requests followed this design, each landing before the next opened (tsukumogami/shirabe#646 and #647).
 
 1. **The inventory and the posture reader.** Decisions 5 and 6, with no
    template change: the faster reads with their existing tests plus cases for
