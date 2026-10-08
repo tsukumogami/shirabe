@@ -18,6 +18,10 @@ If `wip/design_<topic>_summary.md` exists, skip to Phase 1.
 
 ### 0.1 Branch Setup
 
+Under `/scope`'s `parent_orchestration` sentinel (SKILL.md, Output, "Under `/scope`"),
+skip this step: work on the branch `/scope` invoked `/design` on, and
+create or switch no branch.
+
 If already on a `docs/<topic>` branch, skip branch creation. Otherwise:
 - Create `docs/<topic>` (kebab-case) from latest main
 - Confirm you're on the correct branch
@@ -37,10 +41,7 @@ Read the PRD file from the path provided in `$ARGUMENTS`. Verify:
 Before applying the hard-stop status check below, look for the
 `parent_orchestration:` sentinel block. Read any
 `wip/*_<topic>_state.md` file matching the current topic
-(glob pattern, not a hardcoded `wip/scope_<topic>_state.md` — the
-glob keeps the branch forward-compatible with future parent skills
-beyond `/scope`). The `<topic>` value is the topic slug extracted
-from the PRD path.
+(the `<topic>` value is the topic slug extracted from the PRD path).
 
 When the sentinel is present AND its `invoking_child:` field is
 `design` AND the PRD's current status is `Accepted` (the
@@ -51,27 +52,12 @@ brief-handoff), run:
 shirabe transition <prd-path> "In Progress"
 ```
 
-then proceed past the hard-stop check. The sentinel's presence
-is the explicit signal that a parent (`/scope` or any future
-parent skill) is driving this invocation; the auto-transition
-is the symmetric counterpart to `/prd`'s brief-handoff in
-`skills/prd/SKILL.md` lines 132-138.
+then proceed past the hard-stop check.
 
 When the sentinel is ABSENT (no matching state file or no
 `parent_orchestration:` block) OR its `invoking_child:` field
 does NOT match `design`, do NOT auto-transition. Fall through
 to the hard-stop check below.
-
-This is the symmetric three-skill contract: when a chain-context
-signal is present (BRIEF input for `/prd`, `parent_orchestration:`
-sentinel for `/design` and `/plan`), the skill auto-transitions
-its upstream artifact forward by one status before consuming it.
-When no chain-context signal is present, the skill applies its
-protective hard-stop. Direct `/design` invocation against a Draft
-or non-Accepted PRD writes no sentinel; the sentinel check returns
-absent; the hard-stop fires. The "silent auto-promote on direct
-invocation" failure mode cannot reach this code path because the
-sentinel is the explicit signal.
 
 If the PRD status is not "Accepted" (and the sentinel was absent
 or did not match `invoking_child: design`), STOP and inform the
@@ -197,10 +183,6 @@ Proposed
 <Derived from PRD in step 0.4>
 ```
 
-The `upstream` field creates a machine-readable link from the design doc back to
-its source PRD. When omitted (per 0.4a), a prose note in the Context section
-should describe where the source PRD lives without naming a private path.
-
 ### 0.6 Transition PRD Status
 
 Update the PRD's status from "Accepted" to "In Progress" (both frontmatter and body).
@@ -227,7 +209,7 @@ Commit: `docs(design): initialize design for <topic> from PRD`
 ## Quality Checklist
 
 Before proceeding:
-- [ ] On branch `docs/<topic>`
+- [ ] On branch `docs/<topic>` (under `/scope`: the branch it invoked `/design` on)
 - [ ] Problem statement is in implementation terms (not a PRD copy)
 - [ ] Decision drivers include both PRD-derived and implementation-specific factors
 - [ ] `upstream:` value is either a same-repo `docs/prds/...` path, a public

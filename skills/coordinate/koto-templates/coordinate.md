@@ -2647,6 +2647,20 @@ pull request it builds), write its row, `--work "<what>" --kind local-agent
 --who "local agent" --next "<step>"`, and `--done "<what>"` when it lands:
 without the row a successor can't see the work.
 
+Two writes come before acting, whatever event follows. When a person's word
+arrives, on the record's thread or anywhere else (a pause or a resume, a cap, a
+release go-ahead, an approval relayed from another session, a standing
+answer), write it with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session {{SESSION_NAME}}`:
+`--standing <pause|go-ahead|approval|answer> --what "<what it says>" --owner
+"<the person>" --relayed-by "<who carried it>"` (no relayer when they told you
+directly), `--end <id> --by "<who>"` when it stops binding, `--run cap <n> --by
+"<who>"` for a cap. A person's own comment on the record is not an entry until
+you write it. And before a local agent starts work in flight (a fix round, a
+pull request it builds), write its row, `--work "<what>" --kind local-agent
+--who "local agent" --next "<step>"`, and `--done "<what>"` when it lands:
+without the row a successor can't see the work.
+
 Arriving here from `report_questions` with a checkpoint report whose questions
 were over the bound (`overflow`), message the worker to send them again in its
 brief's `Questions:` shape; nothing else asks it to.
