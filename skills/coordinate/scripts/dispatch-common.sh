@@ -45,7 +45,7 @@
 #   dc_session_matches <topic> <session-name>
 #       0 when the session name is exactly the topic's slug, `-`, and eight
 #       lowercase hex digits. Never a prefix match: topic `api` doesn't match
-#       `api_v2-1a2b3c4d`.
+#       `api_v2-` and its eight digits.
 #
 #   dc_find_session <workspace-root> <topic>
 #       Prints `<session-name><TAB><instance-path>` for the topic's worker

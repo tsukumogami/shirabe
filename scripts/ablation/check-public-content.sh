@@ -33,10 +33,11 @@
 #
 # Usage:
 #   scripts/ablation/check-public-content.sh [--denylist <file>] [--require-denylist] <file>...
-#   scripts/ablation/check-public-content.sh [--denylist <file>] [--require-denylist] --diff <base> [--head <commit>]
+#   scripts/ablation/check-public-content.sh [--denylist <file>] [--require-denylist] --diff <base> [--head <commit>] [-- <pathspec>...]
 #
 # With --diff, only the lines <head> (default HEAD) adds relative to its merge
-# base with <base> are checked. With files, every line; "-" reads stdin.
+# base with <base> are checked, across the whole tree or only under the
+# pathspecs given after --. With files, every line; "-" reads stdin.
 #
 # Exit codes:
 #   0 - nothing refused
@@ -53,6 +54,8 @@ require_denylist=0
 base=""
 head="HEAD"
 files=()
+# Arguments after --: files to read, or with --diff the pathspecs to diff.
+after_dashdash=()
 
 die() {
     echo "$PROG: $*" >&2
@@ -66,7 +69,7 @@ while [ "$#" -gt 0 ]; do
         --diff) [ "$#" -ge 2 ] || die "--diff requires a base"; base="$2"; shift ;;
         --head) [ "$#" -ge 2 ] || die "--head requires a commit"; head="$2"; shift ;;
         -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
-        --) shift; files+=("$@"); break ;;
+        --) shift; after_dashdash=("$@"); break ;;
         -) files+=("-") ;;
         -*) die "unknown option: $1" ;;
         *) files+=("$1") ;;
@@ -83,13 +86,16 @@ elif [ "$require_denylist" -eq 1 ]; then
     die "--require-denylist: no denylist given (--denylist <file> or \$ABLATION_DENYLIST)"
 fi
 if [ -n "$base" ]; then
-    [ "${#files[@]}" -eq 0 ] || die "--diff takes no files"
+    [ "${#files[@]}" -eq 0 ] || die "--diff takes no files; give pathspecs after --"
+    pathspecs=(.)
+    [ "${#after_dashdash[@]}" -eq 0 ] || pathspecs=("${after_dashdash[@]}")
     for ref in "$base" "$head"; do
         case "$ref" in -*) die "refusing a ref that starts with '-': $ref" ;; esac
         git rev-parse --verify --quiet --end-of-options "${ref}^{commit}" >/dev/null \
             || die "not a commit: $ref"
     done
 else
+    [ "${#after_dashdash[@]}" -eq 0 ] || files+=("${after_dashdash[@]}")
     [ "${#files[@]}" -gt 0 ] || die "nothing to check: give files or --diff <base>"
 fi
 
@@ -103,7 +109,7 @@ rows="$TMP/rows"
 if [ -n "$base" ]; then
     # Three dots: against the merge base, so commits that landed on the base
     # branch after this branch forked are never read as this branch's lines.
-    git diff --unified=0 --no-color "$base"..."$head" -- . | awk '
+    git diff --unified=0 --no-color "$base"..."$head" -- "${pathspecs[@]}" | awk '
         /^\+\+\+ / { file = substr($0, 5); sub(/^b\//, "", file); next }
         /^@@ / { match($0, /\+[0-9]+/); n = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
         /^\+/ { printf "%s\t%d\t%s\n", file, n, substr($0, 2); n++ }

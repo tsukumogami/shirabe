@@ -145,7 +145,7 @@ something reads, before it has begun any work, a short statement of
 what is not satisfied, what the skill will be unable to do without it,
 and one command that will work on that machine. Not a generic install
 line: if the host has `tsuku`, the instruction names `tsuku`. If the
-tool is sitting in `~/.tsuku/tools/current/` and merely absent from
+tool is sitting in `$HOME/.tsuku/tools/current/` and merely absent from
 `PATH`, the instruction says to source the environment file rather than
 telling the agent to install something it already has. The agent
 decides what to do next -- install it, work around it, tell the person
@@ -186,8 +186,8 @@ success that shipped in `shirabe#279`.
 ### Installed, invisible
 
 An engineer's tools are managed by tsuku, so `shirabe` and `koto` both
-live under `~/.tsuku/tools/current/` and are on `PATH` only in shells
-that have sourced `~/.tsuku/env`. An agent shell that missed the
+live under `$HOME/.tsuku/tools/current/` and are on `PATH` only in shells
+that have sourced `$HOME/.tsuku/env`. An agent shell that missed the
 sourcing runs `/scope`. The check distinguishes "not installed" from
 "installed and not on this shell's PATH" and tells the agent to source
 the environment file. Without that distinction the agent is told to

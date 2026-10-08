@@ -672,8 +672,8 @@ Resolution runs first and is nearly free: `command -v` is a shell builtin at
 1. `command -v <tool>`. If it resolves, the tool is present; go to surface
    checks.
 2. Otherwise test each root in `SHIRABE_PREFLIGHT_ROOTS` with `-x`, defaulting
-   to `~/.tsuku/tools/current:~/.shirabe/bin:~/.local/bin` and overridable per
-   R28. A hit means off-PATH, and the remedy is `. ~/.tsuku/env` with no install
+   to `$HOME/.tsuku/tools/current:$HOME/.shirabe/bin:$HOME/.local/bin` and overridable per
+   R28. A hit means off-PATH, and the remedy is `. $HOME/.tsuku/env` with no install
    offered.
 3. Only on a miss everywhere is the tool absent, and only then is an install
    route resolved at all.
@@ -692,7 +692,7 @@ branch under review at skill load.
 
 The ordering is R18, and it was established empirically: with
 `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, `shirabe` and `koto` resolve off-PATH under
-`~/.tsuku/tools/current` while `jq`, `git`, and `python3` resolve on-PATH, and
+`$HOME/.tsuku/tools/current` while `jq`, `git`, and `python3` resolve on-PATH, and
 with the root list overridden to `/nonexistent` everything reports absent, which
 confirms R28's override actually governs the distinction.
 
@@ -1413,7 +1413,7 @@ of operations.
 A gate, not a deliverable. Validate the exact `allowed-tools` pattern against the
 exact injected body line on a host whose `permissions.defaultMode` is not `auto`.
 The machine this was researched on carries `"defaultMode": "auto"` in
-`~/.claude/settings.json`, which masks a pattern mismatch entirely, and neither
+`$HOME/.claude/settings.json`, which masks a pattern mismatch entirely, and neither
 `.claude/settings.json` in this repo nor any `settings.local.json` carries a Bash
 allow-list, so there is no local evidence either way. A mismatch does not degrade
 the check. It silently deletes the skill. Rollout does not proceed until this is

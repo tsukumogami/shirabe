@@ -92,6 +92,33 @@ case "$STATUS:$ERR" in
     *) fail "--diff checks only added lines" "status $STATUS: $ERR" ;;
 esac
 
+# Pathspecs after -- narrow --diff to those paths: a line added outside them is
+# not read, and one added inside them still is.
+mkdir -p "$REPO/code"
+printf 'cache under ~''/.cache/thing\n' > "$REPO/code/b.sh"
+g add -A
+g commit -q -m outside
+STATUS=0
+ERR=$(cd "$REPO" && "$SUT" --denylist "$DENY" --diff HEAD~2 -- '*.md' 2>&1 >/dev/null) || STATUS=$?
+case "$STATUS:$ERR" in
+    *"b.sh"*) fail "--diff pathspecs narrow the check" "read a line outside the pathspec: $ERR" ;;
+    1:*"a.md:3: wip/ path"*) pass "--diff pathspecs narrow the check to those paths" ;;
+    *) fail "--diff pathspecs narrow the check" "status $STATUS: $ERR" ;;
+esac
+STATUS=0
+ERR=$(cd "$REPO" && "$SUT" --denylist "$DENY" --diff HEAD~1 -- code 2>&1 >/dev/null) || STATUS=$?
+case "$STATUS:$ERR" in
+    1:*"code/b.sh:1: home-directory path"*) pass "--diff pathspecs still check the lines added inside them" ;;
+    *) fail "--diff pathspecs still check the lines added inside them" "status $STATUS: $ERR" ;;
+esac
+
+STATUS=0
+ERR=$(cd "$REPO" && "$SUT" --denylist "$DENY" --diff HEAD~1 code/b.sh 2>&1 >/dev/null) || STATUS=$?
+case "$STATUS:$ERR" in
+    2:*"--diff takes no files"*) pass "--diff with a bare file argument is a usage error" ;;
+    *) fail "--diff with a bare file argument is a usage error" "status $STATUS: $ERR" ;;
+esac
+
 STATUS=0
 ERR=$(cd "$REPO" && "$SUT" --denylist "$DENY" --diff nosuchref 2>&1 >/dev/null) || STATUS=$?
 case "$STATUS:$ERR" in

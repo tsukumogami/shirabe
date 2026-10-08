@@ -231,7 +231,7 @@ reports the same shape from the other side.
   is not wrong — while exit 1, reserved explicitly as "DISTINCT from a content
   violation," is not the code a surface failure returns.
 - **PATH-invisibility is orthogonal to this axis entirely.** Distinguishing "not
-  installed" from "installed under `~/.tsuku/tools/current/` or `~/.shirabe/bin`
+  installed" from "installed under `$HOME/.tsuku/tools/current/` or `$HOME/.shirabe/bin`
   but not on this shell's PATH" cannot be done by any option considered, and the
   BRIEF's "Installed, invisible" journey requires it.
 - **Multi-version binding ambiguity is the precondition for flag skew.**

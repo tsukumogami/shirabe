@@ -343,7 +343,7 @@ directory created atomically, taken over when its owner's pid is gone, since
    names are machine-wide. A topic's session is matched by its whole name,
    never by prefix: niwa's slug of the topic (each `-` becomes `_`), then `-`,
    then eight lowercase hexadecimal digits, as `^<slug>-[0-9a-f]{8}$`. So `api`
-   (`^api-[0-9a-f]{8}$`) never matches `api-v2`'s session `api_v2-1a2b3c4d`.
+   (`^api-[0-9a-f]{8}$`) never matches `api-v2`'s session, `api_v2-` and its eight digits.
    The format is niwa's today and is pinned by a test; a name outside it
    counts as no match, which fails toward launching and is caught by the
    record's `dispatching` row.
