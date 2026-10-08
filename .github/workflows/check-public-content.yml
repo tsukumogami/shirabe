@@ -14,8 +14,10 @@ name: Check public content
 # scripts and tests are in skills/ and are checked; a test that plants a
 # refused shape splits the string, as check-public-content_test.sh does.
 
+# `edited` re-runs the job when the body changes after the pull request opens.
 on:
   pull_request:
+    types: [opened, edited, reopened, synchronize]
 
 permissions:
   contents: read
