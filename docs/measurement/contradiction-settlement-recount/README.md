@@ -47,7 +47,10 @@ reachable; the committed copy is what the re-count reads.
   the design prints for it, exactly once in its file at the inventory commit
   (`662f6ec`), inside the span's line range (or above it, for an excerpt the
   design marks `above:`). A missing or repeated excerpt fails the run and names
-  the entry.
+  the entry. Two excerpts quote a skill's `wip/` path template, which the
+  repository's public-content check refuses in added text, so `spans.json`
+  stores those two as a sha256 and a length, and the script finds them by
+  hashing each substring of that length.
 - **The estimate.** The per-profile estimate is recomputed from the spans the
   way the design computed it (overlapping spans counted once per profile, a
   pointer-loaded file counted in full) and must equal the design's figure.
