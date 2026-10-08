@@ -2,7 +2,7 @@
 # record-state.sh -- change the record's stored set (Run, Standing, Work) and
 # append the entry that tells it, or list the set. Agent-run; the three
 # sections change only through this script
-# (docs/designs/DESIGN-coordinate-record-container.md, Decision 3).
+# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3).
 #
 # Usage:
 #   record-state.sh --session S --run KEY VALUE --by WHO

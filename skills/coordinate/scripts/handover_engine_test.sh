@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # handover_engine_test.sh -- a replacement coordinator started from the record
 # alone, the shipped coordinate.md driven through real koto against the
-# testdata/gh stand-in (docs/designs/DESIGN-coordinate-record-container.md,
+# testdata/gh stand-in (docs/designs/current/DESIGN-coordinate-record-container.md,
 # Decision 3).
 #
 # The fixture is the shape of a real handover, on 2026-09-29, in which a

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # record-append.sh -- append an entry to the coordinator record, or list the
 # entries. Agent-run; the one way an entry is written
-# (docs/designs/DESIGN-coordinate-record-container.md, Decision 2).
+# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 2).
 #
 # The record's body holds its state and is rewritten whole by the write core;
 # its entries, the dated account of what happened, are comments on the same
