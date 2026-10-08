@@ -206,12 +206,12 @@ db '.fail = []'
 
 echo "== a session name as the address (shirabe#610) =="
 seed "$TWO"
-bash "$RS" "${W[@]}" --run coordinator coordinator_session_owner-f05c1900 --by "the human" >/dev/null 2>"$T/err"
+bash "$RS" "${W[@]}" --run coordinator lane_owner --by "the human" >/dev/null 2>"$T/err"
 eq "an underscored session name is the coordinator's address" 0 $?
-bash "$RS" "${W[@]}" --told plugin_api-1a2b3c4d --by coordinator_session_owner-f05c1900 >/dev/null 2>"$T/err"
+bash "$RS" "${W[@]}" --told plugin_api-worker --by lane_owner >/dev/null 2>"$T/err"
 eq "  ... and an underscored party is told it" 0 $?
 bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "report at its first checkpoint" >/dev/null 2>"$T/err"
-eq "  ... a worker topic's first Work row is still recorded as told" "coordinator_session_owner-f05c1900|plugin_api-1a2b3c4d worker-f2" \
+eq "  ... a worker topic's first Work row is still recorded as told" "lane_owner|plugin_api-worker worker-f2" \
     "$(live | jq -r '([.run[] | select(.key == "coordinator") | .value] | join(" ")) + "|" + ([.run[] | select(.key == "told") | .value] | join(" "))')"
 bash "$RH" "${RM[@]}" | jq -e '[.gaps[].gap] | index("not-told worker-f2") == null' >/dev/null \
     && ok "  ... and the handover read matches it as told" || bad "  ... and the handover read matches it as told" "$(bash "$RH" "${RM[@]}")"

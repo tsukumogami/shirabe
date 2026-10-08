@@ -72,7 +72,7 @@ def dec:
 
 # check_worker: a Worker cell, and a Run `coordinator` or `told` value (a
 # messaging address). re_topic takes letters, digits, `.`, `_` and `-`, so a
-# session name such as niwa's `plugin_api-1a2b3c4d` passes; an id, a path, a
+# session name such as niwa's `plugin_api-worker` passes; an id, a path, a
 # job id, an instance name and a `session_` value never do.
 def check_worker:
   if . == "" then refuse("worker: empty")

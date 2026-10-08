@@ -229,9 +229,9 @@ done
 refused "empty goal"            "$(variant empty-goal '.goal = "  "')"                     "goal: required"
 refused "empty run mode"        "$(variant empty-mode '.run_mode = ""')"                   "run_mode: required for deliver, which takes --auto or --interactive"
 refused "address with a slash"  "$(variant bad-addr '.reports_to = "a/b"')"                "reports_to: must be a session name"
-US=$(bash "$S" --input "$(variant us-addr '.reports_to = "coordinator_session_owner-f05c1900"')" --stdout 2>"$T/us.err")
+US=$(bash "$S" --input "$(variant us-addr '.reports_to = "lane_owner"')" --stdout 2>"$T/us.err")
 eq "address: an underscored session name renders" 0 "$?"
-has "address: and is the one named" "$US" 'addressed to `coordinator_session_owner-f05c1900`, the address its record names'
+has "address: and is the one named" "$US" 'addressed to `lane_owner`, the address its record names'
 # A release (shirabe#627): its version is the positional, --dry-run its one
 # flag, and it takes no run mode.
 REL=$(variant release '.entry_point = "release" | .entry_args = ["v0.25.0", "--dry-run"] | .run_mode = "" | .unit = "release acme/widgets v0.25.0"')
