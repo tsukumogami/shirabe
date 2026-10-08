@@ -117,8 +117,8 @@ stateDiagram-v2
     quiet_check --> failure : gates.quiet_check_verdict.exit_code: 102
     rebrief --> wait : sent: sent
     rebrief --> pick_facts : sent: worker_gone
-    reconcile --> pick_facts : gates.reconcile_posture.exit_code: 25, gates.reconcile_report.exit_code: 0, reconciled: reported
-    reconcile --> posture_ask : gates.reconcile_posture.exit_code: 26, gates.reconcile_report.exit_code: 0, reconciled: reported
+    reconcile --> pick_facts : gates.reconcile_handover.exit_code: 0, gates.reconcile_posture.exit_code: 25, gates.reconcile_report.exit_code: 0, reconciled: reported
+    reconcile --> posture_ask : gates.reconcile_handover.exit_code: 0, gates.reconcile_posture.exit_code: 26, gates.reconcile_report.exit_code: 0, reconciled: reported
     reconcile_pass --> reconcile : gates.reconcile_pass_verdict.exit_code: 140
     record --> pick_facts : gates.record_verdict.exit_code: 50
     record --> record_conflict : gates.record_verdict.exit_code: 52
@@ -162,6 +162,8 @@ stateDiagram-v2
     roadmap_close --> done : gates.roadmap_close_verdict.exit_code: 135
     roadmap_close_step --> roadmap_close : step: closed
     roadmap_close_step --> done_handed_over : step: handed_over
+    roadmap_status --> record : evidence.unit: present, status: opened
+    roadmap_status --> wait : status: failed
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 120
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 121
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 122
@@ -219,6 +221,7 @@ stateDiagram-v2
     wait --> decision_answer : event: answer, evidence.decision: present, evidence.round: present
     wait --> decision_evidence : event: evidence, evidence.decision: present
     wait --> decision_raise : event: raise
+    wait --> roadmap_status : event: landed, vars.ROADMAP: {"is_set":true}
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}
     wait_leg --> take_report : gates.leg_result.disposition: resolved, gates.leg_result.source: promoted
@@ -288,6 +291,9 @@ stateDiagram-v2
     end note
     note left of quiet_check
         gate: quiet_check_verdict
+    end note
+    note left of reconcile
+        gate: reconcile_handover
     end note
     note left of reconcile
         gate: reconcile_posture
