@@ -1026,3 +1026,264 @@ fn help_names_both_mode_flags_and_the_default() {
         .stdout(contains("--no-issues"))
         .stdout(contains("default"));
 }
+
+// ---------------------------------------------------------------------------
+// Milestone roadmaps and tagged dependencies.
+// ---------------------------------------------------------------------------
+
+/// A roadmap under `schema` whose `## Features` section holds `features`,
+/// wrapped in the sections populate and the validator need.
+fn write_roadmap(dir: &Path, schema: &str, features: &str) -> PathBuf {
+    let path = dir.join("ROADMAP-tagged.md");
+    let body = format!(
+        "---\n\
+schema: {schema}\n\
+status: Active\n\
+theme: |\n  Theme.\n\
+scope: |\n  Scope.\n\
+---\n\
+\n\
+# ROADMAP: tagged\n\
+\n\
+## Status\n\
+\n\
+Active\n\
+\n\
+## Theme\n\
+\n\
+Theme.\n\
+\n\
+## Features\n\
+\n\
+{features}\
+## Sequencing Rationale\n\
+\n\
+Base first.\n\
+\n\
+## Progress\n\
+\n\
+In progress.\n\
+\n\
+## Implementation Issues\n\
+\n\
+<!-- Populated by an issueless run. Do not fill manually. -->\n\
+\n\
+## Dependency Graph\n\
+\n\
+<!-- Populated by an issueless run. Do not fill manually. -->\n\
+\n"
+    );
+    fs::write(&path, body).unwrap();
+    path
+}
+
+/// Two milestones whose fields span several lines. Evidence and Left open
+/// text carry markers so a test can assert none of it leaks into output.
+const MILESTONE_FEATURES: &str = "### AB1: Base layer\n\
+**Dependencies:** None\n\
+**Status:** Not started\n\
+**Outcome:** Operators install the base layer\n\
+in one step. Later detail stays out.\n\
+**Evidence:**\n\
+- EVIDENCE-ONE the installer runs\n  \
+  EVIDENCE-WRAP on a clean host\n\
+- EVIDENCE-TWO the docs name it\n\
+**Left open:** LEFT-OPEN-ONE upgrades\n\
+across major versions.\n\
+\n\
+### AB2: Cache\n\
+**Dependencies:** AB1\n\
+**Status:** Not started\n\
+**Outcome:** Repeat installs reuse\n\
+the cache.\n\
+**Evidence:**\n\
+- EVIDENCE-THREE a second install is offline\n\
+**Left open:** LEFT-OPEN-TWO eviction.\n\
+\n";
+
+/// The text populate wrote: the two reserved sections, from the
+/// Implementation Issues heading to the end of the document.
+fn generated_sections(doc: &str) -> &str {
+    let at = doc
+        .find("## Implementation Issues")
+        .expect("Implementation Issues heading");
+    &doc[at..]
+}
+
+#[test]
+fn issueless_milestone_descriptions_come_from_the_outcome() {
+    let dir = tempdir();
+    let path = write_roadmap(&dir, "roadmap/v2", MILESTONE_FEATURES);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    let out = fs::read_to_string(&path).unwrap();
+    let generated = generated_sections(&out);
+    assert!(
+        generated.contains("| _Operators install the base layer in one step._ | | | |\n"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("| _Repeat installs reuse the cache._ | | | |\n"),
+        "{generated}"
+    );
+    for marker in ["EVIDENCE-", "LEFT-OPEN-", "Later detail"] {
+        assert!(!generated.contains(marker), "{marker} leaked: {generated}");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// `AB2` depends on `AB1` by tag; `AB3` names a tag no item carries.
+const TAGGED_FEATURES: &str = "### AB1: Base layer\n\
+**Dependencies:** None\n\
+**Status:** Not started\n\
+\n\
+Installs the base.\n\
+\n\
+### AB2: Cache\n\
+**Dependencies:** AB1\n\
+**Status:** Not started\n\
+\n\
+Adds a cache.\n\
+\n\
+### AB3: Stray\n\
+**Dependencies:** ZZ9\n\
+**Status:** Not started\n\
+\n\
+Names nothing local.\n\
+\n";
+
+fn assert_tagged_dependency_rendered(out: &str) {
+    let generated = generated_sections(out);
+    assert!(
+        generated.contains("| Cache | None | F1 | Not started |\n"),
+        "{generated}"
+    );
+    assert!(generated.contains("    F1 --> F2\n"), "{generated}");
+    // An unknown tag adds nothing to the cell and draws no edge.
+    assert!(
+        generated.contains("| Stray | None | None | Not started |\n"),
+        "{generated}"
+    );
+    assert!(!generated.contains("--> F3"), "{generated}");
+    assert!(!generated.contains("ZZ9"), "{generated}");
+}
+
+#[test]
+fn tagged_dependency_resolves_on_a_v1_roadmap_and_validates() {
+    let dir = tempdir();
+    let path = write_roadmap(&dir, "roadmap/v1", TAGGED_FEATURES);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    assert_tagged_dependency_rendered(&fs::read_to_string(&path).unwrap());
+    shirabe()
+        .args(["validate"])
+        .arg(&path)
+        .arg("--visibility=public")
+        .assert()
+        .success();
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn tagged_dependency_resolves_on_a_v2_roadmap() {
+    let dir = tempdir();
+    let path = write_roadmap(&dir, "roadmap/v2", TAGGED_FEATURES);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    assert_tagged_dependency_rendered(&fs::read_to_string(&path).unwrap());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn milestone_issue_bodies_carry_the_outcome_only() {
+    // `--dry-run` builds no issue bodies, so a stub `gh` records the argv it
+    // is handed instead, one NUL-terminated element at a time, and answers
+    // each `issue create` with the next issue URL.
+    let dir = tempdir();
+    let path = write_roadmap(&dir, "roadmap/v2", MILESTONE_FEATURES);
+    let log = dir.join("gh-args.log");
+    let count = dir.join("gh-count.log");
+    let stub_dir = dir.join("stub-bin");
+    fs::create_dir_all(&stub_dir).unwrap();
+    let stub_path = stub_dir.join("gh");
+    fs::write(
+        &stub_path,
+        format!(
+            "#!/usr/bin/env bash\n\
+             printf '%s\\0' \"$@\" >> '{log}'\n\
+             echo x >> '{count}'\n\
+             n=$(wc -l < '{count}')\n\
+             echo \"https://github.com/example/repo/issues/$((n))\"\n",
+            log = log.display(),
+            count = count.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&stub_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&stub_path, perms).unwrap();
+    }
+    let original_path = std::env::var("PATH").unwrap_or_default();
+    let salted_path = format!("{}:{}", stub_dir.display(), original_path);
+
+    shirabe()
+        .env("PATH", salted_path)
+        .args(["roadmap", "populate"])
+        .arg("--issues")
+        .arg(&path)
+        .args(["--repo", "example/repo"])
+        .assert()
+        .success();
+
+    let raw = fs::read_to_string(&log).unwrap();
+    let args: Vec<&str> = raw.split('\0').collect();
+    let bodies: Vec<&str> = args
+        .windows(2)
+        .filter(|w| w[0] == "--body")
+        .map(|w| w[1])
+        .collect();
+    assert_eq!(bodies.len(), 2, "{raw}");
+    assert!(
+        bodies[0].contains("Operators install the base layer in one step. Later detail stays out."),
+        "{}",
+        bodies[0]
+    );
+    assert!(
+        bodies[1].contains("Repeat installs reuse the cache."),
+        "{}",
+        bodies[1]
+    );
+    for body in &bodies {
+        for marker in ["EVIDENCE-", "LEFT-OPEN-"] {
+            assert!(!body.contains(marker), "{marker} leaked: {body}");
+        }
+    }
+
+    // The issue-keyed table summarizes the Outcome too.
+    let out = fs::read_to_string(&path).unwrap();
+    let generated = generated_sections(&out);
+    assert!(
+        generated.contains("| _Operators install the base layer in one step._ | | | |\n"),
+        "{generated}"
+    );
+    assert!(generated.contains("    I1 --> I2\n"), "{generated}");
+    for marker in ["EVIDENCE-", "LEFT-OPEN-"] {
+        assert!(!generated.contains(marker), "{marker} leaked: {generated}");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}

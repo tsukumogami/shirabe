@@ -52,9 +52,10 @@ pub const ROADMAP_V2_SCHEMA: &str = "roadmap/v2";
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Feature {
     /// 1-based index within the Features section (1, 2, 3, ...). The index
-    /// is the source-of-truth identifier the dependency edges resolve
-    /// against; `Feature 1` in a Dependencies cell means the feature with
-    /// `id == 1`.
+    /// is what [`dependency_positions`] returns and the dependency edges
+    /// resolve to; `Feature 1` in a Dependencies cell means the feature
+    /// tagged `Feature 1`, which is the one with `id == 1` unless headings
+    /// are out of order.
     pub id: usize,
     /// The heading's tag: the text before its colon, `Feature 3` or `AB10a`.
     pub tag: String,
@@ -226,6 +227,9 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
                 }
             }
             Some(Field::Dependencies) => f.dependencies_continued = true,
+            // A wrapped Needs, Status or unknown field line stays in that
+            // field's extent: on v2 it is left out of the description, and
+            // no field value keeps it.
             Some(_) => {}
             None => in_extent = false,
         }
