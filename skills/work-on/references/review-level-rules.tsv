@@ -76,12 +76,15 @@ class	engine	skills/coordinate/scripts/reconcile-pass.sh
 class	engine	skills/coordinate/scripts/reconcile-report-get.sh
 class	engine	skills/coordinate/scripts/record-confirm.sh
 class	engine	skills/coordinate/scripts/record-find.sh
+class	engine	skills/coordinate/scripts/record-handover.sh
 class	engine	skills/coordinate/scripts/report-facts.sh
 class	engine	skills/coordinate/scripts/report-pr.sh
 class	engine	skills/coordinate/scripts/report-questions.sh
 class	engine	skills/coordinate/scripts/report-source.sh
 class	engine	skills/coordinate/scripts/start-check.sh
+class	engine	skills/coordinate/scripts/teardown-handoff.sh
 class	engine	skills/coordinate/scripts/teardown-inventory.sh
+class	engine	skills/coordinate/scripts/teardown-pass.sh
 class	engine	skills/coordinate/scripts/teardown-verdict.sh
 class	engine	skills/coordinate/scripts/wait-target.sh
 class	engine	skills/deliver/scripts/deliver-absent.sh
