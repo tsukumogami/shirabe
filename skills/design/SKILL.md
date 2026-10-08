@@ -150,7 +150,7 @@ From `$ARGUMENTS`:
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
 then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Also
 parse `--max-rounds=N` (default: 1 for design's corrective loop). In --auto
-mode, follow `references/decision-protocol.md` at all decision points. Create
+mode, follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at all decision points. Create
 `wip/design_<topic>_decisions.md` to track decisions.
 
 Detect visibility and scope as described in Context-Aware Sections above.
@@ -160,7 +160,7 @@ For cross-repo source issues, use `gh` commands to read content.
 
 ```
 parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                          → see references/fixes/sub-agent-dispatch.md
+                                                          → see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 Design doc status "Accepted"                              → Offer to revise or start fresh
 Design doc status "Proposed"                              → Offer to continue
 wip/research/design_<topic>_phase5_security.md            → Resume at Phase 6

@@ -5,99 +5,181 @@
       "id": 1,
       "name": "freeform-topic-full-workflow",
       "prompt": "/design authentication-system",
-      "expected_output": "Design skill triggers with freeform input mode. Phase 0 reads phase-0-setup-freeform.md, creates branch and design doc skeleton at docs/designs/DESIGN-authentication-system.md, writes wip/design_authentication-system_summary.md. Phase 1 decomposes into independent decision questions (e.g., session management strategy, credential storage, token format). Phase 2 spawns one decision agent per question. Phase 3 cross-validates assumptions across decisions. Phases 4-7 continue sequentially. Final doc has all required sections: Status, Context and Problem Statement, Decision Drivers, Considered Options, Decision Outcome, Solution Architecture, Implementation Approach, Security Considerations, Consequences. Status set to Proposed. Frontmatter includes problem, decision, rationale fields.",
-      "files": []
+      "expected_output": "Design skill triggers with freeform input mode. Phase 0 reads phase-0-setup-freeform.md, creates branch and design doc skeleton at docs/designs/DESIGN-authentication-system.md, writes wip/design_authentication-system_summary.md. Phase 1 decomposes into independent decision questions (e.g., session management strategy, credential storage, token format). Phase 2 spawns one decision agent per question. Phase 3 cross-validates assumptions across decisions. Phases 4 to 6 continue sequentially (architecture, security, final review). Final doc has all required sections: Status, Context and Problem Statement, Decision Drivers, Considered Options, Decision Outcome, Solution Architecture, Implementation Approach, Security Considerations, Consequences. Status set to Proposed. Frontmatter includes problem, decision, rationale fields.",
+      "files": [],
+      "expectations": [
+        "Transcript enters freeform mode and reads phase-0-setup-freeform.md",
+        "Transcript creates the design doc skeleton at docs/designs/DESIGN-authentication-system.md and writes wip/design_authentication-system_summary.md",
+        "Transcript decomposes the topic into independent decision questions in Phase 1 and gives each its own decision agent in Phase 2",
+        "Transcript runs Phase 3 cross-validation, then Phases 4 to 6",
+        "Transcript produces a DESIGN with status Proposed, the nine required sections, and problem, decision and rationale in its frontmatter"
+      ]
     },
     {
       "id": 2,
       "name": "prd-based-design",
       "prompt": "/design docs/prds/PRD-plugin-system.md",
       "expected_output": "Design skill detects path matches docs/prds/PRD-*.md pattern and enters PRD mode. Phase 0 reads phase-0-setup-prd.md, validates PRD status is Accepted, extracts requirements and constraints from the PRD. Step 0.4a validates the upstream path: git ls-files shows the PRD is tracked in this repo, so the relative path is used. Sets upstream field in frontmatter to docs/prds/PRD-plugin-system.md. Design doc scoping derives from PRD content rather than asking the user to describe the problem. Decision Drivers section reflects the PRD's requirements. The rest of the 8-phase workflow proceeds normally.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript recognizes the docs/prds/PRD-*.md path and enters PRD mode, reading phase-0-setup-prd.md",
+        "Transcript checks that the PRD is at Accepted before designing against it",
+        "Transcript validates the upstream path at step 0.4a and, since the PRD is tracked in this repo, sets upstream: docs/prds/PRD-plugin-system.md",
+        "Transcript derives the design's scope and Decision Drivers from the PRD instead of asking the user to describe the problem"
+      ]
     },
     {
       "id": 9,
       "name": "wip-staging-upstream-rejected",
       "prompt": "/design wip/PRD-cross-repo-feature.md",
       "expected_output": "Design skill detects the path. Phase 0 step 0.4a validates the upstream PRD path. Check 1 fires immediately: the candidate path is under wip/. The skill hard-stops with an error explaining wip/ is non-durable and reads ${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md to surface recovery options. The skill does NOT write upstream: wip/... into the design doc skeleton. If the repo is public and the canonical PRD lives in a private repo, the skill recommends omitting the upstream field; otherwise it asks the user for the canonical owner/repo:path or same-repo path before proceeding to step 0.5.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript stops at step 0.4a because the upstream candidate is under wip/",
+        "Transcript explains that wip/ is non-durable and points at ${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md for the recovery options",
+        "Transcript does NOT write an upstream: wip/... value into the design doc skeleton",
+        "Transcript asks for the canonical same-repo path or owner/repo:path, or recommends omitting upstream when a public design would point at a private repository"
+      ]
     },
     {
       "id": 3,
       "name": "auto-mode-no-interaction",
       "prompt": "/design --auto rate-limiting",
-      "expected_output": "Design skill runs in --auto mode. Reads references/decision-protocol.md for decision points. Creates wip/design_rate-limiting_decisions.md to track decisions. No AskUserQuestion calls at any phase. Phase 1 decomposes without user confirmation. Phase 2 decision agents run without presenting recommendations to user. Phase 7 skips interactive review. All choices use the auto decision protocol. Complexity assessment at the end still presented but does not block. Terminal summary lists all assumptions made.",
-      "files": []
+      "expected_output": "Design skill runs in --auto mode. Reads references/decision-protocol.md for decision points. Creates wip/design_rate-limiting_decisions.md to track decisions. No AskUserQuestion calls at any phase. Phase 1 decomposes without user confirmation. Phase 2 decision agents run without presenting recommendations to user. Phase 6 takes the recommended verdict instead of asking for approval. All choices use the auto decision protocol. Complexity assessment at the end still presented but does not block. Terminal summary lists all assumptions made.",
+      "files": [],
+      "expectations": [
+        "Transcript follows ${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md at decision points and creates wip/design_rate-limiting_decisions.md",
+        "Transcript makes no AskUserQuestion call at any phase",
+        "Transcript decomposes in Phase 1 and resolves the decision questions in Phase 2 without asking the user to confirm them",
+        "Transcript takes the recommended verdict at Phase 6 and names it, and lists the assumptions it made in its summary"
+      ]
     },
     {
       "id": 4,
       "name": "decision-decomposition-then-parallel-execution",
       "prompt": "/design caching-layer",
       "expected_output": "Phase 1 (Decision Decomposition) reads phase-1-decomposition.md and identifies 2-4 independent decision questions before any execution begins (e.g., cache invalidation strategy, storage backend, TTL policy). Writes wip/design_caching-layer_coordination.json with all questions listed. Phase 2 spawns one decision agent per question in parallel. Each agent produces wip/design_caching-layer_decision_<N>_report.md. The critical requirement is that ALL questions are identified in Phase 1 before ANY decision agent is spawned in Phase 2.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript identifies every decision question in Phase 1 before any decision agent is spawned",
+        "Transcript writes wip/design_caching-layer_coordination.json listing all the questions",
+        "Transcript spawns one decision agent per question in Phase 2, each writing its own report"
+      ]
     },
     {
       "id": 5,
       "name": "cross-validation-catches-conflict",
       "prompt": "/design --auto distributed-task-queue",
       "expected_output": "Phase 3 (Cross-Validation) runs after Phase 2, even if all decisions completed without error. Cross-validation reads all decision reports and checks for conflicting assumptions. For example, if Decision 1 assumes low message volume while Decision 2 picks a pattern that generates high message volume, Phase 3 flags the conflict and triggers re-evaluation of the affected decision with the conflicting outcome as a constraint. Cross-validation is mandatory and cannot be skipped, even with a single decision.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript runs Phase 3 cross-validation after Phase 2 even though every decision completed",
+        "Transcript checks the decision reports against each other for conflicting assumptions",
+        "Transcript flags a conflict it finds and re-evaluates the affected decision with the conflicting outcome as a constraint",
+        "Transcript does not treat cross-validation as skippable, including when there is only one decision"
+      ]
     },
     {
       "id": 6,
       "name": "resume-from-interrupted-phase-2",
       "prompt": "/design api-versioning",
       "expected_output": "Skill finds existing wip/design_api-versioning_coordination.json with some decisions marked complete and some pending. Resume logic matches 'coordination.json exists with some pending' and resumes at Phase 2 rather than restarting from Phase 0. Only the pending decision questions are re-executed. Already-completed decision reports are preserved. After completing the remaining decisions, workflow continues to Phase 3 cross-validation.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript matches the resume row for coordination.json with some decisions pending and resumes at Phase 2, not Phase 0",
+        "Transcript re-runs only the pending decision questions and keeps the completed decision reports",
+        "Transcript continues to Phase 3 cross-validation once the remaining decisions finish"
+      ]
     },
     {
       "id": 7,
       "name": "security-review-mandatory",
       "prompt": "/design --auto static-config-loader",
-      "expected_output": "Even though a static config loader has minimal security surface, Phase 6 (Security) always runs. The skill reads phase-6-security.md. The security review may conclude with N/A for most categories, but the review itself is not skipped. The Security Considerations section appears in the final doc. This validates the critical requirement that security review is mandatory regardless of topic.",
-      "files": []
+      "expected_output": "Even though a static config loader has minimal security surface, Phase 5 (Security) always runs. The skill reads phase-5-security.md. The security review may conclude with N/A for most categories, but the review itself is not skipped. The Security Considerations section appears in the final doc. This validates the critical requirement that security review is mandatory regardless of topic.",
+      "files": [],
+      "expectations": [
+        "Transcript runs Phase 5 (Security) and reads phase-5-security.md even though the topic has little security surface",
+        "Transcript may mark categories N/A but does not skip the review",
+        "Transcript includes a Security Considerations section in the final design"
+      ]
     },
     {
       "id": 8,
       "name": "simple-vs-complex-output-routing",
       "prompt": "/design --auto cli-flag-rename",
-      "expected_output": "After Phase 7 produces the final design doc, the skill runs a complexity assessment. A CLI flag rename touches 1-3 files, requires only test updates, no API changes, no cross-package work. Assessment classifies as Simple. Presents options: 'Plan (Recommended)' or 'Approve only'. If the design instead involved cross-package changes and new test infrastructure, it would classify as Complex. The routing determines how the next step suggestion is framed, not whether /plan is available.",
-      "files": []
+      "expected_output": "After Phase 6 approves the final design doc, the skill runs a complexity assessment. A CLI flag rename touches 1-3 files, requires only test updates, no API changes, no cross-package work. Assessment classifies as Simple. Presents options: 'Plan (Recommended)' or 'Approve only'. If the design instead involved cross-package changes and new test infrastructure, it would classify as Complex. The routing determines how the next step suggestion is framed, not whether /plan is available.",
+      "files": [],
+      "expectations": [
+        "Transcript runs the complexity assessment after the design is approved",
+        "Transcript classifies a 1-3 file CLI flag rename with no API change as Simple",
+        "Transcript presents 'Plan (Recommended)' or 'Approve only' as the next step",
+        "Transcript says the classification changes how the next step is framed, not whether /plan is available"
+      ]
     },
     {
       "id": 10,
       "name": "phase-6-reject-contract",
       "prompt": "/design --auto deprecated-feature-flag --reject \"This design has been superseded by the new feature-flags platform; the DESIGN draft is no longer needed.\"",
       "expected_output": "Phase 6 step 6.7 presents a 3-option AskUserQuestion with the verdict labels Approved, Reject, and Continue-revising (replacing the prior 2-option Approved / Needs iteration gate; Continue-revising is the renamed Needs-iteration branch with identical behavior). The prompt copy includes the literal disclaimer substring 'Rationale will be committed to git history' so the author is advised before typing that any rationale becomes part of the repository's permanent git history. The 3-option gate fires AFTER /design's existing step 6.6 (Commit and PR) has committed the Draft DESIGN to the branch -- this commit-then-reject ordering is load-bearing because it preserves Draft durability across session interruptions (Decision 1 Option C explicitly rejected for this reason), and the Reject branch tolerates the git rm cost in exchange for the durability guarantee. Selecting Reject is a terminal verdict: the skill prompts for a one-sentence rationale, persists it to a tmpfile (e.g., RATIONALE_FILE=$(mktemp); cat > \"$RATIONALE_FILE\" with a heredoc whose first line is the conventional-commit subject), runs `git rm docs/designs/DESIGN-deprecated-feature-flag.md` against the durable artifact, removes BOTH `wip/design_deprecated-feature-flag_*.md` AND `wip/research/design_deprecated-feature-flag_*.md` (the design-side wip cleanup is wider than the PRD side because /design writes per-phase research artifacts under wip/research/design_<topic>_phase<N>_<role>.md that /prd does not produce), and commits via `git commit -F \"$RATIONALE_FILE\"` (or the equivalent stdin form `git commit -F -` reading a heredoc) with the canonical subject `docs(design): discard DESIGN draft for deprecated-feature-flag` and the rationale as the commit body. The rationale is NEVER inlined into `git commit -m \"...\"` -- the rationale never transits a shell-argument channel, mitigating the Command-injection / git-commit-rationale-interpolation concern. The discard commit on the current branch is the durable observable signal of rejection per AC30c -- the contract fires identically whether /design is invoked in-chain (under /scope, which observes the discard commit via `git log` for downstream Decision Record purposes) or out-of-chain (direct /design <topic> invocation, where the discard commit alone is the durable trace and no Decision Record is written). The Reject branch then exits Phase 6 without running step 6.9 (Clean Up wip/ Artifacts) -- step 6.9 only runs on the Approved path and the Reject branch performs its own wip cleanup inline. No status flip from Proposed to Accepted; no Planned -> Current move; no PR creation beyond the discard commit itself.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript presents the step 6.7 verdict with the three options Approved, Reject and Continue-revising, and the prompt copy includes 'Rationale will be committed to git history'",
+        "Transcript keeps step 6.6's commit of the Draft before the verdict, so the Reject branch discards an already-committed DESIGN",
+        "Transcript writes the rationale to a tmpfile whose first line is the subject docs(design): discard DESIGN draft for deprecated-feature-flag",
+        "Transcript runs git rm docs/designs/DESIGN-deprecated-feature-flag.md and removes both wip/design_deprecated-feature-flag_*.md and wip/research/design_deprecated-feature-flag_*.md",
+        "Transcript commits the discard with git commit -F (a file or stdin), never with the rationale inlined in git commit -m",
+        "Transcript exits Phase 6 without the Proposed to Accepted transition and without running step 6.9"
+      ]
     },
     {
       "id": 11,
       "name": "phase-0-sentinel-present-matching-design",
       "prompt": "/design docs/prds/PRD-sentinel-test.md",
       "expected_output": "Phase 0 step 0.2 reads the PRD and runs the sentinel-gated auto-transition branch BEFORE the hard-stop check. The skill globs wip/*_sentinel-test_state.md and finds a matching state file containing parent_orchestration.invoking_child: design. The PRD's current status is Accepted (the pre-transition status /prd leaves behind). Because the sentinel is present AND invoking_child matches the current child (design) AND the PRD is at the expected pre-transition status, the skill invokes `shirabe transition docs/prds/PRD-sentinel-test.md \"In Progress\"` and proceeds past the hard-stop. The PRD frontmatter and body Status flip from Accepted to In Progress. Phase 0 continues at step 0.3 (Synthesize Problem Statement).",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript reads the PRD at step 0.2 and looks for a wip/*_sentinel-test_state.md state file before the hard-stop check",
+        "Transcript finds parent_orchestration.invoking_child: design and the PRD at Accepted, and runs shirabe transition docs/prds/PRD-sentinel-test.md \"In Progress\"",
+        "Transcript proceeds past the hard-stop and continues at step 0.3 (Synthesize Problem Statement)",
+        "Transcript does NOT stop to tell the user that design work requires an accepted PRD"
+      ]
     },
     {
       "id": 12,
       "name": "phase-0-sentinel-present-mismatched-design",
       "prompt": "/design docs/prds/PRD-sentinel-mismatch.md",
       "expected_output": "Phase 0 step 0.2 globs wip/*_sentinel-mismatch_state.md and finds a state file containing parent_orchestration.invoking_child: brief (the value does NOT match the current child name 'design'). The sentinel-gated auto-transition does NOT fire because the invoking_child value mismatches. The skill falls through to the existing hard-stop check. The PRD's status is Draft. The skill STOPs and informs the user that design work requires an accepted PRD. R6 is preserved: the protective hard-stop is reachable when the sentinel is present but mismatched. No shirabe transition invocation; no PRD status mutation.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript finds a state file whose parent_orchestration.invoking_child is brief, not design",
+        "Transcript does NOT run shirabe transition and leaves the PRD's status unchanged",
+        "Transcript falls through to the hard-stop check and stops, telling the user that design work requires an accepted PRD"
+      ]
     },
     {
       "id": 13,
       "name": "phase-0-sentinel-absent-design",
       "prompt": "/design docs/prds/PRD-no-sentinel.md",
       "expected_output": "Phase 0 step 0.2 globs wip/*_no-sentinel_state.md and finds NO matching state file (this is a direct /design invocation, not a parent-driven chain). The sentinel-gated auto-transition does NOT fire because the sentinel is absent. The skill falls through to the existing hard-stop check. The PRD's status is Draft. The skill STOPs and informs the user that design work requires an accepted PRD. R6 is preserved: direct invocation against a non-Accepted PRD cannot silently promote it because no sentinel is on disk. No shirabe transition invocation; no PRD status mutation.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript looks for a wip/*_no-sentinel_state.md state file and finds none",
+        "Transcript does NOT run shirabe transition and leaves the PRD at Draft",
+        "Transcript stops at the hard-stop check, telling the user that design work requires an accepted PRD"
+      ]
     },
     {
       "id": 14,
       "name": "user-visible-surface-frontmatter-field",
       "prompt": "/design cli-export-command",
       "expected_output": "The design introduces a new CLI command users read about in a guide. The authoring phase sets the optional boolean frontmatter field user_visible_surface: true on the DESIGN, per skills/design/references/design-format.md. The field is documented as the authoritative signal the downstream /plan reads in its Phase 3 docs-coverage emit step: true means the design adds user-visible surface, so /plan emits a docs work item; a design with no user-facing surface sets it false so /plan's prose fallback is not consulted; omitting it defaults to 'unknown' and /plan falls back to scanning the body for a docs/guides/* reference. The field is optional and does not change the required-section set.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Transcript sets user_visible_surface: true in the DESIGN's frontmatter because the design adds a CLI command users read about in a guide",
+        "Transcript describes the field as the signal /plan reads for its docs-coverage step: true emits a docs work item, false means no user-facing surface",
+        "Transcript says that omitting the field leaves it unknown, so /plan falls back to scanning the body for a docs/guides/* reference",
+        "Transcript treats the field as optional and does not add or remove a required section because of it"
+      ]
     },
     {
       "id": 15,
@@ -146,8 +228,8 @@
     {
       "id": 18,
       "name": "phase-6-under-scope-keeps-verdict-skips-publishing",
-      "prompt": "/design --auto docs/prds/PRD-export-api.md -- /scope is driving this run: its state file for topic export-api carries a parent_orchestration block with invoking_child: design and rationale: fresh-chain. Phases 0-5 are done and the DESIGN is written with status Proposed. The Phase 6 reviewers returned: architecture and structural-format clear, security clear. The design touches 6 files and changes an API surface. Describe every step Phase 6 takes from here to the end of /design's run, including what it commits, pushes, asks and cleans up.",
-      "expected_output": "Under /scope's sentinel /design keeps its own verdict and status transition but leaves publishing and routing to /scope. Phase 6 writes the frontmatter and commits the design (6.6 step 1) but does not push or create a PR. At 6.7, because the run is --auto, it takes the recommended verdict (Approved) itself and names it in its output. At 6.8 it transitions the status from Proposed to Accepted and commits that, then skips the complexity assessment and the Plan or Approve routing prompt and returns control to /scope. It skips 6.9: no cleanup commit, since /scope's cleanup phase owns that. It creates or switches no branch at any point.",
+      "prompt": "/design --auto docs/prds/PRD-export-api.md -- /scope is driving this run: its state file for topic export-api carries a parent_orchestration block with invoking_child: design and rationale: fresh-chain. Phases 0-5 are done and the DESIGN is written with status Proposed; its source issue is #42, labelled needs-design. The Phase 6 reviewers returned: architecture and structural-format clear, security clear. The design touches 6 files and changes an API surface. Describe every step Phase 6 takes from here to the end of /design's run, including what it commits, pushes, asks and cleans up.",
+      "expected_output": "Under /scope's sentinel /design keeps its own verdict and status transition but leaves publishing and routing to /scope. Phase 6 writes the frontmatter and commits the design (6.6 step 1) but does not push or create a PR. At 6.7, because the run is --auto, it takes the recommended verdict (Approved) itself and names it in its output. At 6.8 it transitions the status from Proposed to Accepted and commits that, then skips the complexity assessment and the Plan or Approve routing prompt and returns control to /scope. It skips 6.9: no cleanup commit, since /scope's cleanup phase owns that. It creates or switches no branch at any point. It does not remove the source issue's needs-design (or other needs-*) label: that gh write is skipped under /scope's sentinel and the label stays for the author.",
       "files": [],
       "expectations": [
         "Transcript commits the DESIGN but runs no git push and no gh pr create",
@@ -155,7 +237,8 @@
         "Transcript still transitions the DESIGN from Proposed to Accepted itself",
         "Transcript does NOT present the Plan / Approve only routing question or a complexity-routing prompt, and returns control to /scope",
         "Transcript makes no cleanup commit for intermediate files, leaving that to /scope",
-        "Transcript creates or switches no branch"
+        "Transcript creates or switches no branch",
+        "Transcript does NOT remove a label from the source issue (no gh issue edit), and says the label stays for the author under /scope"
       ]
     }
   ]
