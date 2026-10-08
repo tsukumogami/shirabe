@@ -210,6 +210,10 @@ case "$W1 $W2" in
         f=${path#*/contents/}; ref=${f#*\?ref=}; f=${f%%\?*}
         need_repo "$r"
         text=$(jq -r --arg r "$r" --arg k "$ref:$f" '.files[$r][$k] // empty' "$GH_DB")
+        # A ref that is a commit some branch points at reads that branch's file.
+        [ -n "$text" ] || text=$(jq -r --arg r "$r" --arg s "$ref" --arg f "$f" '
+            [(.branches[$r] // {}) | to_entries[] | select(.value == $s) | .key] as $b
+            | [$b[] as $x | .files[$r][$x + ":" + $f] // empty][0] // empty' "$GH_DB")
         [ -n "$text" ] || notfound
         emit "$(jq -nc --arg c "$(printf '%s\n' "$text" | base64)" --arg s "$(blob_sha "$text")" '{content: $c, encoding: "base64", sha: $s}')"
         ;;
@@ -314,7 +318,14 @@ case "$W1 $W2" in
         r=${path#repos/}; r=${r%%/git/*}
         ref=$(field ref); b=${ref#refs/heads/}
         [ -z "$(jq -r --arg r "$r" --arg b "$b" '.branches[$r][$b] // empty' "$GH_DB")" ] || { echo "gh: Reference already exists (HTTP 422)" >&2; exit 1; }
-        dbset '.branches[$r][$b] = $s' --arg r "$r" --arg b "$b" --arg s "$(field sha)"
+        # The new branch carries the files of the commit it starts at, as on
+        # GitHub: those of a branch whose head is that commit, or committed at it.
+        dbset '.branches[$r][$b] = $s
+            | ([(.branches[$r] // {}) | to_entries[] | select(.value == $s and .key != $b) | .key] + [$s]) as $from
+            | .files[$r] = ((.files[$r] // {}) + ([(.files[$r] // {}) | to_entries[]
+                | (.key | split(":")) as $k | select(any($from[]; . == $k[0]))
+                | {key: ($b + ":" + ($k[1:] | join(":"))), value}] | from_entries))' \
+            --arg r "$r" --arg b "$b" --arg s "$(field sha)"
         emit "$(jq -nc --arg r "$ref" '{ref: $r}')"
         ;;
     "DELETE repos/"*/git/refs/heads/*)

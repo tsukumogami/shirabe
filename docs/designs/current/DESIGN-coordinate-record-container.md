@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Current
 upstream: docs/prds/PRD-coordinate-skill.md
 problem: |
   The coordinate skill's record is a set of tables in an issue or pull
@@ -50,7 +50,10 @@ rationale: |
 
 ## Status
 
-Proposed
+Current
+
+Implemented in three pull requests: the append, the stored set with the
+handover gate, and the write-back of a landed feature's status.
 
 ## Context and Problem Statement
 

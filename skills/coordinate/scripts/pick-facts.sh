@@ -10,6 +10,10 @@
 # blocker_landed is true when it has dependencies and every one reads Done.
 # Discipline scope: the host's open issues labelled with the discipline's name
 # (gh issue list --label, never a search), in issue-number order, none blocked.
+# A roadmap unit carries `landed`, the pull request link of its pending
+# roadmap pull request (roadmap-status.sh --list), or null: a landed unit is
+# never dispatched, and once the roadmap reads it Done its row is confirmed
+# with roadmap-status.sh --confirm. A discipline's units carry null.
 # Each unit carries the holding that covers it, {worker, phase}, or null: a
 # holding covers a roadmap unit when its Unit cell is the feature's heading tag
 # ("Feature 2", "ED1") or "<tag>: <title>", and an issue when it is "#<n>" or
@@ -38,7 +42,7 @@
 # The facts go to context key coord/pick.json as data (pick's decider input):
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
 #    units: [{unit, number, title, status, done, blocked,
-#    blocked_by, blocker_landed, holding}], holdings: [{worker, unit, phase,
+#    blocked_by, blocker_landed, holding, landed}], holdings: [{worker, unit, phase,
 #    dispatch_status, parked, merged, pull_request}], decisions: [{decision, question,
 #    state, round, verdict, reason, recommendation, target, owed}], active,
 #    parked, cap, parked_bound}
@@ -120,13 +124,22 @@ if [ "$SCOPE" = roadmap ]; then
         *) lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")" ;;
     esac
     lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
-    jq -c --slurpfile h "$T/counted.json" '. as $f | map(. as $u
+    # The roadmap pull requests the record holds as pending (roadmap-status.sh,
+    # the one reader of those rows): a unit named by one has landed and is
+    # never offered again, though it isn't Done for its dependents until the
+    # roadmap says so.
+    # "$@" is still `--list` and the record's addressing, as set for
+    # record-decision.sh above.
+    bash "$HERE/roadmap-status.sh" "$@" > "$T/landed.json" 2> "$T/landed.err" \
+        || lib_die2 "roadmap-status.sh --list failed: $(lib_scrub < "$T/landed.err")"
+    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" '. as $f | map(. as $u
         | ([$u.dependencies[] as $d | select(([$f[] | select(.number == $d and (.status | test("^Done\\.?$")))] | length) == 0) | $d]) as $by
         | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $u.done,
            blocked: (($by | length) > 0), blocked_by: $by,
            blocker_landed: ((($u.dependencies | length) > 0) and (($by | length) == 0)),
            holding: ([$h[0][] | select(.unit == $u.id or .unit == ($u.id + ": " + $u.title))][0]
-                     | if . == null then null else {worker, phase} end)})' "$T/features.json" > "$T/units.json" \
+                     | if . == null then null else {worker, phase} end),
+           landed: ([$l[0][] | select(.unit == $u.id) | .pull_request][0] // null)})' "$T/features.json" > "$T/units.json" \
         || lib_die2 "jq failed"
     if [ "$(jq length "$T/units.json")" -gt 0 ] && jq -e 'all(.done)' "$T/units.json" > /dev/null; then
         VERDICT=scope-complete
@@ -141,7 +154,7 @@ else
     jq -c --slurpfile h "$T/counted.json" --arg r "$REPO" 'sort_by(.number) | map(. as $i
         | ("#\($i.number)") as $id
         | {unit: $id, number: $i.number, title: ($i.title | .[0:120]), status: "open", done: false,
-           blocked: false, blocked_by: [], blocker_landed: false,
+           blocked: false, blocked_by: [], blocker_landed: false, landed: null,
            holding: ([$h[0][] | select(.unit == $id or .unit == ($r + $id))][0]
                      | if . == null then null else {worker, phase} end)})' "$T/issues.json" > "$T/units.json" \
         || lib_die2 "jq failed"

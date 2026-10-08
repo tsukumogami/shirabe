@@ -6,7 +6,8 @@
 # row, and its Work row: none, or one for another unit, waits), surface (the unit's Verified head), merge_confirm and merged_facts
 # (merged: the unit's row kept with its Pull request cell cleared; unconfirmed: a
 # Side effects row naming owner/repo#n at the sha), teardown (done and kept),
-# decision_apply (reversal and deferral), posture_ask, and --verified
+# decision_apply (reversal and deferral), posture_ask, roadmap_status (the
+# feature's roadmap-status row), and --verified
 # (confirmed, waiting, moved). A multi-repository record where acme/widgets#12
 # and acme/gadgets#12 are both held: the unit is found by its Worker from the
 # log, links are matched by their full URL, and the live head is read from
@@ -344,6 +345,27 @@ body "$(rec | jq -c --argjson d "$DEF" '.deferrals = [$d]')"
 eq "decision_apply deferral: a row raised after the event confirms" confirmed "$(confirm)"
 body "$(rec | jq -c --argjson d "$DEF" '.deferrals = [$d | .raised = "2026-09-25T10:01Z"]')"
 eq "decision_apply deferral: only an older deferral waits" waiting "$(confirm)"
+
+echo "== roadmap_status =="
+RSROW='{"action":"roadmap-status","target":"Feature 2 [#8](https://github.com/acme/widgets/pull/8)","verified_head":"","attempted":"2026-09-26T09:58Z","how_to_confirm":"the roadmap on main reads Feature 2 Done"}'
+session
+log_to "$S" pick_facts wait "$EVT"; log_to "$S" wait roadmap_status "$EVT"
+log_evidence "$S" roadmap_status '{"status":"opened","unit":"Feature 2"}' "$EVT"
+log_to "$S" roadmap_status record "$EVT"
+body "$(rec | jq -c --argjson r "$RSROW" '.side_effects = [$r]')"
+eq "roadmap_status: the feature's roadmap-status row confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson r "$RSROW" '.side_effects = [$r | .target = "Feature 3 [#8](https://github.com/acme/widgets/pull/8)"]')"
+eq "roadmap_status: another feature's row waits" waiting "$(confirm)"
+body "$(rec)"
+eq "roadmap_status: no row waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson r "$RSROW" '.side_effects = [$r]')" "$BEFORE"
+eq "roadmap_status: a row from before the step became due waits" waiting "$(confirm)"
+session
+log_to "$S" pick_facts wait "$EVT"; log_to "$S" wait roadmap_status "$EVT"
+log_evidence "$S" roadmap_status '{"status":"opened"}' "$EVT"
+log_to "$S" roadmap_status record "$EVT"
+body "$(rec | jq -c --argjson r "$RSROW" '.side_effects = [$r]')"
+eq "roadmap_status: evidence naming no unit is a conflict" conflict "$(confirm)"
 
 echo "== the natural order: written before the evidence that leaves the step =="
 # decision_apply: the coordinator reached the hub at 09:50, the human's

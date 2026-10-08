@@ -162,6 +162,8 @@ stateDiagram-v2
     roadmap_close --> done : gates.roadmap_close_verdict.exit_code: 135
     roadmap_close_step --> roadmap_close : step: closed
     roadmap_close_step --> done_handed_over : step: handed_over
+    roadmap_status --> record : evidence.unit: present, status: opened
+    roadmap_status --> wait : status: failed
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 120
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 121
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 122
@@ -219,6 +221,7 @@ stateDiagram-v2
     wait --> decision_answer : event: answer, evidence.decision: present, evidence.round: present
     wait --> decision_evidence : event: evidence, evidence.decision: present
     wait --> decision_raise : event: raise
+    wait --> roadmap_status : event: landed, vars.ROADMAP: {"is_set":true}
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}
     wait_leg --> take_report : gates.leg_result.disposition: resolved, gates.leg_result.source: promoted

@@ -60,6 +60,10 @@
 #                   `deferral`: a Deferrals row raised at or after it
 #   posture_ask     a Reversals row at or after that point, From `the human`,
 #                   whose Reversed or Now mentions posture
+#   roadmap_status  (`opened`) a Side effects row with Action roadmap-status
+#                   whose Target names the evidence's unit (a feature's tag)
+#                   and its roadmap pull request: roadmap-status.sh writes it
+#                   before the evidence, so it is compared with the step's start
 #
 # With --verified (state verified_confirm): the VERIFIED capture
 # (`verified <pr> <sha>`, sealed at a real visit of verify_board) must equal
@@ -282,7 +286,7 @@ ESEQ=$ENT_SEQ
 SOURCE=$ENT_FROM
 
 case "$SOURCE" in
-dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent)
+dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent|roadmap_status)
     evidence "$SOURCE" "$ESEQ"; EV=$EVJ
     [ -n "$EV" ] || { VERDICT=conflict; REASON="no evidence from $SOURCE before record"; finish; }
     EVT=$(printf '%s' "$EV" | jq -r .timestamp)
@@ -292,7 +296,7 @@ dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent)
     # this case pattern is the list. dispatch keeps its DISPATCH_CHECK
     # capture (below), and teardown and destroy, which write after it, keep
     # the evidence's own time.
-    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent) step_start "$SOURCE" "$EVSEQ" ;; esac
+    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent|roadmap_status) step_start "$SOURCE" "$EVSEQ" ;; esac
     MIN=${EVT:0:16}
     ;;
 merge_confirm|merged_facts)
@@ -437,6 +441,14 @@ decision_apply)
     else
         VERDICT=conflict; REASON="decision_apply evidence is neither reversal nor deferral"; finish
     fi
+    ;;
+roadmap_status)
+    # roadmap-status.sh opened the roadmap pull request and wrote its row
+    # before `opened` was submitted.
+    RS_UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // ""')
+    [ -n "$RS_UNIT" ] || { VERDICT=conflict; REASON="roadmap_status's evidence names no unit"; finish; }
+    EXPECT="a Side effects row, Action roadmap-status, whose Target names $RS_UNIT and its roadmap pull request"
+    holds "any(.side_effects[]; .action == \"roadmap-status\" and (.target | startswith(\$u + \" [#\")))" --arg u "$RS_UNIT" || OKX=0
     ;;
 posture_ask)
     EXPECT="a Reversals row from the human about the posture, at or after $MIN"

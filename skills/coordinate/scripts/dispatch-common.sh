@@ -191,12 +191,14 @@ dc_valid_topic() {
 # dc_unit_forms <pick-json-file>: print, one per line, every Unit cell value
 # that covers a unit pick_facts listed, by pick-facts.sh's own rule: a roadmap
 # feature's heading tag or `<tag>: <title>`, an issue's `#<n>` or
-# `<host>#<n>`, with the host pick_facts recorded. Returns 2 when the file
-# isn't pick_facts' JSON. pick-facts_test.sh holds the two rules together.
+# `<host>#<n>`, with the host pick_facts recorded. A landed unit (its roadmap
+# pull request pending, `landed` set) has no form, so no brief for it renders.
+# Returns 2 when the file isn't pick_facts' JSON. pick-facts_test.sh holds the
+# two rules together.
 dc_unit_forms() {
     jq -r '
         if (.units | type) != "array" then error("no units") else . end
-        | .scope as $s | (.host // "") as $h | .units[]
+        | .scope as $s | (.host // "") as $h | .units[] | select((.landed // null) == null)
         | if $s == "roadmap" then .unit, (if (.title // "") == "" then empty else "\(.unit): \(.title)" end)
           else .unit, (if $h != "" then $h + .unit else empty end) end' "$1" 2>/dev/null || return 2
 }

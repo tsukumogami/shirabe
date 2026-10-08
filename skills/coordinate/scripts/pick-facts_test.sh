@@ -137,6 +137,23 @@ RMTEXT=$(roadmap Done Done Dropped Done Dropped)
 picked "owed decision work comes before scope-complete" "decisions take" "$(dentry 6 proposed)"
 picked "an escalation that owes nothing lets the scope complete, for the close to report" "scope-complete" "$(dentry 5 escalated "$ESC")"
 
+echo "== roadmap: a landed unit, its roadmap pull request pending =="
+RS='{"action":"roadmap-status","target":"Feature 4 [#30](https://github.com/acme/widgets/pull/30)","verified_head":"","attempted":"2026-09-26T09:00Z","how_to_confirm":"the roadmap on main reads Feature 4 Done"}'
+seed "$(printf '%s' "$REC" | jq -c --argjson r "$RS" '.side_effects = [$r]')"; pr 21 OPEN true; pr 23 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'Not started' 'Not started' 'Not started')"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"; eq "the facts are read" 0 $?
+eq "the unit the record holds a roadmap pull request for is landed, with its link" "[#30](https://github.com/acme/widgets/pull/30)" \
+    "$(facts | jq -r '.units[] | select(.unit == "Feature 4") | .landed')"
+eq "  ... no other unit is" "null null null null" "$(facts | jq -r '[.units[] | select(.unit != "Feature 4") | .landed | tostring] | join(" ")')"
+eq "  ... and it isn't Done for its dependent until the roadmap says so" "true [4]" \
+    "$(facts | jq -r '.units[] | select(.unit == "Feature 5") | "\(.blocked) \(.blocked_by | tostring)"')"
+. "$HERE/dispatch-common.sh"
+facts > "$T/pick.json"
+dc_unit_forms "$T/pick.json" | grep -qx 'Feature 4' && bad "  ... and the dispatch path renders no brief for it" "$(dc_unit_forms "$T/pick.json")" \
+    || ok "  ... and the dispatch path renders no brief for it"
+dc_unit_forms "$T/pick.json" | grep -qx 'Feature 5' && ok "  ... while other units keep their forms" || bad "  ... while other units keep their forms"
+
 echo "== roadmap: scope-complete =="
 RM=(--scope roadmap --name plugin-system --repo "$REPO" --ref 7 --no-seal)
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done. Dropped Done Dropped)"

@@ -661,7 +661,7 @@ states:
     accepts:
       event:
         type: enum
-        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise]
+        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed]
         required: true
         description: What arrived, or what is due.
       unit:
@@ -730,6 +730,14 @@ states:
       - target: decision_raise
         when:
           event: raise
+      # A roadmap feature whose last pull request landed: its Status and
+      # Outcome go back to the roadmap as a pull request. A roadmap event; at
+      # discipline scope no edge takes it.
+      - target: roadmap_status
+        when:
+          event: landed
+          vars.ROADMAP:
+            is_set: true
       - target: rotation_close
         when:
           event: end
@@ -1889,6 +1897,28 @@ states:
         when:
           change: none
 
+  roadmap_status:
+    # Evidence-closed, as decision_apply is: roadmap-status.sh opens the
+    # roadmap pull request and writes the record's row before `opened`, and
+    # the record step confirms the row.
+    accepts:
+      status:
+        type: enum
+        values: [opened, failed]
+        required: true
+        description: opened after roadmap-status.sh opened the roadmap pull request and wrote its row; failed when it refused or a write failed.
+      unit:
+        type: string
+        description: With opened, the feature's heading tag as roadmap-status.sh took it (Feature 7, ED1).
+    transitions:
+      - target: record
+        when:
+          status: opened
+          evidence.unit: present
+      - target: wait
+        when:
+          status: failed
+
   roadmap_close:
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/closeout-read.sh" --session "{{SESSION_NAME}}"'
@@ -2350,6 +2380,10 @@ and drive every worker to landed work.
 
 `coord/pick.json` has the facts. The rules:
 
+- **Never a landed unit.** A unit whose `landed` is set has its roadmap pull
+  request pending: it is done for pick, though not yet for its dependents. No
+  brief renders for it. When the roadmap reads it Done, clear its row with
+  `roadmap-status.sh --confirm`.
 - **Fill every free slot.** Dispatch until active workers equal the cap
   (`cap` in `coord/pick.json`: the record's Run cap when it has one, else
   the session's `--cap`) or nothing is left; each pass through pick fills one slot and comes
@@ -2594,8 +2628,10 @@ to an escalated decision arrives, naming its `decision` and `round` as the
 answer names them; `evidence` when a fact arrives that bears on a decision
 entry, naming its `decision` (a held entry's fact included); `raise` when you
 need a decision made that no entry holds yet; `merged` when the human merged a
-pull request you handed over; `retire` to finish with a worker; `end` when the
-rotation or the scope ends.
+pull request you handed over; `landed`, with the feature's tag as `unit`, when a
+roadmap feature's last pull request has merged and its Status should go back to
+the roadmap; `retire` to finish with a worker; `end` when the rotation or the
+scope ends.
 
 Two writes come before acting, whatever event follows. When a person's word
 arrives, on the record's thread or anywhere else (a pause or a resume, a cap, a
@@ -3422,6 +3458,30 @@ as soon as it arrives, even before you tick `decision` at the hub: the record
 step counts anything written since the run last reached `wait`, so a row written
 first needs no second write. Tick `decision` next; handling another event first
 brings the run back to `wait`, and the row then has to be written again.
+
+## roadmap_status
+
+A roadmap feature landed: its last pull request merged, or for a spike or a
+design, its acceptance call was made. Write it back to the roadmap with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/roadmap-status.sh" --session {{SESSION_NAME}} --unit "<the feature's tag>" --outcome "<what landed, with its pull requests>"`,
+then submit `status: opened` with the same `unit`, or `status: failed` when it
+refused or failed, and report why.
+
+<!-- details -->
+
+The script opens a pull request on the roadmap's repository that sets the
+feature's Status to Done, writes its Outcome line and removes its Needs line,
+regenerates the generated sections, and changes nothing else; then it writes
+a Side effects in flight row, Action `roadmap-status`, that the record step
+confirms. Never merge that pull request yourself: hand it to whoever merges
+roadmap changes, in the merge-order table, with the rest. Until it merges,
+pick lists the feature as `landed` and you never dispatch it; once the
+roadmap on the default branch reads it Done, run `roadmap-status.sh --confirm
+"<tag>"` to clear the row. A pull request closed unmerged is cleared with
+`--drop "<tag>" --reason "<why>"`. Only one roadmap pull request is pending at
+a time, since two would conflict in the generated sections: the script refuses
+a second until the first is confirmed or dropped. A feature that landed as
+several pull requests is sent once, after the last.
 
 ## roadmap_close
 
