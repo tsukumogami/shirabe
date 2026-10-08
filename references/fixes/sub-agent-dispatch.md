@@ -67,7 +67,11 @@ parent owns those:
 - **branch creation** -- the child works on the branch it was invoked on
   and never creates or switches branches;
 - **cleanup commit** -- no commit removing the child's intermediate
-  files; the parent's cleanup phase owns that;
+  files; the parent's cleanup phase owns that. The one exception is
+  `/brief`'s Phase 4 jury verdict files, which `/scope`'s cleanup sweep
+  and publish untrack do not cover: `/brief` removes them inside its own
+  acceptance or discard commit (its Phase 5, 5.3), so none reach
+  `/scope`'s push;
 - **routing prompts** -- no "what next" question (which skill to run
   next, whether to update an upstream issue); a prompt that pairs the
   verdict with a next step, such as `/design`'s "Plan (Recommended)" /
@@ -169,15 +173,16 @@ output.
 
 ## Per-skill binding table
 
-The eight children bind to the fallback shapes as follows. Each row
+The seven children bind to the fallback shapes as follows. Each row
 lists which shape applies at which phase; absent rows mean the child
 does not need a fallback at that phase.
 
 | Skill | Phase | Applicable fallback shapes |
 |-------|-------|---------------------------|
-| `/brief` | Phase 4 finalize | Parent-owned-publishing |
+| `/brief` | Phase 5 finalize | Parent-owned-publishing |
+| `/prd` | Phase 0 setup | Parent-owned-publishing |
 | `/prd` | Phase 4 jury | Serial-self-jury, Inline-substitute-review |
-| `/prd` | Phase 5 finalize | Parent-owned-publishing |
+| `/prd` | Phase 4 approval and cleanup | Parent-owned-publishing |
 | `/design` | Phase 2 decisions | Decision-bypass-with-inline-resolution |
 | `/design` | Phase 6 jury | Serial-self-jury, Parent-owned-publishing |
 | `/plan` | Phase 6 review | Inline-substitute-review |

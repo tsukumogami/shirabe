@@ -463,6 +463,13 @@ other path in this section is named.
 - `docs/designs/current/DESIGN-<topic>.md`
 - `docs/plans/PLAN-<topic>.md`
 
+A child's own verdict commits (its acceptance or discard commit) are the
+child's, not this list's; under the sentinel the only working files one
+removes are `/brief`'s Phase 4 jury verdict files, inside that commit, because
+the untrack and cleanup below don't cover them (see "What a child keeps and
+what it skips under /scope" in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`).
+
 `.git/` writes are confined to `git add` and `git commit` restricted to those
 pathspecs — no `-A`, no `commit -a`, nothing staged the pathspec does not name.
 The preconditions and branch checks are in the Per-Hop Commit section of
