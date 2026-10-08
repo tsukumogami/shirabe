@@ -263,12 +263,14 @@ files_changed() {
             fi
             continue
         fi
-        if [ -L "$d/$path" ]; then printf '%s\t%s\n' "$path" "$(readlink "$d/$path")" >>"$WORK/links"; continue; fi
-        if [ -f "$d/$path" ]; then printf '%s\n' "$path" >>"$WORK/present"; continue; fi
+        if [ -L "$d/$path" ]; then printf '%s\t%s\n' "$path" "$(readlink "$d/$path")" >&4; continue; fi
+        if [ -f "$d/$path" ]; then printf '%s\n' "$path" >&3; continue; fi
         # Missing: a skip-worktree entry is meant to be absent; anything else
         # was deleted in the working tree.
         [ "$tag" = S ] || n=$((n + 1))
-    done <"$WORK/idx"
+    # The lists are opened once for the loop: a redirect per path reopened a
+    # file for every tracked file, the walk's main cost in a large clone.
+    done <"$WORK/idx" 3>"$WORK/present" 4>"$WORK/links"
     [ "$n" -gt 0 ] && why="${why}tracked files deleted; "
     : >"$WORK/wt"
     if [ -s "$WORK/present" ]; then
@@ -422,8 +424,12 @@ check_repo() {
     # A tip whose object is one of origin's live ids is on origin by
     # definition, so it needs no walk. Most of a clone's tags are, and a walk
     # per tag was most of the scan's time.
-    awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$WORK/live" "$WORK/tips" >"$WORK/tips.left" &&
-        mv "$WORK/tips.left" "$WORK/tips"
+    # TEARDOWN_TIP_LOOKUP=0 walks every tip, for the test that the lookup
+    # changes nothing the scan prints.
+    if [ "${TEARDOWN_TIP_LOOKUP:-1}" != 0 ]; then
+        awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$WORK/live" "$WORK/tips" >"$WORK/tips.left" &&
+            mv "$WORK/tips.left" "$WORK/tips"
+    fi
     local sha name bname n base target label merge paths p want have differ
     [ -f "$WORK/tree-$key-$dsha" ] || tree_map "$repo" "$dsha" "$WORK/tree-$key-$dsha" || {
         note 2 "error $rel: the default branch's tree could not be read ($(tail -1 "$WORK/gh.err"))"; return; }

@@ -647,7 +647,8 @@ echo mine > "$R12/mine.txt"
 git clone -q "$R12" "$I12/b" 2>/dev/null; git -C "$I12/b" remote set-url origin https://github.com/acme/widgets.git
 echo b > "$I12/b/b-only.txt"
 new_case inventory-parallel
-printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/tags/live-tag\n' "$M12" "$M12" "$M12" > "$CASE/ls-remote.out.all"
+# moved-tag is on the remote at main; the clone has it on side's commit.
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/tags/live-tag\n%s\trefs/tags/moved-tag\n' "$M12" "$M12" "$M12" "$M12" > "$CASE/ls-remote.out.all"
 mktree "$R12" "$M12"
 ser=$(RECONCILE_INV_PARALLEL=1 run inventory --path "$I12" | jq -c .items)
 par=$(run inventory --path "$I12" | jq -c .items)
@@ -658,6 +659,8 @@ expect "the worktree's own file is listed" '[.[] | .path] | index("wt-only.txt")
 expect "a branch is listed once, not once per worktree" '[.[] | select(.kind == "commit" and .path == "branch side")] | length == 1' "$par"
 expect "a moved tag is listed" '[.[] | .path] | index("tag moved-tag") != null' "$par"
 expect "a tag at a live id is not listed" '[.[] | .path] | index("tag live-tag") == null' "$par"
+walk=$(RECONCILE_TIP_LOOKUP=0 run inventory --path "$I12" | jq -c .items)
+[ "$walk" = "$par" ] && ok "the tip lookup lists what walking every tip lists" || bad "the tip lookup lists what walking every tip lists" "walk $walk | lookup $par"
 
 I10="$T/inst10"; R10="$I10/repo"; mkdir -p "$R10"
 git -C "$R10" init -q -b main; git -C "$R10" remote add origin https://github.com/acme/widgets.git

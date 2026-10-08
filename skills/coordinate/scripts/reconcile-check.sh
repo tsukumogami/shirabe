@@ -346,15 +346,20 @@ inv_files() {
         if [ -L "$C/$path" ]; then
             # A tracked symlink's blob is its link text: compared like a file,
             # so an unchanged one isn't listed on every run.
-            if [ "$mode" = 120000 ]; then printf '%s\n' "$path" >> "$ITEMS.links"
+            if [ "$mode" = 120000 ]; then printf 'L\t%s\n' "$path"
             else inv_item "$REL" file "$path (symlink, not read)"; fi
             continue
         fi
-        if [ -f "$C/$path" ]; then printf '%s\n' "$path" >> "$ITEMS.present"; continue; fi
+        if [ -f "$C/$path" ]; then printf 'P\t%s\n' "$path"; continue; fi
         # Missing: a skip-worktree entry (sparse checkout) is meant to be
         # absent; anything else was deleted in the working tree.
-        [ "$tag" = S ] || printf '%s\n' "$path" >> "$ITEMS.deleted"
-    done < "$ITEMS.idx"
+        [ "$tag" = S ] || printf 'D\t%s\n' "$path"
+    done < "$ITEMS.idx" > "$ITEMS.cls"
+    # One output for the loop, split here: a redirect per path reopened a
+    # file for every tracked file, the walk's main cost in a large clone.
+    awk -v p="$ITEMS.present" -v d="$ITEMS.deleted" -v l="$ITEMS.links" '
+        { t = substr($0, 1, 1); r = substr($0, 3)
+          if (t == "P") print r > p; else if (t == "D") print r > d; else if (t == "L") print r > l }' "$ITEMS.cls"
     inv_hash "$C" "$ITEMS.present" "$ITEMS.wt" || { inv_item "$REL" unchecked "working-tree files could not be hashed"; return; }
     while IFS= read -r path; do
         [ -n "$path" ] || continue
@@ -455,8 +460,12 @@ inv_tips() {
     # definition and needs no walk; most tags are, and a walk per tag was
     # most of the read's time.
     printf '%s\n' "$LIVE" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' > "$ITEMS.liveids"
-    awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$ITEMS.liveids" "$ITEMS.tips" > "$ITEMS.tips.left" \
-        && mv "$ITEMS.tips.left" "$ITEMS.tips"
+    # RECONCILE_TIP_LOOKUP=0 walks every tip, for the test that the lookup
+    # changes nothing the read lists.
+    if [ "${RECONCILE_TIP_LOOKUP:-1}" != 0 ]; then
+        awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$ITEMS.liveids" "$ITEMS.tips" > "$ITEMS.tips.left" \
+            && mv "$ITEMS.tips.left" "$ITEMS.tips"
+    fi
     while IFS=$'\t' read -r tip bname; do
         rd_valid_sha "$tip" || continue
         { printf '%s\n' "$tip"; cat "$EXCLUDE"; } > "$ITEMS.revs"
