@@ -81,13 +81,16 @@ emit_fixture() {
 #                      (ok | fail | stays-open), and remote_url, which the
 #                      shim fills in itself (see below); a seed never sets it
 #
-# In the seed, @HEAD_SHA@ is the commit checked out where the shim first runs
-# and @BRANCH@ that checkout's branch. A created PR's headRefOid is the commit
+# In the seed, @HEAD_SHA@ is the commit checked out in the seed checkout and
+# @BRANCH@ that checkout's branch. The seed checkout is the coordination
+# checkout the runner names in EVAL_COORDINATION_CHECKOUT, so a first call made
+# from a node worktree or a second repository's clone seeds the same way; with
+# it unset, it is wherever the shim first runs. A created PR's headRefOid is the commit
 # checked out where `gh pr create` runs, which is the commit just pushed.
 #
 # After that, an open PR's head follows its branch, as on GitHub. Each PR
 # records remote_url, the push URL of the repository its branch lives in: a
-# seeded PR in default_repo gets that of origin where the shim first runs (the
+# seeded PR in default_repo gets that of origin in the seed checkout (the
 # checkout @BRANCH@ came from, so the two always agree), and a created PR that
 # of origin where `gh pr create` runs, where node-push.sh has just pushed it.
 # Every call first reads each open PR's branch tip from its remote_url and
@@ -123,22 +126,34 @@ if [ -f "$SCENARIO_DIR/gh/db.json" ]; then
   # URL would be read from whatever directory a later call runs in, and a
   # network one would put a real remote's ls-remote behind every gh call, so
   # neither is recorded.
-  origin_url() {
+  origin_url() { # origin_url [<dir>]
     local u
-    u=$(git remote get-url --push origin 2>/dev/null) || return 1
+    u=$(git -C "${1:-.}" remote get-url --push origin 2>/dev/null) || return 1
     case "$u" in /*) printf '%s' "$u" ;; *) return 1 ;; esac
   }
 
   if [ ! -f "$DB" ]; then
-    seed_head=$(git rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
-    seed_branch=$(git symbolic-ref --quiet --short HEAD 2>/dev/null || echo main)
-    seed_url=$(origin_url) || seed_url=""
-    sed -e "s/@HEAD_SHA@/$seed_head/g" -e "s#@BRANCH@#$seed_branch#g" "$SCENARIO_DIR/gh/db.json" \
+    seed_dir="${EVAL_COORDINATION_CHECKOUT:-.}"
+    if [ ! -d "$seed_dir" ]; then
+      echo "gh shim: EVAL_COORDINATION_CHECKOUT [$seed_dir] is not a directory" >&2
+      exit 1
+    fi
+    seed_head=$(git -C "$seed_dir" rev-parse HEAD 2>/dev/null || echo 0000000000000000000000000000000000000000)
+    seed_branch=$(git -C "$seed_dir" symbolic-ref --quiet --short HEAD 2>/dev/null || echo main)
+    seed_url=$(origin_url "$seed_dir") || seed_url=""
+    # The pipeline's status is checked here: set -e ignores a command on the
+    # left of &&, so a jq that failed would otherwise leave no database and
+    # every later call failing on a missing file.
+    if ! sed -e "s/@HEAD_SHA@/$seed_head/g" -e "s#@BRANCH@#$seed_branch#g" "$SCENARIO_DIR/gh/db.json" \
       | jq --arg u "$seed_url" '
           .default_repo as $home
           | .prs |= map(if $u != "" and .repo == $home then . + {remote_url: $u} else . end)' \
-        > "$DB.tmp.$$" \
-      && mv "$DB.tmp.$$" "$DB"
+        > "$DB.tmp.$$"; then
+      rm -f "$DB.tmp.$$"
+      echo "gh shim: could not seed the database from $SCENARIO_DIR/gh/db.json" >&2
+      exit 1
+    fi
+    mv "$DB.tmp.$$" "$DB" || exit 1
   fi
 
   # The value after a flag in the original arguments.

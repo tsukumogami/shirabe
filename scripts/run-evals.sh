@@ -32,8 +32,9 @@
 #      Under --runs N, any run returning 2 makes the invocation exit 2, ahead of
 #      runs that only failed assertions. Also: git could not answer the
 #      changed-since-tag selection, the --summary-out file could not be
-#      written, or the run left files naming its scratch root in $HOME/.koto
-#      (see setup_eval_koto).
+#      written, the run's own koto store could not be set up, or the run left
+#      files naming its scratch root in $HOME/.koto (see setup_eval_koto). A
+#      run that also classified as 4 below exits 4.
 #   3  Missing prerequisites, or a model or suite the harness refuses (an
 #      EVAL_MODEL or scenario model off the pattern, a suite with no evals)
 #   4  The nested claude session stopped in plan mode or ran no command and
@@ -282,8 +283,8 @@ export SHIRABE_PREFLIGHT_DISABLE
 # shellcheck source=lib/koto-legacy-env.sh
 . "$SCRIPT_DIR/lib/koto-legacy-env.sh"
 # The probe asks koto for its init help only, but it runs under a throwaway
-# HOME all the same: nothing this runner starts reaches $HOME/.koto (see
-# setup_eval_koto).
+# HOME all the same: what this runner starts is kept out of $HOME/.koto, with
+# a tripwire for detectable leaks (see setup_eval_koto).
 koto_probe_home=$(mktemp -d "${TMPDIR:-/tmp}/shirabe-eval-koto-probe.XXXXXX") || {
   echo "Error: could not create a directory for the koto probe"
   exit 3
@@ -947,7 +948,9 @@ setup_eval_scratch() {
 # (origin_mismatch), and a real coordinator's session must not be visible to,
 # or touched by, a scenario. The recipe is the one the ablation harness uses
 # (scripts/ablation/koto-intercept): every real koto call runs with HOME inside
-# the run's own directory.
+# the run's own directory. Keep the two in step: the ablation wrapper takes
+# that HOME from ABLATION_KOTO_HOME and does not clear KOTO_SESSIONS_BASE, so a
+# change to the recipe here belongs there too, or a note there saying why not.
 #
 # Here that is a wrapper, $scratch/koto-bin/koto, which runs the real koto
 # (KOTO_BIN when the caller set it, else the koto on PATH) with HOME set to
@@ -969,13 +972,15 @@ setup_eval_scratch() {
 # scratch HOME too: a gate that reads git or gh config sees none, which is why
 # the tier-2 clones carry a local git identity.
 #
-# The store goes when the scratch root does. Sets EVAL_KOTO_BIN to the
+# The store goes when the scratch root does. Sets EVAL_KOTO_BIN_DIR to the
 # wrapper's directory; call it directly, not in $(...). Returns 1 when
-# KOTO_BIN names nothing executable, or resolves to the wrapper itself.
-EVAL_KOTO_BIN=""
+# KOTO_BIN names nothing executable, when koto resolves to the wrapper itself,
+# or when the store or wrapper directory can't be made or the wrapper can't be
+# written.
+EVAL_KOTO_BIN_DIR=""
 setup_eval_koto() {
   local scratch="$1" real wrapper
-  EVAL_KOTO_BIN=""
+  EVAL_KOTO_BIN_DIR=""
   mkdir -p "$scratch/koto-home" "$scratch/koto-bin" || return 1
   wrapper="$scratch/koto-bin/koto"
   if [ -n "${KOTO_BIN:-}" ]; then
@@ -999,7 +1004,7 @@ setup_eval_koto() {
     fi
   } > "$wrapper" || return 1
   chmod +x "$wrapper" || return 1
-  EVAL_KOTO_BIN="$scratch/koto-bin"
+  EVAL_KOTO_BIN_DIR="$scratch/koto-bin"
 }
 
 # koto_store_tripwire <scratch> <marker>: return 1, naming the files, when
@@ -1160,8 +1165,9 @@ run_skill_evals() {
   fi
   local scratch="$EVAL_SCRATCH_ROOT"
 
-  # Every koto the nested session runs keeps its store in the scratch root,
-  # never in $HOME/.koto. Refuse rather than run against the real store.
+  # Every koto the nested session runs keeps its store in the scratch root and
+  # out of $HOME/.koto, with a tripwire for detectable leaks. Refuse rather
+  # than run against the real store.
   if ! setup_eval_koto "$scratch"; then
     echo "  Error: could not set up the run's own koto store; refusing to run against \$HOME/.koto." >&2
     cleanup_run_dirs
@@ -1426,9 +1432,18 @@ PROMPT
     unset GH_TOKEN GITHUB_TOKEN SSH_AUTH_SOCK
     # The run's koto, by every route (see setup_eval_koto).
     unset KOTO_BIN
-    PATH="$EVAL_KOTO_BIN:$PATH"
-    EVAL_KOTO_WRAPPER="$EVAL_KOTO_BIN/koto"
+    PATH="$EVAL_KOTO_BIN_DIR:$PATH"
+    EVAL_KOTO_WRAPPER="$EVAL_KOTO_BIN_DIR/koto"
     export EVAL_KOTO_WRAPPER
+    # The checkout the execute gh shim seeds a gh/db.json scenario from (its
+    # @HEAD_SHA@, @BRANCH@ and coordination PR's remote_url), whichever
+    # directory its first call runs in. Unset without a tier-2 clone.
+    if [ -n "$tier2_checkout" ]; then
+      EVAL_COORDINATION_CHECKOUT="$tier2_checkout"
+      export EVAL_COORDINATION_CHECKOUT
+    else
+      unset EVAL_COORDINATION_CHECKOUT
+    fi
     TMPDIR="$scratch" claude -p "$prompt" \
       "${EVAL_CLAUDE_PERMISSION_ARGS[@]}" \
       ${EVAL_SESSION_MODEL_ARGS[@]+"${EVAL_SESSION_MODEL_ARGS[@]}"} \
@@ -1480,8 +1495,9 @@ print(json.load(open(sys.argv[1]))['graded'])
   fi
 
   # Step 4c: A run that reached the real koto store is an infrastructure
-  # failure, whatever it graded.
-  if ! koto_store_tripwire "$scratch" "$koto_marker"; then
+  # failure, whatever it graded. A run classified as not executed (4) keeps
+  # its 4, which outranks a 2 here as it does in run_skill_list.
+  if ! koto_store_tripwire "$scratch" "$koto_marker" && [ "$validate_rc" -ne 4 ]; then
     validate_rc=2
   fi
 

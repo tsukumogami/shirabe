@@ -24,6 +24,9 @@
 #   partial  grades only the first scenario, then prints the plan-mode
 #            transcript (some grades exist, so the session ran whatever the
 #            transcript says)
+#   partial-stopped  grades only the first scenario, then prints the
+#            agent-stopped transcript (a partly graded run whose with-skill
+#            agent was stopped before it finished)
 #
 # When $STUB_CLAUDE_HOOK names an executable, it runs first, with the prompt
 # file as its argument, while the runner's scratch root and tier-2 clone still
@@ -104,5 +107,6 @@ case "$mode" in
   failgrade) write_outputs failing; cat "$here/executed.jsonl" ;;
   nograde) write_outputs no; cat "$here/executed.jsonl" ;;
   partial) write_outputs first; cat "$here/plan-mode.jsonl" ;;
+  partial-stopped) write_outputs first; cat "$here/agent-stopped.jsonl" ;;
   *)       echo "stub claude: unknown STUB_CLAUDE_MODE" >&2; exit 64 ;;
 esac

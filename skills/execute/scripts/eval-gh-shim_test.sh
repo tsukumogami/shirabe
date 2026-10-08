@@ -386,6 +386,43 @@ DB_INODE=$(ls -i "$DB_FILE" | awk '{print $1}')
 head_of "$PUSH/checkout" "$R" 10
 [ "$(ls -i "$DB_FILE" | awk '{print $1}')" = "$DB_INODE" ] && pass "head: a read with no head moved leaves the database unwritten" \
     || fail "head: an idle read rewrote the database"
+# The seed comes from the coordination checkout the runner names, not from
+# wherever the first call runs: a first call from the second repository's
+# clone must not give the coordination PR that clone's origin, head or branch,
+# or its head never refreshes (#415).
+new_log
+cp "$FIXTURES/scenarios/coord-outline-one-repo/gh/db.json" "$MODEL/gh/db.json"
+# The checkout carries a local commit its origin hasn't got, so the head the
+# shim serves is the branch's tip on that origin once the seed refreshes.
+COORD_HEAD=$(git ls-remote "$PUSH/origin.git" refs/heads/docs/coord | cut -f1)
+pshim "$PUSH/second-clone" env EVAL_COORDINATION_CHECKOUT="$PUSH/checkout" \
+    gh pr list --repo "$R" --head docs/coord --state all --json number --jq '.[0].number'
+FOUND="$OUT"
+SEEDED=$(jq -c --arg r "$R" '.prs[] | select(.repo == $r and .number == 10) | [.headRefName, .headRefOid, .remote_url]' "$LOG.d/db.json")
+if [ "$FOUND" = 10 ] && [ "$SEEDED" = "$(jq -nc --arg h "$COORD_HEAD" --arg u "$PUSH/origin.git" '["docs/coord", $h, $u]')" ]; then
+    pass "seed: a first call from another clone seeds from EVAL_COORDINATION_CHECKOUT's branch, head and origin"
+else
+    fail "seed: from the second clone found [$FOUND], seeded $SEEDED"
+fi
+new_log
+pshim "$PUSH/second-clone" env EVAL_COORDINATION_CHECKOUT="$WORK/no-such-checkout" gh pr view 10 --repo "$R" --json state
+[ "$RC" -ne 0 ] && [ ! -f "$LOG.d/db.json" ] && pass "seed: an EVAL_COORDINATION_CHECKOUT naming no directory fails and seeds nothing" \
+    || fail "seed: missing coordination checkout rc=$RC"
+
+# A seed that jq can't read fails on the first call, saying so, and writes no
+# database, rather than leaving later calls to fail on a missing file.
+new_log
+printf '{"default_repo": "eval-org/eval-repo", "prs": [\n' > "$MODEL/gh/db.json"
+SEED_ERR=$(cd "$REPO" && env EVAL_SCENARIO=model EVAL_SCENARIO_DIR="$MODEL" GH_CALL_LOG="$LOG" \
+    PATH="$SHIM_BIN:$PATH" gh pr view 10 --repo "$R" --json state 2>&1 >/dev/null)
+RC=$?
+if [ "$RC" -eq 1 ] && [ ! -e "$LOG.d/db.json" ] && ! grep -q tmp <<< "$(ls "$LOG.d")" \
+    && printf '%s' "$SEED_ERR" | grep -q "could not seed the database from $MODEL/gh/db.json"; then
+    pass "seed: a db.json jq can't read fails the first call by name and leaves no database"
+else
+    fail "seed: unreadable db.json rc=$RC err=[$SEED_ERR] state=[$(ls "$LOG.d" 2>/dev/null | tr '\n' ' ')]"
+fi
+
 # A run with no origin at all keeps the old behaviour: no PR gets a
 # remote_url, and the seed stands.
 new_log
