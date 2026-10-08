@@ -248,6 +248,14 @@ def parse_holds($p):
 # Standing, the events only a person owns that still bind the run:
 #   Standing s<n>, unique
 #   Kind     pause | go-ahead | approval | answer
+#   On       a pause's or go-ahead's scope: `all` (a pause only: the whole
+#            coordinator) or one unit as pick lists it (`Feature 2`, `ED1`,
+#            `#12`, `owner/repo#12`); required on a pause, optional on a
+#            go-ahead, blank on the other kinds
+#   Until    a pause's resume condition: `lifted` (until a person ends the
+#            row), `time <YYYY-MM-DDTHH:MMZ>` (UTC), `merged owner/repo#n` or
+#            `tag owner/repo <tag>`; required on a pause, blank otherwise
+#            (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1)
 #   What     what it says, one line
 #   Owner    who decided it
 #   Relayed by  who carried it to this coordinator, blank when nobody did
@@ -264,14 +272,22 @@ def parse_holds($p):
 
 def state_secs: [
   {key: "run", title: "Run", cols: [["key", "Key"], ["value", "Value"], ["set_by", "Set by"], ["set", "Set"]]},
-  {key: "standing", title: "Standing", cols: [["standing", "Standing"], ["kind", "Kind"], ["what", "What"],
-    ["owner", "Owner"], ["relayed_by", "Relayed by"], ["set", "Set"]]},
+  {key: "standing", title: "Standing", cols: [["standing", "Standing"], ["kind", "Kind"], ["on", "On"],
+    ["until", "Until"], ["what", "What"], ["owner", "Owner"], ["relayed_by", "Relayed by"], ["set", "Set"]]},
   {key: "work", title: "Work", cols: [["item", "Item"], ["kind", "Kind"], ["who", "Who"], ["next", "Next step"],
     ["updated", "Updated"]]}];
 def run_keys: ["arguments", "cap", "coordinator", "told"];
 def standing_kinds: ["pause", "go-ahead", "approval", "answer"];
 def work_kinds: ["holding", "local-agent"];
 def s_text_cols: {run: ["value", "set_by"], standing: ["what", "owner", "relayed_by"], work: ["item", "who", "next"]};
+# A unit as pick lists it: a roadmap feature's heading tag or an issue.
+def re_unit: "^(Feature [1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*)$";
+# A pause's resume condition: the merge policy's hold conditions and a time.
+def pause_until_ok:
+  . == "lifted"
+  or (split(" ") | length == 2 and .[0] == "time" and (.[1] | test(re_time_min)))
+  or (split(" ") | length == 2 and .[0] == "merged" and (.[1] | test(re_pr_ref)))
+  or (split(" ") | length == 3 and .[0] == "tag" and (.[1] | test(re_repo)) and (.[2] | test(re_tag)));
 
 def check_scell($sk; $key; $private):
   . as $v
@@ -279,13 +295,19 @@ def check_scell($sk; $key; $private):
   | if ($v | type) != "string" then refuse("\($n): not a string")
     elif $v | test("[\\x00-\\x08\\x0b\\x0c\\x0e-\\x1f\\x7f]") then refuse("\($n): a control character")
     elif ($v | test("[\r\n]")) then refuse("\($n): a line break")
-    elif $v == "" and ($sk != "standing" or $key != "relayed_by") then refuse("\($n): empty")
+    elif $v == "" and ($sk != "standing" or ($key != "relayed_by" and $key != "on" and $key != "until")) then refuse("\($n): empty")
     elif $v == "" then $v
     elif ($key == "set" or $key == "updated") then (if test(re_time_min) then . else refuse("\($n): not YYYY-MM-DDTHH:MMZ") end)
     elif $sk == "run" and $key == "key" then (if any(run_keys[]; . == $v) then . else refuse("run.key: not one of \(run_keys | join(", "))") end)
     elif $sk == "standing" and $key == "standing" then (if test("^s[1-9][0-9]*$") then . else refuse("standing.standing: not s<n>") end)
     elif $sk == "standing" and $key == "kind" then (if any(standing_kinds[]; . == $v) then . else refuse("standing.kind: not one of \(standing_kinds | join(", "))") end)
     elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding or local-agent") end)
+    elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `ED1`, `#12`, `owner/repo#12`)") end)
+    elif $sk == "standing" and $key == "until" then (if pause_until_ok then . else refuse("standing.until: not `lifted`, `time <YYYY-MM-DDTHH:MMZ>`, `merged owner/repo#n` or `tag owner/repo <tag>`") end)
+    else . end
+  | if ($v != "") and $sk == "standing" and ($key == "on" or $key == "until") then
+      ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
+      | if $hit != null then refuse("\($n): names \($hit), a repository that isn't public") else . end
     else . end
   | if ($v != "") and any(s_text_cols[$sk][]; . == $key) then
       ($v | text_problem($private)) as $why
@@ -303,6 +325,15 @@ def check_srow($sec; $private):
        elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
        else . end)
     elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
+    elif $sec.key == "standing" then
+      (if .kind == "pause" then
+         (if .on == "" or .until == "" then refuse("standing.\(.standing): a pause names its On and its Until") else . end)
+       elif .kind == "go-ahead" then
+         (if .until != "" then refuse("standing.\(.standing): a go-ahead has no Until; it ends when used")
+          elif .on == "all" then refuse("standing.\(.standing): a go-ahead names one unit, never `all`")
+          else . end)
+       elif .on != "" or .until != "" then refuse("standing.\(.standing): only a pause or a go-ahead has an On or an Until")
+       else . end)
     else . end;
 
 def check_state($sec; $rows; $private):

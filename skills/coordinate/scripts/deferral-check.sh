@@ -25,6 +25,20 @@
 #                         docs/disciplines/<name>.md on the host's default
 #                         branch (absent: none) that the record doesn't carry,
 #                         by its Deferral text, with a disposition
+#   paused <id>           a pause in the record's Standing section holds
+#                         this dispatch (pause-read.sh): a pause on `all`
+#                         holds every one; a unit's pause holds a dispatch
+#                         whose topic is the Worker of a holding of that
+#                         unit (send_execution, a redispatch). A new
+#                         dispatch's unit isn't known here (pick's evidence
+#                         names only its topic), so dispatch-worker.sh
+#                         refuses a new dispatch of a unit pick marked paused.
+#                         It comes after unknown-topic and record-changed and
+#                         before every verdict below, so a paused dispatch
+#                         isn't sent to dispose of deferrals or settle
+#                         decisions first; the redispatch's unit is resolved
+#                         before it (docs/designs/DESIGN-coordinate-paused-state.md,
+#                         Decision 1)
 #   decision-owed <rule>  decision-next.sh --owed dispatch names a rule that
 #                         blocks this dispatch (the DESIGN's blocking table):
 #                         before the run's first dispatch any owed rule, after
@@ -283,6 +297,28 @@ esac
 # finish before the record is read; the cap check below uses this one.
 lib_bounds "$T/parsed.json"
 
+# A redispatch's unit, resolved from the record's rows before the pause read
+# needs it (its refusal, unresolved-topic, still comes after the deferrals and
+# the decisions).
+jq '.holdings' "$T/parsed.json" > "$T/holdings.json"
+if [ "$UNIT_FROM_LOG" = 1 ]; then
+    parsed_holdings() { cat "$T/holdings.json"; }
+    lib_unit "" "" parsed_holdings; rc=$?
+    case $rc in 0) TOPIC=$UNIT ;; *) TOPIC=- ;; esac
+fi
+
+# The pauses. A pause on `all` holds any dispatch; a unit's pause holds one
+# whose topic is a holding's Worker for that unit.
+jq '{standing: (.standing // [])}' "$T/parsed.json" > "$T/standing.json" || lib_die2 "jq failed"
+jq -c --arg t "$TOPIC" '[.[] | select(.worker == $t) | .unit]' "$T/holdings.json" > "$T/punits.json" || lib_die2 "jq failed"
+bash "$HERE/pause-read.sh" --standing "$T/standing.json" --units "$T/punits.json" > "$T/pauses.json" 2> "$T/pauses.err" \
+    || lib_die2 "cannot read the record's pauses: $(lib_scrub < "$T/pauses.err")"
+PAUSED=$(jq -r '.all // ([.covers[] | select(. != null)][0]) // empty' "$T/pauses.json")
+if [ -n "$PAUSED" ]; then
+    REASON="held by pause $PAUSED: $(jq -r --arg s "$PAUSED" '.pauses[] | select(.standing == $s) | "on \(.on), until \(.until), set \(.set) by \(.owner)"' "$T/pauses.json")"
+    finish "paused $PAUSED"
+fi
+
 # Deferrals raised before the run start.
 START=$(bash "$HERE/coord-log.sh" run-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the run start"
 RS=$(minute "$START"); [ -n "$RS" ] || lib_die2 "the run start $START is not a time"
@@ -364,12 +400,6 @@ if [ "$OWED_RULE" != none ]; then
     REASON="decision work is owed first: $OWED_RULE"; finish "decision-owed $OWED_RULE"
 fi
 
-jq '.holdings' "$T/parsed.json" > "$T/holdings.json"
-if [ "$UNIT_FROM_LOG" = 1 ]; then
-    parsed_holdings() { cat "$T/holdings.json"; }
-    lib_unit "" "" parsed_holdings; rc=$?
-    case $rc in 0) TOPIC=$UNIT ;; *) TOPIC=- ;; esac
-fi
 # Nothing passes without a topic the dispatch path can take: a redispatch
 # whose unit can't be resolved, or resolves to a Worker the dispatch path
 # would refuse, goes back to failure rather than sealing `ok -`.

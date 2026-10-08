@@ -67,8 +67,15 @@ bash "$RS" "${W[@]}" --standing answer --what "panels at the head are the cost t
 eq "a standing answer is recorded" 0 $?
 eq "  ... with its id, owner and relayer" "s1 answer the human the process owner" \
     "$(live | jq -r '.standing[0] | "\(.standing) \(.kind) \(.owner) \(.relayed_by)"')"
-bash "$RS" "${W[@]}" --standing pause --what "all lanes, until a resume" --owner "the human" >/dev/null 2>"$T/err"
+bash "$RS" "${W[@]}" --standing pause --on all --until lifted --what "all lanes, until a resume" --owner "the human" >/dev/null 2>"$T/err"
 eq "a pause told directly has no relayer" "s2 []" "$(live | jq -r '.standing[1] | "\(.standing) [\(.relayed_by)]"')"
+eq "  ... and keeps its scope and condition" "all lifted" "$(live | jq -r '.standing[1] | "\(.on) \(.until)"')"
+bash "$RS" "${W[@]}" --standing pause --what x --owner y >/dev/null 2>"$T/err"; eq "a pause with no --on or --until is usage" 64 $?
+bash "$RS" "${W[@]}" --standing pause --on everything --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "a scope that is no unit is refused by the codec" 65 $?
+bash "$RS" "${W[@]}" --standing pause --on all --until "tomorrow at ten" --what x --owner y >/dev/null 2>"$T/err"; eq "a condition outside the grammar is refused by the codec" 65 $?
+bash "$RS" "${W[@]}" --standing pause --on "acme/secret#4" --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "a scope naming a private repository is refused" 65 $?
+bash "$RS" "${W[@]}" --standing go-ahead --on "Feature 2" --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "a go-ahead with an --until is usage" 64 $?
+bash "$RS" "${W[@]}" --standing answer --on "Feature 2" --what x --owner y >/dev/null 2>"$T/err"; eq "an answer with an --on is usage" 64 $?
 bash "$RS" "${W[@]}" --standing rumour --what x --owner y >/dev/null 2>"$T/err"; eq "an unknown kind is refused" 64 $?
 bash "$RS" "${W[@]}" --end s2 --by "the human" >/dev/null 2>"$T/err"; eq "a resume ends the pause" 0 $?
 eq "  ... the row is gone" "s1" "$(live | jq -r '[.standing[].standing] | join(" ")')"
@@ -113,6 +120,8 @@ eq "  ... and the next write drops its Work row" 0 "$(live | jq '(.work // []) |
 echo "== entries =="
 eq "every change was told as an entry, kinds in order" "run run run run told run answer pause end go-ahead answer work work work work run" \
     "$(entries | jq -r 'map(.kind) | join(" ")')"
+entries | jq -e 'any(.[]; .kind == "pause" and (.text | test("^s2 \\(pause on all, until lifted\\): all lanes")))' >/dev/null \
+    && ok "  ... a pause's entry names its scope and condition" || bad "  ... a pause's entry names its scope and condition" "$(entries | jq -c 'map(.text)')"
 entries | jq -e '.[0].text | test("^Run arguments set to --roadmap .* by the human\\.$")' >/dev/null && ok "  ... each naming who" || bad "  ... each naming who" "$(entries | jq -r '.[0].text')"
 
 echo "== one writer =="

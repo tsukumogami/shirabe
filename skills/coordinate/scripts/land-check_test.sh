@@ -301,6 +301,34 @@ bash "$LC" --session "$S" --no-seal >/dev/null 2>&1; eq "two holdings linking #1
 bash "$LC" --session "$S" --bogus >/dev/null 2>&1; eq "usage: exit 64" 64 $?
 bash "$LC" >/dev/null 2>&1; eq "no session: exit 64" 64 $?
 
+echo "== pauses =="
+paused_record() { bt_record_paused "$@"; }
+prow() { bt_pause "$@"; }
+scenario "$PERMIT" "$PERMIT"
+paused_record "[$(prow s1 pause "Feature 2" lifted)]"
+OUT=$(bash "$LC" --session "$S" --repo acme/widgets 2>"$T/err")
+eq "a pause on the pull request's unit: paused" "paused 12 $H" "${OUT% sealed:*}"
+bash "$CL" check --session "$S" --state land --sealed "$OUT" && ok "  ... sealed to the latest entry into land" || bad "  ... sealed to the latest entry into land"
+eq "  ... and coord/land.json names the unit and the pause" "Feature 2 s1 paused" \
+    "$("$KOTO_BIN" context get "$S" coord/land.json | jq -r '"\(.pauses.unit) \(.pauses.paused) \(.verdict)"')"
+scenario "$PERMIT" "$PERMIT"
+paused_record "[$(prow s1 pause all "time 2099-01-01T00:00Z")]" "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
+prstate 346 OPEN
+eq "a pause on all beats a hold: paused, not held" "paused 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+paused_record "[$(prow s1 pause all lifted)]"
+bt_prview CLEAN /dev/null
+eq "a pause comes before the worker's evidence: paused, not unready" "paused 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+paused_record "[$(prow s1 pause "Feature 3" lifted)]"
+eq "a pause on another unit holds nothing here: permit" "permit 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+paused_record "[$(prow s1 pause all lifted), $(prow s2 go-ahead "Feature 2" "")]"
+eq "a go-ahead on the unit lets it through an all pause: permit" "permit 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+paused_record "[$(prow s1 pause all "time 2000-01-01T00:00Z")]"
+eq "a pause whose minute has passed: permit" "permit 12 $H" "$(token)"
+
 echo
 echo "land-check: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

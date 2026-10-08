@@ -54,6 +54,8 @@ case "$WORD" in
     decision-owed) exit 45 ;;
     # dispatch_check and merged_facts: the evidence's unit is no topic they can act on
     unknown-topic) exit 46 ;; unresolved-topic) exit 47 ;;
+    # dispatch_check and land: a pause in the record holds the dispatch or the merge
+    paused) exit 48 ;;
     # record, verified_confirm ("waiting" holds the state: exit 4 below)
     confirmed) exit 50 ;; conflict) exit 52 ;; moved) exit 53 ;; directed) exit 54 ;;
     # report_facts

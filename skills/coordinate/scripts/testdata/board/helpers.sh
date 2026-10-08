@@ -20,7 +20,7 @@ bt_setup() {
     mkdir -p "$S" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
              merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-parse.sh record-render.sh record-codec.jq \
-             panel-evidence.sh squash-message.sh merge-order-entry.sh; do
+             panel-evidence.sh squash-message.sh merge-order-entry.sh pause-read.sh; do
         cp "$HERE/$f" "$S/$f"
     done
     ln -sf "$TD/board/stand-in-shirabe" "$T/bin/shirabe"
@@ -133,6 +133,23 @@ bt_record_body() {
     jq -nc --argjson r "$1" --argjson h "${2:-[]}" '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: $r, holds: $h}' > "$T/rec.json"
     bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
     jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+}
+# bt_record_paused <standing-rows-json> [holds-json]: the record, with pull
+# request #12's holding on Feature 2 and the given Standing rows; bt_pause
+# <id> <kind> <on> <until> prints one Standing row.
+bt_record_paused() {
+    jq -nc --argjson s "$1" --argjson h "${2:-[]}" '{scope: {kind: "roadmap", name: "demo"},
+        holdings: [{unit: "Feature 2", entry_point: "/shirabe:deliver", mode: "--auto", phase: "executing",
+            dispatch_status: "dispatched", return_path: "message", worker: "worker-f2", repo: "acme/widgets",
+            branch: "feat/x", verified_head: "", dispatched: "2026-09-26",
+            pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
+        deferrals: [], side_effects: [], reversals: [], holds: $h, standing: $s}' > "$T/rec.json"
+    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
+    jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+}
+bt_pause() {
+    jq -nc --arg s "$1" --arg k "$2" --arg o "$3" --arg u "$4" \
+        '{standing: $s, kind: $k, on: $o, until: $u, what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}'
 }
 bt_holdings() { # bt_holdings <pr-links...>: Holdings rows linking each
     local l
