@@ -86,8 +86,10 @@ differs, and it keys on **whether the transition will create GitHub
 issues** -- the resolved Tracking Level -- not on `execution_mode`.
 An activation that files issues waits for approval -- the author's, or
 under `--auto` a CLAUDE.md `## Tracking Level:` header that covers the
-filing, without which the run files nothing and writes outlines; one that
-files none auto-transitions when /plan finishes authoring.
+filing, without which the run files nothing and writes outlines (Phase 7's
+"Filing approval" step, per
+`docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md`);
+one that files none auto-transitions when /plan finishes authoring.
 
 | Status | Meaning | Trigger |
 |--------|---------|---------|

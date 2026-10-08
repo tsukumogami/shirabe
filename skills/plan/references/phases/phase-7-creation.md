@@ -79,8 +79,10 @@ included. The field is what selects the PLAN's shape downstream: the validator
 and the task extractor read a coordinated PLAN as outline-shaped only at an
 explicit `tracking_level: none`, and read one with no field as issue-carrying.
 
-Write the resolved value into the PLAN's `tracking_level` frontmatter field. This
-is load-bearing rather than bookkeeping: task extraction runs against a committed
+Write the resolved value into every PLAN's `tracking_level` frontmatter field,
+`none` included. A `multi-pr` PLAN with no field is read as issue-carrying, so a
+multi-pr PLAN written with outlines at `none` that omits it fails both the
+validator and a parent's filing check. This is load-bearing rather than bookkeeping: task extraction runs against a committed
 PLAN, possibly long after authoring, and if it re-resolved the level from
 CLAUDE.md then a repo that later changed its header would silently change how an
 already-written plan's work items key.
@@ -238,6 +240,7 @@ execution_mode: multi-pr
 split_mode_source: <flag | intent | default>   # from the decomposition artifact
 split_rationale: |                             # from the decomposition artifact
   <branch>. <rationale>
+tracking_level: <none | issues | issues-and-milestone>   # always written
 upstream: <source-doc-path>   # design doc, PRD, or roadmap path
 milestone: "<Milestone Name>"
 issue_count: <N>
@@ -349,6 +352,7 @@ schema: plan/v1
 status: Active
 execution_mode: single-pr
 split_mode_source: none   # from the decomposition artifact
+tracking_level: none      # or the stated filing level
 upstream: <design-doc-path>
 milestone: "<Milestone Name>"
 issue_count: <N>
@@ -398,7 +402,7 @@ coordination PR -- `/execute` does that when it runs the PLAN.
 
 ### 7.C1 Filing Approval (tracking level `issues` or `issues-and-milestone` only)
 
-Run the filing approval under "Resolve the Tracking Level first". On approval,
+Run the shared "Filing approval (every path that files)" step above. On approval,
 continue to 7.C2; otherwise the level is `none`, so continue at 7.C3's
 outline-shaped branch.
 
