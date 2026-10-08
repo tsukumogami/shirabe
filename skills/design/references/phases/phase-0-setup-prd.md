@@ -62,12 +62,10 @@ When the sentinel is ABSENT (no matching state file or no
 does NOT match `design`, do NOT auto-transition. Fall through
 to the hard-stop check below.
 
-This is the shared contract: when a chain-context signal is
-present (BRIEF input for `/prd`, the `parent_orchestration:`
-sentinel for `/design`), the skill auto-transitions its upstream
-artifact forward by one status before consuming it. (`/plan` is
-not part of it: it moves its DESIGN only at its own Phase 7 step
-7.5, after writing the PLAN.)
+This is the symmetric three-skill contract: when a chain-context
+signal is present (BRIEF input for `/prd`, `parent_orchestration:`
+sentinel for `/design` and `/plan`), the skill auto-transitions
+its upstream artifact forward by one status before consuming it.
 When no chain-context signal is present, the skill applies its
 protective hard-stop. Direct `/design` invocation against a Draft
 or non-Accepted PRD writes no sentinel; the sentinel check returns
