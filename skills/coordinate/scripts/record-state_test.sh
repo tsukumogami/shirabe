@@ -15,7 +15,8 @@
 # entry after the body; refusals (a holding row for no holding, a malformed
 # cap, a session-shaped address, a private repository on a public host); the
 # one-writer rule (record-write.sh changing a section refused); a failed entry
-# post after a written body (14); and record-handover.sh's report and gaps.
+# post after a written body (14); an assignment (an issue or a release a
+# person assigned) and its refusals; and record-handover.sh's report and gaps.
 #
 # Usage: bash skills/coordinate/scripts/record-state_test.sh
 set -uo pipefail
@@ -145,6 +146,20 @@ bash "$RS" "${W[@]}" --run cap 3 --by "the human" >/dev/null 2>"$T/err"; eq "a f
 eq "  ... after the body was written" 3 "$(live | jq -r '.run[] | select(.key == "cap") | .value')"
 grep -q 'Run cap set to 3 by the human' "$T/err" && ok "  ... naming the entry to post" || bad "  ... naming the entry to post" "$(cat "$T/err")"
 db '.fail = []'
+
+echo "== an assignment: work a person assigns outside the scope (shirabe#607) =="
+seed "$TWO"
+bash "$RS" "${W[@]}" --standing assignment --on "acme/widgets#591" --what "pick the review level up front" --owner "the human" >/dev/null 2>"$T/err"
+eq "an assigned issue is recorded" 0 $?
+eq "  ... with its unit in On" "assignment acme/widgets#591" "$(live | jq -r '.standing[-1] | "\(.kind) \(.on)"')"
+bash "$RS" "${W[@]}" --standing assignment --on "release acme/widgets v0.25.0" --what "cut v0.25.0" --owner "the human" >/dev/null 2>"$T/err"
+eq "an assigned release is recorded" 0 $?
+entries | jq -e 'any(.[]; .kind == "assignment" and (.text | test("\\(assignment on release acme/widgets v0.25.0\\)")))' >/dev/null \
+    && ok "  ... and told as an assignment entry" || bad "  ... and told as an assignment entry" "$(entries | jq -c 'map(.text)')"
+bash "$RS" "${W[@]}" --standing assignment --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment with no --on is usage" 64 $?
+bash "$RS" "${W[@]}" --standing assignment --on "#12" --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment with an --until is usage" 64 $?
+bash "$RS" "${W[@]}" --standing assignment --on "Feature 2" --what x --owner y >/dev/null 2>"$T/err"; eq "a roadmap feature isn't assigned work: refused by the codec" 65 $?
+bash "$RS" "${W[@]}" --standing assignment --on "acme/secret#4" --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment naming a private repository is refused" 65 $?
 
 echo "== the handover read =="
 seed "$TWO"

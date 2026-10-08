@@ -2505,7 +2505,11 @@ and drive every worker to landed work.
 - **Asking up.** When slots are free and the scope has no unit left, ask whoever
   dispatched you for out-of-scope work (`ask_up`) and invent none. Work you are
   assigned becomes a holding like any other; a proposal of your own stays
-  unacted on until answered.
+  unacted on until answered. Record an assignment first, `record-state.sh
+  --session {{SESSION_NAME}} --standing assignment --on <owner/repo#n, or
+  release owner/repo <tag>> --what <what> --owner <who assigned it>`: pick
+  then lists it as a unit (`assigned` set), at roadmap scope too. End its row
+  once the work is done; a closed issue reads done already.
 - **Reuse an idle worker** that knows the area before starting a new one: send it
   the next unit by message with its new brief and update its holding row rather
   than adding a second.
@@ -2519,6 +2523,7 @@ and drive every worker to landed work.
 | An issue that is already specified | `/shirabe:work-on` |
 | An open question | `/shirabe:explore` |
 | A contested choice | `/shirabe:decision` |
+| A release a person assigned (`release owner/repo <tag>`) | `/shirabe:release <version>`, with `--dry-run` when asked for one; no run mode |
 | A sub-effort that is itself a roadmap or a discipline | `/shirabe:coordinate`, only when the human's decisions allow a nested coordinator |
 
 Three kinds of decision, three routes. A contested choice inside your scope is
@@ -2627,7 +2632,9 @@ as a token array, the run mode (`--auto` unless the human's decisions say
 otherwise), the phase (`scoping-ahead` or `executing`), the authority sentence
 in the voice of whoever the work is for, the goal, the checkpoints (the last is
 where the worker stops; none may wait on an approval), the acceptance
-criteria, your session name, the decisions the worker can't see anywhere it
+criteria, your session name (your koto run's, which a leg names as its
+requester; the address the brief tells the worker to report to is the
+record's Run `coordinator`, which the script writes in), the decisions the worker can't see anywhere it
 will read, pointers to pushed artifacts, the discipline coordinator for each
 surface the work touches when you know them, and the workspace's standing
 rules for workers, copied verbatim. When the unit lands anywhere besides its

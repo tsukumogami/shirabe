@@ -13,7 +13,11 @@
 # only after the title's end date; CAP and PARKED_BOUND from the session; the
 # sealed token; every token in koto's capture alphabet; pick.json's host; every
 # Unit cell form dispatch-common.sh dc_unit_forms lists from pick.json is one
-# this script reads as covering its unit, and the old template's form isn't.
+# this script reads as covering its unit, and the old template's form isn't;
+# units a person assigned (Standing assignment rows: issues read in their own
+# repositories, a closed one done, a release open until its row ends) listed
+# after the roadmap's, covered by a holding, their forms the dispatch path
+# takes, and an open one keeping the roadmap from completing.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail
@@ -136,6 +140,35 @@ eq "pick.json carries the unsettled entries, not the settled one" "5:escalated:w
 RMTEXT=$(roadmap Done Done Dropped Done Dropped)
 picked "owed decision work comes before scope-complete" "decisions take" "$(dentry 6 proposed)"
 picked "an escalation that owes nothing lets the scope complete, for the close to report" "scope-complete" "$(dentry 5 escalated "$ESC")"
+
+echo "== roadmap: units a person assigned outside the roadmap (shirabe#607) =="
+STAND=$(jq -nc '[{standing: "s3", kind: "assignment", on: "acme/widgets#591", until: "", what: "pick the review level up front", owner: "the human", relayed_by: "", set: "2026-10-06T15:00Z"},
+    {standing: "s4", kind: "assignment", on: "#592", until: "", what: "a second fix", owner: "the human", relayed_by: "", set: "2026-10-06T15:00Z"},
+    {standing: "s5", kind: "assignment", on: "release acme/widgets v0.25.0", until: "", what: "cut v0.25.0 once #591 lands", owner: "the human", relayed_by: "", set: "2026-10-06T15:00Z"}]')
+seed "$(record_json roadmap plugin-system | jq -c --argjson s "$STAND" --argjson h "$(holding w591 '{"unit": "acme/widgets#591", "pull_request": ""}')" '.standing = $s | .holdings = [$h]')"
+db '.issues += [{repo: "acme/widgets", number: 591, title: "pick the review level up front", body: "", state: "open", author: "alice", editor: null},
+    {repo: "acme/widgets", number: 592, title: "a second fix", body: "", state: "closed", author: "alice", editor: null}]'
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Dropped)"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+OUT=$(bash "$PF" --session "$S" 2>"$T/err")
+eq "an open assigned unit keeps the roadmap from completing" pick "${OUT% sealed:*}"
+eq "the assigned units follow the roadmap's, each with its row" "acme/widgets#591:s3 #592:s4 release acme/widgets v0.25.0:s5" \
+    "$(facts | jq -r '[.units[] | select(.assigned != null) | "\(.unit):\(.assigned)"] | join(" ")')"
+eq "an issue is read for its title and state; a closed one is done" "pick the review level up front:false a second fix:true" \
+    "$(facts | jq -r '[.units[] | select(.number == 591 or .number == 592) | "\(.title):\(.done)"] | join(" ")')"
+eq "a release is open until its row ends" "to release false" "$(facts | jq -r '.units[] | select(.unit | startswith("release")) | "\(.status) \(.done)"')"
+eq "a holding covers an assigned unit by its id" '{"worker":"w591","phase":"executing"}' "$(facts | jq -c '.units[] | select(.unit == "acme/widgets#591") | .holding')"
+facts > "$T/assigned-pick.json"
+eq "the dispatch path takes the assigned units' ids, and host#n for #n" "acme/widgets#591 #592 acme/widgets#592 release acme/widgets v0.25.0" \
+    "$(. "$HERE/dispatch-common.sh"; dc_unit_forms "$T/assigned-pick.json" | grep -v '^Feature' | tr '\n' ' ' | sed 's/ $//')"
+grep -q "issue view 591 --repo acme/widgets" "$GH_DB.calls" && grep -q "issue view 592 --repo acme/widgets" "$GH_DB.calls" \
+    && ok "each assigned issue is read in its own repository" || bad "each assigned issue is read in its own repository" "$(calls)"
+seed "$(record_json roadmap plugin-system | jq -c --argjson s "$(printf '%s' "$STAND" | jq -c '[.[1]]')" '.standing = $s')"
+db '.issues += [{repo: "acme/widgets", number: 592, title: "a second fix", body: "", state: "closed", author: "alice", editor: null}]'
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Dropped)"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+OUT=$(bash "$PF" --session "$S" 2>"$T/err")
+eq "with every assigned unit done, the roadmap completes" scope-complete "${OUT% sealed:*}"
 
 echo "== roadmap: a landed unit, its roadmap pull request pending =="
 RS='{"action":"roadmap-status","target":"Feature 4 [#30](https://github.com/acme/widgets/pull/30)","verified_head":"","attempted":"2026-09-26T09:00Z","how_to_confirm":"the roadmap on main reads Feature 4 Done"}'

@@ -95,10 +95,11 @@ case "$MODE" in
 esac
 EOF
 # record-state.sh: the stored set, with no pause standing (the leg pick reads
-# the pauses through it; pause_engine_test.sh covers a paused leg).
+# the pauses through it; pause_engine_test.sh covers a paused leg) and the
+# coordinator's address in Run, which every brief names.
 cat >"$S/record-state.sh" <<'EOF'
 #!/usr/bin/env bash
-echo '{"run":[],"standing":[],"work":[]}'
+echo '{"run":[{"key":"coordinator","value":"coord-engine","set_by":"coord-engine","set":"2026-09-26T08:00Z"}],"standing":[],"work":[]}'
 EOF
 BIN="$T/bin"
 mkdir -p "$BIN"
@@ -255,7 +256,7 @@ cat >"$T/brief-private.json" <<'EOF'
  "entry_point": "deliver", "entry_args": ["w9"], "run_mode": "--auto", "phase": "executing",
  "authority": "You are working for the owner on acme/vault.", "goal": "The export ships.",
  "checkpoints": ["The PR is ready with every CI job green."], "acceptance": ["CI is green per job."],
- "dispatcher_session": "coord-dp"}
+ "dispatcher_session": "coord-dp", "reports_to": "coord-engine"}
 EOF
 start
 put dispatch_topic w9

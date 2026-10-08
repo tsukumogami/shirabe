@@ -16,14 +16,19 @@
 #                                 Unit cell names it: a roadmap feature's
 #                                 heading tag ("Feature 2") or "<tag>:
 #                                 <title>", an issue's "#12" or
-#                                 "owner/repo#12", the forms pick reads.
+#                                 "owner/repo#12", or a unit a person
+#                                 assigned as the record names it (an issue,
+#                                 or "release owner/repo <tag>"), the forms
+#                                 pick reads.
 #                                 With --units, any other form is refused
 #   entry_point         required  a skill listed in references/entry-points.tsv
 #   entry_args          required  JSON array of tokens: the positional argument
 #                                 first, then flags from the entry point's
 #                                 allowed set
 #   run_mode            required  the execution flags, space-separated, each
-#                                 from the allowed set
+#                                 from the allowed set; empty only for an
+#                                 entry point that takes neither --auto nor
+#                                 --interactive (/shirabe:release)
 #   phase               required  scoping-ahead or executing
 #   authority           required  the authority sentence, in the human's voice
 #   goal                required  one or two sentences
@@ -31,7 +36,13 @@
 #                                 stops. None may contain "approv" or "wait
 #                                 for": a worker never waits on an approval.
 #   acceptance          required  1+ strings
-#   dispatcher_session  required  the coordinator's session name, one line
+#   dispatcher_session  required  the coordinator's koto session name, one
+#                                 line: the run the worker's request leg
+#                                 names as its requester, never an address
+#   reports_to          required  the address the worker messages its
+#                                 reports to: the record's Run `coordinator`
+#                                 address, which dispatch-worker.sh writes
+#                                 in from the record (shirabe#610)
 #   decisions           optional  [{decision, by}]
 #   read_first          optional  pointers: a repository-relative path, #n,
 #                                 owner/repo#n, or an https:// URL
@@ -159,8 +170,11 @@ def oneline($s): ($s | test("[\\r\\n]") | not);
 def strs($k): (.[$k] | type == "array") and all(.[$k][]; type == "string" and test("\\S"));
 def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 . as $in | (
-( ["topic","repo","unit","entry_point","run_mode","phase","authority","goal","dispatcher_session"][]
+( ["topic","repo","unit","entry_point","phase","authority","goal","dispatcher_session","reports_to"][]
   | . as $k | select(($in | str($k)) | not) | "\($k): required and must be a non-empty string" ),
+( if (.run_mode | type) != "string" then "run_mode: required, a string (empty only for an entry point that takes no execution mode)" else empty end ),
+( if (.reports_to | type) == "string" and ((.reports_to | test("^[A-Za-z0-9][A-Za-z0-9_.-]*$")) | not)
+  then "reports_to: must be a session name, letters, digits, dots, dashes and underscores" else empty end ),
 ( if (.repo | type) == "string" and ((.repo | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")) | not)
   then "repo: must be owner/repo" else empty end ),
 ( if (.phase | type) == "string" and (.phase | IN("scoping-ahead","executing") | not)
@@ -261,6 +275,11 @@ EOF
         done <<EOF
 $(jq -r '.run_mode // "" | strings | split(" ")[] | select(. != "")' "$INPUT")
 EOF
+        # A run mode may be empty only for an entry point that takes none.
+        if jq -e '(.run_mode | type) == "string" and ((.run_mode | test("\\S")) | not)' "$INPUT" >/dev/null \
+            && { dc_flag_allowed "$ENTRY" --auto || dc_flag_allowed "$ENTRY" --interactive; }; then
+            refuse "run_mode: required for $ENTRY, which takes --auto or --interactive"
+        fi
     else
         refuse "entry_point: not in references/entry-points.tsv: $ENTRY"
     fi
@@ -357,7 +376,8 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "Run `\($invocation)` in \(.repo).",
   "",
-  "Run mode: `\(.run_mode)`. A background worker can'"'"'t answer the confirmation `--interactive` waits for.",
+  ( if (.run_mode | test("\\S")) then "Run mode: `\(.run_mode)`. A background worker can'"'"'t answer the confirmation `--interactive` waits for."
+    else "Run mode: none; `/shirabe:\(.entry_point)` takes no execution mode." end ),
   "",
   ( if .phase == "scoping-ahead" then "You are scoping ahead: produce the documents and stop at the checkpoint that says so; execution waits for the coordinator'"'"'s go."
     else "You are executing: take the work to the last checkpoint." end ),
@@ -398,14 +418,14 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "## Reporting",
   "",
-  "Report to the coordinator by message, addressed to its session name `\(.dispatcher_session)`, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.",
+  "Report to the coordinator by message, addressed to `\(.reports_to)`, the address its record names, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.",
   "",
   "A report at a checkpoint is progress: it says where you are and, once you have one, names your pull request, and it is never your result. When your invocation carries a request leg, your result still comes through that leg when your entry point finishes; a checkpoint message doesn'"'"'t stand in for it, so keep going to the end.",
   "",
   "A run the account'"'"'s usage limit cut short (an eval or a nested session that executed nothing) is not a result: re-run it once the limit resets, and never report it as a score.",
   "",
   ( if ((.standing_rules // []) | length) > 0 then
-      "This section wins over the Workspace rules below: where they name another session for direction or for status reports, report to `\(.dispatcher_session)` as this section says.\n"
+      "This section wins over the Workspace rules below: where they name another session for direction or for status reports, report to `\(.reports_to)` as this section says.\n"
     else empty end ),
   "Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then its questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).",
   "",

@@ -46,7 +46,7 @@ Report at each one and continue; don't wait for approval to go past it.
 
 ## Reporting
 
-Report to the coordinator by message, addressed to its session name `coord-alpha`, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.
+Report to the coordinator by message, addressed to `coord-alpha`, the address its record names, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.
 
 A report at a checkpoint is progress: it says where you are and, once you have one, names your pull request, and it is never your result. When your invocation carries a request leg, your result still comes through that leg when your entry point finishes; a checkpoint message doesn't stand in for it, so keep going to the end.
 

@@ -317,15 +317,16 @@
     {
       "id": 17,
       "name": "brief-rendered-with-both-channels",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, running in the session named coordinate-plugin-system. The human's decisions name ci-health-rotation as the discipline coordinator for CI. Feature 1 is unblocked and you have a free slot. Write the brief for the worker you dispatch for feature 1, and show it.",
-      "expected_output": "The coordinator doesn't compose the brief by hand. It assembles the structured input (topic, repository, unit, entry point with its positional argument, run mode, phase, authority, goal, checkpoints, acceptance criteria and its own session name, plus the ci-health surface) and renders the brief with render-brief.sh. The rendered brief names both channels: status and blockers go by message to coordinate-plugin-system, which is the worker's only source of direction, and tooling or workspace problems go to ci-health-rotation with a copy to the coordinator, taking no direction from it. No checkpoint waits on an approval.",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, running in the koto session named coordinate-plugin-system; your record's Run section gives your address, the one messages to you reach, as plugin-coord. The human's decisions name ci-health-rotation as the discipline coordinator for CI. Feature 1 is unblocked and you have a free slot. Write the brief for the worker you dispatch for feature 1, and show it.",
+      "expected_output": "The coordinator doesn't compose the brief by hand. It assembles the structured input (topic, repository, unit, entry point with its positional argument, run mode, phase, authority, goal, checkpoints, acceptance criteria and its koto session name, plus the ci-health surface) and renders the brief with render-brief.sh, which dispatch-worker.sh gives the record's address. The rendered brief names both channels: status and blockers go by message to plugin-coord, the address the record names, which is the worker's only source of direction, and never to the koto session name coordinate-plugin-system, which is no address; tooling or workspace problems go to ci-health-rotation with a copy to the coordinator, taking no direction from it. No checkpoint waits on an approval.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
         "The brief is produced by render-brief.sh from a structured input, not written out by hand",
-        "The brief tells the worker to report status and blockers by message to coordinate-plugin-system",
-        "The brief says coordinate-plugin-system is the worker's only source of direction",
+        "The brief tells the worker to report status and blockers by message to plugin-coord, the address the record's Run section names",
+        "The brief never gives the koto session name coordinate-plugin-system as the address to report to",
+        "The brief says plugin-coord is the worker's only source of direction",
         "The brief sends tooling or workspace problems to ci-health-rotation with a copy to the coordinator, and says to take no direction from it",
         "The brief's checkpoints ask the worker to report and continue, and none of them waits on an approval"
       ],

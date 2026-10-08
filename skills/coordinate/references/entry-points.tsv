@@ -35,6 +35,10 @@
 # /execute ran only in public repositories until shirabe#505, and the column is
 # kept for the next requirement an entry point adds.
 #
+# /release takes no leg and no execution mode: its positional is the version,
+# and its one flag --dry-run. Whether a release may be cut is the workspace's
+# rule, not this table's (shirabe#627).
+#
 # /deliver and /work-on answer legs since shirabe#407. /work-on answers its
 # leg only for an issue or a task, never for a PLAN path, so dispatch-worker.sh
 # opens no leg for a /work-on worker whose argument is one.
@@ -46,3 +50,4 @@ work-on	work-on	work-on.md	-	--auto,--interactive,--review-floor=*,--review-ceil
 explore	-	-	-	--auto,--interactive	any	-
 decision	-	-	-	--auto	any	-
 coordinate	-	-	-	-	any	-
+release	-	-	-	--dry-run	any	-
