@@ -278,6 +278,10 @@ case $? in
     3|65) REASON="#$REF is no longer a canonical $SCOPE record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+# The cap a person set in the record's Run section wins over the session's.
+# The first lib_bounds, above, read only the session, for the verdicts that
+# finish before the record is read; the cap check below uses this one.
+lib_bounds "$T/parsed.json"
 
 # Deferrals raised before the run start.
 START=$(bash "$HERE/coord-log.sh" run-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the run start"

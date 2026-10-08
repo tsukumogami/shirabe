@@ -105,6 +105,9 @@ jq -c --arg s "$ROT_START" --arg e "$ROT_END" --arg r "$REPO" --arg u "https://g
     {scope, rotation: {start: $s, end: $e, date: $e, host_repo: $r, record_url: $u},
      holdings, deferrals, side_effects, reversals, predecessor_copy: {written: .written}}
     + (if has("holds") then {holds} else {} end)
+    + (if has("run") then {run} else {} end)
+    + (if has("standing") then {standing} else {} end)
+    + (if has("work") then {work} else {} end)
     + (if has("decisions") then {decisions} else {} end)' \
     "$T/parsed.json" > "$T/handoff.json" || lib_die2 "jq failed"
 bash "$HERE/record-render.sh" --format handoff "$T/handoff.json" > "$T/handoff.md" 2> "$T/render.err" \

@@ -24,7 +24,9 @@
 #                   dispatch path writes the holding before `sent`. When the
 #                   pick this dispatch came from chose send_execution, the
 #                   row must also read Phase `executing`: a send that changed
-#                   nothing never confirms (shirabe#553)
+#                   nothing never confirms (shirabe#553). The holding also
+#                   needs its Work row (Kind holding, Item its Unit, Who the
+#                   topic), its next step for a successor
 #   leg_spent       (`replaced`) the evidence's topic's row on a leg other
 #                   than the spent one (the WAIT_REQ and WAIT_LEG captures),
 #                   and no row on the spent leg (shirabe#506)
@@ -326,6 +328,13 @@ dispatch)
     fi
     EXPECT="a Holdings row for topic $TOPIC"
     [ -n "$TOPIC" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t'))" || OKX=0
+    # The holding's next step goes into Work with the dispatch
+    # (record-state.sh --work), so the handover gate never stops on a
+    # holding this run made.
+    if [ "$OKX" = 1 ]; then
+        EXPECT="$EXPECT, and a Work row for its unit naming $TOPIC (record-state.sh --work <unit> --kind holding --who $TOPIC --next <step>)"
+        holds "[.holdings[] | select(.worker == $(jq -n --arg t "$TOPIC" '$t')) | .unit] as \$u | any((.work // [])[]; .kind == \"holding\" and .who == $(jq -n --arg t "$TOPIC" '$t') and (.item as \$i | \$u | index(\$i)))" || OKX=0
+    fi
     # A send_execution moves the holding from scoping-ahead to executing; one
     # that left it scoping ahead sent nothing, and never confirms.
     entry pick "$ESEQ"; PSEQ=$ENT_SEQ

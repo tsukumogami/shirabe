@@ -38,7 +38,7 @@ C26	skills/coordinate/koto-templates/coordinate.md	quiet_check	A worker is quiet
 C27	skills/coordinate/koto-templates/coordinate.md	quiet_check	One silent check earns a status message	changed: stalled is no longer a named state; quiet-check.sh counts silent checks from the session log
 C28	skills/coordinate/koto-templates/coordinate.md	-	returns through `record`, whose check confirms the change on	changed: the seven prose steps became a koto state graph with wait as a hub
 C29	skills/coordinate/koto-templates/coordinate.md	decision_apply	A new decision takes effect at the start of the next turn
-C30	skills/coordinate/koto-templates/coordinate.md	reconcile	This full reconcile runs once per run, on this path.
+C30	skills/coordinate/koto-templates/coordinate.md	reconcile	reconcile runs at every start and restart
 C31	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Treat every claim in the record as a snapshot	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C32	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	Re-check each against GitHub (pull request state	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
 C33	skills/coordinate/koto-templates/coordinate.md	reconcile_pass	record and GitHub disagree, GitHub wins	changed: the reconcile_pass state's engine-run pass makes the reads; reconcile reports its sealed report
@@ -70,7 +70,7 @@ C58	skills/coordinate/koto-templates/coordinate.md	pick	settled by dispatching `
 C59	skills/coordinate/koto-templates/coordinate.md	pick	is asked once, with one recommendation
 C60	skills/coordinate/koto-templates/coordinate.md	pick	Anything outside your scope is
 C61	skills/coordinate/koto-templates/coordinate.md	pick	**Reuse an idle worker** that knows the area
-C62	skills/coordinate/koto-templates/coordinate.md	pick	Keep the cap of {{CAP}} active workers full	changed: three active workers by default became a cap of five (--cap) that pick keeps full
+C62	skills/coordinate/koto-templates/coordinate.md	pick	Keep the cap of active workers	changed: three active workers by default became a cap of five (--cap) that pick keeps full; the cap in force is the record's when a person changed it
 C63	skills/coordinate/koto-templates/coordinate.md	pick	When {{PARKED_BOUND}} or more workers are parked
 C64	skills/coordinate/SKILL.md	-	**Inside your scope, dispatch without asking.**
 C65	skills/coordinate/SKILL.md	-	**A decision is the human's when it does any of these:**

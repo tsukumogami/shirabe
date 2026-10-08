@@ -167,8 +167,10 @@ finds it, checks it, and confirms every change you make to it on GitHub; you
 write it only through the scripts its states name. Its body, written by
 `record-render.sh`, starts with the declaration line (`> This is a
 **coordinator record** for ...`) and the `Written:` line, then the four
-sections, then Holds once the record holds a merge, then Decisions once it holds
-a decision; a candidate without the declaration line is never adopted.
+sections, then Holds once the record holds a merge, then the stored set a
+replacement continues from (Run, Standing and Work, written only by
+`scripts/record-state.sh`), then Decisions once it holds a decision; a
+candidate without the declaration line is never adopted.
 `references/record-template.md` has the shape.
 
 The body is the record's state. Its account, what happened and why, goes in

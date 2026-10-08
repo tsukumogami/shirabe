@@ -223,6 +223,16 @@ grep -qE '^[^#]*HOLDS_WRITER=1' "$HERE/record-hold.sh" && pass "record-hold.sh o
 printf '\nHOLDS_WRITER=1\n' >> "$T/openers/record-write.sh"
 [ "$(holds_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens the Holds section" ||
     fail "the check names another script that opens the Holds section" "$(holds_writers "$T/openers")"
+# The stored set's sections the same way: only record-state.sh sets STATE_WRITER=1.
+state_writers() {
+    grep -lE '^[^#]*STATE_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/record-state\.sh$' || true
+}
+SOPENERS=$(state_writers "$HERE")
+[ -z "$SOPENERS" ] && pass "only record-state.sh opens the Run, Standing and Work sections" || fail "only record-state.sh opens the Run, Standing and Work sections" "$SOPENERS"
+grep -qE '^[^#]*STATE_WRITER=1' "$HERE/record-state.sh" && pass "record-state.sh opens them" || fail "record-state.sh opens them"
+printf '\nSTATE_WRITER=1\n' >> "$T/openers/record-write.sh"
+[ "$(state_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens the stored set" ||
+    fail "the check names another script that opens the stored set" "$(state_writers "$T/openers")"
 
 grep -qiE 'the human merges|a person merges' "$TPL" "$HERE/../SKILL.md" && fail "nothing says the human merges" || pass "nothing says the human merges"
 for r in loop.md brief-template.md verification-checklist.md record-template.md; do

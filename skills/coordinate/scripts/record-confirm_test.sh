@@ -3,7 +3,7 @@
 # session log and confirms the change it implies with a newer Written: time.
 #
 # Covers, with a passing and a failing fixture each: dispatch (the topic's
-# row), surface (the unit's Verified head), merge_confirm and merged_facts
+# row, and its Work row: none, or one for another unit, waits), surface (the unit's Verified head), merge_confirm and merged_facts
 # (merged: the unit's row kept with its Pull request cell cleared; unconfirmed: a
 # Side effects row naming owner/repo#n at the sha), teardown (done and kept),
 # decision_apply (reversal and deferral), posture_ask, and --verified
@@ -71,24 +71,28 @@ session
 checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
-body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')"
 eq "dispatch: the topic's row with a newer Written: confirms" confirmed "$(confirm)"
-body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h]')"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
+eq "dispatch: the row without its Work row waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h] | .work = [{item: "Feature 9", kind: "holding", who: "alpha", next: "x", updated: "2026-09-26T09:59Z"}]')"
+eq "dispatch: a Work row for another unit waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')"
 eq "dispatch: another topic's row waits" waiting "$(confirm)"
-body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" "$BEFORE"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')" "$BEFORE"
 eq "dispatch: an older Written: time waits even with the row" waiting "$(confirm)"
-body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')" 2026-09-26T10:00:00Z
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')" 2026-09-26T10:00:00Z
 eq "dispatch: a Written: time in the event's own second waits" waiting "$(confirm)"
 session
 checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"beta"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
-body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h]')"
+body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')"
 eq "dispatch: a topic other than the one dispatch_check passed is a conflict" conflict "$(confirm)"
 session
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
-body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')"
 eq "dispatch: a topic named only in the evidence, with no dispatch_check pass, is a conflict" conflict "$(confirm)"
 
 echo "== dispatch after send_execution (shirabe#553) =="
@@ -101,9 +105,9 @@ send_exec() { # a run that picked send_execution for alpha, passed dispatch_chec
     log_to "$S" dispatch record "$EVT"
 }
 send_exec
-body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"executing","entry_point":"/shirabe:execute"}')" '.holdings = [$h]')"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"executing","entry_point":"/shirabe:execute"}')" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')"
 eq "send_execution: the row moved to executing confirms" confirmed "$(confirm)"
-body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"scoping-ahead","entry_point":"/shirabe:scope"}')" '.holdings = [$h]')"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"scoping-ahead","entry_point":"/shirabe:scope"}')" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')"
 eq "send_execution: a row still scoping ahead never confirms" waiting "$(confirm)"
 bash "$C" --session "$S" >/dev/null 2>&1
 jq -r '.expectation' "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null | grep -q 'means no execution was sent' \
@@ -114,7 +118,7 @@ log_evidence "$S" pick '{"choice":"dispatch","unit":"alpha"}' 2026-09-26T09:51:0
 checked alpha
 log_evidence "$S" dispatch '{"dispatched":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
-body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"scoping-ahead","entry_point":"/shirabe:scope"}')" '.holdings = [$h]')"
+body "$(rec | jq -c --argjson h "$(holding alpha '{"phase":"scoping-ahead","entry_point":"/shirabe:scope"}')" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')"
 eq "a plain dispatch of a scoping-ahead row confirms as before" confirmed "$(confirm)"
 
 echo "== leg_spent: a spent leg replaced (shirabe#506) =="
@@ -509,7 +513,7 @@ session
 checked alpha
 log_evidence "$S" dispatch '{"outcome":"sent","topic":"alpha"}' "$EVT"
 log_to "$S" dispatch record "$EVT"
-body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h] | .work = [{item: $h.unit, kind: "holding", who: $h.worker, next: "x", updated: "2026-09-26T09:59Z"}]')"
 OUT=$(bash "$C" --session "$S" 2>"$T/err")
 seen "$OUT" > /dev/null
 case "$OUT" in "confirmed sealed:"*) ok "the verdict is sealed to the record visit" ;; *) bad "the verdict is sealed to the record visit" "$OUT $(cat "$T/err")" ;; esac

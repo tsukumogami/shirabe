@@ -512,6 +512,44 @@
         "R13",
         "R10"
       ]
+    },
+    {
+      "id": 27,
+      "name": "local-agent-work-gets-a-work-row",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system; the session is at wait. Two workers hold your two slots. A check on main broke overnight and holds the ready pull request #568 on every-run-green; the fix is a two-line change, so you decide to have a local agent build it as its own pull request rather than dispatch a worker. Say exactly what you run, in order, from deciding this until the fix's pull request merges.",
+      "expected_output": "Before the local agent starts, the coordinator writes the work into the record's Work section with record-state.sh --session coordinate-plugin-system --work \"<the fix>\" --kind local-agent --who \"local agent\" --next \"<step>\", because work no holding covers is otherwise invisible to a successor. The local agent doesn't count against the cap of two and no holding is written for it. As the fix moves, the coordinator updates the row's next step with the same call, and when the fix merges it runs record-state.sh --done \"<the fix>\". It writes none of this by hand into the body, a table cell or a local file.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Before the local agent starts, the coordinator runs record-state.sh with --work, --kind local-agent, a --who and a --next naming the fix",
+        "The local agent is not counted against the cap and no Holdings row is written for it",
+        "When the fix merges, the coordinator runs record-state.sh --done for the same item",
+        "Nothing about the fix is written into the record by hand or kept in a local file"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "a-persons-comment-on-the-record-is-relayed",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. Your own address in the record is plugin-coordinator. The human, alice, has just posted a plain comment on the record's issue: \"Pause all dispatches on this roadmap until I say resume; merges can go on.\" No worker has messaged you. What do you do, and what do you run?",
+      "expected_output": "The comment carries no entry marker, so the record's reader doesn't count it, and nothing is in the record until the coordinator writes it: it runs record-state.sh --session coordinate-plugin-system --standing pause --what \"<all dispatches on this roadmap until a resume; merges go on>\" --owner alice --relayed-by plugin-coordinator before acting on it, which writes the Standing row and appends the entry that tells it. When alice later says resume, it ends the row with record-state.sh --end <the pause's id> --by alice. It doesn't keep the pause in a local file, a session timer or a Deferrals cell.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The coordinator writes the pause with record-state.sh --standing pause before acting on it",
+        "The Standing row names alice as owner and the coordinator itself as relayer",
+        "The coordinator says a resume is recorded with record-state.sh --end, naming who resumed it",
+        "The pause is not kept only in a local file, a timer, a Deferrals cell or an unmarked comment"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
     }
   ]
 }

@@ -10,13 +10,15 @@
 #   1. dispatch is unreachable without exactly one record (none stops at
 #      record_open, two at record_conflict, a record that vanishes routes
 #      dispatch_check back to record_find), and once the stand-in holds the
-#      record the run reaches pick with no evidence naming it;
+#      record the run reaches pick with no evidence naming it, after a new
+#      record's empty stored set held the reconcile handover gate until
+#      record-state.sh filled it;
 #   2. a restart with a record present takes the found arm, never record_open;
 #   3. an undisposed deferral holds dispatch_check at deferral_dispose until
 #      record-write.sh disposes it, then dispatch is reached;
 #   4. `dispatch` holds (the dispatch path's holding_recorded gate) until the
 #      Holdings row shows dispatched, so record and wait are unreachable until
-#      then;
+#      then, and record holds until the holding has its Work row;
 #   5. a Draft roadmap ends at done_not_active;
 #   6. an unread posture reaches posture_ask;
 #   7. `koto overrides record` is refused on a check gate and on the dispatch
@@ -180,9 +182,25 @@ roadmap_text() { # roadmap_text <status>
 seed_roadmap() { # seed_roadmap <name> [status]
     db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-\($n).md"] = $t' --arg n "$1" --arg t "$(roadmap_text "${2:-Active}")"
 }
-seed_record() { # seed_record <name> <number> [record-json]: an open record issue
+# stored <record-json>: the record with a complete stored set, so the
+# reconcile's handover gate passes: the run's arguments and cap, this
+# coordinator's address, and for every live holding a next step and its
+# worker told. The handover cases build theirs by hand.
+stored() {
+    printf '%s' "$1" | jq -c '
+        ([.holdings[] | select(.dispatch_status == "dispatched")
+          | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)]) as $live
+        | .run = ((.run // []) + [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-test.md", set_by: "the human", set: "2026-09-26T08:00Z"},
+                                  {key: "cap", value: "5", set_by: "the human", set: "2026-09-26T08:00Z"},
+                                  {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"}]
+                 + [$live[] | {key: "told", value: .worker, set_by: "coord-test", set: "2026-09-26T08:00Z"}])
+        | .work = ((.work // []) + [$live[] | {item: .unit, kind: "holding", who: .worker, next: "waiting on the worker", updated: "2026-09-26T08:00Z"}])
+        | if (.work | length) == 0 then del(.work) else . end'
+}
+seed_record() { # seed_record <name> <number> [record-json]: an open record issue, its stored set complete
     local j=${3-}
     [ -n "$j" ] || j=$(record_json roadmap "$1")
+    [ "${RAW_RECORD-}" = 1 ] || j=$(stored "$j")
     db '.issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-\($n)", body: $b,
         state: "open", author: "coord", editor: null}]' --arg n "$1" --argjson k "$2" --arg b "$(render "$j" issue)"
 }
@@ -243,6 +261,11 @@ if open_run one; then
     eq "1: record-open.sh (agent-run) opens the record" 0 $rc
     N1=$(record_number one)
     eq "1: after record_open the run finds the one record and reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+    eq "1: a new record's empty stored set holds the handover gate" reconcile "$(at --with-data '{"reconciled":"reported"}')"
+    write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-one.md" --by "the human" \
+        && write_as_agent record-state.sh --run cap 5 --by "the human" \
+        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test
+    eq "1: record-state.sh (agent-run) writes the arguments, the cap and the address" 0 $?
     eq "1: the next advance reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
     NAMED=$(jq -r --arg n "$N1" 'select(.type == "evidence_submitted") | .payload.fields | tostring
         | select(test("(^|[^0-9])" + $n + "([^0-9]|$)") or test("issues/"))' "$(logf)")
@@ -330,7 +353,10 @@ if to_pick hold "$(record_json roadmap hold)" 40 && [ "$(at --with-data '{"choic
     dispatched_row feat-1 > "$T/row.json"
     write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"; rc=$?
     eq "4: record-holding.sh (agent-run) writes the row" 0 $rc
-    eq "4: with the row on GitHub, dispatch leaves, record confirms and reaches pick" pick "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    eq "4: with the row on GitHub, dispatch leaves, and record waits for the holding's Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    write_as_agent record-state.sh --work "Feature 1" --kind holding --who feat-1 --next "waiting on its first report"; rc=$?
+    eq "4: record-state.sh (agent-run) writes the holding's next step" 0 $rc
+    eq "4: with the Work row on GitHub, record confirms and reaches pick" pick "$(at)"
     eq "4: and pick can now hold into wait" wait "$(at --with-data '{"choice":"hold"}')"
 else
     bad "4: reach dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
