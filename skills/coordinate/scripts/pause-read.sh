@@ -2,7 +2,7 @@
 # pause-read.sh -- which of the record's pauses are in force, and which units
 # each covers. Read-only; the one evaluator pick, the dispatch check, the land
 # check, the merge, the leg pick and the quiet check share
-# (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
 #
 # Usage:
 #   pause-read.sh --standing FILE [--units FILE]

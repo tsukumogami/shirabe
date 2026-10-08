@@ -104,6 +104,17 @@
 #       leg; 2 read failure.
 #   coord-log.sh count --session S
 #       Prints how many events the log holds. Exit 0; 2 read failure.
+#   coord-log.sh wakes --session S [--after-time T]
+#       The run's wakes, attributed (docs/designs/current/DESIGN-coordinate-paused-state.md,
+#       Decision 4): a wake is `wait` evidence whose event is report, progress,
+#       leg, quiet, merged or resume, after T (an ISO-8601 time; every wake
+#       when absent). report, progress and merged count for their evidence's
+#       unit; leg for `leg <request>`, the request of the first WAIT_REQ
+#       capture after it and before the next `wait` evidence, when it read
+#       one; quiet for each topic the first QUIET capture after it named
+#       silent; anything else, resume included, for the run. Prints one JSON
+#       object, {"<topic>" | "leg <request>" | "": count}. Exit 0; 2 read
+#       failure.
 #
 # Exit 64 on usage errors, everywhere.
 set -uo pipefail
@@ -150,7 +161,7 @@ is_entry() { # is_entry <log> <state> <seq>
 seal_hash() { printf '%s|%s|%s|%s' "$1" "$2" "$3" "$4" | sha256; }
 
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
-SCOPE= EVENT= HAS=
+SCOPE= EVENT= HAS= AFTER_TIME=
 WHERE='[]'
 ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
@@ -168,6 +179,7 @@ while [ $# -gt 0 ]; do
         --for) [ $# -ge 2 ] || usage; FOR=$2; shift 2 ;;
         --from) [ $# -ge 2 ] || usage; FROM=$2; shift 2 ;;
         --after) [ $# -ge 2 ] || usage; AFTER=$2; shift 2 ;;
+        --after-time) [ $# -ge 2 ] || usage; AFTER_TIME=$2; shift 2 ;;
         --before) [ $# -ge 2 ] || usage; BEFORE=$2; shift 2 ;;
         --template) [ $# -ge 2 ] || usage; TEMPLATE=$2; shift 2 ;;
         --scope-slug) [ $# -ge 2 ] || usage; SLUG=$2; shift 2 ;;
@@ -433,6 +445,37 @@ unit)
     [ -n "$OUT" ] || exit 1
     [ "$OUT" = unusable ] && { echo "coord-log: the leg captures are not a request id and a leg" >&2; exit 3; }
     printf '%s\n' "$OUT"
+    ;;
+wakes)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    # One pass over the log: a wake stays open until the next `wait` evidence,
+    # and the first WAIT_REQ or QUIET capture inside it says what it was for.
+    jq -cn --arg t "$AFTER_TIME" '
+        def secs: (. // "") | tostring | sub("\\.[0-9]+Z$"; "Z") | try fromdateiso8601 catch 0;
+        def close: if .open == null then . else .keys += (.open.k // [""]) | .open = null end;
+        ($t | if . == "" then null else secs end) as $cut
+        | reduce (inputs | select(.type != null)) as $x ({open: null, keys: []};
+            if $x.type == "evidence_submitted" and $x.payload.state == "wait" then
+              close
+              | (($x.payload.fields // {}) | (.event // "") | tostring) as $ev
+              | (($x.payload.fields // {}) | (.unit // "") | tostring) as $u
+              | if ($cut != null and ($x.timestamp | secs) <= $cut) then .
+                elif ($ev == "report" or $ev == "progress" or $ev == "merged") then .open = {ev: $ev, k: [$u]}
+                elif ($ev == "leg" or $ev == "quiet") then .open = {ev: $ev, k: null}
+                elif $ev == "resume" then .open = {ev: $ev, k: [""]}
+                else . end
+            elif $x.type == "variable_captured" and .open != null and .open.k == null then
+              (($x.payload.value // "") | tostring | sub(" sealed:.*$"; "") | split(" ")) as $w
+              | if .open.ev == "leg" and $x.payload.key == "WAIT_REQ" then
+                  .open.k = [if ($w[0] // "") == "" or $w[0] == "none" then "" else "leg " + $w[0] end]
+                elif .open.ev == "quiet" and $x.payload.key == "QUIET" then
+                  .open.k = ((if ($w[0] == "first-silence" or $w[0] == "second-silence") then $w[1:] else [] end)
+                             | if length == 0 then [""] else . end)
+                else . end
+            else . end)
+        | close
+        | reduce .keys[] as $k ({}; .[$k] += 1)' "$LOG" || die "cannot read $LOG"
     ;;
 *) usage ;;
 esac

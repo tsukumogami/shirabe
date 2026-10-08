@@ -35,7 +35,7 @@
 # (in-force, met, unreadable), the go-aheads, and `paused_all`, the id of the
 # pause on `all` that holds the whole coordinator, or null. A paused unit is
 # never chosen, and while `paused_all` is set pick holds
-# (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
 #
 # Verdict tokens:
 #   decisions        decision-next.sh --owed pick names a rule: an unrecorded

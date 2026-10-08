@@ -55,7 +55,7 @@
 # but whose row the coordinator hasn't ended. A holding a pause holds reads
 # `paused (<id>)` in its Status cell (a ready one `verified; held by pause
 # <id>`), and a queued unit's Next cell reads `held by pause <id>`. The
-# table keeps its columns and kinds (docs/designs/DESIGN-coordinate-paused-state.md,
+# table keeps its columns and kinds (docs/designs/current/DESIGN-coordinate-paused-state.md,
 # Decision 5).
 #
 # Exit codes: 0 the table was printed; 65 refused (nothing is printed; stderr

@@ -31,7 +31,7 @@
 # but a silent check made before the latest `resume` tick no longer counts, so
 # the first sweep after a resume sends one status message rather than going
 # straight to the failure branch on a silence from before the pause
-# (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
 #
 # The detail goes to context key coord/quiet.json as data: per holding its
 # last activity, whether it is silent, its earlier silent checks, and the
@@ -127,7 +127,9 @@ latest_evidence() {
     [ -n "$ts" ] && lib_epoch "$ts"
 }
 
-# The latest resume tick: silent checks before it don't count.
+# The latest resume tick: silent checks before it don't count. It is the
+# run's latest, whichever pause it ended, so one lane's resume also gives
+# every other worker one more status-message cycle before the failure branch.
 RESUME_S=0
 RESUME_OUT=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where 'event=resume'); rc=$?
 case $rc in

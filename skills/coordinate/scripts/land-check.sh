@@ -18,7 +18,7 @@
 #    force or unreadable and with no go-ahead on that unit, is
 #    `paused <pr> <sha>`. It comes before the worker's evidence, so a paused
 #    pull request isn't asked for a fix before its merge could happen anyway
-#    (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
+#    (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
 # 4. The worker's review round, read from the body (panel-evidence.sh): no
 #    Review panel table, a malformed one, fewer than three seats or any
 #    verdict but pass is `unready <pr> <sha>`.

@@ -36,7 +36,7 @@
 # owner/repo#n` or `tag owner/repo <tag>`); a go-ahead may take --on, the one
 # unit it lets through a wider pause; the other kinds take neither. With a
 # session whose pick facts (coord/pick.json) list units, --on must name one of
-# them (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
+# them (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
 # --end removes a Standing row (a resume ends a pause; a go-ahead or approval
 # ends when used; an answer when withdrawn).
 #
@@ -46,6 +46,21 @@
 # update doesn't); with --kind local-agent, ITEM is
 # the work and W who does it. --done removes ITEM's row. Every write also
 # drops a holding row whose holding is gone, so a teardown leaves no orphan.
+#
+# A holding's row carries its Wakes: at each --work write, this run's wakes
+# for the holding (coord-log.sh wakes: its worker's topic, and its leg's
+# request) logged after the end of the minute in the row's Updated cell are
+# added to the count; a new row counts this run's wakes from its start. When
+# a holding's row leaves Work (--done, or dropped once its holding is gone),
+# its final count, with the wakes since its last write, is appended as an
+# entry. The count is a floor: a wake inside the minute after a write, or
+# one a crashed run logged after its last write, isn't counted, and a holding
+# torn down before its row leaves takes its leg's wakes with it. A row removed
+# and written again in the same run counts that run's wakes again. A leg's
+# request is one per holding (dispatch-worker.sh opens one per topic), so a
+# leg wake is never credited to two holdings. Without a
+# session (the override flags) nothing is added
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 4).
 #
 # Each change is written to the body first, through the record's write core
 # (record-write-core.sh), with the minute and who, and then told as an entry
@@ -151,6 +166,20 @@ if [ "$MODE" = list ]; then
 fi
 
 NOW=$(date -u +%Y-%m-%dT%H:%MZ)
+# wakes_since <topic> <return-path> <updated-or-empty>: this run's wakes for a
+# holding after the end of the Updated minute (all of this run's when empty).
+wakes_since() {
+    [ "$OVERRIDE" = 1 ] && { echo 0; return 0; }
+    local cut= w req
+    if [ -n "$3" ]; then
+        # Updated is always YYYY-MM-DDTHH:MMZ (the codec's grammar).
+        cut=$(jq -rn --arg u "$3" '$u | strptime("%Y-%m-%dT%H:%MZ") | mktime + 60 | todate') || { echo "$PROG: jq failed" >&2; return 2; }
+    fi
+    w=$(bash "$HERE/coord-log.sh" wakes --session "$SESSION" ${cut:+--after-time "$cut"}) || { echo "$PROG: cannot read the run's wakes" >&2; return 2; }
+    req=${2#leg }; req=${req%%:*}
+    case "$2" in "leg "*) ;; *) req= ;; esac
+    printf '%s' "$w" | jq -r --arg t "$1" --arg r "$req" '(.[$t] // 0) + (if $r == "" then 0 else (.["leg " + $r] // 0) end)'
+}
 # How record-append.sh addresses this record.
 if [ "$OVERRIDE" = 1 ]; then
     ADDR_ARGS=(--scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF")
@@ -232,12 +261,22 @@ work)
     # worker has been told nothing until --told says so.
     FIRST=true
     jq -e --arg i "$ITEM" 'any((.work // [])[]; .item == $i)' "$P" > /dev/null && FIRST=false
-    jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" --arg n "$NEXT" --arg t "$NOW" --argjson first "$FIRST" '
-        .work = ([(.work // [])[] | select(.item != $i)] + [{item: $i, kind: $k, who: $w, next: $n, updated: $t}])
+    WAKES=0
+    if [ "$KIND" = holding ]; then
+        PREV=$(jq -c --arg i "$ITEM" '[(.work // [])[] | select(.item == $i)][0] // {}' "$P")
+        RP=$(jq -r --arg u "$ITEM" --arg w "$WHO" '[.holdings[] | select(.unit == $u and .worker == $w) | .return_path][0] // ""' "$P")
+        PREV_UPD=$(printf '%s' "$PREV" | jq -r '.updated // ""') || lib_die2 "jq failed"
+        ADD=$(wakes_since "$WHO" "$RP" "$PREV_UPD")
+        [ -n "$ADD" ] || lib_die2 "cannot count the run's wakes for $WHO"
+        WAKES=$(( $(printf '%s' "$PREV" | jq -r '.wakes // "0" | if . == "" then "0" else . end') + ADD ))
+    fi
+    jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" --arg n "$NEXT" --arg t "$NOW" --arg c "$WAKES" --argjson first "$FIRST" '
+        .work = ([(.work // [])[] | select(.item != $i)] + [{item: $i, kind: $k, who: $w, next: $n, wakes: $c, updated: $t}])
         | if $k == "holding" and $first and any((.run // [])[]; .key == "coordinator") and (any((.run // [])[]; .key == "told" and .value == $w) | not)
           then .run += [{key: "told", value: $w, set_by: ([.run[] | select(.key == "coordinator") | .value][0]), set: $t}]
           else . end' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=work ETEXT="Next step for $ITEM ($KIND, $WHO): $NEXT."
+    [ "$KIND" = holding ] && ETEXT="$ETEXT Wakes so far: $WAKES."
     ;;
 done)
     jq -e --arg i "$ITEM" 'any((.work // [])[]; .item == $i)' "$P" > /dev/null || refuse "no Work row for $ITEM"
@@ -245,6 +284,32 @@ done)
     EKIND=work ETEXT="$ITEM is done and leaves Work."
     ;;
 esac
+
+# The holding rows that leave Work with this write, --done's or the ones whose
+# holding is gone, each with its final count, told after the change's entry.
+P_NEXT="$WD/next.json"
+jq -c '([.holdings[] | "\(.unit)\u0000\(.worker)"]) as $h
+    | [(.work // [])[] | select(.kind == "holding" and (("\(.item)\u0000\(.who)" as $k | $h | index($k)) | not))]' "$P_NEXT" > "$WD/leaving.json" || lib_die2 "jq failed"
+if [ "$MODE" = done ]; then
+    jq -c --arg i "$ITEM" '[(.work // [])[] | select(.item == $i and .kind == "holding")]' "$P" > "$WD/done.json" || lib_die2 "jq failed"
+    jq -sc 'add | unique_by(.item)' "$WD/leaving.json" "$WD/done.json" > "$WD/leaving2.json" && mv "$WD/leaving2.json" "$WD/leaving.json"
+fi
+: > "$WD/leaving.txt"
+n=$(jq length "$WD/leaving.json")
+i=0
+while [ "$i" -lt "$n" ]; do
+    ROW=$(jq -c --argjson i "$i" '.[$i]' "$WD/leaving.json")
+    LW=$(printf '%s' "$ROW" | jq -r .who)
+    # The leg's request, when the holding is still in the version read (a
+    # --done); a holding already gone takes its leg's wakes with it, a floor.
+    LRP=$(jq -r --arg u "$(printf '%s' "$ROW" | jq -r .item)" --arg w "$LW" '[.holdings[] | select(.unit == $u and .worker == $w) | .return_path][0] // ""' "$P")
+    LUPD=$(printf '%s' "$ROW" | jq -r '.updated // ""') || lib_die2 "jq failed"
+    LADD=$(wakes_since "$LW" "$LRP" "$LUPD")
+    [ -n "$LADD" ] || lib_die2 "cannot count the run's wakes for $LW"
+    LTOT=$(( $(printf '%s' "$ROW" | jq -r '.wakes // "0" | if . == "" then "0" else . end') + LADD ))
+    printf '%s\n' "$(printf '%s' "$ROW" | jq -r .item) ($LW) left Work after $LTOT wakes." >> "$WD/leaving.txt"
+    i=$((i + 1))
+done
 
 # Every write drops a holding's Work row whose holding is gone, and keeps the
 # Written: time of the version read, which the write core compares with the
@@ -259,9 +324,11 @@ bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.writ
     || { echo "$PROG: refused:" >&2; lib_scrub < "$WD/render.err" >&2; echo >&2; exit 65; }
 printf '%s\n' "$ETEXT" > "$WD/entry.txt"
 # The write core takes over $T and the EXIT trap and removes $WD, so the
-# entry's text is kept outside it.
+# entries' text is kept outside it.
 ENTRY_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-entry.XXXXXX")
 cp "$WD/entry.txt" "$ENTRY_FILE"
+LEAVING_FILE=$(mktemp "${TMPDIR:-/tmp}/record-state-leaving.XXXXXX")
+cp "$WD/leaving.txt" "$LEAVING_FILE"
 
 BODY="$WD/body.md" END= CLOSE=0 CORE_CLEANUP=$WD
 lib_write_guard
@@ -271,7 +338,23 @@ core_write
 
 if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind "$EKIND" --text-file "$ENTRY_FILE"; then
     echo "$PROG: the record was written, but its entry wasn't posted; post it with record-append.sh --kind $EKIND: $(cat "$ENTRY_FILE")" >&2
-    rm -f "$ENTRY_FILE"
+    while IFS= read -r LINE; do
+        [ -n "$LINE" ] && echo "$PROG: and post with record-append.sh --kind work: $LINE" >&2
+    done < "$LEAVING_FILE"
+    rm -f "$ENTRY_FILE" "$LEAVING_FILE"
     exit 14
 fi
 rm -f "$ENTRY_FILE"
+# Each holding row that left Work, told with its final count. Every line is
+# tried; any that didn't post are named together, for record-append.sh.
+UNPOSTED=0
+while IFS= read -r LINE; do
+    [ -n "$LINE" ] || continue
+    printf '%s\n' "$LINE" > "$LEAVING_FILE.one"
+    if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind work --text-file "$LEAVING_FILE.one"; then
+        echo "$PROG: the record was written, but a final count wasn't posted; post it with record-append.sh --kind work: $LINE" >&2
+        UNPOSTED=1
+    fi
+done < "$LEAVING_FILE"
+rm -f "$LEAVING_FILE" "$LEAVING_FILE.one"
+[ "$UNPOSTED" = 0 ] || exit 14

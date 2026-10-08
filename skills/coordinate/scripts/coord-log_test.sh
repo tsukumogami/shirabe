@@ -202,4 +202,27 @@ if command -v shasum >/dev/null 2>&1; then
 else
     echo "note: shasum not present; the macOS hashing path was not exercised here"
 fi
+echo "== wakes =="
+WS=coordinate-roadmap-wakes-20260926T080000Z
+found_session "$WS" "$(roadmap_vars wakes)" 7
+log_to "$WS" reconcile wait 2026-09-26T08:02:00.000Z
+log_evidence "$WS" wait '{"event":"progress","unit":"alpha","report":"checkpoint"}' 2026-09-26T08:10:00.000Z
+log_evidence "$WS" wait '{"event":"report","unit":"alpha","report":"ready"}' 2026-09-26T08:20:00.000Z
+log_evidence "$WS" wait '{"event":"leg"}' 2026-09-26T08:30:00.000Z
+log_capture "$WS" WAIT_REQ "req_b" 2026-09-26T08:30:01.000Z
+log_evidence "$WS" wait '{"event":"leg"}' 2026-09-26T08:35:00.000Z
+log_capture "$WS" WAIT_REQ "none" 2026-09-26T08:35:01.000Z
+log_evidence "$WS" wait '{"event":"quiet"}' 2026-09-26T09:00:00.000Z
+log_capture "$WS" QUIET "first-silence alpha gamma sealed:9:abc" 2026-09-26T09:00:01.000Z
+log_evidence "$WS" wait '{"event":"quiet"}' 2026-09-26T09:10:00.000Z
+log_capture "$WS" QUIET "quiet-none sealed:11:abc" 2026-09-26T09:10:01.000Z
+log_evidence "$WS" wait '{"event":"resume"}' 2026-09-26T09:20:00.000Z
+log_evidence "$WS" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:30:00.000Z
+log_evidence "$WS" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:40:00.000Z
+eq "every wake attributed: messages and merged by unit, a leg by its request, a quiet sweep by the topics it named, the rest to the run; retire is no wake" \
+    '{"":3,"alpha":4,"gamma":1,"leg req_b":1}' "$(bash "$HERE/coord-log.sh" wakes --session "$WS" | jq -cS .)"
+eq "--after-time counts only the wakes after it" '{"":2,"alpha":1}' \
+    "$(bash "$HERE/coord-log.sh" wakes --session "$WS" --after-time 2026-09-26T09:05:00Z | jq -cS .)"
+eq "a run with no wakes prints an empty object" '{}' "$(bash "$HERE/coord-log.sh" wakes --session "$WS" --after-time 2026-09-26T10:00:00Z | jq -c .)"
+
 done_tests coord-log

@@ -186,9 +186,9 @@ each rendered only once it has a row:
 
 ## Work
 
-| Item | Kind | Who | Next step | Updated |
-|---|---|---|---|---|
-| <a holding's Unit, or what the work is> | <holding or local-agent> | <its Worker, or who does it> | <what happens next> | <YYYY-MM-DDTHH:MMZ> |
+| Item | Kind | Who | Next step | Wakes | Updated |
+|---|---|---|---|---|---|
+| <a holding's Unit, or what the work is> | <holding or local-agent> | <its Worker, or who does it> | <what happens next> | <the holding's wakes so far; 0 for a local agent> | <YYYY-MM-DDTHH:MMZ> |
 ```
 
 **Run** holds the run's arguments, the cap in force (the readers of the cap
@@ -231,7 +231,11 @@ never counts it, so you write it, the person as owner and yourself as
 relayer); a holding's Work row once its dispatch is sent, which the record step
 waits for and which also records its worker as told your address; a
 local-agent row before the agent starts, `--done` when it lands. A Work row
-whose holding is gone is dropped at the next write.
+whose holding is gone is dropped at the next write. A holding's Wakes are
+brought up to date from this run's session log at each write, and its final
+count is appended as an entry when its row leaves Work; the count is a floor,
+since a wake inside the minute after a write, or one a crashed run logged
+after its last write, isn't counted.
 
 `scripts/record-handover.sh` reads the stored set back, with the holds, and
 names its gaps: no arguments, cap or address; a live holding (dispatched, and

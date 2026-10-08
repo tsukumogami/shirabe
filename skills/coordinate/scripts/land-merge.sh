@@ -28,7 +28,7 @@
 #      after the land check stops the merge here, with its own exit code, 12,
 #      so the coordinator submits `merge: paused` and the worker is re-briefed
 #      to report again at the resume
-#      (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1);
+#      (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1);
 #   5. the squash message: squash-message.sh over the pull request's live
 #      title and body (gh pr view --json title,body) must build, so the
 #      commit carries Part 1 and never the reviewer context below it. A

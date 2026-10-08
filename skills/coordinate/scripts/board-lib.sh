@@ -383,7 +383,7 @@ bl_record_parsed() {
 # pause-read.sh evaluates them, for the unit of the Holdings row whose pull
 # request is <repo>#<pr>, printed as pause-read.sh's JSON plus `unit` and
 # `paused` (the id of the pause that holds that unit, or null)
-# (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1). Returns 0
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1). Returns 0
 # printed; 2 the file couldn't be read or a condition's read ran out of time.
 bl_pauses_on() {
     local f=$1 repo=$2 pr=$3 unit
@@ -407,7 +407,7 @@ bl_pauses_on() {
 # other than a missing tag, is `unreadable`. Returns 0 printed; 2 a read ran
 # out of the check's time (the tick re-runs it rather than call it
 # unreadable). Shared by the holds and the pauses
-# (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
 bl_condition_state() {
     local until=$1 d=$2 now
     case "$until" in
