@@ -134,8 +134,11 @@ not the reason; the value the feature delivers is.
 
 ### Coordinated Mode
 
-The canonical contract is
-`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`; the PLAN-side
+`coordinated` lands the work as one PR per repository and PR group, in one or
+more repositories, in a recorded merge order behind a coordination PR that
+merges last. Its contract (lifecycle, grouping, merge order, done-signal) is
+`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`, which this skill
+binds to rather than restates; the PLAN-side
 authoring details (the Repo/Group annotation rows, gate-node declarations, and
 the contraction + acyclicity behavior) live in
 `references/quality/plan-doc-structure.md` under "Coordinated Mode."
@@ -151,8 +154,9 @@ for the full criteria and AC templates.
 
 ## Placeholder Conventions
 
-Phase 7 replaces the `<<ISSUE:N>>` placeholders (defined in
-`references/templates/agent-prompt.md`) with actual GitHub issue numbers after creation. In single-pr
+Issues reference each other as `<<ISSUE:N>>`, N being the 1-based local
+sequence number (format in `references/templates/agent-prompt.md`). Phase 7
+replaces these with actual GitHub issue numbers after creation. In single-pr
 mode, placeholders map to outline headings in the PLAN doc's Issue Outlines section.
 
 ## Validation Rules by Consumer Phase

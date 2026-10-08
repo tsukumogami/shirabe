@@ -219,8 +219,10 @@ lands. There are two shapes:
 
 - **Issue-carrying** -- the `## Implementation Issues` table holds `#N`
   links to GitHub issues materialized at PLAN finalization (Phase 7
-  populate), and a `## Dependency Graph` accompanies it. Any PLAN whose
-  resolved `tracking_level` is `issues` or `issues-and-milestone`.
+  populate), and a `## Dependency Graph` accompanies it. A `multi-pr` or
+  `coordinated` PLAN at `issues` or `issues-and-milestone`, or one with no
+  `tracking_level` field. A `single-pr` PLAN is never issue-carrying: at a
+  filing level its issues are filed and its work items stay outlines.
 - **Outline-shaped** -- work items live in `## Issue Outlines`, keyed by
   local ids rather than issue numbers, and neither the table nor the
   graph is required. Every `single-pr` PLAN, plus any `multi-pr` or

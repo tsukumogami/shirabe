@@ -127,7 +127,8 @@ one. An outline-shaped `multi-pr` or `coordinated` PLAN may add one, after
 Issue Outlines, since its work lands in several pull requests.
 
 **Issue-carrying** -- a `multi-pr` or `coordinated` PLAN at `issues` or
-`issues-and-milestone`, or a coordinated PLAN with no `tracking_level`:
+`issues-and-milestone`, or a `multi-pr` or `coordinated` PLAN with no
+`tracking_level` field:
 
 1. **Status**
 2. **Scope Summary**
