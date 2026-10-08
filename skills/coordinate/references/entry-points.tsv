@@ -1,7 +1,7 @@
 #schema	coordinate-entry-points/v1
 #
 # The entry points a coordinator may dispatch a worker into, read by
-# skills/coordinate/scripts/dispatch-common.sh. Five tab-separated fields:
+# skills/coordinate/scripts/dispatch-common.sh. Seven tab-separated fields:
 #
 #   1 skill     the shirabe skill the worker runs, as /shirabe:<skill>
 #   2 leg       the koto request leg the skill answers with --koto-leg, or -
@@ -16,15 +16,33 @@
 #               trailing `=*` admits any value after the `=`. --koto-leg is in
 #               no row: the dispatch script adds it. --upstream is in no row:
 #               it takes a separate value token the allow-list can't vet.
+#               --review-floor=* and --review-ceiling=* mark the entry points
+#               a brief's review_level may bound; render-brief.sh refuses
+#               them in entry_args and run_mode, so the level names are
+#               always checked, and dispatch-common.sh adds them.
+#   6 visibility the visibility every repository the unit lands in must have:
+#               `any`, `public` or `private`. render-brief.sh reads each
+#               target's visibility live from GitHub and refuses a dispatch
+#               whose target this entry point can't take, before any leg is
+#               opened or holding written. A unit's targets are the brief
+#               input's `repo` and its `targets` (for a PLAN-driven unit, the
+#               repositories its issues land in).
+#   7 instead    the entry point to name in that refusal, the one that takes
+#               the target (with its own positional and flags), or - when
+#               there is none
+#
+# No entry point restricts its targets' visibility today: /deliver and
+# /execute ran only in public repositories until shirabe#505, and the column is
+# kept for the next requirement an entry point adds.
 #
 # /deliver and /work-on answer legs since shirabe#407. /work-on answers its
 # leg only for an issue or a task, never for a PLAN path, so dispatch-worker.sh
 # opens no leg for a /work-on worker whose argument is one.
 #
-scope	scope	scope.md	TOPIC=arg	--auto,--interactive,--intent=continue,--intent=stop,--coordinated,--no-coordinated,--max-rounds=*
-execute	execute	execute.md,execute-coordinated.md	PLAN_SLUG=plan-slug	--auto,--interactive,--merge
-deliver	deliver	deliver.md	TOPIC=arg	--auto,--interactive,--no-merge,--coordinated,--no-coordinated,--max-rounds=*
-work-on	work-on	work-on.md	-	--auto,--interactive
-explore	-	-	-	--auto,--interactive
-decision	-	-	-	--auto
-coordinate	-	-	-	-
+scope	scope	scope.md	TOPIC=arg	--auto,--interactive,--intent=continue,--intent=stop,--coordinated,--no-coordinated,--max-rounds=*	any	-
+execute	execute	execute.md,execute-coordinated.md	PLAN_SLUG=plan-slug	--auto,--interactive,--merge,--review-floor=*,--review-ceiling=*	any	-
+deliver	deliver	deliver.md	TOPIC=arg	--auto,--interactive,--no-merge,--coordinated,--no-coordinated,--max-rounds=*,--review-floor=*,--review-ceiling=*	any	-
+work-on	work-on	work-on.md	-	--auto,--interactive,--review-floor=*,--review-ceiling=*	any	-
+explore	-	-	-	--auto,--interactive	any	-
+decision	-	-	-	--auto	any	-
+coordinate	-	-	-	-	any	-

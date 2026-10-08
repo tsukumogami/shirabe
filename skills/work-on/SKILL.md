@@ -12,7 +12,7 @@ description: >-
   this skill per issue. Do NOT use it for a feature whose requirements are not
   written down anywhere — starting to code is how that feature gets decided
   by accident, and `/scope` is what settles it first.
-argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--koto-leg=<request-id>:work-on]'
+argument-hint: '<issue_number | #issue | issue-url | M<milestone> | milestone-url | "Milestone Name" | docs/plans/PLAN-*.md | "task description"> [--review-floor=<level>] [--review-ceiling=<level>] [--koto-leg=<request-id>:work-on]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -88,19 +88,7 @@ Outcomes:
   command could not run. This **fails closed**: it must never read as "verified" and
   never silently advances. It halts as a blocking condition that surfaces to the human.
 
-The gate carries no project-specific commands. Those live only in the project's
-extension file; this skill holds the discipline, not the commands.
-
 ### Finalization and No Silent Deferral
-
-After verification passes, the `finalization` state assembles the summary and decides
-whether the issue is done. `/work-on` cannot self-report an issue done with an unmet or
-deferred acceptance criterion (R4, R5). The clean `deferred_items_noted` terminal that
-once let the agent ship a unilateral deferral is removed.
-
-`ready_for_pr` is only reachable after verification ran and passed — finalization is
-reached only via `verification_outcome: passed`, so a finalization that reports done is
-backed by run verification evidence, not by the mere presence of a verification artifact.
 
 When an acceptance criterion is unmet, finalization reports `deferral_requested`, which
 routes to the blocking `deferral_approval` human gate. The human makes an explicit
@@ -111,12 +99,6 @@ decision:
   deferred and on whose authority. The workflow then proceeds to PR creation.
 - **Rejected** — the issue is not done. The workflow routes to `done_blocked`, a
   non-clean terminal, rather than shipping with the criterion silently unmet.
-
-A finalization-checklist item disallows unapproved caveat or hedge language
-("experimental", "not yet handled", "known limitation") in the issue's shipped
-artifacts. A caveat is legitimate only where it records an approved deferral (R6). This
-is enforced by the deferral gate plus the checklist — no approval means no caveat — not
-by a brittle word-grep that would flag legitimate uses of those words.
 
 ## Plan Input (Dispatcher)
 
@@ -147,8 +129,10 @@ When invoked as `/work-on <argument>`:
 Detect the mode on `$ARGUMENTS` with any `--koto-leg` token (and its value, when
 given separately) set aside: it names a caller's request leg (see **Answering a
 Caller's Leg**) and is never part of an issue reference, a PLAN path, or a task
-description. Set aside only for detection: the tokens file `work-on-open.sh` reads
-is the original `$ARGUMENTS`, `--koto-leg` included.
+description. Set aside the review-level bound the same way, `--review-floor=<level>`
+and `--review-ceiling=<level>` (see **Review Level**). Set aside only for
+detection: the tokens file `work-on-open.sh` reads is the original `$ARGUMENTS`,
+`--koto-leg` and the bound included.
 
 - If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan-level coordinator /execute is spawning this as a per-issue child workflow)
 - If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan dispatcher mode** (see Plan Input above)
@@ -173,20 +157,13 @@ For `ISSUE_SOURCE=plan_outline`: extract the outline from the PLAN doc during `p
 
 Skip staleness checks in plan-backed mode.
 
-When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. In `setup_plan_backed`, submit `status: override` and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
+When the orchestrator provides a `SHARED_BRANCH` variable, do not create a new branch. koto skips `setup_plan_backed` (its `skip_if` records `status: override`), so the response arrives with `advanced: true`: submit nothing for that state, call `koto next` again, and commit directly to `SHARED_BRANCH`. All child workflows in the batch share this branch and the same draft PR.
 
 **PR creation for plan-backed children**: when `SHARED_BRANCH` is set, the orchestrator owns the PR. At the `pr_creation` state, submit `pr_status: shared` — skip PR creation and route directly to `done`. The orchestrator's `pr_finalization` state updates the shared PR after all children complete.
 
-**Issue type classification**: the orchestrator passes `ISSUE_TYPE` as a hint from the PLAN outline's `**Type**:` field. The type is asked exactly once, at the `issue_type_routing` state, after implementation. It is not submitted during `analysis` or `implementation`. When `implementation_status: complete` is submitted, koto records the changed paths itself (`changed_paths_record`, which writes `changed_paths.txt` from the `impl_base` commit `analysis` recorded on entry) and stops at `issue_type_routing`, where the agent confirms or overrides the hint against those paths and submits `issue_type`:
-- `code` — proceeds through scrutiny → review → qa_validation; scrutiny won't pass while the run has no commits since `impl_base`
-- `docs` — skips the panels and goes to verification; needs at least one commit since `impl_base`
-- `task` — skips the panels and goes to verification; needs no commits
-
-When `ISSUE_TYPE` is not passed (standalone issue-backed or free-form mode), the hint defaults to `code`; the question at `issue_type_routing` is asked either way.
-
 If the koto scheduler marks this child as skipped due to a failed dependency (`failure_policy: skip_dependents`), the workflow enters with `mode: skipped`. Submit entry evidence `{"mode": "skipped"}` and enter the execution loop — koto routes directly to the `skipped_due_to_dep_failure` terminal state, which carries `skipped_marker: true`. Do not perform any implementation work.
 
-The plan-level orchestrator — shared branch and draft PR, child spawning, cross-issue context assembly, escalation and PR finalization — lives in `/execute` (`skills/execute/`), which delegates each single issue back to `/work-on` through Plan-Backed Child Mode above. The completion cascade is shared rather than owned by either: its script lives here, at `scripts/run-cascade.sh`, because `/work-on` runs it for a standalone issue in its `cascade_run` state, and `/execute` reaches across to run it once per plan from `plan_completion`.
+The plan-level orchestrator — shared branch and draft PR, child spawning, escalation and PR finalization — lives in `/execute` (`skills/execute/`), which delegates each single issue back to `/work-on` through Plan-Backed Child Mode above. The completion cascade is shared rather than owned by either: its script lives here, at `scripts/run-cascade.sh`, because `/work-on` runs it for a standalone issue in its `cascade_run` state, and `/execute` reaches across to run it once per plan from `plan_completion`.
 
 ---
 
@@ -211,8 +188,26 @@ koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/wo
   --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT}
 ```
 
-**Plan-backed mode** uses free-form init. Extract the goal and acceptance criteria from the
-PLAN doc and provide them as the task description in the entry evidence.
+**The review-level bound.** When `$ARGUMENTS` carries `--review-floor=<level>` or
+`--review-ceiling=<level>`, add `--var REVIEW_FLOOR=<level>` or
+`--var REVIEW_CEILING=<level>` to either init above, one `--var` per flag given and
+the value exactly as typed. Without the flags add nothing: the init is the one
+above, unchanged. koto checks the value against `^(light|standard|full)?$` and
+refuses anything else at init (`invalid_var`), and a flag given twice is its
+`duplicate_var`; report the refusal and stop. For example:
+
+```bash
+koto init <WF> --template ${CLAUDE_PLUGIN_ROOT}/skills/work-on/koto-templates/work-on.md \
+  --var ISSUE_NUMBER=<N> \
+  --var ARTIFACT_PREFIX=issue_<N> \
+  --var PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT} \
+  --var REVIEW_FLOOR=standard
+```
+
+**Plan-backed mode** is initialized with the task variables (`ISSUE_SOURCE`, `PLAN_DOC`,
+`SHARED_BRANCH`, `ISSUE_TYPE`, and `REVIEW_FLOOR`/`REVIEW_CEILING` when the `/execute`
+run was given a bound) and enters with `mode: plan_backed` (see **Plan-Backed Child
+Mode**), which routes to `plan_context_injection`.
 
 **Under `--koto-leg`** (issue-backed or free-form), don't run `koto init` yourself; open
 the session through `work-on-open.sh` as **Answering a Caller's Leg** below says.
@@ -249,8 +244,12 @@ below applies and the run is unchanged.
    ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/work-on-open.sh --workflow <WF> \
      --var ISSUE_NUMBER=<N> --var ARTIFACT_PREFIX=issue_<N> "$ARGS_DIR/tokens.json"
    ```
-   Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. The script adds
-   `PLUGIN_ROOT` and makes one `koto init` with `--attach-live --koto-leg`: no
+   Free-form passes only `--var ARTIFACT_PREFIX=task_<slug>`. Don't pass the
+   review-level bound as `--var`: the script reads `--review-floor=` and
+   `--review-ceiling=` from the tokens itself. It adds `PLUGIN_ROOT`, and on a
+   live session the `REVIEW_LEVEL` its ledger last recorded (an attach resets
+   every rebind variable it isn't passed), and makes one `koto init` with
+   `--attach-live --koto-leg`: no
    session means a new one bound to the leg, and a live one (a resume) is attached
    and bound. It removes the tokens file on every path. `session=<WF>` means the run
    is bound. Go on with the entry evidence, or, on a resume, with `koto next`.
@@ -305,16 +304,6 @@ refused as `input-mismatch` on the leg. A
 coordinator running several workers gives each its own request, or at least its own
 leg, since one leg answers one session.
 
-### Branch Setup
-
-Branch creation is conditional. Before creating a new branch in any setup state, check whether you already have an appropriate working branch:
-
-- **User instruction**: if the user asked you to continue on the current branch, submit `status: override` in the setup state
-- **Plan-backed mode**: if `SHARED_BRANCH` is set, the orchestrator has already created the branch — commit directly to it with `status: override`
-- **Resuming work**: if already on a feature branch from a previous session on this issue, `status: override` is correct
-
-Only create a new branch when none of the above apply. The setup states (`setup_issue_backed`, `setup_free_form`, `setup_plan_backed`) all accept `status: override` for these cases.
-
 ### Scripts
 
 - `scripts/session-role.sh <session-name>` — prints `root` or `child`, from
@@ -332,15 +321,43 @@ Only create a new branch when none of the above apply. The setup states (`setup_
   `changed_paths.txt` in context before `issue_type_routing` asks for the type.
   Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
   missing argument. The script's header has the base rules and the caps.
+- `scripts/panel-scope.sh --plan|--carried|--recorded|--record <panel> <session>`
+  — which review seats a panel round needs. koto runs `--plan` on entering
+  `scrutiny`, `review`, `qa_validation` and `light_review`, and `--carried` and
+  `--recorded` as each one's gates; the agent runs `--record` after each round. A seat whose
+  passed verdict the fix didn't touch is kept, a seat that raised a blocking
+  finding re-checks only that finding against the fix diff, and a panel with
+  nothing to run is carried through by koto. The phase files under
+  `references/phases/phase-4*` say how to act on the scope;
+  `scripts/panel-scope_test.sh` is its harness.
+- `scripts/review-level.sh init|set|facts|check|slice|report|level` — the run's
+  review level (`references/review-levels.md`). koto runs `init` on entering
+  `review_level_choice`, and `facts`, `check` and `slice` at
+  `review_level_check`; the agent runs `set <session> <level>` to choose,
+  raise or lower the level, which rebinds `REVIEW_LEVEL` and appends to the
+  `review_level.jsonl` ledger together, and a maintainer runs `report` to read
+  the ledgers of retained sessions. `work-on-open.sh` runs `level` to read the
+  ledger's last level before it attaches a live session. The script's header has every subcommand's
+  exit codes; `scripts/review-level_test.sh` and `scripts/review-level-routes_test.sh`
+  are its harnesses.
 - `scripts/work-on-open.sh --workflow <WF> [--var NAME=VALUE]... <tokens-file>`
   — the `--koto-leg` entry (see **Answering a Caller's Leg**): checks the flag,
-  then makes one `koto init --attach-live --koto-leg` through the shared
+  maps `--review-floor=`/`--review-ceiling=` from the tokens, passes a live
+  session's recorded `REVIEW_LEVEL` back, then makes one
+  `koto init --attach-live --koto-leg` through the shared
   `scripts/koto-open.sh`. Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 127 no koto or jq, and koto's own code otherwise.
+- `scripts/panel-retry-budget.sh <session-name> <panel> <count>` — decides
+  whether a review panel that found blocking issues may send the work back
+  again, and records each retry it grants in `panel_retries`. The panel
+  directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
+  64 the record could not be read or is malformed, 66 the grant could not be
+  recorded, 67 bad arguments; every exit but 0 means escalate.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh`,
   `scripts/ci-monitor-role_test.sh`, `scripts/record-changed-paths_test.sh`,
-  `scripts/work-on-open_test.sh` — the harnesses; see each file's header.
+  `scripts/work-on-open_test.sh`, `scripts/panel-retry-budget_test.sh` — the
+  harnesses; see each file's header.
 
 ### Execution Loop
 
@@ -362,17 +379,44 @@ whether this run is a root or a child that `/execute` materialized from
 `work-on.md`.** Without it, the tick that reaches a success terminal disposes of
 the session and takes `plan.md` and the run's other context keys with it. koto
 keeps a session that reaches a failure terminal either way, and on a child the flag only keeps the session: the child's result still
-reaches its parent on that tick. Why the rule is every tick rather than a
-predicted last one, and the koto commands that read a kept session, are in
-[`references/koto-session-retention.md`](../../references/koto-session-retention.md);
-`scripts/terminal-retention_test.sh` pins the behaviour.
+reaches its parent on that tick. `scripts/terminal-retention_test.sh` pins the behaviour.
 
 **Errors:** exit 1 = gate failed (fix and retry), exit 2 = bad evidence (check `expects`).
 Use `koto rewind <WF>` to step back.
 
+### Review Level
+
+Every run chooses a review level after `analysis` and before implementing,
+at `review_level_choice`, with `scripts/review-level.sh set`:
+
+- `light` — one panel, `light_review`, of one reviewer seat.
+- `standard` — `scrutiny` then `review`, no QA.
+- `full` — `scrutiny`, `review` and `qa_validation`.
+
+A code change passes `review_level_check` before its first panel, on every
+lap: the facts of the change (its size, the path classes it touched, whether
+tests or acceptance criteria changed) set a floor, and koto holds the run
+until the level is at or above it. Facts can raise the level, never lower it;
+a lower needs a recorded reason and never goes below the floor. A session from
+an earlier template has no level and takes the full path. `docs` and `task`
+runs record a level too, and their routes skip the panels as before.
+`references/review-levels.md` has the rules, the bound and the ledger.
+
+A caller can bound the choice with `--review-floor=<level>` and
+`--review-ceiling=<level>`, which become `REVIEW_FLOOR` and `REVIEW_CEILING` at
+init (see **Initialize**); `/execute` and `/deliver` take the same two flags and
+pass them to every `/work-on` run they start. `review_level_choice` records the
+bound in the ledger's `bound` line before the first `choose`, and the bound doesn't
+move inside a run.
+
+| Flag | Variable | Values |
+|------|----------|--------|
+| `--review-floor=<level>` | `REVIEW_FLOOR` | `light`, `standard` or `full`; the lowest level the run may choose |
+| `--review-ceiling=<level>` | `REVIEW_CEILING` | `light`, `standard` or `full`; a raise past it needs a recorded reason, except a raise to the facts floor |
+
 ### Review Panel
 
-Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation` — require parallel spawns, not standard directive execution).
+Read `references/review-panel-orchestration.md` for details (panel states: `scrutiny`, `review`, `qa_validation`, `light_review` — require parallel spawns, not standard directive execution).
 
 ### Resume
 
@@ -395,17 +439,7 @@ Read `references/review-panel-orchestration.md` for details (panel states: `scru
 4. If none, `koto init` fresh (under `--koto-leg`, through `work-on-open.sh`).
 
 Ticking is not a substitute for the state read: a finished session answers
-`action: "done"` to any tick, which the loop would report as this run's outcome. See
-[`references/koto-session-retention.md`](../../references/koto-session-retention.md)
-§ "What retention does not buy".
-
-Phase 0 detection: if the parent-chain sentinel is present in
-`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
-(strategic), see `references/fixes/sub-agent-dispatch.md` for the
-fallback shape that applies. Behavior under direct invocation is
-unchanged when the sentinel is absent. (Per R9, /work-on does not
-add a Resume Logic row -- the sentinel detection is scoped to the
-seven authoring children.)
+`action: "done"` to any tick, which the loop would report as this run's outcome.
 
 ### Decision Capture
 
@@ -426,8 +460,11 @@ its own: its commits land on the branch `/execute` owns.
 
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
 then CLAUDE.md `## Execution Mode:` header (default: `interactive`). In --auto
-mode, follow `references/decision-protocol.md` at decision points (W1, W2).
-Safety gates (W3, W4) remain blocking in both modes. Use
+mode, follow `references/decision-protocol.md` at decision points W1 (handling a
+`needs-triage` issue) and W2 (clarifying an ambiguity during introspection). Safety
+gates W3 (CI failure guidance) and W4 (accepting a red check) remain blocking in both
+modes: blocking means the run ends at `done_blocked` through `failing_unresolvable`,
+and an unattended run never asks the user instead. Use
 `koto decisions record <WF>` to capture any decisions made.
 
 First, resolve the input using the Input Resolution section above. Once you have an
@@ -447,19 +484,14 @@ those for project-specific quality and PR requirements.
 Then:
 1. `koto workflows` — find a workflow matching this issue, or `koto init` with
    the template path and appropriate variables if none does. Under
-   `--koto-leg`, on a found workflow apply the Resume guard of step 2 first,
+   `--koto-leg`, on a found workflow apply the **Resume** guard first,
    then open through `work-on-open.sh` (see **Answering a Caller's Leg**),
    fresh or resumed.
-2. On a resumed workflow, apply the **Resume** guard above before ticking it
-   (under `--koto-leg`, step 1 already did):
-   `koto status <WF>` reporting `is_terminal: true` is a finished prior run, not
-   a resume. Never tick it and never report the issue complete on its strength.
-   Otherwise resume with `koto next <WF> --no-cleanup`.
-3. On a fresh workflow, submit entry evidence, with `--no-cleanup` like every
+2. On a fresh workflow, submit entry evidence, with `--no-cleanup` like every
    later tick:
    - Issue-backed: `koto next <WF> --with-data '{"mode": "issue_backed", "issue_number": "<N>"}' --no-cleanup`
    - Free-form: `koto next <WF> --with-data '{"mode": "free_form", "task_description": "..."}' --no-cleanup`
-4. Enter the execution loop.
+3. Enter the execution loop.
 
 If no extension file exists at `.claude/shirabe-extensions/work-on.md`, the skill
 proceeds with generic behavior: no language-specific quality checks. The `needs-design`

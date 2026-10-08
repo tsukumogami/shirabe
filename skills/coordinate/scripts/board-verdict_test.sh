@@ -25,8 +25,8 @@ trap 'rm -rf "$T"' EXIT
 bt_setup
 BV="$PS/board-verdict.sh"
 
-VERDICTS=" verified pending unverified error:board-read error:pr-state error:deadline head error:head-moved "
-CODES=" board-empty run-pending run-startup-failure run-conclusion job-pending job-conclusion job-no-runner job-no-succeeded-step required-missing required-pending required-conclusion merge-state-dirty merge-state-unknown head-moved read-failed required-set-unreadable deadline "
+VERDICTS=" verified actions-green pending not-run unverified error:board-read error:pr-state error:deadline head error:head-moved "
+CODES=" board-empty run-pending run-startup-failure run-conclusion job-pending job-conclusion job-no-runner job-no-succeeded-step job-not-run required-not-run required-missing required-pending required-conclusion merge-state-dirty merge-state-unknown head-moved read-failed required-set-unreadable deadline "
 
 contract() { # contract <label> <output file>
     local f=$2 v c
@@ -92,6 +92,12 @@ bt_board queued-run
 rm -f "$GH_BOARD_DIR/calls"
 bash "$BV" --repo acme/widgets --pr 12 > /dev/null 2>&1
 grep -q 'runs/102/jobs' "$GH_BOARD_DIR/calls" && bad "a pending run's jobs aren't read" || ok "a pending run's jobs aren't read"
+
+bt_board checks-refused
+rm -f "$GH_BOARD_DIR/calls"
+bash "$BV" --repo acme/widgets --pr 12 > /dev/null 2>&1
+eq "a refused rollup is read once, not retried" 1 "$(grep -c 'statusCheckRollup' "$GH_BOARD_DIR/calls")"
+eq "then the pull request is read without the rollup" 1 "$(grep 'api graphql' "$GH_BOARD_DIR/calls" | grep -vc 'statusCheckRollup')"
 
 echo "== at most six job reads at once =="
 jq -n -L "$TD/board" 'include "lib";

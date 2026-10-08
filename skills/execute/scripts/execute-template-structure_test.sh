@@ -29,6 +29,24 @@
 #   MERGE and PAUSE_BEFORE_FINALIZE are values [true, false], default false,
 #     rebind: true; PLUGIN_ROOT carries the absolute-path pattern; PLAN_DOC and
 #     PLAN_SLUG are not rebindable
+#   worktree_sync merges origin/main in, nothing runs `git rebase`, and its
+#     gate tests ancestry with no merge in progress
+#   ci_monitor caps CI repair at 3 fix pushes and doesn't load phase-6-pr.md;
+#     pr_finalization points at pr-body-conformance.md rather than restating it
+#   no directive names current-context.md, and spawn_and_await carries earlier
+#     children's summaries through `koto context get <child> summary.md`, one
+#     read per child, saying why the count is small; no skills/execute file
+#     outside evals names current-context.md
+#   settled_branch_record's own prose names SETTLED_BRANCH without braces and
+#     says why (a braced mention there stops the failure-path tick with
+#     capture_unset)
+#   REVIEW_FLOOR and REVIEW_CEILING are optional, carry the level pattern
+#     ^(light|standard|full)?$ and are rebind, as MERGE is
+#   the spawn's jq, taken from spawn_and_await's directive with the two
+#     variables written in as koto renders them, builds tasks that each carry
+#     REVIEW_FLOOR and REVIEW_CEILING when they are set, and exactly the tasks
+#     it built before (SHARED_BRANCH and PLUGIN_ROOT added, nothing else) when
+#     they are empty; one set and one empty adds only the set one
 #
 # and, so the checks are known to bite, that each fails on a mutated copy: an
 # assignment writing home_pr, an overridable merge_intent gate, an edge into
@@ -96,6 +114,16 @@ CHECKS=(
 "PAUSE_BEFORE_FINALIZE is values [true, false], rebind|.variables.PAUSE_BEFORE_FINALIZE | (.values == [\"true\",\"false\"] and .rebind == true)"
 "PLAN_DOC and PLAN_SLUG are not rebindable|(.variables.PLAN_DOC.rebind // false) == false and (.variables.PLAN_SLUG.rebind // false) == false"
 "PLAN_SLUG carries ^[a-z0-9-]+\$|.variables.PLAN_SLUG.pattern == \"^[a-z0-9-]+\$\""
+"REVIEW_FLOOR and REVIEW_CEILING are optional, the level pattern, rebind|[.variables.REVIEW_FLOOR, .variables.REVIEW_CEILING] | all((.required // false) == false and .pattern == \"^(light|standard|full)?\$\" and .rebind == true)"
+"worktree_sync merges origin/main in|.states.worktree_sync.default_action.command == \"git merge --no-edit origin/main\""
+"no default action or gate runs git rebase|[.states[] | ((.default_action.command // \"\"), ((.gates // {})[] | (.command // \"\"))) | contains(\"git rebase\")] | any | not"
+"worktree_sync's gate tests ancestry with no merge in progress|(.states.worktree_sync.gates.current_with_main.command // \"\") | (startswith(\"git merge-base --is-ancestor origin/main HEAD\") and contains(\"MERGE_HEAD\"))"
+"ci_monitor caps CI repair at 3 fix pushes, then failing_unresolvable|.states.ci_monitor.directive | (contains(\"capped at 3 fix pushes\") and contains(\"failing_unresolvable\") and contains(\"Never stop to ask the user\"))"
+"ci_monitor does not load /work-on's phase-6-pr.md|.states.ci_monitor.directive | contains(\"phase-6-pr.md\") | not"
+"pr_finalization points at pr-body-conformance.md instead of restating it|.states.pr_finalization.directive | (contains(\"references/pr-body-conformance.md\") and (contains(\"exactly one \`---\` separator\") | not))"
+"no directive tells the agent to build current-context.md|[.states[] | (.directive // \"\") | contains(\"current-context\")] | any | not"
+"spawn_and_await carries earlier summaries through koto context get, read once per child|.states.spawn_and_await.directive | (contains(\"koto context get <child> summary.md\") and contains(\"once per child\") and contains(\"logged and uploaded as an event\"))"
+"settled_branch_record's prose names SETTLED_BRANCH without braces|.states.settled_branch_record | (((.directive // \"\") + (.details // \"\")) | (contains(\"SETTLED_BRANCH\") and contains(\"without braces here on purpose\") and (contains(\"{{SETTLED_BRANCH}}\") | not)))"
 )
 
 run_checks() { # run_checks <compiled json> -> prints the labels that fail
@@ -129,6 +157,40 @@ for entry in "${CHECKS[@]}" "PLUGIN_ROOT carries the absolute-path pattern|"; do
         pass "$label"
     fi
 done
+
+# --- the tasks the spawn builds --------------------------------------------------
+#
+# The spawn's jq line is read from the compiled directive, the two bound
+# variables are written in the way koto renders {{VAR}} (empty when unset), and
+# the line is run on a task array of plan-to-tasks.sh's shape.
+
+SPAWN_LINE=$(jq -r '.states.spawn_and_await.directive' "$SHIPPED" | grep '^TASKS_WITH_BRANCH=')
+if [ "$(printf '%s\n' "$SPAWN_LINE" | grep -c .)" -ne 1 ]; then
+    fail "spawn_and_await's directive has one TASKS_WITH_BRANCH line (found: [$SPAWN_LINE])"
+else
+    pass "spawn_and_await's directive has one TASKS_WITH_BRANCH line"
+fi
+FIXTURE_TASKS='[{"name":"a","vars":{"ISSUE_SOURCE":"plan_outline","ARTIFACT_PREFIX":"a","ISSUE_TYPE":"code"},"waits_on":[]},{"name":"b","vars":{"ISSUE_SOURCE":"plan_outline","ARTIFACT_PREFIX":"b","ISSUE_TYPE":"docs"},"waits_on":["a"]}]'
+# spawn_tasks <floor> <ceiling> -> the task array the rendered line builds
+spawn_tasks() {
+    local line
+    line=$(printf '%s' "$SPAWN_LINE" | sed -e "s/{{REVIEW_FLOOR}}/$1/g" -e "s/{{REVIEW_CEILING}}/$2/g")
+    TASKS="$FIXTURE_TASKS" SETTLED_BRANCH=impl/x CLAUDE_PLUGIN_ROOT=/plugin \
+        bash -c "$line"' && printf "%s" "$TASKS_WITH_BRANCH"'
+}
+spawn_eq() { # spawn_eq <label> <want> <got>
+    if [ "$2" = "$3" ]; then pass "$1"; else fail "$1: want [$2], got [$3]"; fi
+}
+GOT=$(spawn_tasks standard full | jq -c '[.[] | [.vars.REVIEW_FLOOR, .vars.REVIEW_CEILING]]')
+spawn_eq "a bound run: every child task carries REVIEW_FLOOR and REVIEW_CEILING" \
+    '[["standard","full"],["standard","full"]]' "$GOT"
+GOT=$(spawn_tasks "" "" | jq -c '.')
+WANT=$(printf '%s' "$FIXTURE_TASKS" | jq -c '[.[] | .vars.SHARED_BRANCH = "impl/x" | .vars.PLUGIN_ROOT = "/plugin"]')
+spawn_eq "an unbounded run: the tasks are exactly the ones built before the bound existed" "$WANT" "$GOT"
+GOT=$(spawn_tasks light "" | jq -c '[.[] | .vars | [has("REVIEW_FLOOR"), has("REVIEW_CEILING"), .REVIEW_FLOOR]]')
+spawn_eq "a floor without a ceiling: only REVIEW_FLOOR is set" '[[true,false,"light"],[true,false,"light"]]' "$GOT"
+GOT=$(spawn_tasks "" full | jq -c '[.[] | .vars | [has("REVIEW_FLOOR"), .REVIEW_CEILING]]')
+spawn_eq "a ceiling without a floor: only REVIEW_CEILING is set" '[[false,"full"],[false,"full"]]' "$GOT"
 
 # --- each check bites -----------------------------------------------------------
 #
@@ -179,6 +241,33 @@ mutate "a second edge into merged" \
 mutate "a \${context. in a default action" \
     "no default_action command holds \${context." \
     's/--head-branch "\$\(koto context get execute-\{\{PLAN_SLUG\}\} settled_branch\)"(.\n      fallback: >-\n        koto could not record the merge verdict)/--head-branch "\${context.settled_branch}"$1/'
+mutate "worktree_sync rebasing again" \
+    "no default action or gate runs git rebase" \
+    's/command: git merge --no-edit origin\/main/command: git rebase origin\/main/'
+mutate "the phase-6-pr.md pointer back in ci_monitor" \
+    "ci_monitor does not load /work-on's phase-6-pr.md" \
+    's/(Monitor CI on the shared branch until all checks pass AND merge state is clean\.\n)/$1\nRead phase-6-pr.md for CI monitoring guidance.\n/'
+mutate "ci_monitor's CI cap removed" \
+    "ci_monitor caps CI repair at 3 fix pushes, then failing_unresolvable" \
+    's/\*\*CI repair is capped at 3 fix pushes, all within this one visit to `ci_monitor`\.\*\*/**CI repair is not capped.**/'
+mutate "worktree_sync's gate reduced to the merge exit code" \
+    "worktree_sync's gate tests ancestry with no merge in progress" \
+    's/command: .git merge-base --is-ancestor origin\/main HEAD && test ! -e "\$\(git rev-parse --git-path MERGE_HEAD\)".\n/command: true\n/'
+mutate "a braced SETTLED_BRANCH in settled_branch_record" \
+    "settled_branch_record's prose names SETTLED_BRANCH without braces" \
+    's/delivered to `spawn_and_await` under the name\n`SETTLED_BRANCH`/delivered to `spawn_and_await` under the name\n`{{SETTLED_BRANCH}}`/'
+mutate "the no-braces reason dropped from settled_branch_record" \
+    "settled_branch_record's prose names SETTLED_BRANCH without braces" \
+    's/That name is written without braces here on purpose: /That name is written this way: /'
+mutate "the current-context.md step back in spawn_and_await" \
+    "no directive tells the agent to build current-context.md" \
+    's/(You read no summaries yourself)/Write current-context.md into the next child. $1/'
+
+# No file under skills/execute outside its evals tells the agent to build
+# current-context.md: carry-forward is koto calls, not a file.
+BUILDERS=$(grep -rln 'current-context' "$SKILL_DIR" --exclude-dir=evals --exclude="$(basename "$0")" 2>/dev/null || true)
+[ -z "$BUILDERS" ] && pass "no skills/execute file outside evals names current-context.md" \
+    || fail "current-context.md is still named in: $BUILDERS"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

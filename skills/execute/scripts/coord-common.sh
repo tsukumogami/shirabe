@@ -83,6 +83,41 @@ coord_in_list() {
 # coord_lower <s>
 coord_lower() { printf '%s' "$1" | tr 'A-Z' 'a-z'; }
 
+# coord_git_common_dir <dir> -- the physical path of the git directory the
+# checkout or worktree at <dir> shares (its common dir), so two worktrees of
+# one clone print the same path. Returns 1, printing nothing, when <dir> is
+# not in a git repository: `cd ""` would succeed and answer with <dir> itself.
+coord_git_common_dir() {
+    local d
+    d=$(CDPATH='' cd "$1" && git rev-parse --git-common-dir) || return 1
+    [ -n "$d" ] || return 1
+    (CDPATH='' cd "$1" && CDPATH='' cd "$d" && pwd -P)
+}
+
+# coord_url_key <url> -- a remote URL reduced to a comparison key, so the
+# https and ssh spellings of one repository, with or without .git or a
+# trailing slash, compare equal: <host>/<path>, lowercased, for the forms
+# scheme://[user@]host[:port]/path and user@host:path. Any other form (a
+# local path, or host:path with no user) is its own key, unchanged.
+coord_url_key() {
+    local u="$1"
+    case "$u" in
+        *://*)
+            u="${u#*://}"
+            u="${u#*@}"
+            u=$(printf '%s' "$u" | sed -E 's#^([^/:]+):[0-9]+/#\1/#')
+            ;;
+        *@*:*)
+            u="${u#*@}"
+            u="${u%%:*}/${u#*:}"
+            ;;
+        *) printf '%s' "$u"; return 0 ;;
+    esac
+    u="${u%/}"
+    u="${u%.git}"
+    coord_lower "$u"
+}
+
 # coord_gh_read <outvar> <args...> -- one gh read with stdin from /dev/null,
 # retried once after 1 s. Sets the named variable on success.
 coord_gh_read() {
@@ -96,6 +131,52 @@ coord_gh_read() {
         [ "$attempt" -eq 1 ] && sleep 1
     done
     return 1
+}
+
+# coord_repo_visibility <owner/repo> -- print `public` or `private`, read live
+# from `gh api repos/<r>`'s `visibility`: the same read the merge gate's
+# visibility resolver makes (shirabe-validate's fetch_repo_is_public), so the
+# check before a push and the gate before the merge can't disagree about a
+# repository. `internal`, and any value other than `public`, prints
+# `private`. Returns 2, printing nothing, when the read fails or carries no
+# visibility: a caller stops as a status read and never guesses.
+coord_repo_visibility() {
+    local json v
+    coord_gh_read json api "repos/$1" || return 2
+    v=$(printf '%s' "$json" | jq -r 'if type == "object" then (.visibility // "") else "" end') || return 2
+    case "$v" in
+        public) printf 'public' ;;
+        "") return 2 ;;
+        *) printf 'private' ;;
+    esac
+}
+
+# coord_node_visibility <home-repo> <node-repo> <node-id> -- the
+# Coordination-PR Visibility Rule for one node, checked against the node's own
+# target before anything is pushed (references/coordination-strategy.md). Sets
+# COORD_HOME_VIS and COORD_NODE_VIS. Returns 0 when the pair is allowed: a
+# private coordination PR may index any node, and a public one a public node.
+# Returns 3, with a diagnostic, for a public coordination PR over a private
+# node: the index line would name a private repository in a public body. The
+# diagnostic names the node id and the public home, never the private
+# repository (F1). Returns 2 when either read failed. Both callers,
+# node-push.sh and repo-visibility.sh, map 3 to their exit 77
+# (execute:visibility) and 2 to 72 (execute:status-read).
+coord_node_visibility() {
+    COORD_HOME_VIS=""; COORD_NODE_VIS=""
+    COORD_HOME_VIS=$(coord_repo_visibility "$1") || {
+        echo "$PROG: could not read the visibility of the coordination PR's repository $1" >&2
+        return 2
+    }
+    COORD_NODE_VIS=$(coord_repo_visibility "$2") || {
+        echo "$PROG: could not read the visibility of node $3's repository" >&2
+        return 2
+    }
+    if [ "$COORD_HOME_VIS" = public ] && [ "$COORD_NODE_VIS" = private ]; then
+        echo "$PROG: refused: node $3 lands in a private repository, and the coordination PR lives in the public repository $1; a public coordination PR never indexes a private node. Move the node into $1, or run the effort from a PLAN in a private repository, whose coordination PR may index public and private nodes alike." >&2
+        return 3
+    fi
+    return 0
 }
 
 # coord_index_entries <body> -- print the PR Index section's entry lines, one
@@ -178,7 +259,11 @@ coord_find_pr() {
         || { echo "$PROG: gh pr view of the coordination PR failed" >&2; return 2; }
     printf '%s' "$C_JSON" | jq -e 'type == "object" and (.state | type) == "string"' >/dev/null \
         || { echo "$PROG: the coordination PR read is not a PR object" >&2; return 2; }
-    if ! printf '%s' "$C_JSON" | jq -r '.body // ""' | grep -qF "$COORD_MARKER"; then
+    # A here-string, not a pipe into grep -q: under pipefail an early grep
+    # exit can SIGPIPE the producer and fail a match that succeeded.
+    local c_body
+    c_body=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
+    if ! grep -qF "$COORD_MARKER" <<<"$c_body"; then
         echo "$PROG: $C_URL does not carry the coordination PR declaration marker" >&2
         return 3
     fi
@@ -236,8 +321,12 @@ coord_compute() {
     esac
     CC_COORD_ATTEMPT=$(coord_attempt_of "$CC_ATTEMPTS" coordination)
 
-    # The index: every entry parses, names a repository in the write set, and
-    # appears once.
+    # The index: every entry parses, names a repository this run owns, and
+    # appears once. A node entry's repository must be in the write set. The
+    # coordination PR's own entry must name the home repository, which need
+    # not be in the write set (a PLAN whose nodes all land in other
+    # repositories). A node entry may name the home only when some node lands
+    # there, which puts the home in the write set.
     entries=$(coord_index_entries "$(printf '%s' "$C_JSON" | jq -r '.body // ""')")
     local seen=","
     while IFS= read -r line; do
@@ -246,7 +335,12 @@ coord_compute() {
             echo "$PROG: PR index entry outside the grammar: [$line]" >&2
             CC_ACTION="error:execute:status-read"; return 0
         fi
-        if ! coord_in_list "$E_REPO" "$CC_REPOS"; then
+        if [ "$E_NODE" = coordination ]; then
+            if [ "$(coord_lower "$E_REPO")" != "$(coord_lower "$CC_HOME")" ]; then
+                echo "$PROG: the coordination entry names $E_REPO, not the coordination PR's repository $CC_HOME" >&2
+                CC_ACTION="error:execute:write-set"; return 0
+            fi
+        elif ! coord_in_list "$E_REPO" "$CC_REPOS"; then
             echo "$PROG: PR index entry $E_NODE names $E_REPO, outside the write set [$CC_REPOS]" >&2
             CC_ACTION="error:execute:write-set"; return 0
         fi

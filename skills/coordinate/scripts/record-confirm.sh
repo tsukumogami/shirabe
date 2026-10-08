@@ -7,22 +7,45 @@
 # expects comes from the session log, never from an argument: the source state
 # is the `from` of the latest entry into `record`, and its last evidence (or,
 # for a check state, its own sealed capture) says what should have changed.
-# Every case also needs the record's Written: time to be later than that
-# event's time, so an older body that happens to match doesn't count.
+# Every case also needs the record's Written: time to be later than a point in
+# the log, so an older body that happens to match doesn't count. For a step
+# whose directive writes the record before the evidence that closes it, the
+# point is when the step became due (step_start, and the case pattern that
+# calls it is the list): the latest entry, before the step's evidence, into
+# `wait` (the hub) or `record_find` (the run's start or a re-read of its
+# record, on the way to posture_ask), whichever is later. For dispatch it is
+# the DISPATCH_CHECK capture; for any other evidence-closed step, the
+# evidence's own time; for a check state, its capture.
 #
 #   dispatch        a Holdings row whose Worker is the evidence's topic, which
 #                   must be the topic dispatch_check sealed (`ok <topic>`);
 #                   another topic is a conflict. Written: is compared with
 #                   the DISPATCH_CHECK capture, not the evidence, since the
-#                   dispatch path writes the holding before `sent`
+#                   dispatch path writes the holding before `sent`. When the
+#                   pick this dispatch came from chose send_execution, the
+#                   row must also read Phase `executing`: a send that changed
+#                   nothing never confirms (shirabe#553). The holding also
+#                   needs its Work row (Kind holding, Item its Unit, Who the
+#                   topic), its next step for a successor
+#   leg_spent       (`replaced`) the evidence's topic's row on a leg other
+#                   than the spent one (the WAIT_REQ and WAIT_LEG captures),
+#                   and no row on the spent leg (shirabe#506)
 #   surface         (merge_table) the unit's row has a Verified head; the unit
 #                   is the one the run's latest arrival before the source
 #                   names (below).
-#                   When surface was entered from land_merge on `merge: held`
-#                   (the human directed a hold the workspace doesn't require),
-#                   the row's Phase must also be `held`
+#                   When surface was entered from land on a sealed `held`
+#                   verdict (a hold in the record that the land check read
+#                   as unmet), the row's Phase must also be `held`
 #   merge_confirm,  from MERGE_CONFIRM / MERGED_FACTS: `merged <pr> <sha>` means
-#   merged_facts    the unit's Holdings row no longer links #<pr>;
+#   merged_facts    the unit's Holdings row is still there with its Pull
+#                   request cell blank: a confirmed merge clears the cell
+#                   and keeps the row until the teardown removes it, and
+#                   each hold on <pr> that is still unmet (board-lib.sh's
+#                   bl_holds_eval over the record read, conditions read
+#                   live) has a Reversals row whose Reversed names
+#                   `hold <name>` and whose Now says `merged while held`;
+#                   a row at Phase `scoping` also needs a follow-up Work row
+#                   for its unit, its execution (pick's scope route);
 #                   `unconfirmed <pr> <sha>` means a Side effects row whose
 #                   Target names <owner/repo>#<pr> (or its github.com URL),
 #                   the repository being the one the unit's row links, with
@@ -34,11 +57,16 @@
 #                   Side effects row whose Target names it. The topic comes from
 #                   the sealed teardown inventory (TEARDOWN_SEAL, key
 #                   teardown_verdict, its `topic <t>` line), never from a
-#                   context key.
-#   decision_apply  `reversal`: a Reversals row dated at or after the event;
+#                   context key. An entry from teardown_confirm, the check
+#                   that follows a `destroyed`, is read as destroy's.
+#   decision_apply  `reversal`: a Reversals row dated at or after that point;
 #                   `deferral`: a Deferrals row raised at or after it
-#   posture_ask     a Reversals row at or after the event, From `the human`,
+#   posture_ask     a Reversals row at or after that point, From `the human`,
 #                   whose Reversed or Now mentions posture
+#   roadmap_status  (`opened`) a Side effects row with Action roadmap-status
+#                   whose Target names the evidence's unit (a feature's tag)
+#                   and its roadmap pull request: roadmap-status.sh writes it
+#                   before the evidence, so it is compared with the step's start
 #
 # With --verified (state verified_confirm): the VERIFIED capture
 # (`verified <pr> <sha>`, sealed at a real visit of verify_board) must equal
@@ -96,7 +124,8 @@ while [ $# -gt 0 ]; do
 done
 # The expectation lives in the session log, so a session is always needed.
 [ -n "$SESSION" ] || usage
-. "$HERE/record-common.sh"
+# board-lib.sh sources record-common.sh, and adds the holds evaluation.
+. "$HERE/board-lib.sh"
 lib_facts
 STATE_NAME=record
 [ "$VERIFIED" = 1 ] && STATE_NAME=verified_confirm
@@ -106,6 +135,8 @@ trap 'rm -rf "$T"' EXIT
 
 VERDICT= REASON= SOURCE= EVT= WRITTEN= EXPECT=
 finish() {
+    # event_time is the point Written: was compared with: the step's start for
+    # the steps step_start covers, else the event's own time.
     jq -n --arg v "$VERDICT" --arg r "$REASON" --arg s "$SOURCE" --arg e "$EVT" --arg w "$WRITTEN" --arg x "$EXPECT" \
         --arg ref "$REF" '{verdict: $v, reason: $r, source: $s, event_time: $e, written: $w, expectation: $x, ref: $ref}' > "$T/detail.json"
     lib_emit "$STATE_NAME" "$VERDICT" coord/record_confirm.json "$T/detail.json"
@@ -156,6 +187,30 @@ entry() {
     ENT_SEQ= ENT_FROM=
     [ -n "$e" ] || return 0
     ENT_SEQ=${e%% *} ENT_FROM=${e#* }
+}
+# step_start <source> <before-seq>: sets EVT to the moment the step became
+# due: the latest entry, before <before-seq>, into one of the two states a
+# step's chain starts from, `wait` (the hub) or `record_find` (where the run
+# starts, and where it goes back to re-read its record, on the way to
+# posture_ask), whichever came later; with neither, the entry into <source>.
+# Not the evidence that leaves <source>: the directives write the record
+# before they submit that evidence (a merge-order table's Verified head is
+# written at verified_confirm, a decision is recorded before it's even ticked
+# at the hub), so a gate on the evidence's time can only be passed by
+# rewriting the record with no change. Anything written since the step became
+# due belongs to it; a body from before that doesn't count.
+step_start() {
+    local st e best= bseq=-1
+    for st in wait record_find "$1"; do
+        # The source's own entry counts only when neither start is in the log.
+        [ "$st" = "$1" ] && [ -n "$best" ] && break
+        e=$(bash "$HERE/coord-log.sh" entry --session "$SESSION" --state "$st" --before "$2" --with-time 2> /dev/null)
+        [ $? -eq 2 ] && lib_die2 "cannot read the session log"
+        [ -n "$e" ] || continue
+        if [ "${e%% *}" -gt "$bseq" ]; then bseq=${e%% *}; best=$e; fi
+    done
+    [ -n "$best" ] || { VERDICT=conflict; REASON="the log has no entry into wait, record_find or $1 before its evidence"; finish; }
+    EVT=${best##* }
 }
 has_value() { # has_value <word>: some evidence field's value is exactly <word>
     printf '%s' "$EV" | jq -e --arg w "$1" '[.fields[] | strings] | index($w) != null' > /dev/null
@@ -232,13 +287,22 @@ entry record
 [ -n "$ENT_SEQ" ] || { VERDICT=conflict; REASON="the log has no entry into record"; finish; }
 ESEQ=$ENT_SEQ
 SOURCE=$ENT_FROM
+# teardown_confirm is a check between destroy and record: the entry it makes
+# is read as destroy's, against the evidence submitted at destroy.
+[ "$SOURCE" = teardown_confirm ] && SOURCE=destroy
 
 case "$SOURCE" in
-dispatch|surface|teardown|destroy|decision_apply|posture_ask)
+dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent|roadmap_status)
     evidence "$SOURCE" "$ESEQ"; EV=$EVJ
     [ -n "$EV" ] || { VERDICT=conflict; REASON="no evidence from $SOURCE before record"; finish; }
     EVT=$(printf '%s' "$EV" | jq -r .timestamp)
     EVSEQ=$(printf '%s' "$EV" | jq -r .seq)
+    # The steps whose directives write the record before the closing
+    # evidence are compared with the moment they became due (step_start);
+    # this case pattern is the list. dispatch keeps its DISPATCH_CHECK
+    # capture (below), and teardown and destroy, which write after it, keep
+    # the evidence's own time.
+    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent|roadmap_status) step_start "$SOURCE" "$EVSEQ" ;; esac
     MIN=${EVT:0:16}
     ;;
 merge_confirm|merged_facts)
@@ -274,6 +338,25 @@ dispatch)
     fi
     EXPECT="a Holdings row for topic $TOPIC"
     [ -n "$TOPIC" ] && holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t'))" || OKX=0
+    # The holding's next step goes into Work with the dispatch
+    # (record-state.sh --work), so the handover gate never stops on a
+    # holding this run made.
+    if [ "$OKX" = 1 ]; then
+        EXPECT="$EXPECT, and a Work row for its unit naming $TOPIC (record-state.sh --work <unit> --kind holding --who $TOPIC --next <step>)"
+        holds "[.holdings[] | select(.worker == $(jq -n --arg t "$TOPIC" '$t')) | .unit] as \$u | any((.work // [])[]; .kind == \"holding\" and .who == $(jq -n --arg t "$TOPIC" '$t') and (.item as \$i | \$u | index(\$i)))" || OKX=0
+    fi
+    # A send_execution moves the holding from scoping-ahead to executing; one
+    # that left it scoping ahead sent nothing, and never confirms.
+    entry pick "$ESEQ"; PSEQ=$ENT_SEQ
+    if [ -n "$PSEQ" ]; then
+        evidence pick "$ESEQ"
+        if [ -n "$EVJ" ] && [ "$(printf '%s' "$EVJ" | jq -r '.seq')" -gt "$PSEQ" ] \
+            && [ "$(printf '%s' "$EVJ" | jq -r '.fields.choice // ""')" = send_execution ] \
+            && [ "$(printf '%s' "$EVJ" | jq -r '.fields.unit // ""')" = "$TOPIC" ]; then
+            EXPECT="the Holdings row for topic $TOPIC at Phase executing: send_execution moves it from scoping-ahead, and a row still scoping ahead means no execution was sent"
+            holds "any(.holdings[]; .worker == $(jq -n --arg t "$TOPIC" '$t') and .phase == \"executing\")" || OKX=0
+        fi
+    fi
     # The dispatch path writes the holding before `sent` (dispatch's
     # holding_recorded gate requires it), so the row is fresh for this
     # dispatch when it was written after dispatch_check passed the topic, not
@@ -284,16 +367,35 @@ dispatch)
     CAP=$(printf '%s' "$CAP" | tail -1)
     [ -n "$CAP" ] && EVT=$(printf '%s' "$CAP" | jq -r .timestamp)
     ;;
+leg_spent)
+    has_value replaced || { VERDICT=conflict; REASON="leg_spent reached record without replaced"; finish; }
+    TOPIC=$(printf '%s' "$EV" | jq -r '.fields.topic // ""')
+    [[ $TOPIC =~ $RE_TOPIC ]] || { VERDICT=conflict; REASON="leg_spent's evidence names no topic"; finish; }
+    # The spent leg is the one the wait read: the latest WAIT_REQ and
+    # WAIT_LEG captures, which only the engine writes.
+    SREQ=$(bash "$HERE/coord-log.sh" captures --session "$SESSION" --name WAIT_REQ --before "$ESEQ" 2> /dev/null | tail -1 | jq -r '.value // ""')
+    SLEG=$(bash "$HERE/coord-log.sh" captures --session "$SESSION" --name WAIT_LEG --before "$ESEQ" 2> /dev/null | tail -1 | jq -r '.value // ""')
+    [ -n "$SREQ" ] && [ -n "$SLEG" ] || { VERDICT=conflict; REASON="the log names no spent leg before leg_spent"; finish; }
+    SPENT="leg $SREQ:$SLEG"
+    EXPECT="the Holdings row for $TOPIC on a new leg in place of the spent $SPENT, and no row on $SPENT"
+    holds "any(.holdings[]; .worker == \$t and (.return_path | startswith(\"leg \")) and .return_path != \$s)
+        and (any(.holdings[]; .return_path == \$s) | not)" --arg t "$TOPIC" --arg s "$SPENT" || OKX=0
+    ;;
 surface)
     has_value merge_table || { VERDICT=conflict; REASON="surface reached record without merge_table"; finish; }
     arrival_unit "$EVSEQ"
-    # Held by direction: the latest entry into surface came from land_merge,
-    # whose last evidence there says held. Read from the log, never a key.
+    # Held: the latest entry into surface came from land, whose LAND capture,
+    # sealed at that visit, reads `held` (a hold in the record the check read
+    # as unmet). Read from the log, never a key.
     entry surface "$ESEQ"; SFROM=$ENT_FROM
     HELD=0
-    if [ "$SFROM" = land_merge ]; then
-        evidence land_merge "$ESEQ"; LM=$EVJ
-        [ "$(printf '%s' "$LM" | jq -r '.fields.merge // ""')" = held ] && HELD=1
+    if [ "$SFROM" = land ]; then
+        LC=$(bash "$HERE/coord-log.sh" captures --session "$SESSION" --name LAND --before "$ESEQ")
+        [ $? -eq 2 ] && lib_die2 "cannot read the session log"
+        LV=$(printf '%s' "$LC" | tail -1 | jq -r '.value // ""')
+        if [ -n "$LV" ] && bash "$HERE/coord-log.sh" check --session "$SESSION" --state land --sealed "$LV" > /dev/null; then
+            case "$LV" in held\ *) HELD=1 ;; esac
+        fi
     fi
     if [ "$HELD" = 1 ]; then
         EXPECT="the row for $UNIT has a Verified head and Phase held"
@@ -346,6 +448,14 @@ decision_apply)
         VERDICT=conflict; REASON="decision_apply evidence is neither reversal nor deferral"; finish
     fi
     ;;
+roadmap_status)
+    # roadmap-status.sh opened the roadmap pull request and wrote its row
+    # before `opened` was submitted.
+    RS_UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // ""')
+    [ -n "$RS_UNIT" ] || { VERDICT=conflict; REASON="roadmap_status's evidence names no unit"; finish; }
+    EXPECT="a Side effects row, Action roadmap-status, whose Target names $RS_UNIT and its roadmap pull request"
+    holds "any(.side_effects[]; .action == \"roadmap-status\" and (.target | startswith(\$u + \" [#\")))" --arg u "$RS_UNIT" || OKX=0
+    ;;
 posture_ask)
     EXPECT="a Reversals row from the human about the posture, at or after $MIN"
     holds "any(.reversals[]; .date[0:16] >= \"$MIN\" and .from == \"the human\"
@@ -358,8 +468,34 @@ merge_confirm|merged_facts)
     if [ "$KIND" = merged ]; then
         # The unit's own row: another unit's #$PR in another repository is
         # not this one.
-        EXPECT="the Holdings row for $UNIT no longer links #$PR"
-        [ -n "$ROW" ] && [ "$ROW_PR" = "$PR" ] && OKX=0
+        # The row stays until teardown (destroy removes it), so a row
+        # already gone is not what this step writes.
+        EXPECT="the Holdings row for $UNIT kept, with its Pull request cell cleared of #$PR"
+        if [ -z "$ROW" ]; then OKX=0
+        elif [ -n "$(printf '%s' "$ROW" | jq -r '.pull_request // ""')" ]; then OKX=0
+        fi
+        # A holding at phase scoping landed its unit's scoping alone: its
+        # execution is recorded as a follow-up Work row for the unit, not
+        # written back to the roadmap as Done.
+        if [ -n "$ROW" ] && [ "$(printf '%s' "$ROW" | jq -r '.phase // ""')" = scoping ]; then
+            # The unit as pick lists it: a Unit cell `<tag>: <title>` is its tag.
+            FU_UNIT=$(printf '%s' "$ROW" | jq -r '.unit | split(": ")[0]')
+            EXPECT="$EXPECT; a follow-up Work row for $FU_UNIT naming its execution (record-state.sh --work \"$FU_UNIT\" --kind follow-up --who $(printf '%s' "$ROW" | jq -r '.repo')#$PR --next <its execution>)"
+            holds "any((.work // [])[]; .kind == \"follow-up\" and (.item == \$u or (\$h + .item) == \$u or .item == (\$h + \$u)))" --arg u "$FU_UNIT" --arg h "$REPO" || OKX=0
+        fi
+        # A merge made while a hold on it stood is written down: a Reversals
+        # row naming each hold the land check would still read as unmet
+        # (its condition read live, over the record just read), so the record
+        # says who merged what it held.
+        if [ -n "$ROW" ]; then
+            UREPO=$(printf '%s' "$ROW" | jq -r '.repo // ""')
+            STANDING=$(bl_holds_eval "$T/rec.json" "$UREPO" "$PR") || lib_die2 "cannot read the holds on $UREPO#$PR"
+            for h in $(printf '%s' "$STANDING" | jq -r '.[] | select(.state != "met") | .hold'); do
+                EXPECT="$EXPECT; a Reversals row for hold $h reading \"merged while held\""
+                holds "any(.reversals[]; ((\" \" + .reversed + \" \") | contains(\" hold \" + \$h + \" \")) and (.now | test(\"merged while held\"; \"i\")))" \
+                    --arg h "$h" || OKX=0
+            done
+        fi
     elif [ -z "$ROW" ] || [ "$ROW_PR" != "$PR" ]; then
         # Without the unit's row linking it, #$PR's repository can't be told,
         # and a bare #$PR could be another unit's.

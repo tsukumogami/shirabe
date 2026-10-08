@@ -21,10 +21,24 @@ fi
 # Normalize args for pattern matching
 ARGS="$*"
 
-# Where the stateful `context` verbs keep their markers. Scenario-scoped so two
-# scenarios in one run cannot see each other's keys. The runner may pin it; the
-# fallback is a per-scenario temp directory.
+# Where the stateful `context` verbs keep what was written, one file per key.
+# Scenario-scoped so two scenarios in one run cannot see each other's keys. The
+# runner may pin it; the fallback is a per-scenario temp directory.
 CTX_STATE="${KOTO_SHIM_CTX_STATE:-${TMPDIR:-/tmp}/koto-shim-ctx/$EVAL_SCENARIO}"
+
+# A scenario can pin one key's content as ctx/<key> (panel-scope's
+# <panel>_scope.json, say). Checked before every arm, and only when the file
+# exists, so every scenario without a ctx/ directory gets the replies it
+# always got.
+case "$ARGS" in
+  "context get "*)
+    set -- $ARGS                  # context get <WF> <KEY>
+    if [ -n "${4:-}" ] && [ -f "$SCENARIO_DIR/ctx/$4" ]; then
+      cat "$SCENARIO_DIR/ctx/$4"
+      exit 0
+    fi
+    ;;
+esac
 
 case "$ARGS" in
   "version"|*"--version"*)
@@ -87,6 +101,15 @@ case "$ARGS" in
     fi
     ;;
   *"context get"*)
+    # A key this scenario wrote with `context add` reads back what was written.
+    # panel-retry-budget.sh reads its record back after every write and refuses
+    # a retry whose line didn't land, so a canned reply here would turn every
+    # granted retry into an escalation.
+    set -- $ARGS                  # context get <WF> <KEY>
+    if [ -n "${4:-}" ] && [ -f "$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')" ]; then
+      cat "$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')"
+      exit 0
+    fi
     if [ -f "$SCENARIO_DIR/koto-context-batch-final-view.json" ]; then
       cat "$SCENARIO_DIR/koto-context-batch-final-view.json"
       exit 0
@@ -95,20 +118,30 @@ case "$ARGS" in
     echo '{"children":[]}'
     exit 0
     ;;
-  # `context add` / `remove` / `exists` are stateful rather than canned, because
+  # `context add` / `remove` / `exists` are stateful rather than canned (and
+  # `context get`, above, reads a key written here before its canned reply), because
   # the retry clearing block reads `remove`'s exit status and then `exists`'s.
   # A canned reply cannot express "the key is gone now", and a fall-through to
   # the no-match exit 1 below would abort the block at its first key -- so an
   # agent that did exactly the right thing would look like it had failed.
   #
-  # State is a marker file per key, under a scenario-scoped directory. Presence
-  # starts empty: an eval that needs a key present writes it with `context add`
-  # first, the same way a real run does.
+  # State is one file per key, holding what was written, under a
+  # scenario-scoped directory. Presence starts empty: an eval that needs a key
+  # present writes it with `context add` first, the same way a real run does.
   *"context add"*)
-    cat >/dev/null 2>&1 || true   # drain the heredoc the caller pipes in
-    set -- $ARGS                  # context add <WF> <KEY> [--from-file ...]
+    set -- $ARGS                  # context add <WF> <KEY> [--from-file <path>]
     mkdir -p "$CTX_STATE"
-    [ -n "${4:-}" ] && : > "$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')"
+    if [ -n "${4:-}" ]; then
+      dest="$CTX_STATE/$(printf '%s' "$4" | tr '/' '_')"
+      if [ "${5:-}" = "--from-file" ] && [ -n "${6:-}" ]; then
+        cat "$6" > "$dest" 2>/dev/null || : > "$dest"
+        cat >/dev/null 2>&1 || true
+      else
+        cat > "$dest" 2>/dev/null || : > "$dest"
+      fi
+    else
+      cat >/dev/null 2>&1 || true # drain the heredoc the caller pipes in
+    fi
     exit 0
     ;;
   *"context remove"*)

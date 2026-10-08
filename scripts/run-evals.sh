@@ -2,25 +2,40 @@
 # run-evals.sh - Run skill evals using /skill-creator
 #
 # Usage:
+#   scripts/run-evals.sh                     Run evals for the skills changed since the last v* tag
 #   scripts/run-evals.sh <skill-name>        Run evals for one skill
 #   scripts/run-evals.sh --all               Run evals for all skills
 #   scripts/run-evals.sh --list              List skills with evals
+#   scripts/run-evals.sh --list-changed      Print the skills changed since the last v* tag, one per line
 #   scripts/run-evals.sh --validate <skill>  Re-validate existing results
 #   scripts/run-evals.sh --prep-only <skill>      Prepare workspace only (for /skill-creator)
 #
-# Options (combine with <skill-name>):
-#   --scenario <name>  Run only the named eval from that skill's suite
-#   --runs <N>         Run the selection N times and report a pass rate
+# Options (combine with a selection):
+#   --scenario <name>     Run only the named eval from that skill's suite
+#   --runs <N>            Run the selection N times and report a pass rate
+#   --summary-out <file>  Write a machine-readable summary of the skills run
+#
+# Environment:
+#   EVAL_MODEL  When set: the model the nested session (the grader) runs on,
+#               and the default for every scenario that names none. Unset: the
+#               session keeps the CLI default, tier-1 scenarios run on sonnet,
+#               and the rest inherit the session's model. See "Models" below.
 #
 # Each skill's evals live at skills/<name>/evals/evals.json.
 # Results go to skills/<name>/evals/workspace/iteration-<N>/.
 #
 # Exit codes:
 #   0  All assertions passed
-#   1  One or more assertions failed
+#   1  One or more assertions failed, or a usage error in the arguments
 #   2  No results produced, or a scenario graded zero assertions
-#      (infrastructure failure -- see "Grading nothing is a failure" below)
-#   3  Missing prerequisites
+#      (infrastructure failure -- see "Grading nothing is a failure" below).
+#      Under --runs N, any run returning 2 makes the invocation exit 2, ahead of
+#      runs that only failed assertions. Also: git could not answer the
+#      changed-since-tag selection, the --summary-out file could not be
+#      written, or the run left files naming its scratch root in $HOME/.koto
+#      (see setup_eval_koto).
+#   3  Missing prerequisites, or a model or suite the harness refuses (an
+#      EVAL_MODEL or scenario model off the pattern, a suite with no evals)
 #   4  The nested claude session stopped in plan mode or ran no command and
 #      wrote no file, so no scenario ran (runner or host failure -- see "Nested
 #      session permission mode" below)
@@ -102,6 +117,51 @@
 #   criteria at all or declared some and graded none of them, because the two
 #   have different fixes.
 #
+# Changed-since-tag selection
+#   With no skill name, the harness runs the skills that have evals/evals.json
+#   and have any added, modified, renamed or deleted file under skills/<name>/
+#   between the last v* tag (git describe --tags --abbrev=0 --match 'v*') and
+#   HEAD, through the same loop --all uses. The diff runs with -z --no-renames,
+#   so a rename counts against both the old and the new skill, and every name is
+#   checked against ^[a-z0-9][a-z0-9-]*$ before it is used. With no v* tag every
+#   skill with evals is selected. --list-changed prints the selection and runs
+#   nothing; it is what the release eval check reads.
+#
+# Models
+#   The nested session, which also grades every scenario, gets --model only
+#   when the caller sets EVAL_MODEL; otherwise it runs on the claude CLI's own
+#   default, as it always has, so a default run's grader is unchanged. Each
+#   scenario's with-skill and baseline agents run on, in order:
+#     - the scenario's own `model` key in evals.json;
+#     - for a tier-1 scenario (tier absent or 1, plan_only: it checks the
+#       structure or routing a skill describes, and is not the preflight
+#       liveness scenario), EVAL_MODEL, else sonnet;
+#     - for any other scenario (tier 2, execute; the liveness scenario),
+#       EVAL_MODEL when the caller set it, else "inherit": no model override,
+#       so the agents run on the session's model as they did before.
+#   Prep writes the resolved value into the scenario's eval_metadata.json as
+#   `model`, and the per-eval instruction line tells the session to spawn both
+#   agents on it, or with no override for "inherit". A session flag alone would
+#   not reach those agents, which pick their own model unless told. Every value must match
+#   ^[A-Za-z0-9][A-Za-z0-9._:-]*$ (it cannot start with -), and the harness
+#   refuses a run or a suite that carries one that doesn't.
+#
+# Summary (--summary-out <file>)
+#   Writes {"schema": "run-evals-summary/v1", "skills": {<name>: {...}}} with,
+#   per skill run: runs (attempted, so an early stop shows), runs_passed,
+#   assertions_passed and assertions_graded (summed from each run's
+#   validation_summary.json), models (the distinct values in the iterations'
+#   eval_metadata.json) and exit_code. It is written when --runs stops early on
+#   3 or 4 too, and when the default selection finds nothing to run, so a caller
+#   never has to parse the report above. A summary that cannot be written turns
+#   an exit 0 into 2, so a caller never reads success with no summary behind it.
+#
+# Credentials
+#   The nested session starts with GH_TOKEN, GITHUB_TOKEN and SSH_AUTH_SOCK
+#   unset. It runs shell without prompting, so this narrows what a scenario can
+#   reach; stored gh logins, git credential helpers and SSH keys on disk stay
+#   reachable, which is why the release eval check names its host before it runs.
+#
 # Tier-2 isolation:
 #   Tier-2 (execute) evals run the REAL workflow — run-cascade.sh --push, folder
 #   moves, and `git mv` into docs/designs/current/ — against a live git repo. Run
@@ -131,7 +191,30 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # output and grading.json write denied unless that directory were also passed
 # with --add-dir.
 SKILLS_DIR="${RUN_EVALS_SKILLS_DIR:-$REPO_ROOT/skills}"
+# RUN_EVALS_REPO_ROOT is test-only too: it overrides the repository the
+# changed-since-tag selection asks git about, so the suite can point it at a
+# temporary repository with its own tags. Nothing else reads it; the nested
+# session still runs from REPO_ROOT.
+GIT_ROOT="${RUN_EVALS_REPO_ROOT:-$REPO_ROOT}"
 CLASSIFY_SESSION="$SCRIPT_DIR/lib/classify-eval-session.py"
+
+# ---------------------------------------------------------------------------
+# Ablation mode
+#
+# `--withhold <rule key>` anywhere in the arguments measures what withholding
+# one instruction section does, instead of running a suite: the arguments go
+# unchanged to scripts/ablation/ablation.py run, which runs its own sessions
+# and grades them with scripts, sharing nothing below this block. Without the
+# flag nothing here runs and the runner takes its usual path.
+# Method: docs/measurement/offload-ablation/README.md.
+# ---------------------------------------------------------------------------
+for arg in "$@"; do
+  case "$arg" in
+    --withhold|--withhold=*)
+      command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
+      exec python3 "$SCRIPT_DIR/ablation/ablation.py" run "$@" ;;
+  esac
+done
 
 # The permission mode every nested claude session runs under. See "Nested
 # session permission mode" in the header for why it is this and nothing wider.
@@ -177,22 +260,59 @@ EVAL_CLAUDE_PERMISSION_ARGS=(--permission-mode "$EVAL_CLAUDE_PERMISSION_MODE" --
 SHIRABE_PREFLIGHT_DISABLE=1
 export SHIRABE_PREFLIGHT_DISABLE
 
+# ---------------------------------------------------------------------------
+# koto's legacy command environment
+#
+# A tier-2 scenario that carries a `koto-passthrough` file runs a real koto,
+# entered through the skill's entry script and scripts/koto-open.sh. That
+# koto's gates call the fixture `gh` stub, which reads EVAL_SCENARIO,
+# EVAL_SCENARIO_DIR and GH_CALL_LOG. From the koto release that fixes a
+# session's command environment at creation, those variables no longer reach
+# the commands koto runs, so the stub would find no scenario.
+# scripts/lib/koto-legacy-env.sh exports koto-open.sh's harness-only knob
+# (SHIRABE_KOTO_LEGACY_ENVIRONMENT) when the koto on PATH accepts
+# --legacy-environment, so every session a scenario opens keeps the old
+# environment. It is exported here, like the switch above, so it reaches the
+# `claude -p` process and every entry script it runs. On an older koto it
+# stays unset and nothing changes. Scenarios without `koto-passthrough` get it
+# too: their canned koto shim ignores the flag, and KOTO_CALL_LOG then records
+# it on the `init` line, which no scenario's expectations read. Temporary,
+# #483.
+# ---------------------------------------------------------------------------
+# shellcheck source=lib/koto-legacy-env.sh
+. "$SCRIPT_DIR/lib/koto-legacy-env.sh"
+# The probe asks koto for its init help only, but it runs under a throwaway
+# HOME all the same: nothing this runner starts reaches $HOME/.koto (see
+# setup_eval_koto).
+koto_probe_home=$(mktemp -d "${TMPDIR:-/tmp}/shirabe-eval-koto-probe.XXXXXX") || {
+  echo "Error: could not create a directory for the koto probe"
+  exit 3
+}
+HOME="$koto_probe_home" koto_legacy_env_enable
+rm -rf "$koto_probe_home"
+
 # Prerequisite checks
 command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 3; }
 command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
 
 usage() {
-  echo "Usage: $0 [--scenario <name>] [--runs <N>] <skill-name>"
-  echo "       $0 --all | --list | --validate <skill> | --prep-only <skill>"
+  echo "Usage: $0 [--scenario <name>] [--runs <N>] [--summary-out <file>] [<skill-name>]"
+  echo "       $0 --withhold <rule key> [--case <file>] [--runs <N>] <skill-name>   (ablation mode)"
+  echo "       $0 --all | --list | --list-changed | --validate <skill> | --prep-only <skill>"
   echo ""
+  echo "  (no skill name)    Run evals for the skills changed since the last v* tag"
   echo "  <skill-name>       Run evals for a specific skill (prep + execute + validate)"
   echo "  --all              Run evals for all skills that have evals/"
   echo "  --list             List skills that have evals"
+  echo "  --list-changed     Print the skills changed since the last v* tag and run nothing"
   echo "  --validate <skill> Re-validate the latest iteration without re-running"
   echo "  --prep-only <skill>     Prepare workspace only (use with /skill-creator in Claude Code)"
   echo ""
-  echo "  --scenario <name>  Restrict the run to one eval, by its 'name' in evals.json"
-  echo "  --runs <N>         Repeat the run N times and report a pass rate across them"
+  echo "  --scenario <name>     Restrict the run to one eval, by its 'name' in evals.json"
+  echo "  --runs <N>            Repeat the run N times and report a pass rate across them"
+  echo "  --summary-out <file>  Write a run-evals-summary/v1 JSON summary of the skills run"
+  echo ""
+  echo "  EVAL_MODEL=<model>    Grader and scenario model; unset, tier-1 scenarios run on sonnet and the rest inherit"
   echo ""
   echo "  Running one scenario N times:"
   echo "    $0 --scenario baseline-malformed-state --runs 5 scope"
@@ -205,6 +325,39 @@ EVAL_SCENARIO_FILTER=""
 # How many times to repeat the selection. 1 keeps the single-run path exactly as
 # it was, aggregate reporting included only when N > 1.
 EVAL_RUNS=1
+# Where --summary-out writes, and the JSON-lines file each skill run appends its
+# tally to until then. Empty means no summary was asked for.
+SUMMARY_OUT=""
+SUMMARY_LINES=""
+
+# A model name as `claude --model` takes it: an alias or a full ID. The pattern
+# cannot start with -, so a value can never be read as an option.
+valid_model() {
+  case "$1" in
+    ''|[!A-Za-z0-9]*|*[!A-Za-z0-9._:-]*) return 1 ;;
+  esac
+  return 0
+}
+
+# EVAL_MODEL_EXPLICIT is the caller's EVAL_MODEL, empty when none was given.
+# Only an explicit value changes the nested session's model (the grader) and
+# the model of scenarios that don't name one and aren't tier 1; see "Models".
+EVAL_MODEL_EXPLICIT="${EVAL_MODEL:-}"
+EVAL_MODEL="${EVAL_MODEL:-sonnet}"
+if ! valid_model "$EVAL_MODEL"; then
+  # 3, like a refused suite, and not 1: a caller reading 1 as "assertions
+  # failed" would record a rate for a run that never started.
+  echo "Error: EVAL_MODEL must match ^[A-Za-z0-9][A-Za-z0-9._:-]*\$; refusing to run"
+  exit 3
+fi
+# Prep's Python reads both from the environment.
+export EVAL_MODEL EVAL_MODEL_EXPLICIT
+# The nested session's model flag: none unless the caller named a model, so a
+# default run grades on the same model it always has.
+EVAL_SESSION_MODEL_ARGS=()
+if [ -n "$EVAL_MODEL_EXPLICIT" ]; then
+  EVAL_SESSION_MODEL_ARGS=(--model "$EVAL_MODEL_EXPLICIT")
+fi
 
 # Peel the options off the front of the argument list. They are options rather
 # than positional arguments because they modify a run rather than name one, and
@@ -229,6 +382,16 @@ parse_run_options() {
         ;;
       --runs=*)
         EVAL_RUNS="${1#--runs=}"
+        shift
+        ;;
+      --summary-out)
+        [ $# -ge 2 ] && [ -n "$2" ] || { echo "Error: --summary-out needs a file"; exit 1; }
+        SUMMARY_OUT="$2"
+        shift 2
+        ;;
+      --summary-out=*)
+        SUMMARY_OUT="${1#--summary-out=}"
+        [ -n "$SUMMARY_OUT" ] || { echo "Error: --summary-out needs a file"; exit 1; }
         shift
         ;;
       *)
@@ -259,6 +422,77 @@ list_skills_with_evals() {
   if [ "$found" -eq 0 ]; then
     echo "  (no skills have evals)"
   fi
+}
+
+# The changed-since-tag selection (see "Changed-since-tag selection" in the
+# header). Sets CHANGED_TAG to the tag compared against, empty when there is no
+# v* tag, and CHANGED_SKILLS to the selected names, sorted. Globals rather than
+# output, so a caller can tell "no tag" from "nothing changed"; call it
+# directly, not in $(...). Returns 2 when git cannot produce the diff.
+CHANGED_TAG=""
+CHANGED_SKILLS=()
+select_changed_skills() {
+  CHANGED_TAG=""
+  CHANGED_SKILLS=()
+  local tag="" names="" name rest path
+  # Checked first so a root git can't read is an error, not a silent "no tag"
+  # that would select every skill.
+  if ! git -C "$GIT_ROOT" rev-parse --verify --quiet HEAD >/dev/null; then
+    echo "Error: $GIT_ROOT is not a git repository with a HEAD commit" >&2
+    return 2
+  fi
+  # describe exits nonzero when no v* tag is reachable; that is the no-tag case.
+  tag=$(git -C "$GIT_ROOT" describe --tags --abbrev=0 --match 'v*' 2>/dev/null) || tag=""
+
+  if [ -z "$tag" ]; then
+    for path in "$SKILLS_DIR"/*/; do
+      name=$(basename "$path")
+      case "$name" in
+        ''|[!a-z0-9]*|*[!a-z0-9-]*) continue ;;
+      esac
+      [ -f "$SKILLS_DIR/$name/evals/evals.json" ] && names="$names$name
+"
+    done
+  else
+    CHANGED_TAG="$tag"
+    local diff_file
+    diff_file=$(mktemp "${TMPDIR:-/tmp}/run-evals-diff.XXXXXX") || return 2
+    # -z keeps any path intact; --no-renames reports a rename as a delete and an
+    # add, so both the skill a file left and the one it joined are selected.
+    if ! git -C "$GIT_ROOT" diff --name-only -z --no-renames "$tag" HEAD -- skills/ > "$diff_file"; then
+      rm -f "$diff_file"
+      echo "Error: git diff $tag HEAD failed in $GIT_ROOT" >&2
+      return 2
+    fi
+    while IFS= read -r -d '' path; do
+      rest="${path#skills/}"
+      # A file directly under skills/ belongs to no skill.
+      case "$rest" in
+        */*) ;;
+        *) continue ;;
+      esac
+      name="${rest%%/*}"
+      case "$name" in
+        ''|[!a-z0-9]*|*[!a-z0-9-]*)
+          echo "  WARNING: ignoring a changed path whose skill name is not ^[a-z0-9][a-z0-9-]*\$" >&2
+          continue
+          ;;
+      esac
+      [ -f "$SKILLS_DIR/$name/evals/evals.json" ] || continue
+      names="$names$name
+"
+    done < "$diff_file"
+    rm -f "$diff_file"
+  fi
+
+  # Every name was checked against the skill-name pattern above, so splitting
+  # the sorted list on whitespace can neither split a name nor glob.
+  local sorted
+  sorted=$(printf '%s' "$names" | sort -u)
+  for name in $sorted; do
+    CHANGED_SKILLS+=("$name")
+  done
+  return 0
 }
 
 next_iteration() {
@@ -338,8 +572,9 @@ print(len(evals))
   echo "  Output: $iter_dir"
   echo ""
 
-  EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" REPO_ROOT="$REPO_ROOT" python3 << PYEOF
-import hashlib, json, os, shutil
+  local prep_rc=0
+  EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" REPO_ROOT="$REPO_ROOT" python3 << PYEOF || prep_rc=$?
+import hashlib, json, os, re, shutil, sys
 
 with open("$evals_file") as f:
     data = json.load(f)
@@ -349,6 +584,40 @@ evals_dir = os.path.dirname("$evals_file")
 fixtures_root = os.path.join(evals_dir, "fixtures")
 repo_root = os.environ["REPO_ROOT"]
 selected = os.environ.get("EVAL_SCENARIO_FILTER", "")
+
+# The model each scenario's agents run on (see "Models" in the header): its own
+# model key; else, for a tier-1 scenario (plan_only, the structure and routing
+# checks), EVAL_MODEL or sonnet; else EVAL_MODEL when the caller gave one, and
+# otherwise "inherit", meaning the agents run on the nested session's model as
+# they always have. EVAL_MODEL was validated by the shell before this runs.
+# Every scenario is checked before anything is written, so a refused suite
+# leaves no iteration.
+MODEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]*")
+tier1_default = os.environ.get("EVAL_MODEL") or "sonnet"
+other_default = os.environ.get("EVAL_MODEL_EXPLICIT") or "inherit"
+
+
+def is_tier1(eval_item):
+    return eval_item.get("tier", 1) == 1 and eval_item.get("preflight") != "live"
+
+
+models = {}
+bad_models = []
+for eval_item in data["evals"]:
+    eval_name = eval_item.get("name", f"eval-{eval_item['id']}")
+    if selected and eval_name != selected:
+        continue
+    model = eval_item.get("model",
+                          tier1_default if is_tier1(eval_item) else other_default)
+    if not isinstance(model, str) or not MODEL_PATTERN.fullmatch(model):
+        bad_models.append(eval_name)
+        continue
+    models[eval_name] = model
+if bad_models:
+    for eval_name in bad_models:
+        print(f"Error: {eval_name} declares a model that does not match"
+              f" ^[A-Za-z0-9][A-Za-z0-9._:-]*$; refusing the suite")
+    sys.exit(3)
 
 # Two names for the same thing. 'expectations' is what the current suites write
 # and carries the great majority of the corpus; 'assertions' is the older name.
@@ -505,6 +774,7 @@ for eval_item in data["evals"]:
         "workspace_dir": workspace_dir,
         "files_from_fixture": from_fixture,
         "files_stubbed": stubbed,
+        "model": models[eval_name],
     }
     if refused:
         metadata["files_refused"] = refused
@@ -548,6 +818,11 @@ for eval_item in data["evals"]:
 
 print(f"\nPrepared {prepared} eval directories.")
 PYEOF
+  # 3 is the model refusal above, raised before anything was written. Any other
+  # failure here goes on as it always has, to the validation that reports it.
+  if [ "$prep_rc" -eq 3 ]; then
+    return 3
+  fi
 
   # Return values for callers
   PREP_ITER_DIR="$iter_dir"
@@ -609,7 +884,38 @@ setup_tier2_isolation() {
     git remote remove origin >/dev/null 2>&1 || true
     git remote add origin "$bare"
     branch=$(git rev-parse --abbrev-ref HEAD)
-    git push --quiet --set-upstream origin "$branch" >/dev/null 2>&1
+    git push --quiet --set-upstream origin "$branch" >/dev/null 2>&1 || exit 1
+    # origin needs a default branch, or node-cut.sh, which cuts every node
+    # from it, has nothing to cut from (#585). It is main, at the commit this
+    # checkout starts on, so a node runs the scripts of the tree under test.
+    # The bare origin's HEAD names it and the checkout knows it, whatever
+    # init.defaultBranch this host has, as for the second clone below.
+    if [ "$branch" != main ]; then
+      git push --quiet origin HEAD:refs/heads/main >/dev/null 2>&1 || exit 1
+    fi
+    git --git-dir="$bare" symbolic-ref HEAD refs/heads/main || exit 1
+    git fetch --quiet origin >/dev/null 2>&1 || exit 1
+    git remote set-head origin main >/dev/null 2>&1 || exit 1
+  ) || return 1
+
+  # A second, independent repository for scenarios whose PLAN puts a node in
+  # another repository (the coordinated multi-repo ones): its own bare origin
+  # and a clone of it on main, so node-cut.sh --repo-dir cuts there and
+  # node-push.sh pushes there, never into the checkout above.
+  git init --bare --quiet "$iso_root/second-origin.git" >/dev/null 2>&1 || return 1
+  git clone --quiet "$iso_root/second-origin.git" "$iso_root/second-clone" >/dev/null 2>&1 || return 1
+  (
+    cd "$iso_root/second-clone" || exit 1
+    git config user.email "eval@shirabe.test"
+    git config user.name "Shirabe Eval Harness"
+    git checkout --quiet -b main
+    git commit --quiet --allow-empty -m "init"
+    git push --quiet --set-upstream origin main >/dev/null 2>&1 || exit 1
+    # The bare origin's HEAD names main, and the clone knows it: node-cut.sh
+    # cuts from the default branch it reads there, whatever init.defaultBranch
+    # this host has.
+    git --git-dir="$iso_root/second-origin.git" symbolic-ref HEAD refs/heads/main || exit 1
+    git remote set-head origin main >/dev/null 2>&1 || exit 1
   ) || return 1
 
   TIER2_CHECKOUT="$checkout"
@@ -632,6 +938,95 @@ setup_eval_scratch() {
     EVAL_SCRATCH_ROOT=""
     return 1
   }
+}
+
+# The run's own koto store. koto keeps its sessions, config, coordinator
+# records and terminal index under $HOME/.koto, which on a shared host holds
+# live sessions of other work. An eval run must never read or write that: a
+# session a killed run leaves there refuses the next run of the same scenario
+# (origin_mismatch), and a real coordinator's session must not be visible to,
+# or touched by, a scenario. The recipe is the one the ablation harness uses
+# (scripts/ablation/koto-intercept): every real koto call runs with HOME inside
+# the run's own directory.
+#
+# Here that is a wrapper, $scratch/koto-bin/koto, which runs the real koto
+# (KOTO_BIN when the caller set it, else the koto on PATH) with HOME set to
+# $scratch/koto-home. KOTO_SESSIONS_BASE would move the sessions somewhere
+# else again, so the wrapper clears it. The nested session reaches the wrapper
+# three ways:
+#   - the session's PATH has the wrapper's directory first;
+#   - KOTO_BIN is unset in the session, so koto-open.sh's ${KOTO_BIN:-koto}
+#     resolves through PATH like every other call;
+#   - EVAL_KOTO_WRAPPER names the wrapper, and the eval koto shim's passthrough
+#     execs it before it looks at PATH at all.
+# Only the last holds whatever PATH order the session ends up with. A
+# login-shell snapshot that puts another koto ahead of the wrapper would send a
+# direct `koto` call, or koto-open.sh's, to that koto and the real HOME; an
+# execute scenario puts the shim first on every command, so its calls take the
+# third route, and koto_store_tripwire is the backstop for the rest. With no
+# koto to wrap, the wrapper refuses instead of letting some other PATH entry
+# supply one. Every command koto runs (gates, default actions) inherits the
+# scratch HOME too: a gate that reads git or gh config sees none, which is why
+# the tier-2 clones carry a local git identity.
+#
+# The store goes when the scratch root does. Sets EVAL_KOTO_BIN to the
+# wrapper's directory; call it directly, not in $(...). Returns 1 when
+# KOTO_BIN names nothing executable, or resolves to the wrapper itself.
+EVAL_KOTO_BIN=""
+setup_eval_koto() {
+  local scratch="$1" real wrapper
+  EVAL_KOTO_BIN=""
+  mkdir -p "$scratch/koto-home" "$scratch/koto-bin" || return 1
+  wrapper="$scratch/koto-bin/koto"
+  if [ -n "${KOTO_BIN:-}" ]; then
+    # A bare name resolves through PATH now, before the wrapper's directory is
+    # put in front of it, so the wrapper never execs itself.
+    real=$(command -v -- "$KOTO_BIN" 2>/dev/null) || real=""
+    case "$real" in /*) ;; *) echo "  Error: KOTO_BIN [$KOTO_BIN] names no executable koto." >&2; return 1 ;; esac
+  else
+    real=$(command -v koto 2>/dev/null) || real=""
+  fi
+  case "$real" in "$scratch/koto-bin/"*) echo "  Error: koto resolves to this run's own wrapper." >&2; return 1 ;; esac
+  {
+    printf '#!/bin/sh\n'
+    if [ -n "$real" ]; then
+      printf '# This eval run'"'"'s koto: the real one, with its store in the run'"'"'s scratch root.\n'
+      printf 'unset KOTO_SESSIONS_BASE\n'
+      printf 'HOME=%s exec %s "$@"\n' "$(shell_quote "$scratch/koto-home")" "$(shell_quote "$real")"
+    else
+      printf 'echo "koto: this eval run found no koto to wrap (KOTO_BIN unset, none on PATH); refusing rather than run one under the real HOME" >&2\n'
+      printf 'exit 127\n'
+    fi
+  } > "$wrapper" || return 1
+  chmod +x "$wrapper" || return 1
+  EVAL_KOTO_BIN="$scratch/koto-bin"
+}
+
+# koto_store_tripwire <scratch> <marker>: return 1, naming the files, when
+# anything under $HOME/.koto changed since <marker> was made and mentions the
+# run's scratch root, which every path a tier-2 scenario works in sits under.
+# Other work on the host writes there too, so a change alone proves nothing; a
+# mention of this run's own directory does. It sees only such writes: not
+# reads, not a write from a session working in the live tree (where tier-1
+# scenarios start), and not one that records no path. The wrapper above is
+# what keeps those out.
+koto_store_tripwire() {
+  local scratch="$1" marker="$2" hits
+  [ -d "$HOME/.koto" ] || return 0
+  hits=$(find "$HOME/.koto" -type f -newer "$marker" -exec grep -lF -- "$scratch" {} + 2>/dev/null) || true
+  [ -n "$hits" ] || return 0
+  echo ""
+  echo "  EVAL RUN REACHED \$HOME/.koto"
+  echo "  The run's koto was meant to keep its store in the scratch root, but these"
+  echo "  files under \$HOME/.koto changed during the run and name it. The run's"
+  echo "  results are not trusted; remove the files once you have looked at them."
+  printf '%s\n' "$hits" | sed 's/^/    /'
+  return 1
+}
+
+# shell_quote <string>: the string as one single-quoted sh word.
+shell_quote() {
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
 }
 
 cleanup_eval_scratch() {
@@ -765,6 +1160,14 @@ run_skill_evals() {
   fi
   local scratch="$EVAL_SCRATCH_ROOT"
 
+  # Every koto the nested session runs keeps its store in the scratch root,
+  # never in $HOME/.koto. Refuse rather than run against the real store.
+  if ! setup_eval_koto "$scratch"; then
+    echo "  Error: could not set up the run's own koto store; refusing to run against \$HOME/.koto." >&2
+    cleanup_run_dirs
+    return 2
+  fi
+
   # Step 1b: For skills with tier-2 evals, stand up an isolated clone so the
   # real workflow (run-cascade.sh --push, folder moves, git mv) executes against
   # a sandbox checkout instead of the live working tree. See the "Tier-2
@@ -779,7 +1182,10 @@ run_skill_evals() {
       echo "  Isolated checkout: $tier2_checkout"
       echo "  (workflow execution sandboxed; live tree will not be mutated)"
       echo ""
-      tier2_isolation_block=$(cat <<ISOBLOCK
+      # read -d '' rather than $(cat <<...): bash 3.2 mis-parses a heredoc
+      # holding an apostrophe inside a command substitution. read keeps the
+      # trailing newline $(...) used to strip, so it is stripped below.
+      IFS= read -r -d '' tier2_isolation_block <<ISOBLOCK || true
 
 TIER-2 ISOLATION (MANDATORY for every tier 2 eval):
 An isolated, throwaway clone of this repository has been prepared at:
@@ -793,8 +1199,12 @@ contains an identical copy of skills/execute/evals/fixtures/...). The clone has
 its own git remote (a local throwaway), so the workflow's git commit/push land in
 the sandbox. Do NOT run any tier-2 workflow command in the original repository
 checkout. Tier-1 evals are unaffected (they execute no commands).
+A scenario whose PLAN puts a node in a second repository uses the clone the
+harness provides for it, with its own throwaway origin, at:
+  $TIER2_ISOLATION_ROOT/second-clone
+Pass it to node-cut.sh with --repo-dir for that node.
 ISOBLOCK
-)
+      tier2_isolation_block="${tier2_isolation_block%$'\n'}"
     else
       echo "  WARNING: failed to set up isolated checkout for tier-2 evals." >&2
       echo "  Refusing to run tier-2 evals against the live working tree." >&2
@@ -813,15 +1223,30 @@ ISOBLOCK
     fixtures_bin="$tier2_checkout/skills/$skill_name/evals/fixtures/bin"
     preflight_fixture="$tier2_checkout/skills/$skill_name/evals/fixtures/preflight-liveness"
   fi
-  local tier_instructions
+  local tier_instructions=""
   local nested_permission_text="${EVAL_CLAUDE_PERMISSION_ARGS[*]}"
-  tier_instructions=$(EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 << PYEOF
+  # Written to a file in the scratch root and read back, rather than captured
+  # with $(...): bash 3.2 mis-parses a heredoc inside a command substitution
+  # when the heredoc holds an unpaired quote.
+  local tier_file="$scratch/tier-instructions.txt"
+  EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 > "$tier_file" << PYEOF
 import json, os
 
 with open("$evals_file") as f:
     data = json.load(f)
 
 selected = os.environ.get("EVAL_SCENARIO_FILTER", "")
+iter_dir = "$iter_dir"
+
+
+def scenario_model(name):
+    """The model prep resolved and wrote into the scenario's metadata."""
+    try:
+        with open(os.path.join(iter_dir, name, "eval_metadata.json")) as fh:
+            return json.load(fh).get("model") or "inherit"
+    except (OSError, ValueError):
+        return "inherit"
+
 
 lines = []
 for ev in data["evals"]:
@@ -829,6 +1254,15 @@ for ev in data["evals"]:
     name = ev.get("name", f"eval-{ev['id']}")
     if selected and name != selected:
         continue
+    # Both agents of a scenario run on its model: a session flag alone would
+    # not reach the agents the session spawns.
+    model = scenario_model(name)
+    if model == "inherit":
+        model_text = (" Spawn this eval's with-skill agent and its baseline agent with no "
+                      "model override, so they run on this session's model.")
+    else:
+        model_text = (f" Spawn this eval's with-skill agent and its baseline agent on model "
+                      f"{model} (set it as each agent's model).")
     # The liveness eval is the one scenario that must run with the injected
     # preflight check ENABLED. The harness exports SHIRABE_PREFLIGHT_DISABLE=1
     # for everything else (see the header block); clearing it here is what
@@ -847,7 +1281,7 @@ for ev in data["evals"]:
                      f"in that run, and report VERBATIM everything the nested run put in front of "
                      f"the model before the skill body, plus a byte count. Do not call "
                      f"scripts/skill-preflight.sh yourself — the point is the skill load, not the "
-                     f"script.'")
+                     f"script.'" + model_text)
         continue
     if tier == 2:
         scenario = ev.get("scenario", "")
@@ -859,14 +1293,15 @@ for ev in data["evals"]:
         if isinstance(extra, dict) and extra:
             env_text = " Also set " + ", ".join(f"{k}={v}" for k, v in sorted(extra.items())) + "."
         lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH.{env_text} "
-                     f"Instruct agent: 'Execute the workflow. gh and koto are available on PATH.'")
+                     f"Instruct agent: 'Execute the workflow. gh and koto are available on PATH.'" + model_text)
     else:
         lines.append(f"- {name}: TIER 1 (plan_only) — "
-                     f"Instruct agent: 'Read the skill file and describe the exact sequence of commands you would run. Do NOT execute any commands.'")
+                     f"Instruct agent: 'Read the skill file and describe the exact sequence of commands you would run. Do NOT execute any commands.'" + model_text)
 
 print("\\n".join(lines))
 PYEOF
-)
+  tier_instructions=$(cat "$tier_file")
+  rm -f "$tier_file"
 
   # Step 3: Run evals via claude -p with /skill-creator
   echo ""
@@ -875,9 +1310,13 @@ PYEOF
   echo ""
 
   local claude_exit=0
+  # What koto_store_tripwire compares $HOME/.koto against.
+  local koto_marker="$scratch/koto-marker"
+  : > "$koto_marker"
   local transcript="$iter_dir/runner_session.jsonl"
-  local prompt
-  prompt=$(cat <<PROMPT
+  local prompt=""
+  # read -d '' for the same bash 3.2 reason as the isolation block above.
+  IFS= read -r -d '' prompt <<PROMPT || true
 Invoke /skill-creator. You already have an existing skill with evals ready to run.
 
 The skill is at: $skill_dir/SKILL.md
@@ -946,6 +1385,7 @@ skill file and describe its planned execution sequence.
 
 Follow the skill-creator's "Running and evaluating test cases" workflow:
 - Step 1: For each eval, spawn a with-skill agent (reads the skill SKILL.md then executes the prompt) and a without-skill baseline agent (same prompt, no skill). Save outputs to the respective outputs/ directories.
+  - WAIT FOR EVERY AGENT: launch each agent in the foreground, with run_in_background set to false (put both of an eval's Agent calls in one message so they still run side by side). This session is non-interactive: when you end your turn the session ends, and any agent still running is stopped with its scenario ungraded. Never end your turn, and never grade, while an agent you launched is still running; one agent finishing first is not the other finishing.
   - IMPORTANT: If eval_metadata.json contains "has_fixtures": true, an inputs/ directory exists alongside it with pre-defined plan artifact files (e.g. plan_my-feature_analysis.md, plan_my-feature_issue_1.md, etc.). Before running the with-skill agent for that eval, treat those files as already present in wip/ — the skill should read them rather than improvising fixture content. The agent must use the provided fixture files as the plan artifacts under review, not invent new ones.
 - Step 2: Grade each with-skill run against the assertions in eval_metadata.json. Write grading.json in each with_skill/ directory. Grade EVERY assertion listed there — one entry in grading.json per assertion. A scenario whose grading.json comes back empty fails the run.
 - Step 3: Capture timing data (total_tokens, duration_ms) to timing.json in each run directory.
@@ -953,17 +1393,25 @@ Follow the skill-creator's "Running and evaluating test cases" workflow:
 
 This is iteration $iteration for the $skill_name skill.
 PROMPT
-)
+  prompt="${prompt%$'\n'}"
 
   # Run from the repo root: acceptEdits bounds file edits to the working
   # directory plus --add-dir, so the directory the operator happened to invoke
   # this script from must not decide what the session may write. stdout is the
   # stream-json transcript the not-executed check reads; stderr stays on the
-  # terminal.
+  # terminal. The subshell drops the credentials named under "Credentials" in
+  # the header before the session starts, without touching this shell's.
   (
     cd "$REPO_ROOT" || exit 1
+    unset GH_TOKEN GITHUB_TOKEN SSH_AUTH_SOCK
+    # The run's koto, by every route (see setup_eval_koto).
+    unset KOTO_BIN
+    PATH="$EVAL_KOTO_BIN:$PATH"
+    EVAL_KOTO_WRAPPER="$EVAL_KOTO_BIN/koto"
+    export EVAL_KOTO_WRAPPER
     TMPDIR="$scratch" claude -p "$prompt" \
       "${EVAL_CLAUDE_PERMISSION_ARGS[@]}" \
+      ${EVAL_SESSION_MODEL_ARGS[@]+"${EVAL_SESSION_MODEL_ARGS[@]}"} \
       --add-dir "$scratch" \
       --output-format stream-json --verbose
   ) > "$transcript" || claude_exit=$?
@@ -1005,6 +1453,16 @@ print(json.load(open(sys.argv[1]))['graded'])
     if [ "$classify_rc" -eq 4 ]; then
       validate_rc=4
     fi
+  elif [ "$validate_rc" -eq 2 ]; then
+    # Some scenarios graded and some didn't: the session ran, but an agent of
+    # one it launched may have been stopped before it finished. Name it.
+    python3 "$CLASSIFY_SESSION" unfinished "$transcript" || true
+  fi
+
+  # Step 4c: A run that reached the real koto store is an infrastructure
+  # failure, whatever it graded.
+  if ! koto_store_tripwire "$scratch" "$koto_marker"; then
+    validate_rc=2
   fi
 
   # Step 5: Open viewer if it was generated
@@ -1235,8 +1693,11 @@ PYEOF
 #   scripts/run-evals.sh --scenario baseline-malformed-state --runs 5 scope
 #
 # Each run gets its own iteration-N directory, so no run overwrites another's
-# evidence. The exit status is 0 only when every run passed; the rate is printed
-# either way, since a rate is the point of asking.
+# evidence. The exit status is 0 only when every run passed, 2 when any run
+# returned 2 (a run that graded nothing is an infrastructure failure, and the
+# release check must not read it as a plain assertion failure), and 1 when runs
+# only failed assertions. The rate is printed either way, since a rate is the
+# point of asking.
 run_skill_evals_repeated() {
   local skill_name="$1"
   local runs="$2"
@@ -1246,6 +1707,7 @@ run_skill_evals_repeated() {
   local total_assertions=0
   local passed_assertions=0
   local per_run=""
+  local saw_infra=0
 
   while [ "$run_no" -le "$runs" ]; do
     echo ""
@@ -1256,6 +1718,8 @@ run_skill_evals_repeated() {
     PREP_ITER_DIR=""
     local rc=0
     run_skill_evals "$skill_name" || rc=$?
+    # Before the early returns, so a summary shows the run that stopped.
+    tally_run "$rc"
 
     # Exit 3 is a missing prerequisite or a missing suite. Repeating it N times
     # produces N copies of the same error, so stop and say which run stopped.
@@ -1271,18 +1735,9 @@ run_skill_evals_repeated() {
       echo "  Stopping after run $run_no: the nested session did not execute, and repeating cannot fix that."
       return 4
     fi
+    [ "$rc" -eq 2 ] && saw_infra=1
 
-    local tally="0 0"
-    if [ -n "$PREP_ITER_DIR" ] && [ -f "$PREP_ITER_DIR/validation_summary.json" ]; then
-      tally=$(python3 -c "
-import json
-s = json.load(open('$PREP_ITER_DIR/validation_summary.json'))
-print(s['passed_assertions'], s['total_assertions'])
-" 2>/dev/null || echo "0 0")
-    fi
-    local run_passed run_total
-    run_passed=$(echo "$tally" | cut -d' ' -f1)
-    run_total=$(echo "$tally" | cut -d' ' -f2)
+    local run_passed="$TALLY_LAST_PASSED" run_total="$TALLY_LAST_GRADED"
     passed_assertions=$((passed_assertions + run_passed))
     total_assertions=$((total_assertions + run_total))
 
@@ -1323,19 +1778,215 @@ print(s['passed_assertions'], s['total_assertions'])
   if [ "$runs_passed" -eq "$runs" ]; then
     return 0
   fi
+  if [ "$saw_infra" -eq 1 ]; then
+    return 2
+  fi
   return 1
 }
 
-# Main
-if [ $# -eq 0 ]; then
-  usage
-fi
+# ---------------------------------------------------------------------------
+# The per-skill tally behind --summary-out. begin_skill_tally resets it,
+# tally_run adds one run_skill_evals result to it (reading PREP_ITER_DIR, which
+# the caller clears before each run), and record_skill_summary appends the
+# skill's entry to SUMMARY_LINES. write_summary turns those lines into the
+# summary file. TALLY_LAST_* hold the run just tallied, for the --runs report.
+# ---------------------------------------------------------------------------
+TALLY_RUNS=0
+TALLY_RUNS_PASSED=0
+TALLY_ASSERTIONS_PASSED=0
+TALLY_ASSERTIONS_GRADED=0
+TALLY_ITER_DIRS=()
+TALLY_LAST_PASSED=0
+TALLY_LAST_GRADED=0
 
+begin_skill_tally() {
+  TALLY_RUNS=0
+  TALLY_RUNS_PASSED=0
+  TALLY_ASSERTIONS_PASSED=0
+  TALLY_ASSERTIONS_GRADED=0
+  TALLY_ITER_DIRS=()
+}
+
+tally_run() { # tally_run <exit code of run_skill_evals>
+  local rc="$1" tally="0 0"
+  TALLY_RUNS=$((TALLY_RUNS + 1))
+  [ "$rc" -eq 0 ] && TALLY_RUNS_PASSED=$((TALLY_RUNS_PASSED + 1))
+  if [ -n "$PREP_ITER_DIR" ]; then
+    TALLY_ITER_DIRS+=("$PREP_ITER_DIR")
+    if [ -f "$PREP_ITER_DIR/validation_summary.json" ]; then
+      tally=$(python3 -c "
+import json, sys
+s = json.load(open(sys.argv[1]))
+print(int(s['passed_assertions']), int(s['total_assertions']))
+" "$PREP_ITER_DIR/validation_summary.json" 2>/dev/null || echo "0 0")
+    fi
+  fi
+  TALLY_LAST_PASSED=$(echo "$tally" | cut -d' ' -f1)
+  TALLY_LAST_GRADED=$(echo "$tally" | cut -d' ' -f2)
+  TALLY_ASSERTIONS_PASSED=$((TALLY_ASSERTIONS_PASSED + TALLY_LAST_PASSED))
+  TALLY_ASSERTIONS_GRADED=$((TALLY_ASSERTIONS_GRADED + TALLY_LAST_GRADED))
+}
+
+record_skill_summary() { # record_skill_summary <skill> <exit code>
+  [ -n "$SUMMARY_OUT" ] || return 0
+  python3 - "$SUMMARY_LINES" "$1" "$TALLY_RUNS" "$TALLY_RUNS_PASSED" \
+    "$TALLY_ASSERTIONS_PASSED" "$TALLY_ASSERTIONS_GRADED" "$2" \
+    ${TALLY_ITER_DIRS[@]+"${TALLY_ITER_DIRS[@]}"} <<'PYEOF'
+import glob, json, os, sys
+
+out, name = sys.argv[1], sys.argv[2]
+runs, runs_passed, a_passed, a_graded, exit_code = (int(v) for v in sys.argv[3:8])
+models = set()
+for iter_dir in sys.argv[8:]:
+    for meta in glob.glob(os.path.join(iter_dir, "*", "eval_metadata.json")):
+        try:
+            with open(meta) as fh:
+                model = json.load(fh).get("model")
+        except (OSError, ValueError):
+            continue
+        if isinstance(model, str) and model:
+            models.add(model)
+entry = {
+    "runs": runs,
+    "runs_passed": runs_passed,
+    "assertions_passed": a_passed,
+    "assertions_graded": a_graded,
+    "models": sorted(models),
+    "exit_code": exit_code,
+}
+with open(out, "a") as fh:
+    fh.write(json.dumps({"skill": name, "entry": entry}) + "\n")
+PYEOF
+}
+
+write_summary() {
+  [ -n "$SUMMARY_OUT" ] || return 0
+  if ! python3 - "$SUMMARY_LINES" "$SUMMARY_OUT" <<'PYEOF'
+import json, sys
+
+skills = {}
+with open(sys.argv[1]) as fh:
+    for line in fh:
+        if line.strip():
+            record = json.loads(line)
+            skills[record["skill"]] = record["entry"]
+with open(sys.argv[2], "w") as fh:
+    json.dump({"schema": "run-evals-summary/v1", "skills": skills}, fh, indent=2, sort_keys=True)
+    fh.write("\n")
+PYEOF
+  then
+    echo "Error: could not write the summary to $SUMMARY_OUT" >&2
+    return 1
+  fi
+}
+
+cleanup_summary_lines() {
+  if [ -n "$SUMMARY_LINES" ] && [ -f "$SUMMARY_LINES" ]; then
+    rm -f "$SUMMARY_LINES"
+  fi
+}
+
+# One skill, once or --runs times, tallied for --summary-out.
+run_skill() { # run_skill <skill>
+  local name="$1" rc=0
+  begin_skill_tally
+  if [ "$EVAL_RUNS" -gt 1 ]; then
+    run_skill_evals_repeated "$name" "$EVAL_RUNS" || rc=$?
+  else
+    PREP_ITER_DIR=""
+    run_skill_evals "$name" || rc=$?
+    tally_run "$rc"
+  fi
+  record_skill_summary "$name" "$rc"
+  return "$rc"
+}
+
+# Several skills with --all's failure collection and exit precedence. Returns
+# the exit code rather than exiting, so the caller can write the summary first.
+run_skill_list() { # run_skill_list <skill>...
+  local failed_skills=() infra_failed=() not_executed=() name rc
+  for name in "$@"; do
+    rc=0
+    run_skill "$name" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+      if [ "$rc" -eq 4 ]; then
+        not_executed+=("$name")
+      elif [ "$rc" -eq 2 ] || [ "$rc" -eq 3 ]; then
+        infra_failed+=("$name")
+      else
+        failed_skills+=("$name")
+      fi
+    fi
+    echo ""
+  done
+  echo "=== Summary ==="
+  if [ ${#failed_skills[@]} -gt 0 ]; then
+    echo "  Failed assertions: ${failed_skills[*]}"
+  fi
+  if [ ${#infra_failed[@]} -gt 0 ]; then
+    echo "  Infrastructure failures: ${infra_failed[*]}"
+  fi
+  if [ ${#not_executed[@]} -gt 0 ]; then
+    echo "  Nested session did not execute: ${not_executed[*]}"
+  fi
+  if [ ${#failed_skills[@]} -eq 0 ] && [ ${#infra_failed[@]} -eq 0 ] && [ ${#not_executed[@]} -eq 0 ]; then
+    echo "  All skills passed."
+  fi
+  # A failed assertion outranks everything, as before. A session that never
+  # executed outranks a plain infra failure because it has one known cause to
+  # fix, and fixing it may be what clears the other skills' exit 2s.
+  [ ${#failed_skills[@]} -gt 0 ] && return 1
+  [ ${#not_executed[@]} -gt 0 ] && return 4
+  [ ${#infra_failed[@]} -gt 0 ] && return 2
+  return 0
+}
+
+# Write the summary, when one was asked for, and exit with the run's code.
+finish() { # finish <exit code>
+  local rc="$1"
+  write_summary || { [ "$rc" -eq 0 ] && rc=2; }
+  exit "$rc"
+}
+
+# Main
 parse_run_options "$@"
 set -- ${PARSED_ARGS[@]+"${PARSED_ARGS[@]}"}
 
+if [ -n "$SUMMARY_OUT" ]; then
+  SUMMARY_LINES=$(mktemp "${TMPDIR:-/tmp}/run-evals-summary.XXXXXX") || {
+    echo "Error: could not create a temporary file for the summary"
+    exit 3
+  }
+  trap 'cleanup_run_dirs; cleanup_summary_lines' EXIT
+fi
+
+# No skill name: the skills changed since the last v* tag.
 if [ $# -eq 0 ]; then
-  usage
+  if [ -n "$EVAL_SCENARIO_FILTER" ]; then
+    echo "Error: --scenario names one eval in one suite; use it with a skill name"
+    exit 1
+  fi
+  select_changed_skills || exit 2
+  if [ -z "$CHANGED_TAG" ]; then
+    echo "No v* tag found; selecting every skill with evals."
+  fi
+  if [ ${#CHANGED_SKILLS[@]} -eq 0 ]; then
+    if [ -n "$CHANGED_TAG" ]; then
+      echo "No skill with evals changed since $CHANGED_TAG."
+    else
+      echo "No skill has evals."
+    fi
+    finish 0
+  fi
+  if [ -n "$CHANGED_TAG" ]; then
+    echo "Skills with evals changed since $CHANGED_TAG: ${CHANGED_SKILLS[*]}"
+  else
+    echo "Skills with evals: ${CHANGED_SKILLS[*]}"
+  fi
+  echo ""
+  rc=0
+  run_skill_list "${CHANGED_SKILLS[@]}" || rc=$?
+  finish "$rc"
 fi
 
 case "$1" in
@@ -1343,55 +1994,32 @@ case "$1" in
     echo "Skills with evals:"
     list_skills_with_evals
     ;;
+  --list-changed)
+    select_changed_skills || exit 2
+    # stdout carries the names alone, for callers to read; the note goes to
+    # stderr.
+    if [ -z "$CHANGED_TAG" ]; then
+      echo "No v* tag found; selecting every skill with evals." >&2
+    fi
+    for name in ${CHANGED_SKILLS[@]+"${CHANGED_SKILLS[@]}"}; do
+      printf '%s\n' "$name"
+    done
+    exit 0
+    ;;
   --all)
     if [ -n "$EVAL_SCENARIO_FILTER" ]; then
       echo "Error: --scenario names one eval in one suite; use it with a skill name, not --all"
       exit 1
     fi
-    failed_skills=()
-    infra_failed=()
-    not_executed=()
+    all_skills=()
     for skill_dir in "$SKILLS_DIR"/*/; do
-      name=$(basename "$skill_dir")
       if [ -f "$skill_dir/evals/evals.json" ]; then
-        rc=0
-        if [ "$EVAL_RUNS" -gt 1 ]; then
-          run_skill_evals_repeated "$name" "$EVAL_RUNS" || rc=$?
-        else
-          run_skill_evals "$name" || rc=$?
-        fi
-        if [ "$rc" -ne 0 ]; then
-          if [ "$rc" -eq 4 ]; then
-            not_executed+=("$name")
-          elif [ "$rc" -eq 2 ] || [ "$rc" -eq 3 ]; then
-            infra_failed+=("$name")
-          else
-            failed_skills+=("$name")
-          fi
-        fi
-        echo ""
+        all_skills+=("$(basename "$skill_dir")")
       fi
     done
-    echo "=== Summary ==="
-    if [ ${#failed_skills[@]} -gt 0 ]; then
-      echo "  Failed assertions: ${failed_skills[*]}"
-    fi
-    if [ ${#infra_failed[@]} -gt 0 ]; then
-      echo "  Infrastructure failures: ${infra_failed[*]}"
-    fi
-    if [ ${#not_executed[@]} -gt 0 ]; then
-      echo "  Nested session did not execute: ${not_executed[*]}"
-    fi
-    if [ ${#failed_skills[@]} -eq 0 ] && [ ${#infra_failed[@]} -eq 0 ] && [ ${#not_executed[@]} -eq 0 ]; then
-      echo "  All skills passed."
-    fi
-    # A failed assertion outranks everything, as before. A session that never
-    # executed outranks a plain infra failure because it has one known cause to
-    # fix, and fixing it may be what clears the other skills' exit 2s.
-    [ ${#failed_skills[@]} -gt 0 ] && exit 1
-    [ ${#not_executed[@]} -gt 0 ] && exit 4
-    [ ${#infra_failed[@]} -gt 0 ] && exit 2
-    exit 0
+    rc=0
+    run_skill_list ${all_skills[@]+"${all_skills[@]}"} || rc=$?
+    finish "$rc"
     ;;
   --prep-only)
     if [ $# -lt 2 ]; then
@@ -1440,10 +2068,8 @@ print(len(evals))
     usage
     ;;
   *)
-    if [ "$EVAL_RUNS" -gt 1 ]; then
-      run_skill_evals_repeated "$1" "$EVAL_RUNS"
-    else
-      run_skill_evals "$1"
-    fi
+    rc=0
+    run_skill "$1" || rc=$?
+    finish "$rc"
     ;;
 esac

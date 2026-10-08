@@ -1,12 +1,14 @@
 # Phase 2: Decision Execution
 
-Invoke the decision skill for each decision question. Independent decisions
-run in parallel via Task agents.
+Invoke the decision skill for each decision question, except that under a
+parent skill a standard-tier question is resolved inline (2.2a). Independent
+decisions run in parallel via Task agents.
 
 ## Resume Check
 
 If the coordination manifest shows all decisions `complete`, skip to Phase 3.
-If some are `complete` and others `pending`, re-spawn only the pending ones.
+If some are `complete` and others `pending`, run only the pending ones,
+each by the route 2.2a gives it.
 
 ## Steps
 
@@ -20,9 +22,32 @@ Read `wip/design_<topic>_coordination.json`. Identify pending decisions.
 - **Coupled decisions** (one feeds into another): spawn sequentially,
   passing earlier results as additional constraints
 
+### 2.2a Route Each Question by Tier
+
+Run directly, every question goes to `/decision` (2.3). Under a parent
+skill (the `parent_orchestration` sentinel in the Resume Logic's first
+row of SKILL.md), route each question by the `complexity` tier Phase 1
+recorded in the manifest, per
+`docs/decisions/DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md`:
+
+- **standard** (`/decision`'s Tier 3): resolve it inline, here in Phase 2.
+  Weigh the options yourself and write a report in the shape a decider
+  returns (status, chosen, confidence, rationale, assumptions, rejected)
+  to the report path 2.3 names for that question, so Phase 3 reads it
+  like any other, then update the manifest as 2.4 does for a finished
+  agent (status `complete`, report path recorded).
+- **critical** (`/decision`'s Tier 4): spawn a decider in 2.3, under a
+  parent as in a direct run.
+
+Record each question's provenance in the manifest beside its status:
+`"provenance": "inline"` or `"provenance": "decision"`. Phase 3 carries
+it into each Considered Options entry, and when any question was
+resolved inline the design's frontmatter carries
+`decision_provenance: inline-resolved` (Phase 6.5).
+
 ### 2.3 Spawn Decider Agents
 
-For each pending decision, spawn a Task agent with `run_in_background: true`:
+For each pending decision routed to `/decision`, spawn a Task agent with `run_in_background: true`:
 
 ```
 Agent tool:
@@ -69,7 +94,8 @@ If an agent fails or times out:
 
 ## Quality Checklist
 
-- [ ] All decisions spawned (parallel for independent, sequential for coupled)
+- [ ] Under a parent skill, each decision routed by tier (2.2a) and its provenance recorded
+- [ ] All decisions routed to `/decision` spawned (parallel for independent, sequential for coupled)
 - [ ] Coordination manifest updated with results
 - [ ] Progress lines emitted per completion
 

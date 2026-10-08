@@ -55,14 +55,14 @@
     },
     {
       "id": 5,
-      "name": "routing-simple-to-plan",
+      "name": "routing-simple-to-work-on",
       "prompt": "/prd --auto cli-help-text-improvements",
-      "expected_output": "After PRD acceptance, skill suggests next step based on complexity. For a simple scope like help text improvements, recommends the plan skill as the next step rather than design.",
+      "expected_output": "After PRD acceptance, skill suggests next step based on complexity. For a simple scope like help text improvements (few requirements, clear scope, a single PR), recommends filing an issue and running /work-on on it rather than /plan or /design.",
       "files": [],
       "expectations": [
         "Transcript describes suggesting a next step after PRD acceptance based on complexity",
-        "Transcript recommends the plan skill as the next step for this scope",
-        "Transcript gives a complexity-based reason for choosing plan over design",
+        "Transcript recommends filing an issue and then /work-on as the next step for this scope",
+        "Transcript gives a complexity-based reason for skipping /plan and /design",
         "Transcript does NOT recommend the design skill as the next step"
       ]
     },
@@ -108,14 +108,14 @@
     {
       "id": 9,
       "name": "upstream-propagation",
-      "prompt": "/prd feature-flags --upstream docs/roadmaps/ROADMAP-platform.md",
-      "expected_output": "Detects --upstream flag from arguments. Stores the roadmap path. Phase 3 step 3.1 validates the path: git ls-files confirms the roadmap is tracked in this repo and is not under wip/. The validated path is included as upstream: docs/roadmaps/ROADMAP-platform.md in the PRD frontmatter. Does not treat --upstream as part of the topic.",
+      "prompt": "/prd feature-flags --upstream docs/briefs/BRIEF-feature-flags.md",
+      "expected_output": "Detects --upstream flag from arguments. Stores the brief path. Phase 3 step 3.1 validates the path: it is not under wip/, it names a legal PRD upstream type (a BRIEF, or a STRATEGY or VISION when no brief exists; never a ROADMAP), and git ls-files confirms it is tracked in this repo. The validated path is included as upstream: docs/briefs/BRIEF-feature-flags.md in the PRD frontmatter. Does not treat --upstream as part of the topic.",
       "files": [],
       "expectations": [
         "Transcript detects and parses the --upstream flag from $ARGUMENTS",
-        "Transcript stores the upstream path (docs/roadmaps/ROADMAP-platform.md) for use in Phase 3",
-        "Transcript describes Phase 3 step 3.1 validating the path is not under wip/ and resolves in this repo",
-        "Transcript describes including upstream: in the PRD frontmatter during Phase 3 drafting",
+        "Transcript stores the upstream path (docs/briefs/BRIEF-feature-flags.md) for use in Phase 3",
+        "Transcript describes Phase 3 step 3.1 validating the path is not under wip/, names a legal PRD upstream type (BRIEF, STRATEGY or VISION, never a ROADMAP), and resolves in this repo",
+        "Transcript describes recording upstream: docs/briefs/BRIEF-feature-flags.md (a BRIEF, not a ROADMAP) in the PRD frontmatter during Phase 3 drafting",
         "Transcript does NOT treat --upstream as part of the topic name"
       ]
     },
@@ -231,6 +231,24 @@
         "Transcript describes citing rather than restating the rest of what the upstream says",
         "Transcript gives the reason: a restated copy costs a second read and drifts"
       ]
+    },
+    {
+      "name": "under-scope-skips-publishing",
+      "prompt": "/prd docs/briefs/BRIEF-search-indexing.md -- /scope invoked this skill: its state file carries the parent_orchestration sentinel naming prd (rationale fresh-chain), /scope runs under --auto, the session is on /scope's branch scope/search-indexing, the brief is already Accepted, the PRD frontmatter carries source_issue: 42, and the Phase 4 jury has just returned PASS from all three reviewers.",
+      "expected_output": "Under the sentinel /prd keeps its own verdict and status transition and skips everything that publishes or routes. Setup works on scope/search-indexing: it creates no docs/search-indexing branch, switches nothing and asks nothing about the branch. The upstream brief transition runs and is a no-op, since the brief is already Accepted. The run resolves to --auto from the parent even though no mode flag was passed. Phase 4 takes the recommended verdict and names it (\"Took the recommended verdict: Approve\"), moves the PRD to Accepted and commits docs(prd): accept PRD for search-indexing. It skips the source_issue label removal, creates and edits no pull request, presents no routing options, skips step 4.7's cleanup, and returns control to /scope.",
+      "files": [
+        "docs/briefs/BRIEF-search-indexing.md"
+      ],
+      "expectations": [
+        "Plan creates no docs/search-indexing branch and switches no branch, working on scope/search-indexing, and asks no question about the branch",
+        "Plan treats the run as --auto because the parent's execution mode wins, even though no --auto flag was passed",
+        "Plan takes the recommended verdict without an AskUserQuestion prompt and names it in its output, as 'Took the recommended verdict: Approve' or equivalent",
+        "Plan moves the PRD to Accepted and makes the acceptance commit",
+        "Plan skips the source_issue label removal (no gh issue edit)",
+        "Plan creates and edits no pull request and runs no git push",
+        "Plan presents no complexity routing options and skips step 4.7 cleanup; control returns to /scope"
+      ],
+      "id": 18
     }
   ]
 }

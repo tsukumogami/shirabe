@@ -9,7 +9,7 @@
 # gh call that edits, readies, creates, merges, or closes, and no koto call.
 #
 # Cases:
-#   usage: missing --merge, --merge yes, a bad slug, a home repo outside repos
+#   usage: missing --merge, --merge yes, a bad slug
 #   error:execute:pr-adopt   no coordination PR
 #   error:execute:status-read a failing gh read
 #   done:merged              the coordination PR is MERGED
@@ -32,6 +32,13 @@
 #   error:execute:pr-adopt   an index entry by another author
 #   error:execute:pr-adopt   an index entry on the wrong head branch
 #   error:execute:write-set  an index entry naming a repository outside repos
+#   error:execute:write-set  the coordination entry naming a repository other
+#                            than --home-repo, even one in --repos
+#   home outside --repos     a coordination PR in acme/repo-a over a PLAN whose
+#                            nodes are all in acme/repo-b: dispatch, evaluate,
+#                            cascade, evaluate-coordination, merge-coordination,
+#                            done:merged, with the coordination entry naming
+#                            the home; a node entry naming the home is refused
 #   first-match order        an error beats a merge; a merge beats a dispatch
 #
 # Usage: coordinated-next_test.sh
@@ -113,9 +120,6 @@ done
 out=$(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug 'T;x' --repos "$CT_REPO" \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge false 2>/dev/null); rc=$?
 [ "$rc" -eq 64 ] && pass "a slug outside ^[a-z0-9-]+\$ is a usage error" || fail "bad slug: rc=$rc"
-out=$(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug t --repos "acme/repo-b" \
-    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge false 2>/dev/null); rc=$?
-[ "$rc" -eq 64 ] && pass "a home repo outside --repos is a usage error" || fail "home outside repos: rc=$rc"
 [ -s "$GH_CALL_LOG" ] && fail "a usage error made a gh call" || pass "no usage error made a gh call"
 
 # --- the coordination PR ----------------------------------------------------------
@@ -339,6 +343,111 @@ expect "a PLAN whose nodes are all in --repos (control)" "dispatch:$CT_CORE" "$o
 out=$(cd "$PLAN2DIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug t --repos "acme/repo-a" \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge true 2>"$CASE/stderr")
 expect "a PLAN **Repo** outside --repos" "error:execute:write-set" "$out"
+
+ct_case coord-entry-elsewhere
+ct_index_line pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
+ct_index_line pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
+ct_index_line coordination acme/repo-b 10 "$CT_HEAD"
+ct_pr acme/repo-a 11 impl/t-pr-repo-a-default 'state="MERGED"'
+ct_pr acme/repo-b 21 impl/t-pr-repo-b-default 'state="MERGED"'
+ct_write_db
+out=$(run_next "$GONEDIR" --merge true)
+expect "a coordination entry naming a repository in --repos but not --home-repo" "error:execute:write-set" "$out"
+
+# --- the coordination PR's home outside the write set -------------------------------
+#
+# The coordination PR (#10) lives in acme/repo-a, and every node of the PLAN
+# lands in acme/repo-b: --repos is acme/repo-b alone. The loop drives the nodes
+# and then the coordination PR, whose own index entry names the home.
+
+REMOTEDIR="$CT_WORK/remote"
+ct_plan "$REMOTEDIR" remote
+RCORE=pr-repo-b-core
+RCLI=pr-repo-b-cli
+run_remote() {
+    local dir="$1"
+    shift
+    (cd "$dir" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" \
+        --repos acme/repo-b --home-repo "$CT_REPO" --coord-branch "$CT_CB" "$@" 2>"$CASE/stderr")
+}
+
+ct_case home-outside-fresh
+ct_write_db
+out=$(run_remote "$REMOTEDIR" --merge true)
+expect "home outside --repos, nothing indexed" "dispatch:$RCORE" "$out"
+wrote_nothing "the home-outside dispatch"
+
+ct_case home-outside-draft
+ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
+ct_pr acme/repo-b 21 "impl/t-$RCORE" 'isDraft=true'
+ct_write_db
+out=$(run_remote "$REMOTEDIR" --merge true)
+expect "home outside --repos, a draft node PR" "evaluate:$RCORE" "$out"
+
+ct_case home-outside-merge-node
+ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
+ct_pr acme/repo-b 21 "impl/t-$RCORE"
+ct_write_db
+out=$(run_remote "$REMOTEDIR" --merge true)
+expect "home outside --repos, a mergeable node PR" "merge:$RCORE" "$out"
+
+ct_case home-outside-cascade
+ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
+ct_index_line "$RCLI" acme/repo-b 22 "$CT_HEAD"
+ct_pr acme/repo-b 21 "impl/t-$RCORE" 'state="MERGED"'
+ct_pr acme/repo-b 22 "impl/t-$RCLI" 'state="MERGED"'
+ct_write_db
+out=$(run_remote "$REMOTEDIR" --merge true)
+expect "home outside --repos, every node MERGED" "cascade" "$out"
+
+ct_case home-outside-coordination
+ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
+ct_index_line "$RCLI" acme/repo-b 22 "$CT_HEAD"
+ct_index_line coordination "$CT_REPO" 10 "$CT_HEAD"
+ct_pr acme/repo-b 21 "impl/t-$RCORE" 'state="MERGED"'
+ct_pr acme/repo-b 22 "impl/t-$RCLI" 'state="MERGED"'
+ct_write_db
+out=$(run_remote "$GONEDIR" --merge true)
+expect "home outside --repos, the coordination entry naming the home, a draft" "evaluate-coordination" "$out"
+wrote_nothing "the home-outside evaluate-coordination"
+
+# home_outside_done <case> -- the same index, both nodes MERGED, in a fresh
+# case (the shim seeds its model once per case).
+home_outside_done() {
+    ct_case "$1"
+    ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
+    ct_index_line "$RCLI" acme/repo-b 22 "$CT_HEAD"
+    ct_index_line coordination "$CT_REPO" 10 "$CT_HEAD"
+    ct_pr acme/repo-b 21 "impl/t-$RCORE" 'state="MERGED"'
+    ct_pr acme/repo-b 22 "impl/t-$RCLI" 'state="MERGED"'
+}
+home_outside_done home-outside-coord-ready
+CT_COORD_DRAFT=false
+ct_write_db
+out=$(run_remote "$GONEDIR" --merge true)
+expect "home outside --repos, the coordination PR ready" "merge-coordination" "$out"
+home_outside_done home-outside-coord-merged
+CT_COORD_STATE=MERGED
+ct_write_db
+out=$(run_remote "$GONEDIR" --merge true)
+expect "home outside --repos, the coordination PR MERGED" "done:merged" "$out"
+
+ct_case home-outside-node-in-home
+ct_index_line "$RCORE" "$CT_REPO" 21 "$CT_HEAD"
+ct_pr "$CT_REPO" 21 "impl/t-$RCORE"
+ct_write_db
+out=$(run_remote "$REMOTEDIR" --merge true)
+expect "home outside --repos, a node entry naming the home" "error:execute:write-set" "$out"
+
+ct_case home-outside-coord-elsewhere
+ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
+ct_index_line "$RCLI" acme/repo-b 22 "$CT_HEAD"
+ct_index_line coordination acme/repo-b 10 "$CT_HEAD"
+ct_pr acme/repo-b 21 "impl/t-$RCORE" 'state="MERGED"'
+ct_pr acme/repo-b 22 "impl/t-$RCLI" 'state="MERGED"'
+ct_write_db
+out=$(run_remote "$GONEDIR" --merge true)
+expect "home outside --repos, the coordination entry naming a node repository" "error:execute:write-set" "$out"
 
 # --- first-match order ------------------------------------------------------------
 

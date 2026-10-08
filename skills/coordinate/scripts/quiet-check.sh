@@ -24,8 +24,18 @@
 #                              since their last activity (wins over first)
 # Topics are space-separated: koto captures only letters, digits, spaces and
 # `: / _ . - @`, and a dispatch topic never holds a space.
+# A holding a pause in the record holds (pause-read.sh over the Standing rows
+# record-state.sh --list reads) is never silent: its worker was told to stop at
+# a safe point, so its silence is what the pause asked for, and the sweep that
+# skips it isn't a silent check. The resume doesn't reset its last activity,
+# but a silent check made before the latest `resume` tick no longer counts, so
+# the first sweep after a resume sends one status message rather than going
+# straight to the failure branch on a silence from before the pause
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
+#
 # The detail goes to context key coord/quiet.json as data: per holding its
-# last activity, whether it is silent, and its earlier silent checks.
+# last activity, whether it is silent, its earlier silent checks, and the
+# pause that holds it, or null.
 #
 # Usage:
 #   quiet-check.sh --session S [--now YYYY-MM-DDTHH:MM:SSZ]
@@ -76,6 +86,16 @@ else
     bash "$HERE/record-holding.sh" --session "$SESSION" --list > "$T/holdings.json" 2> "$T/h.err"
 fi
 [ $? -eq 0 ] || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/h.err")"
+# The pauses, for the units the holdings carry.
+if [ "$OVERRIDE" = 1 ]; then
+    bash "$HERE/record-state.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF" --list > "$T/state.json" 2> "$T/s.err"
+else
+    bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/s.err"
+fi
+[ $? -eq 0 ] || lib_die2 "record-state.sh --list failed: $(lib_scrub < "$T/s.err")"
+jq -c '[.[].unit]' "$T/holdings.json" > "$T/units.json" || lib_die2 "jq failed"
+bash "$HERE/pause-read.sh" --standing "$T/state.json" --units "$T/units.json" > "$T/pauses.json" 2> "$T/p.err" \
+    || lib_die2 "cannot read the record's pauses: $(lib_scrub < "$T/p.err")"
 
 START=$(bash "$HERE/coord-log.sh" run-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the run start"
 START_S=$(lib_epoch "$START") || lib_die2 "the run start $START is not a time"
@@ -99,13 +119,24 @@ done < "$T/quiet.jsonl"
 latest_evidence() {
     local ts
     set -- --state "$1" --where "$2=$3"
-    [ "$2" = wait ] && set -- "$@" --where event=report
+    [ "$2" = wait ] && set -- "$@" --where 'event=report|progress'
     local out rc
     out=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" "$@"); rc=$?
     case $rc in 0) ;; 1) return 0 ;; *) echo x > "$T/read-failed"; return 0 ;; esac
     ts=$(printf '%s' "$out" | jq -r '.timestamp // empty')
     [ -n "$ts" ] && lib_epoch "$ts"
 }
+
+# The latest resume tick: silent checks before it don't count. It is the
+# run's latest, whichever pause it ended, so one lane's resume also gives
+# every other worker one more status-message cycle before the failure branch.
+RESUME_S=0
+RESUME_OUT=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where 'event=resume'); rc=$?
+case $rc in
+    0) TS=$(printf '%s' "$RESUME_OUT" | jq -r '.timestamp // empty'); [ -n "$TS" ] && RESUME_S=$(lib_epoch "$TS") ;;
+    1) ;;
+    *) lib_die2 "cannot read the session log's evidence" ;;
+esac
 
 FIRST= SECOND=
 : > "$T/detail.jsonl"
@@ -116,6 +147,15 @@ while [ "$i" -lt "$N" ]; do
     i=$((i + 1))
     W=$(printf '%s' "$ROW" | jq -r .worker)
     [[ $W =~ $RE_TOPIC ]] || continue
+    # A merged row (lib_row_merged) waits for its worker's teardown: its
+    # silence is expected until the teardown removes the row, not a sign of
+    # a stalled worker.
+    lib_row_merged "$ROW" && continue
+    PAUSED=$(jq -r --arg u "$(printf '%s' "$ROW" | jq -r .unit)" '.covers[$u] // empty' "$T/pauses.json")
+    if [ -n "$PAUSED" ]; then
+        jq -nc --arg w "$W" --arg p "$PAUSED" '{worker: $w, silent: false, paused: $p}' >> "$T/detail.jsonl"
+        continue
+    fi
     LAST=$START_S
     for S in "$(latest_evidence wait unit "$W")" "$(latest_evidence dispatch topic "$W")"; do
         [ -n "$S" ] && [ "$S" -gt "$LAST" ] && LAST=$S
@@ -137,6 +177,7 @@ while [ "$i" -lt "$N" ]; do
     while IFS='	' read -r S WORD TOPICS; do
         [ -n "$S" ] || continue
         [ "$S" -gt "$LAST" ] || continue
+        [ "$S" -gt "$RESUME_S" ] || continue
         case " $TOPICS " in *" $W "*) ;; *) continue ;; esac
         EARLIER=$((EARLIER + 1))
         [ "$S" -gt "$LATEST_CHECK" ] && LATEST_CHECK=$S
@@ -147,7 +188,7 @@ while [ "$i" -lt "$N" ]; do
         if [ "$EARLIER" -gt 0 ]; then SECOND="$SECOND $W"; else FIRST="$FIRST $W"; fi
     fi
     jq -nc --arg w "$W" --argjson l "$LAST" --argjson s "$SILENT" --argjson e "$EARLIER" \
-        '{worker: $w, last_activity: ($l | todate), silent: $s, earlier_silent_checks: $e}' >> "$T/detail.jsonl"
+        '{worker: $w, last_activity: ($l | todate), silent: $s, earlier_silent_checks: $e, paused: null}' >> "$T/detail.jsonl"
 done
 jq -s -c --arg now "$NOW" '{now: $now, holdings: .}' "$T/detail.jsonl" > "$T/quiet.json" || lib_die2 "jq failed"
 

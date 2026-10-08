@@ -28,11 +28,16 @@ Read all available context:
 - `wip/research/prd_<topic>_phase2_*.md` files (from Phase 2, if they exist)
 - Any notes from Phase 2 synthesis
 
-**Detect upstream:** Check `$ARGUMENTS` for an `--upstream <path>` flag. If
-present, store the path for inclusion in frontmatter (step 3.2). The upstream
-path typically points to a Roadmap document when the PRD is part of a
-multi-feature initiative. If `--upstream` is not provided, omit the field
-from frontmatter.
+**Detect upstream:** A PRD's upstream is normally the BRIEF its requirements
+are written from, and a STRATEGY or VISION when no brief exists; never the
+ROADMAP that sequenced its feature (`prd-format.md`'s frontmatter rules,
+which `shirabe validate` enforces). In brief input mode (Input Mode 2) that
+BRIEF's path is the upstream, even when an `--upstream` flag is also given.
+Otherwise check `$ARGUMENTS` for an `--upstream <path>` flag, and if present,
+store the path for inclusion in frontmatter (step 3.2). With no BRIEF,
+STRATEGY or VISION above the PRD, omit the field. On a re-entry, leave an `upstream:` already in
+the PRD's frontmatter as it is: `/scope`'s consolidation can set one when the
+PRD absorbs its brief.
 
 **Validate upstream:** If a path was detected, run these checks in order
 before storing it. These are hard-stops -- do not write a failing value into
@@ -41,9 +46,20 @@ frontmatter:
 1. **Is the path under `wip/`?** STOP. wip/ paths are non-durable and would
    leave the PRD's `upstream:` orphaned after wip-hygiene cleanup. Resolve
    the canonical location and use that path instead, or OMIT the field.
-2. **Does the path resolve in this repo?** Run `git ls-files <path>`. If
-   non-empty, the upstream is durable -- continue.
-3. **Path is out-of-repo?** Detect this repo's visibility from CLAUDE.md
+2. **Is it a legal type?** If the file is not a BRIEF, STRATEGY or VISION
+   (`docs/briefs/BRIEF-*.md`, `docs/strategies/STRATEGY-*.md`,
+   `docs/visions/VISION-*.md`, or the cross-repo form of one), OMIT the field
+   and tell the author why. A ROADMAP is the common case: it is a working
+   document, deleted once its features land, so a durable PRD naming it would
+   dangle. `shirabe validate` rejects a working type as `R11` and a type at or
+   below the PRD's altitude as `R10` (both defined in
+   `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`).
+3. **Does the path resolve in this repo?** For a same-repo path, run
+   `git ls-files <path>`. If non-empty, the file is tracked rather than a
+   local scratch copy -- continue. If empty, OMIT the field and ask the
+   author for the committed path. A cross-repo `owner/repo:path` value goes
+   straight to check 4.
+4. **Path is out-of-repo?** Detect this repo's visibility from CLAUDE.md
    (`## Repo Visibility:`). If public AND the canonical upstream lives in a
    private repo, STOP and OMIT the `upstream:` field. Public artifacts must
    not reference private resources. See
@@ -60,7 +76,8 @@ repo.
 Write a complete PRD draft following the `prd` skill structure. Use the Write tool to
 create `docs/prds/PRD-<topic>.md`.
 
-**When an upstream BRIEF exists (Input Mode 2), read it first.** The brief already
+**When an upstream BRIEF exists (Input Mode 2, or a BRIEF named by
+`--upstream`), read it first.** The brief already
 settled this feature's framing, and four of its five required sections map onto
 sections this PRD must carry:
 
@@ -105,8 +122,10 @@ contribution section itself.
   real role names from the problem space, not generic "user."
 - **Requirements**: Number them R1, R2, etc. Draw from both the scope and research
   findings. Separate functional from non-functional. Each requirement should be testable.
-- **Acceptance Criteria**: Derive from requirements. Each criterion is binary pass/fail.
-  Cover happy path and important edge cases.
+- **Acceptance Criteria**: Derive them from the requirements, so every requirement
+  has at least one criterion that verifies it. The quality rules (binary pass/fail,
+  happy path and important edge cases) are in `prd-format.md`'s Acceptance Criteria
+  quality guidance.
 - **Out of Scope**: Draw from the BRIEF's Scope Boundary out-list when one exists,
   plus items from the scope document and anything the research revealed should be
   excluded.
@@ -117,9 +136,10 @@ contribution section itself.
   existed, and why the chosen option won. Include decisions made during this
   drafting phase as well.
 
-Set frontmatter status to "Draft". If an `--upstream` path was detected AND
+Set frontmatter status to "Draft". If an upstream path was detected AND
 passed validation in step 3.1, include `upstream: <path>` in frontmatter.
-Otherwise omit the field.
+Otherwise write no `upstream:` field; one already in the PRD's frontmatter
+stays as it is (step 3.1).
 
 ### 3.3 Present the Draft
 

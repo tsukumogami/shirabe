@@ -7,7 +7,9 @@
 # called when the posture re-read denies or asks for confirmation, when
 # land's capture is stale (land entered again since it was sealed), absent,
 # not permit, or unsealed, when provenance fails (another plugin root, an
-# edited template), or when the run has a directed transition; and it must be
+# edited template), when the run has a directed transition, when a hold in
+# the record stands on the pull request now, or when its title and Part 1
+# don't build a message; and it must be
 # called with the repository, the pull request and the verified sha
 # otherwise. --closeout does the same for a rotation's or a predecessor's
 # record pull request from its close-out capture. merge-exec's own refusal
@@ -24,6 +26,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/land-merge-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
+BT_PRVIEW_BODY=$(bt_body)
 LM="$PS/land-merge.sh"
 PERMIT="readable merge:permit close:permit teardown:permit"
 CALLS="$BT_STATE/merge-exec.calls"
@@ -58,6 +61,13 @@ OUT=$(bash "$LM" --session "$S" --repo acme/widgets 2>"$T/err"); rc=$?
 eq "a permitted, fresh land capture merges: exit 0" 0 $rc
 eq "merge-exec gets the repository, the pull request and the verified sha" "acme/widgets 12 $H" "$(cat "$CALLS")"
 eq "merge-exec's line is printed" "merge-called:squash:$H" "$OUT"
+eq "and a message file built from the title and Part 1" \
+    "$(printf 'feat(land): read the round\n\nReads the worker'"'"'s review round in the land step.')" \
+    "$(cat "$BT_STATE/merge-exec.msg" 2>/dev/null)"
+at_land; jq -c '.body = "\n\n---\n\nonly part two"' "$GH_BOARD_DIR/prview-12.out" > "$T/p" && mv "$T/p" "$GH_BOARD_DIR/prview-12.out"
+never "an empty Part 1: no message, no merge" 10
+at_land; rm -f "$GH_BOARD_DIR/prview-12.out"; echo 1 > "$GH_BOARD_DIR/prview-12.rc"; echo "gh: Server Error (HTTP 502)" > "$GH_BOARD_DIR/prview-12.err"
+never "a body that can't be read: no merge" 10
 
 echo "== never merges =="
 at_land; printf '%s\n' "readable merge:deny close:permit teardown:permit" > "$BT_STATE/posture"
@@ -88,6 +98,31 @@ never "provenance fails: PLUGIN_ROOT is another plugin" 10
 at_land; S=coordinate-demo-nosuchsession
 never "no session log" 10
 
+echo "== a hold recorded after the land check =="
+HOLD_GO='{"hold":"go","on":"acme/widgets#12","until":"lifted","set_by":"the human","set":"2026-09-26T11:30Z","lifted":""}'
+at_land; bt_record_body '[]' "[$HOLD_GO]"
+never "a standing hold on the pull request stops the merge" 10
+grep -q 'a hold stands on #12 now: go (lifted, unmet)' "$T/err" && ok "  ... naming the hold" || bad "  ... naming the hold" "$(cat "$T/err")"
+at_land; bt_record_body '[]' "[$(printf '%s' "$HOLD_GO" | jq -c '.lifted = "2026-09-26T11:40Z by the human"')]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a lifted hold doesn't" 0 $?
+at_land; bt_record_body '[]' "[$(printf '%s' "$HOLD_GO" | jq -c '.on = "acme/widgets#13"')]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor does one on another pull request" 0 $?
+at_land; echo 1 > "$GH_BOARD_DIR/issue-7.rc"
+never "a record that can't be re-read for its holds" 10
+
+echo "== a pause written after the land check =="
+at_land; bt_record_paused "[$(bt_pause s1 pause all lifted)]"
+never "a pause on all stops the merge with its own code" 12
+grep -q 'paused: pause s1 holds #12 now (on all, until lifted); submit merge: paused' "$T/err" && ok "  ... naming the pause and the value to submit" || bad "  ... naming the pause and the value to submit" "$(cat "$T/err")"
+at_land; bt_record_paused "[$(bt_pause s2 pause "Feature 2" "time 2099-01-01T00:00Z")]"
+never "a pause on the pull request's unit stops it too" 12
+at_land; bt_record_paused "[$(bt_pause s2 pause "Feature 3" lifted)]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a pause on another unit doesn't" 0 $?
+at_land; bt_record_paused "[$(bt_pause s1 pause all lifted), $(bt_pause s3 go-ahead "Feature 2" "")]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor does an all pause the unit has a go-ahead through" 0 $?
+at_land; bt_record_paused "[$(bt_pause s1 pause all "time 2000-01-01T00:00Z")]"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor a pause whose minute has passed" 0 $?
+
 echo "== merge-exec's own answers =="
 at_land; printf 'merge-refused:unmergeable:blocked\n' > "$BT_STATE/merge-exec.out"; echo 0 > "$BT_STATE/merge-exec.rc"
 OUT=$(bash "$LM" --session "$S" --repo acme/widgets 2>/dev/null); rc=$?
@@ -106,11 +141,18 @@ closeout() { # closeout <NAME> <state>
     bt_enter "$S" "${2%_close}_step"
     rm -f "$CALLS" "$BT_STATE/merge-exec.out" "$BT_STATE/merge-exec.rc" "$BT_STATE/posture.rc"
     printf '%s\n' "$PERMIT" > "$BT_STATE/posture"
+    # The record pull request: the renderer's fixed Part 1, then the record.
+    jq -nc '{title: "docs(coordination): close the demo rotation",
+             body: "The coordination record for the demo rotation.\n\n---\n\n> This is a **coordinator record**"}' \
+        > "$GH_BOARD_DIR/prview-30.out"
 }
 closeout ROTATION_CLOSE rotation_close
 bash "$LM" --session "$S" --closeout >/dev/null 2>"$T/err"; rc=$?
 eq "a rotation's record pull request merges: exit 0" 0 $rc
 eq "at the host, with the close-out's verified sha" "acme/widgets 30 $H" "$(cat "$CALLS" 2>/dev/null)"
+eq "and the record pull request's title and fixed Part 1 as the message" \
+    "$(printf 'docs(coordination): close the demo rotation\n\nThe coordination record for the demo rotation.')" \
+    "$(cat "$BT_STATE/merge-exec.msg" 2>/dev/null)"
 closeout PREDECESSOR_CLOSE predecessor_close
 bash "$LM" --session "$S" --closeout >/dev/null 2>&1; eq "a predecessor's record pull request merges: exit 0" 0 $?
 closeout ROTATION_CLOSE rotation_close; bt_enter "$S" rotation_close

@@ -14,15 +14,25 @@
 #
 #   dc_invocation <brief-input-file> [<return-path>]
 #       Prints the worker's invocation: `/shirabe:<entry> <positional>
-#       <run_mode flags> <entry_args flags>`, then `--koto-leg=<return-path>`
-#       when a return path other than `message` is given. The one place the
-#       invocation is built: the brief shows it, the dispatch prompt carries
-#       it, and the holding's mode is the flags part of it, so the three can't
-#       disagree.
+#       <run_mode flags> <entry_args flags>`, then `--review-floor=<x>` and
+#       `--review-ceiling=<y>` from the input's `review_level` when it gives
+#       them, then `--koto-leg=<return-path>` when a return path other than
+#       `message` is given. The one place the invocation is built: the brief
+#       shows it, the dispatch prompt carries it, and the holding's mode is
+#       the run_mode and entry_args part of it, so the three can't disagree.
 #
 #   dc_mode <brief-input-file>
 #       Prints the flags part of the invocation (run_mode, then entry_args
-#       flags), the holding's `mode` cell.
+#       flags), the holding's `mode` cell. The review-level flags stay out of
+#       it: a re-brief rebuilds run_mode from this cell and keeps the input's
+#       review_level, so carrying them here would give them twice.
+#
+#   dc_unit_forms <pick-json-file>
+#   dc_unit_matches <unit> <pick-json-file>
+#       The Unit cell values pick_facts reads as covering a unit it listed
+#       (coord/pick.json), and whether <unit> is one: a roadmap feature's tag
+#       or `<tag>: <title>`, an issue's `#<n>` or `<host>#<n>`. A holding
+#       written with any other value is invisible to pick.
 #
 #   dc_niwa_slug <topic>
 #       Prints the slug niwa derives from `niwa dispatch --name <topic>`: the
@@ -63,8 +73,21 @@
 #   dc_entry_field <skill> <n>
 #       Prints field n of the skill's row: 1 skill, 2 leg (or -), 3 admitted
 #       templates, comma-joined (or -), 4 pinned inputs as VAR=source pairs
-#       (or -), 5 allowed flags (or -). DC_F_LEG, DC_F_TEMPLATES, DC_F_PINNED
-#       and DC_F_FLAGS name them.
+#       (or -), 5 allowed flags (or -), 6 the visibility its targets must have
+#       (any, public or private), 7 the entry point to name instead (or -).
+#       DC_F_LEG, DC_F_TEMPLATES, DC_F_PINNED, DC_F_FLAGS, DC_F_TARGET_VIS and
+#       DC_F_INSTEAD name them.
+#
+#   dc_entry_target_visibility <skill>
+#       Prints the visibility the skill's targets must have: `any`, `public`
+#       or `private`. A row without the field reads as `any`; any other value
+#       returns 2, so a malformed table never passes a dispatch.
+#
+#   dc_repo_visibility <owner/repo>
+#       Prints `public` or `private`, read live from `gh api --method GET
+#       repos/<r>`'s `visibility`, the read the merge gate's resolver makes;
+#       `internal` and any other value print `private`. Returns 2, printing
+#       nothing, when the read fails: a caller never guesses.
 #
 #   dc_flag_allowed <skill> <flag>
 #       0 when the flag is in the skill's allowed set: an exact entry, or a
@@ -90,7 +113,8 @@
 #
 #   dc_record_write <session> <topic> <row-file>
 #       Adds or replaces the topic's holding row whole. Returns the writer's
-#       code: 0 written, 10 refused, 65 row refused, 2 otherwise. The
+#       code: 0 written, 10 refused, 13 the record is full (record-full), 65
+#       row refused, 2 otherwise. The
 #       writer's 12 (the record changed under it) is retried up to
 #       three times, then reads as a failed write.
 #
@@ -143,19 +167,56 @@ DC_F_LEG=2
 DC_F_TEMPLATES=3
 DC_F_PINNED=4
 DC_F_FLAGS=5
+DC_F_TARGET_VIS=6
+DC_F_INSTEAD=7
 # koto's request-id grammar, and its leg-name grammar.
 DC_RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
 DC_RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
 DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
+# The stored set's reader, for the pauses (record-state.sh --list); tests use
+# a stand-in.
+DC_RECORD_STATE="${DC_RECORD_STATE:-$DC_HERE/record-state.sh}"
 DC_COORD_LOG="${DC_COORD_LOG:-$DC_HERE/coord-log.sh}"
+
+# The dispatch topic's grammar, which a refusal names as the accepted values.
+DC_RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
+DC_TOPIC_GRAMMAR="$DC_RE_TOPIC (at most 64 characters)"
 
 dc_valid_topic() {
     case "$1" in
         '' | -*) return 1 ;;
     esac
     [ "${#1}" -le 64 ] || return 1
-    printf '%s' "$1" | grep -Eq '^[a-z0-9][a-z0-9-]*$'
+    [[ $1 =~ $DC_RE_TOPIC ]]
+}
+
+# dc_unit_forms <pick-json-file>: print, one per line, every Unit cell value
+# that covers a unit pick_facts listed, by pick-facts.sh's own rule: a roadmap
+# feature's heading tag or `<tag>: <title>`, an issue's `#<n>` or
+# `<host>#<n>`, with the host pick_facts recorded. A landed unit (its roadmap
+# pull request pending, `landed` set) has no form, so no brief for it renders.
+# Returns 2 when the file isn't pick_facts' JSON. pick-facts_test.sh holds the
+# two rules together.
+dc_unit_forms() {
+    jq -r '
+        if (.units | type) != "array" then error("no units") else . end
+        | .scope as $s | (.host // "") as $h | .units[] | select((.landed // null) == null)
+        | if $s == "roadmap" then .unit, (if (.title // "") == "" then empty else "\(.unit): \(.title)" end)
+          else .unit, (if $h != "" then $h + .unit else empty end) end' "$1" 2>/dev/null || return 2
+}
+
+# dc_unit_matches <unit> <pick-json-file>: 0 when <unit> is a Unit cell value
+# pick would read as covering one of the units it listed (dc_unit_forms), so
+# a holding written with it is never invisible to pick; 1 when it isn't (an
+# empty or multi-line unit never is); 2 when the file can't be read as
+# pick_facts' JSON.
+dc_unit_matches() {
+    local forms
+    forms=$(dc_unit_forms "$2") || return 2
+    case "$1" in '' | *'
+'*) return 1 ;; esac
+    printf '%s\n' "$forms" | grep -Fxq -- "$1"
 }
 
 dc_niwa_slug() {
@@ -187,7 +248,11 @@ dc_invocation() {
     local inv
     inv=$(jq -r "$DC_JQ_TOKENS"' as $t
         | ($t[0] | if test("\\s") then "\"" + . + "\"" else . end) as $pos
-        | "/shirabe:" + .entry_point + " " + ([$pos] + $t[1:] | join(" "))' "$1") || return 2
+        | (if (.review_level | type) == "object" then
+             ([ (.review_level.floor // empty | strings | "--review-floor=" + .),
+                (.review_level.ceiling // empty | strings | "--review-ceiling=" + .) ])
+           else [] end) as $bound
+        | "/shirabe:" + .entry_point + " " + ([$pos] + $t[1:] + $bound | join(" "))' "$1") || return 2
     case "${2:-message}" in
         message) ;;
         *) inv="$inv --koto-leg=$2" ;;
@@ -252,6 +317,27 @@ dc_entry_field() {
     local row
     row=$(dc_entry_row "$1") || return $?
     printf '%s\n' "$row" | cut -f"$2"
+}
+
+dc_entry_target_visibility() {
+    local v
+    v=$(dc_entry_field "$1" "$DC_F_TARGET_VIS") || return $?
+    case "$v" in
+        '' | any) printf 'any\n' ;;
+        public | private) printf '%s\n' "$v" ;;
+        *) return 2 ;;
+    esac
+}
+
+dc_repo_visibility() {
+    local json v
+    json=$(gh api --method GET "repos/$1" </dev/null) || return 2
+    v=$(printf '%s' "$json" | jq -r 'if type == "object" then (.visibility // "") else "" end') || return 2
+    case "$v" in
+        public) printf 'public\n' ;;
+        '') return 2 ;;
+        *) printf 'private\n' ;;
+    esac
 }
 
 dc_flag_allowed() {
@@ -345,7 +431,7 @@ dc_record_write() {
         [ "$tries" -lt 3 ] || break
     done
     case "$rc" in
-        0 | 10 | 65) return "$rc" ;;
+        0 | 10 | 13 | 65) return "$rc" ;;
         *) return 2 ;;
     esac
 }

@@ -7,9 +7,9 @@
 # another success terminal keeps the session's context instead of deleting it
 # (references/koto-session-retention.md). context add/get carry the settled
 # branch and the per-child batch view, workflows inspects child outcomes,
-# status reports progress. `context add` takes `--from-file` on the
-# cross-issue-context path; the settled-branch write, and the drift-facts writes
-# of plan_intent.md and drift_facts.json, pipe on stdin instead and need no flag.
+# status reports progress. `context add` pipes on stdin (the settled-branch
+# write, and the drift-facts writes of plan_intent.md and drift_facts.json) and
+# needs no flag.
 #
 # The completion cascade's script owns the shirabe side. It lives under /work-on
 # (skills/work-on/scripts/run-cascade.sh), which runs it for a standalone issue,
@@ -35,17 +35,18 @@
 # the PR, its checks, and the base's rules through `pr view`, `pr checks`, and
 # `api`, and merge-exec.sh makes the repository's one `pr merge` call. git
 # creates and pushes the shared branch and stages the cascade's transitions,
-# and fetches, diffs, and rebases for the drift check; jq builds the cascade
+# and fetches, diffs, and merges origin/main in for the drift check; jq builds the cascade
 # report and the drift facts; python3 is
 # the portable realpath in run-cascade.sh.
 #
-# The `shirabe validate --lifecycle .` line in SKILL.md describes the reusable
-# CI workflow, and `--pr-body` names what CI enforces on the authored body.
-# /execute runs neither. Nothing mechanical separates a citation from a call
-# site, so the two are exempted by name for scripts/check-skill-requires.sh;
-# an exemption that stops matching its line fails as stale.
-#not-a-call-site	skills/execute/SKILL.md	shirabe	--lifecycle	Names the run the reusable CI workflow already makes, not a call /execute makes.
-#not-a-call-site	skills/execute/koto-templates/execute.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /execute authors to the rule and never invokes the check.
+# `koto workflows --children` in spawn_and_await names
+# the call a later /work-on child makes to find its predecessors' summaries;
+# the orchestrator never runs it. Nothing mechanical separates a citation from
+# a call site, so it is exempted by name for scripts/check-skill-requires.sh;
+# an exemption that stops matching its line fails as stale. (`--pr-body` in the
+# template only names what CI enforces, but node-push.sh runs it, so the mode
+# record below declares it and no exemption is needed.)
+#not-a-call-site	skills/execute/koto-templates/execute.md	koto	--children	Names the call a later /work-on child makes to read its predecessors' summaries; the /execute orchestrator never runs it.
 #
 # The koto floor. /execute enters its orchestrator session through
 # skills/execute/scripts/execute-open.sh and the shared scripts/koto-open.sh,
@@ -60,7 +61,7 @@
 # shared script, which the one-directional requires check does not treat as a
 # finding.
 # The records catch a koto older than 0.13.0 only. shirabe's koto minimum is
-# 0.14.1 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
+# 0.15.0 (scripts/assert-koto-floor.sh). What 0.14.0 added (a failure terminal
 # keeps its session, and a child's result is delivered under --no-cleanup) is
 # behaviour with no flag to declare, so no record here carries it. The preflight
 # compares koto's version with that minimum at load instead
@@ -90,12 +91,13 @@
 # `gh pr ready`; node-cut.sh's `git worktree add` and `git fetch`. The
 # coordinated mode record below covers the two shirabe modes they run:
 # node-push.sh validates each new coordination body with
-# `--coordination-body`, and coord-merge.sh and the loop's
+# `--coordination-body`, and each new node PR's body and title with
+# `--pr-body` and `--pr-title`, and coord-merge.sh and the loop's
 # evaluate-coordination step run `--merge-gate --mode=ready` with one `--pr`
 # per indexed ref.
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
 koto	next	--with-data,--no-cleanup	always
-koto	context add	--from-file	always
+koto	context add	-	always
 koto	context get	-	always
 koto	context remove	-	always
 koto	context exists	-	always
@@ -109,4 +111,4 @@ gh	-	-	always
 git	-	-	always
 jq	-	-	always
 python3	-	-	always
-shirabe	validate	--coordination-body,--merge-gate	mode:coordinated
+shirabe	validate	--coordination-body,--merge-gate,--pr-body,--pr-title	mode:coordinated

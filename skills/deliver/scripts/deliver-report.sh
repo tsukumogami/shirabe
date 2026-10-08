@@ -56,7 +56,7 @@ PROG=deliver-report
 
 RE_OUTCOME='^(merged|ready-awaiting-merge|paused-awaiting-merges|paused-for-review|scoped|handed-off-multi-pr|scope-ended-early|error)$'
 RE_STEP='^(scope:(push|pr-create|intake|resume-probe|refused)|execute:[a-z][a-z0-9_-]*|deliver:(intent-mismatch|child-outcome|child-absent|request-abandoned|refused))$'
-RE_REASON='^(re-evaluation|abandonment|cancelled|private-repo|intent-mismatch|upstream-(wip|untracked|outside|basename)|plan-active|plan-done|(invalid-var|duplicate-var|unknown-var|var-mismatch):[A-Z][A-Z0-9_]*|template-mismatch|origin-mismatch|input-mismatch|session-terminal|session-live|leg-[a-z]+(-[a-z]+)*|merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|predecessor-unmerged|gate-unverified)$'
+RE_REASON='^(re-evaluation|abandonment|cancelled|intent-mismatch|upstream-(wip|untracked|outside|basename)|plan-active|plan-done|(invalid-var|duplicate-var|unknown-var|var-mismatch):[A-Z][A-Z0-9_]*|template-mismatch|origin-mismatch|input-mismatch|session-terminal|session-live|leg-[a-z]+(-[a-z]+)*|merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|predecessor-unmerged|gate-unverified)$'
 RE_REPO_LIST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)*$'
 RE_URL='^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$'
 RE_ROLE='^(human|predecessor)$'

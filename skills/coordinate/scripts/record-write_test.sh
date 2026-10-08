@@ -201,6 +201,22 @@ bash "$WR" --session "$S" --ref 7 --body-file "$T/new.md" >/dev/null 2>&1; eq "-
 echo "== the session must be the scope's one live session =="
 # Every earlier session above is ended; each case starts from none live.
 for s in "$S3" "$S4"; do log_end "$s"; done
+# The plugin rewritten in place mid-run: the shipped template now compiles to
+# another hash, and the run koto opened from it still writes.
+SW=coordinate-roadmap-plugin-system-20260926T120000Z
+found_session "$SW" "$(roadmap_vars plugin-system)" 7
+opened_from "$SW" "$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/coordinate.md" '{"compiled":"as opened"}' >/dev/null
+seed_rm
+KOTO_COMPILED_HASH=0ddba11 bash "$WR" --session "$SW" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "a write after the plugin is rewritten in place succeeds" 0 $?
+log_end "$SW"
+SF=coordinate-roadmap-plugin-system-20260926T130000Z
+found_session "$SF" "$(roadmap_vars plugin-system)" 7
+mkdir -p "$T/elsewhere"; cp "$PLUGIN_ROOT_REAL/skills/coordinate/koto-templates/coordinate.md" "$T/elsewhere/coordinate.md"
+opened_from "$SF" "$T/elsewhere/coordinate.md" '{"compiled":"foreign"}' >/dev/null
+seed_rm; reset_calls
+KOTO_COMPILED_HASH=0ddba11 bash "$WR" --session "$SF" --body-file "$T/new.md" >/dev/null 2>&1; eq "a session opened from another template is still refused" 10 $?
+eq "and nothing is written" "" "$(calls | grep 'edit' || true)"
+log_end "$SF"
 OLDS=coordinate-roadmap-plugin-system-20260927T080000Z
 found_session "$OLDS" "$(roadmap_vars plugin-system)" 7
 NEWS=coordinate-roadmap-plugin-system-20260927T090000Z
@@ -259,7 +275,14 @@ bash "$WR" "${RM[@]}" --body-file "$T/new.md" >/dev/null 2>"$T/err"; eq "a write
 seed_rm; db '.issues[0].body = $b' --arg b "$OLDD"
 render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DEC" '.decisions = $d | .decisions.entries[1].question = "Which cache backend?"')" issue > "$T/editdec.md"
 bash "$WR" "${RM[@]}" --body-file "$T/editdec.md" >/dev/null 2>"$T/err"; eq "a write that edits an entry is refused" 65 $?
-DECPRIV=$(printf '%s' "$DEC" | jq -c '.entries[1].question = "does acme/secret ship first?"')
+DECPROSE=$(printf '%s' "$DEC" | jq -c '.entries[1].question = "does the and/or rule hold for CI/CD, n/a elsewhere, and acme/secret?"')
+seed_rm; db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson d "$DECPROSE" '.decisions = $d')" issue)"
+render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DECPROSE" '.decisions = $d')" issue > "$T/prose.md"
+reset_calls
+bash "$WR" "${RM[@]}" --body-file "$T/prose.md" >/dev/null 2>"$T/err"
+eq "a word/word in a Decisions question is prose, not a repository" 0 "$?"
+calls | grep -Eq 'repos/(and/or|CI/CD|n/a|acme/secret)' && bad "prose makes no repository read" "$(calls | grep repos/)" || ok "prose makes no repository read"
+DECPRIV=$(printf '%s' "$DEC" | jq -c '.entries[1].question = "does acme/secret#3 ship first?"')
 seed_rm; db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson d "$DECPRIV" '.decisions = $d')" issue)"
 render "$(printf '%s' "$NEWJ" | jq -c --argjson d "$DECPRIV" '.decisions = $d')" issue > "$T/privdec.md"
 bash "$WR" "${RM[@]}" --body-file "$T/privdec.md" >/dev/null 2>"$T/err"; rc=$?
@@ -274,5 +297,8 @@ bash "$WR" "${RM[@]}" --body-file "$T/big.md" >/dev/null 2>"$T/err"; rc=$?
 eq "a body over the 60,000-byte budget is refused as record-full" 13 "$rc"
 grep -q 'record-full' "$T/err" && ok "the refusal says record-full" || bad "the refusal says record-full" "$(cat "$T/err")"
 eq "and nothing is written" "$OLD" "$(body7)"
+{ cat "$T/big.md"; head -c 70000 /dev/zero | tr '\0' 'y'; } > "$T/huge.md"
+bash "$WR" "${RM[@]}" --body-file "$T/huge.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a body past the parser's own limit is record-full too, not a parse refusal" 13 "$rc"
 
 done_tests record-write

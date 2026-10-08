@@ -13,10 +13,18 @@
 #     the coordination mode among them)
 #   a detached HEAD, the wrong branch, the default branch   65, 66, 67
 #   a fresh node push                            the branch reaches origin; one
-#     draft PR titled feat(<slug>): <node-id> with the fixed body (node id,
+#     draft PR titled feat(<slug>): <node-id> with the fixed fields (node id,
 #     work items, coordination link) through --body-file; the node's index
 #     line written with head=<the pushed sha>, after --coordination-body
 #     validation of the new body
+#   the node PR's title and body                 the body's first part is each
+#     work item's goal (an outline's Goal, else the table's summary row, else
+#     the title), then one top-level ---, the fixed fields, and the run marker
+#     as the last line; owned-pr.sh --run-id still finds the PR by it, and
+#     another run's lookup refuses it; body and title pass --pr-body (the
+#     stub, and the real validator when one is on PATH); a node changing only
+#     docs/ and root Markdown is docs(<slug>), one changing a skill's
+#     Markdown is feat; a refused body exits 74 with no pr create or edit
 #   a wip/ file committed on the node branch     swept: the pushed head carries
 #                                                no wip/ file
 #   a second push                                the owned PR is adopted (no
@@ -39,6 +47,43 @@
 #   coordination mode                            pushes the coordination branch
 #     and records the coordination PR's own line with head=, leaving the
 #     merge-order section as it was
+#   each node against its own target, home acme/repo-a over node acme/repo-b:
+#     public over public, private over private   pushed; the node PR links
+#                                                the coordination PR
+#     private over public                        pushed and indexed; the public
+#                                                node PR carries no link into
+#                                                the private coordination PR
+#     public over private                        exit 77, nothing pushed, no gh
+#                                                write, the message naming the
+#                                                node and not the repository
+#     a failed visibility read (node or home)    exit 72, nothing pushed
+#     another run's PR on a private node's branch under a public home
+#                                                still 77: the check runs before
+#                                                the ownership read, whose
+#                                                diagnostics name the repository
+#     a public node under a private home whose commits carry a private/ path
+#     or a Repo Visibility: Private line         exit 78, nothing pushed; no
+#                                                scan for any other pair
+#     the same pair, a work item's goal in the PLAN naming a private/ path
+#                                                exit 78, nothing pushed
+#   a node in another repository than the coordination PR's, pushed from the
+#   coordination checkout:
+#     a worktree cut there (no --repo-dir)       exit 79, nothing pushed, no
+#                                                gh write, the message naming
+#                                                neither repository
+#     a separate clone whose origin is the home's exit 79, nothing pushed
+#     a worktree cut there, pushing through a remote naming another URL
+#                                                exit 79
+#     a clone whose origin spells the home's URL another way (ssh, https,
+#     case, .git, a trailing slash)              exit 79
+#     both origins written through one insteadOf rule   exit 79
+#     a clone of the home under a checkout whose origin has a pushurl
+#                                                exit 79
+#     a clone of the home under a checkout that fetches from a mirror and
+#     pushes to the home                         exit 79
+#     a --plan outside any git repository        exit 79, nothing pushed
+#     the node's own clone (control)             pushed
+#   coord_url_key                                one key per repository
 #   the push is `git push <remote> HEAD:refs/heads/<branch>`, never forced
 #
 # Usage: node-push_test.sh
@@ -57,6 +102,10 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 command -v git >/dev/null 2>&1 || { echo "FAIL: git is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
+
+# A real shirabe, read before the helpers put their stub ahead of PATH: the
+# node PR body case runs it when it is there and knows --pr-body.
+REAL_SHIRABE="${SHIRABE_BIN:-$(command -v shirabe 2>/dev/null || true)}"
 
 # shellcheck source=coord-test-helpers.sh
 . "$SCRIPT_DIR/coord-test-helpers.sh"
@@ -306,6 +355,164 @@ fresh_repo marker-usage
 push_node --run-id NOTANID
 [ "$RC" -eq 64 ] && pass "a malformed --run-id is a usage error" || fail "bad --run-id: rc=$RC"
 
+# --- the node PR's title and body -------------------------------------------------------
+#
+# A new node PR's body is two parts: the work items' goals from the PLAN, one
+# top-level `---`, then the fixed fields and the run marker. It is checked
+# with `shirabe validate --pr-body` and the title before `gh pr create`.
+
+# separators <file> -- the count of bare `---` lines outside fences.
+separators() { awk '/^[[:space:]]*(```|~~~)/ { f = !f; next } !f && /^---[[:space:]]*$/ { n++ } END { print n + 0 }' "$1"; }
+# part1 <file> -- the text above the first `---`.
+part1() { awk '/^---[[:space:]]*$/ { exit } { print }' "$1"; }
+created_title() { ct_calls | grep '^pr create' | tail -1 | sed -n 's/.*--title \(.*\) --body-file.*/\1/p'; }
+
+ct_case pr-body
+ct_write_db
+fresh_repo pr-body
+# Summary rows under the two items' entity rows, as an issue-carrying PLAN
+# writes them; plan-to-tasks.sh reads past them.
+awk '{ print }
+     index($0, "| [#1: ") == 1 { print "| _Parse the input into tokens._ | | |" }
+     index($0, "| [#2: ") == 1 { print "| _Cover the parser with table tests._ | | |" }' "$PLAN" > "$PLAN.new" \
+    && mv "$PLAN.new" "$PLAN"
+push_node --run-id "$MINE"
+db_pr 50 | jq -r '.body' > "$CASE/node-body.md"
+if [ "$RC" -eq 0 ] && [ "$(separators "$CASE/node-body.md")" -eq 1 ] \
+    && [ "$(part1 "$CASE/node-body.md" | grep -c .)" -eq 2 ] \
+    && part1 "$CASE/node-body.md" | sed -n 1p | grep -qxF "Parse the input into tokens." \
+    && part1 "$CASE/node-body.md" | grep -qxF "Cover the parser with table tests."; then
+    pass "the node PR body's first part is each work item's goal from the PLAN, above one top-level ---"
+else
+    fail "pr-body: rc=$RC body [$(cat "$CASE/node-body.md")] $(tail -2 "$CASE/stderr")"
+fi
+case "$(awk '/^---[[:space:]]*$/ { s = 1; next } s' "$CASE/node-body.md")" in
+    *"Coordinated node \`$CT_CORE\` of \`t\`."*"Work items: 1,2"*"Coordination PR: https://github.com/acme/repo-a/pull/10"*)
+        pass "the fixed fields sit below the separator" ;;
+    *) fail "the second part: [$(cat "$CASE/node-body.md")]" ;;
+esac
+if [ "$(grep -v '^[[:space:]]*$' "$CASE/node-body.md" | tail -1)" = "<!-- shirabe-run: $MINE -->" ] \
+    && [ "$(grep -c 'shirabe-run:' "$CASE/node-body.md")" -eq 1 ]; then
+    pass "the run marker line survives as the body's last line"
+else
+    fail "the marker line: [$(cat "$CASE/node-body.md")]"
+fi
+OWNED=$(bash "$SCRIPT_DIR/owned-pr.sh" --repo "$CT_REPO" --head "impl/t-$CT_CORE" --state open --run-id "$MINE" 2>"$CASE/owned.err"); ORC=$?
+if [ "$ORC" -eq 0 ] && [ "$OWNED" = "https://github.com/$CT_REPO/pull/50" ]; then
+    pass "owned-pr.sh --run-id finds the node PR by its rendered body's marker"
+else
+    fail "the ownership lookup: rc=$ORC out=[$OWNED] $(cat "$CASE/owned.err")"
+fi
+OWNED=$(bash "$SCRIPT_DIR/owned-pr.sh" --repo "$CT_REPO" --head "impl/t-$CT_CORE" --state open --run-id "$OTHER" 2>/dev/null); ORC=$?
+[ "$ORC" -eq 5 ] && pass "another run's lookup refuses the node PR (5): the marker names this run" \
+    || fail "another run's lookup: rc=$ORC out=[$OWNED]"
+TITLE=$(created_title)
+if [ "$TITLE" = "feat(t): $CT_CORE" ] \
+    && grep -Eq -- "^validate --pr-body [^ ]+/node-body\.md --pr-title feat\(t\): $CT_CORE\$" "$CASE/shirabe-calls.log"; then
+    pass "a code node is titled feat(t): <node-id>, and the body and title were validated with --pr-body"
+else
+    fail "code node: title [$TITLE] shirabe [$(cat "$CASE/shirabe-calls.log")]"
+fi
+if [ -n "$REAL_SHIRABE" ] && [ -x "$REAL_SHIRABE" ] \
+    && "$REAL_SHIRABE" validate --help 2>/dev/null | grep -q -- '--pr-body'; then
+    if "$REAL_SHIRABE" validate --pr-body "$CASE/node-body.md" --pr-title "$TITLE" >"$CASE/real.out" 2>&1; then
+        pass "the real shirabe validate --pr-body passes the rendered node PR body and title"
+    else
+        fail "the real validator refused the node PR body: $(cat "$CASE/real.out")"
+    fi
+else
+    echo "SKIP: no shirabe with --pr-body on PATH; the real-validator check did not run"
+fi
+
+# An outline's **Goal**: (here read past the table path, which ignores the
+# section; the outline path reaches the same reader), spanning two lines.
+ct_case pr-body-outline
+ct_write_db
+fresh_repo pr-body-outline
+cat >> "$PLAN" <<'OUTLINES'
+
+## Issue Outlines
+
+### Issue 1: feat parser
+
+**Goal**: Read the input
+into tokens.
+
+**Acceptance Criteria**:
+- [ ] tokens
+
+### Issue 2: test parser
+
+**Goal**: Test the tokens.
+OUTLINES
+OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 2,1 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr"); RC=$?
+db_pr 50 | jq -r '.body' > "$CASE/node-body.md"
+if [ "$RC" -eq 0 ] && [ "$(part1 "$CASE/node-body.md" | grep -v '^$' | tr '\n' '|')" = "Test the tokens.|Read the input into tokens.|" ]; then
+    pass "an outline's Goal, joined onto one line, is the item's paragraph, in --issues order"
+else
+    fail "pr-body-outline: rc=$RC body [$(cat "$CASE/node-body.md")] $(tail -2 "$CASE/stderr")"
+fi
+
+# No goal and no summary: the items' titles, still above one separator.
+ct_case pr-body-titles
+ct_write_db
+fresh_repo pr-body-titles
+push_node
+db_pr 50 | jq -r '.body' > "$CASE/node-body.md"
+if [ "$RC" -eq 0 ] && [ "$(separators "$CASE/node-body.md")" -eq 1 ] \
+    && part1 "$CASE/node-body.md" | grep -qxF "Work item 1: feat parser." \
+    && part1 "$CASE/node-body.md" | grep -qxF "Work item 2: test parser."; then
+    pass "items with no goal or summary are described by their titles"
+else
+    fail "pr-body-titles: rc=$RC body [$(cat "$CASE/node-body.md")]"
+fi
+
+# docs_node <case> <path>... -- a fresh repo whose node commit changes only
+# the given paths (the default work.txt commit is dropped), then a push.
+docs_node() {
+    local c="$1" p
+    shift
+    ct_case "$c"
+    ct_write_db
+    fresh_repo "$c"
+    (cd "$WT" && git reset -q --hard HEAD~1)
+    for p in "$@"; do
+        (cd "$WT" && mkdir -p "$(dirname "$p")" && echo text > "$p" && git add "$p")
+    done
+    (cd "$WT" && git commit -q -m "docs: add")
+    push_node
+}
+
+docs_node docs-only docs/decisions/DECISION-x.md README.md
+if [ "$RC" -eq 0 ] && [ "$(created_title)" = "docs(t): $CT_CORE" ]; then
+    pass "a node that changes only docs/ and root Markdown is titled docs(t): <node-id>"
+else
+    fail "docs-only: rc=$RC title [$(created_title)] $(tail -2 "$CASE/stderr")"
+fi
+docs_node docs-skill docs/decisions/DECISION-x.md skills/x/SKILL.md
+if [ "$RC" -eq 0 ] && [ "$(created_title)" = "feat(t): $CT_CORE" ]; then
+    pass "Markdown outside docs/ and the root (a skill) keeps the node feat"
+else
+    fail "docs-skill: rc=$RC title [$(created_title)]"
+fi
+
+# A refused body or title: no PR is created, and the coordination PR is
+# untouched.
+ct_case pr-body-invalid
+ct_write_db
+fresh_repo pr-body-invalid
+BEFORE=$(jq -r '.prs[] | select(.number == 10) | .body' "$CASE/scenario/gh/db.json")
+export CT_PR_BODY_FAIL=1
+push_node
+unset CT_PR_BODY_FAIL
+if [ "$RC" -eq 74 ] && ! ct_calls | grep -q '^pr create' && ! ct_calls | grep -q '^pr edit' \
+    && [ "$(db_body)" = "$BEFORE" ] && grep -q -- '--pr-body' "$CASE/stderr"; then
+    pass "a failing --pr-body validation exits 74 before gh pr create, with no edit"
+else
+    fail "pr-body-invalid: rc=$RC calls [$(ct_calls | grep '^pr ')] $(tail -2 "$CASE/stderr")"
+fi
+
 # --- the merge order ------------------------------------------------------------------
 #
 # The gated PLAN: pr-repo-a-core, then the gate publish-core, then pr-repo-a-cli,
@@ -475,6 +682,325 @@ ct_calls | grep -q '^pr create' && fail "coordination mode created a PR" || pass
 [ -n "$ORDER_BEFORE" ] && [ "$(merge_order_section)" = "$ORDER_BEFORE" ] \
     && pass "coordination mode, after the cascade deleted the PLAN, leaves the merge-order section as it was" \
     || fail "coordination mode changed the merge-order section: $(merge_order_section)"
+
+# --- each node against its own target ---------------------------------------------
+#
+# The home (the coordination PR's repository) is acme/repo-a and the node lands
+# in acme/repo-b; the visibilities come from the shim's repository model.
+
+# node_clone <case> -- a clone of acme/repo-b (its own bare origin) and the
+# node cut there with --repo-dir, one commit on it. Sets NREPO and WT.
+node_clone() {
+    NREPO="$CT_WORK/$1-node"
+    ct_repo "$NREPO"
+    (cd "$NREPO" && git checkout -q main)
+    cut_in "$NREPO" "$1"
+}
+
+# cut_in <clone> <case> -- cut the node in <clone> with --repo-dir and commit
+# one file on it. Sets WT. Stops the suite when no worktree was made, so a
+# failed cut can never commit into the checkout running the test.
+cut_in() {
+    WT=$(cd "$REPO" && bash "$CUT" t "$CT_CORE" --repo-dir "$1" 2>/dev/null | sed -n 's/^worktree=//p')
+    [ -n "$WT" ] && [ -d "$WT" ] || { echo "FAIL: node-cut.sh made no worktree in $1 for case $2" >&2; exit 1; }
+    (cd "$WT" && echo work > work.txt && git add work.txt && git commit -q -m "feat: work")
+}
+
+# vis_push <case> <home vis> <node vis> [line] -- a fresh node push into
+# acme/repo-b, from a worktree of its own clone; with a line, one more commit
+# adds it to notes.txt first. VIS_PRS, when set, is ct_pr arguments for a PR
+# already on the node branch.
+vis_push() {
+    ct_case "$1"
+    CT_VIS_A="$2"
+    CT_VIS_B="$3"
+    [ -n "${VIS_PRS:-}" ] && ct_pr acme/repo-b 60 "impl/t-$CT_CORE" "$VIS_PRS"
+    ct_write_db
+    fresh_repo "$1"
+    node_clone "$1"
+    if [ -n "${4:-}" ]; then
+        (cd "$WT" && printf '%s\n' "$4" > notes.txt && git add notes.txt && git commit -q -m "docs: notes")
+    fi
+    OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+        --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
+    RC=$?
+    NBODY=$(jq -r '.prs[] | select(.repo == "acme/repo-b") | .body' "$GH_CALL_LOG.d/db.json" 2>/dev/null)
+}
+pushed() { [ -n "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
+
+vis_push vis-pub-pub public public
+if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -qxF "Coordination PR: https://github.com/acme/repo-a/pull/10"; then
+    pass "public home, public node: pushed, and the node PR links the coordination PR"
+else
+    fail "public over public: rc=$RC body=[$NBODY] $(tail -2 "$CASE/stderr")"
+fi
+
+vis_push vis-priv-pub private public
+if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -q "Work items: 1,2"; then
+    pass "private home, public node: pushed, and the node PR opened"
+else
+    fail "private over public: rc=$RC body=[$NBODY] $(tail -2 "$CASE/stderr")"
+fi
+case "$NBODY" in
+    *"Coordination PR"*|*"acme/repo-a"*) fail "the public node's PR points into the private home: [$NBODY]" ;;
+    *) pass "the public node's PR carries no link into the private coordination PR" ;;
+esac
+db_body | grep -q -- "- $CT_CORE | acme/repo-b:docs/plans/PLAN-t.md#" \
+    && pass "the private coordination PR indexes the public node" \
+    || fail "private over public: the index line is missing"
+
+vis_push vis-priv-priv private private
+if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -qxF "Coordination PR: https://github.com/acme/repo-a/pull/10"; then
+    pass "private home, private node: pushed, and the node PR links the coordination PR"
+else
+    fail "private over private: rc=$RC body=[$NBODY] $(tail -2 "$CASE/stderr")"
+fi
+
+vis_push vis-pub-priv public private
+if [ "$RC" -eq 77 ] && ! pushed; then
+    pass "public home, private node: refused with 77, nothing pushed"
+else
+    fail "public over private: rc=$RC pushed=$(pushed && echo yes || echo no)"
+fi
+if ct_calls | grep -Eq '^pr (create|edit)'; then fail "the refusal wrote to GitHub"; else pass "the refusal wrote nothing to GitHub"; fi
+grep -q "node $CT_CORE lands in a private repository" "$CASE/stderr" && ! grep -q repo-b "$CASE/stderr" \
+    && pass "the refusal names the node, never the private repository" \
+    || fail "the refusal's message: $(cat "$CASE/stderr")"
+
+vis_push vis-unread public none
+if [ "$RC" -eq 72 ] && ! pushed; then
+    pass "a failed visibility read exits 72, nothing pushed"
+else
+    fail "a failed read: rc=$RC pushed=$(pushed && echo yes || echo no)"
+fi
+if ct_calls | grep -Eq '^pr (create|edit)'; then fail "a failed read wrote to GitHub"; else pass "a failed read wrote nothing to GitHub"; fi
+vis_push vis-home-unread none public
+[ "$RC" -eq 72 ] && ! pushed && pass "a failed read of the home's visibility exits 72, nothing pushed" \
+    || fail "home unread: rc=$RC"
+
+# The node PR's description comes from the private PLAN, so it is scanned
+# with the commits: a goal naming a private/ path stops the push.
+ct_case vis-goal
+CT_VIS_A=private
+CT_VIS_B=public
+ct_write_db
+fresh_repo vis-goal
+awk '{ print } index($0, "| [#1: ") == 1 { print "| _Mirror private/tools into the parser._ | | |" }' "$PLAN" > "$PLAN.new" \
+    && mv "$PLAN.new" "$PLAN"
+node_clone vis-goal
+OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr"); RC=$?
+if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; then
+    pass "a work item's goal naming a private/ path, public node under a private home: 78, nothing pushed"
+else
+    fail "vis-goal: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
+fi
+
+# The visibility check runs before the ownership read, whose diagnostics name
+# the node's repository: another author's PR on a private node's branch under
+# a public home is still the 77 refusal, and nothing names the repository.
+VIS_PRS='author="someone-else"'
+vis_push vis-order public private
+unset VIS_PRS
+if [ "$RC" -eq 77 ] && ! grep -q "acme/repo-b" "$CASE/stderr"; then
+    pass "the visibility refusal comes before the ownership read, and names no private repository"
+else
+    fail "check order: rc=$RC stderr=[$(cat "$CASE/stderr")]"
+fi
+
+# A public node driven from a private home: what it would publish is scanned
+# for the public-content markers.
+vis_push vis-scan-hit private public "see private/plans/notes.md for the rationale"
+if [ "$RC" -eq 78 ] && ! pushed && grep -q "carry private-repository content" "$CASE/stderr"; then
+    pass "a public node under a private home whose commits name a private/ path is refused (78), nothing pushed"
+else
+    fail "scan hit: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -2 "$CASE/stderr")"
+fi
+if ct_calls | grep -Eq '^pr (create|edit)'; then fail "the scan refusal wrote to GitHub"; else pass "the scan refusal wrote nothing to GitHub"; fi
+vis_push vis-scan-decl private public "## Repo Visibility: Private"
+[ "$RC" -eq 78 ] && ! pushed && pass "a Repo Visibility: Private line is refused too" || fail "scan decl: rc=$RC"
+vis_push vis-scan-public-home public public "see private/plans/notes.md"
+[ "$RC" -eq 0 ] && pass "the scan runs only for a public node under a private home" || fail "public home, no scan: rc=$RC"
+vis_push vis-scan-priv-node private private "see private/plans/notes.md"
+[ "$RC" -eq 0 ] && pass "a private node under a private home isn't scanned" || fail "private node, no scan: rc=$RC"
+
+# --- a node pushed from the coordination checkout ---------------------------------
+#
+# The node lands in acme/repo-b; the coordination PR is in acme/repo-a.
+
+# home_push -- push the node from $WT with --repo acme/repo-b.
+home_push() {
+    OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+        --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr")
+    RC=$?
+}
+# home_has_node_branch -- the home's origin holds the node branch.
+home_has_node_branch() { [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
+gh_wrote() { ct_calls | grep -Eq '^pr (create|edit|ready|merge|close)'; }
+
+ct_case home-worktree
+ct_write_db
+fresh_repo home-worktree
+home_push
+if [ "$RC" -eq 79 ] && ! home_has_node_branch && ! gh_wrote \
+    && grep -q "cut it with node-cut.sh --repo-dir" "$CASE/stderr" && ! grep -q 'acme/' "$CASE/stderr"; then
+    pass "a node in another repository, cut in the coordination checkout: exit 79, nothing pushed or written, no repository named"
+else
+    fail "home worktree: rc=$RC pushed=$(home_has_node_branch && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+ct_case home-url
+ct_write_db
+fresh_repo home-url
+NREPO="$CT_WORK/home-url-reclone"
+git clone -q "$REPO.origin.git" "$NREPO"
+cut_in "$NREPO" home-url
+home_push
+if [ "$RC" -eq 79 ] && ! home_has_node_branch && ! gh_wrote; then
+    pass "a separate clone whose origin is the coordination checkout's: exit 79, nothing pushed"
+else
+    fail "home url: rc=$RC pushed=$(home_has_node_branch && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# The same worktree, pushing through a remote that names neither the home's
+# origin nor any URL the home uses (an unrelated bare repository): the branch
+# was still cut from the coordination checkout's default branch, so the git
+# directory alone refuses it.
+ct_case home-worktree-alt-remote
+ct_write_db
+fresh_repo home-worktree-alt-remote
+git init -q --bare "$CT_WORK/alt-remote.git"
+(cd "$REPO" && git remote add alt "$CT_WORK/alt-remote.git")
+OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" --remote alt 2>"$CASE/stderr")
+RC=$?
+if [ "$RC" -eq 79 ] && [ -z "$(git ls-remote "$CT_WORK/alt-remote.git" "refs/heads/impl/*")" ]; then
+    pass "a worktree of the coordination checkout pushing through another remote: exit 79, nothing pushed"
+else
+    fail "alt remote: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# The home's origin spelled another way: the same repository over ssh in the
+# coordination checkout, over https in the node clone.
+ct_case home-url-spelling
+ct_write_db
+fresh_repo home-url-spelling
+(cd "$REPO" && git remote set-url origin git@git.invalid:Acme/repo-a.git)
+NREPO="$CT_WORK/home-url-spelling-clone"
+ct_repo "$NREPO"
+(cd "$NREPO" && git checkout -q main)
+cut_in "$NREPO" home-url-spelling
+# Set after the cut, which fetches from the clone's origin.
+(cd "$NREPO" && git remote set-url origin https://git.invalid/acme/repo-a/)
+home_push
+if [ "$RC" -eq 79 ] && ! gh_wrote; then
+    pass "the home's origin over ssh and the node clone's over https: the same repository, exit 79"
+else
+    fail "url spelling: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# One insteadOf rule shared by both checkouts: the coordination checkout's
+# origin and the separate clone's are written gh:acme/repo-a, which both
+# resolve to the home's bare origin, so the push would land there.
+ct_case home-insteadof
+ct_write_db
+fresh_repo home-insteadof
+git config --global url."$REPO.origin.git".insteadOf gh:acme/repo-a
+(cd "$REPO" && git remote set-url origin gh:acme/repo-a)
+NREPO="$CT_WORK/home-insteadof-clone"
+git clone -q "$REPO.origin.git" "$NREPO"
+(cd "$NREPO" && git remote set-url origin gh:acme/repo-a)
+cut_in "$NREPO" home-insteadof
+home_push
+if [ "$RC" -eq 79 ] && ! home_has_node_branch && ! gh_wrote; then
+    pass "a clone of the home whose origin and the checkout's share an insteadOf rule: exit 79, nothing pushed"
+else
+    fail "insteadOf: rc=$RC pushed=$(home_has_node_branch && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+git config --global --unset url."$REPO.origin.git".insteadOf
+
+# The coordination checkout's origin with a separate pushurl (its pushes go
+# to a fork): a clone of the home itself, the repository home_repo names,
+# is still refused.
+ct_case home-pushurl
+ct_write_db
+fresh_repo home-pushurl
+git init -q --bare "$CT_WORK/home-fork.git"
+(cd "$REPO" && git config remote.origin.pushurl "$CT_WORK/home-fork.git")
+NREPO="$CT_WORK/home-pushurl-clone"
+git clone -q "$REPO.origin.git" "$NREPO"
+cut_in "$NREPO" home-pushurl
+home_push
+if [ "$RC" -eq 79 ] && ! home_has_node_branch && ! gh_wrote; then
+    pass "a clone of the home under a checkout whose origin pushes elsewhere: exit 79, nothing pushed"
+else
+    fail "pushurl: rc=$RC pushed=$(home_has_node_branch && echo yes || echo no) stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# The other way round: the checkout fetches from a mirror and pushes to the
+# home. A clone of the home is refused on the push URL.
+ct_case home-mirror
+ct_write_db
+fresh_repo home-mirror
+git clone -q --bare "$REPO.origin.git" "$CT_WORK/home-mirror.git"
+(cd "$REPO" && git remote set-url origin "$CT_WORK/home-mirror.git" \
+    && git config remote.origin.pushurl "$REPO.origin.git")
+NREPO="$CT_WORK/home-mirror-clone"
+git clone -q "$REPO.origin.git" "$NREPO"
+cut_in "$NREPO" home-mirror
+home_push
+if [ "$RC" -eq 79 ] && [ -z "$(git ls-remote "$REPO.origin.git" "refs/heads/impl/*")" ] && ! gh_wrote; then
+    pass "a clone of the home under a checkout that fetches from a mirror and pushes to the home: exit 79, nothing pushed"
+else
+    fail "mirror: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# A --plan outside any git repository: the coordination checkout can't be
+# read, which refuses rather than passing.
+ct_case plan-outside-git
+ct_write_db
+fresh_repo plan-outside-git
+node_clone plan-outside-git
+mkdir -p "$CT_WORK/no-git/docs/plans"
+cp "$PLAN" "$CT_WORK/no-git/docs/plans/PLAN-t.md"
+PLAN="$CT_WORK/no-git/docs/plans/PLAN-t.md"
+home_push
+if [ "$RC" -eq 79 ] && [ -z "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ] \
+    && grep -q "could not read the git directories" "$CASE/stderr"; then
+    pass "a --plan outside any git repository: exit 79, nothing pushed"
+else
+    fail "plan outside git: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
+
+# coord_url_key: one key for the spellings of one repository, and a local
+# path left as it is.
+url_keys=$(
+    PROG=t COORD_SELF_DIR="$SCRIPT_DIR"
+    . "$SCRIPT_DIR/coord-common.sh"
+    for u in https://github.com/Acme/Repo-A.git https://github.com/acme/repo-a/ git@github.com:acme/repo-a.git \
+             ssh://git@github.com:22/acme/repo-a https://github.com/acme/repo-b /tmp/x.origin.git; do
+        printf '%s\n' "$(coord_url_key "$u")"
+    done
+)
+want_keys='github.com/acme/repo-a
+github.com/acme/repo-a
+github.com/acme/repo-a
+github.com/acme/repo-a
+github.com/acme/repo-b
+/tmp/x.origin.git'
+[ "$url_keys" = "$want_keys" ] && pass "coord_url_key: https, ssh and scp forms of one repository share a key; a path is kept" \
+    || fail "coord_url_key: [$url_keys]"
+
+ct_case own-clone
+ct_write_db
+fresh_repo own-clone
+node_clone own-clone
+home_push
+if [ "$RC" -eq 0 ] && [ -n "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ] && ! home_has_node_branch; then
+    pass "the node's own clone (control): pushed to acme/repo-b's origin, never the home's"
+else
+    fail "own clone: rc=$RC stderr=[$(tail -1 "$CASE/stderr")]"
+fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

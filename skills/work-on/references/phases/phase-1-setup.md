@@ -63,10 +63,6 @@ Baseline format:
 <document any known issues not related to this work>
 ```
 
-### Commit
-
-`docs: establish baseline for <short-description>`
-
 ## Evidence
 
 Submit `status: completed` after branch and baseline exist, `status: override`

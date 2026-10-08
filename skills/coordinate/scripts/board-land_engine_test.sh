@@ -5,10 +5,23 @@
 # gh-board stand-in, with coord-verdict.sh as every gate.
 #
 # Proves: a verified board routes verify_board to land in the same advance,
-# and a permitted land to land_merge; land-merge.sh, run by the agent, merges
-# the verified sha through a stand-in merge-exec.sh, and merge_confirm routes
+# and a land check that reads the worker's Review panel at the head routes to
+# goal_fit, and a fit pull request under a permitted merge to land_merge;
+# land-merge.sh, run by the agent, merges the verified sha through a stand-in
+# merge-exec.sh with the title and Part 1 as the squash message; a ready pull
+# request under a denied or confirm-only posture is handed to the person
+# (surface) and never merged, and the block merge-order-entry.sh prints for it
+# carries the seats' evidence and the squash message; a standing hold in the
+# record routes land to surface as held, its block naming the hold, and a
+# lifted one lets it go on to goal_fit; a goal-fit gap, a body with no Review panel and
+# a stale reviewed head each go to rebrief, the reason in coord/land.json; a
+# malformed table stops verify_board (unevidenced); and merge_confirm routes
 # merged to done; an unverified board routes to failure and a pending one to
-# wait; a denied posture routes land to surface; `koto next --to verify_board`
+# wait; a refused check rollup green from the Actions jobs routes to surface
+# and never to land, even when a check only isRequired names is unseen; an
+# unreadable board routes to wait, which then takes the next event, and a pull
+# request merged outside the run routes to surface, so verify_board never holds
+# the run; a denied posture routes land through goal_fit to surface; `koto next --to verify_board`
 # without a prediction leaves no VERIFIED capture (board-record.sh refuses);
 # and a `--to` anywhere in the run makes land-merge.sh refuse.
 #
@@ -20,6 +33,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
+. "$HERE/../../../scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 T=$(mktemp -d "${TMPDIR:-/tmp}/board-land-engine.XXXXXX")
 T=$(cd -P "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
@@ -67,12 +85,28 @@ states:
         command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state start_posture --capture "{{POSTURE}}"'
         overridable: false
     transitions:
-      - target: verify
+      - target: record_find
         when:
           gates.verdict.exit_code: 25
-      - target: verify
+      - target: record_find
         when:
           gates.verdict.exit_code: 26
+  # The run's record, #7, as the real template's start finds it: the land
+  # check reads its holds there.
+  record_find:
+    default_action:
+      command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-log.sh" seal --session "{{SESSION_NAME}}" --state record_find --token "found 7"'
+      capture_stdout_as: RECORD_FIND
+      fallback: tick again
+    gates:
+      verdict:
+        type: command
+        command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state record_find --capture "{{RECORD_FIND}}"'
+        overridable: false
+    transitions:
+      - target: verify
+        when:
+          gates.verdict.exit_code: 10
   verify:
     accepts:
       prediction:
@@ -106,6 +140,21 @@ states:
       - target: wait
         when:
           gates.verdict.exit_code: 72
+      - target: wait
+        when:
+          gates.verdict.exit_code: 73
+      - target: surface
+        when:
+          gates.verdict.exit_code: 74
+      - target: surface
+        when:
+          gates.verdict.exit_code: 75
+      - target: surface
+        when:
+          gates.verdict.exit_code: 76
+      - target: rebrief
+        when:
+          gates.verdict.exit_code: 79
   wait:
     accepts:
       go:
@@ -127,26 +176,77 @@ states:
         command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state land --capture "{{LAND}}"'
         overridable: false
     transitions:
-      - target: land_merge
+      - target: goal_fit
         when:
           gates.verdict.exit_code: 80
-      - target: surface
+      - target: goal_fit
         when:
           gates.verdict.exit_code: 81
-      - target: surface
+      - target: goal_fit
         when:
           gates.verdict.exit_code: 82
+      - target: rebrief
+        when:
+          gates.verdict.exit_code: 83
       - target: verify
         when:
           gates.verdict.exit_code: 53
       - target: failure
         when:
           gates.verdict.exit_code: 84
+      - target: surface
+        when:
+          gates.verdict.exit_code: 85
+      - target: rebrief
+        when:
+          gates.verdict.exit_code: 48
+  goal_fit:
+    accepts:
+      fit:
+        type: enum
+        values: [fits, fits_with_follow_ups, gap]
+        required: true
+      rationale:
+        type: string
+        required: true
+    gates:
+      goal_fit_land:
+        type: command
+        command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state land --capture "{{LAND}}"'
+        overridable: false
+    transitions:
+      - target: land_merge
+        when:
+          fit: fits
+          gates.goal_fit_land.exit_code: 80
+      - target: surface
+        when:
+          fit: fits
+          gates.goal_fit_land.exit_code: 81
+      - target: surface
+        when:
+          fit: fits
+          gates.goal_fit_land.exit_code: 82
+      - target: land_merge
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 80
+      - target: surface
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 81
+      - target: surface
+        when:
+          fit: fits_with_follow_ups
+          gates.goal_fit_land.exit_code: 82
+      - target: rebrief
+        when:
+          fit: gap
   land_merge:
     accepts:
       outcome:
         type: enum
-        values: [attempted, failed]
+        values: [attempted, failed, paused]
         required: true
     transitions:
       - target: merge_confirm
@@ -155,6 +255,9 @@ states:
       - target: failure
         when:
           outcome: failed
+      - target: rebrief
+        when:
+          outcome: paused
   merge_confirm:
     default_action:
       command: 'bash "{{PLUGIN_ROOT}}/skills/coordinate/scripts/merge-confirm.sh" --session "{{SESSION_NAME}}" --repo acme/widgets'
@@ -174,6 +277,8 @@ states:
           gates.verdict.exit_code: 91
   surface:
     terminal: true
+  rebrief:
+    terminal: true
   failure:
     terminal: true
     failure: true
@@ -184,6 +289,10 @@ states:
 ## start_posture
 
 Posture.
+
+## record_find
+
+Record.
 
 ## verify
 
@@ -201,6 +310,10 @@ Wait.
 
 Land.
 
+## goal_fit
+
+Judge goal fit.
+
 ## land_merge
 
 Run land-merge.sh.
@@ -212,6 +325,10 @@ Confirm.
 ## surface
 
 Surface.
+
+## rebrief
+
+Rebrief.
 
 ## failure
 
@@ -227,25 +344,36 @@ TPLEOF
 PERMIT="readable merge:permit close:permit teardown:permit"
 CL="$PS/coord-log.sh"
 state() { printf '%s' "$1" | jq -r .state; }
-start() { # start <session> <board case> [posture]
+start() { # start <session> <board case> [posture] [body-file]
     S=$1
     printf '%s\n' "${3:-$PERMIT}" > "$BT_STATE/posture"
     bt_board "$2"
-    printf '{"mergeStateStatus":"CLEAN"}\n' > "$GH_BOARD_DIR/prview-12.out"
+    bt_prview CLEAN ${4:+"$4"}
+    if [ -n "${BT_STANDING:-}" ]; then bt_record_paused "$BT_STANDING" "${BT_HOLDS:-[]}"
+    else bt_record_body '[]' "${BT_HOLDS:-[]}"; fi
     rm -f "$BT_STATE/merge-exec.calls"
-    (cd "$T/work" && koto init "$S" --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") || { cat "$T/init.err"; return 1; }
+    # $KOTO_LEGACY_ENV_ARG: #483.
+    (cd "$T/work" && koto init "$S" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err") || { cat "$T/init.err"; return 1; }
     eq "$S: start_posture routes to verify" verify "$(state "$(cd "$T/work" && koto next "$S" --no-cleanup 2>/dev/null)")"
 }
 tick() { (cd "$T/work" && koto next "$@" --no-cleanup 2>/dev/null); }
 
 echo "== verified, permitted, merged =="
 start coordinate-demo-20260926T150001Z complete-board || { echo "FAIL: koto init"; exit 1; }
-eq "a verified board and a permitted merge reach land_merge in one advance" land_merge "$(state "$(tick "$S" --with-data '{"prediction":"every job green","predicted":"yes"}')")"
+FITS='{"fit":"fits","rationale":"delivers the unit"}'
+eq "a verified board with seat evidence at the head reaches goal_fit in one advance" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"every job green","predicted":"yes"}')")"
 case "$(bash "$CL" capture --session "$S" --name VERIFIED)" in "verified 12 $H sealed:"*) ok "VERIFIED is the sealed verified head" ;; *) bad "VERIFIED is the sealed verified head" ;; esac
 case "$(bash "$CL" capture --session "$S" --name LAND)" in "permit 12 $H sealed:"*) ok "LAND is the sealed permit" ;; *) bad "LAND is the sealed permit" ;; esac
+eq "the land check's message is the title and the fixture's Part 1" \
+    "$(printf 'feat(land): read the round\n\nReads the worker'"'"'s review round in the land step.')" \
+    "$(koto context get "$S" coord/land.json 2>/dev/null | jq -r .message)"
+eq "a fit pull request under a permitted merge goes to land_merge" land_merge "$(state "$(tick "$S" --with-data "$FITS")")"
 OUT=$(cd "$T/work" && bash "$PS/land-merge.sh" --session "$S" --repo acme/widgets 2>"$T/err"); rc=$?
 eq "land-merge.sh passes provenance and merges" 0 $rc
 eq "merge-exec gets the verified sha" "acme/widgets 12 $H" "$(cat "$BT_STATE/merge-exec.calls" 2>/dev/null)"
+eq "and the squash message equals the title and the fixture's Part 1" \
+    "$(printf 'feat(land): read the round\n\nReads the worker'"'"'s review round in the land step.')" \
+    "$(cat "$BT_STATE/merge-exec.msg" 2>/dev/null)"
 bt_merged MERGED '["src/main.go"]'; bt_blob main src/main.go aaaa; bt_blob "$H" src/main.go aaaa
 eq "merge_confirm routes merged to done" done "$(state "$(tick "$S" --with-data '{"outcome":"attempted"}')")"
 
@@ -255,7 +383,102 @@ eq "an unverified board routes to failure" failure "$(state "$(tick "$S" --with-
 start coordinate-demo-20260926T150003Z queued-run
 eq "a pending board routes to wait" wait "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 start coordinate-demo-20260926T150004Z complete-board "readable merge:deny close:permit teardown:permit"
-eq "a denied merge routes land to surface" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+eq "a ready pull request under a denied merge reaches goal_fit" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+case "$(bash "$CL" capture --session "$S" --name LAND)" in "deny 12 $H sealed:"*) ok "LAND is the sealed deny: ready, the merge reserved" ;; *) bad "LAND is the sealed deny" ;; esac
+eq "and a fit one is handed to the person (surface), not merged" surface "$(state "$(tick "$S" --with-data "$FITS")")"
+[ ! -s "$BT_STATE/merge-exec.calls" ] && ok "and merge-exec is never called" || bad "and merge-exec is never called"
+# entry_has <label>: the hand-over block merge-order-entry.sh prints for this
+# run carries the seats' evidence and the squash message, line for line.
+entry_has() {
+    local out
+    out=$(cd "$T/work" && bash "$PS/merge-order-entry.sh" --session "$S" --repo acme/widgets 2>"$T/err")
+    eq "$1: merge-order-entry.sh prints the block" 0 $?
+    case "$out" in *"- Review: 3 of 3 seats pass (architect, maintainer, pragmatic) at $H, in the pull request body's Review panel section"*)
+        ok "$1: the block carries the seats' evidence" ;; *) bad "$1: the block carries the seats' evidence" "$out" ;; esac
+    case "$out" in *"  feat(land): read the round"*"  Reads the worker's review round in the land step."*)
+        ok "$1: the block carries the squash message" ;; *) bad "$1: the block carries the squash message" "$out" ;; esac
+    case "$out" in *"$2"*) ok "$1: and says why it is handed over" ;; *) bad "$1: and says why it is handed over" "$out" ;; esac
+}
+entry_has "deny" "the workspace reserves the merge for you"
+start coordinate-demo-20260926T150011Z complete-board "readable merge:confirm close:permit teardown:permit"
+tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
+eq "a merge behind a person's confirmation is handed over too" surface "$(state "$(tick "$S" --with-data "$FITS")")"
+entry_has "confirm" "the merge is behind your confirmation"
+
+echo "== holds =="
+BT_HOLDS=$(jq -nc '[{hold: "go-signal", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-26T09:00Z", lifted: ""}]')
+start coordinate-demo-20260926T150017Z complete-board
+eq "a standing hold in the record sends land to surface, before goal_fit" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+case "$(bash "$CL" capture --session "$S" --name LAND)" in "held 12 $H sealed:"*) ok "LAND is the sealed held" ;; *) bad "LAND is the sealed held" ;; esac
+entry_has "held" "held; it waits on the hold below"
+OUT=$(cd "$T/work" && bash "$PS/merge-order-entry.sh" --session "$S" --repo acme/widgets 2>/dev/null)
+case "$OUT" in *"- Holds: go-signal until lifted (unmet)"*) ok "held: the block names the hold and its state" ;; *) bad "held: the block names the hold and its state" "$OUT" ;; esac
+BT_HOLDS=$(jq -nc '[{hold: "go-signal", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-26T09:00Z", lifted: "2026-09-26T09:30Z by the human"}]')
+start coordinate-demo-20260926T150018Z complete-board
+eq "once the hold is lifted, land goes on to goal_fit" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+BT_HOLDS=
+
+echo "== pauses =="
+BT_STANDING="[$(bt_pause s1 pause "Feature 2" lifted)]"
+start coordinate-demo-20260926T150021Z complete-board
+eq "a pause on the pull request's unit sends land to rebrief, before goal_fit" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+case "$(bash "$CL" capture --session "$S" --name LAND)" in "paused 12 $H sealed:"*) ok "LAND is the sealed paused" ;; *) bad "LAND is the sealed paused" ;; esac
+eq "  ... and coord/land.json names the pause" "s1 Feature 2" "$(koto context get "$S" coord/land.json 2>/dev/null | jq -r '"\(.pauses.paused) \(.pauses.unit)"')"
+BT_STANDING="[$(bt_pause s2 pause all "time 2099-01-01T00:00Z")]"
+start coordinate-demo-20260926T150022Z complete-board
+eq "a pause on all sends land to rebrief too" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+BT_STANDING="[$(bt_pause s2 pause all lifted), $(bt_pause s3 go-ahead "Feature 2" "")]"
+start coordinate-demo-20260926T150023Z complete-board
+eq "a go-ahead on the unit lets land through the pause to goal_fit" goal_fit "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+OUT=$(cd "$T/work" && bash "$PS/merge-order-entry.sh" --session "$S" --repo acme/widgets 2>/dev/null)
+case "$OUT" in *"- Pauses: s2 on all until lifted (in-force); let through by go-ahead s3"*) ok "the hand-over block names the pause and the go-ahead" ;; *) bad "the hand-over block names the pause and the go-ahead" "$OUT" ;; esac
+# A pause written after land permits: the merge script refuses, and
+# merge: paused goes to the re-brief.
+BT_STANDING=
+start coordinate-demo-20260926T150024Z complete-board
+tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
+eq "unpaused, a fit pull request reaches land_merge" land_merge "$(state "$(tick "$S" --with-data "$FITS")")"
+bt_record_paused "[$(bt_pause s4 pause all lifted)]"
+(cd "$T/work" && bash "$PS/land-merge.sh" --session "$S" --repo acme/widgets >/dev/null 2>"$T/err"); eq "a pause written since makes land-merge.sh exit 12" 12 $?
+[ ! -s "$BT_STATE/merge-exec.calls" ] && ok "  ... and merge-exec is never called" || bad "  ... and merge-exec is never called"
+eq "merge: paused goes to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"outcome":"paused"}')")"
+start coordinate-demo-20260926T150016Z complete-board "readable merge:deny close:permit teardown:permit"
+tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
+eq "a fit with follow-ups under a denied merge is handed to the person too" surface \
+    "$(state "$(tick "$S" --with-data '{"fit":"fits_with_follow_ups","rationale":"follow-up: docs"}')")"
+start coordinate-demo-20260926T150012Z complete-board
+tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
+eq "a goal-fit gap goes to rebrief, whatever the posture" rebrief "$(state "$(tick "$S" --with-data '{"fit":"gap","rationale":"stops short of the loader"}')")"
+
+echo "== the worker's review round =="
+printf '%s\n\n---\n\nNo panel here.\n' "$BT_PART1" > "$T/nopanel"
+start coordinate-demo-20260926T150013Z complete-board "$PERMIT" "$T/nopanel"
+eq "no Review panel table: land refuses, to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+eq "  ... with the reason no-evidence" no-evidence "$(koto context get "$S" coord/land.json 2>/dev/null | jq -r .reason)"
+[ ! -s "$BT_STATE/merge-exec.calls" ] && ok "  ... and nothing is merged" || bad "  ... and nothing is merged"
+bt_body 2222222222222222222222222222222222222222 > "$T/stale"
+start coordinate-demo-20260926T150014Z complete-board "$PERMIT" "$T/stale"
+jq -nc '{parents: [{sha: "2222222222222222222222222222222222222222"}]}' > "$GH_BOARD_DIR/commit-$H.out"
+eq "a reviewed head a non-merge commit behind: land refuses, to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+eq "  ... with the reason stale:not-a-merge" stale:not-a-merge "$(koto context get "$S" coord/land.json 2>/dev/null | jq -r .reason)"
+bt_body | sed 's/comment-103/comment-101/' > "$T/dup"
+start coordinate-demo-20260926T150015Z complete-board "$PERMIT" "$T/dup"
+eq "seats sharing a Run: verify_board refuses (unevidenced), to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+case "$(bash "$CL" capture --session "$S" --name VERIFIED)" in "unevidenced 12 none sealed:"*) ok "  ... and no verified head is captured" ;; *) bad "  ... and no verified head is captured" ;; esac
+
+echo "== a board that can't be judged leaves verify_board =="
+start coordinate-demo-20260926T150007Z checks-refused
+eq "a refused check rollup, green from the Actions jobs, routes to surface" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+bash "$CL" capture --session "$S" --name LAND >/dev/null 2>&1; eq "and never reaches land" 1 $?
+start coordinate-demo-20260926T150010Z checks-refused-rollup-only-required
+eq "a check only isRequired names, unseen under the fallback: surface, not land" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+bash "$CL" capture --session "$S" --name LAND >/dev/null 2>&1; eq "and the run doesn't land it" 1 $?
+start coordinate-demo-20260926T150008Z rules-unreadable
+eq "an unreadable board routes to wait" wait "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+eq "and wait takes the next event" verify "$(state "$(tick "$S" --with-data '{"go":"verify"}')")"
+start coordinate-demo-20260926T150009Z pr-merged
+eq "a pull request merged outside the run routes to surface" surface "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
+case "$(bash "$CL" capture --session "$S" --name VERIFIED)" in "not-open 12 none sealed:"*) ok "VERIFIED is the sealed not-open" ;; *) bad "VERIFIED is the sealed not-open" ;; esac
 
 echo "== --to =="
 start coordinate-demo-20260926T150005Z complete-board
@@ -263,6 +486,7 @@ eq "--to verify_board without a prediction stays there, the read refused" verify
 bash "$CL" capture --session "$S" --name VERIFIED >/dev/null 2>&1; eq "--to verify_board without a prediction leaves no VERIFIED capture" 1 $?
 start coordinate-demo-20260926T150006Z complete-board
 tick "$S" --with-data '{"prediction":"green","predicted":"yes"}' >/dev/null
+tick "$S" --with-data "$FITS" >/dev/null
 tick "$S" --to failure >/dev/null
 (cd "$T/work" && bash "$PS/land-merge.sh" --session "$S" --repo acme/widgets >/dev/null 2>&1); rc=$?
 eq "a --to in the run makes land-merge.sh refuse" 10 $rc

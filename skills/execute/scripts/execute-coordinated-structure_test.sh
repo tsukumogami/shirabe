@@ -36,7 +36,10 @@
 #   the variables: PLAN_DOC and PLAN_SLUG not rebindable (PLAN_SLUG pattern
 #     ^[a-z0-9-]+$), MERGE and PAUSE_BEFORE_FINALIZE values [true, false]
 #     default false rebind, PLUGIN_ROOT the same absolute-path pattern as
-#     execute.md
+#     execute.md, REVIEW_FLOOR and REVIEW_CEILING optional with the level
+#     pattern and rebind, as in execute.md
+#   coord_loop's dispatch step hands the review-level bound to every child,
+#     naming both variables, only when not empty
 #   no default_action command holds ${context.
 #
 # and, engine-free, over the source and the skill's tree:
@@ -131,6 +134,8 @@ CHECKS=(
 "every terminal reads step and reason from context|[.states[] | select(.terminal == true) | .result.step == \"\${context.step}\" and .result.reason == \"\${context.reason}\"] | all"
 "no default_action command holds \${context.|[.states[] | (.default_action.command // \"\") | contains(\"\${context.\")] | any | not"
 "MERGE is values [true, false], default false, rebind|.variables.MERGE | (.values == [\"true\",\"false\"] and .default == \"false\" and .rebind == true)"
+"REVIEW_FLOOR and REVIEW_CEILING are optional, the level pattern, rebind|[.variables.REVIEW_FLOOR, .variables.REVIEW_CEILING] | all((.required // false) == false and .pattern == \"^(light|standard|full)?\$\" and .rebind == true)"
+"the dispatch step passes the review-level bound to every child when not empty|[.states[] | (.directive // \"\") + (.details // \"\")] | any(contains(\"floor \`{{REVIEW_FLOOR}}\` and ceiling \`{{REVIEW_CEILING}}\`\") and contains(\"give every child \`REVIEW_FLOOR\`\") and contains(\"leaving out whichever is empty\"))"
 "PAUSE_BEFORE_FINALIZE is values [true, false], default false, rebind|.variables.PAUSE_BEFORE_FINALIZE | (.values == [\"true\",\"false\"] and .default == \"false\" and .rebind == true)"
 "PLAN_DOC and PLAN_SLUG are not rebindable|(.variables.PLAN_DOC.rebind // false) == false and (.variables.PLAN_SLUG.rebind // false) == false"
 "PLAN_SLUG carries ^[a-z0-9-]+\$|.variables.PLAN_SLUG.pattern == \"^[a-z0-9-]+\$\""

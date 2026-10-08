@@ -51,14 +51,21 @@ case "$WORD" in
     pick) exit 30 ;; scope-complete) exit 31 ;; rotation-over) exit 32 ;;
     # dispatch_check
     ok) exit 40 ;; deferral-open) exit 41 ;; record-changed) exit 42 ;; at-cap) exit 43 ;; duplicate-topic) exit 44 ;;
+    decision-owed) exit 45 ;;
+    # dispatch_check and merged_facts: the evidence's unit is no topic they can act on
+    unknown-topic) exit 46 ;; unresolved-topic) exit 47 ;;
+    # dispatch_check and land: a pause in the record holds the dispatch or the merge
+    paused) exit 48 ;;
     # record, verified_confirm ("waiting" holds the state: exit 4 below)
     confirmed) exit 50 ;; conflict) exit 52 ;; moved) exit 53 ;; directed) exit 54 ;;
     # report_facts
-    holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;;
+    holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;; link) exit 63 ;; progress) exit 64 ;;
     # verify_board
     verified) exit 70 ;; unverified) exit 71 ;; pending) exit 72 ;;
+    board-unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;; actions-green) exit 76 ;;
+    no-pr) exit 77 ;; not-run) exit 78 ;; unevidenced) exit 79 ;;
     # land
-    permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; dirty) exit 84 ;;
+    permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; unready) exit 83 ;; dirty) exit 84 ;; held) exit 85 ;;
     # merge_confirm, merged_facts
     merged) exit 90 ;; unconfirmed) exit 91 ;; not-merged) exit 92 ;;
     # quiet_check
@@ -73,6 +80,21 @@ case "$WORD" in
     side-effects) exit 133 ;; deferrals) exit 134 ;; closed) exit 135 ;; decisions) exit 136 ;;
     # reconcile_pass, the reconcile feature's state (shirabe#406)
     reconciled) exit 140 ;;
+    # decision_next
+    carry) exit 150 ;; unrecorded-open) exit 151 ;; unrecorded-answer) exit 152 ;; unrecorded-evidence) exit 153 ;;
+    unrecorded-raise) exit 154 ;; withdraw) exit 155 ;; reply) exit 156 ;; redirect) exit 157 ;;
+    escalate) exit 158 ;; take) exit 159 ;; verdict) exit 160 ;; clear) exit 161 ;; clear-report) exit 162 ;;
+    record-full) exit 163 ;;
+    # report_questions (with none 11)
+    questions) exit 170 ;; overflow) exit 171 ;; unreadable) exit 172 ;;
+    # escalate, decision_withdraw, decision_reply, decision_redirect (with refused 62)
+    message) exit 180 ;;
+    # surface_check (with refused 62)
+    accepted) exit 190 ;;
+    # teardown_handoff
+    handoff-ready) exit 200 ;; handoff-refused) exit 201 ;;
+    # teardown_confirm
+    teardown-confirmed) exit 202 ;; teardown-incomplete) exit 203 ;;
     waiting|land-blocked)
         echo "coord-verdict: $WORD: $STATE stays here until your next action changes what it reads" >&2; exit 4 ;;
     *) echo "coord-verdict: unknown verdict word [$WORD] for $STATE" >&2; exit 3 ;;

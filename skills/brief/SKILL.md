@@ -42,46 +42,12 @@ visibility-gated section, and the Sunset lifecycle state.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
-## Artifact Lifecycle
-
-**Lifecycle:** Durable. Stays in `docs/briefs/` after completion.
-
-BRIEF is durable because the framing of a feature — the problem, outcome, journeys, and scope boundary — stays in the audit trail. Future readers tracing why a feature was scoped need the BRIEF to remain in place even after the feature ships.
-
 ## Brief Format
 
 See `references/brief-format.md` for the full format specification:
-frontmatter schema, required and optional sections, section matrix,
+frontmatter schema, required and optional sections,
 content boundaries, lifecycle states, validation rules, and per-section
 quality guidance. Load it during Phases 2, 3, and 4.
-
-## File Location
-
-BRIEF documents live at `docs/briefs/BRIEF-<topic>.md` (kebab-case).
-No directory movement on any transition — a brief stays at the same
-path through Draft, Accepted, and Done. Stable paths keep
-cross-references durable and git blame readable.
-
-## Repo Visibility
-
-Before writing content, detect visibility from CLAUDE.md
-(`## Repo Visibility: Public|Private`). If not found, infer from the
-repo path (`private/` -> Private, `public/` -> Public; default to
-Private). Load the appropriate content governance skill:
-
-- **Private repos:** Read `skills/private-content/SKILL.md`
-- **Public repos:** Read `skills/public-content/SKILL.md`
-
-BRIEF has no visibility-gated section — there is no competitive framing
-to fence off, so `shirabe validate` runs no custom check for the type.
-The visibility value still matters: a public BRIEF must not reference
-private paths, repos, filenames, or issue numbers, and its `upstream:`
-field must not point at a private artifact — Phase 0's resolution runs
-the ancestor it found through the visibility check and omits the field
-rather than naming a private one. The prose carries the same rule even
-when the roadmap that grounded the brief lives in a private repo. The
-Phase 4 structural-format reviewer flags these; content governance owns
-the rules.
 
 ---
 
@@ -114,22 +80,9 @@ From `$ARGUMENTS`:
 3. **Path to a ROADMAP document** (matches
    `docs/roadmaps/ROADMAP-*.md`) — read it to ground the new BRIEF;
    derive the feature's problem/outcome candidate from its content
-   during Phase 1. The roadmap is read, not recorded (see below).
+   during Phase 1. The roadmap is read, not recorded (see
+   `references/phases/phase-0-setup.md`).
 4. **Anything else** — use as the starting topic for Phase 1 scoping.
-
-A ROADMAP is the only document Input Mode 3 accepts. A PRD path is
-rejected rather than treated as upstream: the chain runs ROADMAP →
-BRIEF → PRD, so a PRD's requirements are written *from* a brief's
-framing. Deriving that framing back out of the requirements inverts the
-chain. Reject with:
-
-> `<path>` is downstream of a BRIEF, not upstream of it. The tactical
-> chain runs ROADMAP → BRIEF → PRD: a PRD's requirements are written
-> from the brief's problem, outcome, journeys, and scope boundary, so
-> deriving that framing back out of the PRD inverts the chain. Write the
-> brief from the feature topic (`/brief <topic>`) or from the ROADMAP
-> entry that names it (`/brief docs/roadmaps/ROADMAP-<name>.md`), then
-> point the PRD at the brief.
 
 Any of the modes above may carry `--upstream <path>`, naming the
 grounding ROADMAP separately from the topic. `/brief <topic-slug>
@@ -141,102 +94,9 @@ do: a bare ROADMAP path supplies both at once, which only works while
 the feature's topic and the roadmap's filename coincide. A roadmap
 normally sequences several features, so they usually do not.
 
-**Both routes read the roadmap; neither records it.** What the produced
-BRIEF records is the roadmap's nearest durable ancestor, resolved one
-hop up at Phase 0: the STRATEGY the roadmap sequences, or a VISION when
-it traces straight to one. The roadmap itself is never recorded — it is
-deleted when its features land, and `shirabe validate` rejects the link
-as `R11`. The roadmap is instead named by the PLAN the chain produces,
-which the same cascade deletes first. The resolution contract, the
-visibility check it runs, and the announcement a grounded run owes the
-author are in `references/phases/phase-0-setup.md` under "Reading a
-document vs. recording it as `upstream`".
-
-The flag is parsed before the positional argument is classified, and
-its value is never treated as a topic. A bare `--upstream` with no
-value is rejected at Phase 0 naming the missing argument. The value
-must name a ROADMAP: the same basename rule Input Mode 3 enforces
-applies to the flag, PRD rejection included. That rule matters more
-now than it did when the value was recorded — nothing reaches
-frontmatter for a reviewer or the validator to catch, so it is the only
-guard against framing a brief from the wrong artifact.
-
 ### Context Resolution
 
-**Topic slug constraint.** The `<topic>` slug used in wip/ paths and
-the BRIEF filename must match `^[a-z0-9-]+$` (kebab-case lowercase
-alphanumeric, hyphens only). Phase 0 enforces this by rejecting any
-topic that contains other characters, including `.`, `/`, `_`, or
-whitespace. Without the constraint, a `../`-shaped topic could redirect
-verdict writes outside `wip/research/`.
-
-**Ground on the roadmap, record its ancestor.** Check `$ARGUMENTS` for
-`--upstream <path>`. If present, the path is validated at Phase 0 and
-stored as the context file's `## Grounding Path`. Phase 1 reads the
-ROADMAP, finds the feature this brief frames, and derives the problem
-and outcome candidates from it. **Phase 0 step 0.3a separately resolves
-what gets recorded**: it reads the roadmap's own `upstream:` and takes
-that — the STRATEGY, or a VISION — through the visibility check, and
-Phase 2 writes the survivor into the BRIEF's `upstream:`. The roadmap
-itself is never recorded: it is deleted when its features land, so the
-link would dangle, and it is named by the PLAN the chain produces
-instead. The field is omitted when the roadmap names no upstream of its
-own, or when the ancestor is private and this repo is public. `/scope`
-passes the flag on every chain where a ROADMAP is available; an author
-invoking `/brief` standalone passes it when a ROADMAP exists that the
-topic slug does not name. The resolution contract, and the announcement
-the run owes the author, are in `references/phases/phase-0-setup.md`.
-
-**Path canonicalization.** Any user-supplied ROADMAP upstream path
-(Input Mode 3) and any `--upstream` value must be canonicalized at
-Phase 0 and rejected if the canonical path resolves outside the repo
-working tree. Symlinks resolving to arbitrary filesystem content
-would otherwise leak into a public commit.
-
-**Visibility detection.** Detect Public/Private from CLAUDE.md or repo
-path. Infer from `private/` or `public/` in the path if not explicit.
-Default to Private if unknown — restricting is easier to undo than
-oversharing.
-
-BRIEF has no scope (`project`/`org`) dimension. A brief frames one
-feature; there is nothing to scope across.
-
 Log: `Drafting brief with [Private|Public] visibility...`
-
-### Workflow Phases
-
-```
-Phase 0: SETUP --> Phase 1: DISCOVER --> Phase 2: DRAFT --> Phase 3: STRUCTURAL FILL --> Phase 4: VALIDATE --> Phase 5: FINALIZE
-(branch +         (scope + upstream     (Problem Statement, (User Journeys,              (2-reviewer        (approval +
- visibility +     grounding;            User Outcome)       Scope Boundary,              jury)              transition)
- artifact         problem/outcome                           optional sections)
- decision)        pair)                                                                  |
-                                                                                          v (FAIL loops back to Phase 2 or 3)
-```
-
-| Phase | Purpose | Artifact |
-|-------|---------|----------|
-| 0. Setup | Branch, visibility detection, slug + path validation | On topic branch |
-| 1. Discover | Scoping conversation; ground the feature's problem and outcome | `wip/brief_<topic>_discover.md` |
-| 2. Draft | Problem Statement, User Outcome | Partial BRIEF draft |
-| 3. Structural Fill | User Journeys, Scope Boundary, optional sections | Complete BRIEF draft |
-| 4. Validate | Two parallel reviewers (content quality, structural format) | Verdict files + aggregated decision |
-| 5. Finalize | Explicit human approval, Draft -> Accepted transition, PR | Accepted BRIEF |
-
-Phase 4 jury runs two reviewers in parallel:
-
-- **Content quality** — the Problem Statement states a problem (not a
-  smuggled solution); the User Outcome is outcome-shaped (not a feature
-  list); each User Journey is concrete and the journeys are distinct;
-  the Scope Boundary has real in/out exclusions; Open Questions (if
-  present) defer to the downstream PRD.
-- **Structural format** — all five required sections present and
-  ordered; frontmatter fields and status value valid; the body
-  `## Status` first word matches the frontmatter status;
-  public-visibility clean; writing-style honored.
-
-Both must PASS before Phase 5 begins. There is no altitude reviewer —
-a brief frames one feature, so there is no altitude band to police.
 
 ### Resume Logic
 
@@ -253,43 +113,26 @@ wip/brief_<topic>_context.md exists                      -> Resume at Phase 1
 On main or unrelated branch                              -> Start at Phase 0
 ```
 
-Phase 0 detection: if the parent-chain sentinel is present in
-`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
-(strategic), see `references/fixes/sub-agent-dispatch.md` for the
-fallback shape that applies. Behavior under direct invocation is
-unchanged when the sentinel is absent.
+**Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names
+`brief` (the first row above), `/brief` still reaches its own Phase 5 verdict
+and makes its own status transition, and skips everything that publishes or
+routes, which `/scope` owns: no push, no pull request, no branch creation, no
+cleanup commit, and no routing prompt. Control returns to `/scope`, which
+decides the next hop. An interactive run asks the author for the verdict as
+usual; an unattended run (`--auto`, which `/brief` takes from the parent's
+execution mode) takes the recommended verdict and names it in its output.
+Phase 5 marks each step this changes. This is the Parent-owned-publishing
+shape in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`, per
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
+Without the sentinel, nothing here applies.
 
 ### Critical Requirements
 
-- **Topic-slug constraint:** Phase 0 rejects topics not matching
-  `^[a-z0-9-]+$`. Non-compliant topics never reach later phases.
-- **Path canonicalization:** Phase 0 canonicalizes and bounds-checks
-  any user-supplied grounding path, whether it arrived positionally or
-  as the `--upstream` flag's value, and confines it to
-  `docs/roadmaps/`.
-- **Slug independence:** the topic slug is never derived from the
-  `--upstream` value. A flag-supplied path names what the brief is
-  framed against, not the brief.
-- **Always produces a brief:** there is no branch that declines to
-  write one. A brief whose framing turns out to be fully carried by
-  its downstream PRD is removed by `/scope`'s consolidation
-  judgment, which reads both documents and checks section by
-  section that the content arrived. That check cannot run before
-  the brief exists, which is why `/brief` no longer tries to make
-  the call at Phase 0.
-- **Conversational scoping:** Phase 1 is a dialogue, not a form. The
-  anchor is the feature's problem/outcome pair, not a bet.
-- **Jury parallelism:** Phase 4 spawns the two reviewer agents with
-  `run_in_background: true`. Each reviewer's prompt is self-contained
-  (no shared memory); the orchestrator aggregates verdicts.
 - **Human approval gate:** Phase 5 requires explicit human approval via
   AskUserQuestion before Draft -> Accepted. Jury PASS alone does not
-  transition status.
-- **Status convention:** the body `## Status` section opens with the
-  bare status word alone on its own line (`Draft`, `Accepted`, or
-  `Done`), a blank line, then any prose. `shirabe validate` (FC03)
-  compares that first non-blank line to the frontmatter `status`; prose
-  on the status line breaks the check.
+  transition status. The one exception is an unattended run under
+  `/scope`, which takes the recommended verdict and names it (see "Under
+  `/scope`" above).
 
 ### Execution
 
@@ -310,7 +153,7 @@ Execute phases sequentially by reading the corresponding phase file:
 4. **Validate**: two-reviewer jury (parallel agents)
    - Instructions: `references/phases/phase-4-validate.md`
 
-5. **Finalize**: approval + status transition + PR
+5. **Finalize**: approval + status transition + PR (no PR under `/scope`)
    - Instructions: `references/phases/phase-5-finalize.md`
 
 ### Output
@@ -318,15 +161,6 @@ Execute phases sequentially by reading the corresponding phase file:
 Final artifact: `docs/briefs/BRIEF-<topic>.md`, created in Draft
 status. After explicit user approval at Phase 5, transition to Accepted
 via `shirabe transition <brief-path> Accepted`.
-
-After acceptance, suggest next steps:
-
-| Situation | Suggestion |
-|-----------|-----------|
-| Framing is settled and requirements are the next conversation | `/prd <brief-path>` to capture requirements, with this BRIEF as upstream |
-| The brief surfaced a technical question that needs deciding | `/design` to work the architecture |
-| The framing changed which features should ship | `/roadmap` to re-sequence |
-| A framing question is still open | `/explore` to investigate further |
 
 ---
 
@@ -338,15 +172,3 @@ peers at Phase 4 (`content-quality-reviewer`,
 `structural-format-reviewer`) to validate the drafted BRIEF.
 
 See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) for v1 parent-side consumption rules.
-
-## Reference Files
-
-| File | When to load |
-|------|-------------|
-| `references/brief-format.md` | Phases 2, 3, 4 (drafting + validation) |
-| `references/phases/phase-0-setup.md` | Phase 0 |
-| `references/phases/phase-1-discover.md` | Phase 1 |
-| `references/phases/phase-2-draft.md` | Phase 2 |
-| `references/phases/phase-3-structural-fill.md` | Phase 3 |
-| `references/phases/phase-4-validate.md` | Phase 4 |
-| `references/phases/phase-5-finalize.md` | Phase 5 |

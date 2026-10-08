@@ -14,7 +14,10 @@
 # For the coordination PR it first runs the merge-last gate itself:
 # `shirabe validate --merge-gate --mode=ready` over the index's refs, with the
 # entry pointing at the coordination PR itself dropped (the coordination PR
-# can't wait on its own merge). A gate that doesn't pass refuses the merge.
+# can't wait on its own merge), and with `--visibility private` when the home
+# repository reads private live (repo-visibility.sh's read), so a private
+# coordination PR can gate over public and private nodes alike. A gate that
+# doesn't pass refuses the merge.
 #
 # After a `merge-called:` line it runs `merge-verdict.sh --confirm`. A merge is
 # never read as merged on the call alone. When the confirm read doesn't see
@@ -163,6 +166,14 @@ if [ "$NODE" = coordination ]; then
         printf 'merge-refused:merge-gate\n'
         exit 0
     fi
+    # The gate takes the coordination PR's own visibility: a private one may
+    # index private nodes, and without the flag the gate treats it as public
+    # and refuses any. Read live; a failed read stops here, never guessed.
+    HOME_VIS=$(coord_repo_visibility "$HOME_REPO") || {
+        echo "$PROG: could not read the visibility of $HOME_REPO for the merge-last gate" >&2
+        exit 72
+    }
+    [ "$HOME_VIS" = private ] && set -- --visibility private "$@"
     SHIRABE="${SHIRABE_BIN:-shirabe}"
     if ! "$SHIRABE" validate --merge-gate --mode=ready "$@" </dev/null >&2; then
         echo "$PROG: shirabe validate --merge-gate --mode=ready did not pass" >&2

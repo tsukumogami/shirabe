@@ -9,7 +9,11 @@
 # host and the holdings, a fork head, a head branch that differs from the
 # Branch cell, and a link whose two numbers differ; the comparison skipped
 # while Branch is empty; `holding none` when Branch and Pull request are both
-# empty; `unknown` for a topic with no row and `unknown -` for evidence naming
+# empty and the report names no pull request; `link` when it names one, by
+# the message's `pull_request` (URL or o/r#n) or the promoted leg result's
+# `pr` read from koto, never worker_report, refused as bad-report-pr in any
+# other form, pr-held when another row links it, and by the scope, fork and
+# Branch rules; `unknown` for a topic with no row and `unknown -` for evidence naming
 # no dispatch topic; a failed read (2); the sealed token; every token in
 # koto's capture alphabet.
 #
@@ -39,7 +43,9 @@ HOLDINGS=$(jq -nc \
     --argjson g "$(h eta acme/widgets '' '[#16](https://github.com/acme/widgets/pull/16)')" \
     --argjson i "$(h iota acme/widgets feat/iota '[#12](https://github.com/acme/widgets/pull/17)')" \
     --argjson j "$(h theta acme/widgets feat/theta '[#18](https://github.com/acme/widgets/pull/18)' | jq -c '.return_path = "leg req-1:execute"')" \
-    '[$a, $b, $c, $d, $e, $f, $g, $i, $j]')
+    --argjson k "$(h kappa acme/widgets '' '' | jq -c '.return_path = "leg req-2:deliver"')" \
+    --argjson l "$(h lambda acme/widgets feat/lambda '')" \
+    '[$a, $b, $c, $d, $e, $f, $g, $i, $j, $k, $l]')
 pr() { # pr <repo> <n> <headRefName> [cross]
     db '.prs += [{repo: $r, number: $n, title: "w", body: "", state: "OPEN", isDraft: false, isCrossRepository: ($x == "true"),
         baseRefName: "main", headRefName: $b, headRefOid: $h, author: "alice", editor: null, mergeStateStatus: "CLEAN"}]' \
@@ -52,6 +58,7 @@ seed() {
     pr acme/widgets 12 feat/alpha; pr acme/gadgets 5 feat/beta; pr acme/widgets 14 feat/delta true
     pr acme/widgets 15 feat/other; pr acme/widgets 16 anything; pr acme/widgets 17 feat/iota; pr acme/widgets 18 feat/theta
     db '.repos["acme/other"] = {private: false, default_branch: "main"}'; pr acme/other 3 feat/gamma
+    pr acme/widgets 20 feat/zeta; pr acme/widgets 21 feat/kappa; pr acme/widgets 22 feat/forked true
 }
 S=coordinate-roadmap-plugin-system-20260926T080000Z
 seed
@@ -118,6 +125,54 @@ eq "a leg no holding carries is unknown" "unknown -" "${OUT% sealed:*}"
 report '{"event":"report","unit":"alpha"}'
 eq "after a leg report, a message report reads the hub's unit again" "holding 12 alpha" "${OUT% sealed:*}"
 
+echo "== a report naming the pull request its holding lacks =="
+report '{"event":"report","unit":"zeta","pull_request":"https://github.com/acme/widgets/pull/20"}'
+eq "a message naming a pull request by URL, for a holding with none: link" "link 20 zeta" "${OUT% sealed:*}"
+tok_shape "link is in koto's capture alphabet" "$OUT"
+eq "report.json carries the named pull request" "20 acme/widgets OPEN" "$(facts | jq -r '"\(.pull_request.number) \(.pull_request.repo) \(.state)"')"
+report '{"event":"report","unit":"zeta","pull_request":" acme/widgets#20 "}'
+eq "owner/repo#number names it too, blanks aside" "link 20 zeta" "${OUT% sealed:*}"
+report '{"event":"report","unit":"zeta","pull_request":"https://github.com/acme/widgets/pull/20/"}'
+eq "a trailing slash on the URL is allowed" "link 20 zeta" "${OUT% sealed:*}"
+report '{"event":"report","unit":"zeta","pull_request":"PR #20"}'
+eq "a pull request named in no form that says its repository is refused" "refused zeta bad-report-pr" "${OUT% sealed:*}"
+report '{"event":"report","unit":"zeta","pull_request":"acme/widgets#20 acme/widgets#21"}'
+eq "two pull requests are refused" "refused zeta bad-report-pr" "${OUT% sealed:*}"
+report '{"event":"report","unit":"zeta","pull_request":"acme/widgets#12"}'
+eq "a pull request another holding links is refused, not adopted" "refused zeta pr-held" "${OUT% sealed:*}"
+report '{"event":"report","unit":"zeta","pull_request":"acme/other#3"}'
+eq "a pull request outside the scope's repositories is refused" "refused zeta out-of-scope-repo" "${OUT% sealed:*}"
+report '{"event":"report","unit":"zeta","pull_request":"acme/widgets#22"}'
+eq "a pull request from a fork is refused" "refused zeta fork-head" "${OUT% sealed:*}"
+report '{"event":"report","unit":"lambda","pull_request":"acme/widgets#20"}'
+eq "a head branch other than a Branch cell already set is refused" "refused lambda branch-mismatch" "${OUT% sealed:*}"
+report '{"event":"report","unit":"alpha","pull_request":"acme/widgets#20"}'
+eq "a holding that links a pull request keeps it; the report's is not read" "holding 12 alpha" "${OUT% sealed:*}"
+report '{"event":"report","unit":"zeta","pull_request":""}'
+eq "an empty pull_request names none" "holding none zeta" "${OUT% sealed:*}"
+mkdir -p "$KOTO_STORE/requests"
+leg_result() { # leg_result <pr-json>: req-2's deliver leg, resolved with a promoted result
+    jq -nc --argjson p "$1" '{request: {legs: {deliver: {disposition: "resolved", result_source: "promoted",
+        result_final_state: "done", result: {status: "ok", payload: {outcome: "ready", pr: $p}}}}}}' > "$KOTO_STORE/requests/req-2.json"
+}
+leg_result '"https://github.com/acme/widgets/pull/21"'
+printf 'leg result: pull request https://github.com/acme/widgets/pull/20' > "$KOTO_STORE/context/$S/worker_report"
+leg_report req-2 deliver
+eq "a leg result's pr, read from koto's record of the leg, for a holding with none: link" "link 21 kappa" "${OUT% sealed:*}"
+leg_result '""'
+leg_report req-2 deliver
+eq "a leg result with no pr names none" "holding none kappa" "${OUT% sealed:*}"
+leg_result '21'
+leg_report req-2 deliver
+eq "a leg result whose pr is not a string is refused, not read as none" "refused kappa bad-report-pr" "${OUT% sealed:*}"
+jq -nc '{request: {legs: {deliver: {disposition: "resolved", result_source: "explicit", result: {payload: {pr: "acme/widgets#21"}}}}}}' \
+    > "$KOTO_STORE/requests/req-2.json"
+leg_report req-2 deliver
+eq "a result the worker's session didn't promote names none" "holding none kappa" "${OUT% sealed:*}"
+rm -f "$KOTO_STORE/requests/req-2.json"
+leg_report req-2 deliver
+eq "a request koto can't read exits 2" 2 "$RC"
+
 echo "== unknown =="
 report '{"event":"report","unit":"nobody"}'
 eq "a topic with no holding is unknown" "unknown nobody" "${OUT% sealed:*}"
@@ -130,6 +185,19 @@ log_evidence "$S" wait '{"event":"report","unit":"alpha"}'
 log_to "$S" wait quiet_check; log_to "$S" quiet_check wait
 report '{"event":"quiet","unit":"beta"}'
 eq "only a report event names the reporting unit" "holding 12 alpha" "${OUT% sealed:*}"
+
+echo "== progress (a checkpoint report, shirabe#491) =="
+report '{"event":"progress","unit":"alpha","report":"checkpoint 1 reached"}'
+eq "progress for a linked holding goes back to the hub" "progress 12 alpha" "${OUT% sealed:*}"
+tok_shape "progress is in koto's capture alphabet" "$OUT"
+report '{"event":"progress","unit":"zeta","report":"checkpoint 1 reached"}'
+eq "progress naming no pull request goes back to the hub" "progress none zeta" "${OUT% sealed:*}"
+report '{"event":"progress","unit":"zeta","report":"PR is up","pull_request":"acme/widgets#20"}'
+eq "progress naming a pull request its holding lacks is linked first" "link 20 zeta" "${OUT% sealed:*}"
+report '{"event":"progress","unit":"zeta","report":"PR is up","pull_request":"acme/other#3"}'
+eq "progress naming a pull request out of scope is refused as a report is" "refused zeta out-of-scope-repo" "${OUT% sealed:*}"
+report '{"event":"report","unit":"alpha"}'
+eq "a report after progress is classified as before" "holding 12 alpha" "${OUT% sealed:*}"
 
 echo "== failures =="
 db '.fail = [{match: "pr view 12", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'

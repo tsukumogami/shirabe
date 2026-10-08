@@ -333,11 +333,15 @@ the read deadline:
 
 - **Commits.** A clone's local remote-tracking refs are as old as its last
   fetch, and reconcile doesn't fetch. So it reads the live refs of the
-  clone's own origin with one `git ls-remote`, run from `/` so no
-  repository's config applies, when that origin is a github.com repository
-  (an instance can hold several repositories, so the record row's repository
-  isn't the right one for every clone; any other origin marks the clone
-  unchecked). A tip (each local branch, each local tag, a detached HEAD)
+  clone's own origin with one `git ls-remote`, when that origin is a
+  github.com repository (an instance can hold several repositories, so the
+  record row's repository isn't the right one for every clone; any other
+  origin marks the clone unchecked). The read is `scripts/github-refs.sh`,
+  shared with the teardown inventory: run from `/` under the coordinator's
+  own git config, so no repository's config applies, with
+  `gh auth git-credential` as the only credential source, so a private
+  repository the gh login can read is read too. A read that fails or runs
+  late marks the clone unchecked with the reason. A tip (each local branch, each local tag, a detached HEAD)
   counts as pushed only when `git rev-list` finds no commit of it outside
   the live shas the clone has. A clone that hasn't fetched lately lacks some
   of them, so for a tip with commits outside the ones it has, GitHub's
@@ -696,7 +700,10 @@ and the context with `koto context get`, and writes only its own
 reads no permission settings or hooks (R31). It calls `gh` with read
 subcommands and `gh api` with GET only, and `git ls-remote` against a
 github.com repository only: the record row's for a holding's branch, a
-clone's github.com origin for an inventory. Inside a worker's instance it
+clone's github.com origin for an inventory. Both reads go through
+`scripts/github-refs.sh`, from `/` under the coordinator's own git config
+with `gh auth git-credential` as the only credential source; a read that
+fails is not verified (the branch) or unchecked (a clone), with git's reason. Inside a worker's instance it
 runs only plumbing reads that run no filter (`config` reads, `rev-parse`,
 `cat-file`, `symbolic-ref`, `rev-list`, `merge-base`, `diff --name-only`,
 `for-each-ref`, `ls-files`, `ls-tree`, `worktree list`, and `hash-object

@@ -10,25 +10,62 @@
 # blocker_landed is true when it has dependencies and every one reads Done.
 # Discipline scope: the host's open issues labelled with the discipline's name
 # (gh issue list --label, never a search), in issue-number order, none blocked.
+# A roadmap unit carries `landed`, the pull request link of its pending
+# roadmap pull request (roadmap-status.sh --list), or null: a landed unit is
+# never dispatched, and once the roadmap reads it Done its row is confirmed
+# with roadmap-status.sh --confirm. A discipline's units carry null.
 # Each unit carries the holding that covers it, {worker, phase}, or null: a
 # holding covers a roadmap unit when its Unit cell is the feature's heading tag
 # ("Feature 2", "ED1") or "<tag>: <title>", and an issue when it is "#<n>" or
-# "<owner/repo>#<n>".
+# "<owner/repo>#<n>". dispatch-common.sh dc_unit_forms lists the same forms
+# from coord/pick.json for the dispatch path's check of a brief's unit;
+# pick-facts_test.sh holds the two to each other.
 #
 # Holdings come from the record (record-holding.sh --list), each marked
-# parked (a Verified head, and its pull request open and not a draft) or
-# active; local agents have no holding and are never counted. The counts sit
-# beside CAP and PARKED_BOUND from the session's variables.
+# parked (a Verified head, and its pull request open and not a draft), merged
+# (a Verified head and its Pull request cell cleared by a confirmed merge,
+# waiting for its worker's teardown) or active; only active ones count
+# against the cap. Local agents have no holding and are never counted. The counts sit
+# beside CAP and PARKED_BOUND from the session's variables, the cap from the
+# record's Run section when it has one.
+#
+# The record's pauses (Standing rows of kind pause, evaluated by
+# pause-read.sh): each unit and holding carries `paused`, the id of the pause
+# that holds it, or null; the facts carry every pause with its state
+# (in-force, met, unreadable), the go-aheads, and `paused_all`, the id of the
+# pause on `all` that holds the whole coordinator, or null. A paused unit is
+# never chosen, and while `paused_all` is set pick holds
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
+#
+# The record's Work rows that keep a unit's later work (record-state.sh):
+# each unit carries `awaiting`, the number of the unsettled decision entry a
+# `decision` row parks it on (pick's await_decision), or null; `answered`,
+# {decision, outcome} once that entry is settled or gone, when the unit is
+# dispatchable again with the answer; and `follow_up`, {after, next} from a
+# `follow-up` row (the pull request that landed its scoping alone, and its
+# execution), or null. A Work row matches a unit as a pause's On does. None
+# of the three holds a slot.
 #
 # Verdict tokens:
+#   decisions        decision-next.sh --owed pick names a rule: an unrecorded
+#                    write, an owed message, a carry, a proposed entry or one
+#                    waiting for a verdict (a held entry and an escalation that
+#                    owes nothing never count). It comes first, so owed work
+#                    is done before a close is attempted. Needs the session
 #   scope-complete   roadmap: the roadmap lists features and every one reads
 #                    Done or Dropped
 #   rotation-over    discipline: today UTC is after the record title's end date
 #   pick             anything else
 # The facts go to context key coord/pick.json as data (pick's decider input):
-#   {scope, name, units: [{unit, number, title, status, done, blocked,
-#    blocked_by, blocker_landed, holding}], holdings: [{worker, unit, phase,
-#    dispatch_status, parked, pull_request}], active, parked, cap, parked_bound}
+#   {scope, name, host (the repository an issue's `<host>#<n>` names),
+#    units: [{unit, number, title, status, done, blocked,
+#    blocked_by, blocker_landed, holding, landed, paused, awaiting, answered,
+#    follow_up}], holdings: [{worker, unit, phase,
+#    dispatch_status, parked, merged, pull_request, paused}], decisions: [{decision, question,
+#    state, round, verdict, reason, recommendation, target, owed}], active,
+#    parked, cap, parked_bound, pauses, go_aheads, paused_all}
+# decisions is the record's unsettled entries (record-decision.sh --list),
+# the rows the progress table renders.
 #
 # Usage:
 #   pick-facts.sh --session S
@@ -82,6 +119,17 @@ else set -- "$@" --session "$SESSION"; fi
 bash "$HERE/record-holding.sh" "$@" > "$T/holdings.json" 2> "$T/holdings.err" \
     || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/holdings.err")"
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
+# The cap a person set in the record's Run section wins over the session's
+# (record-state.sh, the one reader of the stored set).
+bash "$HERE/record-state.sh" "$@" > "$T/state.json" 2> "$T/state.err" \
+    || lib_die2 "record-state.sh --list failed: $(lib_scrub < "$T/state.err")"
+lib_bounds "$T/state.json"
+# The unsettled decision entries, through record-decision.sh, the one reader of the section.
+set -- --list
+if [ "$OVERRIDE" = 1 ]; then set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"
+else set -- "$@" --session "$SESSION"; fi
+bash "$HERE/record-decision.sh" "$@" > "$T/decisions.json" 2> "$T/decisions.err" \
+    || lib_die2 "record-decision.sh --list failed: $(lib_scrub < "$T/decisions.err")"
 
 VERDICT=pick
 if [ "$SCOPE" = roadmap ]; then
@@ -94,13 +142,22 @@ if [ "$SCOPE" = roadmap ]; then
         *) lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")" ;;
     esac
     lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
-    jq -c --slurpfile h "$T/counted.json" '. as $f | map(. as $u
+    # The roadmap pull requests the record holds as pending (roadmap-status.sh,
+    # the one reader of those rows): a unit named by one has landed and is
+    # never offered again, though it isn't Done for its dependents until the
+    # roadmap says so.
+    # "$@" is still `--list` and the record's addressing, as set for
+    # record-decision.sh above.
+    bash "$HERE/roadmap-status.sh" "$@" > "$T/landed.json" 2> "$T/landed.err" \
+        || lib_die2 "roadmap-status.sh --list failed: $(lib_scrub < "$T/landed.err")"
+    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" '. as $f | map(. as $u
         | ([$u.dependencies[] as $d | select(([$f[] | select(.number == $d and (.status | test("^Done\\.?$")))] | length) == 0) | $d]) as $by
         | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $u.done,
            blocked: (($by | length) > 0), blocked_by: $by,
            blocker_landed: ((($u.dependencies | length) > 0) and (($by | length) == 0)),
            holding: ([$h[0][] | select(.unit == $u.id or .unit == ($u.id + ": " + $u.title))][0]
-                     | if . == null then null else {worker, phase} end)})' "$T/features.json" > "$T/units.json" \
+                     | if . == null then null else {worker, phase} end),
+           landed: ([$l[0][] | select(.unit == $u.id) | .pull_request][0] // null)})' "$T/features.json" > "$T/units.json" \
         || lib_die2 "jq failed"
     if [ "$(jq length "$T/units.json")" -gt 0 ] && jq -e 'all(.done)' "$T/units.json" > /dev/null; then
         VERDICT=scope-complete
@@ -115,16 +172,40 @@ else
     jq -c --slurpfile h "$T/counted.json" --arg r "$REPO" 'sort_by(.number) | map(. as $i
         | ("#\($i.number)") as $id
         | {unit: $id, number: $i.number, title: ($i.title | .[0:120]), status: "open", done: false,
-           blocked: false, blocked_by: [], blocker_landed: false,
+           blocked: false, blocked_by: [], blocker_landed: false, landed: null,
            holding: ([$h[0][] | select(.unit == $id or .unit == ($r + $id))][0]
                      | if . == null then null else {worker, phase} end)})' "$T/issues.json" > "$T/units.json" \
         || lib_die2 "jq failed"
 fi
 
-jq -n --arg scope "$SCOPE" --arg name "$NAME" --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" \
-    --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" '
-    {scope: $scope, name: $name, units: $u[0],
-     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, pull_request}],
-     active: ([$h[0][] | select(.parked | not)] | length), parked: ([$h[0][] | select(.parked)] | length),
-     cap: $cap, parked_bound: $pb}' > "$T/pick.json" || lib_die2 "jq failed"
+# The pauses, read live, for every unit and holding listed.
+jq -c --slurpfile h "$T/counted.json" '[.[].unit] + [$h[0][].unit] | unique' "$T/units.json" > "$T/punits.json" || lib_die2 "jq failed"
+bash "$HERE/pause-read.sh" --standing "$T/state.json" --units "$T/punits.json" > "$T/pauses.json" 2> "$T/pauses.err" \
+    || lib_die2 "pause-read.sh failed: $(lib_scrub < "$T/pauses.err")"
+
+# Owed decision work comes before any other verdict.
+if [ -n "$SESSION" ]; then
+    OWED_RULE=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed pick) || lib_die2 "cannot read what the decisions are owed"
+    [ "$OWED_RULE" = none ] || VERDICT="decisions $OWED_RULE"
+fi
+
+jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --slurpfile d "$T/decisions.json" \
+    --slurpfile pz "$T/pauses.json" --slurpfile st "$T/state.json" --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" '
+    $pz[0] as $p
+    | ($st[0].work // []) as $w
+    | def row($k; $x): [$w[] | select(.kind == $k and (.item == $x or .item == ($host + $x)))][0];
+      def parked_on($x): (row("decision"; $x) | if . == null then null else (.who | ltrimstr("decision ")) end) as $n
+        | ([($d[0].entries // [])[] | select(.decision == $n)][0]) as $e
+        | if $n == null then {awaiting: null, answered: null}
+          elif $e != null and $e.state != "settled" then {awaiting: $n, answered: null}
+          else {awaiting: null, answered: {decision: $n, outcome: ($e.outcome // "")}} end;
+    {scope: $scope, name: $name, host: $host,
+     units: [$u[0][] | . + {paused: ($p.covers[.unit] // null)} + parked_on(.unit)
+                     + {follow_up: (row("follow-up"; .unit) | if . == null then null else {after: .who, next: .next} end)}],
+     holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, pull_request, paused: ($p.covers[.unit] // null)}],
+     decisions: [$d[0].entries[] | select(.state != "settled")
+                 | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),
+                    recommendation: (.recommendation // ""), target: (.target // ""), owed: (.owed // "")}],
+     active: ([$h[0][] | select((.parked | not) and (.merged | not))] | length), parked: ([$h[0][] | select(.parked)] | length),
+     cap: $cap, parked_bound: $pb, pauses: $p.pauses, go_aheads: $p.go_aheads, paused_all: $p.all}' > "$T/pick.json" || lib_die2 "jq failed"
 lib_emit pick_facts "$VERDICT" coord/pick.json "$T/pick.json"

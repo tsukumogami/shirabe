@@ -351,10 +351,10 @@ fi
 
 OUT=$(env -u KOTO_DECIDER_API_KEY PATH="$STUBS:$PATH" "$BASH" "$CHECK" 2>&1)
 RC=$?
-if [ "$RC" -eq 0 ] && [ "$(awk -F '\t' '!/^#/ && NF' "$REPO_ROOT/scripts/decider-declarations.tsv" | wc -l | tr -d ' ')" = 15 ]; then
-    pass "this repository's declarations match its fifteen-row table and fixtures"
+if [ "$RC" -eq 0 ] && [ "$(awk -F '\t' '!/^#/ && NF' "$REPO_ROOT/scripts/decider-declarations.tsv" | wc -l | tr -d ' ')" = 20 ]; then
+    pass "this repository's declarations match its twenty-row table and fixtures"
 else
-    fail "this repository's declarations match its fifteen-row table and fixtures" "rc $RC, output [$OUT]"
+    fail "this repository's declarations match its twenty-row table and fixtures" "rc $RC, output [$OUT]"
 fi
 
 echo ""

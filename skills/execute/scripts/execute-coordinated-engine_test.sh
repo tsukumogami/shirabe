@@ -14,6 +14,9 @@
 #   merged                  two repositories, the coordination PR MERGED: the
 #                           result has outcome=merged, pr naming the
 #                           coordination PR, and repos listing both
+#   merged (home outside)   the coordination PR in acme/repo-a, every node in
+#                           acme/repo-b: coord_setup reaches coord_loop and the
+#                           run ends merged with repos=acme/repo-b
 #   ready_awaiting_merge    two independent roots without --merge: pr,
 #                           waiting, reason=merge-not-requested
 #   paused_awaiting_merges  a root awaiting a human, its successor waiting:
@@ -61,6 +64,11 @@ if ! command -v koto >/dev/null 2>&1; then
 fi
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 command -v git >/dev/null 2>&1 || { echo "FAIL: git is required" >&2; exit 1; }
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
+. "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 
 # shellcheck source=coord-test-helpers.sh
 . "$SCRIPT_DIR/coord-test-helpers.sh"
@@ -87,7 +95,7 @@ fi
 
 COORD_URL="https://github.com/acme/repo-a/pull/10"
 
-# fixture <slug> [two-repo] -- a coordination checkout for one case, on CT_CB,
+# fixture <slug> [two-repo|remote] -- a coordination checkout for one case, on CT_CB,
 # with docs/plans/PLAN-<slug>.md committed. Sets REPO and CT_SLUG.
 fixture() {
     CT_SLUG="$1"
@@ -106,7 +114,8 @@ open_run() {
     shift
     local merge="$1"
     shift
-    k init "$s" --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
+    # $KOTO_LEGACY_ENV_ARG: #483.
+    k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
         || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
     # The run identity execute-open.sh mints at the session's birth.
@@ -165,6 +174,20 @@ if ct_calls | grep -q -- '--head docs/t --state all' && ! ct_calls | grep -q 'ac
     pass "the confirm read looked up the coordination branch in home_repo, never the comma-joined repos"
 else
     fail "the confirm read's lookups: $(ct_calls | grep 'pr list')"
+fi
+
+# The coordination PR in acme/repo-a over a PLAN whose nodes are all in
+# acme/repo-b: coord_setup's gates pass, and the verdict reads the run whole.
+ct_case home-outside
+fixture homeout remote
+CT_COORD_STATE=MERGED
+ct_write_db
+open_run homeout true && finish homeout "done:merged"
+expect_terminal homeout merged outcome=merged "pr=$COORD_URL" "repos=acme/repo-b"
+if [ "$(k context get execute-homeout home_repo 2>/dev/null)" = acme/repo-a ]; then
+    pass "home outside the write set: home_repo=acme/repo-a is recorded beside repos=acme/repo-b"
+else
+    fail "home outside the write set: home_repo [$(k context get execute-homeout home_repo 2>/dev/null)]"
 fi
 
 # --- ready_awaiting_merge ---------------------------------------------------------
@@ -276,7 +299,8 @@ fi
 ct_case setup-blocked
 fixture blocked
 ct_write_db
-k init execute-blocked --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-blocked.md --var PLAN_SLUG=blocked \
+# $KOTO_LEGACY_ENV_ARG: #483.
+k init execute-blocked $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-blocked.md --var PLAN_SLUG=blocked \
     --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
 k next execute-blocked --with-data '{"setup_status":"blocked","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
 expect_terminal blocked done_error outcome=error step=execute:coord_setup

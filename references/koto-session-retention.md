@@ -14,7 +14,7 @@ property of koto's session disposal, not of any one skill. Five skills drive
 koto; an argument copied into each drifts, and shirabe#360 demonstrated the
 drift before the copies were consolidated.
 
-It describes koto 0.14.0 and later. shirabe's koto minimum is 0.14.1
+It describes koto 0.14.0 and later. shirabe's koto minimum is 0.15.0
 (`scripts/assert-koto-floor.sh`).
 
 ## What koto does
@@ -22,8 +22,8 @@ It describes koto 0.14.0 and later. shirabe's koto minimum is 0.14.1
 koto decides at the tick that reaches a terminal state whether to keep the
 session. A session it does not keep is disposed of, and every context key the
 run accumulated goes with it at once —
-for `/work-on` that is `plan.md` and seven others, including the running record
-that carries a CORRECTION block per review round.
+for `/work-on` that is `plan.md`, `summary.md` and the panels' verdicts among
+others.
 
 A session is kept when either holds:
 

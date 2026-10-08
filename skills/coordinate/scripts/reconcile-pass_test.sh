@@ -67,15 +67,20 @@ c=$(ls "$STUB_DIR"/running.* 2>/dev/null | wc -l | tr -d ' ')
 m=$(cat "$STUB_DIR/max" 2>/dev/null || echo 0); [ "$c" -gt "$m" ] && echo "$c" > "$STUB_DIR/max"
 # Up to four stand-ins run at once, so the clock's read-and-add holds a lock:
 # without it two stand-ins read the same time and one cost is lost.
-# Only tools run-tests.sh's restricted PATH carries (mkdir, rm, sleep), and a
-# bounded wait: a lock left behind fails the case rather than hanging the job.
+# The lock and the clock write use only tools run-tests.sh's restricted PATH
+# carries (mkdir, rm, sleep, mktemp, mv), and the wait is bounded: a lock left
+# behind fails the case rather than hanging the job.
 w=0
 until mkdir "$CLOCK.lock" 2>/dev/null; do
     w=$((w + 1)); [ "$w" -gt 200 ] && { echo "stand-in: clock lock held past 10s" >&2; exit 98; }
     sleep 0.05
 done
 now=$(cat "$CLOCK")
-echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$CLOCK"
+# Written whole: a temp file of this writer's own, renamed into place. The pass
+# reads the clock without the lock, and a truncate-then-write would let it read
+# an empty file (#481).
+tmp=$(mktemp "$CLOCK.XXXXXX") || { rm -rf "$CLOCK.lock"; echo "stand-in: can't write the clock" >&2; exit 98; }
+echo $(( now + $(cat "$STUB_DIR/cost.$sub" 2>/dev/null || echo 1) )) > "$tmp" && mv "$tmp" "$CLOCK"
 rm -rf "$CLOCK.lock"
 key="$sub.$ident"; nf="$STUB_DIR/.n.$key"; n=$(( $(cat "$nf" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$nf"
 echo "$now $sub $* D=${RECONCILE_READ_DEADLINE-} BD=${RECONCILE_BOARD_DEADLINE-}" >> "$STUB_DIR/checks"
@@ -90,6 +95,18 @@ fi
 [ -f "$STUB_DIR/reenter.$sub" ] && echo 99 > "$STUB_DIR/visit"
 [ -f "$STUB_DIR/plant-on.$sub" ] && sh "$STUB_DIR/plant"
 sleep 0.2
+# A clock jq can't take, left just before this re-check ends: the pass's next
+# fold of this fact then has a time it can't write.
+# `0x10` is a number to bash's arithmetic (16) and not to jq, so the pass
+# reads it without complaint and fails at its next jq write that takes the
+# time: the plan read or collect's fact write, both of which must refuse.
+# This write skips the lock; the stand-in is the last to touch the clock.
+if [ -f "$STUB_DIR/garble.$sub" ]; then
+    tmp=$(mktemp "$CLOCK.XXXXXX") || { echo "stand-in: can't write the clock" >&2; exit 98; }
+    echo 0x10 > "$tmp" && mv "$tmp" "$CLOCK"
+fi
+# A re-check that prints nothing: the file's text to stderr, exit 64.
+[ -f "$STUB_DIR/silent.$sub" ] && { cat "$STUB_DIR/silent.$sub" >&2; exit 64; }
 for f in "$STUB_DIR/check.$key.$n" "$STUB_DIR/check.$sub.$n" "$STUB_DIR/check.$sub"; do
     [ -f "$f" ] && { cat "$f"; exit 0; }
 done
@@ -140,6 +157,7 @@ case "$cmd" in
         fi
         printf '%s\n' "$c" ;;
     run-start) echo 2026-09-27T00:00:00Z ;;
+    chain-start) cat "$STUB_DIR/chain-start" 2>/dev/null || echo 2026-09-27T00:00:00Z ;;
     directed-since)
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
     *) exit 64 ;;
@@ -167,6 +185,13 @@ cat > "$T/bin/git" <<'STUB'
 echo "git $*" >> "$STUB_DIR/log"
 case " $* " in *" rev-parse --show-toplevel "*) [ -f "$STUB_DIR/top" ] && { cat "$STUB_DIR/top"; exit 0; }; exit 128 ;; esac
 exit 99
+STUB
+# The settle, the pass's one write: logs its arguments to <case>/settles and
+# prints <case>/settle.out, else a settled fact.
+cat > "$SC/reconcile-settle.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUB_DIR/settles"
+cat "$STUB_DIR/settle.out" 2>/dev/null || echo '{"kind":"settle","status":"ok","settled":true,"reason":"","read_at":"t"}'
 STUB
 chmod +x "$SC"/*.sh "$T/bin/koto" "$T/bin/git"
 
@@ -326,6 +351,59 @@ echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > 
 pass; tick 15; pass
 [ "$(grep -c ' host ' "$CASE/checks")" = 2 ]; check "a re-read that falls before the cutoff is made within the pass" $? "$(cat "$CASE/checks")"
 
+echo "== a holding left dispatching =="
+# A refused write after the launch leaves the row dispatching with a live
+# worker; the pass settles it once the listing finds the worker and, for a
+# leg, the leg is bound.
+new_case settle-message
+record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
+pass
+case "$LINE" in "reconciled "*) ok "a dispatching row with its worker found is reconciled in one pass" ;; *) bad "a dispatching row with its worker found is reconciled in one pass" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ "$(cat "$CASE/settles" 2>/dev/null)" = "--session $SESSION --topic stuck --return-path message" ]; check "the pass settles it, naming the session, topic and return path" $? "$(cat "$CASE/settles" 2>/dev/null)"
+ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p' | grep -q '`stuck`: settled: record said dispatching'
+check "the settle is reported under Changed since then" $? "$(ctx reconcile/report.md)"
+new_case settle-leg-open
+record "[$(hold legged "" '{dispatch_status: "dispatching", branch: "", verified_head: "", return_path: "leg req1:work-on"}')]"
+pass
+[ ! -s "$CASE/settles" ]; check "a leg still open and unbound leaves the row alone" $? "$(cat "$CASE/settles" 2>/dev/null)"
+new_case settle-leg-bound
+record "[$(hold legged "" '{dispatch_status: "dispatching", branch: "", verified_head: "", return_path: "leg req1:work-on"}')]"
+echo '{"kind":"leg","status":"ok","disposition":"bound","result":"","read_at":"t"}' > "$CASE/check.leg"
+pass
+grep -q -- '--return-path leg req1:work-on' "$CASE/settles" 2>/dev/null; check "a bound leg and a live worker settle the row" $? "$(cat "$CASE/settles" 2>/dev/null) $(cat "$CASE/stderr")"
+new_case settle-missed
+record "[$(hold gone-quiet "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
+echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > "$CASE/check.host"
+pass; tick 31; pass
+[ ! -s "$CASE/settles" ]; check "a worker not found is never settled" $? "$(cat "$CASE/settles" 2>/dev/null)"
+new_case settle-dispatched
+record "[$(hold fine "" '{branch: "", verified_head: ""}')]"
+pass
+[ ! -s "$CASE/settles" ]; check "a row already dispatched is not written" $? "$(cat "$CASE/settles" 2>/dev/null)"
+new_case settle-late
+record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
+# The listing read costs 5 seconds, so a settle launched after it would have
+# less than its 20-second budget: it waits for the next pass, which starts
+# with it.
+echo 5 > "$CASE/cost.host"
+pass
+case "$LINE" in pending:*) ok "a settle that doesn't fit whole leaves the pass pending" ;; *) bad "a settle that doesn't fit whole leaves the pass pending" "$LINE" ;; esac
+[ ! -s "$CASE/settles" ]; check "and isn't started in it" $? "$(cat "$CASE/settles" 2>/dev/null)"
+tick 1; pass
+case "$LINE" in "reconciled "*) ok "the next pass settles it and seals" ;; *) bad "the next pass settles it and seals" "$LINE $(cat "$CASE/stderr")" ;; esac
+[ -s "$CASE/settles" ]; check "with the settle run once" $?
+new_case chain-start
+record "[]" "[]" '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-26T07:30Z: last run"}]'
+echo 2026-09-26T07:00:00.000Z > "$CASE/chain-start"
+pass
+grep -q -- '--chain-start 2026-09-26T07:00:00.000Z' "$CASE/checks"; check "the deferral re-check is given the run's chain start" $? "$(cat "$CASE/checks")"
+new_case settle-refused
+record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
+echo '{"kind":"settle","status":"not_verified","reason":"the record refused the write","read_at":"t"}' > "$CASE/settle.out"
+pass
+ctx reconcile/report.md | sed -n '/^## Not verified/,$p' | grep -q 'the record refused the write'; check "a refused settle is listed as not verified" $? "$(ctx reconcile/report.md)"
+ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p' | grep -q 'settled' && bad "and not reported as changed" || ok "and not reported as changed"
+
 echo "== the work file =="
 new_case edited
 record "[$(hold with-pr "$PR12")]" '[{"action":"teardown","target":"x","verified_head":"","attempted":"2026-09-26T11:00Z","how_to_confirm":"l"}]'
@@ -383,6 +461,14 @@ printf '{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","
 pass
 jq -e -s 'length >= 1 and all(.disposition == "")' "$CASE/rows-seen" >/dev/null 2>&1; check "each deferral is checked from the work document's own row" $? "$(cat "$CASE/rows-seen" 2>&1)"
 grep ' deferral ' "$CASE/checks" | grep -q -- "--row-file $SDIR" && bad "no deferral row is read from the session directory" || ok "no deferral row is read from the session directory"
+# A re-check that prints nothing still says how it ended (shirabe#552): its
+# exit code and the last line it wrote to stderr, with a token redacted.
+new_case silent-check
+record "[]" '[]' '[{"deferral":"flaky test","reason":"later","raised":"2026-09-25T10:00Z","disposition":""}]'
+printf 'deferral-check: usage\nrun start ghp_abcdefghijklmnop refused\n' > "$CASE/silent.deferral"
+pass
+ctx reconcile/report.json | jq -e '.not_verified | any(.what == "deferral flaky test" and .reason == "the re-check printed nothing readable (exit 64: run start [redacted] refused)")' >/dev/null
+check "a re-check that printed nothing is reported with its exit and its last stderr line" $? "$(ctx reconcile/report.json | jq -c .not_verified)"
 new_case edited-mid-pass
 record "[$(hold with-pr "$PR12")]"
 : > "$CASE/inject.branch"
@@ -441,6 +527,60 @@ get --check; [ $? = 1 ]; check "a pending capture is no report" $?
 if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
     ok "the reader takes no sealed token and reads the capture from the log itself"
 else bad "the reader takes no sealed token and reads the capture from the log itself"; fi
+
+echo "== the clock =="
+# #481: the stand-ins advance the clock while the pass reads it. Four writers
+# running the real stand-in re-check, against a reader that must never see
+# the file empty.
+new_case clock-hammer
+: > "$CASE/empties"
+WRITERS=""
+for w in 1 2 3 4; do
+    ( i=0; while [ "$i" -lt 12 ]; do
+        STUB_DIR="$CASE" CLOCK="$CASE/clock" WORKFILE="$CASE/none" bash "$SC/reconcile-check.sh" pr --repo o/r >/dev/null 2>&1
+        i=$((i + 1)); done ) &
+    WRITERS="$WRITERS $!"
+done
+writing() { local p; for p in $WRITERS; do kill -0 "$p" 2>/dev/null && return 0; done; return 1; }
+while writing; do
+    [ -n "$(cat "$CASE/clock")" ] || echo empty >> "$CASE/empties"
+done
+wait
+[ ! -s "$CASE/empties" ]; check "a reader never sees the clock empty while four re-checks advance it" $? "$(wc -l < "$CASE/empties") empty reads"
+WANT=$((1000 + 4 * 12))   # the start, plus four writers' twelve one-second advances
+[ "$(cat "$CASE/clock")" = "$WANT" ]; check "and no advance is lost" $? "clock $(cat "$CASE/clock"), want $WANT"
+ls "$CASE"/clock.* >/dev/null 2>&1 && bad "no clock temp file is left behind" "$(ls "$CASE"/clock.*)" || ok "no clock temp file is left behind"
+
+# An empty read is retried: a clock filled shortly after the pass starts is
+# read, not taken for a time.
+new_case clock-late
+record "[$(hold with-pr "$PR12")]"
+: > "$CASE/clock"
+( sleep 0.3; echo 1000 > "$CASE/clock.late" && mv "$CASE/clock.late" "$CASE/clock" ) &
+pass
+wait
+[ "$RC" = 0 ] && lines_ok "$LINE"; check "a clock that reads empty at first is read again, and the pass goes on" $? "$RC $LINE $(cat "$CASE/stderr")"
+grep -q 'argjson' "$CASE/stderr" && bad "and no empty time reaches jq" "$(cat "$CASE/stderr")" || ok "and no empty time reaches jq"
+
+# A clock that stays empty ends the pass, naming the clock.
+new_case clock-empty
+record "[$(hold with-pr "$PR12")]"
+: > "$CASE/clock"
+pass
+[ "$RC" != 0 ] && [ -z "$LINE" ] && grep -q 'test clock .* read empty' "$CASE/stderr"; check "a clock that stays empty ends the pass with its own message" $? "$RC $LINE $(cat "$CASE/stderr")"
+[ ! -e "$SDIR/coordinate-reconcile/visit.json" ]; check "and writes no work file" $? "$(cat "$SDIR/coordinate-reconcile/visit.json" 2>&1)"
+
+# A jq write that fails never replaces the work file: a time jq can't take
+# ends the pass, and the work file keeps the visit it held.
+new_case clock-garbled
+record "[$(hold with-pr "$PR12")]"
+: > "$CASE/garble.pr"
+pass
+[ "$RC" != 0 ] && [ -z "$LINE" ]; check "a fact whose write fails ends the pass" $? "$RC $LINE $(cat "$CASE/stderr")"
+jq -e '.visit == "7" and (.facts | type) == "object"' "$SDIR/coordinate-reconcile/visit.json" >/dev/null 2>&1
+check "and the work file still holds the visit" $? "$(cat "$SDIR/coordinate-reconcile/visit.json" 2>&1)"
+grep -q 'could not be written\|the plan could not be read' "$CASE/stderr"; check "and the pass says which write failed" $? "$(cat "$CASE/stderr")"
+grep -v '^[[:space:]]*#' "$P" | grep -n 'save "\$(' && bad "every save takes a document whose jq status was checked" || ok "every save takes a document whose jq status was checked"
 
 echo "== the token =="
 SECRET=s3cr3t-token-value-for-the-test

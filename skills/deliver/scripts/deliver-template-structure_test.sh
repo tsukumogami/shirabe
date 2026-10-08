@@ -13,17 +13,19 @@
 #     skills/deliver/
 #
 # Over the compiled JSON:
-#   - a state for each step of the run (preflight, request, scope, re-check,
-#     mode route, confirm, execute, merged re-check, report terminals), and
-#     no others
+#   - a state for each step of the run (request, scope, re-check, mode
+#     route, confirm, execute, merged re-check, report terminals), and no
+#     others
 #   - TOPIC, PLUGIN_ROOT, COORDINATION, UPSTREAM and MAX_ROUNDS carry
 #     scope.md's constraints exactly; MODE is auto|interactive, MERGE
-#     true|false
+#     true|false; REVIEW_FLOOR and REVIEW_CEILING are optional, default
+#     empty, the level pattern ^(light|standard|full)?$, rebind like
+#     MAX_ROUNDS
 #   - scope_leg, scope_intent and exec_leg are request-leg gates on this run's
 #     REQ, declared overridable: false, with /scope's and /execute's outcome
 #     sets as `expect`; every context-matches gate in scoped_check,
 #     executed_check and merged_check is overridable: false; so are the
-#     preflight, mode_route and confirm gates
+#     mode_route and confirm gates
 #   - the default actions are exactly open_request, scope_absent,
 #     execute_absent and the three re-checks, and none pushes, merges, or
 #     opens a PR
@@ -35,9 +37,11 @@
 #   - outcome=merged is assigned only by merged_check and executed_check, on
 #     an arm requiring both the verdict and a non-empty checked_pr; every
 #     other merged_check arm ends ready-awaiting-merge
-#   - the four terminals declare the eleven-key result map, each read as
-#     ${context.<key>}; done_error and done_refused are failures
-#   - the child directives name --intent=continue and the legs
+#   - the three terminals declare the eleven-key result map, each read as
+#     ${context.<key>}; done_error is a failure
+#   - the child directives name --intent=continue and the legs; execute_run's
+#     appends --review-floor={{REVIEW_FLOOR}} and
+#     --review-ceiling={{REVIEW_CEILING}}, each only when not empty
 #
 # Usage: bash skills/deliver/scripts/deliver-template-structure_test.sh
 # Exit codes: 0 all pass (the compiled checks SKIP loudly without koto);
@@ -139,8 +143,8 @@ for v in TOPIC PLUGIN_ROOT COORDINATION UPSTREAM MAX_ROUNDS; do
 done
 
 CHECKS=(
-"the states are exactly the run's|.states | keys == [\"confirm\",\"done\",\"done_error\",\"done_refused\",\"done_stopped\",\"execute_absent\",\"execute_run\",\"executed_check\",\"merged_check\",\"mode_route\",\"open_request\",\"preflight\",\"scope_absent\",\"scope_run\",\"scoped_check\"]"
-"preflight is the initial state|.initial_state == \"preflight\""
+"the states are exactly the run's|.states | keys == [\"confirm\",\"done\",\"done_error\",\"done_stopped\",\"execute_absent\",\"execute_run\",\"executed_check\",\"merged_check\",\"mode_route\",\"open_request\",\"scope_absent\",\"scope_run\",\"scoped_check\"]"
+"open_request is the initial state|.initial_state == \"open_request\""
 "MODE is auto or interactive, default interactive|.variables.MODE | (.values == [\"auto\",\"interactive\"] and .default == \"interactive\")"
 "MERGE is true or false, default false|.variables.MERGE | (.values == [\"true\",\"false\"] and .default == \"false\")"
 "scope_leg is a non-overridable request-leg gate on REQ's scope leg|.states.scope_run.gates.scope_leg | (.type == \"request-leg\" and .overridable == false and .request == \"{{REQ}}\" and .leg == \"scope\")"
@@ -148,7 +152,7 @@ CHECKS=(
 "scope_intent reads the same leg, non-overridable|.states.scope_run.gates.scope_intent | (.type == \"request-leg\" and .overridable == false and .request == \"{{REQ}}\" and .leg == \"scope\" and .expect.reason == [\"intent-mismatch\",\"var-mismatch:INTENT_FLAG\"])"
 "exec_leg is a non-overridable request-leg gate on REQ's execute leg|.states.execute_run.gates.exec_leg | (.type == \"request-leg\" and .overridable == false and .request == \"{{REQ}}\" and .leg == \"execute\" and .expect.outcome == [\"merged\",\"ready-awaiting-merge\",\"paused-for-review\",\"paused-awaiting-merges\",\"error\"])"
 "every re-check gate is a non-overridable context-matches gate|[.states.scoped_check, .states.executed_check, .states.merged_check | .gates[] | (.type == \"context-matches\" and .overridable == false)] | length == 7 and all"
-"the preflight, mode_route and confirm gates refuse overrides|[.states.preflight, .states.mode_route, .states.confirm | .gates[] | .overridable == false] | length == 3 and all"
+"the mode_route and confirm gates refuse overrides|[.states.mode_route, .states.confirm | .gates[] | .overridable == false] | length == 2 and all"
 "the default actions are exactly the request-store and re-check states|[.states | to_entries[] | select(.value.default_action != null) | .key] | sort == [\"execute_absent\",\"executed_check\",\"merged_check\",\"open_request\",\"scope_absent\",\"scoped_check\"]"
 "no default action pushes, merges, or writes a PR|[.states[] | (.default_action.command // \"\") | test(\"git push|gh pr (merge|create|edit|ready|close)|gh api .*-X\")] | any | not"
 "the re-checks run deliver-probe.sh in their own mode|(.states.scoped_check.default_action.command | test(\"deliver-probe\\\\.sh\\\" scoped \")) and (.states.executed_check.default_action.command | test(\"deliver-probe\\\\.sh\\\" executed \")) and (.states.merged_check.default_action.command | test(\"deliver-probe\\\\.sh\\\" merged \"))"
@@ -168,11 +172,12 @@ CHECKS=(
 "scoped_check routes to mode_route only on pass and a non-empty checked_pr|[.states.scoped_check.transitions[] | select(.target == \"mode_route\") | .when] == [{\"gates.scoped_pass.matches\": true, \"gates.scoped_pr.matches\": true}]"
 "mode_route: 0 and 10 to confirm, 20 to done_stopped as handed-off-multi-pr, 4 to an error|[.states.mode_route.transitions[] | [.when[\"gates.plan_mode.exit_code\"], .target, (.context_assignments.outcome // \"\")]] == [[0,\"confirm\",\"\"],[10,\"confirm\",\"\"],[20,\"done_stopped\",\"handed-off-multi-pr\"],[4,\"done_error\",\"error\"]]"
 "confirm: auto goes on without evidence; stop ends scoped with next=/deliver <topic>|(.states.confirm.transitions[0] | .target == \"execute_run\" and .when == {\"gates.mode_auto.exit_code\": 0}) and ([.states.confirm.transitions[] | select(.target == \"done_stopped\") | .context_assignments] == [{\"outcome\":\"scoped\",\"next\":\"/deliver {{TOPIC}}\"}])"
-"preflight refuses anything but public as private-repo|[.states.preflight.transitions[] | select(.target == \"done_refused\") | .context_assignments.reason] == [\"private-repo\",\"private-repo\"]"
-"the four terminals declare the eleven-key result map read from context|[.states[] | select(.terminal == true) | .result | (keys == ([\"outcome\",\"step\",\"reason\",\"pr\",\"pr_state\",\"repos\",\"resume\",\"waiting\",\"next\",\"startable\",\"wip_paths\"] | sort) and (to_entries | all(.value == (\"\${context.\" + .key + \"}\"))))] | length == 4 and all"
-"done_error and done_refused are failures; done and done_stopped are not|.states.done_error.failure == true and .states.done_refused.failure == true and ((.states.done.failure // false) == false) and ((.states.done_stopped.failure // false) == false)"
+"the three terminals declare the eleven-key result map read from context|[.states[] | select(.terminal == true) | .result | (keys == ([\"outcome\",\"step\",\"reason\",\"pr\",\"pr_state\",\"repos\",\"resume\",\"waiting\",\"next\",\"startable\",\"wip_paths\"] | sort) and (to_entries | all(.value == (\"\${context.\" + .key + \"}\"))))] | length == 3 and all"
+"done_error is a failure; done and done_stopped are not|.states.done_error.failure == true and ((.states.done.failure // false) == false) and ((.states.done_stopped.failure // false) == false)"
 "scope_run's directive runs /scope --intent=continue on the scope leg|.states.scope_run.directive | (contains(\"--intent=continue\") and contains(\"--koto-leg={{REQ}}:scope\"))"
 "execute_run's directive runs /execute on the PLAN and the execute leg|.states.execute_run.directive | (contains(\"docs/plans/PLAN-{{TOPIC}}.md\") and contains(\"--koto-leg={{REQ}}:execute\") and contains(\"{{MERGE}}\"))"
+"execute_run's directive appends the review-level bound only when not empty|.states.execute_run.directive | (contains(\"\`--review-floor={{REVIEW_FLOOR}}\`, only when that value after \`=\` is not\") and contains(\"\`--review-ceiling={{REVIEW_CEILING}}\`, only when that value after \`=\` is not\"))"
+"REVIEW_FLOOR and REVIEW_CEILING are optional, default empty, the level pattern, rebind|[.variables.REVIEW_FLOOR, .variables.REVIEW_CEILING] | all((.required // false) == false and (.default // \"\") == \"\" and .pattern == \"^(light|standard|full)?\$\" and .rebind == true)"
 )
 
 run_checks() { # run_checks <json> -> the labels that fail

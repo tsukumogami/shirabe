@@ -76,10 +76,10 @@ echo "== sections =="
 EMPTY=$(facts '[]' '[]' '[]' '"absent"' '[]' discipline)
 out=$(echo "$EMPTY" | render)
 order=$(printf '%s\n' "$out" | grep '^## ' | tr '\n' '|')
-want='## Changed since then|## Where things stand|## Exists nowhere else|## Side effects|## Undisposed deferrals|## Predecessor'"'"'s reasoning|## Not verified|'
+want='## Changed since then|## Where things stand|## Exists nowhere else|## Side effects|## Undisposed deferrals|## Disposed deferrals|## Predecessor'"'"'s reasoning|## Not verified|'
 [ "$order" = "$want" ] && ok "sections render in R16's order" || bad "sections render in R16's order" "$order"
 nones=$(printf '%s\n' "$out" | grep -c '^None\.$')
-[ "$nones" = 5 ] && ok "every empty section reads None." || bad "every empty section reads None." "count=$nones"
+[ "$nones" = 6 ] && ok "every empty section reads None." || bad "every empty section reads None." "count=$nones"
 printf '%s\n' "$out" | grep -q 'No reasoning was received' && ok "absent reasoning says none was received" || bad "absent reasoning says none was received"
 out=$(facts '[]' | render)
 printf '%s\n' "$out" | grep -q "Predecessor" && bad "roadmap scope has no reasoning section" || ok "roadmap scope has no reasoning section"
@@ -103,12 +103,53 @@ H=$(holding parked "[$(pr OPEN "$VH" true)]")
 facts "[$H]" | report | jq -e '.changes | any(.what == "draft")' >/dev/null \
   && ok "a parked holding back in draft is a change" || bad "a parked holding back in draft is a change"
 
+# The pass's settle: a row left dispatching, its worker live, now dispatched.
+SETTLED='{"kind":"settle","status":"ok","settled":true,"reason":"","read_at":"2026-09-27T09:58:30Z"}'
+H=$(holding stuck "[$(host found), $SETTLED]" '{"dispatch_status": "dispatching", "pull_request": "", "verified_head": ""}')
+out=$(facts "[$H]" | report)
+printf '%s' "$out" | jq -e '.changes | any(.what == "dispatch status" and .recorded == "dispatching" and .live == "dispatched" and .grade == "measured")' >/dev/null \
+  && ok "a settled holding is a change, measured" || bad "a settled holding is a change, measured" "$out"
+printf '%s' "$out" | "$BASH" "$S" md | sed -n '/^## Changed since then/,/^## /p' | grep -q '`stuck`: settled: record said dispatching, the worker is live, and the record now says dispatched' \
+  && ok "the rendered report says the row was settled" || bad "the rendered report says the row was settled" "$(printf '%s' "$out" | "$BASH" "$S" md)"
+H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "ok", settled: false, reason: "the holding is dispatched now", read_at: "t"}')]" '{"dispatch_status": "dispatching", "pull_request": ""}')
+facts "[$H]" | report | jq -e '.changes | any(.what == "dispatch status") | not' >/dev/null \
+  && ok "a settle that found nothing to write is no change" || bad "a settle that found nothing to write is no change"
+# An earlier pass in this visit wrote the row but was stopped before its fact
+# was kept: the row already says dispatched, and that is still the change.
+H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "ok", settled: false, now: "dispatched", reason: "the holding is dispatched now", read_at: "t"}')]" '{"dispatch_status": "dispatching", "pull_request": ""}')
+facts "[$H]" | report | jq -e '.changes | any(.what == "dispatch status")' >/dev/null \
+  && ok "a row already dispatched by an earlier pass is still reported as changed" || bad "a row already dispatched by an earlier pass is still reported as changed"
+H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "ok", settled: false, now: "dispatch-failed", reason: "the holding is dispatch-failed now", read_at: "t"}')]" '{"dispatch_status": "dispatching", "pull_request": ""}')
+facts "[$H]" | report | jq -e '.changes | any(.what == "dispatch status") | not' >/dev/null \
+  && ok "a row now at another status is not reported as settled" || bad "a row now at another status is not reported as settled"
+H=$(holding stuck "[$(host found), $(jq -nc '{kind: "settle", status: "not_verified", reason: "the record refused the write", read_at: "t"}')]" '{"dispatch_status": "dispatching", "pull_request": ""}')
+facts "[$H]" | report | jq -e '(.changes | any(.what == "dispatch status") | not) and (.not_verified | any(.what == "stuck: settle" and .reason == "the record refused the write"))' >/dev/null \
+  && ok "a failed settle is not verified, and no change" || bad "a failed settle is not verified, and no change" "$(facts "[$H]" | report | jq -c '.not_verified')"
+
 echo "== next lines and waiting =="
 nx() { facts "[$1]" | report | jq -r '.holdings[0].next'; }
 check_next() { local got; got=$(nx "$2"); [ "$got" = "$3" ] && ok "$1" || bad "$1" "want '$3' got '$got'"; }
-check_next "merged -> drop"              "$(holding a "[$(pr MERGED "$VH")]")" "drop from holdings"
-check_next "closed -> decide"            "$(holding a "[$(pr CLOSED "$VH")]")" "decide: re-dispatch or drop"
+check_next "merged -> drop"              "$(holding a "[$(pr MERGED "$VH")]")" "merged; tear down its worker, which removes the row"
+# A confirmed merge clears the Pull request cell and keeps the row and its
+# Verified head until teardown (the shirabe#490 comment): a restart reads it
+# as merged and waiting for teardown, not as a pull request that appeared.
+MAT=$(holding mt "[$(jq -nc '{kind: "appeared", status: "ok", prs: [{number: 12, url: "https://github.com/acme/widgets/pull/12", state: "MERGED"}], read_at: "t"}'),$(host found)]" '{"pull_request": ""}')
+check_next "a merged row awaiting teardown -> tear down" "$MAT" "merged; tear down its worker, which removes the row"
+facts "[$MAT]" | report | jq -e '.holdings[0].state == "merged" and (.changes == []) and ([.table[] | select(.session == "mt")] == [])' >/dev/null \
+  && ok "a merged row awaiting teardown is no change and has no table row" || bad "a merged row awaiting teardown is no change and has no table row" "$(facts "[$MAT]" | report | jq -c '{h: .holdings[0], changes, table}')"
+OPN=$(holding op "[$(jq -nc '{kind: "appeared", status: "ok", prs: [{number: 12, url: "https://github.com/acme/widgets/pull/12", state: "OPEN"}], read_at: "t"}'),$(host found)]" '{"pull_request": "", "verified_head": ""}')
+facts "[$OPN]" | report | jq -e '.changes | any(.what == "pull request appeared")' >/dev/null \
+  && ok "an open pull request on a row with none is still reported as appeared" || bad "an open pull request on a row with none is still reported as appeared" "$(facts "[$OPN]" | report | jq -c '.changes')"
+check_next "closed -> the coordinator's call" "$(holding a "[$(pr CLOSED "$VH")]")" "with me: re-dispatch or drop"
 check_next "failing board -> worker fixes CI" "$(holding a "[$(pr OPEN "$VH"),$(board fails "$VH" "build: no runner")]")" "worker fixes CI"
+# A board whose job GitHub never started (shirabe#564) is not the worker's.
+NR=$(holding a "[$(pr OPEN "$LH"),$(board not-run "$LH" "Validate PR body (The job was not started because recent account payments have failed)")]")
+check_next "a board that never ran -> a person, not the worker" "$NR" "CI never ran; a person clears the cause and re-runs it, not the worker"
+facts "[$NR]" | report | jq -e '.holdings[0].next_code == "not_run" and (.holdings[0].board | startswith("not run: Validate PR body"))
+    and ([.table[] | select(.kind == "Blocked on you") | .session] == ["a"]) and ([.table[] | select(.kind == "Ongoing")] == [])' >/dev/null \
+  && ok "a board that never ran is blocked on a person in the table, with its reason" || bad "a board that never ran is blocked on a person in the table" "$(facts "[$NR]" | report | jq -c '{h: .holdings[0], table}')"
+NRF=$(holding a "[$(pr OPEN "$LH"),$(board not-run "$LH" "x"),$(board fails "$VH" "lint")]")
+check_next "a failing board still wins over one that never ran" "$NRF" "worker fixes CI"
 check_next "holding board at verified head -> ready to land" "$(holding a "[$(pr OPEN "$VH"),$(board holds "$VH")]")" "ready to land"
 check_next "a pending board at the verified head -> wait, not land" "$(holding a "[$(pr OPEN "$VH"),$(board pending "$VH")]")" "wait on worker"
 check_next "open otherwise -> wait on worker" "$(holding a "[$(pr OPEN "$LH"),$(board holds "$LH")]")" "wait on worker"
@@ -118,7 +159,7 @@ check_next "no PR, not found -> read again" "$(holding a "[$(host missed)]" '{"p
 MIX="[$(holding ready "[$(pr OPEN "$VH"),$(board holds "$VH")]"),$(holding closed "[$(pr CLOSED "$VH")]"),$(holding busy "[$(pr OPEN "$LH")]")]"
 SE='[{"row":{"action":"merge","target":"acme/widgets#7","verified_head":"'$VH'","attempted":"2026-09-26T09:00Z"},"fact":{"kind":"merge","verdict":"not_confirmed","reason":"file differs","status":"ok"}},{"row":{"action":"merge","target":"acme/widgets#8"},"fact":{"kind":"merge","verdict":"confirmed","status":"ok"}}]'
 w=$(facts "$MIX" "$SE" | report | jq -c '[.waiting[] | .topic] | sort')
-[ "$w" = '["acme/widgets#7","closed","ready"]' ] && ok "waiting lists ready-to-land, decide, and unconfirmed merges only" || bad "waiting lists ready-to-land, decide, and unconfirmed merges only" "$w"
+[ "$w" = '["acme/widgets#7","ready"]' ] && ok "waiting lists ready-to-land and unconfirmed merges only, not a closed pull request" || bad "waiting lists ready-to-land and unconfirmed merges only" "$w"
 
 echo "== grades =="
 out=$(facts "$MIX" "$SE" '[{"row":{"deferral":"d1","reason":"r","raised":"2026-09-20"},"disposed":false}]' | report)
@@ -177,6 +218,23 @@ L='{"kind":"leg","status":"ok","disposition":"resolved","result":"merged","read_
 out=$(facts "[$(holding a "[$P,$L]" '{"return_path":"leg req1:deliver"}')]" | render)
 printf '%s\n' "$out" | grep -q 'open (measured), merge state BLOCKED; leg resolved: merged (measured)' \
   && ok "the holding line carries the merge state and the leg's result beside the pull request state" || bad "merge state and leg beside the pull request state" "$out"
+# A leg spent before its worker reported, with the worker found and no pull
+# request: recoverable by replacing the leg, never a worker gone (shirabe#506).
+HF='{"kind":"host","status":"ok","state":"found","reads":1,"read_at":"2026-09-27T09:58:00Z"}'
+for spent in '{"kind":"leg","status":"ok","disposition":"resolved","source":"refused","result":"refused:private-repo","read_at":"t"}' \
+             '{"kind":"leg","status":"ok","disposition":"resolved","source":"explicit","result":"cancelled","read_at":"t"}' \
+             '{"kind":"leg","status":"ok","disposition":"abandoned","source":null,"result":"","read_at":"t"}'; do
+    SP=$(facts "[$(holding sp "[$HF,$spent]" '{"return_path":"leg req1:deliver","pull_request":"","verified_head":""}')]" | report)
+    printf '%s' "$SP" | jq -e '.holdings[0].next_code == "replace_leg" and ([.table[] | select(.session == "sp") | .kind] == ["Ongoing"])' >/dev/null \
+      && ok "a leg spent early ($(printf '%s' "$spent" | jq -r '.source // .disposition')) is recoverable: replace the leg" \
+      || bad "a leg spent early is recoverable" "$(printf '%s' "$SP" | jq -c '.holdings[0]')"
+done
+PROM='{"kind":"leg","status":"ok","disposition":"resolved","source":"promoted","result":"blocked","read_at":"t"}'
+facts "[$(holding pm "[$HF,$PROM]" '{"return_path":"leg req1:deliver","pull_request":"","verified_head":""}')]" | report \
+  | jq -e '.holdings[0].next_code == "wait"' >/dev/null && ok "a promoted result is the worker's report, not a leg spent early" || bad "a promoted result is not a leg spent early"
+HM='{"kind":"host","status":"ok","state":"missed","reads":2,"read_at":"2026-09-27T09:58:00Z"}'
+facts "[$(holding gone "[$HM,$(printf '%s' "$PROM" | jq -c '.source = "refused"')]" '{"return_path":"leg req1:deliver","pull_request":"","verified_head":""}')]" | report \
+  | jq -e '.holdings[0].next_code == "read_again"' >/dev/null && ok "a spent leg whose worker wasn't found is read again, not replaced" || bad "a spent leg with no worker found"
 LBAD='{"kind":"leg","status":"not_verified","reason":"request store not on this host"}'
 out=$(facts "[$(holding a "[$P,$LBAD]")]" | report)
 printf '%s' "$out" | jq -e '.holdings[0].leg == null and (.not_verified | any(.what == "a: leg" and .reason == "request store not on this host"))' >/dev/null \
@@ -187,6 +245,18 @@ D='[{"row":{"deferral":"d1","reason":"r1","raised":"2026-09-20"},"disposed":fals
 out=$(facts '[]' '[]' "$D" | report)
 printf '%s' "$out" | jq -e '([.deferrals[].deferral] == ["d1"]) and (.not_verified | any(.what == "deferral d3" and .reason == "issue read timed out"))' >/dev/null \
   && ok "a deferral whose check failed is not verified, not disposed or undisposed" || bad "deferral disposal failures" "$out"
+printf '%s' "$out" | jq -e '[.deferrals_disposed[] | {deferral, how}] == [{deferral: "d2", how: "filed #5"}]' >/dev/null \
+  && ok "a disposed deferral is reported with how it was disposed of (shirabe#552)" || bad "a disposed deferral is reported with how it was disposed of (shirabe#552)" "$out"
+D2='[{"row":{"deferral":"d1","reason":"r1","raised":"2026-09-20","disposition":""},"disposed":false,"how":"empty","status":"ok"},{"row":{"deferral":"d2","reason":"r2","raised":"2026-09-21","disposition":"closed: done"},"disposed":true,"how":"closed","status":"ok"},{"row":{"deferral":"d4","reason":"r4","raised":"2026-09-23","disposition":""},"disposed":true,"how":"raised this run","status":"ok"},{"row":{"deferral":"d3","reason":"r3","raised":"2026-09-22"},"status":"not_verified","reason":"the run start is not a time this check reads"}]'
+md=$(facts '[]' '[]' "$D2" | render)
+printf '%s\n' "$md" | grep -qx -- '- d1 (raised 2026-09-20): r1; open because it has no disposition (verified by reading).' \
+  && ok "an undisposed deferral says why it is open" || bad "an undisposed deferral says why it is open" "$md"
+printf '%s\n' "$md" | grep -qx -- '- d2 (raised 2026-09-21): closed (verified by reading).' \
+  && ok "a disposed deferral renders under Disposed deferrals with its disposition" || bad "a disposed deferral renders with its disposition" "$md"
+printf '%s\n' "$md" | grep -q -- "^- d4 (raised 2026-09-23): raised in this run" \
+  && ok "a deferral raised this run says so" || bad "a deferral raised this run says so" "$md"
+printf '%s\n' "$md" | grep -q -- '^- deferral d3: the run start is not a time this check reads' \
+  && ok "a deferral the check couldn't read says what it couldn't read" || bad "a deferral the check couldn't read says what it couldn't read" "$md"
 
 echo "== bound, raw output, identifiers =="
 HS=""
@@ -237,17 +307,17 @@ out=$(facts "$MIX" | report)
 printf '%s' "$out" | jq -e '[.holdings[].next_code] == ["land","decide","wait"]' >/dev/null \
   && ok "every holding carries a next_code token" || bad "every holding carries a next_code token" "$(printf '%s' "$out" | jq -c '[.holdings[].next_code]')"
 # A held holding (the record feature's `held` phase, 3891bf4): verified, with
-# the merge withheld by the human's direction. It waits on the human, not on
+# the merge stopped by a hold in the record. It waits on the hold, not on
 # its worker, and it is neither executing nor stale.
 HELD=$(holding th "[$(pr OPEN "$VH"),$(board holds "$VH")]" '{"phase":"held"}')
 out=$(facts "[$HELD]" | report)
 printf '%s' "$out" | jq -e '.holdings[0].phase == "held" and .holdings[0].next_code == "held" and ([.waiting[].topic] == ["th"]) and ([.not_verified[] | select(.what | test("phase"))] | length) == 0' >/dev/null \
   && ok "a held holding is verified and waits on the human, not on its worker" || bad "a held holding is verified and waits on the human" "$out"
-facts "[$HELD]" | render | grep -q "| Ready to merge | unit th | \`th\` | \\[#1\\](https://github.com/acme/widgets/pull/1) | held; .*| verified; merge withheld by the human's direction, waiting on them" \
-  && ok "the held line says the merge is withheld by the human's direction" || bad "the held line says the merge is withheld" "$(facts "[$HELD]" | render | grep th)"
+facts "[$HELD]" | render | grep -q "| Ready to merge | unit th | \`th\` | \\[#1\\](https://github.com/acme/widgets/pull/1) | held; .*| verified; merge stopped by a hold in the record (the land check names it)" \
+  && ok "the held line says a hold in the record stops the merge" || bad "the held line says the merge is withheld" "$(facts "[$HELD]" | render | grep th)"
 HELDM=$(holding tm "[$(pr MERGED "$VH")]" '{"phase":"held"}')
-facts "[$HELDM]" | report | jq -e '.holdings[0].next_code == "drop" and (.waiting | length) == 0' >/dev/null \
-  && ok "a held holding whose pull request merged since is dropped, not waited on" || bad "a held holding whose pull request merged since is dropped"
+facts "[$HELDM]" | report | jq -e '.holdings[0].next_code == "teardown" and (.waiting | length) == 0' >/dev/null \
+  && ok "a held holding whose pull request merged since goes to teardown, not waited on" || bad "a held holding whose pull request merged since goes to teardown"
 HELDF=$(holding tf "[$(pr OPEN "$VH"),$(board fails "$VH" "job lint")]" '{"phase":"HELD"}')
 facts "[$HELDF]" | report | jq -e '.holdings[0].next_code == "held"' >/dev/null \
   && ok "held is matched ignoring case, and the human's hold stands over the board" || bad "held is matched ignoring case"
@@ -263,8 +333,8 @@ T5=$(holding tm2 "[$(pr MERGED "$VH")]")
 T6=$(holding tl2 "[$(pr OPEN "$VH"),$(board holds "$VH")]")
 tbl=$(facts "[$T1,$T2,$T3,$T4,$T5,$T6]" | render | sed -n '/^## Where things stand$/,/^$/p')
 kinds=$(printf '%s\n' "$tbl" | awk -F' [|] ' '/^[|] [A-Z]/ && !/^[|] Kind/ {sub(/^[|] /, "", $1); print $1 ":" $3}' | tr '\n' ',')
-[ "$kinds" = 'Ready to merge:`tl1`,Ready to merge:`th2`,Ready to merge:`tl2`,Blocked on you:`td`,Ongoing:`tw`,Waiting to be assigned:N/A,' ] \
-  && ok "one table: ready to merge in record order, then blocked on you, ongoing, waiting to be assigned" || bad "one table in the four kinds' order" "$kinds"
+[ "$kinds" = 'Ready to merge:`tl1`,Ready to merge:`th2`,Ready to merge:`tl2`,Ongoing:`tw`,Ongoing:`td`,Waiting to be assigned:N/A,' ] \
+  && ok "one table: ready to merge in record order, then ongoing (a closed pull request included), waiting to be assigned" || bad "one table in the four kinds' order" "$kinds"
 printf '%s\n' "$tbl" | grep -q '^| Kind | Unit | Session | PR | Status | Next or needs |$' && ok "the table's columns are Kind, Unit, Session, PR, Status, Next or needs" || bad "the table's columns" "$tbl"
 printf '%s\n' "$tbl" | grep -q 'tm2' && bad "a merged holding has no row" "$tbl" || ok "a merged holding has no row"
 [ "$(printf '%s\n' "$tbl" | grep -c '^[|]')" = 8 ] && ok "every row is a table row, header and separator included" || bad "every row is a table row" "$tbl"
@@ -273,6 +343,19 @@ facts "[$NY]" | render | grep -q '^| Ongoing | unit tn | `tn` | none yet | ' && 
 printf '%s\n' "$tbl" | grep -q '^| Waiting to be assigned | N/A | N/A | N/A | ' && ok "N/A is kept for cells that cannot apply" || bad "N/A is kept for cells that cannot apply" "$tbl"
 PIPE=$(holding tp "[$(pr OPEN "$VH")]" '{"unit":"a | b"}')
 facts "[$PIPE]" | render | grep -q '| a \\| b |' && ok "a pipe inside a cell is escaped" || bad "a pipe inside a cell is escaped" "$(facts "[$PIPE]" | render | grep tp)"
+
+# Blocked on you holds only escalated decision entries and reserved steps.
+DEC='[{"decision":"4","question":"Ship without the arm64 build?","recommendation":"wait","reason":"the release requires it","target":"a person"},
+      {"decision":"5","question":"Adopt the new schema?","recommendation":"adopt","reason":"r","target":"coordinator schema-rr"}]'
+dt=$(facts "[$(holding tc "[$(pr CLOSED "$VH")]")]" | jq -c --argjson d "$DEC" '.decisions = $d' | render | sed -n '/^## Where things stand$/,/^$/p')
+printf '%s\n' "$dt" | grep -qF '| Blocked on you | Ship without the arm64 build? | N/A | N/A | decide | recommended: wait, because the release requires it |' \
+  && ok "an escalation to a person is a Blocked on you row with its recommendation and reason" || bad "an escalation to a person is a Blocked on you row" "$dt"
+printf '%s\n' "$dt" | grep -qF '| Ongoing | Adopt the new schema? | N/A | N/A | with `schema-rr` for a decision |' \
+  && ok "an escalation to a coordinator is Ongoing" || bad "an escalation to a coordinator is Ongoing" "$dt"
+printf '%s\n' "$dt" | grep -q '^| Ongoing | .* | `tc` | .* | with me: re-dispatch or drop |' \
+  && ok "a closed pull request's holding is Ongoing, with me: re-dispatch or drop" || bad "a closed pull request's holding is Ongoing" "$dt"
+[ "$(printf '%s\n' "$dt" | grep -c '^| Blocked on you |')" = 1 ] \
+  && ok "Blocked on you holds only the escalation to a person" || bad "Blocked on you holds only the escalation to a person" "$dt"
 
 echo "== what the human reads =="
 # A pull request is a link, a worker is inline code, and no commit hash
@@ -331,7 +414,7 @@ printf '%s' "$out" | report | jq -e '.not_verified | any(.what == "t7: inventory
   && ok "an inventory not taken is listed as not verified" || bad "an inventory not taken is listed as not verified"
 facts '[]' '[{"row":{"action":"merge","target":"acme/widgets#3"}}]' | report | jq -e '.side_effects[0].code == "not_rechecked" and .side_effects[0].grade == "inferred"' >/dev/null \
   && ok "a side effect with no fact is not re-checked" || bad "a side effect with no fact is not re-checked"
-check_next "a lowercase merged state still drops" "$(holding a "[$(pr merged "$VH")]")" "drop from holdings"
+check_next "a lowercase merged state still drops" "$(holding a "[$(pr merged "$VH")]")" "merged; tear down its worker, which removes the row"
 
 echo "== purity =="
 EMPTYBIN=$(mktemp -d)

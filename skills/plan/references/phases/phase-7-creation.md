@@ -4,23 +4,6 @@ Create the PLAN artifact and, when the resolved tracking level asks for them,
 GitHub issues and a milestone. The branch taken depends on `execution_mode`
 (`multi-pr`, `single-pr`, or `coordinated`).
 
-When the input is a roadmap, **do not** re-drive this phase to fill the
-roadmap's reserved sections by prose substitution -- that path is retired.
-The roadmap workflow now ships its own native CLI subcommand,
-`shirabe roadmap populate`, that reads the Features section using the
-shared `shirabe-validate` parser and writes the reserved sections by
-structural section replacement. Its issue-creating mode also creates one
-GitHub issue per feature with discrete `gh issue create` args. Invoke it
-via `/roadmap populate <path> --issues` to file issues, or
-`/roadmap populate <path> --no-issues` to render the sections without
-touching GitHub; always name the mode rather than relying on the
-subcommand's default (see `skills/roadmap/SKILL.md`).
-
-The `input_type: roadmap` branch in this phase remains only for the case
-where a PLAN document is being produced from a roadmap upstream (i.e., the
-author still wants the conventional PLAN artifact for a roadmap-scoped
-slice). It no longer rewrites the roadmap document itself.
-
 ## Table of Contents
 
 - [Resume Check](#resume-check)
@@ -43,9 +26,7 @@ what you want -- `--issues` to file GitHub issues, `--no-issues` to
 render the sections without them. Do not leave the mode to the
 subcommand's default.
 
-Check if `docs/plans/PLAN-<topic>.md` exists.
-
-**For all other input types**: Check if `docs/plans/PLAN-<topic>.md` exists.
+**For every input type**: Check if `docs/plans/PLAN-<topic>.md` exists.
 
 | Existing Status | Action |
 |-----------------|--------|
@@ -80,9 +61,15 @@ flag > CLAUDE.md `## Tracking Level: none|issues|issues-and-milestone` > default
 
 Where a level is stated it applies regardless of `execution_mode`. Where none is
 stated, the default is derived from the mode -- `issues-and-milestone` for
-`multi-pr`, `none` for `single-pr` and for `coordinated` -- which for single-pr
-and multi-pr is the behavior every repo has today. An unrecognized value falls
-through to that default rather than being used.
+`multi-pr`, `none` for `single-pr` and for `coordinated`. An unrecognized value
+falls through to that default rather than being used.
+
+**Under `--auto` the stack ends at CLAUDE.md.** An unattended run files only at
+a level the repository's `## Tracking Level:` header declares, so with no
+`issues` or `issues-and-milestone` header the level is `none`, whatever the mode
+default would have been: a `multi-pr` PLAN under `--auto` in a repository that
+declares nothing is written with outlines and files nothing. See "Filing
+approval" below.
 
 `coordinated` follows the same stack, with `none` as its default, and step 3.6's
 step 5a has already resolved it into the decomposition artifact's
@@ -92,8 +79,10 @@ included. The field is what selects the PLAN's shape downstream: the validator
 and the task extractor read a coordinated PLAN as outline-shaped only at an
 explicit `tracking_level: none`, and read one with no field as issue-carrying.
 
-Write the resolved value into the PLAN's `tracking_level` frontmatter field. This
-is load-bearing rather than bookkeeping: task extraction runs against a committed
+Write the resolved value into every PLAN's `tracking_level` frontmatter field,
+`none` included. A `multi-pr` PLAN with no field is read as issue-carrying, so a
+multi-pr PLAN written with outlines at `none` that omits it fails both the
+validator and a parent's filing check. This is load-bearing rather than bookkeeping: task extraction runs against a committed
 PLAN, possibly long after authoring, and if it re-resolved the level from
 CLAUDE.md then a repo that later changed its header would silently change how an
 already-written plan's work items key.
@@ -108,9 +97,41 @@ The resolved level, not the mode, decides what gets created:
 
 Every combination of `{single-pr, multi-pr, coordinated}` and the three levels
 is reachable. A `single-pr` PLAN with `issues` files them; a `multi-pr` PLAN with
-`none` files nothing; a `coordinated` PLAN files nothing at its default `none`
-and files issues, behind an explicit approval, only at `issues` or
-`issues-and-milestone`.
+`none` files nothing; a `coordinated` PLAN files nothing at its default `none`.
+Whatever the mode, a PLAN files only behind the filing approval below.
+
+### Filing approval (every path that files)
+
+Filing creates remote artifacts, so every path that files issues or a milestone
+runs this step first, **before the first `gh issue create` or milestone call**:
+the multi-pr branch's 7.1, a single-pr PLAN at a stated `issues` or
+`issues-and-milestone` level (which runs that same 7.1), and the coordinated
+branch's 7.C2. A PLAN at `none` files nothing and skips it. The rule is
+recorded in `docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md`.
+
+- **Interactive:** ask with AskUserQuestion, naming the number of issues, the
+  repositories they will be filed in, and whether a milestone will be created:
+
+  ```
+  The tracking level for this PLAN is <issues|issues-and-milestone>, so Phase 7
+  will file <N> GitHub issues in <owner/repo>[, ...]<and create the milestone
+  "<Milestone Name>">.
+
+  - File them now (Recommended)
+  - Don't file: write the PLAN at tracking level none, with outlines instead
+  ```
+
+  On "Don't file", set the tracking level to `none` and write the PLAN in its
+  outline form: the multi-pr branch's 7.2 at `none`, the single-pr branch's
+  7.1, or 7.C3's outline-shaped branch.
+- **`--auto`:** nobody can be asked, so the repository's CLAUDE.md stands in
+  for the approval. File only when its `## Tracking Level:` header declares
+  `issues` or `issues-and-milestone` at or above the level this PLAN files at
+  (`issues-and-milestone` covers both; `issues` covers issues without a
+  milestone), and record a decision block in the run's decisions file (the
+  one the `--auto` flag creates) naming the level, the header it came from, and the issues to be filed. With
+  no such header, file nothing: set the level to `none` and write the work
+  items as outlines, as the interactive "Don't file" does.
 
 ---
 
@@ -119,7 +140,8 @@ and files issues, behind an explicit approval, only at `issues` or
 Steps 7.1 through 7.4 apply when `execution_mode: multi-pr`.
 
 **Gated on the resolved tracking level, not on the mode.** Run 7.1 only when the
-level is `issues` or `issues-and-milestone`; under `none`, skip to 7.2 and write
+level is `issues` or `issues-and-milestone`, and only after the filing approval
+above; under `none`, skip to 7.2 and write
 the PLAN with its work items in an `## Issue Outlines` section, exactly as the
 single-pr branch does. Under `issues`, create the issues without a milestone --
 pass no `--milestone` flag to the batch script.
@@ -204,9 +226,6 @@ Complexity labels are applied via: `${CLAUDE_SKILL_DIR}/scripts/apply-complexity
 
 ### 7.2 Write Output Artifact
 
-Write the PLAN artifact. (This phase no longer rewrites a roadmap document
-itself; for roadmap input, see the redirect above.)
-
 #### 7.2b Write PLAN Artifact
 
 Create `docs/plans/PLAN-<topic>.md` with the following structure.
@@ -221,6 +240,7 @@ execution_mode: multi-pr
 split_mode_source: <flag | intent | default>   # from the decomposition artifact
 split_rationale: |                             # from the decomposition artifact
   <branch>. <rationale>
+tracking_level: <none | issues | issues-and-milestone>   # always written
 upstream: <source-doc-path>   # design doc, PRD, or roadmap path
 milestone: "<Milestone Name>"
 issue_count: <N>
@@ -245,15 +265,6 @@ citing the design.** Where an issue's shape or its position in the sequence
 follows from a decision the design made, say which decision and why it forces
 that shape — not `per the DESIGN`, but the reasoning that makes this
 decomposition the right one.
-
-A plan whose strategy section only points at its design cannot fold that design,
-because the design genuinely still holds reasoning the plan does not. That is the
-right outcome when the design settled something contested. It is the wrong one
-when the design's whole contribution was deciding what order to do things in and
-the plan now encodes exactly that — which is the common case for a self-contained
-fix, and the case this matters for. `/scope` composes the design's contribution
-section from *this document's* body when it folds, so the material has to be here
-first.
 
 **Required sections** (in order):
 
@@ -318,7 +329,8 @@ Steps 7.1 through 7.2 apply when `execution_mode: single-pr`.
 **Gated on the resolved tracking level, not on the mode.** Under the default
 (`none` for single-pr) no GitHub milestone or issues are created, which is
 today's behavior. Under a stated `issues` or `issues-and-milestone`, run the
-multi-pr branch's 7.1 to create them, then continue here.
+filing approval above and, when it approves, the multi-pr branch's 7.1 to
+create them, then continue here.
 
 ### 7.1 Write PLAN Artifact
 
@@ -327,9 +339,8 @@ Create `docs/plans/PLAN-<topic>.md` with the following structure.
 PLANs whose activation creates no GitHub artifacts are authored directly at
 `status: Active`: the Draft -> Active transition auto-fires as authoring
 completes under the unified PLAN lifecycle. An activation that **will** create
-GitHub issues requires human approval first, whatever the `execution_mode` --
-the gate tracks the remote artifacts, not the mode. See the approval-gate rule in
-`skills/plan/SKILL.md`.
+GitHub issues requires the filing approval above first, whatever the
+`execution_mode` -- the gate tracks the remote artifacts, not the mode.
 A committed single-pr PLAN that lands on a branch at `status: Draft`
 is a violation — the chain-aware `--lifecycle` check fails on it.
 
@@ -341,24 +352,15 @@ schema: plan/v1
 status: Active
 execution_mode: single-pr
 split_mode_source: none   # from the decomposition artifact
+tracking_level: none      # or the stated filing level
 upstream: <design-doc-path>
 milestone: "<Milestone Name>"
 issue_count: <N>
 ---
 ```
 
-When `--upstream <roadmap-path>` was supplied, `upstream:` is a sequence: the
-source document first, the ROADMAP second. The PLAN is the node that records
-the crossing from the strategic chain into the tactical one, because it is a
-working artifact the cascade deletes -- and deletes before the roadmap -- so
-the link cannot outlive its target. No durable document in the chain may name
-a roadmap.
-
-```yaml
-upstream:
-  - <source-doc-path>
-  - docs/roadmaps/ROADMAP-<name>.md
-```
+A `--upstream <roadmap-path>` makes `upstream:` a sequence, exactly as in the
+multi-pr branch's 7.2b.
 
 **Required sections** (in order):
 
@@ -369,10 +371,11 @@ upstream:
    - **Goal** -- what the issue delivers
    - **Acceptance Criteria** -- how to verify completion
    - **Dependencies** -- which internal IDs this blocks on
-5. **Dependency Graph** -- same Mermaid format as multi-pr, but nodes use internal IDs (`I1`, `I2`, ...) instead of GitHub issue numbers. Same `classDef` rules apply.
-6. **Implementation Sequence** -- critical path, parallelization opportunities, recommended order
+5. **Implementation Sequence** -- critical path, parallelization opportunities, recommended order
 
-No Implementation Issues table in single-pr mode.
+No Implementation Issues table and no Dependency Graph in single-pr mode: one
+pull request has no inter-PR order to draw, and the validator's FC14 reports a
+populated `## Dependency Graph` in a single-pr PLAN.
 
 ### 7.2 Suggest Next Steps
 
@@ -397,34 +400,11 @@ coordination PR -- `/execute` does that when it runs the PLAN.
   items live only in the PLAN's Issue Outlines.
 - **`issues` or `issues-and-milestone`:** run 7.C1, then 7.C2, then 7.C3.
 
-The multi-pr and single-pr branches above are unchanged; the approval step in
-7.C1 exists only on this coordinated filing path.
-
 ### 7.C1 Filing Approval (tracking level `issues` or `issues-and-milestone` only)
 
-Filing creates remote artifacts, so it runs only after an explicit approval,
-**before the first `gh issue create`**:
-
-- **Interactive:** ask with AskUserQuestion, naming the number of issues, the
-  repositories they will be filed in, and whether a milestone will be created:
-
-  ```
-  The tracking level for this coordinated PLAN is <issues|issues-and-milestone>,
-  so Phase 7 will file <N> GitHub issues in <owner/repo>[, ...]<and create the
-  milestone "<Milestone Name>">.
-
-  - File them now (Recommended)
-  - Don't file: write the PLAN at tracking level none, with outlines instead
-  ```
-
-  On "Don't file", set the tracking level to `none` and continue at 7.C3's
-  outline-shaped branch.
-- **`--auto`:** do not prompt. Resolve the approval per
-  `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` -- a stated tracking
-  level in `CLAUDE.md` is the repository's standing instruction to file, so the
-  resolution is to file -- and record a decision block in
-  `wip/plan_<topic>_decisions.md` naming the level, where it came from, and the
-  issues to be filed. Then continue to 7.C2.
+Run the shared "Filing approval (every path that files)" step above. On approval,
+continue to 7.C2; otherwise the level is `none`, so continue at 7.C3's
+outline-shaped branch.
 
 ### 7.C2 Create GitHub Issues (tracking level `issues` or `issues-and-milestone` only)
 
@@ -485,7 +465,8 @@ sections, in order:
    followed by one `### Gate: <name>` block per declared gate, with
    `**After**:`, `**Before**:`, and `**Condition**:` lines, in the form
    `../quality/plan-doc-structure.md` documents under "Coordinated Mode".
-5. **Dependency Graph** -- same Mermaid rules as single-pr, nodes `I1`, `I2`, ...
+5. **Dependency Graph** -- same Mermaid rules as the multi-pr branch's 7.2b, but
+   nodes use internal IDs (`I1`, `I2`, ...) instead of GitHub issue numbers
 6. **Implementation Sequence**
 
 No `## Implementation Issues` table: the validator treats a coordinated PLAN at
@@ -530,36 +511,10 @@ git grep -nE 'wip/' -- 'docs/plans/PLAN-<topic>.md'
 #    sequence -- a PLAN under a roadmap names its design and that roadmap --
 #    and every entry is read, not just the first.
 shirabe validate 'docs/plans/PLAN-<topic>.md'
-
-# 3. Whether the upstream is at a status a PLAN may be built from.
-shirabe validate --lifecycle-chain 'docs/plans/PLAN-<topic>.md'
 ```
 
-`shirabe validate` is the reader here rather than a hand-written grep, and
-that is deliberate: a scalar-only reader returns nothing for a sequence and
-then reports "no upstream field", which silently skips the check for exactly
-the PLANs that carry two entries. One normalizer in the validator enumerates
-both written shapes and feeds every reader of the field, so the document that
-passes is the document the extractor reads.
-
-What the two invocations check between them: the required frontmatter fields
-(`schema`, `status`, `execution_mode`, `milestone`, `issue_count`), the
-required sections and the single-pr / multi-pr mutual exclusions, the outline
-shapes task extraction depends on, and -- under `R6` -- that each `upstream:`
-entry exists on disk, is tracked by git, is not a symlink, and does not
-resolve outside the repository. The last two matter because the value reaches
-a committed frontmatter field: a symlinked upstream resolves to different
-content for different readers, and one escaping the tree names something no
-other clone has. The git invocation passes every path after `--`, so a value
-beginning with a dash is a pathspec rather than an option. Validation is not
-the guarantee there; the argument boundary is.
-
-A single earlier bash pre-flight used to run here and answered the upstream
--status question differently from the lifecycle check, accepting an upstream
-at `Accepted` and rejecting one at `Current`. The lifecycle model's rule is
-the surviving one: `/plan` moves the upstream DESIGN from `Accepted` to
-`Planned` while authoring the PLAN, so a PLAN still naming an `Accepted`
-DESIGN is evidence that transition did not run.
+The chain's status check runs after 7.5's transition, not here: it holds an
+`Active` PLAN's DESIGN to `Planned`, which only 7.5 makes true.
 
 **Match handling:**
 
@@ -582,7 +537,7 @@ DESIGN is evidence that transition did not run.
   local path to resolve, so confirm visibility direction by hand against
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` (public repos
   must not reference private repos). A `ROADMAP-` entry is held to `Active`
-  by the lifecycle chain check: a roadmap is Active for as long as any of
+  by the lifecycle chain check that runs after 7.5's transition: a roadmap is Active for as long as any of
   its features is still being built, which is the whole window in which a PLAN
   naming it exists.
 - **An exit 4 means the PLAN was not checked at all.** The filename routed it
@@ -592,15 +547,6 @@ DESIGN is evidence that transition did not run.
 
 **STOP if any check fails.** Fix the PLAN doc and re-run before proceeding to
 status transition.
-
-**Worked example (the failure mode this step prevents).** A planning agent
-authoring a multi-issue decomposition writes an acceptance criterion that
-says "the PR description is committed to `wip/PR-<topic>.md`." On the same
-branch, another acceptance criterion says "clean up any leftover `wip/`
-artifacts before merge." Both criteria get committed into the PLAN doc body.
-The cleanup commit deletes the wip/ file but leaves the PLAN's prose
-reference pointing at it -- the PLAN is now self-contradictory and contains
-a path that resolves to nothing.
 
 ### 7.5 Source Document Status Transition
 
@@ -618,9 +564,26 @@ shirabe transition <design-doc-path> Planned
 - Do NOT modify the design doc body
 - Only the status line changes (Accepted -> Planned)
 
+**For topic input** (input_type: topic): there is no source document, so
+nothing is transitioned.
+
 **For roadmaps** (input_type: roadmap):
 
 Roadmaps stay at "Active" status. The PLAN artifact tracks the planning work, but the roadmap itself isn't transitioned -- it remains Active until all features are delivered. No status change is needed.
+
+This step is the only place `/plan` moves its upstream DESIGN, on a direct run
+and under a parent's sentinel alike; Phase 1 never transitions it.
+
+**Then check the chain**, from the repo root:
+
+```bash
+shirabe validate --lifecycle-chain 'docs/plans/PLAN-<topic>.md'
+```
+
+It confirms every upstream is at a status a PLAN may be built from: an `Active`
+PLAN over a DESIGN still at `Accepted` fails `L01`, so a failure here usually
+means the transition above did not run. **STOP if it fails**, fix the cause,
+and re-run before cleanup.
 
 ### 7.6 Cleanup
 
@@ -695,7 +658,13 @@ Run `/execute docs/plans/PLAN-<topic>.md` to begin implementation.
 
 ### 7.8 Upstream Issue Update
 
-Ask the user if there's an upstream issue that should be updated:
+**Skip this step under `/scope`'s `parent_orchestration:` sentinel**: ask
+nothing and run no `gh issue edit`. It is a routing prompt and a GitHub write,
+and under `/scope` both belong to the parent (shape 6, Parent-owned-publishing,
+in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`; recorded in
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`).
+
+Otherwise, ask the user if there's an upstream issue that should be updated:
 
 ```
 Is there an upstream issue that should be updated to link to these newly created issues?
@@ -725,20 +694,25 @@ If yes, provide the issue reference in <owner>/<repo>#<number> format.
 
 **Visibility rule**: Public issues must NEVER reference private issues. Only private issues can reference public issues.
 
-**Strategic scope note:** After creating the milestone and issues, note that these are placeholder issues with `needs-design` label. The user should run `/work-on` on individual issues to create tactical designs when ready.
+**Strategic scope note:** When the milestone and issues were filed, note that these are placeholder issues with `needs-design` label. The user should run `/work-on` on individual issues to create tactical designs when ready.
 
 ## Quality Checklist
 
 Before completing:
 - [ ] PLAN artifact created at `docs/plans/PLAN-<topic>.md`
 - [ ] Frontmatter includes all required fields (`schema`, `status`, `execution_mode`, `milestone`, `issue_count`)
-- [ ] multi-pr: all issues created, milestone assigned, status is Active
+- [ ] multi-pr: status is Active; at a filing level, all issues created (and the
+  milestone assigned at `issues-and-milestone`); at `none`, outlines and nothing filed
+- [ ] any PLAN that filed: the filing approval ran before the first
+  `gh issue create`, and under `--auto` the level came from a CLAUDE.md
+  `## Tracking Level:` header that covers it
 - [ ] coordinated: `tracking_level` written; at `none` no `gh issue` or milestone
   call ran and every outline carries `**Repo**:` and `**Group**:`; at `issues`
   levels the filing was approved before the first `gh issue create`
 - [ ] PLAN doc reference hygiene (step 7.4b) passed: no `wip/...` paths in
   frontmatter or body prose; `upstream:` resolves on disk or is a valid
   public cross-repo reference
+- [ ] The lifecycle-chain check passed after 7.5's transition
 
 ## Next Phase
 

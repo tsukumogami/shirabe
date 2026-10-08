@@ -63,9 +63,11 @@ bl_scrub() {
 }
 
 # bl_gh <out> <gh args...>: one read, stdin from /dev/null, stdout to <out>,
-# stderr to <out>.err. At most two attempts, 1 s apart; a 404 isn't retried.
-# Returns 0 read; 1 failed, with <out>.fail holding `deadline`, `notfound` or
-# `read`.
+# stderr to <out>.err. At most two attempts, 1 s apart; a 404 isn't retried,
+# and neither is a refusal (HTTP 403, or GraphQL's "Resource not accessible",
+# which gh reports without a status): the token can't read that source, and a
+# second attempt won't change it. Returns 0 read; 1 failed, with <out>.fail
+# holding `deadline`, `notfound`, `refused` or `read`.
 bl_gh() {
     local out=$1 attempt=1 rc remain pid wd
     shift
@@ -88,6 +90,7 @@ bl_gh() {
         if [ "$(bl_left)" -le 0 ]; then echo deadline > "$out.fail"; return 1; fi
         bl_scrub < "$out.err" | sed "s/^/$PROG: gh: /" >&2
         if grep -q 'HTTP 404' "$out.err" 2>/dev/null; then echo notfound > "$out.fail"; return 1; fi
+        if grep -Eq 'HTTP 403|Resource not accessible' "$out.err" 2>/dev/null; then echo refused > "$out.fail"; return 1; fi
         if [ "$attempt" -ge 2 ]; then echo read > "$out.fail"; return 1; fi
         attempt=2
         sleep 1
@@ -131,7 +134,9 @@ bl_seal() {
 # is #<pr>, from the Holdings row whose Pull request cell links it (read live
 # through record-holding.sh). A token carries only the number, so the record
 # says where it lives; no row, or rows naming #<pr> in two repositories, is a
-# failure rather than a guess. Returns 0 printed; 2 otherwise.
+# failure rather than a guess. Returns 0 printed; 1 no row links #<pr>; 3
+# rows link #<pr> in two or more repositories; 4 the one row's repository
+# isn't owner/repo; 2 the holdings couldn't be read.
 bl_unit_repo() {
     local rows repos n
     rows=$(bash "$HERE/record-holding.sh" --session "$1" --list) || {
@@ -140,11 +145,15 @@ bl_unit_repo() {
         [.[]? | .pull_request // "" | pr_link | select(.number == $n) | .repo] | unique | .[]') || {
         echo "$PROG: the holdings list is not JSON" >&2; return 2; }
     n=$(printf '%s' "$repos" | grep -c . )
-    if [ "$n" -ne 1 ]; then
-        echo "$PROG: $n holdings link pull request #$2; can't tell its repository" >&2
-        return 2
+    if [ "$n" -eq 0 ]; then
+        echo "$PROG: no holding links pull request #$2; can't tell its repository" >&2
+        return 1
     fi
-    bl_repo_ok "$repos" || return 2
+    if [ "$n" -gt 1 ]; then
+        echo "$PROG: holdings link pull request #$2 in $n repositories; can't tell which" >&2
+        return 3
+    fi
+    bl_repo_ok "$repos" || { echo "$PROG: the holding for #$2 links [$repos], not owner/repo" >&2; return 4; }
     printf '%s\n' "$repos"
 }
 
@@ -287,4 +296,172 @@ bl_merge_compare() {
     done
     rm -rf "$d"
     echo "$result"
+}
+
+# bl_reviewed_fresh <repo> <base-branch> <reviewed> <head>: is the head the
+# reviewed head, or that head plus merge-ins of the base branch and nothing
+# else? (docs/designs/current/DESIGN-coordinate-merge-policy.md, Decision 2.)
+# Walks the head's first-parent chain toward <reviewed>; at each commit C it
+# needs two parents P1 and P2, P2 already on the base branch (the comparison
+# of the base with P2 reads behind or identical), and the files C changed
+# against P1 among the files the base changed from its merge base with P1 to
+# P2. Prints `fresh` or `stale <reason>`, the reason one of not-a-merge,
+# not-on-base, files, too-many-merges or too-many-files. Returns 0 printed;
+# 2 a read failed.
+BL_MAX_MERGEINS=10
+bl_reviewed_fresh() {
+    local repo=$1 base=$2 r=$3 c=$4 d n=0 p1 p2 st
+    if [ "$r" = "$c" ]; then echo fresh; return 0; fi
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-fresh.XXXXXX") || return 2
+    while [ "$c" != "$r" ]; do
+        n=$((n + 1))
+        if [ "$n" -gt "$BL_MAX_MERGEINS" ]; then rm -rf "$d"; echo "stale too-many-merges"; return 0; fi
+        bl_gh "$d/c" api --method GET "repos/$repo/commits/$c" || { rm -rf "$d"; return 2; }
+        if [ "$(jq -r '.parents | length' "$d/c")" != 2 ]; then rm -rf "$d"; echo "stale not-a-merge"; return 0; fi
+        p1=$(jq -r '.parents[0].sha' "$d/c")
+        p2=$(jq -r '.parents[1].sha' "$d/c")
+        if ! bl_sha_ok "$p1" || ! bl_sha_ok "$p2"; then
+            echo "$PROG: commit $c has malformed parents" >&2; rm -rf "$d"; return 2
+        fi
+        bl_gh "$d/b" api --method GET "repos/$repo/compare/$base...$p2" || { rm -rf "$d"; return 2; }
+        st=$(jq -r '.status // ""' "$d/b")
+        case "$st" in behind|identical) ;; *) rm -rf "$d"; echo "stale not-on-base"; return 0 ;; esac
+        bl_gh "$d/m" api --method GET "repos/$repo/compare/$p1...$p2" || { rm -rf "$d"; return 2; }
+        bl_gh "$d/x" api --method GET "repos/$repo/compare/$p1...$c" || { rm -rf "$d"; return 2; }
+        if [ "$(jq '.files // [] | length' "$d/m")" -ge 300 ] || [ "$(jq '.files // [] | length' "$d/x")" -ge 300 ]; then
+            rm -rf "$d"; echo "stale too-many-files"; return 0
+        fi
+        if [ "$(jq -n --slurpfile m "$d/m" --slurpfile x "$d/x" \
+                '([$x[0].files[]?.filename] - [$m[0].files[]?.filename]) | length')" != 0 ]; then
+            rm -rf "$d"; echo "stale files"; return 0
+        fi
+        c=$p1
+    done
+    rm -rf "$d"
+    echo fresh
+}
+
+# bl_holds_on <session> <repo> <pr>: the record's holds on <repo>#<pr>, each
+# evaluated live (docs/designs/current/DESIGN-coordinate-merge-policy.md,
+# Decision 6), printed as a JSON array of the hold's row plus `state`:
+#   met         `lifted` with a Lifted cell; `merged R#m` with R#m MERGED;
+#               `tag R T` with the tag on R
+#   unmet       otherwise
+#   unreadable  the condition's read failed (a refusal, a server error, a
+#               missing pull request), other than a missing tag
+# The record is read live, as bl_human_holds_merge reads it. Returns 0
+# printed; 2 the record couldn't be read or parsed, or a read ran out of the
+# check's time (the tick re-runs it rather than call the hold unreadable).
+bl_holds_on() {
+    local s=$1 repo=$2 pr=$3 d
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-holds.XXXXXX") || return 2
+    bl_record_parsed "$s" "$d/parsed" || { rm -rf "$d"; return 2; }
+    bl_holds_eval "$d/parsed" "$repo" "$pr"
+    local rc=$?
+    rm -rf "$d"
+    return $rc
+}
+
+# bl_record_parsed <session> <out>: the run's record, read live and parsed
+# (record-parse.sh's JSON) into <out>, for the holds and the pauses. Returns 0
+# written; 2 the record couldn't be read or parsed.
+bl_record_parsed() {
+    local s=$1 out=$2 facts rrepo ref scope name c
+    facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s") || return 2
+    rrepo=$(printf '%s' "$facts" | jq -r '.repo // ""')
+    ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
+    scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
+    name=$(printf '%s' "$facts" | jq -r '.name // ""')
+    bl_repo_ok "$rrepo" && bl_pr_ok "$ref" || return 2
+    case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
+    bl_gh "$out.rec" api --method GET "repos/$rrepo/issues/$ref" || return 2
+    jq -r '.body // ""' "$out.rec" | bash "$HERE/record-parse.sh" --container "$c" --expect-scope "$scope:$name" - > "$out" \
+        || { echo "$PROG: the record couldn't be parsed" >&2; return 2; }
+}
+
+# bl_pauses_on <parsed-record-file> <repo> <pr>: the record's pauses as
+# pause-read.sh evaluates them, for the unit of the Holdings row whose pull
+# request is <repo>#<pr>, printed as pause-read.sh's JSON plus `unit` and
+# `paused` (the id of the pause that holds that unit, or null)
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1). Returns 0
+# printed; 2 the file couldn't be read or a condition's read ran out of time.
+bl_pauses_on() {
+    local f=$1 repo=$2 pr=$3 unit
+    unit=$(jq -r --arg r "$repo" --arg n "$pr" \
+        '[.holdings[] | select(.pull_request | test("^\\[#" + $n + "\\]\\(https://github\\.com/" + ($r | gsub("\\."; "\\.")) + "/pull/" + $n + "\\)$"; "i")) | .unit][0] // ""' "$f") || return 2
+    jq '{standing: (.standing // [])}' "$f" > "$f.standing" || return 2
+    jq -nc --arg u "$unit" 'if $u == "" then [] else [$u] end' > "$f.units" || return 2
+    bash "$HERE/pause-read.sh" --standing "$f.standing" --units "$f.units" > "$f.pauses" || return 2
+    jq -c --arg u "$unit" '. + {unit: $u, paused: (if $u == "" then .all else .covers[$u] end)}' "$f.pauses"
+}
+
+# bl_condition_state <until> <scratch-dir>: one hold or pause condition, read
+# live, printed as `met`, `unmet` or `unreadable`:
+#   lifted          unmet: only the row's own state (a Lifted cell, or a
+#                   Standing row ended) ends it, and the caller reads that
+#   time <T>        met once the host clock in UTC reaches minute T (BL_NOW,
+#                   YYYY-MM-DDTHH:MMZ, stands in for the clock in tests)
+#   merged R#m      met when R#m reads MERGED
+#   tag R T         met when the tag exists on R
+# A read that fails (a refusal, a server error, a missing pull request),
+# other than a missing tag, is `unreadable`. Returns 0 printed; 2 a read ran
+# out of the check's time (the tick re-runs it rather than call it
+# unreadable). Shared by the holds and the pauses
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
+bl_condition_state() {
+    local until=$1 d=$2 now
+    case "$until" in
+        lifted) echo unmet ;;
+        time\ *)
+            # A malformed time can't be compared; it holds, as an unreadable
+            # condition does.
+            [[ ${until#time } =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$ ]] || { echo unreadable; return 0; }
+            now=${BL_NOW:-$(date -u +%Y-%m-%dT%H:%MZ)}
+            if [ "$now" \< "${until#time }" ]; then echo unmet; else echo met; fi ;;
+        merged\ *)
+            set -f; set -- $until; set +f
+            if bl_gh "$d/m" pr view "${2##*#}" --repo "${2%#*}" --json state; then
+                if [ "$(jq -r '.state // ""' "$d/m")" = MERGED ]; then echo met; else echo unmet; fi
+            elif [ "$(cat "$d/m.fail")" = deadline ]; then return 2
+            else echo unreadable; fi ;;
+        tag\ *)
+            set -f; set -- $until; set +f
+            if bl_gh "$d/t" api --method GET "repos/$2/git/ref/tags/$3"; then echo met
+            else
+                case "$(cat "$d/t.fail")" in
+                    notfound) echo unmet ;;
+                    deadline) return 2 ;;
+                    *) echo unreadable ;;
+                esac
+            fi ;;
+        *) echo unreadable ;;
+    esac
+}
+
+# bl_holds_eval <parsed-record-file> <repo> <pr>: bl_holds_on's evaluation,
+# over a record already read and parsed (record-parse.sh's JSON). Returns 0
+# printed; 2 the file couldn't be read.
+bl_holds_eval() {
+    local f=$1 repo=$2 pr=$3 d n i until st
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-holds.XXXXXX") || return 2
+    jq -c --arg on "$repo#$pr" '[.holds[]? | select((.on | ascii_downcase) == ($on | ascii_downcase))]' "$f" > "$d/holds" \
+        || { rm -rf "$d"; return 2; }
+    n=$(jq 'length' "$d/holds")
+    : > "$d/states"
+    i=0
+    while [ "$i" -lt "$n" ]; do
+        until=$(jq -r --argjson i "$i" '.[$i].until' "$d/holds")
+        case "$until" in
+            lifted)
+                if [ -n "$(jq -r --argjson i "$i" '.[$i].lifted' "$d/holds")" ]; then st=met; else st=unmet; fi ;;
+            merged\ *|tag\ *)
+                st=$(bl_condition_state "$until" "$d") || { rm -rf "$d"; return 2; } ;;
+            *) st=unreadable ;;
+        esac
+        printf '%s\n' "$st" >> "$d/states"
+        i=$((i + 1))
+    done
+    jq -c --slurpfile h "$d/holds" -R -s 'split("\n") | map(select(. != "")) as $s
+        | [$h[0] | to_entries[] | .value + {state: $s[.key]}]' "$d/states"
+    rm -rf "$d"
 }

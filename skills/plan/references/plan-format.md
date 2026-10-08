@@ -23,7 +23,7 @@ Every PLAN document begins with YAML frontmatter:
 ```yaml
 ---
 schema: plan/v1
-status: Draft
+status: Active
 execution_mode: single-pr
 upstream: docs/designs/DESIGN-<name>.md
 milestone: "human-readable milestone name"
@@ -133,7 +133,16 @@ status word alone, prose pushed to a paragraph after a blank line.
 
 ## Required Sections
 
-Every PLAN has these sections in order:
+The required sections, in order, depend on the PLAN's shape (see
+"Which sections a PLAN carries" below):
+
+- **Outline-shaped** -- `Status`, `Scope Summary`, `Decomposition
+  Strategy`, `Issue Outlines`, `Implementation Sequence`.
+- **Issue-carrying** -- `Status`, `Scope Summary`, `Decomposition
+  Strategy`, `Implementation Issues`, `Dependency Graph`,
+  `Implementation Sequence`.
+
+What each section holds:
 
 1. **Status** -- current lifecycle state. The first non-blank line
    is the bare status word (`Draft`, `Active`, `Done`); explanatory
@@ -146,13 +155,15 @@ Every PLAN has these sections in order:
    (e2e thin slice first), or hybrid. Names the grouping rules
    ("one issue per validator check function", "one issue per
    reference file").
-4. **Implementation Issues** -- the atomic-issue table plus issue
-   outlines (one outline per issue with Goal, Acceptance Criteria,
-   Dependencies, Type, Files).
-5. **Dependency Graph** -- the Mermaid diagram showing inter-issue
-   dependencies and class assignments (`ready`, `blocked`, `done`,
-   etc.).
-6. **Implementation Sequence** -- recommended execution order,
+4. **Issue Outlines** (outline-shaped) -- one outline per work item
+   with Goal, Acceptance Criteria and Dependencies.
+5. **Implementation Issues** (issue-carrying) -- the atomic-issue
+   table.
+6. **Dependency Graph** (issue-carrying; optional on an outline-shaped
+   `multi-pr` or `coordinated` PLAN, barred from `single-pr`) -- the
+   Mermaid diagram showing inter-issue dependencies and class
+   assignments (`ready`, `blocked`, `done`, etc.).
+7. **Implementation Sequence** -- recommended execution order,
    typically grouped by batch or critical-path level. Describes the
    "open with X, then Y" ordering for the implementing agent.
 
@@ -171,9 +182,9 @@ three-column shape:
 
 | Column | Content |
 |--------|---------|
-| Issue | Markdown link to the issue's local anchor (within the PLAN) for single-pr mode, OR `#N` GitHub link for multi-pr mode |
-| Dependencies | Local-anchor links to blocking issues, or `None` if independent |
-| Complexity | One of `trivial`, `simple`, `testable`, `complex` |
+| Issue | `#N` link to the filed GitHub issue (only an issue-carrying PLAN has this table) |
+| Dependencies | Links to blocking issues, or `None` if independent |
+| Complexity | One of `simple`, `testable`, `critical` (FC05 rejects any other value) |
 
 Each issue occupies TWO rows in the table:
 
@@ -208,8 +219,10 @@ lands. There are two shapes:
 
 - **Issue-carrying** -- the `## Implementation Issues` table holds `#N`
   links to GitHub issues materialized at PLAN finalization (Phase 7
-  populate), and a `## Dependency Graph` accompanies it. Any PLAN whose
-  resolved `tracking_level` is `issues` or `issues-and-milestone`.
+  populate), and a `## Dependency Graph` accompanies it. A `multi-pr` or
+  `coordinated` PLAN at `issues` or `issues-and-milestone`, or one with no
+  `tracking_level` field. A `single-pr` PLAN is never issue-carrying: at a
+  filing level its issues are filed and its work items stay outlines.
 - **Outline-shaped** -- work items live in `## Issue Outlines`, keyed by
   local ids rather than issue numbers, and neither the table nor the
   graph is required. Every `single-pr` PLAN, plus any `multi-pr` or
@@ -311,8 +324,8 @@ DESIGN/PRD/ROADMAP and replace the PLAN content with a citation.
 
 | State | Meaning |
 |-------|---------|
-| Draft | Under decomposition. Issue table may be incomplete. |
-| Active | Issues being implemented. Reached only when the resolved `tracking_level` created GitHub issues; a PLAN at `none` skips this state at either `execution_mode`. |
+| Draft | Under decomposition, inside a /plan run. Never committed: a committed Draft PLAN fails L01. |
+| Active | Work being implemented. Every committed PLAN is at Active until the cascade, whatever its `tracking_level` or `execution_mode`. |
 | Done | All issues complete; lifecycle cascade has completed. Terminal state. |
 
 ### Transitions
@@ -322,21 +335,24 @@ stays in `docs/plans/` through every state.
 
 The Draft -> Active gate keys on the resolved `tracking_level`, not on
 `execution_mode`: an activation that creates GitHub issues waits for
-human approval, because that is the moment remote artifacts appear;
+approval -- the author's, or under `--auto` a CLAUDE.md `## Tracking
+Level:` header that covers it, without which nothing is filed (Phase 7's
+"Filing approval" step; `docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md`)
+-- because that is the moment remote artifacts appear;
 one that creates none auto-fires as authoring completes.
 
-- **Draft -> Active** (`tracking_level` is `issues` or
-  `issues-and-milestone`) -- Phase 7 has materialized the GitHub
+- **Draft -> Active**, `tracking_level` `issues` or
+  `issues-and-milestone` -- Phase 7 has materialized the GitHub
   issues, and the milestone at `issues-and-milestone`, behind the
   approval gate. Reachable at any `execution_mode`: a `single-pr`
   PLAN whose repo asked for issues takes this path too.
-- **Draft -> Done** (`tracking_level` is `none`) -- no GitHub
-  artifacts were created, so nothing gated the activation; the
-  implementing agent has shipped the work and the lifecycle cascade
-  fires. Reachable at any `execution_mode`: a `multi-pr` PLAN whose
-  repo asked for no tracking takes this path too.
-- **Active -> Done** -- all materialized issues are closed. Lifecycle
-  cascade fires.
+- **Draft -> Active**, `tracking_level` `none` -- no GitHub artifacts
+  are created, so nothing gates the activation and it fires as /plan
+  finishes authoring. Reachable at any `execution_mode`: a `multi-pr`
+  PLAN whose repo asked for no tracking takes this path too.
+- **Active -> Done** -- the work is complete (all materialized issues
+  closed, or the implementing PR shipped); the lifecycle cascade
+  fires.
 
 ### Lifecycle cascade
 
@@ -361,9 +377,10 @@ checks. The `plan/v1` FormatSpec declares:
 - **Required fields:** `status`, `execution_mode`, `milestone`,
   `issue_count`.
 - **Valid statuses:** `Draft`, `Active`, `Done`.
-- **Required sections:** `Status`, `Scope Summary`, `Decomposition
-  Strategy`, `Implementation Issues`, `Dependency Graph`,
-  `Implementation Sequence`.
+- **Required sections:** one list per shape, as "Required Sections"
+  above gives them. The outline-shaped list applies to every
+  `single-pr` PLAN and to a `multi-pr` or `coordinated` PLAN at
+  `tracking_level: none`; the issue-carrying list to the rest.
 - **Issues table columns:** `Issue`, `Dependencies`, `Complexity`.
 
 The validator-side contracts:
@@ -384,7 +401,7 @@ The validator-side contracts:
 - **FC08** -- Legend reconciles against the `classDef` set.
 - **FC09** -- doc-vs-GitHub state reconciliation (multi-pr mode).
 - **FC11** -- (when present) plan-section-structure reconciliation
-  against this format reference.
+  against the plan profile in `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md`.
 
 ## Quality Guidance
 
@@ -430,10 +447,9 @@ The validator-side contracts:
 - **Prose on the `## Status` first line.** Most common FC03
   failure. The first non-blank line under `## Status` must be the
   bare status word alone.
-- **Mixing single-pr and multi-pr conventions.** The Implementation
-  Issues table uses local anchors for single-pr and `#N` GitHub
-  links for multi-pr; mixing the two confuses the validator's FC07
-  reconciliation.
+- **Mixing the two shapes.** An outline-shaped PLAN keeps its work
+  items in Issue Outlines and an issue-carrying one in the
+  Implementation Issues table; populating both fires FC14.
 - **Drifting into design altitude.** A PLAN that introduces new
   technical decisions has climbed up. Extract those decisions into
   the upstream DESIGN and cite them.

@@ -68,8 +68,22 @@ fresh; in_settings "$(perm ask 'Bash(*record-write.sh*--close*)' bypassPermissio
 eq "an ask rule on record-write.sh --close confirms close" "readable merge:permit close:confirm teardown:permit" "$(read_roots)"
 fresh; in_settings "$(perm allow 'Bash(niwa destroy:*)')"
 eq "an allow rule on niwa destroy permits teardown" "readable merge:confirm close:confirm teardown:permit" "$(read_roots)"
-fresh; in_settings "$(perm deny 'Bash(niwa reap)' bypassPermissions)"
-eq "a deny naming niwa reap denies teardown" "readable merge:permit close:permit teardown:deny" "$(read_roots)"
+fresh; in_settings "$(perm deny 'Bash(niwa destroy --force:*)' bypassPermissions)"
+eq "a deny on niwa destroy --force denies teardown" "readable merge:permit close:permit teardown:deny" "$(read_roots)"
+# The teardown pass runs claude rm and niwa destroy inside teardown-pass.sh,
+# so a rule on either, or on the script, governs the step.
+for r in 'Bash(claude rm:*)' 'Bash(*teardown-pass.sh*)'; do
+    fresh; in_settings "$(perm deny "$r" bypassPermissions)"
+    eq "a deny on $r denies teardown" "readable merge:permit close:permit teardown:deny" "$(read_roots)"
+    fresh; in_settings "$(perm ask "$r" bypassPermissions)"
+    eq "an ask on $r confirms teardown" "readable merge:permit close:permit teardown:confirm" "$(read_roots)"
+done
+# The skill never runs niwa reap or the other untargeted removals, so a rule
+# about them leaves the teardown step alone (shirabe#616).
+for r in 'Bash(niwa reap)' 'Bash(niwa reap:*)' 'Bash(niwa instance remove:*)' 'Bash(niwa remove:*)'; do
+    fresh; in_settings "$(perm deny "$r" bypassPermissions)"
+    eq "a deny on $r leaves teardown permitted" "readable merge:permit close:permit teardown:permit" "$(read_roots)"
+done
 fresh; ws_settings "$(perm deny 'Bash(gh pr merge:*)')"; in_settings "$(perm allow 'Bash(gh:*)')"
 eq "a workspace deny wins over an instance allow" "readable merge:deny close:permit teardown:confirm" "$(read_roots)"
 fresh; in_settings "$(perm allow 'Bash(gh pr merge:*)')"; in_local "$(perm ask 'Bash(gh pr merge:*)')"
@@ -135,9 +149,15 @@ printf 'if "gh pr merge" in cmd: sys.exit(2)\n' > "$IN/hooks/g.py"
 in_settings "$(hook Bash 'python3 "$CLAUDE_PROJECT_DIR"/hooks/g.py' bypassPermissions)"
 eq "an interpreter's script under the root is read" "readable merge:confirm close:permit teardown:permit" "$(read_roots)"
 fresh
-printf 'niwa reap\n' > "$IN/hooks/g.sh"
+printf 'niwa destroy\n' > "$IN/hooks/g.sh"
 in_settings "$(hook Bash 'bash -euo pipefail hooks/g.sh 2>/dev/null' bypassPermissions)"
 eq "a relative script path under the root is read" "readable merge:permit close:permit teardown:confirm" "$(read_roots)"
+fresh
+# A gate hook that denies only the reap sweep, in the shape a workspace
+# installs: its text names niwa reap and niwa, never niwa destroy.
+printf '#!/bin/sh\nawk '"'"'t ~ /niwa[ \\t\\n]+reap/ { exit 2 }'"'"'\nsplit("gh niwa git", g, " ")\n' > "$IN/hooks/gate.sh"
+in_settings "$(hook Bash "$IN/hooks/gate.sh" bypassPermissions)"
+eq "a hook that denies only niwa reap leaves teardown permitted" "readable merge:permit close:permit teardown:permit" "$(read_roots)"
 fresh
 in_settings "$(hook Bash 'bash -c "grep -q gh\ pr\ close && exit 2"' bypassPermissions)"
 eq "an interpreter given inline code is read as text" "readable merge:permit close:confirm teardown:permit" "$(read_roots)"

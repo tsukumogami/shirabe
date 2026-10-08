@@ -189,6 +189,35 @@ repo; : >"$R/wip/prd_t_decisions.md";              expect "prd partial" 62 t non
 repo; : >"$R/wip/prd_t_scope.md";                  expect "a prd feeder doc is not a partial" 10 t none
 repo; : >"$R/wip/brief_t_discover.md";             expect "brief partial" 63 t none
 
+echo "== the documented initial shape is the shape the probe reads =="
+# Phase 0's initial state-file block, with its placeholders filled in, has to
+# resume at pointer 0; the old phase-0 / UNSET spelling has to be malformed.
+P0="$HERE/../references/phases/phase-0-setup.md"
+# The state file's path for topic t, taken from the probe's own STATE= line.
+STATE_REL=$(sed -n 's/^STATE="\(.*\)"$/\1/p' "$S" | sed 's/\${TOPIC}/t/')
+repo
+SF="$R/$STATE_REL"
+awk '/^## Initial State-File Shape/{f=1} f&&/^```yaml/{y=1;next} y&&/^```/{exit} y' "$P0" |
+    grep -v '^consumed_upstream:' |
+    sed -e 's/<slug>/t/; s/scope-<topic>/scope-t/; s/<continue|stop|none>.*$/none/' \
+        -e "s/<ISO-8601 timestamp>/$FRESH/" >"$SF"
+if [ -n "$STATE_REL" ] && grep -q '^phase_pointer: 0$' "$SF" && grep -q '^exit:$' "$SF"; then
+    ok "phase-0-setup.md writes phase_pointer: 0 and an empty exit:"
+else
+    bad "phase-0-setup.md writes phase_pointer: 0 and an empty exit:" "[$STATE_REL] $(cat "$SF" 2>&1)"
+fi
+expect "the documented initial state file" 20 t none
+repo; PP=phase-0 state t "";            expect "a phase-0 pointer is malformed" 25 t none
+repo; state t "exit: UNSET
+";                                      expect "a literal UNSET exit is malformed" 25 t none
+if grep -rnE '^(phase_pointer: phase-[0-9]|exit: UNSET)$' "$HERE"/*_test.sh "$HERE/testdata" >/dev/null 2>&1 ||
+   grep -nE 'phase_pointer: phase-[0-9]|exit: UNSET' "$HERE/../evals/evals.json" >/dev/null 2>&1; then
+    bad "no scope fixture or eval writes phase-N or UNSET" \
+        "$(grep -rnE '^(phase_pointer: phase-[0-9]|exit: UNSET)$' "$HERE"/*_test.sh "$HERE/testdata"; grep -nE 'phase_pointer: phase-[0-9]|exit: UNSET' "$HERE/../evals/evals.json" | cut -c1-120)"
+else
+    ok "no scope fixture or eval writes phase-N or UNSET"
+fi
+
 echo "== cannot tell and usage =="
 repo; expect "an invalid topic" 2 Bad-Topic none
 repo; expect "an invalid intent" 2 t maybe

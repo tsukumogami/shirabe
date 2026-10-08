@@ -30,7 +30,7 @@ trap 'rm -rf "$T"' EXIT
 # The copied tree: reconcile's scripts, /execute's validators, and the two
 # stand-in record-feature checks beside reconcile's scripts.
 mkdir -p "$T/tree/skills/coordinate/scripts" "$T/tree/skills/execute/scripts" "$T/bin"
-cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$T/tree/skills/coordinate/scripts/"
+cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$HERE"/github-refs.sh "$T/tree/skills/coordinate/scripts/"
 # The record feature's merge check and what it sources, which the merge
 # subcommand calls rather than copies.
 cp "$HERE"/board-lib.sh "$HERE"/record-common.sh "$T/tree/skills/coordinate/scripts/"
@@ -52,6 +52,30 @@ if [ "$name" = git ]; then
         case "$a" in -c|-C) skip=1 ;; --*) ;; *) sub=$a; break ;; esac
     done
     [ "$sub" = ls-remote ] || exec "$REAL_GIT" "$@"
+    # A private repository (the case holds a "private" file) answers ls-remote
+    # only when the call's own credential config yields the gh login's token,
+    # the way GitHub answers one over https; otherwise git's own failure.
+    if [ -f "$STUB_DIR/private" ]; then
+        cfg=(); prev=""
+        for a in "$@"; do [ "$prev" = -c ] && cfg+=(-c "$a"); prev=$a; done
+        # Only the call's own flags may answer: no config of the developer's,
+        # and no prompt, so a call without the gh helper fails rather than hangs.
+        cred=$(printf 'protocol=https\nhost=github.com\n\n' | HOME="$STUB_DIR" XDG_CONFIG_HOME="$STUB_DIR" GIT_CONFIG_NOSYSTEM=1 \
+            GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS= "$REAL_GIT" ${cfg[@]+"${cfg[@]}"} credential fill 2>&1) \
+            || { printf '%s\n' "$cred" >&2; exit 128; }
+        case "$cred" in
+            *password=gh-login-token*) ;;
+            *) echo "fatal: Authentication failed for 'https://github.com/'" >&2; exit 128 ;;
+        esac
+    fi
+fi
+# gh as git's credential helper: the gh login's token, unless the case says
+# the login can't read the repository (a "gh-auth-fail" file).
+if [ "$name" = gh ] && [ "$1 ${2-}" = "auth git-credential" ]; then
+    cat > /dev/null
+    [ -f "$STUB_DIR/gh-auth-fail" ] && exit 1
+    [ "${3-}" = get ] && printf 'protocol=https\nhost=github.com\nusername=x-access-token\npassword=gh-login-token\n'
+    exit 0
 fi
 # board-lib.sh reads with `gh api --method GET <path>`: match on the path.
 if [ "$name" = gh ] && [ "$1" = api ] && [ "${2-}" = --method ]; then
@@ -174,6 +198,10 @@ expect "a verified board holds" '.verdict == "holds"' "$(run board --repo $R --s
 new_case board-pending
 serve board 1 '{"verdict":"pending","reasons":[{"code":"run-pending","name":"ci"}]}'
 expect "a pending board is pending" '.verdict == "pending"' "$(run board --repo $R --sha $VH --base main)"
+new_case board-not-run
+serve board 1 '{"verdict":"not-run","reasons":[{"code":"job-not-run","run":1,"job":2,"name":"Validate PR body","detail":"The job was not started because recent account payments have failed or your spending limit needs to be increased."}]}'
+expect "a board whose job never ran is not run, naming the job and GitHub's reason, never failing (shirabe#564)" \
+    '.status == "ok" and .verdict == "not-run" and (.detail | startswith("Validate PR body (The job was not started"))' "$(run board --repo $R --sha $VH --base main)"
 new_case board-error
 serve board 1 '{"verdict":"error:board-read","reasons":[]}'
 expect "a board read error is not verified" '.status == "not_verified" and (.reason | test("board-read"))' "$(run board --repo $R --sha $VH --base main)"
@@ -190,10 +218,20 @@ echo "== branch =="
 new_case branch-gone
 serve ls-remote 1 ""
 expect "an absent ref reads branch gone" '.state == "gone"' "$(run branch --repo $R --branch feat/x)"
-grep -q "^git ls-remote https://github.com/$R.git refs/heads/feat/x$" "$CASE/log" && ok "ls-remote reads the row's repository URL" || bad "ls-remote reads the row's repository URL" "$(cat "$CASE/log")"
+grep -q "^git .* -C / .*ls-remote --symref https://github.com/$R.git refs/heads/feat/x$" "$CASE/log" && ok "ls-remote reads the row's repository URL, from outside any repository" || bad "ls-remote reads the row's repository URL, from outside any repository" "$(cat "$CASE/log")"
 new_case branch-present
 serve ls-remote 1 "$LH	refs/heads/feat/x"
 expect "a present ref carries its tip" '.state == "present" and .tip == "'$LH'"' "$(run branch --repo $R --branch feat/x)"
+# A private repository: https answers only with the gh login's credential.
+new_case branch-private
+: > "$CASE/private"
+serve ls-remote 1 "$LH	refs/heads/feat/x"
+expect "a private repository's branch reads through the gh login" '.status == "ok" and .state == "present" and .tip == "'$LH'"' "$(run branch --repo $R --branch feat/x)"
+grep -q '^gh auth git-credential get$' "$CASE/log" && ok "the branch read authenticates with the gh login" || bad "the branch read authenticates with the gh login" "$(cat "$CASE/log")"
+new_case branch-private-denied
+: > "$CASE/private"; : > "$CASE/gh-auth-fail"
+serve ls-remote 1 "$LH	refs/heads/feat/x"
+expect "a private branch the gh login can't read is not verified, never gone, with git's reason" '.status == "not_verified" and (.reason | test("^read failed \\(exit 128\\): fatal: (could not read Username|unable to get password)"))' "$(run branch --repo $R --branch feat/x)"
 
 echo "== appeared =="
 new_case appeared-one
@@ -316,6 +354,12 @@ expect "a work-on leg carries the engine's status and final state" '.result == "
 new_case leg-refused
 serve koto-request 1 "$REQ_JSON"
 expect "a refused leg carries its reason" '.result == "refused:var-mismatch:TOPIC"' "$(run leg --return-path 'leg req1:refused')"
+new_case leg-source-refused
+serve koto-request 1 "$REQ_JSON"
+expect "the leg carries koto's result source, so a refusal reads as a leg spent early (shirabe#506)" '.source == "refused"' "$(run leg --return-path 'leg req1:refused')"
+new_case leg-source-promoted
+serve koto-request 1 "$REQ_JSON"
+expect "a promoted result reads promoted" '.source == "promoted"' "$(run leg --return-path 'leg req1:deliver')"
 new_case leg-bound
 serve koto-request 1 "$REQ_JSON"
 expect "an open leg with a bound child reads bound" '.disposition == "bound" and .result == ""' "$(run leg --return-path 'leg req1:waiting')"
@@ -385,6 +429,30 @@ grep -E '^git ' "$ALOG" | grep -vE -- '--no-optional-locks -c core\.fsmonitor= -
 grep -q 'hash-object --no-filters --stdin-paths' "$ALOG" && ! grep -qE 'hash-object.* -w( |$)' "$ALOG" && ok "hash-object runs unfiltered and never writes" || bad "hash-object runs unfiltered and never writes"
 grep -qE '^git .* status( |$)' "$ALOG" && bad "git status is never run" || ok "git status is never run"
 [ "$(cat "$T/idx-before")" = "$(od -An -tx1 < "$RP/.git/index")" ] && ok "the clone's index is untouched" || bad "the clone's index is untouched"
+
+# A private repository: https answers only with the gh login's credential, so
+# the clone reads as it would in a public one.
+inv_case inventory-private
+: > "$CASE/private"
+out=$(run inventory --path "$I")
+expect "a private clone's remote refs read through the gh login" '.status == "ok" and ([.items[] | select(.kind == "unchecked")] | length == 0)' "$out"
+expect "a private clone is judged by content like any other" '[.items[] | select(.kind == "commit") | .path] | (index("branch deleted") != null and index("branch pushed") == null)' "$out"
+grep -q '^gh auth git-credential get$' "$CASE/log" && ok "the inventory authenticates with the gh login" || bad "the inventory authenticates with the gh login" "$(cat "$CASE/log")"
+# The gh login can't read it: the clone is unchecked with git's reason, never
+# judged, even though the clone's own credential helper would answer.
+inv_case inventory-private-denied
+: > "$CASE/private"; : > "$CASE/gh-auth-fail"
+git -C "$RP" config credential.helper "!f() { touch '$CASE/clone-helper-ran'; echo password=gh-login-token; }; f"
+out=$(run inventory --path "$I")
+git -C "$RP" config --unset credential.helper
+expect "a private clone the gh login can't read is unchecked, saying why" '.items | any(.kind == "unchecked" and .clone == "repo" and (.path | test("^remote refs could not be read: fatal: (could not read Username|unable to get password)")))' "$out"
+expect "an unread private clone lists no verdict on its commits" '[.items[] | select(.kind == "commit")] | length == 0' "$out"
+[ -e "$CASE/clone-helper-ran" ] && bad "the clone's own credential helper never runs" || ok "the clone's own credential helper never runs"
+# The refs read runs past its deadline: unchecked, naming the timeout.
+inv_case inventory-refs-late
+echo 4 > "$CASE/ls-remote.sleep.1"
+out=$(DL=1 run inventory --path "$I")
+expect "a refs read past its deadline marks the clone unchecked, naming the timeout" '.items | any(.kind == "unchecked" and .clone == "repo" and .path == "remote refs could not be read: the read timed out after 1s")' "$out"
 
 new_case inventory-missing
 expect "a missing instance directory: inventory not taken" '.status == "not_verified" and (.reason | test("not found"))' "$(run inventory --path "$T/no-such-instance")"
@@ -560,6 +628,66 @@ took=$(( $(date +%s) - start ))
 expect "an in-clone git read past its deadline marks the clone unchecked" '.items | any(.kind == "unchecked" and .clone == "repo")' "$out"
 [ "$took" -le 20 ] && ok "a hanging in-clone read is ended by the deadline (${took}s)" || bad "a hanging in-clone read is ended by the deadline" "took ${took}s"
 
+echo "== inventory: parallel waves =="
+# Clones are read in parallel; the items must come out as a serial read
+# lists them, including a linked worktree inside the instance (read in a
+# later wave than its repository, reusing that repository's remote reads), a
+# second clone, and a tag at a live id next to one that isn't.
+I12="$T/inst12"; R12="$I12/a"; mkdir -p "$R12"
+g12() { git -C "$R12" -c user.email=t@example.com -c user.name=t "$@" >/dev/null 2>&1 || echo "setup failed: git $*" >&2; }
+g12 init -q -b main; g12 remote add origin https://github.com/acme/widgets.git
+echo a > "$R12/a.txt"; g12 add -A; g12 commit -qm a
+M12=$(git -C "$R12" rev-parse HEAD)
+g12 tag live-tag
+g12 checkout -qb side; echo s > "$R12/s.txt"; g12 add -A; g12 commit -qm s; g12 tag moved-tag; g12 checkout -q main
+printf '.wt/\n' >> "$R12/.git/info/exclude"
+g12 worktree add -q "$R12/.wt/w" side
+echo wt > "$R12/.wt/w/wt-only.txt"
+echo mine > "$R12/mine.txt"
+git clone -q "$R12" "$I12/b" 2>/dev/null; git -C "$I12/b" remote set-url origin https://github.com/acme/widgets.git
+echo b > "$I12/b/b-only.txt"
+new_case inventory-parallel
+# moved-tag is on the remote at main; the clone has it on side's commit.
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/tags/live-tag\n%s\trefs/tags/moved-tag\n' "$M12" "$M12" "$M12" "$M12" > "$CASE/ls-remote.out.all"
+mktree "$R12" "$M12"
+ser=$(RECONCILE_INV_PARALLEL=1 run inventory --path "$I12" | jq -c .items)
+par=$(run inventory --path "$I12" | jq -c .items)
+par2=$(RECONCILE_INV_PARALLEL=2 run inventory --path "$I12" | jq -c .items)
+[ "$ser" = "$par" ] && ok "the default waves list what a serial read lists" || bad "the default waves list what a serial read lists" "serial $ser | parallel $par"
+[ "$ser" = "$par2" ] && ok "waves of two list what a serial read lists" || bad "waves of two list what a serial read lists" "serial $ser | parallel $par2"
+expect "the worktree's own file is listed" '[.[] | .path] | index("wt-only.txt") != null' "$par"
+expect "a branch is listed once, not once per worktree" '[.[] | select(.kind == "commit" and .path == "branch side")] | length == 1' "$par"
+expect "a moved tag is listed" '[.[] | .path] | index("tag moved-tag") != null' "$par"
+expect "a tag at a live id is not listed" '[.[] | .path] | index("tag live-tag") == null' "$par"
+walk=$(RECONCILE_TIP_LOOKUP=0 run inventory --path "$I12" | jq -c .items)
+[ "$walk" = "$par" ] && ok "the tip lookup lists what walking every tip lists" || bad "the tip lookup lists what walking every tip lists" "walk $walk | lookup $par"
+
+# The cap on GitHub compare reads binds: three clones of sixteen tips each,
+# against a remote main none of them has, so every tip asks one compare read
+# (48 against the cap of 40). A serial read spends the cap first come; waves
+# split it across their jobs. Either way the run reads no more than the cap
+# and says truncated.
+ICAP="$T/inst-cap"; mkdir -p "$ICAP"
+for c in c1 c2 c3; do
+    RCAP="$ICAP/$c"; mkdir -p "$RCAP"
+    git -C "$RCAP" init -q -b main; git -C "$RCAP" remote add origin https://github.com/acme/widgets.git
+    echo "$c" > "$RCAP/a"; git -C "$RCAP" add -A; git -C "$RCAP" -c user.email=t@e -c user.name=t commit -qm "$c"
+    for b in $(count 1 15); do git -C "$RCAP" branch "b$b"; done
+done
+FAKECAP=feedfeedfeedfeedfeedfeedfeedfeedfeedfeed
+for par in 1 8; do
+    new_case "inventory-compare-cap-$par"
+    printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$FAKECAP" "$FAKECAP" > "$CASE/ls-remote.out.all"
+    mktree "$ICAP/c1" HEAD
+    out=$(RECONCILE_INV_PARALLEL=$par run inventory --path "$ICAP")
+    n=$(grep -c '/compare/' "$CASE/log")
+    expect "compare cap, waves of $par: the inventory says truncated" '.truncated == true' "$out"
+    [ "$n" -le 40 ] && ok "compare cap, waves of $par: at most 40 compare reads ($n)" || bad "compare cap, waves of $par: at most 40 compare reads" "$n"
+    if [ "$par" = 1 ]; then
+        [ "$n" = 40 ] && ok "compare cap, serially: the whole cap is spent" || bad "compare cap, serially: the whole cap is spent" "$n"
+    fi
+done
+
 I10="$T/inst10"; R10="$I10/repo"; mkdir -p "$R10"
 git -C "$R10" init -q -b main; git -C "$R10" remote add origin https://github.com/acme/widgets.git
 echo a > "$R10/a"; git -C "$R10" add -A; git -C "$R10" -c user.email=t@e -c user.name=t commit -qm a
@@ -701,6 +829,21 @@ expect "an undisposed deferral is undisposed" '.disposed == false and .how == "e
 new_case deferral-two-lines
 serve deferral 1 "$(printf 'disposed closed\ndisposed filed 9')"
 expect "a two-line disposal answer is not verified" '.status == "not_verified"' "$(run deferral --repo $R --row-file "$ROW" --run-start $RS)"
+# koto's own run start carries milliseconds (shirabe#552: a check that
+# refused it printed nothing, and every deferral read "nothing readable").
+new_case deferral-millis
+serve deferral 1 "disposed closed"
+expect "a run start with milliseconds is a time" '.disposed == true and .how == "closed"' "$(run deferral --repo $R --row-file "$ROW" --run-start 2026-09-28T14:34:17.326Z --chain-start 2026-09-28T14:34:17.326Z)"
+# Every input this read can't take is a fact naming it, never a silent exit.
+new_case deferral-no-row
+expect "a missing row file is not verified, and says so" '.status == "not_verified" and (.reason | test("row file"))' "$(run deferral --repo $R --row-file "$T/no-such-row.json" --run-start $RS)"
+new_case deferral-bad-start
+expect "a run start that isn't a time is not verified, and says so" '.status == "not_verified" and (.reason | test("run start"))' "$(run deferral --repo $R --row-file "$ROW" --run-start 2026-09-27)"
+new_case deferral-bad-chain
+expect "a chain start that isn't a time is not verified, and says so" '.status == "not_verified" and (.reason | test("chain start"))' "$(run deferral --repo $R --row-file "$ROW" --run-start $RS --chain-start yesterday)"
+new_case deferral-usage
+fail_with deferral 1 64
+expect "a disposal check that refuses its input is not verified, and says so" '.status == "not_verified" and (.reason | test("refused its arguments"))' "$(run deferral --repo $R --row-file "$ROW" --run-start $RS)"
 
 echo "== bad row values reach no command =="
 for args in "pr --repo a;b --number 1" "pr --repo -x/y --number 1" "pr --repo acme/widgets --number 0" "branch --repo acme/widgets --branch -x" "branch --repo acme/widgets --branch a;b" "board --repo acme/widgets --sha nothex --base main" "merge --repo acme/widgets --number 7 --verified-head nothex"; do
@@ -739,7 +882,7 @@ echo "== read-only =="
 ALL="$T/all.log"
 cat "$T"/case-*/log > "$ALL"
 [ "$(wc -l < "$ALL" | tr -d ' ')" -gt 40 ] && ok "the read-only check sees every case's calls" || bad "the read-only check sees every case's calls"
-ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|gh api --method GET repos/[^ ]+|git ls-remote https://github\.com/[^ ]+\.git refs/heads/[^ ]+|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always ls-remote --symref https://github\.com/[^ ]+\.git|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --no-filters --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
+ALLOW='^(gh pr view [0-9]+ --repo [^ ]+ --json [a-zA-Z,]+|gh pr list --repo [^ ]+ --head [^ ]+ --state all --json [a-z,]+|gh issue view [0-9]+ --repo [^ ]+ --json [a-z]+|gh api repos/[^ ]+ --jq .*|gh api repos/[^ ]+ --paginate --jq .*|gh api --method GET repos/[^ ]+|gh auth git-credential get|board-verdict\.sh --repo [^ ]+ --sha [0-9a-f]{40} --base [^ ]+|deferral-check\.sh --row-file [^ ]+ --run-start [^ ]+( --chain-start [^ ]+)?|niwa list --json|koto request get [a-z0-9_-]+|git --no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never (-C / -c protocol\.https\.allow=always -c protocol\.file\.allow=always -c core\.askPass= -c credential\.interactive=false -c credential\.helper= -c credential\.https://github\.com\.helper= -c credential\.helper=!gh auth git-credential ls-remote --symref https://github\.com/[^ ]+\.git( refs/heads/[^ ]+)?|-C [^ ]+ (config --get remote\.origin\.url|rev-parse --path-format=absolute --git-common-dir --show-toplevel|cat-file --batch-check=.*|cat-file -e [0-9a-f]{40}\^\{commit\}|symbolic-ref -q HEAD|rev-parse --verify --quiet .*|rev-list --stdin --count|rev-list --walk-reflogs --count refs/stash|merge-base [0-9a-f]{40} [0-9a-f]{40}|diff --name-only -z [0-9a-f]{40} [0-9a-f]{40}|for-each-ref refs/heads refs/tags --format=.*|ls-files -z -s -v|hash-object --no-filters --stdin|ls-files -z --others --exclude-standard|ls-tree -r -z --full-tree HEAD|hash-object --no-filters --stdin-paths|worktree list --porcelain)))$'
 off=$(grep -vE "$ALLOW" "$ALL" || true)
 [ -z "$off" ] && ok "every call matches the read allowlist" || bad "every call matches the read allowlist" "$off"
 # --method is allowed only as `--method GET`, the merge check's reads.

@@ -127,10 +127,10 @@ case_ "an error with no step names deliver:child-outcome" \
 step=deliver:child-outcome"
 
 case_ "a refused payload prints outcome=error, never refused" \
-    '{outcome: "refused", reason: "private-repo", step: "deliver:refused"}' \
+    '{outcome: "refused", reason: "invalid-var:TOPIC", step: "deliver:refused"}' \
     "outcome=error
 step=deliver:refused
-reason=private-repo"
+reason=invalid-var:TOPIC"
 
 got=$(bash "$S" --refused)
 if [ "$got" = "outcome=error

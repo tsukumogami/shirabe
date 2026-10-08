@@ -137,7 +137,9 @@ decision_record() {
 }
 forced_artifact() {
     local p
-    for p in "docs/plans/PLAN-${TOPIC}.md" "docs/designs/current/DESIGN-${TOPIC}.md" \
+    # Never the PLAN: an abandoned run writes no PLAN, and when /plan triggered
+    # the marker sits on the nearest upstream document.
+    for p in "docs/designs/current/DESIGN-${TOPIC}.md" \
              "docs/designs/DESIGN-${TOPIC}.md" "docs/prds/PRD-${TOPIC}.md" "docs/briefs/BRIEF-${TOPIC}.md"; do
         if [ -f "$p" ] && grep -qF -- "scope-status-block: abandonment-forced" "$p"; then
             printf '%s' "$p"; return

@@ -21,6 +21,11 @@
 #    "files": {"acme/widgets": {"main:docs/x.md": "text"}},
 #    "fail": [{"match": "<substring of the call>", "rc": 1, "stderr": "..."}]}
 #
+# Issue comments (on an issue or a pull request, as GitHub serves both) live in
+# "comments": [{"repo", "number", "id", "body", "user", "created_at",
+# "updated_at"}]; GET repos/R/issues/N/comments pages them, and POST adds one
+# from --input's JSON body, stamped with "now" when the DB sets it.
+#
 # Served: api (GET issues listing with --paginate, repos/R, branches, collaborator
 # permission, contents, git/ref, git/commits; POST git/commits, git/refs;
 # DELETE git/refs; graphql author/editor queries), issue create|edit|close|view,
@@ -34,6 +39,11 @@
 # checks the blob sha the way GitHub does), and `issue list --label L`
 # (issues carry "labels": [...]). A pull request's "mergeStateStatus" is
 # served when the DB sets it, else UNKNOWN.
+#
+# Repository names match the way GitHub matches them, ignoring case: a
+# --repo value or an api path naming acme/widgets as ACME/Widgets reaches the
+# DB's acme/widgets, and what comes back (a pull request's url, a
+# repository's full_name) spells it as the DB does, as GitHub spells it.
 set -uo pipefail
 
 [ -n "${GH_DB:-}" ] && [ -f "$GH_DB" ] || { echo "gh stub: GH_DB is not set" >&2; exit 9; }
@@ -67,7 +77,7 @@ W1=${1:-} W2=${2:-}
 shift 2 2>/dev/null || shift $#
 [ "$W1" = api ] && set -- "$W2" "$@" && W2=
 
-METHOD=GET JQF= REPO= HEAD= BASE= STATE=open JSONF= TITLE= BODYFILE= PAGINATE=0 DRAFT=0 LIMIT=30 LABEL=
+METHOD=GET JQF= REPO= HEAD= BASE= STATE=open JSONF= TITLE= BODYFILE= PAGINATE=0 DRAFT=0 LIMIT=30 LABEL= INPUT=
 FIELDS=
 POS=
 while [ $# -gt 0 ]; do
@@ -86,11 +96,16 @@ while [ $# -gt 0 ]; do
         -f|--raw-field|--field) FIELDS="$FIELDS$2"$'\n'; shift 2 ;;
         --paginate) PAGINATE=1; shift ;;
         --draft|-d) DRAFT=1; shift ;;
+        --input) INPUT=$2; shift 2 ;;
         -*) unexpected ;;
         *) POS="$POS$1"$'\n'; shift ;;
     esac
 done
 pos() { printf '%s' "$POS" | sed -n "${1}p"; }
+# canon <owner/repo>: the DB's own spelling of a repository named in any
+# case, or the name as given when the DB holds no such repository.
+canon() { jq -r --arg r "$1" '[(.repos // {}) | keys[] | select(ascii_downcase == ($r | ascii_downcase))][0] // $r' "$GH_DB"; }
+[ -n "$REPO" ] && REPO=$(canon "$REPO")
 field() { printf '%s' "$FIELDS" | sed -n "s/^$1=//p" | head -1; }
 LOGIN=$(jq -r '.login // "coord"' "$GH_DB")
 
@@ -131,6 +146,12 @@ pr_ref() { # the number from a positional that may be a URL
 case "$W1 $W2" in
 "api ")
     path=$(pos 1)
+    # The repository in a repos/<owner>/<repo>/... path, matched the same way.
+    case "$path" in
+        repos/*/*)
+            rest=${path#repos/}; o=${rest%%/*}; rest=${rest#*/}; rn=${rest%%[/?]*}; tail=${rest#"$rn"}
+            path="repos/$(canon "$o/$rn")$tail" ;;
+    esac
     # gh sends GraphQL as a POST whatever --method says.
     [ "$path" = graphql ] && METHOD=POST
     case "$METHOD $path" in
@@ -189,6 +210,10 @@ case "$W1 $W2" in
         f=${path#*/contents/}; ref=${f#*\?ref=}; f=${f%%\?*}
         need_repo "$r"
         text=$(jq -r --arg r "$r" --arg k "$ref:$f" '.files[$r][$k] // empty' "$GH_DB")
+        # A ref that is a commit some branch points at reads that branch's file.
+        [ -n "$text" ] || text=$(jq -r --arg r "$r" --arg s "$ref" --arg f "$f" '
+            [(.branches[$r] // {}) | to_entries[] | select(.value == $s) | .key] as $b
+            | [$b[] as $x | .files[$r][$x + ":" + $f] // empty][0] // empty' "$GH_DB")
         [ -n "$text" ] || notfound
         emit "$(jq -nc --arg c "$(printf '%s\n' "$text" | base64)" --arg s "$(blob_sha "$text")" '{content: $c, encoding: "base64", sha: $s}')"
         ;;
@@ -205,14 +230,45 @@ case "$W1 $W2" in
         [ -n "$tree" ] || notfound
         emit "$(jq -nc --arg s "$sha" --arg t "$tree" '{sha: $s, tree: {sha: $t}}')"
         ;;
+    "GET repos/"*/issues/*/comments*)
+        r=${path#repos/}; r=${r%%/issues/*}
+        n=${path#*/issues/}; n=${n%%/comments*}
+        need_repo "$r"
+        per=$(printf '%s' "$path" | sed -n 's/.*per_page=\([0-9]*\).*/\1/p'); [ -n "$per" ] || per=30
+        items=$(jq -c --arg r "$r" --argjson n "$n" '[(.comments // [])[] | select(.repo == $r and .number == $n)
+            | {id, body, created_at, updated_at, user: {login: .user},
+               html_url: "https://github.com/\(.repo)/issues/\(.number)#issuecomment-\(.id)"}]' "$GH_DB")
+        total=$(printf '%s' "$items" | jq length)
+        p=0
+        while :; do
+            emit "$(printf '%s' "$items" | jq -c --argjson o $((p * per)) --argjson k "$per" '.[$o:$o + $k]')"
+            p=$((p + 1))
+            [ "$PAGINATE" = 1 ] && [ $((p * per)) -lt "$total" ] || break
+        done
+        ;;
+    "POST repos/"*/issues/*/comments)
+        r=${path#repos/}; r=${r%%/issues/*}
+        n=${path#*/issues/}; n=${n%%/comments}
+        need_repo "$r"
+        [ -n "$INPUT" ] && [ -r "$INPUT" ] || unexpected
+        [ -n "$(jq -r --arg r "$r" --argjson n "$n" '[.issues[]?, .prs[]? | select(.repo == $r and .number == $n)][0] // empty' "$GH_DB")" ] || notfound
+        id=$(jq '((.comments // []) | map(.id) | max // 1000) + 1' "$GH_DB")
+        now=$(jq -r --argjson i "$id" '.now // empty | if . == "" then empty else . end' "$GH_DB")
+        [ -n "$now" ] || now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        dbset '.comments = ((.comments // []) + [{repo: $r, number: $n, id: $i, body: $in[0].body, user: $l,
+                created_at: $t, updated_at: $t}])' \
+            --arg r "$r" --argjson n "$n" --argjson i "$id" --slurpfile in "$INPUT" --arg l "$LOGIN" --arg t "$now"
+        emit "$(jq -nc --arg r "$r" --argjson n "$n" --argjson i "$id" '{id: $i,
+            html_url: "https://github.com/\($r)/issues/\($n)#issuecomment-\($i)"}')"
+        ;;
     "GET repos/"*/issues/*)
         r=${path#repos/}; r=${r%%/issues/*}
         n=${path##*/issues/}
         case "$n" in ''|*[!0-9]*) unexpected ;; esac
         need_repo "$r"
         out=$(jq -c --arg r "$r" --argjson n "$n" '
-            ([.issues[]? | select(.repo == $r and .number == $n) | {number, title, state}]
-             + [.prs[]? | select(.repo == $r and .number == $n) | {number, title, state: (if .state == "OPEN" then "open" else "closed" end),
+            ([.issues[]? | select(.repo == $r and .number == $n) | {number, title, body, state}]
+             + [.prs[]? | select(.repo == $r and .number == $n) | {number, title, body, state: (if .state == "OPEN" then "open" else "closed" end),
                 pull_request: {url: "x"}}])[0] // empty' "$GH_DB")
         [ -n "$out" ] || notfound
         emit "$out"
@@ -262,7 +318,14 @@ case "$W1 $W2" in
         r=${path#repos/}; r=${r%%/git/*}
         ref=$(field ref); b=${ref#refs/heads/}
         [ -z "$(jq -r --arg r "$r" --arg b "$b" '.branches[$r][$b] // empty' "$GH_DB")" ] || { echo "gh: Reference already exists (HTTP 422)" >&2; exit 1; }
-        dbset '.branches[$r][$b] = $s' --arg r "$r" --arg b "$b" --arg s "$(field sha)"
+        # The new branch carries the files of the commit it starts at, as on
+        # GitHub: those of a branch whose head is that commit, or committed at it.
+        dbset '.branches[$r][$b] = $s
+            | ([(.branches[$r] // {}) | to_entries[] | select(.value == $s and .key != $b) | .key] + [$s]) as $from
+            | .files[$r] = ((.files[$r] // {}) + ([(.files[$r] // {}) | to_entries[]
+                | (.key | split(":")) as $k | select(any($from[]; . == $k[0]))
+                | {key: ($b + ":" + ($k[1:] | join(":"))), value}] | from_entries))' \
+            --arg r "$r" --arg b "$b" --arg s "$(field sha)"
         emit "$(jq -nc --arg r "$ref" '{ref: $r}')"
         ;;
     "DELETE repos/"*/git/refs/heads/*)

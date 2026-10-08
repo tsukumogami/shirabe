@@ -58,7 +58,6 @@ jobs:
           bash scripts/plan-mode_test.sh
           bash skills/deliver/scripts/deliver-report_test.sh
           bash skills/deliver/scripts/deliver-probe_test.sh
-          bash skills/deliver/scripts/deliver-preflight_test.sh
           bash skills/deliver/scripts/eval-gh-shim_test.sh
           bash skills/deliver/scripts/deliver-requires_test.sh
 

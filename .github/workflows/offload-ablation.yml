@@ -1,0 +1,204 @@
+name: Check offload ablation
+
+# The eval harness's ablation mode (scripts/ablation/, reached through
+# `scripts/run-evals.sh --withhold`) measures what withholding an instruction
+# section does, inside scratch copies of the plugin only. Each job here runs
+# one scripted acceptance criterion of that feature, so each can be read on its
+# own. None runs a model session, and none needs a secret. Ubuntu only: the
+# harness is an operator tool that no skill invokes on a user's machine, so it
+# sits with run-evals.sh among the bash-floor exemptions.
+
+on:
+  # The two paths: lists below must match; edit both together.
+  pull_request:
+    paths:
+      - 'scripts/ablation/**'
+      - 'scripts/run-evals.sh'
+      - 'scripts/run-evals_test.sh'
+      - 'scripts/offload-baseline.sh'
+      - 'docs/measurement/**'
+      - 'skills/*/koto-templates/**'
+      - 'skills/*/references/**'
+      - '.github/workflows/offload-ablation.yml'
+  # Also on main, so an edit to a file the ablation pins shows on the push that
+  # lands it, not on the next unrelated pull request. The two jobs that need a
+  # pull request (normal-runs-unchanged compares it with its base;
+  # public-content reads its added lines and body) run on pull requests only.
+  # The skills/* entries are deliberately wide, so an edit to a template or
+  # reference trips the check on its own PR (#572); that width is why
+  # normal-runs-unchanged needs its guard step, so don't trim them back.
+  push:
+    branches: [main]
+    # Must match the pull_request paths: list above.
+    paths:
+      - 'scripts/ablation/**'
+      - 'scripts/run-evals.sh'
+      - 'scripts/run-evals_test.sh'
+      - 'scripts/offload-baseline.sh'
+      - 'docs/measurement/**'
+      - 'skills/*/koto-templates/**'
+      - 'skills/*/references/**'
+      - '.github/workflows/offload-ablation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  # Nothing a normal run of a shipped skill loads may change: every path the
+  # offload baseline's load manifest lists, and every koto template.
+  normal-runs-unchanged:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # This job guards the ablation harness's own changes. The path filter
+      # also admits ordinary edits to skill templates and references, which
+      # this comparison would rightly refuse, so it steps aside for a pull
+      # request that touches none of the harness's files. The grep below is the
+      # paths: entries except skills/*: a new harness file goes here and in both
+      # paths: lists.
+      - name: Find out whether the harness changed
+        id: harness
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --name-only "$BASE...$HEAD" | grep -qE '^(scripts/ablation/|scripts/run-evals\.sh|scripts/run-evals_test\.sh|scripts/offload-baseline\.sh|docs/measurement/|\.github/workflows/offload-ablation\.yml)'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No harness file changed; nothing to compare."
+          fi
+
+      - name: Test the check
+        if: steps.harness.outputs.changed == 'true'
+        run: bash scripts/ablation/check-normal-runs-unchanged_test.sh
+
+      - name: Compare with the pull request's base
+        if: steps.harness.outputs.changed == 'true'
+        # The PR's own head, not the merge commit CI checks out: commits that
+        # landed on main meanwhile are not this PR's.
+        run: scripts/ablation/check-normal-runs-unchanged.sh "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}"
+
+  # No home-directory path, wip/ file path, session or job identifier,
+  # hosted-session URL or secret shape in the lines this pull request adds, or
+  # in its body. Names that must not appear are checked only against a list a
+  # maintainer supplies from outside the repository; no such list is wired
+  # here, so the job prints that the denylisted-term check did not run.
+  public-content:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test the check
+        run: bash scripts/ablation/check-public-content_test.sh
+
+      - name: Check the added lines
+        run: scripts/ablation/check-public-content.sh --diff "${{ github.event.pull_request.base.sha }}" --head "${{ github.event.pull_request.head.sha }}"
+
+      # The body arrives through the environment, never interpolated into the
+      # script, so nothing in it can run.
+      - name: Check the pull request body
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n' "$PR_BODY" | scripts/ablation/check-public-content.sh -
+
+  # The harness itself: case validation, span resolution and its refusals, the
+  # checks' reason codes, audit sampling, and stub-agent runs that drive the
+  # real koto through the wrapper (delivery, no delivery, no second production,
+  # check errors and timeouts, the allowlisted environment, tampering, the
+  # wall-clock limit). The stub stands in for the model, so nothing is billed.
+  ablation-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The span tests read the case's source commit from history.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # The harness copies this checkout's templates into each fixture, so it
+      # needs a koto that compiles them: the repository's koto floor
+      # (scripts/assert-koto-floor.sh), not the offload baseline's pinned koto,
+      # which only has to compile the templates at the pinned commit. The two
+      # are the same today; they part when the floor rises past the pin.
+      # Each version's sha256 is recorded here rather than read from the
+      # release it came from; a floor with no entry fails until one is added.
+      - name: Install koto at the repository floor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          KOTO_VERSION=$(scripts/assert-koto-floor.sh --print-floor)
+          case "$KOTO_VERSION" in
+            0.14.1) KOTO_SHA256=b3facd75f310b5f1a3dc8a500c3ff414e03fbe755c0e72c27771ecc74b60514a ;;
+            0.15.0) KOTO_SHA256=a3778d90112473c718ea8d3f67a822d63bf3acd1cfbbbac40e192bed89200b4e ;;
+            *) echo "no recorded sha256 for koto $KOTO_VERSION, the repository floor; add one here" >&2; exit 1 ;;
+          esac
+          mkdir -p "$RUNNER_TEMP/koto-bin"
+          gh release download "v$KOTO_VERSION" --repo tsukumogami/koto --pattern koto-linux-amd64 --dir "$RUNNER_TEMP/koto-bin"
+          echo "$KOTO_SHA256  $RUNNER_TEMP/koto-bin/koto-linux-amd64" | sha256sum -c -
+          install -m 0755 "$RUNNER_TEMP/koto-bin/koto-linux-amd64" "$RUNNER_TEMP/koto-bin/koto"
+          echo "$RUNNER_TEMP/koto-bin" >> "$GITHUB_PATH"
+
+      - name: Run the harness tests
+        run: python3 -W error::ResourceWarning scripts/ablation/ablation_test.py -v
+
+  # Every figure a committed ablation summary reports, regenerated from the
+  # committed records alone, with no model session; a changed figure fails
+  # the job naming the line.
+  ablation-figures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Regenerate the committed figures
+        run: python3 scripts/ablation/ablation.py check-figures
+
+  # An ablation run's koto sessions are recognised as fixtures by their
+  # template source directory alone, including a session whose template hash
+  # equals a pinned one; a session from an installed plugin is not.
+  fixture-rule:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Classify synthetic session headers
+        run: python3 -m unittest -v ablation_test.FixtureRule
+        working-directory: scripts/ablation
+
+  # Without --withhold, the eval runner takes exactly the path it took before
+  # this feature.
+  run-evals-unchanged:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run run-evals tests
+        run: bash scripts/run-evals_test.sh
+
+      # --withhold, wherever it sits in the arguments, reaches the ablation
+      # harness; without it the harness is never reached.
+      - name: Check the ablation hand-off
+        run: bash scripts/ablation/run-evals-handoff_test.sh

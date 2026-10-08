@@ -43,10 +43,12 @@
 #                  row carries no facts
 #     facts[]      {kind, status: ok|not_verified, read_at, reason, ...}:
 #       pr         state OPEN|MERGED|CLOSED, draft, head, merge_state
-#       board      at (sha), verdict holds|pending|fails (a pending board
-#                  is neither: it isn't ready to land and it isn't the
-#                  worker's to fix), detail (first failing job
-#                  or missing run)
+#       board      at (sha), verdict holds|pending|fails|not-run (a
+#                  pending board is neither: it isn't ready to land and it
+#                  isn't the worker's to fix; a not-run board had a job
+#                  GitHub never started, which a person clears), detail
+#                  (first failing job or missing run, or the job that never
+#                  ran with GitHub's reason)
 #       branch     state present|gone, tip
 #       appeared   prs[] {number, url, state}
 #       files      paths[] (the pull request's changed paths, both sides of
@@ -58,16 +60,26 @@
 #                  item is a clone that couldn't be read, with the reason
 #                  as its path, and is listed as not verified, not unique
 #       leg        disposition (open|bound|resolved|abandoned; bound is an
-#                  open leg with a child attached), result: a short
-#                  token -- a result map's outcome, or the engine's own
-#                  terminal status and final state, or "refused:<reason>"
+#                  open leg with a child attached), source (koto's
+#                  result_source: promoted, explicit or refused; null with
+#                  no result), result: a short token -- a result map's
+#                  outcome, or the engine's own terminal status and final
+#                  state, or "refused:<reason>"
+#       settle     settled (bool), now (the row's status after it), reason:
+#                  the pass's one write, a row read `dispatching` whose
+#                  worker was found live (and its leg, if any, bound or
+#                  resolved) rewritten `dispatched` (reconcile-settle.sh); a
+#                  row that is `dispatched` now, by this write or an earlier
+#                  pass's, is reported under changes, a failed settle under
+#                  not_verified
 #   side_effects[] {row: {action, target, verified_head, attempted},
 #                   fact: {kind: merge|close|teardown|other,
 #                          verdict: confirmed|not_confirmed|not_rechecked,
 #                          reason, status, read_at}}
-#   deferrals[]    {row: {deferral, reason, raised}, disposed (bool), how,
-#                   status: ok|not_verified, reason}; a deferral whose
-#                   disposal check failed is not reported either way
+#   deferrals[]    {row: {deferral, reason, raised, disposition}, disposed
+#                   (bool), how, status: ok|not_verified, reason}; a
+#                   deferral whose disposal check failed is reported under
+#                   not_verified with the reason, and in neither list
 #   reasoning      present|absent|not_recorded, or null at roadmap scope
 #   unparseable[]  {raw, reason}: rows the reader couldn't parse
 #
@@ -78,8 +90,12 @@
 #   holdings[]     {topic, unit, phase, phase_flag, state, merge_state,
 #                   board, leg, next, next_code, source, read_at,
 #                   grade: {state, board, leg, phase, next}}
-#                  next_code is the token a reader routes on: drop, decide,
-#                  fix_ci, land, held, wait, read_again, refused. source is
+#                  next_code is the token a reader routes on: teardown, decide,
+#                  fix_ci, not_run, land, held, wait, read_again, refused,
+#                  replace_leg. not_run is a board whose jobs GitHub never
+#                  started: it waits on a person, never on the worker.
+#                  replace_leg is a leg spent before its worker reported,
+#                  the worker found: recoverable, not gone. source is
 #                  record or handoff, per row when a holding carries
 #                  `source`, else the document's.
 #   waiting[]      {topic, why, grade}
@@ -98,14 +114,20 @@
 #   side_effects[] {action, target, code, verdict, reason, grade}
 #                  code: confirmed, not_confirmed, not_rechecked, or
 #                  not_verified when the re-check itself failed
-#   deferrals[]    {deferral, reason, raised, grade}: undisposed only
+#   deferrals[]    {deferral, reason, raised, why, grade}: undisposed only;
+#                  why is the disposal check's verdict (empty, malformed,
+#                  carried-before-chain-start, decide-by-passed)
+#   deferrals_disposed[]  {deferral, raised, how, disposition, grade}: every
+#                  deferral the disposal check read as disposed, with how
+#                  (filed #<n>, closed, carried <time>, raised this run)
 #   reasoning      {status, key} or null
 #   not_verified[] {what, reason, raw}
 #
 # Phase. A row's `phase` value decides it, matched whole and ignoring case:
 # "scoping" or "scoping-ahead" is scoping ahead, "executing" is executing,
-# and "held" is held: verified, with the merge withheld by the human's
-# direction (the record feature writes it from land_merge's `merge: held`).
+# and "held" is held: verified, with the merge stopped by a hold in the record
+# that the land check read as unmet (the coordinator writes the Phase at
+# surface after land's `held` verdict).
 # A held holding waits on the human, not on its worker: its next line is
 # "held", it is in `waiting[]`, and its row in the table is under "Ready to
 # merge", since the merge is the human's to make; unless its pull request has
@@ -193,12 +215,20 @@ def has_pr:
   | (no_pr_recorded | not)
     or ($ap != null and (ok($ap) | not))
     or (ok($ap) and (($ap.prs // []) | length) > 0);
+# A row whose merge was confirmed: its Pull request cell was cleared and its
+# Verified head kept, and every pull request on its branch is merged. It
+# waits for the teardown of its worker; the merged pull request is no news.
+def merged_awaiting_teardown:
+  fact("appeared") as $ap
+  | no_pr_recorded and ((.row.verified_head // "") != "")
+    and ok($ap) and (($ap.prs // []) | length) > 0 and all($ap.prs[]; .state == "MERGED");
 
 def state_of:
   if .refused != null then "refused"
   else fact("pr") as $pr
   | fact("host") as $h
   | if ok($pr) then ($pr.state | ascii_downcase)
+    elif merged_awaiting_teardown then "merged"
     elif has_pr then "pull request not verified"
     elif ok($h) then ("no pull request; worker " + (if $h.state == "found" then "found"
                       elif $h.state == "ambiguous" then "ambiguous" else "not found on this read" end))
@@ -214,8 +244,19 @@ def board_of:
   [.facts // [] | .[] | select(.kind == "board" and .status == "ok")]
   | if length == 0 then null
     elif any(.[]; .verdict == "fails") then "fails" + (map(select(.verdict == "fails"))[0].detail // "" | if . == "" then "" else ": " + . end)
+    elif any(.[]; .verdict == "not-run") then "not run" + (map(select(.verdict == "not-run"))[0].detail // "" | if . == "" then "" else ": " + . end)
     elif any(.[]; .verdict == "pending") then "pending"
     else "holds" end;
+
+# A leg spent before its worker reported: abandoned, or resolved with a
+# result the session of its worker did not promote (a cancellation, a
+# refusal at the preflight of the entry point). With no pull request and the
+# worker found,
+# the holding is recoverable: its leg is replaced (dispatch-worker.sh
+# --releg), the worker kept.
+def leg_spent_early:
+  fact("leg") as $l
+  | ok($l) and ($l.disposition == "abandoned" or ($l.disposition == "resolved" and ($l.source // "") != "promoted"));
 
 # The next line is decided as a token, the one readers route on (the pick
 # side counts and routes on these); the sentence the agent reads is looked
@@ -224,27 +265,36 @@ def next_code_of:
   fact("pr") as $pr | fact("host") as $h
   | if .refused != null then "refused"
     elif ok($pr) then
-      (if $pr.state == "MERGED" then "drop"
+      (if $pr.state == "MERGED" then "teardown"
        elif $pr.state == "CLOSED" then "decide"
        elif phase_key == "held" then "held"
        elif ((board_of // "") | startswith("fails")) then "fix_ci"
+       elif ((board_of // "") | startswith("not run")) then "not_run"
        elif (board_of == "holds") and ((.row.verified_head // "") != "")
             and ($pr.head == .row.verified_head) then "land"
        else "wait" end)
+    elif merged_awaiting_teardown then "teardown"
     elif has_pr then "read_again"
+    elif leg_spent_early and ok($h) and $h.state == "found" then "replace_leg"
     elif ok($h) and $h.state == "found" then "wait"
     else "read_again" end;
 def next_text:
-  {drop: "drop from holdings", decide: "decide: re-dispatch or drop",
-   fix_ci: "worker fixes CI", land: "ready to land",
-   held: "verified; merge withheld by the human\u0027s direction, waiting on them",
+  {teardown: "merged; tear down its worker, which removes the row", decide: "with me: re-dispatch or drop",
+   fix_ci: "worker fixes CI",
+   not_run: "CI never ran; a person clears the cause and re-runs it, not the worker",
+   land: "ready to land",
+   held: "verified; merge stopped by a hold in the record (the land check names it)",
    wait: "wait on worker",
-   read_again: "read again, then decide", refused: "refused by the record reader"}[.];
+   read_again: "read again, then decide", refused: "refused by the record reader",
+   replace_leg: "leg spent before the worker reported; replace the leg (dispatch-worker.sh --releg), keeping the worker"}[.];
 def next_of: next_code_of | next_text;
 
 def changes_of($written):
-  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap
+  topic as $t | fact("pr") as $pr | fact("branch") as $br | fact("appeared") as $ap | fact("settle") as $st
   | [
+      (if ok($st) and ($st.settled == true or $st.now == "dispatched") then
+        {topic: $t, what: "dispatch status", recorded: "dispatching", live: "dispatched", written: $written, grade: "measured"}
+       else empty end),
       (if ok($pr) and $pr.state != "OPEN" then
         {topic: $t, what: "pull request", recorded: "open", live: ($pr.state | ascii_downcase), written: $written, grade: "measured"}
        else empty end),
@@ -259,7 +309,8 @@ def changes_of($written):
        elif ok($br) and ok($pr) and ($br.tip // "") != ($pr.head // "") then
         {topic: $t, what: "branch tip differs", recorded: ($pr.head // ""), live: ($br.tip // ""), written: $written, grade: "measured"}
        else empty end),
-      (if ok($ap) and (($ap.prs // []) | length) == 1 then
+      (if merged_awaiting_teardown then empty
+       elif ok($ap) and (($ap.prs // []) | length) == 1 then
         {topic: $t, what: "pull request appeared", recorded: "none yet", live: ($ap.prs[0].url // ""), written: $written, grade: "measured"}
        elif ok($ap) and (($ap.prs // []) | length) > 1 then
         {topic: $t, what: "pull request ambiguous", recorded: "none yet", live: ([$ap.prs[].url] | join(", ")), written: $written, grade: "measured"}
@@ -314,6 +365,7 @@ def changes_of($written):
                         else ([$inv.items[] | "\(.clone // "." | safe_path): \(.kind) \(.path | safe_path)"] | join("; "))
                              + (if $inv.truncated == true then " (truncated)" else "" end) end)
                      else "inventory could not be taken" + (if ($inv.reason // "") != "" then " (" + $inv.reason + ")" else "" end) end)}],
+    decisions: [$in.decisions[]? | {decision, question, recommendation, reason, target}],
     side_effects: [$in.side_effects[]? | (.fact // {verdict: "not_rechecked"}) as $fact | . + {fact: $fact}
       | ((.fact.status // "ok") == "ok") as $read
       | {action: (.row.action // ""), target: (.row.target // ""),
@@ -324,7 +376,13 @@ def changes_of($written):
                 elif (.fact.verdict // "") == "not_rechecked" then "inferred"
                 else "verified by reading" end)}],
     deferrals: [$in.deferrals[]? | select((.status // "ok") == "ok" and .disposed != true)
-      | {deferral: (.row.deferral // ""), reason: (.row.reason // ""), raised: (.row.raised // ""), grade: "verified by reading"}],
+      | {deferral: (.row.deferral // ""), reason: (.row.reason // ""), raised: (.row.raised // ""),
+         why: (.how // ""), grade: "verified by reading"}],
+    # Every deferral the disposal check read as disposed, with how, so the
+    # report accounts for each row it read and not only the open ones.
+    deferrals_disposed: [$in.deferrals[]? | select((.status // "ok") == "ok" and .disposed == true)
+      | {deferral: (.row.deferral // ""), raised: (.row.raised // ""), how: (.how // ""),
+         disposition: (.row.disposition // ""), grade: "verified by reading"}],
     reasoning: (if $in.reasoning == null then null
                 else {status: $in.reasoning, key: (if $in.reasoning == "present" then "reconcile/reasoning.md" else null end)} end),
     # the report as a whole says which scope the phase marks are counted in
@@ -352,7 +410,7 @@ def changes_of($written):
           | {what: ((.row.action // "") + " " + (.row.target // "")), action: (.row.action // ""), target: (.row.target // ""), reason: (.fact.reason // "read failed"), raw: null}])
   }
 | .waiting = (
-    [.holdings[] | select(.next_code == "land" or .next_code == "decide" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
+    [.holdings[] | select(.next_code == "land" or .next_code == "held") | {topic, why: .next, grade: "inferred"}]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed") | {topic: .target, why: "merge not confirmed", grade: "inferred"}])
 | def status_of: .phase
       + (if .phase_flag then ", but its pull request changes paths outside docs/" else "" end)
@@ -367,11 +425,22 @@ def changes_of($written):
   def row($kind): {kind: $kind, unit: .unit, session: .topic, pr: (.pull_request // "none yet"), status: status_of, next: .next};
   .table = (
     [.holdings[] | select(.next_code == "land" or .next_code == "held") | row("Ready to merge")]
-    + [.holdings[] | select(.next_code == "decide") | row("Blocked on you")]
+    # A person is asked only about an escalated decision entry or a step the
+    # workspace reserves for one. A holding whose pull request was closed is
+    # a call for the coordinator (it holds the dispatch), so it stays Ongoing,
+    # and a coordinator that cannot make it raises a decision entry for it.
+    + [.decisions[] | select(.target == "a person")
+       | {kind: "Blocked on you", unit: .question, session: null, pr: null, status: "decide",
+          next: ("recommended: " + .recommendation + ", because " + .reason)}]
+    # CI that GitHub never started waits on whoever holds the account.
+    + [.holdings[] | select(.next_code == "not_run") | row("Blocked on you")]
     + [.side_effects[] | select(.action == "merge" and .code == "not_confirmed")
        | {kind: "Blocked on you", unit: null, session: null, pr: .target, status: "merge not confirmed",
           next: ("confirm the merge" + (if (.reason // "") != "" then ": " + .reason else "" end))}]
-    + [.holdings[] | select(.next_code == "wait" or .next_code == "fix_ci" or .next_code == "read_again") | row("Ongoing")])
+    + [.holdings[] | select(.next_code == "wait" or .next_code == "fix_ci" or .next_code == "read_again" or .next_code == "decide" or .next_code == "replace_leg") | row("Ongoing")]
+    + [.decisions[] | select(.target != "a person")
+       | {kind: "Ongoing", unit: .question, session: null, pr: null,
+          status: ("with `" + (.target | sub("^coordinator "; "")) + "` for a decision"), next: null}])
 '
 
 if [ "$SCHEMA" = coordinate-reconcile-report/v1 ]; then
@@ -421,6 +490,7 @@ def code: "`" + . + "`";
 section("Changed since then"; [.changes[] | "- \(.topic | code): "
     + (if .what == "head moved" then "head moved past the verified head"
        elif .what == "branch tip differs" then "branch tip differs from the pull request head"
+       elif .what == "dispatch status" then "settled: record said dispatching, the worker is live, and the record now says dispatched"
        elif .what == "pull request appeared" then "pull request appeared: record said none yet, now \(.live | urllink)"
        elif .what == "pull request ambiguous" then "pull requests appeared: record said none yet, now \(.live | split(", ") | map(urllink) | join(", "))"
        else "\(.what): record said \(.recorded), now \(.live)" end)
@@ -437,7 +507,13 @@ def prcell: if . == null or . == "" then "N/A" elif startswith("[") then . else 
 "",
 section("Exists nowhere else"; [.nowhere_else[] | "- \(.topic | code): \(.why); \(.inventory) (\(.grade))."]),
 section("Side effects"; [.side_effects[] | . as $se | "- \(.action) \(.target | refs(if $se.action == "merge" then "pull" else "issues" end)): \(.verdict)" + (if .reason != "" then " (\(.reason))" else "" end) + " (\(.grade))."]),
-section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason) (\(.grade))."]),
+section("Undisposed deferrals"; [.deferrals[] | "- \(.deferral) (raised \(.raised)): \(.reason)"
+    + (if (.why // "") != "" then "; open because " + ({"empty": "it has no disposition", "malformed": "its disposition is malformed",
+         "carried-before-chain-start": "it was carried before the chain start", "decide-by-passed": "its decide-by has passed"}[.why] // .why) else "" end)
+    + " (\(.grade))."]),
+section("Disposed deferrals"; [(.deferrals_disposed // [])[] | "- \(.deferral) (raised \(.raised)): "
+    + (if .how == "raised this run" then "raised in this run, so not a predecessor'"'"'s to dispose of" else .how end)
+    + " (\(.grade))."]),
 (if .reasoning != null then
   section("Predecessor'"'"'s reasoning";
     [if .reasoning.status == "present" then "The previous rotation'"'"'s reasoning is in \(.reasoning.key), as its view; nothing here re-checked it."

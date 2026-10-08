@@ -63,6 +63,9 @@ Each of the four review categories (phases 1–4) runs with a single agent. The 
 applies heuristic pattern checks and taxonomy-anchored adversarial reasoning within
 a single call. Phase 5 synthesizes all category findings into the verdict.
 
+When a category's agent is spawned rather than run inline, it is commissioned as a
+validator seat, as **Seat commissioning** below says.
+
 ### Adversarial (standalone)
 
 Called directly by the user with `--adversarial`. Multiple validator agents
@@ -74,20 +77,6 @@ Invoked as:
 ```bash
 /review-plan <plan-artifact-or-topic> [--adversarial]
 ```
-
-Without `--adversarial`, the skill runs fast-path depth. With `--adversarial`, each
-category runs a multi-agent bakeoff. The output schema is identical in both modes.
-
-## Execution Mode Detection
-
-Phase 0 determines which mode to use:
-
-1. If called with `mode: fast-path` in args → fast-path mode
-2. If `--adversarial` flag is present in `$ARGUMENTS` → adversarial mode
-3. If neither → fast-path mode (default)
-
-In fast-path, phases 1–4 each use a single agent. In adversarial mode, each phase
-spawns multiple validator agents and adds a cross-examination step before synthesis.
 
 ## Adversarial Mode: Multi-Agent Bakeoff
 
@@ -105,6 +94,8 @@ For each category, spawn three independent validator agents in parallel. Each ag
 
 Spawn all three agents for all four categories in a single message (12 agents total)
 to minimize wall-clock time. Each agent runs with `run_in_background: true`.
+
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): validators run on `model: "sonnet"` with a 10-call budget, and cross-examination agents on `model: "sonnet"` with a 6-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc <decomposition-artifact> --format skills/review-plan/references/phases/<category-phase-file> --extra <analysis-artifact> --extra <dependencies-artifact> --extra <upstream-design-doc> --extra <issue-body-file> ...`, one per category. The artifacts are the ones `references/phases/phase-0-setup.md` lists; `<category-phase-file>` is the category's phase reference. A cross-examination agent gets the same packet plus the disagreeing findings.
 
 ### Step 2: Collect and Compare
 
@@ -146,52 +137,11 @@ The verdict file format, field names, and loop-back behavior are identical. The 
 difference is evaluation depth — adversarial mode's multi-agent bakeoff catches more
 findings at the cost of significantly higher latency.
 
-## Input
-
-From `$ARGUMENTS` (after stripping flags):
-
-1. **Plan topic string** (e.g., `plan-review`) — resolves to `wip/plan_<topic>_analysis.md`
-2. **Path to plan analysis artifact** (e.g., `wip/plan_plan-review_analysis.md`) — used directly
-3. **Called as sub-operation** — `plan_topic` is passed via args
-
-Phase 0 reads the wip/ artifacts from the resolved topic to load all plan context.
-
-## Phase Execution Sequence
-
-```
-Phase 0: Setup
-  → read wip artifacts, detect input_type, select execution mode
-
-Phases 1–4: Review Categories
-  → Phase 1: Scope Gate (Category A)            [fast-path: 1 agent; adversarial: 3 agents + cross-exam]
-  → Phase 2: Design Fidelity (Category B)       [fast-path: 1 agent; adversarial: 3 agents + cross-exam]
-  → Phase 3: AC Discriminability (Category C)   [fast-path: 1 agent; adversarial: 3 agents + cross-exam]
-  → Phase 4: Sequencing / Priority Integrity (D)[fast-path: 1 agent; adversarial: 3 agents + cross-exam]
-  Note: in adversarial mode all 12 category agents spawn in parallel
-
-Phase 5: Verdict Synthesis
-  → collect findings from all categories
-  → write verdict artifact
-
-Phase 6: Loop-back (only when verdict is loop-back)
-  → delete wip/ artifacts back to loop_target
-  → signal /plan to re-enter at loop_target
-```
-
-Phases 1–4 each produce findings in the `review_result` `critical_findings` format.
-Phase 5 synthesizes them into a single verdict.
-
 ## Verdict Artifacts
 
-Phase 5 writes exactly one file per review run:
-
-| Verdict | File | Purpose |
-|---------|------|---------|
-| `proceed` | `wip/plan_<topic>_review.md` | Phase 7 resume trigger (unchanged from /plan existing logic) |
-| `loop-back` | `wip/plan_<topic>_review_loopback.md` | Persists findings and correction hints until loop completes |
-
-Both files use the same `review_result` YAML schema. See
-`references/templates/review-result-schema.md` for the full field specification.
+Phase 5 writes the verdict file; `references/phases/phase-5-verdict.md` says which
+file each verdict gets. See `references/templates/review-result-schema.md` for the
+`review_result` YAML schema and its full field specification.
 
 ## Resume Logic
 
@@ -213,4 +163,4 @@ else                                           → start at Phase 0
 | `references/phases/phase-5-verdict.md` | Phase 5 |
 | `references/phases/phase-6-loop-back.md` | Phase 6 (loop-back only) |
 | `references/templates/review-result-schema.md` | Phases 1–5 (finding format) |
-| `references/templates/ac-discriminability-taxonomy.md` | Phase 3 (adversarial pass) |
+| `references/templates/ac-discriminability-taxonomy.md` | Phase 3, before Pass 1 |

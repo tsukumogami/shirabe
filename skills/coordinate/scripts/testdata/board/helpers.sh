@@ -19,9 +19,11 @@ bt_setup() {
     local f S="$T/plugin/skills/coordinate/scripts"
     mkdir -p "$S" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
-             merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-parse.sh record-render.sh record-codec.jq; do
+             merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-parse.sh record-render.sh record-codec.jq \
+             panel-evidence.sh squash-message.sh merge-order-entry.sh pause-read.sh; do
         cp "$HERE/$f" "$S/$f"
     done
+    ln -sf "$TD/board/stand-in-shirabe" "$T/bin/shirabe"
     cp "$TD/board/stand-in-posture-read.sh" "$S/posture-read.sh"
     cp "$TD/board/stand-in-record-holding.sh" "$S/record-holding.sh"
     cp "$TD/board/stand-in-merge-exec.sh" "$T/plugin/skills/execute/scripts/merge-exec.sh"
@@ -61,7 +63,18 @@ bt_materialize() {
 }
 
 # bt_board <name>: materialize a case into $GH_BOARD_DIR.
-bt_board() { bt_case "$1" > "$T/case.json" && bt_materialize "$T/case.json" "$GH_BOARD_DIR"; }
+# With BT_PRVIEW_BODY set, it also writes pull request #12's view: the
+# merge state CLEAN, a title, and that body (board-record.sh reads the body
+# for its Review panel; land-merge.sh reads title and body for the message).
+# A suite whose own gh stand-in answers `gh pr view` leaves it unset, since a
+# prview file routes every `pr view` to gh-board.
+bt_board() {
+    bt_case "$1" > "$T/case.json" && bt_materialize "$T/case.json" "$GH_BOARD_DIR" || return 1
+    if [ -n "${BT_PRVIEW_BODY-}" ]; then
+        printf '%s' "$BT_PRVIEW_BODY" > "$T/prview-body"
+        bt_prview CLEAN "$T/prview-body"
+    fi
+}
 
 bt_logf() { printf '%s\n' "$KOTO_BOARD_DIR/sessions/$1/koto-$1.state.jsonl"; }
 bt_append() { # bt_append <S> <type> <payload-json> [timestamp]
@@ -114,12 +127,29 @@ bt_verified() {
     bt_sealed "$1" verify_board VERIFIED "verified $2 $3"
     bt_enter "$1" verified_confirm
 }
-# bt_record_body <reversals-json>: record #7 on the stand-in, rendered by the
-# real codec, with the given Reversals rows.
+# bt_record_body <reversals-json> [holds-json]: record #7 on the stand-in,
+# rendered by the real codec, with the given Reversals rows and holds.
 bt_record_body() {
-    jq -nc --argjson r "$1" '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: $r}' > "$T/rec.json"
+    jq -nc --argjson r "$1" --argjson h "${2:-[]}" '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: $r, holds: $h}' > "$T/rec.json"
     bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
     jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+}
+# bt_record_paused <standing-rows-json> [holds-json]: the record, with pull
+# request #12's holding on Feature 2 and the given Standing rows; bt_pause
+# <id> <kind> <on> <until> prints one Standing row.
+bt_record_paused() {
+    jq -nc --argjson s "$1" --argjson h "${2:-[]}" '{scope: {kind: "roadmap", name: "demo"},
+        holdings: [{unit: "Feature 2", entry_point: "/shirabe:deliver", mode: "--auto", phase: "executing",
+            dispatch_status: "dispatched", return_path: "message", worker: "worker-f2", repo: "acme/widgets",
+            branch: "feat/x", verified_head: "", dispatched: "2026-09-26",
+            pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
+        deferrals: [], side_effects: [], reversals: [], holds: $h, standing: $s}' > "$T/rec.json"
+    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
+    jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+}
+bt_pause() {
+    jq -nc --arg s "$1" --arg k "$2" --arg o "$3" --arg u "$4" \
+        '{standing: $s, kind: $k, on: $o, until: $u, what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}'
 }
 bt_holdings() { # bt_holdings <pr-links...>: Holdings rows linking each
     local l
@@ -128,6 +158,24 @@ bt_holdings() { # bt_holdings <pr-links...>: Holdings rows linking each
 
 # bt_merged <state> <files-json>: pull request #12's view, and the default
 # branch; then bt_blob <ref> <path> <sha|absent|fail> for each blob read.
+# bt_body [reviewed-head] [verdict-of-third-seat]: a pull request body with a
+# Part 1 and a three-seat Review panel table at <reviewed-head> ($H).
+BT_PART1='Reads the worker'"'"'s **review round** in the `land` step.'
+bt_body() {
+    local r=${1:-$H} v=${2:-pass}
+    printf '%s\n\n---\n\n## Review panel\n\n| Seat | Model | Run | Verdict | Reviewed head |\n|---|---|---|---|---|\n' "$BT_PART1"
+    printf '| architect | sonnet | comment-101 | pass | %s |\n| maintainer | sonnet | comment-102 | pass | %s |\n| pragmatic | sonnet | comment-103 | %s | %s |\n' "$r" "$r" "$v" "$r"
+}
+# bt_prview <merge-state> [body-file]: pull request #12's view for land-check
+# (default body: bt_body).
+bt_prview() {
+    local b
+    if [ -n "${2-}" ]; then b=$(cat "$2"); else b=$(bt_body); fi
+    jq -nc --arg s "$1" --arg b "$b" \
+        '{mergeStateStatus: $s, body: $b, title: "feat(land): read the round", baseRefName: "main",
+          files: [{path: "skills/x.sh", additions: 1, deletions: 0}]}' > "$GH_BOARD_DIR/prview-12.out"
+}
+
 bt_merged() {
     jq -nc --arg s "$1" --argjson f "$2" '{state: $s, files: [$f[] | {path: ., additions: 1, deletions: 0}]}' > "$GH_BOARD_DIR/prview-12.out"
     echo '{"full_name":"acme/widgets","default_branch":"main"}' > "$GH_BOARD_DIR/repo.out"

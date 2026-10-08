@@ -101,7 +101,6 @@ case "$CC_MERGE" in true|false) ;; *) usage_error "--merge must be true or false
 [[ $CC_SLUG =~ $RE_COORD_SLUG ]] || usage_error "--slug [$CC_SLUG] is outside ^[a-z0-9-]+\$"
 coord_valid_repo_list "$CC_REPOS" || usage_error "--repos [$CC_REPOS] is not a comma-joined owner/repo list"
 coord_valid_repo "$CC_HOME" || usage_error "--home-repo [$CC_HOME] is not a single owner/repo"
-coord_in_list "$CC_HOME" "$CC_REPOS" || usage_error "--home-repo [$CC_HOME] is not in --repos"
 coord_valid_branch "$CC_CB" || usage_error "--coord-branch [$CC_CB] is not an allowed branch name"
 [ -n "$CC_PLAN" ] || usage_error "--plan is empty"
 case "/$CC_PLAN/" in */../*) usage_error "--plan [$CC_PLAN] has a .. segment" ;; esac

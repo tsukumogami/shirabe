@@ -25,6 +25,14 @@
 # predecessor left reasoning). progress and refusal are cleared at the start
 # of every pass; a new visit removes the rest.
 #
+# The pass writes the record in one case only: a holding left `dispatching`
+# whose worker the listing finds (and whose leg, when it has one, is bound or
+# resolved) is rewritten `dispatched` by reconcile-settle.sh, launched like a
+# re-check once those facts are in, and reported under "Changed since then".
+# A deferral's carry is judged against the chain start (coord-log.sh
+# chain-start), so a restart doesn't re-decide what the run it replaced
+# carried.
+#
 # The work file, <session-dir>/coordinate-reconcile/visit.json, is trusted
 # only when its sha256 is the one this state's last engine-logged output
 # named; otherwise (edited, or left by a killed pass) the visit's reads start
@@ -78,9 +86,33 @@ done
 [[ $SESSION =~ ^[A-Za-z][A-Za-z0-9._-]*$ ]] || { echo "reconcile-pass: invalid session name" >&2; exit 64; }
 [ -d "$SDIR" ] && [ "$(basename "$SDIR")" = "$SESSION" ] || { echo "reconcile-pass: the session directory does not name this session" >&2; exit 64; }
 
-now() { if [ -n "$CLOCK_FILE" ]; then cat "$CLOCK_FILE"; else date +%s; fi; }
+# The test entry's clock file is shared with the test's stand-in re-checks,
+# which advance it while this pass reads it. Both sides write it whole (a
+# temp file of the writer's own, renamed into place), and a read that still
+# comes back empty is retried rather than taken for a time: an empty `t`
+# reaches jq as `--argjson t ""`. `now` runs in `$(...)`, where `die` ends only
+# the subshell, so every caller takes it in a plain assignment that exits on
+# its status, never inside arithmetic, where a failed read turns into a
+# wrong number instead.
+now() {
+    [ -n "$CLOCK_FILE" ] || { date +%s; return; }
+    local v i=0
+    while :; do
+        v=$(cat "$CLOCK_FILE" 2>/dev/null)
+        [ -n "$v" ] && { printf '%s\n' "$v"; return; }
+        i=$((i + 1)); [ "$i" -ge 50 ] && die "the test clock $CLOCK_FILE read empty"
+        sleep 0.02
+    done
+}
+# Under the test entry the wait advances the clock without the stand-ins'
+# lock: its one caller waits only when no re-check is running, so nothing
+# else writes the clock meanwhile.
 wait_secs() {
-    if [ -n "$CLOCK_FILE" ]; then echo $(( $(cat "$CLOCK_FILE") + $1 )) > "$CLOCK_FILE"
+    if [ -n "$CLOCK_FILE" ]; then
+        local c tmp
+        c=$(now) || exit 1
+        tmp=$(mktemp "$CLOCK_FILE.XXXXXX") || die "can't write the test clock"
+        echo $(( c + $1 )) > "$tmp" && mv "$tmp" "$CLOCK_FILE" || die "can't write the test clock"
     else sleep "$1"; fi
 }
 iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
@@ -91,7 +123,7 @@ ctx_put() { koto context add "$SESSION" "$1" --from-file "$2" >/dev/null || die 
 ctx_rm() { koto context remove "$SESSION" "$1" >/dev/null 2>&1 || true; }
 ctx_rm_all() { local k; for k in progress refusal report.json report.md reasoning.md; do ctx_rm "reconcile/$k"; done; }
 
-T0=$(now)
+T0=$(now) || exit 1
 W="$SDIR/coordinate-reconcile"
 WORK="$W/visit.json"
 mkdir -p "$W" || die "can't create the work directory"
@@ -119,7 +151,13 @@ discard() { rm -rf "$WORK" "$W/report.json" "$W/report.md" "$W/reasoning.md" "$W
 # overwritten rather than trusted.
 WJ=""
 # save JSON -- keep JSON as the work document and replace the file atomically.
-save() { WJ=$1; printf '%s\n' "$WJ" > "$WORK.tmp" && mv "$WORK.tmp" "$WORK" || die "can't write the work file"; }
+# Callers build JSON in `$(jq ...)` and check jq's status before calling this:
+# `save "$(jq ...)"` would lose it and store jq's empty output as the work
+# file. An empty document is refused here as well.
+save() {
+    [ -n "$1" ] || die "refusing to write an empty work file"
+    WJ=$1; printf '%s\n' "$WJ" > "$WORK.tmp" && mv "$WORK.tmp" "$WORK" || die "can't write the work file"
+}
 wj() { printf '%s\n' "$WJ" | jq "$@"; }
 
 if [ -f "$WORK" ]; then
@@ -165,6 +203,8 @@ if [ -z "$WJ" ]; then
         say "blocked:$CASE"
     fi
     RUN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
+    # A deferral carried by a run this one restarted counts as disposed.
+    CHAIN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" chain-start --session "$SESSION") || die "the run's chain start can't be read"
     # Where the scripts sit relative to the repository being worked on.
     PR_ROOT=$(cd "$HERE/../../.." && pwd -P)
     TOP=$(rd_git rev-parse --show-toplevel 2>/dev/null) && TOP=$(cd "$TOP" && pwd -P) || TOP=""
@@ -172,16 +212,17 @@ if [ -z "$WJ" ]; then
     if [ -n "$TOP" ]; then
         case "$PR_ROOT/" in "$TOP"/*) PLACE='"inside"' ;; *) PLACE='"outside"' ;; esac
     fi
-    save "$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --argjson place "$PLACE" \
-        '{visit: $v, record: $rec, run_start: $rs, plugin_root: $place, facts: {}, done: false}')" \
+    NEW=$(jq -c -n --argjson rec "$REC" --arg v "$VISIT" --arg rs "$RUN_START" --arg cs "$CHAIN_START" --argjson place "$PLACE" \
+        '{visit: $v, record: $rec, run_start: $rs, chain_start: $cs, plugin_root: $place, facts: {}, done: false}') \
         || die "the record could not be stored"
+    save "$NEW"
 fi
 
 # plan NOW -- the re-checks not yet done, one JSON object per line:
 # {id, sub, args, natural, due}. natural is the read's own deadline; a read
 # with due later than NOW waits.
 plan() {
-    wj -c --argjson now "$1" --arg w "$R" '
+    wj -c --argjson now "$1" --arg w "$R" --arg session "$SESSION" '
         . as $work | .facts as $f | .record as $rec
         | def okf($id): (($f[$id].status // "") == "ok");
           def prnum: [(. // "") | capture("^\\[#(?<n>[0-9]+)\\]") | .n][0];
@@ -199,7 +240,7 @@ plan() {
                     {id: "\($p).board.l", sub: "board", args: ["--repo", $h.repo, "--sha", $f["\($p).pr"].head, "--base", ($f["\($p).pr"].base // "")], natural: 26}
                   else empty end),
                  (if ($h.branch // "") != "" then {id: "\($p).branch", sub: "branch", args: ["--repo", $h.repo, "--branch", $h.branch], natural: 8} else empty end),
-                 (if ($h.phase // "") == "scoping-ahead" then {id: "\($p).files", sub: "files", args: ["--repo", $h.repo, "--number", $n], natural: 8} else empty end)
+                 (if (($h.phase // "") == "scoping-ahead" or ($h.phase // "") == "scoping") then {id: "\($p).files", sub: "files", args: ["--repo", $h.repo, "--number", $n], natural: 8} else empty end)
                else
                  (if ($h.branch // "") != "" then {id: "\($p).appeared", sub: "appeared", args: ["--repo", $h.repo, "--branch", $h.branch], natural: 8} else empty end),
                  (if ($h.worker // "") != "" then
@@ -208,7 +249,14 @@ plan() {
                        {id: "\($p).host2", sub: "host", args: ["--topic", $h.worker], natural: 8, due: ($f["\($p).host1"].t + 30)}
                      else empty end),
                     ([$f["\($p).host1"], $f["\($p).host2"]] | map(select(. != null and .status == "ok" and .state == "found")) | .[0]) as $found
-                    | (if $found != null then {id: "\($p).inv", sub: "inventory", args: ["--path", $found.path], natural: 20} else empty end)
+                    | (if $found != null then {id: "\($p).inv", sub: "inventory", args: ["--path", $found.path], natural: 20} else empty end),
+                      # A row left dispatching with its worker live (and its
+                      # leg, when it has one, bound or resolved) is settled.
+                      (if $found != null and ($h.dispatch_status // "") == "dispatching"
+                          and ((($h.return_path // "") | startswith("leg ") | not)
+                               or (okf("\($p).leg") and ($f["\($p).leg"].disposition | IN("bound", "resolved")))) then
+                         {id: "\($p).settle", sub: "settle", args: ["--session", $session, "--topic", $h.worker, "--return-path", ($h.return_path // "")], natural: 20}
+                       else empty end)
                   else empty end)
                end),
               (if (($h.return_path // "") | startswith("leg ")) then {id: "\($p).leg", sub: "leg", args: ["--return-path", $h.return_path], natural: 8} else empty end)),
@@ -226,7 +274,7 @@ plan() {
                  (if ($f[$p].verdict // "") == "confirmed" then {id: "\($p).2", sub: "teardown", args: ["--topic", ($s.target // "")], natural: 8, due: ($f[$p].t + 30)} else empty end)
                else empty end)),
           ($rec.deferrals | to_entries[] | "d\(.key)" as $p
-            | {id: $p, sub: "deferral", args: ["--repo", $rec.scope.repo, "--row-file", "\($w)/\($p).row.json", "--run-start", $work.run_start], natural: 8})
+            | {id: $p, sub: "deferral", args: ["--repo", $rec.scope.repo, "--row-file", "\($w)/\($p).row.json", "--run-start", $work.run_start, "--chain-start", $work.chain_start], natural: 8})
         ]
         | map(select($f[.id] == null) | .due = (.due // 0))[]'
 }
@@ -236,22 +284,34 @@ RUN_IDS=() RUN_PIDS=() RUN_END=() RUN_CLIPPED=()
 
 # collect -- fold every finished read into the work file.
 collect() {
-    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() fact clipped t
+    local i id keep_ids=() keep_pids=() keep_end=() keep_clip=() fact clipped t new why
     i=0
     while [ "$i" -lt "${#RUN_IDS[@]}" ]; do
         id=${RUN_IDS[$i]}
-        t=$(now)
+        t=$(now) || exit 1
         # A result counts only once its own read has ended.
         if [ -f "$R/$id.rc" ] && ! kill -0 "${RUN_PIDS[$i]}" 2>/dev/null; then
             fact=$(jq -c '.' "$R/$id.out" 2>/dev/null | head -1)
             clipped=${RUN_CLIPPED[$i]}
             if [ -z "$fact" ] || ! printf '%s' "$fact" | jq -e '(.kind | type) == "string" and (.status | type) == "string"' >/dev/null 2>&1; then
-                fact=$(jq -nc --arg id "$id" '{kind: "unknown", status: "not_verified", reason: "the re-check printed nothing readable"}')
+                # Say how it ended, so the report names what couldn't be read
+                # rather than only that nothing came back: its exit code and
+                # the last line it wrote to stderr (launch always creates the
+                # .err file), token-shaped text redacted by record-common.sh's
+                # lib_redact rule, copied since this pass doesn't source it.
+                why=$(tail -n 1 "$R/$id.err" | tr -d '\r' \
+                    | sed -E 's/(gh[pousr]_[A-Za-z0-9_]{6,}|github_pat_[A-Za-z0-9_]{6,})/[redacted]/g' \
+                    | tr -d '\000-\010\013\014\016-\037' | cut -c1-200)
+                fact=$(jq -nc --arg rc "$(cat "$R/$id.rc")" --arg why "$why" \
+                    '{kind: "unknown", status: "not_verified",
+                      reason: ("the re-check printed nothing readable (exit " + $rc + (if $why == "" then "" else ": " + $why end) + ")")}')
             fi
             if [ "$clipped" = 1 ] && printf '%s' "$fact" | jq -e '.status != "ok" and ((.reason // "") | test("timed out"))' >/dev/null 2>&1; then
                 :   # cut short by this pass's budget, not by its own deadline: read again next pass
             else
-                save "$(wj -c --arg id "$id" --argjson f "$fact" --argjson t "$t" '.facts[$id] = ($f + {t: $t})')"
+                new=$(wj -c --arg id "$id" --argjson f "$fact" --argjson t "$t" '.facts[$id] = ($f + {t: $t})') \
+                    || die "the fact for $id could not be written"
+                save "$new"
             fi
             rm -f "$R/$id".*
         elif [ "$t" -ge "${RUN_END[$i]}" ]; then
@@ -273,7 +333,7 @@ running() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do [ "$x" = "$1" ] 
 # launch SPEC LEFT -- start one re-check in the background with its deadline
 # clipped to LEFT seconds.
 launch() {
-    local spec=$1 left=$2 id sub nat budget d bd clipped=0 pid
+    local spec=$1 left=$2 id sub nat budget d bd clipped=0 pid tl
     id=$(printf '%s' "$spec" | jq -r .id)
     sub=$(printf '%s' "$spec" | jq -r .sub)
     nat=$(printf '%s' "$spec" | jq -r .natural)
@@ -293,17 +353,24 @@ launch() {
         exec 3>&-
         args=()
         while IFS= read -r a; do args+=("$a"); done < "$R/$id.args"
-        RECONCILE_READ_DEADLINE=$d RECONCILE_BOARD_DEADLINE=$bd \
-            "${RUNBASH[@]}" "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+        # The settle is the pass's one write, in a script of its own; every
+        # other read is a re-check.
+        if [ "$sub" = settle ]; then
+            RECONCILE_READ_DEADLINE=$d "${RUNBASH[@]}" "$HERE/reconcile-settle.sh" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+        else
+            RECONCILE_READ_DEADLINE=$d RECONCILE_BOARD_DEADLINE=$bd \
+                "${RUNBASH[@]}" "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+        fi
         echo $? > "$R/$id.rc.tmp" && mv "$R/$id.rc.tmp" "$R/$id.rc"
     ) &
     pid=$!
-    RUN_IDS+=("$id"); RUN_PIDS+=("$pid"); RUN_END+=($(( $(now) + budget + 2 ))); RUN_CLIPPED+=("$clipped")
+    tl=$(now) || exit 1
+    RUN_IDS+=("$id"); RUN_PIDS+=("$pid"); RUN_END+=($((tl + budget + 2))); RUN_CLIPPED+=("$clipped")
 }
 
 while :; do
     collect
-    t=$(now)
+    t=$(now) || exit 1
     el=$((t - T0))
     plan "$t" > "$T/plan" || die "the plan could not be read"
     ready=0 wait_until=0
@@ -317,9 +384,14 @@ while :; do
             continue
         fi
         ready=$((ready + 1))
-        el=$(( $(now) - T0 ))
+        tn=$(now) || exit 1
+        el=$((tn - T0))
         left=$((READS_END - el))
-        if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ]; then
+        # A write is never clipped: the settle starts only when its whole
+        # budget fits, else in a later pass, which starts with it.
+        whole=1
+        [ "$(printf '%s' "$spec" | jq -r .sub)" = settle ] && [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0
+        if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ] && [ "$whole" = 1 ]; then
             launch "$spec" "$left"
             ready=$((ready - 1))
         fi
@@ -334,8 +406,11 @@ while :; do
     sleep 0.05
 done
 
-# Anything left is read in a later pass.
-LEFT=$(plan "$(now)" | grep -c . || true)
+# Anything left is read in a later pass. A plan that can't be read must not
+# count as nothing left, or the pass would seal with re-checks unread.
+t=$(now) || exit 1
+plan "$t" > "$T/plan" || die "the plan could not be read"
+LEFT=$(grep -c . "$T/plan" || true)
 if [ "$LEFT" -gt 0 ]; then
     H=$(printf '%s\n' "$WJ" | rd_sha256)
     printf '%s re-checks left in this visit; tick again with no evidence.\n' "$LEFT" > "$T/progress"
@@ -350,12 +425,13 @@ jq -c --arg at "$(iso)" '
       def get($id): if $f[$id] == null then empty else $f[$id] | strip end;
     {schema: "coordinate-reconcile-facts/v1",
      scope: $rec.scope, record: $rec.record, reconciled_at: $at, plugin_root: .plugin_root,
+     decisions: ($rec.decisions // []),
      holdings: [$rec.holdings | to_entries[] | .key as $i | "h\($i)" as $p
        | (if $f["\($p).host2"] != null then ($f["\($p).host2"] | strip | .reads = 2)
           elif $f["\($p).host1"] != null then ($f["\($p).host1"] | strip) else null end) as $host
        | {source: .value.source, row: .value.row, refused: null,
           facts: ([get("\($p).pr"), get("\($p).board.v"), get("\($p).board.l"), get("\($p).branch"),
-                   get("\($p).appeared"), get("\($p).files"), get("\($p).leg")]
+                   get("\($p).appeared"), get("\($p).files"), get("\($p).leg"), get("\($p).settle")]
                   + (if $host == null then [] else [$host | del(.path)] end)
                   + (if $f["\($p).inv"] != null then [get("\($p).inv")]
                      elif $host != null and $host.status == "ok" and $host.state == "missed" then
@@ -387,7 +463,8 @@ else
 fi
 koto context get "$SESSION" reconcile/report.json > "$T/back.json" 2>/dev/null || die "the stored report can't be read back"
 [ "$(rd_sha256 < "$T/back.json")" = "$DIGEST" ] || die "the stored report differs from the one written"
-save "$(wj -c '.done = true')"
+NEW=$(wj -c '.done = true') || die "the work file could not be marked done"
+save "$NEW"
 LINE=$("${RUNBASH[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token "reconciled $DIGEST") \
     || die "the report could not be sealed"
 # The facts are this visit's: a seal for a later entry into the state would

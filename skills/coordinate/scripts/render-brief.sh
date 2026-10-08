@@ -13,14 +13,19 @@
 #   topic               required  the dispatch topic, ^[a-z0-9][a-z0-9-]*$
 #   repo                required  owner/repo
 #   unit                required  the unit of work, one line, as the holding's
-#                                 Unit cell names it (a feature, an issue)
+#                                 Unit cell names it: a roadmap feature's
+#                                 heading tag ("Feature 2") or "<tag>:
+#                                 <title>", an issue's "#12" or
+#                                 "owner/repo#12", the forms pick reads.
+#                                 With --units, any other form is refused
 #   entry_point         required  a skill listed in references/entry-points.tsv
 #   entry_args          required  JSON array of tokens: the positional argument
 #                                 first, then flags from the entry point's
 #                                 allowed set
 #   run_mode            required  the execution flags, space-separated, each
 #                                 from the allowed set
-#   phase               required  scoping-ahead or executing
+#   phase               required  scoping (the unit is its scoping alone),
+#                                 scoping-ahead or executing
 #   authority           required  the authority sentence, in the human's voice
 #   goal                required  one or two sentences
 #   checkpoints         required  1+ strings; the last is where the worker
@@ -35,13 +40,46 @@
 #   surfaces            optional  [{surface, coordinator}], one line each
 #   standing_rules      optional  the workspace's own rules for workers,
 #                                 copied verbatim
+#   targets             optional  owner/repo strings: the repositories the
+#                                 unit lands in besides `repo`. For a unit
+#                                 driven by a PLAN (/execute, or a scoped
+#                                 unit's execution), the repositories its
+#                                 issues land in. Required, non-empty, when
+#                                 the entry point's row pins `plan-slug`
+#                                 (today /execute) and restricts its
+#                                 targets' visibility.
+#   review_level        optional  {floor, ceiling}, one or both, each light,
+#                                 standard or full, the floor no higher than
+#                                 the ceiling: the bound on the review level
+#                                 every /work-on run under this worker picks.
+#                                 Rendered as one Acceptance criteria line
+#                                 and as --review-floor=<x> and
+#                                 --review-ceiling=<y> on the invocation
+#                                 (dispatch-common.sh dc_invocation). Refused
+#                                 on an entry point whose row in
+#                                 entry-points.tsv doesn't admit the flags.
+#                                 The flags themselves are refused in
+#                                 entry_args and run_mode: this field is
+#                                 their only route, so the level names are
+#                                 always checked. Absent, the brief is what
+#                                 it was before the field existed.
+#
+# The entry point's target requirement. references/entry-points.tsv gives each
+# entry point the visibility its targets must have (`any`, `public` or
+# `private`). When it isn't `any`, each target (`repo`, then every `targets`
+# entry) is read live from GitHub (`gh api repos/<r>`), and a target the entry
+# point can't take refuses the input, naming the entry point to use instead.
+# The refusal names the target by its field (`repo`, `targets[1]`), never the
+# repository, so a private repository's name doesn't travel in the message. A
+# visibility that can't be read exits 2: never read as a pass. With `any`, no
+# read is made. The first target refused ends the reads.
 #
 # No value may carry a UUID-shaped token, so a session id never reaches a
 # brief; a session name, which the worker needs to reach its coordinator, is
 # not an id.
 #
 # Usage:
-#   render-brief.sh --input <file> [--workspace-root <dir>] [--return-path <rp>] [--stdout]
+#   render-brief.sh --input <file> [--workspace-root <dir>] [--return-path <rp>] [--units <pick.json>] [--stdout]
 #
 #   --workspace-root  where .niwa/dispatch-briefs/ lives; found with
 #                     dc_workspace_root when absent
@@ -50,6 +88,17 @@
 #                     invocation the brief shows, so the brief and the
 #                     dispatch prompt name the same command
 #   --stdout          print the brief instead of writing it
+#   --units           the units pick_facts listed (coord/pick.json): the unit
+#                     must be a form pick reads as covering one of them
+#                     (dispatch-common.sh dc_unit_forms), else the input is
+#                     refused, naming the forms that would match.
+#                     dispatch-worker.sh passes it on every new dispatch;
+#                     a re-brief, or a resumed dispatch whose holding
+#                     already records the unit, isn't checked
+#   --targets-checked skip the entry point's target requirement: the caller
+#                     already checked this input (dispatch-worker.sh's second
+#                     render, after its leg is open, so a flaky read there
+#                     can't strand the leg)
 #
 # Output: the written brief's path, or the brief with --stdout. The reason for
 # a refusal on stderr, one line per problem.
@@ -57,7 +106,9 @@
 # Exit codes:
 #   0  written (or printed)
 #   1  input refused; nothing written
-#   2  usage error, unreadable input, or no workspace root
+#   2  usage error, unreadable input, no workspace root, a target's
+#      visibility that can't be read live, or an entry-points.tsv
+#      visibility value other than any, public or private
 #
 # Writes only <workspace-root>/.niwa/dispatch-briefs/<topic>.md, through a
 # temporary file in the same directory and a rename. bash 3.2; needs jq.
@@ -69,20 +120,24 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/dispatch-common.sh"
 
 usage() {
-    printf 'usage: %s --input <file> [--workspace-root <dir>] [--return-path <rp>] [--stdout]\n' "$PROG" >&2
+    printf 'usage: %s --input <file> [--workspace-root <dir>] [--return-path <rp>] [--units <pick.json>] [--stdout]\n' "$PROG" >&2
     exit 2
 }
 
 INPUT=""
 ROOT=""
 TO_STDOUT=0
+SKIP_TARGETS=0
 RETURN_PATH=message
+UNITS=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --input) [ $# -ge 2 ] || usage; INPUT="$2"; shift 2 ;;
         --workspace-root) [ $# -ge 2 ] || usage; ROOT="$2"; shift 2 ;;
         --return-path) [ $# -ge 2 ] || usage; RETURN_PATH="$2"; shift 2 ;;
         --stdout) TO_STDOUT=1; shift ;;
+        --targets-checked) SKIP_TARGETS=1; shift ;;
+        --units) [ $# -ge 2 ] || usage; UNITS="$2"; shift 2 ;;
         *) usage ;;
     esac
 done
@@ -109,8 +164,8 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
   | . as $k | select(($in | str($k)) | not) | "\($k): required and must be a non-empty string" ),
 ( if (.repo | type) == "string" and ((.repo | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")) | not)
   then "repo: must be owner/repo" else empty end ),
-( if (.phase | type) == "string" and (.phase | IN("scoping-ahead","executing") | not)
-  then "phase: must be scoping-ahead or executing" else empty end ),
+( if (.phase | type) == "string" and (.phase | IN("scoping","scoping-ahead","executing") | not)
+  then "phase: must be scoping, scoping-ahead or executing" else empty end ),
 ( if (.dispatcher_session | type) == "string" and (oneline(.dispatcher_session) | not)
   then "dispatcher_session: must be one line" else empty end ),
 ( if (.unit | type) == "string" and (oneline(.unit) | not)
@@ -123,7 +178,7 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
   else "checkpoints: required, an array of 1+ non-empty strings" end ),
 ( if (.acceptance | type) == "array" and (.acceptance | length) >= 1 and strs("acceptance") then empty
   else "acceptance: required, an array of 1+ non-empty strings" end ),
-( ["out_of_scope","standing_rules","read_first"][] | . as $k
+( ["out_of_scope","standing_rules","read_first","targets"][] | . as $k
   | select(($in | has($k)) and (($in | strs($k)) | not)) | "\($k): must be an array of non-empty strings" ),
 ( if has("decisions") then
     ( if (.decisions | type) == "array" and all(.decisions[]; (type == "object") and ((.decision // "") | type == "string" and test("\\S")) and ((.by // "") | type == "string" and test("\\S")))
@@ -133,11 +188,29 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
     ( if (.surfaces | type) == "array" and all(.surfaces[]; (type == "object") and ((.surface // "") | type == "string" and test("\\S") and (test("[\\r\\n]") | not)) and ((.coordinator // "") | type == "string" and test("\\S") and (test("[\\r\\n]") | not)))
       then empty else "surfaces: must be an array of {surface, coordinator}, each one line" end )
   else empty end ),
+( if (.targets | type) == "array" then
+    ( .targets | to_entries[] | select((.value | type) == "string" and ((.value | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")) | not))
+      | "targets[\(.key + 1)]: must be owner/repo" )
+  else empty end ),
 ( if (.read_first | type) == "array" then
     ( .read_first[] | select(type == "string")
       | select( (test("^#[0-9]+$") or test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+$") or test("^https://[^\\s]+$")
                  or (test("^[A-Za-z0-9._][A-Za-z0-9._/-]*$") and (test("(^|/)\\.\\.(/|$)") | not))) | not )
       | "read_first: not a repository path, issue or pull request reference, or https URL: \(.)" )
+  else empty end ),
+( if has("review_level") then
+    ( .review_level as $r | ["light","standard","full"] as $lv
+      | if ($r | type) != "object" or ($r | length) == 0 then "review_level: must be an object with floor, ceiling or both"
+        else
+          ( ($r | keys[]) | select(IN("floor","ceiling") | not) | "review_level: unknown key \(.); only floor and ceiling" ),
+          ( ($r | to_entries[]) | select(.key | IN("floor","ceiling"))
+            | select((.value | type) != "string" or ((.value | IN($lv[])) | not))
+            | "review_level: \(.key) must be light, standard or full" ),
+          ( if ($r.floor | type) == "string" and ($r.ceiling | type) == "string"
+               and ($r.floor | IN($lv[])) and ($r.ceiling | IN($lv[]))
+               and (($lv | index($r.floor)) > ($lv | index($r.ceiling)))
+            then "review_level: the floor (\($r.floor)) is above the ceiling (\($r.ceiling))" else empty end )
+        end )
   else empty end ),
 ( if ([.. | strings | select(uuid)] | length) > 0 then "input: a value carries a UUID-shaped token; a session id never goes in a brief" else empty end )
 )
@@ -154,14 +227,37 @@ if [ -n "$TOPIC" ] && ! dc_valid_topic "$TOPIC"; then
 fi
 if [ -n "$ENTRY" ]; then
     if dc_entry_row "$ENTRY" >/dev/null; then
+        # The review-level flags go only through review_level, whose values
+        # are checked: given as a flag, a value would reach the invocation
+        # unchecked.
+        while IFS='	' read -r field flag; do
+            [ -n "$flag" ] || continue
+            case "$flag" in
+                --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=*)
+                    refuse "$field: ${flag%%=*} goes in review_level, not in $field" ;;
+            esac
+        done <<EOF
+$(jq -r '(if (.entry_args | type) == "array" then .entry_args[1:][] | strings | ["entry_args", .] else empty end),
+    (.run_mode // "" | strings | split(" ")[] | select(. != "") | ["run_mode", .]) | @tsv' "$INPUT")
+EOF
         while IFS= read -r flag; do
             [ -n "$flag" ] || continue
+            dc_flag_allowed "$ENTRY" "$flag" || refuse "review_level: /shirabe:$ENTRY doesn't take ${flag%%=*}"
+        done <<EOF
+$(jq -r 'if (.review_level | type) == "object" then
+    (.review_level.floor // empty | strings | "--review-floor=" + .),
+    (.review_level.ceiling // empty | strings | "--review-ceiling=" + .) else empty end' "$INPUT")
+EOF
+        while IFS= read -r flag; do
+            [ -n "$flag" ] || continue
+            case "$flag" in --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=*) continue ;; esac
             dc_flag_allowed "$ENTRY" "$flag" || refuse "entry_args: $ENTRY doesn't allow $flag"
         done <<EOF
 $(jq -r 'if (.entry_args | type) == "array" then .entry_args[1:][] | strings else empty end' "$INPUT")
 EOF
         while IFS= read -r flag; do
             [ -n "$flag" ] || continue
+            case "$flag" in --review-floor | --review-floor=* | --review-ceiling | --review-ceiling=*) continue ;; esac
             dc_flag_allowed "$ENTRY" "$flag" || refuse "run_mode: $ENTRY doesn't allow $flag"
         done <<EOF
 $(jq -r '.run_mode // "" | strings | split(" ")[] | select(. != "")' "$INPUT")
@@ -182,6 +278,57 @@ if printf '%s\n' "$FLAGS" | grep -qx -- --auto && printf '%s\n' "$FLAGS" | grep 
 fi
 if jq -e '(.entry_args | type) == "array" and ((.entry_args[0] // "") | test("[\"`$\\\\]"))' "$INPUT" >/dev/null; then
     refuse "entry_args: the positional argument may not contain a quote, backtick, dollar sign or backslash"
+fi
+# The entry point's target requirement, read only when the input is otherwise
+# sound and the entry point restricts its targets.
+if [ -z "$PROBLEMS" ] && [ -n "$ENTRY" ] && [ "$SKIP_TARGETS" = 0 ]; then
+    NEED=$(dc_entry_target_visibility "$ENTRY") || {
+        printf '%s: references/entry-points.tsv gives %s a visibility other than any, public or private\n' "$PROG" "$ENTRY" >&2
+        exit 2
+    }
+    if [ "$NEED" != any ]; then
+        INSTEAD=$(dc_entry_field "$ENTRY" "$DC_F_INSTEAD") || INSTEAD=""
+        case "$INSTEAD" in
+            '' | -) ALT="no entry point takes it; the unit goes back to pick" ;;
+            *) ALT="dispatch it to /shirabe:$INSTEAD instead" ;;
+        esac
+        case "$(dc_entry_field "$ENTRY" "$DC_F_PINNED")" in
+            *plan-slug*)
+                jq -e '(.targets | type) == "array" and (.targets | length) > 0' "$INPUT" >/dev/null ||
+                    refuse "targets: required for $ENTRY, whose PLAN's issues land in repositories it must check: list them"
+                ;;
+        esac
+        while IFS='	' read -r label target; do
+            [ -n "$target" ] || continue
+            VIS=$(dc_repo_visibility "$target") || {
+                printf '%s: could not read the visibility of %s; nothing was dispatched\n' "$PROG" "$label" >&2
+                exit 2
+            }
+            if [ "$VIS" != "$NEED" ]; then
+                # The first target refused is enough; later ones aren't read.
+                refuse "entry_point: /shirabe:$ENTRY takes only $NEED repositories, and $label is $VIS; $ALT"
+                break
+            fi
+        done <<EOF
+$(jq -r '(["repo", .repo]), (.targets // [] | to_entries[] | ["targets[\(.key + 1)]", .value]) | @tsv' "$INPUT")
+EOF
+    fi
+fi
+# The unit becomes the holding's Unit cell, and pick finds a unit's holding
+# only by the forms pick-facts.sh reads (dc_unit_forms). With --units, any
+# other form is refused, naming the forms that would match.
+if [ -n "$UNITS" ]; then
+    [ -r "$UNITS" ] || { printf '%s: cannot read %s\n' "$PROG" "$UNITS" >&2; exit 2; }
+    UNIT=$(jq -r '.unit // "" | strings' "$INPUT")
+    dc_unit_matches "$UNIT" "$UNITS"
+    case "$?" in
+        0) ;;
+        1) FORMS=$(dc_unit_forms "$UNITS" | jq -R -s -r 'split("\n") | map(select(. != "")) | map("\"\(.)\"")
+               | if length > 12 then (.[0:12] | join(", ")) + ", and \(length - 12) more in coord/pick.json" else join(", ") end')
+           if [ -n "$FORMS" ]; then FORMS="use one of: $FORMS"; else FORMS="pick listed no units, so none can be dispatched"; fi
+           refuse "unit: [${UNIT:0:120}] matches no unit pick listed, so its holding would be invisible to pick and the unit dispatchable twice; $FORMS" ;;
+        *) printf '%s: %s is not pick_facts'"'"' JSON\n' "$PROG" "$UNITS" >&2; exit 2 ;;
+    esac
 fi
 case "$RETURN_PATH" in
     message) ;;
@@ -214,6 +361,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "Run mode: `\(.run_mode)`. A background worker can'"'"'t answer the confirmation `--interactive` waits for.",
   "",
   ( if .phase == "scoping-ahead" then "You are scoping ahead: produce the documents and stop at the checkpoint that says so; execution waits for the coordinator'"'"'s go."
+    elif .phase == "scoping" then "You are scoping: the documents are this unit'"'"'s deliverable, so stop at the checkpoint that says so and execute nothing; the execution is a later unit."
     else "You are executing: take the work to the last checkpoint." end ),
   "",
   "## Checkpoints",
@@ -232,7 +380,14 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "## Acceptance criteria",
   "",
-  ( .acceptance | map("- [ ] " + .) | join("\n") ),
+  ( (.acceptance | map("- [ ] " + .))
+    + ( if (.review_level | type) == "object" then
+          [ "- [ ] Review level: "
+            + ([ (.review_level.floor // empty | "floor " + .), (.review_level.ceiling // empty | "ceiling " + .) ] | join(", "))
+            + "; /work-on'"'"'s choice must fall inside it." ]
+        else [] end )
+    + [ "- [ ] Each pull request body carries your review round under `## Review panel` in its second part: a table with the columns Seat, Model, Run, Verdict and Reviewed head, one row per seat (at least three, each with its own Seat and a Run unique to that seat'"'"'s run), every verdict pass, at the head you report ready. The land step reads it and runs no review of its own." ]
+    | join("\n") ),
   "",
   "## Out of scope",
   "",
@@ -247,7 +402,22 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
   "",
   "Report to the coordinator by message, addressed to its session name `\(.dispatcher_session)`, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.",
   "",
-  "Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then numbered questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).",
+  "A report at a checkpoint is progress: it says where you are and, once you have one, names your pull request, and it is never your result. When your invocation carries a request leg, your result still comes through that leg when your entry point finishes; a checkpoint message doesn'"'"'t stand in for it, so keep going to the end.",
+  "",
+  "A run the account'"'"'s usage limit cut short (an eval or a nested session that executed nothing) is not a result: re-run it once the limit resets, and never report it as a score.",
+  "",
+  ( if ((.standing_rules // []) | length) > 0 then
+      "This section wins over the Workspace rules below: where they name another session for direction or for status reports, report to `\(.dispatcher_session)` as this section says.\n"
+    else empty end ),
+  "Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then its questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).",
+  "",
+  "Your questions go to the coordinator, in the Questions part of your report, numbered, and never to a person; the coordinator answers them or escalates them with a recommendation. Write the part as a line reading exactly `Questions:` followed by one numbered question per line, and cite a decision you were already given by its number. Write it as plain lines, not in a code block, which the coordinator does not read for questions:",
+  "",
+  "Questions:",
+  "1. Should the loader pin v2.1.0 or track main? (decision 3)",
+  "2. Is the flaky upload test in scope for this unit?",
+  "",
+  "Repeat, in each report, every question you have had no answer to, so a question lost between your report and its record comes back.",
   "",
   ( if ((.surfaces // []) | length) > 0 then
       "Report tooling or workspace problems unrelated to this work (a tool that misbehaved, a check that couldn'"'"'t run, friction in the workspace) by message to the discipline coordinator that owns that surface, with a copy to the coordinator above, and take no direction from it:\n\n"

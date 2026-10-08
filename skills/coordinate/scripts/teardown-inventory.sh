@@ -28,7 +28,9 @@
 # clone's gpg.program) and every transport off, and hashes working-tree files
 # itself with `hash-object --no-filters`. The remote's refs come from
 # `ls-remote` against the github.com URL under the coordinator's own git
-# config, and the trees it compares against from GitHub, one read per commit.
+# config, authenticated by the gh login (github-refs.sh, the read reconcile
+# makes too), and the trees it compares against from GitHub, one read per
+# commit.
 #
 # Per repository (all its findings are listed):
 #
@@ -91,7 +93,12 @@
 # couldn't be sealed (or a read that may succeed next tick failed).
 #
 # Writes nothing in the instance (with --seal, only the sealed verdict).
-# TEARDOWN_FETCH_SECS bounds each network read (ls-remote, a gh call).
+# TEARDOWN_FETCH_SECS bounds each network read (ls-remote, a gh call);
+# TEARDOWN_TOTAL_SECS is the whole scan's budget (default 24);
+# TEARDOWN_PARALLEL is how many clones are read at once (1-8, default 8).
+# TEARDOWN_TIP_LOOKUP=0 is for tests only: it walks every tip instead of
+# settling the ones at origin's live ids by lookup, so a test can show the
+# lookup changes nothing the scan prints.
 # bash 3.2; needs git, jq, and gh for the trees and the pull request lookup.
 set -uo pipefail
 
@@ -218,7 +225,10 @@ tree_map() {
 
 # QUEUE: every clone to inventory, by physical path, once.
 QUEUE=()
-# SEEN_COMMON: the git directories whose shared refs are already read.
+# SEEN_COMMON: the git directories whose shared refs are already read. The
+# main loop is its writer: it appends a clone's git directory once the
+# clone's background read is launched, so every later clone sees it. The
+# append check_repo makes is that job's own copy and goes when the job ends.
 SEEN_COMMON=()
 queue() {
     local r q
@@ -226,6 +236,9 @@ queue() {
     case "$r/" in "$INSTANCE"/*) ;; *) return 1 ;; esac
     for q in ${QUEUE[@]+"${QUEUE[@]}"}; do [ "$q" = "$r" ] && return 0; done
     QUEUE+=("$r")
+    # Inside a clone's background read, a clone it finds is also written out
+    # for the main loop, which owns the queue.
+    [ -z "${QUEUED_FILE:-}" ] || printf '%s\n' "$r" >>"$QUEUED_FILE"
 }
 
 # files_changed <dir>: write to $WORK/why the clone's files hold something no commit
@@ -258,12 +271,14 @@ files_changed() {
             fi
             continue
         fi
-        if [ -L "$d/$path" ]; then printf '%s\t%s\n' "$path" "$(readlink "$d/$path")" >>"$WORK/links"; continue; fi
-        if [ -f "$d/$path" ]; then printf '%s\n' "$path" >>"$WORK/present"; continue; fi
+        if [ -L "$d/$path" ]; then printf '%s\t%s\n' "$path" "$(readlink "$d/$path")" >&4; continue; fi
+        if [ -f "$d/$path" ]; then printf '%s\n' "$path" >&3; continue; fi
         # Missing: a skip-worktree entry is meant to be absent; anything else
         # was deleted in the working tree.
         [ "$tag" = S ] || n=$((n + 1))
-    done <"$WORK/idx"
+    # The lists are opened once for the loop: a redirect per path reopened a
+    # file for every tracked file, the walk's main cost in a large clone.
+    done <"$WORK/idx" 3>"$WORK/present" 4>"$WORK/links"
     [ "$n" -gt 0 ] && why="${why}tracked files deleted; "
     : >"$WORK/wt"
     if [ -s "$WORK/present" ]; then
@@ -309,7 +324,7 @@ files_changed() {
 
 # check_repo <dir> <rel>: one verdict line for one clone.
 check_repo() {
-    local d="$1" rel="$2" loc common top url repo live default dsha
+    local d="$1" rel="$2" loc common top url repo live default dsha why
     if [ -L "$d/.git" ]; then note 2 "error $rel: its .git is a symlink, not read"; return; fi
     loc=$(ig "$d" rev-parse --path-format=absolute --git-common-dir --show-toplevel) || {
         note 2 "error $rel: not a readable git repository"; return; }
@@ -321,14 +336,19 @@ check_repo() {
 
     url=$(ig "$d" config --get remote.origin.url) || url=""
     repo=$(github_repo "$url") || { note 2 "error $rel: no github.com origin to compare against"; return; }
-    # The remote's refs, read with the coordinator's own git config rather
-    # than the clone's, so nothing the worker configured (a URL rewrite, a
-    # transport, a credential helper) runs. https reads GitHub; file lets a
-    # URL the coordinator's own config rewrites point at a local repository,
-    # and runs nothing.
-    live=$(GIT_ALLOW_PROTOCOL=https:file dc_with_deadline "$FETCH_SECS" git -C / -c protocol.allow=never \
-        -c protocol.https.allow=always -c protocol.file.allow=always ls-remote --symref "https://github.com/$repo" 2>"$WORK/ls.err") || {
-        note 2 "error $rel: origin's refs could not be read or the read timed out ($(tail -1 "$WORK/ls.err"))"; return; }
+    # The remote's refs, read by github-refs.sh with the coordinator's own git
+    # config rather than the clone's, so nothing the worker configured (a URL
+    # rewrite, a transport, a credential helper) runs, and authenticated by
+    # the gh login, so a private repository reads too. https reads GitHub;
+    # file lets a URL the coordinator's own config rewrites point at a local
+    # repository, and runs nothing.
+    live=$(dc_with_deadline "$FETCH_SECS" "$HERE/github-refs.sh" --gh "$GH" "$repo" 2>"$WORK/ls.err")
+    case $? in
+        0) ;;
+        124) note 2 "error $rel: origin's refs could not be read: the read timed out after ${FETCH_SECS}s"; return ;;
+        *) why=$(tail -n 1 "$WORK/ls.err" | tr -d '\r' | cut -c1-200)
+           note 2 "error $rel: origin's refs could not be read: ${why:-the read failed with no message}"; return ;;
+    esac
     default=$(printf '%s\n' "$live" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     dsha=$(printf '%s\n' "$live" | awk -v r="refs/heads/$default" 'length($1) == 40 && $2 == r { print $1; exit }')
     [ -n "$default" ] && [ -n "$dsha" ] || { note 2 "error $rel: no default branch on origin"; return; }
@@ -408,6 +428,19 @@ check_repo() {
     if [ -s "$WORK/reflog-failed" ]; then
         note 2 "error $rel: whether it pushed $(head -1 "$WORK/reflog-failed") can't be read, so a commit only that ref holds can't be ruled out"
         return
+    fi
+    # A tip whose object is one of origin's live ids is on origin by
+    # definition, so it needs no walk. Most of a clone's tags are, and a walk
+    # per tag was most of the scan's time.
+    # TEARDOWN_TIP_LOOKUP=0 walks every tip, for the test that the lookup
+    # changes nothing the scan prints.
+    if [ "${TEARDOWN_TIP_LOOKUP:-1}" != 0 ]; then
+        # Only with ids to look up: awk's NR == FNR would read an empty
+        # first file as the tips themselves and drop them all.
+        if [ -s "$WORK/live" ]; then
+            awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$WORK/live" "$WORK/tips" >"$WORK/tips.left" &&
+                mv "$WORK/tips.left" "$WORK/tips"
+        fi
     fi
     local sha name bname n base target label merge paths p want have differ
     [ -f "$WORK/tree-$key-$dsha" ] || tree_map "$repo" "$dsha" "$WORK/tree-$key-$dsha" || {
@@ -524,18 +557,61 @@ done <"$WORK/heads"
 if [ "${#QUEUE[@]}" -eq 0 ] && [ "$WORST" -eq 0 ]; then
     note 0 "durable . (vs -): no git repositories"
 fi
+# Clones are read in waves of up to TEARDOWN_PARALLEL at once, each in its own
+# background job with its own scratch directory, and their lines are joined
+# in queue order, so the verdict reads as a serial scan's would. A clone a
+# read finds (a submodule, a nested clone, a worktree) joins a later wave.
+# Each job sees as already read the git directories of every clone queued
+# before it, which is what a serial scan would have seen: a linked worktree
+# after the first clone of its repository reads only its own files and HEAD.
+# (A clone queued earlier that failed before reaching its refs makes the
+# verdict an error anyway, so the worktree reading less can't hide anything.)
+PARALLEL="${TEARDOWN_PARALLEL:-8}"
+case "$PARALLEL" in [1-8]) ;; *) PARALLEL=8 ;; esac
 i=0
 while [ "$i" -lt "${#QUEUE[@]}" ]; do
-    dir=${QUEUE[$i]}
-    i=$((i + 1))
-    rel=${dir#"$INSTANCE"}
-    rel=${rel#/}
-    [ -n "$rel" ] || rel=.
-    if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
-        note 2 "error $rel: not inventoried; the scan ran out of its ${TOTAL_SECS}s budget"
-        continue
-    fi
-    check_repo "$dir" "$rel"
+    end=$((i + PARALLEL))
+    [ "$end" -gt "${#QUEUE[@]}" ] && end=${#QUEUE[@]}
+    j=$i
+    while [ "$j" -lt "$end" ]; do
+        dir=${QUEUE[$j]}
+        rel=${dir#"$INSTANCE"}
+        rel=${rel#/}
+        [ -n "$rel" ] || rel=.
+        C="$WORK/c$j"
+        mkdir "$C" || exit 2
+        : >"$C/verdict"
+        : >"$C/queued"
+        if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
+            printf 'error %s: not inventoried; the scan ran out of its %ss budget\n' "$rel" "$TOTAL_SECS" >"$C/verdict"
+            printf '2\n' >"$C/worst"
+            j=$((j + 1))
+            continue
+        fi
+        (
+            WORK=$C VERDICT="$C/verdict" QUEUED_FILE="$C/queued" WORST=0
+            check_repo "$dir" "$rel"
+            printf '%s\n' "$WORST" >"$C/worst"
+        ) &
+        # The clones after this one see its git directory as read.
+        common=$(ig "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+            common=$(cd -P "$common" 2>/dev/null && pwd -P) && SEEN_COMMON+=("$common")
+        j=$((j + 1))
+    done
+    wait
+    j=$i
+    while [ "$j" -lt "$end" ]; do
+        C="$WORK/c$j"
+        cat "$C/verdict" >>"$VERDICT"
+        w=$(cat "$C/worst" 2>/dev/null) || w=
+        case "$w" in 0 | 1 | 2) ;; *) w=2; printf 'error %s: its read ended without a verdict\n' "${QUEUE[$j]#"$INSTANCE"/}" >>"$VERDICT" ;; esac
+        [ "$w" -gt "$WORST" ] && WORST=$w
+        while IFS= read -r q; do
+            [ -n "$q" ] && queue "$q"
+        done <"$C/queued"
+        j=$((j + 1))
+    done
+    i=$end
 done
 
 if [ "$SEAL" = 1 ]; then

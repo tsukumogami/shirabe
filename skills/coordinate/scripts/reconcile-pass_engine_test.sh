@@ -11,10 +11,13 @@
 #
 # Proves: a blocked pass and a pending pass hold the workflow in
 # reconcile_pass; ticking after the listing re-read is due seals the report
-# and moves to reconcile; reconcile_pass refuses evidence; in reconcile, the
+# and moves to reconcile; the record's deferrals are read by the real
+# disposal check against koto's own run start, which carries milliseconds,
+# and each is reported with its disposition (shirabe#552); reconcile_pass refuses evidence; in reconcile, the
 # evidence alone doesn't pass while the report key is absent, agent-written,
 # or from an earlier visit, and passes once the sealed report is back; then
-# the posture routes to pick_facts. Also: no gate names
+# the posture routes to pick_facts, once the handover gate passes (a gap in
+# the stored set holds it). Also: no gate names
 # reconcile/reasoning.md, both reconcile commands run from the plugin root,
 # and the directive doesn't name RECONCILE_SEAL.
 #
@@ -47,13 +50,17 @@ fail() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq() { if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "want [$2], got [$3]"; fi; }
 
 # A copied plugin tree: reconcile's scripts and the record feature's
-# session-log helpers, with the reads replaced by stand-ins.
+# session-log helpers, with the reads replaced by stand-ins. The deferral
+# re-check is the real one: no GitHub read is involved unless a row says
+# `filed #<n>`, and none here does.
 PR="$T/plugin"
 SC="$PR/skills/coordinate/scripts"
 mkdir -p "$SC" "$PR/skills/execute/scripts"
-for f in reconcile-pass.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh coord-log.sh coord-verdict.sh; do
+for f in reconcile-pass.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh coord-log.sh coord-verdict.sh \
+         deferral-check.sh record-common.sh dispatch-common.sh github-refs.sh; do
     cp "$HERE/$f" "$SC/"
 done
+cp "$HERE/reconcile-check.sh" "$SC/reconcile-check.real.sh"
 cp "$REPO_ROOT/skills/execute/scripts/coord-common.sh" "$PR/skills/execute/scripts/"
 STUB="$T/stub"
 mkdir -p "$STUB"
@@ -72,9 +79,20 @@ case "\$sub" in
         if [ "\$n" = 1 ]; then echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}'
         else echo '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}'; fi ;;
     appeared) echo '{"kind":"appeared","status":"ok","prs":[],"read_at":"t"}' ;;
+    deferral) exec "\$BASH" "$SC/reconcile-check.real.sh" "\$@" ;;
     *) echo '{"kind":"'"\$sub"'","status":"not_verified","reason":"not served","read_at":"t"}' ;;
 esac
 EOF
+# The handover read the reconcile gate runs: a stand-in whose exit code is
+# $STUB/handover.rc (0 when absent), so the gate's own routing is what's tested
+# here; record-state_test.sh tests the read itself.
+cat > "$SC/record-handover.sh" <<EOF
+#!/usr/bin/env bash
+rc=\$(cat "$STUB/handover.rc" 2>/dev/null || echo 0)
+[ "\$rc" = 0 ] || echo "record-handover: a gap (the stand-in says so)" >&2
+exit "\$rc"
+EOF
+chmod +x "$SC/record-handover.sh"
 # Only the stand-ins are made executable here; the copied scripts keep the
 # modes they are committed with, so a script the template can't run fails.
 chmod +x "$SC/reconcile-read.sh" "$SC/reconcile-check.sh"
@@ -83,7 +101,11 @@ jq -nc '{status: "found", scope: {kind: "roadmap", name: "engine-test", repo: "a
   holdings: [{row: {unit: "Feature", entry_point: "/shirabe:deliver", mode: "--auto", phase: "executing",
     dispatch_status: "dispatched", return_path: "message", worker: "quiet-worker", repo: "acme/widgets",
     branch: "feat/quiet", verified_head: "", dispatched: "2026-09-26", pull_request: ""}, source: "record"}],
-  deferrals: [], side_effects: [], unparseable: [], reasoning: null}' > "$STUB/read.out"
+  deferrals: [
+    {row: {deferral: "open one", reason: "later", raised: "2026-09-25T10:00Z", disposition: ""}, source: "record"},
+    {row: {deferral: "closed one", reason: "done", raised: "2026-09-25T10:01Z", disposition: "closed: shipped"}, source: "record"},
+    {row: {deferral: "carried one", reason: "waits", raised: "2026-09-25T10:02Z", disposition: "carried 2099-01-01T00:00Z: waits on a release"}, source: "record"}],
+  side_effects: [], unparseable: [], reasoning: null}' > "$STUB/read.out"
 
 mkdir -p "$T/work"
 cd "$T/work" && git init -q && git commit -q --allow-empty -m init 2>/dev/null
@@ -188,6 +210,16 @@ r=$(next --with-data '{"reconciled":"reported"}')
 sleep 31
 eq "once the re-read is done the report is sealed and the workflow moves to reconcile" reconcile "$(next)"
 ctx reconcile/report.md | grep -q 'not found on this read' && pass "the sealed report says the worker was not found on this read" || fail "the sealed report says the worker was not found on this read" "$(ctx reconcile/report.md)"
+# koto's run start carries milliseconds; the deferral read takes it.
+RS=$(bash "$SC/coord-log.sh" run-start --session "$S" 2>/dev/null)
+printf '%s' "$RS" | grep -Eq '\.[0-9]+Z$' \
+    && pass "the session's run start carries milliseconds" || fail "the session's run start carries milliseconds" "$RS"
+ctx reconcile/report.json | jq -e '[.deferrals[] | {deferral, why}] == [{deferral: "open one", why: "empty"}]' >/dev/null \
+    && pass "an open deferral is reported undisposed, with why" || fail "an open deferral is reported undisposed, with why" "$(ctx reconcile/report.json | jq -c '.deferrals, .not_verified')"
+ctx reconcile/report.json | jq -e '[.deferrals_disposed[] | {deferral, how}] == [{deferral: "closed one", how: "closed"}, {deferral: "carried one", how: "carried 2099-01-01T00:00Z"}]' >/dev/null \
+    && pass "each disposed deferral is reported with how" || fail "each disposed deferral is reported with how" "$(ctx reconcile/report.json | jq -c '.deferrals_disposed')"
+ctx reconcile/report.json | jq -e '[.not_verified[] | select(.what | startswith("deferral"))] == []' >/dev/null \
+    && pass "no deferral is left not verified" || fail "no deferral is left not verified" "$(ctx reconcile/report.json | jq -c '.not_verified')"
 
 # In reconcile, the evidence passes only with the sealed report in place.
 # The exact bytes: a $(...) copy would drop the trailing newline, which
@@ -198,6 +230,9 @@ eq "with the report key absent, the evidence does not pass" reconcile "$(next --
 jq -c '.holdings = []' "$T/good.json" | koto context add "$S" reconcile/report.json >/dev/null
 eq "with a report the agent wrote, the evidence does not pass" reconcile "$(next --with-data '{"reconciled":"reported"}')"
 koto context add "$S" reconcile/report.json --from-file "$T/good.json" >/dev/null
+echo 1 > "$STUB/handover.rc"
+eq "with the sealed report back but a gap in the stored set, the handover gate holds" reconcile "$(next --with-data '{"reconciled":"reported"}')"
+rm -f "$STUB/handover.rc"
 eq "with the sealed report back, the evidence passes and the posture routes to pick_facts" pick_facts "$(next --with-data '{"reconciled":"reported"}')"
 
 # A report sealed in an earlier visit fails once the state is entered again.

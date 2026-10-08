@@ -36,16 +36,6 @@ different outcomes, not the same path retold.
 
 **Required content properties:**
 
-- Each journey has a `###` heading naming the journey (e.g.
-  `### Journey 1: Standalone author, cold invocation`).
-- Each journey names three things concretely:
-  - **The user** — who they are (a named role, not "the user" generically).
-  - **The trigger** — what brings them to the feature, the situation they're in.
-  - **The outcome shape** — what they get, walked through as an experience.
-- The journeys are distinct. Two journeys that differ only in wording are one
-  journey written twice. Distinctness usually comes from different entry points
-  (cold invocation vs. tracing an upstream), different users (author vs. reviewer),
-  or different outcomes (a produced artifact vs. a hand-off).
 - A short closing line per journey naming what the journey validates is useful but
   not required.
 
@@ -53,12 +43,8 @@ different outcomes, not the same path retold.
 single path and the section is thin; more than 6 suggests the feature spans more
 than one framable thing.
 
-**Common failure modes:**
+**Common failure mode:**
 
-- Every journey is the same user doing the same thing with cosmetic variation. The
-  content-quality reviewer flags non-distinct journeys.
-- A journey names a trigger and a user but trails off without an outcome shape —
-  the reader can't tell what the user got.
 - Journeys describe the implementation ("the skill loads phase-4-validate.md")
   rather than the user's experience ("the jury runs and returns verdicts").
 
@@ -76,10 +62,6 @@ boundary.
   reasonably expect this feature to cover but that it deliberately doesn't. Each
   out item names what it is and, briefly, why it's out (a later feature owns it,
   it's a separate concern, it's an adjacent feature's job).
-- The out-list must contain genuine exclusions, not strawmen. "Out of scope:
-  solving world hunger" is filler; "out of scope: the parent-skill integration
-  that delegates to this feature as a child phase — that's separate downstream
-  work" is a real boundary.
 
 **What not to include:**
 
@@ -88,10 +70,6 @@ boundary.
 - Requirements smuggled in as scope items. "In scope: the command must validate
   input" is a requirement; "in scope: input validation behavior" is a scope item.
   The PRD owns the requirement.
-
-**Common failure mode:** an out-of-scope list full of things no one would expect
-the feature to do. The content-quality reviewer checks that the OUT items are real
-exclusions a reader might otherwise assume are in.
 
 ## 3.4 Add Optional Sections
 

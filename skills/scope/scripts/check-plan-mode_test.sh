@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# check-plan-mode_test.sh -- the plan_mode_consistent gate's script: a match,
-# each way a hop can drop or invent a flag, the no-split case, and the
-# no-intent short-circuit.
+# check-plan-mode_test.sh -- the two hop_plan landed-edge gate scripts:
+# plan_mode_consistent's (a match, each way a hop can drop or invent a flag,
+# the no-split case, and the no-intent short-circuit) and plan_filing's
+# (check-plan-filing.sh: who may approve filing GitHub issues, by mode).
 #
 # Usage: bash skills/scope/scripts/check-plan-mode_test.sh
 # Exit 0 when every case holds. Needs bash and git; runs on the 3.2 floor.
@@ -104,6 +105,55 @@ if grep -v '^[[:space:]]*#' "$S" | grep -q 'wip/scope_'; then
 else
     PASS=$((PASS + 1)); echo "ok   the gate script never reads the run's own state file"
 fi
+
+echo "== check-plan-filing.sh: filing needs an approval on every path =="
+# The plan_filing gate beside plan_mode_consistent on hop_plan's landed edge.
+F="$HERE/check-plan-filing.sh"
+fplan() { # fplan <name> <execution_mode> <tracking_level or empty>
+    local f="$R/docs/plans/PLAN-$1.md"
+    {
+        printf -- '---\nschema: plan/v1\nstatus: Active\nexecution_mode: %s\n' "$2"
+        [ -n "$3" ] && printf 'tracking_level: %s\n' "$3"
+        printf -- '---\n\n# PLAN\n'
+    } >"$f"
+    printf 'docs/plans/PLAN-%s.md' "$1"
+}
+fexpect() { # fexpect <label> <want-exit> <args...>
+    local label="$1" want="$2" rc
+    shift 2
+    (cd "$R" && bash "$F" "$@" >/dev/null 2>"$T/err"); rc=$?
+    if [ "$rc" = "$want" ]; then
+        PASS=$((PASS + 1)); printf 'ok   %s\n' "$label"
+    else
+        FAIL=$((FAIL + 1)); printf 'FAIL %s\n     want exit=%s, got %s: %s\n' "$label" "$want" "$rc" "$(cat "$T/err")"
+    fi
+}
+printf '# repo\n\n## Tracking Level: issues-and-milestone\n' >"$T/claude-files.md"
+printf '# repo\n\n## Tracking Level: none\n' >"$T/claude-none.md"
+printf '# repo\n' >"$T/claude-bare.md"
+NONE=$(fplan f-none multi-pr none)
+SINGLE_BARE=$(fplan f-single single-pr "")
+ISSUES=$(fplan f-issues multi-pr issues)
+MULTI_BARE=$(fplan f-multi multi-pr "")
+COORD_BARE=$(fplan f-coord coordinated "")
+ODD=$(fplan f-odd multi-pr sometimes)
+fexpect "tracking none files nothing"                       0 --plan "$NONE" --exec-mode auto --claude-md "$T/claude-bare.md"
+fexpect "single-pr with no level files nothing"             0 --plan "$SINGLE_BARE" --exec-mode auto --claude-md "$T/claude-bare.md"
+fexpect "interactive filing needs the author's approval"    3 --plan "$ISSUES" --exec-mode interactive --claude-md "$T/claude-bare.md"
+fexpect "default mode is interactive"                       3 --plan "$ISSUES" --exec-mode default --claude-md "$T/claude-bare.md"
+fexpect "--auto filing with a filing header is permitted"   3 --plan "$ISSUES" --exec-mode auto --claude-md "$T/claude-files.md"
+fexpect "--auto filing with no header is refused"           1 --plan "$ISSUES" --exec-mode auto --claude-md "$T/claude-bare.md"
+fexpect "--auto filing under a none header is refused"      1 --plan "$ISSUES" --exec-mode auto --claude-md "$T/claude-none.md"
+fexpect "multi-pr with no level reads as filing"            1 --plan "$MULTI_BARE" --exec-mode auto --claude-md "$T/claude-bare.md"
+fexpect "coordinated with no level reads as filing"         1 --plan "$COORD_BARE" --exec-mode auto --claude-md "$T/claude-bare.md"
+printf '# repo\n\n## Tracking Level: issues\n' >"$T/claude-issues.md"
+MILESTONE=$(fplan f-milestone multi-pr issues-and-milestone)
+fexpect "an issues header covers an issues PLAN"            3 --plan "$ISSUES" --exec-mode auto --claude-md "$T/claude-issues.md"
+fexpect "an issues header does not cover a milestone"       1 --plan "$MILESTONE" --exec-mode auto --claude-md "$T/claude-issues.md"
+fexpect "an issues header does not cover a PLAN with no level" 1 --plan "$MULTI_BARE" --exec-mode auto --claude-md "$T/claude-issues.md"
+fexpect "an unknown tracking level cannot tell"             2 --plan "$ODD" --exec-mode auto --claude-md "$T/claude-bare.md"
+fexpect "a missing PLAN cannot tell"                        2 --plan docs/plans/PLAN-absent.md --exec-mode auto
+fexpect "an unknown exec mode is a usage error"             2 --plan "$ISSUES" --exec-mode sometimes
 
 echo
 echo "passed: $PASS   failed: $FAIL"

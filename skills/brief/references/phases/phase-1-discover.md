@@ -58,13 +58,6 @@ Present the problem and outcome candidates to the user in a single message. Ask
 them to confirm or redirect. Do not prompt through every dimension — the roadmap
 carries the naming load.
 
-### No Upstream-PRD Mode
-
-A PRD sits downstream of the brief: its requirements are written from the brief's
-framing, so deriving that framing back out of the PRD inverts the chain. Phase 0
-rejects a `docs/prds/PRD-*.md` argument before Phase 1 runs, so this router never
-sees one.
-
 ### Mode: Freeform Topic
 
 The user invoked `/brief <topic-string>` with a slug but no path. Run a short

@@ -1,6 +1,7 @@
 # Phase 3: Cross-Validation
 
 Check assumptions across completed decisions. Single pass with bounded restart.
+This phase always runs after Phase 2, even with one decision; it is never skipped.
 
 ## Resume Check
 
@@ -38,7 +39,8 @@ volume.
 2. For each conflicting decision, restart it ONCE with the peer's outcome
    as an additional constraint:
    - Set the decision's status to `restarted` in manifest
-   - Re-spawn the decider agent with the conflict as a constraint:
+   - Re-spawn the decider agent with the conflict as a constraint (a
+     question Phase 2 resolved inline is re-resolved inline instead):
      "Decision 3 chose event-driven invalidation. Your assumption of low
      write volume is invalidated. Re-evaluate with this constraint."
    - The decision skill runs a fresh evaluation (intermediate artifacts
@@ -54,6 +56,9 @@ Map each decision report into the design doc's Considered Options section
 using the rendering rules from `${CLAUDE_PLUGIN_ROOT}/references/decision-report-format.md`:
 
 - Context → opening paragraphs under `### Decision N: <Topic>`
+- Provenance → the entry's first line, `Resolved inline.` or
+  `Delegated to /decision.`, from the manifest's `provenance` (Phase 2.2a);
+  a direct run, where every question goes to `/decision`, leaves it out
 - Assumptions → bulleted "Key assumptions:" within Context
 - Chosen → `#### Chosen: <Name>` with full description
 - Rationale → inline in Chosen section
@@ -82,4 +87,4 @@ the `/cleanup` command), not here.
 
 ## Next Phase
 
-Proceed to Phase 4: Investigation (`phase-4-investigation.md`)
+Proceed to Phase 4: Investigation (`phase-4-architecture.md`)

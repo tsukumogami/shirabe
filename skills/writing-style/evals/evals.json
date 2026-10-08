@@ -171,7 +171,7 @@
       "id": 12,
       "name": "focuses-on-what-the-validator-cannot-catch",
       "prompt": "Review this paragraph:\n\nThe system is designed to handle the needs of the platform. Its components work together in a way that supports the goals of the project. Each part has a role, and the roles fit together. This gives us a foundation we can build on.",
-      "expected_output": "Identifies low information density as the defect: fluent sentences that assert nothing specific, and a closing sentence that adds no content. Names the vagueness rather than only listing surface tells. This is the judgment-only class no matcher reaches, which is what the skill is for now that mechanical terms are enforced before review."
+      "expected_output": "Identifies low information density as the defect: fluent sentences that assert nothing specific, and a closing sentence that adds no content. Names the vagueness rather than only listing surface tells. This is the judgment-only class no matcher reaches."
     }
   ]
 }

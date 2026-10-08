@@ -4,12 +4,12 @@ version: "1.0"
 description: >
   /deliver's driver: /scope then /execute in one session, each reached as a
   root child through a per-run koto request leg and read only through a
-  request-leg gate. Checks the repository binding, opens this run's request
-  (superseding any earlier one for the topic), runs /scope --intent=continue
-  on the scope leg, re-checks the PLAN and the owned scoping PR, routes on the
-  PLAN's mode, asks one confirmation when interactive, runs /execute on the
-  execute leg, re-checks the merge against GitHub, and ends in a
-  result-declaring terminal that deliver-report.sh renders.
+  request-leg gate. Opens this run's request (superseding any earlier one for
+  the topic), runs /scope --intent=continue on the scope leg, re-checks the
+  PLAN and the owned scoping PR, routes on the PLAN's mode, asks one
+  confirmation when interactive, runs /execute on the execute leg, re-checks
+  the merge against GitHub, and ends in a result-declaring terminal that
+  deliver-report.sh renders.
 
   A child's word never moves the run forward on its own. Every progress arm
   needs a promoted, valid result on its leg, and each is re-checked against
@@ -30,9 +30,9 @@ description: >
 
   The leg gates and every re-check gate are overridable: false, so no
   `koto overrides record`, with or without --with-data, can manufacture
-  progress or a report. So are the preflight, mode_route and confirm gates:
-  an override there would run /deliver in a private repository, send a
-  multi-pr PLAN to /execute, or skip the interactive confirmation.
+  progress or a report. So are the mode_route and confirm gates: an override
+  there would send a multi-pr PLAN to /execute, or skip the interactive
+  confirmation.
 
   No state pushes, merges, or writes to GitHub as a default action. The
   default actions are open_request, scope_absent and execute_absent, which
@@ -45,7 +45,7 @@ description: >
   outside a variable's constraint, or a repeated flag, is refused at
   `koto init` with exit 2 and no session. Every gate and action command quotes
   each {{VAR}} it uses.
-initial_state: preflight
+initial_state: open_request
 
 variables:
   TOPIC:
@@ -108,39 +108,28 @@ variables:
     values: ["true", "false"]
     default: "false"
     rebind: true
+  # The review-level bound, forwarded to /execute. Rebind, as MAX_ROUNDS and
+  # MERGE are: like them it is a per-invocation setting forwarded to a child,
+  # and every /deliver run is a fresh session anyway, so nothing is carried
+  # from an earlier run.
+  REVIEW_FLOOR:
+    description: >-
+      The --review-floor value forwarded to /execute: light, standard or full,
+      or empty for no floor. execute_run appends it only when it isn't empty.
+      Rebindable, as MAX_ROUNDS is.
+    pattern: '^(light|standard|full)?$'
+    default: ""
+    rebind: true
+  REVIEW_CEILING:
+    description: >-
+      The --review-ceiling value forwarded to /execute: light, standard or
+      full, or empty for no ceiling. Appended only when it isn't empty.
+      Rebindable, as MAX_ROUNDS is.
+    pattern: '^(light|standard|full)?$'
+    default: ""
+    rebind: true
 
 states:
-  preflight:
-    # /deliver inherits /scope's repository binding: public-repo tactical
-    # chains only, with the visibility read the way /scope reads it. Gate-only;
-    # a private or unknown repository ends here, before any request is written.
-    # Not overridable: an override would run /deliver where it must not run.
-    gates:
-      public_repo:
-        type: command
-        command: '"{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-preflight.sh"'
-        overridable: false
-    transitions:
-      - target: open_request
-        when:
-          gates.public_repo.exit_code: 0
-      - target: done_refused
-        when:
-          gates.public_repo.exit_code: 1
-        context_assignments:
-          outcome: refused
-          reason: private-repo
-          step: "deliver:refused"
-          failure_reason: "/deliver stopped: deliver:refused"
-      - target: done_refused
-        when:
-          gates.public_repo.exit_code: 2
-        context_assignments:
-          outcome: refused
-          reason: private-repo
-          step: "deliver:refused"
-          failure_reason: "/deliver stopped: deliver:refused"
-
   open_request:
     # A default action touching only koto's request store, and safe to re-run:
     # it abandons every request still open under this run's coordinator
@@ -968,38 +957,7 @@ states:
       next: "${context.next}"
       startable: "${context.startable}"
       wip_paths: "${context.wip_paths}"
-
-  done_refused:
-    terminal: true
-    failure: true
-    result:
-      outcome: "${context.outcome}"
-      step: "${context.step}"
-      reason: "${context.reason}"
-      pr: "${context.pr}"
-      pr_state: "${context.pr_state}"
-      repos: "${context.repos}"
-      resume: "${context.resume}"
-      waiting: "${context.waiting}"
-      next: "${context.next}"
-      startable: "${context.startable}"
-      wip_paths: "${context.wip_paths}"
 ---
-
-## preflight
-
-Checking that this repository is one /deliver runs in. koto reads the
-repository's `## Repo Visibility:` header itself and routes on it; you only see
-this state if the check could not run.
-
-<!-- details -->
-
-/deliver runs public-repo tactical chains only, the binding /scope has. The
-check reads `## Repo Visibility:` in the repository's CLAUDE.md (or
-CLAUDE.local.md): `Public` goes on, `Private` or no header ends the run refused
-with `reason=private-repo`. The gate refuses overrides and there is nothing to
-submit. If the gate reports another exit code, the script itself could not run:
-read its output, fix the cause, and tick again.
 
 ## open_request
 
@@ -1104,12 +1062,6 @@ continue or `decision: stop` to end here.
 
 <!-- details -->
 
-This is the only question /deliver itself asks, and only when the run is
-interactive; with `--auto` koto moves past this state without showing it. A
-stop ends the run `scoped` with `next=/deliver {{TOPIC}}`: the PLAN and its
-scoping PR stay as they are, and the next `/deliver {{TOPIC}}` picks the topic
-up through /scope.
-
 Evidence schema:
 - `decision`: `proceed` or `stop`
 
@@ -1123,6 +1075,13 @@ Run `/execute` on this run's `execute` leg. Invoke the Skill tool with skill
 and then the merge flag. This run's merge setting is `{{MERGE}}`: when it reads
 `true`, append `--merge`; when it reads `false`, append nothing -- never
 `--merge=false`, never `--no-merge`.
+
+Then the review-level bound, from this run's forwarded settings:
+
+- `--review-floor={{REVIEW_FLOOR}}`, only when that value after `=` is not
+  empty;
+- `--review-ceiling={{REVIEW_CEILING}}`, only when that value after `=` is not
+  empty.
 
 Run /execute to its end exactly as its own directives say, then call
 `koto next {{SESSION_NAME}} --no-cleanup` with no evidence.
@@ -1201,14 +1160,6 @@ koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-r
 ## done_error
 
 The run stopped on an error; the report names the step. Print it, verbatim:
-
-```bash
-koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-report.sh"
-```
-
-## done_refused
-
-/deliver does not run in this repository. Print the report, verbatim:
 
 ```bash
 koto status {{SESSION_NAME}} | "{{PLUGIN_ROOT}}/skills/deliver/scripts/deliver-report.sh"

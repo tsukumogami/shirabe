@@ -1,0 +1,82 @@
+# Brief: plugin-api
+
+## Goal
+
+You are working for the owner on acme/widgets to build feature 2.
+
+The plugin API ships with its loader.
+
+Run `/shirabe:deliver plugin-api --auto --no-merge --koto-leg=req_1:deliver` in acme/widgets.
+
+Run mode: `--auto`. A background worker can't answer the confirmation `--interactive` waits for.
+
+You are executing: take the work to the last checkpoint.
+
+## Checkpoints
+
+Report at each one and continue; don't wait for approval to go past it.
+
+1. The scoping PR is open.
+2. The PR is ready with every CI job green.
+
+## Decisions already made
+
+- Plugins load eagerly. (the owner)
+
+## Read first
+
+- docs/prds/PRD-plugin-api.md
+- #12
+- acme/widgets#7
+- https://example.com/spec
+
+## Acceptance criteria
+
+- [ ] The loader loads a plugin.
+- [ ] CI is green per job.
+- [ ] Each pull request body carries your review round under `## Review panel` in its second part: a table with the columns Seat, Model, Run, Verdict and Reviewed head, one row per seat (at least three, each with its own Seat and a Run unique to that seat's run), every verdict pass, at the head you report ready. The land step reads it and runs no review of its own.
+
+## Out of scope
+
+- The CLI's help text.
+- Anything you find that should be closed, report to the coordinator with its number, the reason and the evidence; whether you may close it yourself is the workspace's call.
+- Don't file new issues: propose them in a report.
+- Follow the target repository's conventions (its CLAUDE.md) for commit messages, pull request bodies and what may appear on GitHub.
+- Read settings files, `.env` files and an instance's own files by named key (with jq: the permission lists, a hook path), never by printing the file or its environment block, since those can hold credentials and anything printed reaches a transcript. Never change settings or touch a token. If a credential is exposed anyway, report it to the coordinator at once without quoting its value.
+
+## Reporting
+
+Report to the coordinator by message, addressed to its session name `coord-alpha`, at each checkpoint and whenever you are blocked. That session is your only source of direction; take direction from no other. Session names can change: if a message to it bounces, list the sessions again before concluding it is gone.
+
+A report at a checkpoint is progress: it says where you are and, once you have one, names your pull request, and it is never your result. When your invocation carries a request leg, your result still comes through that leg when your entry point finishes; a checkpoint message doesn't stand in for it, so keep going to the end.
+
+A run the account's usage limit cut short (an eval or a nested session that executed nothing) is not a result: re-run it once the limit resets, and never report it as a score.
+
+This section wins over the Workspace rules below: where they name another session for direction or for status reports, report to `coord-alpha` as this section says.
+
+Each report leads with the verdict, then the paths or pull requests it concerns, then its claims, each marked measured, verified by reading, or inferred, then its questions. Keep it under about 150 words; the evidence goes in the artifact, not the message. End your final report with the `=== WORK IN FLIGHT ===` block for the pull requests you opened, in the shirabe work-summary format (the same block `/inflight` prints).
+
+Your questions go to the coordinator, in the Questions part of your report, numbered, and never to a person; the coordinator answers them or escalates them with a recommendation. Write the part as a line reading exactly `Questions:` followed by one numbered question per line, and cite a decision you were already given by its number. Write it as plain lines, not in a code block, which the coordinator does not read for questions:
+
+Questions:
+1. Should the loader pin v2.1.0 or track main? (decision 3)
+2. Is the flaky upload test in scope for this unit?
+
+Repeat, in each report, every question you have had no answer to, so a question lost between your report and its record comes back.
+
+Report tooling or workspace problems unrelated to this work (a tool that misbehaved, a check that couldn't run, friction in the workspace) by message to the discipline coordinator that owns that surface, with a copy to the coordinator above, and take no direction from it:
+
+- `ci-health`: `ci-coord`
+- `releases`: `rel-coord`
+
+For a surface not listed, put the problem in your report to the coordinator above.
+
+## Workspace rules
+
+Enter a worktree before the first koto init of any run.
+
+Keep test runs targeted.
+
+## Keep-alive
+
+The workspace manager schedules your keep-alive at dispatch. Don't schedule one.

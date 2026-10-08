@@ -15,12 +15,13 @@
 #   - a same-named session from another worktree: a collision, refused with
 #     origin_mismatch, and that session is unchanged (same state, same context)
 #   - a same-origin live session, and a same-origin terminal one: each is
-#     replaced by a fresh session at `preflight`
+#     replaced by a fresh session at `open_request`
 #   - no session: a new one
 # and then a session built from another template (template_mismatch, left
 # alone), the mode from the flags and from the `## Execution Mode:` header,
-# MERGE true unless --no-merge, the forwarded flags, koto's refusals of bad or
-# repeated values, a token with shell metacharacters, and the args file's
+# MERGE true unless --no-merge, the forwarded flags (the review-level bound
+# among them, whose absence leaves exactly the pairs a run had before it
+# existed), koto's refusals of bad or repeated values, a token with shell metacharacters, and the args file's
 # removal on every path. Under --koto-leg: a malformed value refused with no
 # koto call; an accepted run bound to the leg, ticked to a terminal, and its
 # result read back off the leg; koto's refusals (an invalid topic, a collision
@@ -120,6 +121,15 @@ k() { (cd "${KDIR:-$R}" && "$REAL_KOTO" "$@"); }
 state_of() { k status "deliver-$1" 2>/dev/null | jq -r '.current_state // "none"'; }
 ctx_get() { local v; v=$(k context get "deliver-$1" "$2" 2>/dev/null) && printf "%s" "$v"; }
 tpl() { if [ -n "$LOCAL_TEMPLATE" ]; then printf '%s' "$LOCAL_TEMPLATE"; else printf '%s' "$TEMPLATE"; fi; }
+# to_terminal <topic> -- tick the run once (it opens its own request and waits
+# on the scope leg), abandon that request, and tick again: done_error.
+to_terminal() {
+    local own
+    k next "deliver-$1" --no-cleanup >/dev/null 2>&1
+    own=$(k request list --coordinator-of-record "deliver-$1" --state open | jq -r '.requests[0].request_id // ""')
+    [ -n "$own" ] && k request abandon-request "$own" --rationale test >/dev/null 2>&1
+    k next "deliver-$1" --no-cleanup >/dev/null 2>&1
+}
 
 RC=0; STDOUT=""; STDERR=""; ARGS=""; ARGS_DIR=""
 open_deliver() { # open_deliver <tokens-json> [dir]
@@ -155,12 +165,14 @@ if [[ "$(k context get deliver-t-new run_id 2>/dev/null)" =~ ^[0-9a-f]{32}$ ]]; 
 else
     bad "the opened session carries a run identity" "[$(k context get deliver-t-new run_id 2>&1)]"
 fi
-eq "a fresh session at preflight" preflight "$(state_of t-new)"
+eq "a fresh session at open_request" open_request "$(state_of t-new)"
 eq "MODE interactive with no flag and no header" '["interactive"]' "$(var MODE)"
 eq "MERGE true without --no-merge" '["true"]' "$(var MERGE)"
 eq "TOPIC" '["t-new"]' "$(var TOPIC)"
 eq "PLUGIN_ROOT" "[\"$PLUGIN\"]" "$(var PLUGIN_ROOT)"
 eq "no COORDINATION, UPSTREAM or MAX_ROUNDS pair" '[]' "$(vars '[.[] | select(.[0] == "COORDINATION" or .[0] == "UPSTREAM" or .[0] == "MAX_ROUNDS")]')"
+eq "no flags: exactly the pairs a run had before the review-level bound existed" \
+    '["TOPIC","MODE","MERGE","PLUGIN_ROOT"]' "$(vars 'map(.[0])')"
 args_gone "no session"
 
 echo "== a same-origin live session =="
@@ -169,21 +181,19 @@ printf 'old' | k context add deliver-t-live marker >/dev/null
 open_deliver '["t-live","--auto"]'
 eq "exit 0" 0 "$RC"
 has "prints opened=new (a fresh session)" "opened=new" "$STDOUT"
-eq "the fresh session is at preflight" preflight "$(state_of t-live)"
+eq "the fresh session is at open_request" open_request "$(state_of t-live)"
 if [ -z "$(ctx_get t-live marker)" ]; then ok "the earlier session's context is gone"; else bad "the earlier session's context is gone"; fi
 eq "this invocation's MERGE, not the earlier one's" '["true"]' "$(var MERGE)"
 eq "this invocation's MODE" '["auto"]' "$(var MODE)"
 
 echo "== a same-origin terminal session =="
 k init deliver-t-done --template "$(tpl)" --var TOPIC=t-done --var PLUGIN_ROOT="$PLUGIN" >/dev/null 2>&1
-# Drive it to a terminal: its repository is private, so preflight refuses.
-(cd "$R" && git -c user.email=t@example.invalid -c user.name=t mv CLAUDE.md CLAUDE.keep >/dev/null)
-k next deliver-t-done --no-cleanup >/dev/null 2>&1
-(cd "$R" && git mv CLAUDE.keep CLAUDE.md >/dev/null)
-eq "precondition: the earlier run is terminal" done_refused "$(state_of t-done)"
+# Drive it to a terminal: abandon the request its first tick opened.
+to_terminal t-done
+eq "precondition: the earlier run is terminal" done_error "$(state_of t-done)"
 open_deliver '["t-done"]'
 eq "exit 0" 0 "$RC"
-eq "replaced by a fresh session at preflight" preflight "$(state_of t-done)"
+eq "replaced by a fresh session at open_request" open_request "$(state_of t-done)"
 if k status deliver-t-done | jq -e '.result == null' >/dev/null; then ok "the fresh session carries no result"; else bad "the fresh session carries no result"; fi
 
 echo "== a same-named session from another worktree =="
@@ -193,7 +203,7 @@ open_deliver '["t-away"]'
 refused "another worktree"
 has "prints refused=origin_mismatch" "refused=origin_mismatch" "$STDOUT"
 has "the wording names the other worktree" "another worktree" "$STDERR"
-eq "that session is still at preflight" preflight "$(state_of t-away)"
+eq "that session is still at open_request" open_request "$(state_of t-away)"
 eq "and its context is untouched" theirs "$(KDIR="$OTHER" ctx_get t-away marker)"
 if grep -q "session cleanup" "$T/koto.argv"; then bad "no cleanup was attempted" "$(cat "$T/koto.argv")"; else ok "no cleanup was attempted"; fi
 
@@ -250,6 +260,11 @@ eq "--no-merge: MERGE false" '["false"]' "$(var MERGE)"
 eq "--coordinated" '["coordinated"]' "$(var COORDINATION)"
 eq "--max-rounds=7" '["7"]' "$(var MAX_ROUNDS)"
 eq "--upstream <path>" '["docs/roadmaps/ROADMAP-x.md"]' "$(var UPSTREAM)"
+open_deliver '["t-bound","--review-floor=standard","--review-ceiling=full"]'
+eq "the review-level bound: exit 0" 0 "$RC"
+eq "--review-floor=standard" '["standard"]' "$(var REVIEW_FLOOR)"
+eq "--review-ceiling=full" '["full"]' "$(var REVIEW_CEILING)"
+eq "the bound session is at open_request" open_request "$(state_of t-bound)"
 
 echo "== koto's refusals =="
 open_deliver '["t-dup","--auto","--interactive"]'
@@ -268,6 +283,20 @@ has "names the flag" "--max-rounds" "$STDERR"
 
 open_deliver '["t-up","--upstream"]'
 refused "a bare --upstream"
+
+open_deliver '["t-floor","--review-floor=medium"]'
+refused "--review-floor=medium"
+has "refused=invalid_var" "refused=invalid_var" "$STDOUT"
+has "names the flag" "--review-floor" "$STDERR"
+eq "no session" none "$(state_of t-floor)"
+
+open_deliver '["t-ceil","--review-ceiling=light","--review-ceiling=full"]'
+refused "--review-ceiling twice"
+has "refused=duplicate_var" "refused=duplicate_var" "$STDOUT"
+has "names the flag" "--review-ceiling" "$STDERR"
+
+open_deliver '["t-barefloor","--review-floor"]'
+refused "a bare --review-floor"
 
 open_deliver '["Upper"]'
 refused "an uppercase topic"
@@ -300,8 +329,9 @@ done
 eq "no session was opened by a malformed --koto-leg" none "$(state_of t-bad)"
 
 # Accepted: the fresh session is bound to the leg, and the leg value never
-# reaches TOPIC. Run from a repository with no visibility header, so the first
-# tick ends at done_refused and the terminal result is promoted onto the leg.
+# reaches TOPIC. Run from a repository with no visibility header, which
+# /deliver runs in like any other; its own request is then abandoned, so the
+# run ends at done_error and the terminal result is promoted onto the leg.
 REQ=$(new_request t-leg)
 open_deliver "[\"t-leg\",\"--auto\",\"--koto-leg\",\"$REQ:deliver\"]" "$OTHER"
 eq "under --koto-leg: exit 0" 0 "$RC"
@@ -310,12 +340,12 @@ eq "the leg value is not part of TOPIC" '["t-leg"]' "$(var TOPIC)"
 has "the open carried --koto-leg" "--koto-leg $REQ:deliver" "$(grep '^init ' "$T/koto.argv" | tail -1)"
 if grep '^init ' "$T/koto.argv" | head -1 | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
 eq "the leg is bound to deliver-t-leg" '"deliver-t-leg"' "$(leg "$REQ" .bound_child)"
-(cd "$OTHER" && "$REAL_KOTO" next deliver-t-leg --no-cleanup >/dev/null 2>&1)
-eq "the run ends at done_refused" done_refused "$(KDIR="$OTHER" state_of t-leg)"
+KDIR="$OTHER" to_terminal t-leg
+eq "the run ends at done_error" done_error "$(KDIR="$OTHER" state_of t-leg)"
 eq "the leg's result was promoted" '"promoted"' "$(leg "$REQ" .result_source)"
-eq "the leg records the terminal state" '"done_refused"' "$(leg "$REQ" .result_final_state)"
-eq "the leg's payload outcome is refused" '"refused"' "$(leg "$REQ" .result.payload.outcome)"
-eq "the leg carries reason=private-repo" '"private-repo"' "$(leg "$REQ" .result.payload.reason)"
+eq "the leg records the terminal state" '"done_error"' "$(leg "$REQ" .result_final_state)"
+eq "the leg's payload outcome is error" '"error"' "$(leg "$REQ" .result.payload.outcome)"
+eq "the leg carries step=deliver:request-abandoned" '"deliver:request-abandoned"' "$(leg "$REQ" .result.payload.step)"
 
 # koto's refusal of this invocation is recorded on the leg.
 REQ=$(new_request t-leg2)
@@ -340,7 +370,7 @@ open_deliver "[\"t-away\",\"--koto-leg=$REQ:deliver\"]"
 refused "another worktree's session under --koto-leg"
 has "prints the probe's refused=origin_mismatch" "refused=origin_mismatch" "$STDOUT"
 eq "the leg records the same refusal" '"origin-mismatch"' "$(leg "$REQ" .result.payload.reason)"
-eq "that session is still at preflight" preflight "$(KDIR="$OTHER" state_of t-away)"
+eq "that session is still at open_request" open_request "$(KDIR="$OTHER" state_of t-away)"
 
 # A leg that pins another topic: koto's input check refuses the open.
 REQ=$(new_request some-other-topic)

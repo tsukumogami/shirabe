@@ -1,0 +1,7 @@
+Verdict: the parser change is ready for review in #12.
+Paths: skills/coordinate/scripts/report-questions.sh
+Claims: every report crosses the extraction (verified by reading); the cap holds (measured).
+
+Questions:
+1. Should the extractor also read questions from the pull request body?
+2. Keep the 400-character cap for one question (decision 3)

@@ -75,7 +75,7 @@
       "id": 11,
       "name": "phase-0-sentinel-present-matching-design",
       "prompt": "/design docs/prds/PRD-sentinel-test.md",
-      "expected_output": "Phase 0 step 0.2 reads the PRD and runs the sentinel-gated auto-transition branch BEFORE the hard-stop check. The skill globs wip/*_sentinel-test_state.md (forward-compatible across parent skills, not hardcoded to wip/scope_*) and finds a matching state file containing parent_orchestration.invoking_child: design. The PRD's current status is Accepted (the pre-transition status /prd leaves behind). Because the sentinel is present AND invoking_child matches the current child (design) AND the PRD is at the expected pre-transition status, the skill invokes `shirabe transition docs/prds/PRD-sentinel-test.md \"In Progress\"` and proceeds past the hard-stop. The PRD frontmatter and body Status flip from Accepted to In Progress. Phase 0 continues at step 0.3 (Synthesize Problem Statement). The auto-transition is the symmetric counterpart to /prd's brief-handoff in skills/prd/SKILL.md lines 132-138.",
+      "expected_output": "Phase 0 step 0.2 reads the PRD and runs the sentinel-gated auto-transition branch BEFORE the hard-stop check. The skill globs wip/*_sentinel-test_state.md and finds a matching state file containing parent_orchestration.invoking_child: design. The PRD's current status is Accepted (the pre-transition status /prd leaves behind). Because the sentinel is present AND invoking_child matches the current child (design) AND the PRD is at the expected pre-transition status, the skill invokes `shirabe transition docs/prds/PRD-sentinel-test.md \"In Progress\"` and proceeds past the hard-stop. The PRD frontmatter and body Status flip from Accepted to In Progress. Phase 0 continues at step 0.3 (Synthesize Problem Statement).",
       "files": []
     },
     {
@@ -126,6 +126,36 @@
         "Transcript grounds the recommendation in the named complexity criteria (files to modify, API changes, cross-package), not in the Simple/Complex label alone",
         "Transcript keeps 'Approve only' available so the user can override",
         "Transcript does NOT present the routing options with only a bare '(Recommended)' marker and no cited assessment"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "phase-2-tier-routing-under-parent",
+      "prompt": "/design docs/prds/PRD-cache-tier.md -- /scope is driving this run: its state file for topic cache-tier carries a parent_orchestration block with invoking_child: design and rationale: fresh-chain. Phase 1 is done and the coordination manifest holds two pending questions: 1 'Which serialization format for cache entries?' with complexity standard, and 2 'How are cache keys derived from user-supplied identifiers?' with complexity critical. Describe what Phase 2 and Phase 3 do with each question and what the finished design records about it.",
+      "expected_output": "Under the parent sentinel, Phase 2 routes each question by its tier (step 2.2a). Question 1 (standard, Tier 3) is resolved inline in Phase 2, without spawning a /decision agent, and its report is written in the decider's shape to the report path step 2.3 names. Question 2 (critical, Tier 4) still goes to a /decision decider agent. The manifest records provenance inline for question 1 and decision for question 2. Phase 3 cross-validates both reports, and each Considered Options entry opens with its provenance (Resolved inline. / Delegated to /decision.). Because one question was resolved inline, the frontmatter carries decision_provenance: inline-resolved.",
+      "files": [],
+      "expectations": [
+        "Transcript resolves question 1 (standard tier) inline in Phase 2 and spawns no /decision agent for it",
+        "Transcript sends question 2 (critical tier) to a /decision decider agent despite running under a parent",
+        "Transcript ties the routing to the question's tier recorded in the manifest, not to a judgment about the dispatch context",
+        "Transcript records each question's provenance (inline vs delegated to /decision), in the manifest and in its Considered Options entry",
+        "Transcript sets decision_provenance: inline-resolved in the design's frontmatter because a question was resolved inline",
+        "Transcript does NOT resolve the critical-tier question inline"
+      ]
+    },
+    {
+      "id": 18,
+      "name": "phase-6-under-scope-keeps-verdict-skips-publishing",
+      "prompt": "/design --auto docs/prds/PRD-export-api.md -- /scope is driving this run: its state file for topic export-api carries a parent_orchestration block with invoking_child: design and rationale: fresh-chain. Phases 0-5 are done and the DESIGN is written with status Proposed. The Phase 6 reviewers returned: architecture and structural-format clear, security clear. The design touches 6 files and changes an API surface. Describe every step Phase 6 takes from here to the end of /design's run, including what it commits, pushes, asks and cleans up.",
+      "expected_output": "Under /scope's sentinel /design keeps its own verdict and status transition but leaves publishing and routing to /scope. Phase 6 writes the frontmatter and commits the design (6.6 step 1) but does not push or create a PR. At 6.7, because the run is --auto, it takes the recommended verdict (Approved) itself and names it in its output. At 6.8 it transitions the status from Proposed to Accepted and commits that, then skips the complexity assessment and the Plan or Approve routing prompt and returns control to /scope. It skips 6.9: no cleanup commit, since /scope's cleanup phase owns that. It creates or switches no branch at any point.",
+      "files": [],
+      "expectations": [
+        "Transcript commits the DESIGN but runs no git push and no gh pr create",
+        "Transcript takes the recommended verdict itself under --auto and names it in its output (e.g. Approved)",
+        "Transcript still transitions the DESIGN from Proposed to Accepted itself",
+        "Transcript does NOT present the Plan / Approve only routing question or a complexity-routing prompt, and returns control to /scope",
+        "Transcript makes no cleanup commit for intermediate files, leaving that to /scope",
+        "Transcript creates or switches no branch"
       ]
     }
   ]
