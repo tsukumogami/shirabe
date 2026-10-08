@@ -333,8 +333,9 @@ session of every worker it launches. Queuing the notice for a stopped session
 until the daemon resumes it is the useful second half. Stopping or resuming
 sessions on a pause stays out of this: it is the person's separate call, and
 the roadmap puts session control out of this feature. The roadmap notes no
-niwa issue was filed for it and asks this design to file one; it is filed
-alongside this design, and the implementation's first pull request cites it.
+niwa issue was filed for it and asks this design to file one; the issue goes
+to niwa with this design's ask, and the implementation's first pull request
+cites its number.
 
 What the loop does without it, which is what the record shows coordinators
 doing by hand: after writing a pause, the coordinator messages each live worker
@@ -375,6 +376,9 @@ with one narrowing:
   it in its own turn, not in the record or a file; a lost cursor costs at
   most one late read, since `leg_pick` reads every leg. A message-path worker
   needs no wait: its message is the wake.
+- **A pause's resume minute.** While a `time` pause stands, one silent wait
+  until its minute, which prints one line only when the minute arrives and
+  ticks `resume` (Decision 2).
 - **No 30-minute expiring watch.** No watch with a short cap that notifies on
   expiry, no polling loop, no goal check-in. A keep-alive is set only when the
   person asks for one. The leg watch's bound does notify on expiry, which the
