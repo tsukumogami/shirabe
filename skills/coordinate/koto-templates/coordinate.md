@@ -85,6 +85,13 @@ version: "1.0"
 #                               refuses a sealed verdict for any other topic
 #   teardown_verdict            the sealed inventory, read only through the
 #                               seal check
+#   teardown_handoff            teardown_handoff: the teardown pass's verdict
+#                               (instance, job, transcript, merged pull
+#                               requests, handoff), read only through its key
+#                               seal by teardown-handoff.sh read, which the
+#                               pass and teardown_confirm both use
+#   coord/teardown_confirm.json teardown_confirm: the verdict, its reason and
+#                               the archive it read
 #
 # Scripts already handle states the dispatch path (shirabe#404) adds:
 # leg_pick, wait_leg, take_report (report-facts.sh's leg path, captures
@@ -1743,6 +1750,9 @@ states:
         values: [stopped, kept]
         required: true
         description: stopped after the worker's session was stopped by its id; kept when the worker stays.
+      handoff:
+        type: string
+        description: With stopped, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped without one.
     transitions:
       - target: teardown_inventory
         when:
@@ -1772,7 +1782,7 @@ states:
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-verdict.sh" gate --session "{{SESSION_NAME}}"'
         overridable: false
     transitions:
-      - target: destroy
+      - target: teardown_handoff
         when:
           gates.inventory_durable.exit_code: 0
       - target: promote
@@ -1806,17 +1816,48 @@ states:
         context_assignments:
           teardown_topic: ""
 
+  teardown_handoff:
+    # teardown-handoff.sh --seal reads every fact the teardown pass acts on
+    # (the sealed inventory, the instance in niwa's listing, the one Claude
+    # Code job in it, its transcript, the holding's merged pull requests, the
+    # handoff link from teardown's latest evidence, read back from GitHub) and
+    # seals them as one verdict in the key teardown_handoff. It prints
+    # `handoff-ready keyseal:<seq>:<sha256>` or `handoff-refused`, sealed to
+    # this visit.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-handoff.sh" --seal --session "{{SESSION_NAME}}"'
+      capture_stdout_as: TEARDOWN_HANDOFF
+      fallback: >-
+        A read failed (niwa, Claude Code, GitHub or the record); the action's own output above says why. Fix the cause and tick again with no evidence: the action re-runs on entry.
+    gates:
+      handoff_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state teardown_handoff --capture "{{TEARDOWN_HANDOFF}}"'
+        overridable: false
+    transitions:
+      - target: destroy
+        when:
+          gates.handoff_verdict.exit_code: 200  # handoff-ready
+      - target: surface
+        when:
+          gates.handoff_verdict.exit_code: 201  # handoff-refused
+        context_assignments:
+          teardown_topic: ""
+
   destroy:
     accepts:
       destroyed:
         type: enum
-        values: [destroyed, handed_over, refused]
+        values: [destroyed, handed_over, refused, incomplete]
         required: true
-        description: destroyed after the one inventoried instance was destroyed; handed_over when the posture reserves it for a person; refused when teardown-verdict.sh read refused, and nothing was destroyed.
+        description: destroyed after the teardown agent's pass reported done and the holding row was removed; handed_over when the posture reserves the teardown for a person; refused when the pass, or teardown-handoff.sh read, refused and nothing was removed; incomplete when the pass stopped after its destroy began.
     transitions:
-      - target: record
+      - target: teardown_confirm
         when:
           destroyed: destroyed
+      - target: surface
+        when:
+          destroyed: incomplete
         context_assignments:
           teardown_topic: ""
       - target: record
@@ -1827,6 +1868,31 @@ states:
       - target: surface
         when:
           destroyed: refused
+        context_assignments:
+          teardown_topic: ""
+
+  teardown_confirm:
+    # teardown-pass.sh confirm reads the verdict again, both listings and the
+    # archive the pass wrote, independently of the coordinator's `destroyed`.
+    default_action:
+      command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-pass.sh" confirm --session "{{SESSION_NAME}}"'
+      capture_stdout_as: TEARDOWN_CONFIRM
+      fallback: >-
+        A read failed; the action's own output above says why. Fix the cause and tick again with no evidence: the action re-runs on entry.
+    gates:
+      confirm_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/coord-verdict.sh" --session "{{SESSION_NAME}}" --state teardown_confirm --capture "{{TEARDOWN_CONFIRM}}"'
+        overridable: false
+    transitions:
+      - target: record
+        when:
+          gates.confirm_verdict.exit_code: 202  # teardown-confirmed
+        context_assignments:
+          teardown_topic: ""
+      - target: surface
+        when:
+          gates.confirm_verdict.exit_code: 203  # teardown-incomplete
         context_assignments:
           teardown_topic: ""
 
@@ -3340,14 +3406,18 @@ a verdict.
 
 Finish with a worker: once its work is finished and you have asked it what
 exists only in its head, stop its session by its id and submit `teardown:
-stopped`; submit `kept` when it stays.
+stopped` with `handoff` set to the link of the comment that holds the
+worker's handoff; submit `kept` when it stays.
 
 <!-- details -->
 
 A worker is finished only when its work is merged, verified on the default
 branch, its issues are closed and it has reported. Before any pause, handoff or
 teardown, ask the worker what exists only in its head, and have it written into a
-comment on its pull request or issue, or into its final report. Route a finding
+comment on its pull request or issue, or into its final report. For a
+teardown it must be a comment on the unit's merged pull request or its issue:
+that comment's link is the `handoff` the teardown needs, and the teardown
+refuses without it, because a removed session can't add it later. Route a finding
 that belongs to no issue and no pull request, before the worker is retired, to
 the discipline coordinator that owns the surface, or file it as an issue; a
 deferral row is not a home for it.
@@ -3376,8 +3446,25 @@ evidence if you are shown it.
 instance of the worker in `teardown_topic`, what exists nowhere else: changes,
 stash entries, and branches whose content isn't on origin, judged against the
 squash merge commit of the branch's merged pull request (never by ancestry).
-It seals the verdict with the topic and instance. Durable goes on to `destroy`;
-unique to `promote`; an error, or a seal that doesn't hold, to the human.
+It seals the verdict with the topic and instance. Durable goes on to
+`teardown_handoff`; unique to `promote`; an error, or a seal that doesn't
+hold, to the human.
+
+## teardown_handoff
+
+Sealing the teardown's verdict. koto runs this itself; tick with no evidence
+if you are shown it.
+
+<!-- details -->
+
+`teardown-handoff.sh` reads, before anything is removed, what the teardown
+pass will act on: the instance in niwa's listing, the one Claude Code job
+whose working directory it is (finished), its transcript, the holding's merged
+pull requests and the handoff comment, read back from GitHub. A refusal (no
+merged pull request, no handoff link or one on another unit, no single
+finished job) goes to the human with its reason in the sealed verdict's
+`reason` line (`koto context get "{{SESSION_NAME}}" teardown_handoff`);
+nothing has been removed.
 
 ## promote
 
@@ -3387,25 +3474,55 @@ submit `escalate` when something can't be moved.
 
 ## destroy
 
-Read the verdict with `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-verdict.sh"
-read --session "{{SESSION_NAME}}"` and destroy only the instance its `instance`
-line names, with `niwa destroy <instance>`, one instance, never `niwa reap` or
-any form that takes no target; then submit `destroyed: destroyed`, or
-`handed_over` when the posture reserves the destroy for a person. When the
-reader refuses, destroy nothing and submit `destroyed: refused`, which takes
-it to the human.
+Hand the teardown to your teardown agent. Read the verdict with
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-handoff.sh" read
+--session "{{SESSION_NAME}}"` and send its whole output, the `keyseal` line
+included, to the agent as one pass. When the agent reports `done`, remove the
+worker's holding from the record, then submit `destroyed: destroyed`. Submit
+`refused` when the reader or the pass refused (nothing was removed),
+`incomplete` when the pass stopped after its destroy began, and `handed_over`
+when the posture reserves the teardown for a person.
 
 <!-- details -->
 
+The teardown agent is a local agent in this session, started on your first
+teardown with your harness's subagent tool and the charter in
+`{{PLUGIN_ROOT}}/skills/coordinate/references/teardown-agent.md`, followed by
+the pass; later passes go to the same agent. Record it as a Work row
+(`record-state.sh --kind local-agent`) before it starts. Never ask another
+session to tear down, and never run the pass's commands yourself: the agent
+runs `teardown-pass.sh run --session "{{SESSION_NAME}}" --keyseal <keyseal>`,
+which reads its target from this session's sealed verdict, re-reads every
+fact, re-inventories, copies the transcript, the job's files and the
+worker's koto sessions into the archive, runs `niwa destroy --force` on the
+one instance and `claude rm` on the one job, and confirms both are gone.
+Where your harness has no subagent tool, run that one command yourself.
+
 The reader refuses (exit 4) when the run was moved by a directed transition
-since the inventory (koto#251), and refuses a verdict edited after sealing or
-taken for another worker; don't destroy then. `niwa destroy` refuses an
-instance whose branches were squash-merged (niwa#322); pass `--force` only
-because the sealed inventory just proved every repository durable. Then remove
-the worker's holding from the record: this is where the row goes, the merge
-having only cleared its Pull request cell. When the destroy is handed to a person,
-also add a Side effects row whose target is `instance of <topic>`: the record
-names a worker by its dispatch topic, never by its instance path.
+since the verdict (koto#251), and refuses a verdict edited after sealing or
+taken for another worker. The holding row goes only after a `done` pass, and
+it is the last write: the merge only cleared its Pull request cell. On an
+incomplete pass keep the row; it is what tells the person a teardown is half
+done, and the surface need is `reserved-step teardown <link>` with the pass's
+last line. When the teardown is handed to a person, also add a Side effects
+row whose target is `instance of <topic>`: the record names a worker by its
+dispatch topic, never by its instance path.
+
+## teardown_confirm
+
+Confirming the teardown. koto runs this itself; tick with no evidence if you
+are shown it.
+
+<!-- details -->
+
+`teardown-pass.sh confirm` reads, apart from what you submitted, that niwa no
+longer lists the instance, that Claude Code no longer lists the job, and that
+the archive's RESULT says done with every MANIFEST file present. Confirmed
+goes to `record`, which checks the holding row is gone. Anything else goes to
+the human with the reason in `coord/teardown_confirm.json`; the row is gone
+by then, so the surface need, `reserved-step teardown <link>`, carries the
+reason.
+
 ## quiet_check
 
 Sweeping for quiet workers. koto runs `quiet-check.sh` itself; it counts each

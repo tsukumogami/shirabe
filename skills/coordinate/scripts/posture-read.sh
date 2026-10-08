@@ -17,7 +17,7 @@
 # that calls it inside itself):
 #   merge     gh pr merge, merge-exec.sh, land-merge.sh
 #   close     gh issue close, gh pr close, record-write.sh --close
-#   teardown  niwa destroy
+#   teardown  niwa destroy, claude rm, teardown-pass.sh
 #
 # Only the commands the skill runs stand for a step. The skill never runs
 # `niwa reap` or another untargeted removal, so a rule or hook about those
@@ -104,7 +104,7 @@ step_patterns() {
     case "$1" in
         merge) printf '%s\n' "$MERGE_CMD" 'merge-exec.sh' 'land-merge.sh' ;;
         close) printf '%s\n' 'gh issue close' 'gh pr close' 'record-write.sh --close' ;;
-        teardown) printf '%s\n' 'niwa destroy' ;;
+        teardown) printf '%s\n' 'niwa destroy' 'claude rm' 'teardown-pass.sh' ;;
     esac
 }
 # Commands a rule is tried against, one per way the step can be typed.
@@ -116,7 +116,8 @@ step_commands() {
         close) printf '%s\n' 'gh issue close 7 --repo o/r' 'gh pr close 7 --repo o/r' \
             'bash /p/skills/coordinate/scripts/record-write.sh --session s --body-file f --close' \
             '/p/skills/coordinate/scripts/record-write.sh --session s --body-file f --close' ;;
-        teardown) printf '%s\n' 'niwa destroy x' 'niwa destroy --force x' ;;
+        teardown) printf '%s\n' 'niwa destroy x' 'niwa destroy --force x' 'claude rm x' \
+            'bash /p/skills/coordinate/scripts/teardown-pass.sh run --session s --keyseal k' '/p/skills/coordinate/scripts/teardown-pass.sh run --session s --keyseal k' ;;
     esac
 }
 

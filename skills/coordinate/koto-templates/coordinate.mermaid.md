@@ -44,7 +44,8 @@ stateDiagram-v2
     decision_withdraw --> record_conflict : gates.decision_withdraw_verdict.exit_code: 62
     decision_withdraw_send --> decision_next : sent: sent
     deferral_dispose --> dispatch_check : rewritten: rewritten
-    destroy --> record : destroyed: destroyed
+    destroy --> teardown_confirm : destroyed: destroyed
+    destroy --> surface : destroyed: incomplete
     destroy --> record : destroyed: handed_over
     destroy --> surface : destroyed: refused
     dispatch --> record : dispatched: sent, gates.holding_recorded.exit_code: 0
@@ -191,7 +192,11 @@ stateDiagram-v2
     take_report --> surface : gates.report_source_ok.exit_code: 2, withdrawn: unreadable
     teardown --> teardown_inventory : teardown: stopped
     teardown --> record : teardown: kept
-    teardown_inventory --> destroy : gates.inventory_durable.exit_code: 0
+    teardown_confirm --> record : gates.confirm_verdict.exit_code: 202
+    teardown_confirm --> surface : gates.confirm_verdict.exit_code: 203
+    teardown_handoff --> destroy : gates.handoff_verdict.exit_code: 200
+    teardown_handoff --> surface : gates.handoff_verdict.exit_code: 201
+    teardown_inventory --> teardown_handoff : gates.inventory_durable.exit_code: 0
     teardown_inventory --> promote : gates.inventory_durable.exit_code: 1
     teardown_inventory --> surface : gates.inventory_durable.exit_code: 2
     teardown_inventory --> surface : gates.inventory_durable.exit_code: 3
@@ -342,6 +347,12 @@ stateDiagram-v2
     end note
     note left of take_report
         gate: report_source_ok
+    end note
+    note left of teardown_confirm
+        gate: confirm_verdict
+    end note
+    note left of teardown_handoff
+        gate: handoff_verdict
     end note
     note left of teardown_inventory
         gate: inventory_durable

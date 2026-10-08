@@ -127,7 +127,7 @@ These words mean one thing each, everywhere in this skill and in the record.
 - **Worker** -- a session a coordinator dispatched to do one unit of work,
   named everywhere by its dispatch topic.
 - **Local agent** -- a subagent inside the coordinator's own session, used for
-  reads and bookkeeping; not a worker.
+  reads, bookkeeping and the teardown pass; not a worker.
 - **Brief** -- the text a coordinator writes for one worker; it is the worker's
   only context.
 - **Holding** -- one unit of work this coordinator dispatched and hasn't
@@ -147,7 +147,8 @@ These words mean one thing each, everywhere in this skill and in the record.
 - **Surface** -- an area a discipline coordinator owns, named by that
   discipline: `ci-health` for CI, `releases`, the workspace itself. Problems and
   findings about a surface go to its discipline coordinator.
-- **Teardown** -- ending a worker's session or removing its instance.
+- **Teardown** -- ending a worker's session, removing its instance and its
+  session from the Agents view, with its transcript kept.
 - **Unique material** -- anything a session or instance holds that exists
   nowhere else: commits on no remote ref that survives a squash merge,
   uncommitted changes, and files in the session's scratch space that no
@@ -250,7 +251,16 @@ states never ask you to do these steps by hand.
   `scripts/teardown-inventory.sh` inventories its instance by content and
   seals the verdict; `scripts/teardown-verdict.sh` gates the teardown and is
   what the destroy step reads the instance from. Unique material is promoted
-  into an issue or pull request first, and only the one instance is destroyed.
+  into an issue or pull request first. `scripts/teardown-handoff.sh` then
+  seals one verdict (the instance, the stopped Claude Code job, its transcript,
+  the merged pull requests and the handoff comment) and refuses when a pull
+  request isn't merged or the handoff isn't on GitHub. The coordinator hands
+  that verdict to its teardown agent, a local agent started from
+  `references/teardown-agent.md`, which runs `scripts/teardown-pass.sh`: it
+  re-reads every fact, archives the transcript, the job's files and the
+  worker's koto sessions with a checksummed manifest, destroys the one
+  instance, removes the one job and confirms both are gone. The coordinator
+  removes the holding row last, and `teardown_confirm` checks the result.
 
 ## Bounds and Authority
 
@@ -377,7 +387,10 @@ human for a step the workspace already permits. Read a settings file for the key
 you need and never print one whole: its env block can hold credentials.
 
 **It doesn't tear down what it hasn't inventoried**, and it acts only on the
-sessions and instances it listed, never across the whole workspace.
+sessions and instances it listed, never across the whole workspace. It never
+runs `niwa reap` or any removal that takes no target, and it never asks
+another session to tear something down: the teardown agent is its own local
+agent, and acts only on a verdict it is handed.
 
 **It doesn't let a finding go homeless.** A finding that belongs to no issue and
 no pull request goes, before the worker that produced it is retired, to the

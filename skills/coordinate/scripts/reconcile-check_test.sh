@@ -662,6 +662,32 @@ expect "a tag at a live id is not listed" '[.[] | .path] | index("tag live-tag")
 walk=$(RECONCILE_TIP_LOOKUP=0 run inventory --path "$I12" | jq -c .items)
 [ "$walk" = "$par" ] && ok "the tip lookup lists what walking every tip lists" || bad "the tip lookup lists what walking every tip lists" "walk $walk | lookup $par"
 
+# The cap on GitHub compare reads binds: three clones of sixteen tips each,
+# against a remote main none of them has, so every tip asks one compare read
+# (48 against the cap of 40). A serial read spends the cap first come; waves
+# split it across their jobs. Either way the run reads no more than the cap
+# and says truncated.
+ICAP="$T/inst-cap"; mkdir -p "$ICAP"
+for c in c1 c2 c3; do
+    RCAP="$ICAP/$c"; mkdir -p "$RCAP"
+    git -C "$RCAP" init -q -b main; git -C "$RCAP" remote add origin https://github.com/acme/widgets.git
+    echo "$c" > "$RCAP/a"; git -C "$RCAP" add -A; git -C "$RCAP" -c user.email=t@e -c user.name=t commit -qm "$c"
+    for b in $(count 1 15); do git -C "$RCAP" branch "b$b"; done
+done
+FAKECAP=feedfeedfeedfeedfeedfeedfeedfeedfeedfeed
+for par in 1 8; do
+    new_case "inventory-compare-cap-$par"
+    printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$FAKECAP" "$FAKECAP" > "$CASE/ls-remote.out.all"
+    mktree "$ICAP/c1" HEAD
+    out=$(RECONCILE_INV_PARALLEL=$par run inventory --path "$ICAP")
+    n=$(grep -c '/compare/' "$CASE/log")
+    expect "compare cap, waves of $par: the inventory says truncated" '.truncated == true' "$out"
+    [ "$n" -le 40 ] && ok "compare cap, waves of $par: at most 40 compare reads ($n)" || bad "compare cap, waves of $par: at most 40 compare reads" "$n"
+    if [ "$par" = 1 ]; then
+        [ "$n" = 40 ] && ok "compare cap, serially: the whole cap is spent" || bad "compare cap, serially: the whole cap is spent" "$n"
+    fi
+done
+
 I10="$T/inst10"; R10="$I10/repo"; mkdir -p "$R10"
 git -C "$R10" init -q -b main; git -C "$R10" remote add origin https://github.com/acme/widgets.git
 echo a > "$R10/a"; git -C "$R10" add -A; git -C "$R10" -c user.email=t@e -c user.name=t commit -qm a
