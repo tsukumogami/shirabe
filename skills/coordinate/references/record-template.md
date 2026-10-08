@@ -87,7 +87,7 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 | Unit | Entry point | Mode | Phase | Dispatch status | Return path | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping-ahead, executing or held> | <dispatching, dispatched or dispatch-failed> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
+| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping, scoping-ahead, executing or held> | <dispatching, dispatched or dispatch-failed> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
 
 ## Deferrals
 
@@ -111,6 +111,7 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 An empty section reads `None.` in place of its table. No table carries a
 status, CI or merge-state column: those are read from GitHub every time, and
 the renderer refuses one. Phase says whether a worker is scoping a unit whose
+scoping is the whole unit (`scoping`), scoping one whose
 execution waits on another feature landing (`scoping-ahead`), executing it, or
 holding a verified pull request whose merge a hold in the record stops (`held`).
 A row leaves Side effects in flight once confirmed. Reversals only grow.
@@ -188,7 +189,7 @@ each rendered only once it has a row:
 
 | Item | Kind | Who | Next step | Wakes | Updated |
 |---|---|---|---|---|---|
-| <a holding's Unit, or what the work is> | <holding or local-agent> | <its Worker, or who does it> | <what happens next> | <the holding's wakes so far; 0 for a local agent> | <YYYY-MM-DDTHH:MMZ> |
+| <a holding's Unit, a parked or follow-up unit, or what the work is> | <holding, local-agent, decision or follow-up> | <its Worker, who does it, decision <n>, or owner/repo#n> | <what happens next> | <the holding's wakes so far; 0 otherwise> | <YYYY-MM-DDTHH:MMZ> |
 ```
 
 **Run** holds the run's arguments, the cap in force (the readers of the cap
@@ -209,7 +210,12 @@ the coordinator ends its row. A go-ahead may name one unit in On: it lets that
 unit through any pause until it is used and ended. A resume, a used
 go-ahead or approval, or a withdrawn answer ends the row. **Work** has a next
 step for every holding and a row for any work no holding covers, a local
-agent's above all: without its row a successor can't see it.
+agent's above all: without its row a successor can't see it. Two kinds keep a
+unit's later work, Item the unit as pick lists it: `decision`, a unit pick
+parked on a person's decision, Who `decision <n>` (an unsettled entry); and
+`follow-up`, a unit whose scoping alone merged, Who the pull request that
+landed it (`owner/repo#n`) and Next step its execution. An Item has one row
+per kind, and a holding's row for the unit replaces both.
 
 `scripts/record-state.sh` is the only writer, and every change it makes is
 written to the body and then told as an entry:
@@ -219,8 +225,8 @@ record-state.sh --session S --run arguments|cap|coordinator <value> --by <who>
 record-state.sh --session S --told <topic> --by <who>
 record-state.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 record-state.sh --session S --end <s<n>> --by <who>
-record-state.sh --session S --work <item> --kind holding|local-agent --who <who> --next <text>
-record-state.sh --session S --done <item>
+record-state.sh --session S --work <item> --kind holding|local-agent|decision|follow-up --who <who> --next <text>
+record-state.sh --session S --done <item> [--kind <kind>]
 record-state.sh --session S --list
 ```
 

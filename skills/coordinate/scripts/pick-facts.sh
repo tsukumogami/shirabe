@@ -37,6 +37,15 @@
 # never chosen, and while `paused_all` is set pick holds
 # (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
 #
+# The record's Work rows that keep a unit's later work (record-state.sh):
+# each unit carries `awaiting`, the number of the unsettled decision entry a
+# `decision` row parks it on (pick's await_decision), or null; `answered`,
+# {decision, outcome} once that entry is settled or gone, when the unit is
+# dispatchable again with the answer; and `follow_up`, {after, next} from a
+# `follow-up` row (the pull request that landed its scoping alone, and its
+# execution), or null. A Work row matches a unit as a pause's On does. None
+# of the three holds a slot.
+#
 # Verdict tokens:
 #   decisions        decision-next.sh --owed pick names a rule: an unrecorded
 #                    write, an owed message, a carry, a proposed entry or one
@@ -50,7 +59,8 @@
 # The facts go to context key coord/pick.json as data (pick's decider input):
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
 #    units: [{unit, number, title, status, done, blocked,
-#    blocked_by, blocker_landed, holding, landed, paused}], holdings: [{worker, unit, phase,
+#    blocked_by, blocker_landed, holding, landed, paused, awaiting, answered,
+#    follow_up}], holdings: [{worker, unit, phase,
 #    dispatch_status, parked, merged, pull_request, paused}], decisions: [{decision, question,
 #    state, round, verdict, reason, recommendation, target, owed}], active,
 #    parked, cap, parked_bound, pauses, go_aheads, paused_all}
@@ -180,9 +190,18 @@ if [ -n "$SESSION" ]; then
 fi
 
 jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --slurpfile d "$T/decisions.json" \
-    --slurpfile pz "$T/pauses.json" --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" '
+    --slurpfile pz "$T/pauses.json" --slurpfile st "$T/state.json" --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" '
     $pz[0] as $p
-    | {scope: $scope, name: $name, host: $host, units: [$u[0][] | . + {paused: ($p.covers[.unit] // null)}],
+    | ($st[0].work // []) as $w
+    | def row($k; $x): [$w[] | select(.kind == $k and (.item == $x or .item == ($host + $x)))][0];
+      def parked_on($x): (row("decision"; $x) | if . == null then null else (.who | ltrimstr("decision ")) end) as $n
+        | ([($d[0].entries // [])[] | select(.decision == $n)][0]) as $e
+        | if $n == null then {awaiting: null, answered: null}
+          elif $e != null and $e.state != "settled" then {awaiting: $n, answered: null}
+          else {awaiting: null, answered: {decision: $n, outcome: ($e.outcome // "")}} end;
+    {scope: $scope, name: $name, host: $host,
+     units: [$u[0][] | . + {paused: ($p.covers[.unit] // null)} + parked_on(.unit)
+                     + {follow_up: (row("follow-up"; .unit) | if . == null then null else {after: .who, next: .next} end)}],
      holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, pull_request, paused: ($p.covers[.unit] // null)}],
      decisions: [$d[0].entries[] | select(.state != "settled")
                  | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),

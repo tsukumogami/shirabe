@@ -48,7 +48,8 @@ script's header lists every field and its rule; this is the shape:
 The first twelve fields are required; the rest add lines to their
 sections. `entry_args` is the positional argument and any flags the entry
 point allows (`references/entry-points.tsv`), and `run_mode` holds the
-execution flags. `phase` is `scoping-ahead` or `executing`. No checkpoint
+execution flags. `phase` is `scoping` (the unit is its scoping alone, from
+pick's `scope`), `scoping-ahead` or `executing`. No checkpoint
 may wait on an approval, and no value may carry a session id.
 `standing_rules` is where the workspace's own rules for workers go, such as
 where to start a koto session; they come from the workspace, and the brief

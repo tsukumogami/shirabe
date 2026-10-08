@@ -31,7 +31,12 @@
 #                       with no way out
 #     unrecorded-evidence  likewise for the latest `wait` evidence event
 #     unrecorded-raise  the latest visit to decision_raise left no entry with
-#                       this run's `raise <seq>` stamp
+#                       this run's `raise <seq>` stamp; when that visit is a
+#                       park's (the pick before it chose await_decision, with
+#                       no visit to wait between), instead, until the next
+#                       pick: no `decision` Work row
+#                       (record-state.sh --list) parks the unit pick named,
+#                       on a new entry or on one already open
 #   3 withdraw <n>      an entry owes a withdrawal
 #   4 reply <n>         an entry owes a reply
 #   5 redirect <n> <seq>  a report of this run (its `report <seq>.` stamps) has
@@ -114,6 +119,32 @@ WAIT_ANS=$(ev_json wait --where event=answer)
 TOOL_ANS=$(ev_json escalate_send --where sent=answered)
 WAIT_EVI=$(ev_json wait --where event=evidence)
 RCAP=$(CL capture --name REPORT --state report_facts 2>/dev/null) || RCAP=
+# The latest visit to decision_raise belongs to a park when the pick before it
+# chose await_decision and the run wasn't back at wait in between: the visit
+# from pick, or one the run came back for. A park is judged by the unit pick
+# named having its decision row, not by a stamp, since a visit it came back for
+# opens nothing; it is judged until the next pick, and the chain can't reach a
+# pick before the row is there. The Work section (record-state.sh, its one
+# reader) is read only while it is judged.
+PARK=false CHAIN=false PARK_UNIT=
+if [ "$RAISE_SEQ" -gt 0 ]; then
+    PICK_EV=$(ev_json pick --before "$RAISE_SEQ")
+    PICK_SEQ=$(printf '%s' "$PICK_EV" | jq -r '.seq // 0')
+    WAIT_BEFORE=$(CL entry --state wait --before "$RAISE_SEQ")
+    case $? in 0|1) ;; *) lib_die2 "cannot read the session log" ;; esac
+    WAIT_BEFORE=${WAIT_BEFORE%% *}
+    if [ "$(printf '%s' "$PICK_EV" | jq -r '.fields.choice // ""')" = await_decision ] && [ "${WAIT_BEFORE:-0}" -lt "$PICK_SEQ" ]; then
+        CHAIN=true
+        [ "$(ev_json pick | jq -r '.seq // 0')" -gt "$RAISE_SEQ" ] || PARK=true
+    fi
+fi
+if [ "$PARK" = true ]; then
+    PARK_UNIT=$(printf '%s' "$PICK_EV" | jq -r '.fields.unit // "" | tostring')
+    bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/rs.err" \
+        || { cat "$T/rs.err" >&2; lib_die2 "cannot read the Work section"; }
+else
+    echo '{"work":[]}' > "$T/state.json"
+fi
 
 # Rule 1: the carry.
 CARRY=false
@@ -135,10 +166,15 @@ fi
 NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$QCAP" --arg rcap "$RCAP" \
     --argjson rq "$RQ_SEQ" --argjson op "$OPEN_SEQ" --argjson wt "$WAIT_SEQ" --argjson cls "$CLASSIFY_SEQ" \
     --argjson an "$ANSWER_SEQ" --argjson evs "$EVID_SEQ" --argjson rs "$RAISE_SEQ" \
-    --argjson wans "$WAIT_ANS" --argjson tans "$TOOL_ANS" --argjson wevi "$WAIT_EVI" '
+    --argjson wans "$WAIT_ANS" --argjson tans "$TOOL_ANS" --argjson wevi "$WAIT_EVI" \
+    --argjson park "$PARK" --argjson chain "$CHAIN" --arg pu "$PARK_UNIT" --arg host "$REPO" --slurpfile st "$T/state.json" '
   include "record-codec";
   .entries as $es
   | [$es[] | d_stamps[] | select(.run == $run)] as $mine
+  # A raise from pick is done when the unit it named has its decision row,
+  # on a new entry or on one already open.
+  | ($park and (any(($st[0].work // [])[]; .kind == "decision"
+        and (.item == $pu or .item == ($host + $pu) or ($host + .item) == $pu)) | not)) as $unparked
   | def stamped($k; $s): any($mine[]; .kind == $k and .seq == $s);
     def report_stamped($s): any($mine[]; .kind == "report" and (.seq | split(".")[0]) == $s);
     def lowest(f): [$es[] | select(f) | .decision | tonumber] | min;
@@ -173,7 +209,8 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
     elif $to_open and ($qseq != "") and (report_stamped($qseq) | not) then "unrecorded-open"
     elif $ans_taken and ($ans_recorded | not) then "unrecorded-answer"
     elif $evi_taken and (stamped("wait"; ($wevi.seq | tostring)) | not) then "unrecorded-evidence"
-    elif $rs > 0 and (stamped("raise"; ($rs | tostring)) | not) then "unrecorded-raise"
+    elif $unparked then "unrecorded-raise"
+    elif ($chain | not) and $rs > 0 and (stamped("raise"; ($rs | tostring)) | not) then "unrecorded-raise"
     elif lowest(.owed == "withdrawal") != null then "withdraw \(lowest(.owed == "withdrawal"))"
     elif lowest(.owed == "reply") != null then "reply \(lowest(.owed == "reply"))"
     elif $redir != null then "redirect \($redir.n) \($redir.r)"

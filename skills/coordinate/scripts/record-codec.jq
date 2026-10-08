@@ -118,7 +118,7 @@ def check_cell($key; $private):
     elif ($v == "") and (any(optional_cols[]; . == $key) | not) then refuse("\($key): empty")
     elif $v == "" then $v
     elif $key == "worker" then check_worker
-    elif $key == "phase" then (if test("^(scoping-ahead|executing|held)$") then . else refuse("phase: not scoping-ahead, executing or held") end)
+    elif $key == "phase" then (if test("^(scoping|scoping-ahead|executing|held)$") then . else refuse("phase: not scoping, scoping-ahead, executing or held") end)
     elif $key == "dispatch_status" then (if test("^(dispatching|dispatched|dispatch-failed)$") then . else refuse("dispatch_status: not dispatching, dispatched or dispatch-failed") end)
     elif $key == "return_path" then (if test("^(message|leg [a-z0-9_][a-z0-9_-]{0,63}:[a-z0-9_-]+)$") then . else refuse("return_path: not `message` or `leg <request-id>:<leg>` (the word leg, a space, then the request and leg)") end)
     elif $key == "repo" then (if test(re_repo) then . else refuse("repo: not owner/repo") end)
@@ -261,9 +261,14 @@ def parse_holds($p):
 #   Relayed by  who carried it to this coordinator, blank when nobody did
 #   Set      when, YYYY-MM-DDTHH:MMZ
 # Work, a next step for each holding and a row for work no holding covers:
-#   Item     a holding's Unit, or what the work is; unique
-#   Kind     holding | local-agent
-#   Who      a holding's Worker (a dispatch topic), or who does the work
+#   Item     a holding's Unit, or what the work is; unique within its Kind
+#   Kind     holding | local-agent | decision (a unit pick parked on a
+#            decision entry) | follow-up (a unit whose scoping landed, its
+#            execution not yet dispatched)
+#   Who      a holding's Worker (a dispatch topic), or who does the work; for
+#            a decision row `decision <n>`, the entry it waits on; for a
+#            follow-up row the pull request that landed its scoping,
+#            `owner/repo#n`
 #   Next step  what happens next, one line
 #   Wakes    a holding's wakes counted so far (record-state.sh adds this run's
 #            from the session log at each write); 0 for a local agent, and
@@ -282,7 +287,7 @@ def state_secs: [
     ["wakes", "Wakes"], ["updated", "Updated"]]}];
 def run_keys: ["arguments", "cap", "coordinator", "told"];
 def standing_kinds: ["pause", "go-ahead", "approval", "answer"];
-def work_kinds: ["holding", "local-agent"];
+def work_kinds: ["holding", "local-agent", "decision", "follow-up"];
 def s_text_cols: {run: ["value", "set_by"], standing: ["what", "owner", "relayed_by"], work: ["item", "who", "next"]};
 # A unit as pick lists it: a roadmap feature's heading tag or an issue.
 def re_unit: "^(Feature [1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*)$";
@@ -306,7 +311,7 @@ def check_scell($sk; $key; $private):
     elif $sk == "run" and $key == "key" then (if any(run_keys[]; . == $v) then . else refuse("run.key: not one of \(run_keys | join(", "))") end)
     elif $sk == "standing" and $key == "standing" then (if test("^s[1-9][0-9]*$") then . else refuse("standing.standing: not s<n>") end)
     elif $sk == "standing" and $key == "kind" then (if any(standing_kinds[]; . == $v) then . else refuse("standing.kind: not one of \(standing_kinds | join(", "))") end)
-    elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding or local-agent") end)
+    elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding, local-agent, decision or follow-up") end)
     elif $sk == "work" and $key == "wakes" then (if test("^(0|[1-9][0-9]{0,5})$") then . else refuse("work.wakes: not a count") end)
     elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `ED1`, `#12`, `owner/repo#12`)") end)
     elif $sk == "standing" and $key == "until" then (if pause_until_ok then . else refuse("standing.until: not `lifted`, `time <YYYY-MM-DDTHH:MMZ>`, `merged owner/repo#n` or `tag owner/repo <tag>`") end)
@@ -331,6 +336,11 @@ def check_srow($sec; $private):
        elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
        else . end)
     elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
+    elif $sec.key == "work" and (.kind == "decision" or .kind == "follow-up") then
+      (if (.item | test(re_unit) | not) then refuse("work.item: a \(.kind) row's Item is a unit as pick lists it (`Feature 2`, `ED1`, `#12`, `owner/repo#12`)")
+       elif .kind == "decision" and (.who | test("^decision [1-9][0-9]*$") | not) then refuse("work.who: a decision row's Who is `decision <n>`")
+       elif .kind == "follow-up" and (.who | test(re_pr_ref) | not) then refuse("work.who: a follow-up row's Who is the pull request that landed its scoping, `owner/repo#n`")
+       else . end)
     elif $sec.key == "standing" then
       (if .kind == "pause" then
          (if .on == "" or .until == "" then refuse("standing.\(.standing): a pause names its On and its Until") else . end)
@@ -355,7 +365,7 @@ def check_state($sec; $rows; $private):
       elif $sec.key == "standing" then
         (if ($r | map(.standing) | unique | length) != ($r | length) then refuse("standing: an id is used twice") else $r end)
       else
-        (if ($r | map(.item) | unique | length) != ($r | length) then refuse("work: an item is listed twice") else $r end)
+        (if ($r | map([.item, .kind]) | unique | length) != ($r | length) then refuse("work: an item is listed twice under one kind") else $r end)
       end
   end;
 

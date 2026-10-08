@@ -213,6 +213,20 @@ for src in merge_confirm merged_facts; do
     eq "$src merged: the unit's widgets#12 row still there waits beside gadgets#12" waiting "$(confirm)"
     body "$(rec | jq -c --argjson a "$(holding alpha '{"pull_request":""}')" --argjson g "$(holding gamma "$GADGETS12")" '.holdings = [$g, $a]')"
     eq "$src merged: widgets#12's cell cleared confirms though gadgets#12's row stays" confirmed "$(confirm)"
+    # A holding at Phase scoping landed its unit's scoping alone: its
+    # execution goes into Work as a follow-up before the merge confirms.
+    SCOPED=$(holding alpha '{"pull_request":"","phase":"scoping"}')
+    FUROW=$(jq -nc '{item: "Feature 2", kind: "follow-up", who: "acme/widgets#12", next: "/shirabe:execute docs/plans/PLAN-x.md", wakes: "0", updated: "2026-09-26T09:59Z"}')
+    body "$(rec | jq -c --argjson h "$SCOPED" '.holdings = [$h]')"
+    eq "$src merged: a scoping holding with no follow-up row waits" waiting "$(confirm)"
+    bash "$C" --session "$S" >/dev/null 2>&1
+    jq -r '.expectation' "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null | grep -q 'a follow-up Work row for Feature 2' \
+        && ok "$src merged:   ... naming the follow-up it waits for" \
+        || bad "$src merged:   ... naming the follow-up it waits for" "$(cat "$KOTO_STORE/context/$S/coord/record_confirm.json" 2>/dev/null)"
+    body "$(rec | jq -c --argjson h "$SCOPED" --argjson w "$FUROW" '.holdings = [$h] | .work = [$w]')"
+    eq "$src merged: with its follow-up row it confirms" confirmed "$(confirm)"
+    body "$(rec | jq -c --argjson h "$SCOPED" --argjson w "$(printf '%s' "$FUROW" | jq -c '.item = "Feature 3"')" '.holdings = [$h] | .work = [$w]')"
+    eq "$src merged: another unit's follow-up row doesn't count" waiting "$(confirm)"
     session
     log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
     sealed_capture "$src" "$KEY" "unconfirmed 12 $SHA_HEAD"

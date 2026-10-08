@@ -652,6 +652,45 @@
         "R12",
         "R26"
       ]
+    },
+    {
+      "id": 34,
+      "name": "a-unit-waiting-on-a-persons-decision-is-parked",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at pick, with a cap of two and no worker running. Feature 1 (plugin manifest) is next in order, but before anything can be scoped the human has to decide whether the manifest is versioned per plugin or per host: it sets what features 2 and 4 are built against, and the roadmap leaves it open. Features 3 and 4 have no dependency. What do you do at this pick, and what happens when the human answers?",
+      "expected_output": "Feature 1 can't start until a person decides, so the coordinator chooses await_decision with unit Feature 1 rather than dispatching it or sending the choice to /shirabe:decision. At decision_raise it opens the question as a decision entry with record-decision.sh --open (the two options, each with what it costs) and parks the unit on it with record-state.sh --work \"Feature 1\" --kind decision --who \"decision <n>\". The entry gets an escalate verdict with a recommendation and its reason and is asked once. The park holds no slot, so both slots stay free for features 3 and 4, which are dispatched meanwhile, and Feature 1 is never dispatched while the entry is open. When the answer settles the entry, pick lists Feature 1 as answered and the coordinator dispatches it with the answer in its brief's decisions; its holding's Work row replaces the decision row.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The choice at pick is await_decision for Feature 1, not dispatch and not a /shirabe:decision worker",
+        "The question is opened as a decision entry (record-decision.sh --open) and Feature 1 is parked on it with record-state.sh --work \"Feature 1\" --kind decision --who \"decision <n>\"",
+        "The decision reaches the human once, as an escalated entry with a recommendation and its reason",
+        "The parked unit holds no slot: features 3 and 4 are dispatched (or prepared) while the decision is pending, and Feature 1 is not dispatched before the answer",
+        "Once the entry is settled, Feature 1 is dispatched with the answer recorded in its brief's decisions"
+      ],
+      "requirements": [
+        "R16",
+        "R22"
+      ]
+    },
+    {
+      "id": 35,
+      "name": "a-feature-whose-deliverable-is-its-scoping",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at pick. The human's decisions say Feature 3 (plugin registry) is delivered as its scoping alone this quarter: its PRD, design and plan land and are reviewed, and nothing is built until the coordinator later chooses to. Feature 3 has no dependency. How do you dispatch it, what do you record when its pull request merges, and what do you write to the roadmap then?",
+      "expected_output": "The coordinator chooses scope for Feature 3, not /shirabe:deliver (which also executes) and not scope_ahead (which is for a unit whose execution waits on another feature). The brief's entry point is /shirabe:scope with --intent=continue and its phase is scoping, so the worker stops after the documents. When that pull request merges, the feature is scoped, not done: at merge_confirm the coordinator records its execution as a follow-up with record-state.sh --work \"Feature 3\" --kind follow-up --who acme/widgets#<n> --next \"/shirabe:execute docs/plans/PLAN-<topic>.md\", which the record step waits for, and it does not open a roadmap pull request setting Feature 3 to Done. Later, pick lists Feature 3 with its follow-up and the coordinator dispatches the execution when it chooses; the roadmap reads Done only after that lands.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The choice at pick is scope for Feature 3, not /shirabe:deliver and not scope_ahead",
+        "The brief runs /shirabe:scope with --intent=continue at phase scoping, so nothing is executed in this unit",
+        "At the merge the execution is recorded as a follow-up Work row (record-state.sh --work \"Feature 3\" --kind follow-up) naming the merged pull request and the /shirabe:execute run",
+        "No roadmap pull request sets Feature 3 to Done after the scoping merges",
+        "The execution is dispatched later from the follow-up, as its own unit"
+      ],
+      "requirements": [
+        "R23"
+      ]
     }
   ]
 }

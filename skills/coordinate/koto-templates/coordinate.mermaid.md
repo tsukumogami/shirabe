@@ -95,7 +95,9 @@ stateDiagram-v2
     merged_facts --> wait : gates.merged_facts_verdict.exit_code: 92
     merged_facts --> wait : gates.merged_facts_verdict.exit_code: 46
     pick --> dispatch_check : choice: dispatch
+    pick --> dispatch_check : choice: scope
     pick --> dispatch_check : choice: scope_ahead
+    pick --> decision_raise : choice: await_decision, evidence.unit: present
     pick --> dispatch_check : choice: send_execution
     pick --> ask_up : choice: ask_up
     pick --> wait : choice: hold

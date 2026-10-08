@@ -502,14 +502,16 @@ states:
     accepts:
       choice:
         type: enum
-        values: [dispatch, scope_ahead, send_execution, ask_up, hold]
+        values: [dispatch, scope, scope_ahead, send_execution, await_decision, ask_up, hold]
         required: true
         description: What does pick do next with one free slot under the cap?
         decider:
           answers:
             dispatch: {description: "Dispatch the next unblocked unit in scope order to a new or idle worker."}
+            scope: {description: "Dispatch the scoping alone of a unit whose deliverable is its scoping; its execution is a follow-up unit picked later."}
             scope_ahead: {description: "Dispatch the scoping of a unit whose execution waits on another feature landing."}
             send_execution: {description: "Send a scoping-ahead worker its execution now that the blocker landed."}
+            await_decision: {description: "The next unit can't start until a person decides something: open the question as a decision entry and park the unit on it, keeping the slot free."}
             ask_up: {description: "Free slots remain and the scope has no unit left: ask the dispatcher for work."}
             hold: {description: "The cap or the parked bound is reached, or nothing can start now."}
           escape: {value: unclear, description: "The facts are missing, truncated, or contradictory."}
@@ -518,7 +520,7 @@ states:
             - {var: PARKED_BOUND, label: parked_bound}
       unit:
         type: string
-        description: 'The dispatch topic of the unit picked, when the choice dispatches (lowercase letters, digits and hyphens, such as plugin-api); never the unit''s tag or title from coord/pick.json, such as "Feature 2" or "#12". dispatch_check refuses any other value as unknown-topic, with the reason in coord/dispatch_check.json, and sends you back here.'
+        description: 'The dispatch topic of the unit picked, when the choice dispatches (lowercase letters, digits and hyphens, such as plugin-api); never the unit''s tag or title from coord/pick.json, such as "Feature 2" or "#12". dispatch_check refuses any other value as unknown-topic, with the reason in coord/dispatch_check.json, and sends you back here. With await_decision, required: the unit as pick lists it ("Feature 2", "#12"), the one you park.'
       rationale:
         type: string
         description: Why this choice, especially when it departs from the facts' order.
@@ -534,9 +536,20 @@ states:
           dispatch_topic: "${evidence.unit}"
       - target: dispatch_check
         when:
+          choice: scope
+        context_assignments:
+          dispatch_topic: "${evidence.unit}"
+      - target: dispatch_check
+        when:
           choice: scope_ahead
         context_assignments:
           dispatch_topic: "${evidence.unit}"
+      # The unit waits on a person: its question is opened as an entry and
+      # the unit parked on it, with no dispatch and no slot taken.
+      - target: decision_raise
+        when:
+          choice: await_decision
+          evidence.unit: present
       - target: dispatch_check
         when:
           choice: send_execution
@@ -631,7 +644,7 @@ states:
         type: enum
         values: [sent, failed, paused]
         required: true
-        description: sent once dispatch-worker.sh dispatched the worker and wrote its holding; failed when the dispatch did not start; paused when it exited 10 because a pause holds the unit, with nothing written.
+        description: sent once dispatch-worker.sh dispatched the worker and wrote its holding; failed when the dispatch did not start; paused when it exited 10 because a pause holds the unit or a decision parks it, with nothing written.
       topic:
         type: string
         required: true
@@ -2502,6 +2515,20 @@ and drive every worker to landed work.
   dispatched now for scoping (`scope_ahead`), and the same worker session is sent
   its execution when the blocker lands (`send_execution`), moving the holding's
   Phase from `scoping-ahead` to `executing`. Use this before asking up.
+- **Scoping alone.** A unit whose deliverable is its scoping (its documents
+  land and are reviewed before anything is built on them) is dispatched for
+  the scoping alone (`scope`), at Phase `scoping`. When that merges, its
+  execution is recorded as a follow-up (`merge_confirm`), and the unit comes
+  back here with `follow_up` set: dispatch its execution then, never its
+  scoping again.
+- **Waiting on a person.** A unit that can't start until a person decides
+  something (a framing or scope call that isn't yours) is parked
+  (`await_decision`, `unit` its tag as listed): you open the question as a
+  decision entry and park the unit on it, and it takes no slot. While its
+  `awaiting` is set, never dispatch it. Once `answered` is set the entry is
+  settled: dispatch the unit with the answer in its brief's decisions, or,
+  when the answer drops it, remove the row with `record-state.sh --session
+  {{SESSION_NAME}} --done "<unit>" --kind decision`.
 - **Asking up.** When slots are free and the scope has no unit left, ask whoever
   dispatched you for out-of-scope work (`ask_up`) and invent none. Work you are
   assigned becomes a holding like any other; a proposal of your own stays
@@ -2516,6 +2543,8 @@ and drive every worker to landed work.
 |---|---|
 | A roadmap feature that has to be worked out and built | `/shirabe:deliver` |
 | A roadmap feature scoped ahead (`scope_ahead`) | `/shirabe:scope <topic> --intent=continue`, then `/shirabe:execute docs/plans/PLAN-<topic>.md` to the same worker at `send_execution` |
+| A roadmap feature whose deliverable is its scoping (`scope`) | `/shirabe:scope <topic> --intent=continue`; its execution later, from the follow-up, as `/shirabe:execute docs/plans/PLAN-<topic>.md` |
+| A unit waiting on a person's decision (`await_decision`) | none: a decision entry, through `decision_raise` |
 | An issue that is already specified | `/shirabe:work-on` |
 | An open question | `/shirabe:explore` |
 | A contested choice | `/shirabe:decision` |
@@ -2525,8 +2554,9 @@ Three kinds of decision, three routes. A contested choice inside your scope is
 settled by dispatching `/shirabe:decision`, not by offering the human options. A
 decision that is the human's (it changes the effort's scope, reverses or extends
 a decision the human supplied, or needs a step the workspace reserves for a
-person) is asked once, with one recommendation. Anything outside your scope is
-escalated to whoever dispatched you.
+person) is asked once, with one recommendation; when a unit can't start
+without it, that unit is parked on it (`await_decision`).
+Anything outside your scope is escalated to whoever dispatched you.
 
 ## ask_up
 
@@ -2595,11 +2625,13 @@ brief_input.json --from-file <file>`, then delete the file), run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/dispatch-worker.sh" --session
 "{{SESSION_NAME}}"`, and submit `dispatched: sent`, or `dispatched: failed`
 when it exits 3 or 4, or `dispatched: paused` when it exits 10 because a pause
-holds the unit (nothing was written), with the `topic` each way. The topic is the one
+holds the unit or a decision parks it (nothing was written), with the `topic` each way. The topic is the one
 `dispatch_check` passed (`topic` in its detail, `coord/dispatch_check.json`);
 the record step refuses a dispatch under any other. The input names the entry
 point: `/shirabe:deliver` for a roadmap feature to be built, `/shirabe:scope`
-for one scoped ahead, with its execution sent later. The brief lists the
+for one scoped ahead, with its execution sent later, or scoped alone (phase
+`scoping`, from pick's `scope`), with its execution a follow-up; for a unit
+whose `follow_up` is set, its execution. The brief lists the
 checkpoints the worker reports at, and tells it to report and continue at each
 one: it waits on no approval. Once it is sent, write the holding's next step,
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session
@@ -2624,7 +2656,7 @@ know them.
 field. Its `topic` must be the `dispatch_topic` pick chose. It carries the
 unit, the repository, the entry point with its positional argument and flags
 as a token array, the run mode (`--auto` unless the human's decisions say
-otherwise), the phase (`scoping-ahead` or `executing`), the authority sentence
+otherwise), the phase (`scoping`, `scoping-ahead` or `executing`), the authority sentence
 in the voice of whoever the work is for, the goal, the checkpoints (the last is
 where the worker stops; none may wait on an approval), the acceptance
 criteria, your session name, the decisions the worker can't see anywhere it
@@ -3068,7 +3100,11 @@ that the entry is taken up and gets your verdict like any other.
 Open the decision you need made as an entry: run
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-decision.sh" --session
 {{SESSION_NAME}} --open --question <question> --option <option> [--option
-<option>]... [--source self|dispatcher]`, then submit `raised: raised`.
+<option>]... [--source self|dispatcher]`, then submit `raised: raised`. From
+pick's `await_decision`, also park the unit on the new entry:
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session
+{{SESSION_NAME}} --work "<the unit>" --kind decision --who "decision <n>"
+--next "<what it starts with once decided>"`.
 
 <!-- details -->
 
@@ -3076,6 +3112,13 @@ Open the decision you need made as an entry: run
 outcome; `self` otherwise. A failure you'd escalate, and a blocked worker whose
 block is a choice, arrive here: the entry gets a verdict like any other, and
 reaches a person only through one.
+
+A unit parked from pick waits on a person, so give the entry an `escalate`
+verdict when it comes up. The park takes no slot, pick never offers the unit
+while the entry is open, and once the answer settles it pick lists the unit
+`answered` with the outcome. When the question is already an open entry (a
+worker raised it, or the run came back here because the unit isn't parked
+yet), don't open a second one: write only the park, on that entry.
 
 ## decision_answer
 
@@ -3420,7 +3463,19 @@ cell: read the row with `record-holding.sh --read`, write it back with
 step waits for that. The row goes only at the teardown's destroy step. A merge
 not confirmed keeps the holding and its link and adds a Side effects row
 naming the pull request as `owner/repo#<n>` with the verified head, which a
-later reconcile settles. When a feature lands
+later reconcile settles.
+
+A holding at Phase `scoping` landed its unit's scoping alone (pick's `scope`),
+so the unit isn't done: record its execution as a follow-up,
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-state.sh" --session
+{{SESSION_NAME}} --work "<the unit>" --kind follow-up --who <owner/repo#n of
+the merged pull request> --next "<its execution, such as /shirabe:execute
+docs/plans/PLAN-<topic>.md>"`, which the record step also waits for, and don't
+write the feature back to the roadmap as landed. pick lists the unit with
+`follow_up` once its worker is torn down, and you dispatch the execution when
+you choose; the roadmap reads it Done only after that lands.
+
+When a feature lands
 on a roadmap whose repository doesn't hold that feature's PLAN, dispatch a worker
 for a small pull request that sets the feature's status line, as a holding;
 features that depend on it stay blocked until it merges.
@@ -3446,7 +3501,8 @@ and clears its Pull request cell (`record-holding.sh --read`, then the row
 written back with `pull_request` empty and nothing else changed), which the
 record step waits for; the row goes only at the teardown's destroy step. A
 merge not confirmed keeps the link and adds a Side effects row for it at the
-verified head. When a feature lands on a roadmap whose repository doesn't
+verified head. A holding at Phase `scoping` gets its follow-up row, as at
+`merge_confirm`. When a feature lands on a roadmap whose repository doesn't
 hold that feature's PLAN, dispatch a worker for a small pull request that sets
 the feature's status line, as a holding; features that depend on it stay blocked
 until it merges.

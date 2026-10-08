@@ -101,6 +101,13 @@ for e in report_facts\>classify_report report_facts\>wait failure\>wait surface\
     jq -e --arg f "${e%%>*}" --arg t "${e#*>}" 'any(.states[$f].transitions[]?; .target == $t)' "$J" >/dev/null \
         && fail "the edge the design replaced is gone: $e" || pass "the edge the design replaced is gone: $e"
 done
+# pick's two routes (shirabe#549, #550): a unit waiting on a person goes to
+# decision_raise with the unit it parks and never to a dispatch, and a unit
+# scoped alone is a dispatch like any other, its topic passed on.
+jq -e '([.states.pick.transitions[] | select(.when.choice == "await_decision") | [.target, .when["evidence.unit"]]] == [["decision_raise", "present"]])
+       and ([.states.pick.transitions[] | select(.when.choice == "scope") | [.target, .context_assignments.dispatch_topic]] == [["dispatch_check", "${evidence.unit}"]])' "$J" >/dev/null \
+    && pass "pick parks a unit through decision_raise and dispatches a scope like any unit" \
+    || fail "pick parks a unit through decision_raise and dispatches a scope like any unit"
 # A checkpoint report (progress, 64) goes through report_questions like any
 # report, so a question it asks is still read; from there it goes back to
 # wait, never to classify_report or a re-brief (shirabe#491).

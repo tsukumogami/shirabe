@@ -125,6 +125,13 @@ echo "== refusals =="
 seed
 bash "$RS" "${W[@]}" --unit "Feature 9" --outcome x >/dev/null 2>"$T/err"; eq "a tag that isn't a feature is refused" 65 $?
 bash "$RS" "${W[@]}" --unit "Feature 1" --outcome x >/dev/null 2>"$T/err"; eq "a feature already Done is refused" 65 $?
+# A feature whose scoping alone landed isn't Done: its follow-up still stands.
+db '(.issues[] | select(.number == 7)).body = $b' --arg b "$(render "$(record_json roadmap plugin-system | jq -c '.work = [{item: "Feature 2", kind: "follow-up",
+    who: "acme/widgets#12", next: "/shirabe:execute docs/plans/PLAN-registry.md", wakes: "0", updated: "2026-09-26T07:00Z"}]')" issue 2026-09-26T08:00:00Z)"
+bash "$RS" "${W[@]}" --unit "Feature 2" --outcome "acme/widgets#12" >/dev/null 2>"$T/err"; eq "a feature with a follow-up row is refused" 65 $?
+grep -q "its execution is a follow-up still to dispatch" "$T/err" && ok "  ... saying its execution is still to come" || bad "  ... saying its execution is still to come" "$(cat "$T/err")"
+grep -qE 'POST|PUT|pr create' "$GH_DB.calls" && bad "  ... with nothing opened" "$(calls)" || ok "  ... with nothing opened"
+seed
 bash "$RS" "${W[@]}" --unit "the registry" --outcome x >/dev/null 2>"$T/err"; eq "a unit that isn't a heading tag is a usage error" 64 $?
 bash "$RS" "${W[@]}" --unit "Feature 2" --outcome "$(printf 'two\nlines')" >/dev/null 2>"$T/err"; eq "a two-line outcome is a usage error" 64 $?
 bash "$RS" --scope discipline --name ci --repo "$REPO" --ref 9 --skip-session-checks --unit "Feature 2" --outcome x >/dev/null 2>"$T/err"; eq "a discipline scope is a usage error" 64 $?
