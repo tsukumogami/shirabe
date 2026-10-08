@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Current
 upstream: docs/prds/PRD-coordinate-dispatch-path.md
 problem: |
   The coordinate skill's teardown stops a retired worker's session, seals an
@@ -49,7 +49,12 @@ rationale: |
 
 ## Status
 
-Proposed
+Current
+
+Implemented. Decisions 5 and 6 landed in tsukumogami/shirabe#646 and
+Decisions 1 to 4 in tsukumogami/shirabe#647. Two details changed in
+implementation; each carries a dated correction note where it sits, in
+Decisions 1 and 3.
 
 ## Context and Problem Statement
 
@@ -121,9 +126,9 @@ defects above.
 Re-measured for this design on Claude Code 2.1.293 (the roadmap's
 measurement is from 2.1.292), with a throwaway background session started for
 the purpose: `claude stop <id>` keeps the job directory; `claude rm <id>`
-then deletes `~/.claude/jobs/<id>/`, `tmp/` included, and the job's entry in
+then deletes `$HOME/.claude/jobs/<id>/`, `tmp/` included, and the job's entry in
 `claude agents --json --all`, and leaves the transcript
-`~/.claude/projects/<slug>/<session>.jsonl` and the `session-env` entry (the
+`$HOME/.claude/projects/<slug>/<session>.jsonl` and the `session-env` entry (the
 throwaway session edited no files, so it had no `file-history` entry to
 observe; the roadmap's measurement saw that one left too). The behaviour is
 undocumented, so the pass copies everything it keeps before the removal
@@ -171,8 +176,9 @@ and `destroy`. Its default action, `teardown-handoff.sh --seal`, reads:
   inventory's path;
 - the job from `claude agents --json --all`: exactly one entry whose `cwd` is
   the instance path, cross-checked against niwa's `session_name` where niwa
-  records one, giving the job id and its `sessionId`; its state must not be
-  `working`, since the session was stopped before the inventory. Two
+  records one, giving the job id and its `sessionId`; its state must be one
+  known to be finished (`done`, `stopped` or `failed`), and any other state,
+  a missing one included, refuses. Two
   entries (a worker restarted into the same instance) refuse, and the reason
   names both;
 - the merged pull requests: the holding's Repo and Branch from the record,
@@ -205,6 +211,15 @@ prints). The pass takes its target only from its own read of the
 (`coord-log.sh`); the key seal it was handed is an equality check against that
 read, so a stale or edited hand-off refuses instead of pointing a pass at
 another instance.
+
+> **Correction, 2026-10-08.** The job bullet above first read: "its state
+> must not be `working`, since the session was stopped before the
+> inventory." It now requires a state known to be finished. The review of
+> tsukumogami/shirabe#647 found that refusing only `working` would let a
+> missing, renamed or new state read as stopped, so `claude rm` could run on
+> a live job; the stricter rule was approved with that pull request, whose
+> merge carries it. Claude Code 2.1.293 was seen to show a running job as
+> `working` and a finished or stopped one as `done`.
 
 **Rejected: the coordinator writes the verdict.** That's the one thing the
 template forbids, and the job id and pull request list are facts a script can
@@ -264,7 +279,7 @@ out of the coordinator's context.
    log shows a directed transition since the seal (koto#251).
 2. **Re-read every fact.** Each pull request still merged at its merge
    commit; the handoff comment still there; the job still listed with the
-   same `cwd` and session and not working; niwa still listing the instance by
+   same `cwd` and session and in a finished state; niwa still listing the instance by
    that name and path. Any difference refuses.
 3. **Re-inventory**, unsealed, with `teardown-inventory.sh --topic
    --instance`; anything but durable refuses. The sealed inventory is minutes
@@ -277,7 +292,7 @@ out of the coordinator's context.
    `execution_dir` at or under the instance path or the job's `tmp/` ("at or
    under", because a worker starts its workflows in the repositories inside
    its instance, so an exact match would miss nearly all of them). A
-   `MANIFEST.sha256` lists every copied file, each copy is checked against
+   `MANIFEST` lists every copied file with its hash and size, each copy is checked against
    its source's hash, and a `README.md` names the unit, the pull requests,
    the handoff and the date. A copy that doesn't verify refuses, with nothing
    removed.
@@ -289,6 +304,14 @@ out of the coordinator's context.
 7. **Confirm** that `niwa list --json` no longer shows the instance and
    `claude agents --json --all` no longer shows the job, and write the result
    into the archive.
+
+> **Correction, 2026-10-08.** Step 2 first read: "the job still listed with
+> the same `cwd` and session and not working". It now requires a finished
+> state, for the reason in Decision 1's note. Step 4 first read: "A
+> `MANIFEST.sha256` lists every copied file". The file is `MANIFEST`, one
+> `<sha256> <bytes> <path>` line per file: it carries each file's size,
+> which `teardown_confirm` checks, so it isn't in `sha256sum`'s format and
+> doesn't take that name. Both were approved with tsukumogami/shirabe#647.
 
 Exit 0 is `done`; 1 is `refused`, before anything was removed; 2 is
 `incomplete`, after the destroy, naming the step that failed. The script
@@ -313,7 +336,7 @@ posture that reserves the step.
 
 **Chosen: the interim directory stays, for now.** The pass writes to
 `$TEARDOWN_ARCHIVE_DIR`, defaulting to
-`${XDG_DATA_HOME:-~/.local/share}/teardown-archive/`. It isn't `/tmp` and
+`${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive/`. It isn't `/tmp` and
 isn't the job's tmp directory, which `claude rm` deletes.
 
 The workspace's observability archive is the natural permanent home, and it
@@ -412,7 +435,7 @@ What the roadmap's Feature 10 asks for that this declines:
 - **`niwa destroy <instance>`.** The pass runs `niwa destroy --force <name>`:
   niwa refuses an instance whose branches were squash-merged unless forced
   (niwa#322), and the force stands on the pass's own durable re-inventory.
-- **The archive at `~/.local/share/teardown-archive/`.** That stays the
+- **The archive at `$HOME/.local/share/teardown-archive/`.** That stays the
   default; `XDG_DATA_HOME` and `TEARDOWN_ARCHIVE_DIR` can move it, the second
   so the observability archive can take over without a code change and so
   the engine test writes into a temporary directory.
@@ -517,7 +540,7 @@ target from the seal.
 - The pass relies on undocumented behaviour of `claude rm` and on the shape
   of `claude agents --json --all`.
 - The archive grows until someone prunes it.
-- The koto sessions are copied, not removed, so `~/.koto/sessions` keeps
+- The koto sessions are copied, not removed, so `$HOME/.koto/sessions` keeps
   growing (koto#308).
 
 ### Mitigations

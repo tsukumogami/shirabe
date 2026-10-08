@@ -23,10 +23,13 @@
 # pull request isn't merged, when the handoff is missing, on another unit's
 # pull request or gone, when the job is still working or in a state not
 # known to be finished (a missing state included), when two jobs ran in the
-# instance, and when niwa's name for the instance isn't a plain name. The pass refuses a key seal that isn't the verdict's and a
-# pull request no longer merged; it reports incomplete when the removal
-# fails after the destroy; and teardown_confirm refuses a `destroyed` no pass
-# backs.
+# instance, and when niwa's name for the instance isn't a plain name. The
+# pass refuses a key seal that isn't the verdict's, a pull request no longer
+# merged, unique material since the inventory, and a job whose state since
+# the verdict went missing, became unknown, or that left the listing; it
+# reports incomplete when the removal fails after the destroy; and
+# teardown_confirm refuses a `destroyed` no pass backs. (teardown-pass_test.sh
+# feeds the pass verdict fields no seal would carry.)
 #
 # Needs koto, git and jq; SKIPs (exit 0) without koto.
 # Usage: bash skills/coordinate/scripts/teardown-pass_engine_test.sh
@@ -445,6 +448,23 @@ KSEAL=$(handover | sed -n 's/^keyseal //p')
 jq -c '[.[] | del(.state)]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
 eq  "a job whose state went missing since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
 nothing_removed "a job whose state went missing since the verdict"
+
+fixture
+start
+stopped
+KSEAL=$(handover | sed -n 's/^keyseal //p')
+jq -c '[.[] | .state = "waiting"]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+eq  "a job in an unknown state since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
+nothing_removed "a job in an unknown state since the verdict"
+
+fixture
+start
+stopped
+KSEAL=$(handover | sed -n 's/^keyseal //p')
+printf '[]\n' >"$ST/agents.json"
+eq  "a job gone from the listing since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
+has "and says so" "$(tail -1 "$T/pass.out")" "no longer the finished job"
+nothing_removed "a job gone from the listing since the verdict"
 
 fixture
 start
