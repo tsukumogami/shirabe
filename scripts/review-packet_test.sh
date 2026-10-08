@@ -308,6 +308,22 @@ else
         fail "code: no-log --issue: exit $CODE, stderr: $ERR"
     fi
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
+    # A log whose header this reader doesn't know reads its issue too, but
+    # says on stderr that the check went quiet.
+    state_log new-format plan_outline
+    sed 's/"schema_version":1/"schema_version":2/' "$ROOT/sessions/new-format/koto-new-format.state.jsonl" \
+        > "$ROOT/sessions/new-format/log.tmp"
+    mv "$ROOT/sessions/new-format/log.tmp" "$ROOT/sessions/new-format/koto-new-format.state.jsonl"
+    rm -f "$ROOT/gh.log"
+    GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
+        run "$STORE" code --session new-format --issue 12
+    if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --json body -q .body' "$ROOT/gh.log" \
+        && printf '%s' "$ERR" | grep -q 'schema_version 2; this reader knows 1'; then
+        pass "code: an unknown log schema reads its issue and warns that the check is off"
+    else
+        fail "code: unknown schema: exit $CODE, stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
 fi
 
 run "$STORE" code --session s --criteria "$ROOT/nope"

@@ -154,12 +154,17 @@ emit_capped() {
 # as it always has, since an issue-backed run must not lose its packet to a
 # failed lookup.
 session_issue_source() {
-    local dir log
+    local dir log v
     command -v jq >/dev/null 2>&1 || return 0
     dir=$(koto session dir "$SESSION" 2>/dev/null) || return 0
     log="$dir/koto-$SESSION.state.jsonl"
     [ -r "$log" ] || return 0
-    [ "$(head -n 1 "$log" | jq -c '.schema_version' 2>/dev/null)" = 1 ] || return 0
+    v=$(head -n 1 "$log" | jq -c '.schema_version' 2>/dev/null)
+    if [ "$v" != 1 ]; then
+        # Loud, because the plan-outline check goes quiet with it.
+        echo "review-packet: $SESSION's log header has schema_version ${v:-none}; this reader knows 1, so --issue is not checked against ISSUE_SOURCE" >&2
+        return 0
+    fi
     jq -r 'select(.type? == "workflow_initialized") | .payload.variables.ISSUE_SOURCE // empty' \
         "$log" 2>/dev/null | head -n 1
 }
