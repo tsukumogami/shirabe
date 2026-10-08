@@ -17,7 +17,10 @@ those lines have in common, so it is said once.
    gives. It prints the packet's path. The criteria for a code packet come
    from `--issue <N>`; a plan-backed child whose criteria live in a PLAN
    outline, and a free-form run with no issue, write their criteria to a
-   `mktemp` file and pass `--criteria <file>` instead. An exit of 64 from a
+   `mktemp` file and pass `--criteria <file>` instead. A plan-outline child's
+   `<N>` numbers an item in its PLAN, not an issue, so the script refuses
+   `--issue` for its session with exit 67 rather than read an unrelated issue
+   under that number. An exit of 64 from a
    code packet means no base resolved: record `impl_base` as `analysis`'s
    fallback says and run it again. Don't spawn a seat without a packet.
    A `/work-on` panel seat whose `<panel>_scope.json` decision is `recheck`

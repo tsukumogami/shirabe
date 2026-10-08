@@ -19,6 +19,7 @@ on:
       - 'scripts/run-evals.sh'
       - 'scripts/run-evals_test.sh'
       - 'scripts/lib/classify-eval-session.py'
+      - 'scripts/lib/resolve-eval-env.py'
       - 'scripts/run-evals/fixtures/**'
       - 'scripts/release-eval-check.sh'
       - 'scripts/release-eval-check_test.sh'

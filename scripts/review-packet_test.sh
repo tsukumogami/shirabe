@@ -13,7 +13,8 @@
 # `context get` from a directory of files named after their keys, and a stub gh
 # prints a canned issue body, so every case runs on a bare runner. The cases
 # pin the packet's sections, the base order (impl_base, then the merge-base),
-# the caps and their trailers, and that a failure leaves no packet behind.
+# the caps and their trailers, that a failure leaves no packet behind, and
+# that a plan-outline child's session never reaches `gh issue view`.
 # The recheck cases also need jq, as the script's recheck kind does, and
 # fail without it. The spawn-site cases then check that every
 # review spawn site still names a model, a call budget and the packet command,
@@ -46,8 +47,14 @@ trap 'rm -rf "$ROOT"' EXIT
 # Stubs. KOTO_STORE is a directory with one file per context key.
 STUBS="$ROOT/stubs"
 mkdir -p "$STUBS"
+# `session dir` answers from KOTO_SESSIONS, where a case writes a session's
+# state log as koto lays it out. gh appends each call to GH_LOG when it is set.
 cat > "$STUBS/koto" <<'EOF'
 #!/bin/sh
+if [ "$1" = session ] && [ "$2" = dir ]; then
+    echo "${KOTO_SESSIONS:-/nonexistent}/$3"
+    exit 0
+fi
 [ "$1" = context ] || exit 2
 case "$2" in
     exists) [ -f "$KOTO_STORE/$4" ] ;;
@@ -57,6 +64,7 @@ esac
 EOF
 cat > "$STUBS/gh" <<'EOF'
 #!/bin/sh
+[ -z "${GH_LOG:-}" ] || echo "$*" >> "$GH_LOG"
 [ -n "${GH_FAIL:-}" ] && { echo "gh: not authenticated" >&2; exit 4; }
 cat "$GH_BODY"
 EOF
@@ -246,6 +254,61 @@ fi
 # gh failing is a read failure, and leaves no packet.
 GH_FAIL=1 GH_BODY="$BODY" run "$STORE" code --session s --issue 12
 [ "$CODE" -eq 66 ] && pass "code: gh failure: exit 66" || fail "code: gh failure: exit $CODE"
+
+# A plan-outline child's issue number names an item in its PLAN, not a GitHub
+# issue: --issue is refused before gh is called, whatever the repository has
+# under that number. The session's ISSUE_SOURCE comes from its koto state log.
+# state_log <session> <issue-source>: writes the session's log as koto does,
+# a header line, then workflow_initialized with the session's variables.
+state_log() {
+    mkdir -p "$ROOT/sessions/$1"
+    printf '{"schema_version":1,"workflow":"%s"}\n{"seq":1,"type":"workflow_initialized","payload":{"template_path":"t","variables":{"ISSUE_NUMBER":"1","ISSUE_SOURCE":"%s"}}}\n{"seq":2,"type":"transitioned","payload":{"from":null,"to":"entry"}}\n' \
+        "$1" "$2" > "$ROOT/sessions/$1/koto-$1.state.jsonl"
+}
+if ! command -v jq >/dev/null 2>&1; then
+    fail "plan-outline: jq not on PATH, so no plan-outline case ran"
+else
+    state_log outline-child plan_outline
+    state_log github-child github
+    rm -f "$ROOT/gh.log"
+    GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
+        run "$STORE" code --session outline-child --issue 1
+    if [ "$CODE" -eq 67 ] && [ ! -s "$ROOT/gh.log" ] \
+        && printf '%s' "$ERR" | grep -q 'plan-outline child' \
+        && printf '%s' "$ERR" | grep -q -- '--criteria <file>'; then
+        pass "code: --issue for a plan-outline child is refused (exit 67) with no gh call"
+    else
+        fail "code: plan-outline --issue: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
+    fi
+    KOTO_SESSIONS="$ROOT/sessions" run "$STORE" code --session outline-child --criteria "$BODY"
+    if [ "$CODE" -eq 0 ] && grep -q '^- \[ \] second$' "$OUT"; then
+        pass "code: a plan-outline child's --criteria packet is built as usual"
+    else
+        fail "code: plan-outline --criteria: exit $CODE, stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+    rm -f "$ROOT/gh.log"
+    GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
+        run "$STORE" code --session github-child --issue 12
+    if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --json body -q .body' "$ROOT/gh.log" \
+        && grep -q '^- \[ \] second$' "$OUT"; then
+        pass "code: a github-sourced plan child still reads its issue"
+    else
+        fail "code: github child --issue: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+    # A session with no readable log (a lookup that finds nothing) keeps
+    # reading its issue: an issue-backed run must not lose its packet.
+    rm -f "$ROOT/gh.log"
+    GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
+        run "$STORE" code --session no-log --issue 12
+    if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --json body -q .body' "$ROOT/gh.log"; then
+        pass "code: a session with no readable log still reads its issue"
+    else
+        fail "code: no-log --issue: exit $CODE, stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+fi
 
 run "$STORE" code --session s --criteria "$ROOT/nope"
 [ "$CODE" -eq 64 ] && pass "code: missing criteria file: exit 64" || fail "code: missing criteria: exit $CODE"
@@ -499,6 +562,25 @@ for entry in $RECHECK_SITES; do
     printf '%s\n' "$line" | grep -q "scripts/review-packet.sh\" recheck --session <WF> --panel ${entry#*:} --seat " \
         && pass "spawn site $site: gives the recheck packet for panel ${entry#*:}" \
         || fail "spawn site $site: no recheck packet command for panel ${entry#*:}"
+done
+
+# Each /work-on code-packet site says that a run with no GitHub issue passes
+# --criteria rather than --issue: a plan-outline child that follows a bare
+# `--issue <N>` reads whatever the repository has under its PLAN item number.
+CODE_SITES="
+phase-4a-scrutiny.md
+phase-4b-review.md
+phase-4c-qa.md
+phase-4d-light.md
+phase-4-implementation.md
+"
+for entry in $CODE_SITES; do
+    site="skills/work-on/references/phases/$entry"
+    line=$(grep '^\*\*Seat commissioning\*\*' "$REPO_ROOT/$site" 2>/dev/null)
+    printf '%s\n' "$line" | grep -q -- '`--criteria <file>` in place of `--issue <N>`' \
+        && printf '%s\n' "$line" | grep -q 'plan-outline child' \
+        && pass "spawn site $site: gives --criteria for a plan-outline child" \
+        || fail "spawn site $site: no --criteria form for a run with no GitHub issue"
 done
 
 # grep -vxF rather than a case inside $(...): bash 3.2 misparses the latter.

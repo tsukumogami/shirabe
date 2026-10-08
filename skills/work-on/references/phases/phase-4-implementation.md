@@ -111,7 +111,7 @@ summary; if the script succeeds but the AC is not met, the script is wrong.
 needed: security, performance, testing, architecture. Check for scope shrinkage
 and design intent drift.
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): each agent runs on `model: "sonnet"` with a 15-call budget, sharing one packet. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): each agent runs on `model: "sonnet"` with a 15-call budget, sharing one packet. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`, with `--criteria <file>` in place of `--issue <N>` when the run has no GitHub issue: a plan-outline child, whose `<N>` numbers an item in its PLAN, writes its outline's acceptance criteria to the file.
 
 ## Evidence
 

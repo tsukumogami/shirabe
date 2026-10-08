@@ -1230,13 +1230,23 @@ ISOBLOCK
   # when the heredoc holds an unpaired quote.
   local tier_file="$scratch/tier-instructions.txt"
   EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 > "$tier_file" << PYEOF
-import json, os
+import importlib.util, json, os, sys
+
+# Loading the helper below must not leave a __pycache__ in the checkout.
+sys.dont_write_bytecode = True
 
 with open("$evals_file") as f:
     data = json.load(f)
 
 selected = os.environ.get("EVAL_SCENARIO_FILTER", "")
 iter_dir = "$iter_dir"
+# The tier-2 working directory, which an eval's relative log paths resolve
+# against (scripts/lib/resolve-eval-env.py says why).
+tier2_workdir = "$tier2_checkout"
+_spec = importlib.util.spec_from_file_location(
+    "resolve_eval_env", "$SCRIPT_DIR/lib/resolve-eval-env.py")
+resolve_eval_env = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(resolve_eval_env)
 
 
 def scenario_model(name):
@@ -1287,10 +1297,12 @@ for ev in data["evals"]:
         scenario = ev.get("scenario", "")
         # An eval may declare extra environment for its run (a call log for the
         # gh shim, a CI wait limit), as a flat map of names to string values.
-        # Relative paths resolve against the scenario's working directory.
+        # A relative log path is made absolute against the scenario's working
+        # directory here, so a call from a node worktree lands in the same log.
         extra = ev.get("env") or {}
         env_text = ""
         if isinstance(extra, dict) and extra:
+            extra = resolve_eval_env.resolve(extra, tier2_workdir)
             env_text = " Also set " + ", ".join(f"{k}={v}" for k, v in sorted(extra.items())) + "."
         lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH.{env_text} "
                      f"Instruct agent: 'Execute the workflow. gh and koto are available on PATH.'" + model_text)
