@@ -66,9 +66,9 @@ For emergent decisions (not listed here), use the three-signal checklist in
 
 | ID | Phase File | Category | Tier | Interactive | --auto |
 |----|-----------|----------|------|-------------|--------|
-| W1 | SKILL.md:23 | judgment | 2 | needs-triage handling | Default to proceed; document |
-| W2 | phase-2-introspection.md:78 | researchable | 1 | Clarify ambiguity | Resolve from context; document |
-| W3 | work-on.md:2055 (ci_monitor retry cap) | safety | -- | CI failure guidance | HALT: `failing_unresolvable` ends the run at `done_blocked`; never auto-proceed, never ask |
+| W1 | SKILL.md:36 | judgment | 2 | needs-triage handling | Default to proceed; document |
+| W2 | phase-2-introspection.md:8 | researchable | 1 | Clarify ambiguity | Resolve from context; document |
+| W3 | work-on.md, `## ci_monitor` directive (retry cap) | safety | -- | CI failure guidance | HALT: `failing_unresolvable` ends the run at `done_blocked`; never auto-proceed, never ask |
 | W4 | phase-6-pr.md:60 | safety | -- | Red check acceptance | HALT: `failing_unresolvable` ends the run at `done_blocked`; never auto-accept |
 
 ## Summary

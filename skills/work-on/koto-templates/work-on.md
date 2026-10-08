@@ -228,6 +228,8 @@ states:
         when:
           verdict: exit
 
+  # The setup_issue_backed and setup_free_form directives in the body below are
+  # word-for-word twins; an edit to one belongs in the other.
   setup_issue_backed:
     gates:
       on_feature_branch:
@@ -2015,14 +2017,18 @@ Evidence schema:
 Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
 
 If the gate fails, submit `status: completed` after creating the branch and baseline,
-`status: override` if reusing an existing branch, or `status: blocked`.
+`status: override` if reusing an existing branch, or `status: blocked`. Reuse the
+current branch, and submit `status: override`, when the user asked you to continue on
+it or it is this work's branch from a previous session; otherwise create a new one.
 
 ## setup_free_form
 
 Read `references/phases/phase-1-setup.md` for branch naming and baseline format.
 
 If the gate fails, submit `status: completed` after creating the branch and baseline,
-`status: override` if reusing an existing branch, or `status: blocked`.
+`status: override` if reusing an existing branch, or `status: blocked`. Reuse the
+current branch, and submit `status: override`, when the user asked you to continue on
+it or it is this work's branch from a previous session; otherwise create a new one.
 
 ## plan_context_injection
 
