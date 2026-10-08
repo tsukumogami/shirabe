@@ -255,10 +255,10 @@ the recommended verdict: <verdict>".
    configured which labels map to PRD completion.
    Skip this step if `source_issue` is not set in the frontmatter.
    Under `/scope`'s sentinel, skip this step too: the label edit is a `gh`
-   write outside the writes `/scope`'s SKILL.md lists for a run, and
-   `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`
-   leaves publishing to the parent. The label stays on the issue for the
-   author to remove.
+   write, and `/scope`'s SKILL.md, which lists the only `gh` writes a run
+   makes, says a child's upstream-issue edit is skipped under the sentinel, per
+   `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
+   The label stays on the issue for the author to remove.
 5. Create PR (or update existing PR if on a shared branch). Under `/scope`'s
    sentinel, skip this step: `/scope` pushes and opens the pull request at its
    own exit.
@@ -350,8 +350,7 @@ the workflow. Run the following ordered actions; do not skip steps.
 ### 4.7 Cleanup
 
 Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
-`wip/prd_<topic>_*` and `wip/research/prd_<topic>_*`, and `/prd` makes no
-cleanup commit.
+every file the commands below name, and `/prd` makes no cleanup commit.
 
 After the PR is created, clean up temporary artifacts:
 
