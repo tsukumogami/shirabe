@@ -952,11 +952,7 @@ setup_eval_scratch() {
 # Here that is a wrapper, $scratch/koto-bin/koto, which runs the real koto
 # (KOTO_BIN when the caller set it, else the koto on PATH) with HOME set to
 # $scratch/koto-home. KOTO_SESSIONS_BASE would move the sessions somewhere
-# else again, so the wrapper clears it. A tier-2 eval's agents set
-# EVAL_KOTO_STORE (the eval's name, then with_skill or without_skill), and the
-# wrapper then uses $scratch/koto-home/stores/<that>: scenarios in one run open
-# sessions under the same names, and a store shared between them let the
-# first one's session refuse the next. The nested session reaches the wrapper
+# else again, so the wrapper clears it. The nested session reaches the wrapper
 # three ways:
 #   - the session's PATH has the wrapper's directory first;
 #   - KOTO_BIN is unset in the session, so koto-open.sh's ${KOTO_BIN:-koto}
@@ -996,17 +992,7 @@ setup_eval_koto() {
     if [ -n "$real" ]; then
       printf '# This eval run'"'"'s koto: the real one, with its store in the run'"'"'s scratch root.\n'
       printf 'unset KOTO_SESSIONS_BASE\n'
-      printf 'store=%s\n' "$(shell_quote "$scratch/koto-home")"
-      printf '# A tier-2 eval names its own store, so a session one scenario leaves\n'
-      printf '# behind never refuses the next scenario that opens the same name.\n'
-      printf 'if [ -n "${EVAL_KOTO_STORE:-}" ]; then\n'
-      printf '  case "$EVAL_KOTO_STORE" in\n'
-      printf '    /*|*..*|*[!A-Za-z0-9._/-]*) echo "koto: EVAL_KOTO_STORE [$EVAL_KOTO_STORE] is not a plain relative name" >&2; exit 2 ;;\n'
-      printf '  esac\n'
-      printf '  store="$store/stores/$EVAL_KOTO_STORE"\n'
-      printf '  mkdir -p "$store" || exit 1\n'
-      printf 'fi\n'
-      printf 'HOME="$store" exec %s "$@"\n' "$(shell_quote "$real")"
+      printf 'HOME=%s exec %s "$@"\n' "$(shell_quote "$scratch/koto-home")" "$(shell_quote "$real")"
     else
       printf 'echo "koto: this eval run found no koto to wrap (KOTO_BIN unset, none on PATH); refusing rather than run one under the real HOME" >&2\n'
       printf 'exit 127\n'
@@ -1306,12 +1292,7 @@ for ev in data["evals"]:
         env_text = ""
         if isinstance(extra, dict) and extra:
             env_text = " Also set " + ", ".join(f"{k}={v}" for k, v in sorted(extra.items())) + "."
-        # Each agent of each tier-2 eval keeps its own koto store (see
-        # setup_eval_koto), so a session an earlier eval left open under the
-        # same name never refuses this one.
-        lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH, "
-                     f"and set EVAL_KOTO_STORE={name}/with_skill for the with-skill agent and "
-                     f"EVAL_KOTO_STORE={name}/without_skill for the baseline agent.{env_text} "
+        lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH.{env_text} "
                      f"Instruct agent: 'Execute the workflow. gh and koto are available on PATH.'" + model_text)
     else:
         lines.append(f"- {name}: TIER 1 (plan_only) — "
