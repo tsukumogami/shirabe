@@ -1136,6 +1136,33 @@ fn issueless_milestone_descriptions_come_from_the_outcome() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn issueless_milestone_output_passes_validate() {
+    // The regenerated sections of a milestone roadmap pass every roadmap
+    // check, FC21 included: the table keys, the `F1` cell AB2's tag
+    // dependency renders to, and the diagram reconcile with each other.
+    let dir = tempdir();
+    let path = write_roadmap(&dir, "roadmap/v2", MILESTONE_FEATURES);
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+    let out = fs::read_to_string(&path).unwrap();
+    assert!(
+        generated_sections(&out).contains("    F1 --> F2\n"),
+        "{out}"
+    );
+    shirabe()
+        .args(["validate"])
+        .arg(&path)
+        .arg("--visibility=public")
+        .assert()
+        .success();
+    let _ = fs::remove_dir_all(&dir);
+}
+
 /// `AB2` depends on `AB1` by tag; `AB3` names a tag no item carries.
 const TAGGED_FEATURES: &str = "### AB1: Base layer\n\
 **Dependencies:** None\n\
