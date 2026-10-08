@@ -28,8 +28,10 @@ rationale: |
 
 ## Status
 
-Current. The work landed in these pull requests, each squash-merged into
-`main` as the commit beside it:
+Current
+
+The work landed in these pull requests, each squash-merged into `main` as the
+commit beside it:
 
 - #531, `d34134d`: the ten policy decisions, recorded under `docs/decisions/`.
 - #534, `44bd606`: /review-plan.
@@ -1694,10 +1696,11 @@ closed. Three were settled by the work items: Phase 3's pointer to a missing
 Phase 4 file (#637), /prd's ROADMAP upstream (#660), and /charter's `exit:
 UNSET` literal, which the shared state schema now allows as a parent's own
 placeholder (#586). The rest were tracked on issue #659, with every other
-follow-up from this feature, and settled by the pull request that closed it,
-except two that need a person's decision: who removes `needs-design` under
-`/scope` (#666) and the autonomy variable below (#667). A sweep of working
-files on a single-pr `/execute` run is #668.
+follow-up from this feature. Of the six below, the follow-up pull request for
+#659 settled five; the autonomy variable needs a person's decision and is #667.
+Two more from #659 moved to their own issues the same way: who removes
+`needs-design` under `/scope` (#666), and a sweep of working files on a
+single-pr `/execute` run (#668).
 
 - Let `/execute`'s PR title take the type the directive describes, limited to
   `feat`, `fix`, `docs` and `chore` (see `execute-pr-title-type`).
