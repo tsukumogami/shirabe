@@ -56,8 +56,8 @@
 #   a citation    the skill names the command as the authority for a rule, or
 #                 describes what CI or another skill runs
 #
-# `skills/plan/SKILL.md`'s "- `shirabe validate --lifecycle <ROOT>` --
-# whole-tree mode" documents a CLI surface /plan never invokes; two files away,
+# A SKILL.md line reading "- `shirabe validate --lifecycle <ROOT>` --
+# whole-tree mode" documents a CLI surface the skill never invokes; two files away,
 # `skills/design/`'s "`shirabe validate --lifecycle-chain <prd-path>`" is a call
 # /design makes. Same shape, same punctuation, opposite answer. Reporting both
 # would demand declarations that are wrong; reporting neither would gut the

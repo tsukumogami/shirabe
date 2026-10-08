@@ -218,6 +218,10 @@ OUT=$(check); eq "dispatching a topic a Holdings row already names is refused" "
 tok_shape "duplicate-topic is in koto's capture alphabet" "$OUT"
 session "$(roadmap_vars plugin-system)" 7 scope_ahead beta
 eq "scope_ahead on a held topic is refused too" "duplicate-topic beta" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 scope beta
+eq "scope on a held topic is refused too" "duplicate-topic beta" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 scope gamma
+eq "scope on a free topic is clear" "ok gamma" "$(check)"
 session "$(roadmap_vars plugin-system)" 7 dispatch gamma
 eq "another topic is clear" "ok gamma" "$(check)"
 
@@ -288,6 +292,8 @@ jq -e '.verdict == "unknown-topic" and .topic == "-" and (.reason | test("^pick.
 [ -s "$GH_DB.calls" ] && bad "the refusal makes no read and no write" "$(calls)" || ok "the refusal makes no read and no write"
 session "$(roadmap_vars plugin-system)" 7 scope_ahead "Feature 3"
 eq "scope_ahead with a unit's tag is refused" "unknown-topic" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 scope "Feature 3"
+eq "scope with a unit's tag is refused" "unknown-topic" "$(check)"
 session "$(roadmap_vars plugin-system)" 7 send_execution "Feature 3"
 eq "send_execution with a unit's tag is refused" "unknown-topic" "$(check)"
 jq -e '.reason | test("scoping-ahead holding")' "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
@@ -314,6 +320,8 @@ for n in 21 22 23 24 25; do pr $n OPEN true; done
 session "$(roadmap_vars plugin-system)" 7
 OUT=$(check); eq "five active workers under a cap of five is at-cap" "at-cap 5/5 0/3" "$OUT"
 tok_shape "at-cap is in koto's capture alphabet" "$OUT"
+session "$(roadmap_vars plugin-system)" 7 scope beta
+eq "scope adds an active worker, so it is at-cap too" "at-cap 5/5 0/3" "$(check)"
 scoping() { holding "$1" "{\"pull_request\": \"[#$2](https://github.com/acme/widgets/pull/$2)\", \"phase\": \"scoping-ahead\"}"; }
 seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(scoping a5 25)")"
 session "$(roadmap_vars plugin-system)" 7 send_execution a5

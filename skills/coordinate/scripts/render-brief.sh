@@ -29,7 +29,8 @@
 #                                 from the allowed set; empty only for an
 #                                 entry point that takes neither --auto nor
 #                                 --interactive (/shirabe:release)
-#   phase               required  scoping-ahead or executing
+#   phase               required  scoping (the unit is its scoping alone),
+#                                 scoping-ahead or executing
 #   authority           required  the authority sentence, in the human's voice
 #   goal                required  one or two sentences
 #   checkpoints         required  1+ strings; the last is where the worker
@@ -177,8 +178,8 @@ def uuid: test("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
   then "reports_to: must be a session name, letters, digits, dots, dashes and underscores" else empty end ),
 ( if (.repo | type) == "string" and ((.repo | test("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")) | not)
   then "repo: must be owner/repo" else empty end ),
-( if (.phase | type) == "string" and (.phase | IN("scoping-ahead","executing") | not)
-  then "phase: must be scoping-ahead or executing" else empty end ),
+( if (.phase | type) == "string" and (.phase | IN("scoping","scoping-ahead","executing") | not)
+  then "phase: must be scoping, scoping-ahead or executing" else empty end ),
 ( if (.dispatcher_session | type) == "string" and (oneline(.dispatcher_session) | not)
   then "dispatcher_session: must be one line" else empty end ),
 ( if (.unit | type) == "string" and (oneline(.unit) | not)
@@ -380,6 +381,7 @@ def bullets($a; $none): if ($a | length) > 0 then ($a | map("- " + .) | join("\n
     else "Run mode: none; `/shirabe:\(.entry_point)` takes no execution mode." end ),
   "",
   ( if .phase == "scoping-ahead" then "You are scoping ahead: produce the documents and stop at the checkpoint that says so; execution waits for the coordinator'"'"'s go."
+    elif .phase == "scoping" then "You are scoping: the documents are this unit'"'"'s deliverable, so stop at the checkpoint that says so and execute nothing; the execution is a later unit."
     else "You are executing: take the work to the last checkpoint." end ),
   "",
   "## Checkpoints",

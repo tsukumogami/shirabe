@@ -18,7 +18,8 @@
 # --unit opens the roadmap pull request for the feature whose heading tag is
 # TAG (`Feature 7`, `ED1`), the coordinator having judged that its last pull
 # request landed: it reads the roadmap at the default branch's head, refuses a
-# TAG that isn't a feature there or already reads Done or Dropped, and refuses
+# TAG that isn't a feature there or already reads Done or Dropped, refuses one
+# with a follow-up Work row (its scoping alone landed, its execution not), and refuses
 # while any roadmap pull request is pending in the record, since the generated
 # sections of two such pull requests would conflict. It sets the feature's
 # **Status:** to Done, writes **Outcome:** TEXT right after it (replacing one
@@ -186,6 +187,10 @@ confirm|drop)
 esac
 
 # --unit: open the roadmap pull request.
+# A unit whose scoping alone landed still has its execution to come: its
+# follow-up Work row stands until a holding takes it.
+FU=$(jq -r --arg t "$TAG" '[(.work // [])[] | select(.kind == "follow-up" and .item == $t) | .who][0] // empty' "$WD/parsed.json")
+[ -z "$FU" ] || refuse "$TAG's scoping alone landed ($FU) and its execution is a follow-up still to dispatch; it isn't Done until that lands"
 [ "$(jq length "$WD/pending.json")" = 0 ] \
     || refuse "a roadmap pull request is already pending ($(jq -r 'map("\(.unit) \(.pull_request)") | join(", ")' "$WD/pending.json")); confirm or drop it first, since two would conflict in the generated sections"
 # The default branch's head, then the roadmap and its blob at that one

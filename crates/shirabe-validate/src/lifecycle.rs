@@ -786,12 +786,10 @@ fn infer_posture_from(root: &IndexedDoc) -> Posture {
             _ => Posture::MultiPrInFlight,
         };
     }
-    // PLAN root. An issueless multi-pr PLAN is excluded deliberately: the
-    // multi-pr postures expect `Active`, and that status is only reachable
-    // when activation materialized GitHub issues. A PLAN that files none
-    // never leaves Draft, so bucketing it here would demand a status it
-    // cannot legitimately reach. Its lifecycle is Draft -> Done, which is
-    // the single-pr shape below.
+    // PLAN root. An issueless (outline-shaped) multi-pr PLAN is excluded
+    // deliberately: it has no materialized issues for the multi-pr postures
+    // to track, and like a single-pr PLAN it is authored at `Active` and
+    // lands through the cascade, so it takes the single-pr shape below.
     if root.execution_mode == "multi-pr" && !root.outline_shaped {
         return match root.status.as_str() {
             "Done" => Posture::MultiPrWorkCompleting,

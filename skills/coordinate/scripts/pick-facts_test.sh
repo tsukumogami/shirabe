@@ -17,7 +17,9 @@
 # units a person assigned (Standing assignment rows: issues read in their own
 # repositories, a closed one done, a release open until its row ends) listed
 # after the roadmap's, covered by a holding, their forms the dispatch path
-# takes, and an open one keeping the roadmap from completing.
+# takes, and an open one keeping the roadmap from completing; a unit's
+# awaiting, answered and follow_up from the record's Work rows and Decisions
+# entries, none of them holding a slot.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail
@@ -169,6 +171,27 @@ db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 
 session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
 OUT=$(bash "$PF" --session "$S" 2>"$T/err")
 eq "with every assigned unit done, the roadmap completes" scope-complete "${OUT% sealed:*}"
+echo "== roadmap: a unit parked on a decision, one answered, and a follow-up =="
+WORK=$(jq -nc '[{item: "Feature 2", kind: "decision", who: "decision 5", next: "dispatch once decided", wakes: "0", updated: "2026-09-26T07:00Z"},
+    {item: "Feature 4", kind: "decision", who: "decision 8", next: "dispatch once decided", wakes: "0", updated: "2026-09-26T07:00Z"},
+    {item: "Feature 3", kind: "decision", who: "decision 9", next: "an entry no longer in the record", wakes: "0", updated: "2026-09-26T07:00Z"},
+    {item: "Feature 5", kind: "follow-up", who: "acme/widgets#41", next: "/shirabe:execute docs/plans/PLAN-telemetry.md", wakes: "0", updated: "2026-09-26T07:00Z"}]')
+seed "$(record_json roadmap plugin-system | jq -c --argjson w "$WORK" --argjson a "$(dentry 5 escalated "$ESC")" \
+    --argjson b "$(dentry 8 settled '"outcome": "keep it; reason: the sandbox needs it", "decided_by": "a person"')" \
+    '.work = $w | .decisions = {next: 20, entries: [$a, $b]}')"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'Not started' 'Not started' 'Not started' 'Not started')"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+OUT=$(bash "$PF" --session "$S" 2>"$T/err")
+eq "an escalated entry that owes nothing doesn't stop pick" pick "${OUT% sealed:*}"
+eq "a unit parked on an open entry is awaiting it" "5 null" "$(facts | jq -r '.units[] | select(.unit == "Feature 2") | "\(.awaiting) \(.answered)"')"
+eq "one whose entry is settled is answered, with the outcome" 'null {"decision":"8","outcome":"keep it; reason: the sandbox needs it"}' \
+    "$(facts | jq -c -r '.units[] | select(.unit == "Feature 4") | "\(.awaiting) \(.answered | tojson)"')"
+eq "one whose entry is gone is answered with no outcome" 'null {"decision":"9","outcome":""}' \
+    "$(facts | jq -c -r '.units[] | select(.unit == "Feature 3") | "\(.awaiting) \(.answered | tojson)"')"
+eq "a follow-up names its scoping pull request and its execution" '{"after":"acme/widgets#41","next":"/shirabe:execute docs/plans/PLAN-telemetry.md"}' \
+    "$(facts | jq -c '.units[] | select(.unit == "Feature 5") | .follow_up')"
+eq "a unit with no such row carries none of the three" "null null null" "$(facts | jq -r '.units[0] | "\(.awaiting) \(.answered) \(.follow_up)"')"
+eq "none of them holds a slot" "0 0" "$(facts | jq -r '"\(.active) \(.parked)"')"
 
 echo "== roadmap: a landed unit, its roadmap pull request pending =="
 RS='{"action":"roadmap-status","target":"Feature 4 [#30](https://github.com/acme/widgets/pull/30)","verified_head":"","attempted":"2026-09-26T09:00Z","how_to_confirm":"the roadmap on main reads Feature 4 Done"}'

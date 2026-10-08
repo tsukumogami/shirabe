@@ -65,7 +65,7 @@
       "id": 5,
       "name": "single-pr-execution-mode",
       "prompt": "/plan docs/designs/DESIGN-config-validation.md",
-      "expected_output": "For a small design (few issues, low complexity), recommends single-pr mode. Phase 4 produces structured outlines instead of full issue bodies. Phase 7 writes Issue Outlines into the PLAN doc, creates no GitHub issues or milestone, and sets PLAN status to Draft",
+      "expected_output": "For a small design (few issues, low complexity), recommends single-pr mode. Phase 4 produces structured outlines instead of full issue bodies. Phase 7 writes Issue Outlines into the PLAN doc, creates no GitHub issues or milestone, and sets PLAN status to Active (authored at Active because nothing is filed; a committed Draft PLAN is a violation)",
       "files": [],
       "expectations": [
         "Transcript describes execution mode selection between Phase 3 and Phase 4",
@@ -73,7 +73,8 @@
         "Transcript describes Phase 4 producing structured outlines (not full issue bodies)",
         "Transcript describes Phase 7 writing Issue Outlines into the PLAN doc",
         "Transcript states no GitHub issues or milestone are created in single-pr mode",
-        "Transcript sets PLAN status to Draft (not Active)"
+        "Transcript sets PLAN status to Active (not Draft)",
+        "Transcript writes no ## Dependency Graph section in the single-pr PLAN"
       ]
     },
     {
@@ -272,41 +273,36 @@
     },
     {
       "id": 20,
-      "name": "phase-1-sentinel-present-matching-plan",
+      "name": "phase-1-sentinel-present-no-transition",
       "prompt": "/plan docs/designs/DESIGN-sentinel-test.md",
-      "expected_output": "Phase 1 step 1.1 reads the DESIGN and runs the sentinel-gated auto-transition branch BEFORE the hard-stop table. The skill globs wip/*_sentinel-test_state.md (forward-compatible across parent skills, not hardcoded to wip/scope_*) and finds a matching state file containing parent_orchestration.invoking_child: plan. The DESIGN's current status is Accepted (the pre-transition status /design leaves behind after its own PRD-handoff). Because the sentinel is present AND invoking_child matches the current child (plan) AND the DESIGN is at the expected pre-transition status, the skill invokes `shirabe transition docs/designs/DESIGN-sentinel-test.md Planned` and proceeds past the hard-stop table. The DESIGN frontmatter and body Status flip from Accepted to Planned. Phase 1 continues at step 1.2 (Extract Key Information). The auto-transition is the symmetric counterpart to /prd's brief-handoff and /design's PRD-handoff.",
+      "expected_output": "A parent's state file carries parent_orchestration.invoking_child: plan and the DESIGN is at Accepted, the status /scope's design hop leaves. Phase 1 step 1.1 does not transition the DESIGN: Accepted passes the hard-stop table as it is, and Phase 1 continues at step 1.2 (Extract Key Information). The DESIGN moves to Planned only at Phase 7's step 7.5, after the PLAN is written, and the lifecycle-chain check runs after that transition.",
       "files": [],
       "expectations": [
-        "Transcript runs the sentinel-gated auto-transition branch BEFORE the hard-stop table",
-        "Transcript globs wip/*_sentinel-test_state.md (forward-compatible glob, NOT a hardcoded wip/scope_*)",
-        "Transcript finds parent_orchestration.invoking_child: plan in the state file",
-        "Transcript invokes shirabe transition <design-path> Planned",
-        "Transcript proceeds to step 1.2 after the transition (does not hard-stop)"
+        "Transcript does NOT invoke shirabe transition during Phase 1",
+        "Transcript proceeds to step 1.2 with the DESIGN still at Accepted (does not hard-stop)",
+        "Transcript names Phase 7 step 7.5 as where the DESIGN moves to Planned",
+        "Transcript runs (or describes) the shirabe validate --lifecycle-chain check after the 7.5 transition, not before it"
       ]
     },
     {
       "id": 21,
       "name": "phase-1-sentinel-present-mismatched-plan",
       "prompt": "/plan docs/designs/DESIGN-sentinel-mismatch.md",
-      "expected_output": "Phase 1 step 1.1 globs wip/*_sentinel-mismatch_state.md and finds a state file containing parent_orchestration.invoking_child: design (the value does NOT match the current child name 'plan'). The sentinel-gated auto-transition does NOT fire because the invoking_child value mismatches. The skill falls through to the existing hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: the protective hard-stop is reachable when the sentinel is present but mismatched. No shirabe transition invocation; no DESIGN status mutation.",
+      "expected_output": "A state file wip/*_sentinel-mismatch_state.md carries parent_orchestration.invoking_child: design. Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: the protective hard-stop is reachable when the sentinel is present but mismatched. No shirabe transition invocation; no DESIGN status mutation.",
       "files": [],
       "expectations": [
-        "Transcript runs the sentinel-gated check BEFORE the hard-stop table",
-        "Transcript finds the sentinel but observes invoking_child mismatch (not 'plan')",
         "Transcript does NOT invoke shirabe transition",
         "Transcript falls through to the hard-stop table and STOPs with the 'Proposed' error",
-        "R6 preservation: the protective hard-stop is reachable when the sentinel is mismatched"
+        "R6 preservation: the protective hard-stop is reachable when a parent's state file is present"
       ]
     },
     {
       "id": 22,
       "name": "phase-1-sentinel-absent-plan",
       "prompt": "/plan docs/designs/DESIGN-no-sentinel.md",
-      "expected_output": "Phase 1 step 1.1 globs wip/*_no-sentinel_state.md and finds NO matching state file (this is a direct /plan invocation, not a parent-driven chain). The sentinel-gated auto-transition does NOT fire because the sentinel is absent. The skill falls through to the existing hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: direct invocation against a non-Accepted DESIGN cannot silently promote it because no sentinel is on disk. No shirabe transition invocation; no DESIGN status mutation.",
+      "expected_output": "This is a direct /plan invocation with no parent state file. Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: direct invocation against a non-Accepted DESIGN cannot silently promote it because no sentinel is on disk. No shirabe transition invocation; no DESIGN status mutation.",
       "files": [],
       "expectations": [
-        "Transcript runs the sentinel-gated check BEFORE the hard-stop table",
-        "Transcript finds NO matching state file in the wip/*_no-sentinel_state.md glob",
         "Transcript does NOT invoke shirabe transition",
         "Transcript falls through to the hard-stop table and STOPs with the 'Proposed' error",
         "R6 preservation: direct invocation against a non-Accepted DESIGN cannot silently promote it"
@@ -314,15 +310,16 @@
     },
     {
       "id": 23,
-      "name": "phase-1-sentinel-forward-compatible-glob",
-      "prompt": "/plan docs/designs/DESIGN-future-parent.md",
-      "expected_output": "Phase 1 step 1.1 globs wip/*_future-parent_state.md. A fixture file at wip/charter_future-parent_state.md (NOT wip/scope_*) exists with parent_orchestration.invoking_child: plan. The glob discovers the state file because the wildcard accepts any parent-name prefix. The sentinel-gated auto-transition fires. This validates the forward-compatibility property: the discovery glob is wip/*_<topic>_state.md (not a hardcoded wip/scope_<topic>_state.md), so future parent skills beyond /scope (e.g., /charter, hypothetical /strategy-chain) drive the transition correctly without re-editing the phase-1 prose.",
+      "name": "phase-7-upstream-issue-update-skipped-under-scope-sentinel",
+      "prompt": "/plan docs/designs/DESIGN-scope-child.md",
+      "expected_output": "/scope's state file for the topic scope-child carries parent_orchestration.invoking_child: plan, so /plan runs as /scope's child. It still reaches its own verdict (the Phase 6 review) and makes its own status transition (step 7.5, Accepted to Planned), but at step 7.8 it asks no upstream-issue question and runs no gh issue edit, and it pushes nothing, opens no pull request, creates no branch and makes no cleanup commit: publishing belongs to /scope (shape 6, Parent-owned-publishing, in references/fixes/sub-agent-dispatch.md).",
       "files": [],
       "expectations": [
-        "Transcript globs wip/*_<topic>_state.md (wildcard prefix, not hardcoded wip/scope_*)",
-        "Transcript discovers wip/charter_future-parent_state.md via the wildcard",
-        "Transcript fires the sentinel-gated auto-transition (because invoking_child matches 'plan')",
-        "Forward-compatibility property held: a non-scope parent drives the transition correctly"
+        "Transcript detects the parent_orchestration sentinel naming plan",
+        "Transcript still runs the Phase 6 review and the step 7.5 transition to Planned",
+        "Transcript skips step 7.8: no upstream-issue question and no gh issue edit",
+        "Transcript runs no git push, no gh pr command, and creates or switches no branch",
+        "Transcript makes no cleanup commit"
       ]
     },
     {
@@ -566,7 +563,7 @@
       "id": 39,
       "name": "auto-coordinated-tracking-issues-files-without-prompt",
       "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-tracking-issues.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto --intent=continue`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), its `**Repo**:` and `**Group**:` lines, whether it has a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. Also print the number of outlines the decomposition produced.",
-      "expected_output": "The repository states `## Tracking Level: issues`, so the coordinated filing path runs: the filing approval is resolved by the decision protocol with a decision block and no blocking prompt, create-issues-batch.sh files one issue per work item with no milestone, and the PLAN carries an Implementation Issues table with a _Repo: ... | Group: ..._ row per issue and tracking_level: issues.",
+      "expected_output": "The repository states `## Tracking Level: issues`, so the coordinated filing path runs: the CLAUDE.md header stands in for the filing approval, recorded as a decision block with no blocking prompt, create-issues-batch.sh files one issue per work item with no milestone, and the PLAN carries an Implementation Issues table with a _Repo: ... | Group: ..._ row per issue and tracking_level: issues.",
       "files": [],
       "tier": 2,
       "mode": "execute",
@@ -628,6 +625,24 @@
         "Run 1 (single-pr) advises /execute docs/plans/PLAN-error-message-fix.md",
         "Run 2 (coordinated) advises /execute docs/plans/PLAN-release-pipeline.md",
         "Run 3 (multi-pr) advises /work-on, not /execute"
+      ]
+    },
+    {
+      "id": 43,
+      "name": "auto-multi-pr-no-tracking-header-files-nothing",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto --intent=stop`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (execution_mode, split_mode_source, split_rationale, tracking_level, status), whether it has a `## Issue Outlines` section and a `## Implementation Issues` section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, any milestone call in the log, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`.",
+      "expected_output": "An unattended run whose CLAUDE.md declares no `## Tracking Level:` header files nothing, even though multi-pr's default level would file issues and a milestone: the PLAN is multi-pr at tracking_level: none and status Active, its work items are outlines under ## Issue Outlines with no Implementation Issues table, the gh shim logs no issue create and no milestone call, and shirabe validate exits 0.",
+      "files": [],
+      "tier": 2,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG.",
+      "expectations": [
+        "The PLAN's frontmatter has execution_mode: multi-pr, tracking_level: none and status: Active",
+        "The PLAN carries its work items under ## Issue Outlines and has no ## Implementation Issues table",
+        "The shim's call log contains zero `issue create` lines and no milestone call",
+        "The transcript says no issues are filed because CLAUDE.md declares no tracking level (not because of an approval question to the user)",
+        "shirabe validate on the written PLAN exits 0"
       ]
     }
   ]

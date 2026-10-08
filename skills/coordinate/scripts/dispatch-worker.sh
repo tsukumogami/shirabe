@@ -136,8 +136,9 @@
 # Exit codes:
 #   0  dispatched, confirmed, already dispatched, re-briefed, a leg
 #      replaced (--releg), or an execution sent
-#   1  brief refused, or a send_execution brief input that isn't the
-#      execution's; nothing written
+#   1  brief refused, a send_execution brief input that isn't the
+#      execution's, or a /shirabe:deliver or /shirabe:scope brief for a unit
+#      whose scoping landed (pick's follow_up); nothing written
 #   2  usage, mismatched topic, no workspace root, a failed read or write
 #   3  the topic already failed; dispatch under a new topic
 #   4  the launch failed; the row says dispatch-failed
@@ -151,8 +152,8 @@
 #      holding that links a pull request, or for an entry point that takes no
 #      leg; a send_execution whose scoping leg a worker is still bound to;
 #      nothing written
-#   10 a new dispatch of a unit a pause holds, as pick marked it; nothing
-#      written (submit `dispatched: paused`)
+#   10 a new dispatch of a unit a pause holds or a decision parks, as pick
+#      marked it; nothing written (submit `dispatched: paused`)
 #
 # Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
 # script), DISPATCH_DEADLINE_SECS. bash 3.2; needs jq.
@@ -589,12 +590,27 @@ if [ "$STATUS" != dispatching ]; then
     # what pick_facts said holds it; pick's `paused` already lets a go-ahead's
     # unit through a pause on all. A unit pick didn't list falls back to
     # paused_all; render-brief.sh refuses it below anyway.
-    PAUSED=$(jq -r --arg u "$(jq -r '.unit // ""' "$INPUT")" '
+    jq -c --arg u "$(jq -r '.unit // ""' "$INPUT")" '
         (.host // "") as $h
         | [.units[]? | .unit as $x | select($x == $u or ($u | startswith($x + ": ")) or ($h != "" and ($h + $x) == $u))][0] as $m
-        | if $m == null then (.paused_all // empty) else ($m.paused // empty) end' "$UNITS_FILE") \
+        | {paused: (if $m == null then (.paused_all // null) else ($m.paused // null) end),
+           awaiting: ($m.awaiting // null), follow_up: ($m.follow_up // null)}' "$UNITS_FILE" >"$WORK/unit-facts.json" \
         || die 2 "coord/pick.json is not pick_facts' JSON"
+    PAUSED=$(jq -r '.paused // empty' "$WORK/unit-facts.json")
     [ -z "$PAUSED" ] || die 10 "pause $PAUSED holds this unit, as pick_facts read it: nothing dispatched; submit dispatched: paused"
+    # A unit parked on a decision waits for its answer like a pause; one
+    # whose scoping landed is sent its execution, never scoped again.
+    AWAITING=$(jq -r '.awaiting // empty' "$WORK/unit-facts.json")
+    [ -z "$AWAITING" ] || die 10 "decision $AWAITING parks this unit until it is settled, as pick_facts read it: nothing dispatched; submit dispatched: paused"
+    if jq -e '.follow_up != null' "$WORK/unit-facts.json" >/dev/null; then
+        case "$ENTRY" in
+            deliver|scope)
+                printf '%s: refused: this unit'\''s scoping landed as %s; brief its execution (%s), not /shirabe:%s\n' "$PROG" \
+                    "$(jq -r '.follow_up.after' "$WORK/unit-facts.json")" "$(jq -r '.follow_up.next' "$WORK/unit-facts.json")" "$ENTRY" >&2
+                exit 1
+                ;;
+        esac
+    fi
 fi
 
 # Check the brief before anything else happens: a refused input opens no leg

@@ -11,7 +11,10 @@
 # event relayed from an unmarked comment; Work rows for a holding (which also
 # records its worker as told on its first row only, not on a later update
 # after an address change) and for a local agent, upserted, --done, and a
-# holding's row dropped once its holding is gone; each change told as an
+# holding's row dropped once its holding is gone; a decision row parking a
+# unit on an open entry and a follow-up row naming a scoping's pull request,
+# their refusals, and a new holding taking both over while the scoping holding
+# doesn't; each change told as an
 # entry after the body; refusals (a holding row for no holding, a malformed
 # cap, a session-shaped address, a private repository on a public host); the
 # one-writer rule (record-write.sh changing a section refused); a failed entry
@@ -126,6 +129,57 @@ entries | jq -e 'any(.[]; .kind == "pause" and (.text | test("^s2 \\(pause on al
 entries | jq -e '.[0].text | test("^Run arguments set to --roadmap .* by the human\\.$")' >/dev/null && ok "  ... each naming who" || bad "  ... each naming who" "$(entries | jq -r '.[0].text')"
 eq "  ... the holding's row left Work with its count" "Feature 2 (worker-f2) left Work after 0 wakes." "$(entries | jq -r '.[-1].text')"
 eq "  ... and a holding's row carries a Wakes count, a local agent's 0" "0" "$(live | jq -r '[(.work // [])[] | .wakes] | unique | join(",") | if . == "" then "0" else . end')"
+
+echo "== a unit parked on a decision, and a follow-up =="
+# Entry 4 is open, entry 5 settled; Feature 3 is held by worker-f3.
+OPEN4=$(jq -nc '{decision: "4", round: "1", question: "Feature 4: keep the registry?",
+    options: "keep -- the sandbox needs it\ndrop -- a static list will do", state: "escalated", verdict: "escalate",
+    recommendation: "keep", reason: "the sandbox design assumes it", context: "The context.", problem: "The problem.",
+    grounds: "scope", target: "a person", asked: "2026-09-26T07:30Z",
+    source: "self [20260925T080000Z raise 3]", updated: "2026-09-26T07:00Z"}')
+DONE5=$(jq -nc '{decision: "5", round: "1", question: "Feature 5: in scope?", options: "yes\nno", state: "settled",
+    outcome: "yes; reason: the human said so", decided_by: "a person", source: "self [20260925T080000Z raise 4]", updated: "2026-09-26T07:00Z"}')
+seed "$(printf '%s' "$TWO" | jq -c --argjson a "$OPEN4" --argjson b "$DONE5" '.decisions = {next: 6, entries: [$a, $b]} | .holdings[1].phase = "scoping"')"
+bash "$RS" "${W[@]}" --work "Feature 4" --kind decision --who "decision 4" --next "dispatch once decided" >/dev/null 2>"$T/err"
+eq "a unit is parked on an open entry" 0 $?
+eq "  ... as a decision row" "Feature 4 decision decision 4" "$(live | jq -r '.work[] | "\(.item) \(.kind) \(.who)"')"
+bash "$RS" "${W[@]}" --work "Feature 5" --kind decision --who "decision 5" --next x >/dev/null 2>"$T/err"; eq "a park on a settled entry is refused" 65 $?
+bash "$RS" "${W[@]}" --work "Feature 6" --kind decision --who "decision 9" --next x >/dev/null 2>"$T/err"; eq "a park on no entry is refused" 65 $?
+bash "$RS" "${W[@]}" --work "Feature 6" --kind decision --who "worker-f6" --next x >/dev/null 2>"$T/err"; eq "a decision row's Who that isn't decision <n> is refused" 65 $?
+bash "$RS" "${W[@]}" --work "the registry" --kind decision --who "decision 4" --next x >/dev/null 2>"$T/err"; eq "a decision row whose Item isn't a unit is refused" 65 $?
+bash "$RS" "${W[@]}" --work "Feature 3" --kind follow-up --who "acme/widgets#41" --next "/shirabe:execute docs/plans/PLAN-sandbox.md" >/dev/null 2>"$T/err"
+eq "a follow-up row sits beside its unit's holding row" 0 $?
+bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next "teardown after its scoping merged" >/dev/null 2>"$T/err"
+eq "  ... and the unit's holding row doesn't replace it while the holding is the scoping's" "follow-up holding" \
+    "$(live | jq -r '[.work[] | select(.item == "Feature 3") | .kind] | sort | join(" ")')"
+bash "$RS" "${W[@]}" --work "Feature 3" --kind follow-up --who "#41" --next x >/dev/null 2>"$T/err"; eq "a follow-up's Who that isn't owner/repo#n is refused" 65 $?
+bash "$RS" "${W[@]}" --done "Feature 3" --kind holding >/dev/null 2>"$T/err"
+eq "--done --kind removes only that kind's row" "follow-up" "$(live | jq -r '[.work[] | select(.item == "Feature 3") | .kind] | join(" ")')"
+# Its execution, dispatched as a new holding, takes the follow-up over.
+live > "$T/now.json"
+jq -c 'del(.written) | .holdings[1] |= (.worker = "worker-f3x" | .phase = "executing")' "$T/now.json" > "$T/f3.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/f3.json" > "$T/f3.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/f3.md" >/dev/null 2>"$T/err"; eq "the follow-up's execution is dispatched" 0 $?
+bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3x --next "executing the plan" >/dev/null 2>"$T/err"
+eq "  ... and its holding row replaces the follow-up row" "holding worker-f3x" "$(live | jq -r '[.work[] | select(.item == "Feature 3") | "\(.kind) \(.who)"] | join(",")')"
+# A new holding for a parked unit takes over its decision row.
+live > "$T/now.json"
+jq -c --argjson h "$(holding worker-f4 '{"unit": "Feature 4", "pull_request": ""}')" 'del(.written) | .holdings += [$h]' "$T/now.json" > "$T/f4.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/f4.json" > "$T/f4.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/f4.md" >/dev/null 2>"$T/err"; eq "the parked unit is dispatched" 0 $?
+bash "$RS" "${W[@]}" --work "Feature 4" --kind holding --who worker-f4 --next "report at its first checkpoint" >/dev/null 2>"$T/err"
+eq "  ... and its holding row replaces the decision row" "holding worker-f4" "$(live | jq -r '[.work[] | select(.item == "Feature 4") | "\(.kind) \(.who)"] | join(",")')"
+# A holding whose Unit cell is `<tag>: <title>` takes over the rows its tag names.
+bash "$RS" "${W[@]}" --work "Feature 6" --kind follow-up --who "acme/widgets#60" --next "/shirabe:execute docs/plans/PLAN-six.md" >/dev/null 2>"$T/err"
+live > "$T/now.json"
+jq -c --argjson h "$(holding worker-f6 '{"unit": "Feature 6: the exporter", "pull_request": ""}')" 'del(.written) | .holdings += [$h]' "$T/now.json" > "$T/f6.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/f6.json" > "$T/f6.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/f6.md" >/dev/null 2>"$T/err"
+bash "$RS" "${W[@]}" --work "Feature 6: the exporter" --kind holding --who worker-f6 --next "executing" >/dev/null 2>"$T/err"
+eq "a titled holding row takes over its tag's follow-up row" "Feature 6: the exporter:holding" \
+    "$(live | jq -r '[.work[] | select(.item | startswith("Feature 6")) | "\(.item):\(.kind)"] | join(",")')"
+eq "  ... and the handover reads the holding's own next step" "executing" \
+    "$(bash "$RH" "${RM[@]}" | jq -r '.workers[] | select(.worker == "worker-f6") | .next')"
 
 echo "== one writer =="
 seed "$TWO"

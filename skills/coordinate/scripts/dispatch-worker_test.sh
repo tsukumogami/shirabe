@@ -462,6 +462,29 @@ eq  "release: on the message path, with no leg" "message 0" "$(row return_path) 
 eq  "release: its holding names /release and no mode" "release|" "$(row entry_point)|$(row mode)"
 eq  "release: the worker is launched" 1 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
 has "release: the prompt runs /shirabe:release with the version" "$(cat "$ST/prompt")" 'Run `/shirabe:release v0.25.0` in acme/widgets'
+# A unit parked on a decision: refused like a pause, nothing written.
+reset "$INPUT_DELIVER"
+printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).awaiting = "4"' >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "park: a unit pick lists as awaiting a decision exits 10" 10 "$RC"
+has "park: naming the entry and the value to submit" "$ERR" "decision 4 parks this unit until it is settled"
+nothing_written "park"
+reset "$INPUT_DELIVER"
+printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).answered = {decision: "4", outcome: "go"}' >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "park: once answered it is dispatched" 0 "$?"
+# A unit whose scoping alone landed: its scoping isn't dispatched again.
+FUP='(.units[] | select(.unit == "Feature 2")).follow_up = {after: "acme/widgets#41", next: "/shirabe:execute docs/plans/PLAN-plugin-api.md"}'
+for ep in deliver scope; do
+    if [ "$ep" = deliver ]; then reset "$INPUT_DELIVER"; else reset "$INPUT_SCOPE"; fi
+    printf '%s' "$PICK_ROADMAP" | jq -c "$FUP" >"$ST/ctx/coord/pick.json"
+    ERR=$(run 2>&1 >/dev/null); RC=$?
+    eq  "follow-up: a /shirabe:$ep brief for a unit whose scoping landed is refused" 1 "$RC"
+    has "follow-up: naming its scoping and its execution" "$ERR" "scoping landed as acme/widgets#41; brief its execution (/shirabe:execute docs/plans/PLAN-plugin-api.md)"
+    nothing_written "follow-up, $ep"
+done
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.entry_point = "execute" | .entry_args = ["docs/plans/PLAN-plugin-api.md"] | .targets = ["acme/widgets"]')"
+printf '%s' "$PICK_ROADMAP" | jq -c "$FUP" >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "follow-up: its execution is dispatched" 0 "$?"
 # Discipline scope: an issue as #n, or as host#n with the host pick recorded.
 PICK_DISCIPLINE='{"scope":"discipline","name":"ci-health","host":"acme/widgets","units":[{"unit":"#12","number":12,"title":"flaky upload"}]}'
 for u in "#12" "acme/widgets#12"; do

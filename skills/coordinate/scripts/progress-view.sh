@@ -24,7 +24,9 @@
 #   4. Waiting to be assigned
 #                       units no holding covers and not done, in the order
 #                       they'll be assigned as the cap frees: pick's order,
-#                       unblocked first
+#                       unblocked first. A unit parked on a decision reads
+#                       `waits on decision <n>`, and one whose scoping alone
+#                       landed names that pull request and its execution
 # A cell that doesn't apply reads N/A. A pull request is a clickable link,
 # `[#<n>](https://github.com/<owner>/<repo>/pull/<n>)`, never a bare number; a
 # session is inline code; no commit hash is shown, and a cell holding a
@@ -185,7 +187,7 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
               ({"dispatching": "dispatching", "dispatch-failed": "dispatch failed"}[.dispatch_status]
                // (if .merged == true then "merged" else null end)
                // (if (.paused // null) != null then "paused (\(.paused))" else null end)
-               // {"scoping-ahead": "scoping ahead", "executing": "executing", "held": "held"}[.phase] // (.phase // "N/A"));
+               // {"scoping": "scoping", "scoping-ahead": "scoping ahead", "executing": "executing", "held": "held"}[.phase] // (.phase // "N/A"));
               ($next[$w] // (if .dispatch_status == "dispatch-failed" then "redispatch or escalate"
                              elif .merged == true then "tear down its worker"
                              elif .phase == "scoping-ahead" then "its execution is sent when its blocker lands"
@@ -198,8 +200,13 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
               (if .verdict == "hold" then "with me for a verdict, waiting on \(.reason)" else "with me for a verdict" end); "N/A")),
       ($queue | to_entries[] | .key as $i | .value
         | row("Waiting to be assigned"; unitname; "N/A"; "N/A";
-              (if .blocked then "waits on \(.blocked_by | map("feature \(.)") | join(", "))" else "ready to assign" end);
+              (if .blocked then "waits on \(.blocked_by | map("feature \(.)") | join(", "))"
+               elif (.awaiting // null) != null then "waits on decision \(.awaiting)"
+               elif (.follow_up // null) != null then "scoping landed in \(.follow_up.after)"
+               else "ready to assign" end);
               ($next[.unit] // (if (.paused // null) != null then "held by pause \(.paused)"
+                                elif (.awaiting // null) != null then "parked until the decision is settled"
+                                elif (.follow_up // null) != null then "its execution: \(.follow_up.next)"
                                 else "assigned as the cap frees, \($i + 1) of \($queue | length) in line" end))))
 ' "$IN" 2> "$T") || {
     WHY=$(sed -n 's/^jq: error ([^)]*): //p' "$T" | head -1)
