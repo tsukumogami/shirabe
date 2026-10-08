@@ -31,15 +31,36 @@ python3 docs/measurement/contradiction-settlement-recount/recount.py --check
 
 It prints nothing but a verdict, and fails if any check below fails or if the
 figures between the markers in this file differ from what it computes. Without
-`--check` it prints the figures; `--write` rewrites them here. Every file it
-measures is read with `git show <commit>:<path>`, so it gives the same answer
-from any checkout. It needs git and Python 3, plus what
-`scripts/offload-baseline.sh` needs (jq).
+`--check` it prints the figures; `--write` rewrites them here. It needs git
+and Python 3, plus what `scripts/offload-baseline.sh` needs (jq), and runs
+from anywhere inside the repository.
 
-`spans.json`'s inventory part was produced by
-`recount.py extract 137ccd4b92d68e994d24a11f6a5d908a29414f14`, which reads the
-inventory and the design at that commit. It only works while the commit is
-reachable; the committed copy is what the re-count reads.
+## Keeping it
+
+This is a record taken at fixed commits, not a running check: no CI workflow
+runs it.
+
+- **"Main" means the measured commit**, `0398358`, named in `spans.json`.
+  `main` moving on changes nothing here. To measure a later commit, set
+  `measured_commit` and run `--write`; the per-PR table stays the same, and
+  any pull request that landed in between shows in the "every other commit"
+  row.
+- **Every measured file is read from git at a fixed commit**, and so is the
+  load manifest. Two things are read from the working tree:
+  `scripts/offload-baseline.sh` and `scripts/ablation/check-public-content.sh`
+  (the second only by `extract`). A change to how `count` counts makes
+  `--check` fail with "figures differ"; that is a change to the baseline's
+  method, so re-run `--write` and say why in the commit, as the baseline's
+  "Maintaining the baseline" rules ask for its own figures.
+- **The pin column must equal** the pinned commit's recount rows in
+  `../offload-baseline/token-baseline.tsv`, and the run fails if it doesn't. A
+  later restatement of the pinned figures shows up here as that failure.
+- **The inventory copy.** `spans.json`'s inventory part was produced by
+  `recount.py extract 137ccd4b92d68e994d24a11f6a5d908a29414f14`, which reads the
+  inventory and the design at that commit on the coordination branch of #507.
+  `extract` only works while that commit is reachable. Once it isn't, the
+  committed `spans.json` is the only record of the copy, and the re-count
+  still runs from it, since everything else it reads is on `main`'s history.
 
 ## What it checks before it counts
 
@@ -67,9 +88,10 @@ reachable; the committed copy is what the re-count reads.
   koto never shows the agent, isn't searched; `work-on.md`'s frontmatter
   still names two of the dropped files that way. A literal mention that isn't
   a pointer (one example value in a code block) is listed in the row's fourth
-  column, and the run fails if that text disappears. A `reference-table` file
-  relies on `/scope`'s SKILL.md saying that nothing in its reference table is
-  read up front; that one is a judgement, set out under "Reading the figures".
+  column, and the run fails if that text disappears. For a `reference-table`
+  file the script only checks that `/scope`'s SKILL.md still says nothing in
+  its reference table is read up front, a tripwire rather than a proof; the
+  judgement behind those rows is set out under "Reading the figures".
 
 ## How it counts
 
@@ -94,14 +116,14 @@ reachable; the committed copy is what the re-count reads.
   columns instead. A pointer entry's file counts as removed only in the
   rows-removed view, and only when the file's row is dropped for every profile
   the entry names. Tokens are bytes divided by 4, rounded down, as the design
-  rounds; the count's own columns round as the baseline does.
+  rounds, each column on its own, so a row's columns can sum to a token less
+  than its estimate. The count's own columns round as the baseline does.
 
-The inventory holds 48 contradictions: 38 mechanical and 10 policy. Two of
-them, `prd-complexity-routing` and `prd-upstream-roadmap`, were added while
-the work was being carried out, and reviewers called them items 47 and 48 by
-the order they were added. The inventory identifies its items by name, not by
-number, and in its file order they sit 40th and 41st, as the first lines of
-the figures say.
+The inventory holds 48 contradictions, 38 mechanical and 10 policy, and
+identifies each by name. Two, `prd-complexity-routing` and
+`prd-upstream-roadmap`, were added during the work and were called items 47
+and 48 in review, by the order they were added; in the inventory's file order
+they are 40th and 41st.
 
 ## The figures
 
@@ -148,7 +170,7 @@ Contradictions in the inventory: 48 (38 mechanical, 10 policy). `prd-complexity-
 
 #### Per entry (bytes)
 
-| Entry | Profiles | Estimate | Removed by the settlement PRs | Files no longer loaded | Removed by other commits | Still present | Realized | Over 10% short |
+| Entry | Profiles | Estimate | Removed by the settlement PRs | Files no longer loaded | Removed by other commits | Still present | Realized, rows removed | Over 10% short |
 |---|---|---:|---:|---:|---:|---:|---:|---|
 | `dp-work-on-retry-rationale-copies` | `work-on` | 8,378 | 8,243 | 0 | 0 | 135 | 98.4% | no |
 | `dp-work-on-pointer-loaded-docs` | `work-on` | 24,710 | 0 | 24,710 | 0 | 0 | 100.0% | no |
@@ -238,8 +260,15 @@ more (the panel retry and review-seat work among them), which the "every
 other commit" row shows. Compare the settlement rows, not the before and
 after columns, to see what settlement did.
 
-**Which `/scope` rows the rows-removed view drops is a judgement.** The test
-applied: a file stays loaded when a step the modelled run takes tells the
+**Which `/scope` rows the rows-removed view drops is a judgement.** The
+rows come from the inventory's mechanical item
+`scope-reference-table-vs-lazy-load`: `/scope`'s SKILL.md reference table
+said some parent-skill references load in all phases, while the same file
+said references aren't required reading up front and the template names
+what to read per state. The item made the lazy-load statement the winner
+(the table now says nothing in it is read up front), and the `/scope` pull
+request (#586) applied it. As a mechanical item it has no decision
+record; the inventory's winner rule settled it. The test applied here: a file stays loaded when a step the modelled run takes tells the
 agent to carry out a procedure that lives in that file, and leaves the load
 when the run's files only cite it for where a term or a rule is defined.
 Phase 2's first step says to run the three-phase staleness flow "from"
@@ -260,7 +289,7 @@ baseline" rules require a restatement when a file or state the manifest lists
 is removed; these files all still exist, so `count` still succeeds and no
 restatement is owed. Whether the baseline itself should stop counting them is
 a change to its load model, not something a re-count decides, and it is
-proposed for the contradiction-settlement follow-up issue (#659). Until then,
+listed on the contradiction-settlement follow-up issue, #659. Until then,
 a measurement that wants the post-settlement load should apply
 `dropped-rows.tsv`, as `recount.py` does.
 
@@ -281,7 +310,7 @@ and `execute-single-pr` for the reason in the last bullet.
   pull request (#557) edited that file only to correct the check count
   (PB1-PB3 to PB1-PB4) and recorded no reason for keeping either span. The
   design classed both as rationale; `work-on` and `execute-single-pr` still
-  load them. Deleting them, or recording why they stay, is proposed for the
+  load them. Deleting them, or recording why they stay, is listed on the
   follow-up issue (#659). The other kept bytes are the title line of
   `skills/work-on/references/koto-context-conventions.md`, which the deletion
   of the paragraph under it left as the file's heading.

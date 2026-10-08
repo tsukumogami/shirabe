@@ -2,9 +2,12 @@
 # commit. recount.py removes them for the "rows removed" figures and checks
 # each one: a pointer-removed file must be named by no span the profile still
 # loads; a reference-table file relies on /scope's SKILL.md saying that
-# nothing in its reference table is read up front. The optional fourth column
-# is a literal mention of the file that is not a pointer (an example value in
-# a code block), removed before the search.
+# nothing in its reference table is read up front, the correction the
+# inventory's mechanical item scope-reference-table-vs-lazy-load made (applied
+# in #586; README.md, "Reading the figures", sets out the judgement). The
+# optional fourth column is an exact substring of a loaded span that mentions
+# the file without pointing to it (an example value in a code block); it is
+# removed before the search, and the run fails if it is no longer there.
 profile	path	reason	not_a_pointer
 work-on	references/default-action-conversion.md	pointer-removed
 work-on	references/koto-session-retention.md	pointer-removed

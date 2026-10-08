@@ -13,17 +13,25 @@ and, only to re-derive the copied inventory data from the commit it names:
 
 Inputs, all committed beside this script or read from git objects:
 
-- spans.json: the contradiction-settlement inventory's dead-prose entries,
-  withholding candidates and held-for-policy spans, with each span's excerpt as
-  the DESIGN prints it, copied from the commit named in it. It also names the
-  commits measured and the settlement pull requests.
+- spans.json. Written by hand: `pin_commit`, `measured_commit` and
+  `settlement_prs` (pr, group, merge commit). Written by `extract`:
+  `source_commit` and `inventory_commit`; `estimate_bytes` per profile (the
+  DESIGN's table); `withholding`, `held_for_policy` and `parent_references`
+  (locations `<path>#L<a>-L<b>` at the inventory commit); `contradictions`
+  (id, class); and `deadprose` entries, each span carrying `loc`, `whole` when
+  it is a pointer that loads a whole file, and either `excerpt` (the DESIGN's
+  text, `above: ` prefixed when it sits above the span) or, for an excerpt the
+  public-content check refuses, `excerpt_sha256`, `excerpt_length` and
+  `excerpt_above`.
 - dropped-rows.tsv: the load-manifest rows for files a profile no longer loads.
 - scripts/offload-baseline.sh count, with the load manifest read from git at
   the measured commit, so the figures don't move when the manifest does.
 
-Every read of a measured file goes through `git show <commit>:<path>`, so the
-output is the same from any checkout. Standard library only. Exits 1 when a
-check fails, or with --check when README.md's figures differ.
+Every measured file is read with `git show <commit>:<path>`. The counter
+itself (scripts/offload-baseline.sh) and the public-content check run from
+the working tree, so a change to either can change the output. Standard
+library only. Exits 1 when a check fails, or with --check when README.md's
+figures differ.
 """
 import hashlib
 import json
@@ -362,14 +370,24 @@ def main():
             if not_pointer and not found_exempt:
                 problems.append("%s: the not-a-pointer text for %s is no longer in any loaded span; drop it" % (prof, base))
         elif reason == "reference-table":
+            # A tripwire on the sentence scope-reference-table-vs-lazy-load
+            # put in, not a proof the run never reads the file; the judgement
+            # is in README.md, "Reading the figures".
             if "nothing here is read" not in show(AFTER, "skills/scope/SKILL.md"):
-                problems.append("the /scope reference table no longer says nothing is read up front")
+                problems.append("the /scope reference table no longer says nothing is read up front; "
+                                "revisit the reference-table rows (README.md, Reading the figures)")
         else:
             problems.append("unknown reason %s for %s" % (reason, path))
     dropped_by = {p: {d[1] for d in dropped if d[0] == p} for p in PROFILES}
 
     # 5. Counts: pin and measured commit, both manifests, and per settlement PR.
+    #    The pin's figures must equal the restated rows the baseline records.
     pin = run_count(PIN, rows)
+    tsv = os.path.join(HERE, "..", "offload-baseline", "token-baseline.tsv")
+    for ln in open(tsv, encoding="utf-8"):
+        f = ln.rstrip("\n").split("\t")
+        if len(f) > 4 and f[0] == PIN and f[4] == "recount" and int(f[2]) != pin[f[1]][0]:
+            problems.append("pin figure for %s is %d, token-baseline.tsv records %s" % (f[1], pin[f[1]][0], f[2]))
     after_a = run_count(AFTER, rows)
     after_b = run_count(AFTER, reduced)
     per_pr = []
@@ -453,7 +471,7 @@ def main():
     w("")
     w("#### Per entry (bytes)")
     w("")
-    w("| Entry | Profiles | Estimate | Removed by the settlement PRs | Files no longer loaded | Removed by other commits | Still present | Realized | Over 10% short |")
+    w("| Entry | Profiles | Estimate | Removed by the settlement PRs | Files no longer loaded | Removed by other commits | Still present | Realized, rows removed | Over 10% short |")
     w("|---|---|---:|---:|---:|---:|---:|---:|---|")
     for it in D["deadprose"]:
         total, s, unl, o, k = entry_row(it)
@@ -484,10 +502,10 @@ def main():
     w("|---|---|---|---:|---:|")
 
     def size(commit, path):
-        try:
-            return fmt(len(show(commit, path).encode("utf-8")))
-        except SystemExit:
+        exists = subprocess.run(["git", "cat-file", "-e", "%s:%s" % (commit, path)], capture_output=True)
+        if exists.returncode != 0:
             return "gone"
+        return fmt(len(show(commit, path).encode("utf-8")))
     listed = set()
     for prof, path, reason, _ in dropped:
         listed.add((prof, path))
@@ -525,6 +543,8 @@ def main():
 
 
 if __name__ == "__main__":
+    # The git paths below are repository-relative; run from the root.
+    os.chdir(git("rev-parse", "--show-toplevel").strip())
     if len(sys.argv) >= 3 and sys.argv[1] == "extract":
         extract(sys.argv[2])
     else:
