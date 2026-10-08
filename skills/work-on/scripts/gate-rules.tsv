@@ -25,3 +25,11 @@ pr-body/one-separator	references/pr-body-conformance.md#L51-L56	246d366312dc	one
 pr-body/no-ai-trailer	references/pr-body-conformance.md#L57-L60	246d366312dc	no AI-attribution footer
 pr-body/no-heading-in-part1	references/pr-body-conformance.md#L61-L75	246d366312dc	no markdown section heading in Part 1
 pr-body/conformance	references/pr-body-conformance.md#L34-L80	246d366312dc	The gated checks (mechanical)
+verification/command-failed	skills/work-on/references/verification-map.md#L131-L131	e32bfc216e39	a command ran and failed
+verification/no-map	skills/work-on/references/verification-map.md#L132-L132	e32bfc216e39	no map at the merge-base, or a map that selects nothing
+verification/bad-map	skills/work-on/references/verification-map.md#L133-L133	e32bfc216e39	a map that does not parse
+verification/needs-person	skills/work-on/references/verification-map.md#L134-L134	e32bfc216e39	is `unattended: false`; nothing was started
+verification/timed-out	skills/work-on/references/verification-map.md#L135-L135	e32bfc216e39	a command ran past its `timeout_secs` and was killed
+verification/runaway	skills/work-on/references/verification-map.md#L136-L136	e32bfc216e39	grew past `max_procs` and was killed
+verification/not-started	skills/work-on/references/verification-map.md#L137-L137	e32bfc216e39	is not an executable program
+verification/dirty-tree	skills/work-on/references/verification-map.md#L138-L138	e32bfc216e39	tracked files had uncommitted changes

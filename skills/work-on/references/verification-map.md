@@ -104,7 +104,7 @@ supervisor never calls koto. It runs each selected command in turn, as argv from
 repository root with standard input from `/dev/null`, in its own process group with its
 own deadline. A watchdog counts the processes in that group and kills the group when the
 count passes `max_procs`; where `systemd-run --user --scope` works, the command also runs
-in a scope with `TasksMax` one above `max_procs`. The group is killed after every command,
+in a scope with `TasksMax` at twice `max_procs`, a ceiling the watchdog kills below. The group is killed after every command,
 so nothing a command left behind outlives it.
 
 Logs and the result live under

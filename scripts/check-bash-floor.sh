@@ -300,6 +300,9 @@ suite_scripts() {
             # Reads the committed verification map with jq and the files that
             # document it; no engine.
             echo "skills/work-on/scripts/verification-map-schema_test.sh"
+            # The verification runner and verdict against git fixtures and a
+            # koto stand-in; its real-koto case skips without koto.
+            echo "skills/work-on/scripts/run-verification_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It
