@@ -628,6 +628,40 @@ took=$(( $(date +%s) - start ))
 expect "an in-clone git read past its deadline marks the clone unchecked" '.items | any(.kind == "unchecked" and .clone == "repo")' "$out"
 [ "$took" -le 20 ] && ok "a hanging in-clone read is ended by the deadline (${took}s)" || bad "a hanging in-clone read is ended by the deadline" "took ${took}s"
 
+echo "== inventory: parallel waves =="
+# Clones are read in parallel; the items must come out as a serial read
+# lists them, including a linked worktree inside the instance (read in a
+# later wave than its repository, reusing that repository's remote reads), a
+# second clone, and a tag at a live id next to one that isn't.
+I12="$T/inst12"; R12="$I12/a"; mkdir -p "$R12"
+g12() { git -C "$R12" -c user.email=t@example.com -c user.name=t "$@" >/dev/null 2>&1 || echo "setup failed: git $*" >&2; }
+g12 init -q -b main; g12 remote add origin https://github.com/acme/widgets.git
+echo a > "$R12/a.txt"; g12 add -A; g12 commit -qm a
+M12=$(git -C "$R12" rev-parse HEAD)
+g12 tag live-tag
+g12 checkout -qb side; echo s > "$R12/s.txt"; g12 add -A; g12 commit -qm s; g12 tag moved-tag; g12 checkout -q main
+printf '.wt/\n' >> "$R12/.git/info/exclude"
+g12 worktree add -q "$R12/.wt/w" side
+echo wt > "$R12/.wt/w/wt-only.txt"
+echo mine > "$R12/mine.txt"
+git clone -q "$R12" "$I12/b" 2>/dev/null; git -C "$I12/b" remote set-url origin https://github.com/acme/widgets.git
+echo b > "$I12/b/b-only.txt"
+new_case inventory-parallel
+# moved-tag is on the remote at main; the clone has it on side's commit.
+printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n%s\trefs/tags/live-tag\n%s\trefs/tags/moved-tag\n' "$M12" "$M12" "$M12" "$M12" > "$CASE/ls-remote.out.all"
+mktree "$R12" "$M12"
+ser=$(RECONCILE_INV_PARALLEL=1 run inventory --path "$I12" | jq -c .items)
+par=$(run inventory --path "$I12" | jq -c .items)
+par2=$(RECONCILE_INV_PARALLEL=2 run inventory --path "$I12" | jq -c .items)
+[ "$ser" = "$par" ] && ok "the default waves list what a serial read lists" || bad "the default waves list what a serial read lists" "serial $ser | parallel $par"
+[ "$ser" = "$par2" ] && ok "waves of two list what a serial read lists" || bad "waves of two list what a serial read lists" "serial $ser | parallel $par2"
+expect "the worktree's own file is listed" '[.[] | .path] | index("wt-only.txt") != null' "$par"
+expect "a branch is listed once, not once per worktree" '[.[] | select(.kind == "commit" and .path == "branch side")] | length == 1' "$par"
+expect "a moved tag is listed" '[.[] | .path] | index("tag moved-tag") != null' "$par"
+expect "a tag at a live id is not listed" '[.[] | .path] | index("tag live-tag") == null' "$par"
+walk=$(RECONCILE_TIP_LOOKUP=0 run inventory --path "$I12" | jq -c .items)
+[ "$walk" = "$par" ] && ok "the tip lookup lists what walking every tip lists" || bad "the tip lookup lists what walking every tip lists" "walk $walk | lookup $par"
+
 I10="$T/inst10"; R10="$I10/repo"; mkdir -p "$R10"
 git -C "$R10" init -q -b main; git -C "$R10" remote add origin https://github.com/acme/widgets.git
 echo a > "$R10/a"; git -C "$R10" add -A; git -C "$R10" -c user.email=t@e -c user.name=t commit -qm a

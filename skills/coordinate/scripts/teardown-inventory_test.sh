@@ -378,6 +378,52 @@ if [ -e "$T/filter-ran" ]; then bad "the clone's filter never runs" ""; else ok 
 has "a skip-worktree edit: unique" "$OUT10" "unique skip: uncommitted changes"
 has "an assume-unchanged edit: unique" "$OUT10" "unique assume: uncommitted changes"
 has "a local tag's commit: unique" "$OUT10" "tag t1 changed a.txt"
+
+# Clones are read in parallel waves; the verdict must be what a serial scan
+# prints, line for line, including a linked worktree read in the same wave as
+# its repository and clones found during the walk (nested, submodule).
+for inst in "$I" "$I3" "$I10"; do
+    SER=$(TEARDOWN_PARALLEL=1 bash "$S" --topic plugin-api --instance "$inst" 2>&1)
+    PAR2=$(TEARDOWN_PARALLEL=2 bash "$S" --topic plugin-api --instance "$inst" 2>&1)
+    PARD=$(bash "$S" --topic plugin-api --instance "$inst" 2>&1)
+    eq "parallel waves of 2 print the serial verdict for ${inst#"$T"/}" "$SER" "$PAR2"
+    eq "the default waves print the serial verdict for ${inst#"$T"/}" "$SER" "$PARD"
+done
+# Tips at origin's live ids are settled by lookup instead of a walk; the
+# verdict must be byte for byte what walking every tip prints, on clones with
+# a tag origin has, a tag moved off origin's commit, a tag origin lacks, an
+# unpushed branch and a pushed one.
+I14="$T/inst14"
+mkdir -p "$I14"
+git clone -q "$GHURL" "$I14/tips"
+git -C "$I14/tips" remote set-head origin main >/dev/null
+git -C "$I14/tips" tag v-live
+git -C "$I14/tips" push -q origin v-live
+git -C "$I14/tips" tag -a v-annotated -m annotated
+git -C "$I14/tips" push -q origin v-annotated
+git -C "$I14/tips" tag v-moved
+git -C "$I14/tips" push -q origin v-moved
+git -C "$I14/tips" checkout -q -b local-work
+printf 'local\n' >"$I14/tips/a.txt"
+git -C "$I14/tips" commit -q -am "local work"
+git -C "$I14/tips" tag -f v-moved >/dev/null
+git -C "$I14/tips" tag v-local
+git -C "$I14/tips" checkout -q main
+git -C "$I14/tips" checkout -q -b shared
+printf 'shared\n' >"$I14/tips/c.txt"
+git -C "$I14/tips" commit -q -am "shared work"
+git -C "$I14/tips" push -q origin shared
+git -C "$I14/tips" checkout -q main
+git clone -q "$GHURL" "$I14/plain"
+git -C "$I14/plain" remote set-head origin main >/dev/null
+WALK=$(TEARDOWN_TIP_LOOKUP=0 bash "$S" --topic plugin-api --instance "$I14" 2>&1; echo "exit $?")
+LOOK=$(bash "$S" --topic plugin-api --instance "$I14" 2>&1; echo "exit $?")
+eq  "the tip lookup prints what walking every tip prints" "$WALK" "$LOOK"
+has "a moved tag is still unique" "$LOOK" "tag v-moved changed a.txt"
+has "a tag origin lacks is still unique" "$LOOK" "tag v-local changed a.txt"
+has "an unpushed branch is still unique" "$LOOK" "local-work changed a.txt"
+case "$LOOK" in *"v-live"* | *"v-annotated"* | *"shared changed"*) bad "tips origin has are not listed" "$LOOK" ;; *) ok "tips origin has are not listed" ;; esac
+eq "a bad TEARDOWN_PARALLEL falls back to the default" "$OUT10" "$(TEARDOWN_PARALLEL=x bash "$S" --topic plugin-api --instance "$I10" 2>&1)"
 has "a clone in an ignored directory: inventoried" "$OUT10" "unique nest/vendor/inner: uncommitted changes"
 has "that ignored directory isn't the outer clone's change" "$OUT10" "durable nest"
 
