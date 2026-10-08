@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   A roadmap item has no field for the outcome it delivers or the check a
   non-author can run, so nothing in shirabe can require one. The roadmap's
@@ -34,7 +34,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
