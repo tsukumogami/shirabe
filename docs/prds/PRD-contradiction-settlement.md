@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   The koto-templated skills (/work-on, /execute, /scope, /deliver), the
   references they load, and the references /scope's hops load through /brief,
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-contradiction-settlement](docs/briefs/BRIEF-contradiction-settlement.md); carried in Absorbed Brief.
 
