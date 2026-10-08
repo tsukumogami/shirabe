@@ -202,9 +202,20 @@ recorded since the scope was planned, so an unrecorded seat holds the state
 rather than routing to a retry. It is the first `panel-scope.sh` mode to use
 exit 2; the existing modes answer every doubt with 1. The agent's `*_outcome: passed` and the
 `*_results.json` existence gate go; `blocking_retry` and `blocking_escalate`
-stay, for exit 1. The verdict lives where the ledger does, in koto context,
+stay, for exit 1. `blocking_escalate` is also accepted at exit 2: it ends the
+run, so it can't skip the panel, and a round that can't be recorded at all (an
+unwritable context store, say) still needs a way to stop without a person's
+override. The verdict lives where the ledger does, in koto context,
 never in the repository and never in `wip/`; reviewer detail files stay in
 `mktemp` paths outside the repository.
+
+koto runs `--plan` on every tick that carries no evidence, and the agent ticks
+with none once a round is recorded, so the verdict gate can route it. A fresh
+plan there would turn a seat that just blocked into a re-check with no fix
+behind it, and `--verdict` would hold (2) instead of reporting the block (1).
+So `--plan` leaves the scope as it is when the round it planned is recorded,
+one of its seats is blocking, and HEAD, a clean tree and the criteria are what
+the round was recorded against.
 
 *Alternative: per-reviewer koto keys stamped with the head, read by a separate
 script.* This design's first version, written before the ledger existed. It
@@ -436,7 +447,7 @@ commit walk (gate 1) still runs per child over that child's own
 | State | Before: the agent submits | After |
 |---|---|---|
 | work-on `staleness_check` | `staleness_signal: fresh`, `stale_requires_introspection` or `unavailable`, restating `check-staleness.sh`'s exit 0, 1 or 3 | Transitions route on `gates.staleness_fresh.exit_code` alone, including -1; `staleness_signal` keeps only `override` and `blocked` |
-| work-on `scrutiny`, `review`, `qa_validation`, `light_review` | `*_outcome: passed`, gated on a results key existing; each seat's blocking status taken from the agent's `blocking_count` | `<panel>_verdict` exit 0 advances with no evidence; blocking comes from finding severity; `*_outcome` keeps `blocking_retry` and `blocking_escalate`, accepted only on exit 1 |
+| work-on `scrutiny`, `review`, `qa_validation`, `light_review` | `*_outcome: passed`, gated on a results key existing; each seat's blocking status taken from the agent's `blocking_count` | `<panel>_verdict` exit 0 advances with no evidence; blocking comes from finding severity; `*_outcome` keeps `blocking_retry` and `blocking_escalate`, accepted on exit 1 (and `blocking_escalate` on exit 2) |
 | work-on `verification` | `verification_outcome` and a free-text `commands_run` | koto starts the map's commands and routes on the result; the only evidence left is `verification_status: blocked` with `detail`, for a runner that can't start |
 | work-on `ci_monitor` | `session_role: root` or `child`, copied from `session-role.sh`; `ci_outcome: passing` next to green gates | `is_root` decides the role; green CI routes with no evidence; `ci_outcome` keeps `failing_fixed` and `failing_unresolvable` |
 | execute `orchestrator_setup` | `status: completed`, `pr_adopt` or `status_read`, restating `adopt-or-create-pr.sh`'s result | `setup_owned_pr` routes all three; `status` keeps `override` and `blocked` |
