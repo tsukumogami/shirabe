@@ -2223,7 +2223,8 @@ time you read this:
 You only see this state on **exit 2**: the gate passed the check a bad argument,
 which is a template defect. Submit `staleness_signal: blocked` with the detail,
 or `staleness_signal: override` only when the user explicitly said to skip the
-staleness check.
+staleness check. An instruction to skip it can't take effect on any other exit:
+koto has already routed the run by the time you would answer.
 
 For the check's reasons (the signals it measured, or why it was unavailable),
 run it yourself and read its JSON report:
@@ -2451,7 +2452,8 @@ Retry cap: retries from this panel share the run's blocking retries with scrutin
 
 ## verification
 
-koto runs this state itself. The procedure is the definition-of-done gate:
+koto runs this state itself; don't run the commands yourself. What it runs is the
+definition-of-done gate, described here as SKILL.md describes it:
 
 Run the definition-of-done gate. See the `## Definition of Done` section of SKILL.md
 for the full procedure: read the project's verification map, classify the issue's
@@ -2542,7 +2544,9 @@ Fix that one artifact with `koto context add` and submit `ready_for_pr` again:
   commits skipped) has a subject that is not a Conventional Commits subject, or
   carries an AI-attribution trailer. Its findings name the commit and the rule
   (`commit/conventional-subject` or `commit/no-ai-trailer`); reword that commit
-  and submit again. An exit 2 means the check could not decide; run
+  and submit again. Rewording rewrites the shas from that commit on, so
+  rewrite `pre_pr.md` with the new `git rev-parse HEAD` as `cleanup_commit`
+  before you submit. An exit 2 means the check could not decide; run
   `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"`
   for the reason.
 
@@ -2656,7 +2660,7 @@ An exit 2 from either means the check could not decide (a missing `shirabe` or `
 
 The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so neither recovers it again.
 
-Submit `precheck_status: override` to proceed anyway, or `blocked` with `detail` to stop. On the passing path submit nothing -- the run advances on its own.
+Submit `precheck_status: override` to proceed from the default branch anyway, or `blocked` with `detail` to stop. `override` still needs `branch_wip_clean` and `branch_docs_visibility` to pass. On the passing path submit nothing -- the run advances on its own.
 
 ## pr_creation
 
