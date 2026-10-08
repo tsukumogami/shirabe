@@ -26,11 +26,8 @@ re-invoking anything. It passes `--merge` to `/execute` unless `--no-merge` is
 given. An `--auto` run ends `merged` wherever the repository's protection lets
 `/execute` merge, and in a named, resumable state everywhere else. An
 interactive run, the default when neither flag nor the repository's
-`## Execution Mode:` header asks for `auto`, stops before the merge:
-
-| Token | Meaning |
-|-------|---------|
-| `paused-for-review` | Interactive only: `/execute`'s review pause, with the home PR still draft. |
+`## Execution Mode:` header asks for `auto`, stops before the merge, at
+`paused-for-review`: `/execute`'s review pause, with the home PR still draft.
 
 `/deliver` is a koto workflow, and it is thin in behaviour: it writes nothing
 to the repository itself. `/scope` and `/execute` do all of that, as the same
@@ -39,7 +36,8 @@ directly would get. Visibility is checked where content is written: each
 child checks its writes against the repository it writes to, so `/deliver`
 runs in private repositories as well as public ones. What `/deliver` adds is the sequence and the checks
 between the two, and those live in its template,
-`skills/deliver/koto-templates/deliver.md`, not in this file.
+`skills/deliver/koto-templates/deliver.md`, not in this file. koto's request
+store is local, so a `/deliver` run, children included, happens on one machine.
 
 ## Flags
 
@@ -164,6 +162,9 @@ nothing else.
    ```bash
    koto status deliver-<topic> | ${CLAUDE_PLUGIN_ROOT}/skills/deliver/scripts/deliver-report.sh
    ```
+
+   Every `outcome=` token it can print, and what each one means, is listed in
+   the header of `skills/deliver/scripts/deliver-report.sh`.
 
 5. **Close the request.** On the way out, close this run's request:
 
