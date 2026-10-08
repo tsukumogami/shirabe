@@ -33,7 +33,7 @@ seed() {
         | .prs += [{repo: "acme/widgets", number: 12, title: "w", body: "", state: "OPEN", isDraft: true, isCrossRepository: false,
                     baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice", editor: null}]
         | .commits[$h] = {tree: "4444444444444444444444444444444444444444", date: "2026-09-26T07:00:00Z"}' \
-        --arg t "$ITITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" '.holdings = $h')" issue)" \
+        --arg t "$ITITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" --argjson s "${STANDING:-null}" '.holdings = $h | if $s == null then . else .standing = $s end')" issue)" \
         --arg h "$SHA_HEAD"
 }
 N=0
@@ -72,6 +72,17 @@ HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://
 seed; run
 sweep 08:31; eq "a merged row is never quiet; the other worker is" "first-silence alpha" "$TOK"
 HOLDINGS=$SAVED
+
+echo "== a paused worker isn't watched =="
+SAVED=$HOLDINGS
+HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://github.com/acme/widgets/pull/12)"}')" \
+    --argjson b "$(holding beta '{"unit": "Feature 3", "pull_request": ""}')" '[$a, $b]')
+STANDING='[{"standing":"s1","kind":"pause","on":"Feature 3","until":"lifted","what":"x","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"}]'
+seed; run
+sweep 08:31; eq "a paused worker is never quiet; the other worker is" "first-silence alpha" "$TOK"
+eq "  ... and the detail names the pause" "beta:s1" "$(jq -r '[.holdings[] | select(.paused != null) | "\(.worker):\(.paused)"] | join(" ")' "$KOTO_STORE/context/$S/coord/quiet.json")"
+sweep 09:02; eq "  ... and a sweep that skipped it isn't a silent check" "second-silence alpha" "$TOK"
+HOLDINGS=$SAVED; unset STANDING
 
 echo "== activity resets the count =="
 seed; run

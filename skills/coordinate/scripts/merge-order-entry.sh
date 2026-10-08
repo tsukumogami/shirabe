@@ -16,6 +16,11 @@
 #   - Review: <passes> of <seats> seats pass (<seat>, ...) at <reviewed
 #     head>, in the pull request body's Review panel section
 #   - Holds: none | <hold> until <condition> (<state>), ...
+#   - Pauses: <id> on <scope> until <condition> (<state>), ...; let
+#     through by go-ahead <id>     (only when the record holds a pause; a
+#     pull request a pause holds is never handed over, so one printed here
+#     is through by a go-ahead or by its condition met:
+#     docs/designs/DESIGN-coordinate-paused-state.md, Decision 5)
 #   - Squash message:
 #
 #     ```text
@@ -82,6 +87,10 @@ printf '%s' "$DETAIL" | jq -r --arg pr "$PR" --arg repo "$REPO" --arg why "$WHY"
     "- Review: \(.evidence.passes) of \(.evidence.count) seats pass (\([.evidence.seats[].seat] | join(", "))) at \(.evidence.reviewed_head), in the pull request body'"'"'s Review panel section",
     "- Holds: " + (if ((.holds // []) | length) == 0 then "none"
                    else [.holds[] | "\(.hold) until \(.until) (\(.state))"] | join(", ") end),
+    (if ((.pauses.pauses // []) | length) == 0 then empty
+     else "- Pauses: " + ([.pauses.pauses[] | "\(.standing) on \(.on) until \(.until) (\(.state))"] | join(", "))
+          + (.pauses.unit as $u | [(.pauses.go_aheads // [])[] | .on as $o | select($o == $u or ($u | startswith($o + ": "))) | .standing]
+             | if length == 0 then "" else "; let through by go-ahead " + join(", ") end) end),
     "- Squash message:",
     "",
     "  ```text",
