@@ -14,12 +14,12 @@ problem: |
   run out, so a teardown routes to the human and a restart with a live worker
   never seals.
 decision: |
-  A new check state, `teardown_verdict`, runs after the inventory reads
+  A new check state, `teardown_handoff`, runs after the inventory reads
   durable and seals one verdict naming the topic, the instance, the Claude
   job and session, the merged pull requests and the handoff comment, all read
   from the host and GitHub before anything is removed; it refuses when a pull
   request isn't merged, the handoff isn't on GitHub, or the job can't be
-  named. The `destroy` state hands that verdict and its seal token to a local
+  named. The `destroy` state hands that verdict and its key seal to a local
   agent in the coordinator's own session, started from a charter the skill
   ships and kept for the session, and the agent runs one script,
   `teardown-pass.sh`, which re-reads every fact, refuses on any
@@ -90,11 +90,13 @@ gives each worker's inventory read 20 seconds and kills it at the budget; on
 an instance of ten clones the read took 24.3 seconds by hand, so a restart
 over a live worker re-launched it on every tick for eighteen minutes and
 never sealed. The teardown read hit the same wall: `public/tsuku: not fully
-inventoried; the scan ran out of its 24s budget at tag v0.15.2`, and three
-later runs by hand with a raised budget took 21.5, 21.7 and 24.1 seconds (the
-issue's comments). Measured again for this design against an idle instance
-of ten freshly cloned repositories on the same host: the teardown inventory
-takes 12.7 seconds and the reconcile inventory 22.6. The reconcile read
+inventoried; the scan ran out of its 24s budget at tag v0.15.2`, and runs by
+a local agent and by hand with a raised budget took 21.5, 21.7 and 24.1
+seconds (the issue's comments). Those were busy worker instances. Measured
+again for this design against an idle instance of ten freshly cloned
+repositories on the same host, the teardown inventory takes 12.7 seconds and
+the reconcile inventory 22.6, so the reconcile read misses its budget even at
+rest. The reconcile read
 spends about 37 ms on each local tag, one `rev-list` under its deadline
 wrapper (2.6 seconds for one clone's 69 tags alone), and both reads make each
 clone's two network reads, the remote's refs (about 0.3 s) and the default
@@ -121,9 +123,23 @@ measurement is from 2.1.292), with a throwaway background session started for
 the purpose: `claude stop <id>` keeps the job directory; `claude rm <id>`
 then deletes `~/.claude/jobs/<id>/`, `tmp/` included, and the job's entry in
 `claude agents --json --all`, and leaves the transcript
-`~/.claude/projects/<slug>/<session>.jsonl` and the `session-env` entry. The
-behaviour is undocumented, so the pass copies everything it keeps before the
-removal rather than relying on what the removal spares.
+`~/.claude/projects/<slug>/<session>.jsonl` and the `session-env` entry (the
+throwaway session edited no files, so it had no `file-history` entry to
+observe; the roadmap's measurement saw that one left too). The behaviour is
+undocumented, so the pass copies everything it keeps before the removal
+rather than relying on what the removal spares.
+
+Two niwa issues bear on the order and the leftovers: tsukumogami/niwa#356
+(niwa's reaper removes the session and then reaps, while the skill destroys
+and then leaves the session, and one order has to be named canonical) and
+tsukumogami/niwa#357 (`niwa destroy` leaves its session mapping behind). The
+pass runs destroy, then remove, the skill's order, and doesn't wait on
+either.
+
+PRD R20 says the worker's session is stopped "never a form that deletes the
+session's job directory". This design reads that as a rule about the stop,
+which still keeps the job directory: the removal is a separate step after
+the archive and the destroy, and the stop's directive keeps R20's sentence.
 
 ## Decision Drivers
 
@@ -145,8 +161,8 @@ removal rather than relying on what the removal spares.
 
 ### Decision 1: The verdict's form and how it's handed over
 
-**Chosen: a sealed verdict from a new check state, handed over with its seal
-token.** `teardown_verdict` sits between `teardown_inventory`'s durable exit
+**Chosen: a sealed verdict from a new check state, handed over with its key
+seal.** `teardown_handoff` sits between `teardown_inventory`'s durable exit
 and `destroy`. Its default action, `teardown-handoff.sh --seal`, reads:
 
 - the sealed inventory, through `teardown-verdict.sh`'s seal check, which must
@@ -156,27 +172,39 @@ and `destroy`. Its default action, `teardown-handoff.sh --seal`, reads:
 - the job from `claude agents --json --all`: exactly one entry whose `cwd` is
   the instance path, cross-checked against niwa's `session_name` where niwa
   records one, giving the job id and its `sessionId`; its state must not be
-  `working`, since the session was stopped before the inventory;
+  `working`, since the session was stopped before the inventory. Two
+  entries (a worker restarted into the same instance) refuse, and the reason
+  names both;
 - the merged pull requests: the holding's Repo and Branch from the record,
   and every pull request GitHub lists as merged from that branch, each with
   its merge commit; none is a refusal;
 - the handoff: the comment link the coordinator submitted with `teardown:
-  stopped` (a new optional field, `handoff`), read back from GitHub; it must
-  be an issue or pull request comment in the holding's repository with a
-  non-empty body.
+  stopped`, read from the evidence of the latest entry into `teardown` so a
+  link from an earlier visit can't carry over, and read back from GitHub. It
+  must be a comment on one of those merged pull requests or on the issue the
+  holding names, with a non-empty body. The field, `handoff`, is new; it is
+  optional in the schema because `kept` needs none, and a `stopped` without
+  it refuses here.
 
 The verdict is plain lines, one fact per line (`topic <t>`, `instance <name>
 <path>`, `job <id> <session>`, `transcript <path>`, `pr <owner/repo>#<n>
 <merge sha>` per pull request, `handoff <url>`, `inventory <seal token>`),
 sealed through `coord-log.sh` under the key `teardown_handoff` like every
 other check's detail. The state routes `handoff-ready` to `destroy` and
-`handoff-refused` to `surface`, with the reason in the detail.
+`handoff-refused` to `surface`, with the reason in the detail. Every fact is
+read again by the pass before anything is removed (Decision 3); this check is
+what turns an unmerged pull request or a missing handoff into a refusal
+before the agent is involved at all.
 
-The coordinator hands the agent the verdict's text and its seal token. The
-agent's script never takes the target from the message: it reads the verdict
-through the seal from the coordinator's koto session and refuses unless the
-token it was given is the current one, so a stale or edited hand-off can't
-point a pass at another instance.
+`teardown-handoff.sh read --session <s>` is how the coordinator gets the
+verdict to hand over, as `teardown-verdict.sh read` is today: it checks the
+seal, the topic and the session log for a directed transition, then prints the
+verdict and the key seal (`keyseal:<seq>:<sha256>`, the form `need-check.sh`
+prints). The pass takes its target only from its own read of the
+`TEARDOWN_HANDOFF` capture in the session log, as every reader does
+(`coord-log.sh`); the key seal it was handed is an equality check against that
+read, so a stale or edited hand-off refuses instead of pointing a pass at
+another instance.
 
 **Rejected: the coordinator writes the verdict.** That's the one thing the
 template forbids, and the job id and pull request list are facts a script can
@@ -190,22 +218,34 @@ something different from unique material.
 **Chosen: a charter the skill ships, given to a subagent the coordinator
 starts once and keeps.** `skills/coordinate/references/teardown-agent.md` is
 the agent's standing instruction: what it may run (only `teardown-pass.sh
-run` with the session and token it was handed, and read-only listings), what
-it never runs (`niwa reap`, `niwa destroy` without a name, `claude rm` or
-`claude stop` typed by hand, any command without a target), that it takes
-direction only from this coordinator, one pass at a time, and that it reports
-the script's result lines verbatim and stops on any refusal. The `destroy`
-directive tells the coordinator to start the agent with the harness's
-subagent tool on the session's first teardown, passing the charter and the
-first verdict, and to send each later verdict to the same agent. The agent
-lives and dies with the coordinator's session, and the cap doesn't count it
-(the cap already excludes local agents).
+run` with the session and key seal it was handed, with the longest command
+timeout its harness allows, and read-only listings), what it never runs
+(`niwa reap`, `niwa destroy` without a name, `claude rm` or `claude stop`
+typed by hand, any command without a target), that it takes direction only
+from this coordinator, one pass at a time, and that it reports the script's
+result lines verbatim and stops on any refusal. The `destroy` directive tells
+the coordinator to start the agent with the harness's subagent tool on the
+session's first teardown, passing the charter and the first verdict, and to
+send each later verdict to the same agent. The agent lives and dies with the
+coordinator's session, and the cap doesn't count it (the cap already excludes
+local agents).
+
+It follows the skill's rule for local agents: it gets a Work row
+(`record-state.sh --kind local-agent`) before it starts, so the record shows
+it. A subagent can't cross sessions, so a replacement coordinator never
+inherits it; it starts its own on its first teardown and that row replaces
+the old one. The glossary's "local agent, used for reads and bookkeeping"
+gains "and the teardown pass".
 
 The legwork itself is `teardown-pass.sh`, so the sequence is code with tests
 rather than prose an agent follows. Because each pass carries its full
 verdict and the script re-reads everything, a restarted coordinator that has
 lost its agent starts another; persistence saves a start-up and isn't load
-bearing.
+bearing. What the agent buys is the boundary: the authority to destroy sits
+with a subagent of this coordinator that runs one script on one sealed
+target, never with a session someone else can message, and the pass's output
+(the inventory listing, the copies, the listings) stays out of the
+coordinator's context.
 
 **Rejected: an agent definition in the plugin's `agents/` directory.** It
 lives outside `skills/coordinate/`, any session that loads the plugin could
@@ -217,11 +257,11 @@ out of the coordinator's context.
 
 ### Decision 3: The pass
 
-`teardown-pass.sh run --session <s> --token <sealed:...>`, in order:
+`teardown-pass.sh run --session <s> --keyseal <keyseal:...>`, in order:
 
-1. **Read the verdict** through the seal; refuse when the token isn't the
-   current one, or when the session log shows a directed transition since the
-   seal (koto#251).
+1. **Read the verdict** through its own read of the capture and the seal;
+   refuse when the key seal it was handed isn't that one, or when the session
+   log shows a directed transition since the seal (koto#251).
 2. **Re-read every fact.** Each pull request still merged at its merge
    commit; the handoff comment still there; the job still listed with the
    same `cwd` and session and not working; niwa still listing the instance by
@@ -234,7 +274,9 @@ out of the coordinator's context.
    date>-<topic>-<job id>`: the transcript jsonl and its sibling subagent
    directory if any; the job's `state.json`, `timeline.jsonl` and `tmp/`; and
    every koto session directory whose state file's header has an
-   `execution_dir` at or under the instance path or the job's `tmp/`. A
+   `execution_dir` at or under the instance path or the job's `tmp/` ("at or
+   under", because a worker starts its workflows in the repositories inside
+   its instance, so an exact match would miss nearly all of them). A
    `MANIFEST.sha256` lists every copied file, each copy is checked against
    its source's hash, and a `README.md` names the unit, the pull requests,
    the handoff and the date. A copy that doesn't verify refuses, with nothing
@@ -249,17 +291,23 @@ out of the coordinator's context.
    into the archive.
 
 Exit 0 is `done`; 1 is `refused`, before anything was removed; 2 is
-`incomplete`, after the destroy, naming the step that failed, which goes to
-the person. The script never stops a session: the stop is the `teardown`
-state's, before the inventory, as it is today.
+`incomplete`, after the destroy, naming the step that failed. The script
+never stops a session: the stop is the `teardown` state's, before the
+inventory, as it is today.
 
-Back in the loop, the coordinator removes the holding row (the last write),
-then submits `destroyed: destroyed`, which now goes to `teardown_confirm`.
-That check re-reads the verdict through its seal, both listings, and the
-archive against its manifest, and routes `teardown-confirmed` to `record`
-(whose check confirms the row is gone, as now) and `teardown-incomplete` to
-`surface`. A refusal is `destroyed: refused`, as now; `handed_over` is
-unchanged for a posture that reserves the step.
+Back in the loop, on `done` the coordinator removes the holding row (the last
+write), then submits `destroyed: destroyed`, which now goes to
+`teardown_confirm`. That check re-reads the verdict through its seal, both
+listings, and the archive against its manifest's file list and sizes and the
+pass's result file (a full re-hash is the pass's job, and could outrun koto's
+30-second action limit on a large archive), and routes `teardown-confirmed`
+to `record` (whose check confirms the row is gone, as now) and
+`teardown-incomplete` to `surface`. A refusal is `destroyed: refused`, as
+now, and goes to `surface` with nothing removed. An incomplete pass is a new
+value, `destroyed: incomplete`: the row stays, since it's what tells the
+person a teardown is half done, and the run goes to `surface` with the failed
+step as a `reserved-step teardown` need. `handed_over` is unchanged for a
+posture that reserves the step.
 
 ### Decision 4: The archive's home
 
@@ -287,11 +335,8 @@ inside itself, so the script's name stands for them, as `land-merge.sh` does
 for the merge). `niwa reap`, `niwa instance remove` and `niwa remove` leave
 the list: the skill never runs them, and a hook that denies them gates
 nothing the skill does. A hook whose text names `niwa destroy` still makes
-the step `confirm`, and a deny rule on it still makes it `deny`.
-
-The issue's related note, that the same reader keys `merge: confirm` on any
-hook mentioning the merge command, is a different step and stays out of this
-design.
+the step `confirm`, and a deny rule on it still makes it `deny`. (The issue's
+note about the merge step is out of scope here.)
 
 ### Decision 6: The inventory's speed (tsukumogami/shirabe#618)
 
@@ -306,9 +351,16 @@ inventory`, change in two ways that leave what they prove untouched:
   job with its own scratch files, at most eight at a time, and the per-clone
   results are merged in queue order, so the output is the same as a serial
   read's. Clones found during the walk (submodules, nested clones,
-  worktrees) join the next wave. A linked worktree sharing a git directory
-  with another clone is read after the first of them, as now, so its refs
-  aren't listed twice.
+  worktrees) are reported back to the main loop, which owns the queue and
+  adds them to a later wave. The main loop also settles, in queue order and
+  before it launches a clone, which clone is the first of its git directory,
+  since a clone and its linked worktree both enter the first queue: only the
+  first reads the shared branches, tags and stash. Where a linked worktree
+  reuses the first clone's remote reads (the reconcile read does), a wave
+  ends before a worktree whose repository is read in the same wave. The
+  reconcile read's per-run caps (clones, items, GitHub compare reads) stay
+  per run: the main loop applies the clone and item caps when it merges, and
+  splits what's left of the compare budget across a wave's jobs.
 
 The budgets stay (24 seconds for the teardown read, 20 for reconcile's), and
 a read the budget doesn't finish is still an error or not verified, never
@@ -326,9 +378,9 @@ claim by the party whose work is being checked.
 
 ## Decision Outcome
 
-`teardown_verdict` seals one verdict from host and GitHub reads and refuses
+`teardown_handoff` seals one verdict from host and GitHub reads and refuses
 an unmerged pull request, a missing handoff or a job it can't name. The
-`destroy` state hands the verdict and its token to a local agent the
+`destroy` state hands the verdict and its key seal to a local agent the
 coordinator starts from the skill's charter and keeps for the session; the
 agent runs `teardown-pass.sh`, which re-reads, re-inventories, archives with a
 verified manifest, destroys one instance, removes one job and confirms both
@@ -354,25 +406,32 @@ What the roadmap's Feature 10 asks for that this declines:
   coordinator through the skill's record scripts, whose checks read the
   coordinator's session log; the row is still cleared last, after the pass
   has confirmed both listings, and `record` confirms it.
-- **Koto sessions whose execution directory "is" the instance path.** Read
-  as "at or under": a worker starts its workflows in the repositories inside
-  its instance, so an exact match would miss nearly all of them.
+- **The merged-PR and handoff refusal belongs to the agent.** It's made first
+  by the `teardown_handoff` check, so an unmerged pull request never reaches
+  the agent, and made again by the pass before the destroy.
+- **`niwa destroy <instance>`.** The pass runs `niwa destroy --force <name>`:
+  niwa refuses an instance whose branches were squash-merged unless forced
+  (niwa#322), and the force stands on the pass's own durable re-inventory.
+- **The archive at `~/.local/share/teardown-archive/`.** That stays the
+  default; `XDG_DATA_HOME` and `TEARDOWN_ARCHIVE_DIR` can move it, the second
+  so the observability archive can take over without a code change and so
+  the engine test writes into a temporary directory.
 
 ## Solution Architecture
 
 ### The template
 
 ```
-teardown --stopped(+handoff)--> teardown_inventory --durable--> teardown_verdict
-teardown_verdict --handoff-ready--> destroy --destroyed--> teardown_confirm
-teardown_verdict --handoff-refused--> surface
+teardown --stopped(+handoff)--> teardown_inventory --durable--> teardown_handoff
+teardown_handoff --handoff-ready--> destroy --destroyed--> teardown_confirm
+teardown_handoff --handoff-refused--> surface
 teardown_confirm --teardown-confirmed--> record
 teardown_confirm --teardown-incomplete--> surface
-destroy --refused--> surface        destroy --handed_over--> record
+destroy --refused|incomplete--> surface    destroy --handed_over--> record
 ```
 
 `teardown_topic` is cleared on every edge that leaves the teardown states, as
-now; `teardown_verdict` and `teardown_confirm` are teardown states.
+now; `teardown_handoff` and `teardown_confirm` are teardown states.
 `record-confirm.sh` treats an entry into `record` from `teardown_confirm` as
 it treats one from `destroy`, reading the `destroy` evidence before it.
 
@@ -380,8 +439,8 @@ it treats one from `destroy`, reading the `destroy` evidence before it.
 
 | Word | State | Code | Route |
 |---|---|---|---|
-| `handoff-ready` | `teardown_verdict` | 200 | `destroy` |
-| `handoff-refused` | `teardown_verdict` | 201 | `surface` |
+| `handoff-ready` | `teardown_handoff` | 200 | `destroy` |
+| `handoff-refused` | `teardown_handoff` | 201 | `surface` |
 | `teardown-confirmed` | `teardown_confirm` | 202 | `record` |
 | `teardown-incomplete` | `teardown_confirm` | 203 | `surface` |
 
@@ -397,9 +456,9 @@ it treats one from `destroy`, reading the `destroy` evidence before it.
 | `skills/coordinate/scripts/coord-verdict.sh` and its table test | the four words |
 | `skills/coordinate/scripts/record-confirm.sh` | `teardown_confirm` as a source |
 | `skills/coordinate/koto-templates/coordinate.md`, `coordinate.mermaid.md` | the two states, the `handoff` field, the directives |
-| `skills/coordinate/SKILL.md` | the Teardown entry and what a coordinator never does |
-| `skills/coordinate/requires.tsv` | `claude` and `niwa` for the pass |
-| tests | unit tests for the new scripts and the posture change; a new engine suite, `teardown-pass_engine_test.sh` |
+| `skills/coordinate/SKILL.md` | the Teardown entry, the local-agent glossary entry and what a coordinator never does |
+| `skills/coordinate/requires.tsv` | `claude` for the pass (`niwa` is already listed) |
+| tests | unit tests for the new scripts and the posture change; rows in `testdata/rule-coverage.tsv` for each changed rule; a new engine suite, `teardown-pass_engine_test.sh` |
 
 ## Implementation Approach
 
@@ -408,10 +467,13 @@ Two pull requests after this design, each landing before the next opens.
 1. **The inventory and the posture reader.** Decisions 5 and 6, with no
    template change: the faster reads with their existing tests plus cases for
    output order and settled tips, the posture change with its cases, and the
-   measurement on a ten-clone instance, idle and under load. Closes
-   tsukumogami/shirabe#616 and tsukumogami/shirabe#618.
+   measurement on a ten-clone instance, idle and under load. The posture
+   change here drops the forms the skill never runs and keeps `niwa destroy`.
+   Closes tsukumogami/shirabe#616 and tsukumogami/shirabe#618.
 2. **The verdict, the agent and the pass.** Decisions 1 to 4: the two
-   scripts, the charter, the template states and directives, and the engine
+   scripts, the charter, the template states and directives, `claude rm` and
+   `teardown-pass.sh` added to the posture's teardown commands now that the
+   skill runs them, and the engine
    suite, which runs a full teardown against a stand-in instance and job
    (stand-in `niwa` and `claude`, a temporary Claude and koto home, the real
    koto) and asserts the archived files and their manifest, exactly one
@@ -424,8 +486,9 @@ Two pull requests after this design, each landing before the next opens.
 
 The pass destroys and deletes, so every target comes from the sealed verdict,
 never from the message that started the pass or from an argument the agent
-could vary: the token only selects which seal to check, and a token that
-isn't the current one refuses. The instance name is validated before the
+could vary: the pass reads the capture from the session log itself, and the
+key seal it was handed is only compared with that read, so a stale one
+refuses. The instance name is validated before the
 destroy command is built, so it can't be empty and the command can't widen
 into a workspace-wide destroy. The pass refuses on any contradiction rather
 than resolving it. The archive holds transcripts, which can hold anything the
@@ -459,8 +522,10 @@ target from the seal.
 
 ### Mitigations
 
-- The handoff field is verified on GitHub, so a wrong link refuses rather
-  than passing.
+- The handoff field is verified on GitHub against the unit's own pull
+  requests and issue, and read only from the latest visit to `teardown`, so a
+  missing link, or one to another unit's comment, refuses rather than
+  passing.
 - The pass copies before it removes and confirms both listings after, so a
   change in `claude rm` shows up as an incomplete pass, not lost files, and
   the design records the version it was measured on.
