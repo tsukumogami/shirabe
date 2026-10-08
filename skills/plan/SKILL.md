@@ -205,7 +205,7 @@ Check `$ARGUMENTS` for flags before extracting the document path. Flags may
 appear in any order after the document path.
 
 **Execution mode flags:**
-- `--auto` -- non-interactive execution; follow `references/decision-protocol.md`
+- `--auto` -- non-interactive execution; follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md`
   at all decision points; create `wip/plan_<topic>_decisions.md`
 - `--interactive` -- force interactive (default)
 
@@ -367,8 +367,6 @@ document filename: `DESIGN-foo-bar.md` produces topic `foo-bar`, `ROADMAP-foo-ba
 produces topic `foo-bar`.
 
 ```
-parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                              -> see references/fixes/sub-agent-dispatch.md
 if GitHub issues exist for this design        -> Resume at Phase 7 (verify/complete)
 if wip/plan_<topic>_review.md exists          -> Resume at Phase 7
 if wip/plan_<topic>_dependencies.md exists    -> Resume at Phase 6
@@ -386,12 +384,17 @@ gh issue list --search "Design: <design-doc-path>" --json number,title,state
 
 When resuming, read the existing artifact to restore context before continuing.
 
+A `parent_orchestration` sentinel in `wip/scope_<topic>_state.md` is not a rung
+of that ladder: the ladder applies the same way under it, and the sentinel only
+changes which steps the run skips, as the next paragraph says.
+
 **Under `/scope`'s sentinel** `/plan` still reaches its own verdict (the Phase 6
 review) and makes its own status transition (Phase 7's step 7.5), but skips
 everything that publishes or routes: it pushes nothing, opens no pull request,
 creates no branch, makes no cleanup commit, and asks no routing question, so
-step 7.8's upstream-issue question and its `gh issue edit` are skipped. This is
-shape 6, Parent-owned-publishing, in `references/fixes/sub-agent-dispatch.md`,
+step 7.6's cleanup is left to `/scope` and step 7.8's upstream-issue question
+and its `gh issue edit` are skipped. This is
+shape 6, Parent-owned-publishing, in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`,
 recorded in `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
 Under `--auto` it takes the recommended verdict and names it in its output.
 

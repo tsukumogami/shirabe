@@ -1,8 +1,8 @@
 #schema	skill-requires/v1
 # Split rule: references/tool-declaration-policy.md
 #
-# Phase 1 and Phase 7 move the upstream design to Planned; no flag is on either
-# call line.
+# Phase 7's step 7.5 moves the upstream design to Planned, the only place /plan
+# transitions it; no flag is on the call line.
 #
 # Every record here is `always`, and the absence of a mode-scoped record is a
 # recorded finding rather than an oversight. /plan selects single-pr, multi-pr,

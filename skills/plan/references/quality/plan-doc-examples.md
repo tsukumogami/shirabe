@@ -55,7 +55,7 @@ _(omitted in multi-pr mode -- see Implementation Issues below)_
 | [#491: Integration testing](https://github.com/org/repo/issues/491) | [#489](https://github.com/org/repo/issues/489), [#490](https://github.com/org/repo/issues/490) | critical |
 | _End-to-end test harness that exercises the full pipeline: parse, validate, resolve dependencies, and run the builder in a sandbox. Covers both happy path and error cases from #489._ | | |
 
-### Dependency Graph
+## Dependency Graph
 
 ```mermaid
 graph TD
@@ -198,7 +198,7 @@ _(omitted in multi-pr mode -- see Implementation Issues below)_
 | [#603: docs(decision): storage backend](https://github.com/org/repo/issues/603) | [#600](https://github.com/org/repo/issues/600) | simple |
 | _Choose between SQLite and PostgreSQL for the user data store. Produce a decision record evaluating both options against the requirements from #600._ | | |
 
-### Dependency Graph
+## Dependency Graph
 
 ```mermaid
 graph TD

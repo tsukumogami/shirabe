@@ -30,7 +30,7 @@ subcommand's default.
 
 | Existing Status | Action |
 |-----------------|--------|
-| Active | Skip -- already complete |
+| Active | Already written. If the upstream DESIGN is still `Accepted`, the run stopped before step 7.5: run 7.5 (the transition and the chain check), then continue from 7.6. Otherwise skip -- already complete |
 | Done | Skip -- already complete |
 | Draft | Ask user: continue editing or overwrite |
 | _(does not exist)_ | Proceed normally |
@@ -73,19 +73,17 @@ approval" below.
 
 `coordinated` follows the same stack, with `none` as its default, and step 3.6's
 step 5a has already resolved it into the decomposition artifact's
-`tracking_level`, so Phase 4 could choose body depth; use that value. Phase 7
-**always writes `tracking_level` into a coordinated PLAN's frontmatter**, `none`
-included. The field is what selects the PLAN's shape downstream: the validator
-and the task extractor read a coordinated PLAN as outline-shaped only at an
-explicit `tracking_level: none`, and read one with no field as issue-carrying.
+`tracking_level`, so Phase 4 could choose body depth; use that value.
 
-Write the resolved value into every PLAN's `tracking_level` frontmatter field,
-`none` included. A `multi-pr` PLAN with no field is read as issue-carrying, so a
-multi-pr PLAN written with outlines at `none` that omits it fails both the
-validator and a parent's filing check. This is load-bearing rather than bookkeeping: task extraction runs against a committed
-PLAN, possibly long after authoring, and if it re-resolved the level from
-CLAUDE.md then a repo that later changed its header would silently change how an
-already-written plan's work items key.
+**Always write the resolved value into the PLAN's `tracking_level` frontmatter
+field, in every mode, `none` included.** The field selects the PLAN's shape
+downstream: the validator and the task extractor read a `multi-pr` or
+`coordinated` PLAN as outline-shaped only at an explicit `tracking_level: none`,
+and read one with no field as issue-carrying, so an outline PLAN that omits it
+fails both the validator and a parent's filing check. Task extraction also runs
+against a committed PLAN, possibly long after authoring; if it re-resolved the
+level from CLAUDE.md, a repo that later changed its header would silently
+change how an already-written plan's work items key.
 
 The resolved level, not the mode, decides what gets created:
 
@@ -331,6 +329,13 @@ Steps 7.1 through 7.2 apply when `execution_mode: single-pr`.
 today's behavior. Under a stated `issues` or `issues-and-milestone`, run the
 filing approval above and, when it approves, the multi-pr branch's 7.1 to
 create them, then continue here.
+
+The PLAN itself records no issue numbers in that case. A single-pr PLAN keeps
+its Issue Outlines and carries no Implementation Issues table (FC14 refuses
+one), and its work items run from those outlines. The filed issues are found
+from the issues themselves: each body names the design with a
+`Design: <design-doc-path>` line, which the Resume Logic's
+`gh issue list --search "Design: <design-doc-path>"` reads.
 
 ### 7.1 Write PLAN Artifact
 
@@ -587,6 +592,9 @@ and re-run before cleanup.
 
 ### 7.6 Cleanup
 
+Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes the
+topic's `wip/plan_<topic>_*` files at its own exit, as it does every child's.
+
 Delete topic-scoped wip/ artifacts on success:
 
 ```bash
@@ -700,7 +708,7 @@ If yes, provide the issue reference in <owner>/<repo>#<number> format.
 
 Before completing:
 - [ ] PLAN artifact created at `docs/plans/PLAN-<topic>.md`
-- [ ] Frontmatter includes all required fields (`schema`, `status`, `execution_mode`, `milestone`, `issue_count`)
+- [ ] Frontmatter includes all required fields (`schema`, `status`, `execution_mode`, `milestone`, `issue_count`) and `tracking_level`, `none` included
 - [ ] multi-pr: status is Active; at a filing level, all issues created (and the
   milestone assigned at `issues-and-milestone`); at `none`, outlines and nothing filed
 - [ ] any PLAN that filed: the filing approval ran before the first
