@@ -75,10 +75,10 @@ eq "an ended id is never reused" "s1 s3" "$(live | jq -r '[.standing[].standing]
 bash "$RS" "${W[@]}" --end s9 --by x >/dev/null 2>"$T/err"; eq "ending an unknown row is refused" 65 $?
 
 echo "== the relay duty: a person's unmarked comment =="
-db '.comments = ((.comments // []) + [{repo: "acme/widgets", number: 7, id: 3001, body: "Hold the koto release until the offload lane lands.",
+db '.comments = ((.comments // []) + [{repo: "acme/widgets", number: 7, id: 3001, body: "Hold the koto release until the other lane lands.",
     user: "alice", created_at: "2026-10-07T20:00:00Z", updated_at: "2026-10-07T20:00:00Z"}])'
 entries | jq -e 'all(.[]; .id != 3001)' >/dev/null && ok "the reader drops a person's unmarked comment" || bad "the reader drops a person's unmarked comment" "$(entries)"
-bash "$RS" "${W[@]}" --standing answer --what "hold the koto release until the offload lane lands" --owner alice --relayed-by lane-v2 >/dev/null 2>"$T/err"
+bash "$RS" "${W[@]}" --standing answer --what "hold the koto release until the other lane lands" --owner alice --relayed-by lane-v2 >/dev/null 2>"$T/err"
 eq "the coordinator relays it, the person as owner and itself as relayer" "answer alice lane-v2" \
     "$(live | jq -r '.standing[-1] | "\(.kind) \(.owner) \(.relayed_by)"')"
 entries | jq -e 'any(.[]; .kind == "answer" and (.text | test("Owner: alice\\. Relayed by lane-v2\\.")))' >/dev/null \
@@ -93,7 +93,7 @@ bash "$RS" "${W[@]}" --work "Feature 9" --kind holding --who worker-f9 --next x 
 bash "$RS" "${W[@]}" --work "fix for the ablation check" --kind local-agent --who "local agent" --next "ready report, then the merge" >/dev/null 2>"$T/err"
 eq "local-agent work gets a row" 0 $?
 bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "fix round on the panel's finding" >/dev/null 2>"$T/err"
-eq "a next step is replaced, not added" "fix round on the panel's finding 2" "$(live | jq -r '(.work[] | select(.item == "Feature 2") | .next), (.work | length)' | paste -sd' ')"
+eq "a next step is replaced, not added" "fix round on the panel's finding 2" "$(live | jq -r '"\(.work[] | select(.item == "Feature 2") | .next) \(.work | length)"')"
 bash "$RS" "${W[@]}" --done "fix for the ablation check" >/dev/null 2>"$T/err"; eq "--done removes a row" 1 "$(live | jq '.work | length')"
 bash "$RS" "${W[@]}" --done nothing >/dev/null 2>"$T/err"; eq "--done on no row is refused" 65 $?
 # The holding goes (a teardown, through the holdings writer); the next write drops its row.
