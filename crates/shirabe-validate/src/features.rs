@@ -2,10 +2,10 @@
 //!
 //! Walks a roadmap [`Doc`]'s `## Features` section and produces a
 //! [`Vec<Feature>`] suitable for downstream consumers (the binary crate's
-//! `roadmap populate` subcommand, future tooling). The parser is total over
-//! arbitrary line input -- a missing field falls back to a documented
-//! default rather than panicking, and a section without features returns
-//! an empty vector.
+//! `roadmap populate` subcommand, the validator's milestone check, future
+//! tooling). The parser is total over arbitrary line input -- a missing field
+//! falls back to a documented default rather than panicking, and a section
+//! without features returns an empty vector.
 //!
 //! Per-feature format expected (matches
 //! `skills/roadmap/references/roadmap-format.md`):
@@ -19,30 +19,45 @@
 //! <one or more lines of description prose>
 //! ```
 //!
-//! The heading also accepts the strategy-derived prefix form
-//! `### <PREFIX><N>: <label>` (e.g. `### ED1:`, `### SE2:`), where `<PREFIX>`
-//! is a short alphabetic tag immediately followed by the feature number. Both
-//! forms number features positionally, so a `Feature M` dependency edge still
-//! resolves against a prefixed roadmap.
+//! A milestone roadmap (`schema: roadmap/v2`) adds `**Outcome:**`,
+//! `**Evidence:**` (one `- ` clause per line below it), `**Left open:**` and
+//! an optional `**Delivered:**`. A field's value runs from its marker to the
+//! first blank line, the next column-0 `**Name:**` line or the next heading.
 //!
-//! Order matters only for the heading line; the three bolded annotation
-//! lines and the description are matched by their leading marker, not by
-//! position, so an author writing them in a different order still parses.
-//! The label captures everything after the heading's colon up to end-of-line
-//! and may include an inline issue link (e.g. `... — [#42](url)`); the
-//! caller strips the link for downstream uses where the bare label is
-//! wanted.
+//! The heading also accepts the strategy-derived prefix form
+//! `### <PREFIX><N>: <label>` (e.g. `### ED1:`, `### SE2:`, `### TK10a:`),
+//! where `<PREFIX>` is a short alphabetic tag immediately followed by the
+//! feature number and, optionally, one lowercase letter. Both forms number
+//! features positionally, so a `Feature M` dependency edge still resolves
+//! against a prefixed roadmap; [`dependency_positions`] also resolves a
+//! dependency named by its tag.
+//!
+//! Order matters only for the heading line; the bolded annotation lines and
+//! the description are matched by their leading marker, not by position, so
+//! an author writing them in a different order still parses. The label
+//! captures everything after the heading's colon up to end-of-line and may
+//! include an inline issue link (e.g. `... — [#42](url)`); the caller strips
+//! the link for downstream uses where the bare label is wanted.
+
+use std::sync::LazyLock;
+
+use regex::Regex;
 
 use crate::doc::Doc;
 
+/// The schema value that marks a milestone roadmap.
+pub const ROADMAP_V2_SCHEMA: &str = "roadmap/v2";
+
 /// One parsed feature from a roadmap's `## Features` section.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Feature {
     /// 1-based index within the Features section (1, 2, 3, ...). The index
     /// is the source-of-truth identifier the dependency edges resolve
     /// against; `Feature 1` in a Dependencies cell means the feature with
     /// `id == 1`.
     pub id: usize,
+    /// The heading's tag: the text before its colon, `Feature 3` or `AB10a`.
+    pub tag: String,
     /// The full label text from the heading, after the `### Feature N: ` (or
     /// `### <PREFIX><N>: `) prefix and colon.
     /// May contain trailing decoration (an em-dash plus an issue link),
@@ -54,16 +69,46 @@ pub struct Feature {
     /// The raw `**Dependencies:**` line value.
     /// Empty when the feature has no Dependencies line.
     pub dependencies: String,
+    /// True when a line that is neither blank, a field line nor a heading
+    /// follows the `**Dependencies:**` line, so the list continues past the
+    /// one line readers take it from.
+    pub dependencies_continued: bool,
     /// The raw `**Status:**` line value.
     /// Empty when the feature has no Status line.
     pub status: String,
-    /// Description prose collected from lines after the bolded annotations,
-    /// up to the next `### ` heading or the end of the Features section.
-    /// Blank lines are collapsed to single spaces so the description fits
-    /// on one logical line (e.g. one table cell).
+    /// The `**Outcome:**` value with its wrapped lines joined by single
+    /// spaces; `None` when the item has no Outcome line.
+    pub outcome: Option<String>,
+    /// The `**Evidence:**` clauses, one string per `- ` line with its
+    /// indented continuation lines joined; `None` when the item has no
+    /// Evidence line, and empty when the line has no clause beneath it.
+    pub evidence: Option<Vec<String>>,
+    /// The `**Left open:**` value, joined like the Outcome; `None` when absent.
+    pub left_open: Option<String>,
+    /// The `**Delivered:**` value, joined like the Outcome; `None` when absent.
+    pub delivered: Option<String>,
+    /// Description prose collected from the item's other lines, up to the
+    /// next `### ` heading or the end of the Features section. On a
+    /// `roadmap/v2` document it excludes every field line's extent; on any
+    /// other it is every line but the Needs, Dependencies and Status lines,
+    /// as it always was. Blank lines are collapsed to single spaces so the
+    /// description fits on one logical line (e.g. one table cell).
     pub description: String,
     /// 1-indexed absolute line number of the `### Feature N:` heading.
     pub heading_line: usize,
+}
+
+/// The field a line inside an item belongs to, while its extent runs.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Field {
+    Needs,
+    Dependencies,
+    Status,
+    Outcome,
+    Evidence,
+    LeftOpen,
+    Delivered,
+    Other,
 }
 
 /// Parse the `## Features` section of `doc` into an ordered list of
@@ -74,9 +119,11 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
     let Some((start_idx, end_idx, _heading_line)) = find_features_section(doc) else {
         return Vec::new();
     };
+    let milestone = doc.schema == ROADMAP_V2_SCHEMA;
 
     let mut out: Vec<Feature> = Vec::new();
     let mut current: Option<Feature> = None;
+    let mut field: Option<Field> = None;
     let mut next_id: usize = 1;
 
     for i in start_idx..end_idx {
@@ -88,19 +135,18 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
         // through without opening a new one. The Features section in a
         // canonical roadmap only carries Feature sub-headings, but the
         // parser tolerates drift without panicking.
-        if let Some(label) = parse_feature_heading(raw) {
+        if let Some((tag, label)) = parse_feature_heading(raw) {
             if let Some(f) = current.take() {
                 out.push(f);
             }
             current = Some(Feature {
                 id: next_id,
+                tag,
                 label,
-                needs: String::new(),
-                dependencies: String::new(),
-                status: String::new(),
-                description: String::new(),
                 heading_line: absolute_line(doc, i),
+                ..Feature::default()
             });
+            field = None;
             next_id += 1;
             continue;
         }
@@ -108,6 +154,7 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
             if let Some(f) = current.take() {
                 out.push(f);
             }
+            field = None;
             continue;
         }
 
@@ -117,33 +164,71 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
             continue;
         };
 
-        if let Some(rest) = strip_marker(raw, "**Needs:**") {
-            f.needs = rest.to_string();
-            continue;
-        }
-        if let Some(rest) = strip_marker(raw, "**Dependencies:**") {
-            f.dependencies = rest.to_string();
-            continue;
-        }
-        if let Some(rest) = strip_marker(raw, "**Status:**") {
-            f.status = rest.to_string();
-            continue;
-        }
-
-        // Accumulate description prose. Blank lines compress to a single
-        // space so the description renders cleanly into a one-row Markdown
-        // table cell.
-        let trimmed = raw.trim();
-        if trimmed.is_empty() {
-            if !f.description.is_empty() && !f.description.ends_with(' ') {
-                f.description.push(' ');
+        if let Some((name, rest)) = split_field_line(raw) {
+            let kind = match name {
+                "Needs" => Field::Needs,
+                "Dependencies" => Field::Dependencies,
+                "Status" => Field::Status,
+                "Outcome" => Field::Outcome,
+                "Evidence" => Field::Evidence,
+                "Left open" => Field::LeftOpen,
+                "Delivered" => Field::Delivered,
+                _ => Field::Other,
+            };
+            match kind {
+                Field::Needs => f.needs = rest.to_string(),
+                Field::Dependencies => f.dependencies = rest.to_string(),
+                Field::Status => f.status = rest.to_string(),
+                Field::Outcome => f.outcome = Some(rest.to_string()),
+                Field::Evidence => f.evidence = Some(Vec::new()),
+                Field::LeftOpen => f.left_open = Some(rest.to_string()),
+                Field::Delivered => f.delivered = Some(rest.to_string()),
+                Field::Other => {}
+            }
+            field = Some(kind);
+            // The Needs, Dependencies and Status lines never reach the
+            // description; on a milestone roadmap no field line does.
+            let in_description =
+                !milestone && !matches!(kind, Field::Needs | Field::Dependencies | Field::Status);
+            if in_description {
+                push_description(f, raw);
             }
             continue;
         }
-        if !f.description.is_empty() && !f.description.ends_with(' ') {
-            f.description.push(' ');
+
+        if raw.trim().is_empty() {
+            field = None;
+            push_description(f, raw);
+            continue;
         }
-        f.description.push_str(trimmed);
+
+        // A non-blank line inside a field's extent continues that field.
+        let mut in_extent = true;
+        match field {
+            Some(Field::Outcome) => append_joined(&mut f.outcome, raw),
+            Some(Field::LeftOpen) => append_joined(&mut f.left_open, raw),
+            Some(Field::Delivered) => append_joined(&mut f.delivered, raw),
+            Some(Field::Evidence) => {
+                let clauses = f.evidence.get_or_insert_with(Vec::new);
+                if let Some(text) = raw.strip_prefix("- ") {
+                    clauses.push(text.trim().to_string());
+                } else if raw.starts_with([' ', '\t']) && !clauses.is_empty() {
+                    let last = clauses.last_mut().expect("non-empty");
+                    last.push(' ');
+                    last.push_str(raw.trim());
+                } else {
+                    // A column-0 line that isn't a clause ends the field.
+                    field = None;
+                    in_extent = false;
+                }
+            }
+            Some(Field::Dependencies) => f.dependencies_continued = true,
+            Some(_) => {}
+            None => in_extent = false,
+        }
+        if !milestone || !in_extent {
+            push_description(f, raw);
+        }
     }
 
     if let Some(f) = current.take() {
@@ -160,6 +245,120 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
     out
 }
 
+/// Accumulate one line of description prose. Blank lines compress to a
+/// single space so the description renders cleanly into a one-row Markdown
+/// table cell.
+fn push_description(f: &mut Feature, raw: &str) {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        if !f.description.is_empty() && !f.description.ends_with(' ') {
+            f.description.push(' ');
+        }
+        return;
+    }
+    if !f.description.is_empty() && !f.description.ends_with(' ') {
+        f.description.push(' ');
+    }
+    f.description.push_str(trimmed);
+}
+
+/// Append a wrapped line to a joined field value, one space between.
+fn append_joined(value: &mut Option<String>, raw: &str) {
+    let v = value.get_or_insert_with(String::new);
+    if !v.is_empty() {
+        v.push(' ');
+    }
+    v.push_str(raw.trim());
+}
+
+/// Split a column-0 field line `**<Name>:** rest` into its name and the
+/// text after the marker (leading whitespace trimmed). The name is a capital
+/// letter followed by letters and spaces, as in `Left open`. `None` for any
+/// other line, a bold phrase in prose included.
+fn split_field_line(line: &str) -> Option<(&str, &str)> {
+    let rest = line.strip_prefix("**")?;
+    let end = rest.find(":**")?;
+    let name = &rest[..end];
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    if !first.is_ascii_uppercase() || !chars.all(|c| c.is_ascii_alphabetic() || c == ' ') {
+        return None;
+    }
+    Some((name, rest[end + 3..].trim_start()))
+}
+
+/// Matches a `**Dependencies:**` reference to one or more features. The
+/// keyword is `Feature` or `Features` (case-insensitive), followed by a
+/// list of feature-index integers separated by commas, whitespace, or the
+/// word `and`. Cross-repo refs such as `tsukumogami/koto#65` carry no
+/// `Feature` keyword and so contribute no captures.
+static FEATURE_DEP_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\bfeatures?\s+(\d+(?:[\s,]+(?:and[\s,]+)?\d+)*)").unwrap());
+
+/// Matches a run of ASCII digits, used to pull each integer out of a
+/// [`FEATURE_DEP_RE`] number list.
+static DIGITS_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\d+").unwrap());
+
+/// Matches the `F<N>` index alias the issueless tables use.
+static F_INDEX_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\bF(\d+)\b").unwrap());
+
+/// Matches a whole `[A-Za-z0-9]+` token, the unit a heading tag is compared
+/// against.
+static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9]+").unwrap());
+
+/// Resolve a Dependencies value to the 1-based positions of the features it
+/// names, in first-seen order and without repeats.
+///
+/// Three spellings name a feature:
+///
+/// - `Feature N`, `Features N, M and K` (any case): the feature whose tag is
+///   `Feature N` when one exists, else the Nth feature;
+/// - `F<N>`, the index alias the issueless tables use: the Nth feature;
+/// - a whole `[A-Za-z0-9]+` token equal to a feature's tag (`AB1`, `AB10a`).
+///
+/// A number or tag that names no feature contributes nothing, and a
+/// cross-repo reference (`owner/repo#7`) never matches, so callers get only
+/// positions they can index.
+pub fn dependency_positions(deps: &str, features: &[Feature]) -> Vec<usize> {
+    let in_range = |n: usize| n >= 1 && n <= features.len();
+    let mut hits: Vec<(usize, usize)> = Vec::new();
+    for cap in FEATURE_DEP_RE.captures_iter(deps) {
+        let list = cap.get(1).expect("group 1");
+        for m in DIGITS_RE.find_iter(list.as_str()) {
+            let Ok(n) = m.as_str().parse::<usize>() else {
+                continue;
+            };
+            let tagged = format!("Feature {n}");
+            let pos = features.iter().find(|f| f.tag == tagged).map(|f| f.id);
+            match pos {
+                Some(id) => hits.push((list.start() + m.start(), id)),
+                None if in_range(n) => hits.push((list.start() + m.start(), n)),
+                None => {}
+            }
+        }
+    }
+    for cap in F_INDEX_RE.captures_iter(deps) {
+        let m = cap.get(1).expect("group 1");
+        if let Ok(n) = m.as_str().parse::<usize>() {
+            if in_range(n) {
+                hits.push((m.start(), n));
+            }
+        }
+    }
+    for m in TOKEN_RE.find_iter(deps) {
+        if let Some(f) = features.iter().find(|f| f.tag == m.as_str()) {
+            hits.push((m.start(), f.id));
+        }
+    }
+    hits.sort_by_key(|&(at, _)| at);
+    let mut out: Vec<usize> = Vec::new();
+    for (_, id) in hits {
+        if !out.contains(&id) {
+            out.push(id);
+        }
+    }
+    out
+}
 /// Strip an inline GitHub issue link (and the preceding em-dash separator
 /// or `--` if present) from a feature heading label.
 ///
@@ -288,17 +487,19 @@ fn absolute_line(doc: &Doc, body_idx: usize) -> usize {
 ///   immediately followed by the feature number with no space between them.
 ///
 /// In both forms the returned label is everything after the colon, trimmed.
-fn parse_feature_heading(line: &str) -> Option<String> {
+fn parse_feature_heading(line: &str) -> Option<(String, String)> {
     let rest = line.strip_prefix("### ")?;
 
     // Classic form: the literal word `Feature`, a space, then `<N>: <label>`.
     if let Some(after) = rest.strip_prefix("Feature ") {
-        return parse_number_colon_label(after);
+        let (tag_len, label) = parse_number_colon_label(after, false)?;
+        return Some((format!("Feature {}", &after[..tag_len]), label));
     }
 
-    // Prefix form: an alphabetic tag immediately followed by the number, then
-    // `: <label>`. Require at least one leading ASCII-alphabetic character so
-    // a tag-less `### 1: x` is not mistaken for a feature.
+    // Prefix form: an alphabetic tag immediately followed by the number (and
+    // optionally one lowercase letter, as in `TK10a`), then `: <label>`.
+    // Require at least one leading ASCII-alphabetic character so a tag-less
+    // `### 1: x` is not mistaken for a feature.
     let mut alpha_end = 0;
     for (idx, c) in rest.char_indices() {
         if c.is_ascii_alphabetic() {
@@ -310,13 +511,15 @@ fn parse_feature_heading(line: &str) -> Option<String> {
     if alpha_end == 0 {
         return None;
     }
-    parse_number_colon_label(&rest[alpha_end..])
+    let (tag_len, label) = parse_number_colon_label(&rest[alpha_end..], true)?;
+    Some((rest[..alpha_end + tag_len].to_string(), label))
 }
 
-/// Given text positioned at `<N>: <label>`, read the decimal number, require
-/// the `:` delimiter, and return the trimmed label. `None` if the number or
-/// colon is missing.
-fn parse_number_colon_label(s: &str) -> Option<String> {
+/// Given text positioned at `<N>: <label>` (or `<N><letter>: <label>` when
+/// `suffix` allows one lowercase letter after the number), read the number,
+/// require the `:` delimiter, and return the length of the number part and
+/// the trimmed label. `None` if the number or colon is missing.
+fn parse_number_colon_label(s: &str, suffix: bool) -> Option<(usize, String)> {
     let mut digit_end = 0;
     for (idx, c) in s.char_indices() {
         if c.is_ascii_digit() {
@@ -328,8 +531,18 @@ fn parse_number_colon_label(s: &str) -> Option<String> {
     if digit_end == 0 {
         return None;
     }
-    let after_colon = s[digit_end..].strip_prefix(':')?;
-    Some(after_colon.trim().to_string())
+    let mut tag_end = digit_end;
+    if suffix && s[digit_end..].starts_with(|c: char| c.is_ascii_lowercase()) {
+        tag_end += 1;
+    }
+    let after_colon = s[tag_end..].strip_prefix(':')?;
+    Some((tag_end, after_colon.trim().to_string()))
+}
+
+/// True when `line` is a milestone heading as a `roadmap/v2` roadmap requires
+/// it: a feature heading [`parse_features`] reads whose title isn't empty.
+pub fn is_milestone_heading(line: &str) -> bool {
+    matches!(parse_feature_heading(line), Some((_, label)) if !label.is_empty())
 }
 
 /// True when `line` is a feature heading recognized by [`parse_features`]:
@@ -339,12 +552,6 @@ fn parse_number_colon_label(s: &str) -> Option<String> {
 /// that activates is also one the parser can read.
 pub fn is_feature_heading(line: &str) -> bool {
     parse_feature_heading(line).is_some()
-}
-
-/// If `line` begins with the bold marker (e.g. `**Needs:**`), return the
-/// text after it with leading whitespace trimmed.
-fn strip_marker<'a>(line: &'a str, marker: &str) -> Option<&'a str> {
-    line.strip_prefix(marker).map(str::trim_start)
 }
 
 #[cfg(test)]
@@ -555,5 +762,233 @@ mod tests {
         let features = parse_features(&doc);
         assert_eq!(features.len(), 1);
         assert_eq!(features[0].label, "Safe; rm -rf /tmp/foo && echo HIJACKED");
+    }
+
+    fn milestone_body() -> Vec<&'static str> {
+        vec![
+            "## Features",
+            "",
+            "### AB1: Loader",
+            "**Outcome:** A maintainer runs the loader",
+            "and gets every plugin",
+            "listed by name.",
+            "",
+            "**Evidence:**",
+            "- The reviewer, from a clean checkout,",
+            "  runs the loader and sees three plugins.",
+            "- A second clause.",
+            "- A third clause.",
+            "",
+            "**Left open:** the cache layout",
+            "and the file names.",
+            "",
+            "**Dependencies:** None",
+            "**Status:** In progress",
+            "**Delivered:** acme/widgets#3",
+            "",
+            "Free prose here.",
+            "",
+            "## Sequencing Rationale",
+        ]
+    }
+
+    fn with_schema(mut doc: Doc, schema: &str) -> Doc {
+        doc.schema = schema.into();
+        doc
+    }
+
+    #[test]
+    fn parse_features_reads_milestone_fields_by_extent() {
+        let doc = with_schema(
+            make_doc(
+                milestone_body(),
+                vec![("Features", 1), ("Sequencing Rationale", 25)],
+            ),
+            ROADMAP_V2_SCHEMA,
+        );
+        let f = &parse_features(&doc)[0];
+        assert_eq!(f.tag, "AB1");
+        assert_eq!(
+            f.outcome.as_deref(),
+            Some("A maintainer runs the loader and gets every plugin listed by name.")
+        );
+        assert_eq!(
+            f.evidence.as_deref(),
+            Some(
+                &[
+                    "The reviewer, from a clean checkout, runs the loader and sees three plugins."
+                        .to_string(),
+                    "A second clause.".to_string(),
+                    "A third clause.".to_string(),
+                ][..]
+            )
+        );
+        assert_eq!(
+            f.left_open.as_deref(),
+            Some("the cache layout and the file names.")
+        );
+        assert_eq!(f.delivered.as_deref(), Some("acme/widgets#3"));
+        assert_eq!(f.dependencies, "None");
+        assert!(!f.dependencies_continued);
+        assert_eq!(f.status, "In progress");
+        // On a milestone roadmap the description is the free prose alone.
+        assert_eq!(f.description, "Free prose here.");
+    }
+
+    #[test]
+    fn parse_features_keeps_the_v1_description_unchanged() {
+        let doc = make_doc(
+            milestone_body(),
+            vec![("Features", 1), ("Sequencing Rationale", 25)],
+        );
+        let f = &parse_features(&doc)[0];
+        assert_eq!(
+            f.description,
+            "**Outcome:** A maintainer runs the loader and gets every plugin listed by name. \
+             **Evidence:** - The reviewer, from a clean checkout, runs the loader and sees three plugins. \
+             - A second clause. - A third clause. **Left open:** the cache layout and the file names. \
+             **Delivered:** acme/widgets#3 Free prose here."
+        );
+        // The fields are still read on v1; only the description keeps its old shape.
+        assert_eq!(f.evidence.as_ref().map(Vec::len), Some(3));
+    }
+
+    #[test]
+    fn evidence_clauses_end_with_the_field() {
+        let body = vec![
+            "## Features",
+            "### AB1: Loader",
+            "**Evidence:**",
+            "- Only clause.",
+            "",
+            "- Not a clause: it follows a blank line.",
+            "**Downstream:** PLAN-loader.md",
+            "**Outcome:** Ends at the next field",
+            "**Downstream:** PLAN-x.md",
+            "not part of the Outcome.",
+        ];
+        let doc = with_schema(make_doc(body, vec![("Features", 1)]), ROADMAP_V2_SCHEMA);
+        let f = &parse_features(&doc)[0];
+        assert_eq!(
+            f.evidence.as_deref(),
+            Some(&["Only clause.".to_string()][..])
+        );
+        assert_eq!(f.outcome.as_deref(), Some("Ends at the next field"));
+        assert_eq!(f.description, "- Not a clause: it follows a blank line.");
+    }
+
+    #[test]
+    fn an_evidence_line_with_no_clause_reads_empty_and_absent_reads_none() {
+        let body = vec![
+            "## Features",
+            "### AB1: One",
+            "**Evidence:**",
+            "",
+            "### AB2: Two",
+            "**Outcome:**",
+        ];
+        let doc = with_schema(make_doc(body, vec![("Features", 1)]), ROADMAP_V2_SCHEMA);
+        let fs = parse_features(&doc);
+        assert_eq!(fs[0].evidence, Some(Vec::new()));
+        assert_eq!(fs[0].outcome, None);
+        assert_eq!(fs[1].evidence, None);
+        assert_eq!(fs[1].outcome.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn a_continued_dependencies_line_is_flagged() {
+        let body = vec![
+            "## Features",
+            "### AB1: One",
+            "**Dependencies:** None",
+            "### AB2: Two",
+            "**Dependencies:** AB1,",
+            "AB3",
+            "**Status:** Not started",
+        ];
+        let doc = with_schema(make_doc(body, vec![("Features", 1)]), ROADMAP_V2_SCHEMA);
+        let fs = parse_features(&doc);
+        assert!(!fs[0].dependencies_continued);
+        assert!(fs[1].dependencies_continued);
+        assert_eq!(fs[1].dependencies, "AB1,");
+        assert_eq!(fs[1].description, "");
+    }
+
+    #[test]
+    fn a_letter_suffixed_tag_is_an_item() {
+        let body = vec![
+            "## Features",
+            "### AB10a: Rehearsal",
+            "### Feature 3: Classic",
+        ];
+        let fs = parse_features(&make_doc(body, vec![("Features", 1)]));
+        assert_eq!(fs.len(), 2);
+        assert_eq!(
+            (fs[0].tag.as_str(), fs[0].label.as_str()),
+            ("AB10a", "Rehearsal")
+        );
+        assert_eq!(fs[1].tag, "Feature 3");
+        assert!(is_feature_heading("### AB10a: Rehearsal"));
+        assert!(!is_feature_heading("### AB10ab: Two letters"));
+        assert!(!is_feature_heading(
+            "### Feature 3a: No suffix on the classic form"
+        ));
+    }
+
+    #[test]
+    fn a_milestone_heading_needs_a_title() {
+        assert!(is_milestone_heading("### AB2: Registry"));
+        assert!(is_milestone_heading("### Feature 2: Registry"));
+        assert!(!is_milestone_heading("### AB2:"));
+        assert!(!is_milestone_heading("### AB2:   "));
+        assert!(!is_milestone_heading("### Stage 1 -- Runtime"));
+    }
+
+    fn tagged(tags: &[&str]) -> Vec<Feature> {
+        tags.iter()
+            .enumerate()
+            .map(|(i, t)| Feature {
+                id: i + 1,
+                tag: t.to_string(),
+                ..Feature::default()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn dependency_positions_resolves_every_spelling() {
+        let classic = tagged(&["Feature 1", "Feature 2", "Feature 3"]);
+        assert_eq!(dependency_positions("Feature 2", &classic), vec![2]);
+        assert_eq!(
+            dependency_positions("Features 1, 2 and 3", &classic),
+            vec![1, 2, 3]
+        );
+        assert_eq!(dependency_positions("F2", &classic), vec![2]);
+        assert_eq!(dependency_positions("None", &classic), Vec::<usize>::new());
+        assert_eq!(
+            dependency_positions("Feature 3, Feature 3, Feature 1", &classic),
+            vec![3, 1]
+        );
+
+        let prefixed = tagged(&["AB1", "AB2", "AB10a"]);
+        assert_eq!(dependency_positions("AB1", &prefixed), vec![1]);
+        assert_eq!(dependency_positions("AB10a, AB1", &prefixed), vec![3, 1]);
+        // `Feature N` on a prefixed roadmap is the Nth item.
+        assert_eq!(dependency_positions("Feature 2", &prefixed), vec![2]);
+        // Unknown tags, out-of-range numbers and cross-repo refs name nothing.
+        assert_eq!(
+            dependency_positions("ZZ9, Feature 9, owner/repo#7", &prefixed),
+            Vec::<usize>::new()
+        );
+        // `AB1` inside `AB10a` is not a whole token.
+        assert_eq!(dependency_positions("AB10a", &prefixed), vec![3]);
+    }
+
+    #[test]
+    fn feature_n_prefers_the_item_tagged_feature_n() {
+        // A roadmap whose second item is tagged `Feature 1` (headings out of
+        // order): the tag wins over the position.
+        let fs = tagged(&["Feature 2", "Feature 1"]);
+        assert_eq!(dependency_positions("Feature 1", &fs), vec![2]);
     }
 }

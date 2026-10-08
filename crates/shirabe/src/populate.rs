@@ -1425,6 +1425,7 @@ mod tests {
             status: status.to_string(),
             description: desc.to_string(),
             heading_line: 0,
+            ..Feature::default()
         }
     }
 
