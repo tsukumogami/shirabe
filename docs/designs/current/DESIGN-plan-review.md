@@ -795,3 +795,5 @@ architectural changes.
   max-rounds guard prevents infinite loops on difficult plans.
 - Full adversarial mode is opt-in (`--adversarial` flag); standalone invocation
   without the flag runs fast-path depth.
+
+Throwaway proof line: the binary lives under ~/.claude/local/bin.
