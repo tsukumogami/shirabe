@@ -65,7 +65,9 @@ is the moment remote artifacts appear; one that files none auto-fires
 when /plan finishes authoring. So a `multi-pr` plan whose tracking
 level is `none` auto-fires, and a `single-pr` plan whose level is
 `issues` waits for approval. A committed PLAN at `status: Draft` is a
-violation in either case.
+violation in either case. That includes a `/scope` run abandoned while `/plan`
+was running: an abandoned run writes no PLAN at all, only its upstream
+documents (`docs/decisions/DECISION-contradiction-scope-abandonment-draft-plan-2026-09-28.md`).
 
 **Every path that files issues or a milestone asks first**, whatever the
 mode: interactively the author answers the filing question, and "don't
@@ -383,6 +385,15 @@ gh issue list --search "Design: <design-doc-path>" --json number,title,state
 ```
 
 When resuming, read the existing artifact to restore context before continuing.
+
+**Under `/scope`'s sentinel** `/plan` still reaches its own verdict (the Phase 6
+review) and makes its own status transition (Phase 7's step 7.5), but skips
+everything that publishes or routes: it pushes nothing, opens no pull request,
+creates no branch, makes no cleanup commit, and asks no routing question, so
+step 7.8's upstream-issue question and its `gh issue edit` are skipped. This is
+shape 6, Parent-owned-publishing, in `references/fixes/sub-agent-dispatch.md`,
+recorded in `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
+Under `--auto` it takes the recommended verdict and names it in its output.
 
 ### Workflow Phases
 

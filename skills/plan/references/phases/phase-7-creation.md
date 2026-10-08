@@ -511,10 +511,10 @@ git grep -nE 'wip/' -- 'docs/plans/PLAN-<topic>.md'
 #    sequence -- a PLAN under a roadmap names its design and that roadmap --
 #    and every entry is read, not just the first.
 shirabe validate 'docs/plans/PLAN-<topic>.md'
-
-# 3. Whether the upstream is at a status a PLAN may be built from.
-shirabe validate --lifecycle-chain 'docs/plans/PLAN-<topic>.md'
 ```
+
+The chain's status check runs after 7.5's transition, not here: it holds an
+`Active` PLAN's DESIGN to `Planned`, which only 7.5 makes true.
 
 **Match handling:**
 
@@ -537,7 +537,7 @@ shirabe validate --lifecycle-chain 'docs/plans/PLAN-<topic>.md'
   local path to resolve, so confirm visibility direction by hand against
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` (public repos
   must not reference private repos). A `ROADMAP-` entry is held to `Active`
-  by the lifecycle chain check: a roadmap is Active for as long as any of
+  by the lifecycle chain check after 7.5: a roadmap is Active for as long as any of
   its features is still being built, which is the whole window in which a PLAN
   naming it exists.
 - **An exit 4 means the PLAN was not checked at all.** The filename routed it
@@ -570,6 +570,20 @@ nothing is transitioned.
 **For roadmaps** (input_type: roadmap):
 
 Roadmaps stay at "Active" status. The PLAN artifact tracks the planning work, but the roadmap itself isn't transitioned -- it remains Active until all features are delivered. No status change is needed.
+
+This step is the only place `/plan` moves its upstream DESIGN, on a direct run
+and under a parent's sentinel alike; Phase 1 never transitions it.
+
+**Then check the chain**, from the repo root:
+
+```bash
+shirabe validate --lifecycle-chain 'docs/plans/PLAN-<topic>.md'
+```
+
+It confirms every upstream is at a status a PLAN may be built from: an `Active`
+PLAN over a DESIGN still at `Accepted` fails `L01`, so a failure here usually
+means the transition above did not run. **STOP if it fails**, fix the cause,
+and re-run before cleanup.
 
 ### 7.6 Cleanup
 
@@ -644,7 +658,13 @@ Run `/execute docs/plans/PLAN-<topic>.md` to begin implementation.
 
 ### 7.8 Upstream Issue Update
 
-Ask the user if there's an upstream issue that should be updated:
+**Skip this step under `/scope`'s `parent_orchestration:` sentinel**: ask
+nothing and run no `gh issue edit`. It is a routing prompt and a GitHub write,
+and under `/scope` both belong to the parent (shape 6, Parent-owned-publishing,
+in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`; recorded in
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`).
+
+Otherwise, ask the user if there's an upstream issue that should be updated:
 
 ```
 Is there an upstream issue that should be updated to link to these newly created issues?
