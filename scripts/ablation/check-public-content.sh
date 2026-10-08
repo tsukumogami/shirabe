@@ -110,9 +110,13 @@ if [ -n "$base" ]; then
     # Three dots: against the merge base, so commits that landed on the base
     # branch after this branch forked are never read as this branch's lines.
     git diff --unified=0 --no-color "$base"..."$head" -- "${pathspecs[@]}" | awk '
-        /^\+\+\+ / { file = substr($0, 5); sub(/^b\//, "", file); next }
-        /^@@ / { match($0, /\+[0-9]+/); n = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
-        /^\+/ { printf "%s\t%d\t%s\n", file, n, substr($0, 2); n++ }
+        # A "+++ " line is a file header only between "diff --git" and the
+        # first hunk; inside a hunk it is an added line that starts with "++".
+        # git ends a header name that holds a space with a tab; drop it.
+        /^diff --git / { header = 1; next }
+        header && /^\+\+\+ / { file = substr($0, 5); sub(/^b\//, "", file); sub(/\t$/, "", file); next }
+        /^@@ / { header = 0; match($0, /\+[0-9]+/); n = substr($0, RSTART + 1, RLENGTH - 1) + 0; next }
+        !header && /^\+/ { printf "%s\t%d\t%s\n", file, n, substr($0, 2); n++ }
     ' > "$rows"
 else
     for f in "${files[@]}"; do
