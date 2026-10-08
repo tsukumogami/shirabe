@@ -999,6 +999,16 @@ fn has_markdown_link(s: &str) -> bool {
     false
 }
 
+/// Reports whether a `^_..._` row is a coordinated PLAN's `^_Repo: ... \|
+/// Group: ..._` or `^_Gate: ..._` annotation. Those rows take the child
+/// reference row's shape but tag the issue above them (or declare a gate)
+/// rather than point at a child artifact, so they carry no link.
+fn is_coordinated_annotation(raw: &str) -> bool {
+    row_cells(raw)
+        .first()
+        .is_some_and(|c| c.starts_with("^_Repo:") || c.starts_with("^_Gate:"))
+}
+
 /// Checks that table rows are well-formed. Every entity row must be
 /// followed by an italic description row; a child reference row may sit
 /// between them.
@@ -1085,7 +1095,7 @@ fn validate_row_shape(doc: &Doc, table: &Table) -> Vec<ValidationError> {
                     }
                 }
                 RowKind::Child => {
-                    if !has_markdown_link(&row.raw) {
+                    if !has_markdown_link(&row.raw) && !is_coordinated_annotation(&row.raw) {
                         errs.push(ValidationError {
                             file: doc.path.clone(),
                             line: row.line,
@@ -1959,13 +1969,9 @@ fn node_set_pass_roadmap(doc: &Doc, table: &Table, diagram: &Diagram) -> Vec<Val
 /// lookup since the parsed `Row` struct only keeps the key, deps, and
 /// raw text.
 fn split_raw_row_cell(raw: &str, idx: usize) -> String {
-    let trimmed = raw.trim();
-    let trimmed = trimmed.strip_prefix('|').unwrap_or(trimmed);
-    let trimmed = trimmed.strip_suffix('|').unwrap_or(trimmed);
-    trimmed
-        .split('|')
+    crate::table::split_row(raw)
+        .into_iter()
         .nth(idx)
-        .map(|s| s.trim().to_string())
         .unwrap_or_default()
 }
 
@@ -5516,6 +5522,33 @@ mod tests {
         );
         let errs = check_fc05(&doc, &spec_for("plan/v1"));
         assert_eq!(errs.len(), 0, "expected no FC05 errors, got {:?}", errs);
+    }
+
+    #[test]
+    fn check_fc05_fc06_coordinated_annotation_rows_pass() {
+        // The escaped pipe keeps each `^_Repo: ... \| Group: ..._` row one
+        // cell, and the annotation needs no link to a child artifact.
+        let doc = doc_md(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: coordinated\ntracking_level: issues\nissue_count: 2\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| ^_Repo: acme/repo-a \\| Group: core_ | | |\n| _Alpha description._ | | |\n| [#2: beta](https://example.com/2) | [#1](https://example.com/1) | testable |\n| ^_Repo: acme/repo-b \\| Group: cli_ | | |\n| _Beta description._ | | |\n",
+        );
+        let errs = check_fc05(&doc, &spec_for("plan/v1"));
+        assert!(errs.is_empty(), "expected no FC05 errors, got {:?}", errs);
+        let errs = check_fc06(&doc, &spec_for("plan/v1"));
+        assert!(errs.is_empty(), "expected no FC06 errors, got {:?}", errs);
+    }
+
+    #[test]
+    fn check_fc05_child_row_without_link_still_fires() {
+        let doc = doc_md(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: multi-pr\nmilestone: \"foo\"\nissue_count: 1\n---\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: alpha](https://example.com/1) | None | simple |\n| ^_Child: no link here_ | | |\n| _Alpha description._ | | |\n",
+        );
+        let errs = check_fc05(&doc, &spec_for("plan/v1"));
+        assert!(
+            errs.iter()
+                .any(|e| e.code == "FC05" && e.message.contains("child reference row")),
+            "expected an FC05 child-link error, got {:?}",
+            errs
+        );
     }
 
     // --- check_fc15 (section order) ---
