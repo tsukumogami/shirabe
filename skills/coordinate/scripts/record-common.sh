@@ -412,10 +412,11 @@ lib_roadmap_path() {
 #      lines below it, joined with single spaces, up to a blank line, the
 #      next field line or a heading. One whose first word is None names none.
 #   4. A tag followed by an optional `(` and then soft, optional, preferred,
-#      sequencing-preferred or `paced by` (any case) is a soft mention: the
-#      tag and its marker are struck out together, so a hard mention of the
-#      same tag elsewhere still counts and a leftover marker can't make rule
-#      6 drop the sentence (`AB2 soft, AB5` still names AB5).
+#      sequencing-preferred or `paced by` (any case) is a soft mention, and
+#      only that mention goes: a bare marker is struck with its tag, so it
+#      can't make rule 6 drop the sentence (`AB2 soft, AB5` still names AB5);
+#      a marker in parentheses strikes the tag alone and rule 5 takes the
+#      parenthetical. A hard mention of the same tag elsewhere still counts.
 #   5. Parenthesised text goes, innermost pair first, replaced by nothing so
 #      `Features 1 (x), 2 and 3` still reads as one list (at most 20 passes;
 #      an unbalanced paren stays rather than loop).
