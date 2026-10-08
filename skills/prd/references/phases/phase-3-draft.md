@@ -36,6 +36,13 @@ flag, and if present, store the path for inclusion in frontmatter (step 3.2).
 With no brief above the PRD, omit the field: a PRD never names the ROADMAP
 that sequenced its feature.
 
+Recording only a BRIEF is this skill's authoring rule. `shirabe validate`
+accepts more: a STRATEGY or VISION is a legal PRD upstream too (see
+`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`, which defines `R10` and
+`R11`), and `/scope`'s consolidation can leave one on a PRD that absorbed its
+BRIEF. So step 3.1 decides only what this skill writes; on a re-entry, leave an
+`upstream:` already in the PRD's frontmatter as it is.
+
 **Validate upstream:** If a path was detected, run these checks in order
 before storing it. These are hard-stops -- do not write a failing value into
 frontmatter:
@@ -48,8 +55,10 @@ frontmatter:
    ROADMAP is the common case: it is a working document, deleted once its
    features land, so a durable PRD naming it would dangle, and
    `shirabe validate` rejects it as `R11`.
-3. **Does the path resolve in this repo?** Run `git ls-files <path>`. If
-   non-empty, the upstream is durable -- continue.
+3. **Does the path resolve in this repo?** For a same-repo path, run
+   `git ls-files <path>`. If non-empty, the file is tracked rather than a
+   local scratch copy -- continue. A cross-repo `owner/repo:path` value goes
+   straight to check 4.
 4. **Path is out-of-repo?** Detect this repo's visibility from CLAUDE.md
    (`## Repo Visibility:`). If public AND the canonical upstream lives in a
    private repo, STOP and OMIT the `upstream:` field. Public artifacts must
@@ -67,7 +76,8 @@ repo.
 Write a complete PRD draft following the `prd` skill structure. Use the Write tool to
 create `docs/prds/PRD-<topic>.md`.
 
-**When an upstream BRIEF exists (Input Mode 2), read it first.** The brief already
+**When an upstream BRIEF exists (Input Mode 2, or a BRIEF named by
+`--upstream`), read it first.** The brief already
 settled this feature's framing, and four of its five required sections map onto
 sections this PRD must carry:
 
