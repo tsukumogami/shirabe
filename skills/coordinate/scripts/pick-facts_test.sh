@@ -147,7 +147,7 @@ eq "the unit the record holds a roadmap pull request for is landed, with its lin
     "$(facts | jq -r '.units[] | select(.unit == "Feature 4") | .landed')"
 eq "  ... no other unit is" "null null null null" "$(facts | jq -r '[.units[] | select(.unit != "Feature 4") | .landed | tostring] | join(" ")')"
 eq "  ... and it isn't Done for its dependent until the roadmap says so" "true [4]" \
-    "$(facts | jq -c '.units[] | select(.unit == "Feature 5") | .blocked, .blocked_by' | paste -sd' ')"
+    "$(facts | jq -r '.units[] | select(.unit == "Feature 5") | "\(.blocked) \(.blocked_by | tostring)"')"
 . "$HERE/dispatch-common.sh"
 facts > "$T/pick.json"
 dc_unit_forms "$T/pick.json" | grep -qx 'Feature 4' && bad "  ... and the dispatch path renders no brief for it" "$(dc_unit_forms "$T/pick.json")" \
