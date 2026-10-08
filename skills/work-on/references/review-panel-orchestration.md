@@ -21,20 +21,30 @@ panel states its review level names (`references/review-levels.md`):
 | unset (a session from an earlier template) | scrutiny, review, qa_validation | 7 |
 
 `review_level_check` routes `light` to `light_review` and every other level to
-`scrutiny`; `review`'s `passed` goes to `verification` at `standard` and to
+`scrutiny`; a passing `review` goes to `verification` at `standard` and to
 `qa_validation` otherwise. The check holds the run while the level is below the floor
 the facts of the change set, so a level raised on a later lap moves the run onto the
 longer path.
 
-Each panel state accepts `passed`, `blocking_retry`, or `blocking_escalate`. A `blocking_retry`
-returns to `implementation`; `blocking_escalate` routes to `done_blocked` with `failure_reason`
-written to context. Panel states carry `override_default` so skipping is auditable via
-`koto overrides list`. The retry cap is stated in each panel state's directive.
+A panel's pass is koto's, not the agent's. Every finding a seat returns carries
+`severity: blocking` or `severity: advisory`; `panel-scope.sh --record` records a seat as
+blocking exactly when one of its findings is `blocking`, and refuses a round with a finding
+that has neither. Each panel state's `<panel>_verdict` gate runs `panel-scope.sh --verdict
+<panel>` over the ledger: exit 0 (every seat recorded, none blocking) advances with no
+evidence, exit 1 (a seat is blocking) prints one `panel/blocking-finding` finding per
+blocking finding and accepts `blocking_retry` or `blocking_escalate`, and exit 2 (the round
+isn't fully recorded, or the ledger can't be read) holds the state, accepting only
+`blocking_escalate`. A `blocking_retry` returns to `implementation`; `blocking_escalate`
+routes to `done_blocked` with `failure_reason` written to context. There is no `passed`
+value. The verdict gates carry `override_default` so a person's override is the only way
+past one, auditable via `koto overrides list`. The retry cap is stated in each panel
+state's directive.
 
 Every retry clearing step removes all four panels' results keys
 (`scrutiny_results.json`, `review_results.json`, `qa_results.json`,
 `light_results.json`) and `summary.md`, never `verdict_ledger.json` or the review-level
-ledger `review_level.jsonl`.
+ledger `review_level.jsonl`. The results keys are each round's summary for a reader; no
+gate reads them for a panel's pass.
 
 Verdicts are sticky across retries. On entering each panel state koto runs
 `scripts/panel-scope.sh --plan <panel>`, which compares every seat's last verdict in
@@ -48,7 +58,8 @@ are spawned. A panel whose every seat is `keep` is carried: the script writes it
 results key, the `<panel>_carried` gate passes, and koto advances with no evidence. The
 panel state is still entered, so koto's state log counts every round. After each
 round, the agent records the spawned seats with `panel-scope.sh --record`; the
-`<panel>_recorded` gate holds the `passed` and `blocking_retry` edges until it has. The ledger's
+`<panel>_verdict` and `<panel>_recorded` gates hold the passing and `blocking_retry` edges
+until it has. The ledger's
 `history` keeps each round's decisions, reasons, and spawn count.
 
 `blocking_escalate` requires a `failure_reason`

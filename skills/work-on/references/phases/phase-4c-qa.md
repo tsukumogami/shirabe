@@ -32,37 +32,38 @@ The tester writes full results to a `mktemp`-produced file outside the repositor
   "scenarios_passed": 3,
   "scenarios_failed": 0,
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
-  "findings": [{"summary": "<the failing scenario>", "path": "tests/a_test.sh"}],
+  "findings": [{"severity": "blocking", "summary": "<the failing scenario>", "path": "tests/a_test.sh"}],
   "detail_file": "<the tester's mktemp path>"
 }
 ```
 
-`cited` is the code the scenarios exercised; with nothing cited, any fix to a path in the diff re-runs QA. `findings` lists each failing scenario, which a re-check round gets back.
+`cited` is the code the scenarios exercised; with nothing cited, any fix to a path in the diff re-runs QA. `findings` lists each failing scenario with `severity: blocking`, which a re-check round gets back; anything else worth noting that is not a failure goes in as `severity: advisory`. Every finding carries one of the two: the severity is the verdict, and a finding without one makes `--record` refuse the round.
 
 Delete the detail file once the round is aggregated; anything worth keeping goes into `qa_results.json`.
 
 ## Aggregation
 
-After the tester returns, record its verdict, as `phase-4a-scrutiny.md` describes, with `qa` as the panel and `blocking_count` set to `scenarios_failed`:
+After the tester returns, record its verdict, as `phase-4a-scrutiny.md` describes, with `qa` as the panel and one `severity: blocking` finding per failed scenario:
 
 ```bash
 ROUND=$(mktemp)
-# write [{"seat": "tester", "blocking_count": <scenarios_failed>, "cited": [...], "findings": [...]}] to "$ROUND"
+# write [{"seat": "tester", "cited": [...], "findings": [{"severity": "blocking", ...}, ...]}] to "$ROUND"
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record qa <WF> "$ROUND" && rm -f "$ROUND"
 ```
 
 If `--record` fails, fix it and run it again before submitting anything; if it can't be fixed, submit `qa_outcome: blocking_escalate`.
 
-Then:
+Then tick koto with nothing submitted. The `qa_verdict` gate reads the ledger (`panel-scope.sh --verdict qa`) and decides, as at scrutiny:
 
-- If `scenarios_failed > 0`: submit `qa_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' verdicts as well as this one's.
-- If all scenarios pass: write `qa_results.json` to koto context and submit `qa_outcome: passed`.
+- Exit 0, the tester recorded no failing scenario: koto advances to `verification`. Optionally write `qa_results.json` first, as the round's summary for a reader; no gate reads it.
+- Exit 1, scenarios failed: the gate prints one `panel/blocking-finding` finding per failed scenario. Submit `qa_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' summaries as well as this one's.
+- Exit 2, the round isn't recorded or the ledger can't be read: record the round and tick again.
 
 ```bash
 koto context add <WF> qa_results.json < /dev/stdin <<EOF
-{"passed": true, "round": <N>, "scenarios_run": 3, "scenarios_passed": 3}
+{"round": <N>, "scenarios_run": 3, "scenarios_passed": 3}
 EOF
-koto next <WF> --with-data '{"qa_outcome": "passed"}' --no-cleanup
+koto next <WF> --no-cleanup
 ```
 
 `<N>` is the number of the QA round that just ran: 1 the first time through, incremented on each pass through the retry loop below.
@@ -78,8 +79,8 @@ for KEY in scrutiny_results.json review_results.json qa_results.json light_resul
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
     echo "$KEY was not confirmed cleared from context."
-    echo "The stale artifact may still be in place, and its gate may accept it."
-    echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
+    echo "The stale artifact may still be in place, and a later gate may accept it."
+    echo "Do NOT submit $OUTCOME_FIELD: blocking_retry by hand."
     echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
     exit 1
   fi
@@ -87,9 +88,9 @@ done
 koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-cleanup
 ```
 
-The `qa_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a test run against code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
+No gate reads `qa_results.json` for the pass any more, but a summary left in context would read as this round's on the next pass, about a test run against code the coder agent has since changed.
 
-Every key in the list goes, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding verdicts about code that no longer exists. Clearing them doesn't re-run them: `panel-scope.sh` writes a fresh carried verdict for any panel the fix didn't touch, so the gate is satisfied by this round's artifact rather than the stale one. `summary.md` goes too, since the traversal continues through `verification` into `finalization`. Why the block checks both signals is in `phase-4a-scrutiny.md`.
+Every key in the list goes, not only this panel's. A retry raised here is the widest case: the run returns to `implementation` and walks forward through `scrutiny` and `review` before reaching this phase again, so both of those panels are re-entered holding summaries about code that no longer exists. Clearing them doesn't re-run them: `panel-scope.sh` writes a fresh carried summary for any panel the fix didn't touch, and the verdict ledger, not the summary, is what each panel's `<panel>_verdict` gate reads. `summary.md` goes too, since the traversal continues through `verification` into `finalization`. Why the block checks both signals is in `phase-4a-scrutiny.md`.
 
 ## Escalation
 

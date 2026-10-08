@@ -64,6 +64,8 @@ HEAD. Don't re-review anything else; the rest of the change kept its
 verdict. If the packet's `fix diff from:` line says `fallback:`, the diff
 is wider than the fix, from the start of the change; judge the same
 questions on it. An empty fix diff means nothing fixed the findings.
+Return each finding that still holds, and each the fix introduced, with
+`severity: blocking`; a fixed one is not returned.
 ```
 
 The QA tester's re-check also runs each failing scenario again, since its
