@@ -228,6 +228,9 @@ queue() {
     case "$r/" in "$INSTANCE"/*) ;; *) return 1 ;; esac
     for q in ${QUEUE[@]+"${QUEUE[@]}"}; do [ "$q" = "$r" ] && return 0; done
     QUEUE+=("$r")
+    # Inside a clone's background read, a clone it finds is also written out
+    # for the main loop, which owns the queue.
+    [ -z "${QUEUED_FILE:-}" ] || printf '%s\n' "$r" >>"$QUEUED_FILE"
 }
 
 # files_changed <dir>: write to $WORK/why the clone's files hold something no commit
@@ -416,6 +419,11 @@ check_repo() {
         note 2 "error $rel: whether it pushed $(head -1 "$WORK/reflog-failed") can't be read, so a commit only that ref holds can't be ruled out"
         return
     fi
+    # A tip whose object is one of origin's live ids is on origin by
+    # definition, so it needs no walk. Most of a clone's tags are, and a walk
+    # per tag was most of the scan's time.
+    awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$WORK/live" "$WORK/tips" >"$WORK/tips.left" &&
+        mv "$WORK/tips.left" "$WORK/tips"
     local sha name bname n base target label merge paths p want have differ
     [ -f "$WORK/tree-$key-$dsha" ] || tree_map "$repo" "$dsha" "$WORK/tree-$key-$dsha" || {
         note 2 "error $rel: the default branch's tree could not be read ($(tail -1 "$WORK/gh.err"))"; return; }
@@ -531,18 +539,61 @@ done <"$WORK/heads"
 if [ "${#QUEUE[@]}" -eq 0 ] && [ "$WORST" -eq 0 ]; then
     note 0 "durable . (vs -): no git repositories"
 fi
+# Clones are read in waves of up to TEARDOWN_PARALLEL at once, each in its own
+# background job with its own scratch directory, and their lines are joined
+# in queue order, so the verdict reads as a serial scan's would. A clone a
+# read finds (a submodule, a nested clone, a worktree) joins a later wave.
+# Each job sees as already read the git directories of every clone queued
+# before it, which is what a serial scan would have seen: a linked worktree
+# after the first clone of its repository reads only its own files and HEAD.
+# (A clone queued earlier that failed before reaching its refs makes the
+# verdict an error anyway, so the worktree reading less can't hide anything.)
+PARALLEL="${TEARDOWN_PARALLEL:-8}"
+case "$PARALLEL" in '' | *[!0-9]* | 0) PARALLEL=8 ;; esac
 i=0
 while [ "$i" -lt "${#QUEUE[@]}" ]; do
-    dir=${QUEUE[$i]}
-    i=$((i + 1))
-    rel=${dir#"$INSTANCE"}
-    rel=${rel#/}
-    [ -n "$rel" ] || rel=.
-    if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
-        note 2 "error $rel: not inventoried; the scan ran out of its ${TOTAL_SECS}s budget"
-        continue
-    fi
-    check_repo "$dir" "$rel"
+    end=$((i + PARALLEL))
+    [ "$end" -gt "${#QUEUE[@]}" ] && end=${#QUEUE[@]}
+    j=$i
+    while [ "$j" -lt "$end" ]; do
+        dir=${QUEUE[$j]}
+        rel=${dir#"$INSTANCE"}
+        rel=${rel#/}
+        [ -n "$rel" ] || rel=.
+        C="$WORK/c$j"
+        mkdir "$C" || exit 2
+        : >"$C/verdict"
+        : >"$C/queued"
+        if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
+            printf 'error %s: not inventoried; the scan ran out of its %ss budget\n' "$rel" "$TOTAL_SECS" >"$C/verdict"
+            printf '2\n' >"$C/worst"
+            j=$((j + 1))
+            continue
+        fi
+        (
+            WORK=$C VERDICT="$C/verdict" QUEUED_FILE="$C/queued" WORST=0
+            check_repo "$dir" "$rel"
+            printf '%s\n' "$WORST" >"$C/worst"
+        ) &
+        # The clones after this one see its git directory as read.
+        common=$(ig "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+            common=$(cd -P "$common" 2>/dev/null && pwd -P) && SEEN_COMMON+=("$common")
+        j=$((j + 1))
+    done
+    wait
+    j=$i
+    while [ "$j" -lt "$end" ]; do
+        C="$WORK/c$j"
+        cat "$C/verdict" >>"$VERDICT"
+        w=$(cat "$C/worst" 2>/dev/null) || w=
+        case "$w" in 0 | 1 | 2) ;; *) w=2; printf 'error %s: its read ended without a verdict\n' "${QUEUE[$j]#"$INSTANCE"/}" >>"$VERDICT" ;; esac
+        [ "$w" -gt "$WORST" ] && WORST=$w
+        while IFS= read -r q; do
+            [ -n "$q" ] && queue "$q"
+        done <"$C/queued"
+        j=$((j + 1))
+    done
+    i=$end
 done
 
 if [ "$SEAL" = 1 ]; then

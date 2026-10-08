@@ -378,6 +378,18 @@ if [ -e "$T/filter-ran" ]; then bad "the clone's filter never runs" ""; else ok 
 has "a skip-worktree edit: unique" "$OUT10" "unique skip: uncommitted changes"
 has "an assume-unchanged edit: unique" "$OUT10" "unique assume: uncommitted changes"
 has "a local tag's commit: unique" "$OUT10" "tag t1 changed a.txt"
+
+# Clones are read in parallel waves; the verdict must be what a serial scan
+# prints, line for line, including a linked worktree read in the same wave as
+# its repository and clones found during the walk (nested, submodule).
+for inst in "$I" "$I3" "$I10"; do
+    SER=$(TEARDOWN_PARALLEL=1 bash "$S" --topic plugin-api --instance "$inst" 2>&1)
+    PAR2=$(TEARDOWN_PARALLEL=2 bash "$S" --topic plugin-api --instance "$inst" 2>&1)
+    PARD=$(bash "$S" --topic plugin-api --instance "$inst" 2>&1)
+    eq "parallel waves of 2 print the serial verdict for ${inst#"$T"/}" "$SER" "$PAR2"
+    eq "the default waves print the serial verdict for ${inst#"$T"/}" "$SER" "$PARD"
+done
+eq "a bad TEARDOWN_PARALLEL falls back to the default" "$OUT10" "$(TEARDOWN_PARALLEL=x bash "$S" --topic plugin-api --instance "$I10" 2>&1)"
 has "a clone in an ignored directory: inventoried" "$OUT10" "unique nest/vendor/inner: uncommitted changes"
 has "that ignored directory isn't the outer clone's change" "$OUT10" "durable nest"
 
