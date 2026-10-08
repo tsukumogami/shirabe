@@ -135,11 +135,11 @@ would this AC still pass?
 
 **Concrete example:**
 
-> AC: "After running `tsuku install ripgrep`, the `$HOME/.tsuku/bin/rg` symlink exists."
+> AC: "After running `tsuku install ripgrep`, the `~/.tsuku/bin/rg` symlink exists."
 
 A wrong implementation that creates the symlink unconditionally during startup — not
 during install — passes this AC. A discriminating AC would verify: "Before install,
-`$HOME/.tsuku/bin/rg` does not exist. After install, it exists and resolves to a valid
+`~/.tsuku/bin/rg` does not exist. After install, it exists and resolves to a valid
 binary."
 
 **Correction hint template:** "Add a precondition — verify the [state/file/entry]
@@ -257,7 +257,7 @@ same issue body includes a content assertion about the same artifact, do not fla
 
 **Concrete example:**
 
-> AC: "The `$HOME/.tsuku/registry/ripgrep.toml` file exists after installation."
+> AC: "The `~/.tsuku/registry/ripgrep.toml` file exists after installation."
 
 A wrong implementation that creates an empty TOML file passes this AC. A discriminating
 AC would add: "The file contains a `[recipe]` block with the `name`, `version`, and
