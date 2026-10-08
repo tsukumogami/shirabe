@@ -19,9 +19,10 @@ decision: |
   pick and land, reads which pauses are in force. `pick_facts` marks each
   paused unit; `dispatch_check` refuses a dispatch of one with a new verdict,
   `paused`, back to `wait`; `land` refuses a merge with the same word, to
-  `surface`, where the holding's Phase is `held`; `dispatch-worker.sh` and
-  `land-merge.sh` re-read before they act. Verification, record writes,
-  report intake, decisions and teardown go on. A resume is the row ending: a
+  `surface`, where the holding's Phase is `held`; `land-merge.sh` re-reads
+  before it merges; and a paused unit's request leg stays unread until the
+  resume. Verification, record writes, message intake, decisions and
+  teardown go on. A resume is the row ending: a
   person's word relayed through `record-state.sh --end`, or the stored
   condition read as met at the next pick, which a new `resume` wake event
   brings, with no session timer. A
@@ -186,14 +187,23 @@ with no compatibility read.
 it pushed. Concretely, in its scope:
 
 - **dispatch**: a new dispatch, a scoping-ahead dispatch, sending a scoped
-  unit its execution, a re-dispatch after a failure, a re-brief, and a
-  replaced leg;
-- **merge**: the land step, and the merge script it hands to.
+  unit its execution, and a re-dispatch after a failure, all of which pass
+  `dispatch_check`;
+- **merge**: the land step, and the merge script it hands to;
+- **a leg's result**: a leg-bound worker's result stays unread in koto until
+  the resume, so nothing consumes it while its follow-on can't happen.
+
+A re-brief is still sent, since it only puts the fix on record, and its message
+says the fix starts at the resume; the pause line already told the worker to do
+nothing until then. A replaced leg can't arise for a paused unit, because a
+spent leg is found only by reading it.
 
 **What goes on:** reading CI and verifying a head, since a read starts no work;
 every record write; report intake, classification and decisions, including an
 escalation to a person; teardown of a worker whose pull request has merged,
-which only removes cost; and the progress report. A pause is the loop's
+which only removes cost; and the progress report. Reading CI and verifying go on for a message-path
+worker's report; a leg-bound worker's report is its leg, held as above. A pause
+is the loop's
 posture, not a stop: the coordinator still answers its workers and its
 dispatcher.
 
@@ -201,35 +211,40 @@ dispatcher.
 `board-lib.sh`), takes the record's parsed Standing rows and a unit, and says
 which pauses are in force for it and why. It evaluates `merged` and `tag` with
 the same reads `bl_holds_eval` makes, refactored into one condition reader
-both call. Four places use it:
+both call. These places use it:
 
 1. `pick-facts.sh` puts the in-force pauses in `coord/pick.json`, with each
    row's state (`in-force`, `met`, `unreadable`), and marks every unit and
    holding the pause covers with the row's id (`paused: "s4"`). Pick's rule:
-   a paused unit is never chosen; while `all` is in force, `hold`.
+   a paused unit is never chosen; while `all` is in force, `hold`. Pick's
+   marking is what the coordinator chooses by, and the dispatch check's refusal
+   below is what stops a choice that ignores it; both are kept.
 2. `deferral-check.sh`, the `dispatch_check` action, refuses a pick or
    re-dispatch whose unit a pause covers: `paused <id>`, routed to `wait`,
    with the row in `coord/dispatch_check.json`. It comes after
    `unknown-topic`, `unresolved-topic` and `record-changed`, which say the
    check can't name the unit or read the record, and before every other
    verdict, so a paused unit isn't sent to dispose of deferrals or settle
-   decisions for a dispatch that can't happen.
+   decisions for a dispatch that can't happen. `record-changed` means the
+   record is gone, closed or no longer canonical, never that a row changed,
+   so the `--end` written just before a resume doesn't trip it.
 3. `land-check.sh`, right after the head re-read and the merge state, before
    the panel evidence, the body checks and the holds, refuses a pull request
    whose unit a pause covers: `paused <pr> <sha>`, routed to `surface`, with
    the rows in `coord/land.json`. Reading it first means a paused pull request
-   that is also unready isn't sent to a re-brief the pause would refuse. The surface directive writes
+   that is also unready isn't asked for a fix before its merge could happen
+   anyway. The surface directive writes
    Phase `held`, the existing word for a ready pull request waiting on
    something other than the merge, and `record-confirm.sh` requires it, as it
    does after `held`.
-4. `dispatch-worker.sh` and `land-merge.sh` re-read the pauses just before
-   they act, as `land-merge.sh` already re-reads the holds, so a pause written
-   after the check still stops the launch or the merge. The dispatch script's
-   read is the only one a re-brief and a replaced leg meet: `rebrief` and
-   `leg_spent` run `dispatch-worker.sh` directly and never pass
-   `dispatch_check`. A refused re-brief or replaced leg submits a new value,
-   `paused`, at `rebrief` and `leg_spent`, both back to `wait`; the holding's
-   Work row says what is owed at the resume.
+4. `land-merge.sh` re-reads the pauses just before it merges, as it already
+   re-reads the holds, so a pause written after the land check still stops
+   the merge, which can't be undone. A dispatch isn't re-read the same way:
+   `dispatch_check` runs one step before the launch, and a launch can be
+   stopped afterwards by a message.
+5. `wait-target.sh`, the `leg_pick` action, passes over a resolved leg whose
+   holding a pause covers, leaving it untaken, and says so in its detail; a
+   `leg` tick after the resume offers it.
 
 `quiet-check.sh` treats a holding a pause covers as not silent: its worker was
 told to stop at a safe point, so its silence is what the pause asked for, and a
@@ -299,14 +314,27 @@ ticks `resume` on it. That wait is session-local and dies with the session,
 but it is never the store: a session that dies leaves the time in the record,
 and its replacement's first pick reads it.
 
-**Reports that arrive while paused** are taken, recorded and classified as
-usual, never refused. What they lead to is held: a ready pull request goes
-through verify to `land`, which reads the pause and surfaces it as held with
-the pause named; a fix round is the re-brief `dispatch-worker.sh` refuses, kept
-as the holding's Work row's next step; a blocker goes to the person as a need,
-as it would unpaused. On the resume, a held pull request goes back through
-`verify`, as one under a hold does when its event arrives, and owed re-briefs
-are sent from the Work rows.
+**Reports that arrive while paused** are never refused. A message is taken,
+recorded and classified as usual, and what it leads to is held: a ready pull
+request goes through verify to `land`, which reads the pause and surfaces it as
+held with the pause named; a fix round is re-briefed with a message saying it
+starts at the resume; a blocker goes to the person as a need, as it would
+unpaused. A leg-bound worker's result stays in its leg, unread.
+
+**What the resume re-enters.** Each held thing goes back through a route the
+template already has, so the resume adds no new edge but `resume` itself:
+
+- a leg-bound worker's result: the coordinator ticks `leg` after the resume,
+  and `leg_pick` now offers the leg it passed over;
+- a message-path worker whose pull request the pause held at `land`: the resume
+  line asks it to send its ready report again, which comes back through
+  `wait` to `take_report`, `classify_report`, `verify` and `land`, the way a
+  report is brought back after a board that was still pending;
+- a re-brief already sent: the resume line tells the worker to start it;
+- a dispatch the pause held: the pick that `resume` brings chooses it.
+
+The resume line goes to every live worker in the pause's scope, and each
+holding's Work row is rewritten with what it resumes to.
 
 #### Alternatives considered
 
@@ -426,7 +454,9 @@ resumes it; the account's reset does. So the loop never writes a pause for one.
 It shows as a worker's runs executing nothing (nested sessions exiting without
 running, as on 2026-10-07), as silence, or as the coordinator's own session
 stopping. The coordinator writes one entry saying what it saw, with
-`record-append.sh`, so the account explains the gap. On the reset it messages
+`record-append.sh`, so the account explains the gap. The coordinator learns of
+the reset from its own session running again, a person saying so, or a
+worker's next message. On the reset it messages
 each live worker to continue from its last checkpoint and re-run whatever
 executed nothing. The brief template gains one line for workers: a run the
 limit cut short (nested sessions that executed nothing) is not a result, is
@@ -501,8 +531,7 @@ What the roadmap's block asks for that this declines:
 ```
 dispatch_check --paused--> wait
 land           --paused--> surface        (Phase held, confirmed at record)
-rebrief        --paused--> wait           (evidence value)
-leg_spent      --paused--> wait           (evidence value)
+leg_pick       passes over a paused unit's leg, leaving it untaken
 wait           --resume--> pick_facts
 wait: the wake rule in its directive
 ```
@@ -519,10 +548,10 @@ fixtures gain a paused case.
 | `skills/coordinate/scripts/record-state.sh` | `--standing pause` and `go-ahead` take `--on` and `--until`; the unit and condition checks | 1 |
 | `skills/coordinate/scripts/pause-lib.sh` | new: which pauses cover a unit, and each one's state | 1 |
 | `skills/coordinate/scripts/board-lib.sh` | the condition reader shared by holds and pauses | 1 |
-| `skills/coordinate/scripts/pick-facts.sh`, `deferral-check.sh`, `land-check.sh`, `land-merge.sh`, `dispatch-worker.sh`, `quiet-check.sh`, `record-confirm.sh` | read the pauses and act on them | 1 |
+| `skills/coordinate/scripts/pick-facts.sh`, `deferral-check.sh`, `land-check.sh`, `land-merge.sh`, `wait-target.sh`, `quiet-check.sh`, `record-confirm.sh` | read the pauses and act on them | 1 |
 | `skills/coordinate/scripts/coord-verdict.sh`, `coord-verdict-table_test.sh` | `paused` | 1 |
 | `skills/coordinate/scripts/progress-view.sh`, `merge-order-entry.sh` | report the pauses | 1 |
-| `skills/coordinate/koto-templates/coordinate.md`, `coordinate.mermaid.md`, `coordinate.pick.choice.decider.jsonl`, `scripts/decider-declarations.tsv`, `references/loop.md`, `SKILL.md` | the arms, the `paused` evidence values, the `resume` event, the pause and resume directives | 1 |
+| `skills/coordinate/koto-templates/coordinate.md`, `coordinate.mermaid.md`, `coordinate.pick.choice.decider.jsonl`, `scripts/decider-declarations.tsv`, `references/loop.md`, `SKILL.md` | the arms, the `resume` event, the pause and resume directives | 1 |
 | `skills/coordinate/scripts/record-codec.jq`, `record-state.sh`, `references/record-template.md` | Work's Wakes column and its count from the log; the final entry | 2 |
 | `skills/coordinate/koto-templates/coordinate.md`, `SKILL.md` | the wake rule in `wait`; the leg watch; the limit stop; the known limitation closed | 2 |
 | `skills/coordinate/references/brief-template.md` | a run the limit cut short is not a result | 2 |
@@ -541,14 +570,17 @@ changed state.
    request with `paused` and the row's id, while the other unit dispatches;
    ending that row releases it and only it; a pause on `all` refuses both
    units; a `time` pause whose minute has passed releases both at the next
-   pick a `resume` tick brings, with no timer; and a replacement session started on the record alone,
-   with a pause standing, reaches pick and finds it in force. Unit tests cover
-   the evaluator's conditions, the go-ahead, the six-column read, and the
-   rendering.
+   pick a `resume` tick brings, with no timer; a leg-bound holding's resolved
+   leg is passed over while paused and read by the first `leg` tick after the
+   resume; the pull request held at `land` reaches `land` again from its
+   re-sent report after the resume and is refused no longer; and a replacement
+   session started on the record alone, with a pause standing, reaches pick
+   and finds it in force. Unit tests cover the evaluator's conditions, the
+   go-ahead, the codec's checks, and the rendering.
 2. **Quiet waiting.** Decision 4. The Wakes column and its count, the final
    entry, the wait directive, the brief template's line. A test feeds a session
-   log with wakes before and after a Work write and checks the count and the
-   entry; an eval checks the wait directive arms no expiring timer.
+   log with wakes before, inside and after the minute of a Work write and
+   checks the count, the floor at that minute, and the entry; an eval checks the wait directive arms no expiring timer.
 
 ## Security Considerations
 
@@ -575,9 +607,9 @@ GitHub with the same calls holds make.
 
 ### Negative
 
-- The Standing and Work tables grow columns, so a handoff or record written by
-  an unreleased build from main between the stored set's merge and this one
-  needs its two tables rewritten once.
+- A `merged` or `tag` pause on a unit nothing else is happening on is read at
+  the next wake of any kind, since its event may arrive as no notification
+  the coordinator receives.
 - Until the workspace manager delivers pauses, the coordinator still messages
   each worker, and a worker with no socket still needs someone else to reach
   it.
@@ -587,8 +619,9 @@ GitHub with the same calls holds make.
 
 ### Mitigations
 
-- No release carries the old form, and no live record holds a Standing or
-  Work section yet.
+- The coordinator ticks `resume` whenever a notification names the pull
+  request or tag a pause waits on, and the progress table lists every pause
+  with its condition, so a person can see what it waits on.
 - The Work rows record who was told; an unreachable worker is reported up.
 - The one silent wait until the resume's minute brings the `resume` tick, and
   a person's message is always a wake.
