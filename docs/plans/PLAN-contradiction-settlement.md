@@ -573,7 +573,7 @@ pull request:
 
 **Acceptance Criteria**:
 - [ ] Follows the PLAN's rules, as Issue 1 states them.
-- [ ] Covers `prd-upstream-roadmap`, resolved to the DESIGN's winner: Phase 3 no longer says the upstream typically points to a ROADMAP, and the `upstream-propagation` eval expects a BRIEF recorded as upstream.
+- [ ] Covers `prd-upstream-roadmap`, resolved to the DESIGN's winner (the validator's legal upstream types): Phase 3 and `prd-format.md` both say a PRD names a BRIEF normally, a STRATEGY or VISION when no brief exists, and never a ROADMAP, and the `upstream-propagation` eval expects that.
 - [ ] The repository's prd tests and evals pass.
 
 **Dependencies**: Blocked by <<ISSUE:6>>

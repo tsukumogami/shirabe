@@ -934,7 +934,7 @@ Winner: `skills/prd/references/phases/phase-4-validate.md#L248-L253`. Phase 4 is
 
 #### `prd-upstream-roadmap`
 
-Whether a PRD may name a ROADMAP as its upstream. Class: **mechanical**. Profiles: `scope`.
+Which documents a PRD may name as its upstream. Class: **mechanical**. Profiles: `scope`.
 
 Statements:
 
@@ -943,9 +943,10 @@ Statements:
 
 What runs:
 
+- `crates/shirabe-validate/src/formats.rs#L322`: the PRD format's legal upstream types are BRIEF, STRATEGY and VISION. Excerpt: `legal_upstream: vec![FormatId::Brief, FormatId::Strategy,`
 - `crates/shirabe-validate/src/validate.rs#L266-L270`: R10/R11 reject an upstream of an illegal type or one that does not outlive the document. Excerpt: `` // 2c. (R10/R11) The `upstream` field names ``
 
-Winner: `skills/prd/references/prd-format.md#L37-L41`. The validator's R11 rejects a durable PRD naming a ROADMAP, which the cascade deletes once its features land, and prd-format.md states the same rule. Phase 3's upstream rule and the upstream-propagation eval, which expects a ROADMAP recorded as upstream, change to match. Found during execution, after the inventory closed.
+Winner: `crates/shirabe-validate/src/formats.rs#L322`. The validator decides: a PRD may name a BRIEF, a STRATEGY or a VISION, and R11 rejects a durable PRD naming a ROADMAP, which the cascade deletes once its features land. Both statements lose: Phase 3's ROADMAP default is wrong, and prd-format.md's BRIEF-only rule is narrower than the code. Both now say a BRIEF normally, a STRATEGY or VISION when no brief exists, and never a ROADMAP. Found during execution, after the inventory closed; an earlier reading named prd-format.md the winner before the validator's type list was checked.
 
 #### `plan-single-pr-draft-commit`
 
