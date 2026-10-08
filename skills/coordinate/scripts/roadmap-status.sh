@@ -45,13 +45,13 @@
 # which would open a second one on a new branch.
 #
 # Exit codes: 0 done (prints the pull request's URL, or the record's) or
-# printed; 1 --confirm: the roadmap doesn't read Done yet; 2 a read failed; 10
-# refused about the record (no found record, not a canonical one, or from the
-# write core: not open, provenance, a directed transition); 65 refused about
-# the request (below); 11 a write failed; 12 the record changed between this script's
-# read and its write; 13 the record is full; 14 the record was written but its
-# entry wasn't posted; 64 usage (and any scope but a roadmap); 65 refused (the
-# reason on stderr).
+# printed; 1 --confirm: the roadmap doesn't read Done yet; 2 a read failed;
+# 10 refused about the record (no found record, not a canonical one, or from
+# the write core: not open, provenance, a directed transition); 11 a write
+# failed; 12 the record changed between this script's read and its write; 13
+# the record is full; 14 the record was written but its entry wasn't posted;
+# 64 usage (and any scope but a roadmap); 65 refused about the request: the
+# tag, the feature's state, a pending pull request (the reason on stderr).
 #
 # GitHub calls:
 #   reads:  gh issue view N --repo R --json body
@@ -196,6 +196,8 @@ BASE_SHA=$(gh api --method GET "repos/$REPO/git/ref/heads/$DEFAULT_BRANCH" --jq 
 gh api --method GET "repos/$REPO/contents/$ROADMAP?ref=$BASE_SHA" > "$WD/contents.json" 2> "$WD/c.err" < /dev/null \
     || lib_die2 "cannot read $ROADMAP at $BASE_SHA: $(lib_scrub < "$WD/c.err")"
 BLOB=$(jq -r '.sha // empty' "$WD/contents.json")
+# The contents API leaves a file over one megabyte without its content.
+[ -n "$(jq -r '.content // empty' "$WD/contents.json")" ] || lib_die2 "the contents API gave no content for $ROADMAP (a file over 1 MB?)"
 [[ $BLOB =~ $RE_SHA ]] || lib_die2 "$ROADMAP's blob sha is not a sha"
 jq -r '.content // ""' "$WD/contents.json" > "$WD/roadmap.b64" && lib_b64d "$WD/roadmap.b64" "$WD/roadmap.md" || lib_die2 "cannot decode $ROADMAP"
 FEATURE=$(lib_roadmap_features "$WD/roadmap.md" | jq -c --arg t "$TAG" '[.[] | select(.id == $t)][0] // empty')

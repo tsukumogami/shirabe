@@ -11,9 +11,9 @@
 # roadmap on the default branch doesn't read Done, then removing the row once
 # it does; --drop removing it with the reason; an outcome with backslashes, &
 # and % written exactly; a CRLF roadmap keeping CRLF; the roadmap read at the
-# default branch's head commit, which the branch starts from; refusals: a tag that isn't a
-# feature, one already Done, a discipline scope, a malformed tag, an outcome
-# over two lines; nothing is ever merged.
+# default branch's head commit, which the branch starts from; refusals: a
+# tag that isn't a feature, one already Done, a discipline scope, a malformed
+# tag, an outcome over two lines; nothing is ever merged.
 #
 # Usage: bash skills/coordinate/scripts/roadmap-status_test.sh
 set -uo pipefail
