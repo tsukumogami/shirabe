@@ -47,10 +47,12 @@ reachable; the committed copy is what the re-count reads.
   the design prints for it, exactly once in its file at the inventory commit
   (`662f6ec`), inside the span's line range (or above it, for an excerpt the
   design marks `above:`). A missing or repeated excerpt fails the run and names
-  the entry. Two excerpts quote a skill's `wip/` path template, which the
-  repository's public-content check refuses in added text, so `spans.json`
-  stores those two as a sha256 and a length, and the script finds them by
-  hashing each substring of that length.
+  the entry. An excerpt that `scripts/ablation/check-public-content.sh` refuses
+  can't be added as text: two do, one in `dp-design-duplicates` and one in
+  `dp-prd-internal-restatements`, because each quotes a skill's
+  work-in-progress path template. `spans.json` stores those two as a sha256
+  and a length, and the script finds them by hashing each substring of that
+  length.
 - **The estimate.** The per-profile estimate is recomputed from the spans the
   way the design computed it (overlapping spans counted once per profile, a
   pointer-loaded file counted in full) and must equal the design's figure.
@@ -60,9 +62,14 @@ reachable; the committed copy is what the re-count reads.
   the design's estimate as it stands, with nothing taken off it.
 - **Dropped rows.** Each row in `dropped-rows.tsv` must exist in the load
   manifest. A `pointer-removed` file must be named, as a whole file name, by no
-  span the profile still loads at the measured commit. A `reference-table` file
+  span the profile still loads at the measured commit. The spans are the ones
+  the manifest counts, so a YAML comment in a template's frontmatter, which
+  koto never shows the agent, isn't searched; `work-on.md`'s frontmatter
+  still names two of the dropped files that way. A literal mention that isn't
+  a pointer (one example value in a code block) is listed in the row's fourth
+  column, and the run fails if that text disappears. A `reference-table` file
   relies on `/scope`'s SKILL.md saying that nothing in its reference table is
-  read up front.
+  read up front; that one is a judgement, set out under "Reading the figures".
 
 ## How it counts
 
@@ -198,6 +205,10 @@ Contradictions in the inventory: 48 (38 mechanical, 10 policy). `prd-complexity-
 | `scope` | `references/parent-skill-child-inspection.md` | reference-table | 8,821 | 8,821 |
 | `scope` | `references/parent-skill-security.md` | reference-table | 7,433 | 7,433 |
 | `scope` | `references/worktree-discipline.md` | kept: a directive still names it | 8,482 | 8,949 |
+
+Rows removed from `work-on` at main: 7,791 tokens, 16.7% of its raw load at the pin.
+Rows removed from `execute-single-pr` at main: 3,002 tokens, 7.3% of its raw load at the pin.
+Rows removed from `scope` at main: 24,952 tokens, 11.0% of its raw load at the pin.
 <!-- recount:end -->
 
 ## Reading the figures
@@ -205,13 +216,15 @@ Contradictions in the inventory: 48 (38 mechanical, 10 policy). `prd-complexity-
 **Against the estimate, the deletions landed.** In the rows-removed view
 every profile but `deliver` realized more than 90% of its estimate, and in
 `deliver` the rest of the text is gone too, removed by a commit outside the
-settlement set (below). The settlement pull requests also removed part of the
-spans held for policy items, which the estimate leaves out. The withholding
-candidates are still in place, apart from the part of the introspection
-evidence the PLAN let the `/work-on` pull request delete (the outcome values
-koto's evidence schema already delivers) and the key-list line of each
-retry-clearing block, which #609 rewrote to add `light_results.json` to the
-keys a retry clears.
+settlement set (below). "Realized" counts a rewritten line as removed, so it
+is the upper bound of what was deleted; the net change columns show what the
+same pull requests added back. The settlement pull requests also removed part
+of the spans held for policy items, which the estimate leaves out. The
+withholding candidates are still in place, apart from the part of the
+introspection evidence the PLAN let the `/work-on` pull request delete (the
+outcome values koto's evidence schema already delivers) and the key-list line
+of each retry-clearing block, which #609 rewrote to add `light_results.json`
+to the keys a retry clears.
 
 **The net change is smaller than what was removed.** The settlement pull
 requests also added text: the ten policy rulings, rewritten winners, and a
@@ -225,25 +238,51 @@ more (the panel retry and review-seat work among them), which the "every
 other commit" row shows. Compare the settlement rows, not the before and
 after columns, to see what settlement did.
 
-**The `scope` rows-removed view keeps `references/worktree-discipline.md`.**
-The design counts six files against `/scope`'s reference table. After the
-table was corrected, five of them are only cited ("see", "per"), and the
-baseline's model already had the run not reading them. Phase 2's first step
-still tells the agent to run the staleness check from
-`references/worktree-discipline.md`, so its row stays.
+**Which `/scope` rows the rows-removed view drops is a judgement.** The test
+applied: a file stays loaded when a step the modelled run takes tells the
+agent to carry out a procedure that lives in that file, and leaves the load
+when the run's files only cite it for where a term or a rule is defined.
+Phase 2's first step says to run the three-phase staleness flow "from"
+`references/worktree-discipline.md`, so that row stays. The five parent-skill
+references are cited ("per", "see", "is in", "extensions from"), and the
+baseline's model already had the run not reading them: they carry weight 0,
+so they were never in the weighted figure, only in raw. Two citations come
+close to the line: SKILL.md's exit-finalization step names the R9 extensions
+"from" `parent-skill-state-schema.md`, and Phase 2 points to
+`parent-skill-pattern.md`'s Dispatch Contract. Read `scope`'s rows-removed
+figure as the upper bound of what settlement took out of its raw load and the
+as-is figure as the lower bound. The design reported the six files as 11.9%
+of `scope`'s raw load; the five dropped here are the share printed under the
+last table.
+
+**The manifest keeps the dropped rows.** The baseline's "Maintaining the
+baseline" rules require a restatement when a file or state the manifest lists
+is removed; these files all still exist, so `count` still succeeds and no
+restatement is owed. Whether the baseline itself should stop counting them is
+a change to its load model, not something a re-count decides, and it is
+proposed for the contradiction-settlement follow-up issue (#659). Until then,
+a measurement that wants the post-settlement load should apply
+`dropped-rows.tsv`, as `recount.py` does.
+
+Only raw figures are compared: the design's estimate is a raw figure, and the
+weights are fixed inputs the settlement didn't change. `count` prints the
+weighted figures at any commit for a reader who wants them.
 
 ## Shortfalls over 10% of the estimate
 
-Per entry, two fall short in the rows-removed view, and two profiles fall
-short in the as-is view.
+Two entries fall short in the rows-removed view. In the as-is view three
+profiles fall short: `deliver` for the reason its entry gives, and `work-on`
+and `execute-single-pr` for the reason in the last bullet.
 
 - **`dp-work-on-rationale`.** Two spans in `references/pr-body-conformance.md`
-  are still there: the "Why a single source" section and the paragraph
-  explaining which slice of the body check PB4 gates. The `/work-on` pull
-  request (#557) edited that file only to correct the check count (PB1-PB3 to
-  PB1-PB4) and recorded no reason for keeping either span. Both are rationale,
-  as the design classed them; `work-on` and `execute-single-pr` still load
-  them. The other kept bytes are the title line of
+  are still there: the "Why a single source" section, and the span that runs
+  from the paragraph explaining which slice of the body check PB4 gates
+  through the "Accepted residuals" and "Consumers" sections. The `/work-on`
+  pull request (#557) edited that file only to correct the check count
+  (PB1-PB3 to PB1-PB4) and recorded no reason for keeping either span. The
+  design classed both as rationale; `work-on` and `execute-single-pr` still
+  load them. Deleting them, or recording why they stay, is proposed for the
+  follow-up issue (#659). The other kept bytes are the title line of
   `skills/work-on/references/koto-context-conventions.md`, which the deletion
   of the paragraph under it left as the file's heading.
 - **`dp-deliver-skill`.** All of it is gone, but part was removed before the

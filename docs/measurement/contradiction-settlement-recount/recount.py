@@ -77,6 +77,15 @@ def fmt(n):
 
 # ---------------------------------------------------------------- extract
 
+PUBLIC_CHECK = os.path.join(HERE, "..", "..", "..", "scripts", "ablation", "check-public-content.sh")
+
+
+def public_ok(text):
+    """Whether scripts/ablation/check-public-content.sh accepts the text."""
+    out = subprocess.run([PUBLIC_CHECK, "-"], input=(text + "\n").encode("utf-8"), capture_output=True)
+    return out.returncode == 0
+
+
 def extract(commit):
     """Rebuild spans.json's inventory part from the coordination commit."""
     inv = json.loads(show(commit, "docs/designs/contradiction-settlement/inventory.json"))
@@ -109,11 +118,10 @@ def extract(commit):
             ex = excerpts.get((it["id"], sp["loc"]))
             if ex is None:
                 raise SystemExit("no excerpt in the DESIGN for %s %s" % (it["id"], sp["loc"]))
-            # An excerpt quoting a wip/ path template would trip the
-            # repository's public-content check, which refuses a wip/ file
-            # path in added text; such an excerpt is stored as its sha256 and
-            # length, and found by hash.
-            if "wip/" in ex:
+            # An excerpt the repository's public-content check refuses (two
+            # quote a skill's work-in-progress path template) can't be added
+            # as text; it is stored as its sha256 and length, and found by hash.
+            if not public_ok(ex):
                 above = ex.startswith("above: ")
                 raw = ex[len("above: "):] if above else ex
                 s = {"loc": sp["loc"], "excerpt_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
@@ -340,15 +348,19 @@ def main():
         base = os.path.basename(path)
         named = re.compile(r"(?<![\w.-])" + re.escape(base))
         if reason == "pointer-removed":
+            found_exempt = False
             for r in reduced:
                 f = r.split("\t")
                 if f[0] != prof:
                     continue
                 t = span_text(AFTER, f[1], f[2])
-                if not_pointer:
+                if not_pointer and not_pointer in t:
+                    found_exempt = True
                     t = t.replace(not_pointer, "")
                 if named.search(t):
                     problems.append("%s still loads a span naming %s: %s %s" % (prof, base, f[1], f[2]))
+            if not_pointer and not found_exempt:
+                problems.append("%s: the not-a-pointer text for %s is no longer in any loaded span; drop it" % (prof, base))
         elif reason == "reference-table":
             if "nothing here is read" not in show(AFTER, "skills/scope/SKILL.md"):
                 problems.append("the /scope reference table no longer says nothing is read up front")
@@ -483,6 +495,11 @@ def main():
     for path in D["parent_references"]:
         if ("scope", path) not in listed:
             w("| `scope` | `%s` | kept: a directive still names it | %s | %s |" % (path, size(PIN, path), size(AFTER, path)))
+    w("")
+    for prof in PROFILES:
+        gone = after_a[prof][0] - after_b[prof][0]
+        if gone:
+            w("Rows removed from `%s` at main: %s tokens, %.1f%% of its raw load at the pin." % (prof, fmt(gone), 100.0 * gone / pin[prof][0]))
     block = "\n".join(out)
 
     if problems:
