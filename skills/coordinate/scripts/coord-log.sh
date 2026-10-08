@@ -449,30 +449,33 @@ unit)
 wakes)
     need SESSION
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
-    jq -cs --arg t "$AFTER_TIME" '
-        def secs: sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601;
+    # One pass over the log: a wake stays open until the next `wait` evidence,
+    # and the first WAIT_REQ or QUIET capture inside it says what it was for.
+    jq -cn --arg t "$AFTER_TIME" '
+        def secs: (. // "") | tostring | sub("\\.[0-9]+Z$"; "Z") | try fromdateiso8601 catch 0;
+        def close: if .open == null then . else .keys += (.open.k // [""]) | .open = null end;
         ($t | if . == "" then null else secs end) as $cut
-        | [.[] | select(.type != null)] as $e
-        | [$e | to_entries[] | .key as $i | .value
-           | select(.type == "evidence_submitted" and .payload.state == "wait")
-           | (.payload.fields // {}) as $f
-           | select((["report", "progress", "leg", "quiet", "merged", "resume"] | index([($f.event // "") | tostring])) != null)
-           | select($cut == null or (.timestamp | secs) > $cut)
-           | ([$e[$i + 1:][] | select(.type == "evidence_submitted" and .payload.state == "wait")][0].seq // 1e18) as $next
-           | ($f.event | tostring) as $ev
-           | if ($ev == "report" or $ev == "progress" or $ev == "merged") then [(($f.unit // "") | tostring)]
-             elif $ev == "leg" then
-               ([$e[$i + 1:][] | select(.type == "variable_captured" and .payload.key == "WAIT_REQ" and .seq < $next)][0].payload.value // ""
-                | tostring | split(" ")[0] // "") as $r
-               | [if $r == "" or $r == "none" then "" else "leg " + $r end]
-             elif $ev == "quiet" then
-               ([$e[$i + 1:][] | select(.type == "variable_captured" and .payload.key == "QUIET" and .seq < $next)][0].payload.value // ""
-                | tostring | sub(" sealed:.*$"; "") | split(" ")) as $q
-               | (if ($q[0] == "first-silence" or $q[0] == "second-silence") then $q[1:] else [] end)
-               | if length == 0 then [""] else . end
-             else [""] end
-           | .[]]
-        | reduce .[] as $k ({}; .[$k] += 1)' "$LOG" || die "cannot read $LOG"
+        | reduce (inputs | select(.type != null)) as $x ({open: null, keys: []};
+            if $x.type == "evidence_submitted" and $x.payload.state == "wait" then
+              close
+              | (($x.payload.fields // {}) | (.event // "") | tostring) as $ev
+              | (($x.payload.fields // {}) | (.unit // "") | tostring) as $u
+              | if ($cut != null and ($x.timestamp | secs) <= $cut) then .
+                elif ($ev == "report" or $ev == "progress" or $ev == "merged") then .open = {ev: $ev, k: [$u]}
+                elif ($ev == "leg" or $ev == "quiet") then .open = {ev: $ev, k: null}
+                elif $ev == "resume" then .open = {ev: $ev, k: [""]}
+                else . end
+            elif $x.type == "variable_captured" and .open != null and .open.k == null then
+              (($x.payload.value // "") | tostring | sub(" sealed:.*$"; "") | split(" ")) as $w
+              | if .open.ev == "leg" and $x.payload.key == "WAIT_REQ" then
+                  .open.k = [if ($w[0] // "") == "" or $w[0] == "none" then "" else "leg " + $w[0] end]
+                elif .open.ev == "quiet" and $x.payload.key == "QUIET" then
+                  .open.k = ((if ($w[0] == "first-silence" or $w[0] == "second-silence") then $w[1:] else [] end)
+                             | if length == 0 then [""] else . end)
+                else . end
+            else . end)
+        | close
+        | reduce .keys[] as $k ({}; .[$k] += 1)' "$LOG" || die "cannot read $LOG"
     ;;
 *) usage ;;
 esac

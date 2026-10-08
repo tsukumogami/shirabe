@@ -55,7 +55,7 @@ rationale: |
 Current
 
 Implemented. Decisions 1, 2, 3 and 5 landed in tsukumogami/shirabe#650 and Decision 4
-in the pull request that moved this design to current. Five details changed in implementation;
+in the pull request that moved this design to current. Six details changed in implementation;
 each carries a dated correction note where it sits.
 
 ## Context and Problem Statement
@@ -214,15 +214,14 @@ dispatcher.
 
 **Where it is read.** One evaluator, `pause-read.sh`, a script each reader runs,
 takes the record's parsed Standing rows and the units it asks about, and says
-which pauses are in force for each and why.
+which pauses are in force for each and why. It evaluates `merged` and `tag` with
+the same reads `bl_holds_eval` makes, refactored into one condition reader
+both call. These places use it:
 
 > **Correction, 2026-10-08.** This first read: "One evaluator, `pause-lib.sh`
 > (sourced, like `board-lib.sh`)". The evaluator is a script, `pause-read.sh`,
 > because its readers already source `record-common.sh`, which sourcing a
-> second library over it would reset; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
- It evaluates `merged` and `tag` with
-the same reads `bl_holds_eval` makes, refactored into one condition reader
-both call. These places use it:
+> second library over it would reset; approved by the process owner with tsukumogami/shirabe#650.
 
 1. `pick-facts.sh` puts the in-force pauses in `coord/pick.json`, with each
    row's state (`in-force`, `met`, `unreadable`), and marks every unit and
@@ -274,7 +273,8 @@ both call. These places use it:
    > the same way: `dispatch_check` runs one step before the launch, and a
    > launch can be stopped afterwards by a message." A unit's pause on a new
    > dispatch had no reader that knew the unit, so the dispatch script
-   > refuses it with exit 10 and the new `dispatched: paused` value; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
+   > refuses it with exit 10 and the new `dispatched: paused` value; approved by the process owner with tsukumogami/shirabe#650.
+
 5. `wait-target.sh`, the `leg_pick` action, passes over a resolved leg whose
    holding a pause covers, leaving it untaken, and says so in its detail; a
    `leg` tick after the resume offers it.
@@ -295,7 +295,7 @@ goes to the failure branch.
 > the resume went straight to the failure branch. The mechanism changed: the
 > check now ignores silent checks made before the latest `resume` tick, which
 > is the run's latest, so one lane's resume also gives other workers one more
-> status-message cycle; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
+> status-message cycle; approved by the process owner with tsukumogami/shirabe#650.
 
 A close-out (`roadmap_close`, `rotation_close`, `predecessor_close`) lands the
 record, not a unit's work, so a pause doesn't hold it.
@@ -373,8 +373,7 @@ re-dispatch:
 > **Correction, 2026-10-08.** This first read: "so the resume adds no edge
 > for re-entry beyond `resume` itself". A re-dispatch refused as paused had no
 > way back, so `wait` gains the `redispatch` event, whose unit the failure
-> branch resolves from that evidence; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
-
+> branch resolves from that evidence; approved by the process owner with tsukumogami/shirabe#650.
 
 - a leg-bound worker's result: the resume directive has the coordinator tick
   `leg` after the resume whenever a leg was passed over (the wake that
@@ -496,8 +495,9 @@ limitation, that it doesn't watch the leg wake, is closed by the same line.
 its own: events `report`, `progress`, `leg`, `quiet`, `merged` and `resume`.
 Each is attributed from the log, never from a unit the coordinator would have
 to guess: `report`, `progress` and `merged` by their evidence's unit; `leg` by
-the topic `wait-target.sh` wrote for the leg it read, or against the run alone
-when it read none; `quiet` against each
+the request of the leg it read (the first WAIT_REQ capture after the tick),
+which `record-state.sh` maps to the holding whose return path names it, or
+against the run alone when it read none; `quiet` against each
 topic the sweep's QUIET capture named silent, or the run alone when it named
 none; `resume` against the run. The Work section gains a Wakes column: on
 every write of a holding's Work row, `record-state.sh` adds to the row's count
@@ -510,6 +510,17 @@ and sums the entries rather than recalling them. With that cutoff the count is
 a floor, never more than happened: wakes logged inside the minute after a
 write, and wakes a crashed run logged after its last write, aren't counted,
 since Updated is to the minute and a crashed run's log isn't read again.
+A holding torn down before its row leaves Work takes its leg's wakes with it,
+since its return path is gone by then, and a row removed and written again in
+the same run counts that run's wakes again; both are stated in the script.
+
+> **Correction, 2026-10-08.** This first read: "`leg` by the topic
+> `wait-target.sh` wrote for the leg it read". That topic is a context key,
+> not in the session log a successor reads; the log holds the WAIT_REQ capture,
+> so a leg wake counts for the leg's request and `record-state.sh` maps the
+> request to the holding through its return path; found by the review of the
+> pull request that implemented this decision, which names it for the process
+> owner's approval at its merge.
 
 #### A usage-limit stop
 
@@ -558,17 +569,16 @@ holds. A met pause the coordinator hasn't ended yet is listed as `met, to end`.
 reads for each ready pull request, prints the pauses `land-check.sh` read with
 their states, beside the holds, and the go-ahead `pause-read.sh` names as
 letting the unit through (its `through` field), so a pull request handed over
-while a go-ahead lets it through a wider pause says so.
+while a go-ahead lets it through a wider pause says so. That block
+is the skill's ready report for a pull request handed to a person. A pull
+request a pause holds isn't handed to anyone: its row in the progress table
+reads paused, and the re-brief its worker gets names the pause.
 
 > **Correction, 2026-10-08.** This first read: "prints the pauses and go-aheads
 > `land-check.sh` read with their states". The block first matched go-aheads
 > itself, a second matcher that missed `#12` against `owner/repo#12`, so the
 > evaluator now reports, per unit, the go-ahead that lets it through, and
-> every reader prints that; found in implementing tsukumogami/shirabe#650 and named in its body; the process owner approved it at that pull request's goal-fit read and asked for this note.
- That block
-is the skill's ready report for a pull request handed to a person. A pull
-request a pause holds isn't handed to anyone: its row in the progress table
-reads paused, and the re-brief its worker gets names the pause.
+> every reader prints that; approved by the process owner with tsukumogami/shirabe#650.
 
 The reconcile report is unchanged: a restarted coordinator reports what it
 reconciled, then its first pick reads the pause and its first progress table

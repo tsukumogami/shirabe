@@ -54,7 +54,11 @@
 # a holding's row leaves Work (--done, or dropped once its holding is gone),
 # its final count, with the wakes since its last write, is appended as an
 # entry. The count is a floor: a wake inside the minute after a write, or
-# one a crashed run logged after its last write, isn't counted. Without a
+# one a crashed run logged after its last write, isn't counted, and a holding
+# torn down before its row leaves takes its leg's wakes with it. A row removed
+# and written again in the same run counts that run's wakes again. A leg's
+# request is one per holding (dispatch-worker.sh opens one per topic), so a
+# leg wake is never credited to two holdings. Without a
 # session (the override flags) nothing is added
 # (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 4).
 #
@@ -168,9 +172,10 @@ wakes_since() {
     [ "$OVERRIDE" = 1 ] && { echo 0; return 0; }
     local cut= w req
     if [ -n "$3" ]; then
-        cut=$(jq -rn --arg u "$3" '$u | strptime("%Y-%m-%dT%H:%MZ") | mktime + 60 | todate') || lib_die2 "jq failed"
+        # Updated is always YYYY-MM-DDTHH:MMZ (the codec's grammar).
+        cut=$(jq -rn --arg u "$3" '$u | strptime("%Y-%m-%dT%H:%MZ") | mktime + 60 | todate') || { echo "$PROG: jq failed" >&2; return 2; }
     fi
-    w=$(bash "$HERE/coord-log.sh" wakes --session "$SESSION" ${cut:+--after-time "$cut"}) || lib_die2 "cannot read the run's wakes"
+    w=$(bash "$HERE/coord-log.sh" wakes --session "$SESSION" ${cut:+--after-time "$cut"}) || { echo "$PROG: cannot read the run's wakes" >&2; return 2; }
     req=${2#leg }; req=${req%%:*}
     case "$2" in "leg "*) ;; *) req= ;; esac
     printf '%s' "$w" | jq -r --arg t "$1" --arg r "$req" '(.[$t] // 0) + (if $r == "" then 0 else (.["leg " + $r] // 0) end)'
@@ -260,7 +265,7 @@ work)
     if [ "$KIND" = holding ]; then
         PREV=$(jq -c --arg i "$ITEM" '[(.work // [])[] | select(.item == $i)][0] // {}' "$P")
         RP=$(jq -r --arg u "$ITEM" --arg w "$WHO" '[.holdings[] | select(.unit == $u and .worker == $w) | .return_path][0] // ""' "$P")
-        ADD=$(wakes_since "$WHO" "$RP" "$(printf '%s' "$PREV" | jq -r '.updated // ""')")
+        ADD=$(wakes_since "$WHO" "$RP" "$(printf '%s' "$PREV" | jq -r '.updated // ""')") || exit 2
         WAKES=$(( $(printf '%s' "$PREV" | jq -r '.wakes // "0" | if . == "" then "0" else . end') + ADD ))
     fi
     jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" --arg n "$NEXT" --arg t "$NOW" --arg c "$WAKES" --argjson first "$FIRST" '
@@ -293,8 +298,10 @@ i=0
 while [ "$i" -lt "$n" ]; do
     ROW=$(jq -c --argjson i "$i" '.[$i]' "$WD/leaving.json")
     LW=$(printf '%s' "$ROW" | jq -r .who)
-    LRP=$(jq -r --arg w "$LW" '[.holdings[] | select(.worker == $w) | .return_path][0] // ""' "$P")
-    LADD=$(wakes_since "$LW" "$LRP" "$(printf '%s' "$ROW" | jq -r '.updated // ""')")
+    # The leg's request, when the holding is still in the version read (a
+    # --done); a holding already gone takes its leg's wakes with it, a floor.
+    LRP=$(jq -r --arg u "$(printf '%s' "$ROW" | jq -r .item)" --arg w "$LW" '[.holdings[] | select(.unit == $u and .worker == $w) | .return_path][0] // ""' "$P")
+    LADD=$(wakes_since "$LW" "$LRP" "$(printf '%s' "$ROW" | jq -r '.updated // ""')") || exit 2
     LTOT=$(( $(printf '%s' "$ROW" | jq -r '.wakes // "0" | if . == "" then "0" else . end') + LADD ))
     printf '%s\n' "$(printf '%s' "$ROW" | jq -r .item) ($LW) left Work after $LTOT wakes." >> "$WD/leaving.txt"
     i=$((i + 1))
@@ -327,18 +334,23 @@ core_write
 
 if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind "$EKIND" --text-file "$ENTRY_FILE"; then
     echo "$PROG: the record was written, but its entry wasn't posted; post it with record-append.sh --kind $EKIND: $(cat "$ENTRY_FILE")" >&2
+    while IFS= read -r LINE; do
+        [ -n "$LINE" ] && echo "$PROG: and post with record-append.sh --kind work: $LINE" >&2
+    done < "$LEAVING_FILE"
     rm -f "$ENTRY_FILE" "$LEAVING_FILE"
     exit 14
 fi
 rm -f "$ENTRY_FILE"
-# Each holding row that left Work, told with its final count.
+# Each holding row that left Work, told with its final count. Every line is
+# tried; any that didn't post are named together, for record-append.sh.
+UNPOSTED=0
 while IFS= read -r LINE; do
     [ -n "$LINE" ] || continue
     printf '%s\n' "$LINE" > "$LEAVING_FILE.one"
     if ! bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --kind work --text-file "$LEAVING_FILE.one"; then
         echo "$PROG: the record was written, but a final count wasn't posted; post it with record-append.sh --kind work: $LINE" >&2
-        rm -f "$LEAVING_FILE" "$LEAVING_FILE.one"
-        exit 14
+        UNPOSTED=1
     fi
 done < "$LEAVING_FILE"
 rm -f "$LEAVING_FILE" "$LEAVING_FILE.one"
+[ "$UNPOSTED" = 0 ] || exit 14

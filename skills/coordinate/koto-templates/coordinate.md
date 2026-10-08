@@ -2786,8 +2786,9 @@ open, keep one background `koto request watch --session {{SESSION_NAME}}
 --timeout-secs 7200`, passing the cursor the last one printed as `--since`
 (hold it in your own turn, never in the record or a file): `woke: true` ticks
 `leg`, and tick `leg` again until `leg_pick` offers none; `woke: false` is the
-bound, and ticks `quiet`. Re-arm it only after a tick it brought. A
-message-path worker needs no wait: its message is the wake. While a `time`
+bound, and ticks `quiet`. Re-arm it after a tick it brought, and arm a new
+one if it has died, so exactly one runs while a leg is open. A message-path
+worker needs no wait: its message is the wake. While a `time`
 pause stands, one silent wait until its minute, which prints one line only
 then, brings the `resume` tick. Never arm a short watch that notifies on
 expiry, a polling loop or a check-in timer, and set a keep-alive only when the
