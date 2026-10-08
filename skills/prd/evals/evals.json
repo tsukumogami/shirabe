@@ -231,6 +231,24 @@
         "Transcript describes citing rather than restating the rest of what the upstream says",
         "Transcript gives the reason: a restated copy costs a second read and drifts"
       ]
+    },
+    {
+      "name": "under-scope-skips-publishing",
+      "prompt": "/prd docs/briefs/BRIEF-search-indexing.md -- /scope invoked this skill: its state file carries the parent_orchestration sentinel naming prd (rationale fresh-chain), /scope runs under --auto, the session is on /scope's branch scope/search-indexing, the brief is already Accepted, the PRD frontmatter carries source_issue: 42, and the Phase 4 jury has just returned PASS from all three reviewers.",
+      "expected_output": "Under the sentinel /prd keeps its own verdict and status transition and skips everything that publishes or routes. Setup works on scope/search-indexing: it creates no docs/search-indexing branch, switches nothing and asks nothing about the branch. The upstream brief transition runs and is a no-op, since the brief is already Accepted. The run resolves to --auto from the parent even though no mode flag was passed. Phase 4 takes the recommended verdict and names it (\"Took the recommended verdict: Approve\"), moves the PRD to Accepted and commits docs(prd): accept PRD for search-indexing. It skips the source_issue label removal, creates and edits no pull request, presents no routing options, skips step 4.7's cleanup, and returns control to /scope.",
+      "files": [
+        "docs/briefs/BRIEF-search-indexing.md"
+      ],
+      "expectations": [
+        "Plan creates no docs/search-indexing branch and switches no branch, working on scope/search-indexing, and asks no question about the branch",
+        "Plan treats the run as --auto because the parent's execution mode wins, even though no --auto flag was passed",
+        "Plan takes the recommended verdict without an AskUserQuestion prompt and names it in its output, as 'Took the recommended verdict: Approve' or equivalent",
+        "Plan moves the PRD to Accepted and makes the acceptance commit",
+        "Plan skips the source_issue label removal (no gh issue edit)",
+        "Plan creates and edits no pull request and runs no git push",
+        "Plan presents no complexity routing options and skips step 4.7 cleanup; control returns to /scope"
+      ],
+      "id": 18
     }
   ]
 }

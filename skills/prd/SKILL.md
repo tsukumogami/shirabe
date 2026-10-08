@@ -82,7 +82,9 @@ From `$ARGUMENTS`:
 ### Context Resolution
 
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
-then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Also
+then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Under
+`/scope`'s sentinel the parent's execution mode wins, since `/scope` passes no
+mode flag (see "Under `/scope`" below). Also
 parse `--max-rounds=N` (default: 2 for prd's discover loop). In --auto mode,
 follow `references/decision-protocol.md` at all decision points. Create
 `wip/prd_<topic>_decisions.md` to track decisions.

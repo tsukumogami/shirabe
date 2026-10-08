@@ -34,8 +34,8 @@ ROADMAP that sequenced its feature (`prd-format.md`'s frontmatter rules,
 which `shirabe validate` enforces). In brief input mode (Input Mode 2) that
 BRIEF's path is the upstream, even when an `--upstream` flag is also given.
 Otherwise check `$ARGUMENTS` for an `--upstream <path>` flag, and if present,
-store the path for inclusion in frontmatter (step 3.2). With none of those
-above the PRD, omit the field. On a re-entry, leave an `upstream:` already in
+store the path for inclusion in frontmatter (step 3.2). With no BRIEF,
+STRATEGY or VISION above the PRD, omit the field. On a re-entry, leave an `upstream:` already in
 the PRD's frontmatter as it is: `/scope`'s consolidation can set one when the
 PRD absorbs its brief.
 

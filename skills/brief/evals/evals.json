@@ -192,6 +192,21 @@
         "Plan announces which document was recorded and why it is not the roadmap",
         "Plan produces docs/briefs/BRIEF-inline-diff.md rather than BRIEF-editor.md"
       ]
+    },
+    {
+      "name": "under-scope-skips-publishing",
+      "prompt": "/brief checkout-flow -- /scope invoked this skill: its state file carries the parent_orchestration sentinel naming brief (rationale fresh-chain), /scope runs under --auto, and the Phase 4 jury has just returned PASS from both reviewers.",
+      "expected_output": "Under the sentinel /brief keeps its own verdict and status transition and skips everything that publishes or routes. Phase 5 takes the recommended verdict without asking, because the run is unattended, and names it in its output (\"Took the recommended verdict: Approve\"). It runs shirabe transition to Accepted, removes the jury's verdict files with git rm so the acceptance commit carries their removal, and commits docs(brief): accept BRIEF for checkout-flow. It makes no cleanup commit, runs no git push and no gh pr create, asks no routing question and suggests no next skill, and returns control to /scope.",
+      "files": [],
+      "expectations": [
+        "Plan takes the recommended verdict without an AskUserQuestion prompt and names it in its output, as 'Took the recommended verdict: Approve' or equivalent",
+        "Plan runs `shirabe transition` to move the BRIEF to Accepted and makes the acceptance commit",
+        "Plan removes the Phase 4 jury verdict files with git rm so the acceptance commit carries their removal",
+        "Plan makes no separate cleanup commit for the other working files, leaving them to /scope",
+        "Plan runs no git push and no gh pr create or gh pr edit",
+        "Plan asks no routing question and presents no next-step suggestions table; control returns to /scope"
+      ],
+      "id": 13
     }
   ]
 }
