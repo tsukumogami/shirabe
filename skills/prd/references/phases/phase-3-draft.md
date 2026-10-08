@@ -28,11 +28,12 @@ Read all available context:
 - `wip/research/prd_<topic>_phase2_*.md` files (from Phase 2, if they exist)
 - Any notes from Phase 2 synthesis
 
-**Detect upstream:** Check `$ARGUMENTS` for an `--upstream <path>` flag. If
-present, store the path for inclusion in frontmatter (step 3.2). The upstream
-path typically points to a Roadmap document when the PRD is part of a
-multi-feature initiative. If `--upstream` is not provided, omit the field
-from frontmatter.
+**Detect upstream:** A PRD's only legal upstream is the BRIEF its requirements
+are written from (`prd-format.md`'s frontmatter rules). In brief input mode
+(Input Mode 2) that BRIEF's path is the upstream. Otherwise check `$ARGUMENTS`
+for an `--upstream <path>` flag, and if present, store the path for inclusion
+in frontmatter (step 3.2). With no brief above the PRD, omit the field: a PRD
+never names the ROADMAP that sequenced its feature.
 
 **Validate upstream:** If a path was detected, run these checks in order
 before storing it. These are hard-stops -- do not write a failing value into
@@ -41,9 +42,14 @@ frontmatter:
 1. **Is the path under `wip/`?** STOP. wip/ paths are non-durable and would
    leave the PRD's `upstream:` orphaned after wip-hygiene cleanup. Resolve
    the canonical location and use that path instead, or OMIT the field.
-2. **Does the path resolve in this repo?** Run `git ls-files <path>`. If
+2. **Is it a BRIEF?** If the file is not a BRIEF (`docs/briefs/BRIEF-*.md`, or
+   the cross-repo form of one), OMIT the field and tell the author why. A
+   ROADMAP is the common case: it is a working document, deleted once its
+   features land, so a durable PRD naming it would dangle, and
+   `shirabe validate` rejects it (`R11`; any other wrong type is `R10`).
+3. **Does the path resolve in this repo?** Run `git ls-files <path>`. If
    non-empty, the upstream is durable -- continue.
-3. **Path is out-of-repo?** Detect this repo's visibility from CLAUDE.md
+4. **Path is out-of-repo?** Detect this repo's visibility from CLAUDE.md
    (`## Repo Visibility:`). If public AND the canonical upstream lives in a
    private repo, STOP and OMIT the `upstream:` field. Public artifacts must
    not reference private resources. See
@@ -119,7 +125,7 @@ contribution section itself.
   existed, and why the chosen option won. Include decisions made during this
   drafting phase as well.
 
-Set frontmatter status to "Draft". If an `--upstream` path was detected AND
+Set frontmatter status to "Draft". If an upstream BRIEF path was detected AND
 passed validation in step 3.1, include `upstream: <path>` in frontmatter.
 Otherwise omit the field.
 
