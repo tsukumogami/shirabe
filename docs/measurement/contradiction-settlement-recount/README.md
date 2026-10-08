@@ -68,12 +68,12 @@ runs it.
   the design prints for it, exactly once in its file at the inventory commit
   (`662f6ec`), inside the span's line range (or above it, for an excerpt the
   design marks `above:`). A missing or repeated excerpt fails the run and names
-  the entry. An excerpt that `scripts/ablation/check-public-content.sh` refuses
-  can't be added as text: two do, one in `dp-design-duplicates` and one in
-  `dp-prd-internal-restatements`, because each quotes a skill's
-  work-in-progress path template. `spans.json` stores those two as a sha256
-  and a length, and the script finds them by hashing each substring of that
-  length.
+  the entry. Two of the design's excerpts, one in `dp-design-duplicates` and
+  one in `dp-prd-internal-restatements`, are text that
+  `scripts/ablation/check-public-content.sh` refuses, so they aren't copied in
+  any form. Each of those two spans is anchored instead by the first line
+  inside it that the check accepts and that occurs once in the file, and
+  `spans.json` marks it with `"excerpt_from": "span line"`.
 - **The estimate.** The per-profile estimate is recomputed from the spans the
   way the design computed it (overlapping spans counted once per profile, a
   pointer-loaded file counted in full) and must equal the design's figure.

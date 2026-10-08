@@ -1136,9 +1136,8 @@
     },
     {
      "loc": "skills/design/references/phases/phase-0-setup-prd.md#L40-L42",
-     "excerpt_sha256": "542a5b7ee7096f786b84bbc6c4c246d412f3deae8b0d3bf0605db3e917c45ed1",
-     "excerpt_length": 59,
-     "excerpt_above": false
+     "excerpt": "glob keeps the branch forward-compatible with future parent skills",
+     "excerpt_from": "span line"
     }
    ]
   },
@@ -1427,9 +1426,8 @@
     },
     {
      "loc": "skills/prd/SKILL.md#L133-L135",
-     "excerpt_sha256": "8c3bc8c55deeed069fad3215576d2d7bb6188a7fb20acf29c790c3af402994c1",
-     "excerpt_length": 51,
-     "excerpt_above": false
+     "excerpt": "Its only producer is this skill's own Phase 1 -- /scope pre-populates nothing",
+     "excerpt_from": "span line"
     },
     {
      "loc": "skills/prd/SKILL.md#L137-L141",

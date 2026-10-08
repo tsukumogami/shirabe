@@ -20,9 +20,10 @@ Inputs, all committed beside this script or read from git objects:
   (locations `<path>#L<a>-L<b>` at the inventory commit); `contradictions`
   (id, class); and `deadprose` entries, each span carrying `loc`, `whole` when
   it is a pointer that loads a whole file, and either `excerpt` (the DESIGN's
-  text, `above: ` prefixed when it sits above the span) or, for an excerpt the
-  public-content check refuses, `excerpt_sha256`, `excerpt_length` and
-  `excerpt_above`.
+  text, `above: ` prefixed when it sits above the span). Where the DESIGN's
+  excerpt is text the public-content check refuses, `excerpt` is instead the
+  first line inside the span that the check accepts and the file holds once,
+  and `excerpt_from` says so.
 - dropped-rows.tsv: the load-manifest rows for files a profile no longer loads.
 - scripts/offload-baseline.sh count, with the load manifest read from git at
   the measured commit, so the figures don't move when the manifest does.
@@ -33,7 +34,6 @@ the working tree, so a change to either can change the output. Standard
 library only. Exits 1 when a check fails, or with --check when README.md's
 figures differ.
 """
-import hashlib
 import json
 import os
 import re
@@ -94,6 +94,21 @@ def public_ok(text):
     return out.returncode == 0
 
 
+def commit_of(inv):
+    return inv["inventory_commit"]
+
+
+def substitute_anchor(commit, loc):
+    """The first line of the span, stripped, that the check accepts and the file holds once."""
+    path, a, b = parse(loc)
+    t = show(commit, path)
+    for ln in t.split("\n")[a - 1:b]:
+        s = ln.strip()
+        if len(s) >= 12 and t.count(s) == 1 and public_ok(s):
+            return s
+    raise SystemExit("no usable anchor line inside " + loc)
+
+
 def extract(commit):
     """Rebuild spans.json's inventory part from the coordination commit."""
     inv = json.loads(show(commit, "docs/designs/contradiction-settlement/inventory.json"))
@@ -126,16 +141,15 @@ def extract(commit):
             ex = excerpts.get((it["id"], sp["loc"]))
             if ex is None:
                 raise SystemExit("no excerpt in the DESIGN for %s %s" % (it["id"], sp["loc"]))
-            # An excerpt the repository's public-content check refuses (two
-            # quote a skill's work-in-progress path template) can't be added
-            # as text; it is stored as its sha256 and length, and found by hash.
-            if not public_ok(ex):
-                above = ex.startswith("above: ")
-                raw = ex[len("above: "):] if above else ex
-                s = {"loc": sp["loc"], "excerpt_sha256": hashlib.sha256(raw.encode("utf-8")).hexdigest(),
-                     "excerpt_length": len(raw), "excerpt_above": above}
-            else:
+            # An excerpt the repository's public-content check refuses can't be
+            # added in any form. Such a span is anchored instead by the first
+            # line inside it that the check accepts and that occurs once in the
+            # file, and the span records that its anchor isn't the DESIGN's.
+            if public_ok(ex):
                 s = {"loc": sp["loc"], "excerpt": ex}
+            else:
+                s = {"loc": sp["loc"], "excerpt": substitute_anchor(commit_of(inv), sp["loc"]),
+                     "excerpt_from": "span line"}
             if sp.get("whole"):
                 s["whole"] = sp["whole"]
             spans.append(s)
@@ -256,24 +270,17 @@ def main():
     ids = [c["id"] for c in C]
     pos = {i: ids.index(i) + 1 for i in ("prd-complexity-routing", "prd-upstream-roadmap")}
 
-    # 1. Every span found by its excerpt, once, at the inventory commit. An
-    #    excerpt stored as a hash (see extract) is found by hashing every
-    #    substring of its length.
+    # 1. Every span found by its excerpt, once, at the inventory commit (for a
+    #    span marked excerpt_from, by the substitute line extract chose).
     for it in D["deadprose"]:
         for sp in it["spans"]:
             path, a, b = parse(sp["loc"])
             t = show(INV, path)
-            if "excerpt_sha256" in sp:
-                above, size = sp["excerpt_above"], sp["excerpt_length"]
-                hits = [i for i in range(len(t) - size + 1)
-                        if hashlib.sha256(t[i:i + size].encode("utf-8")).hexdigest() == sp["excerpt_sha256"]]
-                ex = "sha256:" + sp["excerpt_sha256"]
-            else:
-                ex = sp["excerpt"]
-                above = ex.startswith("above: ")
-                if above:
-                    ex = ex[len("above: "):]
-                hits = [m.start() for m in re.finditer(re.escape(ex), t)]
+            ex = sp["excerpt"]
+            above = ex.startswith("above: ")
+            if above:
+                ex = ex[len("above: "):]
+            hits = [m.start() for m in re.finditer(re.escape(ex), t)]
             if len(hits) != 1:
                 problems.append("%s: excerpt found %d times in %s: %s" % (it["id"], len(hits), path, ex))
                 continue
