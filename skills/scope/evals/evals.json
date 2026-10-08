@@ -249,12 +249,12 @@
       "id": 16,
       "name": "coord-intent-resolution-and-per-invocation-override-r18",
       "prompt": "/scope multi-repo-feature --coordinated",
-      "expected_output": "Coordination intent is present via --coordinated. It resolves on flag > CLAUDE.md-header > default: --coordinated / --no-coordinated (the session's COORDINATION variable) first, then the ## PR Grouping Policy: and ## Reviewability Ceiling: headers, then single-repo. Those two headers are durable workspace preferences read from CLAUDE.md, not per-run choices. The moment intent resolves to coordinated, /scope runs the mode-scoped preflight (skill-preflight.sh scope --mode coordinated) before authoring anything. --no-coordinated is the per-invocation override: it keeps this run single-repo even when a CLAUDE.md header would otherwise turn coordination on, because the flag outranks the header. The /plan hop receives the coordination flag exactly as the caller passed it and never a --coordinated derived from a header.",
+      "expected_output": "Coordination intent is present via --coordinated. It resolves on flag > CLAUDE.md-header > default: --coordinated / --no-coordinated (the session's COORDINATION variable) first, then the ## PR Grouping Policy: and ## Reviewability Ceiling: headers, then single-repo. Those two headers are durable workspace preferences read from CLAUDE.md, not per-run choices. The moment intent resolves to coordinated, /scope runs the mode-scoped preflight (skill-preflight.sh scope --mode coordinated) before authoring anything. --no-coordinated sits at the flag level, so for the run it is passed to it outranks whatever a CLAUDE.md header says. The /plan hop receives the coordination flag exactly as the caller passed it and never a --coordinated derived from a header.",
       "files": [],
       "expectations": [
         "Plan resolves coordination intent on flag > CLAUDE.md-header > default, with --coordinated / --no-coordinated (COORDINATION) first, then the PR Grouping Policy and Reviewability Ceiling headers, then single-repo",
         "Plan runs skill-preflight.sh scope --mode coordinated as soon as intent resolves to coordinated, before authoring anything",
-        "Plan names --no-coordinated as the per-invocation override that keeps a run single-repo even when a CLAUDE.md header enables coordination",
+        "Plan places --no-coordinated at the flag level of that order, so for this run it outranks any CLAUDE.md header",
         "Plan forwards the coordination flag to the /plan hop exactly as the caller passed it and never forwards a --coordinated derived from a CLAUDE.md header",
         "Plan does NOT claim that /scope announces a list of activated smart defaults or offers a per-default override; no skill or reference file states one"
       ]
