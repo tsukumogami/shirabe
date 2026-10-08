@@ -95,3 +95,7 @@ Findings use the `review_result` `critical_findings` format:
 empty and which phase re-runs instead.
 
 If no findings: return `critical_findings: []` for this category.
+
+When this phase raises both D subtypes, a structural deferral and a dependency
+ordering error, the structural one takes precedence: Phase 5's Loop Target
+Selection sends the plan back to `/plan`'s Phase 3 for it, not to Phase 5.

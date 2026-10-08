@@ -42,6 +42,10 @@ Set `confidence` based on signals from category phases:
 | Input type is `roadmap` (B, C, D return empty findings) | Lower to `"low"` |
 | All artifacts present and complete, no anomalies | `"high"` |
 
+Category C findings carry one more signal, stated under `confidence` in
+`references/templates/review-result-schema.md`: acceptance criteria that could be
+read more than one way also lower confidence.
+
 When multiple signals are present, use the lowest resulting level.
 
 ## Output: Proceed
