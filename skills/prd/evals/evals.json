@@ -109,12 +109,12 @@
       "id": 9,
       "name": "upstream-propagation",
       "prompt": "/prd feature-flags --upstream docs/briefs/BRIEF-feature-flags.md",
-      "expected_output": "Detects --upstream flag from arguments. Stores the brief path. Phase 3 step 3.1 validates the path: it is not under wip/, it names a BRIEF (the only upstream /prd records), and git ls-files confirms it is tracked in this repo. The validated path is included as upstream: docs/briefs/BRIEF-feature-flags.md in the PRD frontmatter. Does not treat --upstream as part of the topic.",
+      "expected_output": "Detects --upstream flag from arguments. Stores the brief path. Phase 3 step 3.1 validates the path: it is not under wip/, it names a legal PRD upstream type (a BRIEF, or a STRATEGY or VISION when no brief exists; never a ROADMAP), and git ls-files confirms it is tracked in this repo. The validated path is included as upstream: docs/briefs/BRIEF-feature-flags.md in the PRD frontmatter. Does not treat --upstream as part of the topic.",
       "files": [],
       "expectations": [
         "Transcript detects and parses the --upstream flag from $ARGUMENTS",
         "Transcript stores the upstream path (docs/briefs/BRIEF-feature-flags.md) for use in Phase 3",
-        "Transcript describes Phase 3 step 3.1 validating the path is not under wip/, names a BRIEF, and resolves in this repo",
+        "Transcript describes Phase 3 step 3.1 validating the path is not under wip/, names a legal PRD upstream type (BRIEF, STRATEGY or VISION, never a ROADMAP), and resolves in this repo",
         "Transcript describes recording upstream: docs/briefs/BRIEF-feature-flags.md (a BRIEF, not a ROADMAP) in the PRD frontmatter during Phase 3 drafting",
         "Transcript does NOT treat --upstream as part of the topic name"
       ]

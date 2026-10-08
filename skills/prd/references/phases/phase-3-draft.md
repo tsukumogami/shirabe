@@ -28,20 +28,16 @@ Read all available context:
 - `wip/research/prd_<topic>_phase2_*.md` files (from Phase 2, if they exist)
 - Any notes from Phase 2 synthesis
 
-**Detect upstream:** The upstream a PRD records is the BRIEF its requirements
-are written from (`prd-format.md`'s frontmatter rules). In brief input mode
-(Input Mode 2) that BRIEF's path is the upstream, even when an `--upstream`
-flag is also given. Otherwise check `$ARGUMENTS` for an `--upstream <path>`
-flag, and if present, store the path for inclusion in frontmatter (step 3.2).
-With no brief above the PRD, omit the field: a PRD never names the ROADMAP
-that sequenced its feature.
-
-Recording only a BRIEF is this skill's authoring rule. `shirabe validate`
-accepts more: a STRATEGY or VISION is a legal PRD upstream too (see
-`${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`, which defines `R10` and
-`R11`), and `/scope`'s consolidation can leave one on a PRD that absorbed its
-BRIEF. So step 3.1 decides only what this skill writes; on a re-entry, leave an
-`upstream:` already in the PRD's frontmatter as it is.
+**Detect upstream:** A PRD's upstream is normally the BRIEF its requirements
+are written from, and a STRATEGY or VISION when no brief exists; never the
+ROADMAP that sequenced its feature (`prd-format.md`'s frontmatter rules,
+which `shirabe validate` enforces). In brief input mode (Input Mode 2) that
+BRIEF's path is the upstream, even when an `--upstream` flag is also given.
+Otherwise check `$ARGUMENTS` for an `--upstream <path>` flag, and if present,
+store the path for inclusion in frontmatter (step 3.2). With none of those
+above the PRD, omit the field. On a re-entry, leave an `upstream:` already in
+the PRD's frontmatter as it is: `/scope`'s consolidation can set one when the
+PRD absorbs its brief.
 
 **Validate upstream:** If a path was detected, run these checks in order
 before storing it. These are hard-stops -- do not write a failing value into
@@ -50,11 +46,14 @@ frontmatter:
 1. **Is the path under `wip/`?** STOP. wip/ paths are non-durable and would
    leave the PRD's `upstream:` orphaned after wip-hygiene cleanup. Resolve
    the canonical location and use that path instead, or OMIT the field.
-2. **Is it a BRIEF?** If the file is not a BRIEF (`docs/briefs/BRIEF-*.md`, or
-   the cross-repo form of one), OMIT the field and tell the author why. A
-   ROADMAP is the common case: it is a working document, deleted once its
-   features land, so a durable PRD naming it would dangle, and
-   `shirabe validate` rejects it as `R11`.
+2. **Is it a legal type?** If the file is not a BRIEF, STRATEGY or VISION
+   (`docs/briefs/BRIEF-*.md`, `docs/strategies/STRATEGY-*.md`,
+   `docs/visions/VISION-*.md`, or the cross-repo form of one), OMIT the field
+   and tell the author why. A ROADMAP is the common case: it is a working
+   document, deleted once its features land, so a durable PRD naming it would
+   dangle. `shirabe validate` rejects a working type as `R11` and a type at or
+   below the PRD's altitude as `R10` (both defined in
+   `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md`).
 3. **Does the path resolve in this repo?** For a same-repo path, run
    `git ls-files <path>`. If non-empty, the file is tracked rather than a
    local scratch copy -- continue. If empty, OMIT the field and ask the
@@ -137,7 +136,7 @@ contribution section itself.
   existed, and why the chosen option won. Include decisions made during this
   drafting phase as well.
 
-Set frontmatter status to "Draft". If an upstream BRIEF path was detected AND
+Set frontmatter status to "Draft". If an upstream path was detected AND
 passed validation in step 3.1, include `upstream: <path>` in frontmatter.
 Otherwise write no `upstream:` field; one already in the PRD's frontmatter
 stays as it is (step 3.1).

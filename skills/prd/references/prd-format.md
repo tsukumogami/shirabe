@@ -36,11 +36,11 @@ motivating_context: |                       # optional
 ```
 
 Required fields: `schema` (`prd/v1`), `status`, `problem`, `goals`.
-Optional: `upstream` (the BRIEF this PRD's requirements are written from -- a
-PRD's only legal upstream type. A PRD written with no brief above it omits
-the field rather than reaching past it to the ROADMAP that sequenced the
-feature: a ROADMAP is deleted when its features land, and a durable document
-must not name a working one. See
+Optional: `upstream` (normally the BRIEF this PRD's requirements are written
+from; when no brief exists, the STRATEGY or VISION above the feature. Never
+the ROADMAP that sequenced the feature: a ROADMAP is deleted when its features
+land, and a durable document must not name a working one. With none of the
+three above it, a PRD omits the field. See
 `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md` for the rule and
 `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` for the cross-repo
 and visibility-direction rules -- Phase 3 step 3.1 validates this value),
