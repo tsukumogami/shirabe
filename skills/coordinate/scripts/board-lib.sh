@@ -413,6 +413,9 @@ bl_condition_state() {
     case "$until" in
         lifted) echo unmet ;;
         time\ *)
+            # A malformed time can't be compared; it holds, as an unreadable
+            # condition does.
+            [[ ${until#time } =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$ ]] || { echo unreadable; return 0; }
             now=${BL_NOW:-$(date -u +%Y-%m-%dT%H:%MZ)}
             if [ "$now" \< "${until#time }" ]; then echo unmet; else echo met; fi ;;
         merged\ *)

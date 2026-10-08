@@ -120,6 +120,11 @@ eq "pick sees the whole coordinator paused" "pick $PA" "$(at --with-data '{"even
 eq "every unit is held, the lane with a pause of its own by that earlier one" "$PA $P2 $PA" "$(paused_of "Feature 1") $(paused_of "Feature 2") $(paused_of "Feature 3")"
 eq "the first lane, free a moment ago, is refused" wait "$(send lane-a)"
 eq "  ... by the pause on all" "paused" "$(check_json | jq -r .verdict)"
+state --standing go-ahead --on "Feature 3" --what "one dispatch while the rest stays paused" --owner "the human"
+PG=$(sid go-ahead "Feature 3")
+eq "a go-ahead on one unit releases it from the pause on all at pick" "pick free $PA" "$(at --with-data '{"event":"resume"}') $(paused_of "Feature 3") $(paused_of "Feature 1")"
+state --end "$PG" --by "the human"; eq "  ... and is ended, unused here" 0 $?
+eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
 state --end "$PA" --by "the human"; eq "the whole is resumed" 0 $?
 state --end "$P2" --by "the human"; eq "and the second lane" 0 $?
 eq "a resume tick brings pick" pick "$(at --with-data '{"event":"resume"}')"
@@ -148,14 +153,19 @@ eq "and pick" pick "$(at --with-data '{"reconciled":"reported"}')"
 eq "its first pick finds the pause standing, from the record alone" "$PR5 $PR5" "$(pick_json | jq -r '.paused_all') $(paused_of "Feature 1")"
 eq "and the dispatch is refused" wait "$(send lane-a)"
 eq "  ... as paused" paused "$(check_json | jq -r .verdict)"
+eq "a re-dispatch is taken up through the failure branch" failure "$(at --with-data '{"event":"redispatch","unit":"lane-b"}')"
+eq "  ... and while the pause stands it is refused too, back to wait" wait "$(at --with-data '{"move":"redispatch"}')"
+eq "  ... as paused, for that unit" "paused redispatch lane-b" "$(check_json | jq -r '"\(.verdict) \(.choice) \(.topic)"')"
 state --end "$PR5" --by "the human"; eq "the pause ends" 0 $?
 at --with-data '{"event":"resume"}' >/dev/null
-eq "once it has, sending the first lane its execution goes ahead" dispatch "$(send lane-a)"
-eq "  ... clear" ok "$(check_json | jq -r .verdict)"
+eq "the resume brings pick, which holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
+eq "after the resume the held re-dispatch is taken up again" failure "$(at --with-data '{"event":"redispatch","unit":"lane-b"}')"
+eq "  ... and goes ahead" dispatch "$(at --with-data '{"move":"redispatch"}')"
+eq "  ... clear, for that unit" "ok lane-b" "$(check_json | jq -r '"\(.verdict) \(.topic)"')"
 
 echo "== the account =="
 ENTRIES=$(cd "$WD" && bash "$PS/record-append.sh" --session "$S" --list)
-eq "every pause and every end was told as an entry" "pause pause end pause end end pause end pause end" \
+eq "every pause and every end was told as an entry" "pause pause end pause end end end pause end pause end" \
     "$(printf '%s' "$ENTRIES" | jq -r '[.[] | select(.kind == "pause" or .kind == "end") | .kind] | join(" ")')"
 
 done_tests pause-engine

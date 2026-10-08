@@ -676,7 +676,7 @@ states:
     accepts:
       event:
         type: enum
-        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed, resume]
+        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed, resume, redispatch]
         required: true
         description: What arrived, or what is due.
       unit:
@@ -758,6 +758,11 @@ states:
       - target: pick_facts
         when:
           event: resume
+      # A re-dispatch a pause held at dispatch_check, taken up again after the
+      # resume: the failure branch resolves the unit from this evidence.
+      - target: failure
+        when:
+          event: redispatch
       - target: rotation_close
         when:
           event: end
@@ -2475,7 +2480,9 @@ and drive every worker to landed work.
 - **Never a paused unit.** A unit or holding whose `paused` is set is held by
   that pause in the record: don't dispatch it, scope it ahead or send it its
   execution. While `paused_all` is set, the whole coordinator is paused:
-  submit `hold`. A pause in `pauses` whose `state` is `met` holds nothing
+  submit `hold`, unless a go-ahead in `go_aheads` lets one unit through (its
+  `paused` reads null), which you may choose; end the go-ahead once the step
+  it allowed is done. A pause in `pauses` whose `state` is `met` holds nothing
   any more; end its row, `record-state.sh --session {{SESSION_NAME}} --end
   <id> --by "its condition, <until>"`, and send the resume (see `wait`).
 - **Fill every free slot.** Dispatch until active workers equal the cap
@@ -2733,7 +2740,8 @@ need a decision made that no entry holds yet; `merged` when the human merged a
 pull request you handed over; `landed`, with the feature's tag as `unit`, when a
 roadmap feature's last pull request has merged and its Status should go back to
 the roadmap; `retire` to finish with a worker; `resume` when a pause has ended
-or its condition may be met, so pick reads the pauses again; `end` when the
+or its condition may be met, so pick reads the pauses again; `redispatch`, with
+the unit, to take up again a re-dispatch a pause held; `end` when the
 rotation or the scope ends.
 
 Two writes come before acting, whatever event follows. When a person's word
@@ -2766,7 +2774,10 @@ waits on. After a resume, send each worker in its scope the resume line (start
 the fix round it was sent, send its ready report again, or continue from its
 last checkpoint, whatever its Work row says is owed), rewrite each Work row with
 what it resumes to, and tick `leg` once if a leg was passed over while paused
-(`passed_over` in `wait_target`).
+(`passed_over` in `wait_target`). A re-dispatch the pause held (its
+`coord/dispatch_check.json` read `choice: redispatch` with verdict `paused`)
+isn't offered by pick: tick `redispatch` with its unit, and submit `move:
+redispatch` again at `failure`.
 
 Arriving here from `report_questions` with a checkpoint report whose questions
 were over the bound (`overflow`), message the worker to send them again in its

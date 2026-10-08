@@ -83,6 +83,12 @@ sweep 08:31; eq "a paused worker is never quiet; the other worker is" "first-sil
 eq "  ... and the detail names the pause" "beta:s1" "$(jq -r '[.holdings[] | select(.paused != null) | "\(.worker):\(.paused)"] | join(" ")' "$KOTO_STORE/context/$S/coord/quiet.json")"
 sweep 09:02; eq "  ... and a sweep that skipped it isn't a silent check" "second-silence alpha" "$TOK"
 HOLDINGS=$SAVED; unset STANDING
+seed; run
+sweep 08:31; eq "before a pause: a first silence" "first-silence alpha beta" "$TOK"
+log_evidence "$S" wait '{"event":"resume"}' 2026-09-26T08:40:00.000Z
+log_to "$S" wait pick_facts 2026-09-26T08:40:00.000Z; log_to "$S" pick_facts wait 2026-09-26T08:40:00.000Z
+sweep 09:15; eq "after a resume, a silent check from before it no longer counts: a first silence again, not the failure branch" "first-silence alpha beta" "$TOK"
+sweep 09:46; eq "  ... and a second silence after the resume is a second silence" "second-silence alpha beta" "$TOK"
 
 echo "== activity resets the count =="
 seed; run

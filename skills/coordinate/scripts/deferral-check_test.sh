@@ -446,6 +446,12 @@ seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s2 pause "Feat
 pr 25 OPEN true
 session "$(roadmap_vars plugin-system)" 7 send_execution a5
 eq "a go-ahead on the unit lets it through" "ok a5" "$(check)"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s1 pause all lifted)" "$(prow s3 go-ahead "Feature 2" "")")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a go-ahead lets its unit through a pause on all at dispatch too" "ok a5" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 dispatch plugin-api
+eq "  ... and a new dispatch under it is left to dispatch-worker.sh, which knows its unit" "ok plugin-api" "$(check)"
 seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s4 pause all "time 2000-01-01T00:00Z")")"
 pr 25 OPEN true
 session "$(roadmap_vars plugin-system)" 7 send_execution a5

@@ -21,8 +21,11 @@
 #    go_aheads: [<go-ahead row>],          every go-ahead naming a unit
 #    all:       "<id>" | null,             the first in-force or unreadable
 #                                          pause on `all`
-#    covers:    {"<unit>": "<id>" | null}} for each --units entry, the pause
+#    covers:    {"<unit>": "<id>" | null}, for each --units entry, the pause
 #                                          that holds it, or null
+#    through:   {"<unit>": "<id>"}}       for each --units entry a go-ahead
+#                                          names, that go-ahead's id: the one
+#                                          match readers print, never their own
 # A unit is covered by the first in-force or unreadable pause on `all` or on
 # that unit, unless a go-ahead names it: a go-ahead lets its unit through any
 # pause, `all` or its own. A pause's On matches a unit when they are equal,
@@ -95,4 +98,7 @@ jq -c -n --slurpfile p "$D/pauses" --slurpfile s "$D/states.json" --slurpfile u 
        all: ([$holding[] | select(.on == "all") | .standing][0] // null),
        covers: (reduce $u[0][] as $unit ({};
            .[$unit] = (if any($go[]; matches(.on; $unit)) then null
-                       else ([$holding[] | select(.on == "all" or matches(.on; $unit)) | .standing][0] // null) end)))}'
+                       else ([$holding[] | select(.on == "all" or matches(.on; $unit)) | .standing][0] // null) end))),
+       through: (reduce $u[0][] as $unit ({};
+           ([$go[] | select(matches(.on; $unit)) | .standing][0] // null) as $g
+           | if $g == null then . else .[$unit] = $g end))}'

@@ -83,6 +83,10 @@ OUT=$(read_)
 eq "a go-ahead lets its unit through an all pause and its own" null "$(printf '%s' "$OUT" | jq -c '.covers["Feature 2"]')"
 eq "  ... and no other unit" s1 "$(printf '%s' "$OUT" | jq -r '.covers["Feature 3"]')"
 eq "the go-ahead is listed; the answer row is no pause" "s3 2" "$(printf '%s' "$OUT" | jq -r '"\(.go_aheads[0].standing) \(.pauses | length)"')"
+eq "  ... and named as what lets Feature 2 through, for readers to print" '{"Feature 2":"s3"}' "$(printf '%s' "$OUT" | jq -c '.through')"
+standing "$(row s1 pause all lifted)" "$(row s3 go-ahead "#12" "")"
+units "acme/widgets#12"
+eq "a go-ahead on #12 lets owner/repo#12 through, and through says so" 'null {"acme/widgets#12":"s3"}' "$(read_ | jq -c '[.covers["acme/widgets#12"], .through] | map(tojson) | join(" ")' -r)"
 
 echo "== refusals =="
 echo '"not rows"' > "$T/bad.json"

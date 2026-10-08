@@ -89,8 +89,7 @@ printf '%s' "$DETAIL" | jq -r --arg pr "$PR" --arg repo "$REPO" --arg why "$WHY"
                    else [.holds[] | "\(.hold) until \(.until) (\(.state))"] | join(", ") end),
     (if ((.pauses.pauses // []) | length) == 0 then empty
      else "- Pauses: " + ([.pauses.pauses[] | "\(.standing) on \(.on) until \(.until) (\(.state))"] | join(", "))
-          + (.pauses.unit as $u | [(.pauses.go_aheads // [])[] | .on as $o | select($o == $u or ($u | startswith($o + ": "))) | .standing]
-             | if length == 0 then "" else "; let through by go-ahead " + join(", ") end) end),
+          + ((.pauses.through // {})[.pauses.unit] // null | if . == null then "" else "; let through by go-ahead \(.)" end) end),
     "- Squash message:",
     "",
     "  ```text",

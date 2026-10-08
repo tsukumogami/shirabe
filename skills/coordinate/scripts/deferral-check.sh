@@ -26,10 +26,12 @@
 #                         branch (absent: none) that the record doesn't carry,
 #                         by its Deferral text, with a disposition
 #   paused <id>           a pause in the record's Standing section holds
-#                         this dispatch (pause-read.sh): a pause on `all`
-#                         holds every one; a unit's pause holds a dispatch
-#                         whose topic is the Worker of a holding of that
-#                         unit (send_execution, a redispatch). A new
+#                         this dispatch (pause-read.sh): a dispatch whose
+#                         topic is the Worker of a holding (send_execution, a
+#                         redispatch) is held by a pause on `all` or on that
+#                         unit, unless a go-ahead names the unit; a new
+#                         dispatch by a pause on `all` unless a go-ahead
+#                         stands. A new
 #                         dispatch's unit isn't known here (pick's evidence
 #                         names only its topic), so dispatch-worker.sh
 #                         refuses a new dispatch of a unit pick marked paused.
@@ -307,13 +309,20 @@ if [ "$UNIT_FROM_LOG" = 1 ]; then
     case $rc in 0) TOPIC=$UNIT ;; *) TOPIC=- ;; esac
 fi
 
-# The pauses. A pause on `all` holds any dispatch; a unit's pause holds one
-# whose topic is a holding's Worker for that unit.
+# The pauses. A dispatch whose topic is a holding's Worker is held by
+# whatever holds that holding's unit (a pause on `all` or on the unit, unless
+# a go-ahead names it). A new dispatch's unit isn't known here: a pause on
+# `all` holds it unless some go-ahead stands, in which case the unit may be
+# the one let through and dispatch-worker.sh, which knows it, decides.
 jq '{standing: (.standing // [])}' "$T/parsed.json" > "$T/standing.json" || lib_die2 "jq failed"
 jq -c --arg t "$TOPIC" '[.[] | select(.worker == $t) | .unit]' "$T/holdings.json" > "$T/punits.json" || lib_die2 "jq failed"
 bash "$HERE/pause-read.sh" --standing "$T/standing.json" --units "$T/punits.json" > "$T/pauses.json" 2> "$T/pauses.err" \
     || lib_die2 "cannot read the record's pauses: $(lib_scrub < "$T/pauses.err")"
-PAUSED=$(jq -r '.all // ([.covers[] | select(. != null)][0]) // empty' "$T/pauses.json")
+if [ "$(jq length "$T/punits.json")" -gt 0 ]; then
+    PAUSED=$(jq -r '[.covers[] | select(. != null)][0] // empty' "$T/pauses.json")
+else
+    PAUSED=$(jq -r 'if (.go_aheads | length) > 0 then empty else (.all // empty) end' "$T/pauses.json")
+fi
 if [ -n "$PAUSED" ]; then
     REASON="held by pause $PAUSED: $(jq -r --arg s "$PAUSED" '.pauses[] | select(.standing == $s) | "on \(.on), until \(.until), set \(.set) by \(.owner)"' "$T/pauses.json")"
     finish "paused $PAUSED"

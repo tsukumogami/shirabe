@@ -160,7 +160,8 @@ fi
 paused_topics() {
     : >"$WORK/paused"
     bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>/dev/null || return 2
-    jq -e '[(.standing // [])[] | select(.kind == "pause")] | length > 0' "$WORK/state.json" >/dev/null 2>&1 || return 0
+    jq -e '[(.standing // [])[] | select(.kind == "pause")] | length > 0' "$WORK/state.json" >/dev/null 2>&1
+    case $? in 0) ;; 1) return 0 ;; *) return 2 ;; esac
     printf '%s' "$1" | jq -c '[.[].unit // empty]' >"$WORK/units.json" || return 2
     bash "$DC_HERE/pause-read.sh" --standing "$WORK/state.json" --units "$WORK/units.json" >"$WORK/pauses.json" || return 2
     printf '%s' "$1" | jq -r --slurpfile p "$WORK/pauses.json" '.[] | select(.unit != null and $p[0].covers[.unit] != null) | .worker' >"$WORK/paused" || return 2

@@ -27,7 +27,10 @@
 # A holding a pause in the record holds (pause-read.sh over the Standing rows
 # record-state.sh --list reads) is never silent: its worker was told to stop at
 # a safe point, so its silence is what the pause asked for, and the sweep that
-# skips it isn't a silent check. The resume doesn't reset its last activity
+# skips it isn't a silent check. The resume doesn't reset its last activity,
+# but a silent check made before the latest `resume` tick no longer counts, so
+# the first sweep after a resume sends one status message rather than going
+# straight to the failure branch on a silence from before the pause
 # (docs/designs/DESIGN-coordinate-paused-state.md, Decision 1).
 #
 # The detail goes to context key coord/quiet.json as data: per holding its
@@ -124,6 +127,15 @@ latest_evidence() {
     [ -n "$ts" ] && lib_epoch "$ts"
 }
 
+# The latest resume tick: silent checks before it don't count.
+RESUME_S=0
+RESUME_OUT=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where 'event=resume'); rc=$?
+case $rc in
+    0) TS=$(printf '%s' "$RESUME_OUT" | jq -r '.timestamp // empty'); [ -n "$TS" ] && RESUME_S=$(lib_epoch "$TS") ;;
+    1) ;;
+    *) lib_die2 "cannot read the session log's evidence" ;;
+esac
+
 FIRST= SECOND=
 : > "$T/detail.jsonl"
 N=$(jq length "$T/holdings.json")
@@ -163,6 +175,7 @@ while [ "$i" -lt "$N" ]; do
     while IFS='	' read -r S WORD TOPICS; do
         [ -n "$S" ] || continue
         [ "$S" -gt "$LAST" ] || continue
+        [ "$S" -gt "$RESUME_S" ] || continue
         case " $TOPICS " in *" $W "*) ;; *) continue ;; esac
         EARLIER=$((EARLIER + 1))
         [ "$S" -gt "$LATEST_CHECK" ] && LATEST_CHECK=$S

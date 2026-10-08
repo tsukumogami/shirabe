@@ -232,6 +232,7 @@ stateDiagram-v2
     wait --> decision_raise : event: raise
     wait --> roadmap_status : event: landed, vars.ROADMAP: {"is_set":true}
     wait --> pick_facts : event: resume
+    wait --> failure : event: redispatch
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}
     wait_leg --> take_report : gates.leg_result.disposition: resolved, gates.leg_result.source: promoted

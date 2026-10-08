@@ -6,7 +6,7 @@
 # Usage: land-merge.sh --session S [--closeout] [--repo R]
 #
 # Before anything is merged, in order, each refusal exiting 10 with nothing
-# called:
+# called (4b exits 12):
 #   1. provenance: coord-log.sh provenance (the session came from this
 #      plugin's coordinate.md);
 #   2. no directed transition anywhere in the run (coord-log.sh

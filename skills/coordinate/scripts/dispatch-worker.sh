@@ -566,10 +566,14 @@ UNITS_FILE=""
 if [ "$STATUS" != dispatching ]; then
     UNITS_FILE="$WORK/pick.json"
     ctx coord/pick.json >"$UNITS_FILE" || die 2 "cannot read coord/pick.json, the units pick_facts listed"
+    # The unit pick listed under one of its forms (dc_unit_forms' rule) and
+    # what pick_facts said holds it; pick's `paused` already lets a go-ahead's
+    # unit through a pause on all. A unit pick didn't list falls back to
+    # paused_all; render-brief.sh refuses it below anyway.
     PAUSED=$(jq -r --arg u "$(jq -r '.unit // ""' "$INPUT")" '
         (.host // "") as $h
-        | if (.paused_all // null) != null then .paused_all
-          else ([.units[]? | .unit as $x | select($x == $u or ($u | startswith($x + ": ")) or ($h != "" and ($h + $x) == $u)) | .paused // empty][0] // empty) end' "$UNITS_FILE") \
+        | [.units[]? | .unit as $x | select($x == $u or ($u | startswith($x + ": ")) or ($h != "" and ($h + $x) == $u))][0] as $m
+        | if $m == null then (.paused_all // empty) else ($m.paused // empty) end' "$UNITS_FILE") \
         || die 2 "coord/pick.json is not pick_facts' JSON"
     [ -z "$PAUSED" ] || die 10 "pause $PAUSED holds this unit, as pick_facts read it: nothing dispatched; submit dispatched: paused"
 fi
