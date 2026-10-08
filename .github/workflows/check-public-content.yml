@@ -42,8 +42,10 @@ jobs:
             docs skills references .claude .claude-plugin ':(glob)*.md'
 
       # The body arrives through the environment, never interpolated into the
-      # script, so nothing in it can run.
+      # script, so nothing in it can run. It runs even when the step above
+      # refused a line, so one refusal doesn't hide the other.
       - name: Check the pull request body
+        if: success() || failure()
         env:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: printf '%s\n' "$PR_BODY" | scripts/ablation/check-public-content.sh -
