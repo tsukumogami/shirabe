@@ -145,6 +145,9 @@ eq "a unit is parked on an open entry" 0 $?
 eq "  ... as a decision row" "Feature 4 decision decision 4" "$(live | jq -r '.work[] | "\(.item) \(.kind) \(.who)"')"
 bash "$RS" "${W[@]}" --work "Feature 5" --kind decision --who "decision 5" --next x >/dev/null 2>"$T/err"; eq "a park on a settled entry is refused" 65 $?
 bash "$RS" "${W[@]}" --work "Feature 6" --kind decision --who "decision 9" --next x >/dev/null 2>"$T/err"; eq "a park on no entry is refused" 65 $?
+bash "$RS" "${W[@]}" --work "release acme/widgets v0.25.0" --kind decision --who "decision 4" --next "cut it once decided" >/dev/null 2>"$T/err"
+eq "an assigned release can be parked too" 0 $?
+bash "$RS" "${W[@]}" --done "release acme/widgets v0.25.0" --kind decision >/dev/null 2>"$T/err"; eq "  ... and its park removed" 0 $?
 bash "$RS" "${W[@]}" --work "Feature 6" --kind decision --who "worker-f6" --next x >/dev/null 2>"$T/err"; eq "a decision row's Who that isn't decision <n> is refused" 65 $?
 bash "$RS" "${W[@]}" --work "the registry" --kind decision --who "decision 4" --next x >/dev/null 2>"$T/err"; eq "a decision row whose Item isn't a unit is refused" 65 $?
 bash "$RS" "${W[@]}" --work "Feature 3" --kind follow-up --who "acme/widgets#41" --next "/shirabe:execute docs/plans/PLAN-sandbox.md" >/dev/null 2>"$T/err"
