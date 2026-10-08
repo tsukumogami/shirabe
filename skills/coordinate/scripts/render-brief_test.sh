@@ -59,7 +59,8 @@ cat >"$BASE" <<'EOF'
   "goal": "The plugin API ships with its loader.",
   "checkpoints": ["The scoping PR is open.", "The PR is ready with every CI job green."],
   "acceptance": ["The loader loads a plugin.", "CI is green per job."],
-  "dispatcher_session": "coord-alpha",
+  "dispatcher_session": "coordinate-roadmap-plugin-system-20261006T153752Z",
+  "reports_to": "coord-alpha",
   "decisions": [{"decision": "Plugins load eagerly.", "by": "the owner"}],
   "read_first": ["docs/prds/PRD-plugin-api.md", "#12", "acme/widgets#7", "https://example.com/spec"],
   "out_of_scope": ["The CLI's help text."],
@@ -97,7 +98,8 @@ has "out of scope: no filing"    "$B" "Don't file new issues: propose them in a 
 has "conventions pointer"        "$B" "Follow the target repository's conventions (its CLAUDE.md)"
 has "credentials line"           "$B" "never by printing the file or its environment block"
 has "credentials: report unquoted" "$B" "report it to the coordinator at once without quoting its value"
-has "channel: dispatcher named"  "$B" 'addressed to its session name `coord-alpha`'
+has "channel: the record's address named" "$B" 'addressed to `coord-alpha`, the address its record names'
+lacks "channel: the koto session is no address" "$B" 'coordinate-roadmap-plugin-system-20261006T153752Z'
 has "channel: only direction"    "$B" "That session is your only source of direction"
 has "channel: surface line 1"    "$B" '- `ci-health`: `ci-coord`'
 has "channel: surface line 2"    "$B" '- `releases`: `rel-coord`'
@@ -221,10 +223,22 @@ refused() {
     if [ -e "$BRIEFS" ]; then bad "$name: nothing written" "$(ls -A "$BRIEFS")"; else ok "$name: nothing written"; fi
 }
 
-for k in topic repo unit entry_point run_mode phase authority goal dispatcher_session; do
+for k in topic repo unit entry_point run_mode phase authority goal dispatcher_session reports_to; do
     refused "missing $k" "$(variant "no-$k" "del(.$k)")" "$k: required"
 done
 refused "empty goal"            "$(variant empty-goal '.goal = "  "')"                     "goal: required"
+refused "empty run mode"        "$(variant empty-mode '.run_mode = ""')"                   "run_mode: required for deliver, which takes --auto or --interactive"
+refused "address with a slash"  "$(variant bad-addr '.reports_to = "a/b"')"                "reports_to: must be a session name"
+US=$(bash "$S" --input "$(variant us-addr '.reports_to = "lane_owner"')" --stdout 2>"$T/us.err")
+eq "address: an underscored session name renders" 0 "$?"
+has "address: and is the one named" "$US" 'addressed to `lane_owner`, the address its record names'
+# A release (shirabe#627): its version is the positional, --dry-run its one
+# flag, and it takes no run mode.
+REL=$(variant release '.entry_point = "release" | .entry_args = ["v0.25.0", "--dry-run"] | .run_mode = "" | .unit = "release acme/widgets v0.25.0"')
+R=$(bash "$S" --input "$REL" --stdout 2>"$T/rel.err"); eq "release: renders with no run mode" 0 "$?"
+has "release: the invocation" "$R" 'Run `/shirabe:release v0.25.0 --dry-run` in acme/widgets.'
+has "release: says it takes no run mode" "$R" 'Run mode: none; `/shirabe:release` takes no execution mode.'
+refused "release with --auto"   "$(variant rel-auto '.entry_point = "release" | .entry_args = ["v0.25.0"] | .run_mode = "--auto"')" "run_mode: release doesn't allow --auto"
 refused "no entry_args"         "$(variant no-args 'del(.entry_args)')"                    "entry_args: required"
 refused "flag first"            "$(variant flag-first '.entry_args = ["--auto"]')"         "the first token must be the positional argument"
 refused "no checkpoints"        "$(variant no-cp '.checkpoints = []')"                     "checkpoints: required"

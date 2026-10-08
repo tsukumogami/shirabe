@@ -18,7 +18,8 @@
 # entry after the body; refusals (a holding row for no holding, a malformed
 # cap, a session-shaped address, a private repository on a public host); the
 # one-writer rule (record-write.sh changing a section refused); a failed entry
-# post after a written body (14); and record-handover.sh's report and gaps.
+# post after a written body (14); an assignment (an issue or a release a
+# person assigned) and its refusals; and record-handover.sh's report and gaps.
 #
 # Usage: bash skills/coordinate/scripts/record-state_test.sh
 set -uo pipefail
@@ -144,6 +145,9 @@ eq "a unit is parked on an open entry" 0 $?
 eq "  ... as a decision row" "Feature 4 decision decision 4" "$(live | jq -r '.work[] | "\(.item) \(.kind) \(.who)"')"
 bash "$RS" "${W[@]}" --work "Feature 5" --kind decision --who "decision 5" --next x >/dev/null 2>"$T/err"; eq "a park on a settled entry is refused" 65 $?
 bash "$RS" "${W[@]}" --work "Feature 6" --kind decision --who "decision 9" --next x >/dev/null 2>"$T/err"; eq "a park on no entry is refused" 65 $?
+bash "$RS" "${W[@]}" --work "release acme/widgets v0.25.0" --kind decision --who "decision 4" --next "cut it once decided" >/dev/null 2>"$T/err"
+eq "an assigned release can be parked too" 0 $?
+bash "$RS" "${W[@]}" --done "release acme/widgets v0.25.0" --kind decision >/dev/null 2>"$T/err"; eq "  ... and its park removed" 0 $?
 bash "$RS" "${W[@]}" --work "Feature 6" --kind decision --who "worker-f6" --next x >/dev/null 2>"$T/err"; eq "a decision row's Who that isn't decision <n> is refused" 65 $?
 bash "$RS" "${W[@]}" --work "the registry" --kind decision --who "decision 4" --next x >/dev/null 2>"$T/err"; eq "a decision row whose Item isn't a unit is refused" 65 $?
 bash "$RS" "${W[@]}" --work "Feature 3" --kind follow-up --who "acme/widgets#41" --next "/shirabe:execute docs/plans/PLAN-sandbox.md" >/dev/null 2>"$T/err"
@@ -199,6 +203,33 @@ bash "$RS" "${W[@]}" --run cap 3 --by "the human" >/dev/null 2>"$T/err"; eq "a f
 eq "  ... after the body was written" 3 "$(live | jq -r '.run[] | select(.key == "cap") | .value')"
 grep -q 'Run cap set to 3 by the human' "$T/err" && ok "  ... naming the entry to post" || bad "  ... naming the entry to post" "$(cat "$T/err")"
 db '.fail = []'
+
+echo "== a session name as the address (shirabe#610) =="
+seed "$TWO"
+bash "$RS" "${W[@]}" --run coordinator lane_owner --by "the human" >/dev/null 2>"$T/err"
+eq "an underscored session name is the coordinator's address" 0 $?
+bash "$RS" "${W[@]}" --told plugin_api-worker --by lane_owner >/dev/null 2>"$T/err"
+eq "  ... and an underscored party is told it" 0 $?
+bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "report at its first checkpoint" >/dev/null 2>"$T/err"
+eq "  ... a worker topic's first Work row is still recorded as told" "lane_owner|plugin_api-worker worker-f2" \
+    "$(live | jq -r '([.run[] | select(.key == "coordinator") | .value] | join(" ")) + "|" + ([.run[] | select(.key == "told") | .value] | join(" "))')"
+bash "$RH" "${RM[@]}" | jq -e '[.gaps[].gap] | index("not-told worker-f2") == null' >/dev/null \
+    && ok "  ... and the handover read matches it as told" || bad "  ... and the handover read matches it as told" "$(bash "$RH" "${RM[@]}")"
+bash "$RS" "${W[@]}" --run coordinator session_0123abcd --by x >/dev/null 2>"$T/err"; eq "  ... a session_ id is still refused" 65 $?
+
+echo "== an assignment: work a person assigns outside the scope (shirabe#607) =="
+seed "$TWO"
+bash "$RS" "${W[@]}" --standing assignment --on "acme/widgets#591" --what "pick the review level up front" --owner "the human" >/dev/null 2>"$T/err"
+eq "an assigned issue is recorded" 0 $?
+eq "  ... with its unit in On" "assignment acme/widgets#591" "$(live | jq -r '.standing[-1] | "\(.kind) \(.on)"')"
+bash "$RS" "${W[@]}" --standing assignment --on "release acme/widgets v0.25.0" --what "cut v0.25.0" --owner "the human" >/dev/null 2>"$T/err"
+eq "an assigned release is recorded" 0 $?
+entries | jq -e 'any(.[]; .kind == "assignment" and (.text | test("\\(assignment on release acme/widgets v0.25.0\\)")))' >/dev/null \
+    && ok "  ... and told as an assignment entry" || bad "  ... and told as an assignment entry" "$(entries | jq -c 'map(.text)')"
+bash "$RS" "${W[@]}" --standing assignment --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment with no --on is usage" 64 $?
+bash "$RS" "${W[@]}" --standing assignment --on "#12" --until lifted --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment with an --until is usage" 64 $?
+bash "$RS" "${W[@]}" --standing assignment --on "Feature 2" --what x --owner y >/dev/null 2>"$T/err"; eq "a roadmap feature isn't assigned work: refused by the codec" 65 $?
+bash "$RS" "${W[@]}" --standing assignment --on "acme/secret#4" --what x --owner y >/dev/null 2>"$T/err"; eq "an assignment naming a private repository is refused" 65 $?
 
 echo "== the handover read =="
 seed "$TWO"

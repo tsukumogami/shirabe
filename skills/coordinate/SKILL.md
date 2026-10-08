@@ -199,7 +199,13 @@ states never ask you to do these steps by hand.
 
 - **Dispatch.** A roadmap feature to be built goes to `/shirabe:deliver`; one
   scoped ahead goes to `/shirabe:scope`, with its execution sent later; an
-  issue goes to `/shirabe:work-on`. A unit scoped ahead is sent its execution
+  issue goes to `/shirabe:work-on`; a release goes to `/shirabe:release`. Work
+  a person assigns outside the scope (an issue, or a release) is recorded as
+  a Standing `assignment` row with `scripts/record-state.sh`, and pick lists
+  it as a unit from then on, at roadmap scope as at discipline scope, so it
+  is dispatched and held like any other. The brief tells the worker to report
+  to the record's Run `coordinator` address, which `scripts/dispatch-worker.sh`
+  reads from the record; a record that names none refuses the dispatch. A unit scoped ahead is sent its execution
   by `scripts/dispatch-worker.sh` once its blocker lands: it renders the execution brief,
   opens a new leg, and moves the holding to `executing`, which the record step
   confirms. A feature whose deliverable is its scoping goes to `/shirabe:scope`

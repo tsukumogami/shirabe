@@ -21,6 +21,10 @@
 #                      dispatch_check and passed through to dispatch
 #   brief_input.json   the brief input (see render-brief.sh); its topic must
 #                      equal dispatch_topic, or report_topic under --rebrief
+#   the record's Run   its `coordinator` address (DC_RECORD_STATE --list),
+#                      written into the input as reports_to, the address
+#                      every brief tells its worker to report to; none
+#                      exits 1 with nothing written
 #   report_topic       --rebrief: the worker whose report needs a fix;
 #                      --releg: the worker whose leg was spent
 #   coord/pick.json    the units pick_facts listed; the brief input's unit
@@ -207,6 +211,21 @@ else
 fi
 dc_valid_topic "$TOPIC" || die 2 "the topic in context isn't a valid topic: $TOPIC"
 [ "$IN_TOPIC" = "$TOPIC" ] || die 2 "brief_input.json names topic [$IN_TOPIC], not [$TOPIC]"
+
+# The address the brief tells the worker to report to is the record's: its
+# Run section's `coordinator`, the address messages to this coordinator
+# reach (shirabe#610). The koto session name in dispatcher_session is no
+# address. It is written into the input every brief renders from, over any
+# value the input gave; a record that names no address refuses the dispatch.
+bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>"$WORK/state.err" ||
+    die 2 "cannot read the record's Run section: $(head -1 "$WORK/state.err")"
+ADDRESS=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // empty' "$WORK/state.json") ||
+    die 2 "the record's Run section is not record-state.sh's JSON"
+if [ -z "$ADDRESS" ]; then
+    printf '%s: refused: the record names no coordinator address for the brief to give the worker; set it with record-state.sh --session %s --run coordinator <address> --by <who>\n' "$PROG" "$SESSION" >&2
+    exit 1
+fi
+jq --arg a "$ADDRESS" '.reports_to = $a' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
 
 ROOT=$(dc_workspace_root) || die 2 "no workspace root found from $(pwd)"
 BRIEFS="$ROOT/.niwa/dispatch-briefs"

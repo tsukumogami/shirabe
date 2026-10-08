@@ -21,6 +21,14 @@
 # from coord/pick.json for the dispatch path's check of a brief's unit;
 # pick-facts_test.sh holds the two to each other.
 #
+# Then, at either scope, the units a person assigned outside it: one per
+# Standing row of kind assignment (record-state.sh), its On the unit's id
+# (`#<n>` or `<owner/repo>#<n>`, an issue, read for its title and state and
+# done once closed; or `release <owner/repo> <tag>`, done when its row
+# ends), each carrying `assigned`, the row's id. One the scope already lists
+# isn't added again, and while any is open the roadmap isn't complete. A
+# holding covers one when its Unit cell is the id, or `<host><id>` for `#<n>`.
+#
 # Holdings come from the record (record-holding.sh --list), each marked
 # parked (a Verified head, and its pull request open and not a draft), merged
 # (a Verified head and its Pull request cell cleared by a confirmed merge,
@@ -60,7 +68,7 @@
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
 #    units: [{unit, number, title, status, done, blocked,
 #    blocked_by, blocker_landed, holding, landed, paused, awaiting, answered,
-#    follow_up}], holdings: [{worker, unit, phase,
+#    follow_up, assigned?}], holdings: [{worker, unit, phase,
 #    dispatch_status, parked, merged, pull_request, paused}], decisions: [{decision, question,
 #    state, round, verdict, reason, recommendation, target, owed}], active,
 #    parked, cap, parked_bound, pauses, go_aheads, paused_all}
@@ -78,6 +86,7 @@
 # GitHub reads: gh api --method GET repos/R --jq .default_branch;
 # gh api --method GET "repos/R/contents/<roadmap>?ref=<default>";
 # gh issue list --repo R --state open --label <name> --json number,title --limit 200;
+# gh issue view <n> --repo <repo> --json number,title,state per assigned issue;
 # gh pr view <n> --repo R --json title; record-holding.sh --list (gh issue|pr view);
 # gh pr view <n> --repo <repo> --json state,isDraft per verified holding.
 set -uo pipefail
@@ -177,6 +186,37 @@ else
                      | if . == null then null else {worker, phase} end)})' "$T/issues.json" > "$T/units.json" \
         || lib_die2 "jq failed"
 fi
+
+# The units a person assigned (Standing rows of kind assignment), after the
+# scope's own, each once: an issue is read for its title and state, and is
+# done once closed; a release is done when its row ends.
+jq -c '[(.standing // [])[] | select(.kind == "assignment") | {id: .on, standing}]' "$T/state.json" > "$T/assigned.json" || lib_die2 "jq failed"
+: > "$T/assigned.lines"
+n=$(jq length "$T/assigned.json"); i=0
+while [ "$i" -lt "$n" ]; do
+    ID=$(jq -r --argjson i "$i" '.[$i].id' "$T/assigned.json")
+    SID=$(jq -r --argjson i "$i" '.[$i].standing' "$T/assigned.json")
+    i=$((i + 1))
+    jq -e --arg u "$ID" --arg h "$REPO" 'any(.[]; .unit == $u or ($h + .unit) == $u)' "$T/units.json" > /dev/null && continue
+    case "$ID" in
+        release\ *)
+            jq -nc --arg u "$ID" --arg s "$SID" '{unit: $u, number: null, title: "", status: "to release", done: false,
+                blocked: false, blocked_by: [], blocker_landed: false, landed: null, assigned: $s}' >> "$T/assigned.lines" ;;
+        *)
+            IREPO=${ID%%#*}; [ -n "$IREPO" ] || IREPO=$REPO
+            gh issue view "${ID##*#}" --repo "$IREPO" --json number,title,state > "$T/issue.json" 2> "$T/issue.err" < /dev/null \
+                || lib_die2 "cannot read assigned issue $ID: $(lib_scrub < "$T/issue.err")"
+            jq -c --arg u "$ID" --arg s "$SID" '{unit: $u, number, title: (.title | .[0:120]), status: (.state | ascii_downcase),
+                done: ((.state | ascii_downcase) == "closed"), blocked: false, blocked_by: [], blocker_landed: false,
+                landed: null, assigned: $s}' "$T/issue.json" >> "$T/assigned.lines" || lib_die2 "jq failed" ;;
+    esac
+done
+jq -c -s --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --arg r "$REPO" '$u[0] + map(. as $a
+    | . + {holding: ([$h[0][] | select(.unit == $a.unit or .unit == ($r + $a.unit))][0]
+                     | if . == null then null else {worker, phase} end)})' "$T/assigned.lines" > "$T/units2.json" \
+    && mv "$T/units2.json" "$T/units.json" || lib_die2 "jq failed"
+# Assigned work still open keeps a roadmap from reading complete.
+[ "$VERDICT" = scope-complete ] && ! jq -e 'all(.done)' "$T/units.json" > /dev/null && VERDICT=pick
 
 # The pauses, read live, for every unit and holding listed.
 jq -c --slurpfile h "$T/counted.json" '[.[].unit] + [$h[0][].unit] | unique' "$T/units.json" > "$T/punits.json" || lib_die2 "jq failed"

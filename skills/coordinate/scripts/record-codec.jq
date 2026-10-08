@@ -70,6 +70,10 @@ def dec:
   | gsub("&#13;"; "\r") | gsub("\\\\\\|"; "|") | gsub("&#92;"; "\\")
   | gsub("&gt;"; ">") | gsub("&lt;"; "<") | gsub("&amp;"; "&");
 
+# check_worker: a Worker cell, and a Run `coordinator` or `told` value (a
+# messaging address). re_topic takes letters, digits, `.`, `_` and `-`, so a
+# session name such as niwa's `plugin_api-worker` passes; an id, a path, a
+# job id, an instance name and a `session_` value never do.
 def check_worker:
   if . == "" then refuse("worker: empty")
   elif test("/") then refuse("worker: contains '/', the shape of a path")
@@ -242,16 +246,19 @@ def parse_holds($p):
 #   Value    arguments: the run's arguments as given; cap: a number;
 #            coordinator: the address messages to the coordinator reach;
 #            told: a party that has been sent that address. Both of the last
-#            two are dispatch topics, the Worker cell's grammar.
+#            two are messaging addresses (check_worker): a dispatch topic or
+#            a session name, which may hold `_`, never an id or a path.
 #   Set by   who set it, in words
 #   Set      when, YYYY-MM-DDTHH:MMZ
 # Standing, the events only a person owns that still bind the run:
 #   Standing s<n>, unique
-#   Kind     pause | go-ahead | approval | answer
+#   Kind     pause | go-ahead | approval | answer | assignment
 #   On       a pause's or go-ahead's scope: `all` (a pause only: the whole
 #            coordinator) or one unit as pick lists it (`Feature 2`, `ED1`,
 #            `#12`, `owner/repo#12`); required on a pause, optional on a
-#            go-ahead, blank on the other kinds
+#            go-ahead; on an assignment, the unit a person assigned outside
+#            the scope, an issue or `release owner/repo <tag>`, required;
+#            blank on the other kinds
 #   Until    a pause's resume condition: `lifted` (until a person ends the
 #            row), `time <YYYY-MM-DDTHH:MMZ>` (UTC), `merged owner/repo#n` or
 #            `tag owner/repo <tag>`; required on a pause, blank otherwise
@@ -286,7 +293,9 @@ def state_secs: [
   {key: "work", title: "Work", cols: [["item", "Item"], ["kind", "Kind"], ["who", "Who"], ["next", "Next step"],
     ["wakes", "Wakes"], ["updated", "Updated"]]}];
 def run_keys: ["arguments", "cap", "coordinator", "told"];
-def standing_kinds: ["pause", "go-ahead", "approval", "answer"];
+def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment"];
+# A unit a person assigns outside the scope: an issue, or a release.
+def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
 def work_kinds: ["holding", "local-agent", "decision", "follow-up"];
 def s_text_cols: {run: ["value", "set_by"], standing: ["what", "owner", "relayed_by"], work: ["item", "who", "next"]};
 # A unit as pick lists it: a roadmap feature's heading tag or an issue.
@@ -313,7 +322,7 @@ def check_scell($sk; $key; $private):
     elif $sk == "standing" and $key == "kind" then (if any(standing_kinds[]; . == $v) then . else refuse("standing.kind: not one of \(standing_kinds | join(", "))") end)
     elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding, local-agent, decision or follow-up") end)
     elif $sk == "work" and $key == "wakes" then (if test("^(0|[1-9][0-9]{0,5})$") then . else refuse("work.wakes: not a count") end)
-    elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `ED1`, `#12`, `owner/repo#12`)") end)
+    elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) or test(re_assigned) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)") end)
     elif $sk == "standing" and $key == "until" then (if pause_until_ok then . else refuse("standing.until: not `lifted`, `time <YYYY-MM-DDTHH:MMZ>`, `merged owner/repo#n` or `tag owner/repo <tag>`") end)
     else . end
   | if ($v != "") and $sk == "standing" and ($key == "on" or $key == "until") then
@@ -337,7 +346,7 @@ def check_srow($sec; $private):
        else . end)
     elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
     elif $sec.key == "work" and (.kind == "decision" or .kind == "follow-up") then
-      (if (.item | test(re_unit) | not) then refuse("work.item: a \(.kind) row's Item is a unit as pick lists it (`Feature 2`, `ED1`, `#12`, `owner/repo#12`)")
+      (if ((.item | test(re_unit)) or (.item | test(re_assigned))) | not then refuse("work.item: a \(.kind) row's Item is a unit as pick lists it (`Feature 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)")
        elif .kind == "decision" and (.who | test("^decision [1-9][0-9]*$") | not) then refuse("work.who: a decision row's Who is `decision <n>`")
        elif .kind == "follow-up" and (.who | test(re_pr_ref) | not) then refuse("work.who: a follow-up row's Who is the pull request that landed its scoping, `owner/repo#n`")
        else . end)
@@ -348,7 +357,11 @@ def check_srow($sec; $private):
          (if .until != "" then refuse("standing.\(.standing): a go-ahead has no Until; it ends when used")
           elif .on == "all" then refuse("standing.\(.standing): a go-ahead names one unit, never `all`")
           else . end)
-       elif .on != "" or .until != "" then refuse("standing.\(.standing): only a pause or a go-ahead has an On or an Until")
+       elif .kind == "assignment" then
+         (if .until != "" then refuse("standing.\(.standing): an assignment has no Until; it ends when its work is done")
+          elif (.on | test(re_assigned) | not) then refuse("standing.\(.standing): an assignment's On is an issue (`#12`, `owner/repo#12`) or `release owner/repo <tag>`")
+          else . end)
+       elif .on != "" or .until != "" then refuse("standing.\(.standing): only a pause, a go-ahead or an assignment has an On, and only a pause an Until")
        else . end)
     else . end;
 

@@ -19,13 +19,15 @@
 # vars and run-facts); the override flags exist for tests only.
 #
 # --run sets one Run key: arguments (the run's arguments as given), cap (a
-# number) or coordinator (the address messages to this coordinator reach, a
-# dispatch topic). A new coordinator clears every `told` row, since nobody has
-# been told the new address yet. --told records that WHO (a dispatch topic)
-# was sent the current address; it needs a coordinator row.
+# number) or coordinator (the address messages to this coordinator reach: a
+# session name a worker can message, `_` allowed, or a dispatch topic; never
+# an id or a path). A new coordinator clears every `told` row, since nobody
+# has been told the new address yet. --told records that WHO (a worker's
+# dispatch topic, or another party's session name) was sent the current
+# address; it needs a coordinator row.
 #
 # --standing records an event only a person owns that still binds the run:
-# KIND is pause, go-ahead, approval or answer, OWNER is the person who decided
+# KIND is pause, go-ahead, approval, answer or assignment, OWNER is the person who decided
 # it, and --relayed-by names who carried it here (leave it off when the owner
 # told this coordinator directly). When a person says it in a comment on the
 # record, or anywhere else, this is how it reaches the record: the reader
@@ -37,8 +39,12 @@
 # unit it lets through a wider pause; the other kinds take neither. With a
 # session whose pick facts (coord/pick.json) list units, --on must name one of
 # them (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1).
+# An assignment is work a person assigned outside the scope: --on names it,
+# an issue (`#12`, `owner/repo#12`) or `release owner/repo <tag>`, and pick
+# lists it as a unit from then on (shirabe#607).
 # --end removes a Standing row (a resume ends a pause; a go-ahead or approval
-# ends when used; an answer when withdrawn).
+# ends when used; an answer when withdrawn; an assignment once its work is
+# done).
 #
 # --work writes the next step for ITEM: with --kind holding, ITEM is a
 # holding's Unit and W its Worker, and the holding's first row also records W
@@ -220,15 +226,16 @@ told)
     EKIND=told ETEXT="$WHO was told the coordinator's address, $ADDR, by $BY."
     ;;
 standing)
-    case "$KIND" in pause|go-ahead|approval|answer) ;; *) echo "$PROG: --standing takes pause, go-ahead, approval or answer" >&2; exit 64 ;; esac
+    case "$KIND" in pause|go-ahead|approval|answer|assignment) ;; *) echo "$PROG: --standing takes pause, go-ahead, approval, answer or assignment" >&2; exit 64 ;; esac
     case "$KIND" in
         pause) [ -n "$ON" ] && [ -n "$UNTIL" ] || { echo "$PROG: a pause takes --on and --until" >&2; exit 64; } ;;
         go-ahead) [ -z "$UNTIL" ] || { echo "$PROG: a go-ahead takes no --until; it ends when used" >&2; exit 64; } ;;
-        *) [ -z "$ON$UNTIL" ] || { echo "$PROG: only a pause or a go-ahead takes --on or --until" >&2; exit 64; } ;;
+        assignment) [ -n "$ON" ] && [ -z "$UNTIL" ] || { echo "$PROG: an assignment takes --on, the unit assigned, and no --until" >&2; exit 64; } ;;
+        *) [ -z "$ON$UNTIL" ] || { echo "$PROG: only a pause, a go-ahead or an assignment takes --on, and only a pause --until" >&2; exit 64; } ;;
     esac
     # The scope must be a unit pick reads, when this session's pick facts say
-    # which units those are.
-    if [ -n "$ON" ] && [ "$ON" != all ] && [ "$OVERRIDE" != 1 ] && [ -n "$SESSION" ]; then
+    # which units those are; an assignment names one pick doesn't list yet.
+    if [ -n "$ON" ] && [ "$ON" != all ] && [ "$KIND" != assignment ] && [ "$OVERRIDE" != 1 ] && [ -n "$SESSION" ]; then
         if "$KOTO" context exists "$SESSION" coord/pick.json; then
             "$KOTO" context get "$SESSION" coord/pick.json > "$WD/pick.json" || lib_die2 "cannot read coord/pick.json"
         else
