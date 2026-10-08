@@ -190,8 +190,12 @@ standing)
     # The scope must be a unit pick reads, when this session's pick facts say
     # which units those are.
     if [ -n "$ON" ] && [ "$ON" != all ] && [ "$OVERRIDE" != 1 ] && [ -n "$SESSION" ]; then
-        if "$KOTO" context get "$SESSION" coord/pick.json > "$WD/pick.json" 2>/dev/null \
-            && jq -e '.units | type == "array" and length > 0' "$WD/pick.json" > /dev/null 2>&1; then
+        if "$KOTO" context exists "$SESSION" coord/pick.json; then
+            "$KOTO" context get "$SESSION" coord/pick.json > "$WD/pick.json" || lib_die2 "cannot read coord/pick.json"
+        else
+            echo '{}' > "$WD/pick.json"
+        fi
+        if jq -e '(.units // []) | type == "array" and length > 0' "$WD/pick.json" > /dev/null; then
             jq -e --arg u "$ON" '.host as $h | any(.units[]; .unit == $u or ($h != null and ($h + .unit) == $u))' "$WD/pick.json" > /dev/null \
                 || refuse "--on $ON is not a unit pick lists; it takes one of: $(jq -r '[.units[].unit] | join(", ")' "$WD/pick.json")"
         fi

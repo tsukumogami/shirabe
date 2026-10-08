@@ -159,8 +159,11 @@ fi
 # per line, into $WORK/paused. Returns 2 when the pauses can't be read.
 paused_topics() {
     : >"$WORK/paused"
-    bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>/dev/null || return 2
-    jq -e '[(.standing // [])[] | select(.kind == "pause")] | length > 0' "$WORK/state.json" >/dev/null 2>&1
+    bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>"$WORK/state.err" || {
+        sed 's/^/  /' "$WORK/state.err" | head -n 3 >&2
+        return 2
+    }
+    jq -e '[(.standing // [])[] | select(.kind == "pause")] | length > 0' "$WORK/state.json" >/dev/null
     case $? in 0) ;; 1) return 0 ;; *) return 2 ;; esac
     printf '%s' "$1" | jq -c '[.[].unit // empty]' >"$WORK/units.json" || return 2
     bash "$DC_HERE/pause-read.sh" --standing "$WORK/state.json" --units "$WORK/units.json" >"$WORK/pauses.json" || return 2
@@ -214,11 +217,12 @@ pick() {
     cat "$WORK/pick"
 }
 
+: >"$WORK/paused"
 LINE=$(pick)
 RC=$?
 [ "$RC" -eq 0 ] || { printf '%s: the record could not be read\n' "$PROG" >&2; exit "$RC"; }
 
-PASSED=$(jq -R -s -c 'split("\n") | map(select(. != ""))' "$WORK/paused" 2>/dev/null) || PASSED='[]'
+PASSED=$(jq -R -s -c 'split("\n") | map(select(. != ""))' "$WORK/paused") || { printf '%s: cannot read the topics passed over\n' "$PROG" >&2; exit 2; }
 if [ -z "$LINE" ]; then
     put wait_target "$(jq -nc --argjson p "$PASSED" '{path: "none", passed_over: $p}')"
     printf 'none\n'
