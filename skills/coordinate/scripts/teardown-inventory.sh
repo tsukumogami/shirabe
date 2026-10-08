@@ -93,7 +93,12 @@
 # couldn't be sealed (or a read that may succeed next tick failed).
 #
 # Writes nothing in the instance (with --seal, only the sealed verdict).
-# TEARDOWN_FETCH_SECS bounds each network read (ls-remote, a gh call).
+# TEARDOWN_FETCH_SECS bounds each network read (ls-remote, a gh call);
+# TEARDOWN_TOTAL_SECS is the whole scan's budget (default 24);
+# TEARDOWN_PARALLEL is how many clones are read at once (1-8, default 8).
+# TEARDOWN_TIP_LOOKUP=0 is for tests only: it walks every tip instead of
+# settling the ones at origin's live ids by lookup, so a test can show the
+# lookup changes nothing the scan prints.
 # bash 3.2; needs git, jq, and gh for the trees and the pull request lookup.
 set -uo pipefail
 
@@ -220,7 +225,10 @@ tree_map() {
 
 # QUEUE: every clone to inventory, by physical path, once.
 QUEUE=()
-# SEEN_COMMON: the git directories whose shared refs are already read.
+# SEEN_COMMON: the git directories whose shared refs are already read. The
+# main loop is its writer: it appends a clone's git directory once the
+# clone's background read is launched, so every later clone sees it. The
+# append check_repo makes is that job's own copy and goes when the job ends.
 SEEN_COMMON=()
 queue() {
     local r q
@@ -427,8 +435,12 @@ check_repo() {
     # TEARDOWN_TIP_LOOKUP=0 walks every tip, for the test that the lookup
     # changes nothing the scan prints.
     if [ "${TEARDOWN_TIP_LOOKUP:-1}" != 0 ]; then
-        awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$WORK/live" "$WORK/tips" >"$WORK/tips.left" &&
-            mv "$WORK/tips.left" "$WORK/tips"
+        # Only with ids to look up: awk's NR == FNR would read an empty
+        # first file as the tips themselves and drop them all.
+        if [ -s "$WORK/live" ]; then
+            awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$WORK/live" "$WORK/tips" >"$WORK/tips.left" &&
+                mv "$WORK/tips.left" "$WORK/tips"
+        fi
     fi
     local sha name bname n base target label merge paths p want have differ
     [ -f "$WORK/tree-$key-$dsha" ] || tree_map "$repo" "$dsha" "$WORK/tree-$key-$dsha" || {
@@ -555,7 +567,7 @@ fi
 # (A clone queued earlier that failed before reaching its refs makes the
 # verdict an error anyway, so the worktree reading less can't hide anything.)
 PARALLEL="${TEARDOWN_PARALLEL:-8}"
-case "$PARALLEL" in '' | *[!0-9]* | 0) PARALLEL=8 ;; esac
+case "$PARALLEL" in [1-8]) ;; *) PARALLEL=8 ;; esac
 i=0
 while [ "$i" -lt "${#QUEUE[@]}" ]; do
     end=$((i + PARALLEL))

@@ -39,8 +39,10 @@
 # check bounds itself at 24 s); each is clamped to 1-60. A deadline decides
 # when a read gives up, never what it concludes: a read that gives up is not
 # verified. RECONCILE_INV_PARALLEL sets how many clones an inventory reads at
-# once (default 8, 1-16); it changes how long the read takes, never what it
-# lists.
+# once (1-8, default 8; anything else is 8); it changes how long the read
+# takes, never what it lists. RECONCILE_TIP_LOOKUP=0 is for tests only: the
+# inventory walks every tip instead of settling the ones at the remote's live
+# ids by lookup, so a test can show the lookup changes nothing it lists.
 #
 # Requires: bash 3.2+, jq, gh, git, niwa (host, teardown), koto (leg).
 set -uo pipefail
@@ -65,9 +67,9 @@ INV_ITEM_CAP=200
 # GitHub containment reads for tips a clone can't settle locally, per run.
 INV_COMPARE_CAP=40
 INV_FIND_DEPTH=16
-# Clones an inventory reads at once (RECONCILE_INV_PARALLEL, 1-16).
+# Clones an inventory reads at once (RECONCILE_INV_PARALLEL, 1-8).
 INV_PARALLEL=8
-case "${RECONCILE_INV_PARALLEL:-}" in [1-9] | 1[0-6]) INV_PARALLEL=$RECONCILE_INV_PARALLEL ;; esac
+case "${RECONCILE_INV_PARALLEL:-}" in [1-8]) INV_PARALLEL=$RECONCILE_INV_PARALLEL ;; esac
 
 usage() {
     awk '/^# Usage:/{on=1} on&&/^# Exit codes/{exit} on' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -168,7 +170,9 @@ blob_at() {
 # origin), LIVE (its ls-remote read), DEFAULT (its default branch name),
 # DEFAULT_SHA, TREE (the default branch's path -> blob map, a file) and
 # EXCLUDE (^sha per live sha the clone has, a file). A linked worktree reuses
-# the ones read for its repository.
+# the ones read for its repository from the run-wide files
+# $SHARED.live.<k>, $SHARED.tree.<k> and $SHARED.exclude.<k>, where k is the
+# repository's index in SEEN_COMMON (see inv_first_common).
 
 # ig CLONE ARGS... -- one git read in CLONE, under the deadline.
 ig() {
@@ -209,7 +213,11 @@ inv_rel() { local r=${1#"$IROOT"}; r=${r#/}; printf '%s' "${r:-.}"; }
 # repository under when it reads DIR in full: the same reads and checks
 # inv_clone makes before it records one, and nothing when it would stop
 # first or when the repository's directory is already recorded (DIR is then
-# read as a linked worktree).
+# read as a linked worktree). The two must agree: the main loop appends what
+# this prints to SEEN_COMMON as it launches DIR's job, and that position is
+# the index k under which the job writes, and later worktrees read, the
+# $SHARED.*.<k> files. A change to inv_clone's checks before its
+# SEEN_COMMON append belongs here too.
 inv_first_common() {
     local loc common top s
     [ -L "$1/.git" ] && return 0
@@ -430,7 +438,6 @@ inv_files() {
     done < "$ITEMS.cmp"
 }
 
-# inv_clone DIR -- inventory one clone.
 # inv_remote_has CLONE TIP NAME -- for a tip with commits outside the live
 # shas the clone has, ask GitHub whether the default branch, or the remote
 # branch of the same name, contains it, for each of those the clone hasn't
@@ -463,8 +470,12 @@ inv_tips() {
     # RECONCILE_TIP_LOOKUP=0 walks every tip, for the test that the lookup
     # changes nothing the read lists.
     if [ "${RECONCILE_TIP_LOOKUP:-1}" != 0 ]; then
-        awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$ITEMS.liveids" "$ITEMS.tips" > "$ITEMS.tips.left" \
-            && mv "$ITEMS.tips.left" "$ITEMS.tips"
+        # Only with ids to look up: awk's NR == FNR would read an empty
+        # first file as the tips themselves and drop them all.
+        if [ -s "$ITEMS.liveids" ]; then
+            awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$ITEMS.liveids" "$ITEMS.tips" > "$ITEMS.tips.left" \
+                && mv "$ITEMS.tips.left" "$ITEMS.tips"
+        fi
     fi
     while IFS=$'\t' read -r tip bname; do
         rd_valid_sha "$tip" || continue
@@ -489,6 +500,8 @@ inv_detached() {
     return 0
 }
 
+# inv_clone DIR -- inventory one clone. Its checks before the SEEN_COMMON
+# append mirror inv_first_common's, which must stay in step with them.
 inv_clone() {
     local C=$1 REL URL loc common top n line w wr k
     REL=${C#"$IROOT"}; REL=${REL#/}; [ -n "$REL" ] || REL=.
