@@ -162,8 +162,8 @@ Feature state is never stored; it is read from the roadmap and the pull
 requests every time. When a roadmap feature lands, the skill writes it back:
 `scripts/roadmap-status.sh` opens a pull request setting its Status and
 Outcome, which whoever merges roadmap changes merges, and the record holds it
-as a side effect in flight so pick never offers the feature again meanwhile. At roadmap scope the record is an issue in the roadmap's
-repository titled `Coordinator record: ROADMAP-<name>`, closed when the roadmap
+as a side effect in flight so pick never offers the feature again meanwhile.
+At roadmap scope the record is an issue in the roadmap's repository titled `Coordinator record: ROADMAP-<name>`, closed when the roadmap
 is done; at discipline scope it is a draft
 pull request per rotation, whose diff is the dated handoff file. The workflow
 finds it, checks it, and confirms every change you make to it on GitHub; you

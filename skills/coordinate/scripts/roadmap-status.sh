@@ -40,10 +40,15 @@
 # Each change to the record is told as an entry with record-append.sh, kind
 # roadmap-status, after the body is written.
 #
+# A failed record write after the pull request opened (11, 12 or 13) leaves
+# the pull request with no row: close it by hand before running --unit again,
+# which would open a second one on a new branch.
+#
 # Exit codes: 0 done (prints the pull request's URL, or the record's) or
 # printed; 1 --confirm: the roadmap doesn't read Done yet; 2 a read failed; 10
-# refused (not an open record of this scope, provenance, a directed
-# transition); 11 a write failed; 12 the record changed between this script's
+# refused about the record (no found record, not a canonical one, or from the
+# write core: not open, provenance, a directed transition); 65 refused about
+# the request (below); 11 a write failed; 12 the record changed between this script's
 # read and its write; 13 the record is full; 14 the record was written but its
 # entry wasn't posted; 64 usage (and any scope but a roadmap); 65 refused (the
 # reason on stderr).
@@ -51,8 +56,9 @@
 # GitHub calls:
 #   reads:  gh issue view N --repo R --json body
 #           gh api --method GET repos/R --jq .default_branch
-#           gh api --method GET repos/R/contents/<roadmap>?ref=<default>
 #           gh api --method GET repos/R/git/ref/heads/<default> --jq .object.sha
+#           gh api --method GET repos/R/contents/<roadmap>?ref=<that sha>   (--unit)
+#           gh api --method GET repos/R/contents/<roadmap>?ref=<default>    (--confirm)
 #   writes: gh api --method POST repos/R/git/refs -f ref=... -f sha=...
 #           gh api --method PUT repos/R/contents/<roadmap> (message, content, sha, branch)
 #           gh pr create --repo R --head <branch> --base <default> --title T --body-file F
@@ -182,33 +188,45 @@ esac
 # --unit: open the roadmap pull request.
 [ "$(jq length "$WD/pending.json")" = 0 ] \
     || refuse "a roadmap pull request is already pending ($(jq -r 'map("\(.unit) \(.pull_request)") | join(", ")' "$WD/pending.json")); confirm or drop it first, since two would conflict in the generated sections"
-lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$WD/roadmap.md"
-case $? in 0) ;; 1) lib_die2 "$ROADMAP is not on $DEFAULT_BRANCH" ;; *) lib_die2 "cannot read $ROADMAP" ;; esac
+# The default branch's head, then the roadmap and its blob at that one
+# commit, so the branch, the content edited and the sha the commit replaces
+# all agree even if the default branch moves meanwhile.
+BASE_SHA=$(gh api --method GET "repos/$REPO/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha 2> /dev/null < /dev/null) || lib_die2 "cannot read the head of $DEFAULT_BRANCH"
+[[ $BASE_SHA =~ $RE_SHA ]] || lib_die2 "the head of $DEFAULT_BRANCH is not a sha"
+gh api --method GET "repos/$REPO/contents/$ROADMAP?ref=$BASE_SHA" > "$WD/contents.json" 2> "$WD/c.err" < /dev/null \
+    || lib_die2 "cannot read $ROADMAP at $BASE_SHA: $(lib_scrub < "$WD/c.err")"
+BLOB=$(jq -r '.sha // empty' "$WD/contents.json")
+[[ $BLOB =~ $RE_SHA ]] || lib_die2 "$ROADMAP's blob sha is not a sha"
+jq -r '.content // ""' "$WD/contents.json" > "$WD/roadmap.b64" && lib_b64d "$WD/roadmap.b64" "$WD/roadmap.md" || lib_die2 "cannot decode $ROADMAP"
 FEATURE=$(lib_roadmap_features "$WD/roadmap.md" | jq -c --arg t "$TAG" '[.[] | select(.id == $t)][0] // empty')
 [ -n "$FEATURE" ] || refuse "$TAG is not a feature of $ROADMAP"
 [ "$(printf '%s' "$FEATURE" | jq -r .done)" = false ] || refuse "$TAG already reads $(printf '%s' "$FEATURE" | jq -r .status)"
 TITLE=$(printf '%s' "$FEATURE" | jq -r .title)
 
-# The three lines of TAG's block, and nothing else before the populate.
+# The three lines of TAG's block, and nothing else before the populate. The
+# outcome reaches awk through the environment, which takes it as written
+# (`-v` would read its backslashes as escapes). A roadmap with CRLF line
+# endings keeps them.
 mkdir -p "$WD/doc"
 DOC="$WD/doc/$(basename "$ROADMAP")"
-tr -d '\r' < "$WD/roadmap.md" | awk -v tag="$TAG" -v outcome="$OUTCOME" '
+CRLF=0
+grep -q $'\r$' "$WD/roadmap.md" && CRLF=1
+tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$TAG" RS_OUTCOME="$OUTCOME" awk '
+    BEGIN { tag = ENVIRON["RS_TAG"]; outcome = ENVIRON["RS_OUTCOME"] }
     /^## / { infeat = ($0 ~ /^## Features[ \t]*$/); inblock = 0; print; next }
     infeat && /^### / { inblock = (index($0, "### " tag ": ") == 1); print; next }
     inblock && /^\*\*Needs:\*\*/ { next }
     inblock && /^\*\*Outcome:\*\*/ { next }
     inblock && /^\*\*Status:\*\*/ { print "**Status:** Done"; print "**Outcome:** " outcome; next }
     { print }' > "$DOC" || lib_die2 "awk failed"
-grep -qxF "**Outcome:** $OUTCOME" "$DOC" || refuse "$TAG's block has no **Status:** line to set"
+grep -qxF "**Outcome:** $OUTCOME" "$DOC" || refuse "the Outcome line could not be written into $TAG's block (it has no **Status:** line, or the outcome didn't survive as written)"
 (cd "$WD/doc" && shirabe roadmap populate "$(basename "$DOC")" > /dev/null 2> "$WD/populate.err") \
     || lib_die2 "shirabe roadmap populate failed: $(lib_scrub < "$WD/populate.err")"
+if [ "$CRLF" = 1 ]; then sed 's/$/\r/' "$DOC" > "$DOC.crlf" && mv "$DOC.crlf" "$DOC"; fi
 
-# The branch, from the default branch's head, and the commit on it.
+# The branch, from the commit the roadmap was read at, and the commit on it.
 SLUG=$(printf '%s' "$TAG" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '-')
 BRANCH_NEW="coordinate/roadmap-status-$SLUG-$(date -u +%Y%m%d%H%M)"
-BASE_SHA=$(gh api --method GET "repos/$REPO/git/ref/heads/$DEFAULT_BRANCH" --jq .object.sha 2> /dev/null < /dev/null) || lib_die2 "cannot read the head of $DEFAULT_BRANCH"
-[[ $BASE_SHA =~ $RE_SHA ]] || lib_die2 "the head of $DEFAULT_BRANCH is not a sha"
-BLOB=$(gh api --method GET "repos/$REPO/contents/$ROADMAP?ref=$DEFAULT_BRANCH" --jq .sha 2> /dev/null < /dev/null) || lib_die2 "cannot read $ROADMAP's blob"
 gh api --method POST "repos/$REPO/git/refs" -f "ref=refs/heads/$BRANCH_NEW" -f "sha=$BASE_SHA" > /dev/null 2> "$WD/w.err" < /dev/null \
     || { echo "$PROG: creating $BRANCH_NEW failed: $(lib_scrub < "$WD/w.err")" >&2; exit 11; }
 base64 < "$DOC" | tr -d '\n\r ' > "$WD/content"

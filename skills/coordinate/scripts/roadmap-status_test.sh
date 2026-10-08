@@ -9,7 +9,9 @@
 # Side effects row it writes and the entry that tells it; --list; a second
 # --unit refused while one is pending; --confirm refused (1) while the
 # roadmap on the default branch doesn't read Done, then removing the row once
-# it does; --drop removing it with the reason; refusals: a tag that isn't a
+# it does; --drop removing it with the reason; an outcome with backslashes, &
+# and % written exactly; a CRLF roadmap keeping CRLF; the roadmap read at the
+# default branch's head commit, which the branch starts from; refusals: a tag that isn't a
 # feature, one already Done, a discipline scope, a malformed tag, an outcome
 # over two lines; nothing is ever merged.
 #
@@ -96,6 +98,28 @@ db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] |= sub
 bash "$RS" "${W[@]}" --unit "Feature 2" --outcome "acme/widgets#12" >/dev/null 2>"$T/err"; eq "opened" 0 $?
 PRB=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
 eq "one Outcome line, the new one" "**Outcome:** acme/widgets#12" "$(on_branch "$PRB" | sed -n '/^### Feature 2/,/^### Feature 3/p' | grep '^\*\*Outcome')"
+
+echo "== an outcome taken as written =="
+seed
+OUTC='C:\temp\new & 100% "quoted" a\\b'
+bash "$RS" "${W[@]}" --unit "Feature 2" --outcome "$OUTC" >/dev/null 2>"$T/err"; eq "an outcome with backslashes, & and % opens" 0 $?
+PRB=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+eq "  ... its Outcome line exactly as given" "**Outcome:** $OUTC" "$(on_branch "$PRB" | grep '^\*\*Outcome:\*\* C:')"
+
+echo "== a CRLF roadmap keeps its line endings =="
+seed
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] |= gsub("\n"; "\r\n")'
+bash "$RS" "${W[@]}" --unit "Feature 2" --outcome "acme/widgets#12" >/dev/null 2>"$T/err"; eq "opened" 0 $?
+PRB=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+diff <(roadmap_text "In progress" | sed 's/$/\r/') <(on_branch "$PRB") > "$T/d"
+eq "  ... only the three lines differ: the Needs and old Status lines out, Status and Outcome in" "2 2" "$(grep -c '^< ' "$T/d") $(grep -c '^> ' "$T/d")"
+[ "$(grep '^> ' "$T/d" | grep -c $'\r$')" = 2 ] && ok "  ... the changed lines end in CRLF" || bad "  ... the changed lines end in CRLF" "$(od -c "$T/d" | head -5)"
+
+echo "== the branch starts at the commit the roadmap was read at =="
+seed
+bash "$RS" "${W[@]}" --unit "Feature 2" --outcome "acme/widgets#12" >/dev/null 2>"$T/err"
+grep -q 'contents/docs/roadmaps/ROADMAP-plugin-system.md?ref=1111111111111111111111111111111111111111' "$GH_DB.calls" \
+    && ok "the roadmap is read at the default branch's head commit" || bad "the roadmap is read at the default branch's head commit" "$(grep contents "$GH_DB.calls")"
 
 echo "== refusals =="
 seed

@@ -128,6 +128,8 @@ if [ "$SCOPE" = roadmap ]; then
     # the one reader of those rows): a unit named by one has landed and is
     # never offered again, though it isn't Done for its dependents until the
     # roadmap says so.
+    # "$@" is still `--list` and the record's addressing, as set for
+    # record-decision.sh above.
     bash "$HERE/roadmap-status.sh" "$@" > "$T/landed.json" 2> "$T/landed.err" \
         || lib_die2 "roadmap-status.sh --list failed: $(lib_scrub < "$T/landed.err")"
     jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" '. as $f | map(. as $u
