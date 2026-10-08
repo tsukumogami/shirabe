@@ -335,7 +335,9 @@ stays in `docs/plans/` through every state.
 
 The Draft -> Active gate keys on the resolved `tracking_level`, not on
 `execution_mode`: an activation that creates GitHub issues waits for
-human approval, because that is the moment remote artifacts appear;
+approval -- the author's, or under `--auto` a CLAUDE.md `## Tracking
+Level:` header that covers it, without which nothing is filed -- because
+that is the moment remote artifacts appear;
 one that creates none auto-fires as authoring completes.
 
 - **Draft -> Active**, `tracking_level` `issues` or

@@ -670,14 +670,15 @@ If yes, provide the issue reference in <owner>/<repo>#<number> format.
 
 **Visibility rule**: Public issues must NEVER reference private issues. Only private issues can reference public issues.
 
-**Strategic scope note:** After creating the milestone and issues, note that these are placeholder issues with `needs-design` label. The user should run `/work-on` on individual issues to create tactical designs when ready.
+**Strategic scope note:** When the milestone and issues were filed, note that these are placeholder issues with `needs-design` label. The user should run `/work-on` on individual issues to create tactical designs when ready.
 
 ## Quality Checklist
 
 Before completing:
 - [ ] PLAN artifact created at `docs/plans/PLAN-<topic>.md`
 - [ ] Frontmatter includes all required fields (`schema`, `status`, `execution_mode`, `milestone`, `issue_count`)
-- [ ] multi-pr: all issues created, milestone assigned, status is Active
+- [ ] multi-pr: status is Active; at a filing level, all issues created (and the
+  milestone assigned at `issues-and-milestone`); at `none`, outlines and nothing filed
 - [ ] any PLAN that filed: the filing approval ran before the first
   `gh issue create`, and under `--auto` the level came from a CLAUDE.md
   `## Tracking Level:` header that covers it

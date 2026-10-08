@@ -400,7 +400,7 @@ What Phases 4 and 7 produce depends on the execution mode:
   structured outlines and Phase 7 writes them, each with `**Repo**:` and
   `**Group**:`, into Issue Outlines with nothing filed. At `issues` or
   `issues-and-milestone` agents produce full issue bodies and Phase 7 files them
-  behind an explicit filing approval.
+  behind the filing approval.
 
 ### Phase Execution
 
