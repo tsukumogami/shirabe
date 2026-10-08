@@ -196,6 +196,26 @@ lib_authority() {
     return 0
 }
 
+# ENTRY_MARKER_PREFIX: a record entry's first line up to its kind, the one
+# definition the entry's writer (record-append.sh) and its readers share.
+ENTRY_MARKER_PREFIX='<!-- coordinator-record-entry v1 kind='
+
+# lib_has_write_access <login>: 0 when <login> has admin, maintain or write
+# access to REPO, 1 when it has less or isn't a collaborator (GitHub answers
+# 404), 2 when the read failed. record-append.sh's reader keeps an entry only
+# when its author passes.
+lib_has_write_access() {
+    local perm err
+    [[ $1 =~ $RE_LOGIN ]] || return 1
+    err=$(mktemp "${TMPDIR:-/tmp}/write-access.XXXXXX")
+    if ! perm=$(gh api --method GET "repos/$REPO/collaborators/$1/permission" --jq .permission 2> "$err" < /dev/null); then
+        if grep -q 'HTTP 404' "$err"; then rm -f "$err"; return 1; fi
+        rm -f "$err"; return 2
+    fi
+    rm -f "$err"
+    case "$perm" in admin|maintain|write) return 0 ;; *) return 1 ;; esac
+}
+
 # lib_emit <state> <token> <context-key> <detail-file>: finish a check. Under
 # --no-seal print the bare token; otherwise store the detail as data in the
 # context key, seal the token to this visit, and print the sealed token.

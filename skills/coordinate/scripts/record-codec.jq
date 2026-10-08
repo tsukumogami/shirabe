@@ -244,6 +244,29 @@ def re_stamp: "\\[[0-9]{8}T[0-9]{6}Z (report|wait|raise|hold|redirect|ask) [1-9]
 def enc_d: enc | gsub("@"; "&#64;");
 def dec_d: gsub("&#64;"; "@") | dec;
 
+# Free text a person reads on a public host: a Decisions text column, or a
+# record entry (record-append.sh). text_named_repos lists the repositories the
+# text names unambiguously, a github.com/<owner>/<repo> link or
+# <owner>/<repo>#<n>, since in prose "and/or" or "CI/CD" is not a repository;
+# both callers (record-write-core.sh for the Decisions columns,
+# record-append.sh for an entry) read each one's visibility and pass the ones
+# that aren't public back as $private. text_problem($private) is null, or what
+# makes the text unfit: a repository on the $private list, a home-directory
+# path or a token-shaped string. check_dcell and record-append.sh both use it.
+def text_named_repos:
+  def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
+  [ (scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean),
+    (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
+     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]") | .[0] | clean) ]
+  | map(select(. != "")) | unique;
+def text_problem($private):
+  . as $v
+  | ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
+  | if $hit != null then "names \($hit), a repository that isn't public"
+    elif ($v | test("(^|[\\s(\"'`])(/home/|/Users/)[^/[:space:]]")) then "a home-directory path"
+    elif ($v | test("(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})")) then "a token-shaped string"
+    else null end;
+
 # check_dcell($key; $private): one Decisions cell, by this section's grammars.
 def check_dcell($key; $private):
   . as $v
@@ -265,11 +288,8 @@ def check_dcell($key; $private):
     elif $key == "evidence" then (if (split("\n") | all(test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z [^\\[]+ " + re_stamp + ": .+$"))) then . else refuse("decisions.evidence: a line that isn't `<time> <source> <stamp>: <text>`") end)
     else . end
   | if ($v != "") and any(d_text_cols[]; . == $key) then
-      ([$private[] as $p | select($v | names_repo($p)) | $p] | first) as $hit
-      | if $hit != null then refuse("decisions.\($key): names \($hit), a repository that isn't public")
-        elif ($v | test("(^|[\\s(\"'`])(/home/|/Users/)[^/[:space:]]")) then refuse("decisions.\($key): a home-directory path")
-        elif ($v | test("(^|[^A-Za-z0-9_-])(gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})")) then refuse("decisions.\($key): a token-shaped string")
-        else . end
+      ($v | text_problem($private)) as $why
+      | if $why != null then refuse("decisions.\($key): \($why)") else . end
     else . end;
 
 # escalation_problems($target): what keeps a recorded escalate verdict from
