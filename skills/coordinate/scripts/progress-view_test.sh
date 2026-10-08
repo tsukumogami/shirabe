@@ -46,6 +46,20 @@ printf '%s\n' "$OUT" | grep -qF '| Waiting to be assigned | Feature 2: Plugin lo
 if printf '%s\n' "$OUT" | grep -qE '(^|[^0-9A-Za-z])[0-9a-f]{7,40}([^0-9A-Za-z]|$)'; then bad "no commit hash is shown" "$OUT"; else ok "no commit hash is shown"; fi
 if printf '%s\n' "$OUT" | grep -qE '(^|[^[])#1[0-9]([^]]|$)'; then bad "no bare pull request number" "$OUT"; else ok "no bare pull request number"; fi
 
+# A unit parked on a decision, one whose scoping alone landed, and a holding
+# scoping alone: their rows say so.
+jq '(.units[] | select(.unit == "Feature 3")).awaiting = "4"
+    | .units += [{unit: "Feature 9", title: "Definitions", status: "Not started", done: false, blocked: false, blocked_by: [], holding: null,
+                  follow_up: {after: "acme/widgets#41", next: "/shirabe:execute docs/plans/PLAN-definitions.md"}}]
+    | .holdings += [{worker: "plugin-spec", unit: "Feature 10: Spec", phase: "scoping", dispatch_status: "dispatched", parked: false, pull_request: ""}]' "$F" > "$T/pick-routes.json"
+ROUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-routes.json" 2> "$T/err")
+printf '%s\n' "$ROUT" | grep -qF '| Waiting to be assigned | Feature 3: Plugin registry | N/A | N/A | waits on decision 4 | parked until the decision is settled |' \
+    && ok "a parked unit waits on its decision" || bad "a parked unit waits on its decision" "$ROUT $(cat "$T/err")"
+printf '%s\n' "$ROUT" | grep -qF '| Waiting to be assigned | Feature 9: Definitions | N/A | N/A | scoping landed in acme/widgets#41 | its execution: /shirabe:execute docs/plans/PLAN-definitions.md |' \
+    && ok "a follow-up names its scoping and its execution" || bad "a follow-up names its scoping and its execution" "$ROUT"
+printf '%s\n' "$ROUT" | grep -qF '| Ongoing | Feature 10: Spec | `plugin-spec` | none yet | scoping |' \
+    && ok "a holding scoping alone reads scoping" || bad "a holding scoping alone reads scoping" "$ROUT"
+
 OUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest --next plugin-cli="open its draft" --next "Feature 3=held for the 1.4 release" "$F")
 printf '%s\n' "$OUT" | grep -qF '| `plugin-cli` | none yet | executing | open its draft |' && ok "--next sets a session's next step" || bad "--next for a session" "$OUT"
 printf '%s\n' "$OUT" | grep -qF '| ready to assign | held for the 1.4 release |' && ok "--next sets a queued unit's next step" || bad "--next for a unit" "$OUT"

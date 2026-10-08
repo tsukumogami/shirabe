@@ -202,8 +202,16 @@ states never ask you to do these steps by hand.
   issue goes to `/shirabe:work-on`. A unit scoped ahead is sent its execution
   by `scripts/dispatch-worker.sh` once its blocker lands: it renders the execution brief,
   opens a new leg, and moves the holding to `executing`, which the record step
-  confirms. The brief lists the checkpoints the worker
-  reports at and waits on no approval.
+  confirms. A feature whose deliverable is its scoping goes to `/shirabe:scope`
+  alone (pick's `scope`, Phase `scoping`); when it merges, its execution is
+  recorded as a follow-up row in the record's Work section, the record step
+  waits for that row, `scripts/roadmap-status.sh` won't write the feature Done
+  while it stands, and pick offers the execution later. A unit that can't
+  start until a person decides something is parked on a decision entry (pick's
+  `await_decision`): a Work row ties it to the entry, it takes no slot,
+  `scripts/dispatch-worker.sh` refuses it while the entry is open, and pick
+  lists it `answered` once the entry is settled. Every brief lists the
+  checkpoints the worker reports at and waits on no approval.
   `scripts/render-brief.sh` renders a worker's brief from one
   JSON input and refuses an incomplete one, or one whose target repositories
   its entry point can't take: the requirement in `references/entry-points.tsv`

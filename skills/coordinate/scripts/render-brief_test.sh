@@ -140,6 +140,10 @@ lacks "min: no precedence line without workspace rules" "$M" "This section wins 
 has "min: no surfaces"            "$M" "no discipline coordinator is named for any surface"
 lacks "min: no workspace rules"   "$M" "## Workspace rules"
 has "min: scoping ahead"          "$M" "You are scoping ahead"
+# The scope route: the scoping alone is the unit, its execution a later one.
+SC=$(bash "$S" --input "$(variant scoping '.phase = "scoping"')" --stdout)
+has "scoping: the documents are the deliverable" "$SC" "You are scoping: the documents are this unit's deliverable, so stop at the checkpoint that says so and execute nothing; the execution is a later unit."
+lacks "scoping: not scoping ahead" "$SC" "You are scoping ahead"
 questions_contract "min" "$M"
 L=$(bash "$S" --input "$BASE" --return-path req_1:deliver --stdout)
 questions_contract "leg" "$L"
@@ -239,7 +243,7 @@ refused "unknown entry point"   "$(variant ep '.entry_point = "nope"')"         
 refused "bad topic"             "$(variant bt '.topic = "Plugin_API"')"                     "topic: must match"
 refused "traversal topic"       "$(variant tt '.topic = "../x"')"                           "topic: must match"
 refused "bad repo"              "$(variant br '.repo = "widgets"')"                         "repo: must be owner/repo"
-refused "bad phase"             "$(variant bp '.phase = "done"')"                           "phase: must be scoping-ahead or executing"
+refused "bad phase"             "$(variant bp '.phase = "done"')"                           "phase: must be scoping, scoping-ahead or executing"
 refused "multi-line session"    "$(variant ms '.dispatcher_session = "a\nb"')"              "dispatcher_session: must be one line"
 refused "bad surface"           "$(variant bs '.surfaces = [{"surface": "ci"}]')"           "surfaces: must be"
 refused "bad decision"          "$(variant bd '.decisions = [{"decision": "x"}]')"          "decisions: must be"

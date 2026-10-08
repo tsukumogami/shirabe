@@ -209,4 +209,40 @@ db '(.prs[0].body) = $b' --arg b "$(render "$(record_json discipline ci | jq -c 
 eq "--owed: a held entry and an escalated one owing nothing block nothing" "none none" "$(owed pick) $(owed dispatch)"
 eq "--owed seals nothing and writes nothing" "" "$(owed pick >/dev/null; koto context get "$S" coord/decision.json 2>/dev/null)"
 
+echo "== a raise from pick's await_decision is done when the unit is parked =="
+# parked_run <work-json>: a record holding entry 5 (escalated, owing nothing)
+# and those Work rows, and a run that went pick (await_decision Feature 2) ->
+# decision_raise -> decision_next.
+parked_run() {
+    build
+    db '(.prs[0].body) = $b' --arg b "$(render "$(record_json discipline ci | jq -c --argjson e "[$(E 5 escalated "$ESC")]" --argjson w "$1" \
+        '.decisions = {next: 20, entries: $e} | .work = $w')" pr)"
+    to pick; log_evidence "$S" pick '{"choice":"await_decision","unit":"Feature 2","rationale":"its framing is the human'"'"'s"}'
+    to decision_raise; to decision_next
+}
+wrow() { jq -nc --arg i "$1" --arg w "$2" --arg u "${3:-2026-09-26T10:00Z}" '[{item: $i, kind: "decision", who: $w, next: "dispatch once decided", wakes: "0", updated: $u}]'; }
+parked_run '[]'
+eq "no decision row for the unit pick named: the raise is still owed" "unrecorded-raise" "$(word)"
+eq "  ... and it blocks pick" "unrecorded-raise" "$(owed pick)"
+parked_run "$(wrow "Feature 2" "decision 5")"
+eq "the unit parked on an entry already open: nothing owed, though this visit opened none" "clear" "$(word)"
+parked_run "$(wrow "Feature 3" "decision 5")"
+eq "another unit's row doesn't park this one" "unrecorded-raise" "$(word)"
+parked_run "$(wrow "Feature 2" "decision 5" "2026-09-26T09:59Z")"
+eq "a row from an earlier park, written before this pick, doesn't park it again" "unrecorded-raise" "$(word)"
+parked_run "$(wrow "acme/widgets#7" "decision 5" | jq -c '.[0].item = "Feature 2"')"
+to wait; to decision_raise; to decision_next
+eq "a later raise through wait, with the unit parked, is judged by its stamp" "unrecorded-raise" "$(word)"
+parked_run "$(wrow "Feature 2" "decision 5")"
+to decision_raise; to decision_next
+eq "a second visit the chain came back for still reads the park" "clear" "$(word)"
+to pick_facts; to pick; log_evidence "$S" pick '{"choice":"dispatch","unit":"plugin-api","rationale":"the next unit"}'
+eq "after the next pick, the finished park's unstamped visit is owed nothing" "none" "$(owed dispatch)"
+parked_run '[]'
+to pick_facts; to pick; log_evidence "$S" pick '{"choice":"dispatch","unit":"plugin-api","rationale":"the next unit"}'
+eq "  ... and the park itself is no longer judged once the run picked again" "none" "$(owed dispatch)"
+to pick; log_evidence "$S" pick '{"choice":"hold","rationale":"nothing to start"}'
+to decision_raise; to decision_next
+eq "after a later pick with another choice, a raise is judged by its stamp again" "unrecorded-raise" "$(word)"
+
 done_tests decision-next

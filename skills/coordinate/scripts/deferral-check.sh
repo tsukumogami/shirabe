@@ -5,7 +5,7 @@
 #
 # Check mode, first that applies:
 #   unknown-topic         the pick being checked dispatches (dispatch,
-#                         scope_ahead, send_execution) and its `unit` isn't a
+#                         scope, scope_ahead, send_execution) and its `unit` isn't a
 #                         dispatch topic (dispatch-common.sh dc_valid_topic,
 #                         the grammar render-brief.sh holds a brief to): a
 #                         unit's tag such as "Feature 2" is refused before
@@ -52,7 +52,7 @@
 #                         dispatch path takes. Nothing is written and the
 #                         run goes back to failure, where escalate stays
 #   duplicate-topic <topic>
-#                         the pick dispatches (dispatch or scope_ahead) a
+#                         the pick dispatches (dispatch, scope or scope_ahead) a
 #                         topic a Holdings row already names as its Worker:
 #                         worker session names are machine-wide, so a second
 #                         live worker on the topic would collide with the
@@ -60,8 +60,8 @@
 #                         and nothing is recorded on a leg already bound)
 #   at-cap <active>/<cap> <parked>/<bound>
 #                         the pick being checked (the latest `pick` evidence)
-#                         would pass the cap or the parked bound: dispatch and
-#                         scope_ahead add an active worker, so they need
+#                         would pass the cap or the parked bound: dispatch,
+#                         scope and scope_ahead add an active worker, so they need
 #                         active < CAP and parked < PARKED_BOUND;
 #                         send_execution to a scoping-ahead holding, and a
 #                         redispatch of a unit still held, move a worker
@@ -254,13 +254,13 @@ case "$FROMST" in
         fi ;;
 esac
 [[ $U =~ $RE_TOPIC ]] && TOPIC=$U
-case "$CHOICE" in ''|dispatch|scope_ahead|send_execution|redispatch) ;; *) CHOICE=other ;; esac
+case "$CHOICE" in ''|dispatch|scope|scope_ahead|send_execution|redispatch) ;; *) CHOICE=other ;; esac
 
 # A pick that dispatches must name a topic the dispatch path can take
 # (dispatch-common.sh's dc_valid_topic, the check render-brief.sh and
 # dispatch-worker.sh apply), never a unit's tag from coord/pick.json. One
 # that doesn't is refused before any read, and pick is asked again.
-case "$CHOICE" in dispatch|scope_ahead|send_execution)
+case "$CHOICE" in dispatch|scope|scope_ahead|send_execution)
     if ! dc_valid_topic "$U"; then
         TOPIC=-
         REASON="pick's unit [${U:0:80}] is not a dispatch topic: unit takes the topic the worker is dispatched under, matching $DC_TOPIC_GRAMMAR, never a unit's tag or title from coord/pick.json such as \"Feature 2\" or \"#12\""
@@ -423,7 +423,7 @@ if ! dc_valid_topic "$TOPIC"; then
     finish unresolved-topic
 fi
 # A topic already held. send_execution is judged below, as it targets a holding.
-if { [ "$CHOICE" = dispatch ] || [ "$CHOICE" = scope_ahead ]; } && [ "$TOPIC" != - ] \
+if { [ "$CHOICE" = dispatch ] || [ "$CHOICE" = scope ] || [ "$CHOICE" = scope_ahead ]; } && [ "$TOPIC" != - ] \
     && jq -e --arg t "$TOPIC" 'any(.[]; .worker == $t)' "$T/holdings.json" > /dev/null; then
     REASON="a Holdings row already names $TOPIC as its worker"
     finish "duplicate-topic $TOPIC"

@@ -240,7 +240,7 @@ plan() {
                     {id: "\($p).board.l", sub: "board", args: ["--repo", $h.repo, "--sha", $f["\($p).pr"].head, "--base", ($f["\($p).pr"].base // "")], natural: 26}
                   else empty end),
                  (if ($h.branch // "") != "" then {id: "\($p).branch", sub: "branch", args: ["--repo", $h.repo, "--branch", $h.branch], natural: 8} else empty end),
-                 (if ($h.phase // "") == "scoping-ahead" then {id: "\($p).files", sub: "files", args: ["--repo", $h.repo, "--number", $n], natural: 8} else empty end)
+                 (if (($h.phase // "") == "scoping-ahead" or ($h.phase // "") == "scoping") then {id: "\($p).files", sub: "files", args: ["--repo", $h.repo, "--number", $n], natural: 8} else empty end)
                else
                  (if ($h.branch // "") != "" then {id: "\($p).appeared", sub: "appeared", args: ["--repo", $h.repo, "--branch", $h.branch], natural: 8} else empty end),
                  (if ($h.worker // "") != "" then
