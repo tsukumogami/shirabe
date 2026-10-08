@@ -17,7 +17,7 @@
 commit/conventional-subject	references/pr-body-conformance.md#L40-L44	246d366312dc	Conventional Commits title
 commit/no-ai-trailer	references/pr-body-conformance.md#L57-L60	246d366312dc	trailer attributing to an AI assistant (Claude/Anthropic)
 branch/no-wip-files	references/wip-hygiene.md#L14-L16	246d366312dc	workflows clean it up before the PR
-branch/current-with-main	skills/execute/koto-templates/execute.md#L406-L411	246d366312dc	The current_with_main gate asks what the merge is for
+branch/current-with-main	skills/execute/koto-templates/execute.md#L427-L432	13682ab38dd3	The current_with_main gate asks what the merge is for
 docs/visibility-vision-sections	docs/guides/doc-validation.md#L22-L27	246d366312dc	VISION docs in public repos
 docs/visibility-strategy-sections	docs/guides/doc-validation.md#L22-L27	246d366312dc	STRATEGY docs in public repos
 docs/private-only-type	docs/guides/doc-validation.md#L22-L27	246d366312dc	rejected outside private visibility
