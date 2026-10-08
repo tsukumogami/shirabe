@@ -4,7 +4,9 @@ Roadmap items can now be milestones: an outcome someone can exercise end to
 end, with a check someone other than the session that delivers it can
 judge. `/roadmap` writes them by default, `shirabe validate` holds them to
 their fields, and every roadmap reader agrees on what an item's tag,
-dependencies and status mean. Nothing about an existing roadmap breaks.
+dependencies and status mean. An existing roadmap keeps validating as it
+did; the one visible change is that populate now draws dependency edges it
+used to miss.
 
 ## What's new
 

@@ -152,7 +152,9 @@ Every roadmap has these sections in order:
 
 ### Per-Feature Format
 
-Each feature in the Features section follows this structure:
+Each feature in a `roadmap/v1` roadmap's Features section follows this
+structure (a `roadmap/v2` roadmap uses the milestone format in
+[Milestones](#milestones)):
 
 ```markdown
 ### Feature 1: Recipe validation pipeline
@@ -190,8 +192,10 @@ positionally in source order regardless of the tag, and the generated
 tables and graph name them `F<n>` by that position. A Dependencies line
 may name another feature by its tag (`ED1`, `SR10a`), by `Feature <N>`, or
 by `F<N>`: `Feature <N>` and `F<N>` mean the feature tagged `Feature <N>`
-when there is one and the Nth feature otherwise. Pick one form per roadmap
-and use it consistently.
+when there is one and the Nth feature otherwise. That is what the tools
+read on either schema; on a `roadmap/v2` roadmap FC21 is stricter and takes
+only another milestone's exact tag, so write the tag there. Pick one form
+per roadmap and use it consistently.
 
 ## Milestones
 

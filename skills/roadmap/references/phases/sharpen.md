@@ -21,8 +21,8 @@ Active).
   a migration (`references/roadmap-format.md`, Milestones, Migrating a
   roadmap), not something this procedure does.
 
-A Draft roadmap is edited through the usual resume at Phase 3; a Done one
-is not edited.
+A Draft roadmap is edited through the usual resume at Phase 3, and a Done
+one takes its own resume row; neither uses this procedure.
 
 Under `--auto`, take the recommendation and say which choice was taken.
 
