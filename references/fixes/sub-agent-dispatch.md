@@ -72,6 +72,10 @@ parent owns those:
 - **cleanup commit** -- no commit removing the child's intermediate
   files, its `wip/research/` scratch included; the parent's cleanup
   phase and publish untrack own that;
+- **upstream-issue edits** -- no `gh issue edit` on a source or upstream
+  issue, its labels included, since `/scope`'s list of writes has none;
+  a `needs-*` label the child would have removed stays for the author
+  (who should remove it under `/scope` is tracked as #666);
 - **routing prompts** -- no "what next" question (which skill to run
   next, whether to update an upstream issue); a prompt that pairs the
   verdict with a next step, such as `/design`'s "Plan (Recommended)" /

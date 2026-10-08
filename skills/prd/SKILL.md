@@ -14,7 +14,7 @@ description: >-
   calls this as one hop. Do NOT use it to work out the problem and the scope
   boundary in the first place (`/brief`), to choose the technical approach
   (`/design`), or to investigate an open question (`/explore`).
-argument-hint: '<topic or feature name>'
+argument-hint: '<topic, feature name, or BRIEF path> [--upstream <path>] [--auto|--interactive] [--max-rounds=N]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -79,6 +79,11 @@ From `$ARGUMENTS`:
    (which bumps DESIGN `Accepted -> Planned`). See "Execution" below.
 3. **Anything else** -- use as the starting topic for Phase 1 scoping
 
+Modes 1 and 3 may carry `--upstream <path>`, naming the BRIEF, STRATEGY or
+VISION the PRD is written from; Phase 3 validates it before writing it to
+frontmatter. In Mode 2 the positional BRIEF is the upstream, and a different
+`--upstream` is ignored with a note to the author saying so.
+
 ### Context Resolution
 
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
@@ -86,7 +91,7 @@ then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Under
 `/scope`'s sentinel the parent's execution mode wins, since `/scope` passes no
 mode flag (see "Under `/scope`" below). Also
 parse `--max-rounds=N` (default: 2 for prd's discover loop). In --auto mode,
-follow `references/decision-protocol.md` at all decision points. Create
+follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at all decision points. Create
 `wip/prd_<topic>_decisions.md` to track decisions.
 
 When the positional argument is itself a BRIEF path (Input Mode 2), that
@@ -98,7 +103,7 @@ Log: `Specifying requirements with [Private|Public] visibility...`
 
 ```
 parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                   -> see references/fixes/sub-agent-dispatch.md
+                                                   -> see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 PRD exists with status "Accepted"                  -> Offer to revise or start fresh
 PRD exists with status "Draft"                     -> Offer to continue from Phase 3
 wip/research/prd_<topic>_phase2_*.md files exist   -> Resume at Phase 3

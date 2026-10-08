@@ -32,7 +32,9 @@ Read all available context:
 are written from, and a STRATEGY or VISION when no brief exists; never the
 ROADMAP that sequenced its feature (`prd-format.md`'s frontmatter rules,
 which `shirabe validate` enforces). In brief input mode (Input Mode 2) that
-BRIEF's path is the upstream, even when an `--upstream` flag is also given.
+BRIEF's path is the upstream, even when an `--upstream` flag is also given;
+when the flag names a different path, tell the author it was ignored and
+why.
 Otherwise check `$ARGUMENTS` for an `--upstream <path>` flag, and if present,
 store the path for inclusion in frontmatter (step 3.2). With no BRIEF,
 STRATEGY or VISION above the PRD, omit the field. On a re-entry, leave an `upstream:` already in
@@ -77,7 +79,10 @@ Write a complete PRD draft following the `prd` skill structure. Use the Write to
 create `docs/prds/PRD-<topic>.md`.
 
 **When an upstream BRIEF exists (Input Mode 2, or a BRIEF named by
-`--upstream`), read it first.** The brief already
+`--upstream`), read it first.** A cross-repo BRIEF (`owner/repo:path`) is not
+on disk here: read it from a local checkout of that repository when there is
+one, and otherwise say in your output that the brief was not read and draft
+these sections from Phase 1 instead. The brief already
 settled this feature's framing, and four of its five required sections map onto
 sections this PRD must carry:
 

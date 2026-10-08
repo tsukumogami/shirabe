@@ -174,16 +174,16 @@
       "id": 14,
       "name": "phase-4-reject-discards-draft",
       "prompt": "/prd --auto deprecated-feature-flag --reject \"This feature was superseded by the new feature-flags platform; the PRD draft is no longer needed.\"",
-      "expected_output": "Phase 4 step 4.5 presents a 3-option AskUserQuestion with Approve / Request changes / Reject options. The prompt copy includes the verbatim disclaimer substring 'Rationale will be committed to git history' so the author is advised before typing. Selecting Reject is a terminal verdict: the skill asks for a second confirmation, captures a rationale paragraph, writes the rationale to a tmpfile, runs `git rm docs/prds/PRD-deprecated-feature-flag.md`, removes `wip/prd_deprecated-feature-flag_*.md` and `wip/research/prd_deprecated-feature-flag_phase{2,4}_*.md`, and commits via `git commit -F <tmpfile>` (or stdin via `git commit -F -`) with the subject `docs(prd): discard PRD draft for deprecated-feature-flag`. The rationale is NEVER inlined into `git commit -m \"...\"`. The discard commit on the current branch is the durable observable signal of rejection per AC30c \u2014 `/scope`'s Component 7.7 git-log detector reads the same commit subject when invoked in-chain, and an out-of-chain author re-reads the same commit body for the rationale. The skill then exits the workflow without running step 4.7 Approve-path cleanup.",
+      "expected_output": "Phase 4 step 4.5 presents a 3-option AskUserQuestion with Approve / Request changes / Reject options. The prompt copy includes the verbatim disclaimer substring 'Rationale will be committed to git history' so the author is advised before typing. Selecting Reject is a terminal verdict: the skill asks for a second confirmation, captures a rationale paragraph, writes the rationale to a tmpfile, runs `git rm docs/prds/PRD-deprecated-feature-flag.md`, removes `wip/prd_deprecated-feature-flag_*.md` and `wip/research/prd_deprecated-feature-flag_phase{2,4}_*.md`, and commits via `git commit -F <tmpfile>` (or stdin via `git commit -F -`) with the subject `docs(prd): discard PRD draft for deprecated-feature-flag`. The rationale is NEVER inlined into `git commit -m \"...\"`. The discard commit on the current branch is the durable observable signal of rejection per AC30c — `/scope`'s Phase-N Reject Handling git-log search reads the same commit subject when invoked in-chain, and an out-of-chain author re-reads the same commit body for the rationale. The skill then exits the workflow without running step 4.7 Approve-path cleanup.",
       "files": [],
       "expectations": [
         "Transcript describes Phase 4 step 4.5 presenting an AskUserQuestion with three options whose labels include the literal substring 'Reject' alongside 'Approve' and 'Request changes'",
-        "Transcript notes the public-history disclaimer text 'Rationale will be committed to git history' appears verbatim in the step 4.5 prompt copy",
+        "Transcript quotes the public-history disclaimer 'Rationale will be committed to git history' that step 4.5's prompt copy carries (an --auto run need not display the prompt itself)",
         "Transcript describes prompting the author for a rationale paragraph after the second-confirmation step and before any destructive action runs",
-        "Transcript describes persisting the rationale via `git commit -F <tmpfile>` or `git commit -F -` (stdin) and explicitly NOT via `git commit -m \"<rationale>\"` \u2014 the rationale never transits a shell-argument channel",
+        "Transcript describes persisting the rationale via `git commit -F <tmpfile>` or `git commit -F -` (stdin) and explicitly NOT via `git commit -m \"<rationale>\"` — the rationale never transits a shell-argument channel",
         "Transcript describes running `git rm docs/prds/PRD-deprecated-feature-flag.md` to remove the durable PRD artifact during the Reject branch",
         "Transcript describes removing `wip/prd_deprecated-feature-flag_*.md` and `wip/research/prd_deprecated-feature-flag_phase{2,4}_*.md` working artifacts inline in the Reject branch (not deferred to step 4.7)",
-        "Transcript describes the discard commit landing on the current branch with subject `docs(prd): discard PRD draft for deprecated-feature-flag` so a `git log` search by `/scope`'s Component 7.7 (in-chain) or an out-of-chain author (out-of-chain) finds it \u2014 AC30c symmetric observable",
+        "Transcript describes the discard commit landing on the current branch with subject `docs(prd): discard PRD draft for deprecated-feature-flag` so a `git log` search by `/scope`'s Phase-N Reject Handling (in-chain) or an out-of-chain author (out-of-chain) finds it — AC30c symmetric observable",
         "Transcript describes the Reject branch exiting the workflow without running step 4.7 cleanup (which is reserved for the Approve path)"
       ]
     },
@@ -249,6 +249,64 @@
         "Plan presents no complexity routing options and skips step 4.7 cleanup; control returns to /scope"
       ],
       "id": 18
+    },
+    {
+      "id": 19,
+      "name": "upstream-strategy-accepted",
+      "prompt": "/prd billing-export --upstream docs/strategies/STRATEGY-billing.md -- No BRIEF exists for this feature; the STRATEGY is tracked in this repo.",
+      "expected_output": "Phase 3 step 3.1 validates the --upstream value: it is not under wip/, a STRATEGY is a legal PRD upstream when no brief exists, and git ls-files confirms it is tracked. The PRD's frontmatter records upstream: docs/strategies/STRATEGY-billing.md.",
+      "files": [],
+      "expectations": [
+        "Transcript accepts a STRATEGY as the PRD's upstream because no BRIEF exists",
+        "Transcript runs the step 3.1 checks (not under wip/, a legal type, tracked by git ls-files) before storing it",
+        "Transcript records upstream: docs/strategies/STRATEGY-billing.md in the PRD frontmatter"
+      ]
+    },
+    {
+      "id": 20,
+      "name": "upstream-vision-accepted",
+      "prompt": "/prd onboarding --upstream docs/visions/VISION-platform.md -- No BRIEF or STRATEGY exists for this feature; the VISION is tracked in this repo.",
+      "expected_output": "Phase 3 step 3.1 accepts a VISION as a legal PRD upstream when no brief exists, runs the same checks, and records upstream: docs/visions/VISION-platform.md.",
+      "files": [],
+      "expectations": [
+        "Transcript accepts a VISION as the PRD's upstream because no BRIEF exists",
+        "Transcript records upstream: docs/visions/VISION-platform.md in the PRD frontmatter after the step 3.1 checks pass"
+      ]
+    },
+    {
+      "id": 21,
+      "name": "upstream-roadmap-omitted",
+      "prompt": "/prd search-filters --upstream docs/roadmaps/ROADMAP-search.md",
+      "expected_output": "Phase 3 step 3.1's check 2 fires: a ROADMAP is not a legal PRD upstream, because it is a working document deleted once its features land, so a durable PRD naming it would dangle. The skill omits the upstream field and tells the author why; shirabe validate would report it as R11.",
+      "files": [],
+      "expectations": [
+        "Transcript refuses the ROADMAP as the PRD's upstream at step 3.1's type check",
+        "Transcript explains that a ROADMAP is a working document deleted once its features land",
+        "Transcript omits the upstream: field rather than writing the ROADMAP path, and tells the author"
+      ]
+    },
+    {
+      "id": 22,
+      "name": "upstream-kept-on-re-entry",
+      "prompt": "/prd catalog-sync -- docs/prds/PRD-catalog-sync.md already exists at Draft with upstream: docs/briefs/BRIEF-catalog-sync.md in its frontmatter, and no --upstream is given. Continue it.",
+      "expected_output": "On a re-entry the PRD's existing upstream: field is left as it is: Phase 3 does not remove it for want of an --upstream flag, since /scope's consolidation can set one when the PRD absorbs its brief.",
+      "files": [],
+      "expectations": [
+        "Transcript leaves the existing upstream: docs/briefs/BRIEF-catalog-sync.md in place",
+        "Transcript does NOT drop the field because no --upstream flag was passed"
+      ]
+    },
+    {
+      "id": 23,
+      "name": "upstream-untracked-path-omitted",
+      "prompt": "/prd report-builder --upstream docs/briefs/BRIEF-report-builder.md -- The file exists on disk but git ls-files prints nothing for it: it was never committed.",
+      "expected_output": "Phase 3 step 3.1's check 3 runs git ls-files on the path and gets an empty result, so the file is a local scratch copy rather than a tracked document. The skill omits the upstream field and asks the author for the committed path.",
+      "files": [],
+      "expectations": [
+        "Transcript runs (or describes) git ls-files on the upstream path at step 3.1's check 3",
+        "Transcript treats the empty result as untracked and does NOT write the path into frontmatter",
+        "Transcript asks the author for the committed path"
+      ]
     }
   ]
 }
