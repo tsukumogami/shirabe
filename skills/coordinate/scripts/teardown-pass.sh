@@ -15,7 +15,8 @@
 #            the key seal;
 #         2. re-read every fact: each pull request still merged at its merge
 #            commit, the handoff comment still there, the job still listed
-#            with the same cwd and session and not working, niwa still
+#            with the same cwd and session in a finished state (done,
+#            stopped or failed), niwa still
 #            listing the instance by that name and path;
 #         3. re-inventory the instance (teardown-inventory.sh, unsealed);
 #            anything but durable refuses;
@@ -29,8 +30,11 @@
 #            checked before the command is built;
 #         6. `claude rm <job id>`;
 #         7. confirm `niwa list --json` no longer shows the instance and
-#            `claude agents --json --all` no longer shows the job, and write
-#            RESULT into the archive.
+#            `claude agents --json --all` no longer shows the job.
+#       RESULT in the archive says `done`, or why the pass stopped once the
+#       archive exists. A rerun on the same UTC day reuses the day's archive
+#       directory; one on a later day makes a second, and `confirm` then
+#       reports that it can't find a single archive.
 #       Steps 1 to 4 remove nothing, so a failure there is `refused`; a
 #       failure from step 5 on is `incomplete`, naming the step.
 #   teardown-pass.sh confirm --session <s>
@@ -52,7 +56,8 @@
 # Environment: NIWA, CLAUDE_CLI, GH and KOTO name the tools (tests);
 # TEARDOWN_CLAUDE_HOME (default ~/.claude), TEARDOWN_KOTO_SESSIONS (default
 # ~/.koto/sessions), TEARDOWN_ARCHIVE_DIR (default
-# ${XDG_DATA_HOME:-~/.local/share}/teardown-archive). bash 3.2.
+# ${XDG_DATA_HOME:-~/.local/share}/teardown-archive), TEARDOWN_FETCH_SECS
+# (each GitHub read's bound, default 8). bash 3.2.
 set -uo pipefail
 
 PROG=teardown-pass
@@ -185,8 +190,8 @@ out=$(dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$hrepo/issues/comments/$ci
 printf '%s' "$out" | jq -e '(.body // "") | test("[^[:space:]]")' >/dev/null 2>&1 || refused "the handoff comment is gone or empty"
 AG=$(agents) || refused "claude agents could not be read"
 printf '%s' "$AG" | jq -e --arg j "$JOB" --arg p "$IPATH" --arg s "$SID" \
-    '[.[] | select(.id == $j)] | length == 1 and .[0].cwd == $p and .[0].sessionId == $s and .[0].state != "working"' >/dev/null 2>&1 \
-    || refused "job $JOB is no longer the stopped job of $IPATH with session $SID"
+    '[.[] | select(.id == $j)] | length == 1 and .[0].cwd == $p and .[0].sessionId == $s and (.[0].state | IN("done", "stopped", "failed"))' >/dev/null 2>&1 \
+    || refused "job $JOB is no longer the finished job of $IPATH with session $SID"
 NL=$(niwa_list) || refused "niwa list could not be read"
 printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" '[.[] | select(.name == $n or .path == $p)] | length == 1 and .[0].name == $n and .[0].path == $p' >/dev/null 2>&1 \
     || refused "niwa no longer lists $INAME at $IPATH"

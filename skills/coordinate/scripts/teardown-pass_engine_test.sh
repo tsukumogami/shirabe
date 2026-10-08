@@ -20,9 +20,10 @@
 # transcript where it was; with the row removed, `destroyed` passes
 # teardown_confirm to record. A second pass on the same verdict refuses and
 # removes nothing. teardown_handoff refuses, and nothing is removed, when the
-# pull request isn't merged, when the handoff is missing or on another
-# unit's pull request, when the job is still working, and when two jobs ran
-# in the instance. The pass refuses a key seal that isn't the verdict's and a
+# pull request isn't merged, when the handoff is missing, on another unit's
+# pull request or gone, when the job is still working or in a state not
+# known to be finished (a missing state included), when two jobs ran in the
+# instance, and when niwa's name for the instance isn't a plain name. The pass refuses a key seal that isn't the verdict's and a
 # pull request no longer merged; it reports incomplete when the removal
 # fails after the destroy; and teardown_confirm refuses a `destroyed` no pass
 # backs.
@@ -342,11 +343,14 @@ start
 stopped "https://github.com/acme/widgets/pull/599#issuecomment-1002"
 eq  "a handoff on another unit's pull request: refused" surface "$(at)"
 has "and the verdict says why" "$(ctx teardown_handoff)" "neither a merged pull request of the unit nor its issue"
+nothing_removed "a handoff on another unit's pull request"
 
 fixture
 start
 stopped "https://github.com/acme/widgets/pull/600#issuecomment-9999"
 eq  "a handoff comment that doesn't exist: refused" surface "$(at)"
+has "and the verdict says why" "$(ctx teardown_handoff)" "doesn't exist"
+nothing_removed "a handoff comment that doesn't exist"
 
 fixture working
 start
@@ -361,6 +365,33 @@ start
 stopped
 eq  "two jobs in the instance: refused" surface "$(at)"
 has "and the reason names both" "$(ctx teardown_handoff)" "$JOB, 9c9c9c9c"
+nothing_removed "two jobs in the instance"
+
+# Only a state known to be finished passes: a missing state, or one the
+# script doesn't know, is treated as possibly running.
+for st in missing waiting; do
+    fixture
+    if [ "$st" = missing ]; then
+        jq -c '[.[] | del(.state)]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+    else
+        jq -c --arg s "$st" '[.[] | .state = $s]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+    fi
+    start
+    stopped
+    eq  "a job whose state is $st: refused" surface "$(at)"
+    has "and the verdict says why" "$(ctx teardown_handoff)" "isn't known to be finished"
+    nothing_removed "a job whose state is $st"
+done
+
+# An instance name niwa lists that isn't a plain name never reaches a
+# command: the verdict refuses it.
+fixture
+jq -c '[.[] | .name = "--workspace"]' "$ST/niwa.json" >"$ST/n.tmp" && mv "$ST/n.tmp" "$ST/niwa.json"
+start
+stopped
+eq  "an instance name that isn't a plain name: refused" surface "$(at)"
+has "and the verdict says why" "$(ctx teardown_handoff)" "not a plain instance name"
+nothing_removed "an instance name that isn't a plain name"
 
 # --- the pass refuses, or stops part way --------------------------------------------------------------
 
@@ -382,6 +413,14 @@ KSEAL=$(handover | sed -n 's/^keyseal //p')
 printf 'x\n' >>"$INST/repo/a.txt"
 eq  "unique material since the inventory: the pass refuses" 1 "$(agent_pass "$KSEAL")"
 nothing_removed "unique material since the inventory"
+
+fixture
+start
+stopped
+KSEAL=$(handover | sed -n 's/^keyseal //p')
+jq -c '[.[] | del(.state)]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+eq  "a job whose state went missing since the verdict: the pass refuses" 1 "$(agent_pass "$KSEAL")"
+nothing_removed "a job whose state went missing since the verdict"
 
 fixture
 start

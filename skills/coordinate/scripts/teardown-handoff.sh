@@ -10,7 +10,10 @@
 #   instance <name> <path>         from `niwa list --json`, matched by the
 #                                  inventory's instance path
 #   job <id> <session id>          from `claude agents --json --all`: the one
-#                                  job whose cwd is the instance path, stopped
+#                                  job whose cwd is the instance path, in a
+#                                  state known to be finished (done, stopped,
+#                                  failed); any other state, a missing one
+#                                  included, refuses
 #   transcript <path>              <claude home>/projects/*/<session id>.jsonl
 #   pr <owner/repo>#<n> <sha>      each pull request GitHub lists as merged
 #                                  from the holding's branch, with its merge
@@ -45,7 +48,8 @@
 # 4 (read) a directed transition since the seal; 64 usage.
 #
 # Environment: NIWA, CLAUDE_CLI, GH and KOTO name the tools (tests);
-# TEARDOWN_CLAUDE_HOME is Claude Code's home (default ~/.claude).
+# TEARDOWN_CLAUDE_HOME is Claude Code's home (default ~/.claude);
+# TEARDOWN_FETCH_SECS bounds each GitHub read (default 8).
 # Read-only apart from the seal. bash 3.2.
 set -uo pipefail
 
@@ -57,6 +61,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 KOTO="${KOTO:-koto}"
 GH="${GH:-gh}"
 CLAUDE_CLI="${CLAUDE_CLI:-claude}"
+NIWA="${NIWA:-niwa}"
 CLAUDE_HOME="${TEARDOWN_CLAUDE_HOME:-$HOME/.claude}"
 FETCH_SECS="${TEARDOWN_FETCH_SECS:-8}"
 
@@ -154,7 +159,7 @@ case "$IPATH" in /*) ;; *) refuse "the sealed inventory names no instance path" 
 
 # The instance, by its path, in niwa's listing.
 ROOT=$(dc_workspace_root) || refuse "no workspace root found"
-NL=$(cd "$ROOT" && "${NIWA:-niwa}" list --json 2>/dev/null) || die2 "niwa list could not be read"
+NL=$(cd "$ROOT" && "$NIWA" list --json 2>/dev/null) || die2 "niwa list could not be read"
 printf '%s' "$NL" | jq -e 'type == "array"' >/dev/null 2>&1 || die2 "niwa list is not a JSON array"
 MATCH=$(printf '%s' "$NL" | jq -c --arg p "$IPATH" '[.[] | select(.path == $p)]')
 [ "$(printf '%s' "$MATCH" | jq length)" = 1 ] || refuse "niwa lists $(printf '%s' "$MATCH" | jq length) instances at $IPATH, not one"
@@ -179,7 +184,14 @@ JSTATE=$(printf '%s' "$JOBS" | jq -r '.[0].state // ""')
 JNAME=$(printf '%s' "$JOBS" | jq -r '.[0].name // ""')
 printf '%s' "$JOB" | grep -Eq '^[0-9a-f]{6,64}$' || refuse "the job id [$JOB] is not a job id"
 printf '%s' "$SID" | grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' || refuse "the job's session id is not a session id"
-[ "$JSTATE" != working ] || refuse "job $JOB is still working; stop it before the inventory"
+# Only a state known to be finished passes: a job whose state is missing,
+# renamed or new to this script is treated as possibly running, because
+# `claude rm` on a running job is the one thing this must never set up.
+case "$JSTATE" in
+    done | stopped | failed) ;;
+    working) refuse "job $JOB is still working; stop it before the inventory" ;;
+    *) refuse "job $JOB is in state [$JSTATE], which isn't known to be finished" ;;
+esac
 if [ -n "$NSESS" ] && [ -n "$JNAME" ] && [ "$NSESS" != "$JNAME" ]; then
     refuse "niwa maps the instance to session $NSESS, but job $JOB is $JNAME"
 fi

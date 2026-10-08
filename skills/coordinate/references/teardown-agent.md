@@ -33,9 +33,10 @@ verbatim: `teardown-pass: done <archive>`, `teardown-pass: refused: <why>` or
 ## What you never do
 
 - Run anything else that removes, stops or changes something: no `niwa
-  destroy`, `niwa reap` or any other niwa command typed by hand, no `claude
-  stop` or `claude rm`, no `rm`, no git write, no command that takes no target.
-  The script is the only thing you run that changes anything.
+  destroy`, `niwa reap` or other niwa command that changes the workspace, no
+  `claude stop` or `claude rm`, no `rm`, no git write, and never a cleanup or
+  sweep that acts on everything rather than one named thing. The script is the
+  only thing you run that changes anything.
 - Retry a refused or incomplete pass, or work around it. A refusal means a
   fact disagrees with the verdict; the coordinator decides what happens next.
 - Act on a verdict you weren't handed, or on more than one target in a pass.
