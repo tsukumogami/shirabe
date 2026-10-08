@@ -288,12 +288,22 @@ for sh in plain nomain worktree; do
     to_routing "e-code-$sh"
     tick "e-code-$sh" '{"implementation_status":"complete"}'
     tick "e-code-$sh" '{"issue_type":"code"}'
-    printf '{}\n' | ctx add "e-code-$sh" scrutiny_results.json
-    tick "e-code-$sh" '{"scrutiny_outcome":"passed"}'
+    # A clean round, recorded: the panel passes on its seats, so has_commits
+    # is what holds it.
+    printf '[{"seat":"completeness","findings":[]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]\n' \
+        > "$WORKDIR/round.json"
+    (cd "$RUN" && "$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh" --record scrutiny "e-code-$sh" "$WORKDIR/round.json") >/dev/null \
+        || fail "$sh: panel-scope.sh --record scrutiny failed"
+    tick "e-code-$sh"
     [ "$STATE" = scrutiny ] && pass "$sh: scrutiny passed with no commits holds" \
         || fail "$sh: scrutiny with no commits reached [$STATE]"
+    # The seats judged no work, so once there is a commit they review it: the
+    # tick re-plans them, and their round is recorded again.
     commit_file fix.txt
-    tick "e-code-$sh" '{"scrutiny_outcome":"passed"}'
+    tick "e-code-$sh"
+    (cd "$RUN" && "$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh" --record scrutiny "e-code-$sh" "$WORKDIR/round.json") >/dev/null \
+        || fail "$sh: panel-scope.sh --record scrutiny failed after the commit"
+    tick "e-code-$sh"
     [ "$STATE" = review ] && pass "$sh: scrutiny passed with a commit reaches review" \
         || fail "$sh: scrutiny with a commit reached [$STATE]"
 done

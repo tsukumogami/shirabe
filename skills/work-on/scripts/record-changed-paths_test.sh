@@ -435,6 +435,18 @@ tick() {
 
 ctx() { (cd "$FX/repo" && koto context "$@") 2>/dev/null; }
 
+# pass_round <session> <panel> <seat>...: records a clean round for every seat
+# and ticks with nothing submitted. A panel's pass is its <panel>_verdict gate,
+# read from the verdict ledger; there is no passed value to submit.
+pass_round() {
+    local s="$1" p="$2" seat
+    shift 2
+    for seat in "$@"; do printf '{"seat":"%s","findings":[]}\n' "$seat"; done | jq -s . > "$WORKDIR/round.json"
+    (cd "$FX/repo" && "$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh" --record "$p" "$s" "$WORKDIR/round.json") >/dev/null \
+        || fail "$s: panel-scope.sh --record $p failed"
+    tick "$s"
+}
+
 # at_verification <session>: the run reached verification. koto runs that
 # state itself on entry; a fixture with no verification map fails closed
 # there in the same tick, at done_blocked with verification's reason.
@@ -536,15 +548,17 @@ if [ "$STATE" = scrutiny ]; then
 else
     fail "code with no commits reached [$STATE]"
 fi
-printf '{}\n' | ctx add e-code scrutiny_results.json
-tick e-code '{"scrutiny_outcome":"passed"}'
+pass_round e-code scrutiny completeness justification intent
 if [ "$STATE" = scrutiny ]; then
-    pass "scrutiny: passed with scrutiny_results.json but no commits does not reach review"
+    pass "scrutiny: a recorded clean round with no commits does not reach review"
 else
     fail "scrutiny with no commits reached [$STATE]"
 fi
+# The seats judged no work; with a commit the tick re-plans them, and their
+# round is recorded again.
 commit_file src/fix.go
-tick e-code '{"scrutiny_outcome":"passed"}'
+tick e-code
+pass_round e-code scrutiny completeness justification intent
 if [ "$STATE" = review ]; then
     pass "scrutiny: passed with commits reaches review"
 else
@@ -628,13 +642,10 @@ else
     pass "plan-backed: the sibling's earlier commit is not in changed_paths.txt"
 fi
 tick e-plan '{"issue_type":"code"}'
-printf '{}\n' | ctx add e-plan scrutiny_results.json
-tick e-plan '{"scrutiny_outcome":"passed"}'
-printf '{}\n' | ctx add e-plan review_results.json
-tick e-plan '{"review_outcome":"passed"}'
-printf '{}\n' | ctx add e-plan qa_results.json
+pass_round e-plan scrutiny completeness justification intent
+pass_round e-plan review pragmatic architect maintainer
 prestart_verification e-plan
-tick e-plan '{"qa_outcome":"passed"}'
+pass_round e-plan qa tester
 printf '## Changes Made\n' | ctx add e-plan summary.md
 printf 'cleanup_commit: %s\ndesign_diagram: not-applicable: fixture\n' "$(head_sha)" | ctx add e-plan pre_pr.md
 tick e-plan '{"finalization_status":"ready_for_pr"}'

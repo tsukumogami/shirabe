@@ -57,9 +57,10 @@ stateDiagram-v2
     issue_type_routing --> verification : gates.has_commits.exit_code: 0, issue_type: docs
     issue_type_routing --> verification : issue_type: task
     light_review --> verification : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0
-    light_review --> verification : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_results.exists: true, light_outcome: passed
-    light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, light_outcome: blocking_retry
-    light_review --> done_blocked : gates.light_carried.exit_code: 1, light_outcome: blocking_escalate
+    light_review --> verification : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0
+    light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 1, light_outcome: blocking_retry
+    light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 1, light_outcome: blocking_escalate
+    light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 2, light_outcome: blocking_escalate
     plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, issue_source: github, status: completed
     plan_context_injection --> plan_validation : gates.context_artifact.exists: true, issue_source: plan_outline, status: completed
     plan_context_injection --> setup_plan_backed : status: override
@@ -86,18 +87,20 @@ stateDiagram-v2
     pre_pr_evidence --> done_blocked : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 1, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : pre_pr_status: blocked
     qa_validation --> verification : gates.qa_carried.exit_code: 0
-    qa_validation --> verification : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_results.exists: true, qa_outcome: passed
-    qa_validation --> implementation : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, qa_outcome: blocking_retry
-    qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, qa_outcome: blocking_escalate
+    qa_validation --> verification : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_verdict.exit_code: 0
+    qa_validation --> implementation : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_verdict.exit_code: 1, qa_outcome: blocking_retry
+    qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, gates.qa_verdict.exit_code: 1, qa_outcome: blocking_escalate
+    qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, gates.qa_verdict.exit_code: 2, qa_outcome: blocking_escalate
     research --> post_research_validation
     review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: full
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
-    review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: standard
-    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: full
-    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: {"is_set":false}
-    review --> implementation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, review_outcome: blocking_retry
-    review --> done_blocked : gates.review_carried.exit_code: 1, review_outcome: blocking_escalate
+    review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: standard
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: full
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
+    review --> implementation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 1, review_outcome: blocking_retry
+    review --> done_blocked : gates.review_carried.exit_code: 1, gates.review_verdict.exit_code: 1, review_outcome: blocking_escalate
+    review --> done_blocked : gates.review_carried.exit_code: 1, gates.review_verdict.exit_code: 2, review_outcome: blocking_escalate
     review_level_check --> light_review : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: light
     review_level_check --> scrutiny : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: standard
     review_level_check --> scrutiny : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: full
@@ -106,9 +109,10 @@ stateDiagram-v2
     review_level_choice --> implementation : vars.REVIEW_LEVEL: {"is_set":true}
     review_level_choice --> done_blocked : level_status: blocked, vars.REVIEW_LEVEL: {"is_set":false}
     scrutiny --> review : gates.scrutiny_carried.exit_code: 0
-    scrutiny --> review : gates.has_commits.exit_code: 0, gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, gates.scrutiny_results.exists: true, scrutiny_outcome: passed
-    scrutiny --> implementation : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, scrutiny_outcome: blocking_retry
-    scrutiny --> done_blocked : gates.scrutiny_carried.exit_code: 1, scrutiny_outcome: blocking_escalate
+    scrutiny --> review : gates.has_commits.exit_code: 0, gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, gates.scrutiny_verdict.exit_code: 0
+    scrutiny --> implementation : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, gates.scrutiny_verdict.exit_code: 1, scrutiny_outcome: blocking_retry
+    scrutiny --> done_blocked : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_verdict.exit_code: 1, scrutiny_outcome: blocking_escalate
+    scrutiny --> done_blocked : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_verdict.exit_code: 2, scrutiny_outcome: blocking_escalate
     setup_free_form --> analysis : gates.baseline_exists.exists: true, gates.on_feature_branch.exit_code: 0, status: completed
     setup_free_form --> analysis : status: override
     setup_free_form --> done_blocked : status: blocked
@@ -213,7 +217,7 @@ stateDiagram-v2
         gate: light_recorded
     end note
     note left of light_review
-        gate: light_results
+        gate: light_verdict
     end note
     note left of plan_context_injection
         gate: context_artifact
@@ -252,7 +256,7 @@ stateDiagram-v2
         gate: qa_recorded
     end note
     note left of qa_validation
-        gate: qa_results
+        gate: qa_verdict
     end note
     note left of review
         gate: level_unchanged
@@ -264,7 +268,7 @@ stateDiagram-v2
         gate: review_recorded
     end note
     note left of review
-        gate: review_results
+        gate: review_verdict
     end note
     note left of review_level_check
         gate: level_fits_facts
@@ -282,7 +286,7 @@ stateDiagram-v2
         gate: scrutiny_recorded
     end note
     note left of scrutiny
-        gate: scrutiny_results
+        gate: scrutiny_verdict
     end note
     note left of setup_free_form
         gate: baseline_exists

@@ -10,6 +10,11 @@
 # `koto context exists` — the same `store.ctx_exists` the gate evaluator calls,
 # so the check is the gate's own condition rather than a proxy for it.
 #
+# The panels are the exception now: each one's pass is its <panel>_verdict
+# gate over the verdict ledger, not a results key, so cases 1, 2 and 8 show a
+# panel holding until its round is recorded and the clearing blocks matter for
+# the keys a later gate still reads (summary.md at finalization).
+#
 # This harness asserts the repair on four fronts:
 #
 #   the gate refuses a re-entry once the key is cleared   (cases 1, 3, 5, 7)
@@ -249,16 +254,56 @@ to_scrutiny() {
     complete_as_code "$1"
 }
 
+# A panel's pass is its <panel>_verdict gate, read from the verdict ledger
+# panel-scope.sh --record writes; there is no passed value to submit.
+#
+# record_round <session> <panel> <blocking|clean>: records every seat of the
+# panel, clean or with one blocking finding each, through the shipped script.
+PANEL_SCOPE="$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh"
+record_round() {
+    local seats seat finding='[]'
+    case "$2" in
+        scrutiny) seats="completeness justification intent" ;;
+        review)   seats="pragmatic architect maintainer" ;;
+        qa)       seats="tester" ;;
+        light)    seats="reviewer" ;;
+    esac
+    [ "$3" = blocking ] && finding='[{"severity":"blocking","summary":"a defect","path":"f.txt"}]'
+    for seat in $seats; do printf '{"seat":"%s","findings":%s}\n' "$seat" "$finding"; done \
+        | jq -s . > "$WORKDIR/round.json"
+    "$PANEL_SCOPE" --record "$2" "$1" "$WORKDIR/round.json" >/dev/null \
+        || fail "$1: panel-scope.sh --record $2 failed"
+}
+
+# tick_bare <session>: a tick with nothing submitted, the way a recorded panel
+# advances. Sets NEXT_RESPONSE and NEXT_STATE as submit does.
+tick_bare() {
+    NEXT_RESPONSE=$(koto next "$1" 2>/dev/null)
+    NEXT_STATE=$(printf '%s' "$NEXT_RESPONSE" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+}
+
+# fix_commit <label> [<path>]: a fix commit on a throwaway branch off the
+# current one, touching <path> (f.txt by default), a path the seats recorded
+# here judged: they cite nothing, so they judged the run's whole diff. Back to
+# the fixture's branch with restore_branch.
+fix_commit() {
+    FIX_FROM=$(git rev-parse --abbrev-ref HEAD)
+    git checkout -q -b "fix-$1"
+    echo "fix for $1" >> "${2:-f.txt}"
+    git commit -q -am "fix: $1"
+}
+restore_branch() { git checkout -q "$FIX_FROM"; }
+
 to_review() {
     to_scrutiny "$1"
-    seed "$1" scrutiny_results.json
-    submit "$1" '{"scrutiny_outcome":"passed"}'
+    record_round "$1" scrutiny clean
+    tick_bare "$1"
 }
 
 to_qa() {
     to_review "$1"
-    seed "$1" review_results.json
-    submit "$1" '{"review_outcome":"passed"}'
+    record_round "$1" review clean
+    tick_bare "$1"
 }
 
 # koto runs `verification` itself: on entry it starts the map's commands and
@@ -276,64 +321,73 @@ prestart_verification() {
 # finalization on this fixture's passing map.
 to_finalization() {
     to_qa "$1"
-    seed "$1" qa_results.json
+    record_round "$1" qa clean
     prestart_verification "$1"
-    submit "$1" '{"qa_outcome":"passed"}'
+    tick_bare "$1"
 }
 
-# --- Case 1 — each panel gate holds when its key is cleared -------------------
+# --- Case 1 — each panel holds until its round is recorded -------------------
 #
-# The core assertion. With the key removed, the phase's advancing outcome must
-# not advance, and koto must name the gate so an operator is not left guessing.
+# The panels no longer gate on a results key: each one's pass is its
+# <panel>_verdict gate over the verdict ledger. With nothing recorded for the
+# round the phase must not advance, a results key left in context must not
+# change that, the old `passed` value must be refused outright, and koto must
+# name the gate so an operator is not left guessing.
 
-echo "--- Case 1: a cleared panel key holds its phase"
+echo "--- Case 1: an unrecorded round holds its phase"
 
 check_panel_holds() {
     # $1 session  $2 walk-fn  $3 state  $4 key  $5 outcome-field  $6 gate-name
     "$2" "$1"
-    koto context remove "$1" "$4" >/dev/null 2>&1
-    submit "$1" "{\"$5\":\"passed\"}"
+    seed "$1" "$4"
+    tick_bare "$1"
     if [ "$NEXT_STATE" = "$3" ]; then
-        pass "$3: key $4 cleared + $5 passed -> state holds"
+        pass "$3: nothing recorded, $4 present -> state holds"
     else
-        fail "$3: key $4 cleared + $5 passed -> expected to hold, got [$NEXT_STATE]"
+        fail "$3: nothing recorded, $4 present -> expected to hold, got [$NEXT_STATE]"
     fi
     if printf '%s' "$NEXT_RESPONSE" | grep -q "\"name\":\"$6\""; then
-        pass "$3: the blocked submission names $6 as the failing condition"
+        pass "$3: the hold names $6 as the failing condition"
     else
         fail "$3: expected the response to name $6; got: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-160)"
     fi
-}
-
-check_panel_holds hold-scrutiny to_scrutiny scrutiny      scrutiny_results.json scrutiny_outcome scrutiny_results
-check_panel_holds hold-review   to_review   review        review_results.json   review_outcome   review_results
-check_panel_holds hold-qa       to_qa       qa_validation qa_results.json       qa_outcome       qa_results
-
-# --- Case 2 — first-pass parity for the panels --------------------------------
-#
-# The mirror of case 1. With the key present the phase advances exactly as it
-# does today; a change that made every panel refuse would pass case 1 alone.
-
-echo "--- Case 2: a present panel key still advances (first-pass parity)"
-
-check_panel_advances() {
-    # $1 session  $2 walk-fn  $3 key  $4 outcome-field  $5 expected-next-state
-    "$2" "$1"
-    seed "$1" "$3"
-    submit "$1" "{\"$4\":\"passed\"}"
-    if [ "$NEXT_STATE" = "$5" ]; then
-        pass "key $3 present + $4 passed -> advances to $5"
+    submit "$1" "{\"$5\":\"passed\"}"
+    if printf '%s' "$NEXT_RESPONSE" | grep -q '"invalid_submission"'; then
+        pass "$3: $5: passed is refused as evidence"
     else
-        fail "key $3 present + $4 passed -> expected $5, got [$NEXT_STATE]"
+        fail "$3: $5: passed was not refused; got: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-160)"
     fi
 }
 
-check_panel_advances adv-scrutiny to_scrutiny scrutiny_results.json scrutiny_outcome review
-check_panel_advances adv-review   to_review   review_results.json   review_outcome   qa_validation
+check_panel_holds hold-scrutiny to_scrutiny scrutiny      scrutiny_results.json scrutiny_outcome scrutiny_verdict
+check_panel_holds hold-review   to_review   review        review_results.json   review_outcome   review_verdict
+check_panel_holds hold-qa       to_qa       qa_validation qa_results.json       qa_outcome       qa_verdict
+
+# --- Case 2 — first-pass parity for the panels --------------------------------
+#
+# The mirror of case 1. With the round recorded clean the phase advances; a
+# change that made every panel refuse would pass case 1 alone.
+
+echo "--- Case 2: a recorded clean round advances with nothing submitted"
+
+check_panel_advances() {
+    # $1 session  $2 walk-fn  $3 panel  $4 expected-next-state
+    "$2" "$1"
+    record_round "$1" "$3" clean
+    tick_bare "$1"
+    if [ "$NEXT_STATE" = "$4" ]; then
+        pass "$3 round recorded clean -> advances to $4 with no evidence"
+    else
+        fail "$3 round recorded clean -> expected $4, got [$NEXT_STATE]"
+    fi
+}
+
+check_panel_advances adv-scrutiny to_scrutiny scrutiny review
+check_panel_advances adv-review   to_review   review   qa_validation
 # A passed QA round enters verification, which koto settles at once on this
 # fixture's passing map (the runner started first) and routes on to finalization.
 to_qa_prestarted() { to_qa "$1"; prestart_verification "$1"; }
-check_panel_advances adv-qa       to_qa_prestarted qa_results.json  qa_outcome       finalization
+check_panel_advances adv-qa       to_qa_prestarted qa finalization
 
 # --- Case 3/4 — the analysis gate, both directions ----------------------------
 
@@ -452,8 +506,11 @@ fi
 echo "--- Case 7: a shipped panel block clears all three keys, from each entry point"
 
 check_traversal() {
-    # $1 session  $2 walk-fn  $3 block-var-name
+    # $1 session  $2 walk-fn  $3 block-var-name  $4 panel
     "$2" "$1"
+    # The round blocked: the block's blocking_retry is accepted only while the
+    # panel's verdict gate reports a blocking seat.
+    record_round "$1" "$4" blocking
     seed "$1" scrutiny_results.json
     seed "$1" review_results.json
     seed "$1" qa_results.json
@@ -521,35 +578,39 @@ check_no_direct_finalization_to_panel() {
 }
 check_no_direct_finalization_to_panel
 
-check_traversal trav-scrutiny to_scrutiny SCRUTINY_BLOCK
-check_traversal trav-review   to_review   REVIEW_BLOCK
-check_traversal trav-qa       to_qa       QA_BLOCK
+check_traversal trav-scrutiny to_scrutiny SCRUTINY_BLOCK scrutiny
+check_traversal trav-review   to_review   REVIEW_BLOCK   review
+check_traversal trav-qa       to_qa       QA_BLOCK       qa
 
-# --- Case 8 — after the block runs, no panel advances on `passed` --------------
+# --- Case 8 — after the block runs, no panel advances on a stale verdict -------
 #
-# Case 7 checks the keys are gone. This checks the consequence: the panels the
-# retry re-enters refuse the advancing outcome. Without it, a block that removed
-# the keys from a store the gate does not read would pass case 7.
+# Case 7 checks the keys are gone. This checks the consequence: what stops a
+# re-entered panel from passing on a verdict about code that has since changed
+# is the verdict ledger, not the keys. A QA retry with no fix committed walks
+# back through scrutiny and review, whose seats carry (nothing they judged
+# changed), and stops at qa_validation: the tester that blocked re-checks, and
+# qa_verdict holds until that round is recorded, whatever results key is in
+# context.
 
-echo "--- Case 8: after a retry block, the re-entered panels refuse to advance"
+echo "--- Case 8: after a retry block, the re-entered panel holds until its round is recorded"
 
 to_qa consequence
-seed consequence scrutiny_results.json
-seed consequence review_results.json
-seed consequence qa_results.json
+record_round consequence qa blocking
 render "$QA_BLOCK" consequence | bash >/dev/null 2>&1
 # The block's own `koto next` submitted blocking_retry, so the session is back
-# at implementation. Walk forward and try to pass each panel on its stale key.
+# at implementation. Walk forward.
 complete_as_code consequence
-if [ "$NEXT_STATE" = "scrutiny" ]; then
-    submit consequence '{"scrutiny_outcome":"passed"}'
-    if [ "$NEXT_STATE" = "scrutiny" ]; then
-        pass "after a qa retry, scrutiny refuses passed -- though scrutiny raised nothing"
+if [ "$NEXT_STATE" = "qa_validation" ]; then
+    pass "after a qa retry, scrutiny and review carry and the run stops at qa_validation"
+    seed consequence qa_results.json
+    tick_bare consequence
+    if [ "$NEXT_STATE" = "qa_validation" ] && printf '%s' "$NEXT_RESPONSE" | grep -q '"name":"qa_verdict"'; then
+        pass "after a qa retry, qa_validation holds on qa_verdict -- a results key changes nothing"
     else
-        fail "after a qa retry, scrutiny advanced to [$NEXT_STATE] on a cleared key"
+        fail "after a qa retry, qa_validation went to [$NEXT_STATE] with no re-check recorded"
     fi
 else
-    fail "expected the retry to return to implementation then scrutiny; landed at [$NEXT_STATE]"
+    fail "expected the retry to walk back to qa_validation; landed at [$NEXT_STATE]"
 fi
 
 # --- Case 9 — both edges into analysis clear plan.md ---------------------------
@@ -607,11 +668,11 @@ submit edge-impl '{"plan_outcome":"plan_ready"}'
 if [ "$NEXT_STATE" = "implementation" ]; then
     complete_as_code edge-impl
     if [ "$NEXT_STATE" = "scrutiny" ]; then
-        submit edge-impl '{"scrutiny_outcome":"passed"}'
+        tick_bare edge-impl
         if [ "$NEXT_STATE" = "scrutiny" ]; then
-            pass "scope_expanded_retry: scrutiny refuses passed on the round-1 verdict"
+            pass "scope_expanded_retry: scrutiny holds with no round recorded for the new plan"
         else
-            fail "scope_expanded_retry: scrutiny advanced to [$NEXT_STATE] on a round-1 verdict"
+            fail "scope_expanded_retry: scrutiny advanced to [$NEXT_STATE] with no round recorded"
         fi
     else
         fail "scope_expanded_retry: expected scrutiny after a fresh plan, got [$NEXT_STATE]"
@@ -684,20 +745,23 @@ check_edge_traversal() {
         fail "$3: keys survive the clearing step:$left"
     fi
 
-    # And the consequence, driven: walk back to scrutiny and try to pass it on
-    # the verdict that was there before. Clearing the keys is only interesting
-    # because of this.
+    # And the consequence, driven: commit a fix to what the seats judged, walk
+    # back to scrutiny, and try to pass it on the verdicts that were there
+    # before. The ledger re-runs every seat the fix touched, and scrutiny
+    # holds until that round is recorded.
+    fix_commit "$1"
     complete_as_code "$1"
     if [ "$NEXT_STATE" = "scrutiny" ]; then
-        submit "$1" '{"scrutiny_outcome":"passed"}'
+        tick_bare "$1"
         if [ "$NEXT_STATE" = "scrutiny" ]; then
-            pass "$3: scrutiny refuses passed on the round-1 verdict after the retry"
+            pass "$3: scrutiny holds on the round-1 verdicts once a fix touched what they judged"
         else
-            fail "$3: scrutiny advanced to [$NEXT_STATE] on a round-1 verdict"
+            fail "$3: scrutiny advanced to [$NEXT_STATE] on round-1 verdicts"
         fi
     else
         fail "$3: expected the retry to reach implementation then scrutiny, got [$NEXT_STATE]"
     fi
+    restore_branch
 }
 
 # The finalization block is driven from `finalization`, the state its edge
@@ -719,8 +783,9 @@ seed edge-verify scrutiny_results.json
 seed edge-verify review_results.json
 seed edge-verify light_results.json
 seed edge-verify summary.md
+record_round edge-verify qa clean
 prestart_verification edge-verify
-submit edge-verify '{"qa_outcome":"passed"}'
+tick_bare edge-verify
 if [ "$NEXT_STATE" = implementation ]; then
     pass "verification failed: the verdict's exit 1 returns the run to implementation"
 else
@@ -742,13 +807,15 @@ if koto context exists edge-verify plan.md >/dev/null 2>&1; then
 else
     fail "verification failed: plan.md was cleared; the plan is still valid here"
 fi
+# This run's diff is fail.txt alone (impl_base is the commit before it).
+fix_commit edge-verify fail.txt
 complete_as_code edge-verify
 if [ "$NEXT_STATE" = "scrutiny" ]; then
-    submit edge-verify '{"scrutiny_outcome":"passed"}'
+    tick_bare edge-verify
     if [ "$NEXT_STATE" = "scrutiny" ]; then
-        pass "verification failed: scrutiny refuses passed on the round-1 verdict after the retry"
+        pass "verification failed: scrutiny holds on the round-1 verdicts once a fix touched what they judged"
     else
-        fail "verification failed: scrutiny advanced to [$NEXT_STATE] on a round-1 verdict"
+        fail "verification failed: scrutiny advanced to [$NEXT_STATE] on round-1 verdicts"
     fi
 else
     fail "verification failed: expected the retry to reach implementation then scrutiny, got [$NEXT_STATE]"
@@ -763,6 +830,7 @@ git checkout -q impl/retry-clearing
 echo "--- Case 11: the block exits 0 when its keys were never written"
 
 to_scrutiny never-written
+record_round never-written scrutiny blocking
 render "$SCRUTINY_BLOCK" never-written | bash >/dev/null 2>&1
 if [ $? -eq 0 ]; then
     pass "the shipped block exits 0 with none of its keys ever written"
@@ -826,6 +894,8 @@ else
     # The run must still reach a terminal state. This is the requirement a
     # clearing step that hard-fails the phase would violate: the operator would
     # be left with a workflow that can go nowhere on a store it cannot write.
+    # Nothing could be recorded here, so scrutiny_verdict exits 2, and the
+    # escalation is still taken there.
     submit broken '{"scrutiny_outcome":"blocking_escalate","failure_reason":"store unwritable"}'
     if [ "$NEXT_STATE" = "done_blocked" ]; then
         pass "broken store: blocking_escalate still reaches done_blocked"
@@ -891,22 +961,24 @@ else
     fi
 
     # And the reason it must be caught here: prove the refusal would NOT have
-    # held on its own. Submit the advancing outcome while unreadable, restore
-    # permissions, and make no further submission. If the workflow has moved on,
-    # the gate alone was never a durable defence.
-    to_scrutiny buffered
-    seed buffered scrutiny_results.json
+    # held on its own. The panels no longer read a context-exists gate, so this
+    # is shown at the one the panel blocks still protect: finalization's
+    # summary_exists. Submit the advancing outcome while unreadable, restore
+    # permissions, and make no further submission. If the workflow has moved
+    # on, the gate alone was never a durable defence.
+    to_finalization buffered
+    seed_finishing buffered
     BCTX=$(find "$HOME" -type d -path '*buffered*' -name ctx 2>/dev/null | head -1)
     if [ -n "$BCTX" ] && [ -d "$BCTX" ]; then
         LOCKED_DIR="$BCTX"
         chmod a-rx "$BCTX"
-        koto next buffered --with-data '{"scrutiny_outcome":"passed"}' >/dev/null 2>&1
+        koto next buffered --with-data '{"finalization_status":"ready_for_pr"}' >/dev/null 2>&1
         chmod u+rwx "$BCTX" 2>/dev/null
         settled=$(koto next buffered 2>/dev/null | grep -o '"state":"[^"]*"' | tail -1 | cut -d'"' -f4)
-        if [ "$settled" = "review" ]; then
-            pass "the gate alone is not a durable defence: buffered evidence advances to review once readable (which is why the block must catch this itself)"
+        if [ -n "$settled" ] && [ "$settled" != "finalization" ]; then
+            pass "the gate alone is not a durable defence: buffered evidence advances to $settled once readable (which is why the block must catch this itself)"
         else
-            fail "expected the buffered submission to advance to review once readable, got [$settled] -- if koto changed, revisit why the block checks remove's status"
+            fail "expected the buffered submission to advance past finalization once readable, got [$settled] -- if koto changed, revisit why the block checks remove's status"
         fi
     else
         fail "could not locate the ctx directory for session 'buffered'"

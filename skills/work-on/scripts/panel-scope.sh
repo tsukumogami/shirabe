@@ -50,9 +50,9 @@
 # it. A pure insertion (`@@ -a,0 ...`) sits between lines a and a+1 and touches
 # a range containing either.
 #
-# The template runs --plan on each entry to a panel state, and --carried and
-# --recorded as that state's gates (evaluated on every tick there); the agent
-# runs --record once per round:
+# The template runs --plan on each entry to a panel state, and --carried,
+# --recorded and --verdict as that state's gates (evaluated on every tick
+# there); the agent runs --record once per round:
 #
 #   --plan <panel> <session>     default_action on `scrutiny`, `review`,
 #                                `qa_validation` and `light_review`. Writes
@@ -71,15 +71,25 @@
 #                                scope spawned holds a verdict recorded before
 #                                the scope was planned: this round was not
 #                                recorded.
+#   --verdict <panel> <session>  the `<panel>_verdict` gate: the panel's pass,
+#                                computed from the ledger rather than reported
+#                                by the agent (DESIGN-output-gates Decision 4).
+#                                Exit 0 when every seat of the panel has a
+#                                recorded verdict and none is blocking, 1 when
+#                                a seat is blocking (one finding per blocking
+#                                finding), 2 when the round is not fully
+#                                recorded or the keys can't be read.
 #   --record <panel> <session> <round-file>
 #                                the agent, at aggregation, for every seat it
 #                                spawned this round, passed or blocking. Stamps
 #                                judged_at=HEAD and the criteria hash and merges
-#                                the verdicts into the ledger.
+#                                the verdicts into the ledger. A seat's verdict
+#                                is derived from its findings' severity.
 #
 # Usage: panel-scope.sh --plan    <panel> <koto-session-name>
 #        panel-scope.sh --carried <panel> <koto-session-name>
 #        panel-scope.sh --recorded <panel> <koto-session-name>
+#        panel-scope.sh --verdict <panel> <koto-session-name>
 #        panel-scope.sh --record  <panel> <koto-session-name> <round-file>
 #
 # <panel> is scrutiny, review, qa (the qa_validation state) or light (the
@@ -89,9 +99,10 @@
 #
 # A JSON array, one object per spawned seat:
 #
-#   [{"seat": "completeness", "blocking_count": 1,
+#   [{"seat": "completeness",
 #     "cited": [{"path": "src/a.sh", "lines": "10-24"}, {"path": "README.md"}],
-#     "findings": [{"summary": "...", "path": "src/a.sh", "lines": "12-12"}]}]
+#     "findings": [{"severity": "blocking", "summary": "...",
+#                   "path": "src/a.sh", "lines": "12-12"}]}]
 #
 # `cited` is what the seat judged: the paths and, where it can say, the line
 # ranges ("N" or "N-M", in HEAD's numbering) its verdict rests on. Findings'
@@ -99,8 +110,14 @@
 # nothing still falls back to the whole diff it judged. Both carry forward from
 # earlier rounds, so a seat's judged scope only grows; an earlier line range in
 # a file that has changed since is carried as the bare path, because its
-# numbers no longer name the same code. `blocking_count > 0` records the seat
-# as blocking.
+# numbers no longer name the same code.
+#
+# Every finding carries a `severity`, `blocking` or `advisory`, and a seat is
+# recorded as blocking exactly when one of its findings is `blocking`. A finding
+# with no severity, or any other value, makes --record refuse the whole round
+# (65), so a seat can't be recorded as passing by leaving the field out.
+# `blocking_count`, `passed` and any other summary field are ignored: the
+# verdict is the findings', not the agent's count of them.
 #
 # ## Context keys
 #
@@ -109,30 +126,53 @@
 #                          "spawned", "decisions": [{seat, decision, reason}]}]}
 #                         Never cleared by a retry: it is what survives one.
 #   <panel>_scope.json    this entry's decisions, for the agent to act on
-#   <panel>_results.json  only when every seat is kept; otherwise the agent
-#                         writes it at aggregation as before
+#   <panel>_results.json  only when every seat is kept, read by --carried;
+#                         otherwise the agent may write it at aggregation as
+#                         the round's summary. No gate reads it for the pass:
+#                         --verdict reads the ledger
 #
 # A `--plan` re-run at the same HEAD with no `--record` in between (a tick
 # without evidence, say) replaces its own history entry instead of adding one,
-# so the history counts rounds, not ticks.
+# so the history counts rounds, not ticks. A --plan re-run at the same HEAD,
+# on a clean tree and unchanged criteria, after every seat the round spawned
+# was recorded and one of them blocked, leaves the scope as it is: that round
+# is complete, and the <panel>_verdict gate reports its block.
 #
 # Diagnostics go to stderr. --plan prints the scope it wrote on stdout, for a
-# human running it by hand; the other modes print nothing.
+# human running it by hand; --verdict prints its findings on stdout; the other
+# modes print nothing.
+#
+# --verdict prints one koto finding per blocking finding:
+#   ::koto-finding::{"rule_id":"panel/blocking-finding","level":"error",
+#                    "message":"<panel>/<seat>: <summary>","path":"src/a.sh",
+#                    "line":12,"rule_ref":"<path>#L<a>-L<b>@<commit>"}
+# with the rule_ref from gate-rules.tsv beside this script; `path` and `line`
+# only when the finding names them.
 #
 # Exit codes:
 #   0   -- --plan/--record: written. --carried: every seat is kept.
 #          --recorded: every spawned seat was recorded this round, or there is no
-#          scope or ledger to check.
+#          scope or ledger to check. --verdict: every seat of the panel has a
+#          recorded verdict and none is blocking.
 #   1   -- --carried: something has to run, the working tree is dirty, or
 #          the scope is missing, stale, unreadable or has no carried results
 #          beside it. --recorded: a spawned seat wasn't recorded this round,
-#          or the keys can't be read. The gate modes exit nothing else: a gate
-#          exit the template does not route would hold the state, and the safe
-#          answer to every doubt is "run the panel" or "record the round".
+#          or the keys can't be read. --verdict: a seat is blocking. --carried
+#          and --recorded exit nothing else: a gate exit the template does not
+#          route would hold the state, and the safe answer to every doubt is
+#          "run the panel" or "record the round".
+#   2   -- --verdict only, for every doubt it has: a seat the round's scope
+#          spawned has no verdict recorded since the scope was planned, a seat
+#          of the panel has no verdict at all, the ledger or the scope can't be
+#          read, or a usage error. It is the first mode to use 2: a verdict it
+#          can't compute holds the panel state, where a 1 would send the agent
+#          to a retry or an escalation on a guess.
 #   64  -- not a git repository, HEAD names no commit, or mktemp failed
 #   65  -- a JSON step failed: --record's round file is missing, is not a
-#          JSON array of seats, or names a seat outside the panel, or (--plan
-#          or --record) jq could not merge the result into the ledger
+#          JSON array of seats, names a seat outside the panel, or holds a
+#          finding whose severity is missing or is not `blocking` or
+#          `advisory`, or (--plan or --record) jq could not merge the result
+#          into the ledger
 #   66  -- a `koto context add` failed; koto's own stderr says why
 #   67  -- a mode, panel or argument is missing or unrecognised
 #   68  -- --record only: HEAD moved since the panel's scope was planned, so
@@ -144,6 +184,11 @@ set -uo pipefail
 
 THRESHOLD_LINES=200
 LEDGER=verdict_ledger.json
+# A ledger entry's blocking findings, as a jq expression over the entry. A
+# finding with no severity counts: it comes from a ledger written before
+# severity existed, when the agent listed only blocking findings. --record
+# admits no such finding now.
+BLOCKING_FINDINGS='(.findings // [])[] | select(type == "object" and ((.severity // "blocking") == "blocking"))'
 
 die() {
     # $1 exit code, $2 message
@@ -155,18 +200,21 @@ MODE="${1:-}"
 PANEL="${2:-}"
 SESSION="${3:-}"
 
-# The two gate modes answer 1 to every doubt, usage errors included; see Exit
-# codes.
+# The gate modes answer every doubt, usage errors included, with one exit: 1
+# for --carried and --recorded, 2 for --verdict. See Exit codes.
 refuse() {
     # $1 exit code for the other modes, $2 message
-    case "$MODE" in --carried|--recorded) echo "panel-scope: $2" >&2; exit 1 ;; esac
+    case "$MODE" in
+        --carried|--recorded) echo "panel-scope: $2" >&2; exit 1 ;;
+        --verdict) echo "panel-scope: $2" >&2; exit 2 ;;
+    esac
     die "$1" "$2"
 }
 
 case "$MODE" in
-    --plan|--carried|--recorded|--record) ;;
-    "") die 67 "missing mode: expected --plan, --carried, --recorded or --record" ;;
-    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded or --record" ;;
+    --plan|--carried|--recorded|--verdict|--record) ;;
+    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict or --record" ;;
+    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict or --record" ;;
 esac
 
 case "$PANEL" in
@@ -237,6 +285,64 @@ if [ "$MODE" = "--recorded" ]; then
     exit 0
 fi
 
+# ---------------------------------------------------------------- --verdict ---
+
+# The panel's pass, from the ledger. Unlike --recorded, a spawned seat with no
+# entry at all holds here: --recorded only stops a stale verdict from being
+# read as this round's, while this gate has to have a verdict for every seat
+# before it can say the panel passed. With no scope (the --plan fallback path)
+# there is nothing to date the verdicts against, so only their presence is
+# checked.
+if [ "$MODE" = "--verdict" ]; then
+    ledger=$(ctx_get "$LEDGER")
+    [ -n "$ledger" ] || refuse 2 "no $LEDGER: no $PANEL seat has a recorded verdict (run panel-scope.sh --record $PANEL)"
+    printf '%s' "$ledger" | jq -e 'type == "object"' >/dev/null \
+        || refuse 2 "$LEDGER is unreadable"
+    scope=$(ctx_get "${PANEL}_scope.json")
+    if [ -n "$scope" ]; then
+        unrecorded=$(jq -nr --argjson s "$scope" --argjson l "$ledger" --arg panel "$PANEL" '
+            [$s.decisions[] | select(.decision != "keep") | .seat
+             | select(($l.seats[$panel + "/" + .] // null) as $e
+                      | $e == null or (($e.rev // -1) <= ($s.rev // -1)))] | join(" ")') \
+            || refuse 2 "could not read ${PANEL}_scope.json against $LEDGER"
+        [ -z "$unrecorded" ] \
+            || refuse 2 "no verdict recorded since ${PANEL}_scope.json was planned for: $unrecorded (run panel-scope.sh --record $PANEL)"
+    fi
+    missing=""
+    for seat in $SEATS; do
+        v=$(printf '%s' "$ledger" | jq -r --arg k "$PANEL/$seat" '.seats[$k].verdict // empty') \
+            || refuse 2 "$LEDGER is unreadable"
+        case "$v" in passed|blocking) ;; *) missing="$missing $seat" ;; esac
+    done
+    [ -z "$missing" ] || refuse 2 "no verdict on record for$missing (run panel-scope.sh --record $PANEL)"
+
+    rules="$(cd "$(dirname "$0")" && pwd)/gate-rules.tsv"
+    ref=$(awk -F'\t' '$0 !~ /^#/ && $1 == "panel/blocking-finding" { print $2 "@" $3; exit }' "$rules")
+    # One finding per blocking finding. A seat recorded as blocking with no
+    # finding marked blocking (a ledger from before severity) still blocks, and
+    # gets one finding naming the seat.
+    findings=$(printf '%s' "$ledger" | jq -c --arg panel "$PANEL" --arg seats "$SEATS" --arg ref "$ref" \
+        "def blocking_findings: [$BLOCKING_FINDINGS];"'
+        [($seats | split(" "))[] as $seat
+         | (.seats[$panel + "/" + $seat]) as $e
+         | select($e.verdict == "blocking")
+         | ($e | blocking_findings) as $bf
+         | if ($bf | length) > 0 then ($bf[] | {seat: $seat, f: .})
+           else {seat: $seat, f: {summary: "recorded as blocking, with no finding marked blocking"}} end]
+        | .[]
+        | ((.f.lines // "") | tostring | (capture("^(?<n>[1-9][0-9]*)") // null)) as $line
+        | {rule_id: "panel/blocking-finding", level: "error",
+           message: ($panel + "/" + .seat + ": " + ((.f.summary // "a blocking finding") | tostring))}
+          + (if (.f.path | type) == "string" and .f.path != "" then {path: .f.path}
+               + (if $line != null then {line: ($line.n | tonumber)} else {} end)
+             else {} end)
+          + (if $ref != "" then {rule_ref: $ref} else {} end)') \
+        || refuse 2 "could not read the blocking findings in $LEDGER"
+    [ -n "$findings" ] || exit 0
+    printf '%s\n' "$findings" | sed 's/^/::koto-finding::/'
+    exit 1
+fi
+
 WORK=$(mktemp -d) || die 64 "could not create a temporary directory"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -299,6 +405,15 @@ if [ "$MODE" = "--record" ]; then
             *) die 65 "seat [$s] is not a $PANEL seat (expected one of: $SEATS)" ;;
         esac
     done
+    # The verdict is derived from severity below, so a finding without one
+    # would be counted as advisory by omission. Refuse the round instead.
+    unsevered=$(jq -r '[.[] | .seat as $s | (.findings // [])
+            | if type == "array" then .[] else "not-an-array" end
+            | select(type != "object" or (.severity != "blocking" and .severity != "advisory"))
+            | $s] | unique | join(" ")' "$ROUND_FILE") \
+        || die 65 "could not read the findings in round file [$ROUND_FILE]"
+    [ -z "$unsevered" ] \
+        || die 65 "round file [$ROUND_FILE]: a finding of seat(s) [$unsevered] has no severity, or one that is not blocking or advisory"
     # A seat's earlier citations carry forward, but their line ranges are in
     # the numbering of the commit it judged then. Where the file has changed
     # since, the range no longer names the same code, so only the path is
@@ -329,7 +444,8 @@ if [ "$MODE" = "--record" ]; then
             | .seats[$k] = {
                 panel: $panel,
                 seat: $s.seat,
-                verdict: (if ($s.blocking_count // 0) > 0 then "blocking" else "passed" end),
+                verdict: (if any(($s.findings // [])[]; .severity == "blocking")
+                          then "blocking" else "passed" end),
                 judged_at: $head,
                 rev: .rev,
                 ac_sha: $ac,
@@ -396,6 +512,33 @@ if [ -z "$IMPL_BASE" ] || [ "$(git rev-list --count "$IMPL_BASE..HEAD" || echo 0
     NOCOMMITS=1
 fi
 
+# A blocking round already recorded at this HEAD is not planned again. koto
+# runs --plan on every tick that carries no evidence, and the agent ticks with
+# none once the round is recorded, so the <panel>_verdict gate can route it. A
+# fresh plan there would turn the seat that just blocked into a new round's
+# recheck, with no fix to re-check, and --verdict would hold the panel (exit 2)
+# on a round that is complete instead of reporting the block (exit 1). The
+# scope stands while HEAD, a clean tree and the criteria are what the round
+# was recorded against, every seat it spawned has a verdict recorded since it
+# was planned, and one of them is blocking. Anything else plans as before: a
+# commit, an uncommitted change, rewritten criteria or a seat still unrecorded
+# start a new round, and a recorded round with no blocking seat re-plans to
+# keep every seat, which is the carried route.
+if [ -z "$DIRTY" ]; then
+    prev_scope=$(ctx_get "${PANEL}_scope.json")
+    if [ -n "$prev_scope" ] && [ "$(jq -n --argjson s "$prev_scope" --argjson l "$LEDGER_JSON" \
+            --arg panel "$PANEL" --arg head "$HEAD" --arg ac "$AC_SHA" '
+            [$s.decisions[] | select(.decision != "keep") | $l.seats[$panel + "/" + .seat] // null] as $spawned
+            | $s.head == $head
+              and ($spawned | length > 0)
+              and all($spawned[]; . != null and ((.rev // -1) > ($s.rev // -1)) and .ac_sha == $ac)
+              and any($spawned[]; .verdict == "blocking")')" = true ]; then
+        echo "panel-scope: the $PANEL round planned at $(printf '%.12s' "$HEAD") is recorded with a blocking seat; its scope stands" >&2
+        printf '%s\n' "$prev_scope"
+        exit 0
+    fi
+fi
+
 : > "$WORK/decisions"
 for seat in $SEATS; do
     entry=$(printf '%s' "$LEDGER_JSON" | jq -c --arg k "$PANEL/$seat" '.seats[$k] // empty')
@@ -407,7 +550,11 @@ for seat in $SEATS; do
         judged=$(printf '%s' "$entry" | jq -r '.judged_at // ""')
         ac=$(printf '%s' "$entry" | jq -r '.ac_sha // ""')
         short=$(printf '%.12s' "$judged")
-        nfind=$(printf '%s' "$entry" | jq '.findings | length')
+        # The blocking findings only: an advisory one is not what the seat
+        # blocked on, and a re-check is about what it blocked on. A finding
+        # with no severity is from a ledger written before severity existed,
+        # when every recorded finding was a blocking one.
+        nfind=$(printf '%s' "$entry" | jq "[$BLOCKING_FINDINGS] | length")
         # A blocking seat goes through the same invalidation checks as a
         # passed one before it is offered the narrow re-check: a re-check that
         # passes stamps the seat passed at HEAD, so anything that would make a
@@ -476,9 +623,10 @@ for seat in $SEATS; do
     # fix_diff_from being an ancestor of HEAD (checked above). Renaming either
     # field, or offering recheck on a commit off HEAD's history, changes what
     # that packet holds; panel-scope_test.sh drives the two scripts together.
-    jq -nc --arg seat "$seat" --arg d "$decision" --arg r "$reason" --argjson e "${entry:-null}" '
+    jq -nc --arg seat "$seat" --arg d "$decision" --arg r "$reason" --argjson e "${entry:-null}" \
+        "def blocking_findings: [$BLOCKING_FINDINGS];"'
         {seat: $seat, decision: $d, reason: $r}
-        + (if $d == "recheck" then {findings: ($e.findings // []), fix_diff_from: $e.judged_at} else {} end)
+        + (if $d == "recheck" then {findings: ($e | blocking_findings), fix_diff_from: $e.judged_at} else {} end)
         + (if $d == "rerun" or $d == "keep" then {judged_at: $e.judged_at} else {} end)
         ' >> "$WORK/decisions"
     entry=""

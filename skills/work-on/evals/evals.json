@@ -197,13 +197,13 @@
       "mode": "execute",
       "scenario": "review-panel-passed",
       "prompt": "/work-on #42",
-      "expected_output": "Agent enters scrutiny state, runs three panel reviewers (completeness, justification, intent) in parallel, receives passed verdicts from all three, then submits scrutiny_outcome: passed to advance to review. Before spawning, it assembles the round's packet with scripts/review-packet.sh code and spawns each reviewer with model sonnet.",
+      "expected_output": "Agent enters scrutiny state, runs three panel reviewers (completeness, justification, intent) in parallel, receives verdicts with no blocking finding from all three, records the round with panel-scope.sh --record scrutiny (every finding carrying a severity), then ticks koto with nothing submitted so the scrutiny_verdict gate advances the run to review. Before spawning, it assembles the round's packet with scripts/review-packet.sh code and spawns each reviewer with model sonnet.",
       "files": [],
       "expectations": [
-        "Agent submits scrutiny_outcome: passed when panel reviewers all approve",
-        "Agent does not submit blocking_retry or blocking_escalate when issues are found to be correctable",
-        "Agent checks scrutiny_results context-exists gate status before submitting evidence",
-        "Agent plans to run all three panel reviewers before submitting scrutiny outcome",
+        "Agent records the round with panel-scope.sh --record scrutiny, and every finding in the round file carries severity: blocking or severity: advisory",
+        "Agent advances by ticking koto with nothing submitted once the round is recorded, and does not submit scrutiny_outcome: passed (the state accepts no such value; the scrutiny_verdict gate decides the pass)",
+        "Agent does not submit blocking_retry or blocking_escalate when no reviewer raised a blocking finding",
+        "Agent plans to run all three panel reviewers before recording the round",
         "Agent assembles the review packet with scripts/review-packet.sh code before spawning the panel reviewers",
         "Agent spawns each panel reviewer with an explicit Sonnet model rather than inheriting the parent's model"
       ]
@@ -218,7 +218,7 @@
       "expected_output": "Scrutiny panel finds blocking issues. The agent runs the retry budget first, which grants the run's first retry, then clears every artifact the return trip invalidates -- all three panel result keys and summary.md -- confirms each removal took, and emits blocking_retry. The retry routes to implementation rather than done_blocked.",
       "files": [],
       "expectations": [
-        "Agent runs panel-retry-budget.sh for scrutiny with the round's blocking count before the clearing block, and goes on to the retry because the budget grants it (this is the run's first retry)",
+        "Agent runs panel-retry-budget.sh for scrutiny with the round's blocking count (the number of blocking findings scrutiny_verdict reported) before the clearing block, and goes on to the retry because the budget grants it (this is the run's first retry)",
         "Agent submits scrutiny_outcome: blocking_retry after panel finds blocking issues",
         "Agent runs koto context remove on scrutiny_results.json, review_results.json, qa_results.json and summary.md before submitting the retry",
         "Agent clears every key the block lists (the four panels' results keys, light_results.json among them, and summary.md), not only scrutiny's, because the retry returns to implementation and the run then walks forward through every panel, verification and finalization",
@@ -568,7 +568,7 @@
         "Agent spawns the intent reviewer and does not spawn the completeness or justification reviewers, whose decisions are keep",
         "The intent reviewer's prompt carries the finding (login() returning a session token before the hash is verified, src/auth.go 41-48) and the fix diff from the fix_diff_from commit to HEAD",
         "The intent reviewer is asked only whether that finding is fixed, not for a fresh full review of the implementation",
-        "Agent records the round with panel-scope.sh --record scrutiny, with a round file naming only the intent seat",
+        "Agent records the round with panel-scope.sh --record scrutiny, with a round file naming only the intent seat, every finding in it carrying a severity",
         "Agent treats the kept seats as passed when aggregating, and does not re-run them on its own judgment"
       ]
     }

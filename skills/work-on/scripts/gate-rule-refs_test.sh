@@ -24,7 +24,7 @@ set -u
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 TABLE="$SCRIPT_DIR/gate-rules.tsv"
-SCRIPTS="$SCRIPT_DIR/check-branch-output.sh $SCRIPT_DIR/check-pr-output.sh $SCRIPT_DIR/check-verification.sh"
+SCRIPTS="$SCRIPT_DIR/check-branch-output.sh $SCRIPT_DIR/check-pr-output.sh $SCRIPT_DIR/check-verification.sh $SCRIPT_DIR/panel-scope.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -108,7 +108,7 @@ ROWS=$(grep -cv -e '^#' -e '^$' "$TABLE")
 # string literals of the form <area>/<rule> the scripts pass to finding,
 # require_rules and the message-to-rule mapping.
 MISSING=""
-for name in $(grep -hoE '(commit|branch|docs|pr-body|verification)/[a-z0-9-]+' $SCRIPTS | sort -u); do
+for name in $(grep -hoE '(commit|branch|docs|pr-body|verification|panel)/[a-z0-9-]+' $SCRIPTS | sort -u); do
     case "$name" in docs/guides|docs/designs) continue ;; esac
     awk -F'\t' -v id="$name" '$0 !~ /^#/ && $1 == id { found = 1 } END { exit found ? 0 : 1 }' "$TABLE" \
         || MISSING="$MISSING $name"

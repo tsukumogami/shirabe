@@ -902,9 +902,27 @@ states:
     # counts record the round either way.
     #
     # Every transition names scrutiny_carried, per
-    # references/default-action-conversion.md: exit 0 is the gate-only edge,
-    # exit 1 every evidence edge. The script never exits anything else from
+    # references/default-action-conversion.md: exit 0 is the carried edge,
+    # exit 1 every other. The script never exits anything else from
     # --carried, so the state can't hold on an unrouted exit.
+    #
+    # The panel's pass is koto's, not the agent's (DESIGN-output-gates
+    # Decision 4, gate 6). scrutiny_verdict reads the verdict ledger, where
+    # --record derived each seat's verdict from its findings' severity: exit 0
+    # advances with no evidence, 1 (a seat is blocking) takes the agent's
+    # blocking_retry or blocking_escalate, 2 (the round isn't fully recorded,
+    # or the ledger can't be read) holds. Escalation is also taken at 2: it
+    # ends the run, so it can't skip the panel, and a run whose round can't be
+    # recorded must still have a way to stop.
+    #
+    # The decider slot: a later `decider-check` gate named scrutiny_decider,
+    # in `mode: shadow`, goes on this state, carrying the trial's model-graded
+    # criteria (scripts/review-shadow/criteria.json, rs-007 to rs-010) with its
+    # slicers as extraction commands. koto lets no `when`, `skip_if` or
+    # context assignment read a decider check, and a shadow check never
+    # blocks, so adding it can't change which transition this state takes. It
+    # is not built yet. The same holds for review, qa_validation and
+    # light_review.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan scrutiny "{{SESSION_NAME}}"'
       fallback: >-
@@ -913,9 +931,10 @@ states:
         65 when the ledger could not be updated, 66 when a context write
         failed, 127 when jq is missing, and 127 or 126 also when PLUGIN_ROOT
         does not reach the plugin. Run every seat of the panel
-        as a full round, then aggregate and submit `scrutiny_outcome` as usual;
-        the scrutiny_carried gate reads exit 1 without a scope, which is the
-        edge your evidence takes.
+        as a full round and record it with panel-scope.sh --record as usual;
+        with no scope, scrutiny_verdict reads every seat's recorded verdict,
+        and the scrutiny_carried gate reads exit 1, so the round routes on
+        the verdict as any other.
     gates:
       scrutiny_carried:
         type: command
@@ -927,11 +946,13 @@ states:
       scrutiny_recorded:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --recorded scrutiny "{{SESSION_NAME}}"'
-      scrutiny_results:
-        type: context-exists
-        key: scrutiny_results.json
+      # The panel's pass, from the ledger (gate 6). A person's override is the
+      # only way past it, listed by `koto overrides list`.
+      scrutiny_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict scrutiny "{{SESSION_NAME}}"'
         override_default:
-          exists: true
+          exit_code: 0
           error: ""
       # Moved here from implementation with the issue-type question, so the
       # code route out of issue_type_routing carries no gate. It still stands
@@ -944,8 +965,11 @@ states:
     accepts:
       scrutiny_outcome:
         type: enum
-        values: [passed, blocking_retry, blocking_escalate]
-        required: true
+        values: [blocking_retry, blocking_escalate]
+        description: >-
+          Absent when the panel passes: koto advances on scrutiny_verdict.
+          Submit a value only while scrutiny_verdict exits 1 (a seat is
+          blocking), or blocking_escalate while it exits 2.
       failure_reason:
         type: string
         description: Reason for blocking escalation (required when scrutiny_outcome is blocking_escalate)
@@ -958,28 +982,38 @@ states:
       - target: review
         when:
           gates.scrutiny_carried.exit_code: 0
+      # The round is recorded and no seat is blocking: koto advances.
       - target: review
         when:
           gates.scrutiny_carried.exit_code: 1
-          scrutiny_outcome: passed
+          gates.scrutiny_verdict.exit_code: 0
           gates.scrutiny_recorded.exit_code: 0
-          gates.scrutiny_results.exists: true
           gates.has_commits.exit_code: 0
       - target: implementation
         when:
           gates.scrutiny_carried.exit_code: 1
+          gates.scrutiny_verdict.exit_code: 1
           scrutiny_outcome: blocking_retry
           gates.scrutiny_recorded.exit_code: 0
       - target: done_blocked
         when:
           gates.scrutiny_carried.exit_code: 1
+          gates.scrutiny_verdict.exit_code: 1
+          scrutiny_outcome: blocking_escalate
+        context_assignments:
+          failure_reason: ${evidence.failure_reason}
+      - target: done_blocked
+        when:
+          gates.scrutiny_carried.exit_code: 1
+          gates.scrutiny_verdict.exit_code: 2
           scrutiny_outcome: blocking_escalate
         context_assignments:
           failure_reason: ${evidence.failure_reason}
 
   review:
-    # The same seat decision as scrutiny's, for this panel: see the comment
-    # there. review_carried exit 0 advances with no spawn.
+    # The same seat decision as scrutiny's, for this panel, and the same
+    # verdict gate and decider slot: see the comments there. review_carried
+    # exit 0 advances with no spawn.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan review "{{SESSION_NAME}}"'
       fallback: >-
@@ -988,9 +1022,10 @@ states:
         65 when the ledger could not be updated, 66 when a context write
         failed, 127 when jq is missing, and 127 or 126 also when PLUGIN_ROOT
         does not reach the plugin. Run every seat of the panel
-        as a full round, then aggregate and submit `review_outcome` as usual;
-        the review_carried gate reads exit 1 without a scope, which is the
-        edge your evidence takes.
+        as a full round and record it with panel-scope.sh --record as usual;
+        with no scope, review_verdict reads every seat's recorded verdict,
+        and the review_carried gate reads exit 1, so the round routes on the
+        verdict as any other.
     gates:
       review_carried:
         type: command
@@ -1002,11 +1037,12 @@ states:
       review_recorded:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --recorded review "{{SESSION_NAME}}"'
-      review_results:
-        type: context-exists
-        key: review_results.json
+      # The panel's pass, from the ledger (gate 6), as on scrutiny.
+      review_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict review "{{SESSION_NAME}}"'
         override_default:
-          exists: true
+          exit_code: 0
           error: ""
       # The level was checked against the facts at review_level_check, and
       # every passed route below routes on it. level_unchanged holds those
@@ -1021,8 +1057,11 @@ states:
     accepts:
       review_outcome:
         type: enum
-        values: [passed, blocking_retry, blocking_escalate]
-        required: true
+        values: [blocking_retry, blocking_escalate]
+        description: >-
+          Absent when the panel passes: koto advances on review_verdict.
+          Submit a value only while review_verdict exits 1 (a seat is
+          blocking), or blocking_escalate while it exits 2.
       failure_reason:
         type: string
         description: Reason for blocking escalation
@@ -1051,46 +1090,54 @@ states:
           gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL:
             is_set: false
+      # The round is recorded and no seat is blocking: koto advances.
       - target: verification
         when:
           gates.review_carried.exit_code: 1
-          review_outcome: passed
+          gates.review_verdict.exit_code: 0
           gates.review_recorded.exit_code: 0
-          gates.review_results.exists: true
           gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: standard
       - target: qa_validation
         when:
           gates.review_carried.exit_code: 1
-          review_outcome: passed
+          gates.review_verdict.exit_code: 0
           gates.review_recorded.exit_code: 0
-          gates.review_results.exists: true
           gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL: full
       - target: qa_validation
         when:
           gates.review_carried.exit_code: 1
-          review_outcome: passed
+          gates.review_verdict.exit_code: 0
           gates.review_recorded.exit_code: 0
-          gates.review_results.exists: true
           gates.level_unchanged.exit_code: 0
           vars.REVIEW_LEVEL:
             is_set: false
       - target: implementation
         when:
           gates.review_carried.exit_code: 1
+          gates.review_verdict.exit_code: 1
           review_outcome: blocking_retry
           gates.review_recorded.exit_code: 0
       - target: done_blocked
         when:
           gates.review_carried.exit_code: 1
+          gates.review_verdict.exit_code: 1
+          review_outcome: blocking_escalate
+        context_assignments:
+          failure_reason: ${evidence.failure_reason}
+      - target: done_blocked
+        when:
+          gates.review_carried.exit_code: 1
+          gates.review_verdict.exit_code: 2
           review_outcome: blocking_escalate
         context_assignments:
           failure_reason: ${evidence.failure_reason}
 
   qa_validation:
-    # The same seat decision as scrutiny's, for this panel: see the comment
-    # there. qa_carried exit 0 advances with no spawn.
+    # The same seat decision as scrutiny's, for this panel, and the same
+    # verdict gate and decider slot: see the comments there. qa_carried exit
+    # 0 advances with no spawn.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan qa "{{SESSION_NAME}}"'
       fallback: >-
@@ -1099,9 +1146,10 @@ states:
         65 when the ledger could not be updated, 66 when a context write
         failed, 127 when jq is missing, and 127 or 126 also when PLUGIN_ROOT
         does not reach the plugin. Run every seat of the panel
-        as a full round, then aggregate and submit `qa_outcome` as usual;
-        the qa_carried gate reads exit 1 without a scope, which is the
-        edge your evidence takes.
+        as a full round and record it with panel-scope.sh --record as usual;
+        with no scope, qa_verdict reads every seat's recorded verdict, and
+        the qa_carried gate reads exit 1, so the round routes on the verdict
+        as any other.
     gates:
       qa_carried:
         type: command
@@ -1113,17 +1161,21 @@ states:
       qa_recorded:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --recorded qa "{{SESSION_NAME}}"'
-      qa_results:
-        type: context-exists
-        key: qa_results.json
+      # The panel's pass, from the ledger (gate 6), as on scrutiny.
+      qa_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict qa "{{SESSION_NAME}}"'
         override_default:
-          exists: true
+          exit_code: 0
           error: ""
     accepts:
       qa_outcome:
         type: enum
-        values: [passed, blocking_retry, blocking_escalate]
-        required: true
+        values: [blocking_retry, blocking_escalate]
+        description: >-
+          Absent when the panel passes: koto advances on qa_verdict. Submit a
+          value only while qa_verdict exits 1 (a scenario failed), or
+          blocking_escalate while it exits 2.
       failure_reason:
         type: string
         description: Reason for blocking escalation
@@ -1132,20 +1184,29 @@ states:
       - target: verification
         when:
           gates.qa_carried.exit_code: 0
+      # The round is recorded and the tester is not blocking: koto advances.
       - target: verification
         when:
           gates.qa_carried.exit_code: 1
-          qa_outcome: passed
+          gates.qa_verdict.exit_code: 0
           gates.qa_recorded.exit_code: 0
-          gates.qa_results.exists: true
       - target: implementation
         when:
           gates.qa_carried.exit_code: 1
+          gates.qa_verdict.exit_code: 1
           qa_outcome: blocking_retry
           gates.qa_recorded.exit_code: 0
       - target: done_blocked
         when:
           gates.qa_carried.exit_code: 1
+          gates.qa_verdict.exit_code: 1
+          qa_outcome: blocking_escalate
+        context_assignments:
+          failure_reason: ${evidence.failure_reason}
+      - target: done_blocked
+        when:
+          gates.qa_carried.exit_code: 1
+          gates.qa_verdict.exit_code: 2
           qa_outcome: blocking_escalate
         context_assignments:
           failure_reason: ${evidence.failure_reason}
@@ -1154,11 +1215,12 @@ states:
     # The `light` review level's one panel: a single reviewer seat, in place of
     # scrutiny, review and QA. It is a fourth panel to panel-scope.sh, so the
     # seat's verdict is sticky across retries exactly like the other panels':
-    # see the comment on scrutiny. light_carried exit 0 advances with no spawn.
+    # see the comment on scrutiny. light_carried exit 0 advances with no spawn,
+    # and the verdict gate and decider slot are scrutiny's too.
     #
-    # The evidence `passed` route also carries scrutiny's has_commits gate: at
-    # `light` scrutiny never runs, and that gate is what stops a code run with
-    # no commits since impl_base from reaching verification. The carried route
+    # The verdict route also carries scrutiny's has_commits gate: at `light`
+    # scrutiny never runs, and that gate is what stops a code run with no
+    # commits since impl_base from reaching verification. The carried route
     # can't repeat it (a carried scope with it failing would match no edge);
     # panel-scope.sh --plan keeps no seat while there are no commits, so the
     # scope is never carried without them.
@@ -1169,9 +1231,11 @@ states:
         command's own output above: panel-scope.sh exits 64 when HEAD names no
         commit, 65 when the ledger could not be updated, 66 when a context
         write failed, 127 when jq is missing, and 127 or 126 also when
-        PLUGIN_ROOT does not reach the plugin. Run the seat as a full round,
-        then submit `light_outcome` as usual; the light_carried gate reads
-        exit 1 without a scope, which is the edge your evidence takes.
+        PLUGIN_ROOT does not reach the plugin. Run the seat as a full round
+        and record it with panel-scope.sh --record as usual; with no scope,
+        light_verdict reads the seat's recorded verdict, and the
+        light_carried gate reads exit 1, so the round routes on the verdict
+        as any other.
     gates:
       light_carried:
         type: command
@@ -1181,11 +1245,12 @@ states:
       light_recorded:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --recorded light "{{SESSION_NAME}}"'
-      light_results:
-        type: context-exists
-        key: light_results.json
+      # The panel's pass, from the ledger (gate 6), as on scrutiny.
+      light_verdict:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh" --verdict light "{{SESSION_NAME}}"'
         override_default:
-          exists: true
+          exit_code: 0
           error: ""
       # Identical to scrutiny's copy.
       has_commits:
@@ -1199,8 +1264,11 @@ states:
     accepts:
       light_outcome:
         type: enum
-        values: [passed, blocking_retry, blocking_escalate]
-        required: true
+        values: [blocking_retry, blocking_escalate]
+        description: >-
+          Absent when the panel passes: koto advances on light_verdict. Submit
+          a value only while light_verdict exits 1 (the seat is blocking), or
+          blocking_escalate while it exits 2.
       failure_reason:
         type: string
         description: Reason for blocking escalation
@@ -1210,22 +1278,31 @@ states:
         when:
           gates.light_carried.exit_code: 0
           gates.level_unchanged.exit_code: 0
+      # The round is recorded and the seat is not blocking: koto advances.
       - target: verification
         when:
           gates.light_carried.exit_code: 1
-          light_outcome: passed
+          gates.light_verdict.exit_code: 0
           gates.light_recorded.exit_code: 0
-          gates.light_results.exists: true
           gates.has_commits.exit_code: 0
           gates.level_unchanged.exit_code: 0
       - target: implementation
         when:
           gates.light_carried.exit_code: 1
+          gates.light_verdict.exit_code: 1
           light_outcome: blocking_retry
           gates.light_recorded.exit_code: 0
       - target: done_blocked
         when:
           gates.light_carried.exit_code: 1
+          gates.light_verdict.exit_code: 1
+          light_outcome: blocking_escalate
+        context_assignments:
+          failure_reason: ${evidence.failure_reason}
+      - target: done_blocked
+        when:
+          gates.light_carried.exit_code: 1
+          gates.light_verdict.exit_code: 2
           light_outcome: blocking_escalate
         context_assignments:
           failure_reason: ${evidence.failure_reason}
@@ -2399,56 +2476,60 @@ reader counts it. If the run can't go on, submit `level_status: blocked` with
 
 ## scrutiny
 
-Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. Output: koto context key `scrutiny_results.json`.
+Run the scrutiny panel (three parallel reviewers: completeness, justification, intent). Read `references/phases/phase-4a-scrutiny.md` for detailed steps and reviewer prompts. The round's record is the verdict ledger, written by `panel-scope.sh --record scrutiny`; `scrutiny_results.json` is optional, the round's summary for a reader, and no gate reads it.
 
-Note on gate discoverability: The gate name is `scrutiny_results`; the context key is `scrutiny_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while this run has no commits since `impl_base`. If the work really has none, that is a blocking finding: retry it through the budget below with a count of 1, and commit the work in implementation. It is recorded like any scrutiny round, so past the second retry a later scrutiny round is compared against that 1 and escalates unless it finds nothing; the rule errs toward stopping there on purpose. If it is committed and `passed` still holds, `impl_base` is missing or was recorded after the work (compare `koto context get {{SESSION_NAME}} impl_base` with `git log`): record the commit the run started from, the parent of its first commit, with `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and submit again.
+koto decides whether the panel passed, from the ledger: the `scrutiny_verdict` gate runs `panel-scope.sh --verdict scrutiny`. Every finding a seat returns carries `severity: blocking` or `severity: advisory`, `--record` refuses a round with a finding that has neither, and a seat is blocking exactly when one of its findings is `blocking`. Exit 0 (every seat recorded, none blocking) advances to `review` with nothing submitted: record the round and tick again. Exit 1 (a seat is blocking) prints one `panel/blocking-finding` finding per blocking finding and waits for `scrutiny_outcome`. Exit 2 holds: a seat the round spawned has no verdict recorded since the round was planned, or the ledger can't be read; record the round and tick again.
 
-koto has already decided which seats this round needs: read `scrutiny_scope.json` and spawn only the seats whose decision isn't `keep`. A `recheck` seat gets its findings plus the fix diff, in the `review-packet.sh recheck` packet the phase file's commissioning line gives, and checks only those. After the round, record the spawned seats with `panel-scope.sh --record scrutiny` (the phase file has the command). When every seat is `keep`, koto carries the verdict and advances without stopping here; a carried panel submits nothing, so it neither spends nor resets the retry count below, and koto's log still records its visit. The `scrutiny_recorded` gate holds `passed` and `blocking_retry` until the round is recorded.
+The `has_commits` gate also has to pass: the panel does not advance while this run has no commits since `impl_base`. If the work really has none, that is a blocking finding: record it with `severity: blocking`, retry it through the budget below with a count of 1, and commit the work in implementation. It is recorded like any scrutiny round, so past the second retry a later scrutiny round is compared against that 1 and escalates unless it finds nothing; the rule errs toward stopping there on purpose. If it is committed and the panel still holds on `has_commits`, `impl_base` is missing or was recorded after the work (compare `koto context get {{SESSION_NAME}} impl_base` with `git log`): record the commit the run started from, the parent of its first commit, with `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and tick again.
 
-Submit `scrutiny_outcome: passed` when all reviewers clear the implementation, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
+koto has already decided which seats this round needs: read `scrutiny_scope.json` and spawn only the seats whose decision isn't `keep`. A `recheck` seat gets its findings plus the fix diff, in the `review-packet.sh recheck` packet the phase file's commissioning line gives, and checks only those. After the round, record the spawned seats with `panel-scope.sh --record scrutiny` (the phase file has the command). When every seat is `keep`, koto carries the verdict and advances without stopping here; a carried panel submits nothing, so it neither spends nor resets the retry count below, and koto's log still records its visit. The `scrutiny_recorded` gate also holds the passing route and `blocking_retry` until the round is recorded.
 
-Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" scrutiny <count>` once for the round, where the count is the sum of `blocking_count` over this round's reviewers, counted the same way every round. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
+Submit nothing when the panel passes. While `scrutiny_verdict` exits 1, submit `scrutiny_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. `blocking_escalate` is also taken while the gate exits 2, for a round that can't be recorded at all. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0, and no value advances the panel: only the recorded verdicts do, or a person's override of `scrutiny_verdict`.
+
+Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" scrutiny <count>` once for the round, where the count is the number of `panel/blocking-finding` findings `scrutiny_verdict` reported, one per finding marked `severity: blocking`, counted the same way every round. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
 ## review
 
-Run the code review panel (three parallel reviewers: pragmatic, architect, maintainer). Read `references/phases/phase-4b-review.md` for detailed steps and reviewer prompts. Output: koto context key `review_results.json`.
+Run the code review panel (three parallel reviewers: pragmatic, architect, maintainer). Read `references/phases/phase-4b-review.md` for detailed steps and reviewer prompts. The round's record is the verdict ledger, written by `panel-scope.sh --record review`; `review_results.json` is optional, the round's summary for a reader, and no gate reads it.
 
-Note on gate discoverability: The gate name is `review_results`; the context key is `review_results.json` (with `.json` suffix).
+koto decides whether the panel passed, from the ledger, as at scrutiny: the `review_verdict` gate runs `panel-scope.sh --verdict review`, and each finding's `severity` decides its seat's verdict. Exit 0 advances with nothing submitted, exit 1 (a seat is blocking) prints one `panel/blocking-finding` finding per blocking finding and waits for `review_outcome`, and exit 2 holds until the round is recorded.
 
-Read `review_scope.json` and spawn only the seats whose decision isn't `keep`; a `recheck` seat gets its findings plus the fix diff, in the `review-packet.sh recheck` packet the phase file's commissioning line gives. Record the spawned seats with `panel-scope.sh --record review` after the round; `review_recorded` holds `passed` and `blocking_retry` until you have. A carried panel submits nothing and neither spends nor resets the retry count below.
+Read `review_scope.json` and spawn only the seats whose decision isn't `keep`; a `recheck` seat gets its findings plus the fix diff, in the `review-packet.sh recheck` packet the phase file's commissioning line gives. Record the spawned seats with `panel-scope.sh --record review` after the round; `review_recorded` holds the passing routes and `blocking_retry` until you have. A carried panel submits nothing and neither spends nor resets the retry count below.
 
-Submit `review_outcome: passed` when all reviewers approve, `blocking_retry` when reviewers find correctable issues (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
-Where `passed` goes depends on the run's review level: at `standard` it goes to `verification` with no QA panel; at `full`, or with no level recorded, to `qa_validation`.
+Submit nothing when the panel passes. While `review_verdict` exits 1, submit `review_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation; `blocking_escalate` is also taken while the gate exits 2. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0.
+Where a passing panel goes depends on the run's review level: at `standard` it goes to `verification` with no QA panel; at `full`, or with no level recorded, to `qa_validation`.
 
-The `level_unchanged` gate holds every `passed` route, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level: the variable was changed by hand after the review-level check. Its `hold:` line names both levels. Put the variable back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <the ledger's level>` and submit again (or, with nothing to submit, tick again). A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
+The `level_unchanged` gate holds every passing route, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level: the variable was changed by hand after the review-level check. Its `hold:` line names both levels. Put the variable back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" <the ledger's level>` and tick again. A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
 
-Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" review <count>` once for the round, where the count is the sum of `blocking_count` over this round's reviewers, counted the same way every round. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
+Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" review <count>` once for the round, where the count is the number of `panel/blocking-finding` findings `review_verdict` reported, counted the same way every round. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
 ## qa_validation
 
-Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detailed steps. Output: koto context key `qa_results.json`.
+Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detailed steps. The round's record is the verdict ledger, written by `panel-scope.sh --record qa`; `qa_results.json` is optional, the round's summary for a reader, and no gate reads it.
 
-Note on gate discoverability: The gate name is `qa_results`; the context key is `qa_results.json` (with `.json` suffix).
+koto decides whether the panel passed, from the ledger, as at scrutiny: the `qa_verdict` gate runs `panel-scope.sh --verdict qa`. Each failed scenario is a finding marked `severity: blocking`. Exit 0 advances to `verification` with nothing submitted, exit 1 (the tester is blocking) prints one `panel/blocking-finding` finding per failed scenario and waits for `qa_outcome`, and exit 2 holds until the round is recorded.
 
-Read `qa_scope.json` for whether the tester runs a full validation or re-checks only last round's failures against the fix diff; a re-check reads the `review-packet.sh recheck` packet the phase file's commissioning line gives. Record its verdict with `panel-scope.sh --record qa` after the round; `qa_recorded` holds `passed` and `blocking_retry` until you have. A carried panel submits nothing and neither spends nor resets the retry count below.
+Read `qa_scope.json` for whether the tester runs a full validation or re-checks only last round's failures against the fix diff; a re-check reads the `review-packet.sh recheck` packet the phase file's commissioning line gives. Record its verdict with `panel-scope.sh --record qa` after the round; `qa_recorded` holds the passing route and `blocking_retry` until you have. A carried panel submits nothing and neither spends nor resets the retry count below.
 
-Submit `qa_outcome: passed` when QA approves the implementation, `blocking_retry` when QA finds correctable defects, or `blocking_escalate` when defects cannot be resolved without escalation. Include `failure_reason` for `blocking_escalate`.
+Submit nothing when QA passes. While `qa_verdict` exits 1, submit `qa_outcome: blocking_retry` when the defects are correctable, or `blocking_escalate` when they cannot be resolved without escalation; `blocking_escalate` is also taken while the gate exits 2. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0.
 
-Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of failed scenarios is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" qa_validation <count>` once for the round, where the count is this round's `scenarios_failed`. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
+Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_validation and light_review and follow progress. The first 2 are granted whatever the counts. A third is granted only when this panel's count of failed scenarios is lower than on its own previous blocking round in this run, and no run gets more than 3. `panel-retry-budget.sh` applies the rule and records each retry it grants in the context key `panel_retries`, so before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" qa_validation <count>` once for the round, where the count is this round's `scenarios_failed`, the number of `panel/blocking-finding` findings `qa_verdict` reported. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`, which ends the run at `done_blocked`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
 ## light_review
 
-Run the light panel, the one panel of the `light` review level: a single reviewer seat in place of scrutiny, review and QA. Read `references/phases/phase-4d-light.md` for the seat's commissioning and prompt. Output: koto context key `light_results.json`.
+Run the light panel, the one panel of the `light` review level: a single reviewer seat in place of scrutiny, review and QA. Read `references/phases/phase-4d-light.md` for the seat's commissioning and prompt. The round's record is the verdict ledger, written by `panel-scope.sh --record light`; `light_results.json` is optional, the round's summary for a reader, and no gate reads it.
 
-Note on gate discoverability: The gate name is `light_results`; the context key is `light_results.json` (with `.json` suffix). The `has_commits` gate also has to pass: `passed` does not advance while this run has no commits since `impl_base`. If it is committed and `passed` still holds, `impl_base` is missing or was recorded after the work (compare `koto context get {{SESSION_NAME}} impl_base` with `git log`): record the commit the run started from, the parent of its first commit, with `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and submit again.
+koto decides whether the panel passed, from the ledger, as at scrutiny: the `light_verdict` gate runs `panel-scope.sh --verdict light`, and each finding's `severity` decides the seat's verdict. Exit 0 advances to `verification` with nothing submitted, exit 1 (the seat is blocking) prints one `panel/blocking-finding` finding per blocking finding and waits for `light_outcome`, and exit 2 holds until the round is recorded.
 
-Read `light_scope.json` for whether the seat runs a full review, re-checks only last round's findings against the fix diff, or keeps its verdict; a re-check reads the `review-packet.sh recheck` packet the phase file's commissioning line gives. Record the seat with `panel-scope.sh --record light` after the round; `light_recorded` holds `passed` and `blocking_retry` until you have. When the seat is `keep`, koto carries the verdict and advances without stopping here.
+The `has_commits` gate also has to pass: the panel does not advance while this run has no commits since `impl_base`. If it is committed and the panel still holds on `has_commits`, `impl_base` is missing or was recorded after the work (compare `koto context get {{SESSION_NAME}} impl_base` with `git log`): record the commit the run started from, the parent of its first commit, with `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and tick again.
 
-The `level_unchanged` gate holds both `passed` routes, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level (`light`): the variable was changed by hand after the review-level check. Put it back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" light` and submit again (or, with nothing to submit, tick again). A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
+Read `light_scope.json` for whether the seat runs a full review, re-checks only last round's findings against the fix diff, or keeps its verdict; a re-check reads the `review-packet.sh recheck` packet the phase file's commissioning line gives. Record the seat with `panel-scope.sh --record light` after the round; `light_recorded` holds the passing route and `blocking_retry` until you have. When the seat is `keep`, koto carries the verdict and advances without stopping here.
 
-Submit `light_outcome: passed` when the reviewer clears the change (it goes to `verification`), `blocking_retry` when it finds correctable issues (it routes to `implementation`, and the run comes back through the review-level check, which may raise the level), or `blocking_escalate` when the work cannot proceed without escalation. Include `failure_reason` for `blocking_escalate`.
+The `level_unchanged` gate holds both passing routes, the carried one included, when `REVIEW_LEVEL` no longer matches the level ledger's last level (`light`): the variable was changed by hand after the review-level check. Put it back with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/review-level.sh" set "{{SESSION_NAME}}" light` and tick again. A level change goes through `set`, which records it in the ledger; a hand rebind never moves the run.
 
-Retry cap: retries from this panel share the run's blocking retries with scrutiny, review and qa_validation, under the rule the scrutiny directive states: the first 2 are granted whatever the counts, a third only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. Before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" light_review <count>` once for the round, where the count is the reviewer seat's `blocking_count`. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
+Submit nothing when the seat passes (the run goes to `verification`). While `light_verdict` exits 1, submit `light_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, and the run comes back through the review-level check, which may raise the level), or `blocking_escalate` when the work cannot proceed without escalation; `blocking_escalate` is also taken while the gate exits 2. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0.
+
+Retry cap: retries from this panel share the run's blocking retries with scrutiny, review and qa_validation, under the rule the scrutiny directive states: the first 2 are granted whatever the counts, a third only when this panel's count of blocking findings is lower than on its own previous blocking round in this run, and no run gets more than 3. Before running the retry loop, run `"{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-retry-budget.sh" "{{SESSION_NAME}}" light_review <count>` once for the round, where the count is the number of `panel/blocking-finding` findings `light_verdict` reported. Exit 0 grants the retry: run the retry loop, which submits `blocking_retry`. Any other exit refuses it: submit `blocking_escalate` with the reason it printed as `failure_reason`. The rule is docs/decisions/DECISION-work-on-panel-retry-progress-cap-2026-10-01.md. The cap lives here until koto can count defects per round and enforce it, with the same rule.
 
 ## verification
 

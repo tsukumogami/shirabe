@@ -1,7 +1,8 @@
 # gate-rules.tsv -- the rules the output gate scripts report, one row per rule.
 #
-# Read by check-branch-output.sh and check-pr-output.sh to fill a finding's
-# rule_ref, and checked by gate-rule-refs_test.sh. Tab-separated columns:
+# Read by check-branch-output.sh, check-pr-output.sh, check-verification.sh and
+# panel-scope.sh --verdict to fill a finding's rule_ref, and checked by
+# gate-rule-refs_test.sh. Tab-separated columns:
 #
 #   rule_id   the stable name a finding carries as `rule_id`. Once emitted it
 #             never changes; a rule whose meaning changes gets a new name.
@@ -33,3 +34,4 @@ verification/timed-out	skills/work-on/references/verification-map.md#L135-L135	e
 verification/runaway	skills/work-on/references/verification-map.md#L136-L136	e32bfc216e39	grew past `max_procs` and was killed
 verification/not-started	skills/work-on/references/verification-map.md#L137-L137	e32bfc216e39	is not an executable program
 verification/dirty-tree	skills/work-on/references/verification-map.md#L138-L138	e32bfc216e39	tracked files had uncommitted changes
+panel/blocking-finding	skills/work-on/references/phases/phase-4a-scrutiny.md#L65-L65	25e5ea426ff8	records the seat as blocking exactly when one of its findings is `severity: blocking`

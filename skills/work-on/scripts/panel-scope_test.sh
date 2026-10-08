@@ -212,7 +212,7 @@ echo "--- script: a fix away from every citation keeps passed seats and re-check
 fixture recheck
 record scrutiny '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
                   {"seat":"justification","blocking_count":0},
-                  {"seat":"intent","blocking_count":1,"findings":[{"summary":"b.sh line 5 is wrong","path":"src/b.sh","lines":"5"}]}]'
+                  {"seat":"intent","blocking_count":1,"findings":[{"severity":"blocking","summary":"b.sh line 5 is wrong","path":"src/b.sh","lines":"5"}]}]'
 JUDGED=$(cd "$FX/repo" && git rev-parse HEAD)
 edit src/b.sh 5 five
 run --plan scrutiny "$SESSION"
@@ -358,7 +358,7 @@ echo "--- script: a carried scope stays safe across a re-check"
 # code: an edit to the originally judged lines still re-runs the seat.
 fixture shifted
 record scrutiny '[{"seat":"completeness","blocking_count":1,"cited":[{"path":"src/b.sh","lines":"30-35"}],
-                   "findings":[{"summary":"x","path":"src/a.sh","lines":"45"}]}]'
+                   "findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"45"}]}]'
 (cd "$FX/repo" && { seq 1 10 | sed 's/^/pre/'; cat src/b.sh; } > x && mv x src/b.sh \
     && awk 'NR == 45 { print "fixed"; next } { print }' src/a.sh > y && mv y src/a.sh \
     && git commit -q -am "fix: a.sh, shifting b.sh") >/dev/null 2>&1
@@ -370,7 +370,7 @@ expect_decision "an edit to code cited before lines shifted" scrutiny completene
 # A seat that cited nothing and blocked once still falls back to the whole diff
 # it judged, rather than to its finding's location alone.
 fixture citeless
-record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]}]'
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"41"}]}]'
 edit src/a.sh 41 fixed
 record scrutiny '[{"seat":"intent","blocking_count":0}]'
 edit src/a.sh 2 elsewhere
@@ -402,8 +402,13 @@ edit docs/c.md 1 changed
 run --plan scrutiny "$SESSION"
 expect_decision "impl_base unrecorded, where has_commits fails" scrutiny completeness rerun
 
+# --record can no longer write a blocking seat with no findings (blocking
+# comes from a finding's severity), but a ledger written before severity can
+# hold one: recorded on blocking_count with nothing listed.
 fixture nofindings
-record review '[{"seat":"architect","blocking_count":1}]'
+record review '[{"seat":"architect","findings":[{"severity":"blocking","summary":"x","path":"docs/c.md"}]}]'
+jq '.seats["review/architect"].findings = []' "$SHIM_STORE/$SESSION/verdict_ledger.json" > "$WORKDIR/legacy.json" \
+    && mv "$WORKDIR/legacy.json" "$SHIM_STORE/$SESSION/verdict_ledger.json"
 edit docs/c.md 1 fixed
 run --plan review "$SESSION"
 expect_decision "a blocking seat that recorded no findings" review architect rerun
@@ -418,20 +423,20 @@ expect_decision "the plan was rewritten" scrutiny completeness rerun
 echo "--- script: a blocking seat faces the same invalidation as a passed one"
 
 fixture blockac
-record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]}]'
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"41"}]}]'
 printf 'AC: amended\n' > "$SHIM_STORE/$SESSION/context.md"
 edit src/a.sh 41 fixed
 run --plan scrutiny "$SESSION"
 expect_decision "a blocking seat after the criteria changed" scrutiny intent rerun
 
 fixture blockbig
-record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]}]'
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"41"}]}]'
 (cd "$FX/repo" && seq 1 300 > docs/c.md && git commit -q -am big) >/dev/null 2>&1
 run --plan scrutiny "$SESSION"
 expect_decision "a blocking seat whose fix crosses the threshold" scrutiny intent rerun
 
 fixture blockdirty
-record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]}]'
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"41"}]}]'
 (cd "$FX/repo" && echo uncommitted >> src/a.sh)
 run --plan scrutiny "$SESSION"
 expect_decision "a blocking seat with an uncommitted fix" scrutiny intent rerun
@@ -442,7 +447,7 @@ fixture recorded
 run --plan scrutiny "$SESSION"
 run --recorded scrutiny "$SESSION"
 expect_rc "--recorded on a first round with no ledger" 0
-record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"summary":"x","path":"src/a.sh","lines":"41"}]},
+record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"41"}]},
                   {"seat":"completeness","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
                   {"seat":"justification","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]}]'
 run --recorded scrutiny "$SESSION"
@@ -484,7 +489,7 @@ run --plan review "$SESSION"
 run --plan review "$SESSION"
 N=$(jq '[.history[] | select(.panel == "review")] | length' "$SHIM_STORE/$SESSION/verdict_ledger.json")
 [ "$N" = 1 ] && pass "two ticks at one HEAD are one round" || fail "two ticks at one HEAD made $N history entries"
-record review '[{"seat":"pragmatic","blocking_count":1,"findings":[{"summary":"x","path":"docs/c.md"}]},
+record review '[{"seat":"pragmatic","blocking_count":1,"findings":[{"severity":"blocking","summary":"x","path":"docs/c.md"}]},
                 {"seat":"architect","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
                 {"seat":"maintainer","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]}]'
 edit docs/c.md 1 fixed
@@ -497,7 +502,7 @@ jq -e '.history[-1].decisions | all(.reason | length > 0)' "$SHIM_STORE/$SESSION
 echo "--- script: the light seat's re-check packet, before and after a fix"
 
 fixture light-recheck
-record light '[{"seat":"reviewer","blocking_count":1,"findings":[{"summary":"a.sh line 45 is wrong","path":"src/a.sh","lines":"45"}]}]'
+record light '[{"seat":"reviewer","blocking_count":1,"findings":[{"severity":"blocking","summary":"a.sh line 45 is wrong","path":"src/a.sh","lines":"45"}]}]'
 LJUDGED=$(cd "$FX/repo" && git rev-parse HEAD)
 # Nothing committed since the seat blocked: still a re-check, and its packet
 # says the fix diff is empty rather than failing or widening it.
@@ -628,6 +633,174 @@ else
     echo "SKIP: python3 not on PATH"
 fi
 
+echo "--- script: a seat's verdict comes from its findings' severity"
+
+# ledger_verdict <panel/seat>: the verdict the ledger holds for the seat.
+ledger_verdict() {
+    jq -r --arg k "$1" '.seats[$k].verdict // "none"' "$SHIM_STORE/$SESSION/verdict_ledger.json" 2>/dev/null
+}
+
+fixture severity
+record scrutiny '[{"seat":"intent","blocking_count":0,
+                   "findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"41"}]}]'
+GOT=$(ledger_verdict scrutiny/intent)
+[ "$GOT" = blocking ] && pass "a blocking finding with blocking_count 0 records the seat as blocking" \
+    || fail "a blocking finding with blocking_count 0 recorded [$GOT]"
+record scrutiny '[{"seat":"completeness","blocking_count":2,
+                   "findings":[{"severity":"advisory","summary":"a","path":"src/a.sh","lines":"42"},
+                               {"severity":"advisory","summary":"b"}]}]'
+GOT=$(ledger_verdict scrutiny/completeness)
+[ "$GOT" = passed ] && pass "blocking_count 2 with only advisory findings records the seat as passing" \
+    || fail "blocking_count 2 with only advisory findings recorded [$GOT]"
+record scrutiny '[{"seat":"justification","passed":false}]'
+GOT=$(ledger_verdict scrutiny/justification)
+[ "$GOT" = passed ] && pass "a seat with no findings passes whatever its summary fields say" \
+    || fail "a seat with no findings and passed:false recorded [$GOT]"
+
+cp "$SHIM_STORE/$SESSION/verdict_ledger.json" "$WORKDIR/ledger.before"
+printf '%s\n' '[{"seat":"intent","findings":[{"summary":"no severity","path":"src/a.sh"}]}]' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with a finding that has no severity" 65
+grep -q intent "$WORKDIR/stderr" && pass "the refusal names the seat" || fail "refusal stderr: $(cat "$WORKDIR/stderr")"
+printf '%s\n' '[{"seat":"intent","findings":[{"severity":"major","summary":"x"}]}]' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with a severity other than blocking or advisory" 65
+printf '%s\n' '[{"seat":"intent","findings":[{"severity":"advisory","summary":"ok"},{"severity":null,"summary":"x"}]}]' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with one good finding and one null severity" 65
+printf '%s\n' '[{"seat":"intent","findings":"blocking"}]' > "$WORKDIR/round.json"
+run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record with findings that are not a list" 65
+cmp -s "$WORKDIR/ledger.before" "$SHIM_STORE/$SESSION/verdict_ledger.json" \
+    && pass "a refused round leaves the ledger untouched" || fail "a refused round changed the ledger"
+
+# A re-check is about what the seat blocked on: its advisory findings stay in
+# the ledger but are not handed back to re-check.
+fixture recheckblocking
+record scrutiny '[{"seat":"intent","findings":[{"severity":"blocking","summary":"must fix","path":"src/a.sh","lines":"41"},
+                                               {"severity":"advisory","summary":"nice to have","path":"src/a.sh","lines":"42"}]}]'
+edit src/a.sh 41 fixed
+run --plan scrutiny "$SESSION"
+expect_decision "a seat blocking on one of two findings" scrutiny intent recheck
+GOT=$(jq -r '.decisions[] | select(.seat == "intent") | [.findings[].summary] | join("|")' "$SHIM_STORE/$SESSION/scrutiny_scope.json")
+[ "$GOT" = "must fix" ] && pass "the re-check gets only the blocking finding" || fail "the re-check findings are [$GOT]"
+GOT=$(jq -r '.seats["scrutiny/intent"].findings | length' "$SHIM_STORE/$SESSION/verdict_ledger.json")
+[ "$GOT" = 2 ] && pass "the ledger keeps both findings" || fail "the ledger holds $GOT findings"
+
+echo "--- script: --verdict, the panel's pass"
+
+# verdict_findings: the finding lines of the last --verdict run.
+verdict_findings() { printf '%s\n' "$OUT" | grep '^::koto-finding::' | sed 's/^::koto-finding:://'; }
+
+fixture verdict
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict with no ledger" 2
+run --plan scrutiny "$SESSION"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict on a planned round with nothing recorded" 2
+grep -q 'completeness' "$WORKDIR/stderr" && pass "the hold names the unrecorded seats" || fail "--verdict stderr: $(cat "$WORKDIR/stderr")"
+[ -z "$(verdict_findings)" ] && pass "a held verdict prints no finding" || fail "a held verdict printed: $OUT"
+record scrutiny '[{"seat":"completeness","findings":[{"severity":"advisory","summary":"a"}]},
+                  {"seat":"justification"}]'
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict with one spawned seat still unrecorded since the scope" 2
+grep -q 'intent' "$WORKDIR/stderr" && pass "the hold names intent" || fail "--verdict stderr: $(cat "$WORKDIR/stderr")"
+record scrutiny '[{"seat":"intent","findings":[{"severity":"advisory","summary":"b"}]}]'
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict when every seat is recorded and none is blocking (advisory findings only)" 0
+[ -z "$OUT" ] && pass "a passing verdict prints nothing" || fail "a passing verdict printed: $OUT"
+
+record scrutiny '[{"seat":"intent","findings":[{"severity":"blocking","summary":"first","path":"src/a.sh","lines":"41-43"},
+                                               {"severity":"advisory","summary":"aside"},
+                                               {"severity":"blocking","summary":"second"}]},
+                  {"seat":"justification","findings":[{"severity":"blocking","summary":"third","path":"docs/c.md"}]}]'
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict with two blocking seats" 1
+N=$(verdict_findings | grep -c .)
+[ "$N" = 3 ] && pass "one finding per blocking finding (3), none for the advisory one" || fail "$N findings: $OUT"
+N=$(verdict_findings | jq -s '[.[] | select(.rule_id == "panel/blocking-finding" and .level == "error")] | length')
+[ "$N" = 3 ] && pass "every finding is panel/blocking-finding at level error" || fail "$N findings carry the rule: $OUT"
+GOT=$(verdict_findings | jq -sc '[.[] | [.message, .path, .line]]')
+[ "$GOT" = '[["scrutiny/justification: third","docs/c.md",null],["scrutiny/intent: first","src/a.sh",41],["scrutiny/intent: second",null,null]]' ] \
+    && pass "each finding names its seat, summary and location" || fail "findings are $GOT"
+WANT_REF=$(awk -F'\t' '$1 == "panel/blocking-finding" { print $2 "@" $3 }' "$SCRIPT_DIR/gate-rules.tsv")
+N=$(verdict_findings | jq -s --arg r "$WANT_REF" '[.[] | select(.rule_ref == $r)] | length')
+[ -n "$WANT_REF" ] && [ "$N" = 3 ] && pass "every finding carries gate-rules.tsv's rule_ref ($WANT_REF)" \
+    || fail "rule_ref: want [$WANT_REF] on 3 findings, got $N"
+
+# A blocking seat recorded before severity, with no finding listed, still blocks.
+jq '.seats["scrutiny/justification"].findings = []' "$SHIM_STORE/$SESSION/verdict_ledger.json" > "$WORKDIR/legacy.json" \
+    && mv "$WORKDIR/legacy.json" "$SHIM_STORE/$SESSION/verdict_ledger.json"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict with a blocking seat that lists no finding" 1
+verdict_findings | grep -q 'scrutiny/justification' && pass "that seat still gets a finding" || fail "findings: $OUT"
+
+printf 'not json\n' > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict with an unreadable ledger" 2
+printf '{"rev": 9, "seats": {}}\n' > "$SHIM_STORE/$SESSION/verdict_ledger.json"
+printf 'not json\n' > "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict with an unreadable scope" 2
+rm -f "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict with no scope and no seat on record" 2
+run --verdict bogus "$SESSION"
+expect_rc "--verdict with an unknown panel" 2
+run --verdict scrutiny
+expect_rc "--verdict with no session" 2
+
+# koto re-runs --plan on every tick without evidence, and the agent ticks with
+# none once the round is recorded. A blocking round recorded at this HEAD must
+# not be re-planned into a re-check with no fix behind it: --verdict reports
+# the block (1), not an unrecorded round (2).
+fixture replan
+run --plan scrutiny "$SESSION"
+record scrutiny '[{"seat":"completeness"},{"seat":"justification"},
+                  {"seat":"intent","findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"41"}]}]'
+cp "$SHIM_STORE/$SESSION/scrutiny_scope.json" "$WORKDIR/scope.before"
+cp "$SHIM_STORE/$SESSION/verdict_ledger.json" "$WORKDIR/ledger.before"
+run --plan scrutiny "$SESSION"
+expect_rc "--plan on a recorded blocking round at the same HEAD" 0
+cmp -s "$WORKDIR/scope.before" "$SHIM_STORE/$SESSION/scrutiny_scope.json" \
+    && pass "the recorded blocking round's scope stands" || fail "the scope was re-planned: $(cat "$SHIM_STORE/$SESSION/scrutiny_scope.json")"
+cmp -s "$WORKDIR/ledger.before" "$SHIM_STORE/$SESSION/verdict_ledger.json" \
+    && pass "and the history gains no round" || fail "the ledger changed on a re-plan of a complete round"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict after the re-plan tick" 1
+# A commit is a fix: the next plan is a new round, re-checking the finding.
+edit src/a.sh 41 fixed
+run --plan scrutiny "$SESSION"
+expect_decision "after a fix commit" scrutiny intent recheck
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict before the re-check is recorded" 2
+# An uncommitted change at the recorded HEAD plans again, too.
+fixture replandirty
+run --plan scrutiny "$SESSION"
+record scrutiny '[{"seat":"intent","findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"41"}]}]'
+(cd "$FX/repo" && echo uncommitted >> src/a.sh)
+run --plan scrutiny "$SESSION"
+expect_decision "a recorded blocking round with an uncommitted fix" scrutiny intent rerun
+
+# The kept seats of a carried round are already recorded and passing, so a
+# carried panel also passes --verdict.
+fixture verdictcarried
+record scrutiny "$ALL_PASS"
+run --plan scrutiny "$SESSION"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict on a round that kept every seat" 0
+
+# The light and QA panels have one seat each.
+fixture verdictone
+run --plan qa "$SESSION"
+record qa '[{"seat":"tester","findings":[{"severity":"blocking","summary":"scenario 2 fails"}]}]'
+run --verdict qa "$SESSION"
+expect_rc "--verdict qa with the tester blocking" 1
+run --plan light "$SESSION"
+record light '[{"seat":"reviewer"}]'
+run --verdict light "$SESSION"
+expect_rc "--verdict light with the reviewer passing" 0
+
 echo "--- script: refusals"
 
 fixture refusals
@@ -688,6 +861,12 @@ submit() {
     NEXT_STATE=$(koto next "$1" --with-data "$2" --no-cleanup 2>/dev/null \
         | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
 }
+# tick <session>: a tick with nothing submitted, the way a panel advances once
+# its round is recorded and the <panel>_verdict gate passes.
+tick() {
+    NEXT_STATE=$(koto next "$1" --no-cleanup 2>/dev/null \
+        | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+}
 
 # engine_to_qa_retry <session>: a fresh repository and session, walked to
 # qa_validation with every scrutiny and review seat passing on src/a.sh:41-50,
@@ -720,21 +899,24 @@ engine_to_qa_retry() {
         {"seat":"justification","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
         {"seat":"intent","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]}]' > "$WORKDIR/r.json"
     "$SCRIPT" --record scrutiny "$s" "$WORKDIR/r.json" || fail "$s: --record scrutiny failed"
-    printf '{"passed": true, "round": 1}\n' | koto context add "$s" scrutiny_results.json >/dev/null 2>&1
-    submit "$s" '{"scrutiny_outcome":"passed"}'
+    tick "$s"
     [ "$NEXT_STATE" = review ] || { fail "$s: scrutiny went to [$NEXT_STATE], not review"; return 1; }
 
     printf '%s\n' '[{"seat":"pragmatic","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
         {"seat":"architect","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
         {"seat":"maintainer","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]}]' > "$WORKDIR/r.json"
     "$SCRIPT" --record review "$s" "$WORKDIR/r.json" || fail "$s: --record review failed"
-    printf '{"passed": true, "round": 1}\n' | koto context add "$s" review_results.json >/dev/null 2>&1
-    submit "$s" '{"review_outcome":"passed"}'
+    tick "$s"
     [ "$NEXT_STATE" = qa_validation ] || { fail "$s: review went to [$NEXT_STATE], not qa_validation"; return 1; }
 
     printf '%s\n' '[{"seat":"tester","blocking_count":1,"cited":[{"path":"src/a.sh","lines":"41-50"}],
-        "findings":[{"summary":"no test covers lines 41-50","path":"tests/a_test.sh"}]}]' > "$WORKDIR/r.json"
+        "findings":[{"severity":"blocking","summary":"no test covers lines 41-50","path":"tests/a_test.sh"}]}]' > "$WORKDIR/r.json"
     "$SCRIPT" --record qa "$s" "$WORKDIR/r.json" || fail "$s: --record qa failed"
+    # A tick with nothing submitted re-runs --plan, which must leave the
+    # recorded blocking round standing: qa_verdict exits 1, so the retry
+    # below is accepted.
+    tick "$s"
+    [ "$NEXT_STATE" = qa_validation ] || { fail "$s: a blocking QA round went to [$NEXT_STATE]"; return 1; }
     printf '%s\n' "$QA_BLOCK" | sed "s|<WF>|$s|g" | sed 's/koto next \(.*\) --no-cleanup$/koto next \1 --no-cleanup >\/dev\/null 2>\&1/' | bash
     NEXT_STATE=$(koto status "$s" 2>/dev/null | jq -r '.current_state // empty')
     [ "$NEXT_STATE" = implementation ] || { fail "$s: the QA retry block left the run at [$NEXT_STATE]"; return 1; }
@@ -774,15 +956,16 @@ if engine_to_qa_retry "$S"; then
         N=$(visits "$S" "$st")
         [ "$N" = 2 ] && pass "koto's log records both $st rounds" || fail "koto's log has $N transitions into $st, expected 2"
     done
-    # The re-check passes, but its verdict isn't recorded: qa_recorded holds.
+    # The re-check passes, but its verdict isn't recorded: qa_verdict holds,
+    # and a results key written by hand changes nothing.
     printf '{"passed": true, "round": 2}\n' | koto context add "$S" qa_results.json >/dev/null 2>&1
-    submit "$S" '{"qa_outcome":"passed"}'
+    tick "$S"
     [ "$NEXT_STATE" = qa_validation ] \
         && pass "an unrecorded re-check holds qa_validation" \
         || fail "an unrecorded re-check advanced to [$NEXT_STATE]"
-    printf '[{"seat":"tester","blocking_count":0}]\n' > "$WORKDIR/r.json"
+    printf '[{"seat":"tester","findings":[]}]\n' > "$WORKDIR/r.json"
     "$SCRIPT" --record qa "$S" "$WORKDIR/r.json" || fail "$S: --record qa failed"
-    submit "$S" '{"qa_outcome":"passed"}'
+    tick "$S"
     # koto runs verification itself on entry; this fixture commits no
     # verification map, so the run fails closed there in the same tick. The
     # transition into verification in koto's log is the advance.
@@ -804,6 +987,9 @@ if engine_to_qa_retry "$S"; then
     koto context exists "$S" scrutiny_results.json 2>/dev/null \
         && fail "a scrutiny verdict is in place while seats must re-run" \
         || pass "no scrutiny verdict stands in for the re-run"
+    tick "$S"
+    [ "$NEXT_STATE" = scrutiny ] && pass "scrutiny holds until the re-run is recorded" \
+        || fail "scrutiny advanced to [$NEXT_STATE] on round-1 verdicts"
 fi
 cd "$WORKDIR" || exit 1
 

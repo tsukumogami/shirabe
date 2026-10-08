@@ -3,8 +3,8 @@
 # way the output-gates design says, and is every copied verdict gone?
 # Part of the work-on skill
 #
-# The design (docs/designs/DESIGN-output-gates.md, gate inventory rows 1 to 5,
-# 7 and 8) moves five checks the agent used to report into gates koto runs:
+# The design (docs/designs/DESIGN-output-gates.md, gate inventory rows 1 to 8)
+# moves the checks the agent used to report into gates koto runs:
 #
 #   staleness_check  staleness_fresh        routes on its exit, no evidence
 #   verification     verification_verdict   a poll: gate over the runner
@@ -12,6 +12,8 @@
 #                    commit_convention      every commit, not only the tip
 #   pr_precheck      branch_wip_clean, branch_docs_visibility
 #   pr_creation      pr_body_conformant
+#   scrutiny, review, qa_validation, light_review
+#                    <panel>_verdict        the panel's pass, from the ledger
 #   ci_monitor       is_root                decides root or child, no evidence
 #
 # This file checks four things:
@@ -94,6 +96,42 @@ n=$(grep -c 'session_role' "$TEMPLATE")
 n=$(grep -c 'ci_outcome: passing' "$TEMPLATE")
 [ "$n" -eq 0 ] && pass "ci_monitor accepts no ci_outcome: passing (count $n)" \
     || fail "the template still names ci_outcome: passing ($n)"
+
+# Gate 6: the panels' pass is the <panel>_verdict gate's, not the agent's.
+# Counted over the four panel states' frontmatter blocks, and over the whole
+# template for the outcome values, since no directive may offer them either.
+PANEL_BLOCKS=$(for s in scrutiny review qa_validation light_review; do extract_state "$s"; done)
+[ -n "$PANEL_BLOCKS" ] || { echo "panel states not found in $TEMPLATE" >&2; exit 2; }
+n=$(grep -c -E '(scrutiny|review|qa|light)_outcome: passed' "$TEMPLATE")
+[ "$n" -eq 0 ] && pass "no panel state accepts scrutiny_outcome, review_outcome, qa_outcome or light_outcome: passed (count $n)" \
+    || fail "the template still names a *_outcome: passed ($n)"
+n=$(printf '%s\n' "$PANEL_BLOCKS" | grep -c -E 'values: \[passed|_results\.exists|^      (scrutiny|review|qa|light)_results:$')
+[ "$n" -eq 0 ] && pass "no panel state accepts passed or has a <panel>_results gate (count $n)" \
+    || fail "a panel state still accepts passed or has a <panel>_results gate ($n)"
+n=$(printf '%s\n' "$PANEL_BLOCKS" | grep -c 'type: context-exists')
+[ "$n" -eq 0 ] && pass "no panel state has a context-exists gate (count $n)" \
+    || fail "a panel state still has a context-exists gate ($n)"
+
+# Each panel state keeps an override_default, on its verdict gate, in the
+# exit-code form: a person's override stays the only way past the panel.
+for pair in scrutiny:scrutiny review:review qa_validation:qa light_review:light; do
+    st=${pair%%:*}; p=${pair#*:}
+    if extract_state "$st" | awk -v g="      ${p}_verdict:" '
+            $0 == g { f = 1; next }
+            f && /^      [a-z_]+:$/ { exit }
+            f && /^        override_default:$/ { o = 1; next }
+            o && /^          exit_code: 0$/ { found = 1; exit }
+            END { exit found ? 0 : 1 }'; then
+        pass "$st keeps an override_default (exit_code: 0) on ${p}_verdict"
+    else
+        fail "$st has no override_default with exit_code: 0 on ${p}_verdict"
+    fi
+    cmd=$(extract_state "$st" | awk -v g="      ${p}_verdict:" '$0 == g { f = 1; next } f && /^        command:/ { print; exit }')
+    case "$cmd" in
+        *"panel-scope.sh\" --verdict $p \"{{SESSION_NAME}}\""*) pass "${p}_verdict runs panel-scope.sh --verdict $p" ;;
+        *) fail "${p}_verdict command is [$cmd]" ;;
+    esac
+done
 
 # --- 4. the directive lines the build started from ----------------------------------------
 #
@@ -234,7 +272,7 @@ FAKE_ROOT="$WORKDIR/plugin"
 RC_DIR="$WORKDIR/rc"
 mkdir -p "$FAKE_ROOT/skills/work-on/scripts" "$RC_DIR"
 for s in check-staleness.sh run-verification.sh check-verification.sh check-branch-output.sh \
-         check-pr-output.sh check-pre-pr-referents.sh; do
+         check-pr-output.sh check-pre-pr-referents.sh panel-scope.sh has-commits.sh review-level.sh; do
     cat > "$FAKE_ROOT/skills/work-on/scripts/$s" <<EOF
 #!/usr/bin/env bash
 f="$RC_DIR/$s\$1"
@@ -287,6 +325,7 @@ build() {
             '  ISSUE_NUMBER:' '    description: issue' '    required: false' \
             '  PLUGIN_ROOT:' '    description: plugin root' '    required: false' \
             '  SHARED_BRANCH:' '    description: shared branch' '    required: false' \
+            '  REVIEW_LEVEL:' '    description: review level' '    required: false' \
             'states:' '  start:' '    transitions:' "      - target: $state"
         printf '%s\n' "$block"
         for t in $targets; do
@@ -325,6 +364,11 @@ drive() {
         printf '# Summary\n\n## Changes Made\n- x\n' | (cd "$REPO" && koto context add "$s" summary.md) >/dev/null 2>&1
     fi
     RESP=$(cd "$REPO" && koto next "$s" --no-cleanup 2>/dev/null)
+    # MID_RC=<script><arg>=<value> changes one fake answer between the two
+    # ticks, so the evidence meets a gate result the first tick didn't see.
+    if [ -n "${MID_RC:-}" ]; then
+        set_rc "${MID_RC%%=*}" "${MID_RC#*=}"
+    fi
     if [ -n "$data" ]; then
         RESP=$(cd "$REPO" && koto next "$s" --with-data "$data" --no-cleanup 2>/dev/null)
     fi
@@ -454,6 +498,94 @@ expect "pr_body_conformant exit 0" ci_monitor
 set_rc check-pr-output.sh--pr-body 1
 drive pr_creation "docs/shared" '{"pr_status":"shared"}' closing_keyword=0
 expect "pr_status: shared does not wait on the body check" done
+
+# The panels (gate 6): <panel>_verdict decides the pass. Each case starts with
+# <panel>_carried at 1, the path where seats ran, unless it says otherwise;
+# the fake recorded, has_commits and level_unchanged gates pass.
+#
+# panel_routes <state> <panel> <outcome-field> <pass-target>
+panel_routes() {
+    local st="$1" p="$2" f="$3" target="$4" v
+    local retry="{\"$f\":\"blocking_retry\"}"
+    local escalate="{\"$f\":\"blocking_escalate\",\"failure_reason\":\"cannot fix\"}"
+
+    reset_rc; set_rc panel-scope.sh--carried 1
+    drive "$st" "" ""
+    expect "$st: ${p}_verdict exit 0, no evidence" "$target"
+
+    set_rc panel-scope.sh--verdict 1
+    drive "$st" "" ""
+    holds "$st: ${p}_verdict exit 1, no evidence" "$st" "${p}_verdict"
+    drive "$st" "" "$retry"
+    expect "$st: ${p}_verdict exit 1, blocking_retry" implementation
+    drive "$st" "" "$escalate"
+    expect "$st: ${p}_verdict exit 1, blocking_escalate" done_blocked
+
+    set_rc panel-scope.sh--verdict 2
+    drive "$st" "" ""
+    holds "$st: ${p}_verdict exit 2, no evidence" "$st" "${p}_verdict"
+    drive "$st" "" "$retry"
+    holds "$st: ${p}_verdict exit 2, blocking_retry" "$st" "${p}_verdict"
+    drive "$st" "" "$escalate"
+    expect "$st: ${p}_verdict exit 2, blocking_escalate (a stop, never a pass)" done_blocked
+
+    # At 0 the panel passed, and neither value may send it anywhere else. The
+    # first tick holds at exit 2; the evidence then meets exit 0.
+    for v in "$retry" "$escalate"; do
+        set_rc panel-scope.sh--verdict 2
+        MID_RC=panel-scope.sh--verdict=0 drive "$st" "" "$v"
+        case "$STATE" in
+            implementation|done_blocked)
+                fail "$st: ${p}_verdict exit 0 took $v to $STATE" ;;
+            *)
+                if [ "$STATE" = "$target" ] || [ "$STATE" = "$st" ]; then
+                    pass "$st: ${p}_verdict exit 0 refuses $v (went to $STATE)"
+                else
+                    fail "$st: ${p}_verdict exit 0 with $v: got $STATE ($(printf '%s' "$RESP" | head -c 300))"
+                fi ;;
+        esac
+    done
+    # And with the passing route itself held (the round's record gate fails),
+    # the value still finds no edge: the run stays in the panel state.
+    for v in "$retry" "$escalate"; do
+        reset_rc; set_rc panel-scope.sh--carried 1; set_rc panel-scope.sh--recorded 1
+        drive "$st" "" "$v"
+        if [ "$STATE" = "$st" ]; then
+            pass "$st: ${p}_verdict exit 0 refuses $v with the pass held (stays at $st)"
+        else
+            fail "$st: ${p}_verdict exit 0 took $v to $STATE"
+        fi
+    done
+
+    # The carried route is unchanged: every seat kept, nothing recorded this
+    # round, and the panel advances whatever --verdict says.
+    reset_rc; set_rc panel-scope.sh--verdict 2
+    drive "$st" "" ""
+    expect "$st: ${p}_carried exit 0 (verdict exit 2)" "$target"
+}
+
+panel_routes scrutiny      scrutiny scrutiny_outcome review
+panel_routes review        review   review_outcome   qa_validation
+panel_routes qa_validation qa       qa_outcome       verification
+panel_routes light_review  light    light_outcome    verification
+
+# The verdict route keeps the state's other gates: has_commits at scrutiny and
+# light_review, recorded everywhere.
+reset_rc; set_rc panel-scope.sh--carried 1; set_rc panel-scope.sh--recorded 1
+drive scrutiny "" ""
+holds "scrutiny: verdict 0 with scrutiny_recorded failing" scrutiny scrutiny_recorded
+reset_rc; set_rc panel-scope.sh--carried 1
+drive_has_commits() {
+    # has-commits.sh's first argument is the session, which drive names og-<N>.
+    local next=$((N + 1))
+    set_rc "has-commits.shog-$next" 1
+    drive "$1" "" ""
+}
+drive_has_commits scrutiny
+holds "scrutiny: verdict 0 with has_commits failing" scrutiny has_commits
+reset_rc; set_rc panel-scope.sh--carried 1
+drive_has_commits light_review
+holds "light_review: verdict 0 with has_commits failing" light_review has_commits
 
 echo
 echo "output-gates-routing_test: $PASS_COUNT passed, $FAIL_COUNT failed"

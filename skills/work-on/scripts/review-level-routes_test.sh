@@ -282,25 +282,23 @@ record_round() {
         || fail "$1: panel-scope.sh --record $2 failed: $(cat "$WORKDIR/record.err")"
 }
 
+# pass_<panel> <session>: records a clean round and ticks with nothing
+# submitted; the panel's <panel>_verdict gate decides the pass.
 pass_scrutiny() {
-    record_round "$1" scrutiny '[{"seat":"completeness","blocking_count":0},{"seat":"justification","blocking_count":0},{"seat":"intent","blocking_count":0}]'
-    seed "$1" scrutiny_results.json
-    tick "$1" '{"scrutiny_outcome":"passed"}'
+    record_round "$1" scrutiny '[{"seat":"completeness","findings":[]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]'
+    tick "$1"
 }
 pass_review() {
-    record_round "$1" review '[{"seat":"pragmatic","blocking_count":0},{"seat":"architect","blocking_count":0},{"seat":"maintainer","blocking_count":0}]'
-    seed "$1" review_results.json
-    tick "$1" '{"review_outcome":"passed"}'
+    record_round "$1" review '[{"seat":"pragmatic","findings":[]},{"seat":"architect","findings":[]},{"seat":"maintainer","findings":[]}]'
+    tick "$1"
 }
 pass_qa() {
-    record_round "$1" qa '[{"seat":"tester","blocking_count":0}]'
-    seed "$1" qa_results.json
-    tick "$1" '{"qa_outcome":"passed"}'
+    record_round "$1" qa '[{"seat":"tester","findings":[]}]'
+    tick "$1"
 }
 pass_light() {
-    record_round "$1" light '[{"seat":"reviewer","blocking_count":0}]'
-    seed "$1" light_results.json
-    tick "$1" '{"light_outcome":"passed"}'
+    record_round "$1" light '[{"seat":"reviewer","findings":[]}]'
+    tick "$1"
 }
 
 SMALL='printf "one more line\n" >> docs/notes.md'
@@ -442,8 +440,12 @@ LIGHT_BLOCK=$(awk '
 S=retry
 if new_case "$S" "$SMALL" && choose_and_implement "$S" light code; then
     expect_state "the first light round" light_review
-    record_round "$S" light '[{"seat":"reviewer","blocking_count":1,"findings":[{"summary":"missing case","path":"docs/notes.md"}]}]'
+    record_round "$S" light '[{"seat":"reviewer","findings":[{"severity":"blocking","summary":"missing case","path":"docs/notes.md"}]}]'
     seed "$S" light_results.json
+    # A tick with nothing submitted: light_verdict reports the block (exit 1)
+    # and the state waits for the agent's retry or escalation.
+    tick "$S"
+    expect_state "a recorded blocking light round" light_review
     printf '%s\n' "$LIGHT_BLOCK" | sed "s|<WF>|$S|g" | bash >/dev/null 2>&1
     NEXT_STATE=$(koto status "$S" 2>/dev/null | jq -r '.current_state // empty')
     expect_state "the shipped light retry block" implementation
@@ -541,7 +543,7 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" full code; then
     tick "$S"
     expect_state "a tick with the rebind still in place" review
     setlevel "$S" full
-    tick "$S" '{"review_outcome":"passed"}'
+    tick "$S"
     expect_state "after set puts the ledger's level back" qa_validation
     expect_visits "$S" verification 0
 fi
@@ -558,7 +560,7 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" light code; then
         *) fail "the held response doesn't name both levels: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-600)" ;;
     esac
     setlevel "$S" light
-    tick "$S" '{"light_outcome":"passed"}'
+    tick "$S"
     expect_state "after set puts the ledger's level back" verification
 fi
 

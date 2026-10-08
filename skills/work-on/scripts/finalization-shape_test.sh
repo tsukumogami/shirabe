@@ -109,6 +109,19 @@ submit() {
 put() { printf '%s\n' "$3" | koto context add "$1" "$2" >/dev/null 2>&1; }
 names_gate() { printf '%s' "$NEXT_RESPONSE" | grep -q "\"name\":\"$1\""; }
 
+# pass_panel <session> <panel> <seat>...: records a clean round for every seat
+# and ticks with nothing submitted. A panel's pass is its <panel>_verdict gate,
+# read from the verdict ledger; there is no passed value to submit.
+pass_panel() {
+    local s="$1" p="$2" seat
+    shift 2
+    for seat in "$@"; do printf '{"seat":"%s","findings":[]}\n' "$seat"; done | jq -s . > "$WORKDIR/round.json"
+    "$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh" --record "$p" "$s" "$WORKDIR/round.json" >/dev/null \
+        || fail "$s: panel-scope.sh --record $p failed"
+    NEXT_RESPONSE=$(koto next "$s" 2>/dev/null)
+    NEXT_STATE=$(printf '%s' "$NEXT_RESPONSE" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+}
+
 # The verification state starts the map's commands on entry and its poll gate
 # waits for the result, re-checking every 15 seconds. Starting the runner for
 # the session before the tick that enters the state, and waiting for its
@@ -142,13 +155,10 @@ to_finalization() {
     koto next "$1" --no-cleanup >/dev/null 2>&1
     submit "$1" '{"implementation_status":"complete"}'
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$1" '{"issue_type":"code"}'
-    put "$1" scrutiny_results.json '{}'
-    submit "$1" '{"scrutiny_outcome":"passed"}'
-    put "$1" review_results.json '{}'
-    submit "$1" '{"review_outcome":"passed"}'
-    put "$1" qa_results.json '{}'
+    pass_panel "$1" scrutiny completeness justification intent
+    pass_panel "$1" review pragmatic architect maintainer
     prestart_verification "$1"
-    submit "$1" '{"qa_outcome":"passed"}'
+    pass_panel "$1" qa tester
     [ "$NEXT_STATE" = finalization ] || { fail "$1: could not reach finalization; landed at [$NEXT_STATE]"; return 1; }
 }
 
