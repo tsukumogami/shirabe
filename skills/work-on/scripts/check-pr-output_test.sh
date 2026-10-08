@@ -92,6 +92,11 @@ exit "${FAKE_OWNED_RC:-0}"
 EOF
 chmod +x "$BIN/gh" "$BIN/shirabe" "$BIN/owned-pr.sh"
 export PATH="$BIN:$PATH"
+# The script never takes owned-pr.sh from PATH; this variable is its one seam.
+# The stand-in also sits on PATH, so the case at the end can show PATH's copy
+# is ignored once the variable is unset.
+CHECK_PR_OUTPUT_OWNED_PR="$BIN/owned-pr.sh"
+export CHECK_PR_OUTPUT_OWNED_PR
 
 URL1='https://github.com/acme/widgets/pull/12'
 OWNED_ARGS="--repo acme/widgets --head impl/x --state open"
@@ -300,6 +305,32 @@ FAKE_OWNED_OUT=$URL1
 # shellcheck disable=SC2086
 run --owned-pr $OWNED_ARGS --run-id 0123456789abcdef0123456789abcdef --take-over
 expect_rc "--owned-pr: --take-over is refused" 2
+
+# --- which owned-pr.sh runs ----------------------------------------------------
+#
+# Without the test variable, the script runs the execute skill's owned-pr.sh
+# beside it, even with another owned-pr.sh on PATH. A copy of the script in a
+# fake plugin tree, whose execute skill holds a second stand-in recording under
+# its own name, shows which one answered.
+PLUG="$WORKDIR/plugin"
+mkdir -p "$PLUG/skills/work-on/scripts" "$PLUG/skills/execute/scripts"
+cp "$CHECK" "$SCRIPT_DIR/gate-rules.tsv" "$PLUG/skills/work-on/scripts/"
+cat > "$PLUG/skills/execute/scripts/owned-pr.sh" <<'EOF'
+#!/usr/bin/env bash
+. "$LOG/../bin/record.sh" owned-execute "$@"
+printf '%s\n' "$FAKE_OWNED_OUT"
+exit 0
+EOF
+chmod +x "$PLUG/skills/execute/scripts/owned-pr.sh"
+rm -rf "$LOG/owned" "$LOG/owned-execute"
+FAKE_OWNED_OUT=$URL1
+OUT=$(env -u CHECK_PR_OUTPUT_OWNED_PR "$PLUG/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo acme/widgets 2>/dev/null)
+RC=$?
+if [ "$RC" -eq 0 ] && [ -f "$LOG/owned-execute/argc" ] && [ ! -e "$LOG/owned" ]; then
+    pass "without CHECK_PR_OUTPUT_OWNED_PR the execute skill's owned-pr.sh answers, not PATH's"
+else
+    fail "owned-pr.sh resolution: rc=$RC, execute copy ran: $([ -f "$LOG/owned-execute/argc" ] && echo yes || echo no), PATH copy ran: $([ -e "$LOG/owned" ] && echo yes || echo no)"
+fi
 
 echo
 echo "check-pr-output_test: $PASS_COUNT passed, $FAIL_COUNT failed"

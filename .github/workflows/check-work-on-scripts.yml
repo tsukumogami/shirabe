@@ -327,6 +327,16 @@ jobs:
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/run-verification_test.sh
 
+      # The output gates wired into work-on.md: every route the gates take,
+      # driven through a real koto tick against the shipped state blocks with
+      # fake gate scripts under a fake plugin root; the removed evidence
+      # values; routing gates printing no finding; and the directive lines the
+      # build kept. The macOS leg runs its engine-free cases on the floor
+      # through the work-on suite.
+      - name: Run output gate routing tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/output-gates-routing_test.sh
+
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
       # it is the same command a developer runs locally.

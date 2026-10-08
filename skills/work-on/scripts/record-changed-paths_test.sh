@@ -54,6 +54,8 @@ cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 
 export HOME="$WORKDIR/home"
+# The verification runner keeps its results under the state directory.
+export XDG_STATE_HOME="$WORKDIR/state"
 mkdir -p "$HOME"
 export GIT_CONFIG_NOSYSTEM=1
 git config --global user.email t@example.com
@@ -97,6 +99,8 @@ export SHIM_STORE
 # local_fixture <name>: a repository with no remote at all, main plus impl/<name>.
 
 FX=""
+# fixture <name> [with-map]: with-map commits a verification map on main whose
+# only command is `true`, for a run that has to pass `verification`.
 fixture() {
     FX="$WORKDIR/fx-$1"
     mkdir -p "$FX"
@@ -108,6 +112,11 @@ fixture() {
         mkdir -p src
         printf 'readme\n' > README.md
         printf 'a1\na2\na3\na4\na5\na6\na7\na8\n' > src/a.go
+        if [ "${2:-}" = with-map ]; then
+            mkdir -p .claude/shirabe-extensions
+            printf '%s\n' '{"schema": "shirabe-verification-map/v1", "commands": {"ok": {"run": ["true"]}}, "entries": [], "default": ["ok"]}' \
+                > .claude/shirabe-extensions/verification-map.json
+        fi
         git add -A && git commit -q -m init && git push -q origin main
         cd .. && git clone -q origin.git repo 2>/dev/null
         cd repo && git checkout -q -b "impl/$1"
@@ -426,6 +435,24 @@ tick() {
 
 ctx() { (cd "$FX/repo" && koto context "$@") 2>/dev/null; }
 
+# at_verification <session>: the run reached verification. koto runs that
+# state itself on entry; a fixture with no verification map fails closed
+# there in the same tick, at done_blocked with verification's reason.
+at_verification() {
+    [ "$STATE" = verification ] && return 0
+    [ "$STATE" = done_blocked ] && ctx get "$1" failure_reason | grep -q '^verification'
+}
+
+# prestart_verification <session>: start the runner for the session and wait
+# for its result, so the tick that enters verification settles at once rather
+# than on the poll gate's 15-second interval.
+prestart_verification() {
+    local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f i=0
+    (cd "$FX/repo" && "$rv" --start --session "$1") >/dev/null 2>&1
+    f=$(cd "$FX/repo" && "$rv" --locate --session "$1" 2>/dev/null | sed -n 3p)
+    while [ -n "$f" ] && [ ! -f "$f" ] && [ "$i" -lt 200 ]; do sleep 0.1; i=$((i + 1)); done
+}
+
 start() {
     # $1 session, $2 plugin root (optional)
     (cd "$FX/repo" && koto init "$1" --template "$TEMPLATE" \
@@ -433,14 +460,15 @@ start() {
         --var PLUGIN_ROOT="${2:-$PLUGIN_ROOT}" >/dev/null 2>&1)
 }
 
-# Issue-backed to analysis; the three overrides cross the states that read a
-# real GitHub issue and a real baseline.
+# Issue-backed to analysis; the two overrides cross the states that read a
+# real GitHub issue and a real baseline. staleness_check routes on its own
+# gate: the fixture's origin is no GitHub repository, so the check is
+# unavailable (exit 3) and the run goes on to analysis.
 to_analysis() {
     start "$1" "${2:-}"
     tick "$1" '{"mode":"issue_backed","issue_number":"7"}'
     tick "$1" '{"status":"override"}'
     tick "$1" '{"status":"override"}'
-    tick "$1" '{"staleness_signal":"override"}'
 }
 
 to_implementation() {
@@ -491,7 +519,7 @@ else
     fail "issue_type values: $(printf '%s' "$RESP" | jq -c '.expects.fields.issue_type' 2>/dev/null)"
 fi
 tick e-route '{"issue_type":"docs"}'
-if [ "$STATE" = verification ]; then
+if at_verification e-route; then
     pass "docs with commits reaches verification"
 else
     fail "docs with commits reached [$STATE]"
@@ -527,7 +555,7 @@ fixture e-task
 to_implementation e-task
 tick e-task '{"implementation_status":"complete"}'
 tick e-task '{"issue_type":"task"}'
-if [ "$STATE" = verification ]; then
+if at_verification e-task; then
     pass "task with no commits reaches verification"
 else
     fail "task with no commits reached [$STATE]"
@@ -571,7 +599,7 @@ fi
 
 # A full plan-backed run on a shared branch: issue_type is asked exactly once,
 # and the sibling's earlier commit stays out of the record.
-fixture e-plan
+fixture e-plan with-map
 commit_file sibling/earlier.md "a sibling's commit"
 (cd "$FX/repo" && koto init e-plan --template "$TEMPLATE" \
     --var ARTIFACT_PREFIX=issue_7 --var ISSUE_NUMBER=7 --var ISSUE_SOURCE=plan_outline \
@@ -605,8 +633,8 @@ tick e-plan '{"scrutiny_outcome":"passed"}'
 printf '{}\n' | ctx add e-plan review_results.json
 tick e-plan '{"review_outcome":"passed"}'
 printf '{}\n' | ctx add e-plan qa_results.json
+prestart_verification e-plan
 tick e-plan '{"qa_outcome":"passed"}'
-tick e-plan '{"verification_outcome":"passed","commands_run":"none"}'
 printf '## Changes Made\n' | ctx add e-plan summary.md
 printf 'cleanup_commit: %s\ndesign_diagram: not-applicable: fixture\n' "$(head_sha)" | ctx add e-plan pre_pr.md
 tick e-plan '{"finalization_status":"ready_for_pr"}'

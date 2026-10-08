@@ -303,6 +303,10 @@ suite_scripts() {
             # The verification runner and verdict against git fixtures and a
             # koto stand-in; its real-koto case skips without koto.
             echo "skills/work-on/scripts/run-verification_test.sh"
+            # The output gates' routes need koto and skip without it; the
+            # removed-value counts, the routing gates' stdout and the kept
+            # directive lines run on the floor.
+            echo "skills/work-on/scripts/output-gates-routing_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

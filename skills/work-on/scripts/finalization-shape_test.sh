@@ -4,11 +4,11 @@
 #
 # summary.md and pre_pr.md are written at `finalization`, and pre_pr_evidence
 # checks them and sends a failure to done_blocked, so a record the agent could
-# have fixed in one edit cost a full re-entry. The same three gates
-# (summary_shape and the two referent checks) now sit on finalization's
-# ready_for_pr edge and on
-# deferral_approval's approved edge, where a failure matches no edge and the
-# state holds with the failing gate named.
+# have fixed in one edit cost a full re-entry. The same gates
+# (summary_shape, the two referent checks, and commit_convention, the walk over
+# every commit since impl_base) now sit on finalization's ready_for_pr edge and
+# on deferral_approval's approved edge, where a failure matches no edge and the
+# state holds with the failing gate named (case 9 for the commit walk).
 #
 # The cases drive the SHIPPED template, walked from entry to finalization the
 # way retry-clearing_test.sh walks it:
@@ -52,8 +52,10 @@ WORKDIR=$(mktemp -d)
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 
-# Keep every session out of the developer's real ~/.koto.
+# Keep every session out of the developer's real ~/.koto, and the
+# verification runner's results out of the developer's state directory.
 export HOME="$WORKDIR/home"
+export XDG_STATE_HOME="$WORKDIR/state"
 mkdir -p "$HOME"
 
 # koto rejects a variable value outside ^[a-zA-Z0-9._/:@ \-]*$, so a checkout
@@ -70,6 +72,9 @@ esac
 # implementation, so each walk records impl_base as the commit before it (see
 # to_finalization). The referent gates need real objects: HEAD for a good
 # cleanup_commit, a commit on another branch for a bad one.
+#
+# `verification` runs the verification map committed at the merge-base with
+# main, so the init commit carries one whose only command is `true`.
 REPO="$WORKDIR/repo"
 mkdir -p "$REPO"
 (
@@ -77,7 +82,11 @@ mkdir -p "$REPO"
     git init -q -b main .
     git config user.email t@example.com
     git config user.name t
-    git commit -q --allow-empty -m init
+    mkdir -p .claude/shirabe-extensions
+    printf '%s\n' '{"schema": "shirabe-verification-map/v1", "commands": {"ok": {"run": ["true"]}}, "entries": [], "default": ["ok"]}' \
+        > .claude/shirabe-extensions/verification-map.json
+    git add .claude
+    git commit -q -m init
     git checkout -q -b other
     git commit -q --allow-empty -m "side work"
     git checkout -q main
@@ -100,6 +109,17 @@ submit() {
 put() { printf '%s\n' "$3" | koto context add "$1" "$2" >/dev/null 2>&1; }
 names_gate() { printf '%s' "$NEXT_RESPONSE" | grep -q "\"name\":\"$1\""; }
 
+# The verification state starts the map's commands on entry and its poll gate
+# waits for the result, re-checking every 15 seconds. Starting the runner for
+# the session before the tick that enters the state, and waiting for its
+# result, lets that tick settle at once.
+prestart_verification() {
+    local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f i=0
+    "$rv" --start --session "$1" >/dev/null 2>&1
+    f=$("$rv" --locate --session "$1" 2>/dev/null | sed -n 3p)
+    while [ -n "$f" ] && [ ! -f "$f" ] && [ "$i" -lt 200 ]; do sleep 0.1; i=$((i + 1)); done
+}
+
 # Walk a fresh session to finalization. The overrides skip gates that read a
 # real GitHub issue and a real baseline.
 to_finalization() {
@@ -109,8 +129,9 @@ to_finalization() {
         --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1
     submit "$1" '{"mode":"issue_backed","issue_number":"42"}'
     submit "$1" '{"status":"override"}'
+    # staleness_check routes on its own gate: the fixture has no GitHub
+    # remote, so the check is unavailable (exit 3) and the run is at analysis.
     submit "$1" '{"status":"override"}'
-    submit "$1" '{"staleness_signal":"override"}'
     put "$1" plan.md plan
     submit "$1" '{"plan_outcome":"plan_ready"}'
     # analysis recorded HEAD, which already carries the fixture's work commit;
@@ -126,8 +147,8 @@ to_finalization() {
     put "$1" review_results.json '{}'
     submit "$1" '{"review_outcome":"passed"}'
     put "$1" qa_results.json '{}'
+    prestart_verification "$1"
     submit "$1" '{"qa_outcome":"passed"}'
-    submit "$1" '{"verification_outcome":"passed","commands_run":"none"}'
     [ "$NEXT_STATE" = finalization ] || { fail "$1: could not reach finalization; landed at [$NEXT_STATE]"; return 1; }
 }
 
@@ -295,7 +316,7 @@ COMPILED=$(koto template compile "$TEMPLATE" 2>/dev/null)
 if [ -z "$COMPILED" ] || [ ! -f "$COMPILED" ]; then
     fail "could not compile $TEMPLATE"
 else
-    for g in summary_shape cleanup_referent diagram_referent; do
+    for g in summary_shape cleanup_referent diagram_referent commit_convention; do
         want=$(jq -c --arg g "$g" '.states.pre_pr_evidence.gates[$g]' "$COMPILED")
         for s in finalization deferral_approval; do
             got=$(jq -c --arg g "$g" --arg s "$s" '.states[$s].gates[$g]' "$COMPILED")
@@ -310,7 +331,8 @@ else
     # done_blocked.
     # summary_shape is a context-matches gate and fails as matches: false; the
     # referent gates are command gates and fail as exit_code: 1.
-    for spec in "summary_shape matches false" "cleanup_referent exit_code 1" "diagram_referent exit_code 1"; do
+    for spec in "summary_shape matches false" "cleanup_referent exit_code 1" "diagram_referent exit_code 1" \
+                "commit_convention exit_code 1" "commit_convention exit_code 2"; do
         set -- $spec
         n=$(jq --arg k "gates.$1.$2" --argjson v "$3" '[.states.pre_pr_evidence.transitions[]
                   | select(.target == "done_blocked")
@@ -334,6 +356,30 @@ else
             fi
         done
     done
+fi
+
+# Last, because it adds a commit to the shared fixture branch: the commit gate
+# reads every commit since impl_base through check-branch-output.sh, so a
+# non-conventional commit after the reviewed one holds finalization, naming
+# commit_convention, and rewording it in place advances.
+echo "--- Case 9: a non-conventional commit holds at finalization"
+if to_finalization commits; then
+    put commits summary.md "$GOOD_SUMMARY"
+    put commits pre_pr.md "$GOOD_PREPR"
+    git commit -q --allow-empty -m "fixed the thing"
+    submit commits '{"finalization_status":"ready_for_pr"}'
+    if [ "$NEXT_STATE" = finalization ] && names_gate commit_convention; then
+        pass "a non-conventional commit since impl_base holds at finalization, naming commit_convention"
+    else
+        fail "non-conventional commit: expected a hold naming commit_convention, got [$NEXT_STATE]"
+    fi
+    git commit -q --amend --allow-empty -m "fix: the thing"
+    submit commits '{"finalization_status":"ready_for_pr"}'
+    if [ "$NEXT_STATE" = pre_pr_evidence ]; then
+        pass "after the commit is reworded in place, the same submission advances"
+    else
+        fail "reworded commit: expected pre_pr_evidence, got [$NEXT_STATE]"
+    fi
 fi
 
 echo

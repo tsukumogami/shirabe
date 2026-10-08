@@ -105,14 +105,19 @@ class	engine	skills/scope/scripts/record-executed-report.sh
 class	engine	skills/scope/scripts/record-scope-exit.sh
 class	engine	skills/scope/scripts/resume-probe.sh
 class	engine	skills/scope/scripts/run-intake.sh
+class	engine	skills/work-on/scripts/check-branch-output.sh
+class	engine	skills/work-on/scripts/check-pr-output.sh
 class	engine	skills/work-on/scripts/check-pre-pr-referents.sh
 class	engine	skills/work-on/scripts/check-staleness.sh
+class	engine	skills/work-on/scripts/check-verification.sh
 class	engine	skills/work-on/scripts/find-anchor-plan.sh
 class	engine	skills/work-on/scripts/has-commits.sh
 class	engine	skills/work-on/scripts/panel-retry-budget.sh
 class	engine	skills/work-on/scripts/panel-scope.sh
 class	engine	skills/work-on/scripts/record-changed-paths.sh
 class	engine	skills/work-on/scripts/review-level.sh
+class	engine	skills/work-on/scripts/run-verification.sh
+class	engine	skills/work-on/scripts/session-role.sh
 
 # Text an agent follows as instructions.
 class	instruction	**/SKILL.md

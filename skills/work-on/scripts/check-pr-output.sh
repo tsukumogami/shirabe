@@ -28,8 +28,10 @@
 #         owned-pr.sh exit 2, 64, a timeout, or anything else -> 2
 #       `--take-over` is refused: a gate never writes to GitHub.
 #
-# owned-pr.sh is taken from PATH when one is there (the test suite's seam),
-# else from the execute skill beside this one.
+# owned-pr.sh is always the execute skill's copy beside this one
+# (skills/execute/scripts/owned-pr.sh under the same plugin root), never one
+# found on PATH. CHECK_PR_OUTPUT_OWNED_PR, set to a path, replaces it; it is the
+# test suite's seam, and koto's cleared environment never passes it to a gate.
 #
 # Exit status (the gate scripts' shared convention):
 #   0  the output passes (--owned-pr: exactly one owned pull request)
@@ -104,8 +106,8 @@ make_work() {
 }
 
 owned_pr_script() {
-    if command -v owned-pr.sh >/dev/null 2>&1; then
-        command -v owned-pr.sh
+    if [ -n "${CHECK_PR_OUTPUT_OWNED_PR:-}" ]; then
+        printf '%s\n' "$CHECK_PR_OUTPUT_OWNED_PR"
     else
         printf '%s\n' "$HERE/../../execute/scripts/owned-pr.sh"
     fi

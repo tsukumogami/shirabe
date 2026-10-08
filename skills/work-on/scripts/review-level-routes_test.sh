@@ -79,7 +79,10 @@ echo "--- files: every retry clearing site"
 # A clearing site is a `for KEY in ...` line that removes a panel's results.
 SITES=$(grep -rn --include='*.md' '^for KEY in .*_results\.json' "$SKILL_DIR" 2>/dev/null)
 N=$(printf '%s\n' "$SITES" | grep -c . | tr -d ' ')
-[ "$N" -ge 8 ] && pass "found $N clearing sites" || fail "found only $N clearing sites: $SITES"
+# Seven blocks the agent runs. The eighth used to be verification's, before
+# koto took that state's routing; implementation's clear_on_entry list stands
+# in for it now and is checked below with the same rules.
+[ "$N" -ge 7 ] && pass "found $N clearing sites" || fail "found only $N clearing sites: $SITES"
 MISSING=$(printf '%s\n' "$SITES" | grep 'qa_results\.json' | grep -v 'light_results\.json')
 [ -z "$MISSING" ] && pass "every site that clears qa_results.json also clears light_results.json" \
     || fail "sites without light_results.json: $MISSING"
@@ -92,6 +95,16 @@ LEDGER_HITS=$(grep -rn 'context remove.*review_level\|^for KEY in .*review_level
 [ -z "$LEDGER_HITS" ] && pass "no clearing site names review_level.jsonl" || fail "a clearing site names the ledger: $LEDGER_HITS"
 printf '%s\n' "$SITES" | grep -q 'phase-4d-light\.md' && pass "the light panel has its own clearing block" \
     || fail "phase-4d-light.md has no clearing block"
+# implementation's clear_on_entry: koto clears these whenever the run comes
+# back to implementation, which is the only clearing on verification's exit-1
+# edge, since koto takes that edge itself.
+CLEAR_ON_ENTRY=$(awk '$0 == "  implementation:" { f = 1; next } f && /^  [a-z_]+:$/ { exit } f && /^    clear_on_entry:/ { print; exit }' "$TEMPLATE")
+for k in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
+    printf '%s\n' "$CLEAR_ON_ENTRY" | grep -q "$k" && pass "implementation's clear_on_entry clears $k" \
+        || fail "implementation's clear_on_entry does not clear $k: [$CLEAR_ON_ENTRY]"
+done
+printf '%s\n' "$CLEAR_ON_ENTRY" | grep -q 'review_level' && fail "implementation's clear_on_entry names the ledger" \
+    || pass "implementation's clear_on_entry leaves review_level.jsonl alone"
 
 # ==============================================================================
 command -v koto >/dev/null 2>&1 || {
@@ -176,7 +189,9 @@ MAIN=$(git rev-parse main)
 NEXT_RESPONSE=""
 NEXT_STATE=""
 # tick <session> [<evidence>]: one `koto next`; NEXT_STATE is where it stopped.
+LAST_SESSION=""
 tick() {
+    LAST_SESSION=$1
     if [ -n "${2:-}" ]; then
         NEXT_RESPONSE=$(koto next "$1" --with-data "$2" --no-cleanup 2>/dev/null)
     else
@@ -200,9 +215,24 @@ setlevel() {
     "$RL" set "$s" "$l" "$@" >/dev/null 2>"$WORKDIR/set.err" \
         || fail "$s: review-level.sh set $l failed: $(cat "$WORKDIR/set.err")"
 }
+# entered_verification <session>: the last transition in koto's own log went
+# into or out of verification. koto runs that state itself on entry, and these
+# fixtures commit no verification map, so a run that reaches it fails closed
+# at done_blocked in the same tick.
+entered_verification() {
+    [ "$(jq -rs '[.[] | select(.type == "transitioned")] | last
+                 | (.payload.to == "verification" or .payload.from == "verification")' \
+        "$HOME/.koto/sessions/$1/koto-$1.state.jsonl" 2>/dev/null)" = true ]
+}
 expect_state() {
     # $1 label, $2 expected state
-    if [ "$NEXT_STATE" = "$2" ]; then pass "$1: at $2"; else fail "$1: at [$NEXT_STATE], expected $2"; fi
+    if [ "$NEXT_STATE" = "$2" ]; then
+        pass "$1: at $2"
+    elif [ "$2" = verification ] && entered_verification "$LAST_SESSION"; then
+        pass "$1: reached verification (and failed closed there: no map in the fixture)"
+    else
+        fail "$1: at [$NEXT_STATE], expected $2"
+    fi
 }
 expect_visits() {
     # $1 session, $2 state, $3 expected count
@@ -224,8 +254,8 @@ new_case() {
         --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1 || { fail "$s: koto init failed"; return 1; }
     tick "$s" '{"mode":"issue_backed","issue_number":"42"}'
     tick "$s" '{"status":"override"}'
+    # staleness_check routes on its own gate: no GitHub remote, so exit 3.
     tick "$s" '{"status":"override"}'
-    tick "$s" '{"staleness_signal":"override"}'
     printf '# Issue\n\n## Acceptance Criteria\n\n- [ ] it works\n' | koto context add "$s" context.md >/dev/null 2>&1
     printf 'plan\n' | koto context add "$s" plan.md >/dev/null 2>&1
     tick "$s" '{"plan_outcome":"plan_ready"}'

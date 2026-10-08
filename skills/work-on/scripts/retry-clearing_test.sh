@@ -85,6 +85,8 @@ trap cleanup EXIT
 # developer's real ~/.koto. Without it a failing run leaves sessions behind that
 # the next run then finds.
 export HOME="$WORKDIR/home"
+# The verification runner keeps its results under the state directory.
+export XDG_STATE_HOME="$WORKDIR/state"
 mkdir -p "$HOME"
 
 case "$PLUGIN_ROOT" in
@@ -114,9 +116,9 @@ QA_BLOCK=$(      extract_block "$PHASES/phase-4c-qa.md"            "koto context
 ANALYSIS_BLOCK=$(extract_block "$PHASES/phase-3-analysis.md"       "koto context remove")
 IMPL_BLOCK=$(    extract_block "$PHASES/phase-4-implementation.md" "koto context remove")
 FINAL_BLOCK=$(   extract_block "$PHASES/phase-5-finalization.md"   "koto context remove")
-# `verification` has no phase reference file -- its directive lives in the
-# template -- so its clearing block is extracted from there.
-VERIFY_BLOCK=$(  extract_block "$TEMPLATE"                         "koto context remove")
+# `verification` has no clearing block: koto routes its exit-1 edge itself, and
+# `implementation` clears the keys on entry (clear_on_entry). Case 10b drives
+# that edge end to end.
 
 for pair in \
     "SCRUTINY_BLOCK:phase-4a-scrutiny.md" \
@@ -124,8 +126,7 @@ for pair in \
     "QA_BLOCK:phase-4c-qa.md" \
     "ANALYSIS_BLOCK:phase-3-analysis.md" \
     "IMPL_BLOCK:phase-4-implementation.md" \
-    "FINAL_BLOCK:phase-5-finalization.md" \
-    "VERIFY_BLOCK:koto-templates/work-on.md"
+    "FINAL_BLOCK:phase-5-finalization.md"
 do
     var=${pair%%:*}
     src=${pair#*:}
@@ -147,6 +148,10 @@ render() { printf '%s\n' "$1" | sed "s|<WF>|$2|g"; }
 # the run's own implementation, so each walk records impl_base as the commit
 # before it (see to_implementation); otherwise has_commits would fail and every
 # walk would stick at scrutiny, short of the other panels.
+#
+# `verification` runs the verification map committed at the merge-base with
+# main, so the init commit carries one: `true` by default, and `false` for a
+# change touching fail.txt, which case 10b commits to fail verification.
 REPO="$WORKDIR/repo"
 mkdir -p "$REPO"
 (
@@ -154,7 +159,13 @@ mkdir -p "$REPO"
     git init -q -b main .
     git config user.email t@example.com
     git config user.name t
-    git commit -q --allow-empty -m init
+    mkdir -p .claude/shirabe-extensions
+    printf '%s\n' '{"schema": "shirabe-verification-map/v1",
+  "commands": {"ok": {"run": ["true"]}, "no": {"run": ["false"]}},
+  "entries": [{"paths": ["fail.txt"], "commands": ["no"]}],
+  "default": ["ok"]}' > .claude/shirabe-extensions/verification-map.json
+    git add .claude
+    git commit -q -m init
     git checkout -q -b impl/retry-clearing
     echo work > f.txt
     git add f.txt
@@ -198,15 +209,16 @@ submit() {
     NEXT_STATE=$(printf '%s' "$NEXT_RESPONSE" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
 }
 
-# Walk a fresh session to `analysis`. The three overrides skip gates that read a
+# Walk a fresh session to `analysis`. The two overrides skip gates that read a
 # real GitHub issue and a real baseline, neither of which this harness has or
 # needs: every case here is about what happens from analysis onward.
+# staleness_check routes on its own gate: the fixture has no GitHub remote, so
+# the check is unavailable (exit 3) and the run goes on to analysis.
 to_analysis() {
     new_session "$1"
     submit "$1" '{"mode":"issue_backed","issue_number":"42"}'
     submit "$1" '{"status":"override"}'
     submit "$1" '{"status":"override"}'
-    submit "$1" '{"staleness_signal":"override"}'
 }
 
 to_implementation() {
@@ -249,15 +261,24 @@ to_qa() {
     submit "$1" '{"review_outcome":"passed"}'
 }
 
-to_verification() {
-    to_qa "$1"
-    seed "$1" qa_results.json
-    submit "$1" '{"qa_outcome":"passed"}'
+# koto runs `verification` itself: on entry it starts the map's commands and
+# its poll gate waits for the result, re-checking every 15 seconds. Starting
+# the runner for the session first, and waiting for its result, lets the tick
+# that enters the state settle at once.
+prestart_verification() {
+    local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f i=0
+    "$rv" --start --session "$1" >/dev/null 2>&1
+    f=$("$rv" --locate --session "$1" 2>/dev/null | sed -n 3p)
+    while [ -n "$f" ] && [ ! -f "$f" ] && [ "$i" -lt 200 ]; do sleep 0.1; i=$((i + 1)); done
 }
 
+# A passed QA round enters verification, which koto settles and routes on: to
+# finalization on this fixture's passing map.
 to_finalization() {
-    to_verification "$1"
-    submit "$1" '{"verification_outcome":"passed","commands_run":"none"}'
+    to_qa "$1"
+    seed "$1" qa_results.json
+    prestart_verification "$1"
+    submit "$1" '{"qa_outcome":"passed"}'
 }
 
 # --- Case 1 — each panel gate holds when its key is cleared -------------------
@@ -309,7 +330,10 @@ check_panel_advances() {
 
 check_panel_advances adv-scrutiny to_scrutiny scrutiny_results.json scrutiny_outcome review
 check_panel_advances adv-review   to_review   review_results.json   review_outcome   qa_validation
-check_panel_advances adv-qa       to_qa       qa_results.json       qa_outcome       verification
+# A passed QA round enters verification, which koto settles at once on this
+# fixture's passing map (the runner started first) and routes on to finalization.
+to_qa_prestarted() { to_qa "$1"; prestart_verification "$1"; }
+check_panel_advances adv-qa       to_qa_prestarted qa_results.json  qa_outcome       finalization
 
 # --- Case 3/4 — the analysis gate, both directions ----------------------------
 
@@ -629,9 +653,11 @@ fi
 # all three panels, verification, and finalization.
 #
 # Two edges were reached that way and advanced on a round-1 verdict with no
-# round-2 artifact written: `verification_outcome: failed` (which had no clearing
+# round-2 artifact written: verification's failed edge (which had no clearing
 # step at all) and `finalization_status: issues_found` (which cleared only
 # summary.md). Each is driven end to end here rather than asserted from the graph.
+# The verification edge is koto's own now (the verdict's exit 1), so its
+# clearing is implementation's clear_on_entry rather than a block the agent runs.
 
 echo "--- Case 10b: the verification and finalization edges cover their traversal"
 
@@ -674,13 +700,60 @@ check_edge_traversal() {
     fi
 }
 
-# Each block is driven from the state its edge actually leaves from -- the
-# verification block from `verification`, the finalization block from
-# `finalization`. Driving one from the wrong state would submit an outcome that
-# state does not accept, and the case would fail for a reason that has nothing to
-# do with clearing.
-check_edge_traversal edge-verify VERIFY_BLOCK "verification failed"        to_verification
+# The finalization block is driven from `finalization`, the state its edge
+# leaves from. Driving it from another state would submit an outcome that state
+# does not accept, and the case would fail for a reason that has nothing to do
+# with clearing.
 check_edge_traversal edge-issues FINAL_BLOCK  "finalization issues_found"  to_finalization
+
+# Verification's failed edge, driven for real: a branch whose change touches
+# fail.txt selects the map's `false` command, the verdict exits 1, and koto
+# routes back to implementation, clearing the keys as it enters.
+git checkout -q -b impl/verify-fails
+echo fail > fail.txt
+git add fail.txt
+git commit -q -m "feat: a change verification fails"
+to_qa edge-verify
+seed edge-verify qa_results.json
+seed edge-verify scrutiny_results.json
+seed edge-verify review_results.json
+seed edge-verify light_results.json
+seed edge-verify summary.md
+prestart_verification edge-verify
+submit edge-verify '{"qa_outcome":"passed"}'
+if [ "$NEXT_STATE" = implementation ]; then
+    pass "verification failed: the verdict's exit 1 returns the run to implementation"
+else
+    fail "verification failed: expected implementation, got [$NEXT_STATE]"
+fi
+left=""
+for k in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
+    if koto context exists edge-verify "$k" >/dev/null 2>&1; then
+        left="$left $k"
+    fi
+done
+if [ -z "$left" ]; then
+    pass "verification failed: every key the traversal re-reads is cleared on entry to implementation"
+else
+    fail "verification failed: keys survive the return to implementation:$left"
+fi
+if koto context exists edge-verify plan.md >/dev/null 2>&1; then
+    pass "verification failed: plan.md is left alone"
+else
+    fail "verification failed: plan.md was cleared; the plan is still valid here"
+fi
+complete_as_code edge-verify
+if [ "$NEXT_STATE" = "scrutiny" ]; then
+    submit edge-verify '{"scrutiny_outcome":"passed"}'
+    if [ "$NEXT_STATE" = "scrutiny" ]; then
+        pass "verification failed: scrutiny refuses passed on the round-1 verdict after the retry"
+    else
+        fail "verification failed: scrutiny advanced to [$NEXT_STATE] on a round-1 verdict"
+    fi
+else
+    fail "verification failed: expected the retry to reach implementation then scrutiny, got [$NEXT_STATE]"
+fi
+git checkout -q impl/retry-clearing
 
 # --- Case 11 — idempotence on a key no phase has written ----------------------
 #
@@ -931,8 +1004,7 @@ for pair in \
     "QA_BLOCK:phase-4c-qa.md" \
     "ANALYSIS_BLOCK:phase-3-analysis.md" \
     "IMPL_BLOCK:phase-4-implementation.md" \
-    "FINAL_BLOCK:phase-5-finalization.md" \
-    "VERIFY_BLOCK:koto-templates/work-on.md"
+    "FINAL_BLOCK:phase-5-finalization.md"
 do
     var=${pair%%:*}
     src=${pair#*:}

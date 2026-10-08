@@ -4,8 +4,9 @@
 #
 # Prints `root` or `child` for a koto session name: whether a /work-on run was
 # invoked directly or materialized as a child of /execute's `spawn_and_await`.
-# Its one caller is ci_monitor's `session_role` evidence in work-on.md, which
-# sends a root to the cascade and a child to done.
+# Its one caller is ci_monitor's `is_root` gate in work-on.md, which passes
+# only on exactly `root`, sending a root to the cascade and anything else to
+# done.
 #
 # A caller asks this script rather than re-deriving the answer:
 #

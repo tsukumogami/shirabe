@@ -327,10 +327,11 @@ else
     ' "$TEMPLATE")
     [ -n "$BLOCK" ] || { echo "staleness_check not found in $TEMPLATE" >&2; exit 2; }
 
-    # drive <exit-or-timeout> <evidence-json> [block] -- prints the state the
-    # run is in after one submission. `timeout` makes the gate outlive a
-    # 1-second limit so koto reports exit_code -1. [block] replaces the shipped
-    # block, for the mutation control below.
+    # drive <exit-or-timeout> <evidence-json-or-empty> [block] -- prints the
+    # state the run is in after the first tick and, with evidence, one
+    # submission. `timeout` makes the gate outlive a 1-second limit so koto
+    # reports exit_code -1. [block] replaces the shipped block, for the
+    # mutation control below.
     drive() {
         local how="$1" data="$2" block="${3:-$BLOCK}" dir session cmd timeout_line=""
         dir=$(mktemp -d); TMPS+=("$dir")
@@ -358,48 +359,61 @@ else
         } > "$dir/fixture.md"
         koto init "$session" --template "$dir/fixture.md" --var ISSUE_NUMBER=7 >/dev/null 2>&1 || { echo "init-failed"; return; }
         printf '%s\n' "$session" >> "$SESSIONS_FILE"
+        if [ -z "$data" ]; then
+            koto next "$session" 2>/dev/null | jq -r '.state // "none"'
+            return
+        fi
         koto next "$session" >/dev/null 2>&1
         koto next "$session" --with-data "$data" 2>/dev/null | jq -r '.state // "none"'
     }
 
-    # The full matrix: every evidence value against every gate result, 25
-    # cells. `fresh` routes only on a passing gate and `unavailable` only on 3
-    # or -1; anywhere else each stays in staleness_check. The other three route
-    # whatever the gate said, which is what the directive tells the agent.
-    expected() {
-        case "$1:$2" in
-            fresh:0) echo analysis ;;
-            fresh:*) echo staleness_check ;;
-            unavailable:3|unavailable:timeout) echo analysis ;;
-            unavailable:*) echo staleness_check ;;
-            stale_requires_introspection:*) echo introspection ;;
-            override:*) echo analysis ;;
-            blocked:*) echo done_blocked ;;
+    # The gate is a routing gate: koto routes on its exit status with no
+    # evidence. 0 fresh, 3 unavailable and -1 (koto could not finish the
+    # check) go to analysis; 1 stale goes to introspection; 2, a usage error,
+    # matches no edge and holds.
+    expected_bare() {
+        case "$1" in
+            0|3|timeout) echo analysis ;;
+            1) echo introspection ;;
+            2) echo staleness_check ;;
         esac
     }
-
-    for signal in fresh stale_requires_introspection unavailable override blocked; do
-        data="{\"staleness_signal\":\"$signal\",\"detail\":\"case detail\"}"
-        for how in 0 1 2 3 timeout; do
-            want=$(expected "$signal" "$how")
-            got=$(drive "$how" "$data")
-            label="$signal on gate result $how"
-            [ "$how" = timeout ] && label="$signal on gate result -1 (timeout)"
-            if [ "$got" = "$want" ]; then pass "$label -> $got"; else fail "$label: want $want, got $got"; fi
-        done
+    for how in 0 1 2 3 timeout; do
+        want=$(expected_bare "$how")
+        got=$(drive "$how" "")
+        label="gate result $how, no evidence"
+        [ "$how" = timeout ] && label="gate result -1 (timeout), no evidence"
+        if [ "$got" = "$want" ]; then pass "$label -> $got"; else fail "$label: want $want, got $got"; fi
     done
 
-    # The mutation control: the shipped block with a trailing unconditional
-    # edge put back, the shape this change removed. Under it, `unavailable` on
-    # a passing gate falls through to analysis, which is the defect; this
-    # proves the matrix cell `unavailable on gate result 0 -> staleness_check`
-    # above would catch the edge coming back rather than passing either way.
-    MUTANT=$(printf '%s\n%s\n' "$BLOCK" '      - target: analysis')
-    got=$(drive 0 '{"staleness_signal":"unavailable","detail":"case detail"}' "$MUTANT")
+    # On exit 2, the one unrouted result, override and blocked are the two
+    # answers the state still accepts.
+    got=$(drive 2 '{"staleness_signal":"override","detail":"case detail"}')
+    if [ "$got" = analysis ]; then pass "override on gate result 2 -> analysis"; else fail "override on gate result 2: want analysis, got $got"; fi
+    got=$(drive 2 '{"staleness_signal":"blocked","detail":"case detail"}')
+    if [ "$got" = done_blocked ]; then pass "blocked on gate result 2 -> done_blocked"; else fail "blocked on gate result 2: want done_blocked, got $got"; fi
+
+    # The values that restated the check's verdict are gone: on exit 2, where
+    # the agent is asked, each is refused and the run stays put.
+    for signal in fresh stale_requires_introspection unavailable; do
+        got=$(drive 2 "{\"staleness_signal\":\"$signal\",\"detail\":\"case detail\"}")
+        if [ "$got" = staleness_check ] || [ "$got" = none ]; then
+            pass "$signal is no longer accepted (the run stays in staleness_check)"
+        else
+            fail "$signal on gate result 2: want a refusal, got $got"
+        fi
+    done
+
+    # The mutation control: the shipped block with the stale edge pointed at
+    # analysis, the regression where a stale issue is implemented as written.
+    # Under it, gate result 1 reaches analysis; this proves the `gate result 1
+    # -> introspection` cell above would catch that edge moving.
+    MUTANT=$(printf '%s\n' "$BLOCK" | sed 's/^      - target: introspection$/      - target: analysis/')
+    got=$(drive 1 "" "$MUTANT")
     if [ "$got" = analysis ]; then
-        pass "mutation control: with the trailing edge restored, unavailable on a passing gate reaches analysis"
+        pass "mutation control: with the stale edge pointed at analysis, gate result 1 reaches analysis"
     else
-        fail "mutation control: expected the restored trailing edge to route unavailable on 0 to analysis, got $got"
+        fail "mutation control: expected the mutated stale edge to route gate result 1 to analysis, got $got"
     fi
 fi
 

@@ -37,7 +37,10 @@ so a plain push is always enough.
 
 Author the title and body to the **mechanical** rule in
 `references/pr-body-conformance.md`, which `shirabe validate --pr-body`
-enforces in CI. For the **subjective**
+enforces in CI. `pr_creation`'s `pr_body_conformant` gate runs the same check
+on the pull request GitHub has before the run moves on, so a violation holds
+the state with a finding naming the rule: fix it with `gh pr edit` and submit
+`pr_status: created` again. For the **subjective**
 Part 2 section selection (which reviewer-context sections this change needs),
 apply the reasoning framework from your project's PR creation skill. Include
 `Fixes #<N>` in Part 2 — `pr_creation`'s `closing_keyword` gate reads the pull
@@ -73,6 +76,9 @@ the cap. An unattended run never asks the user instead.
 
 ## Evidence (ci_monitor)
 
-- `ci_outcome: passing`
+None on the green path: once every check passes and the pull request is not
+DIRTY, koto routes the run itself, a root to the cascade and a child to `done`
+(the `is_root` gate). While `ci_passing` fails:
+
 - `ci_outcome: failing_fixed`
 - `ci_outcome: failing_unresolvable` + `rationale`

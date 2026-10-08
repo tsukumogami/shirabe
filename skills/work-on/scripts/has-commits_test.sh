@@ -237,6 +237,15 @@ tick() {
 
 ctx() { (cd "$RUN" && koto context "$@") 2>/dev/null; }
 
+# at_verification <session>: the run reached the verification state. koto runs
+# that state itself on entry, and these fixtures commit no verification map,
+# so the run either waits there (a launcher that can't resolve a merge-base)
+# or has already failed closed at done_blocked with verification's reason.
+at_verification() {
+    [ "$STATE" = verification ] && return 0
+    [ "$STATE" = done_blocked ] && ctx get "$1" failure_reason | grep -q '^verification'
+}
+
 # to_routing <session>: issue-backed through analysis (which records impl_base
 # as it enters) and a complete implementation, to issue_type_routing.
 to_routing() {
@@ -245,8 +254,9 @@ to_routing() {
         --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1)
     tick "$1" '{"mode":"issue_backed","issue_number":"7"}'
     tick "$1" '{"status":"override"}'
+    # staleness_check routes on its own gate; with no GitHub remote the check
+    # is unavailable (exit 3) and the run is already at analysis.
     tick "$1" '{"status":"override"}'
-    tick "$1" '{"staleness_signal":"override"}'
     printf 'plan\n' | ctx add "$1" plan.md
     tick "$1" '{"plan_outcome":"plan_ready"}'
     # The review level, chosen before implementation; full keeps scrutiny on
@@ -270,7 +280,7 @@ for sh in plain nomain worktree; do
         || fail "$sh: docs with no commits reached [$STATE]"
     commit_file guide.md
     tick "e-docs-$sh" '{"issue_type":"docs"}'
-    [ "$STATE" = verification ] && pass "$sh: docs with a commit reaches verification" \
+    at_verification "e-docs-$sh" && pass "$sh: docs with a commit reaches verification" \
         || fail "$sh: docs with a commit reached [$STATE]"
 
     # code: scrutiny's passed route, held without a commit, released by one.

@@ -702,8 +702,8 @@ engine_to_qa_retry() {
         --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1 || { fail "$s: koto init failed"; return 1; }
     submit "$s" '{"mode":"issue_backed","issue_number":"42"}'
     submit "$s" '{"status":"override"}'
+    # staleness_check routes on its own gate: no GitHub remote, so exit 3.
     submit "$s" '{"status":"override"}'
-    submit "$s" '{"staleness_signal":"override"}'
     printf 'plan\n' | koto context add "$s" plan.md >/dev/null 2>&1
     printf 'AC: the issue body\n' | koto context add "$s" context.md >/dev/null 2>&1
     submit "$s" '{"plan_outcome":"plan_ready"}'
@@ -783,7 +783,10 @@ if engine_to_qa_retry "$S"; then
     printf '[{"seat":"tester","blocking_count":0}]\n' > "$WORKDIR/r.json"
     "$SCRIPT" --record qa "$S" "$WORKDIR/r.json" || fail "$S: --record qa failed"
     submit "$S" '{"qa_outcome":"passed"}'
-    [ "$NEXT_STATE" = verification ] \
+    # koto runs verification itself on entry; this fixture commits no
+    # verification map, so the run fails closed there in the same tick. The
+    # transition into verification in koto's log is the advance.
+    { [ "$NEXT_STATE" = verification ] || [ "$(visits "$S" verification)" = 1 ]; } \
         && pass "the recorded re-check advances to verification" \
         || fail "the recorded re-check went to [$NEXT_STATE]"
 fi

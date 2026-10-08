@@ -425,37 +425,40 @@ states:
     accepts:
       staleness_signal:
         type: enum
-        values: [fresh, stale_requires_introspection, unavailable, override, blocked]
-        required: true
+        values: [override, blocked]
+        description: >-
+          Absent on every answered path: koto routes on the check's exit status
+          itself. Accepted only on exit 2, the one status no edge routes.
       detail:
         type: string
-        description: Why the check was unavailable, the override reason, or failure detail
-    # Every route out is explicit. There is no trailing unconditional edge:
-    # with one, evidence matching nothing else on a passing gate would fall
-    # through to analysis, so `unavailable` could be recorded for a check that
-    # ran. `fresh` and `unavailable` are each accepted only on the exit status
-    # that means them, and stay put otherwise.
+        description: The override reason, or the blocking detail
+    # A routing gate (DESIGN-output-gates Decision 9): its non-zero exits are
+    # answers, not violations, and it prints no finding. The run advances on
+    # the exit status with no evidence: 0 fresh and 3 unavailable go to
+    # analysis, as does -1 (koto could not run the check to completion), and 1
+    # stale goes to introspection. Only exit 2, a usage error and so a
+    # template defect, holds, and only there does the agent submit anything.
+    # Every edge names the gate, which is what lets koto prove them exclusive.
     transitions:
+      - target: analysis
+        when:
+          gates.staleness_fresh.exit_code: 0
       - target: introspection
         when:
-          staleness_signal: stale_requires_introspection
+          gates.staleness_fresh.exit_code: 1
       - target: analysis
         when:
-          staleness_signal: fresh
-          gates.staleness_fresh.exit_code: 0
-      - target: analysis
-        when:
-          staleness_signal: unavailable
           gates.staleness_fresh.exit_code: 3
       - target: analysis
         when:
-          staleness_signal: unavailable
           gates.staleness_fresh.exit_code: -1
       - target: analysis
         when:
+          gates.staleness_fresh.exit_code: 2
           staleness_signal: override
       - target: done_blocked
         when:
+          gates.staleness_fresh.exit_code: 2
           staleness_signal: blocked
         context_assignments:
           failure_reason: "staleness_check blocked: ${evidence.detail}"
@@ -612,6 +615,13 @@ states:
           failure_reason: "review level not chosen: ${evidence.detail}"
 
   implementation:
+    # Every return here means the code is about to change, so a verdict about
+    # the code as it was is stale: the panels' results and the summary. The
+    # panel retry blocks and finalization's issues_found block already clear
+    # them before routing back, and confirm it; verification's exit 1 is koto's
+    # own edge, with no agent step before it, so koto clears them on entry. The
+    # session's first entry clears nothing.
+    clear_on_entry: [scrutiny_results.json, review_results.json, qa_results.json, light_results.json, summary.md]
     gates:
       on_feature_branch_impl:
         type: command
@@ -1221,42 +1231,107 @@ states:
           failure_reason: ${evidence.failure_reason}
 
   verification:
+    # The definition-of-done gate, run by koto rather than reported by the
+    # agent (DESIGN-output-gates Decision 2). koto gives one command 30
+    # seconds and a test suite takes minutes, so the work is split in two:
+    #
+    #   default_action  run-verification.sh --start. Returns within a second:
+    #                   either a result for this head is already on disk, or
+    #                   it starts a detached, bounded supervisor that runs the
+    #                   verification map's commands (read at the merge-base)
+    #                   and writes the result. It never calls koto.
+    #   verification_verdict  check-verification.sh --verdict, a poll: gate.
+    #                   Exit 75 while there is no result for this head, which
+    #                   koto reports as a temporal, non-actionable wait and
+    #                   re-runs every 15 seconds for up to 480 seconds of one
+    #                   tick, under what an agent's tool call can wait; the
+    #                   agent ticks again and the wait goes on, up to two hours.
+    #
+    # Both scripts take the same arguments (no --base-ref), so they agree on
+    # the head, the merge-base and the result file. The test -x guards turn an
+    # empty or wrong PLUGIN_ROOT into exit 2 rather than 127: the action then
+    # stops the tick with its fallback, and the gate holds.
+    #
+    # The verdict routes:
+    #   0  every selected command passed          finalization
+    #   1  a command failed                       implementation
+    #   3  no map, a map that does not parse, or one that selects nothing
+    #                                             done_blocked (fail closed)
+    #   4  a command needs a person, timed out, grew past max_procs, could
+    #      not start, or the tree was dirty       done_blocked
+    #   75 no result yet                          waits
+    #   2  the result could not be read           holds
+    # Each violation exit prints `::koto-finding::` lines whose rule_id is a
+    # verification/ name from gate-rules.tsv, so the event log names the cause.
+    #
+    # The one evidence left is `verification_status: blocked`, for a run that
+    # can't settle: a launcher that can't start (the wait is then pending and,
+    # past its deadline, timed out, both exit 75) or a result that can't be
+    # read (2). Each edge names the gate value, which is what lets koto prove
+    # it exclusive of the routed ones.
+    #
+    # The return to implementation on exit 1 used to be the agent's, which
+    # cleared the panel and summary keys first. koto now takes the edge
+    # itself, so those keys are implementation's clear_on_entry.
+    default_action:
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/run-verification.sh" --start --session "{{SESSION_NAME}}"'
+      fallback: >-
+        koto could not start the verification run. Read the command's own
+        output above: run-verification.sh exits 2 when HEAD or the merge-base
+        with the default branch does not resolve, the state directory can't be
+        created, or a tool it needs (git, jq) is missing, and the test -x guard
+        exits 2 when PLUGIN_ROOT does not reach the plugin. Fix the cause and
+        tick again -- the launcher re-runs on entry and on every tick until it
+        succeeds. If it can't be fixed, submit `verification_status: blocked`
+        with the reason in `detail`.
+    gates:
+      verification_verdict:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-verification.sh" --verdict --session "{{SESSION_NAME}}"'
+        poll:
+          interval_secs: 15
+          timeout_secs: 7200
+          hold_secs: 480
     accepts:
-      verification_outcome:
+      verification_status:
         type: enum
-        values: [passed, failed, cannot_verify]
-        required: true
-      commands_run:
-        type: string
-        description: >
-          What the definition-of-done gate ran and its outcome. Records the commands
-          selected from the project's verification map (or the default test command when
-          no map entry matched the issue diff) and the pass/fail result of each. Required
-          for all outcomes so the evidence captures what was executed, not merely declared.
+        values: [blocked]
+        description: >-
+          Absent on every settled path: koto routes on the verdict. Submit
+          `blocked` only when the run can't settle -- the launcher can't
+          start, or the result can't be read.
       detail:
         type: string
-        description: >
-          Failure detail or the reason verification could not be determined (no map match
-          and no usable default, or a command that could not run).
+        description: Why verification could not run or be read.
     transitions:
-      # passed: every matched command (or the default) ran and passed; advance.
       - target: finalization
         when:
-          verification_outcome: passed
-      # failed: a verification command ran and did not pass; return to implementation
-      # to fix the failure rather than advancing toward a clean finalization.
+          gates.verification_verdict.exit_code: 0
       - target: implementation
         when:
-          verification_outcome: failed
-      # cannot_verify: no map entry matched and no usable default, or a command could not
-      # run. Fail closed (R11): this must not reach a clean finalization. Route to the
-      # blocking terminal so it surfaces as a human decision. Issue 3 builds the full
-      # human-approval gate at finalization; until then cannot_verify halts here.
+          gates.verification_verdict.exit_code: 1
       - target: done_blocked
         when:
-          verification_outcome: cannot_verify
+          gates.verification_verdict.exit_code: 3
         context_assignments:
-          failure_reason: "verification cannot-verify (fail closed): ${evidence.detail}"
+          failure_reason: "verification: no verification map at the merge-base, a map that does not parse, or a map that selects nothing for this change (fail closed). The finding names which; the result is in context as verification_results.json."
+      - target: done_blocked
+        when:
+          gates.verification_verdict.exit_code: 4
+        context_assignments:
+          failure_reason: "verification: a command needs a person, timed out, grew past max_procs, could not start, or the tree had uncommitted changes to tracked files (fail closed). The finding names which; the result is in context as verification_results.json."
+      - target: done_blocked
+        when:
+          gates.verification_verdict.exit_code: 75
+          verification_status: blocked
+        context_assignments:
+          failure_reason: "verification blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.verification_verdict.exit_code: 2
+          verification_status: blocked
+        context_assignments:
+          failure_reason: "verification blocked: ${evidence.detail}"
 
   finalization:
     gates:
@@ -1294,12 +1369,22 @@ states:
       diagram_referent:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
+      # Every non-merge commit this run made (impl_base..HEAD), not only the
+      # tip: a Conventional Commits subject and no AI-attribution trailer.
+      # check-branch-output.sh exits 0 pass, 1 a violation (one
+      # ::koto-finding:: line each, rule commit/conventional-subject or
+      # commit/no-ai-trailer), 2 could not decide; the test -x guard makes an
+      # unusable PLUGIN_ROOT a 2. Here 1 and 2 both hold, like the checks
+      # above; pre_pr_evidence runs the same gate as its backstop.
+      commit_convention:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
     accepts:
       finalization_status:
         type: enum
         # ready_for_pr: every acceptance criterion is met. Reaching this state at all
-        #   means the verification gate routed verification_outcome: passed (verification
-        #   only transitions passed -> finalization), so ready_for_pr is backed by run
+        #   means the verification_verdict gate exited 0 (verification
+        #   only transitions to finalization on that exit), so ready_for_pr is backed by run
         #   verification evidence -- there is no clean finalization without it.
         # deferral_requested: an acceptance criterion is unmet/deferred. There is NO clean
         #   self-reported deferral terminal here (the old deferred_items_noted loophole is
@@ -1312,7 +1397,7 @@ states:
         when:
           finalization_status: issues_found
       # ready_for_pr requires the summary artifact AND (implicitly) that verification
-      # passed, since finalization is only reachable via verification_outcome: passed.
+      # passed, since finalization is only reachable on verification_verdict exit 0.
       # It also requires both artifacts to pass the checks pre_pr_evidence makes.
       - target: pre_pr_evidence
         when:
@@ -1321,6 +1406,7 @@ states:
           gates.summary_shape.matches: true
           gates.cleanup_referent.exit_code: 0
           gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
       # deferral must be a surfaced human decision, never a clean self-report (Decision E).
       - target: deferral_approval
         when:
@@ -1350,6 +1436,11 @@ states:
       diagram_referent:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" || exit 1; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pre-pr-referents.sh" --diagram "{{SESSION_NAME}}"'
+      # The commit walk finalization runs, on the approved edge for the same
+      # reason as the checks above.
+      commit_convention:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
     accepts:
       approval_decision:
         type: enum
@@ -1368,6 +1459,7 @@ states:
           gates.summary_shape.matches: true
           gates.cleanup_referent.exit_code: 0
           gates.diagram_referent.exit_code: 0
+          gates.commit_convention.exit_code: 0
       - target: done_blocked
         when:
           approval_decision: rejected
@@ -1396,11 +1488,14 @@ states:
         type: context-matches
         key: summary.md
         pattern: "## Changes Made"
-      # Conventional Commits on the tip. Observable from git, so it is gated
-      # rather than asked for (PRD R6).
+      # Conventional Commits on every commit this run made, and no
+      # AI-attribution trailer on any of them. Observable from git, so it is
+      # gated rather than asked for (PRD R6). The same gate finalization and
+      # deferral_approval hold on; here, as the backstop, its 1 (a violation)
+      # and its 2 (could not decide) both end the run.
       commit_convention:
         type: command
-        command: "git log -1 --format=%s | grep -qE '^(feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert)(\\([^)]+\\))?!?: .+'"
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"'
       # The concrete referents, in an artifact the run writes, checked for
       # existence and not only for shape (check-pre-pr-referents.sh):
       # "cleanup_commit: done" is not a sha, a sha that names no commit or a
@@ -1462,7 +1557,14 @@ states:
           gates.summary_shape.matches: true
           gates.commit_convention.exit_code: 1
         context_assignments:
-          failure_reason: "pre_pr_evidence: the tip commit's subject is not a Conventional Commits subject."
+          failure_reason: "pre_pr_evidence: a commit this run made has a subject that is not a Conventional Commits subject, or carries an AI-attribution trailer. The gate's findings name the commit and the rule."
+      - target: done_blocked
+        when:
+          pre_pr_status: recorded
+          gates.summary_shape.matches: true
+          gates.commit_convention.exit_code: 2
+        context_assignments:
+          failure_reason: "pre_pr_evidence: the commit check could not decide (impl_base unreadable, a range that does not resolve, or check-branch-output.sh unreachable through PLUGIN_ROOT). Run check-branch-output.sh --commits --session <session> for the reason."
       - target: done_blocked
         when:
           pre_pr_status: recorded
@@ -1518,6 +1620,27 @@ states:
       on_feature_branch_pr:
         type: command
         command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\""
+      # What the branch carries, checked before a pull request shows it to
+      # anyone. Both run check-branch-output.sh (0 pass, 1 a violation with a
+      # ::koto-finding:: line each, 2 could not decide), and both hold on 1 or
+      # 2: neither pull request edge below fires until they pass.
+      #
+      # On /execute's shared branch the child opens no pull request of its
+      # own (pr_status: shared), so both pass at once; /execute checks the
+      # shared branch once, before it finalizes the pull request it owns.
+      #
+      # branch_wip_clean: no path under wip/ in HEAD's tree
+      # (rule branch/no-wip-files).
+      branch_wip_clean:
+        type: command
+        command: 'test -n "{{SHARED_BRANCH}}" || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --wip; }'
+      # branch_docs_visibility: the docs this run changed, through shirabe
+      # validate at the repository's declared visibility, counting only the
+      # visibility rules (docs/private-only-type, docs/visibility-vision-sections,
+      # docs/visibility-strategy-sections).
+      branch_docs_visibility:
+        type: command
+        command: 'test -n "{{SHARED_BRANCH}}" || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --docs-visibility --session "{{SESSION_NAME}}"; }'
     accepts:
       precheck_status:
         type: enum
@@ -1532,10 +1655,14 @@ states:
       - target: pr_creation
         when:
           gates.on_feature_branch_pr.exit_code: 0
+          gates.branch_wip_clean.exit_code: 0
+          gates.branch_docs_visibility.exit_code: 0
       - target: pr_creation
         when:
           gates.on_feature_branch_pr.exit_code: 1
           precheck_status: override
+          gates.branch_wip_clean.exit_code: 0
+          gates.branch_docs_visibility.exit_code: 0
       - target: done_blocked
         when:
           gates.on_feature_branch_pr.exit_code: 1
@@ -1556,6 +1683,17 @@ states:
       closing_keyword:
         type: command
         command: 'test -z "{{ISSUE_NUMBER}}" || gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"'
+      # The pull request's title and body against the PR-body conformance
+      # rules (references/pr-body-conformance.md, PB1 to PB4), read from
+      # GitHub and checked by `shirabe validate --pr-body`, unchanged.
+      # check-pr-output.sh exits 0 conformant, 1 a violation (one
+      # ::koto-finding:: line each, rules pr-body/*), 2 could not decide. It
+      # gates the created edge only, so 1 and 2 hold here: fix the body with
+      # `gh pr edit` and submit again. gh reads GH_TOKEN, which is on koto's
+      # default pass-through list, so the template declares no pass_env.
+      pr_body_conformant:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body'
     accepts:
       pr_status:
         type: enum
@@ -1569,6 +1707,7 @@ states:
         when:
           pr_status: created
           gates.closing_keyword.exit_code: 0
+          gates.pr_body_conformant.exit_code: 0
       # A body without the keyword stops here. Fail-closed: the gate also exits
       # non-zero when it cannot read the pull request at all, and both readings
       # are named in the reason, because the exit code cannot tell them apart.
@@ -1620,21 +1759,22 @@ states:
       merge_state_clean:
         type: command
         command: "[ \"$(gh pr view --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"
+      # A routing gate (DESIGN-output-gates Decision 9): is this run the
+      # root, or a child /execute materialized? session-role.sh reads koto's
+      # own parent_workflow and prints `root` or `child`; anything that is not
+      # exactly `root` -- a usage error, an unreachable PLUGIN_ROOT, a failed
+      # read -- fails the test and reads as child, the safe direction. Its
+      # exit 1 is an answer, not a violation, so it prints no finding.
+      is_root:
+        type: command
+        command: 'test "$("{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" "{{SESSION_NAME}}" 2>/dev/null)" = root'
     accepts:
       ci_outcome:
         type: enum
-        values: [passing, failing_fixed, failing_unresolvable]
-        required: true
-      session_role:
-        type: enum
-        values: [root, child]
-        required: true
+        values: [failing_fixed, failing_unresolvable]
         description: >-
-          From scripts/session-role.sh, which reads koto's own parent_workflow
-          field. Required, because a root and a child with green CI part here:
-          without it no passing edge could tell whether the cascade is owed.
-          Not derived from the session name — a name-shaped
-          heuristic was considered and rejected as unsound in both directions.
+          Absent on the green path: koto routes green CI on the gates. Submit
+          a value only while ci_passing fails.
       rationale:
         type: string
         description: What was fixed or why CI failures are unresolvable
@@ -1643,27 +1783,25 @@ states:
       # A child materialized by /execute lands its own pull request and must not
       # cascade: the chain is finalized once per plan, not once per issue in it,
       # and a child that cascaded would race its siblings to delete the PLAN
-      # they are still working from.
+      # they are still working from. Green CI routes with no evidence.
       - target: cascade_entry
         when:
-          ci_outcome: passing
           gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 0
-          session_role: root
+          gates.is_root.exit_code: 0
       # A child stops here, and stops silently. It never reaches cascade_entry,
       # so it never runs the anchor search and never sees a cascade directive.
       - target: done
         when:
-          ci_outcome: passing
           gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 0
-          session_role: child
+          gates.is_root.exit_code: 1
       # A DIRTY pull request stops, and stops explicitly, with a reason that
       # names the merge conflicts: GitHub runs no checks on one, so the CI gate
       # alone would read it as green.
       - target: done_blocked
         when:
-          ci_outcome: passing
+          gates.ci_passing.exit_code: 0
           gates.merge_state_clean.exit_code: 1
         context_assignments:
           failure_reason: "ci_monitor: the pull request is DIRTY — it has merge conflicts, and GitHub creates no check-runs for one, so a green-looking CI gate means nothing here. Resolve the conflicts and re-run."
@@ -1671,24 +1809,19 @@ states:
       # than finishing, so the gates poll CI on the new push before anything
       # can reach done: the skill promises a pull request with passing CI,
       # and a fix nobody re-checked does not keep that promise. The directive's
-      # retry cap bounds the loop.
+      # retry cap bounds the loop. Both evidence edges name ci_passing's
+      # failure, which is when they apply and what lets koto prove them
+      # exclusive of the green ones.
       - target: ci_monitor
         when:
+          gates.ci_passing.exit_code: 1
           ci_outcome: failing_fixed
       - target: done_blocked
         when:
+          gates.ci_passing.exit_code: 1
           ci_outcome: failing_unresolvable
         context_assignments:
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
-      # Anything no edge above takes stops the run rather than finishing it.
-      # No known submission reaches it today: `passing` on red CI holds the
-      # state on the failing gate (ci-monitor-role_test.sh pins that), and a
-      # missing session_role is refused as bad evidence. It is the safe
-      # default for the day an edge above changes: reaching done from here
-      # would report success on CI nobody saw green.
-      - target: done_blocked
-        context_assignments:
-          failure_reason: "ci_monitor: the submission matched no route, so CI was never seen green and the run stopped rather than report success. Check the pull request's CI and finish it in a new run."
 
   cascade_entry:
     # Decides whether this run has a document chain to finalize, and routes past
@@ -2074,26 +2207,23 @@ skips this state through `skip_if` and you submit nothing here.
 This state assesses whether the codebase has moved on since the issue was opened.
 The gate runs shirabe's own staleness check against issue {{ISSUE_NUMBER}}, and
 the check's exit status is its verdict. What it measures, and the thresholds, are
-in `references/staleness-signals.md`. A passing gate does not advance the
-workflow by itself: this state requires evidence in every case.
+in `references/staleness-signals.md`. koto routes on that verdict itself, so on
+every answered path you submit nothing and the run has already moved on by the
+time you read this:
 
-Read the gate's `exit_code` from the blocking condition (a passing gate shows
-none) and submit the value it calls for:
-
-- **passed (exit 0)**: fresh. Submit `staleness_signal: fresh`.
-- **exit 1**: stale. Submit `staleness_signal: stale_requires_introspection`; the
-  run re-reads the issue against current code in `introspection`.
+- **exit 0**: fresh. The run goes to `analysis`.
+- **exit 1**: stale. The run goes to `introspection`, which re-reads the issue
+  against current code.
 - **exit 3, or -1 (koto could not run the gate to completion: it timed out or
   failed to start)**: unavailable. The check could not reach a verdict: the
   plugin root was not passed, `gh` is unauthenticated or unreachable, or a read
-  failed. Submit `staleness_signal: unavailable` with the
-  reason in `detail`. The run continues to analysis with staleness recorded as
-  not assessed. This is not an override; nobody chose to skip the check.
-- **exit 2**: the gate passed the check a bad argument, which is a template
-  defect. Submit `staleness_signal: blocked` with the detail.
+  failed. The run goes to `analysis` with staleness not assessed. This is not
+  an override; nobody chose to skip the check.
 
-`fresh` is accepted only on a passing gate and `unavailable` only on exit 3 or
--1; on any other exit status either one leaves the workflow here.
+You only see this state on **exit 2**: the gate passed the check a bad argument,
+which is a template defect. Submit `staleness_signal: blocked` with the detail,
+or `staleness_signal: override` only when the user explicitly said to skip the
+staleness check.
 
 For the check's reasons (the signals it measured, or why it was unavailable),
 run it yourself and read its JSON report:
@@ -2102,13 +2232,9 @@ run it yourself and read its JSON report:
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/check-staleness.sh" --issue {{ISSUE_NUMBER}}
 ```
 
-Two values don't depend on the gate. Submit `staleness_signal: override` only
-when the user explicitly said to skip the staleness check, and
-`staleness_signal: blocked` when the run has to stop here.
-
-Evidence schema:
-- `staleness_signal`: `fresh`, `stale_requires_introspection`, `unavailable`, `override`, or `blocked`
-- `detail`: why the check was unavailable, the override reason, or the blocking detail
+Evidence schema (exit 2 only):
+- `staleness_signal`: `override` or `blocked`
+- `detail`: the override reason, or the blocking detail
 
 ## introspection
 
@@ -2325,50 +2451,51 @@ Retry cap: retries from this panel share the run's blocking retries with scrutin
 
 ## verification
 
+koto runs this state itself. The procedure is the definition-of-done gate:
+
 Run the definition-of-done gate. See the `## Definition of Done` section of SKILL.md
 for the full procedure: read the project's verification map, classify the issue's
 changed files against it, run each matched command (or the default test command when
 nothing matches), and require every run to pass.
 
+On entry koto starts it with `run-verification.sh --start`, which reads the
+verification map committed at the merge-base with the default branch, selects the
+commands for this branch's changed files, and starts them in a bounded, detached
+supervisor. The `verification_verdict` gate runs `check-verification.sh --verdict`
+on the result and koto routes on it, with no evidence from you:
+
+- **exit 0**: every selected command ran and passed. The run goes to `finalization`.
+- **exit 1**: a command ran and did not pass. The run returns to `implementation`
+  to fix the failure, and koto clears the panel results and `summary.md` as it
+  enters there, so the panels judge the fixed code.
+- **exit 3**: no verification map at the merge-base, a map that does not parse, or
+  a map that selects nothing for this change. Fails closed at `done_blocked`.
+- **exit 4**: a command needs a person (`unattended: false`), timed out, grew past
+  its `max_procs`, could not start, or tracked files had uncommitted changes.
+  Fails closed at `done_blocked`.
+- **exit 75**: no result for this head yet. The gate is pending: koto re-checks it
+  every 15 seconds for up to eight minutes of one tick, and the response says when
+  to tick again (`poll.retry_after_secs`). Tick again with
+  `koto next {{SESSION_NAME}} --no-cleanup`, submitting nothing; the wait lasts up to
+  two hours.
+- **exit 2**: the result could not be read. The state holds.
+
+Commit everything before ticking into this state: a tracked file with uncommitted
+changes is exit 4, since the paths selected and the code tested would differ.
+
 Announce which commands ran and their results.
+They are in the result koto records as `verification_results.json` (`koto context get {{SESSION_NAME}} verification_results.json`):
+each command's id, argv, exit status, duration, and whether it timed out or was
+killed for runaway growth. Each command's log is beside it, under
+`${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/{{SESSION_NAME}}/<head>/`.
 
-Submit `verification_outcome: passed` only when every command ran and passed. Submit
-`failed` when a command ran and did not pass — this returns to implementation to fix
-the failure. Submit `cannot_verify` when verification cannot be determined (no map
-entry matched and no usable default, or a command could not run); this fails closed
-and does not advance toward a clean finalization. Always include `commands_run` so the
-evidence records what executed, not merely what was declared.
+If koto could not start the run (the action's fallback is shown above), or the gate
+holds on exit 2 and the cause can't be fixed, submit `verification_status: blocked`
+with the reason in `detail`. The run stops at `done_blocked`.
 
-On `failed`, clear the artifacts the return trip invalidates before submitting. The run
-goes back to implementation and, for a code-typed issue, walks forward through the panels
-its review level names again — each gated on `context-exists` over a verdict about the
-code that is about to change. Run this instead of a bare `koto next`:
-
-```bash
-OUTCOME_FIELD=verification_outcome
-for KEY in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
-  koto context remove <WF> "$KEY" >/dev/null 2>&1
-  REMOVE_STATUS=$?
-  if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
-    echo "$KEY was not confirmed cleared from context."
-    echo "The stale artifact may still be in place, and its gate may accept it."
-    echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
-    echo "To stop the run, submit verification_outcome: cannot_verify."
-    exit 1
-  fi
-done
-koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"failed\", \"commands_run\": \"<what ran>\"}" --no-cleanup
-```
-
-The check is on both signals deliberately: `koto context exists` cannot tell a key that
-is absent from a store it cannot read, so `remove` reporting failure is the only signal
-that survives an unreadable store. See `references/phases/phase-4a-scrutiny.md` for the
-full reasoning, which is identical here.
-
-Evidence schema:
-- `verification_outcome`: `passed`, `failed`, or `cannot_verify`
-- `commands_run`: the commands selected and run, with each command's pass/fail result
-- `detail`: failure detail, or why verification could not be determined
+Evidence schema (only when the run can't settle):
+- `verification_status`: `blocked`
+- `detail`: why verification could not run or be read
 
 ## finalization
 
@@ -2411,6 +2538,13 @@ Fix that one artifact with `koto context add` and submit `ready_for_pr` again:
 - `diagram_referent` failed: write `design_diagram: docs/<path>.md` for a file
   committed in `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`, in
   `pre_pr.md`.
+- `commit_convention` failed: a commit this run made (`impl_base..HEAD`, merge
+  commits skipped) has a subject that is not a Conventional Commits subject, or
+  carries an AI-attribution trailer. Its findings name the commit and the rule
+  (`commit/conventional-subject` or `commit/no-ai-trailer`); reword that commit
+  and submit again. An exit 2 means the check could not decide; run
+  `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --session "{{SESSION_NAME}}"`
+  for the reason.
 
 `koto context add` replaces the whole key, so rewrite `pre_pr.md` with both
 lines, not just the one that failed.
@@ -2455,7 +2589,9 @@ Halt and surface the specific unmet criterion to the human as an explicit decisi
   `cleanup_referent` needs `cleanup_commit: <sha>` in `pre_pr.md`, naming a
   commit that is `HEAD` or an ancestor of it;
   `diagram_referent` needs `design_diagram: docs/<path>.md` for a file in
-  `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`, in `pre_pr.md`.
+  `HEAD`'s tree, or `design_diagram: not-applicable: <reason>`, in `pre_pr.md`;
+  `commit_convention` needs every commit this run made to carry a Conventional
+  Commits subject and no AI-attribution trailer, as the `finalization` section says.
   For why a referent gate failed, run its check by hand as the `finalization`
   section says; the same stop rule applies when the check itself can't run.
 - If the human **rejects** the deferral: the issue is not done. Submit
@@ -2498,18 +2634,25 @@ spelling.
 If an obligation cannot be met, submit `pre_pr_status: blocked` instead of
 recording a referent you cannot stand behind.
 
-The gates check the summary's shape, the tip commit's subject against
+The gates check the summary's shape, every commit's subject (`commit_convention`, through `check-branch-output.sh --commits`) against
 Conventional Commits, and the two referents. A failing one stops the run before
-the pull request is opened, with the reason naming which. The shape and referent
+the pull request is opened, with the reason naming which. The shape, commit and referent
 checks already held at `finalization`, so here they are the backstop. The tip
 moving after finalization doesn't invalidate `cleanup_commit`: a commit that was
 `HEAD` then is an ancestor of `HEAD` now.
 
 ## pr_precheck
 
-Reading the branch this work is on, before the pull request is opened. koto runs the read itself on entry; you only see this state if it could not.
+Reading the branch this work is on, before the pull request is opened. koto runs the read itself on entry; you only see this state if it could not, or if a gate below holds.
 
 The gate beside it refuses the default branch. It is the last check before a pull request exists, and the only one at that point.
+
+Two more gates check what the branch carries, and both hold the state until they pass, naming the failing gate with a `::koto-finding::` per violation:
+
+- `branch_wip_clean` runs `check-branch-output.sh --wip`: no path under `wip/` in `HEAD`'s tree (`branch/no-wip-files`). Remove the files, commit, and tick again.
+- `branch_docs_visibility` runs `check-branch-output.sh --docs-visibility --session {{SESSION_NAME}}`: every `docs/` document this run changed passes `shirabe validate` at the repository's declared visibility (`docs/private-only-type`, `docs/visibility-vision-sections`, `docs/visibility-strategy-sections`). Fix the document, commit, and tick again.
+
+An exit 2 from either means the check could not decide (a missing `shirabe` or `jq`, an unreadable range); run the command by hand, through `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh`, for the reason. On `SHARED_BRANCH` both pass at once: this child opens no pull request, and `/execute` checks the shared branch before it finalizes its own.
 
 The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so neither recovers it again.
 
@@ -2530,6 +2673,17 @@ Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it 
 
 `gh pr create` stays with you, permanently: its successful exit is the externally visible event -- reviewers notified, a number allocated, automation triggered -- and closing the pull request afterwards undoes its state and not the notifications.
 
+`pr_status: created` advances only when the `pr_body_conformant` gate passes. It
+runs `check-pr-output.sh --pr-body`, which reads the pull request's title and body
+from GitHub and checks them with `shirabe validate --pr-body` against the PR-body
+conformance rules (`references/pr-body-conformance.md`). On a violation the state
+holds and each finding names the rule (`pr-body/conventional-title`,
+`pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1`, or
+`pr-body/conformance`): fix the title or body with `gh pr edit` and submit
+`pr_status: created` again. An exit 2 means the check could not decide (no pull
+request for the branch, `gh` or `shirabe` missing); run
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body` for the reason.
+
 Retry cap: self-loop with `creation_failed_retry` up to 3 times. After 3, use
 `creation_failed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number.
@@ -2538,26 +2692,24 @@ attempt counts, with the same number.
 
 Read `references/phases/phase-6-pr.md` for CI monitoring.
 
-Submit `session_role` alongside `ci_outcome`, asking the discriminator rather
-than judging it yourself:
+koto routes green CI itself, so on the passing path you submit nothing. With
+every check on the current head green and the pull request not DIRTY, the
+`is_root` gate decides where the run goes: it runs
+`"{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" {{SESSION_NAME}}`, which
+reads koto's own `parent_workflow`, and passes only when it prints exactly `root`.
+A root goes on to `cascade_entry`; anything else, a child or an answer the script
+could not give, goes to `done`. That is the safe direction: a child that wrongly
+stops has landed its pull request and left the chain for the run that owns it,
+while a child that wrongly cascades deletes a PLAN its siblings are still working
+from. A DIRTY pull request stops at `done_blocked`, since GitHub runs no checks on
+one.
 
-```bash
-${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh {{SESSION_NAME}}
-```
-
-It prints `root` or `child`, reading koto's own `parent_workflow`. Test
-positively for `root`: on a usage error it exits 2 having printed nothing, and
-anything that is not exactly `root` is `child`. Submitting `child` when unsure is
-the safe direction — a child that wrongly stops has landed its pull request and
-left the chain for the run that owns it, while a child that wrongly cascades
-deletes a PLAN its siblings are still working from.
-
-Submit `passing` only once every check on the current head is green. If the
-gate fails, fix what you can, push, and submit `ci_outcome: failing_fixed`: the
-run comes back to this state, and you submit again once the checks on the new
-push have finished. A `passing` the CI gate refuses holds this state and names
-the gate; wait for the checks and submit again.
+While checks are still running the state holds on `ci_passing`; tick again once
+they finish. If the gate fails, fix what you can, push, and submit
+`ci_outcome: failing_fixed`: the run comes back to this state, and the gates
+re-check CI on the new push.
 If unresolvable, submit `ci_outcome: failing_unresolvable` with rationale.
+Both values are accepted only while `ci_passing` fails.
 
 Retry cap: 3 fix pushes. When CI is still failing after the third, submit
 `ci_outcome: failing_unresolvable` with rationale, which ends the run at

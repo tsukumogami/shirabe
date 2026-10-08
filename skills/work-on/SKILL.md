@@ -58,14 +58,23 @@ Done is verified by execution, not by the presence of a verification artifact. A
 verification command that exists but was not run does not count — the gate runs the
 command and requires a passing result.
 
-The gate reads the project's **verification map** from the extension file
-(`.claude/shirabe-extensions/work-on.md`). The map's schema — path-globs bound to
-command(s), an optional default test command, and the fail-closed contract — is defined
-in `references/verification-map.md`. Read that reference for the schema; this section
+koto runs the gate itself; the agent neither runs the commands nor reports their
+outcome. On entry, the state's default action, `scripts/run-verification.sh --start`,
+starts the selected commands in a bounded, detached supervisor and returns at once,
+and the `verification_verdict` gate, `scripts/check-verification.sh --verdict`, is a
+`poll:` gate that waits on the result and routes on it. A pending result is a wait,
+not a failure: tick again when the response says to.
+
+The gate reads the project's **verification map**, committed as
+`.claude/shirabe-extensions/verification-map.json` and read at the merge-base with the
+default branch, so a branch that edits the map is still verified by the map it started
+from. The map's schema — path-globs bound to command(s), a default list, the bounds on
+each command, and the fail-closed contract — is defined in
+`references/verification-map.md`. Read that reference for the schema; this section
 does not restate it. The map's commands are the project's own; never derive a command
 from issue text or any other untrusted input.
 
-Run the gate as follows:
+The gate runs as follows:
 
 1. **Classify the diff.** Take the issue branch's changed files (`git diff` against the
    base) and match each against the map's path-globs. Matches are additive: a file
@@ -87,6 +96,13 @@ Outcomes:
 - **Cannot-verify** — no map entry matched and no usable default exists, or a selected
   command could not run. This **fails closed**: it must never read as "verified" and
   never silently advances. It halts as a blocking condition that surfaces to the human.
+
+The verdict's exit status carries the outcome: 0 passed, 1 failed, 3 no map (or a map
+that does not parse, or selects nothing) and 4 a command that needs a person, timed
+out, grew past its process bound, could not start, or a dirty tree — both of the last
+two cannot-verify, ending at `done_blocked`. Each violation names its rule
+(`verification/...`) in a koto finding, and the result is recorded in context as
+`verification_results.json`.
 
 ### Finalization and No Silent Deferral
 
@@ -309,8 +325,8 @@ leg, since one leg answers one session.
 - `scripts/session-role.sh <session-name>` — prints `root` or `child`, from
   koto's `parent_workflow`. The discriminator for any `/work-on` behaviour that
   must differ between a directly-invoked run and one materialized as a child of
-  `/execute`; its one caller today is `ci_monitor`, whose `session_role`
-  evidence sends a root to the cascade and a child to `done`. Call it as
+  `/execute`; its one caller today is `ci_monitor`'s `is_root` gate, which
+  sends a root to the cascade and a child to `done`. Call it as
   `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/session-role.sh <WF>`, and
   **treat any answer that is not exactly `root` as `child`** — that is what
   makes its fail-safe hold. The script's header covers calling it from a
@@ -354,10 +370,20 @@ leg, since one leg answers one session.
   directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
   64 the record could not be read or is malformed, 66 the grant could not be
   recorded, 67 bad arguments; every exit but 0 means escalate.
+- `scripts/check-branch-output.sh`, `scripts/check-pr-output.sh`,
+  `scripts/run-verification.sh` and `scripts/check-verification.sh` — the
+  output gates, run by koto, never by the agent: `commit_convention` at
+  `finalization`, `deferral_approval` and `pre_pr_evidence`, `branch_wip_clean`
+  and `branch_docs_visibility` at `pr_precheck`, `pr_body_conformant` at
+  `pr_creation`, and the launcher and `verification_verdict` at `verification`.
+  Exit 0 passes, 1 is a violation with a `::koto-finding::` line naming its rule,
+  2 could not decide. Run one by hand for the reason a gate holds; each header
+  has the details.
 - `scripts/retry-clearing_test.sh`, `scripts/terminal-retention_test.sh`,
   `scripts/ci-monitor-role_test.sh`, `scripts/record-changed-paths_test.sh`,
-  `scripts/work-on-open_test.sh`, `scripts/panel-retry-budget_test.sh` — the
-  harnesses; see each file's header.
+  `scripts/work-on-open_test.sh`, `scripts/panel-retry-budget_test.sh`,
+  `scripts/output-gates-routing_test.sh` — the harnesses; see each file's
+  header.
 
 ### Execution Loop
 
