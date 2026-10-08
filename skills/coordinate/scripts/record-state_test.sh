@@ -6,9 +6,11 @@
 # Covers: --list on a record with none of the sections; Run's keys, a cap and
 # arguments, a new coordinator clearing every told row; --told needing a
 # coordinator and refusing a second time; a Standing row with owner and
-# relayer, its id, --end removing it, and an id never reused; a person's
+# relayer, its id, --end removing it, an id never reused, and an unreadable
+# entry stream refusing a new id; a person's
 # event relayed from an unmarked comment; Work rows for a holding (which also
-# records its worker as told) and for a local agent, upserted, --done, and a
+# records its worker as told on its first row only, not on a later update
+# after an address change) and for a local agent, upserted, --done, and a
 # holding's row dropped once its holding is gone; each change told as an
 # entry after the body; refusals (a holding row for no holding, a malformed
 # cap, a session-shaped address, a private repository on a public host); the
@@ -73,12 +75,16 @@ eq "  ... the row is gone" "s1" "$(live | jq -r '[.standing[].standing] | join("
 bash "$RS" "${W[@]}" --standing go-ahead --what "release v0.25.0" --owner "the human" --relayed-by "the process owner" >/dev/null 2>"$T/err"
 eq "an ended id is never reused" "s1 s3" "$(live | jq -r '[.standing[].standing] | join(" ")')"
 bash "$RS" "${W[@]}" --end s9 --by x >/dev/null 2>"$T/err"; eq "ending an unknown row is refused" 65 $?
+db '.fail = [{match: "comments?per_page", rc: 1, stderr: "gh: boom"}]'
+bash "$RS" "${W[@]}" --standing approval --what x --owner y >/dev/null 2>"$T/err"; eq "an unreadable entry stream refuses a new Standing id (2) rather than risk reusing one" 2 $?
+eq "  ... and writes nothing" "s1 s3" "$(live | jq -r '[.standing[].standing] | join(" ")')"
+db '.fail = []'
 
 echo "== the relay duty: a person's unmarked comment =="
-db '.comments = ((.comments // []) + [{repo: "acme/widgets", number: 7, id: 3001, body: "Hold the koto release until the offload lane lands.",
+db '.comments = ((.comments // []) + [{repo: "acme/widgets", number: 7, id: 3001, body: "Hold the koto release until the other lane lands.",
     user: "alice", created_at: "2026-10-07T20:00:00Z", updated_at: "2026-10-07T20:00:00Z"}])'
 entries | jq -e 'all(.[]; .id != 3001)' >/dev/null && ok "the reader drops a person's unmarked comment" || bad "the reader drops a person's unmarked comment" "$(entries)"
-bash "$RS" "${W[@]}" --standing answer --what "hold the koto release until the offload lane lands" --owner alice --relayed-by lane-v2 >/dev/null 2>"$T/err"
+bash "$RS" "${W[@]}" --standing answer --what "hold the koto release until the other lane lands" --owner alice --relayed-by lane-v2 >/dev/null 2>"$T/err"
 eq "the coordinator relays it, the person as owner and itself as relayer" "answer alice lane-v2" \
     "$(live | jq -r '.standing[-1] | "\(.kind) \(.owner) \(.relayed_by)"')"
 entries | jq -e 'any(.[]; .kind == "answer" and (.text | test("Owner: alice\\. Relayed by lane-v2\\.")))' >/dev/null \
@@ -93,7 +99,7 @@ bash "$RS" "${W[@]}" --work "Feature 9" --kind holding --who worker-f9 --next x 
 bash "$RS" "${W[@]}" --work "fix for the ablation check" --kind local-agent --who "local agent" --next "ready report, then the merge" >/dev/null 2>"$T/err"
 eq "local-agent work gets a row" 0 $?
 bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "fix round on the panel's finding" >/dev/null 2>"$T/err"
-eq "a next step is replaced, not added" "fix round on the panel's finding 2" "$(live | jq -r '(.work[] | select(.item == "Feature 2") | .next), (.work | length)' | paste -sd' ')"
+eq "a next step is replaced, not added" "fix round on the panel's finding 2" "$(live | jq -r '"\(.work[] | select(.item == "Feature 2") | .next) \(.work | length)"')"
 bash "$RS" "${W[@]}" --done "fix for the ablation check" >/dev/null 2>"$T/err"; eq "--done removes a row" 1 "$(live | jq '.work | length')"
 bash "$RS" "${W[@]}" --done nothing >/dev/null 2>"$T/err"; eq "--done on no row is refused" 65 $?
 # The holding goes (a teardown, through the holdings writer); the next write drops its row.
@@ -142,7 +148,12 @@ bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x 
 bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
 eq "a new address leaves every live worker untold" "no-next-step Feature 3 not-told worker-f2 not-told worker-f3" \
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
+bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "an update after the new address" >/dev/null 2>&1
+eq "a later Work update doesn't mark its worker told the new address" "no-next-step Feature 3 not-told worker-f2 not-told worker-f3" \
+    "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
+eq "a holding's first Work row does, since its dispatch brief named the address" "not-told worker-f2" \
+    "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
 bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is told and has a next step" 0 $?
 # A merged holding (a Verified head, its Pull request cleared) is exempt.

@@ -122,9 +122,11 @@ entry "See https://github.com/acme/secret/pull/3 for why."
 bash "$RA" "${RM[@]}" --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "  ... as a link too" 65 $?
 entry "Waiting on acme/gadgets#346, which is public."
 bash "$RA" "${RM[@]}" --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "a public repository is fine" 0 $?
-entry "The log is in /home/someone/run.log."
+# The fixtures below are built at run time, so the repository never carries a
+# home-directory path or a token-shaped string itself.
+entry "The log is in /ho""me/someone/run.log."
 bash "$RA" "${RM[@]}" --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "a home-directory path is refused" 65 $?
-entry "token ghp_abcdefghijklmnopqrstuvwxyz0123 leaked"
+entry "token gh""p_abcdefghijklmnopqrstuvwxyz0123 leaked"
 bash "$RA" "${RM[@]}" --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "a token-shaped string is refused" 65 $?
 grep -q ghp_ "$T/err" && bad "  ... without echoing it" "$(cat "$T/err")" || ok "  ... without echoing it"
 db '.repos["acme/widgets"].private = true'

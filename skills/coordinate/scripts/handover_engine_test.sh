@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # handover_engine_test.sh -- a replacement coordinator started from the record
 # alone, the shipped coordinate.md driven through real koto against the
-# testdata/gh stand-in (docs/designs/current/DESIGN-coordinate-record-container.md,
+# testdata/gh stand-in (docs/designs/DESIGN-coordinate-record-container.md,
 # Decision 3).
 #
-# The fixture is the shape of the 2026-09-29 handover in which a coordinator
-# was replaced by a second session: two workers in flight, one with a pull
+# The fixture is the shape of a real handover, on 2026-09-29, in which a
+# replacement coordinator took over a run from a second session to cut its
+# context cost: two workers in flight, one with a pull
 # request; a fix a local agent was building that no holding covers; a standing
 # answer the human gave through the process owner; a hold on a merge; the cap
 # the human lowered to one; and the old coordinator's address, which both

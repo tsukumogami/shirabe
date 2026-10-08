@@ -2,7 +2,7 @@
 # record-handover.sh -- the stored set a replacement coordinator continues
 # from, read from the record alone, and its gaps. A read; the `reconcile`
 # state's handover gate runs it with --check
-# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3).
+# (docs/designs/DESIGN-coordinate-record-container.md, Decision 3).
 #
 # Usage:
 #   record-handover.sh --session S [--check]
@@ -20,7 +20,10 @@
 # A live holding is one dispatched and not merged: a row whose Dispatch status
 # is `dispatched` and that doesn't carry a Verified head with a blank Pull
 # request (merged, waiting for its teardown, so its worker has nothing left to
-# report). Each fix is the record-state.sh call that closes the gap.
+# report). A `dispatching` row is left out: its worker may not have started,
+# and the reconcile pass settles it to `dispatched` (or dispatch-failed) from
+# the listing before this gate runs, so a launched worker is checked from the
+# next start on. Each fix is the record-state.sh call that closes the gap.
 #
 # With --check nothing is printed on success; the gaps go to stderr.
 #
