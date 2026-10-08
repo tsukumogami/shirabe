@@ -71,8 +71,9 @@
 #      id ^[a-z][a-z0-9-]*$, repositories owner/repo, issues a comma-joined
 #      list of numbers); in the node and order modes, read the PLAN's nodes
 #      through plan-to-tasks.sh and render the merge-order block (node mode
-#      also refuses a PLAN that has no node named --node), all before
-#      anything is pushed or edited;
+#      also refuses a PLAN that has no node named --node, and reads each
+#      --issues work item's goal from the PLAN into the node's description),
+#      all before anything is pushed or edited;
 #   (the order mode skips steps 2, 3, 5, 6, the node-branch check in 4, and
 #   the index half of 7)
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
@@ -90,19 +91,25 @@
 #      repository's visibility live (coord_node_visibility): a private node
 #      under a public coordination PR is refused with 77, and a public node
 #      under a private one has its commits since the default branch (added
-#      lines and messages) scanned for the public-content markers, a hit or a
-#      failed scan refused with 78; nothing pushed either way;
+#      lines and messages) and the node's description scanned for the
+#      public-content markers, a hit or a failed scan refused with 78;
+#      nothing pushed either way;
 #   5. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
 #      force option;
 #   6. node mode: find the node's owned PR on impl/<slug>-<node-id>. One
 #      survivor is adopted. Zero survivors open a draft PR against the default
-#      branch, titled `feat(<slug>): <node-id>`, with a body from a fixed
-#      template of the node id, the work-item ids, and the coordination PR's
-#      link (and the run's marker line), passed with --body-file; the link is
-#      left out when the node's repository is public and the coordination
-#      PR's is private, so a public PR never points into a private one -- unless
-#      the index already names a PR for this node, which must then be adopted,
-#      and zero survivors refuse;
+#      branch, titled `<type>(<slug>): <node-id>`, with a two-part body passed
+#      with --body-file: the node's description (each work item's goal from
+#      the PLAN), one top-level `---`, then the fixed fields (the node id,
+#      the work-item ids, and the coordination PR's link) and the run's marker
+#      line last. The type is `docs` when every file the node changes against
+#      the default branch is under docs/ or a Markdown file at the repository
+#      root, `feat` otherwise. The link is left out when the node's
+#      repository is public and the coordination PR's is private, so a public
+#      PR never points into a private one. `shirabe validate --pr-body` with
+#      --pr-title checks the body and title first, and a refusal creates
+#      nothing. Unless the index already names a PR for this node, which must
+#      then be adopted, and zero survivors refuse;
 #   7. rewrite the body's `## PR Index` line for the node (replacing it, or
 #      adding it) and keep every other line, the run marker included; in the
 #      node and order modes replace the `## Merge Order` section with the
@@ -127,19 +134,21 @@
 #       an indexed node PR; or the node branch's PR is another run's, or one of
 #       several (checked before the push, so nothing is pushed then) (the
 #       caller's execute:pr-adopt)
-#   74  shirabe validate --coordination-body refused the new body; nothing
-#       was edited
+#   74  shirabe validate --coordination-body refused the new body, nothing
+#       was edited; or (node mode) shirabe validate --pr-body refused a new
+#       node PR's body or title, and no PR was created
 #   75  gh pr create or gh pr edit failed
 #   76  node or order mode: plan-to-tasks.sh could not read the PLAN, the
 #       PLAN is not coordinated (a node without NODE_KIND pr or gate), or
-#       (node mode) the PLAN has no node named --node; nothing was pushed or
-#       edited
+#       (node mode) the PLAN has no node named --node or a work item's goal
+#       could not be read from it; nothing was pushed or edited
 #   77  node mode: the node's repository is private and the coordination
 #       PR's is public; nothing was pushed or edited (the caller's
 #       execute:visibility)
 #   78  node mode: a public node under a private coordination PR whose
-#       commits carry private-repository markers, or whose commits the check
-#       couldn't read; nothing was pushed or edited (execute:visibility)
+#       commits or description carry private-repository markers, or whose
+#       commits the check couldn't read; nothing was pushed or edited
+#       (execute:visibility)
 #   79  node mode: the node names a repository other than the coordination
 #       PR's, but this worktree shares the coordination checkout's git
 #       directory (a node cut without node-cut.sh --repo-dir) or its push
@@ -229,6 +238,7 @@ else
     ENTRY_REPO="$HOME_REPO"
 fi
 command -v jq >/dev/null || { echo "$PROG: jq is not on PATH" >&2; exit 72; }
+SHIRABE="${SHIRABE_BIN:-shirabe}"
 
 # 1. The merge order, rendered from the PLAN before anything is pushed.
 ORDER_BLOCK=""
@@ -259,6 +269,81 @@ if [ "$MODE" != coordination ]; then
         printf '%s\n' "$ORDER_LINES"
         printf '```'
     )
+fi
+
+# work_item_goal <number> -- one work item's goal from the PLAN, on one line:
+# an outline's `**Goal**:` text (`### Issue <n>:` under `## Issue Outlines`),
+# else the italic summary row under its `[#<n>: <title>](...)` row in
+# `## Implementation Issues` (annotation rows, `^_..._`, are not summaries),
+# else that row's title. Prints nothing when the PLAN names no such item.
+# Fenced blocks are skipped, so an example in the PLAN is never read as one.
+work_item_goal() {
+    awk -v n="$1" '
+        function flat(s) { gsub(/[[:space:]]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }
+        /^[[:space:]]*(```|~~~)/ { fence = !fence; next }
+        fence { next }
+        /^## / { sec = flat($0); inblk = 0; ingoal = 0; inrow = 0; next }
+        sec == "## Issue Outlines" && /^### / {
+            ingoal = 0
+            inblk = (index($0, "### Issue " n ":") == 1)
+            next
+        }
+        inblk {
+            line = $0
+            if (ingoal && (line ~ /^[[:space:]]*$/ || line ~ /^[[:space:]]*(\*\*|#|---)/)) ingoal = 0
+            if (ingoal) { goal = goal " " line; next }
+            if (line ~ /^[[:space:]]*\*\*Goal\*\*:/ && goal == "") {
+                sub(/^[[:space:]]*\*\*Goal\*\*:/, "", line)
+                goal = line; ingoal = 1
+            }
+            next
+        }
+        sec == "## Implementation Issues" && /^[[:space:]]*\|/ {
+            cell = $0
+            sub(/^[[:space:]]*\|[[:space:]]*/, "", cell)
+            if (substr(cell, 1, 1) == "[") {
+                inrow = (index(cell, "[#" n ":") == 1)
+                if (inrow && title == "") {
+                    t = substr(cell, length("[#" n ":") + 1)
+                    p = index(t, "](")
+                    if (p > 0) title = substr(t, 1, p - 1)
+                }
+                next
+            }
+            if (inrow && summary == "" && cell ~ /^_/) {
+                sub(/[[:space:]]*\|.*$/, "", cell)
+                if (cell ~ /^_.*_$/ && length(cell) > 2) summary = substr(cell, 2, length(cell) - 2)
+            }
+        }
+        END {
+            goal = flat(goal); summary = flat(summary); title = flat(title)
+            if (goal != "") print goal
+            else if (summary != "") print summary
+            else if (title != "") print "Work item " n ": " title "."
+        }
+    ' "$PLAN"
+}
+
+# The node PR's description, rendered in node mode before anything is pushed
+# so the public-content check below can read it: one paragraph per work item,
+# its goal from the PLAN, in --issues order. It becomes the first part of a
+# new node PR's body, the part a squash merge keeps; a PLAN that names none
+# of the items gets a sentence naming the node instead.
+NODE_DESC=""
+if [ "$MODE" = node ]; then
+    OLDIFS=$IFS; IFS=,
+    for item in $ISSUES; do
+        IFS=$OLDIFS
+        g=$(work_item_goal "$item") || {
+            echo "$PROG: could not read work item $item's goal from [$PLAN]; nothing was pushed or edited" >&2
+            exit 76
+        }
+        [ -n "$g" ] && NODE_DESC="${NODE_DESC:+$NODE_DESC
+
+}$g"
+    done
+    IFS=$OLDIFS
+    [ -n "$NODE_DESC" ] || NODE_DESC="Implements node $NODE of the $SLUG coordinated effort, work items $ISSUES."
 fi
 
 # Steps 2 and 3 prepare a branch to push; the order mode pushes nothing.
@@ -358,11 +443,14 @@ if [ "$MODE" = node ]; then
             exit 78
         fi
         grep '^+' "$SCAN_DIR/diff" | grep -v '^+++ ' >>"$SCAN_DIR/text"
+        # The node PR's description comes from the same private PLAN, and a
+        # new node PR publishes it.
+        printf '%s\n' "$NODE_DESC" >>"$SCAN_DIR/text"
         SCAN=0
         grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private' "$SCAN_DIR/text" || SCAN=$?
         rm -rf "$SCAN_DIR"
         case "$SCAN" in
-            0) echo "$PROG: node $NODE lands in a public repository from a private PLAN, and its commits carry private-repository content (a private/ path or a Repo Visibility: Private line); remove it and push again. Nothing was pushed." >&2
+            0) echo "$PROG: node $NODE lands in a public repository from a private PLAN, and its commits or its work items' goals in the PLAN carry private-repository content (a private/ path or a Repo Visibility: Private line); remove it and push again. Nothing was pushed." >&2
                exit 78 ;;
             1) ;;
             *) echo "$PROG: the public-content check could not scan node $NODE's commits (grep exit $SCAN); nothing was pushed" >&2
@@ -408,6 +496,23 @@ if [ "$MODE" != order ]; then
     fi
 fi
 
+# node_type <base-branch> -- the Conventional Commits type of a new node PR:
+# `docs` when every file the node changes against <base-branch> on the remote
+# sits under docs/ or is a Markdown file at the repository root, `feat`
+# otherwise, and `feat` when the files can't be read. Markdown elsewhere is
+# not taken as docs: a skill or a koto template is Markdown, and changing one
+# changes behaviour.
+node_type() {
+    local mb files
+    mb=$(git merge-base HEAD "refs/remotes/$REMOTE/$1") || { echo feat; return 0; }
+    files=$(git diff --name-only "$mb" HEAD) || { echo feat; return 0; }
+    if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -Ev '^docs/|^[^/]+\.md$' | grep -q .; then
+        echo docs
+    else
+        echo feat
+    fi
+}
+
 # post_body -- finish $WORK/body.md and post it: when a merge order was
 # rendered, replace the whole `## Merge Order` section with it (up to the next
 # heading; a body without the section gains it), then validate the body and,
@@ -439,7 +544,6 @@ post_body() {
             && mv "$WORK/body-order.md" "$WORK/body.md" \
             || { echo "$PROG: rendering the merge-order section failed" >&2; exit 64; }
     fi
-    SHIRABE="${SHIRABE_BIN:-shirabe}"
     if ! "$SHIRABE" validate --coordination-body "$WORK/body.md" >&2; then
         echo "$PROG: shirabe validate --coordination-body refused the new body; the coordination PR was not edited" >&2
         exit 74
@@ -483,10 +587,14 @@ if [ "$MODE" = node ]; then
         coord_gh_read REPO_JSON api "repos/$REPO" || exit 72
         BASE=$(printf '%s' "$REPO_JSON" | jq -r 'if type == "object" then (.default_branch // "") else "" end')
         coord_valid_branch "$BASE" || { echo "$PROG: the default branch of $REPO is unusable [$BASE]" >&2; exit 72; }
+        # The body is the two-part shape a squash merge expects: the node's
+        # description, one top-level `---`, then the fixed fields and the
+        # run's marker line, which the stamp appends last.
         # A public node PR links its coordination PR only when that PR is
         # public too: a link from a public PR into a private repository is a
         # public-to-private reference.
         {
+            printf '%s\n\n---\n\n' "$NODE_DESC"
             printf 'Coordinated node `%s` of `%s`.\n\n' "$NODE" "$SLUG"
             printf 'Work items: %s\n' "$ISSUES"
             # Omitted exactly when the home is private and the node public
@@ -501,8 +609,17 @@ if [ "$MODE" = node ]; then
                 exit 75
             }
         fi
+        TYPE=$(node_type "$BASE")
+        TITLE="$TYPE($SLUG): $NODE"
+        # A slug shaped like an issue number is no Conventional Commits scope.
+        RE_ISSUE_SCOPE='^(issue[-_]?)?[0-9]+$'
+        [[ $SLUG =~ $RE_ISSUE_SCOPE ]] && TITLE="$TYPE: $SLUG $NODE"
+        if ! "$SHIRABE" validate --pr-body "$WORK/node-body.md" --pr-title "$TITLE" >&2; then
+            echo "$PROG: shirabe validate --pr-body refused the node PR's title or body; no PR was created" >&2
+            exit 74
+        fi
         OUT=$(gh pr create --repo "$REPO" --draft --base "$BASE" --head "$BRANCH" \
-            --title "feat($SLUG): $NODE" --body-file "$WORK/node-body.md" </dev/null) || {
+            --title "$TITLE" --body-file "$WORK/node-body.md" </dev/null) || {
             echo "$PROG: gh pr create failed" >&2
             exit 75
         }

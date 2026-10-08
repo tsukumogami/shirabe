@@ -52,7 +52,10 @@ STUB
 chmod +x "$CT_BIN/koto"
 # A shirabe stub: --coordination-body passes a body carrying the declaration
 # marker and fails one without it (the check the real validator makes first);
-# --merge-gate passes unless CT_GATE_FAIL is set. Each call is logged.
+# --pr-body passes a body with exactly one top-level `---` line (outside
+# fences) and text above it, and a --pr-title of the form <type>[(scope)]: <x>,
+# and fails otherwise or when CT_PR_BODY_FAIL is set; --merge-gate passes
+# unless CT_GATE_FAIL is set. Each call is logged.
 cat > "$CT_BIN/shirabe" <<'STUB'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "${KOTO_STORE:?}/shirabe-calls.log"
@@ -60,6 +63,17 @@ case "$1 $2" in
     "validate --coordination-body")
         [ -n "${CT_BODY_FAIL:-}" ] && exit 2
         grep -qF 'This is a **coordination PR**' "$3" || exit 2
+        exit 0
+        ;;
+    "validate --pr-body")
+        [ -n "${CT_PR_BODY_FAIL:-}" ] && exit 2
+        awk '/^[[:space:]]*(```|~~~)/ { f = !f; next } f { next }
+             /^---[[:space:]]*$/ { sep++; next }
+             !sep && /[^[:space:]]/ { text = 1 }
+             END { exit !(sep == 1 && text) }' "$3" || exit 2
+        if [ "${4:-}" = --pr-title ]; then
+            printf '%s' "${5:-}" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\([^)]+\))?!?: .' || exit 2
+        fi
         exit 0
         ;;
     "validate --merge-gate")
