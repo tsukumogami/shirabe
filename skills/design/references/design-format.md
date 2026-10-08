@@ -156,8 +156,10 @@ whether the section is genuinely required.
 ## Implementation Issues Ownership
 
 The Implementation Issues table is NOT owned by the DESIGN. It is
-owned by the downstream PLAN, populated during the PLAN's Phase 7
-(single-pr emission) or Phase 7 populate (multi-pr emission).
+owned by the downstream PLAN, which writes it in its Phase 7 when the
+PLAN files issues (a multi-pr PLAN, or a coordinated one at a filing
+tracking level). A single-pr PLAN, and any PLAN at tracking level
+`none`, carries Issue Outlines instead and has no table.
 
 A DESIGN may reference the PLAN's table by anchor (`see
 docs/plans/PLAN-<name>.md#implementation-issues`) or by file path,

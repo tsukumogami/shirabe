@@ -47,6 +47,35 @@
 #   #<N> <title>         on handed-off-multi-pr, each startable item
 #   wip_paths=<comma-separated wip/ paths>
 #
+# What each outcome means:
+#
+#   merged                  every PR the PLAN needs reads MERGED on GitHub,
+#                           coordination PR included, confirmed by /deliver's
+#                           own live read
+#   ready-awaiting-merge    the PRs are open and ready, and at least one is
+#                           unmerged; each is listed with its waiting= value
+#   paused-awaiting-merges  coordinated only: some PR can't start until a
+#                           predecessor merges; resume= gives the command
+#   paused-for-review       interactive only: /execute's review pause, with
+#                           the home PR still draft
+#   scoped                  the author declined the confirmation; next= is
+#                           /deliver <topic>
+#   handed-off-multi-pr     the PLAN is multi-pr, /execute was not started,
+#                           and the startable items follow
+#   scope-ended-early       /scope ended at re-evaluation, abandonment or a
+#                           clean cancel; reason= names which
+#   error                   a step failed; step= names it: /scope's and
+#                           /execute's own steps, scope:refused and
+#                           execute:refused (a child's arguments or attach
+#                           refused), deliver:intent-mismatch,
+#                           deliver:child-outcome (a result /deliver doesn't
+#                           recognise, or a failed re-check),
+#                           deliver:child-absent (a child returned without
+#                           recording a result), deliver:request-abandoned
+#                           (this run's request was abandoned under it), or
+#                           deliver:refused (koto refused this invocation's
+#                           own arguments)
+#
 # Exit codes: 0 lines printed; 64 usage error; 65 the input is not JSON.
 #
 # Requires: bash 3.2+, jq.

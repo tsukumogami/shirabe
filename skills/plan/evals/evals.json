@@ -644,6 +644,19 @@
         "The transcript says no issues are filed because CLAUDE.md declares no tracking level (not because of an approval question to the user)",
         "shirabe validate on the written PLAN exits 0"
       ]
+    },
+    {
+      "id": 44,
+      "name": "phase-7-resume-active-plan-runs-the-skipped-transition",
+      "prompt": "/plan docs/designs/DESIGN-resume-test.md -- An earlier session wrote docs/plans/PLAN-resume-test.md at status Active and stopped before step 7.5: the DESIGN is still at Accepted, and the run's working files under wip/ are all still there. Describe what Phase 7 does on this resume.",
+      "expected_output": "Phase 7's Resume Check finds the PLAN at Active. Because the upstream DESIGN is still at Accepted, the earlier run stopped before step 7.5, so Phase 7 does not skip as already complete: it runs 7.5 (shirabe transition docs/designs/DESIGN-resume-test.md Planned, then shirabe validate --lifecycle-chain on the PLAN) and continues from 7.6. It does not rewrite the PLAN or file anything again.",
+      "files": [],
+      "expectations": [
+        "Transcript does NOT treat the Active PLAN as already complete while the DESIGN is still Accepted",
+        "Transcript runs (or describes) shirabe transition docs/designs/DESIGN-resume-test.md Planned at step 7.5",
+        "Transcript runs (or describes) shirabe validate --lifecycle-chain on the PLAN after that transition",
+        "Transcript continues from step 7.6 and does not rewrite the PLAN or file issues again"
+      ]
     }
   ]
 }

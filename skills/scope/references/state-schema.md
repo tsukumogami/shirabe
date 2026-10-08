@@ -147,13 +147,13 @@ and each is written at the site it was already written at.
   `reason` is drawn from the closed vocabulary in
   `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
   (Chain-tracking). `/scope` writes two of its four members, which
-  instantiate as three reason strings:
+  instantiate as four reason strings:
   `settled-artifact-at-canonical-path-reentry-protection` from
-  Phase 1, and both halves of the `<boundary>-boundary-rejection`
-  pair from Phase 2 — `prd-boundary-rejection` and
+  Phase 1, and the `<boundary>-boundary-rejection` members from
+  Phase 2 — `brief-boundary-rejection`, `prd-boundary-rejection` and
   `design-boundary-rejection`, written when a Reject at a
-  settled-upstream boundary ends the chain and the children below
-  the boundary never run. Those three are the whole set the skill
+  boundary ends the chain and the children below the boundary never
+  run. Those four are the whole set the skill
   writes; the two members `/scope` never writes are
   `upstream-supplied-by-author` and
   `author-declined-at-confirmation-prompt`, both `/charter`'s. A child is never recorded here because
@@ -191,12 +191,13 @@ and each is written at the site it was already written at.
   aborted before mutating, which is a different and much less
   interesting event.
 - **`boundary`** — conditional on `exit: re-evaluation`. Values:
-  `prd | design`. Discriminates which upstream boundary the
+  `brief | prd | design` (`brief` only with the `rejection`
+  sub-shape). Discriminates which upstream boundary the
   Decision Record attaches to. Gated per the state-schema
   reference's Parent-specific conditional fields sub-block.
 - **`decision_record_sub_shape`** — conditional on
   `exit: re-evaluation`. Values: `re-evaluation | rejection`. The
-  second discriminator of the four-combination Decision Record
+  second discriminator of the five-combination Decision Record
   matrix; R9 Part 2's multi-discriminator rule requires both
   `boundary:` and `decision_record_sub_shape:` to be set when
   `exit: re-evaluation` fires.

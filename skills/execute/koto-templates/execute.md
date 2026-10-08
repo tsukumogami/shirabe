@@ -1361,7 +1361,7 @@ rm -f "$TMP"
 
 koto materializes one child per task using `work-on.md` with `failure_policy: skip_dependents`. Children receive `SHARED_BRANCH` and commit directly to it without creating their own branches. When this run was given a review-level bound (`--review-floor`, `--review-ceiling`), every child also receives it as `REVIEW_FLOOR` and `REVIEW_CEILING`; an empty one is left off the task, so a run without the flags builds exactly the tasks it did before.
 
-**What earlier children found reaches later ones through koto, not through a file** (per `docs/decisions/DECISION-contradiction-cross-issue-context-no-consumer-2026-09-28.md`). Every child keeps its session (its ticks carry `--no-cleanup`), so the `summary.md` it wrote at finalization stays readable after it finishes. A later child reads its predecessors' summaries itself, at analysis: `koto workflows --children {{SESSION_NAME}}` names them, and `koto context get <child> summary.md` reads each one that reached `done`, once per child, never polled or re-read in a loop. The read count is deliberately small because each `koto context get` is logged and uploaded as an event. You read no summaries yourself, build no context file, and add nothing to a child's context between children. The child side of this read is `skills/work-on/references/phases/phase-3-analysis.md` (Earlier Children's Summaries); keep the two in sync.
+**What earlier children found reaches later ones through koto, not through a file** (per `docs/decisions/DECISION-contradiction-cross-issue-context-no-consumer-2026-09-28.md`). Every child keeps its session (its ticks carry `--no-cleanup`), so the `summary.md` it wrote at finalization stays readable after it finishes. A later child reads its predecessors' summaries itself, at analysis: `koto workflows --children {{SESSION_NAME}}` names them, the reader skips its own session in that list, and `koto context get <child> summary.md` reads each other one that reached `done`, once per child, never polled or re-read in a loop. The read count is deliberately small because each `koto context get` is logged and uploaded as an event. You read no summaries yourself, build no context file, and add nothing to a child's context between children. The child side of this read is `skills/work-on/references/phases/phase-3-analysis.md` (Earlier Children's Summaries); keep the two in sync.
 
 **Tick 2 — complete**: once all children reach terminal states, the `batch_done` gate unblocks and routes the batch itself. Do not inspect children or choose an outcome, and submit no evidence: the gate sends the batch to `pr_finalization` when every child succeeded, and to `escalate` when any child failed or was skipped (its `needs_attention` field is true). Advance with a bare tick:
 
@@ -1379,8 +1379,9 @@ Author the title and body to the mechanical rule in `references/pr-body-conforma
 
 **1. Build the conventional title.** Derive `<description>` from the **validated PLAN slug** `{{PLAN_SLUG}}`, which koto validates against the template's `variables:` block at compile time and which already matches `^[a-z0-9-]+$`. NEVER interpolate raw PLAN prose (title text, body) into the title or the emitted shell — PLAN-body text is data (Security Considerations point 5); the title is built only from the validated slug.
 
+   - `<type>` is one of `feat`, `fix`, `docs` or `chore`, chosen from what the PLAN's work changed: `docs` when it changed documentation only, `fix` when it repairs broken behaviour, `chore` for maintenance that changes no behaviour, and `feat` otherwise. Set `PR_TYPE` to that literal in the command below; the command falls back to `feat` for any other value, so nothing else ever reaches the title.
    - `<scope>` is optional: omit unless an obvious subsystem applies; NEVER an issue-number scope (`references/pr-body-conformance.md`, PB1).
-   - The result, e.g. `feat: execute-friction`, **replaces** the non-conventional `impl: {{PLAN_SLUG}}` title set at creation.
+   - The result, e.g. `feat: execute-friction` or `docs: execute-friction`, **replaces** the non-conventional `impl: {{PLAN_SLUG}}` title set at creation.
 
 **2. Assemble the two-part body.** Read `koto context get {{SESSION_NAME}} batch_final_view` for per-child outcome data, then build:
 
@@ -1399,6 +1400,8 @@ PR_NUMBER=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
   --head "$(koto context get {{SESSION_NAME}} settled_branch)" --state open \
   --run-id "$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get {{SESSION_NAME}})")
 echo "lookup=$? pr=${PR_NUMBER:-none}"
+PR_TYPE=feat   # feat, fix, docs or chore, per step 1
+case "$PR_TYPE" in feat|fix|docs|chore) ;; *) PR_TYPE=feat ;; esac
 BODY_FILE=$(mktemp)
 cat > "$BODY_FILE" <<'BODY'
 <Part 1: factual change paragraph>
@@ -1419,7 +1422,7 @@ LIVE_FILE=$(mktemp)
 [ -n "$PR_NUMBER" ] \
   && gh pr view "$PR_NUMBER" --json body --jq .body > "$LIVE_FILE" \
   && {{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh carry "$LIVE_FILE" "$BODY_FILE" \
-  && gh pr edit "$PR_NUMBER" --title "feat: {{PLAN_SLUG}}" --body-file "$BODY_FILE"
+  && gh pr edit "$PR_NUMBER" --title "$PR_TYPE: {{PLAN_SLUG}}" --body-file "$BODY_FILE"
 echo "exit=$?"
 rm -f "$BODY_FILE" "$LIVE_FILE"
 ```

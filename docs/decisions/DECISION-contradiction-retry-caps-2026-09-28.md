@@ -52,15 +52,18 @@ the CI instruction to ask the user can't be followed.
 
 The policy owner answered: "one cap per step, but replaced by koto when ready". Each step has one retry cap, stated once in its step's directive: review panels take 2 blocking retries and then escalate, CI repair takes 3 fix pushes and then stops as unresolvable, and an unattended run never asks the user.
 
+The question put to the policy owner did not name the third cap, the one for
+analysis, implementation and pull request creation. The policy owner ruled on
+it separately on 2026-09-28: the third cap is 3.
+
 ## Implementation notes
 
 These notes are execution guidance for the items that apply this decision,
 not the policy owner's words.
 
-- The third cap, 3 for analysis, implementation and pull request creation,
-  was not in the question put to the policy owner. It came from the DESIGN's
-  recommended option by way of the PLAN.
-- The third cap is 3, ruled by the policy owner on 2026-09-28.
+- The number 3 for the third cap first came from the DESIGN's recommended
+  option by way of the PLAN, before the policy owner's ruling under Decision
+  confirmed it.
 - The implementer's reading, not the policy owner's words: the panel cap is 2
   blocking retries per run, shared across scrutiny, review and qa_validation,
   as /work-on's template states it. The answer names 2 retries for review
@@ -89,9 +92,10 @@ not the policy owner's words.
 
 ## Consequences
 
-Until this record merges, the statements it governs stay as they are. After
-it merges, each looping step carries one number in its directive, the other
-restatements go, and no loop asks the user during an unattended run. When
+Each looping step now carries one number in its directive, the other
+restatements are gone, and no loop asks the user during an unattended run;
+the work-on and execute pull requests of the contradiction settlement applied
+this (#557, #545). When
 koto enforces retry caps from its attempt counts, the directive prose becomes
 a deletion candidate and the numbers carry over unchanged.
 

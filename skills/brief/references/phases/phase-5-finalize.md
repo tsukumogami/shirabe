@@ -13,7 +13,9 @@ By the end of Phase 5:
 - The BRIEF's status is `Accepted` in both frontmatter and the body Status section,
   transitioned via the per-skill script.
 - Working artifacts in `wip/` are removed (no committed references to `wip/...`
-  paths remain in the artifact or anywhere else).
+  paths remain in the artifact or anywhere else). Under `/scope`, `/scope`'s
+  cleanup removes them at its own exit, and they are still on disk when this
+  phase ends.
 - A PR is created (or an existing PR on the topic branch is updated), except
   under `/scope`, which publishes at its own exit (see "Under /scope" below).
 
@@ -28,10 +30,11 @@ the Parent-owned-publishing shape in
 
 - 5.2 is asked in an interactive run; an unattended run (`--auto`, from the
   parent's execution mode) takes the recommended option and names it.
-- 5.4 makes no cleanup commit; `/scope`'s cleanup phase removes the topic's
-  `brief_<topic>_*` working files. Its sweep does not cover the jury's verdict
-  files, so the acceptance commit (5.3) or a Reject's discard commit removes
-  those.
+- 5.4 makes no cleanup commit; `/scope`'s cleanup phase and publish untrack
+  remove the topic's `brief_<topic>_*` working files and the jury's verdict
+  files in the research directory.
+- A Reject still makes its discard commit, the signal `/scope` reads, and an
+  unattended run takes it without the confirmation prompt (5.3).
 - 5.5 pushes nothing and creates or edits no pull request.
 - 5.6 asks no routing question: control returns to `/scope`.
 
@@ -40,7 +43,8 @@ the Parent-owned-publishing shape in
 If the BRIEF at `docs/briefs/BRIEF-<topic>.md` already has `status: Accepted`,
 Phase 5 already ran. Verify the wip/ cleanup completed (no `wip/brief_<topic>_*`
 files remain) and exit the workflow. If cleanup is incomplete, resume from step
-5.4.
+5.4. Under `/scope`'s sentinel the working files are still there by design,
+since `/scope` removes them at its own exit: return control to `/scope`.
 
 If the file is still in Draft status but the workflow is in Phase 5, start at step
 5.1.
@@ -125,14 +129,7 @@ verdict: <verdict>", then handles that outcome below.
 2. Remove or empty the Open Questions section if it was present (Open Questions is
    Draft-only per the format reference; Accepted status forbids it).
 
-3. Under `/scope`'s sentinel only, remove the jury's verdict files (the Phase 4
-   files the 5.4 commands below list under `research/`) with `git rm` for a
-   tracked file and `rm -f` for an untracked one, so the acceptance commit
-   carries their removal. `/scope`'s cleanup sweep and its publish step cover the
-   topic's `brief_<topic>_*` working files but not this `research/` prefix, and
-   no cleanup commit of this skill's own follows under the sentinel.
-
-4. Commit the acceptance:
+3. Commit the acceptance:
 
    ```
    docs(brief): accept BRIEF for <topic>
@@ -153,12 +150,13 @@ Proceed to step 5.4 (Cleanup), or, under `/scope`'s sentinel, return control to
 ### If Reject
 
 1. Confirm the rejection with the user one more time — accepting that the BRIEF
-   draft will be deleted.
+   draft will be deleted. An unattended run under `/scope`'s sentinel asks
+   nothing: it already named the verdict it took (5.2).
 2. Run `git rm docs/briefs/BRIEF-<topic>.md`.
 3. Run the cleanup at step 5.4 to remove wip/ artifacts. Under `/scope`'s
-   sentinel, remove only the jury's verdict files instead, as 5.3's step 3
-   does, and leave the rest to `/scope`.
-4. Commit:
+   sentinel, skip it: `/scope` removes them.
+4. Commit (under `/scope`'s sentinel too: this discard commit is how `/scope`
+   reads the rejection):
 
    ```
    docs(brief): discard BRIEF draft for <topic>
@@ -168,10 +166,9 @@ Then exit the workflow.
 
 ## 5.4 Cleanup
 
-Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes the
-remaining working files, and `/brief` makes no cleanup commit. A Reject's step 3
-then removes only the verdict files, the same way 5.3's step 3 does, so the
-discard commit carries them with the BRIEF.
+Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase and publish
+untrack remove the working files, the jury's verdict files included, and `/brief`
+makes no cleanup commit.
 
 Remove all working artifacts for this invocation:
 
@@ -247,9 +244,8 @@ PRD; the user routes when ready.
 - [ ] Transition script ran successfully and updated both frontmatter and body Status
 - [ ] Body `## Status` first line is the bare word `Accepted` on its own line (FC03)
 - [ ] Open Questions section is empty or removed (no Draft-only content remains)
-- [ ] All the topic's `brief_<topic>_*` working files are deleted (under `/scope`,
-      `/scope` removes those; this skill removes only the jury's verdict files, at
-      5.3)
+- [ ] All the topic's `brief_<topic>_*` working files and verdict files are
+      deleted (under `/scope`, `/scope` removes them)
 - [ ] No `wip/...` references remain in the committed BRIEF or in other branch content
 - [ ] PR is created or updated with the BRIEF summary (not under `/scope`)
 - [ ] Verdict bodies were fenced in code blocks when surfaced to the user
@@ -258,7 +254,8 @@ PRD; the user routes when ready.
 
 After this phase:
 - Final BRIEF at `docs/briefs/BRIEF-<topic>.md` with `status: Accepted`
-- All `wip/` artifacts removed
+- All `wip/` artifacts removed (under `/scope`, still on disk for `/scope`'s
+  cleanup)
 - PR open with the BRIEF as the headlining change (under `/scope`, no PR: control
   is back with `/scope`)
 - Workflow complete; ready for downstream consumption

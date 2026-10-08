@@ -162,6 +162,20 @@ eq "second run: no pr edit (intent unchanged)" "0" "$(calls edit)"
 eq "second run: no new push" "$BEFORE" "$(remote_sha docs/topic)"
 eq "second run: the same PR" "https://github.com/acme/widgets/pull/100" "$(line pr)"
 
+echo "== /brief's jury verdict files are untracked too =="
+setup single-pr
+VERDICT="research/brief_topic_phase4_content-quality.md"
+printf 'verdict\n' >"$R/wip/$VERDICT"
+git -C "$R" add -- "wip/$VERDICT" && git -C "$R" commit -q -m "wip: verdict"
+run --topic topic --exit full-run --intent continue --session s-verdict
+eq "verdict: exit 0" "0" "$RC"
+eq "verdict: the verdict file is untracked" "" "$(git -C "$R" ls-files -- "wip/$VERDICT")"
+case "$(git -C "$R" show --format= --name-status HEAD)" in
+    *"D	wip/$VERDICT"*) ok "verdict: the untrack commit removes it" ;;
+    *) bad "verdict: the untrack commit removes it" "$(git -C "$R" show --format= --name-status HEAD)" ;;
+esac
+if [ -f "$R/wip/$VERDICT" ]; then ok "verdict: the file stays on disk"; else bad "verdict: the file stays on disk"; fi
+
 echo "== one owned PR already open =="
 setup single-pr
 seed_pr "https://github.com/acme/widgets/pull/7" false me main continue

@@ -123,7 +123,7 @@ jobs:
         # would re-run the identical ready-posture check. The draft == false
         # gating is the point: the guard asserts the finalized terminal only at
         # review time, never on a draft PR whose cascade is legitimately
-        # mid-flight. See skills/execute/SKILL.md (Finalization-Not-Done Guard).
+        # mid-flight. See docs/guides/execute-friction.md (The finalization-not-done guard).
         run: |
           MODE_FLAG=""
           if [ "${{ github.event.pull_request.draft }}" = "false" ]; then

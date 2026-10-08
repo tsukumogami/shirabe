@@ -98,11 +98,15 @@ normally sequences several features, so they usually do not.
 
 Log: `Drafting brief with [Private|Public] visibility...`
 
+`/brief` takes no mode flag and runs interactively, except under a parent's
+sentinel, where it follows the parent's execution mode (see "Under `/scope`"
+below).
+
 ### Resume Logic
 
 ```
 parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                         -> see references/fixes/sub-agent-dispatch.md
+                                                         -> see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 BRIEF exists with status "Accepted" or "Done"            -> Offer to revise or start fresh
 BRIEF exists with status "Draft"                         -> Offer to continue from Phase 2 or 3
 wip/research/brief_<topic>_phase4_*.md files exist       -> Resume at Phase 4 (aggregate)
@@ -110,7 +114,7 @@ BRIEF has User Journeys section with real content        -> Resume at Phase 4
 BRIEF has Problem Statement section                      -> Resume at Phase 3
 wip/brief_<topic>_discover.md exists                     -> Resume at Phase 2
 wip/brief_<topic>_context.md exists                      -> Resume at Phase 1
-On main or unrelated branch                              -> Start at Phase 0
+None of the above                                        -> Start at Phase 0
 ```
 
 **Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names
@@ -138,7 +142,8 @@ Without the sentinel, nothing here applies.
 
 Execute phases sequentially by reading the corresponding phase file:
 
-0. **Setup**: branch + visibility detection + slug + path validation
+0. **Setup**: visibility detection + slug + path validation (works on the
+   current branch; creates none)
    - Instructions: `references/phases/phase-0-setup.md`
 
 1. **Discover**: scoping conversation + upstream grounding

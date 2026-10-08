@@ -30,6 +30,30 @@ rationale: |
 
 Current
 
+The work landed in these pull requests, each squash-merged into `main` as the
+commit beside it:
+
+- #531, `d34134d`: the ten policy decisions, recorded under `docs/decisions/`.
+- #534, `44bd606`: /review-plan.
+- #541, `dcf925f`: /deliver, /brief and /prd.
+- #557, `3cc4c54`: /work-on.
+- #579, `aa103ec`: the baseline manifest change that /execute's settlement
+  needed.
+- #545, `273f7ae`: /execute.
+- #586, `c4226c3`: /scope and /charter.
+- #637, `92fd1c5`: /design.
+- #658, `354ff38`: /plan.
+- #660, `0398358`: /brief's and /prd's share of the policy decisions.
+- #665, `3c66996`: the re-count.
+- #507, `a2081b5`: this design, the inventory and the measuring script, and
+  the coordination of the pull requests above.
+
+Each inventory item below names the pull requests that settled it. The node
+index in #507's description shows every pull request open at a head commit,
+because that description was written before the nodes merged and can't be
+edited now. It isn't the record: the merge gate reads each pull request's
+state live from GitHub, and the list above is what merged.
+
 ## Context and Problem Statement
 
 A run of `/work-on`, `/execute`, `/scope` or `/deliver` reads three kinds of
@@ -58,7 +82,8 @@ situation. They fall into three shapes:
   after a rebase; how many retries before escalating; whether a child skill
   opens its own pull request under `/scope`.
 
-The requirements this design answers:
+The requirements this design answers, as written before execution (the
+policy items have since been decided):
 
 - Every loaded file for the five profiles is examined, and each disagreement
   names every side as a path and line range at one commit, with an excerpt
@@ -245,7 +270,7 @@ Each was open when the inventory was taken, and each has since been decided by t
 
 #### `force-push-after-rebase`
 
-Force-push after a rebase. Class: **policy**. Profiles: `work-on`, `execute-single-pr`. PRD R2 item 1.
+Force-push after a rebase. Class: **policy**. Profiles: `work-on`, `execute-single-pr`. PRD R2 item 1. Settled by #557, #545.
 
 Statements:
 
@@ -272,7 +297,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 2
 
 #### `retry-caps`
 
-Retry caps. Class: **policy**. Profiles: `work-on`, `execute-single-pr`. PRD R2 item 2.
+Retry caps. Class: **policy**. Profiles: `work-on`, `execute-single-pr`. PRD R2 item 2. Settled by #557.
 
 Statements:
 
@@ -302,7 +327,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 1
 
 #### `ci-fix-ends-run-unverified`
 
-A CI fix ends the run without re-checking CI. Class: **policy**. Profiles: `work-on`.
+A CI fix ends the run without re-checking CI. Class: **policy**. Profiles: `work-on`. Settled by #557.
 
 Statements:
 
@@ -328,7 +353,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 1
 
 #### `cross-issue-context-no-consumer`
 
-Cross-issue context is built but nothing reads it. Class: **policy**. Profiles: `execute-single-pr`.
+Cross-issue context is built but nothing reads it. Class: **policy**. Profiles: `execute-single-pr`. Settled by #545.
 
 Statements:
 
@@ -353,7 +378,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 2
 
 #### `child-steps-under-scope`
 
-Child skills run their own approval, push and pull-request steps under /scope. Class: **policy**. Profiles: `scope`. PRD R2 item 17.
+Child skills run their own approval, push and pull-request steps under /scope. Class: **policy**. Profiles: `scope`. PRD R2 item 17. Settled by #586, #637, #658, #660.
 
 Statements:
 
@@ -385,7 +410,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 1
 
 #### `design-inline-decision-fallback`
 
-/design's inline-decision fallback under a parent. Class: **policy**. Profiles: `scope`. PRD R2 item 17.
+/design's inline-decision fallback under a parent. Class: **policy**. Profiles: `scope`. PRD R2 item 17. Settled by #637.
 
 Statements:
 
@@ -409,7 +434,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 2
 
 #### `plan-issue-filing-under-auto`
 
-/plan files issues and a milestone under --auto without approval. Class: **policy**. Profiles: `scope`. PRD R2 item 18.
+/plan files issues and a milestone under --auto without approval. Class: **policy**. Profiles: `scope`. PRD R2 item 18. Settled by #658.
 
 Statements:
 
@@ -435,7 +460,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 1
 
 #### `scope-abandonment-draft-plan`
 
-/scope's abandonment exit writes a Draft PLAN that fails L01. Class: **policy**. Profiles: `scope`.
+/scope's abandonment exit writes a Draft PLAN that fails L01. Class: **policy**. Profiles: `scope`. Settled by #586.
 
 Statements:
 
@@ -458,7 +483,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 2
 
 #### `multi-pr-plan-routing`
 
-Whether /execute runs multi-pr PLANs. Class: **policy**. Profiles: `execute-single-pr`, `execute-coordinated`.
+Whether /execute runs multi-pr PLANs. Class: **policy**. Profiles: `execute-single-pr`, `execute-coordinated`. Settled by #545.
 
 Statements:
 
@@ -480,7 +505,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 1
 
 #### `worktree-intent-change-owner`
 
-Who judges an intent-changing rebase under /scope. Class: **policy**. Profiles: `scope`.
+Who judges an intent-changing rebase under /scope. Class: **policy**. Profiles: `scope`. Settled by #586.
 
 Statements:
 
@@ -501,7 +526,7 @@ Winner: decided by the policy owner (record linked below). Recommended: option 1
 
 #### `panel-round-counter`
 
-Panel retry round counter. Class: **mechanical**. Profiles: `work-on`. PRD R2 item 3.
+Panel retry round counter. Class: **mechanical**. Profiles: `work-on`. PRD R2 item 3. Settled by #557.
 
 Statements:
 
@@ -517,7 +542,7 @@ Winner: `skills/work-on/references/phases/phase-4a-scrutiny.md#L34-L41`. 4a's de
 
 #### `panel-retry-fix-location`
 
-Where a panel's blocking fix happens. Class: **mechanical**. Profiles: `work-on`.
+Where a panel's blocking fix happens. Class: **mechanical**. Profiles: `work-on`. Settled by #557.
 
 Statements:
 
@@ -536,7 +561,7 @@ Winner: `skills/work-on/references/phases/phase-4b-review.md#L31`. The template 
 
 #### `decision-recording-channel`
 
-Where decisions are recorded. Class: **mechanical**. Profiles: `work-on`, `scope`. PRD R2 item 5.
+Where decisions are recorded. Class: **mechanical**. Profiles: `work-on`, `scope`. PRD R2 item 5. Settled by #557.
 
 Statements:
 
@@ -555,7 +580,7 @@ Winner: `skills/work-on/SKILL.md#L410-L416`. koto decisions record is what the d
 
 #### `commit-koto-context-artifacts`
 
-Steps that commit files which moved into koto context. Class: **mechanical**. Profiles: `work-on`. PRD R2 item 6.
+Steps that commit files which moved into koto context. Class: **mechanical**. Profiles: `work-on`. PRD R2 item 6. Settled by #557.
 
 Statements:
 
@@ -574,7 +599,7 @@ Winner: `skills/work-on/references/koto-context-conventions.md#L9-L21`. The arti
 
 #### `scratch-file-path`
 
-Where scratch files go. Class: **mechanical**. Profiles: `work-on`.
+Where scratch files go. Class: **mechanical**. Profiles: `work-on`. Settled by #557.
 
 Statements:
 
@@ -587,7 +612,7 @@ Winner: `skills/work-on/references/koto-context-conventions.md#L9-L37`. The conv
 
 #### `panel-detail-files-in-wip`
 
-Reviewer detail files versus wip hygiene. Class: **mechanical**. Profiles: `work-on`. PRD R2 item 4.
+Reviewer detail files versus wip hygiene. Class: **mechanical**. Profiles: `work-on`. PRD R2 item 4. Settled by #557.
 
 Statements:
 
@@ -605,7 +630,7 @@ Winner: `skills/work-on/references/koto-context-conventions.md#L41-L43`. The no-
 
 #### `implementation-escalate-outcome`
 
-Which outcome escalates from implementation. Class: **mechanical**. Profiles: `work-on`.
+Which outcome escalates from implementation. Class: **mechanical**. Profiles: `work-on`. Settled by #557.
 
 Statements:
 
@@ -620,7 +645,7 @@ Winner: `skills/work-on/koto-templates/work-on.md#L597-L606`. The template route
 
 #### `plan-backed-init-mode`
 
-How plan-backed children initialize. Class: **mechanical**. Profiles: `work-on`.
+How plan-backed children initialize. Class: **mechanical**. Profiles: `work-on`. Settled by #557.
 
 Statements:
 
@@ -636,7 +661,7 @@ Winner: `skills/work-on/koto-templates/work-on.md#L1524-L1526`. The template rou
 
 #### `deferral-pr-body-pointer`
 
-Deferral in the PR body points at a file that says nothing about it. Class: **mechanical**. Profiles: `work-on`.
+Deferral in the PR body points at a file that says nothing about it. Class: **mechanical**. Profiles: `work-on`. Settled by #557.
 
 Statements:
 
@@ -647,7 +672,7 @@ Winner: `skills/work-on/koto-templates/work-on.md#L1942-L1943`. The directive is
 
 #### `decision-point-ids-unresolvable`
 
-Decision-point ids and the file that defines them. Class: **mechanical**. Profiles: `work-on`, `scope`.
+Decision-point ids and the file that defines them. Class: **mechanical**. Profiles: `work-on`, `scope`. Settled by #557.
 
 Statements:
 
@@ -658,7 +683,7 @@ Winner: `skills/work-on/SKILL.md#L427-L431`. Name the four points inline in SKIL
 
 #### `retention-doc-runtime-status`
 
-Whether the retention reference loads at runtime. Class: **mechanical**. Profiles: `work-on`.
+Whether the retention reference loads at runtime. Class: **mechanical**. Profiles: `work-on`. Settled by #557.
 
 Statements:
 
@@ -670,7 +695,7 @@ Winner: `references/koto-session-retention.md#L4-L8`. SKILL.md already states th
 
 #### `pr-body-check-count`
 
-How many PR-body checks exist. Class: **mechanical**. Profiles: `work-on`, `execute-single-pr`.
+How many PR-body checks exist. Class: **mechanical**. Profiles: `work-on`, `execute-single-pr`. Settled by #557.
 
 Statements:
 
@@ -682,7 +707,7 @@ Winner: `references/pr-body-conformance.md#L36`. Four checks are defined; the la
 
 #### `pr-body-rule-restated-inline`
 
-The PR-body rule restated where it says not to be. Class: **mechanical**. Profiles: `work-on`, `execute-single-pr`.
+The PR-body rule restated where it says not to be. Class: **mechanical**. Profiles: `work-on`, `execute-single-pr`. Settled by #557, #545.
 
 Statements:
 
@@ -694,7 +719,7 @@ Winner: `references/pr-body-conformance.md#L5-L7`. The reference owns the rule b
 
 #### `worktree-discipline-vs-drift-state`
 
-worktree-discipline.md versus the state that already did its work. Class: **mechanical**. Profiles: `execute-single-pr`. PRD R2 item 7.
+worktree-discipline.md versus the state that already did its work. Class: **mechanical**. Profiles: `execute-single-pr`. PRD R2 item 7. Settled by #545.
 
 Statements:
 
@@ -713,7 +738,7 @@ Winner: `skills/execute/koto-templates/execute.md#L1317`. The drift and sync def
 
 #### `phase-6-pr-shared-with-execute`
 
-/execute's ci_monitor loads /work-on's PR phase file. Class: **mechanical**. Profiles: `execute-single-pr`.
+/execute's ci_monitor loads /work-on's PR phase file. Class: **mechanical**. Profiles: `execute-single-pr`. Settled by #545.
 
 Statements:
 
@@ -726,7 +751,7 @@ Winner: `skills/execute/koto-templates/execute.md#L1403`. The execute directive 
 
 #### `execute-pr-title-type`
 
-/execute's PR title type. Class: **mechanical**. Profiles: `execute-single-pr`. PRD R2 item 8.
+/execute's PR title type. Class: **mechanical**. Profiles: `execute-single-pr`. PRD R2 item 8. Settled by #545.
 
 Statements:
 
@@ -741,7 +766,7 @@ Winner: `skills/execute/koto-templates/execute.md#L1436`. The command is what ru
 
 #### `execute-state-file-projection`
 
-/execute's state-file projection and resume ladder. Class: **mechanical**. Profiles: `execute-single-pr`, `execute-coordinated`.
+/execute's state-file projection and resume ladder. Class: **mechanical**. Profiles: `execute-single-pr`, `execute-coordinated`. Settled by #545.
 
 Statements:
 
@@ -753,7 +778,7 @@ Winner: `skills/execute/SKILL.md#L851-L875`. No script or template under skills/
 
 #### `execute-sentinel-no-reader`
 
-/execute's parent_orchestration sentinel has no reader. Class: **mechanical**. Profiles: `execute-single-pr`, `execute-coordinated`.
+/execute's parent_orchestration sentinel has no reader. Class: **mechanical**. Profiles: `execute-single-pr`, `execute-coordinated`. Settled by #545.
 
 Statements:
 
@@ -769,7 +794,7 @@ Winner: `skills/execute/koto-templates/execute.md#L1377`. No /work-on file reads
 
 #### `execution-children-described-as-prs`
 
-Execution children described as PRs. Class: **mechanical**. Profiles: `execute-single-pr`, `execute-coordinated`.
+Execution children described as PRs. Class: **mechanical**. Profiles: `execute-single-pr`, `execute-coordinated`. Settled by #545.
 
 Statements:
 
@@ -785,7 +810,7 @@ Winner: `skills/execute/SKILL.md#L937-L940`. Children commit to the shared branc
 
 #### `execute-exit-artifacts-not-produced`
 
-Exit artifacts /execute says it writes. Class: **mechanical**. Profiles: `execute-single-pr`, `execute-coordinated`.
+Exit artifacts /execute says it writes. Class: **mechanical**. Profiles: `execute-single-pr`, `execute-coordinated`. Settled by #545.
 
 Statements:
 
@@ -801,7 +826,7 @@ Winner: `skills/execute/koto-templates/execute.md#L506-L527`. Nothing writes a D
 
 #### `no-cleanup-on-child-ticks`
 
---no-cleanup on child ticks. Class: **mechanical**. Profiles: `execute-single-pr`.
+--no-cleanup on child ticks. Class: **mechanical**. Profiles: `execute-single-pr`. Settled by #557, #545.
 
 Statements:
 
@@ -813,7 +838,7 @@ Winner: `references/koto-session-retention.md#L40`. The retention reference is t
 
 #### `deliver-merged-claim`
 
-/deliver says it ends merged; a default run pauses first. Class: **mechanical**. Profiles: `deliver`.
+/deliver says it ends merged; a default run pauses first. Class: **mechanical**. Profiles: `deliver`. Settled by #541.
 
 Statements:
 
@@ -829,7 +854,7 @@ Winner: `skills/deliver/SKILL.md#L228`. A default /deliver pauses before the mer
 
 #### `scope-reference-table-vs-lazy-load`
 
-/scope's reference table versus its lazy-load rule. Class: **mechanical**. Profiles: `scope`. PRD R2 item 9.
+/scope's reference table versus its lazy-load rule. Class: **mechanical**. Profiles: `scope`. PRD R2 item 9. Settled by #586.
 
 Statements:
 
@@ -844,7 +869,7 @@ Winner: `skills/scope/SKILL.md#L434-L437`. The template names what to read per s
 
 #### `scope-state-initial-values`
 
-/scope's initial state-file values. Class: **mechanical**. Profiles: `scope`. PRD R2 item 13.
+/scope's initial state-file values. Class: **mechanical**. Profiles: `scope`. PRD R2 item 13. Settled by #586.
 
 Statements:
 
@@ -861,7 +886,7 @@ Winner: `skills/scope/scripts/resume-probe.sh#L205-L210`. A state file written a
 
 #### `fc10-already-caught`
 
-Mechanical writing-style terms said to be caught before the jury. Class: **mechanical**. Profiles: `scope`, `work-on`. PRD R2 item 19.
+Mechanical writing-style terms said to be caught before the jury. Class: **mechanical**. Profiles: `scope`, `work-on`. PRD R2 item 19. Settled by #541.
 
 Statements:
 
@@ -877,7 +902,7 @@ Winner: `crates/shirabe-validate/src/validate.rs#L90-L104`. Nothing runs FC10 be
 
 #### `r6-verdicts-no-reader`
 
-Phase 1's shape predicates have no consumer. Class: **mechanical**. Profiles: `scope`.
+Phase 1's shape predicates have no consumer. Class: **mechanical**. Profiles: `scope`. Settled by #586.
 
 Statements:
 
@@ -893,7 +918,7 @@ Winner: `references/parent-skill-pattern.md#L341-L345`. /design cannot receive t
 
 #### `phase1-undocumented-state-field`
 
-Phase 1 writes a state field the schema does not have. Class: **mechanical**. Profiles: `scope`.
+Phase 1 writes a state field the schema does not have. Class: **mechanical**. Profiles: `scope`. Settled by #586.
 
 Statements:
 
@@ -904,7 +929,7 @@ Winner: `skills/scope/references/state-schema.md#L102-L107`. Nothing reads the f
 
 #### `brief-upstream-legal-parents`
 
-What a BRIEF's upstream may name. Class: **mechanical**. Profiles: `scope`.
+What a BRIEF's upstream may name. Class: **mechanical**. Profiles: `scope`. Settled by #541.
 
 Statements:
 
@@ -919,7 +944,7 @@ Winner: `skills/brief/references/brief-format.md#L32-L54`. The validator accepts
 
 #### `prd-format-schema-field`
 
-The PRD format omits the schema field the gate requires. Class: **mechanical**. Profiles: `scope`.
+The PRD format omits the schema field the gate requires. Class: **mechanical**. Profiles: `scope`. Settled by #541.
 
 Statements:
 
@@ -934,7 +959,7 @@ Winner: `skills/scope/scripts/hop-complete.sh#L132`. A PRD written from the form
 
 #### `prd-complexity-routing`
 
-Where /prd routes a simple PRD. Class: **mechanical**. Profiles: `scope`.
+Where /prd routes a simple PRD. Class: **mechanical**. Profiles: `scope`. Settled by #541.
 
 Statements:
 
@@ -945,7 +970,7 @@ Winner: `skills/prd/references/phases/phase-4-validate.md#L248-L253`. Phase 4 is
 
 #### `prd-upstream-roadmap`
 
-Which documents a PRD may name as its upstream. Class: **mechanical**. Profiles: `scope`.
+Which documents a PRD may name as its upstream. Class: **mechanical**. Profiles: `scope`. Settled by #660.
 
 Statements:
 
@@ -961,7 +986,7 @@ Winner: `crates/shirabe-validate/src/formats.rs#L322`. The validator decides: a 
 
 #### `plan-single-pr-draft-commit`
 
-/plan commits a single-pr PLAN at Draft. Class: **mechanical**. Profiles: `scope`. PRD R2 item 10.
+/plan commits a single-pr PLAN at Draft. Class: **mechanical**. Profiles: `scope`. PRD R2 item 10. Settled by #658.
 
 Statements:
 
@@ -979,7 +1004,7 @@ Winner: `skills/plan/SKILL.md#L68-L77`. L01 fails a Draft single-pr PLAN and /pl
 
 #### `plan-complexity-values`
 
-PLAN complexity values and the FC11 message. Class: **mechanical**. Profiles: `scope`. PRD R2 item 11.
+PLAN complexity values and the FC11 message. Class: **mechanical**. Profiles: `scope`. PRD R2 item 11. Settled by #658.
 
 Statements:
 
@@ -996,7 +1021,7 @@ Winner: `crates/shirabe-validate/src/checks.rs#L1072-L1085`. An agent following 
 
 #### `plan-required-sections`
 
-PLAN required sections. Class: **mechanical**. Profiles: `scope`. PRD R2 item 12.
+PLAN required sections. Class: **mechanical**. Profiles: `scope`. PRD R2 item 12. Settled by #658.
 
 Statements:
 
@@ -1014,7 +1039,7 @@ Winner: `crates/shirabe-validate/src/formats.rs#L218-L248`. The validator's per-
 
 #### `design-spawned-from-shape`
 
-/design's spawned_from shape. Class: **mechanical**. Profiles: `scope`. PRD R2 item 14.
+/design's spawned_from shape. Class: **mechanical**. Profiles: `scope`. PRD R2 item 14. Settled by #637.
 
 Statements:
 
@@ -1029,7 +1054,7 @@ Winner: `skills/design/SKILL.md#L71-L77`. The issue-driven workflow uses the obj
 
 #### `design-superseded-location`
 
-Where superseded designs go. Class: **mechanical**. Profiles: `scope`. PRD R2 item 15.
+Where superseded designs go. Class: **mechanical**. Profiles: `scope`. PRD R2 item 15. Settled by #637.
 
 Statements:
 
@@ -1044,7 +1069,7 @@ Winner: `crates/shirabe-validate/src/transition.rs#L453`. The transition moves t
 
 #### `design-implementation-issues-owner`
 
-Who adds Implementation Issues to a DESIGN. Class: **mechanical**. Profiles: `scope`. PRD R2 item 16.
+Who adds Implementation Issues to a DESIGN. Class: **mechanical**. Profiles: `scope`. PRD R2 item 16. Settled by #637, #658.
 
 Statements:
 
@@ -1058,7 +1083,7 @@ Winner: `skills/plan/references/phases/phase-7-creation.md#L615-L619`. Phase 7 i
 
 #### `design-planned-transition-uncommitted`
 
-The DESIGN's Planned transition is never committed under /scope. Class: **mechanical**. Profiles: `scope`.
+The DESIGN's Planned transition is never committed under /scope. Class: **mechanical**. Profiles: `scope`. Settled by #586, #658.
 
 Statements:
 
@@ -1101,7 +1126,7 @@ unchanged.
 
 ##### `dp-work-on-pointer-loaded-docs`
 
-Profiles: `work-on`. Size: 24710 bytes (about 6177 tokens). Only statement of a rule in force: no.
+Profiles: `work-on`. Size: 24710 bytes (about 6177 tokens). Settled by #557. Only statement of a rule in force: no.
 
 Two authoring documents reached through one pointer each. Removing the pointer removes the load; the files stay for maintainers. Each rule they state is also stated in the directive or gate that enforces it.
 
@@ -1110,7 +1135,7 @@ Two authoring documents reached through one pointer each. Removing the pointer r
 
 ##### `dp-work-on-finishing-obligations-pointer`
 
-Profiles: `work-on`. Size: 6352 bytes (about 1588 tokens). Only statement of a rule in force: no.
+Profiles: `work-on`. Size: 6352 bytes (about 1588 tokens). Settled by #557. Only statement of a rule in force: no.
 
 Blocked on: `force-push-after-rebase`, `ci-fix-ends-run-unverified`.
 
@@ -1120,7 +1145,7 @@ An authoring document reached through one pointer. It states the /work-on side o
 
 ##### `dp-work-on-rationale`
 
-Profiles: `work-on`. Size: 6412 bytes (about 1603 tokens). Only statement of a rule in force: no.
+Profiles: `work-on`. Size: 6412 bytes (about 1603 tokens). Settled by #557. Only statement of a rule in force: no.
 
 - `skills/work-on/SKILL.md#L96-L103`, 585 bytes, excerpt `` After verification passes, the `finalization` ``
 - `skills/work-on/SKILL.md#L91-L92`, 147 bytes, excerpt `The gate carries no project-specific commands.`
@@ -1135,7 +1160,7 @@ Profiles: `work-on`. Size: 6412 bytes (about 1603 tokens). Only statement of a r
 
 ##### `dp-execute-skill-rationale`
 
-Profiles: `execute-single-pr`, `execute-coordinated`. Size: 17414 bytes (about 4353 tokens). Only statement of a rule in force: no.
+Profiles: `execute-single-pr`, `execute-coordinated`. Size: 17414 bytes (about 4353 tokens). Settled by #545. Only statement of a rule in force: no.
 
 L1052-L1137 is a maintainer procedure that docs/guides/execute-friction.md already covers.
 
@@ -1151,7 +1176,7 @@ L1052-L1137 is a maintainer procedure that docs/guides/execute-friction.md alrea
 
 ##### `dp-execute-template`
 
-Profiles: `execute-single-pr`. Size: 7992 bytes (about 1998 tokens). Only statement of a rule in force: no.
+Profiles: `execute-single-pr`. Size: 7992 bytes (about 1998 tokens). Settled by #545. Only statement of a rule in force: no.
 
 Rationale and descriptions of what a script or gate does, inside directives; the instruction sentences around them stay.
 
@@ -1174,7 +1199,7 @@ Rationale and descriptions of what a script or gate does, inside directives; the
 
 ##### `dp-scope-history`
 
-Profiles: `scope`. Size: 7140 bytes (about 1785 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 7140 bytes (about 1785 tokens). Settled by #586. Only statement of a rule in force: no.
 
 Prose that narrates an earlier revision of the skill.
 
@@ -1195,7 +1220,7 @@ Prose that narrates an earlier revision of the skill.
 
 ##### `dp-brief-history`
 
-Profiles: `scope`. Size: 2632 bytes (about 658 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 2632 bytes (about 658 tokens). Settled by #541. Only statement of a rule in force: no.
 
 Prose that narrates an earlier revision of the skill.
 
@@ -1207,7 +1232,7 @@ Prose that narrates an earlier revision of the skill.
 
 ##### `dp-plan-history`
 
-Profiles: `scope`. Size: 422 bytes (about 105 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 422 bytes (about 105 tokens). Settled by #658. Only statement of a rule in force: no.
 
 Prose that narrates an earlier revision of the skill.
 
@@ -1215,7 +1240,7 @@ Prose that narrates an earlier revision of the skill.
 
 ##### `dp-scope-rationale`
 
-Profiles: `scope`. Size: 14507 bytes (about 3626 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 14507 bytes (about 3626 tokens). Settled by #586. Only statement of a rule in force: no.
 
 - `skills/scope/SKILL.md#L26-L52`, 1608 bytes, excerpt `` `/scope` is the second parent skill in the ``
 - `skills/scope/SKILL.md#L61-L80`, 1299 bytes, excerpt `Two properties are what the workflow buys,`
@@ -1237,7 +1262,7 @@ Profiles: `scope`. Size: 14507 bytes (about 3626 tokens). Only statement of a ru
 
 ##### `dp-plan-rationale`
 
-Profiles: `scope`. Size: 4141 bytes (about 1035 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 4141 bytes (about 1035 tokens). Settled by #658. Only statement of a rule in force: no.
 
 - `skills/plan/SKILL.md#L86-L116`, 1656 bytes, excerpt `PLANs are ephemeral: when the work completes,`
 - `skills/plan/references/phases/phase-7-creation.md#L249-L256`, 576 bytes, excerpt `A plan whose strategy section only points`
@@ -1248,7 +1273,7 @@ Profiles: `scope`. Size: 4141 bytes (about 1035 tokens). Only statement of a rul
 
 ##### `dp-design-rationale`
 
-Profiles: `scope`. Size: 597 bytes (about 149 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 597 bytes (about 149 tokens). Settled by #637. Only statement of a rule in force: no.
 
 - `skills/design/SKILL.md#L39`, 316 bytes, excerpt `DESIGN is durable because the architectural`
 - `skills/design/references/phases/phase-0-setup-prd.md#L54-L58`, 281 bytes, excerpt `then proceed past the hard-stop check. The`
@@ -1257,7 +1282,7 @@ Profiles: `scope`. Size: 597 bytes (about 149 tokens). Only statement of a rule 
 
 ##### `dp-work-on-retry-rationale-copies`
 
-Profiles: `work-on`. Size: 8378 bytes (about 2094 tokens). Surviving statement: `skills/work-on/references/phases/phase-4a-scrutiny.md#L69-L73`.
+Profiles: `work-on`. Size: 8378 bytes (about 2094 tokens). Settled by #557. Surviving statement: `skills/work-on/references/phases/phase-4a-scrutiny.md#L69-L73`.
 
 Copies of the retry-clearing rationale and the orchestration restatement; 4a's copy is the one the verification directive already names.
 
@@ -1271,7 +1296,7 @@ Copies of the retry-clearing rationale and the orchestration restatement; 4a's c
 
 ##### `dp-work-on-duplicates`
 
-Profiles: `work-on`. Size: 4472 bytes (about 1118 tokens). Only statement of a rule in force: no.
+Profiles: `work-on`. Size: 4472 bytes (about 1118 tokens). Settled by #557. Only statement of a rule in force: no.
 
 - `skills/work-on/SKILL.md#L180-L185`, 1078 bytes, excerpt `**Issue type classification**: the orchestrator`; survivor the issue_type_routing directive
 - `skills/work-on/references/phases/phase-3-analysis.md#L51-L60`, 621 bytes, excerpt `## Already-Complete Detection`; survivor the analysis directive
@@ -1284,7 +1309,7 @@ Profiles: `work-on`. Size: 4472 bytes (about 1118 tokens). Only statement of a r
 
 ##### `dp-execute-skill-duplicates-template`
 
-Profiles: `execute-single-pr`, `execute-coordinated`. Size: 31033 bytes (about 7758 tokens). Surviving statement: the matching state directives in execute.md and execute-coordinated.md: takeover at execute.md#L1222-L1227, autonomy at execute.md#L1341-L1352, exit lines at the terminal directives, expected_head at execute.md#L1469.
+Profiles: `execute-single-pr`, `execute-coordinated`. Size: 31033 bytes (about 7758 tokens). Settled by #545. Surviving statement: the matching state directives in execute.md and execute-coordinated.md: takeover at execute.md#L1222-L1227, autonomy at execute.md#L1341-L1352, exit lines at the terminal directives, expected_head at execute.md#L1469.
 
 Per-state mechanics, pause, merge, owned-PR takeover, coordinated states, outcome table and autonomy block, each also stated in the state that runs it.
 
@@ -1298,7 +1323,7 @@ Per-state mechanics, pause, merge, owned-PR takeover, coordinated states, outcom
 
 ##### `dp-scope-duplicates`
 
-Profiles: `scope`. Size: 14772 bytes (about 3693 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 14772 bytes (about 3693 tokens). Settled by #586. Only statement of a rule in force: no.
 
 - `skills/scope/references/phases/phase-3-exit-finalization.md#L397-L510`, 5374 bytes, excerpt `## Closed Write-Target Set`; survivor `skills/scope/SKILL.md#L606-L711`
 - `skills/scope/references/phases/phase-4-cleanup.md#L88-L163`, 3885 bytes, excerpt `## Read-Back of Phase 3's Closed Write-Target`; survivor `skills/scope/SKILL.md#L606-L711`
@@ -1310,7 +1335,7 @@ Profiles: `scope`. Size: 14772 bytes (about 3693 tokens). Only statement of a ru
 
 ##### `dp-plan-duplicates`
 
-Profiles: `scope`. Size: 2793 bytes (about 698 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 2793 bytes (about 698 tokens). Settled by #658. Only statement of a rule in force: no.
 
 - `skills/plan/SKILL.md#L492-L496`, 306 bytes, excerpt `Phase 0 detection: if the parent-chain sentinel`; survivor `skills/plan/SKILL.md#L480-L481`
 - `skills/plan/SKILL.md#L503-L508`, 378 bytes, excerpt `For roadmap input, populating the roadmap's`; survivor `skills/plan/references/phases/phase-7-creation.md#L35-L44`
@@ -1321,14 +1346,14 @@ Profiles: `scope`. Size: 2793 bytes (about 698 tokens). Only statement of a rule
 
 ##### `dp-design-duplicates`
 
-Profiles: `scope`. Size: 507 bytes (about 126 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 507 bytes (about 126 tokens). Settled by #637. Only statement of a rule in force: no.
 
 - `skills/design/SKILL.md#L200-L204`, 306 bytes, excerpt `Phase 0 detection: if the parent-chain sentinel`; survivor `skills/design/SKILL.md#L187-L188`
 - `skills/design/references/phases/phase-0-setup-prd.md#L40-L42`, 201 bytes, excerpt `glob keeps the branch forward-compatible`; survivor `skills/plan/references/phases/phase-1-analysis.md#L46-L48`
 
 ##### `dp-brief-internal-restatements`
 
-Profiles: `scope`. Size: 20878 bytes (about 5219 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 20878 bytes (about 5219 tokens). Settled by #541. Only statement of a rule in force: no.
 
 Text in /brief's own files that restates another of its own files, so it is redundant even when /brief runs standalone.
 
@@ -1381,7 +1406,7 @@ Text in /brief's own files that restates another of its own files, so it is redu
 
 ##### `dp-prd-internal-restatements`
 
-Profiles: `scope`. Size: 3413 bytes (about 853 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 3413 bytes (about 853 tokens). Settled by #541. Only statement of a rule in force: no.
 
 Text in /prd's own files that restates another of its own files, so it is redundant even when /prd runs standalone.
 
@@ -1400,7 +1425,7 @@ Text in /prd's own files that restates another of its own files, so it is redund
 
 ##### `dp-design-internal-restatements`
 
-Profiles: `scope`. Size: 3947 bytes (about 986 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 3947 bytes (about 986 tokens). Settled by #637. Only statement of a rule in force: no.
 
 Text in /design's own files that restates another of its own files, so it is redundant even when /design runs standalone.
 
@@ -1419,7 +1444,7 @@ Text in /design's own files that restates another of its own files, so it is red
 
 ##### `dp-plan-internal-restatements`
 
-Profiles: `scope`. Size: 13469 bytes (about 3367 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 13469 bytes (about 3367 tokens). Settled by #658. Only statement of a rule in force: no.
 
 Text in /plan's own files that restates another of its own files, so it is redundant even when /plan runs standalone.
 
@@ -1458,7 +1483,7 @@ Text in /plan's own files that restates another of its own files, so it is redun
 
 ##### `dp-review-plan-internal-restatements`
 
-Profiles: `scope`. Size: 7460 bytes (about 1865 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 7460 bytes (about 1865 tokens). Settled by #534. Only statement of a rule in force: no.
 
 Text in /review-plan's own files that restates another of its own files, so it is redundant even when /review-plan runs standalone.
 
@@ -1494,7 +1519,7 @@ Text in /review-plan's own files that restates another of its own files, so it i
 
 ##### `dp-work-on-missing-files`
 
-Profiles: `work-on`. Size: 722 bytes (about 180 tokens). Only statement of a rule in force: no.
+Profiles: `work-on`. Size: 722 bytes (about 180 tokens). Settled by #557. Only statement of a rule in force: no.
 
 Removed by commit-koto-context-artifacts and the sentinel row that cannot fire; counted here once.
 
@@ -1506,7 +1531,7 @@ Removed by commit-koto-context-artifacts and the sentinel row that cannot fire; 
 
 ##### `dp-execute-skill-dead-mechanisms`
 
-Profiles: `execute-single-pr`, `execute-coordinated`. Size: 12723 bytes (about 3180 tokens). Only statement of a rule in force: no.
+Profiles: `execute-single-pr`, `execute-coordinated`. Size: 12723 bytes (about 3180 tokens). Settled by #545. Only statement of a rule in force: no.
 
 The state projection, sentinel and child-as-PR prose removed by execute-state-file-projection, execute-sentinel-no-reader and execution-children-described-as-prs.
 
@@ -1518,7 +1543,7 @@ The state projection, sentinel and child-as-PR prose removed by execute-state-fi
 
 ##### `dp-execute-pointer-loaded-refs`
 
-Profiles: `execute-single-pr`. Size: 11058 bytes (about 2764 tokens). Surviving statement: the execute.md directives.
+Profiles: `execute-single-pr`. Size: 11058 bytes (about 2764 tokens). Settled by #545. Surviving statement: the execute.md directives.
 
 Removed by worktree-discipline-vs-drift-state: dropping the pointer unloads the file for /execute; it stays for its other callers.
 
@@ -1528,7 +1553,7 @@ Removed by worktree-discipline-vs-drift-state: dropping the pointer unloads the 
 
 ##### `dp-execute-phase-6-pointer`
 
-Profiles: `execute-single-pr`. Size: 2735 bytes (about 683 tokens). Surviving statement: the execute.md directives.
+Profiles: `execute-single-pr`. Size: 2735 bytes (about 683 tokens). Settled by #545. Surviving statement: the execute.md directives.
 
 Blocked on: `force-push-after-rebase`, `retry-caps`.
 
@@ -1538,7 +1563,7 @@ Removed by phase-6-pr-shared-with-execute. The file holds /execute's side of two
 
 ##### `dp-scope-no-reader`
 
-Profiles: `scope`. Size: 5791 bytes (about 1447 tokens). Only statement of a rule in force: no.
+Profiles: `scope`. Size: 5791 bytes (about 1447 tokens). Settled by #586. Only statement of a rule in force: no.
 
 The shape-predicate walk and the post-/prd gate, removed by r6-verdicts-no-reader.
 
@@ -1550,7 +1575,7 @@ The shape-predicate walk and the post-/prd gate, removed by r6-verdicts-no-reade
 
 ##### `dp-work-on-koto-restated`
 
-Profiles: `work-on`. Size: 1636 bytes (about 409 tokens). Surviving statement: the evidence schema koto returns with each directive.
+Profiles: `work-on`. Size: 1636 bytes (about 409 tokens). Settled by #557. Surviving statement: the evidence schema koto returns with each directive.
 
 - `skills/work-on/references/phases/phase-0-context-injection.md#L33-L37`, 199 bytes, excerpt `` Submit `status: completed` after the context ``
 - `skills/work-on/references/phases/phase-3-analysis.md#L104-L110`, 387 bytes, excerpt `` - `plan_outcome: plan_ready` — plan complete ``
@@ -1560,13 +1585,13 @@ Profiles: `work-on`. Size: 1636 bytes (about 409 tokens). Surviving statement: t
 
 ##### `dp-execute-skill-koto-restated`
 
-Profiles: `execute-single-pr`, `execute-coordinated`. Size: 824 bytes (about 206 tokens). Surviving statement: the koto init call in skills/execute/scripts/execute-open.sh.
+Profiles: `execute-single-pr`, `execute-coordinated`. Size: 824 bytes (about 206 tokens). Settled by #545. Surviving statement: the koto init call in skills/execute/scripts/execute-open.sh.
 
 - `skills/execute/SKILL.md#L228-L238`, 824 bytes, excerpt `The call it makes is`
 
 ##### `dp-deliver-skill`
 
-Profiles: `deliver`. Size: 6901 bytes (about 1725 tokens). Surviving statement: the deliver.md directives and the exit script.
+Profiles: `deliver`. Size: 6901 bytes (about 1725 tokens). Settled by #541. Surviving statement: the deliver.md directives and the exit script.
 
 - `skills/deliver/SKILL.md#L35-L56`, 1272 bytes, excerpt `## How the Run Is Held Together`
 - `skills/deliver/SKILL.md#L197-L216`, 1111 bytes, excerpt `` There is no resume state in `/deliver` itself. ``
@@ -1579,7 +1604,7 @@ Profiles: `deliver`. Size: 6901 bytes (about 1725 tokens). Surviving statement: 
 
 ##### `dp-scope-koto-restated`
 
-Profiles: `scope`. Size: 7255 bytes (about 1813 tokens). Surviving statement: skills/scope/scripts/resume-probe.sh and the intake, branch_check and resume_route states.
+Profiles: `scope`. Size: 7255 bytes (about 1813 tokens). Settled by #586. Surviving statement: skills/scope/scripts/resume-probe.sh and the intake, branch_check and resume_route states.
 
 - `skills/scope/SKILL.md#L127-L129`, 235 bytes, excerpt `The declarator is prose per the pattern's`
 - `skills/scope/references/phases/phase-0-setup.md#L12-L19`, 508 bytes, excerpt `Argument checking is not a prose step here`
@@ -1591,15 +1616,15 @@ Profiles: `scope`. Size: 7255 bytes (about 1813 tokens). Surviving statement: sk
 
 ##### `dp-plan-koto-restated`
 
-Profiles: `scope`. Size: 806 bytes (about 201 tokens). Surviving statement: skills/scope/scripts/resume-probe.sh and the intake, branch_check and resume_route states.
+Profiles: `scope`. Size: 806 bytes (about 201 tokens). Settled by #658. Surviving statement: skills/scope/scripts/resume-probe.sh and the intake, branch_check and resume_route states.
 
 - `skills/plan/references/phases/phase-7-creation.md#L545-L555`, 806 bytes, excerpt `What the two invocations check between them:`
 
 ### Per-profile totals
 
 Every figure in this document is regenerated by one command from committed
-files: `python3 docs/designs/contradiction-settlement/measure.py`, run from the
-repository root. It reads each cited file as it is at `662f6ec`, checks every
+files: `python3 docs/designs/contradiction-settlement/measure.py`, run from
+any directory inside the repository. It reads each cited file as it is at `662f6ec`, checks every
 location and excerpt, recomputes every byte count, total and share, rebuilds
 this document from `docs/designs/contradiction-settlement/design.md.tmpl` and
 `docs/designs/contradiction-settlement/inventory.json`, and exits non-zero if
@@ -1670,23 +1695,28 @@ Found while reading, outside this feature's scope or after the inventory
 closed. Three were settled by the work items: Phase 3's pointer to a missing
 Phase 4 file (#637), /prd's ROADMAP upstream (#660), and /charter's `exit:
 UNSET` literal, which the shared state schema now allows as a parent's own
-placeholder (#586). The rest are tracked on issue #659, with every other
-follow-up from this feature:
+placeholder (#586). The rest were tracked on issue #659, with every other
+follow-up from this feature. Of the six below, the follow-up pull request for
+#659 settled five; the autonomy variable needs a person's decision and is #667.
+Two more from #659 moved to their own issues the same way: who removes
+`needs-design` under `/scope` (#666), and a sweep of working files on a
+single-pr `/execute` run (#668).
 
 - Let `/execute`'s PR title take the type the directive describes, limited to
   `feat`, `fix`, `docs` and `chore` (see `execute-pr-title-type`).
 - Decide whether `/execute`'s children should receive an autonomy variable
-  (see `execute-sentinel-no-reader`).
+  (see `execute-sentinel-no-reader`; #667).
 - `skills/plan/references/quality/plan-doc-examples.md` nests
   `### Dependency Graph` under Implementation Issues, which FC04 cannot see.
 - `docs/specs/decision-points.md` has stale line locators into
   `/work-on`'s phase files.
 - A `/scope` phase file names `cmd/shirabe/`, which does not exist; the
   binary is built from `crates/shirabe`.
-- The resume rows in `/brief`, `/prd`, `/plan` and `/design` SKILL.md files
-  cite `references/fixes/sub-agent-dispatch.md` and
-  `references/decision-protocol.md` relative to the skill, where neither
-  file exists; both are at the plugin root.
+- The resume rows in the `/brief`, `/prd`, `/plan` and `/design` SKILL.md
+  files cite `references/fixes/sub-agent-dispatch.md`, and the `--auto` notes
+  in `/prd`'s, `/plan`'s and `/design`'s cite `references/decision-protocol.md`,
+  relative to the skill, where neither file exists; both are at the plugin
+  root.
 
 ## Implementation Approach
 

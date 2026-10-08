@@ -194,6 +194,10 @@
     "execute-single-pr"
    ],
    "title": "Force-push after a rebase",
+   "settled_by": [
+    557,
+    545
+   ],
    "sides": [
     {
      "loc": "skills/work-on/references/phases/phase-6-pr.md#L25-L29",
@@ -256,6 +260,9 @@
     "execute-single-pr"
    ],
    "title": "Retry caps",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/references/review-panel-orchestration.md#L16-L17",
@@ -328,6 +335,9 @@
     "work-on"
    ],
    "title": "A CI fix ends the run without re-checking CI",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/references/phases/phase-6-pr.md#L3-L3",
@@ -384,6 +394,9 @@
     "execute-single-pr"
    ],
    "title": "Cross-issue context is built but nothing reads it",
+   "settled_by": [
+    545
+   ],
    "sides": [
     {
      "loc": "skills/execute/references/cross-issue-context.md#L3-L13",
@@ -437,6 +450,12 @@
     "scope"
    ],
    "title": "Child skills run their own approval, push and pull-request steps under /scope",
+   "settled_by": [
+    586,
+    637,
+    658,
+    660
+   ],
    "sides": [
     {
      "loc": "skills/brief/references/phases/phase-5-finalize.md#L73-L93",
@@ -518,6 +537,9 @@
     "scope"
    ],
    "title": "/design's inline-decision fallback under a parent",
+   "settled_by": [
+    637
+   ],
    "sides": [
     {
      "loc": "references/fixes/sub-agent-dispatch.md#L76-L86",
@@ -567,6 +589,9 @@
     "scope"
    ],
    "title": "/plan files issues and a milestone under --auto without approval",
+   "settled_by": [
+    658
+   ],
    "sides": [
     {
      "loc": "skills/plan/SKILL.md#L68-L77",
@@ -623,6 +648,9 @@
     "scope"
    ],
    "title": "/scope's abandonment exit writes a Draft PLAN that fails L01",
+   "settled_by": [
+    586
+   ],
    "sides": [
     {
      "loc": "skills/scope/references/phases/phase-3-exit-finalization.md#L166-L186",
@@ -668,6 +696,9 @@
     "work-on"
    ],
    "title": "Panel retry round counter",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/references/phases/phase-4a-scrutiny.md#L34-L41",
@@ -698,6 +729,9 @@
     "work-on"
    ],
    "title": "Where a panel's blocking fix happens",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/koto-templates/work-on.md#L1797-L1797",
@@ -742,6 +776,9 @@
     "scope"
    ],
    "title": "Where decisions are recorded",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "references/decision-protocol.md#L40-L50",
@@ -785,6 +822,9 @@
     "work-on"
    ],
    "title": "Steps that commit files which moved into koto context",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/references/phases/phase-1-setup.md#L66-L68",
@@ -827,6 +867,9 @@
     "work-on"
    ],
    "title": "Where scratch files go",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/references/phases/phase-3-analysis.md#L40-L42",
@@ -856,6 +899,9 @@
     "work-on"
    ],
    "title": "Reviewer detail files versus wip hygiene",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/references/phases/phase-4a-scrutiny.md#L15-L24",
@@ -894,6 +940,9 @@
     "work-on"
    ],
    "title": "Which outcome escalates from implementation",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/references/phases/phase-4-implementation.md#L159-L159",
@@ -920,6 +969,9 @@
     "work-on"
    ],
    "title": "How plan-backed children initialize",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/SKILL.md#L214-L215",
@@ -950,6 +1002,9 @@
     "work-on"
    ],
    "title": "Deferral in the PR body points at a file that says nothing about it",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/koto-templates/work-on.md#L1942-L1943",
@@ -971,6 +1026,9 @@
     "scope"
    ],
    "title": "Decision-point ids and the file that defines them",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "skills/work-on/SKILL.md#L427-L431",
@@ -991,6 +1049,9 @@
     "work-on"
    ],
    "title": "Whether the retention reference loads at runtime",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "references/koto-session-retention.md#L4-L8",
@@ -1016,6 +1077,9 @@
     "execute-single-pr"
    ],
    "title": "How many PR-body checks exist",
+   "settled_by": [
+    557
+   ],
    "sides": [
     {
      "loc": "references/pr-body-conformance.md#L36-L36",
@@ -1041,6 +1105,10 @@
     "execute-single-pr"
    ],
    "title": "The PR-body rule restated where it says not to be",
+   "settled_by": [
+    557,
+    545
+   ],
    "sides": [
     {
      "loc": "references/pr-body-conformance.md#L5-L7",
@@ -1066,6 +1134,9 @@
     "execute-single-pr"
    ],
    "title": "worktree-discipline.md versus the state that already did its work",
+   "settled_by": [
+    545
+   ],
    "sides": [
     {
      "loc": "skills/execute/koto-templates/execute.md#L1317-L1317",
@@ -1108,6 +1179,9 @@
     "execute-single-pr"
    ],
    "title": "/execute's ci_monitor loads /work-on's PR phase file",
+   "settled_by": [
+    545
+   ],
    "sides": [
     {
      "loc": "skills/execute/koto-templates/execute.md#L1456-L1456",
@@ -1137,6 +1211,9 @@
     "execute-single-pr"
    ],
    "title": "/execute's PR title type",
+   "settled_by": [
+    545
+   ],
    "sides": [
     {
      "loc": "skills/execute/koto-templates/execute.md#L1395-L1395",
@@ -1164,6 +1241,9 @@
     "execute-coordinated"
    ],
    "title": "Whether /execute runs multi-pr PLANs",
+   "settled_by": [
+    545
+   ],
    "sides": [
     {
      "loc": "skills/execute/SKILL.md#L47-L52",
@@ -1205,6 +1285,9 @@
     "execute-coordinated"
    ],
    "title": "/execute's state-file projection and resume ladder",
+   "settled_by": [
+    545
+   ],
    "sides": [
     {
      "loc": "skills/execute/SKILL.md#L761-L825",
@@ -1230,6 +1313,9 @@
     "execute-coordinated"
    ],
    "title": "/execute's parent_orchestration sentinel has no reader",
+   "settled_by": [
+    545
+   ],
    "sides": [
     {
      "loc": "skills/execute/SKILL.md#L814-L819",
@@ -1261,6 +1347,9 @@
     "execute-coordinated"
    ],
    "title": "Execution children described as PRs",
+   "settled_by": [
+    545
+   ],
    "sides": [
     {
      "loc": "skills/execute/SKILL.md#L1181-L1185",
@@ -1292,6 +1381,9 @@
     "execute-coordinated"
    ],
    "title": "Exit artifacts /execute says it writes",
+   "settled_by": [
+    545
+   ],
    "sides": [
     {
      "loc": "skills/execute/SKILL.md#L971-L975",
@@ -1322,6 +1414,10 @@
     "execute-single-pr"
    ],
    "title": "--no-cleanup on child ticks",
+   "settled_by": [
+    557,
+    545
+   ],
    "sides": [
     {
      "loc": "skills/work-on/references/phases/phase-2.5-worktree-discipline.md#L122-L126",
@@ -1346,6 +1442,9 @@
     "deliver"
    ],
    "title": "/deliver says it ends merged; a default run pauses first",
+   "settled_by": [
+    541
+   ],
    "sides": [
     {
      "loc": "skills/deliver/SKILL.md#L5-L6",
@@ -1377,6 +1476,9 @@
     "scope"
    ],
    "title": "/scope's reference table versus its lazy-load rule",
+   "settled_by": [
+    586
+   ],
    "sides": [
     {
      "loc": "skills/scope/SKILL.md#L713-L730",
@@ -1404,6 +1506,9 @@
     "scope"
    ],
    "title": "/scope's initial state-file values",
+   "settled_by": [
+    586
+   ],
    "sides": [
     {
      "loc": "skills/scope/references/phases/phase-0-setup.md#L420-L432",
@@ -1440,6 +1545,9 @@
     "work-on"
    ],
    "title": "Mechanical writing-style terms said to be caught before the jury",
+   "settled_by": [
+    541
+   ],
    "sides": [
     {
      "loc": "skills/writing-style/SKILL.md#L41-L43",
@@ -1470,6 +1578,9 @@
     "scope"
    ],
    "title": "Phase 1's shape predicates have no consumer",
+   "settled_by": [
+    586
+   ],
    "sides": [
     {
      "loc": "skills/scope/references/phases/phase-1-discovery.md#L185-L197",
@@ -1500,6 +1611,9 @@
     "scope"
    ],
    "title": "Who judges an intent-changing rebase under /scope",
+   "settled_by": [
+    586
+   ],
    "sides": [
     {
      "loc": "skills/scope/SKILL.md#L373-L378",
@@ -1538,6 +1652,9 @@
     "scope"
    ],
    "title": "Phase 1 writes a state field the schema does not have",
+   "settled_by": [
+    586
+   ],
    "sides": [
     {
      "loc": "skills/scope/references/phases/phase-1-discovery.md#L88-L94",
@@ -1558,6 +1675,9 @@
     "scope"
    ],
    "title": "What a BRIEF's upstream may name",
+   "settled_by": [
+    541
+   ],
    "sides": [
     {
      "loc": "skills/brief/references/phases/phase-0-setup.md#L99-L103",
@@ -1584,6 +1704,9 @@
     "scope"
    ],
    "title": "The PRD format omits the schema field the gate requires",
+   "settled_by": [
+    541
+   ],
    "sides": [
     {
      "loc": "skills/prd/references/prd-format.md#L19-L31",
@@ -1610,6 +1733,9 @@
     "scope"
    ],
    "title": "Where /prd routes a simple PRD",
+   "settled_by": [
+    541
+   ],
    "sides": [
     {
      "loc": "skills/prd/SKILL.md#L195-L198",
@@ -1630,6 +1756,9 @@
     "scope"
    ],
    "title": "Which documents a PRD may name as its upstream",
+   "settled_by": [
+    660
+   ],
    "sides": [
     {
      "loc": "skills/prd/references/phases/phase-3-draft.md#L31-L35",
@@ -1661,6 +1790,9 @@
     "scope"
    ],
    "title": "/plan commits a single-pr PLAN at Draft",
+   "settled_by": [
+    658
+   ],
    "sides": [
     {
      "loc": "skills/plan/SKILL.md#L545-L547",
@@ -1700,6 +1832,9 @@
     "scope"
    ],
    "title": "PLAN complexity values and the FC11 message",
+   "settled_by": [
+    658
+   ],
    "sides": [
     {
      "loc": "skills/plan/references/plan-format.md#L176-L176",
@@ -1735,6 +1870,9 @@
     "scope"
    ],
    "title": "PLAN required sections",
+   "settled_by": [
+    658
+   ],
    "sides": [
     {
      "loc": "skills/plan/references/plan-format.md#L134-L157",
@@ -1774,6 +1912,9 @@
     "scope"
    ],
    "title": "/design's spawned_from shape",
+   "settled_by": [
+    637
+   ],
    "sides": [
     {
      "loc": "skills/design/SKILL.md#L71-L77",
@@ -1801,6 +1942,9 @@
     "scope"
    ],
    "title": "Where superseded designs go",
+   "settled_by": [
+    637
+   ],
    "sides": [
     {
      "loc": "skills/design/SKILL.md#L131-L131",
@@ -1828,6 +1972,10 @@
     "scope"
    ],
    "title": "Who adds Implementation Issues to a DESIGN",
+   "settled_by": [
+    637,
+    658
+   ],
    "sides": [
     {
      "loc": "skills/design/SKILL.md#L133-L136",
@@ -1860,6 +2008,10 @@
     "scope"
    ],
    "title": "The DESIGN's Planned transition is never committed under /scope",
+   "settled_by": [
+    586,
+    658
+   ],
    "sides": [
     {
      "loc": "skills/plan/references/phases/phase-1-analysis.md#L51-L58",
@@ -1888,6 +2040,9 @@
   {
    "id": "dp-work-on-retry-rationale-copies",
    "category": "duplicate",
+   "settled_by": [
+    557
+   ],
    "profiles": [
     "work-on"
    ],
@@ -1920,6 +2075,9 @@
   {
    "id": "dp-work-on-pointer-loaded-docs",
    "category": "rationale",
+   "settled_by": [
+    557
+   ],
    "profiles": [
     "work-on"
    ],
@@ -1939,6 +2097,9 @@
   {
    "id": "dp-work-on-finishing-obligations-pointer",
    "category": "rationale",
+   "settled_by": [
+    557
+   ],
    "profiles": [
     "work-on"
    ],
@@ -1958,6 +2119,9 @@
   {
    "id": "dp-work-on-rationale",
    "category": "rationale",
+   "settled_by": [
+    557
+   ],
    "profiles": [
     "work-on"
    ],
@@ -1998,6 +2162,9 @@
   {
    "id": "dp-work-on-duplicates",
    "category": "duplicate",
+   "settled_by": [
+    557
+   ],
    "profiles": [
     "work-on"
    ],
@@ -2039,6 +2206,9 @@
   {
    "id": "dp-work-on-missing-files",
    "category": "missing-file",
+   "settled_by": [
+    557
+   ],
    "profiles": [
     "work-on"
    ],
@@ -2065,6 +2235,9 @@
   {
    "id": "dp-work-on-koto-restated",
    "category": "koto-does-it",
+   "settled_by": [
+    557
+   ],
    "profiles": [
     "work-on"
    ],
@@ -2090,6 +2263,9 @@
   {
    "id": "dp-execute-skill-duplicates-template",
    "category": "duplicate",
+   "settled_by": [
+    545
+   ],
    "profiles": [
     "execute-single-pr",
     "execute-coordinated"
@@ -2123,6 +2299,9 @@
   {
    "id": "dp-execute-skill-rationale",
    "category": "rationale",
+   "settled_by": [
+    545
+   ],
    "profiles": [
     "execute-single-pr",
     "execute-coordinated"
@@ -2162,6 +2341,9 @@
   {
    "id": "dp-execute-skill-dead-mechanisms",
    "category": "missing-file",
+   "settled_by": [
+    545
+   ],
    "profiles": [
     "execute-single-pr",
     "execute-coordinated"
@@ -2189,6 +2371,9 @@
   {
    "id": "dp-execute-skill-koto-restated",
    "category": "koto-does-it",
+   "settled_by": [
+    545
+   ],
    "profiles": [
     "execute-single-pr",
     "execute-coordinated"
@@ -2203,6 +2388,9 @@
   {
    "id": "dp-execute-template",
    "category": "rationale",
+   "settled_by": [
+    545
+   ],
    "profiles": [
     "execute-single-pr"
    ],
@@ -2262,6 +2450,9 @@
   {
    "id": "dp-execute-pointer-loaded-refs",
    "category": "missing-file",
+   "settled_by": [
+    545
+   ],
    "profiles": [
     "execute-single-pr"
    ],
@@ -2283,6 +2474,9 @@
   {
    "id": "dp-execute-phase-6-pointer",
    "category": "missing-file",
+   "settled_by": [
+    545
+   ],
    "profiles": [
     "execute-single-pr"
    ],
@@ -2302,6 +2496,9 @@
   {
    "id": "dp-deliver-skill",
    "category": "koto-does-it",
+   "settled_by": [
+    541
+   ],
    "profiles": [
     "deliver"
    ],
@@ -2336,6 +2533,9 @@
   {
    "id": "dp-scope-history",
    "category": "rationale",
+   "settled_by": [
+    586
+   ],
    "profiles": [
     "scope"
    ],
@@ -2389,6 +2589,9 @@
   {
    "id": "dp-brief-history",
    "category": "rationale",
+   "settled_by": [
+    541
+   ],
    "profiles": [
     "scope"
    ],
@@ -2415,6 +2618,9 @@
   {
    "id": "dp-plan-history",
    "category": "rationale",
+   "settled_by": [
+    658
+   ],
    "profiles": [
     "scope"
    ],
@@ -2429,6 +2635,9 @@
   {
    "id": "dp-scope-rationale",
    "category": "rationale",
+   "settled_by": [
+    586
+   ],
    "profiles": [
     "scope"
    ],
@@ -2490,6 +2699,9 @@
   {
    "id": "dp-plan-rationale",
    "category": "rationale",
+   "settled_by": [
+    658
+   ],
    "profiles": [
     "scope"
    ],
@@ -2518,6 +2730,9 @@
   {
    "id": "dp-design-rationale",
    "category": "rationale",
+   "settled_by": [
+    637
+   ],
    "profiles": [
     "scope"
    ],
@@ -2534,6 +2749,9 @@
   {
    "id": "dp-scope-duplicates",
    "category": "duplicate",
+   "settled_by": [
+    586
+   ],
    "profiles": [
     "scope"
    ],
@@ -2571,6 +2789,9 @@
   {
    "id": "dp-plan-duplicates",
    "category": "duplicate",
+   "settled_by": [
+    658
+   ],
    "profiles": [
     "scope"
    ],
@@ -2604,6 +2825,9 @@
   {
    "id": "dp-design-duplicates",
    "category": "duplicate",
+   "settled_by": [
+    637
+   ],
    "profiles": [
     "scope"
    ],
@@ -2621,6 +2845,9 @@
   {
    "id": "dp-scope-no-reader",
    "category": "missing-file",
+   "settled_by": [
+    586
+   ],
    "profiles": [
     "scope"
    ],
@@ -2641,6 +2868,9 @@
   {
    "id": "dp-scope-koto-restated",
    "category": "koto-does-it",
+   "settled_by": [
+    586
+   ],
    "profiles": [
     "scope"
    ],
@@ -2672,6 +2902,9 @@
   {
    "id": "dp-plan-koto-restated",
    "category": "koto-does-it",
+   "settled_by": [
+    658
+   ],
    "profiles": [
     "scope"
    ],
@@ -2685,6 +2918,9 @@
   {
    "id": "dp-brief-internal-restatements",
    "category": "duplicate",
+   "settled_by": [
+    541
+   ],
    "profiles": [
     "scope"
    ],
@@ -2879,6 +3115,9 @@
   {
    "id": "dp-prd-internal-restatements",
    "category": "duplicate",
+   "settled_by": [
+    541
+   ],
    "profiles": [
     "scope"
    ],
@@ -2937,6 +3176,9 @@
   {
    "id": "dp-design-internal-restatements",
    "category": "duplicate",
+   "settled_by": [
+    637
+   ],
    "profiles": [
     "scope"
    ],
@@ -2995,6 +3237,9 @@
   {
    "id": "dp-plan-internal-restatements",
    "category": "duplicate",
+   "settled_by": [
+    658
+   ],
    "profiles": [
     "scope"
    ],
@@ -3133,6 +3378,9 @@
   {
    "id": "dp-review-plan-internal-restatements",
    "category": "duplicate",
+   "settled_by": [
+    534
+   ],
    "profiles": [
     "scope"
    ],

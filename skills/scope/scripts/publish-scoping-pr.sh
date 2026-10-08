@@ -21,7 +21,9 @@
 #      wip/{scope,brief,prd,design,plan}_<topic>_* and
 #      wip/research/{prd,design}_<topic>_* paths, committed as exactly that
 #      removal (built from HEAD's tree through a private index, so nothing
-#      else staged rides along). The files stay on disk for cleanup.
+#      else staged rides along). /brief's jury verdict files, which sit in
+#      the research directory beside /prd's and /design's scratch, are
+#      untracked with them. The files stay on disk for cleanup.
 #   4. list every wip/ path in commits not yet on origin, run the
 #      public-content visibility check over those files, and stop on a hit
 #                                                            -> scope:push
@@ -321,6 +323,7 @@ esac
 UNTRACK=$(git ls-files -- \
     "wip/scope_${TOPIC}_*" "wip/brief_${TOPIC}_*" "wip/prd_${TOPIC}_*" \
     "wip/design_${TOPIC}_*" "wip/plan_${TOPIC}_*" \
+    "wip/*/brief_${TOPIC}_*" \
     "wip/research/prd_${TOPIC}_*" "wip/research/design_${TOPIC}_*" 2>/dev/null)
 if [ -n "$UNTRACK" ]; then
     IDX="$SCRATCH/index"

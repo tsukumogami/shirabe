@@ -62,7 +62,7 @@ The directional rule:
 | Roadmap in shirabe | `docs/visions/VISION-pipeline.md` | Same-repo VISION |
 | PRD in shirabe | `docs/briefs/BRIEF-pipeline.md` | Same-repo BRIEF |
 | Design in shirabe | `docs/prds/PRD-traceability.md` | Same-repo PRD |
-| Roadmap in private vision repo | `tsukumogami/shirabe:docs/roadmaps/ROADMAP-foo.md` | Cross-repo, private -> public |
+| Roadmap in a private repo | `tsukumogami/shirabe:docs/strategies/STRATEGY-foo.md` | Cross-repo STRATEGY, private -> public |
 
 ## Anti-patterns
 
@@ -92,13 +92,12 @@ hard-stop on violations):
 | `skills/design` | [Phase 0 step 0.4a](../skills/design/references/phases/phase-0-setup-prd.md) | The `upstream:` value about to be written into the design doc skeleton |
 | `skills/design` | [Phase 6 step 6.4](../skills/design/references/phases/phase-6-final-review.md) | Final hygiene grep on the design doc body for `wip/...` references and a broken `upstream:` value |
 | `skills/plan`   | [Phase 7 step 7.4b](../skills/plan/references/phases/phase-7-creation.md) | Reference hygiene grep on the about-to-commit PLAN doc body and frontmatter |
-| `skills/prd`    | [Phase 3 step 3.1](../skills/prd/references/phases/phase-3-draft.md) | The `--upstream` value before it is stored for inclusion in PRD frontmatter |
+| `skills/prd`    | [Phase 3 step 3.1](../skills/prd/references/phases/phase-3-draft.md) | The upstream value before it is stored for inclusion in PRD frontmatter: the BRIEF path in brief input mode, otherwise the `--upstream` value |
 | `skills/roadmap` | [Phase 3 step 3.1](../skills/roadmap/references/phases/phase-3-draft.md) | The `--upstream` value before it is stored for inclusion in ROADMAP frontmatter |
 | `skills/charter` | [Phase 0 step 0.4](../skills/charter/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/strategy` |
 | `skills/scope`  | [Phase 0 Upstream Validation](../skills/scope/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/brief` for grounding and to `/plan` for recording |
 | `skills/strategy` | [Phase 2 draft](../skills/strategy/references/phases/phase-2-draft.md) | The recorded upstream before it is written into STRATEGY frontmatter (Phase 0 step 0.3 validates the value's shape; this step decides whether a public STRATEGY may name it) |
 | `skills/plan`   | [Phase 0 flag contract](../skills/plan/SKILL.md) | The `--upstream` value before it is written into PLAN frontmatter; the sixth ordered check decides whether a public PLAN may name a private ROADMAP |
-
 | `skills/brief`  | [Phase 0 step 0.3a](../skills/brief/references/phases/phase-0-setup.md) | The ancestor resolved one hop up from the grounding ROADMAP, before it is written into BRIEF frontmatter. The roadmap path itself is never recorded, so it is the resolved STRATEGY or VISION this check governs |
 
 `/brief`'s row is about a value the author never typed. Its `--upstream` is a

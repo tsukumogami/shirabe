@@ -60,6 +60,7 @@ stateDiagram-v2
     full_run_blocked --> exit_abandonment : next_move: abandon
     hop_brief --> hop_prd : gates.brief_complete.exit_code: 0, outcome: landed
     hop_brief --> hop_prd : outcome: skipped
+    hop_brief --> exit_re_evaluation : outcome: rejected
     hop_brief --> bail : outcome: bail
     hop_design --> fold : gates.design_complete.exit_code: 0, outcome: landed
     hop_design --> hop_plan : outcome: skipped

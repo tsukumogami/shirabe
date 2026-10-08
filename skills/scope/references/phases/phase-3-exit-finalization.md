@@ -122,12 +122,17 @@ The chain ended at a settled-upstream boundary. Phase 3 writes
 a Decision Record at the canonical Interface I.2 path:
 
 ```
-docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md
+docs/decisions/DECISION-{brief|prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md
 ```
 
-The four boundary × sub-shape combinations bind to the four
+The five boundary × sub-shape combinations bind to the five
 templates from
-`skills/scope/references/decision-record-{prd|design}-{re-evaluation|rejection}.md`:
+`skills/scope/references/decision-record-{brief|prd|design}-{re-evaluation|rejection}.md`.
+The `brief` boundary has only the rejection sub-shape: nothing above a
+BRIEF in the chain can be re-evaluated.
+
+- `boundary: brief; decision_record_sub_shape: rejection` →
+  `skills/scope/references/decision-record-brief-rejection.md`.
 
 - `boundary: prd; decision_record_sub_shape: re-evaluation` →
   `skills/scope/references/decision-record-prd-re-evaluation.md`.
@@ -142,7 +147,7 @@ State file at re-evaluation exit:
 
 ```yaml
 exit: re-evaluation
-boundary: prd | design
+boundary: brief | prd | design
 decision_record_sub_shape: re-evaluation | rejection
 referenced_artifact: <path to the settled-upstream artifact>
 chain_completed: <ISO-8601 timestamp>
@@ -429,8 +434,8 @@ substring is present in those child prompts.
   — R9 Hard-Finalization Check Spec (Parts 1-3 plus the
   multi-discriminator and chain-membership-gated additions).
 - Interface I.2 in `docs/designs/current/DESIGN-shirabe-scope-skill.md`
-  — Decision Record path schema and the four boundary ×
-  sub-shape combinations.
-- `skills/scope/references/decision-record-{prd|design}-{re-evaluation|rejection}.md`
-  — the four Decision Record body templates Phase 3 selects
+  — Decision Record path schema and the four PRD and DESIGN
+  boundary × sub-shape combinations (the BRIEF rejection came later).
+- `skills/scope/references/decision-record-{brief|prd|design}-{re-evaluation|rejection}.md`
+  — the five Decision Record body templates Phase 3 selects
   between based on `boundary:` + `decision_record_sub_shape:`.

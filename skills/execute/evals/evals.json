@@ -69,7 +69,9 @@
       "tier": 2,
       "mode": "execute",
       "scenario": "drift-intent-changing",
-      "env": {"KOTO_CALL_LOG": "koto-calls.log"},
+      "env": {
+        "KOTO_CALL_LOG": "koto-calls.log"
+      },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
       "expected_output": "After orchestrator_setup and settled_branch_record, koto runs drift_facts itself: drift-facts.sh fetches origin, takes the base as the merge-base of the PLAN's last commit and origin/main, and writes plan_intent.md and then drift_facts.json to the session context. The diamond PLAN references no path beyond itself, and main deleted that PLAN doc, so drift_facts.json carries route: judge with reasons no_code_references, overlap, and deleted_references, and the PLAN's path in both overlap (status: deleted) and deleted_referenced_paths. koto then runs worktree_sync's git merge of origin/main itself, and because drift_clear does not match, the run stops at worktree_discipline_check. The agent does NOT fetch or merge, and writes no impact file: it reads drift_facts.json and plan_intent.md with koto context get, per skills/work-on/references/phases/phase-2.5-worktree-discipline.md, judges that the change invalidates the PLAN's intent, and submits impact: intent-changing with a rationale (with --no-cleanup). The workflow routes to escalate_upstream_drift -> done_blocked carrying the upstream-drift failure_reason. Children are NEVER dispatched. This is the drift gate firing under /execute before the first child.",
       "files": [],
@@ -88,7 +90,9 @@
       "tier": 2,
       "mode": "execute",
       "scenario": "drift-informational",
-      "env": {"KOTO_CALL_LOG": "koto-calls.log"},
+      "env": {
+        "KOTO_CALL_LOG": "koto-calls.log"
+      },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- main advanced in unrelated files",
       "expected_output": "Main advanced three commits, only in files the PLAN does not reference. koto runs drift_facts itself: drift-facts.sh fetches origin and writes plan_intent.md and drift_facts.json. The diamond PLAN references no path beyond itself, so the facts cannot rule drift out: drift_facts.json carries route: judge with reasons [no_code_references], an empty overlap, and no deleted reference. koto runs worktree_sync's git merge of origin/main itself; drift_clear does not match, so the run stops at worktree_discipline_check. The agent does not fetch or merge by hand and writes no impact file: it reads drift_facts.json and plan_intent.md with koto context get, per skills/work-on/references/phases/phase-2.5-worktree-discipline.md, sees that main changed nothing the PLAN depends on, and submits impact: informational with --no-cleanup (never impact: none, which the state does not accept). The workflow routes to spawn_and_await with no escalation, and per-child dispatch proceeds normally. A PLAN that named code paths main left alone would route none and reach spawn_and_await without the question; this PLAN names none, so the question is always asked. This is the drift gate ABSORBING a non-intent-changing base-branch change under /execute.",
       "files": [],
@@ -383,18 +387,21 @@
       "name": "execute-ci-monitor-dirty-merge-state-routing",
       "tier": 2,
       "mode": "execute",
-      "scenario": "plan-orchestrator",
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "The orchestrator reaches ci_monitor on the shared impl/diamond-test branch. gh pr view --json mergeStateStatus --jq .mergeStateStatus returns DIRTY (merge conflicts; GitHub suppressed new check-runs). The merge_state_clean gate fails. The ci_passing gate command evaluates length == 0 against zero check-runs and returns true -- the agent does NOT loop on ci_passing because this is the silent-success surface. Instead the agent submits ci_outcome: dirty_merge_state with rationale naming the conflict files. The workflow routes to escalate_dirty_merge_state -> done_blocked carrying the DIRTY failure_reason 'ci_monitor: PR merge state is DIRTY; checks suppressed.' The koto state machine does not retry automatically; the operator must merge the default branch in and resolve the conflicts, never rebase or force-push.",
+      "scenario": "merge-dirty",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) whose merge state is DIRTY with no check runs, and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
+      "expected_output": "The orchestrator reaches ci_monitor on impl/merge-test. gh pr view --json mergeStateStatus --jq .mergeStateStatus returns DIRTY (merge conflicts; GitHub suppressed new check-runs). The merge_state_clean gate fails. The ci_passing gate evaluates length == 0 against zero check-runs and returns true -- the agent does NOT treat that as passing, because this is the silent-success surface. Instead the agent submits ci_outcome: dirty_merge_state with a rationale. The workflow routes to escalate_dirty_merge_state -> done_blocked carrying the DIRTY failure_reason 'ci_monitor: PR merge state is DIRTY; checks suppressed.' The koto state machine does not retry automatically; the operator must merge the default branch in and resolve the conflicts, never rebase or force-push. No merge call is made.",
       "files": [],
       "expectations": [
-        "Agent observes gh pr view --json mergeStateStatus returning DIRTY",
-        "Agent submits ci_outcome: dirty_merge_state (NOT ci_outcome: passing, even though ci_passing gate returns length == 0)",
-        "Agent's rationale names the conflict files for operator recovery",
-        "Workflow routes to escalate_dirty_merge_state -> done_blocked",
-        "failure_reason includes 'ci_monitor: PR merge state is DIRTY; checks suppressed.'",
-        "The koto state machine does not retry automatically; the operator must merge the default branch in and resolve the conflicts, never rebase or force-push"
-      ]
+        "gh-calls.log shows a pr view call reading mergeStateStatus, and the agent reports the merge state as DIRTY",
+        "Agent submits ci_outcome: dirty_merge_state (NOT ci_outcome: passing, even though the ci_passing gate returns length == 0)",
+        "Workflow routes ci_monitor -> escalate_dirty_merge_state -> done_blocked",
+        "The run's failure_reason (shown by koto status or the printed exit lines) includes 'ci_monitor: PR merge state is DIRTY; checks suppressed.'",
+        "gh-calls.log contains no line starting `pr merge`",
+        "The run does not retry automatically, and nothing it says or runs rebases or force-pushes; the recovery it names is merging the default branch in and resolving the conflicts"
+      ],
+      "env": {
+        "GH_CALL_LOG": "gh-calls.log"
+      }
     },
     {
       "id": 22,
@@ -498,10 +505,10 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- what does pr_finalization set on the PR?",
-      "expected_output": "In pr_finalization the agent authors a template-conformant PR in the single gh pr edit it runs, in one pass (DESIGN R4/D6). It sets the conventional-commit --title feat: <description>, the type the directive's gh pr edit command fixes, deriving <description> from the validated PLAN slug (basename {{PLAN_DOC}} .md | sed 's/^PLAN-//', which matches ^[a-z0-9-]+$) -- never from raw PLAN prose interpolated into the title or shell. This replaces the non-conventional impl: $PLAN_SLUG title set at PR creation. The body is two-part: Part 1 a concise factual change paragraph (becomes the squash commit body), then a --- separator, then Part 2 the per-child outcome table (name/outcome/reason/reason_source/skipped_because_chain). The agent applies the spec inline, referencing references/pr-body-conformance.md as the single-sourced mechanical rule (enforced in CI by shirabe validate --pr-body), and does NOT shell out to another plugin's skill at runtime. It does NOT mark the PR ready in this state.",
+      "expected_output": "In pr_finalization the agent authors a template-conformant PR in the single gh pr edit it runs, in one pass (DESIGN R4/D6). It sets the conventional-commit --title <type>: <description>, with <type> one of feat, fix, docs or chore chosen from what the PLAN's work changed and set as PR_TYPE in the directive's command (which falls back to feat for anything else), deriving <description> from the validated PLAN slug (basename {{PLAN_DOC}} .md | sed 's/^PLAN-//', which matches ^[a-z0-9-]+$) -- never from raw PLAN prose interpolated into the title or shell. This replaces the non-conventional impl: $PLAN_SLUG title set at PR creation. The body is two-part: Part 1 a concise factual change paragraph (becomes the squash commit body), then a --- separator, then Part 2 the per-child outcome table (name/outcome/reason/reason_source/skipped_because_chain). The agent applies the spec inline, referencing references/pr-body-conformance.md as the single-sourced mechanical rule (enforced in CI by shirabe validate --pr-body), and does NOT shell out to another plugin's skill at runtime. It does NOT mark the PR ready in this state.",
       "files": [],
       "expectations": [
-        "Agent sets gh pr edit --title to the conventional-commit title feat: <description> the directive's command carries, replacing the impl: $PLAN_SLUG creation-time title",
+        "Agent sets gh pr edit --title to a conventional-commit title <type>: <description>, with <type> one of feat, fix, docs or chore set through PR_TYPE in the directive's command, replacing the impl: $PLAN_SLUG creation-time title",
         "Agent derives the title description from the validated PLAN slug (^[a-z0-9-]+$) and NEVER interpolates raw PLAN prose into the title or emitted shell",
         "Agent assembles a two-part body: Part 1 factual change paragraph, a --- separator, Part 2 the per-child outcome table",
         "Agent references references/pr-body-conformance.md as the single-sourced mechanical title/body rule (enforced by shirabe validate --pr-body) and applies it inline (does NOT shell out to another plugin's skill at runtime)",

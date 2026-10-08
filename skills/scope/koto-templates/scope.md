@@ -788,14 +788,14 @@ states:
     accepts:
       outcome:
         type: enum
-        # `rejected` is absent here on purpose: /brief has no Phase-N reject, and
-        # a reject sets a re-evaluation exit whose `boundary` enum has no legal
-        # value for this hop.
-        values: [landed, skipped, bail]
+        # /brief's Phase 5 Reject discards the draft BRIEF in its own discard
+        # commit, which routes to the re-evaluation exit at the `brief` boundary,
+        # as /prd's and /design's rejects do at theirs.
+        values: [landed, skipped, rejected, bail]
         required: true
       detail:
         type: string
-        description: The child's outcome, or the vocabulary reason for a skip.
+        description: The child's outcome, the skip reason, or the reject rationale.
     transitions:
       - target: hop_prd
         when:
@@ -804,6 +804,9 @@ states:
       - target: hop_prd
         when:
           outcome: skipped
+      - target: exit_re_evaluation
+        when:
+          outcome: rejected
       - target: bail
         when:
           outcome: bail
@@ -1245,7 +1248,7 @@ states:
     accepts:
       boundary:
         type: enum
-        values: [prd, design]
+        values: [brief, prd, design]
         required: true
       decision_record_sub_shape:
         type: enum
@@ -2315,9 +2318,14 @@ produces a commit claiming the hop landed. Commit the artifact to the run's
 branch after the gate passes, staging the one canonical path with `git add --`
 and naming the hop in the message.
 
+`/brief` has a Phase-N reject: its Phase 5 Reject discards the draft BRIEF in a
+discard commit. A reject is not a bail: submit `outcome: rejected` and the run
+routes to the re-evaluation exit, where the boundary is `brief`.
+
 Submit `outcome: landed` when the child produced the artifact, `outcome:
-skipped` with the vocabulary reason in `detail` when the hop is held back, or
-`outcome: bail` when the run stops here.
+skipped` with the vocabulary reason in `detail` when the hop is held back,
+`rejected` on a Phase-N reject with the rationale in `detail`, or `outcome:
+bail` when the run stops here.
 
 If you submit `landed` and nothing advances, the gate did not pass: read the
 blocking conditions on the response. Exit code 1 means neither the artifact nor
@@ -2326,8 +2334,9 @@ a missing validator, or a validation that reached no verdict -- and the fix is
 to the environment, not to the evidence.
 
 Evidence schema:
-- `outcome`: `landed`, `skipped`, or `bail`
-- `detail`: the child's outcome, the skip reason, or the bail reason
+- `outcome`: `landed`, `skipped`, `rejected`, or `bail`
+- `detail`: the child's outcome, the skip reason, the reject rationale, or the
+  bail reason
 
 ## hop_prd
 
@@ -2671,11 +2680,13 @@ Record's sub-shape, and the artifacts the run leaves behind.
 Write the Decision Record at its canonical path before submitting:
 
 ```
-docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md
+docs/decisions/DECISION-{brief|prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md
 ```
 
-The four boundary and sub-shape combinations bind to the four templates in
-`skills/scope/references/decision-record-{prd|design}-{re-evaluation|rejection}.md`.
+The boundary and sub-shape combinations bind to the templates in
+`skills/scope/references/decision-record-{brief|prd|design}-{re-evaluation|rejection}.md`;
+the `brief` boundary has only the rejection sub-shape, since nothing above a
+BRIEF can be re-evaluated.
 Commit it with `git commit -F`: author-supplied prose, including a rejection
 rationale, goes through stdin or a tempfile and is never interpolated into a
 `-m` message.
@@ -2689,7 +2700,7 @@ here with the gate reported. `retry_or_abandon: abandon` leaves for the
 abandonment exit, so an agent that cannot produce the record is not stuck here.
 
 Evidence schema:
-- `boundary`: `prd` or `design`
+- `boundary`: `brief`, `prd` or `design`
 - `decision_record_sub_shape`: `re-evaluation` or `rejection`
 - `exit_artifacts`: the Decision Record's path and status
 - `retry_or_abandon`: `retry` or `abandon`
@@ -2723,7 +2734,8 @@ child, and the enum has no "none").
 `triggering_child` is resolved by the R8 tie-break in
 `skills/scope/references/phases/phase-3-exit-finalization.md`: the child whose
 Phase 2 invocation began most recently, ties broken by position in the planned
-chain, later winning. The tie-break is mechanical and prompts nobody.
+chain, later winning, except on a stop between hops, where it is the child the
+stop came just before (as above). The tie-break is mechanical and prompts nobody.
 
 **On a coordinated run, close the coordination PR without merging** — `gh pr
 close`, the same `gh` surface that authored and posted its body. Abandonment

@@ -261,7 +261,8 @@ recommended verdict: <verdict>".
    which leaves publishing to the parent. Nothing in a `/scope` run removes
    the label instead: `/plan` removes it at its step 7.8 only when the author
    names the upstream issue, and that is a routing prompt `/scope`'s children
-   skip. The label stays on the issue for the author to remove.
+   skip. The label stays on the issue for the author to remove; who should
+   remove it under `/scope` is an open question, tracked as #666.
 4. **Update parent design doc** (only when the design doc has `spawned_from` in its frontmatter).
    If your project defines a label lifecycle in the extension file
    (`@.claude/shirabe-extensions/design.md`), follow those instructions for
@@ -304,7 +305,11 @@ Run the following ordered actions; do not skip steps.
 1. **Capture the rationale.** Prompt the author for a one-sentence rationale
    explaining why the DESIGN is being discarded. Restate the public-history
    disclaimer ("Rationale will be committed to git history") in the prompt
-   so the author has a second opportunity to redact private content.
+   so the author has a second opportunity to redact private content. An
+   unattended run (`--auto`) asks nobody: write the rationale yourself from
+   the review findings behind the verdict, as
+   `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` has you do at any
+   decision point, keeping it free of private content.
 
 2. **Write the rationale to a tmpfile.** Author-supplied rationale strings
    are free-form and may contain shell metacharacters (quotes, backticks,
@@ -321,7 +326,7 @@ Run the following ordered actions; do not skip steps.
    ```
 
    The first line is the conventional-commit subject (the literal substring
-   `/scope`'s Component 7.7 git-log search reads); a blank line separates
+   `/scope`'s Phase-N Reject Handling searches `git log` for); a blank line separates
    the subject from the rationale body.
 
 3. **Remove the durable DESIGN artifact.**
@@ -340,7 +345,12 @@ Run the following ordered actions; do not skip steps.
    rm -f wip/research/design_<topic>_*.md
    ```
 
-5. **Commit the discard via `git commit -F`** (file path), never `-m`:
+   Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
+   these files.
+
+5. **Commit the discard via `git commit -F`** (file path), never `-m`. This
+   commit still happens under `/scope`'s sentinel: it is the rejection signal
+   `/scope` reads from `git log`, not the cleanup commit the sentinel skips.
 
    ```bash
    git commit -F "$RATIONALE_FILE"
@@ -353,7 +363,8 @@ Run the following ordered actions; do not skip steps.
 
 6. **Exit the phase.** Do not flip status from Proposed to Accepted; do not
    run the Approved-path complexity assessment or routing; do not run step
-   6.9 (the Reject branch handled its own wip cleanup inline in step 4).
+   6.9 (the Reject branch handled its own wip cleanup inline in step 4, or
+   left it to `/scope` under the sentinel).
    No DESIGN ships; the discard commit is the only artifact. The gate
    behaves identically in-chain and out-of-chain — `/design`'s
    responsibility stops at the discard commit. (Any `/scope`-side handling

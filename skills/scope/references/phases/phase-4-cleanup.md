@@ -11,6 +11,11 @@ session resumability. The terminal artifact (PLAN, Decision
 Record, or force-materialized child doc) remains on disk on
 every exit path.
 
+Wherever this file names the research prefix, it includes
+`/brief`'s Phase 4 jury verdict files, `research/brief_<topic>_phase4_*.md`
+in the same directory: `/brief` leaves them to this sweep like every
+other working file.
+
 ## Trigger
 
 Phase 4 runs ONLY after Phase 3's R9 hard-finalization check
@@ -51,7 +56,8 @@ not touch it:
 
 - `exit: full-run` → `docs/plans/PLAN-<topic>.md`.
 - `exit: re-evaluation` →
-  `docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`.
+  `docs/decisions/DECISION-{brief|prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`
+  (`brief` with `rejection` only).
 - `exit: abandonment-forced` →
   `docs/{briefs|prds|designs}/<TYPE>-<topic>.md` (the marked
   document; a Draft unless it is the upstream document `/plan`

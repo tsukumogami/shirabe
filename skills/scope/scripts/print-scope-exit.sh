@@ -108,7 +108,7 @@ MODE=$(get plan_execution_mode '^(single-pr|multi-pr|coordinated)$')
 REASON=$(get reason '^(invalid-var:[A-Z_]+|duplicate-var:[A-Z_]+|var-mismatch:[A-Z_]+|template-mismatch|origin-mismatch|intent-mismatch|upstream-wip|upstream-untracked|upstream-outside|upstream-basename|plan-active|plan-done)$')
 RECORDED=$(get recorded '^(continue|stop|none)$')
 REQUESTED=$(get requested '^(continue|stop)$')
-BOUNDARY=$(get boundary '^(prd|design)$')
+BOUNDARY=$(get boundary '^(brief|prd|design)$')
 
 # wip_paths: each comma-separated entry a plain wip/ path, else dropped whole.
 WIP=$(printf '%s' "$PAYLOAD" | jq -r '.wip_paths // "" | strings') || WIP=""
@@ -128,7 +128,7 @@ esac
 
 decision_record() {
     local b p last=""
-    for b in ${BOUNDARY:-prd design}; do
+    for b in ${BOUNDARY:-brief prd design}; do
         for p in docs/decisions/DECISION-"$b"-"$TOPIC"-*.md; do
             [ -f "$p" ] && last="$p"
         done

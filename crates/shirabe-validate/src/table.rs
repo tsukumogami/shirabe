@@ -267,15 +267,37 @@ fn is_separator_row(trimmed: &str) -> bool {
 /// Split a raw GFM pipe row into its cells. Surrounding pipes are removed
 /// and each cell is whitespace-trimmed. Empty trailing cells from
 /// `| a | | |` are preserved.
+///
+/// An escaped pipe `\|` belongs to its cell, as GFM renders it: a coordinated
+/// PLAN's `^_Repo: owner/repo \| Group: <slug>_` annotation row is one cell,
+/// not two. The escape is kept in the cell text.
 pub(crate) fn split_row(raw: &str) -> Vec<String> {
     let trimmed = raw.trim();
     if !trimmed.starts_with('|') {
         return Vec::new();
     }
-    // Remove leading and trailing pipes.
+    // Remove the leading pipe, and the trailing one unless it is escaped.
     let trimmed = trimmed.strip_prefix('|').unwrap_or(trimmed);
-    let trimmed = trimmed.strip_suffix('|').unwrap_or(trimmed);
-    trimmed.split('|').map(|p| p.trim().to_string()).collect()
+    let trimmed = match trimmed.strip_suffix('|') {
+        Some(rest) if !rest.ends_with('\\') => rest,
+        _ => trimmed,
+    };
+    let mut cells = Vec::new();
+    let mut cell = String::new();
+    let mut chars = trimmed.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' if chars.peek() == Some(&'|') => {
+                cell.push('\\');
+                cell.push('|');
+                chars.next();
+            }
+            '|' => cells.push(std::mem::take(&mut cell)),
+            _ => cell.push(c),
+        }
+    }
+    cells.push(cell);
+    cells.into_iter().map(|p| p.trim().to_string()).collect()
 }
 
 /// Inspect the cells of a body row and produce a [`Row`] with its kind,
@@ -1246,6 +1268,33 @@ mod tests {
         assert_eq!(table.rows[2].kind, RowKind::Entity);
         assert_eq!(table.rows[2].key, "#2");
         assert_eq!(table.rows[2].deps, vec!["#1"]);
+    }
+
+    #[test]
+    fn split_row_keeps_an_escaped_pipe_in_its_cell() {
+        assert_eq!(
+            split_row("| ^_Repo: acme/repo-a \\| Group: core_ | | |"),
+            vec!["^_Repo: acme/repo-a \\| Group: core_", "", ""]
+        );
+        // An unescaped pipe still splits, and a row without escapes is unchanged.
+        assert_eq!(split_row("| a | b|c |"), vec!["a", "b", "c"]);
+        // An escaped pipe at the end of the row is not the closing pipe.
+        assert_eq!(split_row("| a \\|"), vec!["a \\|"]);
+    }
+
+    #[test]
+    fn parse_issues_table_reads_a_coordinated_annotation_row_as_a_child_row() {
+        let doc = doc_from_markdown(
+            "---\nschema: plan/v1\nstatus: Active\nexecution_mode: coordinated\nissue_count: 2\n---\n\n# PLAN: foo\n\n## Status\n\nActive\n\n## Implementation Issues\n\n| Issue | Dependencies | Complexity |\n|-------|--------------|------------|\n| [#1: first](https://example.com/1) | None | simple |\n| ^_Repo: acme/repo-a \\| Group: core_ | | |\n| [#2: second](https://example.com/2) | [#1](https://example.com/1) | testable |\n| ^_Repo: acme/repo-b \\| Group: cli_ | | |\n",
+        );
+
+        let table = parse_issues_table(&doc).expect("expected to find a table, got None");
+        assert_eq!(table.rows.len(), 4);
+        assert_eq!(table.rows[0].kind, RowKind::Entity);
+        assert_eq!(table.rows[1].kind, RowKind::Child);
+        assert_eq!(table.rows[2].kind, RowKind::Entity);
+        assert_eq!(table.rows[2].deps, vec!["#1"]);
+        assert_eq!(table.rows[3].kind, RowKind::Child);
     }
 
     #[test]

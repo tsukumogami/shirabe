@@ -10,6 +10,16 @@ on:
       # suite ever running: the walk then stopped at the initial state, and the
       # breakage surfaced only on the next PR that happened to touch a script.
       - 'skills/scope/koto-templates/**'
+      # scope-template_test.sh also reads prose outside the scripts: it greps
+      # /scope's and /charter's Markdown for rebase instructions, checks
+      # /charter's citations against worktree-discipline.md's headings, and
+      # checks Phase 2 and the dispatch reference agree. A change to only
+      # those files has to run it too.
+      - 'skills/scope/SKILL.md'
+      - 'skills/scope/references/**'
+      - 'skills/charter/**'
+      - 'references/worktree-discipline.md'
+      - 'references/fixes/sub-agent-dispatch.md'
       - 'crates/shirabe-validate/src/formats.rs'
       # hop-complete.sh reimplements the validator's frontmatter splitter, and
       # its notion of a clean run depends on how --check selection drives the
