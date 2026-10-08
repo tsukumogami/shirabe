@@ -135,6 +135,11 @@ boundary: design
 decision_record_sub_shape: rejection
 publish_error: scope:push
 ";                                 expect "re-evaluation publish retry" 28 t stop
+repo; state t "exit: re-evaluation
+boundary: brief
+decision_record_sub_shape: rejection
+publish_error: scope:push
+";                                 expect "a BRIEF-boundary rejection is a valid re-evaluation exit" 28 t stop
 repo; state t "exit: abandonment-forced
 triggering_child: prd
 publish_error: scope:push

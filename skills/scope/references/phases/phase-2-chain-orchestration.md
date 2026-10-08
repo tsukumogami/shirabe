@@ -345,11 +345,13 @@ before use (see State-File Enum Re-Validation below).
 
 ## Phase-N Reject Handling
 
-When `/prd` Phase 4 Reject or `/design` Phase 6 Reject fires
-in-chain, the child returns control to `/scope` after producing
-a discard commit (per Component 7.7). The discard commit's
+When `/brief` Phase 5 Reject, `/prd` Phase 4 Reject or `/design`
+Phase 6 Reject fires in-chain, the child returns control to
+`/scope` after producing a discard commit. The discard commit's
 shape is canonical:
 
+- `docs(brief): discard BRIEF draft for <topic>` for `/brief`
+  Phase 5 Reject.
 - `docs(prd): discard PRD draft for <topic>` for `/prd` Phase 4
   Reject.
 - `docs(design): discard DESIGN draft for <topic>` for
@@ -357,7 +359,7 @@ shape is canonical:
 
 The implementation pattern at the chain level:
 
-1. Before each in-chain `/prd` or `/design` invocation, Phase 2
+1. Before each in-chain `/brief`, `/prd` or `/design` invocation, Phase 2
    records the current branch's HEAD SHA as `pre_invocation_sha`.
 2. After the child returns, Phase 2 reads
    `git log <pre_invocation_sha>..HEAD` for any discard commit (a
@@ -371,7 +373,7 @@ The implementation pattern at the chain level:
 
 ```yaml
 exit: re-evaluation
-boundary: prd | design          # gated by which child rejected
+boundary: brief | prd | design  # gated by which child rejected
 decision_record_sub_shape: rejection
 discard_commit_sha: <sha>
 rejection_rationale: <free-text from commit body>
@@ -391,14 +393,14 @@ that Rejects without `/scope` orchestrating still leaves a
 re-grepable trace. The asymmetry is solely whether a Decision
 Record gets written.
 
-- **In-chain Reject** — `/prd` Phase 4 Reject or `/design`
-  Phase 6 Reject fired while `/scope`'s `parent_orchestration:`
+- **In-chain Reject** — `/brief` Phase 5, `/prd` Phase 4 or
+  `/design` Phase 6 Reject fired while `/scope`'s `parent_orchestration:`
   sentinel was present. `/scope` writes a rejection-sub-shape
   Decision Record at
-  `docs/decisions/DECISION-{prd|design}-<topic>-rejection-<YYYY-MM-DD>.md`
+  `docs/decisions/DECISION-{brief|prd|design}-<topic>-rejection-<YYYY-MM-DD>.md`
   immediately, observing the discard commit via the `git log
   <pre_invocation_sha>..HEAD` mechanism above.
-- **Out-of-chain Reject** — `/prd` or `/design` Reject fired
+- **Out-of-chain Reject** — `/brief`, `/prd` or `/design` Reject fired
   outside any `/scope` invocation. The discard commit is the
   durable trace; no retroactive Decision Record is written on a
   later `/scope` resume. A later `/scope` invocation against the
@@ -420,8 +422,9 @@ against the new intermediate. The `<repo-visibility>` value is
 the one detected in Phase 0 from CLAUDE.md's `## Repo Visibility:`
 header (default Private if absent).
 
-The validator runs the `shirabe` binary at `cmd/shirabe/` —
-the same binary humans invoke for ad-hoc validation. Phase 2
+The validator runs the `shirabe` binary, built from
+`crates/shirabe` — the same binary humans invoke for ad-hoc
+validation. Phase 2
 captures BOTH stdout and stderr from the sub-process; stderr is
 never discarded, because in the no-envelope case it is the entire
 diagnostic.
@@ -531,11 +534,23 @@ case "$BRANCH" in
     echo "refusing to commit the <hop> hop on the default branch [$BRANCH]"; exit 1 ;;
 esac
 git add -- <hop-pathspecs>
-git commit -m "docs(scope): <hop> hop for <topic>" -- <hop-pathspecs>
+if git diff --cached --quiet -- <hop-pathspecs>; then
+  echo "the <hop> hop's artifact is already committed; nothing to add"
+else
+  git commit -m "docs(scope): <hop> hop for <topic>" -- <hop-pathspecs>
+fi
 ```
 
 `<hop-pathspecs>` is the hop's row in the table below, each path
 quoted.
+
+The child has usually committed its artifact already: under the
+sentinel it keeps its own status transition and the commit that
+carries it (its acceptance commit), so the artifact can arrive clean.
+The hop commit then holds only what the child left uncommitted, such
+as `/plan`'s move of the DESIGN to `Planned`, and when nothing is
+left there is no hop commit; the child's own commit is the hop's
+record.
 
 `main` and `master` are checked alongside the resolved default
 because `refs/remotes/origin/HEAD` is absent in a clone that never

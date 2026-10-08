@@ -368,7 +368,7 @@ do not read them all before starting:
 4. **wip Cleanup** — remove the topic's wip/ scratch artifacts
    (`wip/scope_<topic>_*` plus, on full-run or re-evaluation,
    `wip/{brief,prd,design,plan}_<topic>_*` and
-   `wip/research/{prd,design}_<topic>_*`); preserve durable
+   `wip/research/{brief,prd,design}_<topic>_*`); preserve durable
    artifacts under `docs/`.
    - Instructions: `skills/scope/references/phases/phase-4-cleanup.md`
 
@@ -380,7 +380,8 @@ Every run ends at exactly one, recorded in `exit:`:
   artifact at a canonical path or a recorded fold in a surviving document. A
   skipped hop satisfies neither, and the completion predicate has no skip limb.
 - **`re-evaluation`** — a settled upstream was rejected at a boundary (PRD or
-  DESIGN). Writes a Decision Record under `docs/decisions/`.
+  DESIGN), or a child rejected its own draft (BRIEF, PRD or DESIGN). Writes a
+  Decision Record under `docs/decisions/`.
 - **`abandonment-forced`** — the run stopped with a child mid-flight. Force-
   materializes that child's intermediate as a Draft artifact, except that it
   never writes a PLAN: when `/plan` was running it marks the nearest upstream
@@ -464,10 +465,10 @@ other path in this section is named.
 - `docs/plans/PLAN-<topic>.md`
 
 A child's own verdict commits (its acceptance or discard commit) are the
-child's, not this list's; under the sentinel the only working files one
-removes are `/brief`'s Phase 4 jury verdict files, inside that commit, because
-the untrack and cleanup below don't cover them (see "What a child keeps and
-what it skips under /scope" in
+child's, not this list's. Under the sentinel no child commits the removal of
+its working files: the untrack and cleanup below cover every child's `wip/`
+prefix, its `wip/research/` scratch included (see "What a child keeps and what
+it skips under /scope" in
 `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`).
 
 `.git/` writes are confined to `git add` and `git commit` restricted to those
@@ -481,7 +482,7 @@ runs in the publish states and in `republish` and never as a default action:
 
 - **untrack** — `git rm --cached` of the topic's own
   `wip/{scope,brief,prd,design,plan}_<topic>_*` and
-  `wip/research/{prd,design}_<topic>_*`, committed as exactly that removal and
+  `wip/research/{brief,prd,design}_<topic>_*`, committed as exactly that removal and
   nothing else staged; the files stay on disk for Phase 4
 - **push** — `git push origin HEAD:refs/heads/<branch>`, with no force option
   and no `+` refspec, refused for a detached HEAD, for a branch failing

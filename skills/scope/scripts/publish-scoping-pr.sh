@@ -19,7 +19,7 @@
 #                                                            -> scope:push
 #   3. untrack the topic's own wip/ prefixes: `git rm --cached` of the tracked
 #      wip/{scope,brief,prd,design,plan}_<topic>_* and
-#      wip/research/{prd,design}_<topic>_* paths, committed as exactly that
+#      wip/research/{brief,prd,design}_<topic>_* paths, committed as exactly that
 #      removal (built from HEAD's tree through a private index, so nothing
 #      else staged rides along). The files stay on disk for cleanup.
 #   4. list every wip/ path in commits not yet on origin, run the
@@ -321,7 +321,7 @@ esac
 UNTRACK=$(git ls-files -- \
     "wip/scope_${TOPIC}_*" "wip/brief_${TOPIC}_*" "wip/prd_${TOPIC}_*" \
     "wip/design_${TOPIC}_*" "wip/plan_${TOPIC}_*" \
-    "wip/research/prd_${TOPIC}_*" "wip/research/design_${TOPIC}_*" 2>/dev/null)
+    "wip/research/brief_${TOPIC}_*" "wip/research/prd_${TOPIC}_*" "wip/research/design_${TOPIC}_*" 2>/dev/null)
 if [ -n "$UNTRACK" ]; then
     IDX="$SCRATCH/index"
     OLD=$(git rev-parse HEAD) || fail scope:push "git rev-parse HEAD failed"

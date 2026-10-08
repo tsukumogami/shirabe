@@ -5,7 +5,7 @@ Phase 4 removes the topic's wip/ scratch artifacts after Phase
 depends on the `exit:` value: `full-run` and `re-evaluation`
 sweep the parent's `wip/scope_<topic>_*` plus the child-prefixed
 `wip/{brief,prd,design,plan}_<topic>_*` and
-`wip/research/{prd,design}_<topic>_*`; `abandonment-forced`
+`wip/research/{brief,prd,design}_<topic>_*`; `abandonment-forced`
 removes only the parent's prefix and preserves child wip for
 session resumability. The terminal artifact (PLAN, Decision
 Record, or force-materialized child doc) remains on disk on
@@ -26,18 +26,18 @@ finalized. The exit-path matrix:
 
 - **`exit: full-run`** — remove `wip/scope_<topic>_*` AND
   `wip/{brief,prd,design,plan}_<topic>_*` AND
-  `wip/research/{prd,design}_<topic>_*`. The chain finished its
+  `wip/research/{brief,prd,design}_<topic>_*`. The chain finished its
   planned terminal artifact; no resumable state remains.
 - **`exit: re-evaluation`** — remove `wip/scope_<topic>_*` AND
   `wip/{brief,prd,design,plan}_<topic>_*` AND
-  `wip/research/{prd,design}_<topic>_*`. The chain settled at a
+  `wip/research/{brief,prd,design}_<topic>_*`. The chain settled at a
   re-evaluation boundary; the Decision Record at
   `docs/decisions/...` is the durable record and no resumable
   state remains.
 - **`exit: abandonment-forced`** — remove `wip/scope_<topic>_*`
   only. The child-prefixed wip files
   (`wip/{brief,prd,design,plan}_<topic>_*` and
-  `wip/research/{prd,design}_<topic>_*`) are PRESERVED so a
+  `wip/research/{brief,prd,design}_<topic>_*`) are PRESERVED so a
   future session that resumes the abandoned chain has the
   child's intermediate state to read back. The document at
   `docs/{briefs|prds|designs}/<TYPE>-<topic>.md` that Phase 3

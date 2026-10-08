@@ -24,8 +24,9 @@ motivating_context: |
 Accepted
 
 Framing only. The requirements this brief feeds are the downstream PRD's, and
-the architecture is the DESIGN's. Written under `/scope`'s chain; the parent
-owns the approval gate. Two-reviewer jury all-PASS, and the four Open Questions
+the architecture is the DESIGN's. Written under `/scope`'s chain: /brief
+reached its own verdict and made this transition, and the parent publishes
+it. Two-reviewer jury all-PASS, and the four Open Questions
 were carried into the downstream PRD's Decisions and Trade-offs before the
 section was cleared for this transition.
 

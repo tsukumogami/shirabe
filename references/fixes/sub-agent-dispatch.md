@@ -56,8 +56,11 @@ always does. An unattended run (`--auto`) takes the recommended option
 and says so in its output, naming the verdict it took. The mode is the
 parent's: the child is invoked inline, in the parent's own context, and
 follows the execution mode the parent is running under at every decision
-point, whether or not a mode flag is among its arguments (a parent adds
-no arguments of its own to a child, so for most children none is).
+point, whether or not a mode flag is among its arguments. `/scope` passes
+`/brief`, `/prd` and `/design` only the topic or the artifact path above
+them, so no mode flag reaches them; `/plan` alone also receives any
+`--upstream`, the caller's `--intent` and coordination flag, and
+`/scope`'s resolved mode flag (Phase 2's invocation table).
 
 What the child skips is everything that publishes or routes, because the
 parent owns those:
@@ -67,11 +70,8 @@ parent owns those:
 - **branch creation** -- the child works on the branch it was invoked on
   and never creates or switches branches;
 - **cleanup commit** -- no commit removing the child's intermediate
-  files; the parent's cleanup phase owns that. The one exception is
-  `/brief`'s Phase 4 jury verdict files, which `/scope`'s cleanup sweep
-  and publish untrack do not cover: `/brief` removes them inside its own
-  acceptance or discard commit (its Phase 5, 5.3), so none reach
-  `/scope`'s push;
+  files, its `wip/research/` scratch included; the parent's cleanup
+  phase and publish untrack own that;
 - **routing prompts** -- no "what next" question (which skill to run
   next, whether to update an upstream issue); a prompt that pairs the
   verdict with a next step, such as `/design`'s "Plan (Recommended)" /
@@ -109,7 +109,7 @@ Phase 6.
 When the child would normally prompt the author for an Accepted/
 Reject verdict, but the parent chain owns the unified prompt at the
 chain boundary, the child writes its draft to disk in a non-Accepted
-state (`Draft` for BRIEF/PRD/PLAN; `Proposed` for DESIGN) and hands
+state (`Draft` for VISION/STRATEGY/ROADMAP) and hands
 control back to the parent. The parent presents the chain-level
 prompt and triggers the Accepted transition on approval.
 
@@ -162,11 +162,8 @@ single-pr populate.
 ### 6. Parent-owned-publishing
 
 The child reaches its own verdict and makes its own status
-transition, as "What a child keeps and what it skips under /scope"
-above says, and leaves publishing to the parent: no push, no pull
-request, no branch creation, no cleanup commit, and no routing prompt.
-Under `--auto` it takes the recommended verdict and names it in its
-output.
+transition, and leaves publishing to the parent. "What a child keeps
+and what it skips under /scope" above is the whole rule.
 
 **Bindings:** `/scope`'s children (`/brief`, `/prd`, `/design`,
 `/plan`).

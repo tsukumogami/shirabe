@@ -221,7 +221,7 @@ probe_state() {
             ;;
         re-evaluation)
             v=$(sfield boundary)
-            case "$v" in prd|design) ;; *) malformed "exit: re-evaluation without boundary: prd or design" ;; esac
+            case "$v" in brief|prd|design) ;; *) malformed "exit: re-evaluation without boundary: brief, prd or design" ;; esac
             v=$(sfield decision_record_sub_shape)
             case "$v" in re-evaluation|rejection) ;; *) malformed "exit: re-evaluation without decision_record_sub_shape:" ;; esac
             ;;
