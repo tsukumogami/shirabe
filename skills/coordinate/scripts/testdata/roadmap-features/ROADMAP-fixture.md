@@ -112,6 +112,10 @@ Soft: AB1 and AB2; soft on AB7.
 **Dependencies:** AB2 soft, AB8.
 **Status:** Not started
 
+### CD11: A soft mark that opens a parenthetical
+**Dependencies:** AB2 (soft, needs AB8 too)
+**Status:** Not started
+
 ## Sequencing Rationale
 
 CD8 waits on AB1. Nothing in this section is read.

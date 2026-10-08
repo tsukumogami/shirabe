@@ -470,7 +470,10 @@ lib_roadmap_features() {
           def named: (scan("\\b(?i:features?) ([0-9]+(?:(?:,? and |, | & )[0-9]+)*)") | .[0] | scan("[0-9]+") | tonumber | num(.)),
               (scan("\\bF([0-9]+)\\b") | .[0] | tonumber | num(.)),
               (scan("[A-Za-z0-9]+") | tag(.));
-          def desoft: gsub("\\b(?<t>(?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)(?<m>\\s*\\(?\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b)"; "");
+          # A soft mark in parentheses strikes only the tag: the parenthetical
+          # is left whole for rule 5. A bare mark goes with its tag.
+          def desoft: gsub("\\b((?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)(?=\\s*\\(\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b)"; "")
+              | gsub("\\b((?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b"; "");
           def unparen: reduce range(20) as $_ (.; if test("\\([^()]*\\)") then gsub("\\([^()]*\\)"; "") else . end);
           def deps($p; $self): if ($p | test("^None([^A-Za-z0-9]|$)")) then [] else
               ([$p | desoft | unparen | splits("[.;]\\s+") | select(test("^\\s*(?i:soft)\\b") | not) | named] | unique)

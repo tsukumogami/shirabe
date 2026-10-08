@@ -20,7 +20,8 @@
     {"id": "CD7", "finished": false, "done": false, "dependencies": [1, 2, 3], "blocked": true, "blocked_by": [1, 2]},
     {"id": "CD8", "finished": false, "done": false, "dependencies": [2, 4], "blocked": true, "blocked_by": [2]},
     {"id": "CD9", "finished": false, "done": false, "dependencies": [2], "blocked": true, "blocked_by": [2]},
-    {"id": "CD10", "finished": false, "done": false, "dependencies": [8], "blocked": true, "blocked_by": [8]}
+    {"id": "CD10", "finished": false, "done": false, "dependencies": [8], "blocked": true, "blocked_by": [8]},
+    {"id": "CD11", "finished": false, "done": false, "dependencies": [], "blocked": false, "blocked_by": []}
   ],
   "ROADMAP-numbered.md": [
     {"id": "Feature 1", "finished": true, "done": true, "dependencies": [], "blocked": false, "blocked_by": []},
