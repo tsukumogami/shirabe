@@ -108,6 +108,10 @@ Soft: AB1 and AB2; soft on AB7.
 **Dependencies:** AB2 soft for the docs; AB2 for the API.
 **Status:** Not started
 
+### CD10: A soft mention opening a list
+**Dependencies:** AB2 soft, AB8.
+**Status:** Not started
+
 ## Sequencing Rationale
 
 CD8 waits on AB1. Nothing in this section is read.

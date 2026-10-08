@@ -412,9 +412,10 @@ lib_roadmap_path() {
 #      lines below it, joined with single spaces, up to a blank line, the
 #      next field line or a heading. One whose first word is None names none.
 #   4. A tag followed by an optional `(` and then soft, optional, preferred,
-#      sequencing-preferred or `paced by` (any case) is a soft mention: that
-#      mention is struck out, its marker kept, so a hard mention of the same
-#      tag elsewhere in the paragraph still counts.
+#      sequencing-preferred or `paced by` (any case) is a soft mention: the
+#      tag and its marker are struck out together, so a hard mention of the
+#      same tag elsewhere still counts and a leftover marker can't make rule
+#      6 drop the sentence (`AB2 soft, AB5` still names AB5).
 #   5. Parenthesised text goes, innermost pair first, replaced by nothing so
 #      `Features 1 (x), 2 and 3` still reads as one list (at most 20 passes;
 #      an unbalanced paren stays rather than loop).
@@ -469,7 +470,7 @@ lib_roadmap_features() {
           def named: (scan("\\b(?i:features?) ([0-9]+(?:(?:,? and |, | & )[0-9]+)*)") | .[0] | scan("[0-9]+") | tonumber | num(.)),
               (scan("\\bF([0-9]+)\\b") | .[0] | tonumber | num(.)),
               (scan("[A-Za-z0-9]+") | tag(.));
-          def desoft: gsub("\\b(?<t>(?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)(?<m>\\s*\\(?\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b)"; "\(.m)");
+          def desoft: gsub("\\b(?<t>(?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)(?<m>\\s*\\(?\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b)"; "");
           def unparen: reduce range(20) as $_ (.; if test("\\([^()]*\\)") then gsub("\\([^()]*\\)"; "") else . end);
           def deps($p; $self): if ($p | test("^None([^A-Za-z0-9]|$)")) then [] else
               ([$p | desoft | unparen | splits("[.;]\\s+") | select(test("^\\s*(?i:soft)\\b") | not) | named] | unique)
