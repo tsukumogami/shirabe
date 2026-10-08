@@ -132,8 +132,9 @@
 # Exit codes:
 #   0  dispatched, confirmed, already dispatched, re-briefed, a leg
 #      replaced (--releg), or an execution sent
-#   1  brief refused, or a send_execution brief input that isn't the
-#      execution's; nothing written
+#   1  brief refused, a send_execution brief input that isn't the
+#      execution's, or a /shirabe:deliver or /shirabe:scope brief for a unit
+#      whose scoping landed (pick's follow_up); nothing written
 #   2  usage, mismatched topic, no workspace root, a failed read or write
 #   3  the topic already failed; dispatch under a new topic
 #   4  the launch failed; the row says dispatch-failed
@@ -147,8 +148,8 @@
 #      holding that links a pull request, or for an entry point that takes no
 #      leg; a send_execution whose scoping leg a worker is still bound to;
 #      nothing written
-#   10 a new dispatch of a unit a pause holds, as pick marked it; nothing
-#      written (submit `dispatched: paused`)
+#   10 a new dispatch of a unit a pause holds or a decision parks, as pick
+#      marked it; nothing written (submit `dispatched: paused`)
 #
 # Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
 # script), DISPATCH_DEADLINE_SECS. bash 3.2; needs jq.

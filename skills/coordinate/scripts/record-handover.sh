@@ -86,7 +86,7 @@ jq -c '
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
     (.run // []) as $run
     | ([$run[] | select(.key == "told") | .value]) as $told
-    | ((.work // []) | map({(.item): .}) | add // {}) as $work
+    | ((.work // []) | map(select(.kind == "holding") | {(.item): .}) | add // {}) as $work
     | [.holdings[] | select(.dispatch_status == "dispatched")
         | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)] as $live
     | {arguments: runval("arguments"), cap: runval("cap"), coordinator: runval("coordinator"), told: $told,

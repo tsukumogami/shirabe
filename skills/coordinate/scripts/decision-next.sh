@@ -126,7 +126,7 @@ RCAP=$(CL capture --name REPORT --state report_facts 2>/dev/null) || RCAP=
 # opens nothing; it is judged until the next pick, and the chain can't reach a
 # pick before the row is there. The Work section (record-state.sh, its one
 # reader) is read only while it is judged.
-PARK=false CHAIN=false PARK_UNIT=
+PARK=false CHAIN=false PARK_UNIT= PARK_SINCE=
 if [ "$RAISE_SEQ" -gt 0 ]; then
     PICK_EV=$(ev_json pick --before "$RAISE_SEQ")
     PICK_SEQ=$(printf '%s' "$PICK_EV" | jq -r '.seq // 0')
@@ -140,6 +140,8 @@ if [ "$RAISE_SEQ" -gt 0 ]; then
 fi
 if [ "$PARK" = true ]; then
     PARK_UNIT=$(printf '%s' "$PICK_EV" | jq -r '.fields.unit // "" | tostring')
+    # The pick's minute: a park row older than the pick is an earlier park.
+    PARK_SINCE=$(printf '%s' "$PICK_EV" | jq -r '(.timestamp // "")[0:16]')
     bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/rs.err" \
         || { cat "$T/rs.err" >&2; lib_die2 "cannot read the Work section"; }
 else
@@ -167,13 +169,13 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
     --argjson rq "$RQ_SEQ" --argjson op "$OPEN_SEQ" --argjson wt "$WAIT_SEQ" --argjson cls "$CLASSIFY_SEQ" \
     --argjson an "$ANSWER_SEQ" --argjson evs "$EVID_SEQ" --argjson rs "$RAISE_SEQ" \
     --argjson wans "$WAIT_ANS" --argjson tans "$TOOL_ANS" --argjson wevi "$WAIT_EVI" \
-    --argjson park "$PARK" --argjson chain "$CHAIN" --arg pu "$PARK_UNIT" --arg host "$REPO" --slurpfile st "$T/state.json" '
+    --argjson park "$PARK" --argjson chain "$CHAIN" --arg pu "$PARK_UNIT" --arg since "$PARK_SINCE" --arg host "$REPO" --slurpfile st "$T/state.json" '
   include "record-codec";
   .entries as $es
   | [$es[] | d_stamps[] | select(.run == $run)] as $mine
   # A raise from pick is done when the unit it named has its decision row,
-  # on a new entry or on one already open.
-  | ($park and (any(($st[0].work // [])[]; .kind == "decision"
+  # on a new entry or on one already open, written since that pick.
+  | ($park and (any(($st[0].work // [])[]; .kind == "decision" and (.updated // "")[0:16] >= $since
         and (.item == $pu or .item == ($host + $pu) or ($host + .item) == $pu)) | not)) as $unparked
   | def stamped($k; $s): any($mine[]; .kind == $k and .seq == $s);
     def report_stamped($s): any($mine[]; .kind == "report" and (.seq | split(".")[0]) == $s);

@@ -300,11 +300,14 @@ work)
     # it is the scoping holding whose merge wrote the follow-up.
     TAKES=false
     [ "$KIND" = holding ] && ! jq -e --arg u "$ITEM" --arg w "$WHO" 'any(.holdings[]; .unit == $u and .worker == $w and .phase == "scoping")' "$P" > /dev/null && TAKES=true
-    jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" --arg n "$NEXT" --arg t "$NOW" --arg c "$WAKES" --argjson first "$FIRST" --argjson takes "$TAKES" '
+    jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" --arg n "$NEXT" --arg t "$NOW" --arg c "$WAKES" --arg h "$REPO" --argjson first "$FIRST" --argjson takes "$TAKES" '
         # The row ITEM has under this kind is replaced, and the ones a
-        # holding takes over.
-        .work = ([(.work // [])[] | select(.item != $i
-                    or (.kind != $k and (($takes | not) or (.kind != "decision" and .kind != "follow-up"))))]
+        # holding takes over: its unit by tag, a Unit cell `<tag>: <title>`
+        # read as its tag, an issue as `#<n>` or `<host>#<n>`.
+        ($i | split(": ")[0]) as $tag
+        | def same_unit: . == $tag or ($h + .) == $tag or . == ($h + $tag);
+        .work = ([(.work // [])[] | select((.item == $i and .kind == $k)
+                    or ($takes and (.kind == "decision" or .kind == "follow-up") and (.item | same_unit)) | not)]
                  + [{item: $i, kind: $k, who: $w, next: $n, wakes: $c, updated: $t}])
         | if $k == "holding" and $first and any((.run // [])[]; .key == "coordinator") and (any((.run // [])[]; .key == "told" and .value == $w) | not)
           then .run += [{key: "told", value: $w, set_by: ([.run[] | select(.key == "coordinator") | .value][0]), set: $t}]

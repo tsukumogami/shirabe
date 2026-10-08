@@ -2524,7 +2524,8 @@ and drive every worker to landed work.
 - **Waiting on a person.** A unit that can't start until a person decides
   something (a framing or scope call that isn't yours) is parked
   (`await_decision`, `unit` its tag as listed): you open the question as a
-  decision entry and park the unit on it, and it takes no slot. While its
+  decision entry and park the unit on it. It takes no slot, so the slot goes
+  to the next unit in order. While its
   `awaiting` is set, never dispatch it. Once `answered` is set the entry is
   settled: dispatch the unit with the answer in its brief's decisions, or,
   when the answer drops it, remove the row with `record-state.sh --session
@@ -2544,7 +2545,6 @@ and drive every worker to landed work.
 | A roadmap feature that has to be worked out and built | `/shirabe:deliver` |
 | A roadmap feature scoped ahead (`scope_ahead`) | `/shirabe:scope <topic> --intent=continue`, then `/shirabe:execute docs/plans/PLAN-<topic>.md` to the same worker at `send_execution` |
 | A roadmap feature whose deliverable is its scoping (`scope`) | `/shirabe:scope <topic> --intent=continue`; its execution later, from the follow-up, as `/shirabe:execute docs/plans/PLAN-<topic>.md` |
-| A unit waiting on a person's decision (`await_decision`) | none: a decision entry, through `decision_raise` |
 | An issue that is already specified | `/shirabe:work-on` |
 | An open question | `/shirabe:explore` |
 | A contested choice | `/shirabe:decision` |
@@ -3114,9 +3114,7 @@ block is a choice, arrive here: the entry gets a verdict like any other, and
 reaches a person only through one.
 
 A unit parked from pick waits on a person, so give the entry an `escalate`
-verdict when it comes up. The park takes no slot, pick never offers the unit
-while the entry is open, and once the answer settles it pick lists the unit
-`answered` with the outcome. When the question is already an open entry (a
+verdict when it comes up. When the question is already an open entry (a
 worker raised it, or the run came back here because the unit isn't parked
 yet), don't open a second one: write only the park, on that entry.
 
@@ -3472,8 +3470,8 @@ so the unit isn't done: record its execution as a follow-up,
 the merged pull request> --next "<its execution, such as /shirabe:execute
 docs/plans/PLAN-<topic>.md>"`, which the record step also waits for, and don't
 write the feature back to the roadmap as landed. pick lists the unit with
-`follow_up` once its worker is torn down, and you dispatch the execution when
-you choose; the roadmap reads it Done only after that lands.
+`follow_up` from then on; once its worker is torn down you dispatch the
+execution when you choose, and the roadmap reads it Done only after that lands.
 
 When a feature lands
 on a roadmap whose repository doesn't hold that feature's PLAN, dispatch a worker

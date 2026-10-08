@@ -478,9 +478,10 @@ merge_confirm|merged_facts)
         # execution is recorded as a follow-up Work row for the unit, not
         # written back to the roadmap as Done.
         if [ -n "$ROW" ] && [ "$(printf '%s' "$ROW" | jq -r '.phase // ""')" = scoping ]; then
-            FU_UNIT=$(printf '%s' "$ROW" | jq -r '.unit')
+            # The unit as pick lists it: a Unit cell `<tag>: <title>` is its tag.
+            FU_UNIT=$(printf '%s' "$ROW" | jq -r '.unit | split(": ")[0]')
             EXPECT="$EXPECT; a follow-up Work row for $FU_UNIT naming its execution (record-state.sh --work \"$FU_UNIT\" --kind follow-up --who $(printf '%s' "$ROW" | jq -r '.repo')#$PR --next <its execution>)"
-            holds "any((.work // [])[]; .kind == \"follow-up\" and .item == \$u)" --arg u "$FU_UNIT" || OKX=0
+            holds "any((.work // [])[]; .kind == \"follow-up\" and (.item == \$u or (\$h + .item) == \$u or .item == (\$h + \$u)))" --arg u "$FU_UNIT" --arg h "$REPO" || OKX=0
         fi
         # A merge made while a hold on it stood is written down: a Reversals
         # row naming each hold the land check would still read as unmet

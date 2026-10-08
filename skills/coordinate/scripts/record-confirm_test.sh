@@ -227,6 +227,9 @@ for src in merge_confirm merged_facts; do
     eq "$src merged: with its follow-up row it confirms" confirmed "$(confirm)"
     body "$(rec | jq -c --argjson h "$SCOPED" --argjson w "$(printf '%s' "$FUROW" | jq -c '.item = "Feature 3"')" '.holdings = [$h] | .work = [$w]')"
     eq "$src merged: another unit's follow-up row doesn't count" waiting "$(confirm)"
+    # A Unit cell in the `<tag>: <title>` form is its tag, the form a follow-up row takes.
+    body "$(rec | jq -c --argjson h "$(printf '%s' "$SCOPED" | jq -c '.unit = "Feature 2: the registry"')" --argjson w "$FUROW" '.holdings = [$h] | .work = [$w]')"
+    eq "$src merged: a titled Unit cell confirms with its tag's follow-up row" confirmed "$(confirm)"
     session
     log_evidence "$S" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:50:00.000Z
     sealed_capture "$src" "$KEY" "unconfirmed 12 $SHA_HEAD"

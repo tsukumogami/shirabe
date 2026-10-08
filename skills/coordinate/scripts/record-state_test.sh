@@ -168,6 +168,17 @@ bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/f4
 bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/f4.md" >/dev/null 2>"$T/err"; eq "the parked unit is dispatched" 0 $?
 bash "$RS" "${W[@]}" --work "Feature 4" --kind holding --who worker-f4 --next "report at its first checkpoint" >/dev/null 2>"$T/err"
 eq "  ... and its holding row replaces the decision row" "holding worker-f4" "$(live | jq -r '[.work[] | select(.item == "Feature 4") | "\(.kind) \(.who)"] | join(",")')"
+# A holding whose Unit cell is `<tag>: <title>` takes over the rows its tag names.
+bash "$RS" "${W[@]}" --work "Feature 6" --kind follow-up --who "acme/widgets#60" --next "/shirabe:execute docs/plans/PLAN-six.md" >/dev/null 2>"$T/err"
+live > "$T/now.json"
+jq -c --argjson h "$(holding worker-f6 '{"unit": "Feature 6: the exporter", "pull_request": ""}')" 'del(.written) | .holdings += [$h]' "$T/now.json" > "$T/f6.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/f6.json" > "$T/f6.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/f6.md" >/dev/null 2>"$T/err"
+bash "$RS" "${W[@]}" --work "Feature 6: the exporter" --kind holding --who worker-f6 --next "executing" >/dev/null 2>"$T/err"
+eq "a titled holding row takes over its tag's follow-up row" "Feature 6: the exporter:holding" \
+    "$(live | jq -r '[.work[] | select(.item | startswith("Feature 6")) | "\(.item):\(.kind)"] | join(",")')"
+eq "  ... and the handover reads the holding's own next step" "executing" \
+    "$(bash "$RH" "${RM[@]}" | jq -r '.workers[] | select(.worker == "worker-f6") | .next')"
 
 echo "== one writer =="
 seed "$TWO"

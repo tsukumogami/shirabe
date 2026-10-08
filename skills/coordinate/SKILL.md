@@ -210,8 +210,8 @@ states never ask you to do these steps by hand.
   start until a person decides something is parked on a decision entry (pick's
   `await_decision`): a Work row ties it to the entry, it takes no slot,
   `scripts/dispatch-worker.sh` refuses it while the entry is open, and pick
-  lists it `answered` once the entry is settled. The brief lists the checkpoints the worker
-  reports at and waits on no approval.
+  lists it `answered` once the entry is settled. Every brief lists the
+  checkpoints the worker reports at and waits on no approval.
   `scripts/render-brief.sh` renders a worker's brief from one
   JSON input and refuses an incomplete one, or one whose target repositories
   its entry point can't take: the requirement in `references/entry-points.tsv`
@@ -276,7 +276,7 @@ states never ask you to do these steps by hand.
 (default five), one pull request each, and keep the cap full: pick fills every
 free slot, scopes ahead a unit whose execution waits on another feature, and
 asks whoever dispatched you for out-of-scope work when the scope has nothing
-left. A unit parked on a person's decision holds no slot. An active worker is a dispatched session whose work is not yet merged or
+left. An active worker is a dispatched session whose work is not yet merged or
 abandoned and that isn't parked. A parked worker has a verified, ready pull
 request waiting only on a merge; parked workers, merged ones waiting for their
 teardown and local agents don't count against the cap. When `--parked-bound` (default three) or more are parked,
