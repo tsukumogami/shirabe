@@ -350,6 +350,32 @@ files, standing answers in a file and progress facts all have homes in the
 skill: `record-append.sh`, the body and its revisions on GitHub, the entries,
 the record's tables, and `progress-view.sh` over pick's facts.
 
+## Writing a Landed Feature Back to the Roadmap
+
+When a roadmap feature's last pull request has merged (or, for a spike or a
+design, its acceptance call is made), tick `wait` with `event: landed` and the
+feature's tag as `unit`, and at `roadmap_status` run:
+
+```
+roadmap-status.sh --session <session> --unit "<tag>" --outcome "<what landed>"
+```
+
+It opens a pull request on the roadmap's repository that sets the feature's
+Status to Done, writes its Outcome, removes its Needs line and regenerates
+the generated sections, changing nothing else, and adds a Side effects in
+flight row:
+
+```markdown
+| roadmap-status | <tag> [#<n>](<url>) |  | <YYYY-MM-DDTHH:MMZ> | the roadmap on <default> reads <tag> Done |
+```
+
+While the row stands, pick lists the feature as `landed` and no brief renders
+for it; it is not Done for its dependents until the roadmap says so. Only one
+is pending at a time. Once the roadmap on the default branch reads Done,
+`roadmap-status.sh --confirm "<tag>"` removes the row; a pull request closed
+unmerged is cleared with `--drop "<tag>" --reason "<why>"`. The skill never
+merges the roadmap pull request.
+
 ## Closing a Roadmap Record
 
 When every feature reads Done or Dropped on the roadmap, Holdings and Side
