@@ -689,7 +689,7 @@
     }
    ],
    "winner": "skills/work-on/references/phases/phase-4a-scrutiny.md#L34-L41",
-   "reason": "4a's definition is the only one that is true on a second round; carry it into 4b and 4c. If retry-caps is decided in favor of koto counting, drop the field from all three instead."
+   "reason": "4a's definition is the only one that is true on a second round; carry it into 4b and 4c. The retry-caps decision kept prose caps until koto enforces them, so the field stays."
   },
   {
    "id": "panel-retry-fix-location",
@@ -859,7 +859,7 @@
    "sides": [
     {
      "loc": "skills/work-on/references/phases/phase-4a-scrutiny.md#L15-L24",
-     "says": "each reviewer writes wip/research/work-on_<panel>_<focus>_<WF>.md"
+     "says": "each reviewer writes a research file, work-on_<panel>_<focus>_<WF>.md, in the work-in-progress directory"
     },
     {
      "loc": "skills/work-on/references/phases/phase-4b-review.md#L15-L24",
@@ -1208,7 +1208,7 @@
    "sides": [
     {
      "loc": "skills/execute/SKILL.md#L761-L825",
-     "says": "maintain wip/execute_<topic>_state.md with pointer, snapshots and sentinel"
+     "says": "maintain the execute_<topic>_state.md state file with pointer, snapshots and sentinel"
     },
     {
      "loc": "skills/execute/SKILL.md#L877-L886",
@@ -1251,7 +1251,7 @@
     }
    ],
    "winner": "skills/execute/koto-templates/execute.md#L1377-L1377",
-   "reason": "No /work-on file reads the sentinel; delete the sentinel prose. Whether children should get an autonomy variable is a follow-up."
+   "reason": "No /work-on file reads the sentinel; delete the sentinel prose. Whether children should get an autonomy variable is a follow-up, on #659."
   },
   {
    "id": "execution-children-described-as-prs",

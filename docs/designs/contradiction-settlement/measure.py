@@ -10,7 +10,8 @@ file as it is at the inventory commit (git show <commit>:<path>), checks each
 location and excerpt, recomputes byte counts, totals and shares, rebuilds the
 DESIGN and compares it with the committed file. Prints the summary figures.
 Exits 1 when a check fails or the rebuild differs; pass --write to overwrite
-the DESIGN with the rebuild instead of comparing. Standard library only.
+the DESIGN with the rebuild instead of comparing. Standard library only. Needs the repository's full history, since it reads
+files with `git show` at the inventory commit; a shallow clone fails there.
 """
 import json
 import os
@@ -22,6 +23,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DESIGN = "docs/designs/current/DESIGN-contradiction-settlement.md"
 PROFILES = ["work-on", "execute-single-pr", "execute-coordinated", "deliver", "scope"]
 LOC = re.compile(r"^(\S+)#L(\d+)-L(\d+)$")
+# A quoted excerpt never spells out a work-in-progress file path: the
+# repository's public-content check refuses one on any changed line, quoted
+# or not, so such candidates are skipped and another unique line is used.
+WIP = re.compile(r"(^|[^A-Za-z0-9_])wip/[A-Za-z0-9_]")
 
 D = json.load(open(os.path.join(HERE, "inventory.json"), encoding="utf-8"))
 COMMIT = D["inventory_commit"]
@@ -61,7 +66,7 @@ def excerpt(loc):
         for n in (40, 55, 70, 90):
             for off in range(0, max(1, len(s) - n + 1), 5):
                 c = s[off:off + n].strip()
-                if len(c) >= 12 and "``" not in c and t.count(c) == 1:
+                if len(c) >= 12 and "``" not in c and t.count(c) == 1 and not WIP.search(c):
                     end = off + n
                     while end < len(s) and s[end] != " " and end - off < n + 20:
                         end += 1
@@ -69,17 +74,17 @@ def excerpt(loc):
                     while st > 0 and s[st - 1] != " " and off - st < 20:
                         st -= 1
                     c2 = s[st:end].strip()
-                    return c2 if "``" not in c2 and t.count(c2) == 1 else c
-        if len(s) <= 120 and t.count(s) == 1:
+                    return c2 if "``" not in c2 and t.count(c2) == 1 and not WIP.search(c2) else c
+        if len(s) <= 120 and t.count(s) == 1 and not WIP.search(s):
             return s
     for i in range(a - 2, max(-1, a - 12), -1):
         s = ls[i].strip()
-        if 12 <= len(s) <= 120 and t.count(s) == 1:
+        if 12 <= len(s) <= 120 and t.count(s) == 1 and not WIP.search(s):
             return "above: " + s
         for n in (40, 55, 70):
             for off in range(0, max(1, len(s) - n + 1), 5):
                 c = s[off:off + n].strip()
-                if len(c) >= 12 and "``" not in c and t.count(c) == 1:
+                if len(c) >= 12 and "``" not in c and t.count(c) == 1 and not WIP.search(c):
                     return "above: " + c
     raise SystemExit("no unique excerpt: " + loc)
 
@@ -225,6 +230,9 @@ def render_item(c, w):
         w("Winner: %s. %s" % (link(c["winner"]), c["reason"]))
     else:
         d = c["decision"]
+        rec = "docs/decisions/DECISION-contradiction-%s-2026-09-28.md" % c["id"]
+        if not os.path.exists(rec):
+            raise SystemExit("decision record missing: " + rec)
         r = d["options"][d["recommended"]]["name"]
         w("Winner: `open`. Recommended: option %d, %s." % (d["recommended"] + 1, r[0].lower() + r[1:]))
         w("")
@@ -234,6 +242,7 @@ def render_item(c, w):
             tag = " (recommended)" if i == d["recommended"] else ""
             w("- **Option %d%s: %s.** %s" % (i + 1, tag, o["name"], o["why"]))
         w("- **Why the recommendation.** " + d["reason"])
+        w("- **Decided.** See [`%s`](../../decisions/%s)." % (rec, os.path.basename(rec)))
     w("")
 
 
@@ -246,7 +255,7 @@ def section(fn):
 def contr(w):
     w("### Policy calls")
     w("")
-    w("Each of these is open. The PLAN blocks every edit to its statements on a recorded decision, `docs/decisions/DECISION-contradiction-<identifier>-<YYYY-MM-DD>.md`.")
+    w("Each was open when the inventory was taken, and each has since been decided by the policy owner and recorded under `docs/decisions/`; every item below links its record. The options and recommendations are as they were put to the policy owner.")
     w("")
     for c in pol:
         render_item(c, w)

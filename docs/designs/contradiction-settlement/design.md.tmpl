@@ -13,7 +13,7 @@ decision: |
   with a kebab-case identifier, every side located by line range and a
   file-unique excerpt, and a winner chosen by one rule: the side the code
   enforces wins, then the file the state directive points at, then the
-  file that owns the topic. Policy items stay open as decisions. A
+  file that owns the topic. Policy items go to a person as decisions. A
   dead-prose inventory by category with per-profile totals, and a list of
   withholding candidates kept out of this feature.
 rationale: |
@@ -301,26 +301,24 @@ feature.
 
 <!-- WH -->
 
-### Proposed follow-ups (not filed)
+### Follow-ups
 
 Found while reading, outside this feature's scope or after the inventory
-closed. Each is a proposal for the maintainers, not a work item here.
+closed. Three were settled by the work items: Phase 3's pointer to a missing
+Phase 4 file (#637), /prd's ROADMAP upstream (#660), and /charter's `exit:
+UNSET` literal, which the shared state schema now allows as a parent's own
+placeholder (#586). The rest are tracked on issue #659, with every other
+follow-up from this feature:
 
 - Let `/execute`'s PR title take the type the directive describes, limited to
   `feat`, `fix`, `docs` and `chore` (see `execute-pr-title-type`).
 - Decide whether `/execute`'s children should receive an autonomy variable
   (see `execute-sentinel-no-reader`).
-- `skills/design/references/phases/phase-3-cross-validation.md` points at
-  `phase-4-investigation.md`; the file is `phase-4-architecture.md`.
-- `/prd`'s SKILL.md and its phase 3 say a PRD's upstream is typically a
-  ROADMAP, while `prd-format.md` says a BRIEF is the only legal upstream.
-- `/charter`'s phase 0 writes the same `exit: UNSET` literal that
-  `scope-state-initial-values` fixes for `/scope`.
 - `skills/plan/references/quality/plan-doc-examples.md` nests
   `### Dependency Graph` under Implementation Issues, which FC04 cannot see.
 - `docs/specs/decision-points.md` has stale line locators into
   `/work-on`'s phase files.
-- Two `/scope` phase files name `cmd/shirabe/`, which does not exist; the
+- A `/scope` phase file names `cmd/shirabe/`, which does not exist; the
   binary is built from `crates/shirabe`.
 - The resume rows in `/brief`, `/prd`, `/plan` and `/design` SKILL.md files
   cite `references/fixes/sub-agent-dispatch.md` and
@@ -328,6 +326,18 @@ closed. Each is a proposal for the maintainers, not a work item here.
   file exists; both are at the plugin root.
 
 ## Implementation Approach
+
+**Outcome.** The approach below ran as planned, batched into one pull request
+per skill so that each policy decision landed with the skill it edits. The ten
+decisions were recorded first (#531); the work items then landed in #534
+(/review-plan), #541 (/deliver, /brief and /prd), #557 (/work-on), #545
+(/execute, with the baseline manifest change in #579), #586 (/scope and
+/charter), #637 (/design), #658 (/plan) and #660 (/brief's and /prd's policy
+share). Two contradictions found during execution, `prd-complexity-routing`
+and `prd-upstream-roadmap`, were added to the inventory, so it holds 48 items.
+The re-count is in `docs/measurement/contradiction-settlement-recount/` (#665),
+with the command that reproduces its figures. The steps below are the plan as
+written before execution.
 
 1. **Wait for the baseline pin.** No work item that touches `skills/`,
    `references/`, `scripts/` or `crates/` starts before pull request #488

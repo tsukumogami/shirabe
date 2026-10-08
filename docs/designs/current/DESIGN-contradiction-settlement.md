@@ -13,7 +13,7 @@ decision: |
   with a kebab-case identifier, every side located by line range and a
   file-unique excerpt, and a winner chosen by one rule: the side the code
   enforces wins, then the file the state directive points at, then the
-  file that owns the topic. Policy items stay open as decisions. A
+  file that owns the topic. Policy items go to a person as decisions. A
   dead-prose inventory by category with per-profile totals, and a list of
   withholding candidates kept out of this feature.
 rationale: |
@@ -240,7 +240,7 @@ matter, and the winner. Excerpts are verbatim and occur once in their file.
 
 ### Policy calls
 
-Each of these is open. The PLAN blocks every edit to its statements on a recorded decision, `docs/decisions/DECISION-contradiction-<identifier>-<YYYY-MM-DD>.md`.
+Each was open when the inventory was taken, and each has since been decided by the policy owner and recorded under `docs/decisions/`; every item below links its record. The options and recommendations are as they were put to the policy owner.
 
 #### `force-push-after-rebase`
 
@@ -267,6 +267,7 @@ Winner: `open`. Recommended: option 2, rebase if behind, before verification, wi
 - **Option 2 (recommended): Rebase if behind, before verification, with a plain push only.** Keeps the no-force rule true for both callers and every gate sees the tip that ships; the rebase moves earlier in /work-on.
 - **Option 3: Allow --force-with-lease inside push-and-record.sh, leased on expected_head.** Keeps rebase-then-push working, but rewrites history on a branch several children commit to, which the autonomy section says needs a person.
 - **Why the recommendation.** It is the only option that keeps /execute's no-force guarantee and /work-on's gate evidence both true.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-force-push-after-rebase-2026-09-28.md`](../../decisions/DECISION-contradiction-force-push-after-rebase-2026-09-28.md).
 
 #### `retry-caps`
 
@@ -296,6 +297,7 @@ Winner: `open`. Recommended: option 1, state each cap once, in the looping state
 - **Option 2: Have koto count visits and enforce the caps.** Enforced rather than stated, but needs koto support that does not exist for this yet.
 - **Option 3: Drop the caps.** Removes the contradiction by removing the limit; loops are then bounded only by the agent's judgment.
 - **Why the recommendation.** It gives every loop one number in the place the agent reads it, and removes the --auto violation without waiting on koto. These directive caps are temporary: when koto enforces retry caps from its attempt counts, the numbers stay the same and the directive prose becomes a deletion candidate.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-retry-caps-2026-09-28.md`](../../decisions/DECISION-contradiction-retry-caps-2026-09-28.md).
 
 #### `ci-fix-ends-run-unverified`
 
@@ -321,6 +323,7 @@ Winner: `open`. Recommended: option 1, failing_fixed loops back to ci_monitor an
 - **Option 1 (recommended): failing_fixed loops back to ci_monitor and the fallback goes to done_blocked.** Enforces the skill's own contract at the cost of one more poll per fix.
 - **Option 2: Keep the routing and correct the prose to say CI is not re-checked.** No behavior change, but the output contract gets weaker.
 - **Why the recommendation.** The promise of passing CI is what callers rely on, and the cost is one poll.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-ci-fix-ends-run-unverified-2026-09-28.md`](../../decisions/DECISION-contradiction-ci-fix-ends-run-unverified-2026-09-28.md).
 
 #### `cross-issue-context-no-consumer`
 
@@ -345,6 +348,7 @@ Winner: `open`. Recommended: option 2, wire /work-on's analysis phase to read it
 - **Option 2 (recommended): Wire /work-on's analysis phase to read it, built outside the work tree.** Makes the capability real; needs a template change in both skills.
 - **Option 3: Leave it.** No work, but the instruction keeps claiming an effect it does not have.
 - **Why the recommendation.** Carry-forward is listed as a capability and the evals assert it; if the wiring cannot land soon, deleting beats prose with no effect.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-cross-issue-context-no-consumer-2026-09-28.md`](../../decisions/DECISION-contradiction-cross-issue-context-no-consumer-2026-09-28.md).
 
 #### `child-steps-under-scope`
 
@@ -376,6 +380,7 @@ Winner: `open`. Recommended: option 1, children keep their verdict and status tr
 - **Option 2: Parent-delegated approval as the dispatch reference describes.** Adds a per-hop approval and transition to /scope and changes /design's and /plan's preconditions.
 - **Option 3: Keep today's behavior and drop /scope's one-push promise.** No child change, but a no-intent /scope run then pushes, and an intent run can open two PRs.
 - **Why the recommendation.** It keeps the per-artifact gate the next hop depends on and removes only the steps that collide with /scope's publish model.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`](../../decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md).
 
 #### `design-inline-decision-fallback`
 
@@ -399,6 +404,7 @@ Winner: `open`. Recommended: option 2, make it checkable: under the sentinel, st
 - **Option 2 (recommended): Make it checkable: under the sentinel, standard-tier questions resolve inline and critical ones go to /decision; add the field to the format reference.** A condition the agent can check, and irreversible questions still get the full treatment.
 - **Option 3: Resolve every question inline under /scope.** Cheapest; loses /decision's rigor on the questions that need it.
 - **Why the recommendation.** It turns an unstated judgment into a checkable rule without giving up /decision where it matters.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md`](../../decisions/DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md).
 
 #### `plan-issue-filing-under-auto`
 
@@ -424,6 +430,7 @@ Winner: `open`. Recommended: option 1, approval on every filing path; under --au
 - **Option 2: Never file under --auto or under a parent.** Simplest; a caller who wants issues runs /plan again interactively.
 - **Option 3: Keep the behavior and rewrite the rule to allow it.** No behavior change; unattended filing becomes intended.
 - **Why the recommendation.** It keeps filing possible where a repository has opted in and otherwise produces a PLAN the validator already accepts.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md`](../../decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md).
 
 #### `scope-abandonment-draft-plan`
 
@@ -446,6 +453,7 @@ Winner: `open`. Recommended: option 2, abandonment never writes a PLAN, only the
 - **Option 1: The validator skips a PLAN carrying the abandonment marker.** Keeps the partial PLAN; adds an exemption to the validator.
 - **Option 2 (recommended): Abandonment never writes a PLAN, only the upstream artifacts.** No exemption; the partial PLAN's content is lost unless the upstream drafts carry it.
 - **Why the recommendation.** It needs no validator exemption, and a PLAN that never finished has little a later run could reuse.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-scope-abandonment-draft-plan-2026-09-28.md`](../../decisions/DECISION-contradiction-scope-abandonment-draft-plan-2026-09-28.md).
 
 #### `multi-pr-plan-routing`
 
@@ -467,6 +475,7 @@ Winner: `open`. Recommended: option 1, refuse multi-pr in execute-open.sh, and a
 - **Option 1 (recommended): Refuse multi-pr in execute-open.sh, and add it to the listed refusals.** Matches /deliver's and /scope's routing and the meaning of multi-pr (one PR per issue, landed through /work-on).
 - **Option 2: Correct SKILL.md to say /execute runs multi-pr PLANs on the shared-branch template.** No behavior change, but a multi-pr PLAN then lands as one shared-branch PR, which is not what the mode means elsewhere.
 - **Why the recommendation.** Every other entry point already treats multi-pr as /work-on's; the refusal makes /execute agree with them.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-multi-pr-plan-routing-2026-09-28.md`](../../decisions/DECISION-contradiction-multi-pr-plan-routing-2026-09-28.md).
 
 #### `worktree-intent-change-owner`
 
@@ -485,6 +494,7 @@ Winner: `open`. Recommended: option 1, always put an intent-changing rebase to t
 - **Option 1 (recommended): Always put an intent-changing rebase to the author.** Keeps a person on every change that alters what the chain committed to; an --auto run stops there.
 - **Option 2: The running agent resolves in place when it judges intent unchanged, and escalates otherwise.** Fewer stops, but the agent judging the change is the one whose work it would invalidate.
 - **Why the recommendation.** The classification is itself the judgment that matters, and the agent making it is the party being checked; SKILL.md already says there is no separate team lead under /scope.
+- **Decided.** See [`docs/decisions/DECISION-contradiction-worktree-intent-change-owner-2026-09-28.md`](../../decisions/DECISION-contradiction-worktree-intent-change-owner-2026-09-28.md).
 
 ### Mechanical items
 
@@ -502,7 +512,7 @@ What runs:
 
 - `skills/work-on/koto-templates/work-on.md#L725-L731`: the panel gates check key presence; nothing reads round. Excerpt: `scrutiny_results:`
 
-Winner: `skills/work-on/references/phases/phase-4a-scrutiny.md#L34-L41`. 4a's definition is the only one that is true on a second round; carry it into 4b and 4c. If retry-caps is decided in favor of koto counting, drop the field from all three instead.
+Winner: `skills/work-on/references/phases/phase-4a-scrutiny.md#L34-L41`. 4a's definition is the only one that is true on a second round; carry it into 4b and 4c. The retry-caps decision kept prose caps until koto enforces them, so the field stays.
 
 #### `panel-retry-fix-location`
 
@@ -580,9 +590,9 @@ Reviewer detail files versus wip hygiene. Class: **mechanical**. Profiles: `work
 
 Statements:
 
-- `skills/work-on/references/phases/phase-4a-scrutiny.md#L15-L24`: each reviewer writes wip/research/work-on_<panel>_<focus>_<WF>.md. Excerpt: `` Each reviewer writes full findings to `wip/research/work-on_ ``
-- `skills/work-on/references/phases/phase-4b-review.md#L15-L24`: the same. Excerpt: `` Each reviewer writes full findings to `wip/research/work-on_ ``
-- `skills/work-on/references/phases/phase-4c-qa.md#L15-L23`: the same. Excerpt: `` The tester writes full results to `wip/research/work-on_qa_< ``
+- `skills/work-on/references/phases/phase-4a-scrutiny.md#L15-L24`: each reviewer writes a research file, work-on_<panel>_<focus>_<WF>.md, in the work-in-progress directory. Excerpt: `` Each reviewer writes full findings to `w ``
+- `skills/work-on/references/phases/phase-4b-review.md#L15-L24`: the same. Excerpt: `` Each reviewer writes full findings to `w ``
+- `skills/work-on/references/phases/phase-4c-qa.md#L15-L23`: the same. Excerpt: `` esearch/work-on_qa_<WF>.md` and returns: ``
 - `skills/work-on/references/koto-context-conventions.md#L41-L43`: do not stage artifacts in wip/. Excerpt: `` - **Do not stage artifacts in `wip/`.** `wip/` ``
 - `references/wip-hygiene.md#L49-L61`: wip/ is cleaned before the PR opens. Excerpt: `## Cleanup is two operations`
 
@@ -734,7 +744,7 @@ Winner: `skills/execute/koto-templates/execute.md#L1436`. The command is what ru
 
 Statements:
 
-- `skills/execute/SKILL.md#L761-L825`: maintain wip/execute_<topic>_state.md with pointer, snapshots and sentinel. Excerpt: `` `/execute` maintains a per-session state ``
+- `skills/execute/SKILL.md#L761-L825`: maintain the execute_<topic>_state.md state file with pointer, snapshots and sentinel. Excerpt: `` `/execute` maintains a per-session state ``
 - `skills/execute/SKILL.md#L877-L886`: 7-day stale prompt, else resume at phase_pointer. Excerpt: `` On re-entry, `/execute` follows the universal ``
 - `skills/execute/SKILL.md#L851-L875`: koto init attaches or replaces; no separate session check. Excerpt: `**On a re-entry, single-pr or coordinated,`
 
@@ -754,7 +764,7 @@ What runs:
 
 - `skills/plan/scripts/plan-to-tasks.sh#L744-L751`: children get only task variables. Excerpt: `$issue_source, ARTIFACT_PREFIX: $artifact_prefix,`
 
-Winner: `skills/execute/koto-templates/execute.md#L1377`. No /work-on file reads the sentinel; delete the sentinel prose. Whether children should get an autonomy variable is a follow-up.
+Winner: `skills/execute/koto-templates/execute.md#L1377`. No /work-on file reads the sentinel; delete the sentinel prose. Whether children should get an autonomy variable is a follow-up, on #659.
 
 #### `execution-children-described-as-prs`
 
@@ -992,7 +1002,7 @@ Statements:
 - `skills/plan/references/plan-format.md#L134-L157`: six sections, no Issue Outlines. Excerpt: `## Required Sections`
 - `skills/plan/SKILL.md#L54-L62`: seven sections. Excerpt: `Quick summary of required sections:`
 - `skills/plan/references/quality/plan-doc-structure.md#L112-L122`: seven sections. Excerpt: `## Required Sections`
-- `skills/plan/references/phases/phase-7-creation.md#L363-L375`: single-pr requires a Dependency Graph. Excerpt: `` from `wip/plan_<topic>_decomposition.md` (walking ``
+- `skills/plan/references/phases/phase-7-creation.md#L363-L375`: single-pr requires a Dependency Graph. Excerpt: `` ip/plan_<topic>_decomposition.md` (walki ``
 
 What runs:
 
@@ -1313,7 +1323,7 @@ Profiles: `scope`. Size: 2793 bytes (about 698 tokens). Only statement of a rule
 Profiles: `scope`. Size: 507 bytes (about 126 tokens). Only statement of a rule in force: no.
 
 - `skills/design/SKILL.md#L200-L204`, 306 bytes, excerpt `Phase 0 detection: if the parent-chain sentinel`; survivor `skills/design/SKILL.md#L187-L188`
-- `skills/design/references/phases/phase-0-setup-prd.md#L40-L42`, 201 bytes, excerpt `` (glob pattern, not a hardcoded `wip/scope_<topic>_state.md` ``; survivor `skills/plan/references/phases/phase-1-analysis.md#L46-L48`
+- `skills/design/references/phases/phase-0-setup-prd.md#L40-L42`, 201 bytes, excerpt `glob keeps the branch forward-compatible`; survivor `skills/plan/references/phases/phase-1-analysis.md#L46-L48`
 
 ##### `dp-brief-internal-restatements`
 
@@ -1377,7 +1387,7 @@ Text in /prd's own files that restates another of its own files, so it is redund
 - `skills/prd/SKILL.md#L90-L93`, 298 bytes, excerpt `` **Upstream:** check `$ARGUMENTS` for `--upstream ``; survivor `skills/prd/references/phases/phase-3-draft.md#L31-L35`
 - `skills/prd/SKILL.md#L97-L98`, 205 bytes, excerpt `Detect visibility (Private/Public) from CLAUDE.md`; survivor `skills/prd/SKILL.md#L52`
 - `skills/prd/SKILL.md#L104-L118`, 933 bytes, excerpt `Phase 0: SETUP --> Phase 1: SCOPE --> Phase`; survivor `skills/prd/SKILL.md#L150-L188`
-- `skills/prd/SKILL.md#L133-L135`, 213 bytes, excerpt `` The `wip/prd_<topic>_scope.md` row is a partial-run ``; survivor `skills/prd/references/phases/phase-1-scope.md#L19-L21`
+- `skills/prd/SKILL.md#L133-L135`, 213 bytes, excerpt `` rd_<topic>_scope.md` row is a partial-ru ``; survivor `skills/prd/references/phases/phase-1-scope.md#L19-L21`
 - `skills/prd/SKILL.md#L137-L141`, 306 bytes, excerpt `Phase 0 detection: if the parent-chain sentinel`; survivor `skills/prd/SKILL.md#L123-L124`
 - `skills/prd/SKILL.md#L145-L146`, 156 bytes, excerpt `- **Conversational First**: Phase 1 is a`; survivor `skills/prd/references/phases/phase-1-scope.md#L23-L61`
 - `skills/prd/SKILL.md#L211-L219`, 354 bytes, excerpt `## Reference Files`; survivor `skills/prd/SKILL.md#L150-L188`
@@ -1652,26 +1662,24 @@ feature.
 - `wh-deliver-leg-contract` (`deliver`; 3453 bytes). The only statement of the caller leg contract a coordinator relies on; it could move to a reference coordinators load. Spans: `skills/deliver/SKILL.md#L78-L133`.
 - `wh-scope-no-floor-guard` (`scope`; 957 bytes). A maintainer rule (do not add a guard that forces keep) with no other statement; it could move out of the runtime file. Spans: `skills/scope/references/phases/phase-2-chain-orchestration.md#L849-L869`.
 
-### Proposed follow-ups (not filed)
+### Follow-ups
 
 Found while reading, outside this feature's scope or after the inventory
-closed. Each is a proposal for the maintainers, not a work item here.
+closed. Three were settled by the work items: Phase 3's pointer to a missing
+Phase 4 file (#637), /prd's ROADMAP upstream (#660), and /charter's `exit:
+UNSET` literal, which the shared state schema now allows as a parent's own
+placeholder (#586). The rest are tracked on issue #659, with every other
+follow-up from this feature:
 
 - Let `/execute`'s PR title take the type the directive describes, limited to
   `feat`, `fix`, `docs` and `chore` (see `execute-pr-title-type`).
 - Decide whether `/execute`'s children should receive an autonomy variable
   (see `execute-sentinel-no-reader`).
-- `skills/design/references/phases/phase-3-cross-validation.md` points at
-  `phase-4-investigation.md`; the file is `phase-4-architecture.md`.
-- `/prd`'s SKILL.md and its phase 3 say a PRD's upstream is typically a
-  ROADMAP, while `prd-format.md` says a BRIEF is the only legal upstream.
-- `/charter`'s phase 0 writes the same `exit: UNSET` literal that
-  `scope-state-initial-values` fixes for `/scope`.
 - `skills/plan/references/quality/plan-doc-examples.md` nests
   `### Dependency Graph` under Implementation Issues, which FC04 cannot see.
 - `docs/specs/decision-points.md` has stale line locators into
   `/work-on`'s phase files.
-- Two `/scope` phase files name `cmd/shirabe/`, which does not exist; the
+- A `/scope` phase file names `cmd/shirabe/`, which does not exist; the
   binary is built from `crates/shirabe`.
 - The resume rows in `/brief`, `/prd`, `/plan` and `/design` SKILL.md files
   cite `references/fixes/sub-agent-dispatch.md` and
@@ -1679,6 +1687,18 @@ closed. Each is a proposal for the maintainers, not a work item here.
   file exists; both are at the plugin root.
 
 ## Implementation Approach
+
+**Outcome.** The approach below ran as planned, batched into one pull request
+per skill so that each policy decision landed with the skill it edits. The ten
+decisions were recorded first (#531); the work items then landed in #534
+(/review-plan), #541 (/deliver, /brief and /prd), #557 (/work-on), #545
+(/execute, with the baseline manifest change in #579), #586 (/scope and
+/charter), #637 (/design), #658 (/plan) and #660 (/brief's and /prd's policy
+share). Two contradictions found during execution, `prd-complexity-routing`
+and `prd-upstream-roadmap`, were added to the inventory, so it holds 48 items.
+The re-count is in `docs/measurement/contradiction-settlement-recount/` (#665),
+with the command that reproduces its figures. The steps below are the plan as
+written before execution.
 
 1. **Wait for the baseline pin.** No work item that touches `skills/`,
    `references/`, `scripts/` or `crates/` starts before pull request #488
