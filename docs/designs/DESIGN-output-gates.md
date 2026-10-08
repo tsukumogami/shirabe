@@ -196,8 +196,11 @@ seat as blocking exactly when one of its findings is `blocking`, and ignores
 `blocking_count`, `passed` and any other summary field. A new mode,
 `panel-scope.sh --verdict <panel> <session>`, is the panel's gate: exit 0 when
 every seat of the panel has a recorded verdict and none is blocking, 1 when a
-seat is blocking (printing one finding per blocking finding), 2 when the
-ledger can't be read. The agent's `*_outcome: passed` and the
+seat is blocking (printing one finding per blocking finding), and 2 when the
+ledger can't be read or a seat the round's scope spawned has no verdict
+recorded since the scope was planned, so an unrecorded seat holds the state
+rather than routing to a retry. It is the first `panel-scope.sh` mode to use
+exit 2; the existing modes answer every doubt with 1. The agent's `*_outcome: passed` and the
 `*_results.json` existence gate go; `blocking_retry` and `blocking_escalate`
 stay, for exit 1. The verdict lives where the ledger does, in koto context,
 never in the repository and never in `wip/`; reviewer detail files stay in
@@ -220,8 +223,9 @@ Rejected because it leaves the agent between the reviewers and koto.
 `rule_ref`.** Each rule a gate script can report gets a name of the form
 `<area>/<rule>` (for example `pr-body/no-ai-trailer`), chosen so a later rule
 registry can adopt it unchanged. Once a name has been emitted it never
-changes; a rule whose meaning changes gets a new name. Each gate script
-carries a small rule table: one row per rule, holding the name, the
+changes; a rule whose meaning changes gets a new name. The gate scripts
+share one rule table, `skills/work-on/scripts/gate-rules.tsv`: one row per
+rule, holding the name, the
 source-location key (`<path>#L<start>-L<end>`), the commit the key is exact
 at, and a short excerpt. Findings print the name as `rule_id` and the key as
 `rule_ref`, written `<path>#L<start>-L<end>@<12-char commit>`, the slot koto's
@@ -345,8 +349,9 @@ one level down. Rejected.
 
 ## Decision Outcome
 
-Four gate scripts and a runner, all under `skills/work-on/scripts/` so both
-templates reach them through `{{PLUGIN_ROOT}}`, share one exit convention:
+Three new gate scripts, one extended shipped script and a new runner, all
+under `skills/work-on/scripts/` so both templates reach them through
+`{{PLUGIN_ROOT}}`, share one exit convention:
 **0** the output passes, **1** at least one violation, **2** the check could
 not decide (a usage error, a missing tool, a read that failed). Each prints
 `::koto-finding::` lines on stdout for its violations and a human line on
@@ -397,10 +402,20 @@ marks a gate whose non-zero exit is an answer (Decision 9).
 | 13 | execute `pr_finalization` | `settled_wip_clean` | `check-branch-output.sh --wip` | hold on 1 or 2 |
 | 14 | execute `pr_finalization` | `settled_docs_visibility` | `check-branch-output.sh --docs-visibility --base-ref origin/<default>` | hold on 1 or 2 |
 | 15 | execute `pr_finalization` | none: routes on `vars.PAUSE_BEFORE_FINALIZE` | variable routing (koto#296) | `true` to `paused_for_review`, `false` to `plan_completion`, replacing `pause_decision` |
-| 16 | execute `plan_completion` | `cascade_completed`, `cascade_skipped`, `cascade_partial` (routing) | context matches on `cascade_result.json`'s `cascade_status` | completed or skipped to `ci_monitor`; partial holds, as the directive already halts it |
+| 16 | execute `plan_completion` | `cascade_completed`, `cascade_skipped`, `cascade_partial` (routing) | context matches on `cascade_result.json`'s `cascade_status` | completed or skipped to `ci_monitor`; partial holds, as the directive already halts it (the two `partial` edges to `ci_monitor` the state has today are removed) |
 | 17 | execute `plan_completion` | `ready_owned_pr` (routing) | `check-pr-output.sh --owned-pr ...` | 3 and 2 to the terminals |
 | 18 | execute `ci_monitor` | `owned_ci_passing`, `owned_merge_state_clean` (existing), `monitor_owned_pr` (new, routing) | unchanged, plus the lookup | green: `merge_readiness` with no evidence; DIRTY: `escalate_dirty_merge_state`; lookup 3 or 2: terminals |
 | 19 | execute `worktree_sync` | `current_with_main` (existing) | moves into `check-branch-output.sh --synced`, same test | unchanged routing; a failure now prints a finding with a rule name |
+
+`run-cascade.sh` removes `cascade_result.json` from context before it starts,
+so a re-entry or resume of `plan_completion` can't route on the previous
+run's verdict.
+
+The routes out of `pr_finalization` combine gate exits, a variable and one
+evidence value that share no common field, so koto's exclusivity check needs
+each route to carry the conjuncts that separate it: the lookup routes name
+`final_owned_pr`, and the pause routes also require the lookup and every output
+gate at exit 0, the cross-product pattern `plan_completion`'s routes use today.
 
 Gate names differ between the templates, and between states with different
 arguments, because `validate-template-mermaid.sh` check 4 holds one gate name

@@ -185,22 +185,24 @@ later can't change a panel outcome.
 **R11. Gates use koto's own events.** Gate name, state, attempt counts and the
 failure payload come from koto's gate events (`gate_evaluated`,
 `default_action_executed`). A gate script supplies rule ids only by printing
-koto's `::koto-finding::` lines, using the source-location key of the rule it
-enforces (`path#Lx-Ly` at a commit) as the opaque `rule_id` until a rule
-registry exists. No gate adds a field of its own to an event.
+koto's `::koto-finding::` lines. A finding's `rule_id` is a stable name for
+the rule it enforces, one a later rule registry can adopt unchanged and that
+never changes once emitted; the rule's source-location key (`path#Lx-Ly` at a
+commit) goes in the finding's `rule_ref`. A gate whose non-zero exit is a
+route rather than a violation prints no finding. No gate adds a field of its
+own to an event.
 
 **R12. Gates that touch an unsettled rule wait on that rule only.** Each gate
 that depends on a rule the contradiction-settlement work (#507) has not yet
-settled is marked, in the plan, with the rule it waits on. Everything else can
-build once /execute's settlement change (#545) merges.
+settled is marked with the rule it waits on, and nothing else waits on that
+work. The design records where each rule a gate reads was settled.
 
 ### Non-functional
 
-**R13. Routing works on the released koto.** Every gate routes on an exit
-status or a context match, which koto 0.14.1 supports. Findings, attempt
-counts and gate polling come from the first koto release that carries
-koto#290 and koto#292; the design names it as the floor for those parts and
-this feature asks for no release.
+**R13. The gates work on a released koto.** The design names the koto
+version it needs, which must be a released one carrying failure findings,
+attempt counts and gate polling (koto#290 and koto#292), and this feature asks
+for no koto release.
 
 **R14. No directive is removed.** Prose describing a check a gate now runs
 stays in place. Rules guarding pull request creation, push, merge, and any
@@ -222,13 +224,14 @@ checks it without an agent.
 - [ ] The design's panel section states the pass rule as "no finding at a
   blocking severity", names the results file's location, and names the decider
   slot per panel state.
-- [ ] The design maps each gate to the koto events it produces and the
-  `rule_id` its findings carry.
-- [ ] The design names the koto version its routing needs and the version its
-  findings and attempt counts need, and requests no koto release.
+- [ ] The design maps each gate to the koto events it produces and to the
+  `rule_id` (a stable name) and `rule_ref` (a source location) its findings
+  carry, and names the gates that print none.
+- [ ] The design names the released koto version it needs and requests no
+  koto release.
 - [ ] The plan is dependency-ordered issues an /execute run can take, each
-  with a check a script can run, and marks each gate that waits on an
-  unsettled rule with that rule.
+  with a check a script can run, and any gate that waits on an unsettled rule
+  is marked with that rule.
 - [ ] Nothing in the design or plan removes a directive or lets a pass skip a
   panel.
 
@@ -245,13 +248,11 @@ checks it without an agent.
 
 ## Decisions and Trade-offs
 
-**Route on exit codes; take findings from the next koto release.** koto#290
-(failure findings and attempt counts) and koto#292 (gate polling) are merged
-but no release carries them yet; the latest is 0.14.1. The gates route on exit
-status, which 0.14.1 handles, so the build is not blocked on a release. The
-findings and attempt counts arrive when koto's next release does, with no
-template change. The alternative, holding the design until a release, would
-tie this feature to a schedule it doesn't own.
+**One koto floor, already released.** koto 0.15.0 carries failure findings
+and attempt counts (koto#290), gate polling (koto#292), decider checks
+(koto#294) and variable routing (koto#296), and it is already shirabe's floor.
+The design uses it for everything rather than routing on an older release and
+waiting for findings, so per-rule data comes from every supported run.
 
 **Attribution over commits is a new script, not a gap.** No shipped check
 reads commit trailers; PB3 reads the pull request body only. The workspace
