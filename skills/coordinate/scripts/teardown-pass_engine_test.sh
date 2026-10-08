@@ -230,7 +230,7 @@ ctx() { koto context get "$SESS" "$1" 2>/dev/null; }
 
 INST="$T/instances/tsuku+w5"
 JOB=4b3597d2
-SID=4b3597d2-6184-4a48-ab7f-802b6a2929ce
+SID=4b3597d2-6184-4a48-ab7f-802b6a29
 SLUG=-instances-tsuku-w5
 TR="$HOME/.claude/projects/$SLUG/$SID.jsonl"
 URL="https://github.com/acme/widgets/pull/600#issuecomment-1001"
@@ -384,7 +384,7 @@ has "and the verdict says why" "$(ctx teardown_handoff)" "still working"
 nothing_removed "a job still working"
 
 fixture
-jq -c '. + [.[0] | .id = "9c9c9c9c" | .sessionId = "9c9c9c9c-0000-4000-8000-000000000000"]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
+jq -c '. + [.[0] | .id = "9c9c9c9c" | .sessionId = "9c9c9c9c-0000-4000-8000-00000000"]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
 start
 stopped
 eq  "two jobs in the instance: refused" surface "$(at)"

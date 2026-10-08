@@ -54,9 +54,9 @@
 # the seal failed; 64 usage.
 #
 # Environment: NIWA, CLAUDE_CLI, GH and KOTO name the tools (tests);
-# TEARDOWN_CLAUDE_HOME (default ~/.claude), TEARDOWN_KOTO_SESSIONS (default
-# ~/.koto/sessions), TEARDOWN_ARCHIVE_DIR (default
-# ${XDG_DATA_HOME:-~/.local/share}/teardown-archive), TEARDOWN_FETCH_SECS
+# TEARDOWN_CLAUDE_HOME (default $HOME/.claude), TEARDOWN_KOTO_SESSIONS (default
+# $HOME/.koto/sessions), TEARDOWN_ARCHIVE_DIR (default
+# ${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive), TEARDOWN_FETCH_SECS
 # (each GitHub read's bound, default 8). bash 3.2.
 set -uo pipefail
 

@@ -48,7 +48,7 @@
 # 4 (read) a directed transition since the seal; 64 usage.
 #
 # Environment: NIWA, CLAUDE_CLI, GH and KOTO name the tools (tests);
-# TEARDOWN_CLAUDE_HOME is Claude Code's home (default ~/.claude);
+# TEARDOWN_CLAUDE_HOME is Claude Code's home (default $HOME/.claude);
 # TEARDOWN_FETCH_SECS bounds each GitHub read (default 8).
 # Read-only apart from the seal. bash 3.2.
 set -uo pipefail
