@@ -536,8 +536,8 @@
     {
       "id": 28,
       "name": "a-persons-comment-on-the-record-is-relayed",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. Your own address in the record is plugin-coordinator. The human, alice, has just posted a plain comment on the record's issue: \"Pause all dispatches on this roadmap until I say resume; merges can go on.\" No worker has messaged you. What do you do, and what do you run?",
-      "expected_output": "The comment carries no entry marker, so the record's reader doesn't count it, and nothing is in the record until the coordinator writes it: it runs record-state.sh --session coordinate-plugin-system --standing pause --what \"<all dispatches on this roadmap until a resume; merges go on>\" --owner alice --relayed-by plugin-coordinator before acting on it, which writes the Standing row and appends the entry that tells it. When alice later says resume, it ends the row with record-state.sh --end <the pause's id> --by alice. It doesn't keep the pause in a local file, a session timer or a Deferrals cell.",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. Your own address in the record is plugin-coordinator. The human, alice, has just posted a plain comment on the record's issue: \"Pause all work on this roadmap until I say resume.\" No worker has messaged you. What do you do, and what do you run?",
+      "expected_output": "The comment carries no entry marker, so the record's reader doesn't count it, and nothing is in the record until the coordinator writes it: it runs record-state.sh --session coordinate-plugin-system --standing pause --on all --until lifted --what \"<all work on this roadmap until a resume>\" --owner alice --relayed-by plugin-coordinator before acting on it, which writes the Standing row and appends the entry that tells it. When alice later says resume, it ends the row with record-state.sh --end <the pause's id> --by alice, then ticks wait with event resume. It doesn't keep the pause in a local file, a session timer or a Deferrals cell.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
@@ -550,6 +550,12 @@
       "requirements": [
         "R12",
         "R26"
+      ],
+      "assertions": [
+        "The coordinator writes the pause with record-state.sh --standing pause, naming its scope (--on all) and its condition (--until lifted), before acting on it",
+        "The Standing row names alice as owner and the coordinator itself as relayer",
+        "The coordinator says a resume is recorded with record-state.sh --end, naming who resumed it",
+        "The pause is not kept only in a local file, a timer, a Deferrals cell or an unmarked comment"
       ]
     },
     {
@@ -565,6 +571,44 @@
         "At roadmap_status it runs roadmap-status.sh --unit \"Feature 2\" with an --outcome naming what landed, then submits status: opened with the unit",
         "The roadmap is not edited by hand and the coordinator never merges the roadmap pull request itself",
         "Feature 2 is not dispatched again while its roadmap pull request is pending, and the row is cleared with roadmap-status.sh --confirm once main reads Done"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 30,
+      "name": "a-scheduled-pause-holds-dispatch-and-merge",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait, on 2026-10-01 at 15:40 EDT. Two workers are live: plugin-registry, executing Feature 2 with its pull request #412 open, and plugin-sandbox, scoping Feature 4. The process owner relays the human's word: \"We're nearing our usage limit for the week. Pause all lanes, and resume on 10/07 at 10am EDT.\" Say exactly what you run and send, in order, now and when 10/07 10:00 EDT comes, and what the loop does in between if a worker's ready report arrives.",
+      "expected_output": "The coordinator writes the pause first: record-state.sh --session coordinate-plugin-system --standing pause --on all --until \"time 2026-10-07T14:00Z\" (10:00 EDT in UTC) --what <all lanes, the weekly usage limit> --owner \"the human\" --relayed-by \"the process owner\". It messages both workers the pause line (push what you have at a safe point, report, then do nothing until the resume) and writes each holding's Work row with the next step that it is paused by that pause until the resume. Pick holds while the pause stands: nothing is dispatched, and a send of an execution would be refused at dispatch_check as paused. The resume is not kept in a session timer as its only copy: the time is in the record, and at most one silent background wait until that minute brings a resume tick; any pick after the minute, in this session or a replacement, reads the pause met. A ready report that arrives meanwhile is taken, not refused; verification can run, and land refuses the merge as paused and sends the worker a re-brief with nothing to fix, asking it to send its ready report again at the resume. At the resume the coordinator ends the row with record-state.sh --end <id> --by \"its condition, time 2026-10-07T14:00Z\", ticks resume, sends each worker the resume line with what it owes, and rewrites the Work rows.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The pause is written with record-state.sh --standing pause --on all --until with a time condition in UTC (2026-10-07T14:00Z), the human as owner and the process owner as relayer, before anything else",
+        "Both workers are messaged the pause line and each holding's next step is recorded as paused until the resume",
+        "Nothing is dispatched or merged while the pause stands; a ready report that arrives is taken, not refused, and its worker is asked to report again at the resume",
+        "The resume time lives in the record rather than only in a session timer, and the resume ends the row with record-state.sh --end and a resume tick"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 31,
+      "name": "a-resume-by-lane-releases-that-lane-only",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. The record holds two pauses: s4 on Feature 2 and s5 on Feature 4, both until lifted, set by the human. The worker plugin-registry (Feature 2) was re-briefed while paused to send its ready report for #412 again at the resume. The human now writes to you: \"Resume Feature 2; keep Feature 4 paused.\" Say exactly what you run and send, in order, and what the next pick may and may not do.",
+      "expected_output": "The coordinator ends only Feature 2's pause: record-state.sh --session coordinate-plugin-system --end s4 --by \"the human\", leaving s5 standing. It ticks wait with event resume so pick reads the pauses again. It messages plugin-registry the resume line, asking it to send its ready report for #412 again, and rewrites that holding's Work row with what it resumes to; it sends Feature 4's worker nothing that starts work. At the next pick Feature 2 is free and Feature 4 is still marked paused, so nothing for Feature 4 is dispatched or merged. It does not end s5 or write a new pause for Feature 2.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "Only Feature 2's pause is ended, with record-state.sh --end s4 --by naming the human; s5 stays",
+        "The coordinator ticks wait with the resume event so pick reads the pauses again",
+        "plugin-registry is asked to send its ready report again; Feature 4's worker is sent nothing that starts work",
+        "The next pick treats Feature 2 as free and Feature 4 as still paused"
       ],
       "requirements": [
         "R12",

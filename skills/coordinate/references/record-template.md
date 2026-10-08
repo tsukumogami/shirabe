@@ -180,9 +180,9 @@ each rendered only once it has a row:
 
 ## Standing
 
-| Standing | Kind | What | Owner | Relayed by | Set |
-|---|---|---|---|---|---|
-| <s<n>> | <pause, go-ahead, approval or answer> | <what it says> | <the person who decided it> | <who carried it here, or blank> | <YYYY-MM-DDTHH:MMZ> |
+| Standing | Kind | On | Until | What | Owner | Relayed by | Set |
+|---|---|---|---|---|---|---|---|
+| <s<n>> | <pause, go-ahead, approval or answer> | <a pause's or go-ahead's scope, or blank> | <a pause's resume condition, or blank> | <what it says> | <the person who decided it> | <who carried it here, or blank> | <YYYY-MM-DDTHH:MMZ> |
 
 ## Work
 
@@ -198,7 +198,15 @@ that has been sent that address. A new address clears the `told` rows.
 **Standing** holds the events only a person owns while they still bind: a
 pause, a go-ahead (a release or another step allowed once), a relayed approval,
 a standing answer. Owner is the person who decided it; Relayed by is who
-carried it to you, blank when they told you directly. A resume, a used
+carried it to you, blank when they told you directly. A pause names its
+scope in On, `all` (the whole coordinator) or one unit as pick lists it
+(`Feature 2`, `ED1`, `#12`, `owner/repo#12`), and its resume condition in
+Until: `lifted` (a person's resume ends it), `time <YYYY-MM-DDTHH:MMZ>` in UTC,
+`merged owner/repo#n` or `tag owner/repo <tag>`. pick, the dispatch check, the
+land check and the merge read every pause live (`scripts/pause-read.sh`) and
+refuse what one holds; a pause whose condition reads met holds nothing, and
+the coordinator ends its row. A go-ahead may name one unit in On: it lets that
+unit through any pause until it is used and ended. A resume, a used
 go-ahead or approval, or a withdrawn answer ends the row. **Work** has a next
 step for every holding and a row for any work no holding covers, a local
 agent's above all: without its row a successor can't see it.
@@ -209,7 +217,7 @@ written to the body and then told as an entry:
 ```
 record-state.sh --session S --run arguments|cap|coordinator <value> --by <who>
 record-state.sh --session S --told <topic> --by <who>
-record-state.sh --session S --standing <kind> --what <text> --owner <who> [--relayed-by <who>]
+record-state.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 record-state.sh --session S --end <s<n>> --by <who>
 record-state.sh --session S --work <item> --kind holding|local-agent --who <who> --next <text>
 record-state.sh --session S --done <item>

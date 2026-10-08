@@ -308,6 +308,37 @@ whatever it says it relays. A new decision arriving mid-run takes effect at the
 start of your next turn of the loop; when it reverses an earlier one, record the
 reversal and its reason.
 
+## Pausing
+
+A person pauses a coordinator, or one unit of its work, and the loop holds
+dispatch and merge until the pause ends. A pause is a Standing row in the
+record, written with `scripts/record-state.sh --standing pause --on <all or
+the unit> --until <lifted | time <UTC minute> | merged owner/repo#n | tag
+owner/repo TAG>`, with the person as owner and whoever relayed it: the record
+holds it, so it survives this session and a replacement finds it standing.
+
+- **What it holds.** Pick never chooses a paused unit, and holds while the
+  whole coordinator is paused; the dispatch check and `dispatch-worker.sh`
+  refuse a paused dispatch; the land check and `land-merge.sh` refuse a
+  paused merge and send the worker a re-brief asking it to report again at
+  the resume; a paused unit's request leg stays unread. Verification, record
+  writes, message intake, decisions, escalations and the teardown of merged
+  workers go on. A paused worker is never counted quiet.
+- **Resume.** A pause ends when its row ends: a person's resume, written with
+  `--end <id> --by <the person>`, or its condition read as met at the next
+  pick, after which you end the row yourself. Ending an `all` row resumes the
+  coordinator; ending a unit's row resumes that unit only. A `go-ahead` row
+  on one unit lets it through a wider pause until it is used. Tick `resume`
+  so pick reads the pauses again. A scheduled resume is a `time` condition:
+  no timer holds it, and any pick after its minute, in this session or a
+  replacement's, reads it met.
+- **Delivery.** Carrying a pause to sessions is the workspace manager's;
+  until it does, message each live worker the pause line and the resume line
+  yourself, and keep each holding's Work row saying what it was told.
+- **Reporting.** The progress table puts one `Paused:` line above itself
+  naming each pause, since when and until what, and every row a pause holds
+  says so.
+
 ## Decisions
 
 Every decision the run meets is an entry in the record's Decisions section,
