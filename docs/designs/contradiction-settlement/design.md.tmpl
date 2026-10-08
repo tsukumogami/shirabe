@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 upstream: docs/prds/PRD-contradiction-settlement.md
 problem: |
   The koto-templated skills and the references they and /scope's hops load
@@ -28,7 +28,7 @@ rationale: |
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

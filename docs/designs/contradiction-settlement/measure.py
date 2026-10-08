@@ -19,7 +19,7 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DESIGN = "docs/designs/DESIGN-contradiction-settlement.md"
+DESIGN = "docs/designs/current/DESIGN-contradiction-settlement.md"
 PROFILES = ["work-on", "execute-single-pr", "execute-coordinated", "deliver", "scope"]
 LOC = re.compile(r"^(\S+)#L(\d+)-L(\d+)$")
 
