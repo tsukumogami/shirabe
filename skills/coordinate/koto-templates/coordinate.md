@@ -2351,8 +2351,8 @@ and drive every worker to landed work.
 `coord/pick.json` has the facts. The rules:
 
 - **Fill every free slot.** Dispatch until active workers equal the cap
-  (`cap` in `coord/pick.json`: the record's, when a person changed it, else
-  the run's) or nothing is left; each pass through pick fills one slot and comes
+  (`cap` in `coord/pick.json`: the record's Run cap when it has one, else
+  the session's `--cap`) or nothing is left; each pass through pick fills one slot and comes
   back. An active worker is one whose unit isn't merged or abandoned and that
   isn't parked. Parked workers (a verified, ready pull request waiting only on a
   merge), merged ones waiting for their teardown, and local agents don't count

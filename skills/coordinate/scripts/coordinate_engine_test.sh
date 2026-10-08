@@ -10,7 +10,9 @@
 #   1. dispatch is unreachable without exactly one record (none stops at
 #      record_open, two at record_conflict, a record that vanishes routes
 #      dispatch_check back to record_find), and once the stand-in holds the
-#      record the run reaches pick with no evidence naming it;
+#      record the run reaches pick with no evidence naming it, after a new
+#      record's empty stored set held the reconcile handover gate until
+#      record-state.sh filled it;
 #   2. a restart with a record present takes the found arm, never record_open;
 #   3. an undisposed deferral holds dispatch_check at deferral_dispose until
 #      record-write.sh disposes it, then dispatch is reached;

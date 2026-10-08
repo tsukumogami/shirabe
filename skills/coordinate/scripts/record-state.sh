@@ -2,7 +2,7 @@
 # record-state.sh -- change the record's stored set (Run, Standing, Work) and
 # append the entry that tells it, or list the set. Agent-run; the three
 # sections change only through this script
-# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3).
+# (docs/designs/DESIGN-coordinate-record-container.md, Decision 3).
 #
 # Usage:
 #   record-state.sh --session S --run KEY VALUE --by WHO
@@ -34,8 +34,9 @@
 # ends when used; an answer when withdrawn).
 #
 # --work writes the next step for ITEM: with --kind holding, ITEM is a
-# holding's Unit and W its Worker, and the row also records W as told the
-# current address, since its brief named it; with --kind local-agent, ITEM is
+# holding's Unit and W its Worker, and the holding's first row also records W
+# as told the current address, since its dispatch brief named it (a later
+# update doesn't); with --kind local-agent, ITEM is
 # the work and W who does it. --done removes ITEM's row. Every write also
 # drops a holding row whose holding is gone, so a teardown leaves no orphan.
 #
@@ -45,9 +46,12 @@
 # body is the state; the entry is its account.
 #
 # Exit codes: 0 written (prints the record's URL, then the entry's) or
-# printed; 2 a read failed; 10 refused (not an open record of this scope,
-# provenance, or a directed transition); 11 the write failed; 12 the record
-# changed between this script's read and its write; 13 the record is full; 14
+# printed; 2 a read failed (the record, or the entries the next Standing id
+# is chosen from); 10 refused: here, no found record or not a canonical
+# record of this scope, and from the write core, not an open record,
+# provenance or a directed transition; 11, 12 (the record changed between
+# this script's read and its write) and 13 (the record is full) from the
+# write core; 14
 # the body was written but the entry wasn't posted (post it with
 # record-append.sh; the change it names is on stderr); 64 usage; 65 refused
 # (the reason on stderr).
@@ -172,8 +176,10 @@ standing)
     SID=$(jq -r '"s\(([(.standing // [])[] | .standing[1:] | tonumber] | max // 0) + 1)"' "$P")
     # The next id never reuses an ended one: the entries name ids, so the
     # highest id ever used is read from the stream too.
-    USED=$(bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --list 2>/dev/null | jq -r '[.[] | .text | scan("^(s[1-9][0-9]*)") | .[0][1:] | tonumber] | max // 0' 2>/dev/null) || USED=0
-    [ -n "$USED" ] || USED=0
+    ENTRIES=$(bash "$HERE/record-append.sh" "${ADDR_ARGS[@]}" --list 2> "$WD/list.err") \
+        || lib_die2 "cannot read the record's entries to choose the next Standing id: $(lib_scrub < "$WD/list.err")"
+    USED=$(printf '%s' "$ENTRIES" | jq -r '[.[] | .text | scan("^(s[1-9][0-9]*)") | .[0][1:] | tonumber] | max // 0') \
+        || lib_die2 "the record's entries are not JSON"
     N=${SID#s}; [ "$USED" -ge "$N" ] && SID="s$((USED + 1))"
     jq --arg s "$SID" --arg k "$KIND" --arg w "$WHAT" --arg o "$OWNER" --arg r "$RELAYED" --arg t "$NOW" \
         '.standing = ((.standing // []) + [{standing: $s, kind: $k, what: $w, owner: $o, relayed_by: $r, set: $t}])' "$P" > "$WD/next.json" || lib_die2 "jq failed"
@@ -193,9 +199,15 @@ work)
         jq -e --arg u "$ITEM" --arg w "$WHO" 'any(.holdings[]; .unit == $u and .worker == $w)' "$P" > /dev/null \
             || refuse "no holding has Unit $ITEM and Worker $WHO"
     fi
-    jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" --arg n "$NEXT" --arg t "$NOW" '
+    # A holding's first Work row is written at its dispatch, whose brief named
+    # this coordinator's address, so it records the worker as told; a later
+    # update records nothing of the kind, since after an address change the
+    # worker has been told nothing until --told says so.
+    FIRST=true
+    jq -e --arg i "$ITEM" 'any((.work // [])[]; .item == $i)' "$P" > /dev/null && FIRST=false
+    jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" --arg n "$NEXT" --arg t "$NOW" --argjson first "$FIRST" '
         .work = ([(.work // [])[] | select(.item != $i)] + [{item: $i, kind: $k, who: $w, next: $n, updated: $t}])
-        | if $k == "holding" and any((.run // [])[]; .key == "coordinator") and (any((.run // [])[]; .key == "told" and .value == $w) | not)
+        | if $k == "holding" and $first and any((.run // [])[]; .key == "coordinator") and (any((.run // [])[]; .key == "told" and .value == $w) | not)
           then .run += [{key: "told", value: $w, set_by: ([.run[] | select(.key == "coordinator") | .value][0]), set: $t}]
           else . end' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=work ETEXT="Next step for $ITEM ($KIND, $WHO): $NEXT."

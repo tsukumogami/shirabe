@@ -279,6 +279,8 @@ case $? in
     *) lib_die2 "record-parse.sh failed" ;;
 esac
 # The cap a person set in the record's Run section wins over the session's.
+# The first lib_bounds, above, read only the session, for the verdicts that
+# finish before the record is read; the cap check below uses this one.
 lib_bounds "$T/parsed.json"
 
 # Deferrals raised before the run start.
