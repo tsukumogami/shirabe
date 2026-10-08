@@ -147,6 +147,19 @@ eq "  ... after the body was written" 3 "$(live | jq -r '.run[] | select(.key ==
 grep -q 'Run cap set to 3 by the human' "$T/err" && ok "  ... naming the entry to post" || bad "  ... naming the entry to post" "$(cat "$T/err")"
 db '.fail = []'
 
+echo "== a session name as the address (shirabe#610) =="
+seed "$TWO"
+bash "$RS" "${W[@]}" --run coordinator coordinator_session_owner-f05c1900 --by "the human" >/dev/null 2>"$T/err"
+eq "an underscored session name is the coordinator's address" 0 $?
+bash "$RS" "${W[@]}" --told plugin_api-1a2b3c4d --by coordinator_session_owner-f05c1900 >/dev/null 2>"$T/err"
+eq "  ... and an underscored party is told it" 0 $?
+bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "report at its first checkpoint" >/dev/null 2>"$T/err"
+eq "  ... a worker topic's first Work row is still recorded as told" "coordinator_session_owner-f05c1900|plugin_api-1a2b3c4d worker-f2" \
+    "$(live | jq -r '([.run[] | select(.key == "coordinator") | .value] | join(" ")) + "|" + ([.run[] | select(.key == "told") | .value] | join(" "))')"
+bash "$RH" "${RM[@]}" | jq -e '[.gaps[].gap] | index("not-told worker-f2") == null' >/dev/null \
+    && ok "  ... and the handover read matches it as told" || bad "  ... and the handover read matches it as told" "$(bash "$RH" "${RM[@]}")"
+bash "$RS" "${W[@]}" --run coordinator session_0123abcd --by x >/dev/null 2>"$T/err"; eq "  ... a session_ id is still refused" 65 $?
+
 echo "== an assignment: work a person assigns outside the scope (shirabe#607) =="
 seed "$TWO"
 bash "$RS" "${W[@]}" --standing assignment --on "acme/widgets#591" --what "pick the review level up front" --owner "the human" >/dev/null 2>"$T/err"

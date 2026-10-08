@@ -70,6 +70,10 @@ def dec:
   | gsub("&#13;"; "\r") | gsub("\\\\\\|"; "|") | gsub("&#92;"; "\\")
   | gsub("&gt;"; ">") | gsub("&lt;"; "<") | gsub("&amp;"; "&");
 
+# check_worker: a Worker cell, and a Run `coordinator` or `told` value (a
+# messaging address). re_topic takes letters, digits, `.`, `_` and `-`, so a
+# session name such as niwa's `plugin_api-1a2b3c4d` passes; an id, a path, a
+# job id, an instance name and a `session_` value never do.
 def check_worker:
   if . == "" then refuse("worker: empty")
   elif test("/") then refuse("worker: contains '/', the shape of a path")
@@ -242,7 +246,8 @@ def parse_holds($p):
 #   Value    arguments: the run's arguments as given; cap: a number;
 #            coordinator: the address messages to the coordinator reach;
 #            told: a party that has been sent that address. Both of the last
-#            two are dispatch topics, the Worker cell's grammar.
+#            two are messaging addresses (check_worker): a dispatch topic or
+#            a session name, which may hold `_`, never an id or a path.
 #   Set by   who set it, in words
 #   Set      when, YYYY-MM-DDTHH:MMZ
 # Standing, the events only a person owns that still bind the run:

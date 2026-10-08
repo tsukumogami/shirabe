@@ -19,10 +19,12 @@
 # vars and run-facts); the override flags exist for tests only.
 #
 # --run sets one Run key: arguments (the run's arguments as given), cap (a
-# number) or coordinator (the address messages to this coordinator reach, a
-# dispatch topic). A new coordinator clears every `told` row, since nobody has
-# been told the new address yet. --told records that WHO (a dispatch topic)
-# was sent the current address; it needs a coordinator row.
+# number) or coordinator (the address messages to this coordinator reach: a
+# session name a worker can message, `_` allowed, or a dispatch topic; never
+# an id or a path). A new coordinator clears every `told` row, since nobody
+# has been told the new address yet. --told records that WHO (a worker's
+# dispatch topic, or another party's session name) was sent the current
+# address; it needs a coordinator row.
 #
 # --standing records an event only a person owns that still binds the run:
 # KIND is pause, go-ahead, approval, answer or assignment, OWNER is the person who decided

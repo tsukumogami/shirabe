@@ -193,7 +193,9 @@ each rendered only once it has a row:
 
 **Run** holds the run's arguments, the cap in force (the readers of the cap
 take it over the `--cap` the session was opened with), this coordinator's
-address (a dispatch topic, never a session id) and one `told` row per party
+address (its messaging address: the session name a worker can message, which
+may hold `_`, or a dispatch topic; never a session id, a path or an instance
+name) and one `told` row per party
 that has been sent that address. A new address clears the `told` rows. Every
 worker's brief names that address as where to report, read from here by
 `scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
