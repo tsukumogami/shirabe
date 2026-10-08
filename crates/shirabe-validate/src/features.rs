@@ -248,6 +248,21 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
     out
 }
 
+/// The `###` lines in the Features section that aren't milestone headings
+/// ([`is_milestone_heading`]), as `(absolute line, heading text)` pairs.
+/// [`parse_features`] passes over such a line silently, so this is how a
+/// milestone check finds a mistyped heading that would otherwise hide an
+/// item.
+pub fn non_milestone_headings(doc: &Doc) -> Vec<(usize, String)> {
+    let Some((start_idx, end_idx, _)) = find_features_section(doc) else {
+        return Vec::new();
+    };
+    (start_idx..end_idx)
+        .filter(|&i| doc.body[i].starts_with("### ") && !is_milestone_heading(&doc.body[i]))
+        .map(|i| (absolute_line(doc, i), doc.body[i].trim_end().to_string()))
+        .collect()
+}
+
 /// Accumulate one line of description prose. Blank lines compress to a
 /// single space so the description renders cleanly into a one-row Markdown
 /// table cell.

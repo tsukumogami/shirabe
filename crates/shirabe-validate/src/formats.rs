@@ -113,6 +113,16 @@ pub struct FormatSpec {
 }
 
 impl FormatSpec {
+    /// True when a document whose frontmatter `schema` is `schema` is checked
+    /// against this spec. Every format accepts its own `schema_version`; the
+    /// Roadmap format also accepts `roadmap/v2`, the milestone roadmap, which
+    /// runs every roadmap check plus FC21 (`check_fc21_milestones`). One spec
+    /// for both keeps prefix routing and the `roadmap/v1` gates unchanged.
+    pub fn accepts_schema(&self, schema: &str) -> bool {
+        schema == self.schema_version
+            || (self.id == FormatId::Roadmap && schema == crate::features::ROADMAP_V2_SCHEMA)
+    }
+
     /// A spec carrying no structural expectations, for the prose family.
     ///
     /// The prose checks take a `&FormatSpec` for signature uniformity with

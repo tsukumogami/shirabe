@@ -15,7 +15,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::doc::{Config, Doc, FieldEntries, ValidationError};
-use crate::formats::{detect_format, FormatSpec, Lifetime};
+use crate::features::{non_milestone_headings, parse_features, ROADMAP_V2_SCHEMA};
+use crate::formats::{detect_format, FormatId, FormatSpec, Lifetime};
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
 use crate::table::{parse_issue_outlines, parse_issues_table, Profile, Row, RowKind, Table};
@@ -71,9 +72,10 @@ fn git_work_tree_root() -> Option<std::path::PathBuf> {
 /// then not checked against it.
 pub const SCHEMA_SKIP_CODE: &str = "SCHEMA";
 
-/// Returns a SCHEMA `ValidationError` (to be emitted as `::notice`) if
-/// `doc.schema` is not `spec.schema_version`. Returns `None` if the schema
-/// matches.
+/// Returns a SCHEMA `ValidationError` (to be emitted as `::notice`) if the
+/// spec doesn't accept `doc.schema` ([`FormatSpec::accepts_schema`]: its own
+/// `schema_version`, or `roadmap/v2` for the Roadmap spec). Returns `None` if
+/// it does.
 ///
 /// When `doc.schema` is empty, the notice message uses the SCHEMA-MISSING
 /// shape ("schema field missing, skipping") to distinguish the missing
@@ -82,7 +84,7 @@ pub const SCHEMA_SKIP_CODE: &str = "SCHEMA";
 /// silently skipping a file with a schema-bearing prefix because the
 /// field is missing is the failure mode the AC reverses.
 pub fn check_schema(doc: &Doc, spec: &FormatSpec) -> Option<ValidationError> {
-    if doc.schema == spec.schema_version {
+    if spec.accepts_schema(&doc.schema) {
         return None;
     }
     let message = if doc.schema.is_empty() {
@@ -919,6 +921,129 @@ pub fn check_roadmap_reserved_sections(doc: &Doc, spec: &FormatSpec) -> Vec<Vali
         }
     }
 
+    errs
+}
+
+/// The four Status values a milestone may carry.
+const MILESTONE_STATUSES: [&str; 4] = ["Not started", "In progress", "Done", "Dropped"];
+
+/// A cross-repo issue reference, `<owner>/<repo>#<n>`, the one Dependencies
+/// entry FC21 accepts that names no milestone of the roadmap.
+static CROSS_REPO_ISSUE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+$").unwrap());
+
+/// FC21 -- the milestone shape on a `roadmap/v2` roadmap.
+///
+/// A `roadmap/v2` roadmap is a milestone roadmap
+/// (`skills/roadmap/references/roadmap-format.md`, Milestone roadmaps):
+/// every item carries an Outcome, at least one Evidence clause, a Left open,
+/// a one-line Dependencies list of other milestones' tags or cross-repo
+/// issue references, and one of four Status values. FC21 reports each
+/// milestone that breaks that shape, naming it by tag and title, and each
+/// `###` line in the Features section that isn't a milestone heading, so a
+/// mistyped heading can't hide an item from the rest of the check.
+///
+/// Gated on the document's schema, not the spec's: the Roadmap format
+/// accepts both `roadmap/v1` and `roadmap/v2`, and a `roadmap/v1` roadmap
+/// gets nothing from this check. Error-level (absent from
+/// `is_intrinsic_notice`).
+pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.id != FormatId::Roadmap || doc.schema != ROADMAP_V2_SCHEMA {
+        return Vec::new();
+    }
+    let finding = |line: usize, message: String| ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC21".to_string(),
+        message: format!("[FC21] {message}"),
+    };
+    let mut errs = Vec::new();
+
+    for (line, text) in non_milestone_headings(doc) {
+        errs.push(finding(
+            line,
+            format!(
+                "heading '{text}' is not a milestone heading; a milestone heading is '### <tag>: <title>' with a tag like 'Feature 3' or 'AB1' -- see skills/roadmap/references/roadmap-format.md"
+            ),
+        ));
+    }
+
+    let features = parse_features(doc);
+    for f in &features {
+        // A heading with no title was reported above as not a milestone
+        // heading; its fields would only repeat that finding.
+        if f.label.is_empty() {
+            continue;
+        }
+        let at = f.heading_line;
+        let name = format!("milestone '{}: {}'", f.tag, f.label);
+        match f.outcome.as_deref() {
+            None => errs.push(finding(at, format!("{name} has no Outcome"))),
+            Some(o) if o.trim().is_empty() => {
+                errs.push(finding(at, format!("{name} has an empty Outcome")))
+            }
+            Some(_) => {}
+        }
+        match f.evidence.as_deref() {
+            None => errs.push(finding(at, format!("{name} has no Evidence"))),
+            Some([]) => errs.push(finding(
+                at,
+                format!("{name} has no Evidence clause; each clause is a '- ' line below '**Evidence:**'"),
+            )),
+            Some(_) => {}
+        }
+        if f.left_open.as_deref().is_none_or(|v| v.trim().is_empty()) {
+            errs.push(finding(at, format!("{name} has no Left open")));
+        }
+        if f.dependencies.trim().is_empty() {
+            errs.push(finding(at, format!("{name} has no Dependencies")));
+        } else {
+            if f.dependencies_continued {
+                errs.push(finding(
+                    at,
+                    format!("{name} has a Dependencies line that continues onto the next line; keep the list on one line"),
+                ));
+            }
+            // An empty entry (a trailing comma) names nothing; a list that
+            // wraps after one is reported above, not twice.
+            let entries: Vec<&str> = f
+                .dependencies
+                .split(',')
+                .map(str::trim)
+                .filter(|e| !e.is_empty())
+                .collect();
+            let none_alone = entries.len() == 1 && entries[0] == "None";
+            if !none_alone {
+                for entry in entries {
+                    let names_milestone = features.iter().any(|g| g.id != f.id && g.tag == entry);
+                    if !names_milestone && !CROSS_REPO_ISSUE_RE.is_match(entry) {
+                        errs.push(finding(
+                            at,
+                            format!("{name} names '{entry}' in Dependencies, which is no other milestone"),
+                        ));
+                    }
+                }
+            }
+        }
+        let status = f.status.trim();
+        if status.is_empty() {
+            errs.push(finding(at, format!("{name} has no Status")));
+        } else if !MILESTONE_STATUSES.contains(&status) {
+            errs.push(finding(
+                at,
+                format!("{name} has Status '{status}', not one of Not started, In progress, Done, Dropped"),
+            ));
+        }
+        if let Some(first) = features.iter().find(|g| g.tag == f.tag && g.id < f.id) {
+            errs.push(finding(
+                at,
+                format!(
+                    "{name} repeats the tag of the milestone at line {}",
+                    first.heading_line
+                ),
+            ));
+        }
+    }
     errs
 }
 
