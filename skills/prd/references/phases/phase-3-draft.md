@@ -28,12 +28,13 @@ Read all available context:
 - `wip/research/prd_<topic>_phase2_*.md` files (from Phase 2, if they exist)
 - Any notes from Phase 2 synthesis
 
-**Detect upstream:** A PRD's only legal upstream is the BRIEF its requirements
+**Detect upstream:** The upstream a PRD records is the BRIEF its requirements
 are written from (`prd-format.md`'s frontmatter rules). In brief input mode
-(Input Mode 2) that BRIEF's path is the upstream. Otherwise check `$ARGUMENTS`
-for an `--upstream <path>` flag, and if present, store the path for inclusion
-in frontmatter (step 3.2). With no brief above the PRD, omit the field: a PRD
-never names the ROADMAP that sequenced its feature.
+(Input Mode 2) that BRIEF's path is the upstream, even when an `--upstream`
+flag is also given. Otherwise check `$ARGUMENTS` for an `--upstream <path>`
+flag, and if present, store the path for inclusion in frontmatter (step 3.2).
+With no brief above the PRD, omit the field: a PRD never names the ROADMAP
+that sequenced its feature.
 
 **Validate upstream:** If a path was detected, run these checks in order
 before storing it. These are hard-stops -- do not write a failing value into
@@ -46,7 +47,7 @@ frontmatter:
    the cross-repo form of one), OMIT the field and tell the author why. A
    ROADMAP is the common case: it is a working document, deleted once its
    features land, so a durable PRD naming it would dangle, and
-   `shirabe validate` rejects it (`R11`; any other wrong type is `R10`).
+   `shirabe validate` rejects it as `R11`.
 3. **Does the path resolve in this repo?** Run `git ls-files <path>`. If
    non-empty, the upstream is durable -- continue.
 4. **Path is out-of-repo?** Detect this repo's visibility from CLAUDE.md
