@@ -224,6 +224,9 @@ probe_state() {
             case "$v" in brief|prd|design) ;; *) malformed "exit: re-evaluation without boundary: brief, prd or design" ;; esac
             v=$(sfield decision_record_sub_shape)
             case "$v" in re-evaluation|rejection) ;; *) malformed "exit: re-evaluation without decision_record_sub_shape:" ;; esac
+            # Nothing above a BRIEF can be re-evaluated: its boundary is a rejection only.
+            [ "$(sfield boundary)" = brief ] && [ "$v" != rejection ] \
+                && malformed "exit: re-evaluation at boundary: brief must be decision_record_sub_shape: rejection"
             ;;
         abandonment-forced)
             v=$(sfield triggering_child)

@@ -140,6 +140,10 @@ boundary: brief
 decision_record_sub_shape: rejection
 publish_error: scope:push
 ";                                 expect "a BRIEF-boundary rejection is a valid re-evaluation exit" 28 t stop
+repo; state t "exit: re-evaluation
+boundary: brief
+decision_record_sub_shape: re-evaluation
+";                                 expect "a BRIEF boundary with the re-evaluation sub-shape is refused" 25 t none
 repo; state t "exit: abandonment-forced
 triggering_child: prd
 publish_error: scope:push

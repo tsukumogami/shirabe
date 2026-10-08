@@ -147,7 +147,7 @@ and each is written at the site it was already written at.
   `reason` is drawn from the closed vocabulary in
   `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
   (Chain-tracking). `/scope` writes two of its four members, which
-  instantiate as three reason strings:
+  instantiate as four reason strings:
   `settled-artifact-at-canonical-path-reentry-protection` from
   Phase 1, and the `<boundary>-boundary-rejection` members from
   Phase 2 — `brief-boundary-rejection`, `prd-boundary-rejection` and

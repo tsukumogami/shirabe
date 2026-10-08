@@ -841,7 +841,7 @@ any of:
 
 The fields:
 
-- `boundary:` against `{prd, design}`.
+- `boundary:` against `{brief, prd, design}`.
 - `decision_record_sub_shape:` against
   `{re-evaluation, rejection}`.
 - `triggering_child:` against `{brief, prd, design, plan}`.

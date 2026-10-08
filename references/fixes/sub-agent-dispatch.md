@@ -57,10 +57,11 @@ and says so in its output, naming the verdict it took. The mode is the
 parent's: the child is invoked inline, in the parent's own context, and
 follows the execution mode the parent is running under at every decision
 point, whether or not a mode flag is among its arguments. `/scope` passes
-`/brief`, `/prd` and `/design` only the topic or the artifact path above
-them, so no mode flag reaches them; `/plan` alone also receives any
-`--upstream`, the caller's `--intent` and coordination flag, and
-`/scope`'s resolved mode flag (Phase 2's invocation table).
+each child the topic or the artifact path above it, plus `--upstream` to
+`/brief` and `/plan` when the run consumed an upstream. Only `/plan` also
+receives the caller's `--intent` and coordination flag and `/scope`'s
+resolved mode flag (Phase 2's invocation table); no mode flag reaches
+`/brief`, `/prd` or `/design`.
 
 What the child skips is everything that publishes or routes, because the
 parent owns those:

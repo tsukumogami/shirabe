@@ -56,7 +56,8 @@ not touch it:
 
 - `exit: full-run` → `docs/plans/PLAN-<topic>.md`.
 - `exit: re-evaluation` →
-  `docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`.
+  `docs/decisions/DECISION-{brief|prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`
+  (`brief` with `rejection` only).
 - `exit: abandonment-forced` →
   `docs/{briefs|prds|designs}/<TYPE>-<topic>.md` (the marked
   document; a Draft unless it is the upstream document `/plan`
