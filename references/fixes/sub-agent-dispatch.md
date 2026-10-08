@@ -169,7 +169,7 @@ output.
 
 ## Per-skill binding table
 
-The eight children bind to the fallback shapes as follows. Each row
+The seven children bind to the fallback shapes as follows. Each row
 lists which shape applies at which phase; absent rows mean the child
 does not need a fallback at that phase.
 

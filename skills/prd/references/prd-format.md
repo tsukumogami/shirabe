@@ -25,8 +25,8 @@ problem: |
   1 paragraph: who is affected, what's broken or missing, why now.
 goals: |
   1 paragraph: what success looks like at a high level.
-upstream: docs/briefs/BRIEF-<name>.md     # optional; the BRIEF this PRD's
-                                          # requirements are written from
+upstream: docs/briefs/BRIEF-<name>.md     # optional; normally the BRIEF this
+                                          # PRD is written from (see below)
 source_issue: 123  # optional, GitHub issue number that triggered this PRD
 motivating_context: |                       # optional
   1 paragraph: why this PRD exists -- the situation or signal

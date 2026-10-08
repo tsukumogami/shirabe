@@ -155,7 +155,9 @@ Proceed to step 5.4 (Cleanup), or, under `/scope`'s sentinel, return control to
 1. Confirm the rejection with the user one more time — accepting that the BRIEF
    draft will be deleted.
 2. Run `git rm docs/briefs/BRIEF-<topic>.md`.
-3. Run the cleanup at step 5.4 to remove wip/ artifacts.
+3. Run the cleanup at step 5.4 to remove wip/ artifacts. Under `/scope`'s
+   sentinel, remove only the jury's verdict files instead, as 5.3's step 3
+   does, and leave the rest to `/scope`.
 4. Commit:
 
    ```
