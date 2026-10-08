@@ -1,0 +1,13 @@
+{
+  "schema": "shirabe-verification-map/v1",
+  "commands": {
+    "cargo-test": {"run": ["cargo", "test", "--workspace"], "timeout_secs": 1200},
+    "plan-to-tasks": {"run": ["skills/plan/scripts/plan-to-tasks_test.sh"]},
+    "run-cascade": {"run": ["skills/work-on/scripts/run-cascade_test.sh"]},
+    "check-skill": {"run": ["scripts/check-skill.sh"], "each": "skills/*"}
+  },
+  "entries": [
+    {"paths": ["skills/**"], "commands": ["check-skill"]}
+  ],
+  "default": ["cargo-test", "plan-to-tasks", "run-cascade"]
+}

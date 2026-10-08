@@ -297,6 +297,9 @@ suite_scripts() {
             echo "skills/work-on/scripts/check-pr-output_test.sh"
             # Reads the rule table and the files it references at HEAD.
             echo "skills/work-on/scripts/gate-rule-refs_test.sh"
+            # Reads the committed verification map with jq and the files that
+            # document it; no engine.
+            echo "skills/work-on/scripts/verification-map-schema_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

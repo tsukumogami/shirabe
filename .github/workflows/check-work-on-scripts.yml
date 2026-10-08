@@ -35,6 +35,10 @@ on:
       - 'docs/guides/doc-validation.md'
       - 'crates/**'
       - 'Cargo.lock'
+      # The verification map schema test reads shirabe's map and the
+      # extension file that points at it.
+      - '.claude/shirabe-extensions/verification-map.json'
+      - '.claude/shirabe-extensions/work-on.md'
       # An edit to this workflow changes what runs, so it has to run the suite.
       - '.github/workflows/check-work-on-scripts.yml'
   # Also on main, so a change that breaks the suite shows on the push that
@@ -55,6 +59,8 @@ on:
       - 'docs/guides/doc-validation.md'
       - 'crates/**'
       - 'Cargo.lock'
+      - '.claude/shirabe-extensions/verification-map.json'
+      - '.claude/shirabe-extensions/work-on.md'
       - '.github/workflows/check-work-on-scripts.yml'
 
 env:
@@ -304,6 +310,13 @@ jobs:
       - name: Run gate rule reference tests (Linux)
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/gate-rule-refs_test.sh
+
+      # Holds shirabe's verification map to the v1 schema with jq, and the
+      # schema reference and work-on.md to what they must say. Needs only git
+      # and jq; the macOS leg runs it on the floor through the work-on suite.
+      - name: Run verification map schema tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/verification-map-schema_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so

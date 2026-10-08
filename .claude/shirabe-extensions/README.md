@@ -7,22 +7,26 @@ but no skill needs loaded (it is **not** imported).
 
 | File | Read by | Declares |
 |------|---------|----------|
-| `work-on.md` | `/work-on` | the verification map for the definition-of-done gate |
+| `work-on.md` | `/work-on` | where the verification map lives (imported, minimal) |
+| `verification-map.json` | `/work-on` | the verification map for the definition-of-done gate |
 | `release.md` | `/shirabe:release` | the release checks and release assets, including the eval check |
 
-## `work-on.md` — the verification map
+## `verification-map.json` — the verification map
 
-`work-on.md` declares shirabe's verification map per the schema in
-[`skills/work-on/references/verification-map.md`](../../skills/work-on/references/verification-map.md).
-At the definition-of-done gate, `/work-on` matches an issue's changed files against the map,
-runs each matched entry's command(s), and requires every run to pass before the issue can
-finalize. A change matching no entry falls through to the default; a change with no match and
-no usable default yields cannot-verify and **fails closed** (never reads as "verified").
+`verification-map.json` declares shirabe's verification map per the
+`shirabe-verification-map/v1` schema in
+[`skills/work-on/references/verification-map.md`](../../skills/work-on/references/verification-map.md);
+`work-on.md` only points at it. The gate reads the copy at the merge-base with `main`, so a
+branch that edits the map is verified by the map it started from. At the definition-of-done
+gate, `/work-on` matches an issue's changed files against the map, runs each matched entry's
+command(s), and requires every run to pass before the issue can finalize. A change matching no
+entry falls through to the default; a change the map selects nothing for yields cannot-verify
+and **fails closed** (never reads as "verified").
 
 ### Entries
 
-- **`skills/** -> scripts/check-skill.sh <skill>`** — run once per changed skill, where
-  `<skill>` is the skill's directory name under `skills/`. For that skill it runs
+- **`skills/**` -> `check-skill`** — `scripts/check-skill.sh` with `"each": "skills/*"`, so it
+  runs once per changed skill with the skill's directory name under `skills/` as its argument. For that skill it runs
   `shirabe validate` over its Markdown outside `evals/` and `koto-templates/`, compiles each
   `koto-templates/*.md` (skipping `*.mermaid.md`) with `koto template compile`, runs every
   `scripts/*_test.sh`, and checks the shape of `evals/evals.json` with
@@ -38,9 +42,9 @@ no usable default yields cannot-verify and **fails closed** (never reads as "ver
   the previous release's. `scripts/run-evals.sh <skill>` is still there for an author who
   wants a local run.
 
-- **Default** (no entry matches) — every one of `cargo test --workspace`,
-  `skills/plan/scripts/plan-to-tasks_test.sh`, and `skills/work-on/scripts/run-cascade_test.sh`
-  must pass.
+- **Default** (no entry matches) — every one of `cargo test --workspace` (with a 1200-second
+  deadline), `skills/plan/scripts/plan-to-tasks_test.sh`, and
+  `skills/work-on/scripts/run-cascade_test.sh` must pass.
 
 ## `release.md` — release checks and assets
 
