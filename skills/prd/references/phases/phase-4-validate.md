@@ -329,6 +329,9 @@ the workflow. Run the following ordered actions; do not skip steps.
    rm -f wip/research/prd_<topic>_phase4_*.md
    ```
 
+   Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
+   these files, and the discard commit carries only the PRD's removal.
+
 6. **Commit the discard via `git commit -F`** (file path), never `-m`:
 
    ```bash
