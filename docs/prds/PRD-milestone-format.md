@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A roadmap item says what gets built, not what someone can do once it
   ships or how anyone other than its author would check that, so a merge
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-milestone-format](docs/briefs/BRIEF-milestone-format.md); carried in Absorbed Brief.
 
@@ -154,9 +154,11 @@ no structural checks.
   - `**Left open:**` -- the how-decisions left to the session that does
     the work, or `None`.
   - `**Needs:**` -- optional, as today.
-  - `**Dependencies:**` -- `None` alone, or a comma-separated list (which
-    may wrap) whose every entry is the tag of another milestone in this
-    roadmap or a cross-repo issue reference `<owner>/<repo>#<n>`.
+  - `**Dependencies:**` -- one line: `None` alone, or a comma-separated
+    list whose every entry is the tag of another milestone in this roadmap
+    or a cross-repo issue reference `<owner>/<repo>#<n>`. A line continuing
+    it is a finding (R6), since a reader of the line alone would miss the
+    entries on it.
   - `**Status:**` -- exactly `Not started`, `In progress`, `Done` or
     `Dropped`.
   - `**Delivered:**` -- optional; the pull requests that delivered the
@@ -203,7 +205,8 @@ non-zero.
 roadmap, the validator also reports an error-level finding, naming the
 milestone and the field, when:
 
-- Left open or Dependencies is missing or empty (`None` is not empty);
+- Left open or Dependencies is missing or empty (`None` is not empty), or
+  the Dependencies line has a continuation line;
 - Status is missing or isn't one of the four values in R2;
 - a Dependencies entry is neither `None` alone, the tag of another
   milestone in the roadmap, nor a cross-repo reference;
@@ -223,8 +226,9 @@ and the lifecycle checks treat the two alike.
 
 **R9. One parse of a milestone.** The shared roadmap parser returns each
 milestone's Outcome, Evidence clauses, Left open and Delivered as their own
-values, by the field extents of R2; none of their text appears in another
-field or in the item's free description. On a `roadmap/v2` roadmap,
+values, by the field extents of R2; on a `roadmap/v2` roadmap none of
+their text appears in another field or in the item's free description,
+and on a `roadmap/v1` roadmap the free description is what it is today. On a `roadmap/v2` roadmap,
 `shirabe roadmap populate` renders each description cell from the
 milestone's Outcome, joined onto one line and passed through the same
 summarizing step populate applies to description text today.
@@ -326,7 +330,8 @@ fresh session; the corpus criterion is a manual check outside CI.
       milestone and field: Outcome missing; Outcome empty; `**Evidence:**`
       with no clause beneath it; Left open missing; Dependencies empty;
       Status `Done -- shipped`; Status missing; a Dependencies entry `ZZ9`
-      no milestone carries; Dependencies `None, AB1`; two milestones tagged
+      no milestone carries; Dependencies `None, AB1`; a Dependencies line
+      with a continuation line; two milestones tagged
       `AB1`; a heading `### AB2:` with an empty title. (R2, R5, R6)
 - [ ] A `roadmap/v2` fixture with `### Feature 1:` items carrying no
       Outcome or Evidence fails; the same file with `schema: roadmap/v1`
