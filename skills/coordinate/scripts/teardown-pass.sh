@@ -207,7 +207,9 @@ esac
 
 STEP=preserve
 ARCH="$ARCHIVE_ROOT/$(date -u +%Y-%m-%d)-$TOPIC-$JOB"
-mkdir -p "$ARCH" || { ARCH=""; refused "cannot create the archive directory"; }
+# The archive holds transcripts, which hold whatever the worker saw: only
+# the user reads it.
+mkdir -p "$ARCH" && chmod 700 "$ARCHIVE_ROOT" "$ARCH" || { ARCH=""; refused "cannot create the archive directory"; }
 say "preserving into $ARCH"
 : >"$T/copies"
 # copy_file <src> <rel>: one file into the archive, listed for the check.

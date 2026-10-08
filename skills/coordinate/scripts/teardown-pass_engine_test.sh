@@ -254,7 +254,7 @@ fixture() {
     printf '[{"name":"tsuku+w5","path":"%s","session_name":"w5-1a2b3c4d"}]\n' "$INST" >"$ST/niwa.json"
     printf '[{"id":"%s","cwd":"%s","sessionId":"%s","name":"w5-1a2b3c4d","state":"%s"}]\n' "$JOB" "$INST" "$SID" "${1:-done}" >"$ST/agents.json"
     printf '[{"worker":"w5","unit":"#591","repo":"acme/widgets","branch":"feat/w5"}]\n' >"$ST/rows.json"
-    printf '[{"number":600,"mergeCommit":{"oid":"%s"}}]\n' "$MERGE" >"$ST/merged-feat_w5.json"
+    printf '[{"number":600,"mergeCommit":{"oid":"%s"},"headRepositoryOwner":{"login":"acme"}}]\n' "$MERGE" >"$ST/merged-feat_w5.json"
     printf '{"state":"MERGED","mergeCommit":{"oid":"%s"}}\n' "$MERGE" >"$ST/pr-600.json"
     printf '{"issue_url":"https://api.github.com/repos/acme/widgets/issues/600","body":"what only the worker knew"}\n' >"$ST/comment-1001.json"
     printf '{"issue_url":"https://api.github.com/repos/acme/widgets/issues/599","body":"another unit"}\n' >"$ST/comment-1002.json"
@@ -311,6 +311,7 @@ eq  "exactly one rm, of the one job" "rm $JOB" "$(cat "$ST/claude.log")"
 [ -e "$INST" ] && fail "the instance is gone" "" || pass "the instance is gone"
 [ -e "$HOME/.claude/jobs/$JOB" ] && fail "the job directory is gone" "" || pass "the job directory is gone"
 [ -f "$TR" ] && pass "the transcript stays where it was" || fail "the transcript stays where it was" ""
+eq  "only the user can read the archive" 700 "$(stat -c %a "$A" 2>/dev/null || stat -f %Lp "$A")"
 eq  "a second pass on the spent verdict refuses" 1 "$(agent_pass "$KSEAL")"
 eq  "and runs no second destroy" 1 "$(wc -l <"$ST/niwa.log" | tr -d ' ')"
 eq  "and no second rm" 1 "$(wc -l <"$ST/claude.log" | tr -d ' ')"
@@ -329,6 +330,13 @@ stopped
 eq  "an unmerged pull request: teardown_handoff refuses to surface" surface "$(at)"
 has "and the verdict says why" "$(ctx teardown_handoff)" "is merged"
 nothing_removed "an unmerged pull request"
+
+fixture
+printf '[{"number":601,"mergeCommit":{"oid":"%s"},"headRepositoryOwner":{"login":"someone"}}]\n' "$MERGE" >"$ST/merged-feat_w5.json"
+start
+stopped
+eq  "a merged pull request from a fork's branch of the same name: refused" surface "$(at)"
+nothing_removed "a merged pull request from a fork's branch of the same name"
 eq  "and teardown_topic is cleared" "" "$(ctx teardown_topic)"
 
 fixture

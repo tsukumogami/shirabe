@@ -3463,7 +3463,8 @@ whose working directory it is (stopped), its transcript, the holding's merged
 pull requests and the handoff comment, read back from GitHub. A refusal (no
 merged pull request, no handoff link or one on another unit, no single
 stopped job) goes to the human with its reason in the sealed verdict's
-`reason` line; nothing has been removed.
+`reason` line (`koto context get "{{SESSION_NAME}}" teardown_handoff`);
+nothing has been removed.
 
 ## promote
 
@@ -3487,7 +3488,8 @@ when the posture reserves the teardown for a person.
 The teardown agent is a local agent in this session, started on your first
 teardown with your harness's subagent tool and the charter in
 `{{PLUGIN_ROOT}}/skills/coordinate/references/teardown-agent.md`, followed by
-the pass; later passes go to the same agent. Record it as a Work row (`record-state.sh --kind local-agent`) before it starts. Never ask another
+the pass; later passes go to the same agent. Record it as a Work row
+(`record-state.sh --kind local-agent`) before it starts. Never ask another
 session to tear down, and never run the pass's commands yourself: the agent
 runs `teardown-pass.sh run --session "{{SESSION_NAME}}" --keyseal <keyseal>`,
 which reads its target from this session's sealed verdict, re-reads every

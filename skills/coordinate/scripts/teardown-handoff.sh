@@ -208,9 +208,12 @@ BRANCH=$(printf '%s' "$ROW" | jq -r '.branch // ""')
 UNIT=$(printf '%s' "$ROW" | jq -r '.unit // ""')
 printf '%s' "$REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || refuse "the holding names no repository"
 [ -n "$BRANCH" ] || refuse "the holding names no branch"
-dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$REPO" --head "$BRANCH" --state merged \
-    --json number,mergeCommit >"$T/prs" 2>"$T/gh.err" || die2 "the merged pull requests could not be read: $(tail -1 "$T/gh.err")"
-jq -r '.[] | select((.mergeCommit.oid // "") | test("^[0-9a-f]{40}$")) | "\(.number) \(.mergeCommit.oid)"' "$T/prs" >"$T/merged" 2>/dev/null \
+dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$REPO" --head "$BRANCH" --state merged --limit 100 \
+    --json number,mergeCommit,headRepositoryOwner >"$T/prs" 2>"$T/gh.err" || die2 "the merged pull requests could not be read: $(tail -1 "$T/gh.err")"
+# --head matches a branch name in any fork; only the holding's own
+# repository's branch is the unit's.
+jq -r --arg o "${REPO%%/*}" '.[] | select((.headRepositoryOwner.login // "") == $o)
+    | select((.mergeCommit.oid // "") | test("^[0-9a-f]{40}$")) | "\(.number) \(.mergeCommit.oid)"' "$T/prs" >"$T/merged" 2>/dev/null \
     || die2 "the merged pull requests are not readable JSON"
 [ -s "$T/merged" ] || refuse "no pull request from $BRANCH in $REPO is merged"
 NUMS=""
