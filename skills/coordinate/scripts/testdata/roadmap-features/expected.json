@@ -1,0 +1,30 @@
+{
+  "ROADMAP-fixture.md": [
+    {"id": "AB1", "finished": false, "done": false, "dependencies": [], "blocked": false, "blocked_by": []},
+    {"id": "AB2", "finished": false, "done": false, "dependencies": [1], "blocked": true, "blocked_by": [1]},
+    {"id": "AB3", "finished": true, "done": true, "dependencies": [1], "blocked": false, "blocked_by": []},
+    {"id": "AB4", "finished": true, "done": true, "dependencies": [], "blocked": false, "blocked_by": []},
+    {"id": "AB5", "finished": true, "done": true, "dependencies": [], "blocked": false, "blocked_by": []},
+    {"id": "AB6", "finished": true, "done": true, "dependencies": [], "blocked": false, "blocked_by": []},
+    {"id": "AB7", "finished": false, "done": true, "dependencies": [2], "blocked": false, "blocked_by": []},
+    {"id": "AB8", "finished": false, "done": false, "dependencies": [7], "blocked": true, "blocked_by": [7]},
+    {"id": "AB9", "finished": false, "done": false, "dependencies": [4, 5], "blocked": false, "blocked_by": []},
+    {"id": "AB10", "finished": false, "done": false, "dependencies": [6, 7], "blocked": true, "blocked_by": [7]},
+    {"id": "AB10a", "finished": false, "done": false, "dependencies": [3, 10], "blocked": true, "blocked_by": [10]},
+    {"id": "CD1", "finished": false, "done": false, "dependencies": [4], "blocked": false, "blocked_by": []},
+    {"id": "CD2", "finished": false, "done": false, "dependencies": [5, 9], "blocked": true, "blocked_by": [9]},
+    {"id": "CD3", "finished": false, "done": false, "dependencies": [3], "blocked": false, "blocked_by": []},
+    {"id": "CD4", "finished": false, "done": false, "dependencies": [11], "blocked": true, "blocked_by": [11]},
+    {"id": "CD5", "finished": false, "done": false, "dependencies": [], "blocked": false, "blocked_by": []},
+    {"id": "CD6", "finished": false, "done": false, "dependencies": [2], "blocked": true, "blocked_by": [2]},
+    {"id": "CD7", "finished": false, "done": false, "dependencies": [1, 2, 3], "blocked": true, "blocked_by": [1, 2]},
+    {"id": "CD8", "finished": false, "done": false, "dependencies": [2, 4], "blocked": true, "blocked_by": [2]}
+  ],
+  "ROADMAP-numbered.md": [
+    {"id": "Feature 1", "finished": true, "done": true, "dependencies": [], "blocked": false, "blocked_by": []},
+    {"id": "Feature 3", "finished": false, "done": false, "dependencies": [3], "blocked": true, "blocked_by": [3]},
+    {"id": "Feature 2", "finished": false, "done": false, "dependencies": [1], "blocked": false, "blocked_by": []},
+    {"id": "Feature 4", "finished": false, "done": false, "dependencies": [1, 2, 3], "blocked": true, "blocked_by": [2, 3]},
+    {"id": "Feature 5", "finished": false, "done": false, "dependencies": [3, 4], "blocked": true, "blocked_by": [3, 4]}
+  ]
+}
