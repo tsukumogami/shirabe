@@ -1,0 +1,21 @@
+# Load-manifest rows for files a profile no longer loads at the measured
+# commit. recount.py removes them for the "rows removed" figures and checks
+# each one: a pointer-removed file must be named by no span the profile still
+# loads; a reference-table file relies on /scope's SKILL.md saying that
+# nothing in its reference table is read up front, the correction the
+# inventory's mechanical item scope-reference-table-vs-lazy-load made (applied
+# in #586; README.md, "Reading the figures", sets out the judgement). The
+# optional fourth column is an exact substring of a loaded span that mentions
+# the file without pointing to it (an example value in a code block); it is
+# removed before the search, and the run fails if it is no longer there.
+profile	path	reason	not_a_pointer
+work-on	references/default-action-conversion.md	pointer-removed
+work-on	references/koto-session-retention.md	pointer-removed
+work-on	skills/work-on/references/finishing-obligations.md	pointer-removed
+execute-single-pr	references/worktree-discipline.md	pointer-removed	main deleted references/worktree-discipline.md that this PLAN renames to
+execute-single-pr	skills/work-on/references/phases/phase-6-pr.md	pointer-removed
+scope	references/parent-skill-pattern.md	reference-table
+scope	references/parent-skill-state-schema.md	reference-table
+scope	references/parent-skill-resume-ladder-template.md	reference-table
+scope	references/parent-skill-child-inspection.md	reference-table
+scope	references/parent-skill-security.md	reference-table
