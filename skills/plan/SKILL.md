@@ -384,7 +384,7 @@ gh issue list --search "Design: <design-doc-path>" --json number,title,state
 
 When resuming, read the existing artifact to restore context before continuing.
 
-A `parent_orchestration` sentinel in `wip/scope_<topic>_state.md` is not a rung
+A `parent_orchestration` sentinel in `/scope`'s state file is not a rung
 of that ladder: the ladder applies the same way under it, and the sentinel only
 changes which steps the run skips, as the next paragraph says.
 

@@ -244,7 +244,7 @@ resolved on, which did create one up front, closes it here.
 A bail routes on what a child produced. The abandonment-forced
 branch is taken when a child intermediate under
 `wip/{brief,prd,design,plan}_<topic>_*` or research scratch under
-`wip/research/{brief,prd,design}_<topic>_*` exists for the topic;
+`wip/research/{prd,design}_<topic>_*` exists for the topic;
 otherwise the bail is a clean cancel.
 
 Nothing under the parent's own `wip/scope_<topic>_*` prefix counts

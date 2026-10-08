@@ -2777,7 +2777,7 @@ Read the R8 Bail Route section of
 
 The `child_intermediate_present` gate looks for a child's intermediate under
 `wip/{brief,prd,design,plan}_<topic>_*` or research scratch under
-`wip/research/{brief,prd,design}_<topic>_*`. Nothing under the parent's own
+`wip/research/{prd,design}_<topic>_*`. Nothing under the parent's own
 `wip/scope_<topic>_*` prefix counts toward it: nothing under that prefix is a
 child's output.
 

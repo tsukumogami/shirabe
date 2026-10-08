@@ -368,8 +368,9 @@ do not read them all before starting:
 4. **wip Cleanup** — remove the topic's wip/ scratch artifacts
    (`wip/scope_<topic>_*` plus, on full-run or re-evaluation,
    `wip/{brief,prd,design,plan}_<topic>_*` and
-   `wip/research/{brief,prd,design}_<topic>_*`); preserve durable
-   artifacts under `docs/`.
+   `wip/research/{prd,design}_<topic>_*`); preserve durable
+   artifacts under `docs/`. The research sweep also takes `/brief`'s jury
+   verdict files (`research/brief_<topic>_phase4_*.md`).
    - Instructions: `skills/scope/references/phases/phase-4-cleanup.md`
 
 ## Three Exit Paths
@@ -467,7 +468,7 @@ other path in this section is named.
 A child's own verdict commits (its acceptance or discard commit) are the
 child's, not this list's. Under the sentinel no child commits the removal of
 its working files: the untrack and cleanup below cover every child's `wip/`
-prefix, its `wip/research/` scratch included (see "What a child keeps and what
+prefix, its research scratch included (see "What a child keeps and what
 it skips under /scope" in
 `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`).
 
@@ -482,8 +483,10 @@ runs in the publish states and in `republish` and never as a default action:
 
 - **untrack** — `git rm --cached` of the topic's own
   `wip/{scope,brief,prd,design,plan}_<topic>_*` and
-  `wip/research/{brief,prd,design}_<topic>_*`, committed as exactly that removal and
-  nothing else staged; the files stay on disk for Phase 4
+  `wip/research/{prd,design}_<topic>_*`, committed as exactly that removal and
+  nothing else staged; the files stay on disk for Phase 4. `/brief`'s jury
+  verdict files (`research/brief_<topic>_phase4_*.md`, beside `/prd`'s and
+  `/design`'s research scratch) are untracked with them
 - **push** — `git push origin HEAD:refs/heads/<branch>`, with no force option
   and no `+` refspec, refused for a detached HEAD, for a branch failing
   `git check-ref-format --branch`, and for the remote's default branch

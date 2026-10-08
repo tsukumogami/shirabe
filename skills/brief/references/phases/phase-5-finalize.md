@@ -32,7 +32,7 @@ the Parent-owned-publishing shape in
   parent's execution mode) takes the recommended option and names it.
 - 5.4 makes no cleanup commit; `/scope`'s cleanup phase and publish untrack
   remove the topic's `brief_<topic>_*` working files and the jury's verdict
-  files under `wip/research/`.
+  files in the research directory.
 - A Reject still makes its discard commit, the signal `/scope` reads, and an
   unattended run takes it without the confirmation prompt (5.3).
 - 5.5 pushes nothing and creates or edits no pull request.

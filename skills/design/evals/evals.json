@@ -5,11 +5,11 @@
       "id": 1,
       "name": "freeform-topic-full-workflow",
       "prompt": "/design authentication-system",
-      "expected_output": "Design skill triggers with freeform input mode. Phase 0 reads phase-0-setup-freeform.md, creates branch and design doc skeleton at docs/designs/DESIGN-authentication-system.md, writes wip/design_authentication-system_summary.md. Phase 1 decomposes into independent decision questions (e.g., session management strategy, credential storage, token format). Phase 2 spawns one decision agent per question. Phase 3 cross-validates assumptions across decisions. Phases 4 to 6 continue sequentially (architecture, security, final review). Final doc has all required sections: Status, Context and Problem Statement, Decision Drivers, Considered Options, Decision Outcome, Solution Architecture, Implementation Approach, Security Considerations, Consequences. Status set to Proposed. Frontmatter includes problem, decision, rationale fields.",
+      "expected_output": "Design skill triggers with freeform input mode. Phase 0 reads phase-0-setup-freeform.md, creates branch and design doc skeleton at docs/designs/DESIGN-authentication-system.md, writes the topic's summary file under wip/. Phase 1 decomposes into independent decision questions (e.g., session management strategy, credential storage, token format). Phase 2 spawns one decision agent per question. Phase 3 cross-validates assumptions across decisions. Phases 4 to 6 continue sequentially (architecture, security, final review). Final doc has all required sections: Status, Context and Problem Statement, Decision Drivers, Considered Options, Decision Outcome, Solution Architecture, Implementation Approach, Security Considerations, Consequences. Status set to Proposed. Frontmatter includes problem, decision, rationale fields.",
       "files": [],
       "expectations": [
         "Transcript enters freeform mode and reads phase-0-setup-freeform.md",
-        "Transcript creates the design doc skeleton at docs/designs/DESIGN-authentication-system.md and writes wip/design_authentication-system_summary.md",
+        "Transcript creates the design doc skeleton at docs/designs/DESIGN-authentication-system.md and writes the topic's summary file under wip/",
         "Transcript decomposes the topic into independent decision questions in Phase 1 and gives each its own decision agent in Phase 2",
         "Transcript runs Phase 3 cross-validation, then Phases 4 to 6",
         "Transcript produces a DESIGN with status Proposed, the nine required sections, and problem, decision and rationale in its frontmatter"
@@ -45,10 +45,10 @@
       "id": 3,
       "name": "auto-mode-no-interaction",
       "prompt": "/design --auto rate-limiting",
-      "expected_output": "Design skill runs in --auto mode. Reads references/decision-protocol.md for decision points. Creates wip/design_rate-limiting_decisions.md to track decisions. No AskUserQuestion calls at any phase. Phase 1 decomposes without user confirmation. Phase 2 decision agents run without presenting recommendations to user. Phase 6 takes the recommended verdict instead of asking for approval. All choices use the auto decision protocol. Complexity assessment at the end still presented but does not block. Terminal summary lists all assumptions made.",
+      "expected_output": "Design skill runs in --auto mode. Reads references/decision-protocol.md for decision points. Creates the topic's decisions file under wip/ to track decisions. No AskUserQuestion calls at any phase. Phase 1 decomposes without user confirmation. Phase 2 decision agents run without presenting recommendations to user. Phase 6 takes the recommended verdict instead of asking for approval. All choices use the auto decision protocol. Complexity assessment at the end still presented but does not block. Terminal summary lists all assumptions made.",
       "files": [],
       "expectations": [
-        "Transcript follows ${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md at decision points and creates wip/design_rate-limiting_decisions.md",
+        "Transcript follows ${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md at decision points and creates the topic's decisions file under wip/",
         "Transcript makes no AskUserQuestion call at any phase",
         "Transcript decomposes in Phase 1 and resolves the decision questions in Phase 2 without asking the user to confirm them",
         "Transcript takes the recommended verdict at Phase 6 and names it, and lists the assumptions it made in its summary"
@@ -62,7 +62,7 @@
       "files": [],
       "expectations": [
         "Transcript identifies every decision question in Phase 1 before any decision agent is spawned",
-        "Transcript writes wip/design_caching-layer_coordination.json listing all the questions",
+        "Transcript writes the topic's coordination.json under wip/ listing all the questions",
         "Transcript spawns one decision agent per question in Phase 2, each writing its own report"
       ]
     },
@@ -126,7 +126,7 @@
         "Transcript presents the step 6.7 verdict with the three options Approved, Reject and Continue-revising, and the prompt copy includes 'Rationale will be committed to git history'",
         "Transcript keeps step 6.6's commit of the Draft before the verdict, so the Reject branch discards an already-committed DESIGN",
         "Transcript writes the rationale to a tmpfile whose first line is the subject docs(design): discard DESIGN draft for deprecated-feature-flag",
-        "Transcript runs git rm docs/designs/DESIGN-deprecated-feature-flag.md and removes both wip/design_deprecated-feature-flag_*.md and wip/research/design_deprecated-feature-flag_*.md",
+        "Transcript runs git rm docs/designs/DESIGN-deprecated-feature-flag.md and removes the topic's working files under wip/, the per-phase research files included",
         "Transcript commits the discard with git commit -F (a file or stdin), never with the rationale inlined in git commit -m",
         "Transcript exits Phase 6 without the Proposed to Accepted transition and without running step 6.9"
       ]

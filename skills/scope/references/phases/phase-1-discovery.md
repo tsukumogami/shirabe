@@ -162,7 +162,7 @@ The three branch behaviors:
 - **Bail** — route to R8 bail-handling per the parent's own
   bail-handling rule: force-materialize when a child intermediate
   (`wip/{brief,prd,design,plan}_<topic>_*`) or research scratch
-  (`wip/research/{brief,prd,design}_<topic>_*`) exists for the topic;
+  (`wip/research/{prd,design}_<topic>_*`) exists for the topic;
   clean-cancel otherwise. Nothing under the parent's own
   `wip/scope_<topic>_*` prefix counts toward the first branch, so
   a bail here — where Phase 0 has written the state file and no

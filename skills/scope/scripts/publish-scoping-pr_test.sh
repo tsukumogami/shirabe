@@ -94,7 +94,6 @@ execution_mode: $mode
 EOF
     printf 'topic: topic\n' >"$R/wip/scope_topic_state.md"
     printf 'notes\n' >"$R/wip/research/design_topic_notes.md"
-    printf 'verdict\n' >"$R/wip/research/brief_topic_phase4_content-quality.md"
     printf 'other\n' >"$R/wip/other_file.md"
     git -C "$R" add docs wip && git -C "$R" commit -q -m "docs: scope topic"
 }
@@ -139,11 +138,10 @@ else
 fi
 eq "pr= names the created PR" "https://github.com/acme/widgets/pull/100" "$(line pr)"
 eq "the branch was pushed: origin equals HEAD" "$(git -C "$R" rev-parse HEAD)" "$(remote_sha docs/topic)"
-eq "the topic's wip/ is untracked" "" "$(git -C "$R" ls-files -- 'wip/scope_topic_*' 'wip/research/design_topic_*' 'wip/research/brief_topic_*')"
+eq "the topic's wip/ is untracked" "" "$(git -C "$R" ls-files -- 'wip/scope_topic_*' 'wip/research/design_topic_*')"
 eq "another skill's wip/ is left tracked" "wip/other_file.md" "$(git -C "$R" ls-files -- wip/other_file.md)"
 if [ -f "$R/wip/scope_topic_state.md" ]; then ok "the untracked files stay on disk"; else bad "the untracked files stay on disk"; fi
-eq "the untrack commit holds exactly the removal" "D	wip/research/brief_topic_phase4_content-quality.md
-D	wip/research/design_topic_notes.md
+eq "the untrack commit holds exactly the removal" "D	wip/research/design_topic_notes.md
 D	wip/scope_topic_state.md" "$(git -C "$R" show --format= --name-status HEAD)"
 case "$(line wip_paths)" in
     *wip/scope_topic_state.md*) ok "wip_paths names the wip/ in unpushed history" ;;
@@ -163,6 +161,20 @@ eq "second run: still one pr create" "1" "$(calls create)"
 eq "second run: no pr edit (intent unchanged)" "0" "$(calls edit)"
 eq "second run: no new push" "$BEFORE" "$(remote_sha docs/topic)"
 eq "second run: the same PR" "https://github.com/acme/widgets/pull/100" "$(line pr)"
+
+echo "== /brief's jury verdict files are untracked too =="
+setup single-pr
+VERDICT="research/brief_topic_phase4_content-quality.md"
+printf 'verdict\n' >"$R/wip/$VERDICT"
+git -C "$R" add -- "wip/$VERDICT" && git -C "$R" commit -q -m "wip: verdict"
+run --topic topic --exit full-run --intent continue --session s-verdict
+eq "verdict: exit 0" "0" "$RC"
+eq "verdict: the verdict file is untracked" "" "$(git -C "$R" ls-files -- "wip/$VERDICT")"
+case "$(git -C "$R" show --format= --name-status HEAD)" in
+    *"D	wip/$VERDICT"*) ok "verdict: the untrack commit removes it" ;;
+    *) bad "verdict: the untrack commit removes it" "$(git -C "$R" show --format= --name-status HEAD)" ;;
+esac
+if [ -f "$R/wip/$VERDICT" ]; then ok "verdict: the file stays on disk"; else bad "verdict: the file stays on disk"; fi
 
 echo "== one owned PR already open =="
 setup single-pr

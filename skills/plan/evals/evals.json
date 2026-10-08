@@ -648,7 +648,7 @@
     {
       "id": 44,
       "name": "phase-7-resume-active-plan-runs-the-skipped-transition",
-      "prompt": "/plan docs/designs/DESIGN-resume-test.md -- An earlier session wrote docs/plans/PLAN-resume-test.md at status Active and stopped before step 7.5: the DESIGN is still at Accepted, and the wip/plan_resume-test_* files are all still there. Describe what Phase 7 does on this resume.",
+      "prompt": "/plan docs/designs/DESIGN-resume-test.md -- An earlier session wrote docs/plans/PLAN-resume-test.md at status Active and stopped before step 7.5: the DESIGN is still at Accepted, and the run's working files under wip/ are all still there. Describe what Phase 7 does on this resume.",
       "expected_output": "Phase 7's Resume Check finds the PLAN at Active. Because the upstream DESIGN is still at Accepted, the earlier run stopped before step 7.5, so Phase 7 does not skip as already complete: it runs 7.5 (shirabe transition docs/designs/DESIGN-resume-test.md Planned, then shirabe validate --lifecycle-chain on the PLAN) and continues from 7.6. It does not rewrite the PLAN or file anything again.",
       "files": [],
       "expectations": [

@@ -593,7 +593,7 @@ and re-run before cleanup.
 ### 7.6 Cleanup
 
 Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes the
-topic's `wip/plan_<topic>_*` files at its own exit, as it does every child's.
+files below at its own exit, as it does every child's working files.
 
 Delete topic-scoped wip/ artifacts on success:
 
