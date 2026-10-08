@@ -13,10 +13,18 @@
 #     the coordination mode among them)
 #   a detached HEAD, the wrong branch, the default branch   65, 66, 67
 #   a fresh node push                            the branch reaches origin; one
-#     draft PR titled feat(<slug>): <node-id> with the fixed body (node id,
+#     draft PR titled feat(<slug>): <node-id> with the fixed fields (node id,
 #     work items, coordination link) through --body-file; the node's index
 #     line written with head=<the pushed sha>, after --coordination-body
 #     validation of the new body
+#   the node PR's title and body                 the body's first part is each
+#     work item's goal (an outline's Goal, else the table's summary row, else
+#     the title), then one top-level ---, the fixed fields, and the run marker
+#     as the last line; owned-pr.sh --run-id still finds the PR by it, and
+#     another run's lookup refuses it; body and title pass --pr-body (the
+#     stub, and the real validator when one is on PATH); a node changing only
+#     docs/ and root Markdown is docs(<slug>), one changing a skill's
+#     Markdown is feat; a refused body exits 74 with no pr create or edit
 #   a wip/ file committed on the node branch     swept: the pushed head carries
 #                                                no wip/ file
 #   a second push                                the owned PR is adopted (no
@@ -56,6 +64,8 @@
 #     a public node under a private home whose commits carry a private/ path
 #     or a Repo Visibility: Private line         exit 78, nothing pushed; no
 #                                                scan for any other pair
+#     the same pair, a work item's goal in the PLAN naming a private/ path
+#                                                exit 78, nothing pushed
 #   a node in another repository than the coordination PR's, pushed from the
 #   coordination checkout:
 #     a worktree cut there (no --repo-dir)       exit 79, nothing pushed, no
@@ -92,6 +102,10 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 command -v git >/dev/null 2>&1 || { echo "FAIL: git is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
+
+# A real shirabe, read before the helpers put their stub ahead of PATH: the
+# node PR body case runs it when it is there and knows --pr-body.
+REAL_SHIRABE="${SHIRABE_BIN:-$(command -v shirabe 2>/dev/null || true)}"
 
 # shellcheck source=coord-test-helpers.sh
 . "$SCRIPT_DIR/coord-test-helpers.sh"
@@ -340,6 +354,164 @@ ct_write_db
 fresh_repo marker-usage
 push_node --run-id NOTANID
 [ "$RC" -eq 64 ] && pass "a malformed --run-id is a usage error" || fail "bad --run-id: rc=$RC"
+
+# --- the node PR's title and body -------------------------------------------------------
+#
+# A new node PR's body is two parts: the work items' goals from the PLAN, one
+# top-level `---`, then the fixed fields and the run marker. It is checked
+# with `shirabe validate --pr-body` and the title before `gh pr create`.
+
+# separators <file> -- the count of bare `---` lines outside fences.
+separators() { awk '/^[[:space:]]*(```|~~~)/ { f = !f; next } !f && /^---[[:space:]]*$/ { n++ } END { print n + 0 }' "$1"; }
+# part1 <file> -- the text above the first `---`.
+part1() { awk '/^---[[:space:]]*$/ { exit } { print }' "$1"; }
+created_title() { ct_calls | grep '^pr create' | tail -1 | sed -n 's/.*--title \(.*\) --body-file.*/\1/p'; }
+
+ct_case pr-body
+ct_write_db
+fresh_repo pr-body
+# Summary rows under the two items' entity rows, as an issue-carrying PLAN
+# writes them; plan-to-tasks.sh reads past them.
+awk '{ print }
+     index($0, "| [#1: ") == 1 { print "| _Parse the input into tokens._ | | |" }
+     index($0, "| [#2: ") == 1 { print "| _Cover the parser with table tests._ | | |" }' "$PLAN" > "$PLAN.new" \
+    && mv "$PLAN.new" "$PLAN"
+push_node --run-id "$MINE"
+db_pr 50 | jq -r '.body' > "$CASE/node-body.md"
+if [ "$RC" -eq 0 ] && [ "$(separators "$CASE/node-body.md")" -eq 1 ] \
+    && [ "$(part1 "$CASE/node-body.md" | grep -c .)" -eq 2 ] \
+    && part1 "$CASE/node-body.md" | sed -n 1p | grep -qxF "Parse the input into tokens." \
+    && part1 "$CASE/node-body.md" | grep -qxF "Cover the parser with table tests."; then
+    pass "the node PR body's first part is each work item's goal from the PLAN, above one top-level ---"
+else
+    fail "pr-body: rc=$RC body [$(cat "$CASE/node-body.md")] $(tail -2 "$CASE/stderr")"
+fi
+case "$(awk '/^---[[:space:]]*$/ { s = 1; next } s' "$CASE/node-body.md")" in
+    *"Coordinated node \`$CT_CORE\` of \`t\`."*"Work items: 1,2"*"Coordination PR: https://github.com/acme/repo-a/pull/10"*)
+        pass "the fixed fields sit below the separator" ;;
+    *) fail "the second part: [$(cat "$CASE/node-body.md")]" ;;
+esac
+if [ "$(grep -v '^[[:space:]]*$' "$CASE/node-body.md" | tail -1)" = "<!-- shirabe-run: $MINE -->" ] \
+    && [ "$(grep -c 'shirabe-run:' "$CASE/node-body.md")" -eq 1 ]; then
+    pass "the run marker line survives as the body's last line"
+else
+    fail "the marker line: [$(cat "$CASE/node-body.md")]"
+fi
+OWNED=$(bash "$SCRIPT_DIR/owned-pr.sh" --repo "$CT_REPO" --head "impl/t-$CT_CORE" --state open --run-id "$MINE" 2>"$CASE/owned.err"); ORC=$?
+if [ "$ORC" -eq 0 ] && [ "$OWNED" = "https://github.com/$CT_REPO/pull/50" ]; then
+    pass "owned-pr.sh --run-id finds the node PR by its rendered body's marker"
+else
+    fail "the ownership lookup: rc=$ORC out=[$OWNED] $(cat "$CASE/owned.err")"
+fi
+OWNED=$(bash "$SCRIPT_DIR/owned-pr.sh" --repo "$CT_REPO" --head "impl/t-$CT_CORE" --state open --run-id "$OTHER" 2>/dev/null); ORC=$?
+[ "$ORC" -eq 5 ] && pass "another run's lookup refuses the node PR (5): the marker names this run" \
+    || fail "another run's lookup: rc=$ORC out=[$OWNED]"
+TITLE=$(created_title)
+if [ "$TITLE" = "feat(t): $CT_CORE" ] \
+    && grep -Eq -- "^validate --pr-body [^ ]+/node-body\.md --pr-title feat\(t\): $CT_CORE\$" "$CASE/shirabe-calls.log"; then
+    pass "a code node is titled feat(t): <node-id>, and the body and title were validated with --pr-body"
+else
+    fail "code node: title [$TITLE] shirabe [$(cat "$CASE/shirabe-calls.log")]"
+fi
+if [ -n "$REAL_SHIRABE" ] && [ -x "$REAL_SHIRABE" ] \
+    && "$REAL_SHIRABE" validate --help 2>/dev/null | grep -q -- '--pr-body'; then
+    if "$REAL_SHIRABE" validate --pr-body "$CASE/node-body.md" --pr-title "$TITLE" >"$CASE/real.out" 2>&1; then
+        pass "the real shirabe validate --pr-body passes the rendered node PR body and title"
+    else
+        fail "the real validator refused the node PR body: $(cat "$CASE/real.out")"
+    fi
+else
+    echo "SKIP: no shirabe with --pr-body on PATH; the real-validator check did not run"
+fi
+
+# An outline's **Goal**: (here read past the table path, which ignores the
+# section; the outline path reaches the same reader), spanning two lines.
+ct_case pr-body-outline
+ct_write_db
+fresh_repo pr-body-outline
+cat >> "$PLAN" <<'OUTLINES'
+
+## Issue Outlines
+
+### Issue 1: feat parser
+
+**Goal**: Read the input
+into tokens.
+
+**Acceptance Criteria**:
+- [ ] tokens
+
+### Issue 2: test parser
+
+**Goal**: Test the tokens.
+OUTLINES
+OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo "$CT_REPO" --issues 2,1 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr"); RC=$?
+db_pr 50 | jq -r '.body' > "$CASE/node-body.md"
+if [ "$RC" -eq 0 ] && [ "$(part1 "$CASE/node-body.md" | grep -v '^$' | tr '\n' '|')" = "Test the tokens.|Read the input into tokens.|" ]; then
+    pass "an outline's Goal, joined onto one line, is the item's paragraph, in --issues order"
+else
+    fail "pr-body-outline: rc=$RC body [$(cat "$CASE/node-body.md")] $(tail -2 "$CASE/stderr")"
+fi
+
+# No goal and no summary: the items' titles, still above one separator.
+ct_case pr-body-titles
+ct_write_db
+fresh_repo pr-body-titles
+push_node
+db_pr 50 | jq -r '.body' > "$CASE/node-body.md"
+if [ "$RC" -eq 0 ] && [ "$(separators "$CASE/node-body.md")" -eq 1 ] \
+    && part1 "$CASE/node-body.md" | grep -qxF "Work item 1: feat parser." \
+    && part1 "$CASE/node-body.md" | grep -qxF "Work item 2: test parser."; then
+    pass "items with no goal or summary are described by their titles"
+else
+    fail "pr-body-titles: rc=$RC body [$(cat "$CASE/node-body.md")]"
+fi
+
+# docs_node <case> <path>... -- a fresh repo whose node commit changes only
+# the given paths (the default work.txt commit is dropped), then a push.
+docs_node() {
+    local c="$1" p
+    shift
+    ct_case "$c"
+    ct_write_db
+    fresh_repo "$c"
+    (cd "$WT" && git reset -q --hard HEAD~1)
+    for p in "$@"; do
+        (cd "$WT" && mkdir -p "$(dirname "$p")" && echo text > "$p" && git add "$p")
+    done
+    (cd "$WT" && git commit -q -m "docs: add")
+    push_node
+}
+
+docs_node docs-only docs/decisions/DECISION-x.md README.md
+if [ "$RC" -eq 0 ] && [ "$(created_title)" = "docs(t): $CT_CORE" ]; then
+    pass "a node that changes only docs/ and root Markdown is titled docs(t): <node-id>"
+else
+    fail "docs-only: rc=$RC title [$(created_title)] $(tail -2 "$CASE/stderr")"
+fi
+docs_node docs-skill docs/decisions/DECISION-x.md skills/x/SKILL.md
+if [ "$RC" -eq 0 ] && [ "$(created_title)" = "feat(t): $CT_CORE" ]; then
+    pass "Markdown outside docs/ and the root (a skill) keeps the node feat"
+else
+    fail "docs-skill: rc=$RC title [$(created_title)]"
+fi
+
+# A refused body or title: no PR is created, and the coordination PR is
+# untouched.
+ct_case pr-body-invalid
+ct_write_db
+fresh_repo pr-body-invalid
+BEFORE=$(jq -r '.prs[] | select(.number == 10) | .body' "$CASE/scenario/gh/db.json")
+export CT_PR_BODY_FAIL=1
+push_node
+unset CT_PR_BODY_FAIL
+if [ "$RC" -eq 74 ] && ! ct_calls | grep -q '^pr create' && ! ct_calls | grep -q '^pr edit' \
+    && [ "$(db_body)" = "$BEFORE" ] && grep -q -- '--pr-body' "$CASE/stderr"; then
+    pass "a failing --pr-body validation exits 74 before gh pr create, with no edit"
+else
+    fail "pr-body-invalid: rc=$RC calls [$(ct_calls | grep '^pr ')] $(tail -2 "$CASE/stderr")"
+fi
 
 # --- the merge order ------------------------------------------------------------------
 #
@@ -605,6 +777,24 @@ if ct_calls | grep -Eq '^pr (create|edit)'; then fail "a failed read wrote to Gi
 vis_push vis-home-unread none public
 [ "$RC" -eq 72 ] && ! pushed && pass "a failed read of the home's visibility exits 72, nothing pushed" \
     || fail "home unread: rc=$RC"
+
+# The node PR's description comes from the private PLAN, so it is scanned
+# with the commits: a goal naming a private/ path stops the push.
+ct_case vis-goal
+CT_VIS_A=private
+CT_VIS_B=public
+ct_write_db
+fresh_repo vis-goal
+awk '{ print } index($0, "| [#1: ") == 1 { print "| _Mirror private/tools into the parser._ | | |" }' "$PLAN" > "$PLAN.new" \
+    && mv "$PLAN.new" "$PLAN"
+node_clone vis-goal
+OUT=$(cd "$WT" && bash "$PUSH" node --slug t --node "$CT_CORE" --repo acme/repo-b --issues 1,2 \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --plan "$PLAN" 2>"$CASE/stderr"); RC=$?
+if [ "$RC" -eq 78 ] && ! pushed && ! ct_calls | grep -Eq '^pr (create|edit)'; then
+    pass "a work item's goal naming a private/ path, public node under a private home: 78, nothing pushed"
+else
+    fail "vis-goal: rc=$RC pushed=$(pushed && echo yes || echo no) $(tail -1 "$CASE/stderr")"
+fi
 
 # The visibility check runs before the ownership read, whose diagnostics name
 # the node's repository: another author's PR on a private node's branch under

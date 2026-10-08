@@ -39,13 +39,13 @@
 # report and the drift facts; python3 is
 # the portable realpath in run-cascade.sh.
 #
-# `--pr-body` in the template names what CI enforces on the authored body;
-# /execute doesn't run it. `koto workflows --children` in spawn_and_await names
+# `koto workflows --children` in spawn_and_await names
 # the call a later /work-on child makes to find its predecessors' summaries;
 # the orchestrator never runs it. Nothing mechanical separates a citation from
-# a call site, so both are exempted by name for scripts/check-skill-requires.sh;
-# an exemption that stops matching its line fails as stale.
-#not-a-call-site	skills/execute/koto-templates/execute.md	shirabe	--pr-body	Names what CI enforces on the authored PR body; /execute authors to the rule and never invokes the check.
+# a call site, so it is exempted by name for scripts/check-skill-requires.sh;
+# an exemption that stops matching its line fails as stale. (`--pr-body` in the
+# template only names what CI enforces, but node-push.sh runs it, so the mode
+# record below declares it and no exemption is needed.)
 #not-a-call-site	skills/execute/koto-templates/execute.md	koto	--children	Names the call a later /work-on child makes to read its predecessors' summaries; the /execute orchestrator never runs it.
 #
 # The koto floor. /execute enters its orchestrator session through
@@ -91,7 +91,8 @@
 # `gh pr ready`; node-cut.sh's `git worktree add` and `git fetch`. The
 # coordinated mode record below covers the two shirabe modes they run:
 # node-push.sh validates each new coordination body with
-# `--coordination-body`, and coord-merge.sh and the loop's
+# `--coordination-body`, and each new node PR's body and title with
+# `--pr-body` and `--pr-title`, and coord-merge.sh and the loop's
 # evaluate-coordination step run `--merge-gate --mode=ready` with one `--pr`
 # per indexed ref.
 koto	init	--template,--var,--vars-file,--attach-live,--replace-terminal,--koto-leg	always
@@ -110,4 +111,4 @@ gh	-	-	always
 git	-	-	always
 jq	-	-	always
 python3	-	-	always
-shirabe	validate	--coordination-body,--merge-gate	mode:coordinated
+shirabe	validate	--coordination-body,--merge-gate,--pr-body,--pr-title	mode:coordinated
