@@ -243,14 +243,14 @@
       "mode": "execute",
       "scenario": "e2e-plan-happy",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent detects the PLAN.md path, initializes skills/execute/koto-templates/execute.md template with PLAN_DOC var, runs plan-to-tasks.sh on the fixture to produce tasks JSON, submits tasks to koto. Then receives pr_finalization state, reads batch_final_view via koto context get, assembles PR description with per-child outcomes, updates the PR (but does NOT mark it ready in this state), and submits finalization_status: updated. The next state (plan_completion) marks the PR ready.",
+      "expected_output": "Agent detects the PLAN.md path, initializes skills/execute/koto-templates/execute.md template with PLAN_DOC var, runs plan-to-tasks.sh on the fixture to produce tasks JSON, submits tasks to koto. Then receives pr_finalization state, reads batch_final_view via koto context get, assembles PR description with per-child outcomes, updates the PR (but does NOT mark it ready in this state), and ticks with nothing submitted: koto checks the PR body and the branch through pr_finalization's gates and routes on them. The next state (plan_completion) marks the PR ready.",
       "files": [],
       "expectations": [
         "Agent initializes skills/execute/koto-templates/execute.md template (not work-on.md) for the PLAN input",
         "Agent handles pr_finalization state by reading batch_final_view via koto context get",
         "Agent assembles PR description including per-child name and outcome fields",
         "Agent does NOT mark the PR ready in pr_finalization state (gh pr ready is deferred to plan_completion)",
-        "Agent submits finalization_status: updated after assembling and updating the PR description"
+        "Agent ticks with nothing submitted after assembling and updating the PR description (no finalization_status: updated, which no longer exists)"
       ]
     },
     {
@@ -293,14 +293,14 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "After pr_finalization completes for an /execute plan run, what does the plan_completion state do?",
-      "expected_output": "Agent invokes ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}, reads cascade_status from the JSON output, marks the PR ready via gh pr ready unless the verdict is partial, and submits cascade_status to koto on a completed or skipped verdict; a partial halts the run and is surfaced instead of being submitted. The cascade script runs the chain-targeted lifecycle check internally at the pre-cascade probe and post-cascade verification points; the agent does not invoke the validator directly. The cascade runs BEFORE gh pr ready so CI re-runs on the ready_for_review event in strict mode against the finalized chain (DRAFT-before-READY).",
+      "expected_output": "Agent invokes ${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}, reads cascade_status from the JSON output, marks the PR ready via gh pr ready unless the verdict is partial, and ticks, submitting only a cascade_detail on a completed or skipped verdict: koto routes on the cascade_result.json the script records with --session, and a partial holds the run and is surfaced. The cascade script runs the chain-targeted lifecycle check internally at the pre-cascade probe and post-cascade verification points; the agent does not invoke the validator directly. The cascade runs BEFORE gh pr ready so CI re-runs on the ready_for_review event in strict mode against the finalized chain (DRAFT-before-READY).",
       "files": [],
       "expectations": [
         "Agent invokes skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}} as the cascade step rather than executing the cascade steps individually",
         "Agent does NOT invoke shirabe validate directly; the cascade script runs the chain-targeted check internally",
         "Agent marks the PR ready via gh pr ready as the final step of plan_completion (after the cascade lands), and only when the cascade verdict is completed or skipped -- a partial halts the run and is surfaced instead",
         "Agent reads cascade_status from the JSON output emitted by run-cascade.sh",
-        "Agent submits cascade_status to koto on a completed or skipped verdict, surfaces the failed steps to the human instead of marking the PR ready on a partial, and does NOT manually git rm the PLAN doc or run shirabe transition directly"
+        "Agent does not submit cascade_status (koto routes on the recorded cascade_result.json), submits at most a cascade_detail, surfaces the failed steps to the human instead of marking the PR ready on a partial, and does NOT manually git rm the PLAN doc or run shirabe transition directly"
       ]
     },
     {
@@ -389,11 +389,11 @@
       "mode": "execute",
       "scenario": "merge-dirty",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) whose merge state is DIRTY with no check runs, and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "The orchestrator reaches ci_monitor on impl/merge-test. gh pr view --json mergeStateStatus --jq .mergeStateStatus returns DIRTY (merge conflicts; GitHub suppressed new check-runs). The merge_state_clean gate fails. The ci_passing gate evaluates length == 0 against zero check-runs and returns true -- the agent does NOT treat that as passing, because this is the silent-success surface. Instead the agent submits ci_outcome: dirty_merge_state with a rationale. The workflow routes to escalate_dirty_merge_state -> done_blocked carrying the DIRTY failure_reason 'ci_monitor: PR merge state is DIRTY; checks suppressed.' The koto state machine does not retry automatically; the operator must merge the default branch in and resolve the conflicts, never rebase or force-push. No merge call is made.",
+      "expected_output": "The orchestrator reaches ci_monitor on impl/merge-test. gh pr view --json mergeStateStatus --jq .mergeStateStatus returns DIRTY (merge conflicts; GitHub suppressed new check-runs). The merge_state_clean gate fails. The ci_passing gate evaluates length == 0 against zero check-runs and returns true -- this is the silent-success surface, and koto, not the agent, tells the two apart: the owned_merge_state_clean gate fails, and koto routes with no evidence submitted. The workflow routes to escalate_dirty_merge_state -> done_blocked carrying the DIRTY failure_reason 'ci_monitor: PR merge state is DIRTY; checks suppressed.' The koto state machine does not retry automatically; the operator must merge the default branch in and resolve the conflicts, never rebase or force-push. No merge call is made.",
       "files": [],
       "expectations": [
         "gh-calls.log shows a pr view call reading mergeStateStatus, and the agent reports the merge state as DIRTY",
-        "Agent submits ci_outcome: dirty_merge_state (NOT ci_outcome: passing, even though the ci_passing gate returns length == 0)",
+        "Agent submits no ci_outcome (neither dirty_merge_state nor passing exists); koto routes on owned_merge_state_clean even though the ci_passing gate returns length == 0",
         "Workflow routes ci_monitor -> escalate_dirty_merge_state -> done_blocked",
         "The run's failure_reason (shown by koto status or the printed exit lines) includes 'ci_monitor: PR merge state is DIRTY; checks suppressed.'",
         "gh-calls.log contains no line starting `pr merge`",
@@ -472,10 +472,10 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- already on a /scope docs/<topic> branch with an open PR",
-      "expected_output": "The agent enters orchestrator_setup standing on a non-main author/scope branch (a docs/<topic> branch) that already has an open PR. It detects this via git rev-parse --abbrev-ref HEAD plus gh pr list --head <branch>, submits status: override (skipping the impl/<slug> creation script), and ADOPTS that existing PR as the home PR -- it does NOT open a second PR and does NOT link a distinct one. It does NOT record the settled branch itself: the override transition lands in settled_branch_record, whose default_action runs {{PLUGIN_ROOT}}/skills/execute/scripts/record-settled-branch.sh \"execute-{{PLAN_SLUG}}\". That script reads HEAD, refuses a detached HEAD (64), a name outside ^[A-Za-z0-9._/-]+$ (65), and the repository's default branch (66) -- the last being the wrong value no pattern match can catch -- then writes the name to the settled_branch context key via printf '%s' \"$BRANCH\" | koto context add <session> settled_branch and prints it for capture_stdout_as: SETTLED_BRANCH. The settled_branch_recorded gate (context-matches on that key, anchored at both ends) reads the value back through koto's own evaluator rather than the command comparing against itself, and is named in BOTH transitions, so a run that could not record its branch reaches done_blocked instead of drift_facts. There is no override edge here. On the passing path the agent submits no evidence at all. In spawn_and_await tick 1 interpolates SETTLED_BRANCH=\"{{SETTLED_BRANCH}}\" and inject it as SHARED_BRANCH into every child's vars, with no impl/<slug> fallback left in the block, so per-issue children commit to the adopted branch. Finalization (gh pr edit / gh pr ready) and ci_monitor already target the HEAD-derived PR, so adoption needs no change there.",
+      "expected_output": "The agent enters orchestrator_setup standing on a non-main author/scope branch (a docs/<topic> branch) that already has an open PR. It detects this via git rev-parse --abbrev-ref HEAD plus gh pr list --head <branch>, submits status: completed (skipping the impl/<slug> creation script; koto confirms the one owned PR through setup_owned_pr), and ADOPTS that existing PR as the home PR -- it does NOT open a second PR and does NOT link a distinct one. It does NOT record the settled branch itself: the override transition lands in settled_branch_record, whose default_action runs {{PLUGIN_ROOT}}/skills/execute/scripts/record-settled-branch.sh \"execute-{{PLAN_SLUG}}\". That script reads HEAD, refuses a detached HEAD (64), a name outside ^[A-Za-z0-9._/-]+$ (65), and the repository's default branch (66) -- the last being the wrong value no pattern match can catch -- then writes the name to the settled_branch context key via printf '%s' \"$BRANCH\" | koto context add <session> settled_branch and prints it for capture_stdout_as: SETTLED_BRANCH. The settled_branch_recorded gate (context-matches on that key, anchored at both ends) reads the value back through koto's own evaluator rather than the command comparing against itself, and is named in BOTH transitions, so a run that could not record its branch reaches done_blocked instead of drift_facts. There is no override edge here. On the passing path the agent submits no evidence at all. In spawn_and_await tick 1 interpolates SETTLED_BRANCH=\"{{SETTLED_BRANCH}}\" and inject it as SHARED_BRANCH into every child's vars, with no impl/<slug> fallback left in the block, so per-issue children commit to the adopted branch. Finalization (gh pr edit / gh pr ready) and ci_monitor already target the HEAD-derived PR, so adoption needs no change there.",
       "files": [],
       "expectations": [
-        "Agent detects the non-main branch with an open PR and submits status: override (not the impl/<slug> creation path)",
+        "Agent detects the non-main branch with an open PR and submits status: completed (not the impl/<slug> creation path)",
         "Agent ADOPTS the existing docs/<topic> PR as the home PR and does NOT open or link a second PR",
         "The settled branch (HEAD, the scoping branch, NOT impl/<slug>) is recorded into a koto context key by settled_branch_record's default_action, not by the agent -- the agent submits no evidence for the record on the passing path",
         "The recorded branch name is refused unless it matches ^[A-Za-z0-9._/-]+$ AND is not the repository's default branch; the default-branch refusal is the one no pattern match can catch, and record-settled-branch.sh exits 66 on it",
@@ -536,11 +536,11 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- run in interactive mode (the default); stop for review before finalization",
-      "expected_output": "The run resolves the execution mode as interactive (the default, no --auto), so PAUSE_BEFORE_FINALIZE is true and the agent passes PAUSE_BEFORE_FINALIZE=true to koto init. It is NOT a separate user flag -- there is no --pause-for-review flag; the value is derived from the mode. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant DRAFT PR (title + two-part body) and submits finalization_status: updated with pause_decision: pause (reflecting PAUSE_BEFORE_FINALIZE=true). The workflow routes to the new non-failure terminal paused_for_review and STOPS. At the pause the chain is intact: the PLAN is still present on disk, BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr ready has NOT fired -- it lives in plan_completion). plan_completion's cascade did NOT run. The pause is a suspension, not a termination: at the /execute SKILL layer print-exit.sh prints no exit= line for it, and re-invoking /execute on the same PLAN resumes it. The agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic to finalize).",
+      "expected_output": "The run resolves the execution mode as interactive (the default, no --auto), so PAUSE_BEFORE_FINALIZE is true and the agent passes PAUSE_BEFORE_FINALIZE=true to koto init. It is NOT a separate user flag -- there is no --pause-for-review flag; the value is derived from the mode. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant DRAFT PR (title + two-part body) and ticks with nothing submitted; once pr_finalization's gates pass, koto routes on PAUSE_BEFORE_FINALIZE=true itself. The workflow routes to the new non-failure terminal paused_for_review and STOPS. At the pause the chain is intact: the PLAN is still present on disk, BRIEF/PRD/DESIGN are un-transitioned, and the PR is still DRAFT (gh pr ready has NOT fired -- it lives in plan_completion). plan_completion's cascade did NOT run. The pause is a suspension, not a termination: at the /execute SKILL layer print-exit.sh prints no exit= line for it, and re-invoking /execute on the same PLAN resumes it. The agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic to finalize).",
       "files": [],
       "expectations": [
         "Agent resolves interactive mode (default, no --auto) to PAUSE_BEFORE_FINALIZE=true and passes PAUSE_BEFORE_FINALIZE=true to koto init (derived from mode, NOT a --pause-for-review flag)",
-        "Agent submits finalization_status: updated with pause_decision: pause in pr_finalization and routes to the paused_for_review terminal",
+        "Agent submits no finalization_status: updated and no pause_decision in pr_finalization; koto routes on PAUSE_BEFORE_FINALIZE=true to the paused_for_review terminal",
         "At the pause the chain is intact: PLAN present on disk, BRIEF/PRD/DESIGN un-transitioned, PR still DRAFT (gh pr ready NOT fired, plan_completion cascade NOT run)",
         "The pause is a suspension, not one of the three exits: no exit= line is printed, and re-invoking /execute on the same PLAN resumes it",
         "Agent hands the DRAFT PR URL back with the resume instruction (re-invoke /execute on the same topic re-enters plan_completion with PAUSE_BEFORE_FINALIZE=false to finalize)"
@@ -552,11 +552,11 @@
       "tier": 1,
       "mode": "plan_only",
       "prompt": "/execute --auto skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "The run resolves the execution mode as --auto (authorized autonomous), so PAUSE_BEFORE_FINALIZE is false and the agent passes PAUSE_BEFORE_FINALIZE=false to koto init. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant PR and submits finalization_status: updated with pause_decision: finalize (reflecting PAUSE_BEFORE_FINALIZE=false). The workflow routes straight to plan_completion -- it does NOT stop at paused_for_review. plan_completion runs the finalization cascade DRAFT-before-READY (run-cascade.sh deletes the PLAN and transitions BRIEF/PRD/DESIGN/ROADMAP), then gh pr ready flips the PR ready, then ci_monitor waits for strict-mode CI to land green on the finalized chain. The run reaches a ready-to-merge, green PR with the chain transitioned -- a finished, mergeable result, consistent with the autonomy mandate that an authorized autonomous run does not stop short of completion. No solicited pause fires under --auto.",
+      "expected_output": "The run resolves the execution mode as --auto (authorized autonomous), so PAUSE_BEFORE_FINALIZE is false and the agent passes PAUSE_BEFORE_FINALIZE=false to koto init. The orchestrator drives orchestrator_setup -> spawn_and_await -> pr_finalization, where it assembles the template-conformant PR and ticks with nothing submitted; once pr_finalization's gates pass, koto routes on PAUSE_BEFORE_FINALIZE=false itself. The workflow routes straight to plan_completion -- it does NOT stop at paused_for_review. plan_completion runs the finalization cascade DRAFT-before-READY (run-cascade.sh deletes the PLAN and transitions BRIEF/PRD/DESIGN/ROADMAP), then gh pr ready flips the PR ready, then ci_monitor waits for strict-mode CI to land green on the finalized chain. The run reaches a ready-to-merge, green PR with the chain transitioned -- a finished, mergeable result, consistent with the autonomy mandate that an authorized autonomous run does not stop short of completion. No solicited pause fires under --auto.",
       "files": [],
       "expectations": [
         "Agent resolves --auto to PAUSE_BEFORE_FINALIZE=false and passes PAUSE_BEFORE_FINALIZE=false to koto init",
-        "Agent submits finalization_status: updated with pause_decision: finalize in pr_finalization and routes to plan_completion (NOT paused_for_review -- no pause under --auto)",
+        "Agent submits no finalization_status: updated and no pause_decision in pr_finalization; koto routes on PAUSE_BEFORE_FINALIZE=false to plan_completion (NOT paused_for_review -- no pause under --auto)",
         "plan_completion runs the cascade DRAFT-before-READY (run-cascade.sh) then gh pr ready then ci_monitor to green",
         "The run reaches a finalized, mergeable result: PLAN deleted, BRIEF/PRD/DESIGN transitioned, PR ready and CI green",
         "No solicited pause fires under --auto; the autonomous run drives straight through to completion"
@@ -674,7 +674,7 @@
         "GH_CALL_LOG": "gh-calls.log"
       },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "A conflicted PR under --merge. ci_monitor sees DIRTY, the agent submits ci_outcome: dirty_merge_state, and the run passes through escalate_dirty_merge_state to done_blocked, whose result is outcome=ready-awaiting-merge with reason=merge-state:DIRTY. No merge call.",
+      "expected_output": "A conflicted PR under --merge. ci_monitor sees DIRTY, koto routes on owned_merge_state_clean with no evidence, and the run passes through escalate_dirty_merge_state to done_blocked, whose result is outcome=ready-awaiting-merge with reason=merge-state:DIRTY. No merge call.",
       "files": [],
       "expectations": [
         "The workflow routes ci_monitor -> escalate_dirty_merge_state -> done_blocked",
@@ -1177,7 +1177,7 @@
       "expectations": [
         "gh-calls.log contains no `pr create` line",
         "The run never checks out or pushes impl/merge-test",
-        "orchestrator_setup submits `status: override` and the settled branch is docs/merge-test"
+        "orchestrator_setup submits `status: completed` and the settled branch is docs/merge-test"
       ]
     },
     {

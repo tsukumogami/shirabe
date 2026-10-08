@@ -2,13 +2,13 @@
 stateDiagram-v2
     direction LR
     [*] --> write_set_record
-    ci_monitor --> merge_readiness : ci_outcome: passing, gates.owned_ci_passing.exit_code: 0, gates.owned_merge_state_clean.exit_code: 0
-    ci_monitor --> merge_readiness : ci_outcome: failing_fixed
-    ci_monitor --> merge_readiness : ci_outcome: pending
-    ci_monitor --> done_blocked : ci_outcome: failing_unresolvable
-    ci_monitor --> escalate_dirty_merge_state : ci_outcome: dirty_merge_state
-    ci_monitor --> done_blocked : ci_outcome: pr_adopt
-    ci_monitor --> done_blocked : ci_outcome: status_read
+    ci_monitor --> merge_readiness : gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 0, gates.owned_merge_state_clean.exit_code: 0
+    ci_monitor --> escalate_dirty_merge_state : gates.monitor_owned_pr.exit_code: 0, gates.owned_merge_state_clean.exit_code: 1
+    ci_monitor --> merge_readiness : ci_outcome: failing_fixed, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0
+    ci_monitor --> merge_readiness : ci_outcome: pending, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0
+    ci_monitor --> done_blocked : ci_outcome: failing_unresolvable, gates.monitor_owned_pr.exit_code: 0, gates.owned_ci_passing.exit_code: 1, gates.owned_merge_state_clean.exit_code: 0
+    ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 3
+    ci_monitor --> done_blocked : gates.monitor_owned_pr.exit_code: 2
     drift_facts --> worktree_sync : gates.drift_facts_recorded.matches: true, gates.plan_intent_recorded.exists: true
     drift_facts --> worktree_sync : facts_status: override, gates.drift_facts_recorded.matches: false
     drift_facts --> done_blocked : facts_status: blocked, gates.drift_facts_recorded.matches: false
@@ -29,24 +29,23 @@ stateDiagram-v2
     merge_route --> merge_readiness : gates.verdict_awaiting.matches: false, gates.verdict_error.matches: false, gates.verdict_mergeable.matches: false, gates.verdict_merged.matches: false, gates.verdict_pending.matches: true, recheck: waited
     merge_route --> merge_readiness : gates.verdict_awaiting.matches: false, gates.verdict_error.matches: false, gates.verdict_mergeable.matches: false, gates.verdict_merged.matches: false, gates.verdict_pending.matches: false, gates.verdict_present.matches: false, recheck: waited
     merge_route --> done_blocked : gates.verdict_awaiting.matches: false, gates.verdict_error.matches: false, gates.verdict_mergeable.matches: false, gates.verdict_merged.matches: false, gates.verdict_pending.matches: false, gates.verdict_present.matches: true
-    orchestrator_setup --> settled_branch_record : status: completed
+    orchestrator_setup --> settled_branch_record : gates.setup_owned_pr.exit_code: 0, status: completed
     orchestrator_setup --> settled_branch_record : status: override
     orchestrator_setup --> done_blocked : status: blocked
-    orchestrator_setup --> done_blocked : status: pr_adopt
-    orchestrator_setup --> done_blocked : status: status_read
-    plan_completion --> ci_monitor : cascade_status: completed, gates.expected_head_recorded.matches: true
-    plan_completion --> ci_monitor : cascade_status: completed, gates.expected_head_recorded.matches: false
-    plan_completion --> ci_monitor : cascade_status: partial, gates.expected_head_recorded.matches: true
-    plan_completion --> ci_monitor : cascade_status: partial, gates.expected_head_recorded.matches: false
-    plan_completion --> ci_monitor : cascade_status: skipped, gates.expected_head_recorded.matches: true
-    plan_completion --> ci_monitor : cascade_status: skipped, gates.expected_head_recorded.matches: false
-    plan_completion --> done_blocked : cascade_status: pr_adopt
-    plan_completion --> done_blocked : cascade_status: status_read
-    pr_finalization --> paused_for_review : finalization_status: updated, pause_decision: pause
-    pr_finalization --> plan_completion : finalization_status: updated, pause_decision: finalize
-    pr_finalization --> done_blocked : finalization_status: update_failed
-    pr_finalization --> done_blocked : finalization_status: pr_adopt
-    pr_finalization --> done_blocked : finalization_status: status_read
+    orchestrator_setup --> done_blocked : gates.setup_owned_pr.exit_code: 3, status: completed
+    orchestrator_setup --> done_blocked : gates.setup_owned_pr.exit_code: 2, status: completed
+    plan_completion --> ci_monitor : gates.cascade_completed.matches: true, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: false, gates.expected_head_recorded.matches: true, gates.ready_owned_pr.exit_code: 0
+    plan_completion --> ci_monitor : gates.cascade_completed.matches: true, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: false, gates.expected_head_recorded.matches: false, gates.ready_owned_pr.exit_code: 0
+    plan_completion --> ci_monitor : gates.cascade_completed.matches: false, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: true, gates.expected_head_recorded.matches: true, gates.ready_owned_pr.exit_code: 0
+    plan_completion --> ci_monitor : gates.cascade_completed.matches: false, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: true, gates.expected_head_recorded.matches: false, gates.ready_owned_pr.exit_code: 0
+    plan_completion --> done_blocked : gates.ready_owned_pr.exit_code: 3
+    plan_completion --> done_blocked : gates.ready_owned_pr.exit_code: 2
+    pr_finalization --> paused_for_review : gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, gates.settled_wip_clean.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: true
+    pr_finalization --> plan_completion : gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, gates.settled_wip_clean.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: false
+    pr_finalization --> done_blocked : finalization_status: update_failed, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 1
+    pr_finalization --> done_blocked : finalization_status: update_failed, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 2
+    pr_finalization --> done_blocked : gates.final_owned_pr.exit_code: 3
+    pr_finalization --> done_blocked : gates.final_owned_pr.exit_code: 2
     settled_branch_record --> drift_facts : gates.settled_branch_recorded.matches: true
     settled_branch_record --> done_blocked : gates.settled_branch_recorded.matches: false, status: blocked
     spawn_and_await --> pr_finalization : gates.batch_done.all_complete: true, gates.batch_done.all_success: true
@@ -64,6 +63,9 @@ stateDiagram-v2
     merged --> [*]
     paused_for_review --> [*]
     ready_awaiting_merge --> [*]
+    note left of ci_monitor
+        gate: monitor_owned_pr
+    end note
     note left of ci_monitor
         gate: owned_ci_passing
     end note
@@ -103,8 +105,38 @@ stateDiagram-v2
     note left of merge_route
         gate: verdict_present
     end note
+    note left of orchestrator_setup
+        gate: setup_owned_pr
+    end note
+    note left of plan_completion
+        gate: cascade_completed
+    end note
+    note left of plan_completion
+        gate: cascade_partial
+    end note
+    note left of plan_completion
+        gate: cascade_skipped
+    end note
     note left of plan_completion
         gate: expected_head_recorded
+    end note
+    note left of plan_completion
+        gate: ready_owned_pr
+    end note
+    note left of pr_finalization
+        gate: final_owned_pr
+    end note
+    note left of pr_finalization
+        gate: owned_pr_body_conformant
+    end note
+    note left of pr_finalization
+        gate: settled_commits
+    end note
+    note left of pr_finalization
+        gate: settled_docs_visibility
+    end note
+    note left of pr_finalization
+        gate: settled_wip_clean
     end note
     note left of settled_branch_record
         gate: settled_branch_recorded

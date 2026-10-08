@@ -207,6 +207,10 @@ suite_scripts() {
             # structure test's compile, skip without koto.
             echo "skills/execute/scripts/execute-open_test.sh"
             echo "skills/execute/scripts/execute-template-structure_test.sh"
+            # The output gates' routes need koto and skip without it; the
+            # removed-value counts and the routing gates' stdout run on the
+            # floor.
+            echo "skills/execute/scripts/execute-output-gates-routing_test.sh"
             # Its script cases write through a koto stand-in and need only git
             # and jq, so they run on the macOS leg; its engine cases skip there.
             echo "skills/execute/scripts/drift-facts_test.sh"

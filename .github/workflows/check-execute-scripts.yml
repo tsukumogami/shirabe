@@ -178,6 +178,14 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/execute-template-structure_test.sh
 
+      # The output gates on the engine: the owned-PR lookups, the PR body and
+      # branch checks, the pause, and the cascade verdict route every shipped
+      # edge through real koto ticks over fake gate scripts; the removed
+      # evidence values stay removed; and no routing gate prints a finding.
+      - name: Run execute output gate routing tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/execute-output-gates-routing_test.sh
+
       # The coordinated envelope's shape, read from the compiled
       # execute-coordinated.md: every edge into `merged` from
       # coord_merge_confirm alone, non-overridable context-matches gates on

@@ -19,8 +19,9 @@
 #   no transition targets the legacy `done`
 #   merged's only incoming edge is from merge_confirm
 #   no context_assignments block writes home_pr
-#   escalate_dirty_merge_state still routes to done_blocked, and ci_monitor's
-#     passing and failing_fixed edges target merge_readiness
+#   escalate_dirty_merge_state still routes to done_blocked, ci_monitor's
+#     DIRTY edge (owned_merge_state_clean failing) targets it, and ci_monitor's
+#     green edge (no evidence) and failing_fixed edge target merge_readiness
 #   no default_action command holds `${context.` (koto never substitutes it)
 #   every edge into a terminal assigns `outcome` as a literal, no assignment
 #     reads `${context.`, and a `step` or `reason` assignment is a literal
@@ -30,7 +31,8 @@
 #     rebind: true; PLUGIN_ROOT carries the absolute-path pattern; PLAN_DOC and
 #     PLAN_SLUG are not rebindable
 #   worktree_sync merges origin/main in, nothing runs `git rebase`, and its
-#     gate tests ancestry with no merge in progress
+#     gate tests ancestry with no merge in progress, through
+#     check-branch-output.sh --synced
 #   ci_monitor caps CI repair at 3 fix pushes and doesn't load phase-6-pr.md;
 #     pr_finalization points at pr-body-conformance.md rather than restating it
 #   no directive names current-context.md, and spawn_and_await carries earlier
@@ -101,8 +103,8 @@ CHECKS=(
 "merged's only incoming edge is from merge_confirm|[.states | to_entries[] | .key as \$s | (.value.transitions // [])[] | select(.target == \"merged\") | \$s] | . == [\"merge_confirm\"]"
 "no context_assignments block writes home_pr|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | has(\"home_pr\")] | any | not"
 "escalate_dirty_merge_state routes to done_blocked|[.states.escalate_dirty_merge_state.transitions[].target] == [\"done_blocked\"]"
-"ci_monitor's dirty_merge_state edge still targets escalate_dirty_merge_state|[.states.ci_monitor.transitions[] | select(.when.ci_outcome == \"dirty_merge_state\") | .target] == [\"escalate_dirty_merge_state\"]"
-"ci_monitor's passing and failing_fixed edges target merge_readiness|[.states.ci_monitor.transitions[] | select(.when.ci_outcome == \"passing\" or .when.ci_outcome == \"failing_fixed\") | .target] | length == 2 and all(. == \"merge_readiness\")"
+"ci_monitor's DIRTY edge still targets escalate_dirty_merge_state|[.states.ci_monitor.transitions[] | select(.when[\"gates.owned_merge_state_clean.exit_code\"] == 1) | .target] == [\"escalate_dirty_merge_state\"]"
+"ci_monitor's green and failing_fixed edges target merge_readiness|[.states.ci_monitor.transitions[] | select((.when.ci_outcome == null and .when[\"gates.owned_ci_passing.exit_code\"] == 0) or .when.ci_outcome == \"failing_fixed\") | .target] | length == 2 and all(. == \"merge_readiness\")"
 "no default_action command holds \${context.|[.states[] | (.default_action.command // \"\") | contains(\"\${context.\")] | any | not"
 "every edge into a terminal assigns a literal outcome|[.states as \$all | .states[] | (.transitions // [])[] | select(\$all[.target].terminal == true) | ((.context_assignments.outcome // \"\") | (length > 0 and (contains(\"\${\") | not) and (contains(\"{{\") | not)))] | length > 0 and all"
 "no assignment reads \${context.|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | .[] | contains(\"\${context.\")] | any | not"
@@ -117,7 +119,7 @@ CHECKS=(
 "REVIEW_FLOOR and REVIEW_CEILING are optional, the level pattern, rebind|[.variables.REVIEW_FLOOR, .variables.REVIEW_CEILING] | all((.required // false) == false and .pattern == \"^(light|standard|full)?\$\" and .rebind == true)"
 "worktree_sync merges origin/main in|.states.worktree_sync.default_action.command == \"git merge --no-edit origin/main\""
 "no default action or gate runs git rebase|[.states[] | ((.default_action.command // \"\"), ((.gates // {})[] | (.command // \"\"))) | contains(\"git rebase\")] | any | not"
-"worktree_sync's gate tests ancestry with no merge in progress|(.states.worktree_sync.gates.current_with_main.command // \"\") | (startswith(\"git merge-base --is-ancestor origin/main HEAD\") and contains(\"MERGE_HEAD\"))"
+"worktree_sync's gate tests ancestry with no merge in progress|(.states.worktree_sync.gates.current_with_main.command // \"\") | (contains(\"/skills/work-on/scripts/check-branch-output.sh\\\" --synced\") and (contains(\"--base-ref\") | not))"
 "ci_monitor caps CI repair at 3 fix pushes, then failing_unresolvable|.states.ci_monitor.directive | (contains(\"capped at 3 fix pushes\") and contains(\"failing_unresolvable\") and contains(\"Never stop to ask the user\"))"
 "ci_monitor does not load /work-on's phase-6-pr.md|.states.ci_monitor.directive | contains(\"phase-6-pr.md\") | not"
 "pr_finalization points at pr-body-conformance.md instead of restating it|.states.pr_finalization.directive | (contains(\"references/pr-body-conformance.md\") and (contains(\"exactly one \`---\` separator\") | not))"
@@ -232,9 +234,9 @@ mutate "an assignment writing home_pr from evidence" \
 mutate "an overridable merge_intent gate" \
     "merge_attempt carries the non-overridable merge_intent gate" \
     's/(command: .test "\{\{MERGE\}\}" = true.\n        overridable: )false/${1}true/'
-mutate "ci_monitor's passing edge back on done" \
+mutate "ci_monitor's green edge back on done" \
     "no transition targets done" \
-    's/(      - target: )merge_readiness(\n        when:\n          ci_outcome: passing)/${1}done$2/'
+    's/(      - target: )merge_readiness(\n        when:\n          gates.monitor_owned_pr.exit_code: 0\n          gates.owned_ci_passing.exit_code: 0)/${1}done$2/'
 mutate "a second edge into merged" \
     "merged's only incoming edge is from merge_confirm" \
     's/(      - target: )ready_awaiting_merge(\n        when:\n          gates.merge_intent.exit_code: 0\n          merge_exec: refused)/${1}merged$2/'
@@ -252,7 +254,7 @@ mutate "ci_monitor's CI cap removed" \
     's/\*\*CI repair is capped at 3 fix pushes, all within this one visit to `ci_monitor`\.\*\*/**CI repair is not capped.**/'
 mutate "worktree_sync's gate reduced to the merge exit code" \
     "worktree_sync's gate tests ancestry with no merge in progress" \
-    's/command: .git merge-base --is-ancestor origin\/main HEAD && test ! -e "\$\(git rev-parse --git-path MERGE_HEAD\)".\n/command: true\n/'
+    's/command: .test -x "\{\{PLUGIN_ROOT\}\}\/skills\/work-on\/scripts\/check-branch-output.sh" \|\| exit 2; "\{\{PLUGIN_ROOT\}\}\/skills\/work-on\/scripts\/check-branch-output.sh" --synced.\n/command: true\n/'
 mutate "a braced SETTLED_BRANCH in settled_branch_record" \
     "settled_branch_record's prose names SETTLED_BRANCH without braces" \
     's/delivered to `spawn_and_await` under the name\n`SETTLED_BRANCH`/delivered to `spawn_and_await` under the name\n`{{SETTLED_BRANCH}}`/'

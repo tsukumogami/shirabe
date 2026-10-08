@@ -2193,8 +2193,10 @@ EOF
     head=$(git rev-parse HEAD)
     assert_json "$scenario" "$output" '.cascade_status == "completed"' \
         "with --session the cascade still completes" || ok=false
+    # The log also carries the cascade_result.json clear and record (Scenario
+    # 31); the expected_head record is the one line naming that key.
     assert_shell "$scenario" \
-        "$([[ "$(cat "$stub_dir/koto.log")" == "context add execute-cascade-test-short expected_head|$head" ]] && echo true || echo false)" \
+        "$([[ "$(grep ' expected_head|' "$stub_dir/koto.log")" == "context add execute-cascade-test-short expected_head|$head" ]] && echo true || echo false)" \
         "expected_head is recorded as exactly the pushed HEAD" "koto saw: $(cat "$stub_dir/koto.log")" || ok=false
     assert_json "$scenario" "$output" \
         '[.steps[] | select(.action | test("expected_head"))] | length == 0' \
@@ -2232,7 +2234,7 @@ EOF
     assert_json "$scenario" "$output" \
         '[.steps[] | select(.action == "push" and .status == "failed")] | length == 1' \
         "the push failed" || ok=false
-    assert_shell "$scenario" "$([[ ! -s "$stub_dir/koto.log" ]] && echo true || echo false)" \
+    assert_shell "$scenario" "$(grep -q ' expected_head|' "$stub_dir/koto.log" && echo false || echo true)" \
         "a failed push records no expected_head" "koto saw: $(cat "$stub_dir/koto.log")" || ok=false
 
     # A malformed session name is a usage error before anything runs.
@@ -2240,6 +2242,142 @@ EOF
     run_cascade_rc "$rc_file" "docs/plans/PLAN-cascade-test-short.md" --push --session 'a;b' >/dev/null
     assert_shell "$scenario" "$([[ "$(cat "$rc_file")" == "1" ]] && echo true || echo false)" \
         "a malformed --session exits 1" "rc=$(cat "$rc_file")" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    GH_STUB_DIR="$saved_stub"
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# ── --session: the verdict is recorded as cascade_result.json ─────────────────
+#
+# /execute's plan_completion routes on the cascade's verdict through
+# context-matches gates over cascade_result.json, so the script records the
+# verdict itself. A `koto` stub keeps a one-directory context store: `context
+# add` writes a key, `context remove` deletes it (failing when remove.rc says
+# so), `context get` reads it. Each case seeds a stale verdict from an earlier
+# run first, so a script that forgot to clear it would be caught.
+scenario_session_records_cascade_result() {
+    local scenario="Scenario 31: --session records cascade_result.json and clears an earlier one"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local stub_dir="$tmpdir/koto-stub"
+    mkdir -p "$stub_dir/store"
+    cat > "$stub_dir/koto" <<'EOF'
+#!/usr/bin/env bash
+dir=$(dirname "$0")
+data=""
+[ -t 0 ] || data=$(cat)
+printf '%s|%s\n' "$*" "$data" >> "$dir/koto.log"
+case "$1 $2" in
+    "context add") printf '%s' "$data" > "$dir/store/$4" ;;
+    "context remove")
+        [ -f "$dir/remove.rc" ] && exit "$(cat "$dir/remove.rc")"
+        rm -f "$dir/store/$4" ;;
+    "context get") cat "$dir/store/$4" 2>/dev/null || exit 1 ;;
+esac
+exit 0
+EOF
+    chmod +x "$stub_dir/koto"
+    local saved_stub="${GH_STUB_DIR:-}"
+    GH_STUB_DIR="$stub_dir"
+    local stale='{"cascade_status":"completed","steps":[]}'
+    local key="$stub_dir/store/cascade_result.json"
+
+    local ok=true
+    local repo output rc_file="$tmpdir/rc"
+
+    # A completed run: the recorded key is the stdout verdict, compacted.
+    repo="$tmpdir/completed"
+    setup_test_repo "$repo"
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_and_push_all
+    printf '%s' '{"cascade_status":"partial","steps":[]}' > "$key"
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push --session execute-cascade-test-short)
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "the cascade completes" || ok=false
+    assert_shell "$scenario" \
+        "$([[ -f "$key" && "$(cat "$key")" == "$(printf '%s' "$output" | jq -c .)" ]] && echo true || echo false)" \
+        "cascade_result.json is the printed verdict, compacted" "key: $(cat "$key" 2>/dev/null)" || ok=false
+    assert_shell "$scenario" \
+        "$([[ "$(jq -r .cascade_status "$key" 2>/dev/null)" == "$(printf '%s' "$output" | jq -r .cascade_status)" ]] && echo true || echo false)" \
+        "the recorded cascade_status equals the printed one" || ok=false
+    assert_shell "$scenario" \
+        "$([[ "$(head -c 37 "$key")" == '{"cascade_status":"completed","steps"' ]] && echo true || echo false)" \
+        "the record leads with the verdict, the shape plan_completion's gates anchor on" "key: $(head -c 60 "$key")" || ok=false
+    assert_shell "$scenario" \
+        "$([[ "$(head -1 "$stub_dir/koto.log" | cut -d'|' -f1)" == "context remove execute-cascade-test-short cascade_result.json" ]] && echo true || echo false)" \
+        "the first koto call clears the earlier verdict" "koto saw: $(head -1 "$stub_dir/koto.log")" || ok=false
+    cd "$SCRIPT_DIR"
+
+    # A partial run (the push fails) records partial, the printed verdict.
+    : > "$stub_dir/koto.log"
+    repo="$tmpdir/partial"
+    setup_test_repo "$repo"
+    write_roadmap "$repo/docs/roadmaps/ROADMAP-cascade-test.md"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_all
+    printf '%s' "$stale" > "$key"
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push --session execute-cascade-test-short)
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "a failed push is partial" || ok=false
+    assert_shell "$scenario" \
+        "$([[ "$(cat "$key" 2>/dev/null)" == "$(printf '%s' "$output" | jq -c .)" ]] && echo true || echo false)" \
+        "a partial verdict is recorded as printed" "key: $(cat "$key" 2>/dev/null)" || ok=false
+    cd "$SCRIPT_DIR"
+
+    # A run that fails before its verdict (no PLAN doc) leaves no key at all.
+    printf '%s' "$stale" > "$key"
+    run_cascade_rc "$rc_file" "docs/plans/PLAN-missing.md" --push --session execute-cascade-test-short >/dev/null
+    assert_shell "$scenario" "$([[ "$(cat "$rc_file")" == "1" ]] && echo true || echo false)" \
+        "a missing PLAN exits 1" "rc=$(cat "$rc_file")" || ok=false
+    assert_shell "$scenario" "$([[ ! -e "$key" ]] && echo true || echo false)" \
+        "a run that stops before its verdict leaves no cascade_result.json" "key: $(cat "$key" 2>/dev/null)" || ok=false
+
+    # A clear that fails stops the run before anything is done.
+    repo="$tmpdir/clear-fails"
+    setup_test_repo "$repo"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_and_push_all
+    printf '%s' "$stale" > "$key"
+    echo 1 > "$stub_dir/remove.rc"
+    : > "$stub_dir/koto.log"
+    output=$(run_cascade_rc "$rc_file" "docs/plans/PLAN-cascade-test-short.md" --push --session execute-cascade-test-short)
+    assert_shell "$scenario" "$([[ "$(cat "$rc_file")" == "1" && -z "$output" ]] && echo true || echo false)" \
+        "a failed clear exits 1 with no verdict on stdout" "rc=$(cat "$rc_file") out=$output" || ok=false
+    assert_shell "$scenario" \
+        "$([[ -f docs/plans/PLAN-cascade-test-short.md && -z "$(git status --porcelain)" ]] && echo true || echo false)" \
+        "a failed clear changes nothing in the repository" "status: $(git status --porcelain)" || ok=false
+    assert_shell "$scenario" "$([[ "$(grep -c '^context add' "$stub_dir/koto.log")" == "0" ]] && echo true || echo false)" \
+        "a failed clear writes no key" "koto saw: $(cat "$stub_dir/koto.log")" || ok=false
+    rm -f "$stub_dir/remove.rc"
+    cd "$SCRIPT_DIR"
+
+    # Without --session, the script never touches the key.
+    repo="$tmpdir/no-session"
+    setup_test_repo "$repo"
+    write_design "$repo/docs/designs/DESIGN-cascade-test-short.md" \
+        "docs/roadmaps/ROADMAP-cascade-test.md"
+    write_plan "$repo/docs/plans/PLAN-cascade-test-short.md" \
+        "docs/designs/DESIGN-cascade-test-short.md"
+    commit_and_push_all
+    : > "$stub_dir/koto.log"
+    output=$(run_cascade "docs/plans/PLAN-cascade-test-short.md" --push)
+    assert_shell "$scenario" "$([[ ! -s "$stub_dir/koto.log" ]] && echo true || echo false)" \
+        "without --session nothing calls koto" "koto saw: $(cat "$stub_dir/koto.log")" || ok=false
 
     [[ "$ok" == "true" ]] && pass "$scenario" || true
 
@@ -2965,6 +3103,9 @@ scenario_roadmap_feature_no_heading
 cd "$ORIG_DIR"
 
 scenario_push_session_records_expected_head
+cd "$ORIG_DIR"
+
+scenario_session_records_cascade_result
 cd "$ORIG_DIR"
 
 echo ""
