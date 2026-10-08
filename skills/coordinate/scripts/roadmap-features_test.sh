@@ -5,14 +5,14 @@
 # Covers: each item of the synthetic fixture roadmaps under
 # testdata/roadmap-features, its finished, done and dependencies as the reader
 # gives them and its blocked and blocked_by as pick-facts.sh's facts give
-# them, against the hand-written expected.json. ROADMAP-fixture.md is
+# them, against the hand-written expected.json. fixture.md is
 # prefixed (AB1, AB10a, CD3): paragraphs ending at a blank line, the next
 # field and a heading; nested and unbalanced parentheses; each soft marker; a
 # sentence opening Soft; a self-mention; another roadmap's tag; a None
 # paragraph with tags after it; the Done, Shipped, Dropped and near-miss
 # statuses; a non-item `###` heading; a finished item and a Dropped one over
 # an unfinished dependency; a dependency on a Dropped item; and `Feature 2`,
-# `Features 1, 2 and 3` and `F2` resolving by position. ROADMAP-numbered.md
+# `Features 1, 2 and 3` and `F2` resolving by position. numbered.md
 # has its `Feature N` headings out of order, so those resolve by tag. Then a
 # Dependencies paragraph of exactly 4096 bytes reads, and one byte more fails
 # the reader and pick-facts.sh, naming the item.
@@ -46,9 +46,9 @@ picked() {
     cp "$KOTO_STORE/context/$S/coord/pick.json" "$T/pick.json" 2> /dev/null || echo '{}' > "$T/pick.json"
 }
 
-for fx in ROADMAP-fixture.md ROADMAP-numbered.md; do
+for fx in fixture.md numbered.md; do
     echo "== $fx =="
-    name=${fx#ROADMAP-}; name=${name%.md}
+    name=${fx%.md}
     features "$D/$fx" > "$T/features.json" 2> "$T/features.err"
     eq "$fx: the reader succeeds" 0 $?
     picked "$name" "$D/$fx"

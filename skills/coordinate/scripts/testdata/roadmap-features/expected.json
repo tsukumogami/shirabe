@@ -1,5 +1,5 @@
 {
-  "ROADMAP-fixture.md": [
+  "fixture.md": [
     {"id": "AB1", "finished": false, "done": false, "dependencies": [], "blocked": false, "blocked_by": []},
     {"id": "AB2", "finished": false, "done": false, "dependencies": [1], "blocked": true, "blocked_by": [1]},
     {"id": "AB3", "finished": true, "done": true, "dependencies": [1], "blocked": false, "blocked_by": []},
@@ -24,7 +24,7 @@
     {"id": "CD11", "finished": false, "done": false, "dependencies": [], "blocked": false, "blocked_by": []},
     {"id": "CD12", "finished": false, "done": false, "dependencies": [1, 2, 8], "blocked": true, "blocked_by": [1, 2, 8]}
   ],
-  "ROADMAP-numbered.md": [
+  "numbered.md": [
     {"id": "Feature 1", "finished": true, "done": true, "dependencies": [], "blocked": false, "blocked_by": []},
     {"id": "Feature 3", "finished": false, "done": false, "dependencies": [3], "blocked": true, "blocked_by": [3]},
     {"id": "Feature 2", "finished": false, "done": false, "dependencies": [1], "blocked": false, "blocked_by": []},
