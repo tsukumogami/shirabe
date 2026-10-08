@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A roadmap item says what gets built, not what someone can do once it
   ships or how anyone other than its author would check that, so a merge
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-milestone-format](docs/briefs/BRIEF-milestone-format.md); carried in Absorbed Brief.
 
