@@ -38,47 +38,10 @@ Read the source document at the path provided in $ARGUMENTS and check the Status
 - Status MUST be "Accepted"
 - All required sections must be present
 
-#### Parent-orchestration auto-transition (sentinel-gated)
-
-Before applying the hard-stop table below for `input_type: design`,
-look for the `parent_orchestration:` sentinel block. Read any
-`wip/*_<topic>_state.md` file matching the current topic
-(glob pattern, not a hardcoded `wip/scope_<topic>_state.md` — the
-glob keeps the branch forward-compatible with future parent skills
-beyond `/scope`). The `<topic>` value is the topic slug extracted
-from the DESIGN path.
-
-When the sentinel is present AND its `invoking_child:` field is
-`plan` AND the DESIGN's current status is `Accepted` (the
-pre-transition status `/design` leaves behind after its own
-PRD-handoff), run:
-
-```bash
-shirabe transition <design-path> Planned
-```
-
-then proceed past the hard-stop table below. The sentinel's
-presence is the explicit signal that a parent (`/scope` or any
-future parent skill) is driving this invocation; the
-auto-transition is the symmetric counterpart to `/prd`'s
-brief-handoff in `skills/prd/SKILL.md` lines 132-138 and
-`/design`'s Phase 0 PRD-handoff.
-
-When the sentinel is ABSENT (no matching state file or no
-`parent_orchestration:` block) OR its `invoking_child:` field
-does NOT match `plan`, do NOT auto-transition. Fall through to
-the hard-stop table below.
-
-This is the symmetric three-skill contract: when a chain-context
-signal is present (BRIEF input for `/prd`, `parent_orchestration:`
-sentinel for `/design` and `/plan`), the skill auto-transitions
-its upstream artifact forward by one status before consuming it.
-When no chain-context signal is present, the skill applies its
-protective hard-stop. Direct `/plan` invocation against a non-
-Accepted DESIGN writes no sentinel; the sentinel check returns
-absent; the hard-stop fires. The "silent auto-promote on direct
-invocation" failure mode cannot reach this code path because the
-sentinel is the explicit signal.
+This phase does not transition the DESIGN, with or without a parent's
+`parent_orchestration:` sentinel: a DESIGN `/scope`'s design hop leaves at
+`Accepted` passes the check below as it is, and Phase 7's step 7.5 is the one
+place `/plan` moves it to `Planned`.
 
 **STOP and inform user if status is not "Accepted".** The consumable-status
 rule is owned by the chain-status lifecycle check (`shirabe validate
@@ -106,8 +69,6 @@ Do NOT proceed with issue creation unless status is "Accepted".
 |--------|--------------|
 | Draft | "This roadmap has status 'Draft'. The feature list must be locked and approved before planning. Change status to 'Active'." |
 | Done | "This roadmap has status 'Done'. All features are already delivered. No new planning needed." |
-
-Do NOT proceed with planning unless status is "Active".
 
 **If status is valid:** Continue to step 1.2.
 

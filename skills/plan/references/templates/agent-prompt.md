@@ -152,10 +152,6 @@ set -euo pipefail
 # Test commands here
 ```
 
-**Critical complexity** (multi-pr mode only): Include both Validation section AND Security Checklist with security-specific checkboxes.
-
-**Single-pr mode**: Skip Validation and Security Checklist sections regardless of complexity.
-
 ### Validation Script Safety
 
 If your complexity requires validation scripts (multi-pr mode), you MUST:
