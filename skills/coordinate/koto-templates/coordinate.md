@@ -3459,10 +3459,10 @@ if you are shown it.
 
 `teardown-handoff.sh` reads, before anything is removed, what the teardown
 pass will act on: the instance in niwa's listing, the one Claude Code job
-whose working directory it is (stopped), its transcript, the holding's merged
+whose working directory it is (finished), its transcript, the holding's merged
 pull requests and the handoff comment, read back from GitHub. A refusal (no
 merged pull request, no handoff link or one on another unit, no single
-stopped job) goes to the human with its reason in the sealed verdict's
+finished job) goes to the human with its reason in the sealed verdict's
 `reason` line (`koto context get "{{SESSION_NAME}}" teardown_handoff`);
 nothing has been removed.
 

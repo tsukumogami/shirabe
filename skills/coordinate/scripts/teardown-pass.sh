@@ -150,7 +150,7 @@ if [ "$MODE" = confirm ]; then
     AG=$(agents) || { say "claude agents could not be read"; exit 2; }
     printf '%s' "$AG" | jq -e --arg j "$JOB" 'type == "array" and (any(.[]; .id == $j) | not)' >/dev/null 2>&1 \
         || verdict teardown-incomplete "claude agents still lists job $JOB"
-    ls -d "$ARCHIVE_ROOT"/*-"$TOPIC-$JOB" >"$T/arch" 2>/dev/null
+    ls -d "$ARCHIVE_ROOT"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-"$TOPIC-$JOB" >"$T/arch" 2>/dev/null
     [ "$(wc -l <"$T/arch" | tr -d ' ')" = 1 ] || verdict teardown-incomplete "no single archive for $TOPIC and job $JOB under $ARCHIVE_ROOT"
     ARCH=$(cat "$T/arch")
     case "$(head -1 "$ARCH/RESULT" 2>/dev/null)" in done*) ;; *) verdict teardown-incomplete "the archive's RESULT doesn't say done" ;; esac
@@ -208,8 +208,13 @@ esac
 STEP=preserve
 ARCH="$ARCHIVE_ROOT/$(date -u +%Y-%m-%d)-$TOPIC-$JOB"
 # The archive holds transcripts, which hold whatever the worker saw: only
-# the user reads it.
-mkdir -p "$ARCH" && chmod 700 "$ARCHIVE_ROOT" "$ARCH" || { ARCH=""; refused "cannot create the archive directory"; }
+# the user reads this pass's directory, and the root too when this pass
+# creates it. A root that already exists keeps its mode: it may be a
+# directory the user set up and shares.
+if [ ! -d "$ARCHIVE_ROOT" ]; then
+    mkdir -p "$ARCHIVE_ROOT" && chmod 700 "$ARCHIVE_ROOT" || { ARCH=""; refused "cannot create the archive root $ARCHIVE_ROOT"; }
+fi
+mkdir -p "$ARCH" && chmod 700 "$ARCH" || { ARCH=""; refused "cannot create the archive directory"; }
 say "preserving into $ARCH"
 : >"$T/copies"
 # copy_file <src> <rel>: one file into the archive, listed for the check.

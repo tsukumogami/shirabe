@@ -187,6 +187,10 @@ printf '%s' "$SID" | grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' || refuse "the job's s
 # Only a state known to be finished passes: a job whose state is missing,
 # renamed or new to this script is treated as possibly running, because
 # `claude rm` on a running job is the one thing this must never set up.
+# Claude Code 2.1.293 was seen to list a running job as `working` and a
+# finished or stopped one as `done`; `stopped` and `failed` are its other
+# finished names. A wrong name here only refuses, leaving the teardown to a
+# person.
 case "$JSTATE" in
     done | stopped | failed) ;;
     working) refuse "job $JOB is still working; stop it before the inventory" ;;
@@ -212,7 +216,7 @@ dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$REPO" --head "$BRANCH" --s
     --json number,mergeCommit,headRepositoryOwner >"$T/prs" 2>"$T/gh.err" || die2 "the merged pull requests could not be read: $(tail -1 "$T/gh.err")"
 # --head matches a branch name in any fork; only the holding's own
 # repository's branch is the unit's.
-jq -r --arg o "${REPO%%/*}" '.[] | select((.headRepositoryOwner.login // "") == $o)
+jq -r --arg o "${REPO%%/*}" '.[] | select((.headRepositoryOwner.login // "" | ascii_downcase) == ($o | ascii_downcase))
     | select((.mergeCommit.oid // "") | test("^[0-9a-f]{40}$")) | "\(.number) \(.mergeCommit.oid)"' "$T/prs" >"$T/merged" 2>/dev/null \
     || die2 "the merged pull requests are not readable JSON"
 [ -s "$T/merged" ] || refuse "no pull request from $BRANCH in $REPO is merged"

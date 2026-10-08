@@ -312,6 +312,7 @@ eq  "exactly one rm, of the one job" "rm $JOB" "$(cat "$ST/claude.log")"
 [ -e "$HOME/.claude/jobs/$JOB" ] && fail "the job directory is gone" "" || pass "the job directory is gone"
 [ -f "$TR" ] && pass "the transcript stays where it was" || fail "the transcript stays where it was" ""
 eq  "only the user can read the archive" 700 "$(stat -c %a "$A" 2>/dev/null || stat -f %Lp "$A")"
+eq  "nor the archive root the pass created" 700 "$(stat -c %a "$(dirname "$A")" 2>/dev/null || stat -f %Lp "$(dirname "$A")")"
 eq  "a second pass on the spent verdict refuses" 1 "$(agent_pass "$KSEAL")"
 eq  "and runs no second destroy" 1 "$(wc -l <"$ST/niwa.log" | tr -d ' ')"
 eq  "and no second rm" 1 "$(wc -l <"$ST/claude.log" | tr -d ' ')"
@@ -330,6 +331,19 @@ stopped
 eq  "an unmerged pull request: teardown_handoff refuses to surface" surface "$(at)"
 has "and the verdict says why" "$(ctx teardown_handoff)" "is merged"
 nothing_removed "an unmerged pull request"
+
+# A root the user set up keeps its mode, and an owner in another case is
+# still the holding's own.
+fixture
+SHARED_ROOT="$T/shared-archive"
+mkdir -p "$SHARED_ROOT" && chmod 755 "$SHARED_ROOT"
+printf '[{"number":600,"mergeCommit":{"oid":"%s"},"headRepositoryOwner":{"login":"ACME"}}]\n' "$MERGE" >"$ST/merged-feat_w5.json"
+start
+stopped
+eq  "an owner login in another case is the holding's own" destroy "$(at)"
+KSEAL=$(handover | sed -n 's/^keyseal //p')
+eq  "a pass into a root the user set up is done" 0 "$( (cd "$W" && TEARDOWN_ARCHIVE_DIR="$SHARED_ROOT" bash "$S/teardown-pass.sh" run --session "$SESS" --keyseal "$KSEAL" >"$T/pass.out" 2>&1); echo $?)"
+eq  "that root keeps its mode" 755 "$(stat -c %a "$SHARED_ROOT" 2>/dev/null || stat -f %Lp "$SHARED_ROOT")"
 
 fixture
 printf '[{"number":601,"mergeCommit":{"oid":"%s"},"headRepositoryOwner":{"login":"someone"}}]\n' "$MERGE" >"$ST/merged-feat_w5.json"
