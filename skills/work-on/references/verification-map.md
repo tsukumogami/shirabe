@@ -85,6 +85,64 @@ required field is missing or has the wrong type, when an entry or `default` name
 `commands` doesn't define, when `timeout_secs` exceeds `3600`, or when a `network: true`
 command omits `unattended`.
 
+### Selection rules
+
+- **A command runs once per change, however many times it is selected.** A command id named
+  by several matched entries, or by an entry and the `default` list, runs once.
+- **An `each` command runs once per distinct changed directory matching its pattern**, over
+  all of the change's paths, in sorted order. When no changed directory matches the pattern,
+  the command doesn't run, and it doesn't count as selected. A change whose only selected
+  command is such an `each` command selects nothing.
+
+## How the commands run
+
+`skills/work-on/scripts/run-verification.sh --start --session <s>` is the launcher. It
+returns within a second: it either finds a result for the current head, writes a result
+that needs no command run (a dirty tree, no map, a map that does not parse or selects
+nothing, a command that needs a person), or starts a detached supervisor and exits. The
+supervisor never calls koto. It runs each selected command in turn, as argv from the
+repository root with standard input from `/dev/null`, in its own process group with its
+own deadline. A watchdog counts the processes in that group and kills the group when the
+count passes `max_procs`; where `systemd-run --user --scope` works, the command also runs
+in a scope with `TasksMax` one above `max_procs`. The group is killed after every command,
+so nothing a command left behind outlives it.
+
+Logs and the result live under
+`${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/<session>/<head>/`, in
+directories created with mode 0700, outside every repository, pruned to the last ten heads
+per session. The result is one JSON object, keyed by the head and the merge-base it was
+computed against, written atomically.
+
+Two limits are residual. The watchdog polls, so a fork storm can overshoot `max_procs`
+briefly before the group is killed; and a descendant that starts its own session or process
+group escapes the count and the kill.
+
+## Verdicts
+
+`skills/work-on/scripts/check-verification.sh --verdict --session <s>` reads the result
+for the current head. A settled result is also recorded in koto context as
+`verification_results.json`. Each non-passing exit prints one finding per cause, whose
+`rule_id` is one of the names below:
+
+| Exit | Meaning | `rule_id` |
+|------|---------|-----------|
+| 75 | no result for this head yet; the gate waits | none |
+| 0 | every selected command ran and passed | none |
+| 1 | a command ran and failed | `verification/command-failed` |
+| 3 | no map at the merge-base, or a map that selects nothing | `verification/no-map` |
+| 3 | a map that does not parse | `verification/bad-map` |
+| 4 | a selected command is `unattended: false`; nothing was started | `verification/needs-person` |
+| 4 | a command ran past its `timeout_secs` and was killed | `verification/timed-out` |
+| 4 | a command's process group grew past `max_procs` and was killed | `verification/runaway` |
+| 4 | a command's `run[0]` is not an executable program | `verification/not-started` |
+| 4 | tracked files had uncommitted changes | `verification/dirty-tree` |
+| 2 | the result could not be read | none; the gate holds |
+
+A timeout, a runaway kill, a command that could not start and a command that needs a person
+exit 4, never 1: none of them says the change is wrong, so none sends the run back to
+implementation; they stop the run for a person. When one result holds both a failed command
+and a command that exits 4, the verdict is 4.
+
 ## Illustrative example (not a real project's map)
 
 The map below is illustrative only. Real commands live in a project's own map file.
