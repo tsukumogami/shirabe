@@ -843,6 +843,56 @@ else
   fail "tier-2 origin default (rc=$RC): $(cat "$PROBE_OUT" 2>/dev/null) -- $OUT"
 fi
 
+# An eval's relative call log resolves against the tier-2 checkout once, in
+# the runner, so a gh call from a node worktree lands in the log the grader
+# reads (shirabe#636). The hook sets GH_CALL_LOG as the instruction says and
+# calls the execute gh shim from a directory nested in the checkout, as a
+# coordinated run does from a node worktree. Non-log values pass unchanged.
+mkdir -p "$T/iso-suite/envskill/evals"
+echo "# envskill" > "$T/iso-suite/envskill/SKILL.md"
+cat > "$T/iso-suite/envskill/evals/evals.json" <<'EOF'
+{"skill_name": "envskill", "evals": [
+  {"id": 1, "name": "env-scenario", "tier": 2, "mode": "execute", "prompt": "call gh",
+   "expected_output": "a logged call", "files": [], "expectations": ["stub criterion"],
+   "env": {"GH_CALL_LOG": "gh-calls.log", "KOTO_CALL_LOG": "logs/koto-calls.log",
+           "EXECUTE_CI_WAIT_LIMIT_SECS": "60"}}
+]}
+EOF
+cat > "$T/env-probe.sh" <<'EOF'
+#!/usr/bin/env bash
+co=$(sed -n '/^An isolated, throwaway clone of this repository has been prepared at:$/{n;s/^ *//;p;}' "$1")
+val() { grep -o "$1=[^ ,]*" "$2" | head -n 1 | sed "s/^$1=//; s/[.,]\$//"; }
+gh_log=$(val GH_CALL_LOG "$1")
+mkdir -p "$co/node-worktree/sub"
+(cd "$co/node-worktree/sub" && GH_CALL_LOG="$gh_log" EVAL_SCENARIO=env-probe \
+  "$EVAL_SHIM_BIN/gh" issue view 1 >/dev/null 2>&1)
+{
+  echo "checkout=$co"
+  echo "gh_log=$gh_log"
+  echo "koto_log=$(val KOTO_CALL_LOG "$1")"
+  echo "limit=$(val EXECUTE_CI_WAIT_LIMIT_SECS "$1")"
+  echo "logged=$(cat "$co/gh-calls.log" 2>/dev/null)"
+  echo "stray=$(cat "$co/node-worktree/sub/gh-calls.log" 2>/dev/null)"
+} > "$PROBE_OUT" 2>&1
+EOF
+chmod +x "$T/env-probe.sh"
+rm -rf "$LOG" "$PROBE_OUT"
+RC=0
+OUT=$(cd "$T" && RUN_EVALS_SKILLS_DIR="$T/iso-suite" STUB_CLAUDE_MODE=grade STUB_CLAUDE_LOG_DIR="$LOG" \
+  STUB_CLAUDE_HOOK="$T/env-probe.sh" PROBE_OUT="$PROBE_OUT" PATH="$FIXTURES/bin:$PATH" TMPDIR="$T" \
+  EVAL_SHIM_BIN="$REPO_ROOT/skills/execute/evals/fixtures/bin" \
+  bash "$ISO/scripts/run-evals.sh" envskill 2>&1) || RC=$?
+env_co=$(probe checkout)
+if [ "$RC" -eq 0 ] && [ -n "$env_co" ] \
+  && [ "$(probe gh_log)" = "$env_co/gh-calls.log" ] \
+  && [ "$(probe koto_log)" = "$env_co/logs/koto-calls.log" ] \
+  && [ "$(probe limit)" = 60 ] \
+  && [ "$(probe logged)" = "issue view 1" ] && [ -z "$(probe stray)" ]; then
+  pass "tier-2: a relative call log is made absolute against the checkout, so a call from a nested worktree lands in it"
+else
+  fail "tier-2 env resolution (rc=$RC): $(cat "$PROBE_OUT" 2>/dev/null) -- $OUT"
+fi
+
 # No koto the nested session reaches reads or writes $HOME/.koto: each run's
 # koto keeps its store in the run's scratch root. The "real" koto here is a fake
 # that records the HOME it ran under and writes a session where that HOME says,

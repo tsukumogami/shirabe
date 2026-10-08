@@ -1237,6 +1237,24 @@ with open("$evals_file") as f:
 
 selected = os.environ.get("EVAL_SCENARIO_FILTER", "")
 iter_dir = "$iter_dir"
+tier2_workdir = "$tier2_checkout"
+
+
+def resolve_logs(env):
+    """Join each relative *_LOG value to the tier-2 working directory.
+
+    A log path in an eval's env is written relative to the scenario's working
+    directory. Passed through as written, it resolves against whatever
+    directory each command runs in, and a coordinated run works in node
+    worktrees: a gh call made there lands in a stray log the grader never
+    reads, and the shim's state directory beside it starts empty.
+    """
+    out = dict(env)
+    for name, value in env.items():
+        if (tier2_workdir and name.endswith("_LOG") and isinstance(value, str)
+                and not os.path.isabs(value)):
+            out[name] = os.path.normpath(os.path.join(tier2_workdir, value))
+    return out
 
 
 def scenario_model(name):
@@ -1287,10 +1305,12 @@ for ev in data["evals"]:
         scenario = ev.get("scenario", "")
         # An eval may declare extra environment for its run (a call log for the
         # gh shim, a CI wait limit), as a flat map of names to string values.
-        # Relative paths resolve against the scenario's working directory.
+        # A relative log path is made absolute against the scenario's working
+        # directory here, so a call from a node worktree lands in the same log.
         extra = ev.get("env") or {}
         env_text = ""
         if isinstance(extra, dict) and extra:
+            extra = resolve_logs(extra)
             env_text = " Also set " + ", ".join(f"{k}={v}" for k, v in sorted(extra.items())) + "."
         lines.append(f"- {name}: TIER 2 (execute) — set EVAL_SCENARIO={scenario}, prepend $fixtures_bin to PATH.{env_text} "
                      f"Instruct agent: 'Execute the workflow. gh and koto are available on PATH.'" + model_text)
