@@ -112,6 +112,25 @@ case "$STATUS:$ERR" in
     *) fail "--diff pathspecs still check the lines added inside them" "status $STATUS: $ERR" ;;
 esac
 
+# An added line whose text starts with "++ " reads "+++ ..." in the diff, the
+# same as a file header. It is still checked, under its own file and line, and
+# the file after it keeps its own name. A file name with a space, which git
+# ends with a tab in the header, is reported with its line number.
+printf 'first\n++ see /ho''me/someone/x\n' > "$REPO/c.md"
+printf 'one\ntwo at /ho''me/someone/y\n' > "$REPO/d e.md"
+g add -A
+g commit -q -m plusplus
+STATUS=0
+ERR=$(cd "$REPO" && "$SUT" --denylist "$DENY" --diff HEAD~1 2>&1 >/dev/null) || STATUS=$?
+case "$STATUS:$ERR" in
+    1:*"c.md:2: home-directory path"*) pass "--diff checks an added line that starts with ++" ;;
+    *) fail "--diff checks an added line that starts with ++" "status $STATUS: $ERR" ;;
+esac
+case "$ERR" in
+    *"d e.md:2: home-directory path"*) pass "--diff names a file with a space and its line" ;;
+    *) fail "--diff names a file with a space and its line" "status $STATUS: $ERR" ;;
+esac
+
 STATUS=0
 ERR=$(cd "$REPO" && "$SUT" --denylist "$DENY" --diff HEAD~1 code/b.sh 2>&1 >/dev/null) || STATUS=$?
 case "$STATUS:$ERR" in
