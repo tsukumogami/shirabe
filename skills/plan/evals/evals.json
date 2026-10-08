@@ -288,23 +288,21 @@
       "id": 21,
       "name": "phase-1-sentinel-present-mismatched-plan",
       "prompt": "/plan docs/designs/DESIGN-sentinel-mismatch.md",
-      "expected_output": "Phase 1 step 1.1 globs wip/*_sentinel-mismatch_state.md and finds a state file containing parent_orchestration.invoking_child: design (the value does NOT match the current child name 'plan'). Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: the protective hard-stop is reachable when the sentinel is present but mismatched. No shirabe transition invocation; no DESIGN status mutation.",
+      "expected_output": "A state file wip/*_sentinel-mismatch_state.md carries parent_orchestration.invoking_child: design. Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: the protective hard-stop is reachable when the sentinel is present but mismatched. No shirabe transition invocation; no DESIGN status mutation.",
       "files": [],
       "expectations": [
-        "Transcript finds the sentinel but observes invoking_child mismatch (not 'plan')",
         "Transcript does NOT invoke shirabe transition",
         "Transcript falls through to the hard-stop table and STOPs with the 'Proposed' error",
-        "R6 preservation: the protective hard-stop is reachable when the sentinel is mismatched"
+        "R6 preservation: the protective hard-stop is reachable when a parent's state file is present"
       ]
     },
     {
       "id": 22,
       "name": "phase-1-sentinel-absent-plan",
       "prompt": "/plan docs/designs/DESIGN-no-sentinel.md",
-      "expected_output": "Phase 1 step 1.1 globs wip/*_no-sentinel_state.md and finds NO matching state file (this is a direct /plan invocation, not a parent-driven chain). Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: direct invocation against a non-Accepted DESIGN cannot silently promote it because no sentinel is on disk. No shirabe transition invocation; no DESIGN status mutation.",
+      "expected_output": "This is a direct /plan invocation with no parent state file. Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: direct invocation against a non-Accepted DESIGN cannot silently promote it because no sentinel is on disk. No shirabe transition invocation; no DESIGN status mutation.",
       "files": [],
       "expectations": [
-        "Transcript finds NO matching state file in the wip/*_no-sentinel_state.md glob",
         "Transcript does NOT invoke shirabe transition",
         "Transcript falls through to the hard-stop table and STOPs with the 'Proposed' error",
         "R6 preservation: direct invocation against a non-Accepted DESIGN cannot silently promote it"

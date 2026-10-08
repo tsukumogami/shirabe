@@ -537,7 +537,7 @@ The chain's status check runs after 7.5's transition, not here: it holds an
   local path to resolve, so confirm visibility direction by hand against
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md` (public repos
   must not reference private repos). A `ROADMAP-` entry is held to `Active`
-  by the lifecycle chain check after 7.5: a roadmap is Active for as long as any of
+  by the lifecycle chain check that runs after 7.5's transition: a roadmap is Active for as long as any of
   its features is still being built, which is the whole window in which a PLAN
   naming it exists.
 - **An exit 4 means the PLAN was not checked at all.** The filename routed it
