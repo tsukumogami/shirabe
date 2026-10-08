@@ -263,6 +263,8 @@ fixture() {
 stopped() { tick --with-data "{\"teardown\":\"stopped\",\"handoff\":\"${1-$URL}\"}"; }
 handover() { (cd "$W" && bash "$S/teardown-handoff.sh" read --session "$SESS" 2>"$T/read.err"); }
 agent_pass() { (cd "$W" && bash "$S/teardown-pass.sh" run --session "$SESS" --keyseal "$1" >"$T/pass.out" 2>&1); echo $?; }
+# mode <dir>: its permission string, from ls (stat isn't on the suites' PATH).
+mode() { ls -ld "$1" | cut -c1-10; }
 archive() { ls -d "$HOME/.local/share/teardown-archive/"*"-w5-$JOB" 2>/dev/null | head -1; }
 nothing_removed() {
     eq "$1: no destroy ran" "" "$(cat "$ST/niwa.log")"
@@ -311,8 +313,8 @@ eq  "exactly one rm, of the one job" "rm $JOB" "$(cat "$ST/claude.log")"
 [ -e "$INST" ] && fail "the instance is gone" "" || pass "the instance is gone"
 [ -e "$HOME/.claude/jobs/$JOB" ] && fail "the job directory is gone" "" || pass "the job directory is gone"
 [ -f "$TR" ] && pass "the transcript stays where it was" || fail "the transcript stays where it was" ""
-eq  "only the user can read the archive" 700 "$(stat -c %a "$A" 2>/dev/null || stat -f %Lp "$A")"
-eq  "nor the archive root the pass created" 700 "$(stat -c %a "$(dirname "$A")" 2>/dev/null || stat -f %Lp "$(dirname "$A")")"
+eq  "only the user can read the archive" drwx------ "$(mode "$A")"
+eq  "nor the archive root the pass created" drwx------ "$(mode "$(dirname "$A")")"
 eq  "a second pass on the spent verdict refuses" 1 "$(agent_pass "$KSEAL")"
 eq  "and runs no second destroy" 1 "$(wc -l <"$ST/niwa.log" | tr -d ' ')"
 eq  "and no second rm" 1 "$(wc -l <"$ST/claude.log" | tr -d ' ')"
@@ -343,7 +345,7 @@ stopped
 eq  "an owner login in another case is the holding's own" destroy "$(at)"
 KSEAL=$(handover | sed -n 's/^keyseal //p')
 eq  "a pass into a root the user set up is done" 0 "$( (cd "$W" && TEARDOWN_ARCHIVE_DIR="$SHARED_ROOT" bash "$S/teardown-pass.sh" run --session "$SESS" --keyseal "$KSEAL" >"$T/pass.out" 2>&1); echo $?)"
-eq  "that root keeps its mode" 755 "$(stat -c %a "$SHARED_ROOT" 2>/dev/null || stat -f %Lp "$SHARED_ROOT")"
+eq  "that root keeps its mode" drwxr-xr-x "$(mode "$SHARED_ROOT")"
 
 fixture
 printf '[{"number":601,"mergeCommit":{"oid":"%s"},"headRepositoryOwner":{"login":"someone"}}]\n' "$MERGE" >"$ST/merged-feat_w5.json"
