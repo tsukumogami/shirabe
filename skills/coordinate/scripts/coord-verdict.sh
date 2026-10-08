@@ -89,6 +89,10 @@ case "$WORD" in
     message) exit 180 ;;
     # surface_check (with refused 62)
     accepted) exit 190 ;;
+    # teardown_handoff
+    handoff-ready) exit 200 ;; handoff-refused) exit 201 ;;
+    # teardown_confirm
+    teardown-confirmed) exit 202 ;; teardown-incomplete) exit 203 ;;
     waiting|land-blocked)
         echo "coord-verdict: $WORD: $STATE stays here until your next action changes what it reads" >&2; exit 4 ;;
     *) echo "coord-verdict: unknown verdict word [$WORD] for $STATE" >&2; exit 3 ;;

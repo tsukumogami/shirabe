@@ -325,6 +325,26 @@ destroy_run destroyed alpha
 printf 'topic beta\ninstance /x\n' > "$KOTO_STORE/context/$S/teardown_verdict"
 body "$(rec)"
 eq "destroy: an inventory edited after sealing is a conflict" conflict "$(confirm)"
+# A destroyed now passes through teardown_confirm before record; that entry
+# is read as destroy's.
+confirm_run() { # confirm_run <sealed topic>
+    session
+    log_evidence "$S" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:50:00.000Z
+    log_to "$S" wait teardown
+    log_to "$S" teardown teardown_inventory
+    printf 'topic %s\ninstance /x/instances/alpha\n' "$1" > "$T/inv"
+    log_capture "$S" TEARDOWN_SEAL "$(bash "$HERE/coord-log.sh" seal --session "$S" --state teardown_inventory --file "$T/inv" --key teardown_verdict)"
+    log_to "$S" teardown_inventory teardown_handoff
+    log_to "$S" teardown_handoff destroy
+    log_evidence "$S" destroy '{"destroyed":"destroyed"}' "$EVT"
+    log_to "$S" destroy teardown_confirm "$EVT"
+    log_to "$S" teardown_confirm record "$EVT"
+}
+confirm_run alpha
+body "$(rec | jq -c --argjson h "$(holding beta)" '.holdings = [$h]')"
+eq "teardown_confirm: no row for the sealed topic confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson h "$(holding alpha)" '.holdings = [$h]')"
+eq "teardown_confirm: the topic's row still there waits" waiting "$(confirm)"
 
 echo "== decision_apply =="
 REV='{"date":"2026-09-26T10:00Z","reversed":"merge on green","now":"hold","reason":"freeze","from":"the human"}'

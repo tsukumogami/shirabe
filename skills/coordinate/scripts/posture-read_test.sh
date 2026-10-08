@@ -70,6 +70,14 @@ fresh; in_settings "$(perm allow 'Bash(niwa destroy:*)')"
 eq "an allow rule on niwa destroy permits teardown" "readable merge:confirm close:confirm teardown:permit" "$(read_roots)"
 fresh; in_settings "$(perm deny 'Bash(niwa destroy --force:*)' bypassPermissions)"
 eq "a deny on niwa destroy --force denies teardown" "readable merge:permit close:permit teardown:deny" "$(read_roots)"
+# The teardown pass runs claude rm and niwa destroy inside teardown-pass.sh,
+# so a rule on either, or on the script, governs the step.
+for r in 'Bash(claude rm:*)' 'Bash(*teardown-pass.sh*)'; do
+    fresh; in_settings "$(perm deny "$r" bypassPermissions)"
+    eq "a deny on $r denies teardown" "readable merge:permit close:permit teardown:deny" "$(read_roots)"
+    fresh; in_settings "$(perm ask "$r" bypassPermissions)"
+    eq "an ask on $r confirms teardown" "readable merge:permit close:permit teardown:confirm" "$(read_roots)"
+done
 # The skill never runs niwa reap or the other untargeted removals, so a rule
 # about them leaves the teardown step alone (shirabe#616).
 for r in 'Bash(niwa reap)' 'Bash(niwa reap:*)' 'Bash(niwa instance remove:*)' 'Bash(niwa remove:*)'; do

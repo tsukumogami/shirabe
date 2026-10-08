@@ -3,7 +3,7 @@
 #
 # The skeleton template is built from coordinate.md itself: the state blocks
 # for dispatch, wait, leg_pick, wait_leg, leg_spent, take_report, teardown,
-# teardown_inventory, promote and destroy are cut out of the shipped template
+# teardown_inventory and promote are cut out of the shipped template
 # unchanged, and every state they route to that isn't under test is a
 # terminal stand-in, so a route is read off the state the run stops at. The
 # scripts are the shipped ones; koto, its request store and coord-log.sh are
@@ -26,8 +26,9 @@
 # leg-bound worker's progress message passes take_report as progress and
 # leaves its leg open, and the leg's later result still arrives through
 # wait_leg (shirabe#491);
-# teardown inventories only after the session is stopped, destroys only a
-# durable instance, sends a unique one to promote, and no override record can
+# teardown inventories only after the session is stopped, hands only a
+# durable instance on to teardown_handoff (teardown-pass_engine_test.sh runs
+# the pass from there), sends a unique one to promote, and no override record can
 # stand in for the inventory's gate.
 #
 # Needs koto, git and jq; SKIPs (exit 0) without koto.
@@ -128,9 +129,9 @@ mkdir -p "$W/.niwa"
 # --- the skeleton template, cut from coordinate.md --------------------------------------------
 
 SRC="$HERE/../koto-templates/coordinate.md"
-UNDER="dispatch wait leg_pick wait_leg leg_spent take_report teardown teardown_inventory promote destroy"
+UNDER="dispatch wait leg_pick wait_leg leg_spent take_report teardown teardown_inventory promote"
 # Every state an UNDER state routes to that isn't under test, as a terminal.
-ENDS="record failure report_facts surface pick_facts quiet_check decision_apply merged_facts rotation_close done_stopped roadmap_status
+ENDS="record failure report_facts surface teardown_handoff pick_facts quiet_check decision_apply merged_facts rotation_close done_stopped roadmap_status
 decision_answer decision_evidence decision_raise"
 # block <state>: the state's YAML block, from its `  <state>:` line to the next
 # state's.
@@ -645,13 +646,11 @@ tick --with-data '{"event":"retire","unit":"w5"}'
 eq  "teardown: retire arrives at teardown, before any inventory" teardown "$(at)"
 eq  "teardown: teardown_topic is the worker" w5 "$(ctx teardown_topic)"
 tick --with-data '{"teardown":"stopped"}'
-eq  "teardown: a durable instance goes on to destroy" destroy "$(at)"
+eq  "teardown: a durable instance goes on to teardown_handoff" teardown_handoff "$(at)"
 case "$(ctx teardown_verdict)" in
     *"instance $T/inst-clean"*) pass "teardown: the sealed verdict names the inventoried instance" ;;
     *) fail "teardown: the sealed verdict names the inventoried instance" "$(ctx teardown_verdict)" ;;
 esac
-tick --with-data '{"destroyed":"destroyed"}'
-eq  "teardown: destroyed goes to record" record "$(at)"
 
 start
 tick --with-data '{"go":"wait"}'
@@ -673,12 +672,6 @@ tick --with-data '{"teardown":"kept"}'
 eq  "teardown: kept goes to record with no inventory" record "$(at)"
 eq  "teardown: leaving teardown clears teardown_topic" "" "$(ctx teardown_topic)"
 
-start
-tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"retire","unit":"w5"}'
-tick --with-data '{"teardown":"stopped"}'
-tick --with-data '{"destroyed":"refused"}'
-eq  "teardown: a refused verdict read goes to surface, destroying nothing" surface "$(at)"
 
 # A worker with no instance can't be inventoried: the verdict is sealed as an
 # error and goes to the human, rather than holding the run at the inventory.

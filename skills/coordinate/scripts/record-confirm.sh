@@ -55,7 +55,8 @@
 #                   Side effects row whose Target names it. The topic comes from
 #                   the sealed teardown inventory (TEARDOWN_SEAL, key
 #                   teardown_verdict, its `topic <t>` line), never from a
-#                   context key.
+#                   context key. An entry from teardown_confirm, the check
+#                   that follows a `destroyed`, is read as destroy's.
 #   decision_apply  `reversal`: a Reversals row dated at or after that point;
 #                   `deferral`: a Deferrals row raised at or after it
 #   posture_ask     a Reversals row at or after that point, From `the human`,
@@ -284,6 +285,9 @@ entry record
 [ -n "$ENT_SEQ" ] || { VERDICT=conflict; REASON="the log has no entry into record"; finish; }
 ESEQ=$ENT_SEQ
 SOURCE=$ENT_FROM
+# teardown_confirm is a check between destroy and record: the entry it makes
+# is read as destroy's, against the evidence submitted at destroy.
+[ "$SOURCE" = teardown_confirm ] && SOURCE=destroy
 
 case "$SOURCE" in
 dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent|roadmap_status)
