@@ -911,6 +911,23 @@ if [ "$RC" -eq 0 ] && [ "$SEEN_STORE" -eq 4 ] && [ ! -e "$FAKE_HOME/.koto" ]; th
 else
   fail "koto, bare KOTO_BIN (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] -- $OUT"
 fi
+# EVAL_KOTO_STORE gives each tier-2 eval's agent a store of its own under the
+# run's koto-home, so one scenario's session never refuses the next; a name
+# that could leave koto-home is refused.
+koto_run "$T/koto-probe.sh" KOTO_BIN="$T/fake-koto/koto" PATH="$FIXTURES/bin:$PATH" EVAL_KOTO_STORE=some-eval/with_skill
+SEEN_STORE=$(grep -cx "$T/shirabe-eval-scratch\.[A-Za-z0-9]*/koto-home/stores/some-eval/with_skill" "$KOTO_SEEN" 2>/dev/null) || SEEN_STORE=0
+if [ "$RC" -eq 0 ] && [ "$SEEN_STORE" -eq 4 ] && [ ! -e "$FAKE_HOME/.koto" ]; then
+  pass "koto: EVAL_KOTO_STORE puts every call in that eval's own store inside the run's scratch root"
+else
+  fail "koto, EVAL_KOTO_STORE (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] -- $OUT"
+fi
+koto_run "$T/koto-probe.sh" KOTO_BIN="$T/fake-koto/koto" PATH="$FIXTURES/bin:$PATH" EVAL_KOTO_STORE=../escape
+SEEN_STORE=$(grep -c "/koto-home" "$KOTO_SEEN" 2>/dev/null) || SEEN_STORE=0
+if [ "$(probe direct_rc)" = 2 ] && [ "$SEEN_STORE" -eq 0 ] && [ ! -e "$FAKE_HOME/.koto" ]; then
+  pass "koto: an EVAL_KOTO_STORE that could leave koto-home is refused, exit 2"
+else
+  fail "koto, EVAL_KOTO_STORE escape (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] probe=[$(cat "$PROBE_OUT" 2>/dev/null)]"
+fi
 koto_run "$T/koto-probe.sh" KOTO_BIN="$T/no-such-koto" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
 if [ "$RC" -eq 2 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "KOTO_BIN \[$T/no-such-koto\] names no executable koto"; then
   pass "koto: a KOTO_BIN naming nothing stops the run before any session, exit 2"
