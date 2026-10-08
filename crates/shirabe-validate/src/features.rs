@@ -211,7 +211,10 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
             Some(Field::Evidence) => {
                 let clauses = f.evidence.get_or_insert_with(Vec::new);
                 if let Some(text) = raw.strip_prefix("- ") {
-                    clauses.push(text.trim().to_string());
+                    // A `- ` line with no text after it is not a clause.
+                    if !text.trim().is_empty() {
+                        clauses.push(text.trim().to_string());
+                    }
                 } else if raw.starts_with([' ', '\t']) && !clauses.is_empty() {
                     let last = clauses.last_mut().expect("non-empty");
                     last.push(' ');
@@ -311,38 +314,43 @@ static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9]+").
 ///
 /// Three spellings name a feature:
 ///
-/// - `Feature N`, `Features N, M and K` (any case): the feature whose tag is
-///   `Feature N` when one exists, else the Nth feature;
-/// - `F<N>`, the index alias the issueless tables use: the Nth feature;
+/// - `Feature N`, `Features N, M and K` (any case), and `F<N>`, the index
+///   alias the issueless tables use: the feature whose tag is `Feature N`
+///   when one exists, else the Nth feature (an `F<N>` that is itself some
+///   feature's tag resolves as that tag instead);
 /// - a whole `[A-Za-z0-9]+` token equal to a feature's tag (`AB1`, `AB10a`).
 ///
 /// A number or tag that names no feature contributes nothing, and a
 /// cross-repo reference (`owner/repo#7`) never matches, so callers get only
 /// positions they can index.
 pub fn dependency_positions(deps: &str, features: &[Feature]) -> Vec<usize> {
-    let in_range = |n: usize| n >= 1 && n <= features.len();
+    // `Feature N` names the item tagged so when there is one, else the Nth.
+    let numbered = |n: usize| -> Option<usize> {
+        let tagged = format!("Feature {n}");
+        features
+            .iter()
+            .find(|f| f.tag == tagged)
+            .map(|f| f.id)
+            .or_else(|| (1..=features.len()).contains(&n).then_some(n))
+    };
     let mut hits: Vec<(usize, usize)> = Vec::new();
     for cap in FEATURE_DEP_RE.captures_iter(deps) {
         let list = cap.get(1).expect("group 1");
         for m in DIGITS_RE.find_iter(list.as_str()) {
-            let Ok(n) = m.as_str().parse::<usize>() else {
-                continue;
-            };
-            let tagged = format!("Feature {n}");
-            let pos = features.iter().find(|f| f.tag == tagged).map(|f| f.id);
-            match pos {
-                Some(id) => hits.push((list.start() + m.start(), id)),
-                None if in_range(n) => hits.push((list.start() + m.start(), n)),
-                None => {}
+            if let Some(id) = m.as_str().parse::<usize>().ok().and_then(numbered) {
+                hits.push((list.start() + m.start(), id));
             }
         }
     }
     for cap in F_INDEX_RE.captures_iter(deps) {
+        let whole = cap.get(0).expect("group 0");
+        // A feature tagged `F2` is found by the token pass below.
+        if features.iter().any(|f| f.tag == whole.as_str()) {
+            continue;
+        }
         let m = cap.get(1).expect("group 1");
-        if let Ok(n) = m.as_str().parse::<usize>() {
-            if in_range(n) {
-                hits.push((m.start(), n));
-            }
+        if let Some(id) = m.as_str().parse::<usize>().ok().and_then(numbered) {
+            hits.push((m.start(), id));
         }
     }
     for m in TOKEN_RE.find_iter(deps) {
@@ -802,7 +810,7 @@ mod tests {
         let doc = with_schema(
             make_doc(
                 milestone_body(),
-                vec![("Features", 1), ("Sequencing Rationale", 25)],
+                vec![("Features", 1), ("Sequencing Rationale", 23)],
             ),
             ROADMAP_V2_SCHEMA,
         );
@@ -839,7 +847,7 @@ mod tests {
     fn parse_features_keeps_the_v1_description_unchanged() {
         let doc = make_doc(
             milestone_body(),
-            vec![("Features", 1), ("Sequencing Rationale", 25)],
+            vec![("Features", 1), ("Sequencing Rationale", 23)],
         );
         let f = &parse_features(&doc)[0];
         assert_eq!(
@@ -990,5 +998,28 @@ mod tests {
         // order): the tag wins over the position.
         let fs = tagged(&["Feature 2", "Feature 1"]);
         assert_eq!(dependency_positions("Feature 1", &fs), vec![2]);
+        assert_eq!(dependency_positions("Feature 2", &fs), vec![1]);
+        assert_eq!(dependency_positions("F2", &fs), vec![1]);
+        assert_eq!(dependency_positions("F1", &fs), vec![2]);
+    }
+
+    #[test]
+    fn a_tag_spelled_like_the_index_alias_resolves_as_the_tag() {
+        let fs = tagged(&["F2", "F1"]);
+        assert_eq!(dependency_positions("F2", &fs), vec![1]);
+    }
+
+    #[test]
+    fn an_empty_evidence_bullet_is_not_a_clause() {
+        let body = vec![
+            "## Features",
+            "### AB1: One",
+            "**Evidence:**",
+            "-   ",
+            "- Real.",
+        ];
+        let doc = with_schema(make_doc(body, vec![("Features", 1)]), ROADMAP_V2_SCHEMA);
+        let f = &parse_features(&doc)[0];
+        assert_eq!(f.evidence.as_deref(), Some(&["Real.".to_string()][..]));
     }
 }
