@@ -102,7 +102,7 @@ if [ "$MODE" = read ]; then
     case $? in 0) ;; 1) printf '%s: the stored verdict does not match its key seal\n' "$PROG" >&2; exit 3 ;; *) die2 "the stored verdict can't be read" ;; esac
     [ "$(printf '%s\n' "$VERDICT" | sed -n 1p)" = ready ] || { printf '%s: the stored verdict is not ready\n' "$PROG" >&2; exit 3; }
     VT=$(printf '%s\n' "$VERDICT" | sed -n 's/^topic //p' | head -1)
-    NOW=$("$KOTO" context get "$SESSION" teardown_topic 2>/dev/null) || die2 "cannot read teardown_topic"
+    NOW=$("$KOTO" context get "$SESSION" teardown_topic) || die2 "cannot read teardown_topic"
     if [ -z "$VT" ] || [ "$VT" != "$NOW" ]; then
         printf '%s: the verdict covers [%s], but teardown_topic is [%s]\n' "$PROG" "$VT" "$NOW" >&2
         exit 3
@@ -143,7 +143,7 @@ emit() {
 refuse() { emit refused "$1"; }
 
 # The topic and the sealed inventory.
-TOPIC=$("$KOTO" context get "$SESSION" teardown_topic 2>/dev/null) || die2 "cannot read teardown_topic"
+TOPIC=$("$KOTO" context get "$SESSION" teardown_topic) || die2 "cannot read teardown_topic"
 dc_valid_topic "$TOPIC" || refuse "teardown_topic is not a dispatch topic"
 line "topic $TOPIC"
 INV=$(bash "$HERE/teardown-verdict.sh" read --session "$SESSION" 2>"$T/inv.err")
@@ -159,8 +159,8 @@ case "$IPATH" in /*) ;; *) refuse "the sealed inventory names no instance path" 
 
 # The instance, by its path, in niwa's listing.
 ROOT=$(dc_workspace_root) || refuse "no workspace root found"
-NL=$(cd "$ROOT" && "$NIWA" list --json 2>/dev/null) || die2 "niwa list could not be read"
-printf '%s' "$NL" | jq -e 'type == "array"' >/dev/null 2>&1 || die2 "niwa list is not a JSON array"
+NL=$(cd "$ROOT" && "$NIWA" list --json) || die2 "niwa list could not be read"
+printf '%s' "$NL" | jq -e 'type == "array"' >/dev/null || die2 "niwa list is not a JSON array"
 MATCH=$(printf '%s' "$NL" | jq -c --arg p "$IPATH" '[.[] | select(.path == $p)]')
 [ "$(printf '%s' "$MATCH" | jq length)" = 1 ] || refuse "niwa lists $(printf '%s' "$MATCH" | jq length) instances at $IPATH, not one"
 INAME=$(printf '%s' "$MATCH" | jq -r '.[0].name // ""')
@@ -169,8 +169,8 @@ printf '%s' "$INAME" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]*$' || refuse "niwa'
 line "instance $INAME $IPATH"
 
 # The job: the one Claude Code background job whose cwd is the instance.
-AG=$("$CLAUDE_CLI" agents --json --all 2>/dev/null) || die2 "claude agents could not be read"
-printf '%s' "$AG" | jq -e 'type == "array"' >/dev/null 2>&1 || die2 "claude agents is not a JSON array"
+AG=$("$CLAUDE_CLI" agents --json --all) || die2 "claude agents could not be read"
+printf '%s' "$AG" | jq -e 'type == "array"' >/dev/null || die2 "claude agents is not a JSON array"
 JOBS=$(printf '%s' "$AG" | jq -c --arg p "$IPATH" '[.[] | select(.cwd == $p)]')
 NJ=$(printf '%s' "$JOBS" | jq length)
 case "$NJ" in
@@ -217,7 +217,7 @@ dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$REPO" --head "$BRANCH" --s
 # --head matches a branch name in any fork; only the holding's own
 # repository's branch is the unit's.
 jq -r --arg o "${REPO%%/*}" '.[] | select((.headRepositoryOwner.login // "" | ascii_downcase) == ($o | ascii_downcase))
-    | select((.mergeCommit.oid // "") | test("^[0-9a-f]{40}$")) | "\(.number) \(.mergeCommit.oid)"' "$T/prs" >"$T/merged" 2>/dev/null \
+    | select((.mergeCommit.oid // "") | test("^[0-9a-f]{40}$")) | "\(.number) \(.mergeCommit.oid)"' "$T/prs" >"$T/merged" \
     || die2 "the merged pull requests are not readable JSON"
 [ -s "$T/merged" ] || refuse "no pull request from $BRANCH in $REPO is merged"
 NUMS=""
@@ -248,7 +248,7 @@ case $? in
     *) grep -q 'HTTP 404' "$T/gh.err" && refuse "the handoff comment doesn't exist"
        die2 "the handoff comment could not be read: $(tail -1 "$T/gh.err")" ;;
 esac
-jq -e --arg n "$U_NUM" '(.issue_url // "" | endswith("/issues/" + $n)) and ((.body // "") | test("[^[:space:]]"))' "$T/comment" >/dev/null 2>&1 \
+jq -e --arg n "$U_NUM" '(.issue_url // "" | endswith("/issues/" + $n)) and ((.body // "") | test("[^[:space:]]"))' "$T/comment" >/dev/null \
     || refuse "the handoff comment is empty or not on #$U_NUM"
 line "handoff $URL"
 line "inventory $INV_TOKEN"

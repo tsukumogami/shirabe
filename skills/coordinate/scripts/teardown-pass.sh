@@ -128,15 +128,15 @@ read_verdict() {
     return 0
 }
 
-niwa_list() { (cd "$ROOT" && "$NIWA" list --json) 2>/dev/null; }
-agents() { "$CLAUDE_CLI" agents --json --all 2>/dev/null; }
+niwa_list() { (cd "$ROOT" && "$NIWA" list --json); }
+agents() { "$CLAUDE_CLI" agents --json --all; }
 
 # ---------------------------------------------------------------------------
 if [ "$MODE" = confirm ]; then
     verdict() {
         local word=$1 why=$2
         jq -nc --arg v "$word" --arg w "$why" --arg a "${ARCH:-}" '{verdict: $v, reason: $w, archive: $a}' >"$T/detail.json"
-        "$KOTO" context add "$SESSION" coord/teardown_confirm.json --from-file "$T/detail.json" >/dev/null 2>&1 \
+        "$KOTO" context add "$SESSION" coord/teardown_confirm.json --from-file "$T/detail.json" >/dev/null \
             || { say "cannot store the detail"; exit 2; }
         [ "$word" = teardown-confirmed ] || say "$why" >&2
         bash "$DC_COORD_LOG" seal --session "$SESSION" --state teardown_confirm --token "$word" || { say "cannot seal the verdict"; exit 2; }
@@ -145,10 +145,10 @@ if [ "$MODE" = confirm ]; then
     read_verdict || verdict teardown-incomplete "$(cat "$T/why")"
     ROOT=$(dc_workspace_root) || verdict teardown-incomplete "no workspace root found"
     NL=$(niwa_list) || { say "niwa list could not be read"; exit 2; }
-    printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" 'type == "array" and (any(.[]; .name == $n or .path == $p) | not)' >/dev/null 2>&1 \
+    printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" 'type == "array" and (any(.[]; .name == $n or .path == $p) | not)' >/dev/null \
         || verdict teardown-incomplete "niwa still lists $INAME"
     AG=$(agents) || { say "claude agents could not be read"; exit 2; }
-    printf '%s' "$AG" | jq -e --arg j "$JOB" 'type == "array" and (any(.[]; .id == $j) | not)' >/dev/null 2>&1 \
+    printf '%s' "$AG" | jq -e --arg j "$JOB" 'type == "array" and (any(.[]; .id == $j) | not)' >/dev/null \
         || verdict teardown-incomplete "claude agents still lists job $JOB"
     ls -d "$ARCHIVE_ROOT"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-"$TOPIC-$JOB" >"$T/arch" 2>/dev/null
     [ "$(wc -l <"$T/arch" | tr -d ' ')" = 1 ] || verdict teardown-incomplete "no single archive for $TOPIC and job $JOB under $ARCHIVE_ROOT"
@@ -177,7 +177,7 @@ while read -r ref sha; do
     repo=${ref%#*} n=${ref##*#}
     out=$(dc_with_deadline "$FETCH_SECS" "$GH" pr view "$n" --repo "$repo" --json state,mergeCommit 2>"$T/gh.err") \
         || refused "$ref could not be read: $(tail -1 "$T/gh.err")"
-    printf '%s' "$out" | jq -e --arg s "$sha" '.state == "MERGED" and (.mergeCommit.oid // "") == $s' >/dev/null 2>&1 \
+    printf '%s' "$out" | jq -e --arg s "$sha" '.state == "MERGED" and (.mergeCommit.oid // "") == $s' >/dev/null \
         || refused "$ref is not merged at $sha"
 done <<EOF
 $PRS
@@ -187,13 +187,13 @@ hrepo=${HANDOFF#https://github.com/}; hrepo=$(printf '%s' "$hrepo" | cut -d/ -f1
 printf '%s' "$cid" | grep -Eq '^[1-9][0-9]*$' || refused "the handoff link is not a comment link"
 out=$(dc_with_deadline "$FETCH_SECS" "$GH" api "repos/$hrepo/issues/comments/$cid" 2>"$T/gh.err") \
     || refused "the handoff comment could not be read: $(tail -1 "$T/gh.err")"
-printf '%s' "$out" | jq -e '(.body // "") | test("[^[:space:]]")' >/dev/null 2>&1 || refused "the handoff comment is gone or empty"
+printf '%s' "$out" | jq -e '(.body // "") | test("[^[:space:]]")' >/dev/null || refused "the handoff comment is gone or empty"
 AG=$(agents) || refused "claude agents could not be read"
 printf '%s' "$AG" | jq -e --arg j "$JOB" --arg p "$IPATH" --arg s "$SID" \
-    '[.[] | select(.id == $j)] | length == 1 and .[0].cwd == $p and .[0].sessionId == $s and (.[0].state | IN("done", "stopped", "failed"))' >/dev/null 2>&1 \
+    '[.[] | select(.id == $j)] | length == 1 and .[0].cwd == $p and .[0].sessionId == $s and (.[0].state | IN("done", "stopped", "failed"))' >/dev/null \
     || refused "job $JOB is no longer the finished job of $IPATH with session $SID"
 NL=$(niwa_list) || refused "niwa list could not be read"
-printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" '[.[] | select(.name == $n or .path == $p)] | length == 1 and .[0].name == $n and .[0].path == $p' >/dev/null 2>&1 \
+printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" '[.[] | select(.name == $n or .path == $p)] | length == 1 and .[0].name == $n and .[0].path == $p' >/dev/null \
     || refused "niwa no longer lists $INAME at $IPATH"
 
 STEP=inventory
@@ -245,7 +245,7 @@ for d in "$KOTO_SESSIONS"/*/; do
     [ -d "$d" ] || continue
     for f in "$d"koto-*.state.jsonl; do
         [ -f "$f" ] || continue
-        ed=$(head -1 "$f" | jq -r '.execution_dir // ""' 2>/dev/null) || ed=""
+        ed=$(head -1 "$f" | jq -r '.execution_dir // ""') || ed=""
         case "$ed/" in
             "$IPATH"/* | "$JTMP"/* | "$J/tmp"/*)
                 copy_tree "${d%/}" "koto/$(basename "$d")"
@@ -280,10 +280,10 @@ say "removing job $JOB"
 "$CLAUDE_CLI" rm "$JOB" >"$T/rm" 2>&1 || incomplete "claude rm failed: $(tail -1 "$T/rm")"
 STEP=confirm
 NL=$(niwa_list) || incomplete "niwa list could not be read"
-printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" 'any(.[]; .name == $n or .path == $p) | not' >/dev/null 2>&1 \
+printf '%s' "$NL" | jq -e --arg n "$INAME" --arg p "$IPATH" 'any(.[]; .name == $n or .path == $p) | not' >/dev/null \
     || incomplete "niwa still lists $INAME"
 AG=$(agents) || incomplete "claude agents could not be read"
-printf '%s' "$AG" | jq -e --arg j "$JOB" 'any(.[]; .id == $j) | not' >/dev/null 2>&1 || incomplete "claude agents still lists job $JOB"
+printf '%s' "$AG" | jq -e --arg j "$JOB" 'any(.[]; .id == $j) | not' >/dev/null || incomplete "claude agents still lists job $JOB"
 printf 'done %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$ARCH/RESULT"
 say "done $ARCH"
 exit 0
