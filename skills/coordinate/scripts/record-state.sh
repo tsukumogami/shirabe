@@ -265,7 +265,9 @@ work)
     if [ "$KIND" = holding ]; then
         PREV=$(jq -c --arg i "$ITEM" '[(.work // [])[] | select(.item == $i)][0] // {}' "$P")
         RP=$(jq -r --arg u "$ITEM" --arg w "$WHO" '[.holdings[] | select(.unit == $u and .worker == $w) | .return_path][0] // ""' "$P")
-        ADD=$(wakes_since "$WHO" "$RP" "$(printf '%s' "$PREV" | jq -r '.updated // ""')") || exit 2
+        PREV_UPD=$(printf '%s' "$PREV" | jq -r '.updated // ""') || lib_die2 "jq failed"
+        ADD=$(wakes_since "$WHO" "$RP" "$PREV_UPD")
+        [ -n "$ADD" ] || lib_die2 "cannot count the run's wakes for $WHO"
         WAKES=$(( $(printf '%s' "$PREV" | jq -r '.wakes // "0" | if . == "" then "0" else . end') + ADD ))
     fi
     jq --arg i "$ITEM" --arg k "$KIND" --arg w "$WHO" --arg n "$NEXT" --arg t "$NOW" --arg c "$WAKES" --argjson first "$FIRST" '
@@ -301,7 +303,9 @@ while [ "$i" -lt "$n" ]; do
     # The leg's request, when the holding is still in the version read (a
     # --done); a holding already gone takes its leg's wakes with it, a floor.
     LRP=$(jq -r --arg u "$(printf '%s' "$ROW" | jq -r .item)" --arg w "$LW" '[.holdings[] | select(.unit == $u and .worker == $w) | .return_path][0] // ""' "$P")
-    LADD=$(wakes_since "$LW" "$LRP" "$(printf '%s' "$ROW" | jq -r '.updated // ""')") || exit 2
+    LUPD=$(printf '%s' "$ROW" | jq -r '.updated // ""') || lib_die2 "jq failed"
+    LADD=$(wakes_since "$LW" "$LRP" "$LUPD")
+    [ -n "$LADD" ] || lib_die2 "cannot count the run's wakes for $LW"
     LTOT=$(( $(printf '%s' "$ROW" | jq -r '.wakes // "0" | if . == "" then "0" else . end') + LADD ))
     printf '%s\n' "$(printf '%s' "$ROW" | jq -r .item) ($LW) left Work after $LTOT wakes." >> "$WD/leaving.txt"
     i=$((i + 1))
