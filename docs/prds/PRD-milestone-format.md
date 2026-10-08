@@ -15,7 +15,8 @@ goals: |
   roadmap reader, the coordinator's picker included, reads milestones and
   older roadmaps by one stated set of rules; and an Active roadmap's
   Evidence and Left open can be sharpened in place.
-upstream: docs/briefs/BRIEF-milestone-format.md
+absorbed:
+  - docs/briefs/BRIEF-milestone-format.md
 ---
 
 # PRD: milestone-format
@@ -23,6 +24,24 @@ upstream: docs/briefs/BRIEF-milestone-format.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-milestone-format](docs/briefs/BRIEF-milestone-format.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because a roadmap item can't be checked by anyone but
+its author. Items say what gets built, not what someone can do once it
+ships, so a merge stands in for done; the tools that read roadmaps then
+misread the ones people actually wrote, and an Active roadmap's checks
+can't be tightened without starting over.
+
+The outcome wanted is a maintainer who gets milestones from `/roadmap`
+without asking, a validator that names an item missing its outcome or its
+check, a coordinator whose picks match a person's reading of any roadmap,
+and an author who can sharpen a check mid-flight. The four journeys behind
+it (drafting, validating, picking from an older roadmap, sharpening in
+place) are the User Stories below, and the brief's boundary is the Out of
+Scope list.
 
 ## Problem Statement
 
