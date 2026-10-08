@@ -116,6 +116,10 @@ Soft: AB1 and AB2; soft on AB7.
 **Dependencies:** AB2 (soft, needs AB8 too)
 **Status:** Not started
 
+### CD12: A Features list with a parenthetical inside it
+**Dependencies:** Features 1 (the base), 2 and 8
+**Status:** Not started
+
 ## Sequencing Rationale
 
 CD8 waits on AB1. Nothing in this section is read.

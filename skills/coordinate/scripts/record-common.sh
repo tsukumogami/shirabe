@@ -474,7 +474,10 @@ lib_roadmap_features() {
           # is left whole for rule 5. A bare mark goes with its tag.
           def desoft: gsub("\\b((?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)(?=\\s*\\(\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b)"; "")
               | gsub("\\b((?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b"; "");
-          def unparen: reduce range(20) as $_ (.; if test("\\([^()]*\\)") then gsub("\\([^()]*\\)"; "") else . end);
+          # The space a removed parenthetical leaves before `,` goes too, so
+          # `Features 2 (x), 3 and 4` stays one list.
+          def unparen: reduce range(20) as $_ (.; if test("\\([^()]*\\)") then gsub("\\([^()]*\\)"; "") else . end)
+              | gsub("\\s+(?<p>[,;])"; "\(.p)");
           def deps($p; $self): if ($p | test("^None([^A-Za-z0-9]|$)")) then [] else
               ([$p | desoft | unparen | splits("[.;]\\s+") | select(test("^\\s*(?i:soft)\\b") | not) | named] | unique)
               - [$self] end;
