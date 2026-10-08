@@ -42,6 +42,10 @@ Set `confidence` based on signals from category phases:
 | Input type is `roadmap` (B, C, D return empty findings) | Lower to `"low"` |
 | All artifacts present and complete, no anomalies | `"high"` |
 
+Category C findings carry one more signal, stated under `confidence` in
+`references/templates/review-result-schema.md`: acceptance criteria that could be
+read more than one way also lower confidence.
+
 When multiple signals are present, use the lowest resulting level.
 
 ## Output: Proceed
@@ -114,3 +118,17 @@ Write exactly one file per review run. If the verdict is "proceed", do not write
 
 If a previous run's verdict file exists with a different name, leave it in place
 (the `/plan` resume logic reads whichever variant is present).
+
+## Decider Shadow
+
+Once the verdict file is written, run the decider shadow once:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-shadow/review-shadow.py" site review-plan --topic <topic> >/dev/null 2>&1 || true
+```
+
+It reads the plan's issue outlines and this verdict file itself, asks the
+decider category C's transition-coverage question per issue when the user has
+opted in, and records both verdicts side by side outside the repository.
+Nothing reads its result: it changes no verdict, loop target or file here, and
+a failure or a missing key changes nothing either.

@@ -42,7 +42,6 @@ mirroring the working-artifact lifecycle template established in
 
 **Deleted by:** the work-on cascade's PLAN deletion step.
 
-
 The PLAN file is removed from disk in the same atomic finalization
 commit that transitions BRIEF/PRD to Done and DESIGN to Current.
 
@@ -51,69 +50,40 @@ commit that transitions BRIEF/PRD to Done and DESIGN to Current.
 Plans live at `docs/plans/PLAN-<topic>.md`. See the full specification at
 `references/quality/plan-doc-structure.md`.
 
-Quick summary of required sections:
-
-1. **Status** -- Draft, Active, or Done
-2. **Scope Summary** -- 1-2 sentences on what the plan covers
-3. **Decomposition Strategy** -- walking skeleton vs horizontal, with rationale
-4. **Issue Outlines** -- structured outlines in single-pr mode
-5. **Implementation Issues** -- issue table with links in multi-pr mode
-6. **Dependency Graph** -- Mermaid diagram showing issue relationships
-7. **Implementation Sequence** -- critical path and parallelization opportunities
-
-Frontmatter includes `schema: plan/v1`, `status`, `execution_mode` (single-pr,
-multi-pr, or coordinated), `milestone`, and `issue_count`. Optional `upstream`
-links to the source document (design doc, PRD, or roadmap).
+The required sections depend on the PLAN's shape: outline-shaped (every
+`single-pr` PLAN, and a `multi-pr` or `coordinated` one at
+`tracking_level: none`) or issue-carrying. The per-shape lists, which match
+what `shirabe validate` checks, are under "Required Sections" in
+`references/quality/plan-doc-structure.md`.
 
 PLAN docs use a unified Draft -> Active -> Done -> DELETED lifecycle,
 identical across execution modes. Only the Draft -> Active gate
 differs, and it keys on **whether the transition will create GitHub
 issues** -- the resolved Tracking Level -- not on `execution_mode`.
-An activation that files issues requires human approval, because that
+An activation that files issues requires approval, because that
 is the moment remote artifacts appear; one that files none auto-fires
 when /plan finishes authoring. So a `multi-pr` plan whose tracking
 level is `none` auto-fires, and a `single-pr` plan whose level is
 `issues` waits for approval. A committed PLAN at `status: Draft` is a
-violation in either case.
+violation in either case. That includes a `/scope` run abandoned while `/plan`
+was running: an abandoned run writes no PLAN at all, only its upstream
+documents (`docs/decisions/DECISION-contradiction-scope-abandonment-draft-plan-2026-09-28.md`).
+
+**Every path that files issues or a milestone asks first**, whatever the
+mode: interactively the author answers the filing question, and "don't
+file" writes the PLAN at tracking level `none` with outlines. **Under
+`--auto` nobody is asked, so /plan files only when the repository's
+CLAUDE.md declares `## Tracking Level: issues` or `issues-and-milestone`**
+covering what the PLAN would file (an `issues` header covers no milestone).
+Otherwise it writes the work items as outlines in the PLAN and files nothing,
+even where the mode's default level would have filed. This is
+`docs/decisions/DECISION-contradiction-plan-issue-filing-under-auto-2026-09-28.md`;
+Phase 7's "Filing approval" step carries the procedure.
 
 `coordinated` follows the same gate. An outline-shaped coordinated PLAN
 (tracking level `none`, coordinated's default) files nothing, so it is
 authored at `Active`. A coordinated PLAN at `issues` or
-`issues-and-milestone` files issues, and it does so only behind an explicit
-filing approval: asked interactively, or resolved by
-`${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` under `--auto`.
-
-PLANs are ephemeral: when the work completes, the PLAN file is
-deleted from the tree in the same commit set that transitions the
-upstream BRIEF, PRD, and DESIGN to their terminal states. The
-Active -> Done flip is an in-process ephemeral marker that bridges
-to deletion; the cascade transitions Active -> Done immediately
-before `git rm` so the audit trail shows the Done flip atomically
-with the deletion. There is no `docs/plans/done/` directory in the
-current lifecycle model — the verify-then-delete terminal is the
-single forcing function.
-
-The chain-aware lifecycle check has two modes that enforce this:
-
-- `shirabe validate --lifecycle <ROOT>` — whole-tree mode. Walks every
-  artifact chain in the tree under `<ROOT>` and validates each
-  member's posture. Used by the reusable CI workflow as the
-  cross-chain backstop.
-- `shirabe validate --lifecycle-chain <DOC-PATH>` — chain-targeted
-  mode. Walks only the chain containing the input doc and validates
-  only that chain. Used by the work-on cascade script for the
-  pre-cascade probe and post-cascade verification points.
-
-The work-on cascade performs the Active -> Done -> DELETED sequence
-before `gh pr ready` fires (the DRAFT-vs-READY discipline) and uses
-the chain-targeted mode internally to verify its own chain's posture
-without surfacing unrelated drift as noise. See
-`docs/decisions/DECISION-chain-targeted-lifecycle-cli-shape-2026-06-06.md`
-for the CLI shape rationale,
-`docs/decisions/DECISION-lifecycle-strict-mode-interface-2026-06-06.md`
-for the strict-mode CLI flag, and
-`docs/decisions/DECISION-cascade-trigger-mechanism-2026-06-06.md` for
-the cascade trigger rationale.
+`issues-and-milestone` files issues only behind that filing approval.
 
 ## Decomposition Strategies
 
@@ -126,9 +96,6 @@ that thicken each layer. Use walking skeleton when:
 - Integration risk is high (new APIs, new data flows, new infrastructure)
 - Early feedback on the end-to-end path is more valuable than component depth
 - The `--walking-skeleton` flag is passed
-
-The skeleton issue comes first in the dependency graph. All thickening issues depend
-on it. This forces integration problems to surface early.
 
 ### Horizontal Decomposition
 
@@ -144,23 +111,7 @@ Default behavior when neither flag is set: evaluate the design's component coupl
 Tightly coupled components with unclear interfaces favor walking skeleton. Loosely
 coupled components with well-defined boundaries favor horizontal.
 
-### Feature-by-Feature Planning (Roadmaps Only)
-
-When the input is a roadmap (`input_type: roadmap`), the decomposition strategy is
-fixed. Each feature in the roadmap becomes one planning issue. No strategy selection
-step runs -- walking skeleton and horizontal don't apply to roadmap decomposition
-because the issues track artifact creation rather than code implementation.
-
-Planning issues are always `simple` complexity and carry a `needs_label` (needs-prd,
-needs-design, needs-spike, or needs-decision) indicating what upstream artifact the
-feature requires.
-
 ## Execution Mode Decision (single-pr vs multi-pr vs coordinated)
-
-This is a separate decision from the Decomposition Strategy above. Work-slicing
-(walking skeleton vs horizontal) chooses how issues are shaped against the design;
-execution mode chooses how the resulting work lands. Don't conflate the two: the
-shape of the work and the shape of the delivery are different questions.
 
 **Default: the repo's Delivery Preference.** Resolve
 `## Delivery Preference: consolidated|atomic` on the
@@ -192,70 +143,18 @@ input is a roadmap, but because each feature is a cohesive deliverable that land
 observable value on its own (P1 again). The mechanism "the input is a roadmap" is
 not the reason; the value the feature delivers is.
 
-The value-confirmation step (Phase 3.5a) then checks each unit -- every feature for
-a roadmap, each PR-shaped unit for a plan whose split delivers incremental value --
-and can fail. A unit that isn't a standalone increment is named as a
-mis-decomposition with the reason, not waved through. Under `--auto` the guard
-records a decision block per `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md`
-and continues; it never hard-stops. See `references/phases/phase-3-decomposition.md`
-step 3.5a for the guard's procedure and step 3.6 for the mode finalization that
-consumes the guard's output.
-
-**Split mode.** Whether the work splits is the question above, answered first
-and recorded in `split_branch` and `split_rationale`; `--intent` and the
-coordination flags are never read by it, so they cannot change the split
-reason. **A PLAN that doesn't split is `single-pr` regardless of intent or
-flags.** Only when the work splits does a second question pick the kind of
-split, by a four-level precedence where the first level that answers wins:
-
-1. an explicit `--coordinated` (gives `coordinated`) or `--no-coordinated`
-   (gives `multi-pr`);
-2. `--intent`: `continue` resolves to `coordinated`, `stop` to `multi-pr`; no
-   intent gives no answer at this level;
-3. a coordinated-by-default `CLAUDE.md` header, whose values are defined in
-   `${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md` (its
-   "Coordinated-by-default header values" table) and not restated here;
-4. `multi-pr`.
-
-So with no flag and no header, `stop` or no intent gives `multi-pr`. The PLAN
-records which level decided as `split_mode_source` (`flag`, `intent`, `header`,
-or `default`; `none` when the work doesn't split). The precedence is not
-applied by judgment: step 5a of `references/phases/phase-3-decomposition.md`
-runs `${CLAUDE_SKILL_DIR}/scripts/resolve-split-mode.sh` and copies its two
-output lines into the decomposition artifact.
-
 ### Coordinated Mode
 
-`coordinated` is the third execution mode. It spans one or more repositories:
-its PR nodes may all sit in one repository, each group of work landing as its
-own PR, or spread across several. It is always multi-PR, lands its PRs in a
-coordinated order with a coordination PR that merges last, and adds a `repo`
-and `pr_group` tag on every work item plus a two-node merge-order DAG.
-
-Coordinated follows the resolved tracking level the way `multi-pr` does, with
-`none` as its default. At `none` (the default) its work items are outlines in
-`## Issue Outlines`, each with `**Repo**:` and `**Group**:` lines, and nothing is
-filed. Only when the tracking level is `issues` or `issues-and-milestone` are
-they GitHub issues, each with a `_Repo: <owner/repo> | Group: <pr-group>_` row
-in the Implementation Issues table, filed behind an explicit approval.
-
-The canonical contract is
-`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`; the PLAN-side
+`coordinated` lands the work as one PR per repository and PR group, in one or
+more repositories, in a recorded merge order behind a coordination PR that
+merges last. Its contract (lifecycle, grouping, merge order, done-signal) is
+`${CLAUDE_PLUGIN_ROOT}/references/coordination-strategy.md`, which this skill
+binds to rather than restates; the PLAN-side
 authoring details (the Repo/Group annotation rows, gate-node declarations, and
 the contraction + acyclicity behavior) live in
 `references/quality/plan-doc-structure.md` under "Coordinated Mode."
 
-Mechanically, each coordinated work item names its repository and PR group:
-at an explicit `tracking_level: none` as `**Repo**:` and `**Group**:` lines on
-its outline in `## Issue Outlines`, otherwise as a `^_Repo: owner/repo \|
-Group: <pr-group>_` annotation row in the Implementation Issues table. A
-multi-repo split may use one group per repository (`Group: default`); a split
-inside one repository needs one distinct group per split unit. `scripts/plan-to-tasks.sh`
-collapses the work-item dependency graph into a `(repo, pr_group)`-level PR
-DAG with non-PR gate nodes, checks acyclicity after contraction (R13), and
-resolves a contraction cycle by splitting a PR node at the seam — or refuses if
-no acyclic order exists (atomicity across PR groups). It never emits a cyclic
-order. Each PR node carries `REPO`, `PR_GROUP`, `ISSUES`, and `ISSUE_SOURCE`
+Each PR node carries `REPO`, `PR_GROUP`, `ISSUES`, and `ISSUE_SOURCE`
 vars; `references/plan-to-tasks-contract.md` documents them.
 
 ## Complexity Classification
@@ -266,15 +165,9 @@ for the full criteria and AC templates.
 
 ## Placeholder Conventions
 
-During decomposition, issues reference each other before GitHub numbers exist.
-Use `<<ISSUE:N>>` placeholders where N is the local sequence number (1-based).
-
-```
-<<ISSUE:1>> -- first issue in the decomposition
-<<ISSUE:2>> -- second issue, might depend on <<ISSUE:1>>
-```
-
-Phase 7 replaces these with actual GitHub issue numbers after creation. In single-pr
+Issues reference each other as `<<ISSUE:N>>`, N being the 1-based local
+sequence number (format in `references/templates/agent-prompt.md`). Phase 7
+replaces these with actual GitHub issue numbers after creation. In single-pr
 mode, placeholders map to outline headings in the PLAN doc's Issue Outlines section.
 
 ## Validation Rules by Consumer Phase
@@ -304,9 +197,6 @@ From `$ARGUMENTS` (after stripping flags):
    document is required. Use when /explore produced a clear scope with no open
    decisions, or when planning a well-understood list of capabilities directly.
 
-Store the detected `input_type` in the Phase 1 analysis artifact -- it gates
-branching behavior in Phases 1, 3, and downstream phases.
-
 ### Context Resolution
 
 #### 1. Parse Flags
@@ -315,7 +205,7 @@ Check `$ARGUMENTS` for flags before extracting the document path. Flags may
 appear in any order after the document path.
 
 **Execution mode flags:**
-- `--auto` -- non-interactive execution; follow `references/decision-protocol.md`
+- `--auto` -- non-interactive execution; follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md`
   at all decision points; create `wip/plan_<topic>_decisions.md`
 - `--interactive` -- force interactive (default)
 
@@ -477,8 +367,6 @@ document filename: `DESIGN-foo-bar.md` produces topic `foo-bar`, `ROADMAP-foo-ba
 produces topic `foo-bar`.
 
 ```
-parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                              -> see references/fixes/sub-agent-dispatch.md
 if GitHub issues exist for this design        -> Resume at Phase 7 (verify/complete)
 if wip/plan_<topic>_review.md exists          -> Resume at Phase 7
 if wip/plan_<topic>_dependencies.md exists    -> Resume at Phase 6
@@ -489,69 +377,44 @@ if wip/plan_<topic>_analysis.md exists        -> Resume at Phase 2
 else                                          -> Start at Phase 1
 ```
 
-Phase 0 detection: if the parent-chain sentinel is present in
-`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
-(strategic), see `references/fixes/sub-agent-dispatch.md` for the
-fallback shape that applies. Behavior under direct invocation is
-unchanged when the sentinel is absent.
-
 To check for existing GitHub issues:
 ```bash
 gh issue list --search "Design: <design-doc-path>" --json number,title,state
 ```
 
-For roadmap input, populating the roadmap's reserved Implementation Issues
-and Dependency Graph sections is owned by `/roadmap populate` (which calls
-the `shirabe roadmap populate` subcommand), not by this workflow. The plan
-workflow accepts a roadmap as input when the author wants a PLAN document
-for a roadmap-scoped slice; it no longer rewrites the roadmap document
-itself.
-
 When resuming, read the existing artifact to restore context before continuing.
+
+A `parent_orchestration` sentinel in `/scope`'s state file is not a rung
+of that ladder: the ladder applies the same way under it, and the sentinel only
+changes which steps the run skips, as the next paragraph says.
+
+**Under `/scope`'s sentinel** `/plan` still reaches its own verdict (the Phase 6
+review) and makes its own status transition (Phase 7's step 7.5), but skips
+everything that publishes or routes: it pushes nothing, opens no pull request,
+creates no branch, makes no cleanup commit, and asks no routing question, so
+step 7.6's cleanup is left to `/scope` and step 7.8's upstream-issue question
+and its `gh issue edit` are skipped. This is
+shape 6, Parent-owned-publishing, in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`,
+recorded in `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
+Under `--auto` it takes the recommended verdict and names it in its output.
 
 ### Workflow Phases
 
-Seven sequential phases, plus an execution mode selection between Phases 3 and 4.
-
-| Phase | Purpose | Artifact |
-|-------|---------|----------|
-| 1. Analysis | Understand source document scope and components/features | `wip/plan_<topic>_analysis.md` |
-| 2. Milestone | Derive milestone from source document | `wip/plan_<topic>_milestones.md` |
-| 3. Decomposition | Break into atomic issues | `wip/plan_<topic>_decomposition.md` |
-| 3.5a. Value Confirmation | Check each unit delivers observable incremental value; can fail | Recorded in decomposition artifact (and `wip/plan_<topic>_decisions.md` under `--auto`) |
-| 3.5. Execution Mode | Select single-pr, multi-pr, or coordinated mode (split decision, then step 5a's `resolve-split-mode.sh` on a split) | Recorded in decomposition artifact |
-| 4. Generation | Generate rich issue bodies via agents | `wip/plan_<topic>_issue_*.md` + `wip/plan_<topic>_manifest.json` |
-| 5. Dependencies | Sequence tasks, identify blockers | `wip/plan_<topic>_dependencies.md` |
-| 6. Review | AI validates completeness + sequencing | `wip/plan_<topic>_review.md` |
-| 7. Creation | Create PLAN doc (+ optional GitHub artifacts) | `docs/plans/PLAN-<topic>.md` |
-
-#### Value Confirmation and Execution Mode Selection (between Phase 3 and Phase 4)
-
-After decomposition completes, the workflow runs the value-confirmation guard (step
-3.5a) and then finalizes the execution mode (step 3.6). The guard checks each unit
-delivers observable incremental value -- every feature for a roadmap, each PR-shaped
-unit for a plan whose split delivers incremental value -- and can fail, naming any
-mis-decomposed unit and the reason it failed the value test. The mode finalization
-then decides whether the work splits based on the surfaced rule above, and on a
-split step 5a resolves `multi-pr` or `coordinated` through
-`scripts/resolve-split-mode.sh`.
-
-Under `--auto`, the guard records a decision block per
-`${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` (`confirmed` on a clear pass,
-`assumed` at high review priority on a failing or ambiguous unit) and continues; it
-never hard-stops. The selection logic, the guard procedure, and the heuristic signals
-are defined in the Phase 3 reference file.
+What Phases 4 and 7 produce depends on the execution mode:
 
 - **single-pr**: Phase 4 agents produce structured outlines (not full issue bodies).
   Phase 7 writes them into the PLAN doc's Issue Outlines section. No GitHub issues or
-  milestone created. PLAN status stays at Draft.
-- **multi-pr**: Phase 4 agents produce full issue body files. Phase 7 creates GitHub
-  milestone and issues, populates Implementation Issues table. PLAN status set to Active.
+  milestone created. The PLAN is authored at Active.
+- **multi-pr**: Phase 4 agents produce full issue body files. At a filing tracking
+  level, Phase 7 creates the GitHub issues (and milestone) behind the filing approval
+  and populates the Implementation Issues table; at `none`, including an `--auto`
+  run whose CLAUDE.md declares no filing level, it writes outlines and files
+  nothing. PLAN status set to Active.
 - **coordinated**: at tracking level `none` (its default) Phase 4 agents produce
   structured outlines and Phase 7 writes them, each with `**Repo**:` and
   `**Group**:`, into Issue Outlines with nothing filed. At `issues` or
   `issues-and-milestone` agents produce full issue bodies and Phase 7 files them
-  behind an explicit filing approval.
+  behind the filing approval.
 
 ### Phase Execution
 
@@ -585,18 +448,16 @@ scope from Context Resolution throughout.
 7. **Creation**: Create PLAN doc and optional GitHub artifacts
    - Read: `references/phases/phase-7-creation.md`
    - Artifact: `docs/plans/PLAN-<topic>.md`
-   - multi-pr: GitHub milestone + issues
-   - single-pr: PLAN doc with Issue Outlines, no GitHub artifacts
+   - multi-pr: GitHub milestone + issues behind the filing approval; outlines at `none`
+   - single-pr: PLAN doc with Issue Outlines, no GitHub artifacts unless a stated
+     filing level is approved
    - coordinated: PLAN doc with Repo/Group-tagged outlines at `none`; issues with
      Repo/Group rows, behind a filing approval, only at `issues` levels
-   - Design doc status transitions: Accepted -> Planned (status field only, no body edits); skip for topic input
-   - Cleanup: delete `wip/plan_<topic>_*.md` and `wip/plan_<topic>_*.json` files
 
 ### Critical Requirements
 
 - **Atomic Issues**: each issue should be independent and completable in one session
 - **Topic Scoping**: all wip/ artifacts include `<topic>` in the filename
-- **Input Type**: store the detected `input_type` in the Phase 1 analysis artifact -- it gates branching in subsequent phases
 
 ### Output
 
@@ -604,23 +465,17 @@ Final artifacts depend on execution mode:
 
 **multi-pr mode (design/prd/topic input):**
 - `docs/plans/PLAN-<topic>.md` with status Active
-- GitHub milestone (1:1 with the plan)
-- GitHub issues with complexity labels, acceptance criteria, and milestone assignment
+- At a filing level, after the filing approval: a GitHub milestone (1:1 with the
+  plan, at `issues-and-milestone`) and GitHub issues with complexity labels,
+  acceptance criteria, and milestone assignment
+- At `none`: Issue Outlines instead, and nothing filed
 - Source design doc status updated to "Planned"
 
-**multi-pr mode (roadmap input):**
-- Populating the roadmap's reserved Implementation Issues and Dependency Graph
-  sections is owned by `/roadmap populate` (the `shirabe roadmap populate`
-  subcommand), not by this workflow
-- `/plan` on a roadmap produces the conventional PLAN artifact for a
-  roadmap-scoped slice (`docs/plans/PLAN-<topic>.md`, plus GitHub milestone and
-  issues), per `references/phases/phase-7-creation.md`; it no longer rewrites
-  the roadmap document itself
-
 **single-pr mode:**
-- `docs/plans/PLAN-<topic>.md` with status Draft
+- `docs/plans/PLAN-<topic>.md` with status Active
 - Issue Outlines section populated with structured outlines (goal, AC, dependencies)
-- No GitHub issues or milestone created
+- No GitHub issues or milestone created, unless a stated `issues` or
+  `issues-and-milestone` level is approved at the filing approval
 - Source design doc status updated to "Planned"
 - Not available for roadmap input (roadmap mode is always multi-pr)
 
@@ -635,21 +490,10 @@ Final artifacts depend on execution mode:
 **coordinated mode, tracking level `issues` or `issues-and-milestone`:**
 - `docs/plans/PLAN-<topic>.md` with status Active and the resolved `tracking_level`
 - GitHub issues (and, at `issues-and-milestone`, a milestone), filed only after
-  the explicit filing approval
+  the filing approval
 - An Implementation Issues table with a `_Repo: ... | Group: ..._` row under each
   issue and any `_Gate:` rows
 - Source design doc status updated to "Planned"
-
-### Begin
-
-1. Parse flags from arguments, rejecting an invalid or repeated `--intent` or both
-   coordination flags before anything is written
-2. Detect input type from path pattern (design, prd, roadmap, or topic)
-3. If document input: read the source document and verify status
-4. If topic input: proceed without a source document
-5. Resolve context (visibility and scope)
-6. Check for existing artifacts (resume logic)
-7. Start at appropriate phase
 
 ---
 
@@ -669,13 +513,6 @@ See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md
 
 | File | When to load |
 |------|-------------|
-| `references/phases/phase-1-analysis.md` | Phase 1 |
-| `references/phases/phase-2-milestone.md` | Phase 2 |
-| `references/phases/phase-3-decomposition.md` | Phase 3 + execution mode selection |
-| `references/phases/phase-4-agent-generation.md` | Phase 4 |
-| `references/phases/phase-5-dependencies.md` | Phase 5 |
-| `references/phases/phase-6-review.md` | Phase 6 |
-| `references/phases/phase-7-creation.md` | Phase 7 |
 | `references/templates/agent-prompt.md` | Phase 4 agent spawning (design/prd) |
 | `references/templates/agent-prompt-planning.md` | Phase 4 agent spawning (roadmap) |
 | `references/templates/ac-critical.md` | Phase 4 critical complexity |

@@ -4,8 +4,8 @@
   "skill": "work-on",
   "profile": "work-on",
   "withhold": {
-    "source": "skills/work-on/references/phases/phase-2-introspection.md#L20-L24",
-    "source_commit": "2a3719ed64d3c5b8c4bf65f4e19f2a530b25ad10"
+    "source": "skills/work-on/references/phases/phase-2-introspection.md#L17-L21",
+    "source_commit": "3cc4c54b8afa95b62c544a0d4b99990ba08d8609"
   },
   "target_state": "introspection",
   "deployed_check": "work-on-introspection-evidence",

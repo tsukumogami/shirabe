@@ -14,7 +14,7 @@ description: >-
   calls this as one hop. Do NOT use it to work out the problem and the scope
   boundary in the first place (`/brief`), to choose the technical approach
   (`/design`), or to investigate an open question (`/explore`).
-argument-hint: '<topic or feature name>'
+argument-hint: '<topic, feature name, or BRIEF path> [--upstream <path>] [--auto|--interactive] [--max-rounds=N]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -79,12 +79,19 @@ From `$ARGUMENTS`:
    (which bumps DESIGN `Accepted -> Planned`). See "Execution" below.
 3. **Anything else** -- use as the starting topic for Phase 1 scoping
 
+Modes 1 and 3 may carry `--upstream <path>`, naming the BRIEF, STRATEGY or
+VISION the PRD is written from; Phase 3 validates it before writing it to
+frontmatter. In Mode 2 the positional BRIEF is the upstream, and a different
+`--upstream` is ignored with a note to the author saying so.
+
 ### Context Resolution
 
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
-then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Also
+then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Under
+`/scope`'s sentinel the parent's execution mode wins, since `/scope` passes no
+mode flag (see "Under `/scope`" below). Also
 parse `--max-rounds=N` (default: 2 for prd's discover loop). In --auto mode,
-follow `references/decision-protocol.md` at all decision points. Create
+follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at all decision points. Create
 `wip/prd_<topic>_decisions.md` to track decisions.
 
 When the positional argument is itself a BRIEF path (Input Mode 2), that
@@ -96,7 +103,7 @@ Log: `Specifying requirements with [Private|Public] visibility...`
 
 ```
 parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                   -> see references/fixes/sub-agent-dispatch.md
+                                                   -> see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 PRD exists with status "Accepted"                  -> Offer to revise or start fresh
 PRD exists with status "Draft"                     -> Offer to continue from Phase 3
 wip/research/prd_<topic>_phase2_*.md files exist   -> Resume at Phase 3
@@ -105,9 +112,25 @@ On a branch related to the topic                   -> Resume at Phase 1
 On main or unrelated branch                        -> Start at Phase 0
 ```
 
+**Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names
+`prd` (the first row above), `/prd` still reaches its own Phase 4 verdict
+and makes its own status transition, and skips everything that publishes or
+routes, which `/scope` owns: no push, no pull request, no branch creation, no
+cleanup commit, and no routing prompt. Control returns to `/scope`, which
+decides the next hop. An interactive run asks the author for the verdict as
+usual; an unattended run (`--auto`, which `/prd` takes from the parent's
+execution mode) takes the recommended verdict and names it in its output.
+Setup below and Phase 4 mark each step this changes. This is the
+Parent-owned-publishing shape in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`, per
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
+Without the sentinel, nothing here applies.
+
 ### Critical Requirements
 
-- **User Review**: Never finalize a PRD the user hasn't reviewed and given feedback on
+- **User Review**: Never finalize a PRD the user hasn't reviewed and given feedback on.
+  The one exception is an unattended run under `/scope`, which takes the
+  recommended verdict and names it (see "Under `/scope`" above).
 - **Jury Validation**: Phase 4 is not optional -- authors consistently miss ambiguity and testability gaps in their own writing, so all PRDs get reviewed by 3 agents
 
 ### Execution
@@ -119,6 +142,9 @@ Execute phases sequentially by reading the corresponding phase file:
    - If already on a branch that matches the topic, skip branch creation
    - If on `main` or an unrelated branch, create `docs/<topic>` (kebab-case) -- keeps drafts off main so abandoned PRDs don't need cleanup
    - If unsure whether the current branch is related, ask the user
+   - Under `/scope`'s sentinel, skip all three: work on the branch `/scope`
+     invoked this skill on, whatever its name, and neither create nor switch
+     branches nor ask about it
    - **Upstream brief transition (brief input mode only):** if the input
      was a BRIEF path (Input Mode 2) and the brief's status is `Draft`,
      transition it `Draft -> Accepted` so the chain handoff is symmetric
@@ -138,6 +164,10 @@ Execute phases sequentially by reading the corresponding phase file:
      frontmatter and body in one operation. Commit:
      `docs(brief): mark <brief-name> accepted`
 
+     Under `/scope`'s sentinel this step still runs, since it is a status
+     transition rather than publishing. `/brief` already accepted the brief in
+     its own hop, so it is normally a no-op there.
+
 1. **Scope**: Conversational scoping with coverage tracking
    - Instructions: `references/phases/phase-1-scope.md`
 
@@ -153,7 +183,8 @@ Execute phases sequentially by reading the corresponding phase file:
 ### Output
 
 Final artifact: `docs/prds/PRD-<topic>.md`, transitioning from "Draft" to
-"Accepted" on user approval. After acceptance, suggest next steps:
+"Accepted" on user approval. After acceptance, suggest next steps (not under
+`/scope`, which decides the next hop itself):
 
 | Complexity | Suggestion |
 |-----------|-----------|

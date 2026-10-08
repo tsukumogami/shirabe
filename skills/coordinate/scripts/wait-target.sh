@@ -14,6 +14,13 @@
 # <request-id>:<leg>, are candidates. Message-path workers aren't watched here:
 # their reports arrive as messages the coordinator submits.
 #
+# A holding a pause in the record holds (pause-read.sh over the record's
+# Standing rows, read through record-state.sh --list) is passed over: its leg
+# stays unread and untaken, so nothing consumes a result whose follow-on the
+# pause would refuse, and a `leg` tick after the resume offers it
+# (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1). wait_target
+# names the topics passed over as `passed_over`.
+#
 # A leg is read once. A leg's result can't change after it resolves, and the
 # holding keeps naming the leg until the record drops the row, so a leg
 # whose result the wait state has taken is kept in the context key
@@ -26,7 +33,7 @@
 #
 #   select --session <s>
 #       Writes wait_target as {"path":"leg","topic","request","leg",
-#       "disposition"} or {"path":"none"} and prints the request id or
+#       "disposition","passed_over"} or {"path":"none","passed_over"} and prints the request id or
 #       `none`, whenever the record can be read. It always prints
 #       a token: an empty capture would fail the action instead of letting the
 #       state stop for evidence, which is the wait.
@@ -148,17 +155,34 @@ fi
 
 # --- select --------------------------------------------------------------------------------
 
+# paused_topics <rows-json>: the Workers of the holdings a pause holds, one
+# per line, into $WORK/paused. Returns 2 when the pauses can't be read.
+paused_topics() {
+    : >"$WORK/paused"
+    bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>"$WORK/state.err" || {
+        sed 's/^/  /' "$WORK/state.err" | head -n 3 >&2
+        return 2
+    }
+    jq -e '[(.standing // [])[] | select(.kind == "pause")] | length > 0' "$WORK/state.json" >/dev/null
+    case $? in 0) ;; 1) return 0 ;; *) return 2 ;; esac
+    printf '%s' "$1" | jq -c '[.[].unit // empty]' >"$WORK/units.json" || return 2
+    bash "$DC_HERE/pause-read.sh" --standing "$WORK/state.json" --units "$WORK/units.json" >"$WORK/pauses.json" || return 2
+    printf '%s' "$1" | jq -r --slurpfile p "$WORK/pauses.json" '.[] | select(.unit != null and $p[0].covers[.unit] != null) | .worker' >"$WORK/paused" || return 2
+}
+
 # candidates: one "<disposition><TAB><topic><TAB><request><TAB><leg>" line per
-# leg-bound, dispatched holding, in record order.
+# leg-bound, dispatched holding, in record order, a paused holding's left out.
 candidates() {
     local rows rc
     rows=$(dc_record_list "$SESSION")
     rc=$?
     [ "$rc" -eq 0 ] || return "$rc"
+    paused_topics "$rows" || { printf '%s: the record'"'"'s pauses could not be read\n' "$PROG" >&2; return 2; }
     local topic rp req leg view disp taken
     taken=$(ctx_or_empty taken_legs) || return 2
     while IFS='	' read -r topic rp; do
         [ -n "$topic" ] || continue
+        grep -Fqx -- "$topic" "$WORK/paused" && continue
         req=${rp%%:*}
         leg=${rp#*:}
         printf '%s' "$req" | grep -Eq "$RE_REQ" || continue
@@ -193,12 +217,14 @@ pick() {
     cat "$WORK/pick"
 }
 
+: >"$WORK/paused"
 LINE=$(pick)
 RC=$?
 [ "$RC" -eq 0 ] || { printf '%s: the record could not be read\n' "$PROG" >&2; exit "$RC"; }
 
+PASSED=$(jq -R -s -c 'split("\n") | map(select(. != ""))' "$WORK/paused") || { printf '%s: cannot read the topics passed over\n' "$PROG" >&2; exit 2; }
 if [ -z "$LINE" ]; then
-    put wait_target '{"path":"none"}'
+    put wait_target "$(jq -nc --argjson p "$PASSED" '{path: "none", passed_over: $p}')"
     printf 'none\n'
     exit 0
 fi
@@ -206,5 +232,5 @@ fi
 IFS='	' read -r DISP TOPIC REQ LEG <<EOF
 $LINE
 EOF
-put wait_target "$(jq -nc --arg t "$TOPIC" --arg r "$REQ" --arg l "$LEG" --arg d "$DISP" '{path: "leg", topic: $t, request: $r, leg: $l, disposition: $d}')"
+put wait_target "$(jq -nc --arg t "$TOPIC" --arg r "$REQ" --arg l "$LEG" --arg d "$DISP" --argjson p "$PASSED" '{path: "leg", topic: $t, request: $r, leg: $l, disposition: $d, passed_over: $p}')"
 printf '%s\n' "$REQ"

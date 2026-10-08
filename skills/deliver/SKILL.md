@@ -12,7 +12,7 @@ description: >-
   knows where the topic stopped. Do NOT use it to write only the documents
   (`/scope`), to run a PLAN that already exists and needs no re-scoping
   (`/execute`), or to fix one known issue (`/work-on`).
-argument-hint: '<topic-slug> [--auto|--interactive] [--no-merge] [--upstream <path>] [--max-rounds=N] [--coordinated|--no-coordinated] [--koto-leg=<request-id>:deliver]'
+argument-hint: '<topic-slug> [--auto|--interactive] [--no-merge] [--upstream <path>] [--max-rounds=N] [--coordinated|--no-coordinated] [--review-floor=<level>] [--review-ceiling=<level>] [--koto-leg=<request-id>:deliver]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -26,11 +26,8 @@ re-invoking anything. It passes `--merge` to `/execute` unless `--no-merge` is
 given. An `--auto` run ends `merged` wherever the repository's protection lets
 `/execute` merge, and in a named, resumable state everywhere else. An
 interactive run, the default when neither flag nor the repository's
-`## Execution Mode:` header asks for `auto`, stops before the merge:
-
-| Token | Meaning |
-|-------|---------|
-| `paused-for-review` | Interactive only: `/execute`'s review pause, with the home PR still draft. |
+`## Execution Mode:` header asks for `auto`, stops before the merge, at
+`paused-for-review`: `/execute`'s review pause, with the home PR still draft.
 
 `/deliver` is a koto workflow, and it is thin in behaviour: it writes nothing
 to the repository itself. `/scope` and `/execute` do all of that, as the same
@@ -39,7 +36,8 @@ directly would get. Visibility is checked where content is written: each
 child checks its writes against the repository it writes to, so `/deliver`
 runs in private repositories as well as public ones. What `/deliver` adds is the sequence and the checks
 between the two, and those live in its template,
-`skills/deliver/koto-templates/deliver.md`, not in this file.
+`skills/deliver/koto-templates/deliver.md`, not in this file. koto's request
+store is local, so a `/deliver` run, children included, happens on one machine.
 
 ## Flags
 
@@ -48,11 +46,13 @@ between the two, and those live in its template,
 | `--auto` / `--interactive` | The execution mode, resolved once and passed to both children. With neither, the repository's `## Execution Mode:` header in CLAUDE.md decides, and without one the run is interactive. Interactive runs get one confirmation from `/deliver` before `/execute` starts, naming the PLAN's mode. |
 | `--no-merge` | `/execute` runs without `--merge`, so the run ends at best `ready-awaiting-merge`. Without it, `/execute` gets `--merge`. |
 | `--upstream <path>`, `--max-rounds=N`, `--coordinated` / `--no-coordinated` | Forwarded to `/scope` unchanged. |
+| `--review-floor=<level>`, `--review-ceiling=<level>` | The review-level bound (`light`, `standard` or `full`), forwarded to `/execute` unchanged, which hands it to every `/work-on` run it starts. Without them `/execute` gets neither. |
 | `--koto-leg=<request-id>:deliver` | Binds this run's `deliver-<topic>` session to a leg of a caller's koto request; see Answering a Caller's Leg. Not forwarded to either child. |
 
 koto checks every argument a koto variable can express, not this file: a
 repeated flag, both mode flags, both coordination flags, a malformed topic or
-upstream, or a `--max-rounds` outside 1 to 50 is refused at `koto init` with
+upstream, a `--max-rounds` outside 1 to 50, or a `--review-floor` or
+`--review-ceiling` that isn't `light`, `standard` or `full` is refused at `koto init` with
 exit 2 and no session. `--koto-leg` is the one exception: `deliver-open.sh`
 checks it before any koto call, because without a well-formed value there is
 no leg to record a refusal on (see Answering a Caller's Leg).
@@ -162,6 +162,9 @@ nothing else.
    ```bash
    koto status deliver-<topic> | ${CLAUDE_PLUGIN_ROOT}/skills/deliver/scripts/deliver-report.sh
    ```
+
+   Every `outcome=` token it can print, and what each one means, is listed in
+   the header of `skills/deliver/scripts/deliver-report.sh`.
 
 5. **Close the request.** On the way out, close this run's request:
 

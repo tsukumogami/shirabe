@@ -19,8 +19,9 @@
 #   - no session: a new one
 # and then a session built from another template (template_mismatch, left
 # alone), the mode from the flags and from the `## Execution Mode:` header,
-# MERGE true unless --no-merge, the forwarded flags, koto's refusals of bad or
-# repeated values, a token with shell metacharacters, and the args file's
+# MERGE true unless --no-merge, the forwarded flags (the review-level bound
+# among them, whose absence leaves exactly the pairs a run had before it
+# existed), koto's refusals of bad or repeated values, a token with shell metacharacters, and the args file's
 # removal on every path. Under --koto-leg: a malformed value refused with no
 # koto call; an accepted run bound to the leg, ticked to a terminal, and its
 # result read back off the leg; koto's refusals (an invalid topic, a collision
@@ -170,6 +171,8 @@ eq "MERGE true without --no-merge" '["true"]' "$(var MERGE)"
 eq "TOPIC" '["t-new"]' "$(var TOPIC)"
 eq "PLUGIN_ROOT" "[\"$PLUGIN\"]" "$(var PLUGIN_ROOT)"
 eq "no COORDINATION, UPSTREAM or MAX_ROUNDS pair" '[]' "$(vars '[.[] | select(.[0] == "COORDINATION" or .[0] == "UPSTREAM" or .[0] == "MAX_ROUNDS")]')"
+eq "no flags: exactly the pairs a run had before the review-level bound existed" \
+    '["TOPIC","MODE","MERGE","PLUGIN_ROOT"]' "$(vars 'map(.[0])')"
 args_gone "no session"
 
 echo "== a same-origin live session =="
@@ -257,6 +260,11 @@ eq "--no-merge: MERGE false" '["false"]' "$(var MERGE)"
 eq "--coordinated" '["coordinated"]' "$(var COORDINATION)"
 eq "--max-rounds=7" '["7"]' "$(var MAX_ROUNDS)"
 eq "--upstream <path>" '["docs/roadmaps/ROADMAP-x.md"]' "$(var UPSTREAM)"
+open_deliver '["t-bound","--review-floor=standard","--review-ceiling=full"]'
+eq "the review-level bound: exit 0" 0 "$RC"
+eq "--review-floor=standard" '["standard"]' "$(var REVIEW_FLOOR)"
+eq "--review-ceiling=full" '["full"]' "$(var REVIEW_CEILING)"
+eq "the bound session is at open_request" open_request "$(state_of t-bound)"
 
 echo "== koto's refusals =="
 open_deliver '["t-dup","--auto","--interactive"]'
@@ -275,6 +283,20 @@ has "names the flag" "--max-rounds" "$STDERR"
 
 open_deliver '["t-up","--upstream"]'
 refused "a bare --upstream"
+
+open_deliver '["t-floor","--review-floor=medium"]'
+refused "--review-floor=medium"
+has "refused=invalid_var" "refused=invalid_var" "$STDOUT"
+has "names the flag" "--review-floor" "$STDERR"
+eq "no session" none "$(state_of t-floor)"
+
+open_deliver '["t-ceil","--review-ceiling=light","--review-ceiling=full"]'
+refused "--review-ceiling twice"
+has "refused=duplicate_var" "refused=duplicate_var" "$STDOUT"
+has "names the flag" "--review-ceiling" "$STDERR"
+
+open_deliver '["t-barefloor","--review-floor"]'
+refused "a bare --review-floor"
 
 open_deliver '["Upper"]'
 refused "an uppercase topic"

@@ -129,6 +129,8 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     eq "$L: evidence --before bounds the window" 3 "$(bash "$CL" evidence --session "$S" --state wait --before 5 | jq .seq)"
     eq "$L: evidence --after bounds the window" 6 "$(bash "$CL" evidence --session "$S" --state wait --after 5 | jq .seq)"
     eq "$L: evidence --where matches a field" 3 "$(bash "$CL" evidence --session "$S" --state wait --where event=report | jq .seq)"
+    eq "$L: evidence --where with alternatives matches either" 5 "$(bash "$CL" evidence --session "$S" --state wait --where 'event=report|merged' | jq .seq)"
+    eq "$L: evidence --where alternatives that match nothing are none" 1 "$(bash "$CL" evidence --session "$S" --state wait --where 'event=nope|never' >/dev/null; echo $?)"
     eq "$L: evidence --where twice matches both" 5 "$(bash "$CL" evidence --session "$S" --state wait --where event=merged --where unit=beta | jq .seq)"
     bash "$CL" evidence --session "$S" --state wait --where unit=gamma; eq "$L: evidence --where with no match is none" 1 $?
     eq "$L: evidence --has skips evidence without the field" 5 "$(bash "$CL" evidence --session "$S" --state wait --has unit | jq .seq)"
@@ -136,6 +138,7 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     # unit: the message path.
     eq "$L: unit is the latest wait evidence naming a unit" "topic beta" "$(bash "$CL" unit --session "$S")"
     eq "$L: unit --event takes that event's evidence" "topic alpha" "$(bash "$CL" unit --session "$S" --event report)"
+    eq "$L: unit --event with alternatives takes the latest of either" "topic beta" "$(bash "$CL" unit --session "$S" --event 'report|merged')"
     eq "$L: unit --event takes the evidence even when it names no unit" "topic " "$(bash "$CL" unit --session "$S" --event tick)"
     eq "$L: unit --before bounds the window" "topic alpha" "$(bash "$CL" unit --session "$S" --before 5)"
     bash "$CL" unit --session "$S" --before 3; eq "$L: unit with no arrival is none" 1 $?
@@ -199,4 +202,27 @@ if command -v shasum >/dev/null 2>&1; then
 else
     echo "note: shasum not present; the macOS hashing path was not exercised here"
 fi
+echo "== wakes =="
+WS=coordinate-roadmap-wakes-20260926T080000Z
+found_session "$WS" "$(roadmap_vars wakes)" 7
+log_to "$WS" reconcile wait 2026-09-26T08:02:00.000Z
+log_evidence "$WS" wait '{"event":"progress","unit":"alpha","report":"checkpoint"}' 2026-09-26T08:10:00.000Z
+log_evidence "$WS" wait '{"event":"report","unit":"alpha","report":"ready"}' 2026-09-26T08:20:00.000Z
+log_evidence "$WS" wait '{"event":"leg"}' 2026-09-26T08:30:00.000Z
+log_capture "$WS" WAIT_REQ "req_b" 2026-09-26T08:30:01.000Z
+log_evidence "$WS" wait '{"event":"leg"}' 2026-09-26T08:35:00.000Z
+log_capture "$WS" WAIT_REQ "none" 2026-09-26T08:35:01.000Z
+log_evidence "$WS" wait '{"event":"quiet"}' 2026-09-26T09:00:00.000Z
+log_capture "$WS" QUIET "first-silence alpha gamma sealed:9:abc" 2026-09-26T09:00:01.000Z
+log_evidence "$WS" wait '{"event":"quiet"}' 2026-09-26T09:10:00.000Z
+log_capture "$WS" QUIET "quiet-none sealed:11:abc" 2026-09-26T09:10:01.000Z
+log_evidence "$WS" wait '{"event":"resume"}' 2026-09-26T09:20:00.000Z
+log_evidence "$WS" wait '{"event":"retire","unit":"alpha"}' 2026-09-26T09:30:00.000Z
+log_evidence "$WS" wait '{"event":"merged","unit":"alpha"}' 2026-09-26T09:40:00.000Z
+eq "every wake attributed: messages and merged by unit, a leg by its request, a quiet sweep by the topics it named, the rest to the run; retire is no wake" \
+    '{"":3,"alpha":4,"gamma":1,"leg req_b":1}' "$(bash "$HERE/coord-log.sh" wakes --session "$WS" | jq -cS .)"
+eq "--after-time counts only the wakes after it" '{"":2,"alpha":1}' \
+    "$(bash "$HERE/coord-log.sh" wakes --session "$WS" --after-time 2026-09-26T09:05:00Z | jq -cS .)"
+eq "a run with no wakes prints an empty object" '{}' "$(bash "$HERE/coord-log.sh" wakes --session "$WS" --after-time 2026-09-26T10:00:00Z | jq -c .)"
+
 done_tests coord-log

@@ -5,7 +5,7 @@
 #
 # Check mode, first that applies:
 #   unknown-topic         the pick being checked dispatches (dispatch,
-#                         scope_ahead, send_execution) and its `unit` isn't a
+#                         scope, scope_ahead, send_execution) and its `unit` isn't a
 #                         dispatch topic (dispatch-common.sh dc_valid_topic,
 #                         the grammar render-brief.sh holds a brief to): a
 #                         unit's tag such as "Feature 2" is refused before
@@ -25,6 +25,22 @@
 #                         docs/disciplines/<name>.md on the host's default
 #                         branch (absent: none) that the record doesn't carry,
 #                         by its Deferral text, with a disposition
+#   paused <id>           a pause in the record's Standing section holds
+#                         this dispatch (pause-read.sh): a dispatch whose
+#                         topic is the Worker of a holding (send_execution, a
+#                         redispatch) is held by a pause on `all` or on that
+#                         unit, unless a go-ahead names the unit; a new
+#                         dispatch by a pause on `all` unless a go-ahead
+#                         stands. A new dispatch's unit isn't known here
+#                         (pick's evidence names only its topic), so
+#                         dispatch-worker.sh refuses a new dispatch of a unit
+#                         pick marked paused.
+#                         It comes after unknown-topic and record-changed and
+#                         before every verdict below, so a paused dispatch
+#                         isn't sent to dispose of deferrals or settle
+#                         decisions first; the redispatch's unit is resolved
+#                         before it (docs/designs/current/DESIGN-coordinate-paused-state.md,
+#                         Decision 1)
 #   decision-owed <rule>  decision-next.sh --owed dispatch names a rule that
 #                         blocks this dispatch (the DESIGN's blocking table):
 #                         before the run's first dispatch any owed rule, after
@@ -36,7 +52,7 @@
 #                         dispatch path takes. Nothing is written and the
 #                         run goes back to failure, where escalate stays
 #   duplicate-topic <topic>
-#                         the pick dispatches (dispatch or scope_ahead) a
+#                         the pick dispatches (dispatch, scope or scope_ahead) a
 #                         topic a Holdings row already names as its Worker:
 #                         worker session names are machine-wide, so a second
 #                         live worker on the topic would collide with the
@@ -44,8 +60,8 @@
 #                         and nothing is recorded on a leg already bound)
 #   at-cap <active>/<cap> <parked>/<bound>
 #                         the pick being checked (the latest `pick` evidence)
-#                         would pass the cap or the parked bound: dispatch and
-#                         scope_ahead add an active worker, so they need
+#                         would pass the cap or the parked bound: dispatch,
+#                         scope and scope_ahead add an active worker, so they need
 #                         active < CAP and parked < PARKED_BOUND;
 #                         send_execution to a scoping-ahead holding, and a
 #                         redispatch of a unit still held, move a worker
@@ -58,7 +74,9 @@
 #                         unknown-topic or unresolved-topic. record-confirm.sh holds the
 #                         dispatch that follows to this topic
 # A row is parked when it has a Verified head and its pull request is open and
-# not a draft; every other Holdings row is active. CAP and PARKED_BOUND are the
+# not a draft; a row with a Verified head and a cleared Pull request cell is
+# merged, waiting for its worker's teardown, and counts as neither; every
+# other Holdings row is active. CAP and PARKED_BOUND are the
 # session's variables. The detail goes to context key coord/dispatch_check.json.
 #
 # Row mode judges one Deferrals row (a JSON object with deferral, reason,
@@ -236,13 +254,13 @@ case "$FROMST" in
         fi ;;
 esac
 [[ $U =~ $RE_TOPIC ]] && TOPIC=$U
-case "$CHOICE" in ''|dispatch|scope_ahead|send_execution|redispatch) ;; *) CHOICE=other ;; esac
+case "$CHOICE" in ''|dispatch|scope|scope_ahead|send_execution|redispatch) ;; *) CHOICE=other ;; esac
 
 # A pick that dispatches must name a topic the dispatch path can take
 # (dispatch-common.sh's dc_valid_topic, the check render-brief.sh and
 # dispatch-worker.sh apply), never a unit's tag from coord/pick.json. One
 # that doesn't is refused before any read, and pick is asked again.
-case "$CHOICE" in dispatch|scope_ahead|send_execution)
+case "$CHOICE" in dispatch|scope|scope_ahead|send_execution)
     if ! dc_valid_topic "$U"; then
         TOPIC=-
         REASON="pick's unit [${U:0:80}] is not a dispatch topic: unit takes the topic the worker is dispatched under, matching $DC_TOPIC_GRAMMAR, never a unit's tag or title from coord/pick.json such as \"Feature 2\" or \"#12\""
@@ -276,6 +294,39 @@ case $? in
     3|65) REASON="#$REF is no longer a canonical $SCOPE record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)"; finish record-changed ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+# The cap a person set in the record's Run section wins over the session's.
+# The first lib_bounds, above, read only the session, for the verdicts that
+# finish before the record is read; the cap check below uses this one.
+lib_bounds "$T/parsed.json"
+
+# A redispatch's unit, resolved from the record's rows before the pause read
+# needs it (its refusal, unresolved-topic, still comes after the deferrals and
+# the decisions).
+jq '.holdings' "$T/parsed.json" > "$T/holdings.json"
+if [ "$UNIT_FROM_LOG" = 1 ]; then
+    parsed_holdings() { cat "$T/holdings.json"; }
+    lib_unit "" "" parsed_holdings; rc=$?
+    case $rc in 0) TOPIC=$UNIT ;; *) TOPIC=- ;; esac
+fi
+
+# The pauses. A dispatch whose topic is a holding's Worker is held by
+# whatever holds that holding's unit (a pause on `all` or on the unit, unless
+# a go-ahead names it). A new dispatch's unit isn't known here: a pause on
+# `all` holds it unless some go-ahead stands, in which case the unit may be
+# the one let through and dispatch-worker.sh, which knows it, decides.
+jq '{standing: (.standing // [])}' "$T/parsed.json" > "$T/standing.json" || lib_die2 "jq failed"
+jq -c --arg t "$TOPIC" '[.[] | select(.worker == $t) | .unit]' "$T/holdings.json" > "$T/punits.json" || lib_die2 "jq failed"
+bash "$HERE/pause-read.sh" --standing "$T/standing.json" --units "$T/punits.json" > "$T/pauses.json" 2> "$T/pauses.err" \
+    || lib_die2 "cannot read the record's pauses: $(lib_scrub < "$T/pauses.err")"
+if [ "$(jq length "$T/punits.json")" -gt 0 ]; then
+    PAUSED=$(jq -r '[.covers[] | select(. != null)][0] // empty' "$T/pauses.json")
+else
+    PAUSED=$(jq -r 'if (.go_aheads | length) > 0 then empty else (.all // empty) end' "$T/pauses.json")
+fi
+if [ -n "$PAUSED" ]; then
+    REASON="held by pause $PAUSED: $(jq -r --arg s "$PAUSED" '.pauses[] | select(.standing == $s) | "on \(.on), until \(.until), set \(.set) by \(.owner)"' "$T/pauses.json")"
+    finish "paused $PAUSED"
+fi
 
 # Deferrals raised before the run start.
 START=$(bash "$HERE/coord-log.sh" run-start --session "$SESSION" 2>/dev/null) || lib_die2 "cannot read the run start"
@@ -358,12 +409,6 @@ if [ "$OWED_RULE" != none ]; then
     REASON="decision work is owed first: $OWED_RULE"; finish "decision-owed $OWED_RULE"
 fi
 
-jq '.holdings' "$T/parsed.json" > "$T/holdings.json"
-if [ "$UNIT_FROM_LOG" = 1 ]; then
-    parsed_holdings() { cat "$T/holdings.json"; }
-    lib_unit "" "" parsed_holdings; rc=$?
-    case $rc in 0) TOPIC=$UNIT ;; *) TOPIC=- ;; esac
-fi
 # Nothing passes without a topic the dispatch path can take: a redispatch
 # whose unit can't be resolved, or resolves to a Worker the dispatch path
 # would refuse, goes back to failure rather than sealing `ok -`.
@@ -378,7 +423,7 @@ if ! dc_valid_topic "$TOPIC"; then
     finish unresolved-topic
 fi
 # A topic already held. send_execution is judged below, as it targets a holding.
-if { [ "$CHOICE" = dispatch ] || [ "$CHOICE" = scope_ahead ]; } && [ "$TOPIC" != - ] \
+if { [ "$CHOICE" = dispatch ] || [ "$CHOICE" = scope ] || [ "$CHOICE" = scope_ahead ]; } && [ "$TOPIC" != - ] \
     && jq -e --arg t "$TOPIC" 'any(.[]; .worker == $t)' "$T/holdings.json" > /dev/null; then
     REASON="a Holdings row already names $TOPIC as its worker"
     finish "duplicate-topic $TOPIC"
@@ -387,7 +432,7 @@ fi
 # The cap and the parked bound.
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
 PARKED=$(jq '[.[] | select(.parked)] | length' "$T/counted.json")
-ACTIVE=$(jq '[.[] | select(.parked | not)] | length' "$T/counted.json")
+ACTIVE=$(jq '[.[] | select((.parked | not) and (.merged | not))] | length' "$T/counted.json")
 ATCAP=0
 # send_execution moves a worker already counted only when the unit really is
 # a scoping-ahead holding; otherwise it would start a worker, and is judged as

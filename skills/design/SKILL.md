@@ -36,8 +36,6 @@ and are the input for /plan (which breaks designs into issues).
 
 **Lifecycle:** Durable. Stays in `docs/designs/` after completion.
 
-DESIGN is durable because the architectural decisions captured at DESIGN-Accepted time are the audit trail of how the implementation was chosen. Future readers asking why a particular architecture was selected need the DESIGN to remain in place; Current-state designs move to docs/designs/current/ but stay on disk.
-
 ## Structure
 
 ### Frontmatter
@@ -124,16 +122,8 @@ lifecycle, validation rules, and quality guidance.
 
 ## File Location
 
-Directory structure makes lifecycle state visible in file paths without opening files:
-
-- Active: `docs/designs/DESIGN-<topic>.md` (kebab-case)
-- Current: `docs/designs/current/DESIGN-<topic>.md`
-- Archived: `docs/designs/archive/DESIGN-<topic>.md`
-
-### Sections Added During Lifecycle
-
-**Implementation Issues** -- added by /plan. Contains issues table and Mermaid
-dependency diagram. See your project's diagram convention, or follow the format: an issues table with a Mermaid dependency diagram showing issue relationships.
+`references/lifecycle.md` maps each status to its directory. A superseded
+design moves to `docs/designs/archive/DESIGN-<topic>.md`.
 
 ---
 
@@ -144,7 +134,8 @@ investigates multiple approaches with equal depth before committing to one.
 
 The core pattern is decompose-decide-validate: Phase 1 breaks the design into
 independent decision questions. Phase 2 delegates each question to the decision skill
-for structured evaluation. Phase 3 cross-validates assumptions across decisions to
+for structured evaluation; under a parent skill, a standard-tier question is
+resolved inline instead and a critical one still goes to `/decision`. Phase 3 cross-validates assumptions across decisions to
 catch conflicts. Phases 4-6 synthesize architecture, run security review, and finalize.
 
 ### Input Modes
@@ -159,33 +150,17 @@ From `$ARGUMENTS`:
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
 then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Also
 parse `--max-rounds=N` (default: 1 for design's corrective loop). In --auto
-mode, follow `references/decision-protocol.md` at all decision points. Create
+mode, follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at all decision points. Create
 `wip/design_<topic>_decisions.md` to track decisions.
 
 Detect visibility and scope as described in Context-Aware Sections above.
 For cross-repo source issues, use `gh` commands to read content.
 
-### Workflow Phases
-
-```
-Phase 0: SETUP --> Phase 1: DECOMPOSE --> Phase 2: EXECUTE --> Phase 3: CROSS-VALIDATE --> Phase 4: INVESTIGATE --> Phase 5: SECURITY --> Phase 6: FINALIZE
-```
-
-| Phase | Purpose | Artifact |
-|-------|---------|----------|
-| 0 | Branch setup, PRD extraction or freeform scoping | Design doc skeleton, wip/ summary |
-| 1 | Identify independent decision questions | `wip/design_<topic>_coordination.json` |
-| 2 | Run decision skill per question (parallel agents) | `wip/design_<topic>_decision_<N>_report.md` |
-| 3 | Cross-validate assumptions across decisions | Considered Options in design doc |
-| 4 | Investigation + architecture synthesis (slimmed) | Solution Architecture, Consequences |
-| 5 | Mandatory security review (3 outcomes) | Security Considerations |
-| 6 | Review, strawman check, frontmatter, commit, PR | Complete design doc |
-
 ### Resume Logic
 
 ```
 parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                          → see references/fixes/sub-agent-dispatch.md
+                                                          → see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 Design doc status "Accepted"                              → Offer to revise or start fresh
 Design doc status "Proposed"                              → Offer to continue
 wip/research/design_<topic>_phase5_security.md            → Resume at Phase 6
@@ -197,19 +172,11 @@ wip/design_<topic>_summary.md exists, no coordination     → Resume at Phase 1
 On topic branch, no artifacts                             → Resume at Phase 0
 ```
 
-Phase 0 detection: if the parent-chain sentinel is present in
-`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
-(strategic), see `references/fixes/sub-agent-dispatch.md` for the
-fallback shape that applies. Behavior under direct invocation is
-unchanged when the sentinel is absent.
-
 ### Critical Requirements
 
 - **Decision decomposition before execution**: identify all decision questions in Phase 1 before spawning any decision agents in Phase 2
 - **Equal-depth investigation**: every decision question gets the same framework treatment at its assigned tier
 - **Cross-validation is mandatory**: Phase 3 always runs after Phase 2, even with one decision
-- **Security is mandatory**: Phase 5 always runs; output may be N/A but the review is not optional
-- **Strawman check**: Phase 6 validates rejected alternatives have genuine depth
 - **Topic-scoped artifacts**: all wip/ files include `<topic>` in their path
 
 ### Output
@@ -238,9 +205,21 @@ whether it changes an API surface, whether it crosses packages), not the Simple
 or Complex label alone.
 
 **"Plan":** suggest running `/plan <design-doc-path>` to create implementation issues.
-The PR should NOT be merged yet — `/plan` will add an "Implementation Issues" section.
 
 **"Approve only":** stop here; the user handles implementation manually.
+
+**Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names `design` (the
+Resume Logic's first row), `/design` still reaches its own Phase 6 verdict
+(6.7) and makes its own status transition (6.8), and skips everything that
+publishes or routes, which `/scope` owns: no push, no pull request, no
+branch creation, no cleanup commit, and no routing prompt -- the complexity
+assessment and its Plan or Approve question above are not asked. Control
+returns to `/scope`, which decides the next hop. An interactive run asks the
+author for the verdict as usual; an unattended run (`--auto`, which
+`/design` takes from the parent's execution mode) takes the recommended
+verdict and names it in its output. This is the Parent-owned-publishing
+shape in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`, per
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
 
 ### Execution
 
@@ -275,14 +254,6 @@ See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md
 
 | File | When to load |
 |------|-------------|
-| `references/phases/phase-0-setup-prd.md` | Phase 0, PRD input mode |
-| `references/phases/phase-0-setup-freeform.md` | Phase 0, freeform input mode |
-| `references/phases/phase-1-decomposition.md` | Phase 1 |
-| `references/phases/phase-2-execution.md` | Phase 2 |
-| `references/phases/phase-3-cross-validation.md` | Phase 3 |
-| `references/phases/phase-4-architecture.md` | Phase 4 (investigation, slimmed) |
-| `references/phases/phase-5-security.md` | Phase 5 |
-| `references/phases/phase-6-final-review.md` | Phase 6 |
 | `references/lifecycle.md` | Phase 6 (status transitions, label lifecycle, validation) |
 | `references/quality/considered-options-structure.md` | When writing Considered Options |
 | `shirabe transition <design-path> <status>` (Superseded takes `--superseded-by <path>`) | Status transitions with file movement |

@@ -10,8 +10,8 @@ abandonment-forced, the clean cancel and its one deletion, the
 HTML-comment marker placement for force-materialized partials,
 the `git commit -F` discipline for author-supplied prose
 written into commits, the public-history disclaimer for in-
-chain Reject, and the closed write-target set Phase 3 may
-touch.
+chain Reject. The closed write-target set Phase 3 may touch is
+declared in `skills/scope/SKILL.md` (Security Considerations).
 
 ## Table of Contents
 
@@ -26,8 +26,6 @@ touch.
 - [R9 Hard-Finalization Check](#r9-hard-finalization-check)
 - [`git commit -F` Discipline](#git-commit--f-discipline)
 - [Public-History Disclaimer](#public-history-disclaimer)
-- [Closed Write-Target Set](#closed-write-target-set)
-- [State-File Enum Re-Validation Before Path Interpolation](#state-file-enum-re-validation-before-path-interpolation)
 - [References](#references)
 
 ## Three Exit Paths
@@ -124,12 +122,17 @@ The chain ended at a settled-upstream boundary. Phase 3 writes
 a Decision Record at the canonical Interface I.2 path:
 
 ```
-docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md
+docs/decisions/DECISION-{brief|prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md
 ```
 
-The four boundary × sub-shape combinations bind to the four
+The five boundary × sub-shape combinations bind to the five
 templates from
-`skills/scope/references/decision-record-{prd|design}-{re-evaluation|rejection}.md`:
+`skills/scope/references/decision-record-{brief|prd|design}-{re-evaluation|rejection}.md`.
+The `brief` boundary has only the rejection sub-shape: nothing above a
+BRIEF in the chain can be re-evaluated.
+
+- `boundary: brief; decision_record_sub_shape: rejection` →
+  `skills/scope/references/decision-record-brief-rejection.md`.
 
 - `boundary: prd; decision_record_sub_shape: re-evaluation` →
   `skills/scope/references/decision-record-prd-re-evaluation.md`.
@@ -144,7 +147,7 @@ State file at re-evaluation exit:
 
 ```yaml
 exit: re-evaluation
-boundary: prd | design
+boundary: brief | prd | design
 decision_record_sub_shape: re-evaluation | rejection
 referenced_artifact: <path to the settled-upstream artifact>
 chain_completed: <ISO-8601 timestamp>
@@ -165,13 +168,39 @@ tempfile, never interpolated into the commit message via
 
 ### Abandonment-Forced Exit
 
-The chain cannot complete the planned terminal artifact. Phase
-3 force-materializes the most-recently-running child's
-intermediate as a Draft artifact at its canonical durable path
-(`docs/briefs/BRIEF-<topic>.md`, `docs/prds/PRD-<topic>.md`,
-`docs/designs/DESIGN-<topic>.md`, or
-`docs/plans/PLAN-<topic>.md`) and appends the HTML-comment
-marker to the END of the artifact's Status section.
+The chain cannot complete the planned terminal artifact. An
+abandoned run writes no PLAN, only the upstream documents: a
+committed Draft PLAN fails the lifecycle check, and a PLAN that
+never finished holds little a later run could reuse (per
+`docs/decisions/DECISION-contradiction-scope-abandonment-draft-plan-2026-09-28.md`).
+
+- When the triggering child is `/brief`, `/prd` or `/design`,
+  Phase 3 force-materializes that child's intermediate as a Draft
+  artifact at its canonical durable path
+  (`docs/briefs/BRIEF-<topic>.md`, `docs/prds/PRD-<topic>.md`, or
+  `docs/designs/DESIGN-<topic>.md`) and appends the HTML-comment
+  marker to the END of its Status section.
+- When the triggering child is `/plan`, nothing is
+  force-materialized and `docs/plans/PLAN-<topic>.md` is not
+  written. If `/plan` already left a PLAN there, delete it: it is
+  uncommitted, because the plan hop commits only after its gate
+  passes, and a Draft PLAN on the pushed branch fails the
+  lifecycle check. The marker goes at the END of the Status section of
+  the nearest upstream document the chain left on disk (the
+  DESIGN, or the PRD or BRIEF when the DESIGN was absorbed), and
+  `exit_artifacts:` lists the upstream documents at their current
+  status. `/plan`'s intermediate files stay where they are for a
+  resumed run, as every abandoned child's do.
+- When no child is in flight, because the run stopped between hops
+  (an escalated upstream change, per Phase 2's Escalation phase),
+  nothing is force-materialized and no document is re-drafted. The
+  marker goes at the END of the Status section of the last document
+  the chain produced, at its current status, and `exit_artifacts:`
+  lists the documents on disk. `triggering_child:` (and the
+  marker's `triggering-child`) is the child the escalation stopped
+  before invoking: Phase 2's worktree check runs immediately before
+  a child is invoked, so that child is the one the stop belongs to,
+  and the field's enum has no value for "none".
 
 State file at abandonment-forced exit:
 
@@ -181,8 +210,8 @@ triggering_child: brief | prd | design | plan
 partial_phase_reached: <the parent's own Phase 2 loop position>
 chain_completed: <ISO-8601 timestamp>
 exit_artifacts:
-  - path: docs/{briefs|prds|designs|plans}/<TYPE>-<topic>.md
-    status: Draft
+  - path: docs/{briefs|prds|designs}/<TYPE>-<topic>.md
+    status: Draft   # or the upstream document's own status when /plan triggered
 ```
 
 #### Coordinated abandonment closes the coordination PR
@@ -198,7 +227,7 @@ coordination PR, and never leaves it open either: an open coordination
 PR is merge-eligible, and merging it lands the plan the run just
 abandoned. Closing it unmerged leaves the partial state auditable —
 the closed PR's durable body records what was coordinated, and the
-force-materialized Draft records how far the chain got.
+marked document records how far the chain got.
 
 A single-repo run has no coordination PR and skips this.
 
@@ -284,7 +313,9 @@ down the empty state file is the whole of what it leaves behind.
 
 The abandonment-forced exit appends the uniform single-line
 HTML-comment marker to the END of the force-materialized
-artifact's existing Status section. The literal marker text:
+artifact's existing Status section, or, when `/plan` was the
+triggering child, of the nearest upstream document's. The literal
+marker text:
 
 ```
 <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> -->
@@ -307,8 +338,8 @@ Four contract rules bind the marker:
 - **(d) Enum constraint on `<name>`.** `<name>` MUST be one of
   `brief | prd | design | plan`, resolved by R8's tie-break.
 
-The marker uniformly applies to all four artifact types
-without per-child variation. The grep-checkable literal
+The marker uniformly applies to the three upstream artifact
+types without per-child variation. The grep-checkable literal
 substring downstream consumers assert against is
 `scope-status-block: abandonment-forced`.
 
@@ -394,151 +425,6 @@ The disclaimer is not a `/scope`-side prompt; it is a contract
 here to document the chain-level expectation that the
 substring is present in those child prompts.
 
-## Closed Write-Target Set
-
-Phase 3's filesystem write surface is confined to the enumerated
-set. Writes outside it fail the R9 hard-finalization check.
-
-**`skills/scope/SKILL.md` is the authoritative declaration.** This
-is a restatement for readers working in this phase, and the two
-must not diverge — they did before, disagreeing about whether the
-PLAN was a Phase 3 write target, and that disagreement was one of
-three defects this enumeration corrects.
-
-Phase 3's own writes:
-
-- `docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md`
-  — Decision Records on `re-evaluation` exit.
-- `docs/{briefs,prds,designs,plans}/{BRIEF,PRD,DESIGN,PLAN}-<topic>.md`
-  and `docs/designs/current/DESIGN-<topic>.md` —
-  force-materialization only, on `abandonment-forced` exit. Both
-  DESIGN locations are named because the canonical DESIGN path is
-  the pair; `docs/plans/` is named because the terminal child's
-  intermediate force-materializes there like every other child's,
-  and its omission from this group while the Mutations group
-  carried it was an inconsistency rather than a boundary.
-- `wip/scope_<topic>_*` — state file and ancillary scratch under
-  the same prefix.
-
-Phase 2's absorb adds two groups, recorded here because the
-enumeration is closed across the skill rather than per phase:
-
-- **Deletions:** `docs/briefs/BRIEF-<topic>.md`,
-  `docs/prds/PRD-<topic>.md`, `docs/designs/DESIGN-<topic>.md`.
-  The PLAN is never a deletion target of a fold.
-- **Mutations:** `docs/{prds,designs,plans}/{PRD,DESIGN,PLAN}-<topic>.md`
-  and `docs/designs/current/DESIGN-<topic>.md` — the survivor, at
-  whichever hop and at whichever of the two DESIGN locations it
-  sits. `docs/plans/` is included because the PLAN is the survivor
-  at the terminal hop.
-
-Phase 2's per-hop commit and the absorb's own commit add a third,
-which is the group that makes the omissions above matter: every
-path an enumeration governing commits leaves out is a live write at
-an undeclared target.
-
-- **Commits:** `docs/briefs/BRIEF-<topic>.md`,
-  `docs/prds/PRD-<topic>.md`, `docs/designs/DESIGN-<topic>.md`,
-  `docs/designs/current/DESIGN-<topic>.md`,
-  `docs/plans/PLAN-<topic>.md`. The `.git/` writes are confined to
-  `git add` and `git commit` restricted to those pathspecs.
-
-The publish step adds a fourth group, on intent runs only (a run
-with no intent makes no push and no `gh` call), written by
-`skills/scope/scripts/publish-scoping-pr.sh` in the publish states
-and in `republish`:
-
-- **Publish:**
-  - **untrack** — `git rm --cached` of the topic's own
-    `wip/{scope,brief,prd,design,plan}_<topic>_*` and
-    `wip/research/{prd,design}_<topic>_*`, committed as exactly that
-    removal and nothing else staged; the files stay on disk for
-    Phase 4
-  - **push** — `git push origin HEAD:refs/heads/<branch>`, with no
-    force option and no `+` refspec, refused for a detached HEAD, for
-    a branch failing `git check-ref-format --branch`, and for the
-    remote's default branch
-  - **create** — one `gh pr create --head <branch> --base <default>
-    --title <title> --body-file <file>`, only when the ownership
-    filter finds no owned PR on the branch
-  - **edit** — `gh pr edit --body-file` on the one owned PR, only to
-    rewrite its `intent=` field
-
-  `gh pr create` and that `gh pr edit` are the only `gh` writes. Every
-  PR lookup goes through the ownership filter in
-  `skills/execute/scripts/owned-pr.sh`. The body is a fixed template
-  over the slug, exit, outcome, `intent=`, mode, `docs/` artifact
-  paths and work-item IDs. Every `wip/` path in unpushed history is
-  reported as `wip_paths=`, and the public-content visibility check
-  over those files stops the push with `scope:push` on a hit.
-
-The workflow session adds an out-of-repo group, neither member of
-which is version-controlled or referenced from a committed
-artifact:
-
-- **Out-of-repo ephemera:** the koto session store (`~/.koto/sessions/`
-  by default) and koto's template compile cache
-  (`$XDG_CACHE_HOME/koto`, or `~/.cache/koto` when that variable is
-  unset).
-
-R8's clean cancel adds one deletion, enumerated for the same
-reason:
-
-- `wip/scope_<topic>_state.md` — the one path a bail removes.
-  `wip/scope_<topic>_handoff.md` sits under the same prefix and is
-  carved out of that deletion; it is enumerated here and never
-  swept by a bail.
-
-Phase 3 does not delete, and on the paths that produce one it does
-not write the PLAN: it records the deletion Phase 2 already
-performed and lists the terminal artifact's path in
-`exit_artifacts:`. Both of those remain true — what changed is that
-the phase performing each write is now named, which is what lets
-"Phase 3 does not write the PLAN" and "Phase 2's absorb writes it"
-both stand. The one exception is the exit that produces no PLAN of
-its own: on `abandonment-forced` with `/plan` as the triggering
-child, Phase 3 force-materializes that child's intermediate at
-`docs/plans/PLAN-<topic>.md`, which is why the path is in the
-abandonment group above and why leaving it out was an oversight
-rather than a bound.
-
-Every path inside the repository is composed from the validated
-topic slug or is a fixed constant, never from author-supplied text,
-so the set stays closed and enumerable. The two out-of-repo
-locations are resolved by koto from its own configuration; this
-skill composes neither.
-
-## State-File Enum Re-Validation Before Path Interpolation
-
-Before constructing the Decision Record write path on
-`re-evaluation` exit, Phase 3 re-validates the gating fields
-against their declared enums:
-
-- `boundary:` against `{prd, design}`.
-- `decision_record_sub_shape:` against `{re-evaluation, rejection}`.
-- `triggering_child:` against `{brief, prd, design, plan}` (when
-  the exit is abandonment-forced and the field is interpolated
-  into the force-materialization path).
-- `plan_execution_mode:` against
-  `{single-pr, multi-pr, coordinated}` (when
-  the field is interpolated into any post-finalization commit
-  body). `coordinated` is accepted in a single repository as in
-  several; anything else (`bogus`, an empty value) is refused.
-- `publish_error:` against `{scope:push, scope:pr-create}`, and
-  only beside a recorded `exit:`.
-- `published_pr:` against
-  `^https://github\.com/<owner>/<repo>/pull/<n>$`.
-
-`skills/scope/scripts/resume-probe.sh` applies the same checks on
-every re-entry and reports a failure as the malformed-state row
-[25].
-
-Out-of-enum values fail finalization and route to R8 bail-
-handling. The re-validation is the second of the two enum-
-check surfaces (the first is Phase 2's pre-interpolation
-check); both surfaces close the state-file-tampering injection
-vector at every write-path-construction boundary.
-
 ## References
 
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` —
@@ -548,8 +434,8 @@ vector at every write-path-construction boundary.
   — R9 Hard-Finalization Check Spec (Parts 1-3 plus the
   multi-discriminator and chain-membership-gated additions).
 - Interface I.2 in `docs/designs/current/DESIGN-shirabe-scope-skill.md`
-  — Decision Record path schema and the four boundary ×
-  sub-shape combinations.
-- `skills/scope/references/decision-record-{prd|design}-{re-evaluation|rejection}.md`
-  — the four Decision Record body templates Phase 3 selects
+  — Decision Record path schema and the four PRD and DESIGN
+  boundary × sub-shape combinations (the BRIEF rejection came later).
+- `skills/scope/references/decision-record-{brief|prd|design}-{re-evaluation|rejection}.md`
+  — the five Decision Record body templates Phase 3 selects
   between based on `boundary:` + `decision_record_sub_shape:`.

@@ -13,6 +13,9 @@ on:
     paths:
       - 'scripts/koto-open.sh'
       - 'scripts/koto-open_test.sh'
+      # The legacy-environment knob's helper; temporary, #483.
+      - 'scripts/lib/koto-legacy-env.sh'
+      - 'scripts/lib/koto-legacy-env_test.sh'
       - 'scripts/assert-koto-floor.sh'
       - 'scripts/assert-koto-floor_test.sh'
       # In the koto-open floor suite, so their bash 3.2 runs happen here.
@@ -63,6 +66,11 @@ jobs:
       - name: Run koto-open tests (Linux)
         if: runner.os == 'Linux'
         run: bash scripts/koto-open_test.sh
+
+      # Temporary, #483: goes with scripts/lib/koto-legacy-env.sh.
+      - name: Run the legacy-environment knob helper's tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/lib/koto-legacy-env_test.sh
 
       - name: Run koto floor assertion tests (Linux)
         if: runner.os == 'Linux'

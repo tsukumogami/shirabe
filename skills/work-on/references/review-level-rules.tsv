@@ -1,0 +1,171 @@
+# review-level-rules.tsv -- the path classes and floor rules /work-on's review
+# level is checked against. review-levels.md says what the levels mean;
+# scripts/review-level.sh reads this file.
+#
+# A run reads the copy of this file `review-level.sh init` stored when its
+# level was first chosen, never the working tree's, so a change here applies to
+# runs that start after it lands. This file is in the `security` class below,
+# so a diff that edits it floors at `full`.
+#
+# Tab-separated. Blank lines and lines starting with `#` are ignored.
+#
+#   class <name> <glob>   a path is in <name> when it matches <glob>. A class
+#                         may have many globs. Globs are bash `case` patterns
+#                         matched on the repository-relative path; `*` also
+#                         matches `/`, and a leading `**/` also matches no
+#                         directory at all.
+#   rule <level> <fact>   the floor is at least <level> when <fact> holds.
+#                         <level> is light, standard or full. <fact> is one of
+#                           class:<name>       a changed path is in the class
+#                           lines><N>          changed lines (added + deleted)
+#                                              exceed N
+#                           files><N>          changed files exceed N
+#                           tests_changed      a path in the `test` class changed
+#                           criteria_changed   the acceptance criteria changed
+#                           unclassified       a changed path is in no class
+#
+# The floor is the highest level any rule yields, `light` when none fires.
+# A path can be in several classes and every one counts, so `docs` (which no
+# rule names) only keeps a path out of `unclassified`: README.md alone stays
+# `light`, SKILL.md is `instruction` as well and floors at `standard`, and an
+# unclassified source file floors at `standard`. `light` is reachable only
+# when every changed path is documentation or in a class with no rule.
+# review-level.sh refuses (exit 64) a file with an unknown record type, level
+# or fact, or a rule naming a class no `class` line defines.
+
+class	ci	.github/workflows/**
+class	ci	.github/actions/**
+
+class	security	install.sh
+class	security	skills/work-on/references/review-level-rules.tsv
+class	security	**/hooks/**
+class	security	.claude/**
+class	security	**/settings*.json
+class	security	*credential*
+class	security	*secret*
+class	security	*token*
+class	security	*password*
+class	security	**/.env
+class	security	**/.env.*
+class	security	*.pem
+
+# koto templates hold the gates and the routing.
+class	template	**/koto-templates/**
+
+# The scripts the templates run as gates or default_actions, and the scripts
+# that open sessions on them. review-level_test.sh fails when a template's
+# gate or default_action command names a script no `engine` line covers.
+class	engine	**/*-open.sh
+class	engine	scripts/plan-mode.sh
+class	engine	skills/coordinate/scripts/board-record.sh
+class	engine	skills/coordinate/scripts/closeout-read.sh
+class	engine	skills/coordinate/scripts/coord-verdict.sh
+class	engine	skills/coordinate/scripts/decision-next.sh
+class	engine	skills/coordinate/scripts/decision-render.sh
+class	engine	skills/coordinate/scripts/deferral-check.sh
+class	engine	skills/coordinate/scripts/holding-recorded.sh
+class	engine	skills/coordinate/scripts/land-check.sh
+class	engine	skills/coordinate/scripts/merge-confirm.sh
+class	engine	skills/coordinate/scripts/merged-facts.sh
+class	engine	skills/coordinate/scripts/need-check.sh
+class	engine	skills/coordinate/scripts/pick-facts.sh
+class	engine	skills/coordinate/scripts/posture-read.sh
+class	engine	skills/coordinate/scripts/predecessor-handoff.sh
+class	engine	skills/coordinate/scripts/quiet-check.sh
+class	engine	skills/coordinate/scripts/reconcile-pass.sh
+class	engine	skills/coordinate/scripts/reconcile-report-get.sh
+class	engine	skills/coordinate/scripts/record-confirm.sh
+class	engine	skills/coordinate/scripts/record-find.sh
+class	engine	skills/coordinate/scripts/record-handover.sh
+class	engine	skills/coordinate/scripts/report-facts.sh
+class	engine	skills/coordinate/scripts/report-pr.sh
+class	engine	skills/coordinate/scripts/report-questions.sh
+class	engine	skills/coordinate/scripts/report-source.sh
+class	engine	skills/coordinate/scripts/start-check.sh
+class	engine	skills/coordinate/scripts/teardown-handoff.sh
+class	engine	skills/coordinate/scripts/teardown-inventory.sh
+class	engine	skills/coordinate/scripts/teardown-pass.sh
+class	engine	skills/coordinate/scripts/teardown-verdict.sh
+class	engine	skills/coordinate/scripts/wait-target.sh
+class	engine	skills/deliver/scripts/deliver-absent.sh
+class	engine	skills/deliver/scripts/deliver-open-request.sh
+class	engine	skills/deliver/scripts/deliver-probe.sh
+class	engine	skills/execute/scripts/drift-facts.sh
+class	engine	skills/execute/scripts/owned-pr.sh
+class	engine	skills/execute/scripts/record-coordination-verdict.sh
+class	engine	skills/execute/scripts/record-merge-verdict.sh
+class	engine	skills/execute/scripts/record-settled-branch.sh
+class	engine	skills/execute/scripts/record-write-set.sh
+class	engine	skills/execute/scripts/run-id.sh
+class	engine	skills/scope/scripts/check-plan-filing.sh
+class	engine	skills/scope/scripts/check-plan-mode.sh
+class	engine	skills/scope/scripts/hop-complete.sh
+class	engine	skills/scope/scripts/publish-scoping-pr.sh
+class	engine	skills/scope/scripts/record-executed-report.sh
+class	engine	skills/scope/scripts/record-scope-exit.sh
+class	engine	skills/scope/scripts/resume-probe.sh
+class	engine	skills/scope/scripts/run-intake.sh
+class	engine	skills/work-on/scripts/check-pre-pr-referents.sh
+class	engine	skills/work-on/scripts/check-staleness.sh
+class	engine	skills/work-on/scripts/find-anchor-plan.sh
+class	engine	skills/work-on/scripts/has-commits.sh
+class	engine	skills/work-on/scripts/panel-retry-budget.sh
+class	engine	skills/work-on/scripts/panel-scope.sh
+class	engine	skills/work-on/scripts/record-changed-paths.sh
+class	engine	skills/work-on/scripts/review-level.sh
+
+# Text an agent follows as instructions.
+class	instruction	**/SKILL.md
+class	instruction	**/references/**
+class	instruction	**/CLAUDE.md
+class	instruction	**/CLAUDE.local.md
+class	instruction	**/AGENTS.md
+
+class	executable	**/scripts/**
+class	executable	scripts/**
+class	executable	crates/**
+
+class	test	**/test/**
+class	test	**/tests/**
+class	test	**/spec/**
+class	test	**/*.spec.*
+class	test	**/*_test.*
+class	test	**/test_*.*
+class	test	**/evals/**
+
+class	manifest	**/package.json
+class	manifest	**/package-lock.json
+class	manifest	**/yarn.lock
+class	manifest	**/pnpm-lock.yaml
+class	manifest	**/Cargo.toml
+class	manifest	**/Cargo.lock
+class	manifest	**/go.mod
+class	manifest	**/go.sum
+class	manifest	**/requirements*.txt
+class	manifest	**/pyproject.toml
+class	manifest	**/poetry.lock
+class	manifest	**/Gemfile
+class	manifest	**/Gemfile.lock
+
+# Documentation: no rule names it, so a path here and in no other class
+# leaves the floor at `light`. requirements*.txt matches `*.txt` too, and the
+# `manifest` class above still floors it at `standard`.
+class	docs	*.md
+class	docs	docs/**
+class	docs	*.txt
+class	docs	**/LICENSE
+
+rule	full	class:ci
+rule	full	class:security
+rule	full	class:template
+rule	full	class:engine
+rule	full	lines>400
+rule	full	files>12
+
+rule	standard	class:instruction
+rule	standard	class:executable
+rule	standard	class:test
+rule	standard	class:manifest
+rule	standard	unclassified
+rule	standard	criteria_changed
+rule	standard	lines>40

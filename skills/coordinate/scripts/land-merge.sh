@@ -6,7 +6,7 @@
 # Usage: land-merge.sh --session S [--closeout] [--repo R]
 #
 # Before anything is merged, in order, each refusal exiting 10 with nothing
-# called:
+# called (4b exits 12):
 #   1. provenance: coord-log.sh provenance (the session came from this
 #      plugin's coordinate.md);
 #   2. no directed transition anywhere in the run (coord-log.sh
@@ -20,9 +20,23 @@
 #      (board-lib.sh's bl_merge_posture), must be permit. A hook that matches
 #      the typed command never sees a script that merges inside itself, so
 #      this asks the posture the question the hook would have answered.
-# Then it runs merge-exec.sh <repo> <pr> <sha>, which recomputes its own
-# verdict and merges with --match-head-commit <sha>, so GitHub refuses a head
-# that moved after the check. This script never calls `gh pr merge` itself.
+#   4a. (not --closeout) the record's holds on the pull request, re-read live
+#      (board-lib.sh's bl_holds_on): every one met. A hold recorded after
+#      the land check stops the merge here;
+#   4b. (not --closeout) the record's pauses, re-read live (board-lib.sh's
+#      bl_pauses_on): none holds the pull request's unit. A pause written
+#      after the land check stops the merge here, with its own exit code, 12,
+#      so the coordinator submits `merge: paused` and the worker is re-briefed
+#      to report again at the resume
+#      (docs/designs/current/DESIGN-coordinate-paused-state.md, Decision 1);
+#   5. the squash message: squash-message.sh over the pull request's live
+#      title and body (gh pr view --json title,body) must build, so the
+#      commit carries Part 1 and never the reviewer context below it. A
+#      close-out's record pull request has a fixed Part 1, built the same way.
+# Then it runs merge-exec.sh <repo> <pr> <sha> <message-file>, which
+# recomputes its own verdict and merges with --match-head-commit <sha>, so
+# GitHub refuses a head that moved after the check, and with the message as
+# --subject and --body-file. This script never calls `gh pr merge` itself.
 #
 # The repository: a unit's is the one the record's Holdings row for #<pr>
 # links; a close-out's is the host. --repo overrides either, for tests.
@@ -31,7 +45,8 @@
 #
 # Exit codes: 0 merge-exec.sh reported merge-called (its line on stdout);
 # 10 refused; 11 merge-exec.sh refused or failed (its line, if any, on
-# stdout); 64 usage.
+# stdout); 12 refused because a pause holds the pull request (the pause on
+# stderr); 64 usage.
 set -uo pipefail
 
 PROG=land-merge
@@ -106,7 +121,35 @@ fi
 P=$(bl_merge_posture "$SESSION") || refuse "the posture re-read failed"
 [ "$P" = permit ] || refuse "the merge posture is $P now; hand the merge to the human"
 
-OUT=$(bash "$HERE/../../execute/scripts/merge-exec.sh" "$REPO" "$PR" "$SHA")
+# The holds, re-read now as the posture is: one recorded after the land check
+# still stops the merge. A close-out merges the coordinator's own record,
+# which no hold is on.
+if [ "$CLOSEOUT" = 0 ]; then
+    HOLDS=$(bl_holds_on "$SESSION" "$REPO" "$PR") || refuse "the record's holds couldn't be re-read"
+    STANDING=$(printf '%s' "$HOLDS" | jq -r '[.[] | select(.state != "met") | "\(.hold) (\(.until), \(.state))"] | join(", ")')
+    [ -z "$STANDING" ] || refuse "a hold stands on #$PR now: $STANDING; go back through verify"
+    # The pauses, re-read the same way; a merge can't be undone.
+    PD=$(mktemp -d "${TMPDIR:-/tmp}/land-merge-pauses.XXXXXX") || refuse "no temporary directory"
+    bl_record_parsed "$SESSION" "$PD/rec" || { rm -rf "$PD"; refuse "the record's pauses couldn't be re-read"; }
+    PAUSES=$(bl_pauses_on "$PD/rec" "$REPO" "$PR") || { rm -rf "$PD"; refuse "the record's pauses couldn't be re-read"; }
+    rm -rf "$PD"
+    PAUSED=$(printf '%s' "$PAUSES" | jq -r '.paused // empty')
+    if [ -n "$PAUSED" ]; then
+        echo "$PROG: paused: pause $PAUSED holds #$PR now ($(printf '%s' "$PAUSES" | jq -r --arg s "$PAUSED" '.pauses[] | select(.standing == $s) | "on \(.on), until \(.until)"')); submit merge: paused" >&2
+        exit 12
+    fi
+fi
+
+# The squash message, built again from the live title and Part 1, so the
+# commit carries Part 1 and never the reviewer context below it.
+MS=$(mktemp "${TMPDIR:-/tmp}/land-merge.XXXXXX") || refuse "no temporary file"
+trap 'rm -f "$MS" "$MS".*' EXIT
+bl_gh "$MS" pr view "$PR" --repo "$REPO" --json title,body || refuse "the pull request's title and body couldn't be read"
+jq -r '.body // ""' "$MS" > "$MS.body" || refuse "the pull request's body couldn't be read"
+bash "$HERE/squash-message.sh" --title "$(jq -r '.title // ""' "$MS")" "$MS.body" > "$MS.msg" \
+    || refuse "the squash message couldn't be built from the title and Part 1"
+
+OUT=$(bash "$HERE/../../execute/scripts/merge-exec.sh" "$REPO" "$PR" "$SHA" "$MS.msg")
 RC=$?
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 if [ "$RC" -eq 0 ]; then

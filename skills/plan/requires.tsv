@@ -1,8 +1,8 @@
 #schema	skill-requires/v1
 # Split rule: references/tool-declaration-policy.md
 #
-# Phase 1 and Phase 7 move the upstream design to Planned; no flag is on either
-# call line.
+# Phase 7's step 7.5 moves the upstream design to Planned, the only place /plan
+# transitions it; no flag is on the call line.
 #
 # Every record here is `always`, and the absence of a mode-scoped record is a
 # recorded finding rather than an oversight. /plan selects single-pr, multi-pr,
@@ -28,12 +28,9 @@
 # which is why python3 (its portable realpath) was declared here; the script is
 # gone and the validator owns the rule, so the record went with it.
 #
-# The `shirabe validate --lifecycle` line in SKILL.md describes the CI
-# workflow, which /plan does not run. Nothing mechanical separates that
-# documentation from a call site, so it is exempted by name for
+# A citation of a flag /plan does not pass is exempted by name for
 # scripts/check-skill-requires.sh; an exemption that stops matching its line
 # fails as stale.
-#not-a-call-site	skills/plan/SKILL.md	shirabe	--lifecycle	Documents the validator's whole-tree mode, which CI runs; /plan does not.
 #not-a-call-site	skills/plan/scripts/plan-to-tasks.sh	shirabe	--release	cargo's build flag, quoted in the "shirabe binary not found" message; not a shirabe flag.
 shirabe	transition	-	always
 shirabe	validate	--lifecycle-chain	always

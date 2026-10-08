@@ -1,0 +1,3560 @@
+{
+ "inventory_commit": "662f6ec",
+ "baseline_pin": {
+  "source": "docs/measurement/offload-baseline/ in pull request #488, at 36c90bc; raw figures from token-baseline.tsv (pinned commit rows) and file rows from load-manifest.tsv, copied here unchanged",
+  "raw": {
+   "work-on": 46671,
+   "execute-single-pr": 41083,
+   "execute-coordinated": 24844,
+   "deliver": 6181,
+   "scope": 226407
+  },
+  "manifest_files": {
+   "deliver": [
+    "skills/deliver/SKILL.md"
+   ],
+   "execute-coordinated": [
+    "skills/execute/SKILL.md"
+   ],
+   "execute-single-pr": [
+    "references/pr-body-conformance.md",
+    "references/worktree-discipline.md",
+    "skills/execute/references/cross-issue-context.md",
+    "skills/execute/SKILL.md",
+    "skills/work-on/references/phases/phase-2.5-worktree-discipline.md",
+    "skills/work-on/references/phases/phase-6-pr.md"
+   ],
+   "scope": [
+    "references/decision-presentation.md",
+    "references/decision-report-format.md",
+    "references/fixes/sub-agent-dispatch.md",
+    "references/parent-skill-child-inspection.md",
+    "references/parent-skill-pattern.md",
+    "references/parent-skill-resume-ladder-template.md",
+    "references/parent-skill-security.md",
+    "references/parent-skill-state-schema.md",
+    "references/worktree-discipline.md",
+    "skills/brief/references/brief-format.md",
+    "skills/brief/references/phases/phase-0-setup.md",
+    "skills/brief/references/phases/phase-1-discover.md",
+    "skills/brief/references/phases/phase-2-draft.md",
+    "skills/brief/references/phases/phase-3-structural-fill.md",
+    "skills/brief/references/phases/phase-4-validate.md",
+    "skills/brief/references/phases/phase-5-finalize.md",
+    "skills/brief/SKILL.md",
+    "skills/design/references/design-format.md",
+    "skills/design/references/lifecycle.md",
+    "skills/design/references/phases/phase-0-setup-freeform.md",
+    "skills/design/references/phases/phase-0-setup-prd.md",
+    "skills/design/references/phases/phase-1-decomposition.md",
+    "skills/design/references/phases/phase-2-execution.md",
+    "skills/design/references/phases/phase-3-cross-validation.md",
+    "skills/design/references/phases/phase-4-architecture.md",
+    "skills/design/references/phases/phase-5-security.md",
+    "skills/design/references/phases/phase-6-final-review.md",
+    "skills/design/references/quality/considered-options-structure.md",
+    "skills/design/SKILL.md",
+    "skills/plan/references/phases/phase-1-analysis.md",
+    "skills/plan/references/phases/phase-2-milestone.md",
+    "skills/plan/references/phases/phase-3-decomposition.md",
+    "skills/plan/references/phases/phase-4-agent-generation.md",
+    "skills/plan/references/phases/phase-5-dependencies.md",
+    "skills/plan/references/phases/phase-6-review.md",
+    "skills/plan/references/phases/phase-7-creation.md",
+    "skills/plan/references/plan-format.md",
+    "skills/plan/references/quality/plan-doc-structure.md",
+    "skills/plan/references/templates/agent-prompt.md",
+    "skills/plan/SKILL.md",
+    "skills/prd/references/phases/phase-1-scope.md",
+    "skills/prd/references/phases/phase-2-discover.md",
+    "skills/prd/references/phases/phase-3-draft.md",
+    "skills/prd/references/phases/phase-4-validate.md",
+    "skills/prd/references/prd-format.md",
+    "skills/prd/SKILL.md",
+    "skills/public-content/SKILL.md",
+    "skills/review-plan/references/phases/phase-0-setup.md",
+    "skills/review-plan/references/phases/phase-1-scope-gate.md",
+    "skills/review-plan/references/phases/phase-2-design-fidelity.md",
+    "skills/review-plan/references/phases/phase-3-ac-discriminability.md",
+    "skills/review-plan/references/phases/phase-4-sequencing.md",
+    "skills/review-plan/references/phases/phase-5-verdict.md",
+    "skills/review-plan/references/templates/ac-discriminability-taxonomy.md",
+    "skills/review-plan/references/templates/review-result-schema.md",
+    "skills/review-plan/SKILL.md",
+    "skills/scope/references/decision-record-design-re-evaluation.md",
+    "skills/scope/references/decision-record-design-rejection.md",
+    "skills/scope/references/decision-record-prd-re-evaluation.md",
+    "skills/scope/references/decision-record-prd-rejection.md",
+    "skills/scope/references/phases/phase-0-setup.md",
+    "skills/scope/references/phases/phase-1-discovery.md",
+    "skills/scope/references/phases/phase-2-chain-orchestration.md",
+    "skills/scope/references/phases/phase-3-exit-finalization.md",
+    "skills/scope/references/phases/phase-4-cleanup.md",
+    "skills/scope/references/phases/phase-resume.md",
+    "skills/scope/references/state-schema.md",
+    "skills/scope/SKILL.md",
+    "skills/writing-style/SKILL.md"
+   ],
+   "work-on": [
+    ".claude/shirabe-extensions/work-on.md",
+    "references/decision-presentation.md",
+    "references/decision-protocol.md",
+    "references/default-action-conversion.md",
+    "references/fixes/sub-agent-dispatch.md",
+    "references/koto-session-retention.md",
+    "references/pr-body-conformance.md",
+    "skills/private-content/SKILL.md",
+    "skills/public-content/SKILL.md",
+    "skills/work-on/references/agent-instructions/phase-3-analysis.md",
+    "skills/work-on/references/finishing-obligations.md",
+    "skills/work-on/references/koto-context-conventions.md",
+    "skills/work-on/references/phases/phase-0-context-injection.md",
+    "skills/work-on/references/phases/phase-1-setup.md",
+    "skills/work-on/references/phases/phase-2-introspection.md",
+    "skills/work-on/references/phases/phase-3-analysis.md",
+    "skills/work-on/references/phases/phase-4a-scrutiny.md",
+    "skills/work-on/references/phases/phase-4b-review.md",
+    "skills/work-on/references/phases/phase-4c-qa.md",
+    "skills/work-on/references/phases/phase-4-implementation.md",
+    "skills/work-on/references/phases/phase-5-finalization.md",
+    "skills/work-on/references/phases/phase-6-design-diagram-update.md",
+    "skills/work-on/references/phases/phase-6-pr.md",
+    "skills/work-on/references/review-panel-orchestration.md",
+    "skills/work-on/references/verification-map.md",
+    "skills/work-on/SKILL.md",
+    "skills/writing-style/SKILL.md"
+   ]
+  }
+ },
+ "files_extra": {
+  "work-on": [
+   "references/wip-hygiene.md",
+   "skills/work-on/references/phases/phase-2.5-worktree-discipline.md",
+   "skills/work-on/scripts/retry-clearing_test.sh"
+  ],
+  "execute-single-pr": [
+   "skills/execute/references/cross-issue-context.md",
+   "skills/work-on/references/phases/phase-2.5-worktree-discipline.md",
+   "references/worktree-discipline.md",
+   "skills/execute/scripts/",
+   "skills/plan/scripts/plan-to-tasks.sh"
+  ],
+  "execute-coordinated": [
+   "skills/execute/scripts/"
+  ],
+  "deliver": [
+   "skills/execute/scripts/execute-open.sh"
+  ],
+  "scope": [
+   "references/decision-protocol.md",
+   "references/issues-table.md",
+   "skills/scope/scripts/",
+   "skills/plan/scripts/",
+   "crates/shirabe-validate/src/"
+  ]
+ },
+ "templates": {
+  "work-on": "skills/work-on/koto-templates/work-on.md",
+  "execute-single-pr": "skills/execute/koto-templates/execute.md",
+  "execute-coordinated": "skills/execute/koto-templates/execute-coordinated.md",
+  "deliver": "skills/deliver/koto-templates/deliver.md",
+  "scope": "skills/scope/koto-templates/scope.md"
+ },
+ "parent_references": [
+  "references/parent-skill-child-inspection.md",
+  "references/parent-skill-pattern.md",
+  "references/parent-skill-resume-ladder-template.md",
+  "references/parent-skill-security.md",
+  "references/parent-skill-state-schema.md",
+  "references/worktree-discipline.md"
+ ],
+ "held_for_policy": [
+  "skills/brief/SKILL.md#L285-L287",
+  "skills/brief/SKILL.md#L316-L320",
+  "skills/prd/SKILL.md#L76-L79",
+  "skills/prd/SKILL.md#L147-L147",
+  "skills/prd/SKILL.md#L192-L193",
+  "skills/design/references/phases/phase-6-final-review.md#L249-L250",
+  "skills/plan/SKILL.md#L548-L554",
+  "skills/plan/SKILL.md#L588-L591",
+  "skills/plan/SKILL.md#L603-L609",
+  "skills/plan/SKILL.md#L622-L641",
+  "skills/plan/references/quality/plan-doc-structure.md#L84-L89",
+  "skills/plan/references/quality/plan-doc-structure.md#L137-L139",
+  "skills/plan/references/phases/phase-7-creation.md#L109-L113",
+  "skills/plan/references/phases/phase-7-creation.md#L316-L321"
+ ],
+ "contradictions": [
+  {
+   "id": "force-push-after-rebase",
+   "class": "policy",
+   "r2": 1,
+   "profiles": [
+    "work-on",
+    "execute-single-pr"
+   ],
+   "title": "Force-push after a rebase",
+   "settled_by": [
+    557,
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/references/phases/phase-6-pr.md#L25-L29",
+     "says": "push, and after a rebase use --force-with-lease"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-6-pr.md#L7-L7",
+     "says": "rebase if the branch is behind"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L2029-L2029",
+     "says": "pr_creation pushes with a plain git push -u"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L1228-L1232",
+     "says": "no execute push path force-pushes"
+    },
+    {
+     "loc": "skills/work-on/references/finishing-obligations.md#L65-L65",
+     "says": "rebase currency is deliberately advisory"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/execute/scripts/push-and-record.sh#L25-L31",
+     "says": "pushes an explicit refspec and never with a force option"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1963-L1973",
+     "says": "pre_pr_evidence assumes history is final before it; a later rebase leaves its referents unchecked"
+    }
+   ],
+   "decision": {
+    "context": "phase-6-pr.md, which /work-on loads at pr_creation and /execute loads at every ci_monitor visit, tells the agent to rebase when behind and push with --force-with-lease. The /work-on template pushes plainly, /execute says nothing it runs force-pushes, and push-and-record.sh refuses a force push.",
+    "problem": "An agent following phase-6 either gets a rejected push under /execute or rewrites a shared branch; under /work-on a rebase after pre_pr_evidence means the gate judged a tip that no longer ships.",
+    "options": [
+     {
+      "name": "Never rebase at PR time and never force-push",
+      "why": "Simplest and matches the code today, but a branch that falls behind main stays behind until a person merges main in."
+     },
+     {
+      "name": "Rebase if behind, before verification, with a plain push only",
+      "why": "Keeps the no-force rule true for both callers and every gate sees the tip that ships; the rebase moves earlier in /work-on."
+     },
+     {
+      "name": "Allow --force-with-lease inside push-and-record.sh, leased on expected_head",
+      "why": "Keeps rebase-then-push working, but rewrites history on a branch several children commit to, which the autonomy section says needs a person."
+     }
+    ],
+    "recommended": 1,
+    "reason": "It is the only option that keeps /execute's no-force guarantee and /work-on's gate evidence both true."
+   }
+  },
+  {
+   "id": "retry-caps",
+   "class": "policy",
+   "r2": 2,
+   "profiles": [
+    "work-on",
+    "execute-single-pr"
+   ],
+   "title": "Retry caps",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/references/review-panel-orchestration.md#L16-L17",
+     "says": "after 2 blocking_retry outcomes the next pass must escalate"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4a-scrutiny.md#L79-L79",
+     "says": "escalate after 2+ retry cycles"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4c-qa.md#L72-L72",
+     "says": "escalate after 2+ retry cycles"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4b-review.md#L71-L73",
+     "says": "no cap"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1725-L1725",
+     "says": "analysis: up to 3"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1738-L1738",
+     "says": "implementation: up to 3"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-6-pr.md#L55-L57",
+     "says": "CI: ask the user after 2-3 iterations"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-6-pr.md#L66-L66",
+     "says": "retry up to 3"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L754-L756",
+     "says": "every retry edge is unconditional; nothing counts visits"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1469-L1475",
+     "says": "ci_monitor fix pushes go through push-and-record.sh with no counter"
+    }
+   ],
+   "decision": {
+    "context": "The review panels, analysis, implementation, PR creation and CI loops each state a limit somewhere, the limits differ (2, 2+, 3, 2-3, none), and nothing in koto counts visits. The CI line tells the agent to ask the user, which /execute's --auto mandate forbids.",
+    "problem": "The agent has no single cap to apply, the panel cap's scope (per panel or shared) is unstated, and under --auto the CI instruction is unfollowable.",
+    "options": [
+     {
+      "name": "State each cap once, in the looping state's directive",
+      "why": "One shared panel cap of 2 blocking retries across the three panels, 3 for analysis, implementation and PR creation, 3 fix pushes for CI then failing_unresolvable, never ask under --auto. The directive is what the agent reads when it decides."
+     },
+     {
+      "name": "Have koto count visits and enforce the caps",
+      "why": "Enforced rather than stated, but needs koto support that does not exist for this yet."
+     },
+     {
+      "name": "Drop the caps",
+      "why": "Removes the contradiction by removing the limit; loops are then bounded only by the agent's judgment."
+     }
+    ],
+    "recommended": 0,
+    "reason": "It gives every loop one number in the place the agent reads it, and removes the --auto violation without waiting on koto. These directive caps are temporary: when koto enforces retry caps from its attempt counts, the numbers stay the same and the directive prose becomes a deletion candidate."
+   }
+  },
+  {
+   "id": "ci-fix-ends-run-unverified",
+   "class": "policy",
+   "profiles": [
+    "work-on"
+   ],
+   "title": "A CI fix ends the run without re-checking CI",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/references/phases/phase-6-pr.md#L3-L3",
+     "says": "monitor until all checks pass"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L420-L420",
+     "says": "output is a PR with passing CI"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L2123-L2123",
+     "says": "done directive assumes green CI"
+    },
+    {
+     "loc": "skills/work-on/references/finishing-obligations.md#L20-L20",
+     "says": "CI green is gate-enforced"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L2054-L2054",
+     "says": "directive points the agent at failing_fixed"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1272-L1278",
+     "says": "failing_fixed routes to done with no gate"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1279-L1284",
+     "says": "the fallback edge also reaches done"
+    }
+   ],
+   "decision": {
+    "context": "/work-on promises a PR with passing CI, but ci_monitor's failing_fixed outcome and its fallback edge go to done without re-checking CI.",
+    "problem": "A run can end reporting success on red or unfinished CI; which behavior is intended decides whether the run stops or keeps polling.",
+    "options": [
+     {
+      "name": "failing_fixed loops back to ci_monitor and the fallback goes to done_blocked",
+      "why": "Enforces the skill's own contract at the cost of one more poll per fix."
+     },
+     {
+      "name": "Keep the routing and correct the prose to say CI is not re-checked",
+      "why": "No behavior change, but the output contract gets weaker."
+     }
+    ],
+    "recommended": 0,
+    "reason": "The promise of passing CI is what callers rely on, and the cost is one poll."
+   }
+  },
+  {
+   "id": "cross-issue-context-no-consumer",
+   "class": "policy",
+   "profiles": [
+    "execute-single-pr"
+   ],
+   "title": "Cross-issue context is built but nothing reads it",
+   "settled_by": [
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/execute/references/cross-issue-context.md#L3-L13",
+     "says": "before each child, concatenate earlier children's summaries into current-context.md"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1377-L1377",
+     "says": "spawn_and_await points at cross-issue-context.md"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1379-L1379",
+     "says": "do not inspect children"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L1211-L1213",
+     "says": "the closed write-target set has no loose file at the checkout root"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/plan/scripts/plan-to-tasks.sh#L744-L751",
+     "says": "children receive only task variables; koto schedules them"
+    }
+   ],
+   "decision": {
+    "context": "/execute tells the agent to build current-context.md from completed children's summaries before each child, but koto schedules the children, no /work-on file reads that file, and only evals assert it.",
+    "problem": "Deleting the step removes a capability the skill advertises; keeping it leaves an instruction with no effect and a stray file in the work tree.",
+    "options": [
+     {
+      "name": "Delete the step",
+      "why": "Honest about what runs today; drops the advertised carry-forward."
+     },
+     {
+      "name": "Wire /work-on's analysis phase to read it, built outside the work tree",
+      "why": "Makes the capability real; needs a template change in both skills."
+     },
+     {
+      "name": "Leave it",
+      "why": "No work, but the instruction keeps claiming an effect it does not have."
+     }
+    ],
+    "recommended": 1,
+    "reason": "Carry-forward is listed as a capability and the evals assert it; if the wiring cannot land soon, deleting beats prose with no effect."
+   }
+  },
+  {
+   "id": "child-steps-under-scope",
+   "class": "policy",
+   "r2": 17,
+   "profiles": [
+    "scope"
+   ],
+   "title": "Child skills run their own approval, push and pull-request steps under /scope",
+   "settled_by": [
+    586,
+    637,
+    658,
+    660
+   ],
+   "sides": [
+    {
+     "loc": "skills/brief/references/phases/phase-5-finalize.md#L73-L93",
+     "says": "/brief asks for approval even when both reviewers pass"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-5-finalize.md#L174-L192",
+     "says": "/brief pushes and runs gh pr create"
+    },
+    {
+     "loc": "skills/prd/references/phases/phase-4-validate.md#L202-L241",
+     "says": "/prd asks for approval and creates a PR"
+    },
+    {
+     "loc": "skills/prd/SKILL.md#L154-L176",
+     "says": "/prd creates a branch when on an unrelated one and transitions the brief"
+    },
+    {
+     "loc": "skills/design/references/phases/phase-6-final-review.md#L181-L186",
+     "says": "/design commits, pushes and creates a PR"
+    },
+    {
+     "loc": "skills/design/SKILL.md#L221-L243",
+     "says": "/design asks Plan or Approve only"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L696-L728",
+     "says": "/plan asks about an upstream issue and runs gh issue edit"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L602-L606",
+     "says": "nothing pushes during the chain"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L655-L686",
+     "says": "closed write-target set; the publish script's gh calls are the only gh writes"
+    },
+    {
+     "loc": "references/fixes/sub-agent-dispatch.md#L64-L74",
+     "says": "children leave Draft/Proposed and the parent approves"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/plan/references/phases/phase-1-analysis.md#L83-L95",
+     "says": "/plan hard-stops unless the DESIGN is already Accepted"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L381-L418",
+     "says": "/scope detects a reject only through the child's discard commit"
+    }
+   ],
+   "decision": {
+    "context": "Each child skill runs its own approval prompt, status transition, commits and, for /brief, /prd and /design, a push and a pull request, and none of those steps checks the parent_orchestration sentinel. /scope promises one push and one PR at exit and a closed write set. The dispatch reference says children should leave artifacts unapproved for the parent, but /design and /plan require their upstream already Accepted and /scope never transitions anything.",
+    "problem": "Under /scope the children push and open PRs /scope says never happen, and the reference that defines child behavior under a parent describes a flow that would stall the chain.",
+    "options": [
+     {
+      "name": "Children keep their verdict and status transition but skip push, PR, cleanup commit, branch creation and routing prompts under the sentinel",
+      "why": "Under --auto the child takes the recommended approval and says so. The dispatch reference is rewritten to match. Smallest change that makes every stated promise true."
+     },
+     {
+      "name": "Parent-delegated approval as the dispatch reference describes",
+      "why": "Adds a per-hop approval and transition to /scope and changes /design's and /plan's preconditions."
+     },
+     {
+      "name": "Keep today's behavior and drop /scope's one-push promise",
+      "why": "No child change, but a no-intent /scope run then pushes, and an intent run can open two PRs."
+     }
+    ],
+    "recommended": 0,
+    "reason": "It keeps the per-artifact gate the next hop depends on and removes only the steps that collide with /scope's publish model."
+   }
+  },
+  {
+   "id": "design-inline-decision-fallback",
+   "class": "policy",
+   "r2": 17,
+   "profiles": [
+    "scope"
+   ],
+   "title": "/design's inline-decision fallback under a parent",
+   "settled_by": [
+    637
+   ],
+   "sides": [
+    {
+     "loc": "references/fixes/sub-agent-dispatch.md#L76-L86",
+     "says": "under a parent, /design resolves decisions inline and records decision_provenance"
+    },
+    {
+     "loc": "skills/design/references/phases/phase-2-execution.md#L23-L50",
+     "says": "always spawn one /decision agent per question"
+    },
+    {
+     "loc": "skills/design/SKILL.md#L145-L148",
+     "says": "Phase 2 delegates each question to the decision skill"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/scope/scripts/testdata/design.md.fixture#L6-L6",
+     "says": "a /scope fixture carries decision_provenance: inline-resolved"
+    }
+   ],
+   "decision": {
+    "context": "The dispatch reference lets /design resolve decisions inline when a parent routes decisions back to itself; /design's own Phase 2 always spawns /decision, nothing defines when the fallback applies, and the provenance field is in no format reference or validator.",
+    "problem": "Whether a /scope run bypasses /decision is left to the agent's judgment.",
+    "options": [
+     {
+      "name": "Delete the fallback",
+      "why": "Every run spawns /decision agents; most expensive."
+     },
+     {
+      "name": "Make it checkable: under the sentinel, standard-tier questions resolve inline and critical ones go to /decision; add the field to the format reference",
+      "why": "A condition the agent can check, and irreversible questions still get the full treatment."
+     },
+     {
+      "name": "Resolve every question inline under /scope",
+      "why": "Cheapest; loses /decision's rigor on the questions that need it."
+     }
+    ],
+    "recommended": 1,
+    "reason": "It turns an unstated judgment into a checkable rule without giving up /decision where it matters."
+   }
+  },
+  {
+   "id": "plan-issue-filing-under-auto",
+   "class": "policy",
+   "r2": 18,
+   "profiles": [
+    "scope"
+   ],
+   "title": "/plan files issues and a milestone under --auto without approval",
+   "settled_by": [
+    658
+   ],
+   "sides": [
+    {
+     "loc": "skills/plan/SKILL.md#L68-L77",
+     "says": "an activation that files issues requires human approval"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L119-L203",
+     "says": "multi-pr step 7.1 files issues and a milestone with no approval step"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L400-L401",
+     "says": "the approval step exists only on the coordinated path"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-3-decomposition.md#L638-L663",
+     "says": "tracking is asked separately, but nothing asks it"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L685-L685",
+     "says": "gh pr create and gh pr edit are /scope's only gh writes"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L81-L84",
+     "says": "default tracking is issues-and-milestone"
+    }
+   ],
+   "decision": {
+    "context": "/plan's own rule says filing issues needs human approval, but the multi-pr path and single-pr-with-tracking file issues and a milestone with no approval step, and under --auto the tracking question is never asked. /scope forwards --auto to /plan on intent runs.",
+    "problem": "An unattended run can create GitHub issues and a milestone that nobody approved.",
+    "options": [
+     {
+      "name": "Approval on every filing path; under --auto, file only when CLAUDE.md declares a Tracking Level header, else emit an issueless PLAN with outlines",
+      "why": "Makes the stated rule true and reuses the rule the coordinated path already follows."
+     },
+     {
+      "name": "Never file under --auto or under a parent",
+      "why": "Simplest; a caller who wants issues runs /plan again interactively."
+     },
+     {
+      "name": "Keep the behavior and rewrite the rule to allow it",
+      "why": "No behavior change; unattended filing becomes intended."
+     }
+    ],
+    "recommended": 0,
+    "reason": "It keeps filing possible where a repository has opted in and otherwise produces a PLAN the validator already accepts."
+   }
+  },
+  {
+   "id": "scope-abandonment-draft-plan",
+   "class": "policy",
+   "profiles": [
+    "scope"
+   ],
+   "title": "/scope's abandonment exit writes a Draft PLAN that fails L01",
+   "settled_by": [
+    586
+   ],
+   "sides": [
+    {
+     "loc": "skills/scope/references/phases/phase-3-exit-finalization.md#L166-L186",
+     "says": "abandonment triggered at /plan writes the PLAN at Draft with a marker"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-3-exit-finalization.md#L44-L48",
+     "says": "a committed Draft PLAN is a violation"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L76-L77",
+     "says": "a committed PLAN at status Draft is a violation"
+    }
+   ],
+   "code": [
+    {
+     "loc": "crates/shirabe-validate/src/lifecycle.rs#L862-L874",
+     "says": "the single-pr posture requires Active; L01 has no abandonment exemption"
+    }
+   ],
+   "decision": {
+    "context": "An abandonment exit triggered while /plan is running force-materializes the PLAN at Draft at its canonical path; the same reference and /plan's rules say a committed Draft PLAN is a violation, and the lifecycle check has no exemption.",
+    "problem": "An abandoned run's branch fails the lifecycle check, so the exit meant to preserve work produces a red branch.",
+    "options": [
+     {
+      "name": "The validator skips a PLAN carrying the abandonment marker",
+      "why": "Keeps the partial PLAN; adds an exemption to the validator."
+     },
+     {
+      "name": "Abandonment never writes a PLAN, only the upstream artifacts",
+      "why": "No exemption; the partial PLAN's content is lost unless the upstream drafts carry it."
+     }
+    ],
+    "recommended": 1,
+    "reason": "It needs no validator exemption, and a PLAN that never finished has little a later run could reuse."
+   }
+  },
+  {
+   "id": "panel-round-counter",
+   "class": "mechanical",
+   "r2": 3,
+   "profiles": [
+    "work-on"
+   ],
+   "title": "Panel retry round counter",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/references/phases/phase-4a-scrutiny.md#L34-L41",
+     "says": "round N, 1 on the first pass, incremented on each retry"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4b-review.md#L34-L38",
+     "says": "round is always the literal 1"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4c-qa.md#L33-L36",
+     "says": "no round field"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L725-L731",
+     "says": "the panel gates check key presence; nothing reads round"
+    }
+   ],
+   "winner": "skills/work-on/references/phases/phase-4a-scrutiny.md#L34-L41",
+   "reason": "4a's definition is the only one that is true on a second round; carry it into 4b and 4c. The retry-caps decision kept prose caps until koto enforces them, so the field stays."
+  },
+  {
+   "id": "panel-retry-fix-location",
+   "class": "mechanical",
+   "profiles": [
+    "work-on"
+   ],
+   "title": "Where a panel's blocking fix happens",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1797-L1797",
+     "says": "scrutiny: submit blocking_retry once the implementation agent has addressed the findings"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1805-L1805",
+     "says": "review: the same"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4a-scrutiny.md#L31-L31",
+     "says": "spawn the coder agent and re-enter this phase"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4a-scrutiny.md#L75-L75",
+     "says": "spawn all three reviewers again"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4b-review.md#L31-L31",
+     "says": "blocking_retry routes to implementation; no self-loop"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4c-qa.md#L30-L30",
+     "says": "the same as 4b"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L754-L756",
+     "says": "blocking_retry goes to implementation"
+    }
+   ],
+   "winner": "skills/work-on/references/phases/phase-4b-review.md#L31-L31",
+   "reason": "The template routes blocking_retry to implementation; 4b and 4c describe that, the two directives and 4a do not."
+  },
+  {
+   "id": "decision-recording-channel",
+   "class": "mechanical",
+   "r2": 5,
+   "profiles": [
+    "work-on",
+    "scope"
+   ],
+   "title": "Where decisions are recorded",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "references/decision-protocol.md#L40-L50",
+     "says": "write a decision block in the wip artifact"
+    },
+    {
+     "loc": "references/decision-protocol.md#L88-L101",
+     "says": "and an index row in wip/<workflow>_<topic>_decisions.md, the source of truth"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L410-L416",
+     "says": "record with koto decisions record"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4-implementation.md#L102-L106",
+     "says": "record with koto decisions record"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1727-L1727",
+     "says": "analysis: put decisions in the evidence field"
+    },
+    {
+     "loc": "skills/work-on/references/koto-context-conventions.md#L41-L43",
+     "says": "do not stage artifacts in wip/"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L513-L518",
+     "says": "a decisions evidence field nothing reads"
+    }
+   ],
+   "winner": "skills/work-on/SKILL.md#L410-L416",
+   "reason": "koto decisions record is what the deferral audit trail reads, and nothing in /work-on reads the wip index. decision-protocol.md is shared with skills that still use the wip index, so it gains a clause saying koto-driven skills record through koto rather than losing its recording section; the evidence field is dropped or declared an alias."
+  },
+  {
+   "id": "commit-koto-context-artifacts",
+   "class": "mechanical",
+   "r2": 6,
+   "profiles": [
+    "work-on"
+   ],
+   "title": "Steps that commit files which moved into koto context",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/references/phases/phase-1-setup.md#L66-L68",
+     "says": "commit the baseline"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-3-analysis.md#L49-L49",
+     "says": "commit the plan"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-5-finalization.md#L121-L123",
+     "says": "commit the summary"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1999-L2001",
+     "says": "the summary commit lands there"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4-implementation.md#L74-L74",
+     "says": "tick off steps in the plan"
+    },
+    {
+     "loc": "skills/work-on/references/koto-context-conventions.md#L9-L21",
+     "says": "no on-disk copy exists at any point"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L200-L210",
+     "says": "gates are context-exists on the keys"
+    }
+   ],
+   "winner": "skills/work-on/references/koto-context-conventions.md#L9-L21",
+   "reason": "The artifacts live only as koto context keys and the gates check the keys; there is nothing on disk to commit."
+  },
+  {
+   "id": "scratch-file-path",
+   "class": "mechanical",
+   "profiles": [
+    "work-on"
+   ],
+   "title": "Where scratch files go",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/references/phases/phase-3-analysis.md#L40-L42",
+     "says": "write the plan under a per-session tmp directory (phase-1 convention)"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-2-introspection.md#L14-L18",
+     "says": "write to a local file, never deleted"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-0-context-injection.md#L27-L31",
+     "says": "the same"
+    },
+    {
+     "loc": "skills/work-on/references/koto-context-conventions.md#L9-L37",
+     "says": "stdin, or a mktemp file deleted after use"
+    }
+   ],
+   "winner": "skills/work-on/references/koto-context-conventions.md#L9-L37",
+   "reason": "The conventions file is the stated rule and phase-1 has no tmp-directory convention to point at."
+  },
+  {
+   "id": "panel-detail-files-in-wip",
+   "class": "mechanical",
+   "r2": 4,
+   "profiles": [
+    "work-on"
+   ],
+   "title": "Reviewer detail files versus wip hygiene",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/references/phases/phase-4a-scrutiny.md#L15-L24",
+     "says": "each reviewer writes a research file, work-on_<panel>_<focus>_<WF>.md, in the work-in-progress directory"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4b-review.md#L15-L24",
+     "says": "the same"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4c-qa.md#L15-L23",
+     "says": "the same"
+    },
+    {
+     "loc": "skills/work-on/references/koto-context-conventions.md#L41-L43",
+     "says": "do not stage artifacts in wip/"
+    },
+    {
+     "loc": "references/wip-hygiene.md#L49-L61",
+     "says": "wip/ is cleaned before the PR opens"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1022-L1031",
+     "says": "the cleanup_done enum has no wip cleanup; nothing removes the files"
+    }
+   ],
+   "winner": "skills/work-on/references/koto-context-conventions.md#L41-L43",
+   "reason": "The no-wip rule is already decided; reviewers use per-reviewer koto keys or mktemp files removed after aggregation."
+  },
+  {
+   "id": "implementation-escalate-outcome",
+   "class": "mechanical",
+   "profiles": [
+    "work-on"
+   ],
+   "title": "Which outcome escalates from implementation",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/references/phases/phase-4-implementation.md#L159-L159",
+     "says": "stop a failed clearing block with partial_tests_failing_escalate"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4-implementation.md#L176-L176",
+     "says": "that is the only exit reaching a terminal state"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L597-L606",
+     "says": "blocked also reaches done_blocked"
+    }
+   ],
+   "winner": "skills/work-on/koto-templates/work-on.md#L597-L606",
+   "reason": "The template routes blocked to done_blocked; use blocked and delete the apology note."
+  },
+  {
+   "id": "plan-backed-init-mode",
+   "class": "mechanical",
+   "profiles": [
+    "work-on"
+   ],
+   "title": "How plan-backed children initialize",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/SKILL.md#L214-L215",
+     "says": "plan-backed mode uses free-form init"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L169-L169",
+     "says": "mode: plan_backed"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1524-L1526",
+     "says": "entry routes plan-backed to plan_context_injection"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L91-L123",
+     "says": "free_form never reaches plan_context_injection"
+    }
+   ],
+   "winner": "skills/work-on/koto-templates/work-on.md#L1524-L1526",
+   "reason": "The template routes by mode; the free-form sentence is stale."
+  },
+  {
+   "id": "deferral-pr-body-pointer",
+   "class": "mechanical",
+   "profiles": [
+    "work-on"
+   ],
+   "title": "Deferral in the PR body points at a file that says nothing about it",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1942-L1943",
+     "says": "surface the approved deferral in the PR body, see phase-6-pr.md"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-6-pr.md#L31-L45",
+     "says": "PR body rules, no mention of deferrals"
+    }
+   ],
+   "winner": "skills/work-on/koto-templates/work-on.md#L1942-L1943",
+   "reason": "The directive is the only statement of the rule; add one line to phase-6-pr.md or drop the pointer so it does not send the agent to nothing."
+  },
+  {
+   "id": "decision-point-ids-unresolvable",
+   "class": "mechanical",
+   "profiles": [
+    "work-on",
+    "scope"
+   ],
+   "title": "Decision-point ids and the file that defines them",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/SKILL.md#L427-L431",
+     "says": "names decision points W1 to W4"
+    },
+    {
+     "loc": "references/decision-protocol.md#L54-L57",
+     "says": "read references/decision-points.md, which does not exist"
+    }
+   ],
+   "winner": "skills/work-on/SKILL.md#L427-L431",
+   "reason": "Name the four points inline in SKILL.md and fix the decision-protocol path to the file that exists."
+  },
+  {
+   "id": "retention-doc-runtime-status",
+   "class": "mechanical",
+   "profiles": [
+    "work-on"
+   ],
+   "title": "Whether the retention reference loads at runtime",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "references/koto-session-retention.md#L4-L8",
+     "says": "no skill loads this at runtime"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L365-L368",
+     "says": "links to it from the runtime SKILL.md"
+    },
+    {
+     "loc": "references/koto-session-retention.md#L24-L26",
+     "says": "describes a work-on CORRECTION block no file writes"
+    }
+   ],
+   "winner": "references/koto-session-retention.md#L4-L8",
+   "reason": "SKILL.md already states the rule inline; drop the links and fix the stale sentence."
+  },
+  {
+   "id": "pr-body-check-count",
+   "class": "mechanical",
+   "profiles": [
+    "work-on",
+    "execute-single-pr"
+   ],
+   "title": "How many PR-body checks exist",
+   "settled_by": [
+    557
+   ],
+   "sides": [
+    {
+     "loc": "references/pr-body-conformance.md#L36-L36",
+     "says": "four checks, PB1 to PB4"
+    },
+    {
+     "loc": "references/pr-body-conformance.md#L133-L133",
+     "says": "PB1-PB3"
+    },
+    {
+     "loc": "references/pr-body-conformance.md#L142-L142",
+     "says": "PB1-PB3"
+    }
+   ],
+   "winner": "references/pr-body-conformance.md#L36-L36",
+   "reason": "Four checks are defined; the later lines were not updated."
+  },
+  {
+   "id": "pr-body-rule-restated-inline",
+   "class": "mechanical",
+   "profiles": [
+    "work-on",
+    "execute-single-pr"
+   ],
+   "title": "The PR-body rule restated where it says not to be",
+   "settled_by": [
+    557,
+    545
+   ],
+   "sides": [
+    {
+     "loc": "references/pr-body-conformance.md#L5-L7",
+     "says": "state the rule here, do not restate it inline"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1391-L1391",
+     "says": "restates it"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-6-pr.md#L33-L37",
+     "says": "restates it"
+    }
+   ],
+   "winner": "references/pr-body-conformance.md#L5-L7",
+   "reason": "The reference owns the rule by its own statement; cut the restatements to pointers."
+  },
+  {
+   "id": "worktree-discipline-vs-drift-state",
+   "class": "mechanical",
+   "r2": 7,
+   "profiles": [
+    "execute-single-pr"
+   ],
+   "title": "worktree-discipline.md versus the state that already did its work",
+   "settled_by": [
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1317-L1317",
+     "says": "fetch, rebase and fact-finding already happened; do not fetch or rebase"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-2.5-worktree-discipline.md#L40-L41",
+     "says": "the same"
+    },
+    {
+     "loc": "references/worktree-discipline.md#L46-L53",
+     "says": "run git fetch and git rebase yourself"
+    },
+    {
+     "loc": "references/worktree-discipline.md#L103-L128",
+     "says": "on intent-changing, go to the team lead, then prompt the author"
+    },
+    {
+     "loc": "references/worktree-discipline.md#L130-L161",
+     "says": "record worktree_rebases and worktree_divergences in the state file"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1326-L1326",
+     "says": "points the agent at worktree-discipline.md"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L497-L527",
+     "says": "intent-changing passes to done_blocked in one tick; no prompt, no state file"
+    }
+   ],
+   "winner": "skills/execute/koto-templates/execute.md#L1317-L1317",
+   "reason": "The drift and sync default actions do the fetch and rebase; the directive and phase-2.5 already state the two-class rule. Drop both pointers to the reference, which has no /execute row in its own binding table."
+  },
+  {
+   "id": "phase-6-pr-shared-with-execute",
+   "class": "mechanical",
+   "profiles": [
+    "execute-single-pr"
+   ],
+   "title": "/execute's ci_monitor loads /work-on's PR phase file",
+   "settled_by": [
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1456-L1456",
+     "says": "ci_monitor points at phase-6-pr.md"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-6-pr.md#L41-L45",
+     "says": "Fixes #N is mandatory"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1403-L1403",
+     "says": "omit Fixes #N for outline children"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-6-pr.md#L59-L73",
+     "says": "evidence lists are /work-on's"
+    }
+   ],
+   "winner": "skills/execute/koto-templates/execute.md#L1403-L1403",
+   "reason": "The execute directive carries its own rules; the pointer imports /work-on's evidence and body rules that do not apply. Drop the pointer once force-push-after-rebase and retry-caps are decided."
+  },
+  {
+   "id": "execute-pr-title-type",
+   "class": "mechanical",
+   "r2": 8,
+   "profiles": [
+    "execute-single-pr"
+   ],
+   "title": "/execute's PR title type",
+   "settled_by": [
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1395-L1395",
+     "says": "choose feat, fix, docs or chore"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1436-L1436",
+     "says": "the command hardcodes feat"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/execute/scripts/node-push.sh#L394-L394",
+     "says": "commit titles hardcode feat"
+    }
+   ],
+   "winner": "skills/execute/koto-templates/execute.md#L1436-L1436",
+   "reason": "The command is what runs and every run gets feat; delete the type choice. Parameterizing the type is proposed as a follow-up, not settled here."
+  },
+  {
+   "id": "multi-pr-plan-routing",
+   "class": "policy",
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "title": "Whether /execute runs multi-pr PLANs",
+   "settled_by": [
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/execute/SKILL.md#L47-L52",
+     "says": "multi-pr is out of scope; send the user to /work-on"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L125-L132",
+     "says": "no refusal before koto init except three listed cases"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/execute/scripts/execute-open.sh#L133-L153",
+     "says": "anything not coordinated, including multi-pr, runs on execute.md"
+    }
+   ],
+   "decision": {
+    "context": "/execute's SKILL.md says multi-pr PLANs are out of scope and belong to /work-on, and /deliver and /scope route them there; execute-open.sh runs any non-coordinated PLAN, multi-pr included, on the single-pr template, and plan-to-tasks.sh can build tasks for it.",
+    "problem": "Choosing a side either adds a refusal (the run stops where it used to proceed) or blesses a path the rest of the skills route away from.",
+    "options": [
+     {
+      "name": "Refuse multi-pr in execute-open.sh, and add it to the listed refusals",
+      "why": "Matches /deliver's and /scope's routing and the meaning of multi-pr (one PR per issue, landed through /work-on)."
+     },
+     {
+      "name": "Correct SKILL.md to say /execute runs multi-pr PLANs on the shared-branch template",
+      "why": "No behavior change, but a multi-pr PLAN then lands as one shared-branch PR, which is not what the mode means elsewhere."
+     }
+    ],
+    "recommended": 0,
+    "reason": "Every other entry point already treats multi-pr as /work-on's; the refusal makes /execute agree with them."
+   }
+  },
+  {
+   "id": "execute-state-file-projection",
+   "class": "mechanical",
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "title": "/execute's state-file projection and resume ladder",
+   "settled_by": [
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/execute/SKILL.md#L761-L825",
+     "says": "maintain the execute_<topic>_state.md state file with pointer, snapshots and sentinel"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L877-L886",
+     "says": "7-day stale prompt, else resume at phase_pointer"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L851-L875",
+     "says": "koto init attaches or replaces; no separate session check"
+    }
+   ],
+   "winner": "skills/execute/SKILL.md#L851-L875",
+   "reason": "No script or template under skills/execute reads or writes that file (checked by search). The koto session is the state; the projection is never written and the stale prompt breaks --auto. Record once in the pattern state schema that a koto-backed parent's session is its state."
+  },
+  {
+   "id": "execute-sentinel-no-reader",
+   "class": "mechanical",
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "title": "/execute's parent_orchestration sentinel has no reader",
+   "settled_by": [
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/execute/SKILL.md#L814-L819",
+     "says": "write the sentinel before a Skill-tool dispatch; the child reads it"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L101-L104",
+     "says": "the autonomy decision reaches children through the sentinel"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1377-L1377",
+     "says": "koto materializes children from tasks"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/plan/scripts/plan-to-tasks.sh#L744-L751",
+     "says": "children get only task variables"
+    }
+   ],
+   "winner": "skills/execute/koto-templates/execute.md#L1377-L1377",
+   "reason": "No /work-on file reads the sentinel; delete the sentinel prose. Whether children should get an autonomy variable is a follow-up, on #659."
+  },
+  {
+   "id": "execution-children-described-as-prs",
+   "class": "mechanical",
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "title": "Execution children described as PRs",
+   "settled_by": [
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/execute/SKILL.md#L1181-L1185",
+     "says": "a child is a PR, inspected by PR state and CI rollup"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L937-L940",
+     "says": "a plan-backed child opens no PR"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute-coordinated.md#L418-L418",
+     "says": "no child opens a PR"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1379-L1379",
+     "says": "child status comes from the batch gate"
+    }
+   ],
+   "winner": "skills/execute/SKILL.md#L937-L940",
+   "reason": "Children commit to the shared branch; status comes from batch_done."
+  },
+  {
+   "id": "execute-exit-artifacts-not-produced",
+   "class": "mechanical",
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "title": "Exit artifacts /execute says it writes",
+   "settled_by": [
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/execute/SKILL.md#L971-L975",
+     "says": "on re-evaluation, write a Decision Record"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L962-L970",
+     "says": "abandonment leaves an abandonment-marked draft PR"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L506-L527",
+     "says": "the run passes to done_blocked; no state asks for a document"
+    },
+    {
+     "loc": "skills/execute/scripts/print-exit.sh#L128-L138",
+     "says": "maps the step to the exit line; writes nothing"
+    }
+   ],
+   "winner": "skills/execute/koto-templates/execute.md#L506-L527",
+   "reason": "Nothing writes a Decision Record or marks a PR; failure_reason is the record. Delete both claims."
+  },
+  {
+   "id": "no-cleanup-on-child-ticks",
+   "class": "mechanical",
+   "profiles": [
+    "execute-single-pr"
+   ],
+   "title": "--no-cleanup on child ticks",
+   "settled_by": [
+    557,
+    545
+   ],
+   "sides": [
+    {
+     "loc": "skills/work-on/references/phases/phase-2.5-worktree-discipline.md#L122-L126",
+     "says": "other /work-on phase files must not carry --no-cleanup"
+    },
+    {
+     "loc": "references/koto-session-retention.md#L40-L40",
+     "says": "every tick, root or child"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L302-L308",
+     "says": "children carry it too"
+    }
+   ],
+   "winner": "references/koto-session-retention.md#L40-L40",
+   "reason": "The retention reference is the normative rule."
+  },
+  {
+   "id": "deliver-merged-claim",
+   "class": "mechanical",
+   "profiles": [
+    "deliver"
+   ],
+   "title": "/deliver says it ends merged; a default run pauses first",
+   "settled_by": [
+    541
+   ],
+   "sides": [
+    {
+     "loc": "skills/deliver/SKILL.md#L5-L6",
+     "says": "the run ends merged where protection allows"
+    },
+    {
+     "loc": "skills/deliver/SKILL.md#L62-L62",
+     "says": "with no flag and no header the run is interactive"
+    },
+    {
+     "loc": "skills/deliver/SKILL.md#L228-L228",
+     "says": "paused-for-review is a listed outcome"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/execute/scripts/execute-open.sh#L190-L201",
+     "says": "interactive runs set PAUSE_BEFORE_FINALIZE"
+    }
+   ],
+   "winner": "skills/deliver/SKILL.md#L228-L228",
+   "reason": "A default /deliver pauses before the merge; qualify the intro."
+  },
+  {
+   "id": "scope-reference-table-vs-lazy-load",
+   "class": "mechanical",
+   "r2": 9,
+   "profiles": [
+    "scope"
+   ],
+   "title": "/scope's reference table versus its lazy-load rule",
+   "settled_by": [
+    586
+   ],
+   "sides": [
+    {
+     "loc": "skills/scope/SKILL.md#L713-L730",
+     "says": "three references load in all phases"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L434-L437",
+     "says": "references are not required reading up front"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/scope/koto-templates/scope.md#L2177-L2179",
+     "says": "directives name the phase file per state, and state-schema.md at setup"
+    }
+   ],
+   "winner": "skills/scope/SKILL.md#L434-L437",
+   "reason": "The template names what to read per state; the table's all-phases rows are what make an agent read about 27,000 tokens of plugin references the load manifest gives weight 0."
+  },
+  {
+   "id": "scope-state-initial-values",
+   "class": "mechanical",
+   "r2": 13,
+   "profiles": [
+    "scope"
+   ],
+   "title": "/scope's initial state-file values",
+   "settled_by": [
+    586
+   ],
+   "sides": [
+    {
+     "loc": "skills/scope/references/phases/phase-0-setup.md#L420-L432",
+     "says": "write phase_pointer: phase-0 and exit: UNSET"
+    },
+    {
+     "loc": "skills/scope/references/state-schema.md#L48-L58",
+     "says": "the pointer is the template's integer phase"
+    },
+    {
+     "loc": "references/parent-skill-state-schema.md#L26-L32",
+     "says": "UNSET while in progress (literal or absent unstated)"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/scope/scripts/resume-probe.sh#L205-L210",
+     "says": "accepts only 0-4"
+    },
+    {
+     "loc": "skills/scope/scripts/resume-probe.sh#L212-L232",
+     "says": "treats only empty, null or ~ as unset"
+    }
+   ],
+   "winner": "skills/scope/scripts/resume-probe.sh#L205-L210",
+   "reason": "A state file written as phase-0 says routes to resume_malformed. Phase 0 writes 0 and an empty exit; the pattern schema says empty or absent; test fixtures and the eval move to the probe's shape."
+  },
+  {
+   "id": "fc10-already-caught",
+   "class": "mechanical",
+   "r2": 19,
+   "profiles": [
+    "scope",
+    "work-on"
+   ],
+   "title": "Mechanical writing-style terms said to be caught before the jury",
+   "settled_by": [
+    541
+   ],
+   "sides": [
+    {
+     "loc": "skills/writing-style/SKILL.md#L41-L43",
+     "says": "mechanical rules are enforced before a reviewer sees the draft"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-4-validate.md#L244-L253",
+     "says": "the terms are already caught before you see the draft"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/scope/scripts/hop-complete.sh#L132-L132",
+     "says": "the hop gate checks SCHEMA, FC01, FC03, FC04 only"
+    },
+    {
+     "loc": "crates/shirabe-validate/src/validate.rs#L90-L104",
+     "says": "FC10 is notice-level"
+    }
+   ],
+   "winner": "crates/shirabe-validate/src/validate.rs#L90-L104",
+   "reason": "Nothing runs FC10 before the jury. Delete both claims and give the term scan back to the reviewer, whose prompt already points at the rules file."
+  },
+  {
+   "id": "r6-verdicts-no-reader",
+   "class": "mechanical",
+   "profiles": [
+    "scope"
+   ],
+   "title": "Phase 1's shape predicates have no consumer",
+   "settled_by": [
+    586
+   ],
+   "sides": [
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L185-L197",
+     "says": "the verdicts' one consumer is /design's decision roster"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L113-L131",
+     "says": "a post-/prd re-evaluation gate"
+    },
+    {
+     "loc": "references/parent-skill-pattern.md#L341-L345",
+     "says": "a parent adds no arguments or env vars to a child"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L192-L192",
+     "says": "/design gets only the PRD path"
+    }
+   ],
+   "winner": "references/parent-skill-pattern.md#L341-L345",
+   "reason": "/design cannot receive the verdicts and no state asks for the gate; drop the consumer claim and the walk."
+  },
+  {
+   "id": "worktree-intent-change-owner",
+   "class": "policy",
+   "profiles": [
+    "scope"
+   ],
+   "title": "Who judges an intent-changing rebase under /scope",
+   "settled_by": [
+    586
+   ],
+   "sides": [
+    {
+     "loc": "skills/scope/SKILL.md#L373-L378",
+     "says": "an intent-changing rebase halts and goes to the author"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L111-L121",
+     "says": "the team lead resolves it in place when intent still holds, and escalates to the author only otherwise"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L130-L132",
+     "says": "team-lead discipline is vacuous here, since /scope spawns nothing"
+    }
+   ],
+   "decision": {
+    "context": "When main moves under a /scope run in a way that changes something the chain relies on, SKILL.md says the run halts and asks the author; the Phase 2 reference lets the team lead, which under /scope is the same agent running the chain, decide intent still holds and fix the citation in place. SKILL.md also says there is no team lead under /scope.",
+    "problem": "Whether the running agent may approve its own continuation after an upstream change is a question of who approves, and no code enforces either side.",
+    "options": [
+     {
+      "name": "Always put an intent-changing rebase to the author",
+      "why": "Keeps a person on every change that alters what the chain committed to; an --auto run stops there."
+     },
+     {
+      "name": "The running agent resolves in place when it judges intent unchanged, and escalates otherwise",
+      "why": "Fewer stops, but the agent judging the change is the one whose work it would invalidate."
+     }
+    ],
+    "recommended": 0,
+    "reason": "The classification is itself the judgment that matters, and the agent making it is the party being checked; SKILL.md already says there is no separate team lead under /scope."
+   }
+  },
+  {
+   "id": "phase1-undocumented-state-field",
+   "class": "mechanical",
+   "profiles": [
+    "scope"
+   ],
+   "title": "Phase 1 writes a state field the schema does not have",
+   "settled_by": [
+    586
+   ],
+   "sides": [
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L88-L94",
+     "says": "record phase-1: empty-cold-start"
+    },
+    {
+     "loc": "skills/scope/references/state-schema.md#L102-L107",
+     "says": "fields with no reader are wrong"
+    }
+   ],
+   "winner": "skills/scope/references/state-schema.md#L102-L107",
+   "reason": "Nothing reads the field; delete the write."
+  },
+  {
+   "id": "brief-upstream-legal-parents",
+   "class": "mechanical",
+   "profiles": [
+    "scope"
+   ],
+   "title": "What a BRIEF's upstream may name",
+   "settled_by": [
+    541
+   ],
+   "sides": [
+    {
+     "loc": "skills/brief/references/phases/phase-0-setup.md#L99-L103",
+     "says": "a BRIEF's upstream holds nothing; the validator rejects any value"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L32-L54",
+     "says": "optional STRATEGY or VISION ancestor"
+    }
+   ],
+   "code": [
+    {
+     "loc": "crates/shirabe-validate/src/checks.rs#L4820-L4822",
+     "says": "a brief may name a STRATEGY or VISION"
+    }
+   ],
+   "winner": "skills/brief/references/brief-format.md#L32-L54",
+   "reason": "The validator accepts the ancestor and SKILL.md's Context Resolution records it; the phase-0 paragraph is stale."
+  },
+  {
+   "id": "prd-format-schema-field",
+   "class": "mechanical",
+   "profiles": [
+    "scope"
+   ],
+   "title": "The PRD format omits the schema field the gate requires",
+   "settled_by": [
+    541
+   ],
+   "sides": [
+    {
+     "loc": "skills/prd/references/prd-format.md#L19-L31",
+     "says": "frontmatter example has no schema field"
+    },
+    {
+     "loc": "skills/prd/references/prd-format.md#L37-L37",
+     "says": "required fields: status, problem, goals"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/scope/scripts/hop-complete.sh#L132-L132",
+     "says": "the hop gate checks SCHEMA"
+    }
+   ],
+   "winner": "skills/scope/scripts/hop-complete.sh#L132-L132",
+   "reason": "A PRD written from the format reference fails /scope's hop gate; add schema: prd/v1 to the example."
+  },
+  {
+   "id": "prd-complexity-routing",
+   "class": "mechanical",
+   "profiles": [
+    "scope"
+   ],
+   "title": "Where /prd routes a simple PRD",
+   "settled_by": [
+    541
+   ],
+   "sides": [
+    {
+     "loc": "skills/prd/SKILL.md#L195-L198",
+     "says": "two rows: a simple or medium PRD goes to /plan, a complex one to /design"
+    },
+    {
+     "loc": "skills/prd/references/phases/phase-4-validate.md#L248-L253",
+     "says": "three tiers: simple suggests direct implementation, medium a planning workflow, complex a design workflow first"
+    }
+   ],
+   "winner": "skills/prd/references/phases/phase-4-validate.md#L248-L253",
+   "reason": "Phase 4 is the step that presents the routing, and its three tiers match /explore's routing table, where a simple change files an issue and runs /work-on. SKILL.md's Output table becomes three rows: simple, file an issue then /work-on; medium, /plan; complex, /design. Found while re-checking the internal-restatement spans during execution, after the inventory closed."
+  },
+  {
+   "id": "prd-upstream-roadmap",
+   "class": "mechanical",
+   "profiles": [
+    "scope"
+   ],
+   "title": "Which documents a PRD may name as its upstream",
+   "settled_by": [
+    660
+   ],
+   "sides": [
+    {
+     "loc": "skills/prd/references/phases/phase-3-draft.md#L31-L35",
+     "says": "the --upstream path typically points to a ROADMAP when the PRD is part of a multi-feature initiative"
+    },
+    {
+     "loc": "skills/prd/references/prd-format.md#L37-L41",
+     "says": "a BRIEF is a PRD's only legal upstream; with no brief, the field is omitted rather than naming the ROADMAP"
+    }
+   ],
+   "code": [
+    {
+     "loc": "crates/shirabe-validate/src/formats.rs#L322-L322",
+     "says": "the PRD format's legal upstream types are BRIEF, STRATEGY and VISION"
+    },
+    {
+     "loc": "crates/shirabe-validate/src/validate.rs#L266-L270",
+     "says": "R10/R11 reject an upstream of an illegal type or one that does not outlive the document"
+    }
+   ],
+   "winner": "crates/shirabe-validate/src/formats.rs#L322-L322",
+   "reason": "The validator decides: a PRD may name a BRIEF, a STRATEGY or a VISION, and R11 rejects a durable PRD naming a ROADMAP, which the cascade deletes once its features land. Both statements lose: Phase 3's ROADMAP default is wrong, and prd-format.md's BRIEF-only rule is narrower than the code. Both now say a BRIEF normally, a STRATEGY or VISION when no brief exists, and never a ROADMAP. Found during execution, after the inventory closed; an earlier reading named prd-format.md the winner before the validator's type list was checked."
+  },
+  {
+   "id": "plan-single-pr-draft-commit",
+   "class": "mechanical",
+   "r2": 10,
+   "profiles": [
+    "scope"
+   ],
+   "title": "/plan commits a single-pr PLAN at Draft",
+   "settled_by": [
+    658
+   ],
+   "sides": [
+    {
+     "loc": "skills/plan/SKILL.md#L545-L547",
+     "says": "a single-pr PLAN stays at Draft"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L620-L621",
+     "says": "output is the PLAN with status Draft"
+    },
+    {
+     "loc": "skills/plan/references/quality/plan-doc-structure.md#L132-L135",
+     "says": "stays at Draft until /work-on starts"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L68-L77",
+     "says": "a committed PLAN at Draft is a violation"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L327-L341",
+     "says": "the single-pr PLAN is authored Active"
+    }
+   ],
+   "code": [
+    {
+     "loc": "crates/shirabe-validate/src/lifecycle.rs#L862-L874",
+     "says": "single-pr posture requires Active; L01 is an error"
+    }
+   ],
+   "winner": "skills/plan/SKILL.md#L68-L77",
+   "reason": "L01 fails a Draft single-pr PLAN and /plan's own 7.4b check stops on it."
+  },
+  {
+   "id": "plan-complexity-values",
+   "class": "mechanical",
+   "r2": 11,
+   "profiles": [
+    "scope"
+   ],
+   "title": "PLAN complexity values and the FC11 message",
+   "settled_by": [
+    658
+   ],
+   "sides": [
+    {
+     "loc": "skills/plan/references/plan-format.md#L176-L176",
+     "says": "trivial, simple, testable, complex"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L263-L263",
+     "says": "simple, testable, critical"
+    },
+    {
+     "loc": "references/issues-table.md#L103-L103",
+     "says": "simple, testable, critical"
+    }
+   ],
+   "code": [
+    {
+     "loc": "crates/shirabe-validate/src/checks.rs#L1072-L1085",
+     "says": "FC05 rejects anything but simple, testable, critical"
+    },
+    {
+     "loc": "crates/shirabe-validate/src/checks.rs#L3468-L3468",
+     "says": "FC11's message sends the agent to plan-format.md"
+    }
+   ],
+   "winner": "crates/shirabe-validate/src/checks.rs#L1072-L1085",
+   "reason": "An agent following FC11's pointer writes values FC05 rejects. Fix plan-format and point FC11 at references/issues-table.md."
+  },
+  {
+   "id": "plan-required-sections",
+   "class": "mechanical",
+   "r2": 12,
+   "profiles": [
+    "scope"
+   ],
+   "title": "PLAN required sections",
+   "settled_by": [
+    658
+   ],
+   "sides": [
+    {
+     "loc": "skills/plan/references/plan-format.md#L134-L157",
+     "says": "six sections, no Issue Outlines"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L54-L62",
+     "says": "seven sections"
+    },
+    {
+     "loc": "skills/plan/references/quality/plan-doc-structure.md#L112-L122",
+     "says": "seven sections"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L363-L375",
+     "says": "single-pr requires a Dependency Graph"
+    }
+   ],
+   "code": [
+    {
+     "loc": "crates/shirabe-validate/src/formats.rs#L218-L248",
+     "says": "per-mode map; single-pr needs five sections"
+    },
+    {
+     "loc": "crates/shirabe-validate/src/checks.rs#L3854-L3864",
+     "says": "FC14 flags a single-pr Dependency Graph"
+    }
+   ],
+   "winner": "crates/shirabe-validate/src/formats.rs#L218-L248",
+   "reason": "The validator's per-mode map and FC14 are what run; SKILL.md points at one per-shape list and phase 7 drops the graph for single-pr."
+  },
+  {
+   "id": "design-spawned-from-shape",
+   "class": "mechanical",
+   "r2": 14,
+   "profiles": [
+    "scope"
+   ],
+   "title": "/design's spawned_from shape",
+   "settled_by": [
+    637
+   ],
+   "sides": [
+    {
+     "loc": "skills/design/SKILL.md#L71-L77",
+     "says": "an object: issue, repo, parent_design"
+    },
+    {
+     "loc": "skills/design/references/design-format.md#L65-L68",
+     "says": "a path string to a parent DESIGN"
+    }
+   ],
+   "code": [
+    {
+     "loc": "skills/design/references/phases/phase-6-final-review.md#L239-L250",
+     "says": "the workflow reads it as issue-driven"
+    }
+   ],
+   "winner": "skills/design/SKILL.md#L71-L77",
+   "reason": "The issue-driven workflow uses the object; the main agent and the Phase 6 reviewer otherwise check different shapes in one run."
+  },
+  {
+   "id": "design-superseded-location",
+   "class": "mechanical",
+   "r2": 15,
+   "profiles": [
+    "scope"
+   ],
+   "title": "Where superseded designs go",
+   "settled_by": [
+    637
+   ],
+   "sides": [
+    {
+     "loc": "skills/design/SKILL.md#L131-L131",
+     "says": "archive/"
+    },
+    {
+     "loc": "skills/design/references/design-format.md#L227-L227",
+     "says": "stays where it is"
+    }
+   ],
+   "code": [
+    {
+     "loc": "crates/shirabe-validate/src/transition.rs#L453-L453",
+     "says": "moves the file to docs/designs/archive"
+    }
+   ],
+   "winner": "crates/shirabe-validate/src/transition.rs#L453-L453",
+   "reason": "The transition moves the file."
+  },
+  {
+   "id": "design-implementation-issues-owner",
+   "class": "mechanical",
+   "r2": 16,
+   "profiles": [
+    "scope"
+   ],
+   "title": "Who adds Implementation Issues to a DESIGN",
+   "settled_by": [
+    637,
+    658
+   ],
+   "sides": [
+    {
+     "loc": "skills/design/SKILL.md#L133-L136",
+     "says": "/plan adds an Implementation Issues section"
+    },
+    {
+     "loc": "skills/design/SKILL.md#L240-L241",
+     "says": "do not merge; /plan will add that section"
+    },
+    {
+     "loc": "skills/design/references/lifecycle.md#L56-L58",
+     "says": "added during /plan phase 6"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L615-L619",
+     "says": "do not insert an Implementation Issues section"
+    },
+    {
+     "loc": "skills/design/references/design-format.md#L146-L159",
+     "says": "a DESIGN never carries that table"
+    }
+   ],
+   "winner": "skills/plan/references/phases/phase-7-creation.md#L615-L619",
+   "reason": "Phase 7 is what runs and nothing adds the section."
+  },
+  {
+   "id": "design-planned-transition-uncommitted",
+   "class": "mechanical",
+   "profiles": [
+    "scope"
+   ],
+   "title": "The DESIGN's Planned transition is never committed under /scope",
+   "settled_by": [
+    586,
+    658
+   ],
+   "sides": [
+    {
+     "loc": "skills/plan/references/phases/phase-1-analysis.md#L51-L58",
+     "says": "under the sentinel, transition the DESIGN to Planned"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L609-L613",
+     "says": "step 7.5 transitions it again"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L579-L593",
+     "says": "the plan hop stages only the PLAN path"
+    }
+   ],
+   "code": [
+    {
+     "loc": "crates/shirabe-validate/src/lifecycle.rs#L862-L874",
+     "says": "an Active PLAN over an Accepted DESIGN fails L01"
+    }
+   ],
+   "winner": "skills/scope/SKILL.md#L655-L664",
+   "reason": "Both DESIGN paths are already in /scope's commit set; add the DESIGN path to the plan hop's commit, and keep 7.5 as the single statement of the transition."
+  }
+ ],
+ "deadprose": [
+  {
+   "id": "dp-work-on-retry-rationale-copies",
+   "category": "duplicate",
+   "settled_by": [
+    557
+   ],
+   "profiles": [
+    "work-on"
+   ],
+   "survivor": "skills/work-on/references/phases/phase-4a-scrutiny.md#L69-L73",
+   "note": "Copies of the retry-clearing rationale and the orchestration restatement; 4a's copy is the one the verification directive already names.",
+   "spans": [
+    {
+     "loc": "skills/work-on/references/phases/phase-3-analysis.md#L96-L100"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4-implementation.md#L168-L172"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4b-review.md#L65-L69"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4c-qa.md#L64-L68"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-5-finalization.md#L170-L174"
+    },
+    {
+     "loc": "skills/work-on/references/review-panel-orchestration.md#L20-L37"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-5-finalization.md#L162-L168"
+    }
+   ]
+  },
+  {
+   "id": "dp-work-on-pointer-loaded-docs",
+   "category": "rationale",
+   "settled_by": [
+    557
+   ],
+   "profiles": [
+    "work-on"
+   ],
+   "survivor": "none",
+   "note": "Two authoring documents reached through one pointer each. Removing the pointer removes the load; the files stay for maintainers. Each rule they state is also stated in the directive or gate that enforces it.",
+   "spans": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L2031-L2031",
+     "whole": "references/default-action-conversion.md"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L365-L368",
+     "whole": "references/koto-session-retention.md"
+    }
+   ]
+  },
+  {
+   "id": "dp-work-on-finishing-obligations-pointer",
+   "category": "rationale",
+   "settled_by": [
+    557
+   ],
+   "profiles": [
+    "work-on"
+   ],
+   "survivor": "none",
+   "blocked_on": [
+    "force-push-after-rebase",
+    "ci-fix-ends-run-unverified"
+   ],
+   "note": "An authoring document reached through one pointer. It states the /work-on side of two policy items, so removing the pointer waits on both decisions; the file stays for maintainers.",
+   "spans": [
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L2003-L2006",
+     "whole": "skills/work-on/references/finishing-obligations.md"
+    }
+   ]
+  },
+  {
+   "id": "dp-work-on-rationale",
+   "category": "rationale",
+   "settled_by": [
+    557
+   ],
+   "profiles": [
+    "work-on"
+   ],
+   "survivor": "none",
+   "spans": [
+    {
+     "loc": "skills/work-on/SKILL.md#L96-L103"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L91-L92"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4-implementation.md#L36-L48"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-4-implementation.md#L108-L109"
+    },
+    {
+     "loc": "references/pr-body-conformance.md#L11-L20"
+    },
+    {
+     "loc": "references/pr-body-conformance.md#L96-L143"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L2078-L2082"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L2096-L2100"
+    },
+    {
+     "loc": "skills/work-on/references/koto-context-conventions.md#L1-L7"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L2133-L2138"
+    }
+   ]
+  },
+  {
+   "id": "dp-work-on-duplicates",
+   "category": "duplicate",
+   "settled_by": [
+    557
+   ],
+   "profiles": [
+    "work-on"
+   ],
+   "spans": [
+    {
+     "loc": "skills/work-on/SKILL.md#L180-L185",
+     "survivor": "the issue_type_routing directive"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-3-analysis.md#L51-L60",
+     "survivor": "the analysis directive"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-3-analysis.md#L62-L72",
+     "survivor": "the analysis directive"
+    },
+    {
+     "loc": "skills/work-on/references/agent-instructions/phase-3-analysis.md#L195-L199",
+     "survivor": "the analysis directive"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L308-L316",
+     "survivor": "skills/work-on/references/phases/phase-1-setup.md#L14-L19"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L453-L457",
+     "survivor": "the Resume section of the same file"
+    },
+    {
+     "loc": "skills/work-on/references/agent-instructions/phase-3-analysis.md#L201-L210",
+     "survivor": "Task 6 of the same file"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L115-L119",
+     "survivor": "skills/work-on/references/phases/phase-5-finalization.md#L176-L180"
+    }
+   ]
+  },
+  {
+   "id": "dp-work-on-missing-files",
+   "category": "missing-file",
+   "settled_by": [
+    557
+   ],
+   "profiles": [
+    "work-on"
+   ],
+   "survivor": "none",
+   "note": "Removed by commit-koto-context-artifacts and the sentinel row that cannot fire; counted here once.",
+   "spans": [
+    {
+     "loc": "skills/work-on/references/phases/phase-1-setup.md#L66-L69"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-3-analysis.md#L49-L50"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-5-finalization.md#L121-L124"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L2000-L2001"
+    },
+    {
+     "loc": "skills/work-on/SKILL.md#L402-L408"
+    }
+   ]
+  },
+  {
+   "id": "dp-work-on-koto-restated",
+   "category": "koto-does-it",
+   "settled_by": [
+    557
+   ],
+   "profiles": [
+    "work-on"
+   ],
+   "survivor": "the evidence schema koto returns with each directive",
+   "spans": [
+    {
+     "loc": "skills/work-on/references/phases/phase-0-context-injection.md#L33-L37"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-3-analysis.md#L104-L110"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-5-finalization.md#L130-L139"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1657-L1658"
+    },
+    {
+     "loc": "skills/work-on/koto-templates/work-on.md#L1921-L1923"
+    }
+   ]
+  },
+  {
+   "id": "dp-execute-skill-duplicates-template",
+   "category": "duplicate",
+   "settled_by": [
+    545
+   ],
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "survivor": "the matching state directives in execute.md and execute-coordinated.md: takeover at execute.md#L1222-L1227, autonomy at execute.md#L1341-L1352, exit lines at the terminal directives, expected_head at execute.md#L1469",
+   "note": "Per-state mechanics, pause, merge, owned-PR takeover, coordinated states, outcome table and autonomy block, each also stated in the state that runs it.",
+   "spans": [
+    {
+     "loc": "skills/execute/SKILL.md#L310-L394"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L396-L427"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L429-L467"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L469-L566"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L630-L722"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L983-L1050"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L1139-L1172"
+    }
+   ]
+  },
+  {
+   "id": "dp-execute-skill-rationale",
+   "category": "rationale",
+   "settled_by": [
+    545
+   ],
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "survivor": "none",
+   "note": "L1052-L1137 is a maintainer procedure that docs/guides/execute-friction.md already covers.",
+   "spans": [
+    {
+     "loc": "skills/execute/SKILL.md#L24-L41"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L80-L89"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L189-L195"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L255-L276"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L292-L300"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L838-L847"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L1052-L1137"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L1278-L1288"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L1290-L1338"
+    }
+   ]
+  },
+  {
+   "id": "dp-execute-skill-dead-mechanisms",
+   "category": "missing-file",
+   "settled_by": [
+    545
+   ],
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "survivor": "none",
+   "note": "The state projection, sentinel and child-as-PR prose removed by execute-state-file-projection, execute-sentinel-no-reader and execution-children-described-as-prs.",
+   "spans": [
+    {
+     "loc": "skills/execute/SKILL.md#L144-L187"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L761-L825"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L876-L936"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L1174-L1194"
+    },
+    {
+     "loc": "skills/execute/SKILL.md#L1259-L1264"
+    }
+   ]
+  },
+  {
+   "id": "dp-execute-skill-koto-restated",
+   "category": "koto-does-it",
+   "settled_by": [
+    545
+   ],
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "survivor": "the koto init call in skills/execute/scripts/execute-open.sh",
+   "spans": [
+    {
+     "loc": "skills/execute/SKILL.md#L228-L238"
+    }
+   ]
+  },
+  {
+   "id": "dp-execute-template",
+   "category": "rationale",
+   "settled_by": [
+    545
+   ],
+   "profiles": [
+    "execute-single-pr"
+   ],
+   "survivor": "none",
+   "note": "Rationale and descriptions of what a script or gate does, inside directives; the instruction sentences around them stay.",
+   "spans": [
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1183-L1183"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1229-L1229"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1256-L1261"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1269-L1269"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1285-L1285"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1303-L1305"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1359-L1370"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1450-L1450"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1479-L1479"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1491-L1491"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1500-L1500"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1520-L1522"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1556-L1556"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1589-L1589"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1612-L1612"
+    },
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1660-L1660"
+    }
+   ]
+  },
+  {
+   "id": "dp-execute-pointer-loaded-refs",
+   "category": "missing-file",
+   "settled_by": [
+    545
+   ],
+   "profiles": [
+    "execute-single-pr"
+   ],
+   "survivor": "the execute.md directives",
+   "note": "Removed by worktree-discipline-vs-drift-state: dropping the pointer unloads the file for /execute; it stays for its other callers.",
+   "spans": [
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1326-L1326",
+     "whole": "references/worktree-discipline.md"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-2.5-worktree-discipline.md#L1-L36"
+    },
+    {
+     "loc": "skills/work-on/references/phases/phase-2.5-worktree-discipline.md#L128-L144"
+    }
+   ]
+  },
+  {
+   "id": "dp-execute-phase-6-pointer",
+   "category": "missing-file",
+   "settled_by": [
+    545
+   ],
+   "profiles": [
+    "execute-single-pr"
+   ],
+   "survivor": "the execute.md directives",
+   "blocked_on": [
+    "force-push-after-rebase",
+    "retry-caps"
+   ],
+   "note": "Removed by phase-6-pr-shared-with-execute. The file holds /execute's side of two policy items, so dropping the pointer waits on both decisions.",
+   "spans": [
+    {
+     "loc": "skills/execute/koto-templates/execute.md#L1456-L1456",
+     "whole": "skills/work-on/references/phases/phase-6-pr.md"
+    }
+   ]
+  },
+  {
+   "id": "dp-deliver-skill",
+   "category": "koto-does-it",
+   "settled_by": [
+    541
+   ],
+   "profiles": [
+    "deliver"
+   ],
+   "survivor": "the deliver.md directives and the exit script",
+   "spans": [
+    {
+     "loc": "skills/deliver/SKILL.md#L35-L56"
+    },
+    {
+     "loc": "skills/deliver/SKILL.md#L197-L216"
+    },
+    {
+     "loc": "skills/deliver/SKILL.md#L218-L227"
+    },
+    {
+     "loc": "skills/deliver/SKILL.md#L229-L237"
+    },
+    {
+     "loc": "skills/deliver/SKILL.md#L239-L249"
+    },
+    {
+     "loc": "skills/deliver/SKILL.md#L251-L270"
+    },
+    {
+     "loc": "skills/deliver/SKILL.md#L272-L280"
+    },
+    {
+     "loc": "skills/deliver/koto-templates/deliver.md#L1107-L1111"
+    }
+   ]
+  },
+  {
+   "id": "dp-scope-history",
+   "category": "rationale",
+   "settled_by": [
+    586
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "survivor": "none",
+   "note": "Prose that narrates an earlier revision of the skill.",
+   "spans": [
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L18-L26"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L132-L138"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L170-L183"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L193-L197"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L303-L331"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L486-L489"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L57-L58"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L287-L293"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L844-L847"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L926-L931"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L968-L982"
+    },
+    {
+     "loc": "skills/scope/references/state-schema.md#L188-L201"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-3-exit-finalization.md#L403-L406"
+    },
+    {
+     "loc": "skills/scope/koto-templates/scope.md#L2198-L2203"
+    }
+   ]
+  },
+  {
+   "id": "dp-brief-history",
+   "category": "rationale",
+   "settled_by": [
+    541
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "survivor": "none",
+   "note": "Prose that narrates an earlier revision of the skill.",
+   "spans": [
+    {
+     "loc": "skills/brief/SKILL.md#L273-L279"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-0-setup.md#L20-L21"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-0-setup.md#L162-L167"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-0-setup.md#L299-L319"
+    },
+    {
+     "loc": "skills/writing-style/SKILL.md#L29-L32"
+    }
+   ]
+  },
+  {
+   "id": "dp-plan-history",
+   "category": "rationale",
+   "settled_by": [
+    658
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "survivor": "none",
+   "note": "Prose that narrates an earlier revision of the skill.",
+   "spans": [
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L557-L562"
+    }
+   ]
+  },
+  {
+   "id": "dp-scope-rationale",
+   "category": "rationale",
+   "settled_by": [
+    586
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "survivor": "none",
+   "spans": [
+    {
+     "loc": "skills/scope/SKILL.md#L26-L52"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L61-L80"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L82-L117"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-0-setup.md#L334-L355"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L38-L49"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L17-L22"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L221-L230"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L232-L262"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L263-L278"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L615-L630"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L644-L660"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L678-L682"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L711-L720"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L754-L758"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L880-L888"
+    },
+    {
+     "loc": "skills/scope/koto-templates/scope.md#L2272-L2277"
+    },
+    {
+     "loc": "references/fixes/sub-agent-dispatch.md#L8-L11"
+    }
+   ]
+  },
+  {
+   "id": "dp-plan-rationale",
+   "category": "rationale",
+   "settled_by": [
+    658
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "survivor": "none",
+   "spans": [
+    {
+     "loc": "skills/plan/SKILL.md#L86-L116"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L249-L256"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L538-L543"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L596-L603"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-1-analysis.md#L72-L81"
+    },
+    {
+     "loc": "skills/plan/references/quality/plan-doc-structure.md#L374-L380"
+    }
+   ]
+  },
+  {
+   "id": "dp-design-rationale",
+   "category": "rationale",
+   "settled_by": [
+    637
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "survivor": "none",
+   "spans": [
+    {
+     "loc": "skills/design/SKILL.md#L39-L39"
+    },
+    {
+     "loc": "skills/design/references/phases/phase-0-setup-prd.md#L54-L58"
+    }
+   ]
+  },
+  {
+   "id": "dp-scope-duplicates",
+   "category": "duplicate",
+   "settled_by": [
+    586
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "spans": [
+    {
+     "loc": "skills/scope/references/phases/phase-3-exit-finalization.md#L397-L510",
+     "survivor": "skills/scope/SKILL.md#L606-L711"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-4-cleanup.md#L88-L163",
+     "survivor": "skills/scope/SKILL.md#L606-L711"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-3-exit-finalization.md#L511-L541",
+     "survivor": "skills/scope/references/phases/phase-2-chain-orchestration.md#L915-L986"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L548-L573",
+     "survivor": "skills/scope/references/phases/phase-2-chain-orchestration.md#L613-L848"
+    },
+    {
+     "loc": "skills/scope/koto-templates/scope.md#L2208-L2213",
+     "survivor": "skills/scope/SKILL.md#L442-L444"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L333-L352",
+     "survivor": "skills/scope/references/phases/phase-0-setup.md#L187-L212"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L275-L295",
+     "survivor": "skills/scope/references/phases/phase-0-setup.md#L256-L355"
+    }
+   ]
+  },
+  {
+   "id": "dp-plan-duplicates",
+   "category": "duplicate",
+   "settled_by": [
+    658
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "spans": [
+    {
+     "loc": "skills/plan/SKILL.md#L492-L496",
+     "survivor": "skills/plan/SKILL.md#L480-L481"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L503-L508",
+     "survivor": "skills/plan/references/phases/phase-7-creation.md#L35-L44"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L611-L618",
+     "survivor": "skills/plan/references/phases/phase-7-creation.md#L35-L44"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L7-L22",
+     "survivor": "skills/plan/references/phases/phase-7-creation.md#L35-L44"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L207-L208",
+     "survivor": "skills/plan/references/phases/phase-7-creation.md#L35-L44"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L350-L361",
+     "survivor": "skills/plan/references/phases/phase-7-creation.md#L230-L241"
+    }
+   ]
+  },
+  {
+   "id": "dp-design-duplicates",
+   "category": "duplicate",
+   "settled_by": [
+    637
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "spans": [
+    {
+     "loc": "skills/design/SKILL.md#L200-L204",
+     "survivor": "skills/design/SKILL.md#L187-L188"
+    },
+    {
+     "loc": "skills/design/references/phases/phase-0-setup-prd.md#L40-L42",
+     "survivor": "skills/plan/references/phases/phase-1-analysis.md#L46-L48"
+    }
+   ]
+  },
+  {
+   "id": "dp-scope-no-reader",
+   "category": "missing-file",
+   "settled_by": [
+    586
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "survivor": "none",
+   "note": "The shape-predicate walk and the post-/prd gate, removed by r6-verdicts-no-reader.",
+   "spans": [
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L113-L131"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L185-L192"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-1-discovery.md#L198-L301"
+    }
+   ]
+  },
+  {
+   "id": "dp-scope-koto-restated",
+   "category": "koto-does-it",
+   "settled_by": [
+    586
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "survivor": "skills/scope/scripts/resume-probe.sh and the intake, branch_check and resume_route states",
+   "spans": [
+    {
+     "loc": "skills/scope/SKILL.md#L127-L129"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-0-setup.md#L12-L19"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-0-setup.md#L158-L185"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-0-setup.md#L376-L391"
+    },
+    {
+     "loc": "skills/scope/SKILL.md#L446-L500"
+    },
+    {
+     "loc": "skills/scope/koto-templates/scope.md#L2181-L2190"
+    },
+    {
+     "loc": "skills/scope/references/phases/phase-2-chain-orchestration.md#L212-L221"
+    }
+   ]
+  },
+  {
+   "id": "dp-plan-koto-restated",
+   "category": "koto-does-it",
+   "settled_by": [
+    658
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "survivor": "skills/scope/scripts/resume-probe.sh and the intake, branch_check and resume_route states",
+   "spans": [
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L545-L555"
+    }
+   ]
+  },
+  {
+   "id": "dp-brief-internal-restatements",
+   "category": "duplicate",
+   "settled_by": [
+    541
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "note": "Text in /brief's own files that restates another of its own files, so it is redundant even when /brief runs standalone.",
+   "spans": [
+    {
+     "loc": "skills/brief/SKILL.md#L47-L49",
+     "survivor": "skills/brief/references/brief-format.md#L246-L256"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L60-L63",
+     "survivor": "skills/brief/references/brief-format.md#L246-L256"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L67-L73",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L274-L282"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L75-L84",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L284-L288"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L120-L132",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L174-L189"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L144-L153",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L221-L272"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L155-L162",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L57-L75"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L166-L171",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L113-L139"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L173-L188",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L221-L272"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L190-L194",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L141-L160"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L196-L199",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L274-L282"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L201-L202",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L29-L31"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L208-L224",
+     "survivor": "skills/brief/SKILL.md#L296-L314"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L226-L239",
+     "survivor": "skills/brief/references/phases/phase-4-validate.md#L100-L110"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L264-L272",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L113-L160"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L280-L284",
+     "survivor": "skills/brief/references/phases/phase-4-validate.md#L47-L51"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L288-L292",
+     "survivor": "skills/brief/references/brief-format.md#L73-L92"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L322-L329",
+     "survivor": "skills/brief/references/phases/phase-5-finalize.md#L194-L206"
+    },
+    {
+     "loc": "skills/brief/SKILL.md#L342-L352",
+     "survivor": "skills/brief/SKILL.md#L296-L314"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-1-discover.md#L61-L66",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L174-L189"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L82-L85",
+     "survivor": "skills/brief/references/brief-format.md#L67-L71"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L87-L96",
+     "survivor": "skills/brief/references/phases/phase-0-setup.md#L234-L256"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L118-L121",
+     "survivor": "skills/brief/references/brief-format.md#L73-L92"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L128-L134",
+     "survivor": "skills/brief/references/brief-format.md#L403-L415"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L138-L145",
+     "survivor": "skills/brief/references/brief-format.md#L403-L415"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L158-L160",
+     "survivor": "skills/brief/references/brief-format.md#L419-L424"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-2-draft.md#L163-L171",
+     "survivor": "skills/brief/references/brief-format.md#L419-L426"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-3-structural-fill.md#L37-L48",
+     "survivor": "skills/brief/references/brief-format.md#L430-L443"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-3-structural-fill.md#L56-L61",
+     "survivor": "skills/brief/references/brief-format.md#L434-L440"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-3-structural-fill.md#L79-L82",
+     "survivor": "skills/brief/references/brief-format.md#L450-L454"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-3-structural-fill.md#L92-L94",
+     "survivor": "skills/brief/references/brief-format.md#L450-L454"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-4-validate.md#L309-L309",
+     "survivor": "skills/brief/references/phases/phase-4-validate.md#L311-L314"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-4-validate.md#L384-L388",
+     "survivor": "skills/brief/references/phases/phase-4-validate.md#L341-L346"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-5-finalize.md#L42-L46",
+     "survivor": "skills/brief/references/phases/phase-4-validate.md#L341-L346"
+    },
+    {
+     "loc": "skills/brief/references/phases/phase-5-finalize.md#L107-L109",
+     "survivor": "skills/brief/references/brief-format.md#L246-L251"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L145-L168",
+     "survivor": "skills/brief/references/brief-format.md#L403-L455"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L197-L208",
+     "survivor": "skills/brief/references/brief-format.md#L125-L195"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L287-L294",
+     "survivor": "skills/brief/references/brief-format.md#L248-L256"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L313-L315",
+     "survivor": "skills/brief/references/brief-format.md#L73-L82"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L321-L353",
+     "survivor": "skills/brief/references/brief-format.md#L73-L92"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L355-L362",
+     "survivor": "skills/brief/references/brief-format.md#L73-L92"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L371-L381",
+     "survivor": "skills/brief/references/brief-format.md#L430-L455"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L391-L396",
+     "survivor": "skills/brief/references/brief-format.md#L73-L92"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L457-L473",
+     "survivor": "skills/brief/references/brief-format.md#L181-L195"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L475-L491",
+     "survivor": "skills/brief/references/brief-format.md#L403-L455"
+    },
+    {
+     "loc": "skills/brief/references/brief-format.md#L496-L498",
+     "survivor": "skills/brief/references/brief-format.md#L403-L455"
+    }
+   ]
+  },
+  {
+   "id": "dp-prd-internal-restatements",
+   "category": "duplicate",
+   "settled_by": [
+    541
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "note": "Text in /prd's own files that restates another of its own files, so it is redundant even when /prd runs standalone.",
+   "spans": [
+    {
+     "loc": "skills/prd/SKILL.md#L90-L93",
+     "survivor": "skills/prd/references/phases/phase-3-draft.md#L31-L35"
+    },
+    {
+     "loc": "skills/prd/SKILL.md#L97-L98",
+     "survivor": "skills/prd/SKILL.md#L52-L52"
+    },
+    {
+     "loc": "skills/prd/SKILL.md#L104-L118",
+     "survivor": "skills/prd/SKILL.md#L150-L188"
+    },
+    {
+     "loc": "skills/prd/SKILL.md#L133-L135",
+     "survivor": "skills/prd/references/phases/phase-1-scope.md#L19-L21"
+    },
+    {
+     "loc": "skills/prd/SKILL.md#L137-L141",
+     "survivor": "skills/prd/SKILL.md#L123-L124"
+    },
+    {
+     "loc": "skills/prd/SKILL.md#L145-L146",
+     "survivor": "skills/prd/references/phases/phase-1-scope.md#L23-L61"
+    },
+    {
+     "loc": "skills/prd/SKILL.md#L211-L219",
+     "survivor": "skills/prd/SKILL.md#L150-L188"
+    },
+    {
+     "loc": "skills/prd/references/phases/phase-3-draft.md#L108-L109",
+     "survivor": "skills/prd/references/prd-format.md#L229-L233"
+    },
+    {
+     "loc": "skills/prd/references/phases/phase-4-validate.md#L178-L178",
+     "survivor": "skills/prd/references/phases/phase-4-validate.md#L180-L183"
+    },
+    {
+     "loc": "skills/prd/references/phases/phase-4-validate.md#L316-L319",
+     "survivor": "skills/prd/references/phases/phase-4-validate.md#L223-L227"
+    },
+    {
+     "loc": "skills/prd/references/prd-format.md#L196-L200",
+     "survivor": "skills/prd/references/prd-format.md#L227-L233"
+    },
+    {
+     "loc": "skills/prd/references/prd-format.md#L242-L244",
+     "survivor": "skills/prd/references/prd-format.md#L227-L230"
+    }
+   ]
+  },
+  {
+   "id": "dp-design-internal-restatements",
+   "category": "duplicate",
+   "settled_by": [
+    637
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "note": "Text in /design's own files that restates another of its own files, so it is redundant even when /design runs standalone.",
+   "spans": [
+    {
+     "loc": "skills/design/SKILL.md#L127-L130",
+     "survivor": "skills/design/references/lifecycle.md#L14-L19"
+    },
+    {
+     "loc": "skills/design/SKILL.md#L170-L182",
+     "survivor": "skills/design/SKILL.md#L245-L257"
+    },
+    {
+     "loc": "skills/design/SKILL.md#L211-L212",
+     "survivor": "skills/design/references/phases/phase-5-security.md#L3-L8"
+    },
+    {
+     "loc": "skills/design/SKILL.md#L274-L285",
+     "survivor": "skills/design/SKILL.md#L245-L257"
+    },
+    {
+     "loc": "skills/design/references/phases/phase-0-setup-prd.md#L65-L74",
+     "survivor": "skills/design/references/phases/phase-0-setup-prd.md#L45-L63"
+    },
+    {
+     "loc": "skills/design/references/phases/phase-0-setup-prd.md#L200-L202",
+     "survivor": "skills/design/references/phases/phase-0-setup-prd.md#L150-L153"
+    },
+    {
+     "loc": "skills/design/references/phases/phase-6-final-review.md#L326-L327",
+     "survivor": "skills/design/references/phases/phase-6-final-review.md#L223-L227"
+    },
+    {
+     "loc": "skills/design/references/lifecycle.md#L36-L37",
+     "survivor": "skills/design/references/phases/phase-6-final-review.md#L239-L243"
+    },
+    {
+     "loc": "skills/design/references/lifecycle.md#L46-L50",
+     "survivor": "skills/design/references/phases/phase-6-final-review.md#L130-L139"
+    },
+    {
+     "loc": "skills/design/references/lifecycle.md#L69-L71",
+     "survivor": "skills/design/references/quality/considered-options-structure.md#L7-L8"
+    },
+    {
+     "loc": "skills/design/references/lifecycle.md#L76-L82",
+     "survivor": "skills/design/references/phases/phase-5-security.md#L53-L64"
+    },
+    {
+     "loc": "skills/design/references/lifecycle.md#L86-L87",
+     "survivor": "skills/design/references/phases/phase-5-security.md#L123-L127"
+    }
+   ]
+  },
+  {
+   "id": "dp-plan-internal-restatements",
+   "category": "duplicate",
+   "settled_by": [
+    658
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "note": "Text in /plan's own files that restates another of its own files, so it is redundant even when /plan runs standalone.",
+   "spans": [
+    {
+     "loc": "skills/plan/SKILL.md#L64-L66",
+     "survivor": "skills/plan/references/quality/plan-doc-structure.md#L61-L76"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L130-L131",
+     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L149-L160"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L149-L156",
+     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L299-L323"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L160-L163",
+     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L5-L21"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L195-L202",
+     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L406-L480"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L204-L225",
+     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L562-L605"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L229-L240",
+     "survivor": "skills/plan/references/quality/plan-doc-structure.md#L141-L160"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L248-L257",
+     "survivor": "skills/plan/references/quality/plan-doc-structure.md#L169-L276"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L267-L276",
+     "survivor": "skills/plan/references/templates/agent-prompt.md#L65-L78"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L307-L308",
+     "survivor": "skills/plan/references/phases/phase-1-analysis.md#L29-L29"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L514-L526",
+     "survivor": "skills/plan/SKILL.md#L556-L587"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L528-L543",
+     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L406-L605"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L592-L593",
+     "survivor": "skills/plan/references/phases/phase-7-creation.md#L605-L638"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L599-L599",
+     "survivor": "skills/plan/references/phases/phase-1-analysis.md#L29-L29"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L643-L652",
+     "survivor": "skills/plan/SKILL.md#L296-L364"
+    },
+    {
+     "loc": "skills/plan/SKILL.md#L672-L678",
+     "survivor": "skills/plan/SKILL.md#L556-L587"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-1-analysis.md#L110-L110",
+     "survivor": "skills/plan/references/phases/phase-1-analysis.md#L103-L103"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-3-decomposition.md#L67-L70",
+     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L5-L21"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-3-decomposition.md#L306-L311",
+     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L423-L425"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-3-decomposition.md#L504-L513",
+     "survivor": "skills/plan/SKILL.md#L165-L193"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-3-decomposition.md#L515-L518",
+     "survivor": "skills/plan/SKILL.md#L185-L188"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-3-decomposition.md#L630-L636",
+     "survivor": "skills/plan/references/quality/plan-doc-structure.md#L212-L220"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-4-agent-generation.md#L111-L115",
+     "survivor": "skills/plan/references/phases/phase-4-agent-generation.md#L22-L30"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-4-agent-generation.md#L208-L213",
+     "survivor": "skills/plan/references/phases/phase-4-agent-generation.md#L203-L206"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-4-agent-generation.md#L230-L243",
+     "survivor": "skills/plan/references/templates/agent-prompt.md#L118-L131"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-4-agent-generation.md#L290-L290",
+     "survivor": "skills/plan/references/phases/phase-4-agent-generation.md#L27-L28"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-4-agent-generation.md#L380-L383",
+     "survivor": "skills/plan/references/phases/phase-4-agent-generation.md#L332-L335"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-4-agent-generation.md#L488-L492",
+     "survivor": "skills/plan/references/phases/phase-4-agent-generation.md#L226-L226"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-6-review.md#L14-L16",
+     "survivor": "skills/plan/references/phases/phase-6-review.md#L8-L12"
+    },
+    {
+     "loc": "skills/plan/references/phases/phase-7-creation.md#L46-L46",
+     "survivor": "skills/plan/references/phases/phase-7-creation.md#L48-L48"
+    },
+    {
+     "loc": "skills/plan/references/quality/plan-doc-structure.md#L357-L362",
+     "survivor": "skills/plan/references/phases/phase-3-decomposition.md#L299-L323"
+    },
+    {
+     "loc": "skills/plan/references/templates/agent-prompt.md#L155-L157",
+     "survivor": "skills/plan/references/templates/agent-prompt.md#L84-L96"
+    }
+   ]
+  },
+  {
+   "id": "dp-review-plan-internal-restatements",
+   "category": "duplicate",
+   "settled_by": [
+    534
+   ],
+   "profiles": [
+    "scope"
+   ],
+   "note": "Text in /review-plan's own files that restates another of its own files, so it is redundant even when /review-plan runs standalone.",
+   "spans": [
+    {
+     "loc": "skills/review-plan/SKILL.md#L78-L79",
+     "survivor": "skills/review-plan/SKILL.md#L68-L71"
+    },
+    {
+     "loc": "skills/review-plan/SKILL.md#L81-L90",
+     "survivor": "skills/review-plan/references/phases/phase-0-setup.md#L73-L85"
+    },
+    {
+     "loc": "skills/review-plan/SKILL.md#L151-L157",
+     "survivor": "skills/review-plan/references/phases/phase-0-setup.md#L12-L21"
+    },
+    {
+     "loc": "skills/review-plan/SKILL.md#L159-L182",
+     "survivor": "skills/review-plan/SKILL.md#L204-L217"
+    },
+    {
+     "loc": "skills/review-plan/SKILL.md#L186-L192",
+     "survivor": "skills/review-plan/references/phases/phase-5-verdict.md#L55-L107"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-1-scope-gate.md#L112-L113",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L128-L129"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-1-scope-gate.md#L117-L119",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L43-L49"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-2-design-fidelity.md#L24-L24",
+     "survivor": "skills/review-plan/references/phases/phase-2-design-fidelity.md#L21-L22"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-2-design-fidelity.md#L86-L88",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L128-L129"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-2-design-fidelity.md#L98-L100",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L43-L49"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-3-ac-discriminability.md#L30-L30",
+     "survivor": "skills/review-plan/references/phases/phase-3-ac-discriminability.md#L28-L28"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-3-ac-discriminability.md#L39-L45",
+     "survivor": "skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L28-L34"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-3-ac-discriminability.md#L51-L57",
+     "survivor": "skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L99-L104"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-3-ac-discriminability.md#L64-L72",
+     "survivor": "skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L253-L262"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-3-ac-discriminability.md#L111-L113",
+     "survivor": "skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L106-L107"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-3-ac-discriminability.md#L128-L133",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L121-L136"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-3-ac-discriminability.md#L137-L139",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L43-L49"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-4-sequencing.md#L27-L27",
+     "survivor": "skills/review-plan/references/phases/phase-4-sequencing.md#L25-L25"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-4-sequencing.md#L96-L98",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L128-L129"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-4-sequencing.md#L102-L110",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L43-L62"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-5-verdict.md#L29-L34",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L56-L62"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-5-verdict.md#L39-L40",
+     "survivor": "skills/review-plan/references/templates/review-result-schema.md#L51-L62"
+    },
+    {
+     "loc": "skills/review-plan/references/templates/review-result-schema.md#L84-L87",
+     "survivor": "skills/review-plan/references/phases/phase-5-verdict.md#L42-L53"
+    },
+    {
+     "loc": "skills/review-plan/references/templates/review-result-schema.md#L89-L89",
+     "survivor": "skills/review-plan/references/phases/phase-5-verdict.md#L42-L53"
+    },
+    {
+     "loc": "skills/review-plan/references/templates/review-result-schema.md#L145-L148",
+     "survivor": "skills/review-plan/references/phases/phase-5-verdict.md#L111-L116"
+    },
+    {
+     "loc": "skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L6-L10",
+     "survivor": "skills/review-plan/references/phases/phase-3-ac-discriminability.md#L3-L11"
+    },
+    {
+     "loc": "skills/review-plan/references/phases/phase-0-setup.md#L91-L96",
+     "survivor": "the input-type tables in review-plan phases 1 to 4"
+    }
+   ]
+  }
+ ],
+ "withholding": [
+  {
+   "id": "wh-work-on-retry-clearing-blocks",
+   "profiles": [
+    "work-on"
+   ],
+   "reason": "Each of the seven executable retry-clearing blocks is the only statement of its state's key list and escalate outcome. Consolidating them into one script, or koto clearing keys on the back edge, is what would make them removable; retry-clearing_test.sh extracts every copy.",
+   "spans": [
+    "skills/work-on/references/phases/phase-3-analysis.md#L78-L92",
+    "skills/work-on/references/phases/phase-4-implementation.md#L150-L164",
+    "skills/work-on/references/phases/phase-4a-scrutiny.md#L47-L61",
+    "skills/work-on/references/phases/phase-4b-review.md#L45-L59",
+    "skills/work-on/references/phases/phase-4c-qa.md#L44-L58",
+    "skills/work-on/koto-templates/work-on.md#L1836-L1850",
+    "skills/work-on/references/phases/phase-5-finalization.md#L146-L160"
+   ]
+  },
+  {
+   "id": "wh-work-on-introspection-evidence",
+   "profiles": [
+    "work-on"
+   ],
+   "reason": "The only statement of what introspection submits.",
+   "spans": [
+    "skills/work-on/references/phases/phase-2-introspection.md#L20-L24"
+   ]
+  },
+  {
+   "id": "wh-execute-d5-rule",
+   "profiles": [
+    "execute-single-pr",
+    "execute-coordinated"
+   ],
+   "reason": "The only statements of the rules the surrounding rationale explains.",
+   "spans": [
+    "skills/execute/SKILL.md#L829-L836",
+    "skills/execute/SKILL.md#L872-L875"
+   ]
+  },
+  {
+   "id": "wh-deliver-leg-contract",
+   "profiles": [
+    "deliver"
+   ],
+   "reason": "The only statement of the caller leg contract a coordinator relies on; it could move to a reference coordinators load.",
+   "spans": [
+    "skills/deliver/SKILL.md#L78-L133"
+   ]
+  },
+  {
+   "id": "wh-scope-no-floor-guard",
+   "profiles": [
+    "scope"
+   ],
+   "reason": "A maintainer rule (do not add a guard that forces keep) with no other statement; it could move out of the runtime file.",
+   "spans": [
+    "skills/scope/references/phases/phase-2-chain-orchestration.md#L849-L869"
+   ]
+  }
+ ]
+}

@@ -33,7 +33,7 @@ seed() {
         | .prs += [{repo: "acme/widgets", number: 12, title: "w", body: "", state: "OPEN", isDraft: true, isCrossRepository: false,
                     baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice", editor: null}]
         | .commits[$h] = {tree: "4444444444444444444444444444444444444444", date: "2026-09-26T07:00:00Z"}' \
-        --arg t "$ITITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" '.holdings = $h')" issue)" \
+        --arg t "$ITITLE" --arg b "$(render "$(record_json roadmap plugin-system | jq -c --argjson h "$HOLDINGS" --argjson s "${STANDING:-null}" '.holdings = $h | if $s == null then . else .standing = $s end')" issue)" \
         --arg h "$SHA_HEAD"
 }
 N=0
@@ -65,7 +65,37 @@ sweep 08:45; eq "a sweep within 30 minutes of the last silent check doesn't coun
 sweep 09:02; eq "a second silent check is second-silence" "second-silence alpha beta" "$TOK"
 tok_shape "second-silence is in koto's capture alphabet" "$OUT"
 
+echo "== a merged row waiting for teardown isn't watched =="
+SAVED=$HOLDINGS
+HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://github.com/acme/widgets/pull/12)"}')" \
+    --argjson b "$(holding beta "$(jq -nc --arg h "$SHA_HEAD" '{pull_request: "", verified_head: $h}')")" '[$a, $b]')
+seed; run
+sweep 08:31; eq "a merged row is never quiet; the other worker is" "first-silence alpha" "$TOK"
+HOLDINGS=$SAVED
+
+echo "== a paused worker isn't watched =="
+SAVED=$HOLDINGS
+HOLDINGS=$(jq -nc --argjson a "$(holding alpha '{"pull_request": "[#12](https://github.com/acme/widgets/pull/12)"}')" \
+    --argjson b "$(holding beta '{"unit": "Feature 3", "pull_request": ""}')" '[$a, $b]')
+STANDING='[{"standing":"s1","kind":"pause","on":"Feature 3","until":"lifted","what":"x","owner":"the human","relayed_by":"","set":"2026-09-26T08:00Z"}]'
+seed; run
+sweep 08:31; eq "a paused worker is never quiet; the other worker is" "first-silence alpha" "$TOK"
+eq "  ... and the detail names the pause" "beta:s1" "$(jq -r '[.holdings[] | select(.paused != null) | "\(.worker):\(.paused)"] | join(" ")' "$KOTO_STORE/context/$S/coord/quiet.json")"
+sweep 09:02; eq "  ... and a sweep that skipped it isn't a silent check" "second-silence alpha" "$TOK"
+HOLDINGS=$SAVED; unset STANDING
+seed; run
+sweep 08:31; eq "before a pause: a first silence" "first-silence alpha beta" "$TOK"
+log_evidence "$S" wait '{"event":"resume"}' 2026-09-26T08:40:00.000Z
+log_to "$S" wait pick_facts 2026-09-26T08:40:00.000Z; log_to "$S" pick_facts wait 2026-09-26T08:40:00.000Z
+sweep 09:15; eq "after a resume, a silent check from before it no longer counts: a first silence again, not the failure branch" "first-silence alpha beta" "$TOK"
+sweep 09:46; eq "  ... and a second silence after the resume is a second silence" "second-silence alpha beta" "$TOK"
+
 echo "== activity resets the count =="
+seed; run
+sweep 08:31; eq "first silence" "first-silence alpha beta" "$TOK"
+log_evidence "$S" wait '{"event":"progress","unit":"beta","report":"checkpoint 1"}' 2026-09-26T08:40:00.000Z
+log_to "$S" wait take_report 2026-09-26T08:40:00.000Z; log_to "$S" take_report wait 2026-09-26T08:40:00.000Z
+sweep 09:02; eq "a progress report resets its worker too (shirabe#491)" "second-silence alpha" "$TOK"
 seed; run
 sweep 08:31; eq "first silence" "first-silence alpha beta" "$TOK"
 log_evidence "$S" wait '{"event":"report","unit":"alpha"}' 2026-09-26T08:40:00.000Z

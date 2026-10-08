@@ -34,12 +34,31 @@ printf '%s\n' "$OUT" | grep -qF '| blocked | credential: NPM_TOKEN |' \
     && ok "a blocked row says what it needs" || bad "a blocked row says what it needs" "$OUT"
 printf '%s\n' "$OUT" | grep -qF '| `plugin-docs` | [#15](https://github.com/acme/widgets/pull/15) | scoping ahead |' \
     && ok "an ongoing row carries its link and status" || bad "an ongoing row carries its link and status" "$OUT"
+# A merged row waiting for teardown: ongoing, merged, its worker torn down next.
+jq '.holdings += [{worker: "plugin-done", unit: "Feature 8: Hooks", phase: "executing", dispatch_status: "dispatched", parked: false, merged: true, pull_request: ""}]' "$F" > "$T/pick-merged.json"
+MOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-merged.json" 2> "$T/err")
+printf '%s\n' "$MOUT" | grep -qF '| Ongoing | Feature 8: Hooks | `plugin-done` | none yet | merged | tear down its worker |' \
+    && ok "a merged row reads merged, its worker to tear down" || bad "a merged row reads merged, its worker to tear down" "$MOUT $(cat "$T/err")"
 [ "$(col "$OUT" 2)" = "Feature 4: Plugin sandbox,Feature 1: Plugin manifest,Feature 6: CLI,Feature 7: Guides,Feature 3: Plugin registry,Feature 2: Plugin loader," ] \
     && ok "the queue is unblocked first, then blocked, and done or held units are left out" || bad "the queue order" "$(col "$OUT" 2)"
 printf '%s\n' "$OUT" | grep -qF '| Waiting to be assigned | Feature 2: Plugin loader | N/A | N/A | waits on feature 1 | assigned as the cap frees, 2 of 2 in line |' \
     && ok "a queued row reads N/A for session and PR, and its place in line" || bad "a queued row" "$OUT"
 if printf '%s\n' "$OUT" | grep -qE '(^|[^0-9A-Za-z])[0-9a-f]{7,40}([^0-9A-Za-z]|$)'; then bad "no commit hash is shown" "$OUT"; else ok "no commit hash is shown"; fi
 if printf '%s\n' "$OUT" | grep -qE '(^|[^[])#1[0-9]([^]]|$)'; then bad "no bare pull request number" "$OUT"; else ok "no bare pull request number"; fi
+
+# A unit parked on a decision, one whose scoping alone landed, and a holding
+# scoping alone: their rows say so.
+jq '(.units[] | select(.unit == "Feature 3")).awaiting = "4"
+    | .units += [{unit: "Feature 9", title: "Definitions", status: "Not started", done: false, blocked: false, blocked_by: [], holding: null,
+                  follow_up: {after: "acme/widgets#41", next: "/shirabe:execute docs/plans/PLAN-definitions.md"}}]
+    | .holdings += [{worker: "plugin-spec", unit: "Feature 10: Spec", phase: "scoping", dispatch_status: "dispatched", parked: false, pull_request: ""}]' "$F" > "$T/pick-routes.json"
+ROUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-routes.json" 2> "$T/err")
+printf '%s\n' "$ROUT" | grep -qF '| Waiting to be assigned | Feature 3: Plugin registry | N/A | N/A | waits on decision 4 | parked until the decision is settled |' \
+    && ok "a parked unit waits on its decision" || bad "a parked unit waits on its decision" "$ROUT $(cat "$T/err")"
+printf '%s\n' "$ROUT" | grep -qF '| Waiting to be assigned | Feature 9: Definitions | N/A | N/A | scoping landed in acme/widgets#41 | its execution: /shirabe:execute docs/plans/PLAN-definitions.md |' \
+    && ok "a follow-up names its scoping and its execution" || bad "a follow-up names its scoping and its execution" "$ROUT"
+printf '%s\n' "$ROUT" | grep -qF '| Ongoing | Feature 10: Spec | `plugin-spec` | none yet | scoping |' \
+    && ok "a holding scoping alone reads scoping" || bad "a holding scoping alone reads scoping" "$ROUT"
 
 OUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest --next plugin-cli="open its draft" --next "Feature 3=held for the 1.4 release" "$F")
 printf '%s\n' "$OUT" | grep -qF '| `plugin-cli` | none yet | executing | open its draft |' && ok "--next sets a session's next step" || bad "--next for a session" "$OUT"
@@ -121,6 +140,27 @@ jq '.decisions[0].reason = " "' "$T/dec.json" > "$T/dec-noreason.json"
 refused "a decision row without its reason is refused" "recommendation and reason" "${MO[@]}" "$T/dec-noreason.json"
 jq '.decisions[0].recommendation = ""' "$T/dec.json" > "$T/dec-norec.json"
 refused "a decision row without its recommendation is refused" "recommendation and reason" "${MO[@]}" "$T/dec-norec.json"
+
+# Pauses: a line above the table, the paused rows saying so, the table unchanged.
+jq '.pauses = [{standing: "s4", kind: "pause", on: "all", until: "time 2026-10-07T14:00Z", what: "x", owner: "the human", relayed_by: "the process owner", set: "2026-10-01T19:37Z", state: "in-force"},
+               {standing: "s5", kind: "pause", on: "Feature 9", until: "lifted", what: "y", owner: "the human", relayed_by: "", set: "2026-10-02T13:10Z", state: "met"}]
+    | .paused_all = "s4" | (.holdings[] | select(.worker == "plugin-sandbox" or .worker == "plugin-cli")).paused = "s4"
+    | (.units[] | select(.unit == "Feature 2")).paused = "s4"' "$F" > "$T/pick-paused.json"
+POUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$T/pick-paused.json" 2> "$T/err"); RC=$?
+[ "$RC" = 0 ] && ok "paused facts render" || bad "paused facts render" "exit $RC: $(cat "$T/err")"
+[ "$(printf '%s\n' "$POUT" | head -1)" = "Paused: s4 on all, since 2026-10-01 19:37 UTC, until 2026-10-07 14:00 UTC (the human, relayed by the process owner); s5 on Feature 9, since 2026-10-02 13:10 UTC, until a person resumes it (the human), met, to end" ] \
+    && ok "one line above the table names every pause, since when, until what and who" || bad "the pause line" "$(printf '%s\n' "$POUT" | head -1)"
+[ "$(printf '%s\n' "$POUT" | sed -n 3p)" = "| Kind | Unit | Session | PR | Status | Next or needs |" ] \
+    && ok "  ... and the table follows it with its six columns" || bad "  ... and the table follows it" "$POUT"
+printf '%s\n' "$POUT" | grep -qF '| `plugin-sandbox` | [#14](https://github.com/acme/widgets/pull/14) | verified; held by pause s4 |' \
+    && ok "a ready pull request a pause holds says so" || bad "a ready pull request a pause holds says so" "$POUT"
+printf '%s\n' "$POUT" | grep -qF '| `plugin-cli` |' && printf '%s\n' "$POUT" | grep -F '| `plugin-cli` |' | grep -qF '| paused (s4) |' \
+    && ok "an ongoing holding a pause holds reads paused" || bad "an ongoing holding a pause holds reads paused" "$POUT"
+printf '%s\n' "$POUT" | grep -F '| Feature 2' | grep -qF '| held by pause s4 |' \
+    && ok "a queued unit a pause holds says so in its next cell" || bad "a queued unit a pause holds says so" "$POUT"
+NOUT=$(bash "$V" --merge-order plugin-sandbox,plugin-manifest "$F" 2> "$T/err")
+[ "$(printf '%s\n' "$NOUT" | head -1)" = "| Kind | Unit | Session | PR | Status | Next or needs |" ] \
+    && ok "with no pause the table starts at its header" || bad "with no pause the table starts at its header" "$NOUT"
 
 echo
 echo "progress-view: $PASS passed, $FAIL failed"

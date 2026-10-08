@@ -1,6 +1,7 @@
 name: Check work-on scripts
 
 on:
+  # The two paths: lists below must match; edit both together.
   pull_request:
     paths:
       # Every file under the skill, not just its scripts: retry-clearing_test.sh
@@ -10,8 +11,15 @@ on:
       # /work-on file for statements a decision record settled. An edit to any
       # of them can break a suite while leaving the scripts untouched.
       - 'skills/work-on/**'
+      # review-level_test.sh reads every skill's template for the scripts its
+      # commands name and requires each to be in the engine class, so a
+      # template that starts naming a new script has to re-run it.
+      - 'skills/*/koto-templates/**'
       # settled-policy_test.sh also reads the shared worktree reference.
       - 'references/worktree-discipline.md'
+      # panel-scope_test.sh builds a re-check seat's packet from the scope it
+      # plans, so a change to the packet script has to re-run it.
+      - 'scripts/review-packet.sh'
       # The macOS leg reaches bash 3.2 through the runner, so a change to it has
       # to re-run this suite.
       - 'scripts/check-bash-floor.sh'
@@ -19,6 +27,20 @@ on:
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
       # An edit to this workflow changes what runs, so it has to run the suite.
+      - '.github/workflows/check-work-on-scripts.yml'
+  # Also on main, so a change that breaks the suite shows on the push that
+  # lands it, not on the next unrelated pull request.
+  push:
+    branches: [main]
+    # Must match the pull_request paths: list above.
+    paths:
+      - 'skills/work-on/**'
+      - 'skills/*/koto-templates/**'
+      - 'references/worktree-discipline.md'
+      - 'scripts/review-packet.sh'
+      - 'scripts/check-bash-floor.sh'
+      - '.tsuku.toml'
+      - 'scripts/assert-koto-floor.sh'
       - '.github/workflows/check-work-on-scripts.yml'
 
 env:
@@ -183,12 +205,47 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/work-on-requires_test.sh
 
+      # panel-scope_test.sh runs the sticky-verdict script against git fixtures
+      # through a koto stand-in (git and jq only, so both legs), then drives the
+      # shipped template through a QA retry whose fix touches nothing scrutiny
+      # or review cited and asserts koto carries both panels to the QA
+      # re-check. The engine half skips without koto, so it runs here.
+      - name: Run panel scope tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/panel-scope_test.sh
+
+      # review-level_test.sh runs the review level script against git fixtures
+      # through a koto stand-in (git and jq only, so both legs), then drives
+      # real koto sessions of a scratch template that declares REVIEW_LEVEL:
+      # the rebind, the floor hold, the unset route and the reader. The engine
+      # half skips without koto, so it runs here.
+      - name: Run review level tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/review-level_test.sh
+
+      # review-level-routes_test.sh drives the shipped work-on.md through a real
+      # koto at each review level: the choice before implementation, the light,
+      # standard, full and unset routes, the floor hold, a light retry and a
+      # hand rebind. Its clearing-site greps need no engine and run on both
+      # legs; the engine cases skip without koto, so they run here.
+      - name: Run review level route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/review-level-routes_test.sh
+
       # Reads the shipped files for the statements each contradiction-settlement
       # decision record settled: no force push, no rebase, and so on. No engine
       # needed; the macOS leg runs it on the floor through the work-on suite.
       - name: Run settled-policy tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/settled-policy_test.sh
+
+      # The review panels' retry budget: the progress rule and its fail-closed
+      # cases through a koto stand-in (both legs; the macOS leg runs them on the
+      # floor through the work-on suite), then the same sequences against a real
+      # koto session, which only this leg has.
+      - name: Run panel retry budget tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/panel-retry-budget_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so

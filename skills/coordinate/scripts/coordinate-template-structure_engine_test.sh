@@ -31,7 +31,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/coord-structure.XXXXXX"); trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"
 J=$(koto template compile "$TPL" 2>/dev/null) || { echo "FAIL: coordinate.md does not compile"; exit 1; }
 
-WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure land land_merge leg_pick merge_confirm merged_facts pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_open report_facts report_questions roadmap_blocked roadmap_close roadmap_close_step rotation_close rotation_done rotation_step start start_posture status_message surface surface_check take_report teardown teardown_inventory verified_confirm verify verify_board wait wait_leg"
+WANT="ask_up classify_report decision_answer decision_apply decision_carry decision_evidence decision_next decision_open decision_raise decision_redirect decision_redirect_send decision_reply decision_reply_send decision_take decision_verdict decision_withdraw decision_withdraw_send deferral_dispose destroy dispatch dispatch_check done done_handed_over done_not_active done_stopped escalate escalate_send failure goal_fit land land_merge leg_pick leg_spent merge_confirm merged_facts pick pick_facts posture_ask predecessor_close predecessor_done predecessor_handed_over predecessor_handoff predecessor_step promote quiet_check rebrief reconcile reconcile_pass record record_conflict record_find record_open report_facts report_link report_questions roadmap_blocked roadmap_close roadmap_close_step roadmap_status rotation_close rotation_done rotation_step start start_posture status_message surface surface_check take_report teardown teardown_confirm teardown_handoff teardown_inventory verified_confirm verify verify_board wait wait_leg"
 GOT=$(jq -r '.states | keys[]' "$J" | sort | tr '\n' ' ' | sed 's/ $//')
 [ "$GOT" = "$WANT" ] && pass "the state set is the design's" || fail "the state set is the design's" "$(diff <(echo "$WANT" | tr ' ' '\n') <(echo "$GOT" | tr ' ' '\n'))"
 
@@ -91,7 +91,8 @@ decision_raise>decision_next decision_answer>decision_next decision_answer>decis
 decision_evidence>decision_next surface_check>wait surface_check>surface
 wait>decision_answer wait>decision_evidence wait>decision_raise pick_facts>decision_next
 roadmap_close>roadmap_blocked roadmap_blocked>wait report_facts>report_questions
-failure>decision_raise surface>decision_raise surface>surface_check dispatch_check>decision_next'
+failure>decision_raise surface>decision_raise surface>surface_check dispatch_check>decision_next
+wait_leg>leg_spent leg_spent>record leg_spent>surface'
 MISSING=$(for e in $EDGES; do
     jq -e --arg f "${e%%>*}" --arg t "${e#*>}" 'any(.states[$f].transitions[]?; .target == $t)' "$J" >/dev/null || echo "$e"
 done)
@@ -100,6 +101,32 @@ for e in report_facts\>classify_report report_facts\>wait failure\>wait surface\
     jq -e --arg f "${e%%>*}" --arg t "${e#*>}" 'any(.states[$f].transitions[]?; .target == $t)' "$J" >/dev/null \
         && fail "the edge the design replaced is gone: $e" || pass "the edge the design replaced is gone: $e"
 done
+# pick's two routes (shirabe#549, #550): a unit waiting on a person goes to
+# decision_raise with the unit it parks and never to a dispatch, and a unit
+# scoped alone is a dispatch like any other, its topic passed on.
+jq -e '([.states.pick.transitions[] | select(.when.choice == "await_decision") | [.target, .when["evidence.unit"]]] == [["decision_raise", "present"]])
+       and ([.states.pick.transitions[] | select(.when.choice == "scope") | [.target, .context_assignments.dispatch_topic]] == [["dispatch_check", "${evidence.unit}"]])' "$J" >/dev/null \
+    && pass "pick parks a unit through decision_raise and dispatches a scope like any unit" \
+    || fail "pick parks a unit through decision_raise and dispatches a scope like any unit"
+# A checkpoint report (progress, 64) goes through report_questions like any
+# report, so a question it asks is still read; from there it goes back to
+# wait, never to classify_report or a re-brief (shirabe#491).
+jq -e '(.states.report_facts.transitions | any(.target == "report_questions" and .when["gates.report_facts_verdict.exit_code"] == 64))
+       and ([.states.report_questions.transitions[] | select(.when["gates.report_holding.exit_code"] == 64) | .target] | unique) == ["wait"]' "$J" >/dev/null \
+    && pass "a checkpoint report is read for questions and goes back to wait" || fail "a checkpoint report is read for questions and goes back to wait"
+# A report's pull request reaches its holding through report_link, and `done`
+# reaches verify only with a pull request: report_pr reads report_facts' seal.
+jq -e '(.states.report_facts.transitions | any(.target == "report_link" and .when["gates.report_facts_verdict.exit_code"] == 63))
+       and (.states.wait.transitions | any(.target == "take_report" and .when.event == "progress"))
+       and (.states.report_link.transitions | any(.target == "report_facts" and .when.linked == "written"))
+       and .states.classify_report.gates.report_pr.overridable == false
+       and (.states.classify_report.gates.report_pr.command | test("report-pr\\.sh\" --session"))
+       and ([.states.classify_report.transitions[] | select(.when.classification == "done") | [.target, .when["gates.report_pr.exit_code"]]]
+            == [["verify", 0], ["wait", 1]])
+       and (.states.verify_board.transitions | any(.target == "wait" and .when["gates.verify_board_verdict.exit_code"] == 77))
+       and (.states.verify_board.transitions | any(.target == "wait" and .when["gates.verify_board_verdict.exit_code"] == 78))' "$J" >/dev/null \
+    && pass "report_link links a report's pull request; done needs one; verify_board leaves on no-pr" \
+    || fail "report_link links a report's pull request; done needs one; verify_board leaves on no-pr"
 # The verdict arm waits on the entry decision-next.sh writes, as pick waits on pick_input.
 jq -e '.states.decision_next.gates.decision_input == {type: "context-exists", key: "coord/decision.json", overridable: false}
        and any(.states.decision_next.transitions[]; .target == "decision_verdict" and .when["gates.decision_input.exists"] == true)' "$J" >/dev/null \
@@ -162,7 +189,7 @@ jq '(.states.roadmap_close.transitions[] | select(.target == "roadmap_blocked"))
 NONOVR=$(jq -r '.states | to_entries[] | .key as $s | (.value.gates // {}) | to_entries[] | select(.value.overridable != false) | "\($s).\(.key)"' "$J")
 [ -z "$NONOVR" ] && pass "every gate in the template is overridable: false" || fail "every gate in the template is overridable: false" "$NONOVR"
 
-WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("record-open|record-write|record-write-core|record-holding|record-decision.sh\" --session \"[^\"]*\" --(carry|open|take|settle|escalate|hold|evidence|answer|sent)|rotation-close|land-merge|merge-exec")) | $s' "$J")
+WRITES=$(jq -r '.states | to_entries[] | .key as $s | [(.value.default_action.command // ""), ((.value.gates // {}) | to_entries[] | .value.command // "")] | .[] | select(test("record-open|record-write|record-write-core|record-holding|record-hold\\.sh|record-decision.sh\" --session \"[^\"]*\" --(carry|open|take|settle|escalate|hold|evidence|answer|sent)|rotation-close|land-merge|merge-exec")) | $s' "$J")
 [ -z "$WRITES" ] && pass "no write script runs as an action or a gate" || fail "no write script runs as an action or a gate" "$WRITES"
 
 MEXEC=$(jq -r '.states | to_entries[] | select(((.value.directive // "") + (.value.details // "")) | test("merge-exec")) | .key' "$J")
@@ -193,6 +220,26 @@ cp "$HERE/record-decision.sh" "$HERE/record-write.sh" "$T/openers/"
 printf '\nDECISIONS_WRITER="1"\n' >> "$T/openers/record-write.sh"
 [ "$(decisions_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens it" ||
     fail "the check names another script that opens it" "$(decisions_writers "$T/openers")"
+# The Holds section the same way: only record-hold.sh sets HOLDS_WRITER=1.
+holds_writers() {
+    grep -lE '^[^#]*HOLDS_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/record-hold\.sh$' || true
+}
+HOPENERS=$(holds_writers "$HERE")
+[ -z "$HOPENERS" ] && pass "only record-hold.sh opens the Holds section" || fail "only record-hold.sh opens the Holds section" "$HOPENERS"
+grep -qE '^[^#]*HOLDS_WRITER=1' "$HERE/record-hold.sh" && pass "record-hold.sh opens it" || fail "record-hold.sh opens it"
+printf '\nHOLDS_WRITER=1\n' >> "$T/openers/record-write.sh"
+[ "$(holds_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens the Holds section" ||
+    fail "the check names another script that opens the Holds section" "$(holds_writers "$T/openers")"
+# The stored set's sections the same way: only record-state.sh sets STATE_WRITER=1.
+state_writers() {
+    grep -lE '^[^#]*STATE_WRITER=["'\'']?1' "$1"/*.sh 2>/dev/null | grep -v '_test\.sh$' | grep -v '/record-state\.sh$' || true
+}
+SOPENERS=$(state_writers "$HERE")
+[ -z "$SOPENERS" ] && pass "only record-state.sh opens the Run, Standing and Work sections" || fail "only record-state.sh opens the Run, Standing and Work sections" "$SOPENERS"
+grep -qE '^[^#]*STATE_WRITER=1' "$HERE/record-state.sh" && pass "record-state.sh opens them" || fail "record-state.sh opens them"
+printf '\nSTATE_WRITER=1\n' >> "$T/openers/record-write.sh"
+[ "$(state_writers "$T/openers")" = "$T/openers/record-write.sh" ] && pass "the check names another script that opens the stored set" ||
+    fail "the check names another script that opens the stored set" "$(state_writers "$T/openers")"
 
 grep -qiE 'the human merges|a person merges' "$TPL" "$HERE/../SKILL.md" && fail "nothing says the human merges" || pass "nothing says the human merges"
 for r in loop.md brief-template.md verification-checklist.md record-template.md; do

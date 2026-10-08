@@ -7,6 +7,11 @@ name: Check run-evals
 # runner is an operator tool that no skill invokes on a user's machine, and
 # scripts/check-bash-floor.sh lists it and this suite among the exemptions from
 # the bash 3.2 floor.
+#
+# The release eval check (scripts/release-eval-check.sh) and its pass-rate
+# record script (scripts/lib/eval-pass-rates.py) run their suites here too:
+# the record script's unittest suite, and the check's suite against a stub gh
+# and a stub run-evals.sh, so neither needs a model, the network or a token.
 
 on:
   pull_request:
@@ -15,6 +20,10 @@ on:
       - 'scripts/run-evals_test.sh'
       - 'scripts/lib/classify-eval-session.py'
       - 'scripts/run-evals/fixtures/**'
+      - 'scripts/release-eval-check.sh'
+      - 'scripts/release-eval-check_test.sh'
+      - 'scripts/lib/eval-pass-rates.py'
+      - 'scripts/lib/eval-pass-rates_test.py'
       - '.github/workflows/check-run-evals.yml'
 
 jobs:
@@ -29,3 +38,27 @@ jobs:
 
       - name: Run run-evals tests
         run: bash scripts/run-evals_test.sh
+
+  test-eval-pass-rates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run eval-pass-rates tests
+        run: python3 scripts/lib/eval-pass-rates_test.py
+
+  test-release-eval-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run release-eval-check tests
+        run: bash scripts/release-eval-check_test.sh

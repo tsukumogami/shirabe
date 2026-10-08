@@ -132,7 +132,8 @@ VISION
         └── Roadmap (upstream: Strategy)
               └── Brief (upstream: the Roadmap's own parent --
                           Strategy, or Vision; never the Roadmap)
-                    └── PRD (upstream: Brief)
+                    └── PRD (upstream: Brief, or Strategy or Vision
+                             when there is no Brief; never the Roadmap)
                           └── Design Doc (upstream: PRD)
                                 └── Plan (upstream: Design Doc, and the
                                           Roadmap when there is one)
@@ -150,8 +151,10 @@ table and both enforced by `shirabe validate`.
 
 **Direction.** The target's type is one the naming type may point at, and the
 rule is the same on both chains: an artifact names the nearest artifact actually
-produced above it, and any strictly-higher altitude is legal because not every
-altitude is written on every run. A DESIGN with no BRIEF above it names the PRD;
+produced above it, and a higher altitude the naming type's format allows is
+legal because not every altitude is written on every run. The allowed set is
+per type and is not every higher altitude: a PRD may name a BRIEF, a STRATEGY or
+a VISION, but not a ROADMAP, which the lifetime rule below excludes. A DESIGN with no BRIEF above it names the PRD;
 a ROADMAP written where no STRATEGY exists names the VISION. What no artifact
 does is point downward or sideways -- a BRIEF never names a PRD, which is
 written from the brief's framing.

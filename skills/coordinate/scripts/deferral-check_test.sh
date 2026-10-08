@@ -218,6 +218,10 @@ OUT=$(check); eq "dispatching a topic a Holdings row already names is refused" "
 tok_shape "duplicate-topic is in koto's capture alphabet" "$OUT"
 session "$(roadmap_vars plugin-system)" 7 scope_ahead beta
 eq "scope_ahead on a held topic is refused too" "duplicate-topic beta" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 scope beta
+eq "scope on a held topic is refused too" "duplicate-topic beta" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 scope gamma
+eq "scope on a free topic is clear" "ok gamma" "$(check)"
 session "$(roadmap_vars plugin-system)" 7 dispatch gamma
 eq "another topic is clear" "ok gamma" "$(check)"
 
@@ -288,6 +292,8 @@ jq -e '.verdict == "unknown-topic" and .topic == "-" and (.reason | test("^pick.
 [ -s "$GH_DB.calls" ] && bad "the refusal makes no read and no write" "$(calls)" || ok "the refusal makes no read and no write"
 session "$(roadmap_vars plugin-system)" 7 scope_ahead "Feature 3"
 eq "scope_ahead with a unit's tag is refused" "unknown-topic" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 scope "Feature 3"
+eq "scope with a unit's tag is refused" "unknown-topic" "$(check)"
 session "$(roadmap_vars plugin-system)" 7 send_execution "Feature 3"
 eq "send_execution with a unit's tag is refused" "unknown-topic" "$(check)"
 jq -e '.reason | test("scoping-ahead holding")' "$KOTO_STORE/context/$S/coord/dispatch_check.json" >/dev/null \
@@ -314,6 +320,8 @@ for n in 21 22 23 24 25; do pr $n OPEN true; done
 session "$(roadmap_vars plugin-system)" 7
 OUT=$(check); eq "five active workers under a cap of five is at-cap" "at-cap 5/5 0/3" "$OUT"
 tok_shape "at-cap is in koto's capture alphabet" "$OUT"
+session "$(roadmap_vars plugin-system)" 7 scope beta
+eq "scope adds an active worker, so it is at-cap too" "at-cap 5/5 0/3" "$(check)"
 scoping() { holding "$1" "{\"pull_request\": \"[#$2](https://github.com/acme/widgets/pull/$2)\", \"phase\": \"scoping-ahead\"}"; }
 seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(scoping a5 25)")"
 session "$(roadmap_vars plugin-system)" 7 send_execution a5
@@ -337,6 +345,14 @@ pr 31 OPEN false; pr 32 OPEN true; pr 33 MERGED false
 session "$(roadmap_vars plugin-system)" 7
 eq "a verified draft and a merged pull request aren't parked" "ok beta" "$(check)"
 eq "they count as active" "2 1" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+# A confirmed merge clears the row's Pull request cell and keeps it until
+# teardown: such a row holds no slot under the cap.
+merged() { holding "$1" "{\"pull_request\": \"\", \"verified_head\": \"$SHA_HEAD\"}"; }
+seed "$(with_holdings "$(active a1 21)" "$(active a2 22)" "$(active a3 23)" "$(active a4 24)" "$(merged m1)")"
+for n in 21 22 23 24; do pr $n OPEN true; done
+session "$(roadmap_vars plugin-system)" 7
+eq "a merged row waiting for teardown holds no slot under the cap" "ok beta" "$(check)"
+eq "it counts as neither active nor parked" "4 0" "$(jq -r '"\(.active) \(.parked)"' "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
 
 echo "== check mode: the predecessor's handoff (discipline) =="
 BR=coordinate/discipline-ci-health
@@ -410,5 +426,43 @@ log_to "$S" dispatch_check pick; log_evidence "$S" pick '{"choice":"dispatch","u
 reset_calls
 eq "a discipline pick with an issue's \"#1712\" as its unit is refused" "unknown-topic" "$(check)"
 [ -s "$GH_DB.calls" ] && bad "that refusal makes no read either" "$(calls)" || ok "that refusal makes no read either"
+
+echo "== check mode: pauses =="
+prow() { # prow <id> <kind> <on> <until>
+    jq -nc --arg s "$1" --arg k "$2" --arg o "$3" --arg u "$4" \
+        '{standing: $s, kind: $k, on: $o, until: $u, what: "x", owner: "the human", relayed_by: "", set: "2026-10-01T19:37Z"}'
+}
+with_pauses() { # with_pauses <record-json> <row>...
+    local r=$1; shift
+    printf '%s' "$r" | jq -c --argjson s "[$(IFS=,; echo "$*")]" '.standing = $s'
+}
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)" | jq -c '.deferrals = [{deferral: "open one", reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]')" "$(prow s1 pause all lifted)")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7
+OUT=$(bash "$DC" --session "$S" 2>"$T/err")
+eq "a pause on all holds a new dispatch, ahead of an open deferral" "paused s1" "${OUT% sealed:*}"
+tok_shape "paused is in koto's capture alphabet" "$OUT"
+jq -r '.reason' "$KOTO_STORE/context/$S/coord/dispatch_check.json" | grep -q 'held by pause s1: on all, until lifted' \
+    && ok "  ... the detail names the pause" || bad "  ... the detail names the pause" "$(cat "$KOTO_STORE/context/$S/coord/dispatch_check.json")"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s2 pause "Feature 2" lifted)")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a unit's pause holds sending its holding the execution" "paused s2" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 dispatch plugin-api
+eq "  ... and not a new dispatch, whose unit this check can't name" "ok plugin-api" "$(check)"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s2 pause "Feature 2" lifted)" "$(prow s3 go-ahead "Feature 2" "")")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a go-ahead on the unit lets it through" "ok a5" "$(check)"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s1 pause all lifted)" "$(prow s3 go-ahead "Feature 2" "")")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a go-ahead lets its unit through a pause on all at dispatch too" "ok a5" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 dispatch plugin-api
+eq "  ... and a new dispatch under it is left to dispatch-worker.sh, which knows its unit" "ok plugin-api" "$(check)"
+seed "$(with_pauses "$(with_holdings "$(scoping a5 25)")" "$(prow s4 pause all "time 2000-01-01T00:00Z")")"
+pr 25 OPEN true
+session "$(roadmap_vars plugin-system)" 7 send_execution a5
+eq "a pause whose minute has passed holds nothing" "ok a5" "$(check)"
 
 done_tests deferral-check

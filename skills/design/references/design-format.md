@@ -31,19 +31,23 @@ decision: |
 rationale: |
   1 paragraph: why this approach over alternatives.
 upstream: docs/prds/PRD-<name>.md           # optional
-spawned_from: docs/designs/DESIGN-<parent>.md  # optional
+spawned_from:                               # optional
+  issue: <number>
+  repo: <owner/repo>
+  parent_design: <relative-path>
 motivating_context: |                       # optional
   Why this design exists -- the situation or signal that
   triggered the work. Distinct from `problem` (which states the
   technical gap) and from `rationale` (which justifies the chosen
   approach against alternatives).
 user_visible_surface: true                  # optional, boolean
+decision_provenance: inline-resolved        # optional
 ---
 ```
 
 Required fields: `schema`, `status`, `problem`, `decision`,
 `rationale`. Optional: `upstream`, `spawned_from`,
-`motivating_context`, `user_visible_surface`.
+`motivating_context`, `user_visible_surface`, `decision_provenance`.
 
 - **schema** -- `design/v1`. Pins the artifact-type contract.
 - **status** -- lifecycle state (`Proposed`, `Accepted`, `Planned`,
@@ -62,10 +66,10 @@ Required fields: `schema`, `status`, `problem`, `decision`,
   private artifact a public DESIGN cannot name, or when Phase 0's
   cross-repo resolution returns "omit." See
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
-- **spawned_from** -- path to a parent DESIGN this design was
-  spawned from (the parent DESIGN's Phase 2 decision evaluation
-  produced this child). Triggers parent-doc update behavior at
-  Phase 6.8.
+- **spawned_from** -- for a child design created from a
+  needs-design issue: an object naming the source `issue` number,
+  its `repo` (`owner/repo`), and the `parent_design` path. Triggers
+  parent-doc update behavior at Phase 6.8.
 - **motivating_context** -- 1 paragraph naming the situation or
   signal that triggered the design. Optional; reach for it when the
   problem statement alone does not convey why the design exists
@@ -80,6 +84,12 @@ Required fields: `schema`, `status`, `problem`, `decision`,
   for a `docs/guides/*` reference. Set it `false` for designs that
   add no user-facing surface (internal refactors, infra) so the
   fallback scan is not consulted.
+- **decision_provenance** -- `inline-resolved`, set when `/design`
+  ran under a parent skill and resolved at least one standard-tier
+  Phase 2 question inline instead of delegating it to `/decision`
+  (critical-tier questions always go to `/decision`). Omit it when
+  every question went to `/decision`. Each question's own provenance
+  is the first line of its Considered Options entry.
 
 **Two written shapes are supported for `upstream:`.** A scalar -- the
 path on the key's own line -- and a sequence, written either as `- `
@@ -146,8 +156,10 @@ whether the section is genuinely required.
 ## Implementation Issues Ownership
 
 The Implementation Issues table is NOT owned by the DESIGN. It is
-owned by the downstream PLAN, populated during the PLAN's Phase 7
-(single-pr emission) or Phase 7 populate (multi-pr emission).
+owned by the downstream PLAN, which writes it in its Phase 7 when the
+PLAN files issues (a multi-pr PLAN, or a coordinated one at a filing
+tracking level). A single-pr PLAN, and any PLAN at tracking level
+`none`, carries Issue Outlines instead and has no table.
 
 A DESIGN may reference the PLAN's table by anchor (`see
 docs/plans/PLAN-<name>.md#implementation-issues`) or by file path,
@@ -217,14 +229,15 @@ rule-statement prose.
 
 All transitions are executed by `shirabe transition`. Most
 transitions hold the DESIGN in `docs/designs/`; the `Planned ->
-Current` transition moves the file to `docs/designs/current/`.
+Current` transition moves the file to `docs/designs/current/`, and
+`any -> Superseded` moves it to `docs/designs/archive/`.
 
 | Transition | Preconditions | Directory Movement |
 |-----------|---------------|-------------------|
 | Proposed -> Accepted | Phase 6 jury all-PASS + human approval | None |
 | Accepted -> Planned | A PLAN names this DESIGN as `upstream:` | None |
 | Planned -> Current | The PLAN has shipped (all issues done) | Move to `docs/designs/current/` |
-| any -> Superseded | A successor DESIGN names this one as `superseded_by:` | None; the doc stays where it is |
+| any -> Superseded | A successor DESIGN names this one as `superseded_by:` | Move to `docs/designs/archive/` |
 
 The directory move on `Planned -> Current` is load-bearing: it
 distinguishes designs that documented historical decisions from
@@ -304,6 +317,8 @@ Phase 6 jury reviewers add discretionary rubric coverage:
   the Decision Drivers, not surface-level dismissals.
 - The chosen option is named in this section too (briefly), with
   the full elaboration in Decision Outcome.
+- Under a parent skill, each question's entry opens with its
+  provenance: `Resolved inline.` or `Delegated to /decision.`
 
 ### Decision Outcome
 

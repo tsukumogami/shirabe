@@ -8,17 +8,19 @@ Ensure the design doc is complete and ready for approval:
 - Launch review agents (architecture + security)
 - Validate all required sections
 - Check that rejected alternatives have genuine depth (strawman check)
-- Add frontmatter, commit, create PR
-- Route to next step based on complexity
+- Add frontmatter, commit, create PR (under `/scope`: commit only)
+- Route to next step based on complexity (not under `/scope`)
 
 ## Resume Check
 
-If the design doc has YAML frontmatter with status "Proposed", skip to step 6.5
+If the design doc has YAML frontmatter with status "Proposed", skip to step 6.7
 (present for approval).
 
 ## Steps
 
 ### 6.1 Launch Review Agents
+
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Architecture and Security run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
 
 Launch three review agents in parallel using the Agent tool with `run_in_background: true`.
 
@@ -173,12 +175,16 @@ decision: |
   <1 paragraph: what approach was chosen and key properties>
 rationale: |
   <1 paragraph: why this approach over alternatives>
+decision_provenance: inline-resolved   # Only when Phase 2 resolved a question inline (step 2.2a). OMIT otherwise.
 ---
 ```
 
 The frontmatter must be the first content in the file, before the `# DESIGN:` heading.
 
 ### 6.6 Commit and PR
+
+Under `/scope`'s `parent_orchestration` sentinel (SKILL.md, Output, "Under `/scope`"),
+run step 1 only: commit, with no push and no pull request.
 
 1. Commit: `docs(design): add design for <topic>`
 2. Push and create PR
@@ -230,6 +236,11 @@ Options (mark the recommended one "(Recommended)"):
   when changes are complete. (This is the existing "Needs iteration"
   behavior, renamed.)
 
+Under `/scope`'s `parent_orchestration` sentinel, the verdict is still this step's: an
+interactive run asks the author as above, and an unattended run (`--auto`)
+takes the recommended verdict and names it in its output, as "Took the
+recommended verdict: <verdict>".
+
 ### 6.8 Handle Approval
 
 **If approved:**
@@ -241,16 +252,33 @@ Options (mark the recommended one "(Recommended)"):
    which labels to remove on design acceptance. If no vocabulary is defined, look
    for any `needs-*` label and remove it. The tracking label is applied later by
    /plan, not here.
+   Under `/scope`'s `parent_orchestration` sentinel, skip this step. The label
+   edit is a `gh` write that is not among the `gh` writes `/scope`'s SKILL.md
+   lists for a run (its pull request, `/plan`'s gated issue filing and the
+   coordination PR), and that list skips a child's own upstream-issue edit;
+   skipping it is this skill's reading of
+   `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`,
+   which leaves publishing to the parent. Nothing in a `/scope` run removes
+   the label instead: `/plan` removes it at its step 7.8 only when the author
+   names the upstream issue, and that is a routing prompt `/scope`'s children
+   skip. The label stays on the issue for the author to remove; who should
+   remove it under `/scope` is an open question, tracked as #666.
 4. **Update parent design doc** (only when the design doc has `spawned_from` in its frontmatter).
    If your project defines a label lifecycle in the extension file
    (`@.claude/shirabe-extensions/design.md`), follow those instructions for
    parent doc updates (Mermaid diagram class changes, child reference rows,
    spawned_from metadata). If no extension defines this, skip parent doc updates.
+   This is an edit to a file on the branch, not a `gh` write, so it runs
+   under `/scope`'s sentinel too.
 5. **PR body convention.** If spawned from an issue, use `Ref #<N>` in the PR
    body, NOT `Fixes #<N>`. The issue stays open until implementation completes.
-6. Run the complexity assessment and routing from the design SKILL.md "Output" section (the table comparing Simple vs Complex criteria, followed by the AskUserQuestion presenting Plan vs Approve options). Use `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for the AskUserQuestion formatting pattern.
+6. Under `/scope`'s `parent_orchestration` sentinel, skip this step and return control to
+   `/scope`. Otherwise, run the complexity assessment and routing from the design SKILL.md "Output" section (the table comparing Simple vs Complex criteria, followed by the AskUserQuestion presenting Plan vs Approve options). Use `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for the AskUserQuestion formatting pattern.
 
 ### 6.9 Clean Up wip/ Artifacts
+
+Under `/scope`'s `parent_orchestration` sentinel, skip this step: `/scope`'s cleanup phase
+removes these files, and `/design` makes no cleanup commit.
 
 After approval and routing, remove temporary artifacts:
 - `wip/design_<topic>_summary.md`
@@ -277,7 +305,11 @@ Run the following ordered actions; do not skip steps.
 1. **Capture the rationale.** Prompt the author for a one-sentence rationale
    explaining why the DESIGN is being discarded. Restate the public-history
    disclaimer ("Rationale will be committed to git history") in the prompt
-   so the author has a second opportunity to redact private content.
+   so the author has a second opportunity to redact private content. An
+   unattended run (`--auto`) asks nobody: write the rationale yourself from
+   the review findings behind the verdict, as
+   `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` has you do at any
+   decision point, keeping it free of private content.
 
 2. **Write the rationale to a tmpfile.** Author-supplied rationale strings
    are free-form and may contain shell metacharacters (quotes, backticks,
@@ -294,7 +326,7 @@ Run the following ordered actions; do not skip steps.
    ```
 
    The first line is the conventional-commit subject (the literal substring
-   `/scope`'s Component 7.7 git-log search reads); a blank line separates
+   `/scope`'s Phase-N Reject Handling searches `git log` for); a blank line separates
    the subject from the rationale body.
 
 3. **Remove the durable DESIGN artifact.**
@@ -313,7 +345,12 @@ Run the following ordered actions; do not skip steps.
    rm -f wip/research/design_<topic>_*.md
    ```
 
-5. **Commit the discard via `git commit -F`** (file path), never `-m`:
+   Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
+   these files.
+
+5. **Commit the discard via `git commit -F`** (file path), never `-m`. This
+   commit still happens under `/scope`'s sentinel: it is the rejection signal
+   `/scope` reads from `git log`, not the cleanup commit the sentinel skips.
 
    ```bash
    git commit -F "$RATIONALE_FILE"
@@ -322,13 +359,12 @@ Run the following ordered actions; do not skip steps.
 
    Equivalent stdin form (`git commit -F -` reading from a here-document)
    is acceptable when scripting inline; the invariant is that the rationale
-   never transits a `-m "..."` shell argument. The discard commit lands on
-   the current branch and is the durable observable signal of rejection per
-   AC30c.
+   never transits a `-m "..."` shell argument.
 
 6. **Exit the phase.** Do not flip status from Proposed to Accepted; do not
    run the Approved-path complexity assessment or routing; do not run step
-   6.9 (the Reject branch handled its own wip cleanup inline in step 4).
+   6.9 (the Reject branch handled its own wip cleanup inline in step 4, or
+   left it to `/scope` under the sentinel).
    No DESIGN ships; the discard commit is the only artifact. The gate
    behaves identically in-chain and out-of-chain — `/design`'s
    responsibility stops at the discard commit. (Any `/scope`-side handling

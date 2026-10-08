@@ -28,7 +28,9 @@ fixed; semantics are pattern-level; serialization is substrate-bound.
   where to re-enter.
 - **`exit`** — parent-exit enum string from
   `{full-run, re-evaluation, abandonment-forced}` (the three pattern-level
-  exit paths). UNSET while the chain is in progress; SET at finalization.
+  exit paths). Unset while the chain is in progress — empty or absent, or a
+  literal placeholder the parent's own schema names, such as `/charter`'s
+  `UNSET`; SET at finalization.
   The R9 hard-finalization check fires when this field is unset or
   invalid at termination.
 - **`exit_artifacts`** — list of `{path, status}` entries. The durable
@@ -56,8 +58,8 @@ The `phase_pointer` field is a parent-phase enum, not a free-text string.
 Each parent's SKILL.md names its phases; the field's allowed values are the
 parent's named phase identifiers.
 
-The `exit` field is conditional in a strict sense: UNSET while the chain is
-in progress, SET to a valid enum value at finalization. The R9
+The `exit` field is conditional in a strict sense: unset (empty, absent, or
+the parent's own placeholder) while the chain is in progress, SET to a valid enum value at finalization. The R9
 hard-finalization check makes the conditional explicit (see R9 Hard-
 Finalization Check Spec below).
 
@@ -76,7 +78,8 @@ document at the pattern-doc layer so multiple parents adopt them
 identically rather than reinventing the vocabulary.
 
 - **`boundary:`** — gated by `exit: re-evaluation`. Valid values:
-  `prd | design`. The field discriminates which upstream boundary the
+  `brief | prd | design` (`/scope` uses `brief` only for a rejected
+  draft BRIEF, its first hop). The field discriminates which upstream boundary the
   re-evaluation Decision Record attaches to when a parent's chain has
   more than one settled-upstream boundary. Parents with multiple
   settled-upstream boundaries (e.g., `/scope`, whose chain settles at
@@ -231,9 +234,9 @@ writer in the corpus today.
 | `<boundary>-boundary-rejection` | A Reject at a settled-upstream boundary ended the chain, so the children below it never ran | `/scope` Phase 2, per the rejection Decision Record templates under `skills/scope/references/` |
 
 `<boundary>` is drawn from the `boundary:` enum (see Parent-specific
-conditional fields above), so the fourth member is the closed pair
-`prd-boundary-rejection` and `design-boundary-rejection` rather than an
-open family.
+conditional fields above), so the fourth member is the closed set
+`brief-boundary-rejection`, `prd-boundary-rejection` and
+`design-boundary-rejection` rather than an open family.
 
 The enum is what makes the prohibition checkable. No member says a child's
 artifact was judged not worth producing, because no parent makes that
@@ -347,8 +350,9 @@ succeed.
    same `exit:` value, ALL discriminators MUST be set when the gating
    `exit:` fires. `/scope`'s `boundary:` plus `decision_record_sub_shape:`
    is the canonical example: the two discriminators together gate the
-   four re-evaluation Decision Record combinations (prd-re-evaluation,
-   prd-rejection, design-re-evaluation, design-rejection); both must
+   five re-evaluation Decision Record combinations (brief-rejection,
+   prd-re-evaluation, prd-rejection, design-re-evaluation,
+   design-rejection); both must
    be set when `exit: re-evaluation` fires. UNSET or out-of-enum
    discriminator values fail R9 Part 2 the same way single-discriminator
    parents do — the multi-discriminator framing extends the rule, not

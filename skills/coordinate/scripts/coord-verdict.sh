@@ -54,15 +54,18 @@ case "$WORD" in
     decision-owed) exit 45 ;;
     # dispatch_check and merged_facts: the evidence's unit is no topic they can act on
     unknown-topic) exit 46 ;; unresolved-topic) exit 47 ;;
+    # dispatch_check and land: a pause in the record holds the dispatch or the merge
+    paused) exit 48 ;;
     # record, verified_confirm ("waiting" holds the state: exit 4 below)
     confirmed) exit 50 ;; conflict) exit 52 ;; moved) exit 53 ;; directed) exit 54 ;;
     # report_facts
-    holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;;
+    holding) exit 60 ;; unknown) exit 61 ;; refused) exit 62 ;; link) exit 63 ;; progress) exit 64 ;;
     # verify_board
     verified) exit 70 ;; unverified) exit 71 ;; pending) exit 72 ;;
     board-unreadable) exit 73 ;; not-open) exit 74 ;; unlinked) exit 75 ;; actions-green) exit 76 ;;
+    no-pr) exit 77 ;; not-run) exit 78 ;; unevidenced) exit 79 ;;
     # land
-    permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; dirty) exit 84 ;;
+    permit) exit 80 ;; deny) exit 81 ;; confirm) exit 82 ;; unready) exit 83 ;; dirty) exit 84 ;; held) exit 85 ;;
     # merge_confirm, merged_facts
     merged) exit 90 ;; unconfirmed) exit 91 ;; not-merged) exit 92 ;;
     # quiet_check
@@ -88,6 +91,10 @@ case "$WORD" in
     message) exit 180 ;;
     # surface_check (with refused 62)
     accepted) exit 190 ;;
+    # teardown_handoff
+    handoff-ready) exit 200 ;; handoff-refused) exit 201 ;;
+    # teardown_confirm
+    teardown-confirmed) exit 202 ;; teardown-incomplete) exit 203 ;;
     waiting|land-blocked)
         echo "coord-verdict: $WORD: $STATE stays here until your next action changes what it reads" >&2; exit 4 ;;
     *) echo "coord-verdict: unknown verdict word [$WORD] for $STATE" >&2; exit 3 ;;

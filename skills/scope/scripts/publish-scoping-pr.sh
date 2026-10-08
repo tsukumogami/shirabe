@@ -21,7 +21,9 @@
 #      wip/{scope,brief,prd,design,plan}_<topic>_* and
 #      wip/research/{prd,design}_<topic>_* paths, committed as exactly that
 #      removal (built from HEAD's tree through a private index, so nothing
-#      else staged rides along). The files stay on disk for cleanup.
+#      else staged rides along). /brief's jury verdict files, which sit in
+#      the research directory beside /prd's and /design's scratch, are
+#      untracked with them. The files stay on disk for cleanup.
 #   4. list every wip/ path in commits not yet on origin, run the
 #      public-content visibility check over those files, and stop on a hit
 #                                                            -> scope:push
@@ -321,6 +323,7 @@ esac
 UNTRACK=$(git ls-files -- \
     "wip/scope_${TOPIC}_*" "wip/brief_${TOPIC}_*" "wip/prd_${TOPIC}_*" \
     "wip/design_${TOPIC}_*" "wip/plan_${TOPIC}_*" \
+    "wip/*/brief_${TOPIC}_*" \
     "wip/research/prd_${TOPIC}_*" "wip/research/design_${TOPIC}_*" 2>/dev/null)
 if [ -n "$UNTRACK" ]; then
     IDX="$SCRATCH/index"
@@ -446,12 +449,14 @@ render_body() {
         for p in "docs/briefs/BRIEF-${TOPIC}.md" "docs/prds/PRD-${TOPIC}.md" \
                  "docs/designs/DESIGN-${TOPIC}.md" "docs/designs/current/DESIGN-${TOPIC}.md" \
                  "docs/plans/PLAN-${TOPIC}.md"; do
+            # An abandoned run writes no PLAN; never list one it left behind.
+            [ "$EXIT" = abandonment-forced ] && [ "$p" = "$PLAN" ] && continue
             [ -f "$p" ] && printf -- '- %s\n' "$p"
         done
         for p in docs/decisions/DECISION-*-"${TOPIC}"-*.md; do
             [ -f "$p" ] && printf -- '- %s\n' "$p"
         done
-        if [ -f "$PLAN" ]; then
+        if [ -f "$PLAN" ] && [ "$EXIT" != abandonment-forced ]; then
             # Issue numbers from the Implementation Issues table (the first
             # cell of each row), else the outline IDs.
             ids=$(awk '

@@ -1,17 +1,22 @@
 # record-write-core.sh -- the coordinator record's one write path. Sourced, never
 # run, and only by the agent-run write scripts (record-write.sh, which
-# record-holding.sh calls, and the decision writer); no check script sources
-# it, which keeps record-common.sh's promise that everything a check sources
+# record-holding.sh calls, the decision writer and the hold writer); no check
+# script sources it, which keeps record-common.sh's promise that everything a check sources
 # only reads.
 #
 # core_write re-reads the target and writes the whole body, after the checks
 # record-write.sh's header lists; every check from the parse on lives here.
-# The two the Decisions section brought:
+# Three of them, in brief:
 #   - the Decisions section may be changed only by a script that sets
 #     DECISIONS_WRITER=1 after sourcing this file, which resets it to 0, so a
 #     value in the environment never counts (exit 65). Only
 #     record-decision.sh sets it; a structure test holds every other script
 #     to that;
+#   - the Holds section likewise, through HOLDS_WRITER=1, which only
+#     record-hold.sh sets; even it may only add a hold or stamp a blank
+#     Lifted cell, never drop or change a hold (exit 65);
+#   - the stored set's sections (Run, Standing, Work) likewise, through
+#     STATE_WRITER=1, which only record-state.sh sets (exit 65);
 #   - a body over RECORD_BUDGET bytes, as given or as rendered, is refused
 #     before GitHub sees it (exit 13, record-full), leaving room under
 #     GitHub's 65,536-byte limit.
@@ -39,6 +44,8 @@ RECORD_BUDGET=60000
 # Closed by default at the moment this file is sourced, so a value in the
 # environment never counts; the decision writer opens it after sourcing.
 DECISIONS_WRITER=0
+HOLDS_WRITER=0
+STATE_WRITER=0
 
 core_write() {
     if [ -z "$REF" ]; then
@@ -110,10 +117,39 @@ core_write() {
             exit 65
         fi
     fi
+    # The Holds section changes only through the hold writer, and even it may
+    # only add a hold or stamp a blank Lifted cell: every live hold stays, with
+    # every other cell as it was.
+    NEW_H=$(jq -cS '.holds // []' "$T/parsed.json") && LIVE_H=$(jq -cS '.holds // []' "$T/live.json") \
+        || lib_die2 "cannot compare the Holds sections"
+    if [ "$HOLDS_WRITER" != 1 ]; then
+        if [ "$NEW_H" != "$LIVE_H" ]; then
+            echo "$PROG: refused: the Holds section changes only through record-hold.sh; carry it as the live record has it" >&2
+            exit 65
+        fi
+    elif ! jq -n -e --argjson n "$NEW_H" --argjson l "$LIVE_H" '
+            all($l[]; . as $o | [$n[] | select(.hold == $o.hold)] as $m
+                | ($m | length) == 1
+                  and ($m[0] | del(.lifted)) == ($o | del(.lifted))
+                  and ($o.lifted == "" or $m[0].lifted == $o.lifted))' > /dev/null; then
+        echo "$PROG: refused: a hold is never removed or changed, only added or lifted once" >&2
+        exit 65
+    fi
 
-    # A public host never names a private repository: not in a Holdings Repo, not
-    # in a Pull request link, not in a Side effects Target (an owner/repo token,
-    # owner/repo#n, or a github.com URL). A named repository the host can't read
+    # The stored set's sections change only through record-state.sh.
+    if [ "$STATE_WRITER" != 1 ]; then
+        NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$T/parsed.json") \
+            && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$T/live.json") \
+            || lib_die2 "cannot compare the stored set's sections"
+        if [ "$NEW_S" != "$LIVE_S" ]; then
+            echo "$PROG: refused: the Run, Standing and Work sections change only through record-state.sh; carry them as the live record has them" >&2
+            exit 65
+        fi
+    fi
+
+    # A public host never names a private repository: not in a Holdings Repo,
+    # not in a Pull request link, not in a hold's or a pause's On or Until, not in a Side
+    # effects Target (an owner/repo token, owner/repo#n, or a github.com URL). A named repository the host can't read
     # (404) can't be shown public, so it is refused too. This finds the
     # repositories the body names and reads each one's visibility; the render
     # below refuses a cell naming any on the list (the codec's names_repo, the one
@@ -124,19 +160,22 @@ core_write() {
         # A cell that holds only a repository (Side effects Target) is read for
         # any owner/repo token. Decisions text is prose, where "and/or" or
         # "CI/CD" is not a repository, so only its unambiguous forms count
-        # there: a github.com/<owner>/<repo> link and <owner>/<repo>#<n>.
+        # there, as the codec's text_named_repos reads them for a record entry
+        # too: a github.com/<owner>/<repo> link and <owner>/<repo>#<n>.
         jq -r -L "$HERE" 'include "record-codec";
             def clean: sub("\\.git$"; "") | sub("\\.+$"; "");
             def links: scan("github\\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)") | .[0] | clean;
             [ (.holdings[] | .repo, (.pull_request | pr_link_parts | .r)),
+              ((.holds // [])[] | (.on | sub("#.*$"; "")),
+                (.until | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
+              ((.standing // [])[] | ((.on // "") | select(test("/")) | if startswith("release ") then split(" ")[1] else sub("#.*$"; "") end),
+                ((.until // "") | split(" ") | if .[0] == "merged" then (.[1] | sub("#.*$"; "")) elif .[0] == "tag" then .[1] else empty end)),
               ((.side_effects[] | (.target // "")) | tostring
                 | ( links,
                     (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
                      | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?=#[0-9]|[\\s)\\]>,;:]|$)") | .[0] | clean) )),
-              (((.decisions.entries // [])[] | .[d_text_cols[]] // "") | tostring
-                | ( links,
-                    (gsub("[A-Za-z][A-Za-z0-9+.-]*://[^\\s)\\]>]*"; " ")
-                     | scan("(?:^|[\\s(\\[<,;:])([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#[0-9]") | .[0] | clean) )) ]
+              (((.decisions.entries // [])[] | .[d_text_cols[]] // "") | tostring | text_named_repos[]),
+              (. as $rec | state_secs[] | .key as $k | (($rec[$k] // [])[] | .[s_text_cols[$k][]] // "") | text_named_repos[]) ]
             | map(select(. != "")) | unique | .[]' "$T/parsed.json" > "$T/named" || lib_die2 "jq failed"
         while IFS= read -r r; do
             [[ $r =~ $RE_REPO ]] || { echo "$PROG: refused: $r is not owner/repo" >&2; exit 65; }

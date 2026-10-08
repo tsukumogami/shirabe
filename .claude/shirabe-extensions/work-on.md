@@ -6,7 +6,7 @@ This file is `@`-imported by the work-on skill, so it stays minimal.
 
 ## Verification map
 
-- `skills/**` -> `scripts/run-evals.sh <skill>`
+- `skills/**` -> `scripts/check-skill.sh <skill>`
 
 ### Default verification command (when no map entry matches; all must pass)
 

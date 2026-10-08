@@ -45,7 +45,8 @@ and each is written at the site it was already written at.
   `intent-mismatch`, and the file is left unchanged. The field is
   re-validated against `{continue, stop, none}` wherever it is read
   back (State-File Enum Re-Validation in `phase-2-chain-orchestration.md`).
-- **`phase_pointer`** — the pattern-level pointer, with one
+- **`phase_pointer`** — the pattern-level pointer, written as the
+  integer phase `0`-`4` (never `phase-N`), with one
   `/scope`-specific derivation rule. When a session exists the value
   is the phase of the state the session now occupies, read off that
   state's `# phase: N` comment in
@@ -101,10 +102,7 @@ and each is written at the site it was already written at.
   creates the file. **Its reader is the resume ladder**
   (`skills/scope/references/phases/phase-resume.md`), which reads it
   on a later re-entry to tell a run that consumed a handoff from one
-  that started cold. A Slot 7 clause that wrote a field nothing read
-  would be an orphan of exactly the shape the post-`/prd` gate's
-  retired chain-revision flag was: written by a phase file, named in
-  no schema, read by nobody. The value is a path recovered from state and is
+  that started cold. The value is a path recovered from state and is
   re-validated against the slug regex before it is interpolated
   anywhere, on the same grounds as `consumed_upstream:`.
 - **`planned_chain`** — list of child names the chain plans to
@@ -149,13 +147,13 @@ and each is written at the site it was already written at.
   `reason` is drawn from the closed vocabulary in
   `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
   (Chain-tracking). `/scope` writes two of its four members, which
-  instantiate as three reason strings:
+  instantiate as four reason strings:
   `settled-artifact-at-canonical-path-reentry-protection` from
-  Phase 1, and both halves of the `<boundary>-boundary-rejection`
-  pair from Phase 2 — `prd-boundary-rejection` and
+  Phase 1, and the `<boundary>-boundary-rejection` members from
+  Phase 2 — `brief-boundary-rejection`, `prd-boundary-rejection` and
   `design-boundary-rejection`, written when a Reject at a
-  settled-upstream boundary ends the chain and the children below
-  the boundary never run. Those three are the whole set the skill
+  boundary ends the chain and the children below the boundary never
+  run. Those four are the whole set the skill
   writes; the two members `/scope` never writes are
   `upstream-supplied-by-author` and
   `author-declined-at-confirmation-prompt`, both `/charter`'s. A child is never recorded here because
@@ -186,20 +184,6 @@ and each is written at the site it was already written at.
   indistinguishable from a judgment that never considered
   absorbing.
 
-  `stage:` names where the verdict settled: `preflight` when the
-  citation guard refused, `judgment` when the content question
-  reached `keep`, `carry` when the carry check decided. It replaces
-  a boolean `absorbable:` that asked whether the required-section
-  mapping was total — the type-level question the judgment no
-  longer asks, and which under the current rule would be `true` at
-  every hop it could ever be written. The replacement is strictly
-  more informative: it answers the question a reader of the PR body
-  actually has, which is *why* this hop landed where it did.
-
-  Retiring it costs no migration. The absorb procedure has never
-  completed a run in this repository — no BRIEF has ever been
-  deleted — so there are no entries on disk carrying the old field.
-
   `reverted:` marks an absorb that completed and was then rolled
   back by the post-absorb re-validation. It is not a third verdict:
   the verdict is `keep`, because nothing was ultimately removed. The
@@ -207,12 +191,13 @@ and each is written at the site it was already written at.
   aborted before mutating, which is a different and much less
   interesting event.
 - **`boundary`** — conditional on `exit: re-evaluation`. Values:
-  `prd | design`. Discriminates which upstream boundary the
+  `brief | prd | design` (`brief` only with the `rejection`
+  sub-shape). Discriminates which upstream boundary the
   Decision Record attaches to. Gated per the state-schema
   reference's Parent-specific conditional fields sub-block.
 - **`decision_record_sub_shape`** — conditional on
   `exit: re-evaluation`. Values: `re-evaluation | rejection`. The
-  second discriminator of the four-combination Decision Record
+  second discriminator of the five-combination Decision Record
   matrix; R9 Part 2's multi-discriminator rule requires both
   `boundary:` and `decision_record_sub_shape:` to be set when
   `exit: re-evaluation` fires.
@@ -270,10 +255,12 @@ and each is written at the site it was already written at.
   Drift fires when EITHER status or fingerprint changes between
   resumes.
 - **`worktree_rebases`** — conditional list. Appended after every
-  rebase that brought new upstream commits in, per the worktree-
-  discipline reference. Records the post-rebase HEAD SHA and the
+  catch-up merge that brought new upstream commits in, per the
+  worktree-discipline reference; the name and its `rebased_at` key
+  are kept for compatibility, and each entry records a merge.
+  Records the post-merge HEAD SHA and the
   classification enum (`none | informational | intent-changing-resolved-in-place`).
-  Absent when no rebases have occurred.
+  Absent when no catch-up merges have occurred.
 - **`worktree_divergences`** — conditional list. Appended only
   when the worktree-discipline escalation phase produces a
   "proceed against original intent" decision. The list audits

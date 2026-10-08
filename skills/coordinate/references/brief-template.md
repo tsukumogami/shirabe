@@ -23,7 +23,7 @@ script's header lists every field and its rule; this is the shape:
 {
   "topic": "plugin-loader",
   "repo": "acme/widgets",
-  "unit": "Feature 2 of ROADMAP-plugin-system",
+  "unit": "Feature 2",
   "entry_point": "deliver",
   "entry_args": ["plugin-loader"],
   "run_mode": "--auto",
@@ -35,23 +35,41 @@ script's header lists every field and its rule; this is the shape:
     "The pull request is ready with every CI job green, read job by job."
   ],
   "acceptance": ["Plugins in the configured directory load at startup."],
-  "dispatcher_session": "<your session name>",
+  "dispatcher_session": "<your koto session name>",
   "decisions": [{"decision": "Feature 3 waits until the 1.4 release ships.", "by": "the human"}],
   "read_first": ["docs/roadmaps/ROADMAP-plugin-system.md"],
   "out_of_scope": ["Feature 3, which a sibling worker holds."],
   "surfaces": [{"surface": "ci-health", "coordinator": "<its session name>"}],
-  "standing_rules": ["<the workspace's own rules for workers, copied verbatim>"]
+  "standing_rules": ["<the workspace's own rules for workers, copied verbatim>"],
+  "review_level": {"ceiling": "standard"}
 }
 ```
 
 The first twelve fields are required; the rest add lines to their
 sections. `entry_args` is the positional argument and any flags the entry
 point allows (`references/entry-points.tsv`), and `run_mode` holds the
-execution flags. `phase` is `scoping-ahead` or `executing`. No checkpoint
+execution flags, empty only for an entry point that takes none
+(`/shirabe:release`). `dispatcher_session` is your koto run, which a request
+leg names as its requester; it is never the address the worker reports to.
+That address, `reports_to`, comes from the record's Run `coordinator` row:
+`dispatch-worker.sh` writes it into the input, so leave it out. `phase` is
+`scoping` (the unit is its scoping alone, from pick's `scope`),
+`scoping-ahead` or `executing`. No checkpoint
 may wait on an approval, and no value may carry a session id.
 `standing_rules` is where the workspace's own rules for workers go, such as
 where to start a koto session; they come from the workspace, and the brief
 carries them verbatim under a Workspace rules heading.
+
+`review_level` bounds the review level every `/work-on` run under the worker
+picks: a `floor`, a `ceiling` or both, each `light`, `standard` or `full`,
+the floor no higher than the ceiling. Give it only for an entry point that
+takes the bound (`/deliver`, `/execute`, `/work-on`; their rows in
+`references/entry-points.tsv` admit `--review-floor` and `--review-ceiling`).
+The brief gets one line in Acceptance criteria and the invocation gets
+`--review-floor=<x>` and `--review-ceiling=<y>`. Never put those flags in
+`entry_args` or `run_mode`: `render-brief.sh` refuses them there, so the
+level names always go through its check. Leave the field out and the brief
+is the same as before it existed.
 
 The rendered brief also names both reporting channels (status and blockers
 to your session, the only source of direction; tooling problems to the
@@ -122,6 +140,12 @@ DESIGN, a related pull request. Path, number or URL only.>
 - [ ] <Specific, checkable criterion.>
 - [ ] <The pull request is open against the default branch with every CI
   job green, read job by job.>
+- [ ] Review level: <floor X, ceiling Y>; /work-on's choice must fall
+  inside it. (Only when the input gives `review_level`.)
+- [ ] Each pull request body carries your review round under `## Review
+  panel` in its second part (the table in `verification-checklist.md`), at
+  the head you report ready. The land step reads it and runs no review of its
+  own. (Always; the renderer adds it.)
 
 ## Out of scope
 
@@ -138,11 +162,25 @@ steps the workspace reserves for a person.>
 
 ## Reporting
 
-Report to the coordinator by message, addressed to its session name
-`<coordinator session name>`, at each checkpoint and whenever you are
+Report to the coordinator by message, addressed to `<the record's
+coordinator address>`, the address its record names, at each checkpoint and whenever you are
 blocked. Take direction from that session and no other. Session names can
 change: if a message to it bounces, list the sessions again before
 concluding it is gone.
+
+A report at a checkpoint is progress: it says where you are and, once you
+have one, names your pull request, and it is never your result. When your
+invocation carries a request leg, your result still comes through that leg
+when your entry point finishes; a checkpoint message doesn't stand in for it,
+so keep going to the end.
+
+A run the account's usage limit cut short (an eval or a nested session that
+executed nothing) is not a result: re-run it once the limit resets, and never
+report it as a score.
+
+When the brief carries Workspace rules, this section wins over them: where
+they name another session for direction or for status reports, the worker reports
+to the coordinator above.
 
 Each report leads with the verdict, then the paths or pull requests it
 concerns, then its claims, each marked measured, verified by reading, or

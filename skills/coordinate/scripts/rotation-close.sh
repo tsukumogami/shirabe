@@ -10,6 +10,8 @@
 #
 #   --step handoff --file F   F must be a canonical handoff for this discipline
 #                             (record-parse.sh --format handoff). Own rotation:
+#                             carrying the live record's holds and stored set
+#                             (Run, Standing, Work) as they stand,
 #                             not a predecessor copy. --predecessor: equal to
 #                             the handoff re-rendered from the predecessor's
 #                             live body (predecessor-handoff.sh --out), so the
@@ -120,6 +122,17 @@ handoff)
             || refuse "$FILE is not the predecessor's handoff as rendered from its live body; commit it unedited"
     else
         jq -e '.predecessor_copy == null' "$T/file.json" > /dev/null || refuse "the rotation's own handoff can't be a predecessor copy"
+        # A hold outlives the rotation that set it: the handoff carries the
+        # record's holds exactly as the live record holds them.
+        gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$T/live.md" 2> "$T/live.err" < /dev/null \
+            || lib_die2 "cannot read #$REF's body: $(lib_scrub < "$T/live.err")"
+        bash "$HERE/record-parse.sh" --container pr "$T/live.md" > "$T/live.json" 2> "$T/live.err" \
+            || refuse "#$REF's body is not a canonical record: $(lib_scrub < "$T/live.err" | head -1)"
+        [ "$(jq -cS '.holds // []' "$T/file.json")" = "$(jq -cS '.holds // []' "$T/live.json")" ] \
+            || refuse "$FILE doesn't carry the record's holds as they stand; a hold outlives its rotation"
+        # So does the stored set: the next rotation continues from it.
+        [ "$(jq -cS '[.run // [], .standing // [], .work // []]' "$T/file.json")" = "$(jq -cS '[.run // [], .standing // [], .work // []]' "$T/live.json")" ] \
+            || refuse "$FILE doesn't carry the record's Run, Standing and Work sections as they stand; the next rotation continues from them"
     fi
     DATE=$(jq -r '.rotation.date' "$T/file.json")
     SHA=

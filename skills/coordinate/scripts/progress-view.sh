@@ -24,7 +24,9 @@
 #   4. Waiting to be assigned
 #                       units no holding covers and not done, in the order
 #                       they'll be assigned as the cap frees: pick's order,
-#                       unblocked first
+#                       unblocked first. A unit parked on a decision reads
+#                       `waits on decision <n>`, and one whose scoping alone
+#                       landed names that pull request and its execution
 # A cell that doesn't apply reads N/A. A pull request is a clickable link,
 # `[#<n>](https://github.com/<owner>/<repo>/pull/<n>)`, never a bare number; a
 # session is inline code; no commit hash is shown, and a cell holding a
@@ -47,6 +49,16 @@
 #
 # The decision rows come from the facts' `decisions`, the record's unsettled
 # entries that pick-facts.sh adds.
+#
+# The pauses come from the facts' `pauses` (pause-read.sh, through
+# pick-facts.sh). When any stands, one line goes above the table, `Paused:`
+# and a clause per pause: its id and scope, since when, until what, who set
+# it and who relayed it, and `met, to end` for one whose condition is met
+# but whose row the coordinator hasn't ended. A holding a pause holds reads
+# `paused (<id>)` in its Status cell (a ready one `verified; held by pause
+# <id>`), and a queued unit's Next cell reads `held by pause <id>`. The
+# table keeps its columns and kinds (docs/designs/current/DESIGN-coordinate-paused-state.md,
+# Decision 5).
 #
 # Exit codes: 0 the table was printed; 65 refused (nothing is printed; stderr
 # says why); 64 usage.
@@ -129,6 +141,15 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
         | if any($plain[]; tostring | hashy) then error("\($session): a cell holds a commit hash") else . end
         | "| \($kind) | \($unit | cell) | \($session) | \($pr) | \($status | cell) | \($next | cell) |";
     def unitname: if (.title // "") == "" then .unit else "\(.unit): \(.title)" end;
+    def stamp: sub("T"; " ") | sub("Z$"; " UTC");
+    def until_words: if . == "lifted" then "until a person resumes it"
+        elif startswith("time ") then "until \(.[5:] | stamp)"
+        elif startswith("merged ") then "until \(.[7:]) merges"
+        elif startswith("tag ") then (split(" ") | "until \(.[1]) is tagged \(.[2])")
+        else "until \(.)" end;
+    def pause_clause: "\(.standing) on \(.on), since \(.set | stamp), \(.until | until_words) (\(.owner)"
+        + (if (.relayed_by // "") == "" then "" else ", relayed by \(.relayed_by)" end) + ")"
+        + (if .state == "met" then ", met, to end" elif .state == "unreadable" then ", its condition unreadable, held" else "" end);
 
     if (type != "object") or ((.holdings | type) != "array") or ((.units | type) != "array")
     then error("input: not the pick facts") else . end
@@ -146,11 +167,14 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
        else . end)
     | [.units[] | select(.holding == null and (.done | not))] as $free
     | ([$free[] | select(.blocked | not)] + [$free[] | select(.blocked)]) as $queue
-    | "| Kind | Unit | Session | PR | Status | Next or needs |",
+    | (.pauses // []) as $pz
+    | (if ($pz | length) > 0 then "Paused: " + ([$pz[] | pause_clause] | join("; ")), "" else empty end),
+      "| Kind | Unit | Session | PR | Status | Next or needs |",
       "|---|---|---|---|---|---|",
       ($mo | to_entries[] | .key as $i | .value as $w | [$ready[] | select(.worker == $w)][0]
         | row("Ready to merge"; .unit; code($w); (.pull_request | link($w));
-              (if .phase == "held" then "verified; merge held by your direction" else "verified, ready to merge" end);
+              (if (.paused // null) != null then "verified; held by pause \(.paused)"
+               elif .phase == "held" then "verified; merge held by your direction" else "verified, ready to merge" end);
               ($next[$w] // "merge \($i + 1) of \($mo | length)"))),
       ($h[] | select(.worker as $w | $bk | index($w) != null) | .worker as $w
         | row("Blocked on you"; .unit; code($w); (.pull_request | link($w)); "blocked"; $blocked[$w])),
@@ -161,8 +185,11 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
       ($h[] | select((.parked != true) and (.worker as $w | $bk | index($w) == null)) | .worker as $w
         | row("Ongoing"; .unit; code($w); (.pull_request | link($w));
               ({"dispatching": "dispatching", "dispatch-failed": "dispatch failed"}[.dispatch_status]
-               // {"scoping-ahead": "scoping ahead", "executing": "executing", "held": "held"}[.phase] // (.phase // "N/A"));
+               // (if .merged == true then "merged" else null end)
+               // (if (.paused // null) != null then "paused (\(.paused))" else null end)
+               // {"scoping": "scoping", "scoping-ahead": "scoping ahead", "executing": "executing", "held": "held"}[.phase] // (.phase // "N/A"));
               ($next[$w] // (if .dispatch_status == "dispatch-failed" then "redispatch or escalate"
+                             elif .merged == true then "tear down its worker"
                              elif .phase == "scoping-ahead" then "its execution is sent when its blocker lands"
                              else "report at its next checkpoint" end)))),
       # Decisions nobody but a coordinator is asked: the reader is asked nothing.
@@ -173,8 +200,14 @@ OUT=$(jq -r -L "$HERE" --arg order "$ORDER" --argjson blocked "$BLOCKED" --argjs
               (if .verdict == "hold" then "with me for a verdict, waiting on \(.reason)" else "with me for a verdict" end); "N/A")),
       ($queue | to_entries[] | .key as $i | .value
         | row("Waiting to be assigned"; unitname; "N/A"; "N/A";
-              (if .blocked then "waits on \(.blocked_by | map("feature \(.)") | join(", "))" else "ready to assign" end);
-              ($next[.unit] // "assigned as the cap frees, \($i + 1) of \($queue | length) in line")))
+              (if .blocked then "waits on \(.blocked_by | map("feature \(.)") | join(", "))"
+               elif (.awaiting // null) != null then "waits on decision \(.awaiting)"
+               elif (.follow_up // null) != null then "scoping landed in \(.follow_up.after)"
+               else "ready to assign" end);
+              ($next[.unit] // (if (.paused // null) != null then "held by pause \(.paused)"
+                                elif (.awaiting // null) != null then "parked until the decision is settled"
+                                elif (.follow_up // null) != null then "its execution: \(.follow_up.next)"
+                                else "assigned as the cap frees, \($i + 1) of \($queue | length) in line" end))))
 ' "$IN" 2> "$T") || {
     WHY=$(sed -n 's/^jq: error ([^)]*): //p' "$T" | head -1)
     echo "$PROG: refused: ${WHY:-the input is not the pick facts}" >&2; exit 65

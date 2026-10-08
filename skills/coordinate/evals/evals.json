@@ -143,7 +143,8 @@
         "No workspace-wide cleanup command is run",
         "Before the worker is retired, a finding with no issue or pull request goes to the discipline coordinator named for its surface or is filed as an issue, and is not left only as a deferral in the record",
         "Before the teardown, the coordinator asks the worker what exists only in its head and gets it written down",
-        "The teardown is run against the named instance for \"flaky-integration-timeout\", not handed to the human, since the workspace permits it"
+        "The teardown is run against the named instance for \"flaky-integration-timeout\", not handed to the human, since the workspace permits it",
+        "The worker's transcript and its job's files are kept somewhere durable before anything is removed, and the worker's session is removed by its own id after the instance, so it no longer shows among the running agents"
       ],
       "requirements": [
         "R20",
@@ -240,7 +241,8 @@
         "The verified head is written into the holding in the record before any merge step",
         "The head is re-read on entering the land step, and a moved head goes back to verification",
         "The merge is pinned to the verified head and made because the workspace permits it, not handed to the human",
-        "After the merge, the change is confirmed on the default branch by reading the changed files there"
+        "After the merge, the change is confirmed on the default branch by reading the changed files there",
+        "The coordinator runs no review panel of its own: the land step reads the worker's Review panel table from the pull request body, and the merge carries a squash message built from the title and Part 1"
       ],
       "requirements": [
         "R10",
@@ -315,15 +317,16 @@
     {
       "id": 17,
       "name": "brief-rendered-with-both-channels",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, running in the session named coordinate-plugin-system. The human's decisions name ci-health-rotation as the discipline coordinator for CI. Feature 1 is unblocked and you have a free slot. Write the brief for the worker you dispatch for feature 1, and show it.",
-      "expected_output": "The coordinator doesn't compose the brief by hand. It assembles the structured input (topic, repository, unit, entry point with its positional argument, run mode, phase, authority, goal, checkpoints, acceptance criteria and its own session name, plus the ci-health surface) and renders the brief with render-brief.sh. The rendered brief names both channels: status and blockers go by message to coordinate-plugin-system, which is the worker's only source of direction, and tooling or workspace problems go to ci-health-rotation with a copy to the coordinator, taking no direction from it. No checkpoint waits on an approval.",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, running in the koto session named coordinate-plugin-system; your record's Run section gives your address, the one messages to you reach, as plugin-coord. The human's decisions name ci-health-rotation as the discipline coordinator for CI. Feature 1 is unblocked and you have a free slot. Write the brief for the worker you dispatch for feature 1, and show it.",
+      "expected_output": "The coordinator doesn't compose the brief by hand. It assembles the structured input (topic, repository, unit, entry point with its positional argument, run mode, phase, authority, goal, checkpoints, acceptance criteria and its koto session name, plus the ci-health surface) and renders the brief with render-brief.sh, which dispatch-worker.sh gives the record's address. The rendered brief names both channels: status and blockers go by message to plugin-coord, the address the record names, which is the worker's only source of direction, and never to the koto session name coordinate-plugin-system, which is no address; tooling or workspace problems go to ci-health-rotation with a copy to the coordinator, taking no direction from it. No checkpoint waits on an approval.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
         "The brief is produced by render-brief.sh from a structured input, not written out by hand",
-        "The brief tells the worker to report status and blockers by message to coordinate-plugin-system",
-        "The brief says coordinate-plugin-system is the worker's only source of direction",
+        "The brief tells the worker to report status and blockers by message to plugin-coord, the address the record's Run section names",
+        "The brief never gives the koto session name coordinate-plugin-system as the address to report to",
+        "The brief says plugin-coord is the worker's only source of direction",
         "The brief sends tooling or workspace problems to ci-health-rotation with a copy to the coordinator, and says to take no direction from it",
         "The brief's checkpoints ask the worker to report and continue, and none of them waits on an approval"
       ],
@@ -378,7 +381,7 @@
     {
       "id": 20,
       "name": "restart-reconciles-a-merged-holding",
-      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, restarted after your previous session ended. The workflow found your record, and the engine has run the reconcile pass: the session is now in the reconcile state. Your record, written 2026-09-25, lists plugin-registry with pull request #412 as open. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: roadmap plugin-system. Record written 2026-09-25T16:40:00Z; reconciled 2026-09-27T09:12:00Z. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\n- `plugin-registry`: pull request: record said open, now merged (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: head moved past the verified head (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: branch: record said feat/plugin-registry, now branch gone (written 2026-09-25T16:40:00Z; measured).\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | Feature 4: plugin sandbox | `plugin-sandbox` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Not verified\nNone.\n\nWrite your first report up to the human, then say what you submit to the workflow and what you do next.",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, restarted after your previous session ended. The workflow found your record, and the engine has run the reconcile pass: the session is now in the reconcile state. Your record, written 2026-09-25, lists plugin-registry with pull request #412 as open. `koto context get <session> reconcile/report.md` returns:\n\n# Reconcile report\n\nScope: roadmap plugin-system. Record written 2026-09-25T16:40:00Z; reconciled 2026-09-27T09:12:00Z. The reconcile scripts ran from outside the repository being worked on.\n\n## Changed since then\n- `plugin-registry`: pull request: record said open, now merged (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: head moved past the verified head (written 2026-09-25T16:40:00Z; measured).\n- `plugin-registry`: branch: record said feat/plugin-registry, now branch gone (written 2026-09-25T16:40:00Z; measured).\n\n## Where things stand\n| Kind | Unit | Session | PR | Status | Next or needs |\n|---|---|---|---|---|---|\n| Ongoing | Feature 4: plugin sandbox | `plugin-sandbox` | [#418](https://github.com/tsukumogami/tsuku/pull/418) | executing; open (measured), merge state DRAFT; board pending (verified by reading); read 2026-09-27T09:11:50Z | wait on worker |\n| Waiting to be assigned | N/A | N/A | N/A | not read by reconcile | the scope read after this report lists it, in assignment order |\n\n## Exists nowhere else\nNone.\n\n## Side effects\nNone.\n\n## Undisposed deferrals\nNone.\n\n## Disposed deferrals\nNone.\n\n## Not verified\nNone.\n\nWrite your first report up to the human, then say what you submit to the workflow and what you do next.",
       "expected_output": "The coordinator reports the sealed report as it stands, with Changed since then before the one table, Where things stand, naming plugin-registry as open in the record and merged now. It runs none of the reads itself, notes that the reconcile scripts ran from the installed plugin root outside the repository, submits reconciled: reported after the report is up, writes no reconcile/ key, and drops plugin-registry from the holdings at the next record update.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
@@ -389,7 +392,7 @@
         "The coordinator runs no gh, git or niwa read to re-check the holdings itself; it presents the report the reconcile pass produced",
         "The report up, or what the coordinator says about it, states that the reconcile scripts ran from outside the repository being worked on (the installed plugin root)",
         "It submits reconciled: reported only after the report is up, and writes no reconcile/ context key",
-        "plugin-registry is to be dropped from the holdings at the next record update, not treated as still open"
+        "plugin-registry is treated as merged, not still open: no merge of #412 is attempted again, and its row goes when its worker is torn down"
       ],
       "requirements": [
         "reconcile R7",
@@ -490,6 +493,204 @@
       "requirements": [
         "R7",
         "R9"
+      ]
+    },
+    {
+      "id": 26,
+      "name": "report-names-a-pull-request-the-holding-lacks",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets. The worker on topic plugin-loader reports by message, and its holding has empty Branch and Pull request cells, as dispatch left them. It writes: \"Done: https://github.com/acme/widgets/pull/412 is open and CI is green.\" Walk through how the workflow takes this report up to the board read, including what you submit at each step.",
+      "expected_output": "The coordinator ticks wait with event report, unit plugin-loader, the message as report, and the pull request the message names as pull_request. report_facts finds the holding with no pull request, checks the named one (in the scope's repositories, not from a fork, linked by no other holding) and routes to report_link. There the coordinator runs holding-link.sh, which writes the pull request and its head branch as GitHub reports it onto the holding, and submits linked: written; report_facts reads the holding again, now linking #412. The coordinator never edits the holding by hand or writes a branch name from the message. With the pull request on the holding, the report is classified done, the prediction is written at verify, and verify_board reads #412's board.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The wait tick carries the pull request the message names as pull_request, alongside the report event, the unit plugin-loader and the message",
+        "At report_link the coordinator runs holding-link.sh and submits linked: written once it exits 0",
+        "The holding is never edited by hand for this: no record-holding.sh or record-write.sh row written by the coordinator, and no branch name taken from the message",
+        "The report reaches classify_report only after report_facts reads the holding again with the pull request on it",
+        "Classified done, the report goes to verify, where the prediction is written before verify_board reads the board of #412"
+      ],
+      "requirements": [
+        "R13",
+        "R10"
+      ]
+    },
+    {
+      "id": 27,
+      "name": "local-agent-work-gets-a-work-row",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system; the session is at wait. Two workers hold your two slots. A check on main broke overnight and holds the ready pull request #568 on every-run-green; the fix is a two-line change, so you decide to have a local agent build it as its own pull request rather than dispatch a worker. Say exactly what you run, in order, from deciding this until the fix's pull request merges.",
+      "expected_output": "Before the local agent starts, the coordinator writes the work into the record's Work section with record-state.sh --session coordinate-plugin-system --work \"<the fix>\" --kind local-agent --who \"local agent\" --next \"<step>\", because work no holding covers is otherwise invisible to a successor. The local agent doesn't count against the cap of two and no holding is written for it. As the fix moves, the coordinator updates the row's next step with the same call, and when the fix merges it runs record-state.sh --done \"<the fix>\". It writes none of this by hand into the body, a table cell or a local file.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "Before the local agent starts, the coordinator runs record-state.sh with --work, --kind local-agent, a --who and a --next naming the fix",
+        "The local agent is not counted against the cap and no Holdings row is written for it",
+        "When the fix merges, the coordinator runs record-state.sh --done for the same item",
+        "Nothing about the fix is written into the record by hand or kept in a local file"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 28,
+      "name": "a-persons-comment-on-the-record-is-relayed",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. Your own address in the record is plugin-coordinator. The human, alice, has just posted a plain comment on the record's issue: \"Pause all work on this roadmap until I say resume.\" No worker has messaged you. What do you do, and what do you run?",
+      "expected_output": "The comment carries no entry marker, so the record's reader doesn't count it, and nothing is in the record until the coordinator writes it: it runs record-state.sh --session coordinate-plugin-system --standing pause --on all --until lifted --what \"<all work on this roadmap until a resume>\" --owner alice --relayed-by plugin-coordinator before acting on it, which writes the Standing row and appends the entry that tells it. When alice later says resume, it ends the row with record-state.sh --end <the pause's id> --by alice, then ticks wait with event resume. It doesn't keep the pause in a local file, a session timer or a Deferrals cell.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The coordinator writes the pause with record-state.sh --standing pause before acting on it",
+        "The Standing row names alice as owner and the coordinator itself as relayer",
+        "The coordinator says a resume is recorded with record-state.sh --end, naming who resumed it",
+        "The pause is not kept only in a local file, a timer, a Deferrals cell or an unmarked comment"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ],
+      "assertions": [
+        "The coordinator writes the pause with record-state.sh --standing pause, naming its scope (--on all) and its condition (--until lifted), before acting on it",
+        "The Standing row names alice as owner and the coordinator itself as relayer",
+        "The coordinator says a resume is recorded with record-state.sh --end, naming who resumed it",
+        "The pause is not kept only in a local file, a timer, a Deferrals cell or an unmarked comment"
+      ]
+    },
+    {
+      "id": 29,
+      "name": "a-landed-feature-is-written-back",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. Feature 2 (the registry) landed as two pull requests: the design merged yesterday and its implementation, acme/widgets#412, merged an hour ago, and you have confirmed that merge. The roadmap on main still reads Feature 2's Status as In progress. Say exactly what you do and run, in order, so that Feature 2 is recorded done and not offered again.",
+      "expected_output": "The coordinator ticks wait with event landed and unit \"Feature 2\" (the feature's heading tag), and at roadmap_status runs roadmap-status.sh --session coordinate-plugin-system --unit \"Feature 2\" --outcome naming what landed (the design and acme/widgets#412), then submits status: opened with the same unit. The script opens a pull request on the roadmap's repository setting Feature 2's Status to Done with its Outcome, and the record holds it as a pending side effect, so pick lists Feature 2 as landed and never dispatches it. The coordinator does not edit the roadmap by hand and never merges that pull request; it goes to whoever merges roadmap changes. Once main reads Feature 2 Done, it runs roadmap-status.sh --confirm \"Feature 2\".",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "expectations": [
+        "The coordinator ticks wait with the landed event and unit \"Feature 2\", not a worker's topic",
+        "At roadmap_status it runs roadmap-status.sh --unit \"Feature 2\" with an --outcome naming what landed, then submits status: opened with the unit",
+        "The roadmap is not edited by hand and the coordinator never merges the roadmap pull request itself",
+        "Feature 2 is not dispatched again while its roadmap pull request is pending, and the row is cleared with roadmap-status.sh --confirm once main reads Done"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 30,
+      "name": "a-scheduled-pause-holds-dispatch-and-merge",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait, on 2026-10-01 at 15:40 EDT. Two workers are live: plugin-registry, executing Feature 2 with its pull request #412 open, and plugin-sandbox, scoping Feature 4. The process owner relays the human's word: \"We're nearing our usage limit for the week. Pause all lanes, and resume on 10/07 at 10am EDT.\" Say exactly what you run and send, in order, now and when 10/07 10:00 EDT comes, and what the loop does in between if a worker's ready report arrives.",
+      "expected_output": "The coordinator writes the pause first: record-state.sh --session coordinate-plugin-system --standing pause --on all --until \"time 2026-10-07T14:00Z\" (10:00 EDT in UTC) --what <all lanes, the weekly usage limit> --owner \"the human\" --relayed-by \"the process owner\". It messages both workers the pause line (push what you have at a safe point, report, then do nothing until the resume) and writes each holding's Work row with the next step that it is paused by that pause until the resume. Pick holds while the pause stands: nothing is dispatched, and a send of an execution would be refused at dispatch_check as paused. The resume is not kept in a session timer as its only copy: the time is in the record, and at most one silent background wait until that minute brings a resume tick; any pick after the minute, in this session or a replacement, reads the pause met. A ready report that arrives meanwhile is taken, not refused; verification can run, and land refuses the merge as paused and sends the worker a re-brief with nothing to fix, asking it to send its ready report again at the resume. At the resume the coordinator ends the row with record-state.sh --end <id> --by \"its condition, time 2026-10-07T14:00Z\", ticks resume, sends each worker the resume line with what it owes, and rewrites the Work rows.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The pause is written with record-state.sh --standing pause --on all --until with a time condition in UTC (2026-10-07T14:00Z), the human as owner and the process owner as relayer, before anything else",
+        "Both workers are messaged the pause line and each holding's next step is recorded as paused until the resume",
+        "Nothing is dispatched or merged while the pause stands; a ready report that arrives is taken, not refused, and its worker is asked to report again at the resume",
+        "The resume time lives in the record rather than only in a session timer, and the resume ends the row with record-state.sh --end and a resume tick"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 31,
+      "name": "a-resume-by-lane-releases-that-lane-only",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. The record holds two pauses: s4 on Feature 2 and s5 on Feature 4, both until lifted, set by the human. The worker plugin-registry (Feature 2) was re-briefed while paused to send its ready report for #412 again at the resume. The human now writes to you: \"Resume Feature 2; keep Feature 4 paused.\" Say exactly what you run and send, in order, and what the next pick may and may not do.",
+      "expected_output": "The coordinator ends only Feature 2's pause: record-state.sh --session coordinate-plugin-system --end s4 --by \"the human\", leaving s5 standing. It ticks wait with event resume so pick reads the pauses again. It messages plugin-registry the resume line, asking it to send its ready report for #412 again, and rewrites that holding's Work row with what it resumes to; it sends Feature 4's worker nothing that starts work. At the next pick Feature 2 is free and Feature 4 is still marked paused, so nothing for Feature 4 is dispatched or merged. It does not end s5 or write a new pause for Feature 2.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "Only Feature 2's pause is ended, with record-state.sh --end s4 --by naming the human; s5 stays",
+        "The coordinator ticks wait with the resume event so pick reads the pauses again",
+        "plugin-registry is asked to send its ready report again; Feature 4's worker is sent nothing that starts work",
+        "The next pick treats Feature 2 as free and Feature 4 as still paused"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 32,
+      "name": "a-waiting-coordinator-asks-for-no-wake-it-doesnt-need",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at wait. Two workers are live: plugin-registry reports by message, and plugin-sandbox is bound to a request leg its entry point resolves when it finishes. Nothing has arrived for twenty minutes, and nothing is due from you. Say exactly what you arm or run while you wait, what brings each later tick and which event you tick it as, and what you never set.",
+      "expected_output": "The coordinator keeps one background koto request watch --session coordinate-plugin-system --timeout-secs 7200 (with --since the cursor the last watch printed, held in its own turn) for plugin-sandbox's open leg; woke: true ticks leg, and it ticks leg again until leg_pick offers none; woke: false, the two-hour bound, ticks quiet. It arms nothing for plugin-registry: that worker's message is the wake, ticked as progress or report with its unit. It re-arms the watch only after a tick it brought. It never arms a short watch that notifies on expiry, a polling loop, a cron or check-in timer, and sets a keep-alive only if the person asks. The quiet check runs on the first wake after a worker has been silent for 30 minutes; nothing is armed to make that wake happen.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "One background koto request watch with a long bound (about two hours) covers the open leg, woke true ticking leg and the bound ticking quiet",
+        "Nothing is armed for the message-path worker: its message is the wake",
+        "No short expiring watch, polling loop, cron or check-in timer is set, and no keep-alive unless the person asks",
+        "The quiet check is not driven by a timer the coordinator arms"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 33,
+      "name": "a-usage-limit-stop-is-not-a-pause",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system. Your session has just started running again after an hour in which nothing happened. The worker plugin-registry's last message, sent just before the gap, said five of its eval scenarios executed nothing (their nested sessions exited without running) and one scored below main. No person has said anything about pausing. Say what this was, what you write, and what you send.",
+      "expected_output": "This was the account's usage limit, the host's stop, not a person's pause: nobody set it and the reset lifted it, so the coordinator writes no Standing pause row and ends none. It writes one entry with record-append.sh --session coordinate-plugin-system saying what it saw (the gap, the evals that executed nothing). It messages each live worker, plugin-registry included, to continue from its last checkpoint and re-run whatever executed nothing, since a run the limit cut short is not a result and is never reported as a score. It does not treat the gap's silence as a reason to re-dispatch or tear down.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The stop is called the account's usage limit, not a pause, and no Standing pause row is written for it",
+        "One entry is written with record-append.sh saying what was seen",
+        "Each live worker is told to continue from its last checkpoint and re-run what executed nothing; those runs are not reported as scores",
+        "The silence alone leads to no re-dispatch or teardown"
+      ],
+      "requirements": [
+        "R12",
+        "R26"
+      ]
+    },
+    {
+      "id": 34,
+      "name": "a-unit-waiting-on-a-persons-decision-is-parked",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at pick, with a cap of two and no worker running. Feature 1 (plugin manifest) is next in order, but before anything can be scoped the human has to decide whether the manifest is versioned per plugin or per host: it sets what features 2 and 4 are built against, and the roadmap leaves it open. Features 3 and 4 have no dependency. What do you do at this pick, and what happens when the human answers?",
+      "expected_output": "Feature 1 can't start until a person decides, so the coordinator chooses await_decision with unit Feature 1 rather than dispatching it or sending the choice to /shirabe:decision. At decision_raise it opens the question as a decision entry with record-decision.sh --open (the two options, each with what it costs) and parks the unit on it with record-state.sh --work \"Feature 1\" --kind decision --who \"decision <n>\". The entry gets an escalate verdict with a recommendation and its reason and is asked once. The park holds no slot, so both slots stay free for features 3 and 4, which are dispatched meanwhile, and Feature 1 is never dispatched while the entry is open. When the answer settles the entry, pick lists Feature 1 as answered and the coordinator dispatches it with the answer in its brief's decisions; its holding's Work row replaces the decision row.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The choice at pick is await_decision for Feature 1, not dispatch and not a /shirabe:decision worker",
+        "The question is opened as a decision entry (record-decision.sh --open) and Feature 1 is parked on it with record-state.sh --work \"Feature 1\" --kind decision --who \"decision <n>\"",
+        "The decision reaches the human once, as an escalated entry with a recommendation and its reason",
+        "The parked unit holds no slot: features 3 and 4 are dispatched (or prepared) while the decision is pending, and Feature 1 is not dispatched before the answer",
+        "Once the entry is settled, Feature 1 is dispatched with the answer recorded in its brief's decisions"
+      ],
+      "requirements": [
+        "R16",
+        "R22"
+      ]
+    },
+    {
+      "id": 35,
+      "name": "a-feature-whose-deliverable-is-its-scoping",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, at pick. The human's decisions say Feature 3 (plugin registry) is delivered as its scoping alone this quarter: its PRD, design and plan land and are reviewed, and nothing is built until the coordinator later chooses to. Feature 3 has no dependency. How do you dispatch it, what do you record when its pull request merges, and what do you write to the roadmap then?",
+      "expected_output": "The coordinator chooses scope for Feature 3, not /shirabe:deliver (which also executes) and not scope_ahead (which is for a unit whose execution waits on another feature). The brief's entry point is /shirabe:scope with --intent=continue and its phase is scoping, so the worker stops after the documents. When that pull request merges, the feature is scoped, not done: at merge_confirm the coordinator records its execution as a follow-up with record-state.sh --work \"Feature 3\" --kind follow-up --who acme/widgets#<n> --next \"/shirabe:execute docs/plans/PLAN-<topic>.md\", which the record step waits for, and it does not open a roadmap pull request setting Feature 3 to Done. Later, pick lists Feature 3 with its follow-up and the coordinator dispatches the execution when it chooses; the roadmap reads Done only after that lands.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The choice at pick is scope for Feature 3, not /shirabe:deliver and not scope_ahead",
+        "The brief runs /shirabe:scope with --intent=continue at phase scoping, so nothing is executed in this unit",
+        "At the merge the execution is recorded as a follow-up Work row (record-state.sh --work \"Feature 3\" --kind follow-up) naming the merged pull request and the /shirabe:execute run",
+        "No roadmap pull request sets Feature 3 to Done after the scoping merges",
+        "The execution is dispatched later from the follow-up, as its own unit"
+      ],
+      "requirements": [
+        "R23"
       ]
     }
   ]

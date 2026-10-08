@@ -12,9 +12,15 @@
 # promoted result, and only when koto's own record of the leg holds a
 # promoted result whose text is exactly worker_report.
 #
+# A progress report (report_source `progress`, a checkpoint message from the
+# hub's `progress` event) is admitted for any worker with a holding, on
+# either return path: it is never a result, so it can't stand in for a
+# leg-bound worker's, and report_facts sends it back to the hub without a
+# classification (shirabe#491).
+#
 # Inputs, from the session's context: report_topic (whose report it is) and
-# report_source (`leg` or `message`), both written by the transitions into
-# take_report, never by the report.
+# report_source (`leg`, `message` or `progress`), both written by the
+# transitions into take_report, never by the report.
 #
 # Usage:
 #   report-source.sh --session <koto-session>
@@ -22,7 +28,7 @@
 # Exit codes (overridable: false on the gate):
 #   0  the report may stand for its worker
 #   1  refused message: a message for a leg-bound worker, or no holding for
-#      the topic
+#      the topic (a progress report with no holding too)
 #   2  a read failed, the record refused the read, or an input is malformed
 #   3  refused leg report: no holding for the topic, a leg other than the
 #      one the record names, or a report that isn't the promoted result koto
@@ -53,8 +59,8 @@ SOURCE=$("$KOTO" context get "$SESSION" report_source) || { printf '%s: cannot r
 dc_valid_topic "$TOPIC" || { printf '%s: report_topic is not a valid topic\n' "$PROG" >&2; exit 2; }
 
 case "$SOURCE" in
-    leg | message) ;;
-    *) printf '%s: report_source is [%s], not leg or message\n' "$PROG" "$SOURCE" >&2; exit 2 ;;
+    leg | message | progress) ;;
+    *) printf '%s: report_source is [%s], not leg, message or progress\n' "$PROG" "$SOURCE" >&2; exit 2 ;;
 esac
 # A refused message goes back to the hub (1): a leg-bound worker's real result
 # is still coming on its leg. A refused leg report goes to the human (3): the
@@ -69,6 +75,9 @@ case "$?" in
     *) printf '%s: the record could not be read for %s\n' "$PROG" "$TOPIC" >&2; exit 2 ;;
 esac
 RP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')")
+
+# Progress is never a result: any holding's worker may send it.
+[ "$SOURCE" = progress ] && exit 0
 
 if [ "$SOURCE" = message ]; then
     [ "$RP" = message ] && exit 0

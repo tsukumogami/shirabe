@@ -788,14 +788,14 @@ states:
     accepts:
       outcome:
         type: enum
-        # `rejected` is absent here on purpose: /brief has no Phase-N reject, and
-        # a reject sets a re-evaluation exit whose `boundary` enum has no legal
-        # value for this hop.
-        values: [landed, skipped, bail]
+        # /brief's Phase 5 Reject discards the draft BRIEF in its own discard
+        # commit, which routes to the re-evaluation exit at the `brief` boundary,
+        # as /prd's and /design's rejects do at theirs.
+        values: [landed, skipped, rejected, bail]
         required: true
       detail:
         type: string
-        description: The child's outcome, or the vocabulary reason for a skip.
+        description: The child's outcome, the skip reason, or the reject rationale.
     transitions:
       - target: hop_prd
         when:
@@ -804,6 +804,9 @@ states:
       - target: hop_prd
         when:
           outcome: skipped
+      - target: exit_re_evaluation
+        when:
+          outcome: rejected
       - target: bail
         when:
           outcome: bail
@@ -891,6 +894,23 @@ states:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/check-plan-mode.sh" --plan "docs/plans/PLAN-{{TOPIC}}.md" --intent "{{RUN_INTENT}}" --coordination "{{COORDINATION}}"'
         overridable: false
+      # Filing GitHub issues and a milestone needs an approval on every path.
+      # koto cannot see /plan file them, so the landed edge checks what it left:
+      # plan_filing reads the PLAN's tracking level and, under --auto, the
+      # repository's `## Tracking Level:` header (exit 0 files nothing, 3 files
+      # with filing permitted, 1 files under --auto with no header declaring a
+      # filing level, 2 cannot tell and matches no arm). filing_approval is the
+      # approval the hop recorded before /plan filed: the author's, or under
+      # --auto the CLAUDE.md level that stands in for it. Neither is overridable.
+      plan_filing:
+        type: command
+        command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/check-plan-filing.sh" --plan "docs/plans/PLAN-{{TOPIC}}.md" --exec-mode "{{EXEC_MODE}}"'
+        overridable: false
+      filing_approval:
+        type: context-matches
+        key: plan_filing_approval
+        pattern: '^approved: (author|tracking-level (issues|issues-and-milestone))$'
+        overridable: false
     accepts:
       outcome:
         type: enum
@@ -905,6 +925,31 @@ states:
           outcome: landed
           gates.plan_complete.exit_code: 0
           gates.plan_mode_consistent.exit_code: 0
+          gates.plan_filing.exit_code: 0
+      - target: fold
+        when:
+          outcome: landed
+          gates.plan_complete.exit_code: 0
+          gates.plan_mode_consistent.exit_code: 0
+          gates.plan_filing.exit_code: 3
+          gates.filing_approval.matches: true
+      - target: bail
+        when:
+          outcome: landed
+          gates.plan_complete.exit_code: 0
+          gates.plan_mode_consistent.exit_code: 0
+          gates.plan_filing.exit_code: 3
+          gates.filing_approval.matches: false
+        context_assignments:
+          failure_reason: "hop_plan: the PLAN files GitHub issues but no filing approval was recorded under plan_filing_approval"
+      - target: bail
+        when:
+          outcome: landed
+          gates.plan_complete.exit_code: 0
+          gates.plan_mode_consistent.exit_code: 0
+          gates.plan_filing.exit_code: 1
+        context_assignments:
+          failure_reason: "hop_plan: the PLAN files GitHub issues under --auto, but CLAUDE.md declares no filing tracking level (plan_filing exit 1)"
       - target: bail
         when:
           outcome: landed
@@ -1203,7 +1248,7 @@ states:
     accepts:
       boundary:
         type: enum
-        values: [prd, design]
+        values: [brief, prd, design]
         required: true
       decision_record_sub_shape:
         type: enum
@@ -1253,10 +1298,12 @@ states:
       # appends to its Status section, not by mere existence at a canonical
       # path: an artifact that was produced normally sits at the same path and
       # means something else. Both DESIGN locations are listed for the same
-      # reason the design hop's gate reads the pair.
+      # reason the design hop's gate reads the pair. The PLAN's path is not
+      # listed: an abandoned run writes no PLAN, and when /plan triggered the
+      # marker goes on the nearest upstream document instead.
       forced_artifact_present:
         type: command
-        command: 'grep -lF -- "scope-status-block: abandonment-forced" "docs/briefs/BRIEF-{{TOPIC}}.md" "docs/prds/PRD-{{TOPIC}}.md" "docs/designs/DESIGN-{{TOPIC}}.md" "docs/designs/current/DESIGN-{{TOPIC}}.md" "docs/plans/PLAN-{{TOPIC}}.md" 2>/dev/null | grep -q .'
+        command: 'grep -lF -- "scope-status-block: abandonment-forced" "docs/briefs/BRIEF-{{TOPIC}}.md" "docs/prds/PRD-{{TOPIC}}.md" "docs/designs/DESIGN-{{TOPIC}}.md" "docs/designs/current/DESIGN-{{TOPIC}}.md" 2>/dev/null | grep -q .'
       intent_declared:
         type: command
         command: 'test "{{RUN_INTENT}}" != none'
@@ -1268,7 +1315,7 @@ states:
       exit_artifacts:
         type: string
         required: true
-        description: The force-materialized artifact's path and status, as the state file records them.
+        description: The force-materialized artifact (or, when /plan triggered, the upstream documents) with path and status, as the state file records them.
       retry_or_cancel:
         type: enum
         values: [retry, cancel]
@@ -2178,16 +2225,11 @@ Procedure: `skills/scope/references/phases/phase-0-setup.md`. The fields the
 state file carries: `skills/scope/references/state-schema.md`. Read them now;
 the rest of this run assumes setup happened as they describe.
 
-**The argument checks ran before this state.** koto refused, at `koto init`,
-every value its variables do not admit -- the topic slug, `--intent`,
-`--max-rounds`, the `--upstream` shape, and any repeated or conflicting flag --
-and `intake` ran the `--upstream` checks that need the working tree and the
-recorded-intent check. Do not re-validate them here. This run's settings are
-the session's variables: execution mode `{{EXEC_MODE}}`, coordination flag
-`{{COORDINATION}}`, re-evaluation cap `{{MAX_ROUNDS}}` (empty means the
-default of 5), and upstream `{{UPSTREAM}}` (empty means none was given; the
-visibility check in the Phase 0 reference still decides whether it is
-recorded).
+This run's settings are the session's variables: execution mode
+`{{EXEC_MODE}}`, coordination flag `{{COORDINATION}}`, re-evaluation cap
+`{{MAX_ROUNDS}}` (empty means the default of 5), and upstream `{{UPSTREAM}}`
+(empty means none was given; the visibility check in the Phase 0 reference
+still decides whether it is recorded).
 
 **Record the effective intent.** Write `intent: {{RUN_INTENT}}` into the state
 file, on the initial write and on every later write that rewrites the file.
@@ -2195,22 +2237,8 @@ The value is `continue`, `stop`, or `none`, always present, never empty:
 `intake` resolved it from the invocation's `--intent`, else the intent the
 state file already recorded, else `none`.
 
-**The branch check ran before this state.** `branch_check` reads HEAD and gates
-on a named non-default branch, so a run that reaches `setup` is already on a
-branch it can commit to, and the name is available as `{{BRANCH}}`. The check
-used to live here as an instruction with nothing enforcing it, which meant a
-run that started on the default branch did `/brief`'s whole hop and then could
-not keep it -- the first commit happens after a document exists.
-
 `blocked` here covers neither the branch nor the arguments. It covers a state
 file that cannot be written. Anything else, fix and submit `ready`.
-
-Ignore koto's discovery warnings about sessions other than this run's —
-`migration skipped`, and `state file corrupted`, which reads as an invitation
-to tidy up. Never run a cleanup or cancel verb against a session this run did
-not open. The rule and its reasoning are in `skills/scope/SKILL.md` under
-Running the Workflow, and in `phase-0-setup.md`; both are durable, which this
-block is not.
 
 Evidence schema:
 - `setup_result`: `ready` or `blocked`
@@ -2269,13 +2297,6 @@ path with `git add --` and naming the hop.
 
 <!-- details -->
 
-The ordering above is in the directive, and repeated at every hop, because you
-need it when the child returns — a whole inline child invocation after you
-arrived here, far enough that this block is no longer in easy reach. Its
-preconditions and branch checks are in the Per-Hop Commit section of
-`skills/scope/references/phases/phase-2-chain-orchestration.md`; that section
-is deliberately not one of the eight steps below.
-
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order:
 the worktree-staleness check, the `parent_orchestration:` sentinel write, the
@@ -2297,9 +2318,14 @@ produces a commit claiming the hop landed. Commit the artifact to the run's
 branch after the gate passes, staging the one canonical path with `git add --`
 and naming the hop in the message.
 
+`/brief` has a Phase-N reject: its Phase 5 Reject discards the draft BRIEF in a
+discard commit. A reject is not a bail: submit `outcome: rejected` and the run
+routes to the re-evaluation exit, where the boundary is `brief`.
+
 Submit `outcome: landed` when the child produced the artifact, `outcome:
-skipped` with the vocabulary reason in `detail` when the hop is held back, or
-`outcome: bail` when the run stops here.
+skipped` with the vocabulary reason in `detail` when the hop is held back,
+`rejected` on a Phase-N reject with the rationale in `detail`, or `outcome:
+bail` when the run stops here.
 
 If you submit `landed` and nothing advances, the gate did not pass: read the
 blocking conditions on the response. Exit code 1 means neither the artifact nor
@@ -2308,8 +2334,9 @@ a missing validator, or a validation that reached no verdict -- and the fix is
 to the environment, not to the evidence.
 
 Evidence schema:
-- `outcome`: `landed`, `skipped`, or `bail`
-- `detail`: the child's outcome, the skip reason, or the bail reason
+- `outcome`: `landed`, `skipped`, `rejected`, or `bail`
+- `detail`: the child's outcome, the skip reason, the reject rationale, or the
+  bail reason
 
 ## hop_prd
 
@@ -2377,10 +2404,36 @@ Run the PLAN hop: decompose the settled approach into implementable units, in
 the order the work happens and with each unit's dependencies stated.
 
 **Child returns, then gate, then commit.** A failed gate never produces a
-commit claiming the hop landed. Stage the one canonical path with `git add --`
-and name the hop.
+commit claiming the hop landed. Stage the PLAN's canonical path and the DESIGN
+`/plan` moved to `Planned` (when one is on disk, at whichever of its two paths
+it sits) with `git add --`, and name the hop.
 
 <!-- details -->
+
+**Filing needs a recorded approval.** When `/plan` reaches its filing step (its
+tracking level is `issues` or `issues-and-milestone`), the approval is recorded
+at that moment, after the question and before the first `gh issue create`, as
+one line under the `plan_filing_approval` key. Never record it earlier: a line
+written before anyone was asked is an approval nobody gave.
+
+- **Interactive:** when `/plan` asks its filing question and the author answers
+  "file them", run, before letting `/plan` file:
+
+  ```bash
+  printf 'approved: author\n' | koto context add scope-{{TOPIC}} plan_filing_approval
+  ```
+
+  On "don't file", record nothing; `/plan` writes outlines instead.
+- **`--auto`:** nobody can be asked. File only when the repository's CLAUDE.md
+  declares `## Tracking Level: issues` or `issues-and-milestone` at or above the
+  level the PLAN files at (an `issues` header does not cover a milestone), and
+  record `approved: tracking-level <that header level>` before filing. With no
+  such header, `/plan` files nothing and writes outlines.
+
+The `plan_filing` and `filing_approval` gates on the landed edge check this after
+the call returns. They detect, they do not prevent: by the time a PLAN that
+filed without an approval routes to `bail`, its issues exist, so the rule above
+is the one to follow.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.
@@ -2627,11 +2680,13 @@ Record's sub-shape, and the artifacts the run leaves behind.
 Write the Decision Record at its canonical path before submitting:
 
 ```
-docs/decisions/DECISION-{prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md
+docs/decisions/DECISION-{brief|prd|design}-<topic>-{re-evaluation|rejection}-<YYYY-MM-DD>.md
 ```
 
-The four boundary and sub-shape combinations bind to the four templates in
-`skills/scope/references/decision-record-{prd|design}-{re-evaluation|rejection}.md`.
+The boundary and sub-shape combinations bind to the templates in
+`skills/scope/references/decision-record-{brief|prd|design}-{re-evaluation|rejection}.md`;
+the `brief` boundary has only the rejection sub-shape, since nothing above a
+BRIEF can be re-evaluated.
 Commit it with `git commit -F`: author-supplied prose, including a rejection
 rationale, goes through stdin or a tempfile and is never interpolated into a
 `-m` message.
@@ -2645,7 +2700,7 @@ here with the gate reported. `retry_or_abandon: abandon` leaves for the
 abandonment exit, so an agent that cannot produce the record is not stuck here.
 
 Evidence schema:
-- `boundary`: `prd` or `design`
+- `boundary`: `brief`, `prd` or `design`
 - `decision_record_sub_shape`: `re-evaluation` or `rejection`
 - `exit_artifacts`: the Decision Record's path and status
 - `retry_or_abandon`: `retry` or `abandon`
@@ -2660,7 +2715,17 @@ tick that reaches the terminal.
 
 Force-materialize the most-recently-running child's intermediate as a Draft
 artifact at its canonical durable path, and append the marker to the END of that
-artifact's existing Status section, on one line, with the field order shown:
+artifact's existing Status section, on one line, with the field order shown.
+**Never write a PLAN here.** When the triggering child is `/plan`, materialize
+nothing: delete any `docs/plans/PLAN-{{TOPIC}}.md` `/plan` left behind (it is
+uncommitted; the plan hop commits only after its gate), put the marker on the
+nearest upstream document still on disk (the DESIGN, else the PRD, else the
+BRIEF), and list the upstream documents in `exit_artifacts`. When no child is in
+flight (the run stopped between hops on an escalated upstream change), likewise
+materialize nothing and re-draft nothing: put the marker on the last document the
+chain produced, at its current status, and submit as `triggering_child` the child
+the escalation stopped before invoking (the worktree check runs just before that
+child, and the enum has no "none").
 
 ```
 <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> -->
@@ -2669,21 +2734,22 @@ artifact's existing Status section, on one line, with the field order shown:
 `triggering_child` is resolved by the R8 tie-break in
 `skills/scope/references/phases/phase-3-exit-finalization.md`: the child whose
 Phase 2 invocation began most recently, ties broken by position in the planned
-chain, later winning. The tie-break is mechanical and prompts nobody.
+chain, later winning, except on a stop between hops, where it is the child the
+stop came just before (as above). The tie-break is mechanical and prompts nobody.
 
 **On a coordinated run, close the coordination PR without merging** — `gh pr
 close`, the same `gh` surface that authored and posted its body. Abandonment
 never merges that PR and never leaves it open: an open coordination PR is
 merge-eligible, and merging it would land a plan the run just abandoned. The
-closed PR's durable body and the force-materialized Draft together record the
+closed PR's durable body and the marked document together record the
 partial state for a reviewer to audit. Skip this on a single-repo run, where
 there is no coordination PR to close. Skip it too on an intent run -- this run's
 intent is `{{RUN_INTENT}}`, and anything but `none` is one: an intent run never
 creates a coordination PR up front, so none exists before exit, and there is
 nothing to close.
 
-The `forced_artifact_present` gate looks for that marker in the five canonical
-artifact paths, both DESIGN locations included. It is the marker rather than the
+The `forced_artifact_present` gate looks for that marker in the four upstream
+artifact paths, both DESIGN locations included, and never in the PLAN's. It is the marker rather than the
 file that identifies a force-materialized artifact: a normally produced artifact
 sits at the same path and means something else.
 
@@ -2960,9 +3026,9 @@ The chain ended at a settled-upstream boundary. The Decision Record at
 
 ## done_abandonment
 
-The chain could not complete its terminal artifact. A child's intermediate was
-force-materialized as a Draft artifact carrying the abandonment marker in its
-Status section.
+The chain could not complete its terminal artifact. The abandonment marker sits
+in the Status section of a force-materialized Draft BRIEF, PRD or DESIGN, or,
+when `/plan` was running, of the nearest upstream document. No PLAN was written.
 
 ## done_cancelled
 

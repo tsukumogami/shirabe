@@ -60,12 +60,16 @@ stateDiagram-v2
     full_run_blocked --> exit_abandonment : next_move: abandon
     hop_brief --> hop_prd : gates.brief_complete.exit_code: 0, outcome: landed
     hop_brief --> hop_prd : outcome: skipped
+    hop_brief --> exit_re_evaluation : outcome: rejected
     hop_brief --> bail : outcome: bail
     hop_design --> fold : gates.design_complete.exit_code: 0, outcome: landed
     hop_design --> hop_plan : outcome: skipped
     hop_design --> exit_re_evaluation : outcome: rejected
     hop_design --> bail : outcome: bail
-    hop_plan --> fold : gates.plan_complete.exit_code: 0, gates.plan_mode_consistent.exit_code: 0, outcome: landed
+    hop_plan --> fold : gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 0, gates.plan_mode_consistent.exit_code: 0, outcome: landed
+    hop_plan --> fold : gates.filing_approval.matches: true, gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 3, gates.plan_mode_consistent.exit_code: 0, outcome: landed
+    hop_plan --> bail : gates.filing_approval.matches: false, gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 3, gates.plan_mode_consistent.exit_code: 0, outcome: landed
+    hop_plan --> bail : gates.plan_complete.exit_code: 0, gates.plan_filing.exit_code: 1, gates.plan_mode_consistent.exit_code: 0, outcome: landed
     hop_plan --> bail : gates.plan_complete.exit_code: 0, gates.plan_mode_consistent.exit_code: 1, outcome: landed
     hop_plan --> finalize : outcome: skipped
     hop_plan --> bail : outcome: bail
@@ -224,7 +228,13 @@ stateDiagram-v2
         gate: design_complete
     end note
     note left of hop_plan
+        gate: filing_approval
+    end note
+    note left of hop_plan
         gate: plan_complete
+    end note
+    note left of hop_plan
+        gate: plan_filing
     end note
     note left of hop_plan
         gate: plan_mode_consistent

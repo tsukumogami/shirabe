@@ -162,6 +162,20 @@ eq "second run: no pr edit (intent unchanged)" "0" "$(calls edit)"
 eq "second run: no new push" "$BEFORE" "$(remote_sha docs/topic)"
 eq "second run: the same PR" "https://github.com/acme/widgets/pull/100" "$(line pr)"
 
+echo "== /brief's jury verdict files are untracked too =="
+setup single-pr
+VERDICT="research/brief_topic_phase4_content-quality.md"
+printf 'verdict\n' >"$R/wip/$VERDICT"
+git -C "$R" add -- "wip/$VERDICT" && git -C "$R" commit -q -m "wip: verdict"
+run --topic topic --exit full-run --intent continue --session s-verdict
+eq "verdict: exit 0" "0" "$RC"
+eq "verdict: the verdict file is untracked" "" "$(git -C "$R" ls-files -- "wip/$VERDICT")"
+case "$(git -C "$R" show --format= --name-status HEAD)" in
+    *"D	wip/$VERDICT"*) ok "verdict: the untrack commit removes it" ;;
+    *) bad "verdict: the untrack commit removes it" "$(git -C "$R" show --format= --name-status HEAD)" ;;
+esac
+if [ -f "$R/wip/$VERDICT" ]; then ok "verdict: the file stays on disk"; else bad "verdict: the file stays on disk"; fi
+
 echo "== one owned PR already open =="
 setup single-pr
 seed_pr "https://github.com/acme/widgets/pull/7" false me main continue
@@ -322,6 +336,16 @@ for x in re-evaluation abandonment-forced; do
     setup multi-pr
     run --topic topic --exit "$x" --intent continue
     if grep '^pr create' "$GHF/calls" | grep -q -- '--draft'; then ok "$x: a draft, whatever the mode"; else bad "$x: a draft, whatever the mode" "$(cat "$GHF/calls")"; fi
+    if [ "$x" = abandonment-forced ]; then
+        # An abandoned run writes no PLAN, so a PLAN on disk is never part of
+        # the body's artifact chain or work items.
+        BODY=$(jq -r '.[0].body // ""' "$GHF/prs.json")
+        case "$BODY" in
+            *"docs/plans/PLAN-topic.md"*|*"## Work Items"*) bad "abandonment: the body names no PLAN and no work items" "$BODY" ;;
+            *"## Artifact Chain"*) ok "abandonment: the body names no PLAN and no work items" ;;
+            *) bad "abandonment: the body names no PLAN and no work items" "no body rendered: $BODY" ;;
+        esac
+    fi
 done
 setup coordinated
 run --topic topic --exit full-run --intent continue

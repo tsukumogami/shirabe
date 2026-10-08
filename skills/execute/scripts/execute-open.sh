@@ -12,7 +12,8 @@
 #             [--koto-leg <request-id>:execute]
 #
 # The template follows the PLAN's `execution_mode:` frontmatter:
-# `coordinated` enters execute-coordinated.md, anything else execute.md. Both
+# `coordinated` enters execute-coordinated.md, `multi-pr` is refused (it runs
+# through /work-on), anything else enters execute.md. Both
 # share the session name, so a live session from the other template is koto's
 # template_mismatch refusal, and a finished one is replaced.
 #
@@ -23,7 +24,8 @@
 # store is template_mismatch or origin_mismatch. Under --koto-leg every one of
 # those refusals is recorded on the leg by koto itself. This script's own
 # refusals are only the ones where no koto call can be built at all: a
-# malformed --koto-leg value, or a tokens file it cannot read. koto-open.sh
+# malformed --koto-leg value, a tokens file it cannot read, or a multi-pr PLAN,
+# which /work-on runs rather than /execute (`error=multi-pr`). koto-open.sh
 # adds the other two: an args file inside the work tree, and no koto binary.
 #
 # Usage: execute-open.sh <tokens-file>
@@ -49,6 +51,18 @@
 #                          CLAUDE.md, else interactive (true). A resume of a
 #                          session retained at paused_for_review passes false:
 #                          re-invoking a paused run is the finalize invocation.
+#   REVIEW_FLOOR           `--review-floor=<level>` -> <level>, one pair per
+#                          occurrence (a bare --review-floor is the literal
+#                          token, which the pattern refuses); none -> no pair.
+#   REVIEW_CEILING         `--review-ceiling=<level>`, the same way.
+#
+# The two review-level bound variables are passed only when their flag is, so a
+# run without the flags initialises exactly the variables it did before they
+# existed. Both are rebind in the templates, like MERGE: an attach that doesn't
+# pass one resets it to empty, so a resumed run bounds the children it spawns
+# from then on by this invocation's flags, never an earlier one's. koto refuses
+# a value outside light, standard and full (invalid_var) and a repeat
+# (duplicate_var).
 #
 # `--koto-leg=<request-id>:<leg>` (or `--koto-leg <request-id>:<leg>`) is passed
 # through once. The leg must be `execute`, the one leg /execute answers; the
@@ -64,10 +78,12 @@
 # Output: koto-open.sh's lines (opened=..., refused=..., failed=...), then
 # `session=execute-<slug>` when a session was opened, or, on a refusal, the exit
 # lines print-exit.sh --refused prints (outcome=error, step=execute:refused).
+# This script's own refusals print `error=usage`, or `error=multi-pr` for a
+# multi-pr PLAN, with the reason on stderr and no koto call.
 # koto's refusal wording goes to stderr, from execute-open-wording.tsv.
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
-# own code otherwise), or 64 for this script's own usage refusals.
+# own code otherwise), or 64 for this script's own refusals (usage, multi-pr).
 #
 # Requires: bash 3.2+, jq, koto.
 set -uo pipefail
@@ -131,7 +147,8 @@ SLUG=$(basename -- "$PLAN" .md)
 SLUG=${SLUG#PLAN-}
 
 # The template, from the PLAN's execution_mode, re-validated against the enum:
-# exactly `coordinated` selects execute-coordinated.md; anything else, a PLAN
+# exactly `coordinated` selects execute-coordinated.md, `multi-pr` is refused
+# here, before any koto call; anything else, a PLAN
 # that doesn't exist included, stays on execute.md, as before. Both templates
 # share the execute-<slug> session name, so koto's --attach-live refuses a live
 # session built from the other one (template_mismatch) and --replace-terminal
@@ -150,6 +167,13 @@ if [ -n "$PLAN" ] && [ -f "$PLAN" ]; then
 fi
 case "$MODE" in
     coordinated) TEMPLATE="$SKILL_DIR/koto-templates/execute-coordinated.md" ;;
+    multi-pr)
+        # A multi-pr PLAN lands one pull request per issue, through /work-on.
+        # Refused before any koto call, so nothing is recorded on a --koto-leg.
+        printf 'error=multi-pr\n'
+        echo "$PROG: $PLAN is a multi-pr PLAN; /execute doesn't run it. Run it with /work-on $PLAN, one issue at a time." >&2
+        exit 64
+        ;;
 esac
 
 # A slug outside the pattern is koto's to refuse (invalid_var on PLAN_SLUG), and
@@ -197,7 +221,12 @@ printf '%s' "$TOKENS" | jq -c \
     --arg plan "$PLAN" --arg slug "$SLUG" --arg root "$ROOT" \
     --arg header "$HEADER_MODE" --argjson resuming "$RESUMING_PAUSE" '
     def pause_of($m): if $resuming == 1 then "false" elif $m == "auto" then "false" else "true" end;
-    [ .[] | select(. == "--merge" or startswith("--merge=")) ] as $merges
+    def bound($flag; $var):
+        [ .[] | select(. == $flag or startswith($flag + "="))
+          | [$var, (if . == $flag then . else ltrimstr($flag + "=") end)] ];
+    bound("--review-floor"; "REVIEW_FLOOR") as $floors
+    | bound("--review-ceiling"; "REVIEW_CEILING") as $ceilings
+    | [ .[] | select(. == "--merge" or startswith("--merge=")) ] as $merges
     | [ .[] | select(. == "--auto" or . == "--interactive") ] as $modes
     | (if $plan == "" then [] else [["PLAN_DOC", $plan], ["PLAN_SLUG", $slug]] end)
       + [["PLUGIN_ROOT", $root]]
@@ -205,6 +234,7 @@ printf '%s' "$TOKENS" | jq -c \
          else [ $merges[] | ["MERGE", (if . == "--merge" then "true" else ltrimstr("--merge=") end)] ] end)
       + (if ($modes | length) == 0 then [["PAUSE_BEFORE_FINALIZE", pause_of($header)]]
          else [ $modes[] | ["PAUSE_BEFORE_FINALIZE", pause_of(ltrimstr("--"))] ] end)
+      + $floors + $ceilings
     ' > "$PAIRS_FILE" || own_refusal "could not write the variables file"
 
 set -- "$SESSION" "$TEMPLATE" "$PAIRS_FILE" --attach-live --replace-terminal --wording "$WORDING"

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# drift-facts.sh -- for /execute: compute upstream drift facts before the rebase.
+# drift-facts.sh -- for /execute: compute upstream drift facts before the merge.
 #
 # `/execute` asks one judgment question before it dispatches children: did
 # `origin/main` move in a way that changes what the PLAN means? Most runs don't
@@ -38,7 +38,7 @@
 #
 #   1. Checks its arguments (67), removes any earlier drift_facts.json and
 #      plan_intent.md (66), and finds the PLAN inside the repository (65).
-#   2. Fetches `origin` and resolves `origin/main` (64). The rebase in
+#   2. Fetches `origin` and resolves `origin/main` (64). The merge in
 #      `worktree_sync` doesn't fetch; it uses what this step fetched.
 #   3. Resolves the base: `merge-base(<last commit touching the PLAN>,
 #      origin/main)`, or `merge-base(HEAD, origin/main)` for a PLAN git doesn't
@@ -69,17 +69,16 @@
 # statuses, and line counts only. Whatever reads them never sees prose a third
 # party wrote on main.
 #
-# ## Why this runs before the rebase
+# ## Why this runs before the merge
 #
-# For a PLAN that exists only on the branch, the fork point is the base, and a
-# rebase moves the fork point to the tip of `origin/main`. Computed after the
-# rebase, every run would look like "main hasn't advanced".
-#
-# That has one consequence worth knowing: a `koto rewind` into `drift_facts`
-# after `worktree_sync` has run computes against the already rebased branch.
-# The base comes out as `origin/main` itself, and the facts read as "main has
-# not advanced" even when it had. To re-judge real drift after a rebase,
-# compare against the pre-rebase commit by hand (`git reflog` has it).
+# The facts describe what main changed before it lands on the branch, and
+# `worktree_sync` merges exactly the `origin/main` fetched here. The branch
+# catches up by merging, never by rebasing, so its own commits keep their
+# identity: for a PLAN with a commit on the branch the base is the same after
+# the merge. For a PLAN git doesn't track yet the base is merge-base(HEAD,
+# origin/main), which the merge moves to origin/main, so a `koto rewind` into
+# `drift_facts` after `worktree_sync` reads as "main has not advanced"; compare
+# against the commit before the merge by hand to re-judge (`git reflog` has it).
 #
 # Bash 3.2: no associative arrays, no mapfile. Lists live in temp files.
 set -uo pipefail

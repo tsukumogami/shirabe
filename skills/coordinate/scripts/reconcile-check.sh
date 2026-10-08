@@ -38,7 +38,11 @@
 # RECONCILE_BOARD_DEADLINE for the board check (default 26, since the board
 # check bounds itself at 24 s); each is clamped to 1-60. A deadline decides
 # when a read gives up, never what it concludes: a read that gives up is not
-# verified.
+# verified. RECONCILE_INV_PARALLEL sets how many clones an inventory reads at
+# once (1-8, default 8; anything else is 8); it changes how long the read
+# takes, never what it lists. RECONCILE_TIP_LOOKUP=0 is for tests only: the
+# inventory walks every tip instead of settling the ones at the remote's live
+# ids by lookup, so a test can show the lookup changes nothing it lists.
 #
 # Requires: bash 3.2+, jq, gh, git, niwa (host, teardown), koto (leg).
 set -uo pipefail
@@ -63,6 +67,9 @@ INV_ITEM_CAP=200
 # GitHub containment reads for tips a clone can't settle locally, per run.
 INV_COMPARE_CAP=40
 INV_FIND_DEPTH=16
+# Clones an inventory reads at once (RECONCILE_INV_PARALLEL, 1-8).
+INV_PARALLEL=8
+case "${RECONCILE_INV_PARALLEL:-}" in [1-8]) INV_PARALLEL=$RECONCILE_INV_PARALLEL ;; esac
 
 usage() {
     awk '/^# Usage:/{on=1} on&&/^# Exit codes/{exit} on' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -163,7 +170,9 @@ blob_at() {
 # origin), LIVE (its ls-remote read), DEFAULT (its default branch name),
 # DEFAULT_SHA, TREE (the default branch's path -> blob map, a file) and
 # EXCLUDE (^sha per live sha the clone has, a file). A linked worktree reuses
-# the ones read for its repository.
+# the ones read for its repository from the run-wide files
+# $SHARED.live.<k>, $SHARED.tree.<k> and $SHARED.exclude.<k>, where k is the
+# repository's index in SEEN_COMMON (see inv_first_common).
 
 # ig CLONE ARGS... -- one git read in CLONE, under the deadline.
 ig() {
@@ -192,6 +201,34 @@ inv_queue() {
     case "$r/" in "$IROOT"/*) ;; *) return 1 ;; esac
     for q in ${QUEUE[@]+"${QUEUE[@]}"}; do [ "$q" = "$r" ] && return 0; done
     QUEUE+=("$r")
+    # Inside a clone's background read, a clone it finds is also written out
+    # for the main loop, which owns the queue.
+    [ -z "${QUEUED_FILE:-}" ] || printf '%s\n' "$r" >> "$QUEUED_FILE"
+}
+
+# inv_rel DIR -- DIR relative to the instance, `.` for the instance itself.
+inv_rel() { local r=${1#"$IROOT"}; r=${r#/}; printf '%s' "${r:-.}"; }
+
+# inv_first_common DIR -- the git directory inv_clone will record DIR's
+# repository under when it reads DIR in full: the same reads and checks
+# inv_clone makes before it records one, and nothing when it would stop
+# first or when the repository's directory is already recorded (DIR is then
+# read as a linked worktree). The two must agree: the main loop appends what
+# this prints to SEEN_COMMON as it launches DIR's job, and that position is
+# the index k under which the job writes, and later worktrees read, the
+# $SHARED.*.<k> files. A change to inv_clone's checks before its
+# SEEN_COMMON append belongs here too.
+inv_first_common() {
+    local loc common top s
+    [ -L "$1/.git" ] && return 0
+    loc=$(ig "$1" rev-parse --path-format=absolute --git-common-dir --show-toplevel 2>/dev/null) || return 0
+    common=$(printf '%s\n' "$loc" | sed -n 1p); top=$(printf '%s\n' "$loc" | sed -n 2p)
+    common=$(cd -P "$common" 2>/dev/null && pwd -P) || return 0
+    top=$(cd -P "$top" 2>/dev/null && pwd -P) || return 0
+    case "$common/" in "$IROOT"/*) ;; *) return 0 ;; esac
+    [ "$top" = "$1" ] || return 0
+    for s in ${SEEN_COMMON[@]+"${SEEN_COMMON[@]}"}; do [ "$s" = "$common" ] && return 0; done
+    printf '%s' "$common"
 }
 
 # default_blob PATH -- the default branch's blob sha for PATH, or "absent".
@@ -317,15 +354,20 @@ inv_files() {
         if [ -L "$C/$path" ]; then
             # A tracked symlink's blob is its link text: compared like a file,
             # so an unchanged one isn't listed on every run.
-            if [ "$mode" = 120000 ]; then printf '%s\n' "$path" >> "$ITEMS.links"
+            if [ "$mode" = 120000 ]; then printf 'L\t%s\n' "$path"
             else inv_item "$REL" file "$path (symlink, not read)"; fi
             continue
         fi
-        if [ -f "$C/$path" ]; then printf '%s\n' "$path" >> "$ITEMS.present"; continue; fi
+        if [ -f "$C/$path" ]; then printf 'P\t%s\n' "$path"; continue; fi
         # Missing: a skip-worktree entry (sparse checkout) is meant to be
         # absent; anything else was deleted in the working tree.
-        [ "$tag" = S ] || printf '%s\n' "$path" >> "$ITEMS.deleted"
-    done < "$ITEMS.idx"
+        [ "$tag" = S ] || printf 'D\t%s\n' "$path"
+    done < "$ITEMS.idx" > "$ITEMS.cls"
+    # One output for the loop, split here: a redirect per path reopened a
+    # file for every tracked file, the walk's main cost in a large clone.
+    awk -v p="$ITEMS.present" -v d="$ITEMS.deleted" -v l="$ITEMS.links" '
+        { t = substr($0, 1, 1); r = substr($0, 3)
+          if (t == "P") print r > p; else if (t == "D") print r > d; else if (t == "L") print r > l }' "$ITEMS.cls"
     inv_hash "$C" "$ITEMS.present" "$ITEMS.wt" || { inv_item "$REL" unchecked "working-tree files could not be hashed"; return; }
     while IFS= read -r path; do
         [ -n "$path" ] || continue
@@ -396,7 +438,6 @@ inv_files() {
     done < "$ITEMS.cmp"
 }
 
-# inv_clone DIR -- inventory one clone.
 # inv_remote_has CLONE TIP NAME -- for a tip with commits outside the live
 # shas the clone has, ask GitHub whether the default branch, or the remote
 # branch of the same name, contains it, for each of those the clone hasn't
@@ -422,6 +463,20 @@ inv_remote_has() {
 # One rev-list per tip, no cap on refs.
 inv_tips() {
     local C=$1 REL=$2 tip bname n
+    # A tip whose object is one of the remote's live ids is on the remote by
+    # definition and needs no walk; most tags are, and a walk per tag was
+    # most of the read's time.
+    printf '%s\n' "$LIVE" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' > "$ITEMS.liveids"
+    # RECONCILE_TIP_LOOKUP=0 walks every tip, for the test that the lookup
+    # changes nothing the read lists.
+    if [ "${RECONCILE_TIP_LOOKUP:-1}" != 0 ]; then
+        # Only with ids to look up: awk's NR == FNR would read an empty
+        # first file as the tips themselves and drop them all.
+        if [ -s "$ITEMS.liveids" ]; then
+            awk -F'\t' 'NR == FNR { live[$1] = 1; next } !($1 in live)' "$ITEMS.liveids" "$ITEMS.tips" > "$ITEMS.tips.left" \
+                && mv "$ITEMS.tips.left" "$ITEMS.tips"
+        fi
+    fi
     while IFS=$'\t' read -r tip bname; do
         rd_valid_sha "$tip" || continue
         { printf '%s\n' "$tip"; cat "$EXCLUDE"; } > "$ITEMS.revs"
@@ -445,6 +500,8 @@ inv_detached() {
     return 0
 }
 
+# inv_clone DIR -- inventory one clone. Its checks before the SEEN_COMMON
+# append mirror inv_first_common's, which must stay in step with them.
 inv_clone() {
     local C=$1 REL URL loc common top n line w wr k
     REL=${C#"$IROOT"}; REL=${REL#/}; [ -n "$REL" ] || REL=.
@@ -463,10 +520,10 @@ inv_clone() {
     k=0
     while [ "$k" -lt "${#SEEN_COMMON[@]}" ]; do
         if [ "${SEEN_COMMON[$k]}" = "$common" ]; then
-            [ -s "$ITEMS.live.$k" ] || return 0
-            REPO=$(sed -n 1p "$ITEMS.live.$k"); DEFAULT=$(sed -n 2p "$ITEMS.live.$k")
-            DEFAULT_SHA=$(sed -n 3p "$ITEMS.live.$k"); LIVE=$(sed '1,3d' "$ITEMS.live.$k")
-            TREE="$ITEMS.tree.$k"; EXCLUDE="$ITEMS.exclude.$k"
+            [ -s "$SHARED.live.$k" ] || return 0
+            REPO=$(sed -n 1p "$SHARED.live.$k"); DEFAULT=$(sed -n 2p "$SHARED.live.$k")
+            DEFAULT_SHA=$(sed -n 3p "$SHARED.live.$k"); LIVE=$(sed '1,3d' "$SHARED.live.$k")
+            TREE="$SHARED.tree.$k"; EXCLUDE="$SHARED.exclude.$k"
             inv_detached "$C" > "$ITEMS.tips"
             inv_tips "$C" "$REL"
             inv_files "$C" "$REL"
@@ -490,7 +547,7 @@ inv_clone() {
     DEFAULT=$(printf '%s\n' "$LIVE" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     DEFAULT_SHA=$(printf '%s\n' "$LIVE" | awk -v r="refs/heads/$DEFAULT" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }')
     rd_valid_sha "$DEFAULT_SHA" || { inv_item "$REL" unchecked "the default branch could not be resolved"; return; }
-    TREE="$ITEMS.tree.$k"
+    TREE="$SHARED.tree.$k"
     rd_deadline "$DEADLINE" gh api "repos/$REPO/git/trees/$DEFAULT_SHA?recursive=1" \
         --jq '{truncated: .truncated, blobs: ([.tree[] | select(.type == "blob") | {key: .path, value: .sha}] | from_entries)} | tojson' \
         > "$TREE" 2>/dev/null && jq -e '.blobs | type == "object"' "$TREE" >/dev/null 2>&1 \
@@ -499,11 +556,11 @@ inv_clone() {
     # Commits: a tip (local branches, local tags, a detached HEAD) is pushed
     # when rev-list finds no commit of it outside the live shas this clone
     # has, or GitHub says a live branch the clone hasn't fetched contains it.
-    EXCLUDE="$ITEMS.exclude.$k"
+    EXCLUDE="$SHARED.exclude.$k"
     printf '%s\n' "$LIVE" | awk 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ { print $1 }' | sort -u > "$ITEMS.shas"
     ig_stdin "$C" "$ITEMS.shas" cat-file --batch-check='%(objectname) %(objecttype)' 2>/dev/null \
         | awk '$2 == "commit" { print "^" $1 }' > "$EXCLUDE"
-    printf '%s\n%s\n%s\n%s\n' "$REPO" "$DEFAULT" "$DEFAULT_SHA" "$LIVE" > "$ITEMS.live.$k"
+    printf '%s\n%s\n%s\n%s\n' "$REPO" "$DEFAULT" "$DEFAULT_SHA" "$LIVE" > "$SHARED.live.$k"
     {
         ig "$C" for-each-ref refs/heads refs/tags --format='%(objectname)%09%(refname)' 2>/dev/null \
             | awk -F'\t' '{ r = $2; sub(/^refs\/heads\//, "branch ", r); sub(/^refs\/tags\//, "tag ", r); print $1 "\t" r }'
@@ -542,6 +599,12 @@ board_fact() {
         elif .verdict == "verified" then {kind: "board", status: "ok", at: $sha, verdict: "holds", detail: "", read_at: $t}
         elif .verdict == "pending" then {kind: "board", status: "ok", at: $sha, verdict: "pending", detail: first_reason, read_at: $t}
         elif .verdict == "unverified" then {kind: "board", status: "ok", at: $sha, verdict: "fails", detail: first_reason, read_at: $t}
+        # A job GitHub never started is no verdict on the code (shirabe#564).
+        elif .verdict == "not-run" then
+          {kind: "board", status: "ok", at: $sha, verdict: "not-run",
+           detail: ([(.reasons // [])[] | select(.code == "job-not-run")
+                     | (.name // "") + (if (.detail // "") != "" then " (" + .detail + ")" else "" end)][0] // ""),
+           read_at: $t}
         else {kind: "board", status: "not_verified", at: $sha, reason: ("board " + .verdict), read_at: $t} end'
 }
 
@@ -631,16 +694,25 @@ close)
     ;;
 
 deferral)
+    # Every way this read can fail prints a fact that says which input it
+    # couldn't take: a deferral is reported verified with its disposition,
+    # or not verified with the reason, never as a re-check that printed
+    # nothing (shirabe#552).
     need_repo
-    [ -f "$ROWFILE" ] || usage
+    [ -n "$ROWFILE" ] || refuse deferral "no row file was given for the deferral"
+    [ -r "$ROWFILE" ] || refuse deferral "the deferral's row file can't be read"
     # koto's created_at carries milliseconds; both forms are a time.
     RE_START='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$'
-    [[ $RUNSTART =~ $RE_START ]] || usage
+    [[ $RUNSTART =~ $RE_START ]] || refuse deferral "the run start is not a time this check reads (YYYY-MM-DDTHH:MM:SS[.fff]Z)"
     CHAIN=()
-    if [ -n "$CHAINSTART" ]; then [[ $CHAINSTART =~ $RE_START ]] || usage; CHAIN=(--chain-start "$CHAINSTART"); fi
+    if [ -n "$CHAINSTART" ]; then
+        [[ $CHAINSTART =~ $RE_START ]] || refuse deferral "the chain start is not a time this check reads (YYYY-MM-DDTHH:MM:SS[.fff]Z)"
+        CHAIN=(--chain-start "$CHAINSTART")
+    fi
     RAW=$(rd_deadline "$DEADLINE" "$RD_DEFERRAL_CHECK" --row-file "$ROWFILE" --run-start "$RUNSTART" ${CHAIN[@]+"${CHAIN[@]}"} 2>/dev/null)
     rc=$?
     [ "$rc" -eq 124 ] && refuse deferral "disposal check timed out after ${DEADLINE}s"
+    [ "$rc" -eq 64 ] && refuse deferral "the disposal check refused its arguments (exit 64)"
     # The check prints one line; anything else is an answer this script
     # doesn't interpret.
     case "$RAW" in *$'\n'*) refuse deferral "disposal check printed more than one line" ;; esac
@@ -738,6 +810,7 @@ leg)
         | select($leg != null and ($leg.disposition | IN("open", "resolved", "abandoned")))
         | {kind: "leg", status: "ok",
            disposition: (if $leg.disposition == "open" and $leg.bound_child != null then "bound" else $leg.disposition end),
+           source: ($leg.result_source // null),
            result: (
              if $leg.result_source == "refused" then
                "refused:" + (($leg.result.payload.reason // $leg.result.summary // "unknown") | tostring)
@@ -778,11 +851,64 @@ inventory)
     while IFS= read -r gitpath; do
         [ -n "$gitpath" ] && inv_queue "$(dirname "$gitpath")"
     done < <(sort "$ITEMS.found")
+    # Clones are read in waves of up to INV_PARALLEL at once, each in its own
+    # background job writing its own items and scratch files under its own
+    # prefix; the main loop joins the items in queue order, so the fact lists
+    # them as a serial read would, and it owns the queue and the caps. Each
+    # job sees as read the git directories of the clones launched before it,
+    # which is what a serial read sees; a linked worktree reuses its
+    # repository's remote reads from those files, so a wave ends before a
+    # worktree whose repository is read in the same wave.
+    SHARED=$ITEMS
     i=0
     while [ "$i" -lt "${#QUEUE[@]}" ]; do
         if [ "$i" -ge "$INV_CLONE_CAP" ]; then TRUNC=true; break; fi
-        inv_clone "${QUEUE[$i]}"
-        i=$((i + 1))
+        WAVE_COMMONS=()
+        end=$i
+        while [ "$end" -lt "${#QUEUE[@]}" ] && [ "$end" -lt "$INV_CLONE_CAP" ] && [ $((end - i)) -lt "$INV_PARALLEL" ]; do
+            c=$(inv_first_common "${QUEUE[$end]}")
+            if [ -n "$c" ]; then
+                for w in ${WAVE_COMMONS[@]+"${WAVE_COMMONS[@]}"}; do [ "$w" = "$c" ] && break 2; done
+            fi
+            WAVE_COMMONS+=("$c")
+            end=$((end + 1))
+        done
+        # GitHub compare reads stay capped per run: a wave's jobs split what's left.
+        left=$((INV_COMPARE_CAP - INV_COMPARES))
+        [ "$left" -lt 0 ] && left=0
+        share=$((left / (end - i)))
+        j=$i
+        while [ "$j" -lt "$end" ]; do
+            (
+                ITEMS="$SHARED.c$j" QUEUED_FILE="$SHARED.c$j.queued" TRUNC=false INV_N=0 INV_COMPARES=0 INV_COMPARE_CAP=$share
+                : > "$ITEMS"; : > "$QUEUED_FILE"
+                inv_clone "${QUEUE[$j]}"
+                printf '%s %s\n' "$TRUNC" "$INV_COMPARES" > "$SHARED.c$j.done"
+            ) &
+            c=${WAVE_COMMONS[$((j - i))]}
+            [ -n "$c" ] && SEEN_COMMON+=("$c")
+            j=$((j + 1))
+        done
+        wait
+        j=$i
+        while [ "$j" -lt "$end" ]; do
+            if read -r jt jc < "$SHARED.c$j.done" 2>/dev/null; then
+                [ "$jt" = true ] && TRUNC=true
+                INV_COMPARES=$((INV_COMPARES + ${jc:-0}))
+            else
+                inv_item "$(inv_rel "${QUEUE[$j]}")" unchecked "its read ended without a result"
+            fi
+            while IFS= read -r line; do
+                INV_N=$((INV_N + 1))
+                if [ "$INV_N" -gt "$INV_ITEM_CAP" ]; then TRUNC=true; break; fi
+                printf '%s\n' "$line" >> "$ITEMS"
+            done < "$SHARED.c$j"
+            while IFS= read -r q; do
+                [ -n "$q" ] && inv_queue "$q"
+            done < "$SHARED.c$j.queued"
+            j=$((j + 1))
+        done
+        i=$end
     done
     jq -sc --argjson tr "$TRUNC" --arg t "$(rd_now)" \
         '{kind: "inventory", status: "ok", taken: true, items: ., truncated: $tr, read_at: $t}' "$ITEMS"

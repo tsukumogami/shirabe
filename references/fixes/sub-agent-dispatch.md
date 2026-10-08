@@ -5,11 +5,6 @@ Canonical resolution guidance for child skills (`/brief`, `/prd`,
 when they are invoked from a parent chain (`/scope` for tactical,
 `/charter` for strategic) rather than directly by a human author.
 
-This file is dereferenced on-demand by each child SKILL's Phase 0
-detection step and by the Resume Logic row that the parent-chain
-sentinel matches. The child skills do NOT eagerly load this prose;
-the lazy-load principle holds (DESIGN D1 / D2).
-
 ## Sentinel detection convention
 
 When a parent chain spawns a child, it writes a sentinel into its own
@@ -19,7 +14,7 @@ state file (`wip/scope_<topic>_state.md` for `/scope`,
 ```yaml
 parent_orchestration:
   invoking_child: <skill-name>            # brief|prd|design|plan|...
-  suppress_status_aware_prompt: true      # parent owns the prompt UX
+  suppress_status_aware_prompt: true      # skip the re-entry prompt
   rationale: <fresh-chain|revise|repeat>  # routes chain-handoff behavior
 ```
 
@@ -29,9 +24,12 @@ The three subfields are load-bearing:
   child reads this to confirm it was spawned from the expected parent
   context (not, for example, a stale state file from a different
   topic).
-- `suppress_status_aware_prompt` -- when `true`, the child must skip
-  the status-aware approval prompt the parent owns. The parent
-  presents the unified prompt at chain boundaries.
+- `suppress_status_aware_prompt` -- when `true`, the child skips its
+  status-aware re-entry prompt (the question it asks when its artifact
+  already exists at a status it recognizes). For `/scope`'s children
+  it does not skip the child's own verdict: see shape 6 and "What a
+  child keeps and what it skips under /scope" below. `/charter`'s
+  children hand back a Draft for the parent to approve (shape 2).
 - `rationale` -- routes how the child closes out:
   - `fresh-chain` -- this is the first pass through the chain; the
     child finalizes the artifact and hands control back to the parent.
@@ -42,12 +40,62 @@ The three subfields are load-bearing:
     to reflect a downstream change (rare; reserved for tooling-driven
     re-emission).
 
-## The five canonical fallback shapes
+## What a child keeps and what it skips under /scope
+
+This section binds `/scope`'s children (`/brief`, `/prd`, `/design`,
+`/plan`), per
+`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
+`/charter`'s children keep the Parent-delegated-approval shape below.
+
+Under `/scope`'s sentinel a child still reaches its own verdict and makes its
+own status transition. `/design` and `/plan` require their upstream
+already `Accepted` when they start, and the parent never transitions
+anything, so each hop's approval has to happen inside the hop that
+produced the artifact. An interactive run asks the author as the child
+always does. An unattended run (`--auto`) takes the recommended option
+and says so in its output, naming the verdict it took. The mode is the
+parent's: the child is invoked inline, in the parent's own context, and
+follows the execution mode the parent is running under at every decision
+point, whether or not a mode flag is among its arguments. `/scope` passes
+each child the topic or the artifact path above it, plus `--upstream` to
+`/brief` and `/plan` when the run consumed an upstream. Only `/plan` also
+receives the caller's `--intent` and coordination flag and `/scope`'s
+resolved mode flag (Phase 2's invocation table); no mode flag reaches
+`/brief`, `/prd` or `/design`.
+
+What the child skips is everything that publishes or routes, because the
+parent owns those:
+
+- **push** -- no `git push` of any kind;
+- **pull request** -- no `gh pr create`, `gh pr edit` or `gh pr ready`;
+- **branch creation** -- the child works on the branch it was invoked on
+  and never creates or switches branches;
+- **cleanup commit** -- no commit removing the child's intermediate
+  files, its research scratch included; the parent's cleanup
+  phase and publish untrack own that;
+- **upstream-issue edits** -- no `gh issue edit` on a source or upstream
+  issue, its labels included, since `/scope`'s list of writes has none;
+  a `needs-*` label the child would have removed stays for the author
+  (who should remove it under `/scope` is tracked as #666);
+- **routing prompts** -- no "what next" question (which skill to run
+  next, whether to update an upstream issue); a prompt that pairs the
+  verdict with a next step, such as `/design`'s "Plan (Recommended)" /
+  "Approve only",
+  keeps only the verdict. Control returns to the parent, which
+  decides the next hop.
+
+`/scope` publishes at most once, at its own exit (a run with no intent
+publishes nothing), and its list of writes, in the Security
+Considerations section of `skills/scope/SKILL.md`, is the only one that
+applies while a child runs under it.
+
+## The six canonical fallback shapes
 
 A child invoked under sub-agent dispatch cannot always perform the
 same review or approval mechanics it uses under direct human
-invocation (no interactive user, parent owns the prompt UX, etc.).
-The five canonical fallback shapes encode the resolutions:
+invocation (no interactive user, parent owns the prompt UX or
+publishing, etc.).
+The six canonical fallback shapes encode the resolutions:
 
 ### 1. Serial-self-jury
 
@@ -66,21 +114,29 @@ Phase 6.
 When the child would normally prompt the author for an Accepted/
 Reject verdict, but the parent chain owns the unified prompt at the
 chain boundary, the child writes its draft to disk in a non-Accepted
-state (`Draft` for BRIEF/PRD/PLAN; `Proposed` for DESIGN) and hands
+state (`Draft` for VISION/STRATEGY/ROADMAP) and hands
 control back to the parent. The parent presents the chain-level
 prompt and triggers the Accepted transition on approval.
 
-**Bindings:** all seven authoring children (`/brief`, `/prd`,
-`/design`, `/plan`, `/vision`, `/strategy`, `/roadmap`).
+**Bindings:** `/charter`'s children (`/vision`, `/strategy`,
+`/roadmap`). `/scope`'s children follow shape 6 instead.
 
 ### 3. Decision-bypass-with-inline-resolution
 
-When `/design`'s decision-evaluation sub-flow would normally
-delegate to `/decision` for a contested 3+ alternatives choice, but
-the dispatch context routes the decision back through the parent,
-the design instead resolves the decision inline within its own Phase
-2 evaluation and records the rationale in the Considered Options
-section. The bypass is recorded in the design's frontmatter
+Under the parent sentinel, `/design` routes each Phase 2 question by
+its tier (per
+`docs/decisions/DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md`), a condition it can check rather than a judgment about the
+dispatch context:
+
+- a **standard**-tier question (`/decision`'s Tier 3) is resolved
+  inline, within `/design`'s own Phase 2 evaluation, with the
+  rationale in the Considered Options section;
+- a **critical**-tier question (`/decision`'s Tier 4) still goes to
+  `/decision`, under a parent as under a direct run.
+
+Each question's Considered Options entry records its provenance,
+inline or delegated to `/decision`. When any question was resolved
+inline, the design's frontmatter carries
 `decision_provenance: inline-resolved`.
 
 **Bindings:** `/design` Phase 2.
@@ -108,24 +164,35 @@ deterministic transformation already complete.
 **Bindings:** `/plan` Phase 7 single-pr mode, `/roadmap` Phase 5
 single-pr populate.
 
+### 6. Parent-owned-publishing
+
+The child reaches its own verdict and makes its own status
+transition, and leaves publishing to the parent. "What a child keeps
+and what it skips under /scope" above is the whole rule.
+
+**Bindings:** `/scope`'s children (`/brief`, `/prd`, `/design`,
+`/plan`).
+
 ## Per-skill binding table
 
-The eight children bind to the fallback shapes as follows. Each row
+The seven children bind to the fallback shapes as follows. Each row
 lists which shape applies at which phase; absent rows mean the child
 does not need a fallback at that phase.
 
 | Skill | Phase | Applicable fallback shapes |
 |-------|-------|---------------------------|
-| `/brief` | Phase 4 finalize | Parent-delegated-approval |
+| `/brief` | Phase 5 finalize | Parent-owned-publishing |
+| `/prd` | Phase 0 setup | Parent-owned-publishing |
 | `/prd` | Phase 4 jury | Serial-self-jury, Inline-substitute-review |
-| `/prd` | Phase 5 finalize | Parent-delegated-approval |
+| `/prd` | Phase 4 approval and cleanup | Parent-owned-publishing |
 | `/design` | Phase 2 decisions | Decision-bypass-with-inline-resolution |
-| `/design` | Phase 6 jury | Serial-self-jury, Parent-delegated-approval |
+| `/design` | Phase 6 jury | Serial-self-jury, Parent-owned-publishing |
 | `/plan` | Phase 6 review | Inline-substitute-review |
-| `/plan` | Phase 7 emit | Deterministic-mode-bypass, Parent-delegated-approval |
+| `/plan` | Phase 7 emit | Deterministic-mode-bypass, Parent-owned-publishing |
 | `/vision` | Phase finalize | Parent-delegated-approval |
 | `/strategy` | Phase 6 jury | Serial-self-jury, Parent-delegated-approval |
 | `/roadmap` | Phase 5 populate | Deterministic-mode-bypass, Parent-delegated-approval |
+
 `/work-on` has no row: it reads no sentinel, at Phase 0 or anywhere else
 (R9 scopes the seven authoring children for the Resume Logic row). When
 `/work-on` runs under a parent chain, it inherits the parent's branch and PR
@@ -139,7 +206,10 @@ routing:
 - `rationale: fresh-chain` -- the child finalizes the artifact, the
   parent reads the child's terminal state, and the parent advances
   to the next chain step (e.g. BRIEF -> PRD, PRD -> DESIGN, DESIGN
-  -> PLAN). The parent owns the transition.
+  -> PLAN). For `/scope`'s children (shape 6) the child made its
+  artifact's status transition and the parent owns the move to the
+  next step; for `/charter`'s children (shape 2) the parent triggers
+  the Accepted transition on approval.
 - `rationale: revise` -- the child re-finalizes the revised artifact
   and returns control to the parent at the SAME chain step. The
   parent then re-evaluates whether downstream artifacts need

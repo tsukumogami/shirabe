@@ -11,10 +11,6 @@ if wip/plan_<topic>_review_loopback.md exists → execute loop-back (see below)
 else                                           → run /review-plan
 ```
 
-Read both file paths before proceeding. If `_review.md` exists, proceed to Phase 7
-unchanged. If `_review_loopback.md` exists, execute the loop-back sequence instead
-of re-running the review.
-
 ## Infinite-Loop Guard
 
 Before invoking `/review-plan`, read `review_rounds` from

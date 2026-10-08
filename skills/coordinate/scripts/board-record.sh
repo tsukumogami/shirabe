@@ -9,7 +9,8 @@
 # The pull request is the one report_facts found for the report being
 # verified: the latest REPORT capture, sealed at the latest entry into
 # report_facts, reading `holding <pr> <topic>`. A capture reading `holding
-# none <topic>` (no pull request yet), or a missing, stale or unsealed one,
+# none <topic>` (no pull request yet), or a missing, stale, unsealed or
+# other-shaped one, gives `no-pr none none`; only a capture the log can't read
 # exits 2. --pr overrides it (tests, or a caller that names the pull request).
 #
 # It refuses (exit 2, nothing read from GitHub) unless the session log shows
@@ -21,13 +22,31 @@
 #
 # Token, sealed to the latest entry into verify_board:
 #   verified <pr> <head>         the board is green at <head>, read from the
-#                                checks
+#                                checks, and the body's Review panel table,
+#                                if it has one, parses
+#   unevidenced <pr> none        the board is green but the body's Review
+#                                panel table is malformed (panel-evidence.sh):
+#                                a panel claim with seats that can't be told
+#                                apart never becomes a verified head; the
+#                                parsed table is coord/board.json's
+#                                `evidence` and its rule a reason coded
+#                                `unevidenced` (that file's `verdict` stays
+#                                the board's own, `verified`). A body that
+#                                can't be read is board-unreadable, reason
+#                                `evidence-read`
 #   actions-green <pr> none      the board is green judged from the Actions
 #                                jobs, because the token can't read checks;
 #                                the required set may be short, so it is for
 #                                a person, never for landing
 #   unverified <pr> none         the board failed
 #   pending <pr> none            the board is still running
+#   not-run <pr> none            a job at the head never ran (it completed
+#                                red with no step: GitHub refused to start
+#                                it, as for an account billing block), and
+#                                nothing else failed or still runs: no
+#                                verdict on the
+#                                code, and not the worker's to fix; the
+#                                reasons in coord/board.json say why
 #   board-unreadable <pr> none   the board or the record couldn't be read, or
 #                                the read ran out of time: no verdict on the
 #                                code
@@ -36,19 +55,27 @@
 #                                holding was removed, two rows disagree, or
 #                                the link is malformed), so its repository
 #                                is unknown
+#   no-pr none none              the report being verified names no pull
+#                                request (classify_report doesn't send such
+#                                a report here; this is the exit if one
+#                                arrives anyway); its reason code is
+#                                no-pull-request (`holding none`),
+#                                not-a-holding (another verdict) or no-report
+#                                (no capture sealed at report_facts' latest
+#                                visit)
 # (`board-unreadable`, not `unreadable`: the verdict table is one word list
 # for every check state.)
 # Only a verified token carries a head, so nothing downstream can land any
 # other. Every token leaves verify_board, so one pull request whose board
 # can't be read doesn't hold the run at this state. coord/board.json has
 # board-verdict.sh's shape either way: its full JSON after a board read, and
-# for board-unreadable or unlinked reached without one, the same fields with
-# only the reason set.
+# for board-unreadable, unlinked or no-pr reached without one, the same fields
+# with only the reason set.
 #
 # --no-seal (tests): print the bare token and write no context key.
 #
-# Exit codes: 0 a token printed; 2 refused (no prediction, no report
-# capture), board-verdict.sh failed, or a write failed; 64 usage.
+# Exit codes: 0 a token printed; 2 refused (no prediction), the report capture
+# couldn't be read, board-verdict.sh failed, or a write failed; 64 usage.
 set -uo pipefail
 
 PROG=board-record
@@ -82,35 +109,43 @@ case $? in
 esac
 bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state verify --after "${ENT%% *}" >/dev/null 2>&1 || no_prediction
 
-if [ -z "$PR" ]; then
-    REP=$(bl_capture "$SESSION" REPORT report_facts) || {
-        echo "$PROG: no valid REPORT capture from the latest entry into report_facts" >&2; exit 2; }
-    set -f; set -- $REP; set +f
-    if [ $# -ne 3 ] || [ "$1" != holding ] || ! bl_topic_ok "$3"; then
-        echo "$PROG: the report capture reads [$REP], not a holding" >&2; exit 2
-    fi
-    if [ "$2" = none ]; then
-        echo "$PROG: the holding for $3 has no pull request to verify yet" >&2; exit 2
-    fi
-    bl_pr_ok "$2" || { echo "$PROG: the report capture names [$2], not a pull request" >&2; exit 2; }
-    PR=$2
-fi
-
 T=$(mktemp "${TMPDIR:-/tmp}/board-record.XXXXXX") || exit 2
-trap 'rm -f "$T"' EXIT
-# stopped <word> <code> <detail>: a verdict with no board read behind it,
-# written in board-verdict.sh's shape (nothing read: no head, source, state,
-# jobs or required set) so coord/board.json has one shape.
+trap 'rm -f "$T" "$T".*' EXIT
+# stopped <word> <code> <detail> [<pr>]: a verdict with no board read behind
+# it, written in board-verdict.sh's shape (nothing read: no head, source,
+# state, jobs or required set) so coord/board.json has one shape. The token's
+# pull request is <pr>, else $PR.
 stopped() {
     jq -nc --arg v "$1" --arg c "$2" --arg d "$3" \
         '{verdict: $v, head: null, source: null, pr_state: null, merge_state: null,
           reasons: [{code: $c, detail: $d}], skipped: [], superseded: [], required: [],
           counts: {runs: 0, jobs: 0, jobs_ran: 0, required: 0}, notes: []}' > "$T"
-    TOKEN="$1 $PR none"
+    TOKEN="$1 ${4:-$PR} none"
 }
 
 TOKEN=
-if [ -z "$REPO" ]; then
+# no_pr <code> <detail>: nothing to verify. The state leaves on a sealed
+# verdict rather than failing its action on every tick, since what it read
+# (report_facts' sealed capture) can't change while the run stays here.
+no_pr() { stopped no-pr "$1" "$2" none; }
+if [ -z "$PR" ]; then
+    REP=$(bl_capture "$SESSION" REPORT report_facts)
+    case $? in
+        0) set -f; set -- $REP; set +f
+           if [ $# -ne 3 ] || [ "$1" != holding ] || ! bl_topic_ok "$3"; then
+               no_pr not-a-holding "the report capture reads [$REP], not a holding with a pull request"
+           elif [ "$2" = none ]; then
+               no_pr no-pull-request "the holding for $3 has no pull request to verify yet"
+           elif bl_pr_ok "$2"; then
+               PR=$2
+           else
+               no_pr not-a-holding "the report capture names [$2], not a pull request"
+           fi ;;
+        1) no_pr no-report "no valid REPORT capture from the latest entry into report_facts" ;;
+        *) echo "$PROG: the REPORT capture could not be read" >&2; exit 2 ;;
+    esac
+fi
+if [ -z "$TOKEN" ] && [ -z "$REPO" ]; then
     REPO=$(bl_unit_repo "$SESSION" "$PR")
     case $? in
         0) ;;
@@ -128,12 +163,33 @@ if [ -z "$TOKEN" ]; then
     case "$V" in
         verified) bl_sha_ok "$H" || { echo "$PROG: verified without a head" >&2; exit 2; }
                   TOKEN="verified $PR $H" ;;
-        unverified|pending|actions-green) TOKEN="$V $PR none" ;;
+        unverified|pending|actions-green|not-run) TOKEN="$V $PR none" ;;
         error:pr-state) TOKEN="not-open $PR none" ;;
         error:board-read|error:deadline) TOKEN="board-unreadable $PR none" ;;
         *) echo "$PROG: board-verdict.sh printed the verdict [$V]" >&2; exit 2 ;;
     esac
 fi
+# A green board with a malformed Review panel table in the body is a panel
+# claim the land step can't read, seats that can't be told apart included:
+# no verified head is recorded on it. No table yet is fine here; land refuses
+# it later. docs/designs/current/DESIGN-coordinate-merge-policy.md, Decision 1.
+case "$TOKEN" in
+    verified\ *)
+        if bl_gh "$T.pr" pr view "$PR" --repo "$REPO" --json body; then
+            EV=$(jq -r '.body // ""' "$T.pr" | bash "$HERE/panel-evidence.sh" -) || EV=
+            case "$(printf '%s' "$EV" | jq -r '.status // ""')" in
+                ok|absent) ;;
+                malformed)
+                    jq --argjson e "$EV" '.reasons += [{code: "unevidenced", detail: ("the Review panel table is malformed: " + $e.reason)}] | .evidence = $e' "$T" > "$T.e" && mv "$T.e" "$T"
+                    TOKEN="unevidenced $PR none" ;;
+                *) echo "$PROG: the body's Review panel couldn't be parsed" >&2; exit 2 ;;
+            esac
+        else
+            jq '.reasons += [{code: "evidence-read", detail: "the pull request body could not be read"}]' "$T" > "$T.e" && mv "$T.e" "$T"
+            TOKEN="board-unreadable $PR none"
+        fi
+        rm -f "$T.pr" "$T.pr.err" "$T.pr.fail" ;;
+esac
 case "$TOKEN" in
     verified\ *|unverified\ *|pending\ *) ;;
     *) echo "$PROG: $TOKEN: $(jq -c '[.reasons[]? | .code + (if .detail then ": " + .detail else "" end)]' "$T")" >&2 ;;

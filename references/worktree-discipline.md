@@ -138,7 +138,8 @@ minimum schema (see [`parent-skill-state-schema.md`](parent-skill-state-schema.m
 **`worktree_rebases:`** — appended after every catch-up merge that
 brought new upstream commits in (regardless of classification, except
 when the chain bailed). Informational. The field and its `rebased_at`
-key keep their state-schema names; each entry records a merge.
+key keep their state-schema names, from before catch-up became a merge,
+so state files already written still read; each entry records a merge.
 Entries:
 
 ```yaml

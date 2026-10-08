@@ -216,6 +216,10 @@ to_implementation() {
     # analysis recorded HEAD, which already carries the fixture's work commit;
     # the run's base is the commit before it.
     git rev-parse HEAD~1 | koto context add "$1" impl_base >/dev/null 2>&1
+    # The review level, chosen before implementation: full keeps all three
+    # panels on the code route this harness walks.
+    "$PLUGIN_ROOT/skills/work-on/scripts/review-level.sh" set "$1" full >/dev/null 2>&1
+    koto next "$1" >/dev/null 2>&1
 }
 
 # A finished implementation crosses changed_paths_record on its own and stops at
@@ -329,10 +333,11 @@ fi
 to_analysis plan-adv
 seed plan-adv plan.md
 submit plan-adv '{"plan_outcome":"plan_ready"}'
-if [ "$NEXT_STATE" = "implementation" ]; then
-    pass "analysis: plan.md present + plan_ready -> advances to implementation"
+# With no review level chosen yet, plan_ready stops at the level choice.
+if [ "$NEXT_STATE" = "review_level_choice" ]; then
+    pass "analysis: plan.md present + plan_ready -> advances to review_level_choice"
 else
-    fail "analysis: plan.md present + plan_ready -> expected implementation, got [$NEXT_STATE]"
+    fail "analysis: plan.md present + plan_ready -> expected review_level_choice, got [$NEXT_STATE]"
 fi
 
 # --- Case 5/6 — the two summary gates -----------------------------------------
@@ -428,6 +433,9 @@ check_traversal() {
     seed "$1" scrutiny_results.json
     seed "$1" review_results.json
     seed "$1" qa_results.json
+    # The light panel's too: the level check on the way back can change which
+    # panels the run reaches.
+    seed "$1" light_results.json
     # summary.md too: a retry raised at a panel returns to implementation and the
     # run walks forward through verification into finalization, whose gate would
     # otherwise be satisfied by a summary written before this round's fixes. On a
@@ -438,7 +446,7 @@ check_traversal() {
     out=$(render "$blk" "$1" | bash 2>/dev/null)
     rc=$?
     left=""
-    for k in scrutiny_results.json review_results.json qa_results.json summary.md; do
+    for k in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
         if koto context exists "$1" "$k" >/dev/null 2>&1; then
             left="$left $k"
         fi
@@ -538,12 +546,13 @@ check_analysis_edge() {
     seed "$1" scrutiny_results.json
     seed "$1" review_results.json
     seed "$1" qa_results.json
+    seed "$1" light_results.json
     seed "$1" summary.md
     eval "blk=\${$3}"
     render "$blk" "$1" | bash >/dev/null 2>&1
 
     left=""
-    for k in plan.md scrutiny_results.json review_results.json qa_results.json summary.md; do
+    for k in plan.md scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
         if koto context exists "$1" "$k" >/dev/null 2>&1; then
             left="$left $k"
         fi
@@ -632,12 +641,13 @@ check_edge_traversal() {
     seed "$1" scrutiny_results.json
     seed "$1" review_results.json
     seed "$1" qa_results.json
+    seed "$1" light_results.json
     seed "$1" summary.md
     eval "blk=\${$2}"
     render "$blk" "$1" | bash >/dev/null 2>&1
 
     left=""
-    for k in scrutiny_results.json review_results.json qa_results.json summary.md; do
+    for k in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
         if koto context exists "$1" "$k" >/dev/null 2>&1; then
             left="$left $k"
         fi

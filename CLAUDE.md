@@ -265,19 +265,19 @@ a skill's koto loop, not after.
 
 ## Skill Evals
 
-Whenever a skill is created or updated, create or update its evals at
-`skills/<name>/evals/evals.json`. Whenever evals are created or updated,
-delegate running them to an agent with `/skill-creator` loaded:
+Whenever a skill is created or updated, create or update its scenarios in
+`skills/<name>/evals/evals.json`. The pull request doesn't run them: its
+definition of done is `scripts/check-skill.sh <skill>` (see
+`.claude/shirabe-extensions/README.md`), which checks the scenarios' shape
+along with the skill's Markdown, templates and script suites.
 
-```
-Spawn an agent with /skill-creator and instruct it to run:
-  scripts/run-evals.sh <skill-name>
-```
+The evals run in the release precondition. `/shirabe:release` runs the eval
+check declared in `.claude/shirabe-extensions/release.md` on every skill
+changed since the last tag and stops on a pass-rate drop.
 
-The agent needs `/skill-creator` loaded because the script invokes it via
-`claude -p` to execute each scenario and grade assertions. Fix any failing
-assertions before committing. Do not rely on the CI existence check
-(`check-evals-exist.sh`) as a substitute for actually running the evals.
+For a local run, use `scripts/run-evals.sh <skill>`. It invokes `claude -p`
+with the skill-creator plugin to execute each scenario and grade it, so run it
+from a session that has `/skill-creator` available.
 
 ## Directory Structure
 

@@ -57,7 +57,7 @@ echo "[shirabe validate]"
 check "happy path validates (exit 0)" "$?" "0"
 
 "$SHIRABE" validate "$FIXTURES_DIR/BRIEF-missing-section.md" >/dev/null 2>&1
-check "missing-section rejects (exit 1, FC04)" "$?" "1"
+check "missing-section rejects (exit 2, FC04)" "$?" "2"
 
 out=$("$SHIRABE" validate "$FIXTURES_DIR/BRIEF-missing-section.md" 2>&1)
 if [[ "$out" == *"[FC04]"* ]]; then
@@ -69,7 +69,7 @@ else
 fi
 
 "$SHIRABE" validate "$FIXTURES_DIR/BRIEF-invalid-status.md" >/dev/null 2>&1
-check "invalid-status rejects (exit 1, FC02)" "$?" "1"
+check "invalid-status rejects (exit 2, FC02)" "$?" "2"
 
 out=$("$SHIRABE" validate "$FIXTURES_DIR/BRIEF-invalid-status.md" 2>&1)
 if [[ "$out" == *"[FC02]"* ]]; then

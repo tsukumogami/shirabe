@@ -33,6 +33,8 @@ dimension.
 
 ### 4.1 Launch Jury Agents
 
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Clarity and Testability run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/prds/PRD-<topic>.md --format skills/prd/references/prd-format.md --extra <scope-file>`. `<scope-file>` is the scope document listed below.
+
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
@@ -164,6 +166,18 @@ Return only the verdict, issue count, and summary to this conversation.
 
 Wait for all 3 agents to complete. Read their summaries.
 
+Then, before processing any feedback, run the decider shadow once:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/review-shadow/review-shadow.py" site prd --topic <topic> >/dev/null 2>&1 || true
+```
+
+It reads the PRD and the clarity and testability verdict files itself, asks the
+decider whether each acceptance criterion answers yes or no when the user has
+opted in, and records both verdicts side by side outside the repository.
+Nothing reads its result: it changes no verdict, step or file here, and a
+failure or a missing key changes nothing either.
+
 ### 4.3 Process Feedback
 
 **Reference**: Full review details available in `wip/research/prd_<topic>_phase4_*.md`.
@@ -220,10 +234,13 @@ Options:
 - **Request changes** -- specify what needs to change; the workflow loops back
   to Phase 3 step 3.5 to incorporate the feedback
 - **Reject** -- terminal verdict; the Draft PRD is deleted via `git rm` and a
-  discard commit lands on the current branch. The author exits the workflow;
-  no PRD ships. The discard commit is the durable observable signal of
-  rejection in both in-chain (`/scope` reads it from `git log`) and
-  out-of-chain (author re-reads the same commit) contexts.
+  discard commit lands on the current branch (step 4.6). The author exits the
+  workflow; no PRD ships.
+
+Under `/scope`'s `parent_orchestration` sentinel (see "Under `/scope`" in the
+`prd` SKILL.md), an interactive run asks as above, and an unattended run
+(`--auto`) takes the recommended verdict and names it in its output, as "Took
+the recommended verdict: <verdict>".
 
 ### 4.6 Handle Approval
 
@@ -237,9 +254,19 @@ Options:
    If no vocabulary is defined, skip label removal -- the project hasn't
    configured which labels map to PRD completion.
    Skip this step if `source_issue` is not set in the frontmatter.
-5. Create PR (or update existing PR if on a shared branch)
+   Under `/scope`'s sentinel, skip this step too: the label edit is a `gh`
+   write, and `/scope`'s SKILL.md, which lists the only `gh` writes a run
+   makes, says a child's upstream-issue edit is skipped under the sentinel, per
+   `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
+   The label stays on the issue for the author to remove, so say so in your
+   output, naming the issue and the label; who should remove it under `/scope`
+   is an open question, tracked as #666.
+5. Create PR (or update existing PR if on a shared branch). Under `/scope`'s
+   sentinel, skip this step: `/scope` pushes and opens the pull request at its
+   own exit.
 
-Then present routing options:
+Then present routing options (under `/scope`'s sentinel, skip them and return
+control to `/scope`, which decides the next hop):
 
 "The PRD is accepted. Based on the complexity, here are the recommended next steps:"
 
@@ -263,12 +290,17 @@ the workflow. Run the following ordered actions; do not skip steps.
    they want to discard the Draft PRD permanently. Surface the commit subject
    that will land (`docs(prd): discard PRD draft for <topic>`) so the author
    sees the durable trace before approving destruction. If the author declines,
-   route back to step 4.5 without modifying any files.
+   route back to step 4.5 without modifying any files. An unattended run
+   (`--auto`) asks nothing here: the verdict it took at 4.5 stands.
 
 2. **Capture the rationale.** Prompt the author for a one-paragraph rationale
    explaining why the PRD is being discarded. Restate the public-history
    disclaimer ("Rationale will be committed to git history") in the prompt so
-   the author has a second opportunity to redact private content.
+   the author has a second opportunity to redact private content. An
+   unattended run asks nobody: write the rationale yourself from the jury
+   findings behind the verdict, as
+   `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` has you do at any
+   decision point, keeping it free of private content.
 
 3. **Write the rationale to a tmpfile.** Author-supplied rationale strings are
    free-form and may contain shell metacharacters (quotes, backticks, dollar
@@ -284,9 +316,11 @@ the workflow. Run the following ordered actions; do not skip steps.
    EOF
    ```
 
-   The first line is the conventional-commit subject (the literal substring
-   `/scope`'s Component 7.7 git-log search reads); a blank line separates the
-   subject from the rationale body.
+   The first line is the conventional-commit subject; a blank line separates
+   the subject from the rationale body. The discard commit is the durable
+   signal of rejection in both contexts: in-chain, `/scope`'s Phase-N Reject Handling
+   finds the subject with a `git log` search; out-of-chain, the author re-reads
+   the same commit for the rationale.
 
 4. **Remove the durable PRD artifact.**
 
@@ -302,6 +336,9 @@ the workflow. Run the following ordered actions; do not skip steps.
    rm -f wip/research/prd_<topic>_phase4_*.md
    ```
 
+   Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
+   these files, and the discard commit carries only the PRD's removal.
+
 6. **Commit the discard via `git commit -F`** (file path), never `-m`:
 
    ```bash
@@ -315,12 +352,16 @@ the workflow. Run the following ordered actions; do not skip steps.
    current branch.
 
 7. **Exit the workflow.** Do not run step 4.7 cleanup (the Reject branch
-   handled its own wip cleanup inline in step 5). No PRD ships; the discard
+   handled its own wip cleanup inline in step 5, or, under `/scope`'s
+   sentinel, left it to `/scope`). No PRD ships; the discard
    commit is the only artifact. If on a shared branch with an open PR,
    surface the discard commit SHA in your final response so the caller can
    route accordingly.
 
 ### 4.7 Cleanup
+
+Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
+every file the commands below name, and `/prd` makes no cleanup commit.
 
 After the PR is created, clean up temporary artifacts:
 
@@ -336,11 +377,13 @@ Commit: `chore(prd): clean up working artifacts`
 
 - [ ] All 3 jury agents reviewed the PRD
 - [ ] All issues from jury review are resolved
-- [ ] User has approved the PRD
+- [ ] User has approved the PRD, or, in an unattended run under `/scope`, the
+      output names the recommended verdict it took
 
 ## Artifact State
 
 Final PRD at `docs/prds/PRD-<topic>.md` with:
 - YAML frontmatter with status "Accepted"
 - All required sections complete and validated
-- Working artifacts cleaned up (scope doc, research files removed)
+- Working artifacts cleaned up (scope doc, research files removed); under
+  `/scope`'s sentinel they are still on disk for `/scope`'s cleanup

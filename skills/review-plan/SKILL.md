@@ -63,6 +63,9 @@ Each of the four review categories (phases 1–4) runs with a single agent. The 
 applies heuristic pattern checks and taxonomy-anchored adversarial reasoning within
 a single call. Phase 5 synthesizes all category findings into the verdict.
 
+When a category's agent is spawned rather than run inline, it is commissioned as a
+validator seat, as **Seat commissioning** below says.
+
 ### Adversarial (standalone)
 
 Called directly by the user with `--adversarial`. Multiple validator agents
@@ -91,6 +94,8 @@ For each category, spawn three independent validator agents in parallel. Each ag
 
 Spawn all three agents for all four categories in a single message (12 agents total)
 to minimize wall-clock time. Each agent runs with `run_in_background: true`.
+
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): validators run on `model: "sonnet"` with a 10-call budget, and cross-examination agents on `model: "sonnet"` with a 6-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc <decomposition-artifact> --format skills/review-plan/references/phases/<category-phase-file> --extra <analysis-artifact> --extra <dependencies-artifact> --extra <upstream-design-doc> --extra <issue-body-file> ...`, one per category. The artifacts are the ones `references/phases/phase-0-setup.md` lists; `<category-phase-file>` is the category's phase reference. A cross-examination agent gets the same packet plus the disagreeing findings.
 
 ### Step 2: Collect and Compare
 

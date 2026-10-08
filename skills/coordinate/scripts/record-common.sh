@@ -125,8 +125,10 @@ lib_rotation_dates() {
 
 # lib_has_declaration <file>: some line (CRLF tolerated) opens with the
 # declaration text. Which scope it declares is record-parse.sh's to judge.
+# No grep -q: stopping at the first match would SIGPIPE tr on a body larger
+# than the pipe buffer, and pipefail would read that as no declaration.
 lib_has_declaration() {
-    tr -d '\r' < "$1" | grep -qF -- "$DECL_PREFIX"
+    tr -d '\r' < "$1" | grep -F -- "$DECL_PREFIX" >/dev/null
 }
 
 # lib_parse <body-file> <out-json>: record-parse.sh for this scope and
@@ -192,6 +194,26 @@ lib_authority() {
         esac
     done
     return 0
+}
+
+# ENTRY_MARKER_PREFIX: a record entry's first line up to its kind, the one
+# definition the entry's writer (record-append.sh) and its readers share.
+ENTRY_MARKER_PREFIX='<!-- coordinator-record-entry v1 kind='
+
+# lib_has_write_access <login>: 0 when <login> has admin, maintain or write
+# access to REPO, 1 when it has less or isn't a collaborator (GitHub answers
+# 404), 2 when the read failed. record-append.sh's reader keeps an entry only
+# when its author passes.
+lib_has_write_access() {
+    local perm err
+    [[ $1 =~ $RE_LOGIN ]] || return 1
+    err=$(mktemp "${TMPDIR:-/tmp}/write-access.XXXXXX")
+    if ! perm=$(gh api --method GET "repos/$REPO/collaborators/$1/permission" --jq .permission 2> "$err" < /dev/null); then
+        if grep -q 'HTTP 404' "$err"; then rm -f "$err"; return 1; fi
+        rm -f "$err"; return 2
+    fi
+    rm -f "$err"
+    case "$perm" in admin|maintain|write) return 0 ;; *) return 1 ;; esac
 }
 
 # lib_emit <state> <token> <context-key> <detail-file>: finish a check. Under
@@ -422,13 +444,90 @@ lib_pr_link() {
     [[ $LINK_NUM =~ $RE_NUM ]]
 }
 
+# lib_pr_ref <ref>: split a pull request as a report names it, its URL
+# `https://github.com/o/r/pull/n` (one trailing `/` allowed) or `o/r#n`, into
+# LINK_REPO and LINK_NUM. Returns 1 on any other shape.
+lib_pr_ref() {
+    local url='^https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([1-9][0-9]*)/?$'
+    local short='^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([1-9][0-9]*)$'
+    LINK_REPO= LINK_NUM=
+    [[ $1 =~ $url ]] || [[ $1 =~ $short ]] || return 1
+    LINK_REPO=${BASH_REMATCH[1]}
+    LINK_NUM=${BASH_REMATCH[2]}
+}
+
+# lib_report_pr: set REPORT_PR to the pull request the run's latest report
+# names, as it names it; empty when it names none. Call it after lib_unit ""
+# report, whose UNIT_LEG says which path the report came by. On the leg path
+# it is the `pr` of the result koto holds for that leg, promoted by the
+# worker's own session: koto's record, never the worker_report text. On the
+# message path it is the `pull_request` field of the latest `wait` evidence
+# whose event is report or progress, the arrival lib_unit read. A value that isn't a
+# string is kept as JSON, so it fails lib_pr_ref rather than reading as none.
+# Exits 2 on a failed read.
+lib_report_pr() {
+    local leg req out rc
+    REPORT_PR=
+    if [ -n "$UNIT_LEG" ]; then
+        leg=${UNIT_LEG#leg }
+        req=${leg%%:*}
+        leg=${leg#*:}
+        out=$("$KOTO" request get "$req" < /dev/null 2> /dev/null) || lib_die2 "cannot read request $req"
+        REPORT_PR=$(printf '%s' "$out" | jq -r --arg l "$leg" '
+            (.request // .) | .legs[$l] // empty
+            | select(.disposition == "resolved" and .result_source == "promoted")
+            | .result.payload | if type == "object" then .pr else null end
+            | if . == null then "" elif type == "string" then . else tojson end') \
+            || lib_die2 "koto's record of request $req is not JSON"
+    else
+        out=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where 'event=report|progress' 2> /dev/null)
+        rc=$?
+        case $rc in 0) ;; 1) return 0 ;; *) lib_die2 "cannot read the session log" ;; esac
+        REPORT_PR=$(printf '%s' "$out" | jq -r '.fields.pull_request
+            | if . == null then "" elif type == "string" then . else tojson end') || lib_die2 "the wait evidence is not JSON"
+    fi
+    # Surrounding blanks are how a person types it, not part of the name.
+    REPORT_PR=$(printf '%s' "$REPORT_PR" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+}
+
+# lib_in_scope <repo> <holdings-json-file>: is <repo> the host ($REPO) or the
+# Repo of a Holdings row? Compared case-insensitively. The scope a report's
+# pull request must be in.
+lib_in_scope() {
+    jq -e --arg r "$1" --arg h "$REPO" '($r | ascii_downcase) as $l
+        | ($l == ($h | ascii_downcase)) or any(.[]; (.repo | ascii_downcase) == $l)' "$2" > /dev/null
+}
+
+# lib_pr_held <repo> <number> <topic> <holdings-json-file>: does a Holdings row
+# other than <topic>'s link <repo>#<number>? Such a pull request's owner is
+# ambiguous, so it is reported, never adopted.
+lib_pr_held() {
+    jq -e -L "$HERE" --arg r "$1" --arg n "$2" --arg t "$3" 'include "record-codec";
+        any(.[]; .worker != $t and ((.pull_request // "" | pr_link) as $p
+            | $p != null and $p.number == $n and ($p.repo | ascii_downcase) == ($r | ascii_downcase)))' "$4" > /dev/null
+}
+
+# lib_row_merged <row-json>: the row's merge was confirmed and it waits for
+# its worker's teardown: a Verified head kept and the Pull request cell
+# blank, which only the cleared cell after a confirmed merge writes
+# (record-confirm.sh; record-holding.sh's header keeps the rule). The one
+# definition pick, dispatch_check and the quiet check read. Reconcile's report
+# reads the same row more narrowly, as merged only when every pull request on
+# its branch is merged, because it reports what it measured.
+lib_row_merged() {
+    printf '%s' "$1" | jq -e '((.verified_head // "") != "") and ((.pull_request // "") == "")' > /dev/null
+}
+
 # lib_parked <holdings-json-file> <out>: the Holdings rows as a JSON array,
-# each with `parked` set. A row is parked when it has a Verified head and its
-# pull request is open and not a draft (gh pr view in the linked repository);
-# every other row is active. Local agents never have a row, so they are never
+# each with `parked` and `merged` set. A row is parked when it has a Verified
+# head and its pull request is open and not a draft (gh pr view in the linked
+# repository). A row is merged when it has a Verified head and a blank Pull
+# request cell: a confirmed merge clears the cell and keeps the row until its
+# worker's teardown (record-confirm.sh), and nothing else writes that pair.
+# Every other row is active. Local agents never have a row, so they are never
 # counted. Returns 2 on a failed read.
 lib_parked() {
-    local n i row vh pr st
+    local n i row vh pr st mg
     n=$(jq length "$1") || return 2
     : > "$2.rows"
     i=0
@@ -436,26 +535,37 @@ lib_parked() {
         row=$(jq -c --argjson i "$i" '.[$i]' "$1")
         vh=$(printf '%s' "$row" | jq -r '.verified_head // ""')
         pr=$(printf '%s' "$row" | jq -r '.pull_request // ""')
-        st=false
+        st=false mg=false
+        lib_row_merged "$row" && mg=true
         if [ -n "$vh" ] && lib_pr_link "$pr"; then
             gh pr view "$LINK_NUM" --repo "$LINK_REPO" --json state,isDraft > "$2.pr" 2> /dev/null < /dev/null || return 2
             st=$(jq -r 'if .state == "OPEN" and .isDraft == false then "true" else "false" end' "$2.pr") || return 2
         fi
-        printf '%s' "$row" | jq -c --argjson p "$st" '. + {parked: $p}' >> "$2.rows"
+        printf '%s' "$row" | jq -c --argjson p "$st" --argjson m "$mg" '. + {parked: $p, merged: $m}' >> "$2.rows"
         i=$((i + 1))
     done
     jq -s -c '.' "$2.rows" > "$2" || return 2
 }
 
-# lib_bounds: CAP and PARKED_BOUND from the session's variables (defaults 5
-# and 3 without a session, or when a variable is unset).
+# lib_bounds [record-json]: CAP and PARKED_BOUND from the session's variables
+# (defaults 5 and 3 without a session, or when a variable is unset). Given the
+# record as JSON (parsed, or record-state.sh --list), a `cap` row in its Run
+# section wins over the variable: a cap a person changed is in the record, and
+# survives a restart that didn't pass it. Every reader of the cap comes here,
+# so they agree on it.
 lib_bounds() {
     CAP=5 PARKED_BOUND=3
-    [ -n "$SESSION" ] || return 0
-    local vars
-    vars=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || lib_die2 "cannot read the session's variables"
-    CAP=$(printf '%s' "$vars" | jq -r '.CAP // "5"')
-    PARKED_BOUND=$(printf '%s' "$vars" | jq -r '.PARKED_BOUND // "3"')
+    if [ -n "$SESSION" ]; then
+        local vars
+        vars=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || lib_die2 "cannot read the session's variables"
+        CAP=$(printf '%s' "$vars" | jq -r '.CAP // "5"')
+        PARKED_BOUND=$(printf '%s' "$vars" | jq -r '.PARKED_BOUND // "3"')
+    fi
+    if [ -n "${1-}" ]; then
+        local rc
+        rc=$(jq -r '[(.run // [])[] | select(.key == "cap") | .value][0] // empty' "$1") || lib_die2 "cannot read the record's Run section"
+        [ -z "$rc" ] || CAP=$rc
+    fi
     [[ $CAP =~ $RE_NUM ]] && [[ $PARKED_BOUND =~ $RE_NUM ]] || lib_die2 "CAP or PARKED_BOUND is not a number"
 }
 

@@ -5,7 +5,8 @@
 # A session S lives at $KOTO_STORE/sessions/S/; a test writes its prepared
 # state log there as koto-S.state.jsonl, in the shape real koto writes (a
 # header line, then events with seq, timestamp, type and payload). Context
-# keys are files under $KOTO_STORE/context/S/. Every call is appended to
+# keys are files under $KOTO_STORE/context/S/, and a request R's view (what
+# `request get R` prints) is $KOTO_STORE/requests/R.json. Every call is appended to
 # $KOTO_STORE/calls.
 #
 # Served: `session dir S`, `session list` (a JSON array of {id,
@@ -49,6 +50,9 @@ case "${1:-} ${2:-}" in
         ;;
     "context get")
         cat "$KOTO_STORE/context/${3:-none}/$4" 2>/dev/null || exit 1
+        ;;
+    "request get")
+        cat "$KOTO_STORE/requests/${3:-none}.json" 2>/dev/null || { echo "koto stub: no request ${3:-}" >&2; exit 1; }
         ;;
     "template compile")
         [ -z "${KOTO_COMPILE_FAIL:-}" ] || { echo "koto stub: compile failed" >&2; exit 1; }

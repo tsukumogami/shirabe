@@ -43,6 +43,11 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 for bin in koto jq git; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
+. "$HERE/../../../scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 ORIG_PATH=$PATH
 
 STATES_FROM="$HERE/../koto-templates/coordinate.md"
@@ -80,7 +85,9 @@ UNDER="wait report_facts report_questions decision_next decision_carry decision_
 decision_open decision_raise decision_answer decision_evidence escalate escalate_send decision_withdraw
 decision_withdraw_send decision_reply decision_reply_send decision_redirect decision_redirect_send"
 PASSTHROUGH="take_report pick_facts classify_report"
-TERMINAL="record_conflict rebrief surface decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped"
+# Stand-ins where the run stops: states this suite doesn't drive, whatever
+# their real routes (report_link, for one, loops back to report_facts).
+TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped roadmap_status failure"
 
 # block <state>: the state's YAML block, from its `  <state>:` line to the next state's.
 block() {
@@ -183,7 +190,8 @@ new_run() {
     db '.issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-\($n)", body: $b,
         state: "open", author: "coord", editor: null}]' --argjson k "$4" --arg n "$3" \
         --arg b "$(render "$(record_json roadmap "$3")" issue)"
-    koto init "$1" --template "$2" --var PLUGIN_ROOT="$PR" --var ROADMAP="docs/roadmaps/ROADMAP-$3.md" \
+    # $KOTO_LEGACY_ENV_ARG: #483.
+    koto init "$1" $KOTO_LEGACY_ENV_ARG --template "$2" --var PLUGIN_ROOT="$PR" --var ROADMAP="docs/roadmaps/ROADMAP-$3.md" \
         --var RECORD_REF="$4" --var REPORTS_TO="${5-}" >/dev/null 2>"$T/init.err" ||
         { bad "session $1 starts" "$(cat "$T/init.err")"; return 1; }
     koto next "$1" --no-cleanup --with-data '{"go":"wait"}' > "$T/next.json" 2>&1
@@ -249,7 +257,7 @@ drive() {
         st=$(at "$s")
         case "$st" in
             wait|pick_facts|classify_report|gone) return 0 ;;
-            record_conflict|rebrief|surface|decision_apply|leg_pick|quiet_check|merged_facts|teardown|rotation_close|done_stopped) return 0 ;;
+            record_conflict|rebrief|surface|decision_apply|leg_pick|quiet_check|merged_facts|teardown|rotation_close|done_stopped|roadmap_status) return 0 ;;
             take_report) tick "$s" --with-data '{"go":"go"}' ;;
             decision_take) rd "$s" --take; tick "$s" --with-data '{"taken":"taken"}' ;;
             decision_verdict)

@@ -218,7 +218,7 @@ inside the chain. `planned_chain:` is `[brief, prd, design, plan]`
 on a handoff run exactly as on any other, and the chain proposal is
 emitted and confirmed as always.
 
-Four Phase 1 behaviors change, and the rest do not:
+Three Phase 1 behaviors change, and the rest do not:
 
 - **The framing-shift question is still surfaced**, as a
   confirmation rather than a fresh ask: the exploration concluded X;
@@ -234,14 +234,6 @@ Four Phase 1 behaviors change, and the rest do not:
 - **The cold-start projected-PRD evaluation is suppressed.** A
   handoff run is not a cold start; the projection exists to guess
   from a slug what the handoff states outright.
-- **Two of the three R6 shape predicates accept the handoff's
-  estimate** with the reasons it states — P1 (architectural
-  alternatives) and P3 (Complex classification). **P2 is recomputed
-  against the tree**, because it cross-references the repo's
-  directory structure and the handoff carries no filesystem
-  material for it. All three are re-derived against the real PRD by
-  the post-`/prd` re-evaluation gate regardless, which is what makes
-  accepting an estimate safe here.
 
 **What the handoff carries.** Six sections shared with `/charter`'s
 row 8.5, the parent-specific block, and one block only `/scope`

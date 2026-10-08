@@ -3,19 +3,39 @@
 # reporting worker's holding and check that its pull request may be verified.
 #
 # The unit is the `unit` of the latest `wait` evidence whose event is
-# `report`. Its holding is read with record-holding.sh --read (the row whose
+# `report` or `progress`. Its holding is read with record-holding.sh --read (the row whose
 # Worker is that topic). When the row links a pull request, it is refused when:
 #   out-of-scope-repo  the link's repository is neither the host nor the Repo
 #                      of any Holdings row
 #   bad-link           the Pull request cell's two numbers differ
 #   fork-head          the pull request's head is in another repository
 #   branch-mismatch    its head branch differs from a non-empty Branch cell
-# With Branch empty there is nothing to compare; with Pull request empty there
-# is no pull request to read.
+# With Branch empty there is nothing to compare.
 #
-# Verdict tokens: holding <pr|none> <topic> | unknown <topic> (no row, or `-`
-# when the evidence names no dispatch topic) | refused <topic> <why> (one of
-# the codes above).
+# With Pull request empty, the pull request the report itself names is read
+# instead (record-common.sh lib_report_pr: the `pr` of the leg's result in
+# koto's record of the leg, or the `pull_request` field of the message's
+# `wait` evidence). A report naming none gives `holding none`. One naming a
+# pull request gives `link`: the holding should carry it, and report_link has
+# holding-link.sh write it and its head branch onto the holding before
+# report_facts reads again. It is refused as a linked one is
+# (out-of-scope-repo, fork-head, branch-mismatch), and also as:
+#   bad-report-pr      the report names it in neither the URL nor the o/r#n
+#                      form (several named is neither)
+#   pr-held            another Holdings row links it, so whose it is is
+#                      ambiguous: it is reported, never adopted
+#
+# A progress report (the hub's `progress` event: a checkpoint message, never
+# a result; shirabe#491) is read the same way, and a pull request it names
+# that its holding lacks still gives `link`, so report_link writes it onto
+# the holding through holding-link.sh, and a refusal is `refused` as for any
+# report. Where a report reads `holding`, progress reads `progress <pr|none>
+# <topic>`: report_questions still reads its questions, and it then goes
+# back to the hub, never to classification, with no phase change.
+#
+# Verdict tokens: holding <pr|none> <topic> | link <pr> <topic> | progress
+# <pr|none> <topic> | unknown <topic> (no row, or `-` when the evidence names
+# no dispatch topic) | refused <topic> <why> (one of the codes above).
 # The facts go to context key coord/report.json as data (classify_report's
 # decider input): {unit, pull_request: {repo, number, url} or null, state,
 # draft, head, merge_state, holding}. No worker message text: the dispatch
@@ -30,6 +50,7 @@
 #
 # GitHub reads: record-holding.sh --read and --list (gh issue|pr view);
 # gh pr view <n> --repo <repo> --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url
+# koto reads: on the leg path with Pull request empty, koto request get <request>.
 set -uo pipefail
 
 PROG=report-facts
@@ -57,12 +78,16 @@ lib_log_readable || lib_die2 "no readable log for $SESSION"
 T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-TOPIC=- ROW=null PRJ=null PRVIEW='{}'
+TOPIC=- ROW=null PRJ=null PRVIEW='{}' PROGRESS=0
 finish() {
+    local tok=$1
+    # A checkpoint report is never classified: where a report reads holding,
+    # it reads progress.
+    [ "$PROGRESS" = 1 ] && case "$tok" in "holding "*) tok="progress ${tok#holding }" ;; esac
     jq -n --arg u "$TOPIC" --argjson row "$ROW" --argjson pr "$PRJ" --argjson v "$PRVIEW" '
         {unit: $u, pull_request: $pr, state: ($v.state // null), draft: (if ($v | has("isDraft")) then $v.isDraft else null end),
          head: ($v.headRefOid // null), merge_state: ($v.mergeStateStatus // null), holding: $row}' > "$T/report.json"
-    lib_emit report_facts "$1" coord/report.json "$T/report.json"
+    lib_emit report_facts "$tok" coord/report.json "$T/report.json"
 }
 
 hold() { # hold <mode args...>: record-holding.sh with this run's facts
@@ -85,8 +110,15 @@ hold() { # hold <mode args...>: record-holding.sh with this run's facts
 leg_holdings() {
     hold --list 2> "$T/list.err" || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/list.err")"
 }
-lib_unit "" report leg_holdings || finish "unknown -"
+lib_unit "" 'report|progress' leg_holdings || finish "unknown -"
 TOPIC=$UNIT
+# Progress: the arrival is a `wait` evidence (never a leg's result) whose
+# event is progress, read from the log, never from a context key.
+if [ -z "$UNIT_LEG" ]; then
+    EVP=$(bash "$HERE/coord-log.sh" evidence --session "$SESSION" --state wait --where 'event=report|progress' 2> /dev/null)
+    case $? in 0|1) ;; *) lib_die2 "cannot read the session log" ;; esac
+    [ "$(printf '%s' "$EVP" | jq -r '.fields.event // ""')" = progress ] && PROGRESS=1
+fi
 ROW=$(hold --topic "$TOPIC" --read 2> "$T/read.err")
 case $? in
     0) ;;
@@ -97,12 +129,20 @@ hold --list > "$T/all.json" 2> "$T/list.err" || lib_die2 "record-holding.sh --li
 
 CELL=$(printf '%s' "$ROW" | jq -r '.pull_request // ""')
 BR=$(printf '%s' "$ROW" | jq -r '.branch // ""')
-[ -n "$CELL" ] || finish "holding none $TOPIC"
-lib_pr_link "$CELL" || finish "refused $TOPIC bad-link"
+WORD=holding
+if [ -n "$CELL" ]; then
+    lib_pr_link "$CELL" || finish "refused $TOPIC bad-link"
+else
+    lib_report_pr
+    [ -n "$REPORT_PR" ] || finish "holding none $TOPIC"
+    lib_pr_ref "$REPORT_PR" || finish "refused $TOPIC bad-report-pr"
+    WORD=link
+fi
 PRJ=$(jq -nc --arg r "$LINK_REPO" --argjson n "$LINK_NUM" '{repo: $r, number: $n, url: "https://github.com/\($r)/pull/\($n)"}')
-jq -e --arg r "$LINK_REPO" --arg h "$REPO" '($r | ascii_downcase) as $l
-    | ($l == ($h | ascii_downcase)) or any(.[]; (.repo | ascii_downcase) == $l)' "$T/all.json" > /dev/null \
-    || finish "refused $TOPIC out-of-scope-repo"
+lib_in_scope "$LINK_REPO" "$T/all.json" || finish "refused $TOPIC out-of-scope-repo"
+if [ "$WORD" = link ] && lib_pr_held "$LINK_REPO" "$LINK_NUM" "$TOPIC" "$T/all.json"; then
+    finish "refused $TOPIC pr-held"
+fi
 gh pr view "$LINK_NUM" --repo "$LINK_REPO" --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url \
     > "$T/pr.json" 2> "$T/pr.err" < /dev/null || lib_die2 "cannot read $LINK_REPO#$LINK_NUM: $(lib_scrub < "$T/pr.err")"
 PRVIEW=$(jq -c '{state, isDraft, headRefOid, mergeStateStatus, isCrossRepository, headRefName}' "$T/pr.json") || lib_die2 "jq failed"
@@ -110,4 +150,4 @@ PRVIEW=$(jq -c '{state, isDraft, headRefOid, mergeStateStatus, isCrossRepository
 if [ -n "$BR" ] && [ "$(printf '%s' "$PRVIEW" | jq -r '.headRefName // ""')" != "$BR" ]; then
     finish "refused $TOPIC branch-mismatch"
 fi
-finish "holding $LINK_NUM $TOPIC"
+finish "$WORD $LINK_NUM $TOPIC"

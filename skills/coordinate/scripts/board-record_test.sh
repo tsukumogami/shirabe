@@ -29,6 +29,8 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/board-record-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
+# A body with no Review panel yet: verify_board reads the board, not the round.
+BT_PRVIEW_BODY=$(printf 'Part one.\n\n---\n\nNo panel yet.\n')
 BR="$PS/board-record.sh"
 CL="$PS/coord-log.sh"
 PERMIT="readable merge:permit close:permit teardown:permit"
@@ -53,11 +55,11 @@ eq "coord/board.json's verdict, head, reasons and skipped match the read" \
     "$(jq -c '{verdict, head, reasons, skipped}' "$T/direct")" "$(ctx | jq -c '{verdict, head, reasons, skipped}')"
 eq "and it lists the skipped job" '[{"run":101,"job":1003,"name":"LLM Quality Gate"}]' "$(ctx | jq -c .skipped)"
 
-echo "== unverified and pending record no head =="
+echo "== unverified, pending and not-run record no head =="
 for cf in "$TD"/board/cases/*.jq; do
     name=$(basename "$cf" .jq)
     set -- $(sed -n 's/^# expect: //p' "$cf")
-    [ "$1" = unverified ] || [ "$1" = pending ] || continue
+    [ "$1" = unverified ] || [ "$1" = pending ] || [ "$1" = not-run ] || continue
     sed -n 's/^# args: //p' "$cf" | grep -q . && continue
     sed -n 's/^# env: //p' "$cf" | grep -q . && continue
     want=$1; shift
@@ -82,6 +84,18 @@ eq "a check only isRequired names, unseen under the fallback: still actions-gree
 fresh; bt_board complete-board
 bash "$BR" --session "$S" --pr 12 --repo acme/widgets >/dev/null 2>&1
 eq "a readable rollup is the checks source" checks "$(ctx | jq -r .source)"
+
+echo "== the body's Review panel =="
+fresh; bt_board complete-board; bt_body | sed 's/comment-102/comment-101/' > "$T/body"; bt_prview CLEAN "$T/body"
+OUT=$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets 2>"$T/err")
+eq "a green board with seats sharing a Run: unevidenced, no head" "unevidenced 12 none" "${OUT% sealed:*}"
+eq "and coord/board.json names the rule broken" run-repeated "$(ctx | jq -r .evidence.reason)"
+fresh; bt_board complete-board; bt_prview CLEAN
+eq "a green board with a well-formed table: verified" "verified 12 $H" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board complete-board; bt_body "$H" fail > "$T/body"; bt_prview CLEAN "$T/body"
+eq "a failing seat is land's to refuse, not verify's" "verified 12 $H" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
+fresh; bt_board complete-board; rm -f "$GH_BOARD_DIR/prview-12.out"; echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/prview-12.err"; echo 1 > "$GH_BOARD_DIR/prview-12.rc"
+eq "a body that can't be read: board-unreadable" "board-unreadable 12 none" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 
 echo "== a board that can't be judged still leaves verify_board =="
 fresh; bt_board rules-unreadable
@@ -153,18 +167,30 @@ eq "without --pr, the latest REPORT capture names the pull request" "verified 12
 grep -q 'pulls/12/files' "$GH_BOARD_DIR/calls" && ok "and the board read is of #12" || bad "and the board read is of #12"
 bt_holdings "[#12](https://github.com/acme/widgets/pull/12)"
 eq "with neither --pr nor --repo, the session alone is enough" "verified 12 $H" "$(bash "$BR" --session "$S" --no-seal 2>"$T/err")"
+# Nothing to verify leaves verify_board on a sealed no-pr, never an action that
+# fails on every tick: what it read is sealed in report_facts' capture.
+no_pr() { # no_pr <label> <reason code>: the run at verify_board reads no-pr, sealed
+    : > "$GH_BOARD_DIR/calls"
+    OUT=$(bash "$BR" --session "$S" 2>"$T/err"); rc=$?
+    eq "$1: exit 0" 0 $rc
+    eq "$1: no-pr" "no-pr none none" "${OUT% sealed:*}"
+    bash "$CL" check --session "$S" --state verify_board --sealed "$OUT" >/dev/null 2>&1 \
+        && ok "$1: sealed to verify_board" || bad "$1: sealed to verify_board" "$OUT"
+    eq "$1: coord/board.json names why" "no-pr $2" "$(ctx | jq -r '"\(.verdict) \(.reasons[0].code)"')"
+    [ -s "$GH_BOARD_DIR/calls" ] && bad "$1: no board read" "$(cat "$GH_BOARD_DIR/calls")" || ok "$1: no board read"
+}
 reported "holding none plugin-registry"
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>"$T/err"; eq "a holding with no pull request yet: exit 2" 2 $?
+no_pr "a holding with no pull request yet" no-pull-request
 reported "unknown plugin-registry"
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a report capture that isn't a holding: exit 2" 2 $?
+no_pr "a report capture that isn't a holding" not-a-holding
 reported "holding 12 plugin-registry"; bt_enter "$S" report_facts
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "a stale report capture (report_facts entered since): exit 2" 2 $?
+no_pr "a stale report capture (report_facts entered since)" no-report
 N=$((N + 1)); S="coordinate-demo-20260926T1200$(printf '%02d' "$N")Z"
 bt_run "$S" "$PERMIT"; bt_enter "$S" report_facts; bt_capture "$S" REPORT "holding 12 plugin-registry"
 bt_enter "$S" verify; bt_evidence "$S" verify '{"prediction":"green"}'; bt_enter "$S" verify_board
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "an unsealed report capture: exit 2" 2 $?
+no_pr "an unsealed report capture" no-report
 fresh
-bash "$BR" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "no report capture at all: exit 2" 2 $?
+no_pr "no report capture at all" no-report
 reported "holding 12 plugin-registry"
 eq "--pr still overrides the report" "verified 12 $H" "$(bash "$BR" --session "$S" --pr 12 --repo acme/widgets --no-seal 2>/dev/null)"
 

@@ -30,6 +30,7 @@ eq()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2]
 W="$T/work"
 mkdir -p "$W/docs/decisions" "$W/docs/prds"
 : >"$W/docs/decisions/DECISION-design-t-rejection-2026-06-01.md"
+: >"$W/docs/decisions/DECISION-brief-t-rejection-2026-06-01.md"
 printf 'x\n<!-- scope-status-block: abandonment-forced; triggering-child: prd -->\n' >"$W/docs/prds/PRD-t.md"
 
 ALL=""
@@ -101,6 +102,9 @@ case "$OUT" in *"pr_state=open"*) ok "executed, open" ;; *) bad "executed, open"
 echo "== stops =="
 render done_re_evaluation '{"outcome":"re-evaluation","exit":"re-evaluation","intent":"none","boundary":"design","pr":"","wip_paths":""}'
 eq "re-evaluation: today's record, no outcome=" "/scope finished: exit=re-evaluation; artifact=docs/decisions/DECISION-design-t-rejection-2026-06-01.md
+intent=none" "$OUT"
+render done_re_evaluation '{"outcome":"re-evaluation","exit":"re-evaluation","intent":"none","boundary":"brief","pr":"","wip_paths":""}'
+eq "re-evaluation at the brief boundary names the BRIEF rejection record" "/scope finished: exit=re-evaluation; artifact=docs/decisions/DECISION-brief-t-rejection-2026-06-01.md
 intent=none" "$OUT"
 render done_abandonment "{\"outcome\":\"abandonment\",\"exit\":\"abandonment-forced\",\"intent\":\"continue\",\"pr\":\"$URL\",\"wip_paths\":\"wip/scope_t_state.md\"}"
 eq "abandonment with intent: no outcome=, the draft PR" "/scope finished: exit=abandonment-forced; artifact=docs/prds/PRD-t.md

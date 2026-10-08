@@ -10,13 +10,15 @@
 #   1. dispatch is unreachable without exactly one record (none stops at
 #      record_open, two at record_conflict, a record that vanishes routes
 #      dispatch_check back to record_find), and once the stand-in holds the
-#      record the run reaches pick with no evidence naming it;
+#      record the run reaches pick with no evidence naming it, after a new
+#      record's empty stored set held the reconcile handover gate until
+#      record-state.sh filled it;
 #   2. a restart with a record present takes the found arm, never record_open;
 #   3. an undisposed deferral holds dispatch_check at deferral_dispose until
 #      record-write.sh disposes it, then dispatch is reached;
 #   4. `dispatch` holds (the dispatch path's holding_recorded gate) until the
 #      Holdings row shows dispatched, so record and wait are unreachable until
-#      then;
+#      then, and record holds until the holding has its Work row;
 #   5. a Draft roadmap ends at done_not_active;
 #   6. an unread posture reaches posture_ask;
 #   7. `koto overrides record` is refused on a check gate and on the dispatch
@@ -36,6 +38,62 @@
 #      roadmap_blocked, then wait;
 #  15. escalate_send to a person, both routes: the question tool's answer comes
 #      back from escalate_send, a message's from wait, each to decision_answer.
+#  16. from a holding with Branch and Pull request empty, a message report
+#      naming its pull request and a leg result carrying `pr` each go through
+#      report_link, where holding-link.sh writes the pull request and its
+#      headRefName, and on to verify_board reading that pull request with no
+#      hand write; a restart's reconcile then reports it open; `done` for a
+#      report naming none goes back to wait, never to verify, and the next
+#      report naming one gets through; blocked and needs_fix still route with
+#      no pull request, and a leg-bound worker whose result names none takes
+#      needs_fix to rebrief, the directive's route once its leg is spent. verify_board's no-pr arm is unreachable here by
+#      design (the gate above keeps such a report out of verify), so its
+#      sealed verdict is board-record_test.sh's and its arm the structure
+#      test's.
+#  17. a merge confirmed at merge_confirm holds record until the unit's
+#      Pull request cell is cleared, and the row stays (the shirabe#490
+#      comment): a row still linking the pull request waits, the row written
+#      back with the cell empty confirms, and the run goes on to pick with
+#      the row in the record.
+#  18. send_execution for a scoping-ahead holding: dispatch-worker.sh, run as
+#      the agent runs it at dispatch, renders the execution brief, opens an
+#      /execute leg in koto's request store and rewrites the holding to
+#      executing; record confirms it and the run reaches pick. A dispatch
+#      that leaves the holding scoping ahead holds at record.
+#  19. a checkpoint report is progress (shirabe#491): on the message path
+#      it goes through take_report, report_facts and report_questions back to
+#      wait with no classification and no phase change; one naming a pull
+#      request its holding lacks goes through report_link, where
+#      holding-link.sh writes it; one asking a question opens a decision entry
+#      and still isn't classified; a leg-bound worker's progress message is
+#      accepted, not refused, and goes back to wait without touching its leg;
+#      the same worker's later terminal report is classified as before. (19
+#      sits before 17 in this file, beside the cases it reuses fixtures from.)
+#      A leg-bound worker's checkpoint reaches the coordinator whole
+#      (shirabe#610): its question opens a decision entry whose source is the
+#      worker, and its pull request is written onto its holding, its leg
+#      never read.
+#  20. a unit waiting on a person (shirabe#549): pick's await_decision goes to
+#      decision_raise, which holds until record-state.sh parks the unit on the
+#      entry it opened; escalated and sent, the run is back at pick with the
+#      unit awaiting and no slot taken, so under a cap of one another unit is
+#      dispatched beside it; dispatch-worker.sh refuses the parked unit (exit
+#      10, nothing written); the answer settles the entry, pick lists the unit
+#      answered, and its dispatch goes through, its holding row taking over
+#      the decision row.
+#  21. a feature whose deliverable is its scoping (shirabe#550): pick's scope
+#      dispatches /shirabe:scope through dispatch-worker.sh at Phase scoping,
+#      its brief saying the execution is a later unit; when a scoping holding's
+#      merge is confirmed, record holds until a follow-up Work row records its
+#      execution, pick then lists the unit's follow-up, and roadmap-status.sh
+#      refuses to write it Done.
+#  22. work a person assigns outside the roadmap (shirabe#607, #627): an
+#      issue and a release recorded as Standing assignment rows are listed by
+#      pick and dispatched through dispatch-worker.sh at roadmap scope, the
+#      issue on /shirabe:work-on and the release on /shirabe:release with no
+#      leg and no run mode; each brief names the record's Run coordinator
+#      address and never the koto session name (shirabe#610). (22 sits after
+#      19.)
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -47,6 +105,11 @@ REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
 for bin in koto jq git; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
+# koto's recorded command environment hides this harness's stand-in variables
+# from the commands koto runs; the knob keeps the old environment where the
+# koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
+. "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
 REAL_DATE=$(command -v date)
 ORIG_PATH=$PATH
 
@@ -67,7 +130,9 @@ mkdir -p "$GH_BOARD_DIR"
 # verify_board and land make, which go to testdata/gh-board when its case
 # directory holds a response for them: the board's GraphQL snapshot (any
 # GraphQL query but the author/editor one) and the REST reads only the board
-# makes (runs, jobs, rules, branch, the ref, files, checks).
+# makes (runs, jobs, rules, branch, the ref, files, checks), and the merge
+# confirmation's reads (the pull request's state and files, the repository,
+# each file's blob) when the case directory holds them.
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 key=
@@ -84,12 +149,19 @@ case "${1-} ${2-}" in
             repos/*/*/pulls/*/files) key=files ;;
             repos/*/*/commits/*/check-runs) key=checkruns ;;
             repos/*/*/commits/*/status) key=statuses ;;
+            repos/*/*/contents/*) ls "$GH_BOARD_DIR"/contents-* >/dev/null 2>&1 && exec "$COORD_TESTDATA/gh-board" "$@" ;;
+            repos/*/*/*) ;;
+            repos/*/*) key=repo ;;
         esac ;;
+    "pr view") key="prview-${3-}" ;;
 esac
 if [ -n "$key" ] && ls "$GH_BOARD_DIR/$key".* >/dev/null 2>&1; then exec "$COORD_TESTDATA/gh-board" "$@"; fi
 exec "$COORD_TESTDATA/gh" "$@"
 EOF
 chmod +x "$T/bin/gh"
+# The land check runs the repository's PR-body rule through the shirabe
+# binary; the stand-in answers clean, so the run never needs a real one.
+ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
 
 # A clock the quiet case can move forward: with $T/clock holding a number of
 # seconds, `date` without -d/-r reads that much later. Every other case runs
@@ -135,9 +207,25 @@ roadmap_text() { # roadmap_text <status>
 seed_roadmap() { # seed_roadmap <name> [status]
     db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-\($n).md"] = $t' --arg n "$1" --arg t "$(roadmap_text "${2:-Active}")"
 }
-seed_record() { # seed_record <name> <number> [record-json]: an open record issue
+# stored <record-json>: the record with a complete stored set, so the
+# reconcile's handover gate passes: the run's arguments and cap, this
+# coordinator's address, and for every live holding a next step and its
+# worker told. The handover cases build theirs by hand.
+stored() {
+    printf '%s' "$1" | jq -c '
+        ([.holdings[] | select(.dispatch_status == "dispatched")
+          | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)]) as $live
+        | .run = ((.run // []) + [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-test.md", set_by: "the human", set: "2026-09-26T08:00Z"},
+                                  {key: "cap", value: "5", set_by: "the human", set: "2026-09-26T08:00Z"},
+                                  {key: "coordinator", value: "coord-test", set_by: "coord-test", set: "2026-09-26T08:00Z"}]
+                 + [$live[] | {key: "told", value: .worker, set_by: "coord-test", set: "2026-09-26T08:00Z"}])
+        | .work = ((.work // []) + [$live[] | {item: .unit, kind: "holding", who: .worker, next: "waiting on the worker", updated: "2026-09-26T08:00Z"}])
+        | if (.work | length) == 0 then del(.work) else . end'
+}
+seed_record() { # seed_record <name> <number> [record-json]: an open record issue, its stored set complete
     local j=${3-}
     [ -n "$j" ] || j=$(record_json roadmap "$1")
+    [ "${RAW_RECORD-}" = 1 ] || j=$(stored "$j")
     db '.issues += [{repo: "acme/widgets", number: $k, title: "Coordinator record: ROADMAP-\($n)", body: $b,
         state: "open", author: "coord", editor: null}]' --arg n "$1" --argjson k "$2" --arg b "$(render "$j" issue)"
 }
@@ -198,6 +286,11 @@ if open_run one; then
     eq "1: record-open.sh (agent-run) opens the record" 0 $rc
     N1=$(record_number one)
     eq "1: after record_open the run finds the one record and reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+    eq "1: a new record's empty stored set holds the handover gate" reconcile "$(at --with-data '{"reconciled":"reported"}')"
+    write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-one.md" --by "the human" \
+        && write_as_agent record-state.sh --run cap 5 --by "the human" \
+        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test
+    eq "1: record-state.sh (agent-run) writes the arguments, the cap and the address" 0 $?
     eq "1: the next advance reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
     NAMED=$(jq -r --arg n "$N1" 'select(.type == "evidence_submitted") | .payload.fields | tostring
         | select(test("(^|[^0-9])" + $n + "([^0-9]|$)") or test("issues/"))' "$(logf)")
@@ -285,7 +378,10 @@ if to_pick hold "$(record_json roadmap hold)" 40 && [ "$(at --with-data '{"choic
     dispatched_row feat-1 > "$T/row.json"
     write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"; rc=$?
     eq "4: record-holding.sh (agent-run) writes the row" 0 $rc
-    eq "4: with the row on GitHub, dispatch leaves, record confirms and reaches pick" pick "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    eq "4: with the row on GitHub, dispatch leaves, and record waits for the holding's Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    write_as_agent record-state.sh --work "Feature 1" --kind holding --who feat-1 --next "waiting on its first report"; rc=$?
+    eq "4: record-state.sh (agent-run) writes the holding's next step" 0 $rc
+    eq "4: with the Work row on GitHub, record confirms and reaches pick" pick "$(at)"
     eq "4: and pick can now hold into wait" wait "$(at --with-data '{"choice":"hold"}')"
 else
     bad "4: reach dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
@@ -444,14 +540,15 @@ echo "== 11. land needs a recorded verified head, and refuses a moved one =="
 # land_run <name> <number>: a run whose holding links acme/widgets#12, driven
 # wait -> report -> classify_report (done) -> verify, then on through
 # verify_board (the complete-board fixture) to verified_confirm.
-land_row() { # land_row [verified-head]
-    holding feat-1 "$(jq -nc --arg h "${1-}" '{unit: "Feature 1", branch: "feat/x", verified_head: $h,
-        pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}')"
+land_row() { # land_row [verified-head]; LAND_PHASE sets the Phase (executing)
+    holding feat-1 "$(jq -nc --arg h "${1-}" --arg p "${LAND_PHASE:-executing}" '{unit: "Feature 1", branch: "feat/x", verified_head: $h,
+        phase: $p, pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}')"
 }
 land_run() {
-    db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
+    # The body carries the worker's Review panel at the head, which land reads.
+    db '.prs = [{repo: "acme/widgets", number: 12, title: "feat: the loader", body: $b, state: "OPEN", isDraft: false,
         isCrossRepository: false, baseRefName: "main", headRefName: "feat/x", headRefOid: $h, author: "alice",
-        mergeStateStatus: "CLEAN"}]' --arg h "$H"
+        mergeStateStatus: "CLEAN"}]' --arg h "$H" --arg b "$(bt_body)"
     bt_board complete-board
     to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(land_row)" '.holdings = [$h]')" "$2" || return 1
     [ "$(at --with-data '{"choice":"hold"}')" = wait ] || return 1
@@ -472,10 +569,11 @@ if land_run landing 110; then
     eq "11: land is not entered before the head is recorded" 0 "$(entered land)"
     record_verified
     eq "11: record-holding.sh (agent-run) records the verified head" 0 $?
-    eq "11: with the head recorded, land permits and reaches land_merge" land_merge "$(at)"
+    eq "11: with the head recorded, land reads the round and permits, to goal_fit" goal_fit "$(at)"
     case "$(bash "$PS/coord-log.sh" capture --session "$S" --name LAND)" in
         "permit 12 $H "*) ok "11: LAND is the sealed permit" ;; *) bad "11: LAND is the sealed permit" ;;
     esac
+    eq "11: a fit pull request reaches land_merge" land_merge "$(at --with-data '{"fit":"fits","rationale":"delivers Feature 1"}')"
 else
     bad "11: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
@@ -493,6 +591,372 @@ if land_run moving 111; then
 else
     bad "11: reach verified_confirm for the moved head" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
+rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+# ---- 19. a checkpoint report is progress --------------------------------------
+echo "== 19. a checkpoint report is progress, on either return path =="
+PROG_ROWS() {
+    jq -nc --argjson a "$(holding feat-1 '{"unit": "Feature 1", "branch": "", "verified_head": "", "pull_request": "", "return_path": "message"}')" \
+        --argjson b "$(holding feat-2 '{"unit": "Feature 2", "branch": "", "verified_head": "", "pull_request": "", "return_path": "leg req-x:deliver"}')" '[$a, $b]'
+}
+db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
+    isCrossRepository: false, baseRefName: "main", headRefName: "feat/w-head", headRefOid: $h, author: "alice",
+    mergeStateStatus: "CLEAN"}]' --arg h "$H"
+if to_pick progress "$(record_json roadmap progress | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 191 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    eq "19 message: progress naming no pull request goes back to wait" wait \
+        "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 1 reached: scoping started."}')"
+    from_to take_report report_facts && from_to report_facts report_questions && from_to report_questions wait \
+        && ok "19 message: through take_report, report_facts and report_questions" \
+        || bad "19 message: through take_report, report_facts and report_questions"
+    eq "19 message: never classified" 0 "$(entered classify_report)"
+    eq "19 message: progress naming a pull request its holding lacks goes to report_link" report_link \
+        "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 2: PR is up.","pull_request":"acme/widgets#12"}')"
+    write_as_agent holding-link.sh
+    eq "19 message: holding-link.sh writes it" 0 $?
+    eq "19 message: written goes back to wait through report_facts" wait "$(at --with-data '{"linked":"written"}')"
+    live_body 191 | jq -e '.holdings[] | select(.worker == "feat-1") | .pull_request == "[#12](https://github.com/acme/widgets/pull/12)" and .phase == "executing"' >/dev/null \
+        && ok "19 message: the holding carries the pull request, its phase unchanged" || bad "19 message: the holding carries the pull request" "$(live_body 191 | jq -c .holdings)"
+    eq "19 message: still never classified" 0 "$(entered classify_report)"
+    RF0=$(entered report_facts)
+    eq "19 leg: a leg-bound worker's progress is accepted and goes back to wait" wait \
+        "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 1 reached."}')"
+    eq "19 leg: it was read by report_facts, as progress, not refused at take_report" "$((RF0 + 1)) progress" "$(entered report_facts) $(cd "$WD" && koto context get "$S" report_source 2>/dev/null)"
+    eq "19 leg: it never went to surface" 0 "$(entered surface)"
+    eq "19 leg: and its leg was never read" 0 "$(entered wait_leg)"
+    eq "19 leg: a report message from it is still refused at take_report" wait \
+        "$(at --with-data '{"event":"report","unit":"feat-2","report":"Done."}')"
+    eq "19 leg: still not classified" 0 "$(entered classify_report)"
+    eq "19 terminal: the message worker's later report is classified" classify_report \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"Done: PR #12 is ready.","pull_request":"acme/widgets#12"}')"
+else
+    bad "19: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# A checkpoint report that asks a question: its question is read and opens a
+# decision entry; the report is still never classified.
+if to_pick progressq "$(record_json roadmap progressq | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 192 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    eq "19 question: progress asking a question opens a decision entry" decision_open \
+        "$(at --with-data '{"event":"progress","unit":"feat-1","report":"Checkpoint 3 reached.\nQuestions:\n1. Should the loader pin v2?"}')"
+    eq "19 question: and is never classified" 0 "$(entered classify_report)"
+else
+    bad "19 question: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# A leg-bound worker's checkpoint reaches the coordinator whole (shirabe#610):
+# its question opens a decision entry and its pull request reaches its
+# holding, while its leg stays open for its result.
+if to_pick progressleg "$(record_json roadmap progressleg | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 193 \
+    && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
+    eq "19 leg question: a leg-bound worker's checkpoint asking a question opens a decision entry" decision_open \
+        "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 1 reached.\nQuestions:\n1. Should the registry ship in 1.4?"}')"
+    eq "19 leg question: read as progress, not refused" progress "$(cd "$WD" && koto context get "$S" report_source 2>/dev/null)"
+    printf '%s' '{"1": {"question": "Should the registry ship in 1.4?", "options": ["ship -- in 1.4", "wait -- for 1.5"]}}' > "$T/q193.json"
+    write_as_agent record-decision.sh --open-from-report --text-file "$T/q193.json"
+    eq "19 leg question: record-decision.sh opens it" 0 $?
+    eq "19 leg question: a proposed entry, its source the leg-bound worker" "proposed worker feat-2" \
+        "$(live_body 193 | jq -r '[.decisions.entries[] | select(.question == "Should the registry ship in 1.4?")][0] | "\(.state) \(.source | split(" [")[0])"')"
+    tick --with-data '{"opened":"opened"}' >/dev/null
+    # The entry is the coordinator's to take up; back to the hub for the next.
+    for _ in 1 2 3 4; do [ "$(now_at)" = wait ] && break; case "$(now_at)" in
+        decision_take) write_as_agent record-decision.sh --take; tick --with-data '{"taken":"taken"}' >/dev/null ;;
+        decision_verdict) write_as_agent record-decision.sh --hold --reason "the release plan"; tick --with-data '{"verdict":"hold","rationale":"waits on the release plan"}' >/dev/null ;;
+        *) tick >/dev/null ;; esac; done
+    [ "$(now_at)" = pick ] && tick --with-data '{"choice":"hold"}' >/dev/null
+    eq "19 leg question: the run is back at wait" wait "$(now_at)"
+    eq "19 leg link: its checkpoint naming its pull request goes to report_link" report_link \
+        "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 2: PR is up.","pull_request":"acme/widgets#12"}')"
+    write_as_agent holding-link.sh
+    eq "19 leg link: holding-link.sh writes it onto the leg-bound holding" "[#12](https://github.com/acme/widgets/pull/12) leg req-x:deliver" \
+        "$(live_body 193 | jq -r '.holdings[] | select(.worker == "feat-2") | "\(.pull_request) \(.return_path)"')"
+    eq "19 leg: and its leg was never read" 0 "$(entered wait_leg)"
+else
+    bad "19 leg: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 22. assigned work and a release, dispatched at roadmap scope -------------
+echo "== 22. an issue and a release a person assigned are dispatched at roadmap scope, the brief naming the record's address =="
+# niwa, for these dispatches: `list --json` names the sessions launched so
+# far, `dispatch --name <topic>` launches one.
+mkdir -p "$T/niwa22"
+printf '[]\n' > "$T/niwa22/sessions.json"
+cat > "$T/niwa22/niwa" <<EOF
+#!/usr/bin/env bash
+case "\$1 \${2-}" in
+    "list --json") cat "$T/niwa22/sessions.json" ;;
+    "dispatch --help") : ;;
+    dispatch*) shift; t=; while [ \$# -gt 0 ]; do [ "\$1" = --name ] && t=\$2; shift; done
+        n="\$(printf '%s' "\$t" | tr '-' '_')-1a2b3c4d"
+        jq -c --arg n "\$n" '. + [{name: "w", path: "/w", session_name: \$n}]' "$T/niwa22/sessions.json" > "$T/niwa22/s.tmp" && mv "$T/niwa22/s.tmp" "$T/niwa22/sessions.json"
+        printf 'Dispatched\n  session name: %s\n' "\$n" ;;
+    *) exit 64 ;;
+esac
+EOF
+chmod +x "$T/niwa22/niwa"
+assigned_brief() { # assigned_brief <topic> <unit> <entry point> <positional> <run mode>
+    jq -nc --arg t "$1" --arg u "$2" --arg e "$3" --arg a "$4" --arg m "$5" '{topic: $t, repo: "acme/widgets", unit: $u, entry_point: $e,
+        entry_args: [$a], run_mode: $m, phase: "executing", authority: "You are working for the owner on acme/widgets.",
+        goal: "\($u) lands.", checkpoints: ["The work is done and reported."], acceptance: ["It is done."], dispatcher_session: "x"}' \
+        | jq -c --arg s "$S" '.dispatcher_session = $s'
+}
+dispatch22() { # dispatch22 <brief-json>: dispatch-worker.sh at dispatch, as the agent runs it; D22 its exit
+    printf '%s' "$1" > "$T/brief22.json"
+    (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/brief22.json" >/dev/null)
+    : > "$T/work/.niwa/workspace.toml"
+    (cd "$WD" && NIWA="$T/niwa22/niwa" bash "$PS/dispatch-worker.sh" --session "$S" >"$T/d22.out" 2>"$T/d22.err"); D22=$?
+    rm -f "$T/work/.niwa/workspace.toml"
+}
+ASSIGNED='[{"standing": "s1", "kind": "assignment", "on": "acme/widgets#591", "until": "", "what": "pick the review level up front", "owner": "the human", "relayed_by": "", "set": "2026-10-06T15:00Z"},
+    {"standing": "s2", "kind": "assignment", "on": "release acme/widgets v0.25.0", "until": "", "what": "cut v0.25.0", "owner": "the human", "relayed_by": "", "set": "2026-10-06T15:00Z"}]'
+db '.issues += [{repo: "acme/widgets", number: 591, title: "pick the review level up front", body: "", state: "open", author: "alice", editor: null}]'
+if to_pick assigned "$(record_json roadmap assigned | jq -c --argjson s "$ASSIGNED" '.standing = $s')" 220; then
+    eq "22: pick lists the assigned issue and the release beside the roadmap's features" "acme/widgets#591:s1 release acme/widgets v0.25.0:s2" \
+        "$(cd "$WD" && koto context get "$S" coord/pick.json | jq -r '[.units[] | select(.assigned != null) | "\(.unit):\(.assigned)"] | join(" ")')"
+    eq "22: the assigned issue goes through the dispatch check" dispatch "$(at --with-data '{"choice":"dispatch","unit":"fix-591"}')"
+    dispatch22 "$(assigned_brief fix-591 "acme/widgets#591" work-on 591 --auto)"
+    eq "22: dispatch-worker.sh launches it at roadmap scope" 0 "$D22"
+    eq "22: its holding's Unit is the issue" "acme/widgets#591" "$(live_body 220 | jq -r '.holdings[] | select(.worker == "fix-591") | .unit')"
+    B22=$(cat "$T/work/.niwa/dispatch-briefs/fix-591.md" 2>/dev/null)
+    case "$B22" in *'addressed to `coord-test`, the address its record names'*) ok "22: the brief names the record's address" ;;
+        *) bad "22: the brief names the record's address" "$(printf '%s' "$B22" | grep -i 'report to the coordinator') $(cat "$T/d22.err")" ;; esac
+    case "$B22" in *"$S"*) bad "22: and never the koto session name" ;; *) ok "22: and never the koto session name" ;; esac
+    eq "22: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"fix-591"}')"
+    write_as_agent record-state.sh --work "acme/widgets#591" --kind holding --who fix-591 --next "report at its first checkpoint"
+    eq "22: then back to pick, the issue covered" "pick fix-591" \
+        "$(at) $(cd "$WD" && koto context get "$S" coord/pick.json | jq -r '.units[] | select(.unit == "acme/widgets#591") | .holding.worker')"
+    eq "22: the release goes through the dispatch check" dispatch "$(at --with-data '{"choice":"dispatch","unit":"release-0-25-0"}')"
+    dispatch22 "$(assigned_brief release-0-25-0 "release acme/widgets v0.25.0" release v0.25.0 "")"
+    eq "22: dispatch-worker.sh launches the release" 0 "$D22"
+    eq "22: on the message path, entry point release, no mode" "message release " \
+        "$(live_body 220 | jq -r '.holdings[] | select(.worker == "release-0-25-0") | "\(.return_path) \(.entry_point) \(.mode)"')"
+    grep -q 'Run `/shirabe:release v0.25.0` in acme/widgets' "$T/work/.niwa/dispatch-briefs/release-0-25-0.md" 2>/dev/null \
+        && ok "22: the brief runs /shirabe:release with the version" || bad "22: the brief runs /shirabe:release with the version" "$(cat "$T/d22.err")"
+    eq "22: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"release-0-25-0"}')"
+    write_as_agent record-state.sh --work "release acme/widgets v0.25.0" --kind holding --who release-0-25-0 --next "report the tag"
+    eq "22: then back to pick" pick "$(at)"
+else
+    bad "22: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 17. a confirmed merge clears the Pull request cell -----------------------
+echo "== 17. a confirmed merge clears the Pull request cell and keeps the row =="
+if land_run merging 112; then
+    record_verified
+    # A fit with follow-ups goes on exactly as a fit does.
+    if [ "$(at)" = goal_fit ] \
+        && [ "$(at --with-data '{"fit":"fits_with_follow_ups","rationale":"delivers Feature 1; follow-up: document the loader flags"}')" = land_merge ]; then
+        # The merge landed the verified content: MERGED, and the one file's
+        # blob on main equals the head's.
+        bt_merged MERGED '["src/main.go"]'; bt_blob main src/main.go aaaa; bt_blob "$H" src/main.go aaaa
+        eq "17: a confirmed merge goes on to record" record "$(at --with-data '{"merge":"attempted"}')"
+        case "$(bash "$PS/coord-log.sh" capture --session "$S" --name MERGE_CONFIRM)" in
+            "merged 12 $H "*) ok "17: MERGE_CONFIRM reads merged" ;; *) bad "17: MERGE_CONFIRM reads merged" ;;
+        esac
+        rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+        eq "17: record holds while the row still links the pull request" record "$(at)"
+        case "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>/dev/null | jq -r .expectation)" in
+            *"kept, with its Pull request cell cleared of #12"*) ok "17: the expectation says to clear the cell and keep the row" ;;
+            *) bad "17: the expectation says to clear the cell and keep the row" "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>&1)" ;;
+        esac
+        # The agent clears the cell, as the directive says: the row read back,
+        # pull_request emptied, nothing else changed.
+        (cd "$WD" && bash "$PS/record-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"
+        write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
+        eq "17: record-holding.sh (agent-run) clears the cell" 0 $?
+        eq "17: with the cell cleared, record confirms and the run goes on to pick" pick "$(at)"
+        live_body 112 | jq -e --arg h "$H" '[.holdings[] | select(.worker == "feat-1")]
+            | length == 1 and .[0].pull_request == "" and .[0].verified_head == $h' >/dev/null \
+            && ok "17: the row stays, with its Verified head and no pull request" || bad "17: the row stays, with its Verified head and no pull request" "$(live_body 112 | jq -c .holdings)"
+    else
+        bad "17: reach land_merge" "$(cat "$T/tick.err" 2>/dev/null)"
+    fi
+else
+    bad "17: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+# ---- 18. send_execution moves a scoping-ahead holding to executing ------------
+echo "== 18. send_execution moves a scoping-ahead holding to executing =="
+SCOPING_ROW=$(holding feat-1 "$(jq -nc '{unit: "Feature 1", entry_point: "scope", mode: "--auto --intent=continue", phase: "scoping-ahead",
+    pull_request: "", branch: "", return_path: "message"}')")
+cat > "$T/exec-brief.json" <<'EOF'
+{"topic": "feat-1", "repo": "acme/widgets", "unit": "Feature 1: first", "entry_point": "execute",
+ "entry_args": ["docs/plans/PLAN-feat-1.md"], "run_mode": "--auto", "phase": "executing",
+ "authority": "You are working for the owner on acme/widgets.", "goal": "Feature 1 ships.",
+ "checkpoints": ["The PR is ready with every CI job green."], "acceptance": ["CI is green per job."],
+ "dispatcher_session": "coord-engine"}
+EOF
+send_exec_to_dispatch() { # send_exec_to_dispatch <name> <number>: a run at dispatch on send_execution
+    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$SCOPING_ROW" '.holdings = [$h]')" "$2" || return 1
+    [ "$(at --with-data '{"choice":"send_execution","unit":"feat-1"}')" = dispatch ]
+}
+if send_exec_to_dispatch execsend 118; then
+    (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/exec-brief.json" >/dev/null)
+    # The workspace root the dispatch script renders briefs under, for this
+    # one run of it.
+    : > "$T/work/.niwa/workspace.toml"
+    OUT=$(cd "$WD" && bash "$PS/dispatch-worker.sh" --session "$S" 2>"$T/dw.err"); rc=$?
+    rm -f "$T/work/.niwa/workspace.toml"
+    eq "18: dispatch-worker.sh sends the execution (exit 0)" 0 "$rc"
+    case "$OUT" in *already-dispatched*) bad "18: never already-dispatched" "$OUT" ;; *brief=*) ok "18: it prints the execution brief" ;; *) bad "18: it prints the execution brief" "$OUT $(cat "$T/dw.err")" ;; esac
+    live_body 118 | jq -e '.holdings[0] | .phase == "executing" and .entry_point == "execute" and (.return_path | test("^leg [^:]+:execute$"))' >/dev/null \
+        && ok "18: the holding reads executing, on /execute's new leg" || bad "18: the holding reads executing, on /execute's new leg" "$(live_body 118 | jq -c '.holdings')"
+    eq "18: record confirms the moved phase and the run reaches pick" pick "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+else
+    bad "18: reach dispatch on send_execution" "at=$(now_at) $(cat "$T/open.err" "$T/tick.err" 2>/dev/null) $(cd "$WD" && koto context get "$S" coord/dispatch_check.json 2>/dev/null)"
+fi
+if send_exec_to_dispatch execnone 119; then
+    # Nothing was sent: the holding is still scoping ahead, so record holds.
+    eq "18: a send that changed nothing holds at record" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    case "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>/dev/null | jq -r .expectation)" in
+        *"means no execution was sent"*) ok "18: and says no execution was sent" ;;
+        *) bad "18: and says no execution was sent" "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>&1)" ;;
+    esac
+else
+    bad "18: reach dispatch on send_execution, unchanged" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 16. a report's pull request reaches the holding --------------------------
+echo "== 16. a report's pull request reaches an empty holding; done with none doesn't stick =="
+# empty_row [return path]: feat-1's holding with Branch and Pull request empty,
+# as dispatch-worker.sh writes it.
+empty_row() {
+    holding feat-1 "$(jq -nc --arg r "${1:-message}" '{unit: "Feature 1", branch: "", verified_head: "", pull_request: "", return_path: $r}')"
+}
+# empty_run <name> <number> [return path]: a run at wait whose one holding has
+# no pull request yet; acme/widgets#12 is open on feat/w-head, board complete.
+empty_run() {
+    db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
+        isCrossRepository: false, baseRefName: "main", headRefName: "feat/w-head", headRefOid: $h, author: "alice",
+        mergeStateStatus: "CLEAN"}]' --arg h "$H"
+    bt_board complete-board
+    to_pick "$1" "$(record_json roadmap "$1" | jq -c --argjson h "$(empty_row "${3-}")" '.holdings = [$h]')" "$2" || return 1
+    [ "$(at --with-data '{"choice":"hold"}')" = wait ]
+}
+linked_row() { live_body "$1" | jq -c '.holdings[] | select(.worker == "feat-1") | {branch, pull_request}'; }
+LINKED='{"branch":"feat/w-head","pull_request":"[#12](https://github.com/acme/widgets/pull/12)"}'
+# link_through <label> <number>: at report_link, the agent runs holding-link.sh
+# and submits written; the run reads the holding again and reaches
+# classify_report, then verify_board reads #12's board.
+link_through() {
+    write_as_agent holding-link.sh
+    eq "16 $1: holding-link.sh (agent-run) writes the pull request" 0 $?
+    eq "16 $1: Branch is the headRefName GitHub reports, Pull request the link" "$LINKED" "$(linked_row "$2")"
+    eq "16 $1: written reads the holding again and reaches classify_report" classify_report "$(at --with-data '{"linked":"written"}')"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name REPORT)" in
+        "holding 12 feat-1 "*) ok "16 $1: report_facts now reads the holding's own pull request" ;;
+        *) bad "16 $1: report_facts now reads the holding's own pull request" ;;
+    esac
+    eq "16 $1: done reaches verify" verify "$(at --with-data '{"classification":"done"}')"
+    eq "16 $1: verify_board reads #12 with no hand write" verified_confirm "$(at --with-data '{"predicted":"recorded","prediction":"every job green"}')"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name VERIFIED)" in
+        "verified 12 $H "*) ok "16 $1: VERIFIED is #12's head" ;; *) bad "16 $1: VERIFIED is #12's head" ;;
+    esac
+}
+if empty_run linkmsg 125; then
+    eq "16 message: a report naming its pull request goes to report_link" report_link \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR is ready","pull_request":"https://github.com/acme/widgets/pull/12"}')"
+    link_through message 125
+    # A restart reads the pull request off the holding: reconcile reports its
+    # state, not "no pull request".
+    sleep 1
+    if open_run linkmsg && [ "$(at)" = reconcile ]; then
+        koto context get "$S" reconcile/report.md > "$T/rec.md" 2>/dev/null
+        grep -q '| `feat-1` | \[#12\](https://github.com/acme/widgets/pull/12) | executing; open (measured)' "$T/rec.md" && ok "16 message: a restart's reconcile reports the pull request open" \
+            || bad "16 message: a restart's reconcile reports the pull request open" "$(cat "$T/rec.md")"
+        grep -q 'no pull request' "$T/rec.md" && bad "16 message: and never says no pull request" "$(cat "$T/rec.md")" \
+            || ok "16 message: and never says no pull request"
+    else
+        bad "16 message: the restart reaches reconcile" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+    fi
+else
+    bad "16 message: reach wait with an empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# The leg path: a stand-in worker template whose result names #12.
+mkdir -p "$T/tpl"
+cat > "$T/tpl/deliver.md" <<'EOF'
+---
+name: deliver
+version: "1.0"
+description: a stand-in worker for coordinate_engine_test.sh
+initial_state: work
+states:
+  work:
+    accepts:
+      finish:
+        type: enum
+        values: [go]
+        required: true
+    transitions:
+      - target: done
+        when:
+          finish: go
+  done:
+    terminal: true
+    result:
+      outcome: ready
+      pr: https://github.com/acme/widgets/pull/12
+---
+## work
+Stand-in.
+## done
+Done.
+EOF
+LREQ=$(cd "$T/work" && koto request create --role deliver --template deliver.md --inputs '{}' \
+    --requested-by coord --coordinator-of-record coordinate-linkleg | jq -r .request_id)
+if [ -n "$LREQ" ] && empty_run linkleg 126 "leg $LREQ:deliver"; then
+    (cd "$T" && koto init deliver-feat-1 --template "$T/tpl/deliver.md" --koto-leg "$LREQ:deliver" > /dev/null 2> "$T/child.err" \
+        && koto next deliver-feat-1 --with-data '{"finish":"go"}' > /dev/null 2>&1) \
+        || bad "16 leg: the stand-in worker promotes its result" "$(cat "$T/child.err")"
+    eq "16 leg: a leg result carrying pr goes to report_link" report_link "$(at --with-data '{"event":"leg"}')"
+    link_through leg 126
+else
+    bad "16 leg: reach wait with a leg-bound empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# done for a report naming no pull request goes back to the hub, never to a
+# verify_board that can't leave; the next report naming one gets through.
+if empty_run linknone 127; then
+    eq "16 none: a report naming no pull request reaches classify_report" classify_report \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"all done"}')"
+    eq "16 none: done with no pull request goes back to wait" wait "$(at --with-data '{"classification":"done"}')"
+    eq "16 none: verify is never entered" 0 "$(entered verify)"
+    eq "16 none: verify_board is never entered" 0 "$(entered verify_board)"
+    eq "16 none: the worker's next report, naming it, reaches report_link" report_link \
+        "$(at --with-data '{"event":"report","unit":"feat-1","report":"PR is up","pull_request":"acme/widgets#12"}')"
+    link_through none 127
+else
+    bad "16 none: reach wait with an empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# A leg-bound worker whose result names no pull request: its leg is spent once
+# read, so `done` back at the hub has no way on, and the directive's route is
+# needs_fix, which reaches rebrief and moves the worker to the message path.
+sed -e 's/^name: deliver$/name: deliver-nopr/' -e '/^      pr: /d' "$T/tpl/deliver.md" > "$T/tpl/deliver-nopr.md"
+NREQ=$(cd "$T/work" && koto request create --role deliver --template deliver-nopr.md --inputs '{}' \
+    --requested-by coord --coordinator-of-record coordinate-linklegnone | jq -r .request_id)
+if [ -n "$NREQ" ] && empty_run linklegnone 131 "leg $NREQ:deliver"; then
+    (cd "$T" && koto init deliver-nopr-feat-1 --template "$T/tpl/deliver-nopr.md" --koto-leg "$NREQ:deliver" > /dev/null 2> "$T/child.err" \
+        && koto next deliver-nopr-feat-1 --with-data '{"finish":"go"}' > /dev/null 2>&1) \
+        || bad "16 leg, no pr: the stand-in worker promotes its result" "$(cat "$T/child.err")"
+    eq "16 leg, no pr: a result naming no pull request reaches classify_report" classify_report "$(at --with-data '{"event":"leg"}')"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name REPORT)" in
+        "holding none feat-1 "*) ok "16 leg, no pr: report_facts reads holding none" ;;
+        *) bad "16 leg, no pr: report_facts reads holding none" ;;
+    esac
+    eq "16 leg, no pr: needs_fix, the directive's route, reaches rebrief" rebrief "$(at --with-data '{"classification":"needs_fix"}')"
+    eq "16 leg, no pr: verify is never entered" 0 "$(entered verify)"
+else
+    bad "16 leg, no pr: reach wait with a leg-bound empty holding" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+# blocked and needs_fix don't route on report_pr, so a holding with no pull
+# request still takes them.
+for c in "blocked surface 128" "needs_fix rebrief 129"; do
+    set -- $c
+    if empty_run "linkno$1" "$3"; then
+        at --with-data '{"event":"report","unit":"feat-1","report":"stuck before any PR"}' > /dev/null
+        eq "16 none: $1 with no pull request reaches $2" "$2" "$(at --with-data "{\"classification\":\"$1\"}")"
+    else
+        bad "16 none: reach wait for $1" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+    fi
+done
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 
 # ---- 12 to 15. the decision loop ----------------------------------------------
@@ -652,6 +1116,148 @@ if to_pick unmerged "$(record_json roadmap unmerged | jq -c --argjson h "$(unit_
 else
     bad "16: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
+
+# ---- 20. a unit waiting on a person is parked, and the slot stays free --------
+echo "== 20. a unit waiting on a person is parked on a decision entry, the slot stays free, and the answer frees it =="
+# niwa, for the dispatches this case and the next make: `list --json` names
+# the sessions launched so far, `dispatch --name <topic>` launches one.
+mkdir -p "$T/niwa-bin"
+printf '[]\n' > "$T/niwa-sessions.json"
+cat > "$T/niwa-bin/niwa" <<EOF
+#!/usr/bin/env bash
+case "\$1 \${2-}" in
+    "list --json") cat "$T/niwa-sessions.json" ;;
+    "dispatch --help") : ;;
+    dispatch*) shift; t=; while [ \$# -gt 0 ]; do [ "\$1" = --name ] && t=\$2; shift; done
+        n="\$(printf '%s' "\$t" | tr '-' '_')-1a2b3c4d"
+        jq -c --arg n "\$n" '. + [{name: "w", path: "/w", session_name: \$n}]' "$T/niwa-sessions.json" > "$T/niwa-s.tmp" && mv "$T/niwa-s.tmp" "$T/niwa-sessions.json"
+        printf 'Dispatched\n  session name: %s\n' "\$n" ;;
+    *) exit 64 ;;
+esac
+EOF
+chmod +x "$T/niwa-bin/niwa"
+brief() { # brief <topic> <unit> <entry point> <arg> <phase>: a brief input
+    jq -nc --arg t "$1" --arg u "$2" --arg e "$3" --arg a "$4" --arg p "$5" '{topic: $t, repo: "acme/widgets", unit: $u, entry_point: $e,
+        entry_args: ([$a] + (if $e == "scope" then ["--intent=continue"] else [] end)), run_mode: "--auto", phase: $p,
+        authority: "You are working for the owner on acme/widgets.", goal: "\($u) lands.",
+        checkpoints: ["The PR is ready with every CI job green."], acceptance: ["CI is green per job."], dispatcher_session: "coord-test"}'
+}
+dispatch_as_agent() { # dispatch_as_agent <brief-json>: dispatch-worker.sh at dispatch, as the agent runs it; DW_RC its exit
+    printf '%s' "$1" > "$T/brief.json"
+    (cd "$WD" && koto context add "$S" brief_input.json --from-file "$T/brief.json" >/dev/null)
+    : > "$T/work/.niwa/workspace.toml"
+    (cd "$WD" && NIWA="$T/niwa-bin/niwa" bash "$PS/dispatch-worker.sh" --session "$S" >"$T/dw.out" 2>"$T/dw.err"); DW_RC=$?
+    rm -f "$T/work/.niwa/workspace.toml"
+}
+three_features() { # three_features <name>: three independent features
+    db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-\($n).md"] = $t' --arg n "$1" \
+        --arg t "$(printf -- '---\nstatus: Active\n---\n\n# Roadmap\n\n## Features\n\n### Feature 1: first\n\n**Dependencies:** None\n**Status:** Not started\n\n### Feature 2: second\n\n**Dependencies:** None\n**Status:** Not started\n\n### Feature 3: third\n\n**Dependencies:** None\n**Status:** Not started\n')"
+}
+pickf() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }
+work_rows() { live_body "$1" | jq -r '[(.work // [])[] | "\(.item):\(.kind):\(.who)"] | join(" ")'; }
+three_features parked
+seed_record parked 200
+if open_run parked && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconciled":"reported"}')" = pick ]; then
+    # One slot: the human sets the cap to one.
+    write_as_agent record-state.sh --run cap 1 --by "the human"
+    [ "$(at --with-data '{"choice":"hold"}')" = wait ] && [ "$(at --with-data '{"event":"resume"}')" = pick ] \
+        && eq "20: the cap is one" 1 "$(pickf | jq -r .cap)" || bad "20: back at pick with the cap at one" "$(cat "$T/tick.err")"
+    eq "20: await_decision with no unit stays at pick" pick "$(at --with-data '{"choice":"await_decision","rationale":"the framing is the human'"'"'s"}')"
+    eq "20: await_decision on Feature 1 goes to decision_raise" decision_raise \
+        "$(at --with-data '{"choice":"await_decision","unit":"Feature 1","rationale":"its framing is the human'"'"'s call"}')"
+    write_as_agent record-decision.sh --open --question "Feature 1: keep its command-line surface, or fold it into the API?" \
+        --option "keep -- two front ends to maintain" --option "fold -- one front end, a breaking change" --source self
+    eq "20: the question opens as an entry" 0 $?
+    eq "20: raised before the unit is parked comes back to decision_raise" decision_raise "$(at --with-data '{"raised":"raised"}')"
+    write_as_agent record-state.sh --work "Feature 1" --kind decision --who "decision 1" --next "dispatch it with the answer"
+    eq "20: record-state.sh parks Feature 1 on decision 1" 0 $?
+    eq "20: once parked, the entry is taken up" decision_take "$(at --with-data '{"raised":"raised"}')"
+    write_as_agent record-decision.sh --take
+    eq "20: and comes up for a verdict" decision_verdict "$(at --with-data '{"taken":"taken"}')"
+    write_as_agent record-decision.sh --escalate --recommendation keep --reason "the API's users asked for the command line" \
+        --context "Feature 1 can't be scoped until its surface is chosen." --problem "It changes the feature's scope, which is the human's." \
+        --grounds scope --option "keep -- two front ends to maintain" --option "fold -- one front end, a breaking change"
+    eq "20: escalated to the person" 0 $?
+    eq "20: the escalation renders" escalate_send "$(at --with-data '{"verdict":"escalate","rationale":"a scope call"}')"
+    write_as_agent record-decision.sh --sent --route message
+    eq "20: sent, the loop goes back to pick" pick "$(at --with-data '{"sent":"sent"}')"
+    eq "20: pick lists Feature 1 awaiting decision 1, holding no slot" "1 0" "$(pickf | jq -r '"\(.units[0].awaiting) \(.active)"')"
+    # The one slot is still free: Feature 2 is dispatched into it.
+    eq "20: with the cap at one, Feature 2 is dispatched beside the parked unit" dispatch "$(at --with-data '{"choice":"dispatch","unit":"feat-2"}')"
+    dispatch_as_agent "$(brief feat-2 "Feature 2" deliver feat-2 executing)"
+    eq "20: dispatch-worker.sh launches it" 0 "$DW_RC"
+    eq "20: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-2"}')"
+    write_as_agent record-state.sh --work "Feature 2" --kind holding --who feat-2 --next "report at its first checkpoint"
+    eq "20: then the loop goes back to pick" pick "$(at)"
+    # The parked unit can't be dispatched while its entry is open.
+    write_as_agent record-state.sh --run cap 2 --by "the human"
+    at --with-data '{"choice":"hold"}' >/dev/null
+    eq "20: a second slot" pick "$(at --with-data '{"event":"resume"}')"
+    eq "20: dispatching the parked unit passes the check" dispatch "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
+    dispatch_as_agent "$(brief feat-1 "Feature 1" deliver feat-1 executing)"
+    eq "20: and dispatch-worker.sh refuses it, exit 10" 10 "$DW_RC"
+    grep -q "decision 1 parks this unit" "$T/dw.err" && ok "20:   ... naming the entry" || bad "20:   ... naming the entry" "$(cat "$T/dw.err")"
+    eq "20:   ... with no holding written" "" "$(live_body 200 | jq -r '.holdings[] | select(.worker == "feat-1") | .worker')"
+    eq "20: submitted paused, back to wait" wait "$(at --with-data '{"dispatched":"paused","topic":"feat-1"}')"
+    # The answer lands.
+    eq "20: the person's answer reaches decision_answer" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
+    write_as_agent record-decision.sh --answer --outcome keep
+    eq "20: recorded, the loop goes back to pick" pick "$(at --with-data '{"answered":"recorded"}')"
+    eq "20: pick lists Feature 1 answered, no longer awaiting" 'null 1 keep' "$(pickf | jq -r '.units[0] | "\(.awaiting) \(.answered.decision) \(.answered.outcome | split(";")[0])"')"
+    eq "20: now it is dispatched" dispatch "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
+    dispatch_as_agent "$(brief feat-1 "Feature 1" deliver feat-1 executing)"
+    eq "20: dispatch-worker.sh launches it" 0 "$DW_RC"
+    eq "20: record waits for its Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    write_as_agent record-state.sh --work "Feature 1" --kind holding --who feat-1 --next "report at its first checkpoint"
+    eq "20: then back to pick" pick "$(at)"
+    eq "20: its holding row took over the decision row" "Feature 2:holding:feat-2 Feature 1:holding:feat-1" "$(work_rows 200)"
+else
+    bad "20: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 21. a feature whose deliverable is its scoping ---------------------------
+echo "== 21. a scope dispatches the scoping alone, and its merge records the execution as a follow-up =="
+three_features scoped
+seed_record scoped 210
+if open_run scoped && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconciled":"reported"}')" = pick ]; then
+    eq "21: scope goes through the dispatch check like a dispatch" dispatch "$(at --with-data '{"choice":"scope","unit":"feat-3"}')"
+    dispatch_as_agent "$(brief feat-3 "Feature 3" scope feat-3 scoping)"
+    eq "21: dispatch-worker.sh launches the scoping" 0 "$DW_RC"
+    live_body 210 | jq -e '.holdings[] | select(.worker == "feat-3") | .phase == "scoping" and .entry_point == "scope"' >/dev/null \
+        && ok "21: the holding is the scoping alone, at Phase scoping" || bad "21: the holding is the scoping alone, at Phase scoping" "$(live_body 210 | jq -c .holdings)"
+    grep -q "the execution is a later unit" "$T/work/.niwa/dispatch-briefs/feat-3.md" 2>/dev/null \
+        && ok "21: its brief says the documents are the deliverable" || bad "21: its brief says the documents are the deliverable" "$(ls "$T/work/.niwa/dispatch-briefs" 2>&1)"
+else
+    bad "21: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+if LAND_PHASE=scoping land_run scopemerge 211; then
+    LAND_PHASE=scoping record_verified
+    if [ "$(at)" = goal_fit ] && [ "$(at --with-data '{"fit":"fits","rationale":"the scoping documents land"}')" = land_merge ]; then
+        bt_merged MERGED '["docs/plans/PLAN-feat-1.md"]'; bt_blob main docs/plans/PLAN-feat-1.md aaaa; bt_blob "$H" docs/plans/PLAN-feat-1.md aaaa
+        eq "21: the merge is confirmed" record "$(at --with-data '{"merge":"attempted"}')"
+        rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+        (cd "$WD" && bash "$PS/record-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"
+        write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"
+        eq "21: with the cell cleared, record still holds" record "$(at)"
+        case "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>/dev/null | jq -r .expectation)" in
+            *"a follow-up Work row for Feature 1"*) ok "21: for the follow-up, the unit's execution" ;;
+            *) bad "21: for the follow-up, the unit's execution" "$(cd "$WD" && koto context get "$S" coord/record_confirm.json 2>&1)" ;;
+        esac
+        write_as_agent record-state.sh --work "Feature 1" --kind follow-up --who "acme/widgets#12" --next "/shirabe:execute docs/plans/PLAN-feat-1.md"
+        eq "21: record-state.sh writes the follow-up" 0 $?
+        eq "21: then the merge confirms and the loop goes on to pick" pick "$(at)"
+        eq "21: pick lists the follow-up beside the merged holding" "acme/widgets#12 /shirabe:execute docs/plans/PLAN-feat-1.md" \
+            "$(pickf | jq -r '.units[] | select(.unit == "Feature 1") | "\(.follow_up.after) \(.follow_up.next)"')"
+        write_as_agent roadmap-status.sh --unit "Feature 1" --outcome "acme/widgets#12"
+        eq "21: the roadmap can't be told the feature is Done" 65 $?
+        grep -q "its execution is a follow-up still to dispatch" "$T/w.err" && ok "21:   ... since its execution is still to come" || bad "21:   ... since its execution is still to come" "$(cat "$T/w.err")"
+    else
+        bad "21: reach land_merge" "$(cat "$T/tick.err" 2>/dev/null)"
+    fi
+else
+    bad "21: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 
 echo
 echo "coordinate_engine: $PASS passed, $FAIL failed"

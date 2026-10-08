@@ -134,13 +134,15 @@ sections, in this order, each line carrying its grade:
   isn't there yet but could be reads "none yet"). Its rows come in four
   kinds, always in this order:
   1. **Ready to merge:** pull requests ready to be reviewed and merged (ready to
-     land, or held by the person's direction), each with its session so the
+     land, or held by a hold in the record), each with its session so the
      person can talk to it, in the order to merge them. Reconcile keeps the
      record's holding order; it doesn't read dependencies, so reorder by them
      when you report it up if they say otherwise.
   2. **Blocked on you:** only what waits on the person: a decision entry
-     escalated to them, with its recommendation and reason, and a finishing
-     step reserved for them, such as a merge that didn't confirm. A holding
+     escalated to them, with its recommendation and reason, a finishing
+     step reserved for them, such as a merge that didn't confirm, and CI
+     that GitHub never started (a job with no step, such as one refused for
+     an account billing block), which only whoever holds the account clears. A holding
      whose pull request was closed is yours to re-dispatch or drop, so it is
      in Ongoing. It is derived at each report and never stored.
   3. **Ongoing:** every other session in flight, with its pull request link if
@@ -155,7 +157,12 @@ sections, in this order, each line carrying its grade:
   instance holds that no remote does.
 - **Side effects:** each side effect in flight, confirmed, not confirmed with
   the reason, or not re-checked.
-- **Undisposed deferrals:** every deferral still owed a disposition.
+- **Undisposed deferrals:** every deferral still owed a disposition, and why:
+  it has none, it is malformed, it was carried before the chain start, or its
+  decide-by has passed.
+- **Disposed deferrals:** every other deferral, with how it was disposed of
+  (filed, closed, carried, or raised in this run). A deferral the check
+  couldn't read is under "Not verified", with what it couldn't read.
 - **Predecessor's reasoning** (discipline scope): where the previous
   rotation's reasoning is, as its view, not re-checked.
 - **Not verified:** everything the pass couldn't read, and why, including
