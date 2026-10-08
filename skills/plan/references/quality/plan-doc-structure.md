@@ -60,7 +60,7 @@ before `gh pr ready` fires (the DRAFT-vs-READY discipline).
 ```yaml
 ---
 schema: plan/v1
-status: Draft
+status: Active
 execution_mode: single-pr  # single-pr | multi-pr | coordinated
 upstream: docs/designs/DESIGN-<topic>.md  # optional, path to source design/PRD
 milestone: "<Milestone Name>"

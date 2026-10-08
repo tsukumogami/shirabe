@@ -19,7 +19,7 @@ Different consumers validate different aspects of PLAN artifacts.
 ## During /plan Phase 7 (creation)
 - PLAN doc follows `plan-doc-structure.md` format
 - multi-pr: GitHub milestone and issues created, PLAN status set to Active
-- single-pr: Issue Outlines populated, PLAN status stays at Draft
+- single-pr: Issue Outlines populated, PLAN status set to Active
 - Source design doc status transitions to "Planned"
 
 ## During /work-on (consuming the plan)

@@ -3449,9 +3449,8 @@ pub fn check_plan_section_structure(doc: &Doc, spec: &FormatSpec) -> Vec<Validat
     if !has_section {
         return Vec::new();
     }
-    // Inspect the table. Absence of any table under the section is itself
-    // a structure issue (single-pr PLANs still need the table per the
-    // canonical shape).
+    // Inspect the table. A present section with no table under it is
+    // itself a structure issue.
     let table_present = parse_issues_table(doc).is_some();
     let mut errs = Vec::new();
     if !table_present {

@@ -65,7 +65,7 @@
       "id": 5,
       "name": "single-pr-execution-mode",
       "prompt": "/plan docs/designs/DESIGN-config-validation.md",
-      "expected_output": "For a small design (few issues, low complexity), recommends single-pr mode. Phase 4 produces structured outlines instead of full issue bodies. Phase 7 writes Issue Outlines into the PLAN doc, creates no GitHub issues or milestone, and sets PLAN status to Draft",
+      "expected_output": "For a small design (few issues, low complexity), recommends single-pr mode. Phase 4 produces structured outlines instead of full issue bodies. Phase 7 writes Issue Outlines into the PLAN doc, creates no GitHub issues or milestone, and sets PLAN status to Active (authored at Active because nothing is filed; a committed Draft PLAN is a violation)",
       "files": [],
       "expectations": [
         "Transcript describes execution mode selection between Phase 3 and Phase 4",
@@ -73,7 +73,8 @@
         "Transcript describes Phase 4 producing structured outlines (not full issue bodies)",
         "Transcript describes Phase 7 writing Issue Outlines into the PLAN doc",
         "Transcript states no GitHub issues or milestone are created in single-pr mode",
-        "Transcript sets PLAN status to Draft (not Active)"
+        "Transcript sets PLAN status to Active (not Draft)",
+        "Transcript writes no ## Dependency Graph section in the single-pr PLAN"
       ]
     },
     {

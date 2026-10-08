@@ -23,7 +23,7 @@ Every PLAN document begins with YAML frontmatter:
 ```yaml
 ---
 schema: plan/v1
-status: Draft
+status: Active
 execution_mode: single-pr
 upstream: docs/designs/DESIGN-<name>.md
 milestone: "human-readable milestone name"
@@ -182,8 +182,8 @@ three-column shape:
 
 | Column | Content |
 |--------|---------|
-| Issue | Markdown link to the issue's local anchor (within the PLAN) for single-pr mode, OR `#N` GitHub link for multi-pr mode |
-| Dependencies | Local-anchor links to blocking issues, or `None` if independent |
+| Issue | `#N` link to the filed GitHub issue (only an issue-carrying PLAN has this table) |
+| Dependencies | Links to blocking issues, or `None` if independent |
 | Complexity | One of `simple`, `testable`, `critical` (FC05 rejects any other value) |
 
 Each issue occupies TWO rows in the table:
@@ -322,8 +322,8 @@ DESIGN/PRD/ROADMAP and replace the PLAN content with a citation.
 
 | State | Meaning |
 |-------|---------|
-| Draft | Under decomposition. Issue table may be incomplete. |
-| Active | Issues being implemented. Reached only when the resolved `tracking_level` created GitHub issues; a PLAN at `none` skips this state at either `execution_mode`. |
+| Draft | Under decomposition, inside a /plan run. Never committed: a committed Draft PLAN fails L01. |
+| Active | Work being implemented. Every committed PLAN is at Active until the cascade, whatever its `tracking_level` or `execution_mode`. |
 | Done | All issues complete; lifecycle cascade has completed. Terminal state. |
 
 ### Transitions
@@ -336,18 +336,18 @@ The Draft -> Active gate keys on the resolved `tracking_level`, not on
 human approval, because that is the moment remote artifacts appear;
 one that creates none auto-fires as authoring completes.
 
-- **Draft -> Active** (`tracking_level` is `issues` or
-  `issues-and-milestone`) -- Phase 7 has materialized the GitHub
+- **Draft -> Active**, `tracking_level` `issues` or
+  `issues-and-milestone` -- Phase 7 has materialized the GitHub
   issues, and the milestone at `issues-and-milestone`, behind the
   approval gate. Reachable at any `execution_mode`: a `single-pr`
   PLAN whose repo asked for issues takes this path too.
-- **Draft -> Done** (`tracking_level` is `none`) -- no GitHub
-  artifacts were created, so nothing gated the activation; the
-  implementing agent has shipped the work and the lifecycle cascade
-  fires. Reachable at any `execution_mode`: a `multi-pr` PLAN whose
-  repo asked for no tracking takes this path too.
-- **Active -> Done** -- all materialized issues are closed. Lifecycle
-  cascade fires.
+- **Draft -> Active**, `tracking_level` `none` -- no GitHub artifacts
+  are created, so nothing gates the activation and it fires as /plan
+  finishes authoring. Reachable at any `execution_mode`: a `multi-pr`
+  PLAN whose repo asked for no tracking takes this path too.
+- **Active -> Done** -- the work is complete (all materialized issues
+  closed, or the implementing PR shipped); the lifecycle cascade
+  fires.
 
 ### Lifecycle cascade
 
@@ -442,10 +442,9 @@ The validator-side contracts:
 - **Prose on the `## Status` first line.** Most common FC03
   failure. The first non-blank line under `## Status` must be the
   bare status word alone.
-- **Mixing single-pr and multi-pr conventions.** The Implementation
-  Issues table uses local anchors for single-pr and `#N` GitHub
-  links for multi-pr; mixing the two confuses the validator's FC07
-  reconciliation.
+- **Mixing the two shapes.** An outline-shaped PLAN keeps its work
+  items in Issue Outlines and an issue-carrying one in the
+  Implementation Issues table; populating both fires FC14.
 - **Drifting into design altitude.** A PLAN that introduces new
   technical decisions has climbed up. Extract those decisions into
   the upstream DESIGN and cite them.

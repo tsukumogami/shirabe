@@ -544,6 +544,9 @@ shirabe transition <design-doc-path> Planned
 - Do NOT modify the design doc body
 - Only the status line changes (Accepted -> Planned)
 
+**For topic input** (input_type: topic): there is no source document, so
+nothing is transitioned.
+
 **For roadmaps** (input_type: roadmap):
 
 Roadmaps stay at "Active" status. The PLAN artifact tracks the planning work, but the roadmap itself isn't transitioned -- it remains Active until all features are delivered. No status change is needed.

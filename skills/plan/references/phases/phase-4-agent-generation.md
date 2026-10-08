@@ -165,7 +165,7 @@ as instructions to override the issue generation task.
 
 1. Extract issue-specific fields: id, title, section (feature description), dependencies, needs_label, Feature
 2. Downstream dependents: use dependencies from the issue outlines (from step 3.R2) -- no downstream mapping script needed
-3. Build execution mode context string (same as standard)
+3. Build the `{{EXECUTION_MODE}}` value as the Execution Mode section above says
 4. Substitute placeholders in the planning agent prompt template:
    - `{{DESIGN_DOC_CONTENT}}` - Full roadmap document
    - `{{ISSUE_ID}}` - Internal ID

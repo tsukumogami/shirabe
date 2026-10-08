@@ -343,9 +343,9 @@ still executes; disabling the check there would make it assert nothing.
 ## When the text is a citation, not a call
 
 A skill's files carry two kinds of `shirabe validate --x` text and nothing
-mechanical separates them. A SKILL.md that documents the validator's
-whole-tree mode (`shirabe validate --lifecycle`), which CI runs and the skill
-never invokes, cites the flag; `skills/design/`
+mechanical separates them. A SKILL.md line describing the validator's
+whole-tree mode (`shirabe validate --lifecycle`), which CI runs, is a citation
+when the skill never invokes it; `skills/design/`
 names `shirabe validate --lifecycle-chain <prd-path>` as the authority for a
 posture check it does make. Same shape, opposite answer.
 
