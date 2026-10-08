@@ -8,9 +8,11 @@ name: Check public content
 # paths: filter, so every pull request runs it; the check itself reads only
 # the shipped paths listed below, plus the pull request body.
 #
-# Scripts, crates and workflows are left out on purpose: they use home-relative
-# paths as working code (cache keys, install defaults), where a refusal would
-# fight the code rather than catch a leak.
+# The top-level scripts/, crates/ and .github/ are left out on purpose: they
+# use home-relative paths as working code (cache paths, install defaults),
+# where a refusal would fight the code rather than catch a leak. A skill's own
+# scripts and tests are in skills/ and are checked; a test that plants a
+# refused shape splits the string, as check-public-content_test.sh does.
 
 on:
   pull_request:
