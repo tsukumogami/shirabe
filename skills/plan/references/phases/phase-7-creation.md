@@ -712,6 +712,7 @@ Before completing:
 - [ ] PLAN doc reference hygiene (step 7.4b) passed: no `wip/...` paths in
   frontmatter or body prose; `upstream:` resolves on disk or is a valid
   public cross-repo reference
+- [ ] The lifecycle-chain check passed after 7.5's transition
 
 ## Next Phase
 
