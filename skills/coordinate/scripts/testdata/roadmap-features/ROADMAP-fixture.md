@@ -104,6 +104,10 @@ Soft: AB1 and AB2; soft on AB7.
 **Dependencies:** F2, F4 and F99
 **Status:** Not started
 
+### CD9: One tag, soft once and hard once
+**Dependencies:** AB2 soft for the docs; AB2 for the API.
+**Status:** Not started
+
 ## Sequencing Rationale
 
 CD8 waits on AB1. Nothing in this section is read.

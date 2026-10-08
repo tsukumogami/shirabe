@@ -11,7 +11,8 @@
 # finished (its Status opens Done or Shipped); a Dropped one never satisfies
 # it. A unit that is done (finished, or Dropped) is never blocked; any other
 # is blocked while a dependency is unsatisfied, and blocked_by lists those
-# feature numbers, ascending. blocker_landed is true when it has dependencies
+# features' positions (1-based, in heading order, which differ from the N of
+# `Feature N` only when headings are out of order), ascending. blocker_landed is true when it has dependencies
 # and none is unsatisfied.
 # Discipline scope: the host's open issues labelled with the discipline's name
 # (gh issue list --label, never a search), in issue-number order, none blocked.

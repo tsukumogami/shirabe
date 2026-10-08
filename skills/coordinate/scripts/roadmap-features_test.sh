@@ -69,8 +69,8 @@ for fx in ROADMAP-fixture.md ROADMAP-numbered.md; do
 done
 
 echo "== a Dependencies paragraph over 4096 bytes =="
-# big <bytes of x>: a roadmap whose AB2 paragraph is `AB1 ` and that many
-# x, wrapped over lines of at most 100 bytes joined by single spaces.
+# big <bytes of x>: a roadmap whose AB2 paragraph is `AB1` followed by that
+# many bytes: lines of at most 99 x, each joined by one space.
 big() {
     local left=$1 line
     printf '## Features\n\n### AB1: Base\n**Status:** Done\n\n### AB2: Long\n**Status:** Not started\n**Dependencies:** AB1'
