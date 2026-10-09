@@ -101,9 +101,17 @@ new_case() {
 SEEDED=00112233445566778899aabbccddeeff
 ctx() { cat "$CASE/ctx/$S/$1" 2>/dev/null; }
 
+# Exit 6 is the one answer that releases the takeover rule. Every other run is
+# tallied here, and the end of the suite asserts none of them released it.
+RELEASED_ELSEWHERE=""
+OTHER_EXITS=""
 run_adopt() {
     OUT=$(env KOTO_STORE="$CASE" GH_FIX="$CASE" PATH="$BIN:$PATH" bash "$ADOPT" "$@" </dev/null 2>"$CASE/stderr")
     RC=$?
+    if [ "$RC" -ne 6 ]; then
+        OTHER_EXITS="$OTHER_EXITS $RC"
+        grep -q '^::shirabe-rule::' "$CASE/stderr" && RELEASED_ELSEWHERE="$RELEASED_ELSEWHERE ${CASE##*/}:$RC"
+    fi
 }
 creates() { grep -c '^pr create' "$CASE/gh.log"; }
 
@@ -188,6 +196,28 @@ if [ "$RC" -eq 6 ] && [ -z "$(ctx home_pr)" ] && [ "$(creates)" -eq 0 ] \
 else
     fail "marker-foreign: exit $RC, home_pr [$(ctx home_pr)], creates $(creates)"
 fi
+
+# The same answer releases the takeover rule on stderr: the marker line, the
+# rule's lines exactly as execute.md has them, and the end marker. The expected
+# lines come from the registry's anchors and the template itself, so neither is
+# written into this test.
+ROOT=$(CDPATH='' cd "$SCRIPT_DIR/../../.." && pwd)
+REG="$ROOT/references/rule-registry.json"
+TEMPLATE="$ROOT/skills/execute/koto-templates/execute.md"
+FIRST=$(jq -r '.rules[] | select(.id == "execute/pr-takeover-needs-signal") | .text.first' "$REG")
+LAST=$(jq -r '.rules[] | select(.id == "execute/pr-takeover-needs-signal") | .text.last' "$REG")
+A=$(grep -n -F -- "$FIRST" "$TEMPLATE" | head -n 1 | cut -d: -f1)
+B=$(tail -n "+$A" "$TEMPLATE" | grep -n -F -- "$LAST" | head -n 1 | cut -d: -f1); B=$((A + B - 1))
+WANT=$(sed -n "${A},${B}p" "$TEMPLATE")
+GOT=$(sed -n '/^::shirabe-rule::/,/^::shirabe-rule-end::$/p' "$CASE/stderr" | sed '1d;$d')
+OPEN=$(grep '^::shirabe-rule::' "$CASE/stderr" | sed 's/^::shirabe-rule:://' | jq -r '.rule_id' 2>/dev/null)
+if [ -n "$A" ] && [ "$GOT" = "$WANT" ] && [ "$OPEN" = "execute/pr-takeover-needs-signal" ] \
+    && grep -q '^::shirabe-rule-end::$' "$CASE/stderr"; then
+    pass "exit 6 releases the takeover rule on stderr, its lines exactly as execute.md has them"
+else
+    fail "takeover release: open [$OPEN], lines $A-$B, stderr [$(cat "$CASE/stderr")]"
+fi
+[ -z "$OUT" ] && pass "exit 6 still prints nothing on stdout" || fail "exit 6 printed on stdout: [$OUT]"
 
 new_case marker-takeover
 printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
@@ -406,6 +436,38 @@ ws_repo usage https://github.com/o/r
 run_ws 'a b'
 [ "$RC" -eq 64 ] && [ ! -s "$CASE/koto.log" ] && pass "record-write-set.sh: an invalid session is a usage error" \
     || fail "ws usage: exit $RC"
+
+# --- the takeover release, everywhere else -------------------------------------
+
+[ -z "$RELEASED_ELSEWHERE" ] && pass "no other answer releases a rule (exits seen:$OTHER_EXITS)" \
+    || fail "a rule was released outside exit 6:$RELEASED_ELSEWHERE"
+MISSING=""
+for want in 0 2 3 4 5; do
+    case " $OTHER_EXITS " in *" $want "*) ;; *) MISSING="$MISSING $want" ;; esac
+done
+[ -z "$MISSING" ] && pass "the no-release check covered exits 0, 2, 3, 4 and 5" \
+    || fail "the no-release check never saw exit(s)$MISSING"
+
+# A copy of the plugin with no registry: exit 6 is unchanged and stderr carries
+# release's one notice line instead of the rule.
+NOREG="$WORK/noreg"
+mkdir -p "$NOREG/skills/execute" "$NOREG/scripts"
+cp -R "$SCRIPT_DIR" "$NOREG/skills/execute/"
+cp "$ROOT/scripts/rule-registry.sh" "$NOREG/scripts/"
+new_case no-registry
+printf '%s' "$MINE" > "$CASE/ctx/$S/run_id"
+echo "[$(marked 7 "$OTHER")]" > "$CASE/list.out"
+SAVED_ADOPT=$ADOPT
+ADOPT="$NOREG/skills/execute/scripts/adopt-or-create-pr.sh"
+run_adopt --session "$S" --repo o/r --head impl/topic --create --plan-slug topic --plan-doc docs/plans/PLAN-topic.md
+ADOPT=$SAVED_ADOPT
+if [ "$RC" -eq 6 ] && [ -z "$OUT" ] \
+    && [ "$(grep -c '^rule-registry: could not release execute/pr-takeover-needs-signal: ' "$CASE/stderr")" -eq 1 ] \
+    && ! grep -q '^::shirabe-rule::' "$CASE/stderr"; then
+    pass "with the registry unreadable, exit 6 and stdout are unchanged and stderr carries one notice line"
+else
+    fail "no registry: exit $RC, stdout [$OUT], stderr [$(cat "$CASE/stderr")]"
+fi
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
