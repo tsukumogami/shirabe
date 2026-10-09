@@ -346,7 +346,9 @@ static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9]+").
 /// `own` is the position of the item whose Dependencies `deps` is, when it
 /// is one. An item never depends on itself, so a mention of its own tag or
 /// number (`AB7 (the review surface AB10 renders)` under `AB10`) is dropped,
-/// as the coordinator's roadmap reader and FC21 drop it.
+/// as the coordinator's roadmap reader drops it. (FC21, which allows only
+/// tags on a `roadmap/v2` Dependencies line, reports a self-mention there as
+/// naming no other milestone.)
 pub fn dependency_positions(deps: &str, features: &[Feature], own: Option<usize>) -> Vec<usize> {
     // `Feature N` names the item tagged so when there is one, else the Nth.
     let numbered = |n: usize| -> Option<usize> {
@@ -1004,7 +1006,10 @@ mod tests {
             vec![1, 2, 3]
         );
         assert_eq!(dependency_positions("F2", &classic, None), vec![2]);
-        assert_eq!(dependency_positions("None", &classic, None), Vec::<usize>::new());
+        assert_eq!(
+            dependency_positions("None", &classic, None),
+            Vec::<usize>::new()
+        );
         assert_eq!(
             dependency_positions("Feature 3, Feature 3, Feature 1", &classic, None),
             vec![3, 1]
@@ -1012,7 +1017,10 @@ mod tests {
 
         let prefixed = tagged(&["AB1", "AB2", "AB10a"]);
         assert_eq!(dependency_positions("AB1", &prefixed, None), vec![1]);
-        assert_eq!(dependency_positions("AB10a, AB1", &prefixed, None), vec![3, 1]);
+        assert_eq!(
+            dependency_positions("AB10a, AB1", &prefixed, None),
+            vec![3, 1]
+        );
         // `Feature N` on a prefixed roadmap is the Nth item.
         assert_eq!(dependency_positions("Feature 2", &prefixed, None), vec![2]);
         // Unknown tags, out-of-range numbers and cross-repo refs name nothing.
@@ -1040,8 +1048,14 @@ mod tests {
         // A parenthetical naming the item itself, in every spelling.
         let prefixed = tagged(&["AB7", "AB8", "AB9", "AB10"]);
         let deps = "AB7 (the review surface AB10 renders); AB8 + AB9";
-        assert_eq!(dependency_positions(deps, &prefixed, Some(4)), vec![1, 2, 3]);
-        assert_eq!(dependency_positions(deps, &prefixed, None), vec![1, 4, 2, 3]);
+        assert_eq!(
+            dependency_positions(deps, &prefixed, Some(4)),
+            vec![1, 2, 3]
+        );
+        assert_eq!(
+            dependency_positions(deps, &prefixed, None),
+            vec![1, 4, 2, 3]
+        );
         let classic = tagged(&["Feature 1", "Feature 2"]);
         assert_eq!(
             dependency_positions("Feature 1 (unlike Feature 2 or F2)", &classic, Some(2)),

@@ -2031,7 +2031,14 @@ mod tests {
         // AB2 itself. Only AB1 is a dependency, so AB2 is ready.
         let mut features = vec![
             make_feature(1, "Base", "", "None", "Done", "x."),
-            make_feature(2, "Next", "", "AB1 (the cache AB2 fronts)", "Not started", "x."),
+            make_feature(
+                2,
+                "Next",
+                "",
+                "AB1 (the cache AB2 fronts)",
+                "Not started",
+                "x.",
+            ),
         ];
         for (f, tag) in features.iter_mut().zip(["AB1", "AB2"]) {
             f.tag = tag.to_string();
@@ -2306,8 +2313,14 @@ mod tests {
             make_feature(2, "Caching layer", "", "Feature 1", "Not started", "x."),
         ];
         let keys = feature_keys(&features);
-        assert_eq!(render_deps_cell("Feature 0", None, &features, &keys), "None");
-        assert_eq!(render_deps_cell("Feature 99", None, &features, &keys), "None");
+        assert_eq!(
+            render_deps_cell("Feature 0", None, &features, &keys),
+            "None"
+        );
+        assert_eq!(
+            render_deps_cell("Feature 99", None, &features, &keys),
+            "None"
+        );
         assert_eq!(
             render_deps_cell("Feature 1, Feature 99", None, &features, &keys),
             "Foundation layer"
