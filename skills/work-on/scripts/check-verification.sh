@@ -35,8 +35,9 @@
 #
 # Each violation prints one koto finding per cause:
 #   ::koto-finding::{"rule_id":"verification/<rule>","level":"error",
-#                    "message":"...","rule_ref":"<path>#L<a>-L<b>@<commit>"}
-# with the rule_ref from gate-rules.tsv beside this script.
+#                    "message":"<summary>: ...","rule_ref":"<path>#L<a>-L<b>@<revision>"}
+# the rules being entries of references/rule-registry.json, resolved through
+# scripts/lib/rule-findings.sh before the result is read.
 #
 # A settled result (anything but 75 and 2) is also recorded in koto context
 # under `verification_results.json`, for the audit trail. A gate command may
@@ -49,7 +50,7 @@
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-RULES="$HERE/gate-rules.tsv"
+RULE_IDS="verification/command-failed verification/no-map verification/bad-map verification/needs-person verification/timed-out verification/runaway verification/not-started verification/dirty-tree"
 RESULT_SCHEMA=shirabe-verification-result/v1
 
 usage() {
@@ -61,9 +62,8 @@ undecided() {
     exit 2
 }
 
-rule_ref() {
-    awk -F'\t' -v id="$1" '$0 !~ /^#/ && $1 == id { print $2 "@" $3; exit }' "$RULES" 2>/dev/null
-}
+# shellcheck source=../../../scripts/lib/rule-findings.sh
+. "$HERE/../../../scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
 
 [ $# -ge 1 ] && [ "$1" = --verdict ] || { usage; exit 2; }
 shift
@@ -83,10 +83,11 @@ done
 [ -n "$SESSION" ] || { usage; exit 2; }
 
 command -v jq >/dev/null || undecided "jq is not on PATH"
-[ -r "$RULES" ] || undecided "the rule table $RULES is not readable"
-for id in command-failed no-map bad-map needs-person timed-out runaway not-started dirty-tree; do
-    [ -n "$(rule_ref "verification/$id")" ] || undecided "the rule table has no row for verification/$id"
-done
+# Every cause the result can name, written out: rf_require checks each against
+# RULE_IDS, and a cause the result names that isn't here holds at rf_finding.
+rf_require verification/command-failed verification/no-map verification/bad-map \
+    verification/needs-person verification/timed-out verification/runaway \
+    verification/not-started verification/dirty-tree
 
 if [ -n "$BASE_REF" ]; then
     LOC=$("$HERE/run-verification.sh" --locate --session "$SESSION" --base-ref "$BASE_REF") || exit 2
@@ -153,8 +154,7 @@ while IFS= read -r line; do
     rest=${line#*"$TAB"}
     rule=verification/${rest%%"$TAB"*}
     msg=${rest#*"$TAB"}
-    jq -cn --arg id "$rule" --arg msg "$msg" --arg ref "$(rule_ref "$rule")" \
-        '{rule_id: $id, level: "error", message: $msg, rule_ref: $ref}' | sed 's/^/::koto-finding::/'
+    rf_finding "$rule" "$msg"
 done <<EOF
 $LINES
 EOF

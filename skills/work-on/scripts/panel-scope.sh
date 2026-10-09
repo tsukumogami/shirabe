@@ -145,10 +145,10 @@
 #
 # --verdict prints one koto finding per blocking finding:
 #   ::koto-finding::{"rule_id":"panel/blocking-finding","level":"error",
-#                    "message":"<panel>/<seat>: <summary>","path":"src/a.sh",
-#                    "line":12,"rule_ref":"<path>#L<a>-L<b>@<commit>"}
-# with the rule_ref from gate-rules.tsv beside this script; `path` and `line`
-# only when the finding names them.
+#                    "message":"<rule summary>: <panel>/<seat>: <summary>","path":"src/a.sh",
+#                    "line":12,"rule_ref":"<path>#L<a>-L<b>@<revision>"}
+# with the rule resolved through scripts/lib/rule-findings.sh, which exits 2 when
+# it can't be; `path` and `line` only when the finding names them.
 #
 # Exit codes:
 #   0   -- --plan/--record: written. --carried: every seat is kept.
@@ -185,6 +185,8 @@ set -uo pipefail
 
 THRESHOLD_LINES=200
 LEDGER=verdict_ledger.json
+# The one registry rule --verdict reports (references/rule-registry.json).
+RULE_IDS="panel/blocking-finding"
 # A ledger entry's blocking findings, as a jq expression over the entry. A
 # finding with no severity counts: it comes from a ledger written before
 # severity existed, when the agent listed only blocking findings. --record
@@ -295,6 +297,12 @@ fi
 # there is nothing to date the verdicts against, so only their presence is
 # checked.
 if [ "$MODE" = "--verdict" ]; then
+    # The rule resolves before the ledger is read, so a registry problem holds
+    # the gate whether or not a seat is blocking.
+    undecided() { refuse 2 "$*"; }
+    # shellcheck source=../../../scripts/lib/rule-findings.sh
+    . "$(cd "$(dirname "$0")" && pwd)/../../../scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
+    rf_require panel/blocking-finding
     ledger=$(ctx_get "$LEDGER")
     [ -n "$ledger" ] || refuse 2 "no $LEDGER: no $PANEL seat has a recorded verdict (run panel-scope.sh --record $PANEL)"
     printf '%s' "$ledger" | jq -e 'type == "object"' >/dev/null \
@@ -317,12 +325,20 @@ if [ "$MODE" = "--verdict" ]; then
     done
     [ -z "$missing" ] || refuse 2 "no verdict on record for$missing (run panel-scope.sh --record $PANEL)"
 
-    rules="$(cd "$(dirname "$0")" && pwd)/gate-rules.tsv"
-    ref=$(awk -F'\t' '$0 !~ /^#/ && $1 == "panel/blocking-finding" { print $2 "@" $3; exit }' "$rules")
+    # rf_ref and rf_summary refuse inside the command substitution, which can't
+    # end this shell; `|| exit 2` carries their could-not-decide out.
+    ref=$(rf_ref panel/blocking-finding) || exit 2
+    summary=$(rf_summary panel/blocking-finding) || exit 2
     # One finding per blocking finding. A seat recorded as blocking with no
     # finding marked blocking (a ledger from before severity) still blocks, and
-    # gets one finding naming the seat.
+    # gets one finding naming the seat. The message is the rule's summary, then
+    # the panel, seat and the seat's own summary, control characters replaced:
+    # the same shape rf_finding in scripts/lib/rule-findings.sh builds, built
+    # here because one ledger read yields every finding. rf_emit refuses a line
+    # whose rule_id, rule_ref or summary prefix strays from it; replacing the
+    # control characters is this jq's job, not rf_emit's.
     findings=$(printf '%s' "$ledger" | jq -c --arg panel "$PANEL" --arg seats "$SEATS" --arg ref "$ref" \
+        --arg rule_summary "$summary" \
         "def blocking_findings: [$BLOCKING_FINDINGS];"'
         [($seats | split(" "))[] as $seat
          | (.seats[$panel + "/" + $seat]) as $e
@@ -333,14 +349,20 @@ if [ "$MODE" = "--verdict" ]; then
         | .[]
         | ((.f.lines // "") | tostring | (capture("^(?<n>[1-9][0-9]*)") // null)) as $line
         | {rule_id: "panel/blocking-finding", level: "error",
-           message: ($panel + "/" + .seat + ": " + ((.f.summary // "a blocking finding") | tostring))}
+           message: ($rule_summary + ": "
+                     + (($panel + "/" + .seat + ": " + ((.f.summary // "a blocking finding") | tostring))
+                        | gsub("[\u0000-\u001f\u007f]"; " ")))}
           + (if (.f.path | type) == "string" and .f.path != "" then {path: .f.path}
                + (if $line != null then {line: ($line.n | tonumber)} else {} end)
              else {} end)
-          + (if $ref != "" then {rule_ref: $ref} else {} end)') \
+          + {rule_ref: $ref}') \
         || refuse 2 "could not read the blocking findings in $LEDGER"
     [ -n "$findings" ] || exit 0
-    printf '%s\n' "$findings" | sed 's/^/::koto-finding::/'
+    while IFS= read -r f; do
+        rf_emit "$f"
+    done <<EOF
+$findings
+EOF
     exit 1
 fi
 

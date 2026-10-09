@@ -41,6 +41,12 @@ LOG="$WORKDIR/log"
 mkdir -p "$BIN" "$LOG"
 export LOG
 
+# Every finding the runs below print is logged and verified against the rule
+# registry at the end.
+# shellcheck source=../../../scripts/lib/rule-findings-testlib.sh
+. "$SCRIPT_DIR/../../../scripts/lib/rule-findings-testlib.sh"
+rf_test_setup "$WORKDIR"
+
 # record <tool> <args>...: one file per argument under $LOG/<tool>/.
 cat > "$BIN/record.sh" <<'EOF'
 tool=$1
@@ -201,10 +207,15 @@ if [ "$GOT" = "$WANT" ]; then
 else
     fail "--pr-body: rule names: want [$WANT], got [$GOT]"
 fi
-REFS=$(findings | jq -r '.rule_ref' | grep -cE '^references/pr-body-conformance\.md#L[0-9]+-L[0-9]+@[0-9a-f]{12}$')
-[ "$REFS" -eq 7 ] && pass "--pr-body: every rule_ref is <path>#L<a>-L<b>@<12-char commit>" || fail "--pr-body: rule_ref shape: $(findings | jq -r '.rule_ref')"
+REFS=$(findings | jq -r '.rule_ref' | grep -cE '^references/pr-body-conformance\.md#L[0-9]+-L[0-9]+@([0-9a-f]{12}|worktree)$')
+[ "$REFS" -eq 7 ] && pass "--pr-body: every rule_ref is <path>#L<a>-L<b>@<revision>" || fail "--pr-body: rule_ref shape: $(findings | jq -r '.rule_ref')"
+REF=$(findings | jq -r 'select(.rule_id == "pr-body/no-ai-trailer") | .rule_ref')
+WANT_RANGE=$(rf_test_expected_range pr-body/no-ai-trailer)
+[ "${REF%@*}" = "$WANT_RANGE" ] && pass "--pr-body: pr-body/no-ai-trailer's range is $WANT_RANGE, found from its anchors with grep" \
+    || fail "--pr-body: pr-body/no-ai-trailer range [${REF%@*}], want [$WANT_RANGE]"
 MSG=$(findings | jq -r 'select(.rule_id == "pr-body/no-ai-trailer") | .message')
-[ "$MSG" = "$PB3" ] && pass "--pr-body: the finding carries the validator's message" || fail "--pr-body: message [$MSG]"
+SUMMARY=$("$SCRIPT_DIR/../../../scripts/rule-registry.sh" summary pr-body/no-ai-trailer)
+[ "$MSG" = "$SUMMARY: $PB3" ] && pass "--pr-body: the finding carries the rule's summary, then the validator's message" || fail "--pr-body: message [$MSG]"
 check_shape "--pr-body: every rule"
 
 # --- --pr-body: which PR, and the title as data ----------------------------------
@@ -313,8 +324,10 @@ expect_rc "--owned-pr: --take-over is refused" 2
 # fake plugin tree, whose execute skill holds a second stand-in recording under
 # its own name, shows which one answered.
 PLUG="$WORKDIR/plugin"
-mkdir -p "$PLUG/skills/work-on/scripts" "$PLUG/skills/execute/scripts"
-cp "$CHECK" "$SCRIPT_DIR/gate-rules.tsv" "$PLUG/skills/work-on/scripts/"
+mkdir -p "$PLUG/skills/work-on/scripts" "$PLUG/skills/execute/scripts" "$PLUG/scripts"
+cp "$CHECK" "$PLUG/skills/work-on/scripts/"
+cp -R "$SCRIPT_DIR/../../../scripts/lib" "$PLUG/scripts/"
+cp "$SCRIPT_DIR/../../../scripts/rule-registry.sh" "$PLUG/scripts/"
 cat > "$PLUG/skills/execute/scripts/owned-pr.sh" <<'EOF'
 #!/usr/bin/env bash
 . "$LOG/../bin/record.sh" owned-execute "$@"
@@ -331,6 +344,16 @@ if [ "$RC" -eq 0 ] && [ -f "$LOG/owned-execute/argc" ] && [ ! -e "$LOG/owned" ];
 else
     fail "owned-pr.sh resolution: rc=$RC, execute copy ran: $([ -f "$LOG/owned-execute/argc" ] && echo yes || echo no), PATH copy ran: $([ -e "$LOG/owned" ] && echo yes || echo no)"
 fi
+
+# --- the rule registry ----------------------------------------------------------
+
+# The stand-in validator reports a PB3 violation, so the unaltered copy's
+# control run in rf_test_refusals decides (exit 1) and the --pr-body rules are
+# the ones the refusals exercise.
+FAKE_SHIRABE_RC=2
+FAKE_SHIRABE_OUT=$(msg_json "$PB3")
+rf_test_refusals "--pr-body" skills/work-on/scripts/check-pr-output.sh pr-body/no-ai-trailer --pr-body
+rf_test_verify "--pr-body"
 
 echo
 echo "check-pr-output_test: $PASS_COUNT passed, $FAIL_COUNT failed"

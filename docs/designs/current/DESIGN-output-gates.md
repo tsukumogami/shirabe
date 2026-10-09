@@ -234,16 +234,15 @@ Rejected because it leaves the agent between the reviewers and koto.
 `rule_ref`.** Each rule a gate script can report gets a name of the form
 `<area>/<rule>` (for example `pr-body/no-ai-trailer`), chosen so a later rule
 registry can adopt it unchanged. Once a name has been emitted it never
-changes; a rule whose meaning changes gets a new name. The gate scripts
-share one rule table, `skills/work-on/scripts/gate-rules.tsv`: one row per
-rule, holding the name, the
-source-location key (`<path>#L<start>-L<end>`), the commit the key is exact
-at, and a short excerpt. Findings print the name as `rule_id` and the key as
-`rule_ref`, written `<path>#L<start>-L<end>@<12-char commit>`, the slot koto's
-finding shape gives an opaque pointer to the rule's text. A test re-resolves
-each excerpt inside its referenced range at `HEAD` and fails when an edit
-moves the text, so a stale reference is caught by CI; the fix updates the
-`rule_ref` and leaves the `rule_id` alone.
+changes; a rule whose meaning changes gets a new name. The names are the
+ids of entries in the rule registry, `references/rule-registry.json`, which
+replaced the gate scripts' first rule table: each entry holds the rule's
+summary and two anchors that find its text in a file. Findings print the name
+as `rule_id` and, as `rule_ref`, `<path>#L<start>-L<end>@<revision>`, computed
+from the anchors when the finding is printed, the slot koto's finding shape
+gives an opaque pointer to the rule's text. An edit that moves the text moves
+the computed range with it; `scripts/check-rule-registry.sh` fails in CI when
+an anchor no longer finds exactly one line.
 
 *Alternative: the source-location key as the `rule_id`.* Precise and free of
 naming decisions, and it breaks the one thing a rule id is for: any edit that
@@ -343,8 +342,9 @@ gate that printed no `error` finding.
 
 **Chosen: routing gates print no findings, and a koto-written fallback whose
 `rule_id` is not a registered rule name is not a violation.** A consumer of
-the event log counts a finding as a violation only when its `rule_id` is one of
-the names in the gate scripts' rule tables. A fallback on a routing gate's
+the event log counts a finding as a violation only when its `rule_id` is a
+registered rule: an id with an entry in `references/rule-registry.json`. Gate
+names have no entry. A fallback on a routing gate's
 answer therefore counts toward no rule and no retry or loop cap. A fallback on
 a `timed_out` or `error` outcome still counts, since the gate failed to answer
 rather than answering. This is the interim rule; tsukumogami/koto#306 asks for
@@ -614,9 +614,9 @@ existing events and no field of their own:
 | verification launcher | `default_action_executed` | command, exit code, both streams, attempt fields |
 | decider slot (later) | `decider_checked` | the criterion's `rule_id` and verdict |
 
-Each violation's `rule_id` and `rule_ref` (the `rule_ref` written with
-`@<12-char commit>`; the line ranges below are at the design's base and the
-build re-pins them, with the excerpt test keeping them honest):
+Each violation's `rule_id` and `rule_ref` (the line ranges below are at the
+design's base; the printed `rule_ref` is computed from the rule registry's
+anchors, with a revision suffix, and follows the text when it moves):
 
 | Gate | Violation | `rule_id` | `rule_ref` |
 |---|---|---|---|

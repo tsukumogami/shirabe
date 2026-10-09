@@ -27,6 +27,10 @@ on:
       - 'scripts/check-merged-wording.sh'
       - 'scripts/check-merged-wording_test.sh'
       - 'scripts/check-merged-wording.allow'
+      # adopt-or-create-pr.sh releases a rule through the registry's reader on
+      # its exit 6, and its suite checks the released text against the entry.
+      - 'references/rule-registry.json'
+      - 'scripts/rule-registry.sh'
       # An edit to this workflow changes what runs, so it has to run the suite.
       - '.github/workflows/check-execute-scripts.yml'
 

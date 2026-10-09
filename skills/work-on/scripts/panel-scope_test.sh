@@ -55,6 +55,13 @@ WORKDIR=$(mktemp -d)
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 
+# Every finding --verdict prints is logged and verified against the rule
+# registry at the end.
+# shellcheck source=../../../scripts/lib/rule-findings-testlib.sh
+. "$SCRIPT_DIR/../../../scripts/lib/rule-findings-testlib.sh"
+rf_test_setup "$WORKDIR"
+RULE_SUMMARY=$("$SCRIPT_DIR/../../../scripts/rule-registry.sh" summary panel/blocking-finding)
+
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
 export GIT_CONFIG_NOSYSTEM=1
@@ -721,12 +728,21 @@ N=$(verdict_findings | grep -c .)
 N=$(verdict_findings | jq -s '[.[] | select(.rule_id == "panel/blocking-finding" and .level == "error")] | length')
 [ "$N" = 3 ] && pass "every finding is panel/blocking-finding at level error" || fail "$N findings carry the rule: $OUT"
 GOT=$(verdict_findings | jq -sc '[.[] | [.message, .path, .line]]')
-[ "$GOT" = '[["scrutiny/justification: third","docs/c.md",null],["scrutiny/intent: first","src/a.sh",41],["scrutiny/intent: second",null,null]]' ] \
-    && pass "each finding names its seat, summary and location" || fail "findings are $GOT"
-WANT_REF=$(awk -F'\t' '$1 == "panel/blocking-finding" { print $2 "@" $3 }' "$SCRIPT_DIR/gate-rules.tsv")
-N=$(verdict_findings | jq -s --arg r "$WANT_REF" '[.[] | select(.rule_ref == $r)] | length')
-[ -n "$WANT_REF" ] && [ "$N" = 3 ] && pass "every finding carries gate-rules.tsv's rule_ref ($WANT_REF)" \
-    || fail "rule_ref: want [$WANT_REF] on 3 findings, got $N"
+WANT=$(jq -nc --arg s "$RULE_SUMMARY" '[[$s + ": scrutiny/justification: third","docs/c.md",null],[$s + ": scrutiny/intent: first","src/a.sh",41],[$s + ": scrutiny/intent: second",null,null]]')
+[ "$GOT" = "$WANT" ] \
+    && pass "each finding names the rule's summary, its seat, summary and location" || fail "findings are $GOT"
+WANT_RANGE=$(rf_test_expected_range panel/blocking-finding)
+N=$(verdict_findings | jq -s --arg r "$WANT_RANGE" '[.[] | select((.rule_ref | split("@")[0]) == $r)] | length')
+[ -n "$WANT_RANGE" ] && [ "$N" = 3 ] && pass "every finding's rule_ref range is $WANT_RANGE, found from its anchors with grep" \
+    || fail "rule_ref: want range [$WANT_RANGE] on 3 findings, got $N"
+# As run() does: from the fixture repository, with the koto stand-in on PATH,
+# so the unaltered copy reads the same blocking ledger and decides (exit 1).
+RF_SAVED_PATH=$PATH
+PATH="$SHIM_BIN:$PATH"
+cd "$FX/repo" || exit 1
+rf_test_refusals "--verdict" skills/work-on/scripts/panel-scope.sh panel/blocking-finding --verdict scrutiny "$SESSION"
+cd "$WORKDIR" || exit 1
+PATH=$RF_SAVED_PATH
 
 # A blocking seat recorded before severity, with no finding listed, still blocks.
 jq '.seats["scrutiny/justification"].findings = []' "$SHIM_STORE/$SESSION/verdict_ledger.json" > "$WORKDIR/legacy.json" \
@@ -992,6 +1008,8 @@ if engine_to_qa_retry "$S"; then
         || fail "scrutiny advanced to [$NEXT_STATE] on round-1 verdicts"
 fi
 cd "$WORKDIR" || exit 1
+
+rf_test_verify "panel-scope --verdict"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

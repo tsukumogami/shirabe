@@ -167,7 +167,7 @@ mktempdir() {
 # provisioned host), so `all` on Linux reports it red; its floor run is the
 # macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry"
 
 suite_scripts() {
     case "$1" in
@@ -299,8 +299,6 @@ suite_scripts() {
             # skip without it, so they run on the Linux leg.
             echo "skills/work-on/scripts/check-branch-output_test.sh"
             echo "skills/work-on/scripts/check-pr-output_test.sh"
-            # Reads the rule table and the files it references at HEAD.
-            echo "skills/work-on/scripts/gate-rule-refs_test.sh"
             # Reads the committed verification map with jq and the files that
             # document it; no engine.
             echo "skills/work-on/scripts/verification-map-schema_test.sh"
@@ -487,6 +485,14 @@ suite_scripts() {
             # only bash, git and python3, so every case runs on 3.2.
             echo "scripts/check-skill_test.sh"
             ;;
+        rule-registry)
+            # The rule registry's reader and its checks. The suites build
+            # scratch plugin roots and repositories, plain and as git
+            # repositories, and need only bash, git, jq, awk and sed, so every
+            # case runs on 3.2.
+            echo "scripts/rule-registry_test.sh"
+            echo "scripts/check-rule-registry_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -525,6 +531,7 @@ suite_workflow() {
         offload-baseline)     echo ".github/workflows/check-offload-baseline.yml" ;;
         review-packet)        echo ".github/workflows/check-review-packet.yml" ;;
         check-skill)          echo ".github/workflows/check-skill-gate.yml" ;;
+        rule-registry)        echo ".github/workflows/check-rule-registry.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }

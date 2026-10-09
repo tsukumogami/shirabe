@@ -26,10 +26,15 @@ on:
       # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
-      # The rule reference test re-resolves each row of
-      # skills/work-on/scripts/gate-rules.tsv inside these files, and the
-      # branch output gate test runs the validator built from these sources,
-      # so an edit to either can break the suite.
+      # The gate scripts resolve their rules through the registry and its
+      # reader, and the gate tests check each printed rule_ref against the
+      # rule's text in these files; the branch output gate test also runs the
+      # validator built from these sources, so an edit to any can break the
+      # suite.
+      - 'references/rule-registry.json'
+      - 'scripts/rule-registry.sh'
+      - 'scripts/lib/rule-findings.sh'
+      - 'scripts/lib/rule-findings-testlib.sh'
       - 'references/pr-body-conformance.md'
       - 'references/wip-hygiene.md'
       - 'docs/guides/doc-validation.md'
@@ -54,6 +59,10 @@ on:
       - 'scripts/check-bash-floor.sh'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
+      - 'references/rule-registry.json'
+      - 'scripts/rule-registry.sh'
+      - 'scripts/lib/rule-findings.sh'
+      - 'scripts/lib/rule-findings-testlib.sh'
       - 'references/pr-body-conformance.md'
       - 'references/wip-hygiene.md'
       - 'docs/guides/doc-validation.md'
@@ -283,10 +292,10 @@ jobs:
           echo "$RUNNER_TEMP/work-on-bin" >> "$GITHUB_PATH"
 
       # The output gate scripts: the branch checks against git fixtures (with
-      # the validator built above for --docs-visibility), the PR checks
-      # against stand-in gh, shirabe and owned-pr.sh, and the rule table's
-      # references re-resolved at HEAD. No engine needed; the macOS leg runs
-      # all three on the floor through the work-on suite.
+      # the validator built above for --docs-visibility) and the PR checks
+      # against stand-in gh, shirabe and owned-pr.sh, each verifying every
+      # finding it printed against the rule registry. No engine needed; the
+      # macOS leg runs both on the floor through the work-on suite.
       - name: Run branch output gate tests (Linux)
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/check-branch-output_test.sh
@@ -294,10 +303,6 @@ jobs:
       - name: Run PR output gate tests (Linux)
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/check-pr-output_test.sh
-
-      - name: Run gate rule reference tests (Linux)
-        if: runner.os == 'Linux'
-        run: skills/work-on/scripts/gate-rule-refs_test.sh
 
       # Holds shirabe's verification map to the v1 schema with jq, and the
       # schema reference and work-on.md to what they must say. Needs only git

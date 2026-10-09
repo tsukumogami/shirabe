@@ -1,0 +1,1205 @@
+{
+  "schema": "shirabe-rule-registry/v1",
+  "rules": [
+    {
+      "id": "branch/current-with-main",
+      "status": "active",
+      "summary": "The branch has not merged the default branch in, or a merge is still in progress",
+      "text": {
+        "path": "skills/execute/koto-templates/execute.md",
+        "first": "# The current_with_main gate asks what the merge is for",
+        "last": "# matches no edge and holds."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-branch-output.sh",
+        "mode": "--synced"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-branch-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "execute:worktree_sync"
+      ],
+      "guards": [
+        "push",
+        "merge"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "branch/no-wip-files",
+      "status": "active",
+      "summary": "The branch carries files under wip/",
+      "text": {
+        "path": "references/wip-hygiene.md",
+        "first": "`wip/` is committed to feature branches so that workflows survive resume.",
+        "last": "squash-merge keeps the cleanup out of the main branch trail."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-branch-output.sh",
+        "mode": "--wip"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-branch-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_precheck",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/wip-hygiene.md#L14-L16"
+      ],
+      "aliases": [],
+      "notes": ""
+    },
+    {
+      "id": "commit/conventional-subject",
+      "status": "active",
+      "summary": "A commit subject is not a Conventional Commits subject",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "**PB1 — Conventional Commits title**",
+        "last": "not in the title."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-branch-output.sh",
+        "mode": "--commits"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-branch-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:finalization",
+        "work-on:deferral_approval",
+        "work-on:pre_pr_evidence",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "push"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L40-L50"
+      ],
+      "aliases": [],
+      "notes": "Shares its text with pr-body/conventional-title: the commit-subject rule is stated as PB1's title shape."
+    },
+    {
+      "id": "commit/no-ai-trailer",
+      "status": "active",
+      "summary": "A commit carries an AI-attribution trailer",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "**PB3 — no AI-attribution footer.**",
+        "last": "co-author lines."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-branch-output.sh",
+        "mode": "--commits"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-branch-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:finalization",
+        "work-on:deferral_approval",
+        "work-on:pre_pr_evidence",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "push",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L57-L60"
+      ],
+      "aliases": [],
+      "notes": "Shares its text and baseline key with pr-body/no-ai-trailer; PB3's predicate is applied to commit trailers."
+    },
+    {
+      "id": "docs/private-only-type",
+      "status": "active",
+      "summary": "A changed document has a type allowed only in a private repository",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "3. **Format-specific rules** -- Plan docs",
+        "last": "(R9), and the gate fires before FC01-FC04."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-branch-output.sh",
+        "mode": "--docs-visibility"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-branch-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_precheck",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L23-L27"
+      ],
+      "aliases": [
+        "R9"
+      ],
+      "notes": "Shares its text and baseline key with docs/visibility-strategy-sections and docs/visibility-vision-sections: one paragraph states R7, R8 and R9."
+    },
+    {
+      "id": "docs/visibility-strategy-sections",
+      "status": "active",
+      "summary": "A changed STRATEGY document has a section a public repository prohibits",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "3. **Format-specific rules** -- Plan docs",
+        "last": "(R9), and the gate fires before FC01-FC04."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-branch-output.sh",
+        "mode": "--docs-visibility"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-branch-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_precheck",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L23-L27"
+      ],
+      "aliases": [
+        "R8"
+      ],
+      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-vision-sections: one paragraph states R7, R8 and R9."
+    },
+    {
+      "id": "docs/visibility-vision-sections",
+      "status": "active",
+      "summary": "A changed VISION document has a section a public repository prohibits",
+      "text": {
+        "path": "docs/guides/doc-validation.md",
+        "first": "3. **Format-specific rules** -- Plan docs",
+        "last": "(R9), and the gate fires before FC01-FC04."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-branch-output.sh",
+        "mode": "--docs-visibility"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-branch-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_precheck",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "docs/guides/doc-validation.md#L23-L27"
+      ],
+      "aliases": [
+        "R7"
+      ],
+      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-strategy-sections: one paragraph states R7, R8 and R9."
+    },
+    {
+      "id": "execute/pr-takeover-needs-signal",
+      "status": "active",
+      "summary": "Another run's pull request is on the plan's shared branch; take it over only on a positive signal that the earlier run ended",
+      "text": {
+        "path": "skills/execute/koto-templates/execute.md",
+        "first": "**Another run's PR (exit 6 on `impl/{{PLAN_SLUG}}`, step 2).**",
+        "last": "`--take-over` is never passed on the first attempt"
+      },
+      "check": {
+        "kind": "none"
+      },
+      "fixtures": [],
+      "level": "prose",
+      "timing": [
+        "execute:orchestrator_setup"
+      ],
+      "guards": [
+        "push",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "skills/execute/koto-templates/execute.md#L1222-L1227"
+      ],
+      "aliases": [],
+      "notes": "Released into the agent's context by skills/execute/scripts/adopt-or-create-pr.sh when it exits 6; the template keeps the text."
+    },
+    {
+      "id": "panel/blocking-finding",
+      "status": "active",
+      "summary": "A review seat recorded a blocking finding",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+        "first": "A seat's verdict is its findings' severity"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/panel-scope.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/panel-scope_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:scrutiny",
+        "work-on:review",
+        "work-on:qa_validation",
+        "work-on:light_review"
+      ],
+      "guards": [
+        "pr-create",
+        "merge"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "pr-body/conformance",
+      "status": "active",
+      "summary": "The pull request body breaks the PR-body conformance rules",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "## The gated checks (mechanical)",
+        "last": "fence (as this document does) does not trip the check."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L34-L79"
+      ],
+      "aliases": [],
+      "notes": "The catch-all for a validator message no narrower pr-body rule matches; its text contains PB1 to PB4."
+    },
+    {
+      "id": "pr-body/conventional-title",
+      "status": "active",
+      "summary": "The pull request title is not a Conventional Commits title",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "**PB1 — Conventional Commits title**",
+        "last": "not in the title."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L40-L50"
+      ],
+      "aliases": [
+        "PB1"
+      ],
+      "notes": "Shares its text with commit/conventional-subject."
+    },
+    {
+      "id": "pr-body/no-ai-trailer",
+      "status": "active",
+      "summary": "The pull request body carries an AI-attribution line",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "**PB3 — no AI-attribution footer.**",
+        "last": "co-author lines."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L57-L60"
+      ],
+      "aliases": [
+        "PB3"
+      ],
+      "notes": "Shares its text and baseline key with commit/no-ai-trailer."
+    },
+    {
+      "id": "pr-body/no-heading-in-part1",
+      "status": "active",
+      "summary": "Part 1 of the pull request body has a markdown heading",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "**PB4 — no markdown section heading in Part 1.**",
+        "last": "is not matched, so a prose Part 1 that mentions one is never a false positive."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L61-L75"
+      ],
+      "aliases": [
+        "PB4"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "pr-body/one-separator",
+      "status": "active",
+      "summary": "The pull request body needs exactly one --- separator and a non-empty Part 1",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "**PB2 — one separator, non-empty Part 1.**",
+        "last": "or fence the example."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L51-L56"
+      ],
+      "aliases": [
+        "PB2"
+      ],
+      "notes": ""
+    },
+    {
+      "id": "rs-001",
+      "status": "active",
+      "summary": "The body or an added line carries an attribution or session trailer",
+      "text": {
+        "path": "CLAUDE.md",
+        "first": "- Never add AI attribution or co-author lines to commits or PRs"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-001"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "CLAUDE.md#L192-L192"
+      ],
+      "aliases": [],
+      "notes": ""
+    },
+    {
+      "id": "rs-002",
+      "status": "active",
+      "summary": "A public repository's body or added lines name a private term or a home-directory path",
+      "text": {
+        "path": "skills/public-content/SKILL.md",
+        "first": "- Only reference issues, PRs, and designs in public repos",
+        "last": "- **No internal tooling references**"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-002"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "skills/public-content/SKILL.md#L29-L32"
+      ],
+      "aliases": [],
+      "notes": ""
+    },
+    {
+      "id": "rs-003",
+      "status": "active",
+      "summary": "An added line names a path inside the scratch directory",
+      "text": {
+        "path": "CLAUDE.md",
+        "first": "- **Agent-side scratch when assembling content for koto context** can",
+        "last": "invariant: no persistent on-disk shadow of koto-managed content."
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-003"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "CLAUDE.md#L233-L237"
+      ],
+      "aliases": [],
+      "notes": ""
+    },
+    {
+      "id": "rs-004",
+      "status": "active",
+      "summary": "Part 1 of the body has wording that marks work as unfinished",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "- **Part 1** (above the separator) becomes the squash commit body that lands",
+        "last": "permanently on `main`. It is a factual description of the change."
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-004"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L27-L28"
+      ],
+      "aliases": [],
+      "notes": "Shares its text and baseline key with rs-007 and rs-008. The cited file states no sentence for this rule; the anchor is the nearest passage, and the criterion's question in scripts/review-shadow/criteria.json is the precise statement."
+    },
+    {
+      "id": "rs-005",
+      "status": "active",
+      "summary": "A changed Markdown file repeats a paragraph",
+      "text": {
+        "path": "skills/writing-style/SKILL.md",
+        "first": "## What no matcher reaches",
+        "last": "**`landscape` used figuratively.**"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-005"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The cited file states no sentence for this rule; the anchor is the nearest passage, and the criterion's question in scripts/review-shadow/criteria.json is the precise statement. The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "rs-006",
+      "status": "active",
+      "summary": "An added Markdown line names a repository path that does not exist",
+      "text": {
+        "path": "references/cross-repo-references.md",
+        "first": "## Default: same-repo relative paths",
+        "last": "Use relative paths whenever the upstream artifact lives in the same repository."
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-006"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "references/cross-repo-references.md#L6-L16"
+      ],
+      "aliases": [],
+      "notes": "The cited file states no sentence for this rule; the anchor is the nearest passage, and the criterion's question in scripts/review-shadow/criteria.json is the precise statement."
+    },
+    {
+      "id": "rs-007",
+      "status": "active",
+      "summary": "Part 1 of the body claims a change the file list does not show",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "- **Part 1** (above the separator) becomes the squash commit body that lands",
+        "last": "permanently on `main`. It is a factual description of the change."
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-007"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L27-L28"
+      ],
+      "aliases": [],
+      "notes": "Shares its text and baseline key with rs-004 and rs-008."
+    },
+    {
+      "id": "rs-008",
+      "status": "active",
+      "summary": "Part 1 of the body leaves out a significant change the file list shows",
+      "text": {
+        "path": "references/pr-body-conformance.md",
+        "first": "- **Part 1** (above the separator) becomes the squash commit body that lands",
+        "last": "permanently on `main`. It is a factual description of the change."
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-008"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "references/pr-body-conformance.md#L27-L28"
+      ],
+      "aliases": [],
+      "notes": "Shares its text and baseline key with rs-004 and rs-007."
+    },
+    {
+      "id": "rs-009",
+      "status": "active",
+      "summary": "Two passages of one document contradict each other",
+      "text": {
+        "path": "skills/design/references/phases/phase-6-final-review.md",
+        "first": "### 6.3 Strawman Check",
+        "last": "- Does the rejection reference real weaknesses from the decision evaluation?"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-009"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "skills/design/references/phases/phase-6-final-review.md#L114-L119"
+      ],
+      "aliases": [],
+      "notes": "The cited file states no sentence for this rule; the anchor is the nearest passage, and the criterion's question in scripts/review-shadow/criteria.json is the precise statement."
+    },
+    {
+      "id": "rs-010",
+      "status": "active",
+      "summary": "A code comment no longer describes the changed code",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4-implementation.md",
+        "first": "- **Record why the code is shaped this way, next to the code**",
+        "last": "changes"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-010"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "skills/work-on/references/phases/phase-4-implementation.md#L32-L34"
+      ],
+      "aliases": [],
+      "notes": "The same question as rs-017, graded on a pull request's hunks; rs-017 grades a local change before a pull request exists."
+    },
+    {
+      "id": "rs-011",
+      "status": "active",
+      "summary": "A BRIEF user journey lacks a specific user, a trigger or an outcome",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "3. **User Journeys are concrete.**",
+        "last": "experience)? A journey missing any of the three is incomplete."
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-011"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "skills/brief/references/phases/phase-4-validate.md#L129-L132"
+      ],
+      "aliases": [],
+      "notes": ""
+    },
+    {
+      "id": "rs-012",
+      "status": "active",
+      "summary": "A BRIEF's frontmatter summary disagrees with the section it summarizes",
+      "text": {
+        "path": "skills/brief/references/phases/phase-4-validate.md",
+        "first": "6. **Frontmatter consistency with body.**",
+        "last": "elaborates. Paraphrase is fine; contradiction is not."
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-012"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "skills/brief/references/phases/phase-4-validate.md#L235-L238"
+      ],
+      "aliases": [],
+      "notes": ""
+    },
+    {
+      "id": "rs-013",
+      "status": "active",
+      "summary": "A PRD acceptance criterion can't be answered yes or no",
+      "text": {
+        "path": "skills/prd/references/prd-format.md",
+        "first": "- Binary pass/fail -- no subjective judgment",
+        "last": "- A developer who didn't write the PRD can verify each criterion"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-013"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "skills/prd/references/prd-format.md#L230-L231"
+      ],
+      "aliases": [],
+      "notes": ""
+    },
+    {
+      "id": "rs-014",
+      "status": "active",
+      "summary": "A plan criterion checks an end state without the operation that produces it",
+      "text": {
+        "path": "skills/review-plan/references/templates/ac-discriminability-taxonomy.md",
+        "first": "## Pattern 4 — State-without-transition",
+        "last": "does not exist before the operation, then verify it exists with the expected"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-014"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L121-L152"
+      ],
+      "aliases": [],
+      "notes": ""
+    },
+    {
+      "id": "rs-015",
+      "status": "active",
+      "summary": "No diff hunk would make an acceptance criterion true",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+        "first": "- **Completeness reviewer**: Does every acceptance criterion have a corresponding implementation?"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-015"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "skills/work-on/references/phases/phase-4a-scrutiny.md#L9-L9"
+      ],
+      "aliases": [],
+      "notes": ""
+    },
+    {
+      "id": "rs-016",
+      "status": "active",
+      "summary": "An added code comment restates the code instead of giving a reason",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4b-review.md",
+        "first": "- **Maintainer reviewer**: Can the next developer understand and modify this code?"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-016"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "skills/work-on/references/phases/phase-4b-review.md#L11-L11"
+      ],
+      "aliases": [],
+      "notes": "Shares its text and baseline key with rs-017: one reviewer instruction covers both comment rules."
+    },
+    {
+      "id": "rs-017",
+      "status": "active",
+      "summary": "A code comment no longer describes the changed code",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4b-review.md",
+        "first": "- **Maintainer reviewer**: Can the next developer understand and modify this code?"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-017"
+      },
+      "fixtures": [
+        "scripts/review-shadow/test_review_shadow.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "eligible",
+      "baseline_keys": [
+        "skills/work-on/references/phases/phase-4b-review.md#L11-L11"
+      ],
+      "aliases": [],
+      "notes": "Shares its text and baseline key with rs-016: one reviewer instruction covers both comment rules. The same question as rs-010, graded on a local change before a pull request exists."
+    },
+    {
+      "id": "verification/bad-map",
+      "status": "active",
+      "summary": "The verification map does not parse",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/bad-map` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "verification/command-failed",
+      "status": "active",
+      "summary": "A verification command failed",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/command-failed` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "verification/dirty-tree",
+      "status": "active",
+      "summary": "Verification refused a tree with uncommitted changes to tracked files",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/dirty-tree` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "verification/needs-person",
+      "status": "active",
+      "summary": "A selected verification command needs a person and was not started",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/needs-person` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "verification/no-map",
+      "status": "active",
+      "summary": "No verification map, or the map selects nothing for this change",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/no-map` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "verification/not-started",
+      "status": "active",
+      "summary": "A verification command could not start",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/not-started` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "verification/runaway",
+      "status": "active",
+      "summary": "A verification command grew past its process limit and was killed",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/runaway` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "verification/timed-out",
+      "status": "active",
+      "summary": "A verification command ran past its timeout and was killed",
+      "text": {
+        "path": "skills/work-on/references/verification-map.md",
+        "first": "`verification/timed-out` |"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-verification.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/run-verification_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:verification"
+      ],
+      "guards": [
+        "pr-create"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    }
+  ]
+}
