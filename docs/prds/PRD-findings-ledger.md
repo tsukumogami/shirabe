@@ -14,7 +14,8 @@ goals: |
   traceable across rounds, a panel passes only when every blocking finding
   is closed by a verdict record a reviewer or check wrote, and the ledger
   already accepts findings from a decider for the next offload step.
-upstream: docs/briefs/BRIEF-findings-ledger.md
+absorbed:
+  - docs/briefs/BRIEF-findings-ledger.md
 ---
 
 # PRD: findings-ledger
@@ -22,6 +23,33 @@ upstream: docs/briefs/BRIEF-findings-ledger.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-findings-ledger](docs/briefs/BRIEF-findings-ledger.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because a /work-on panel retry pays for whole reviewer
+seats rather than for the findings a fix touched, and because no finding is
+tracked from the round that raised it to the record that closed it. The brief
+framed it as the first step of review offload: cut what a retry costs without
+letting any pass skip a first-round panel. This document's Problem Statement
+states that in full.
+
+The outcome it asked for is an agent and a maintainer who see a retry cost
+what the fix touched, a finished run in which each finding can be followed to
+the run that closed it, an agent that can't close a finding on its own word,
+and a ledger the next offload step's decider can report into without the
+gate changing. That is this document's Goals. Its five journeys (a fix to one
+of several findings, a fix that breaks code no finding named, a finding with
+no location, a maintainer reading a run afterwards, and a decider added
+later) are the User Stories.
+
+Its boundary kept the feature to per-finding records in the existing ledger,
+targeted re-verification with one review of the fix's diff, a gate on
+verdict records, registry rule ids, a decider raiser, and evidence of the
+saving. It pushed out the decider check itself, any first-round skip, rule
+withholding, koto changes, and changes to the retry cap's numbers. Those are
+this document's Out of Scope.
 
 ## Problem Statement
 
