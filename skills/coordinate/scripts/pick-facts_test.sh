@@ -7,7 +7,8 @@
 # fixture roadmap's Dependencies and Status lines say, in the roadmap's
 # order, with the holding that covers it; the prefix heading form; the
 # roadmap read from the host's default branch; `scope-complete` when every
-# feature reads Done or Dropped, and not for a roadmap with no features; a
+# feature is done (a Status opening Done or Dropped, a note after it
+# allowed), and not for `Doneness` or a roadmap with no features; a
 # missing roadmap (2); discipline units from the host's open issues with the
 # discipline's label in issue-number order (never a search); `rotation-over`
 # only after the title's end date; CAP and PARKED_BOUND from the session; the
@@ -88,7 +89,7 @@ eq "units come in the roadmap's order" "Feature 1,Feature 2,Feature 3,Feature 4,
 eq "Feature 2 depends on a Done feature: unblocked, blocker landed" "false [] true" "$(facts | jq -c -r '.units[1] | "\(.blocked) \(.blocked_by | tojson) \(.blocker_landed)"')"
 eq "Feature 3 waits on Feature 2: blocked by 2, blocker not landed" "true [2] false" "$(facts | jq -c -r '.units[2] | "\(.blocked) \(.blocked_by | tojson) \(.blocker_landed)"')"
 eq "Feature 4 has no dependency: unblocked, nothing to land" "false [] false" "$(facts | jq -c -r '.units[3] | "\(.blocked) \(.blocked_by | tojson) \(.blocker_landed)"')"
-eq "Feature 5 depends on a feature not Done: blocked" "true [4]" "$(facts | jq -c -r '.units[4] | "\(.blocked) \(.blocked_by | tojson)"')"
+eq "Feature 5 is Dropped: never blocked, though its dependency isn't Done" "false []" "$(facts | jq -c -r '.units[4] | "\(.blocked) \(.blocked_by | tojson)"')"
 eq "Done and Dropped read done" "true true false" "$(facts | jq -r '[.units[0].done, .units[4].done, .units[1].done] | map(tostring) | join(" ")')"
 eq "each unit carries the holding that covers it" '{"worker":"alpha","phase":"executing"}|{"worker":"gamma","phase":"scoping-ahead"}|{"worker":"beta","phase":"executing"}|null' \
     "$(facts | jq -c -r '[.units[1].holding, .units[2].holding, .units[3].holding, .units[0].holding] | map(tojson) | join("|")')"
@@ -241,6 +242,8 @@ db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 
 OUT=$(bash "$PF" "${RM[@]}" 2>"$T/err"); eq "every feature Done or Dropped is scope-complete" scope-complete "$OUT"
 tok_shape "scope-complete is in koto's capture alphabet" "$OUT"
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Dropped Done 'Done (mostly)')"
+eq "a Status opening Done and a note reads done" scope-complete "$(bash "$PF" "${RM[@]}" 2>/dev/null)"
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Dropped Done Doneness)"
 eq "one feature not quite Done is pick" pick "$(bash "$PF" "${RM[@]}" 2>/dev/null)"
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(printf '# ROADMAP\n\n## Features\n\nTBD.\n')"
 eq "a roadmap with no features is not complete" pick "$(bash "$PF" "${RM[@]}" 2>/dev/null)"

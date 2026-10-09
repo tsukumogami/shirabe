@@ -3,11 +3,17 @@
 # decides on, and whether the scope is over.
 #
 # Units, in order. Roadmap scope: the features under `## Features` of the
-# roadmap on the host's default branch (record-common.sh lib_roadmap_features:
-# `### Feature N: title` or `### <PREFIX><N>: title`, `**Dependencies:**`,
-# `**Status:**`), in the roadmap's order. A unit is blocked while a feature it
-# depends on doesn't read Done; blocked_by lists those feature numbers;
-# blocker_landed is true when it has dependencies and every one reads Done.
+# roadmap on the host's default branch, in the roadmap's order, as
+# record-common.sh lib_roadmap_features reads them: `### Feature N: title` or
+# `### <PREFIX><N>[a-z]: title`, the `**Status:**` value, and the dependencies
+# its `**Dependencies:**` paragraph names, soft mentions and parenthesised
+# text aside. A dependency is satisfied only when the feature it names is
+# finished (its Status opens Done or Shipped); a Dropped one never satisfies
+# it. A unit that is done (finished, or Dropped) is never blocked; any other
+# is blocked while a dependency is unsatisfied, and blocked_by lists those
+# features' positions (1-based, in heading order, which differ from the N of
+# `Feature N` only when headings are out of order), ascending. blocker_landed is true when it has dependencies
+# and none is unsatisfied.
 # Discipline scope: the host's open issues labelled with the discipline's name
 # (gh issue list --label, never a search), in issue-number order, none blocked.
 # A roadmap unit carries `landed`, the pull request link of its pending
@@ -60,8 +66,8 @@
 #                    waiting for a verdict (a held entry and an escalation that
 #                    owes nothing never count). It comes first, so owed work
 #                    is done before a close is attempted. Needs the session
-#   scope-complete   roadmap: the roadmap lists features and every one reads
-#                    Done or Dropped
+#   scope-complete   roadmap: the roadmap lists features and every one is
+#                    done (its Status opens Done, Shipped or Dropped)
 #   rotation-over    discipline: today UTC is after the record title's end date
 #   pick             anything else
 # The facts go to context key coord/pick.json as data (pick's decider input):
@@ -153,14 +159,14 @@ if [ "$SCOPE" = roadmap ]; then
     lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
     # The roadmap pull requests the record holds as pending (roadmap-status.sh,
     # the one reader of those rows): a unit named by one has landed and is
-    # never offered again, though it isn't Done for its dependents until the
-    # roadmap says so.
+    # never offered again, though it isn't finished for its dependents until
+    # the roadmap says so.
     # "$@" is still `--list` and the record's addressing, as set for
     # record-decision.sh above.
     bash "$HERE/roadmap-status.sh" "$@" > "$T/landed.json" 2> "$T/landed.err" \
         || lib_die2 "roadmap-status.sh --list failed: $(lib_scrub < "$T/landed.err")"
     jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" '. as $f | map(. as $u
-        | ([$u.dependencies[] as $d | select(([$f[] | select(.number == $d and (.status | test("^Done\\.?$")))] | length) == 0) | $d]) as $by
+        | (if $u.done then [] else [$u.dependencies[] as $d | select(([$f[] | select(.number == $d and .finished)] | length) == 0) | $d] end) as $by
         | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $u.done,
            blocked: (($by | length) > 0), blocked_by: $by,
            blocker_landed: ((($u.dependencies | length) > 0) and (($by | length) == 0)),

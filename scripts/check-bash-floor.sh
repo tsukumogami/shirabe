@@ -391,6 +391,7 @@ suite_scripts() {
             echo "skills/coordinate/scripts/rotation-close_test.sh"
             echo "skills/coordinate/scripts/deferral-check_test.sh"
             echo "skills/coordinate/scripts/pick-facts_test.sh"
+            echo "skills/coordinate/scripts/roadmap-features_test.sh"
             echo "skills/coordinate/scripts/report-facts_test.sh"
             echo "skills/coordinate/scripts/quiet-check_test.sh"
             echo "skills/coordinate/scripts/skill-hygiene_test.sh"

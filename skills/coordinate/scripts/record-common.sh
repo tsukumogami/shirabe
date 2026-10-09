@@ -396,24 +396,63 @@ lib_roadmap_path() {
 }
 
 # lib_roadmap_features <roadmap.md>: the features under `## Features`, as a JSON
-# array in source order: {number, id, title, status, done, dependencies}.
-# A feature heading is `### Feature <N>: <title>` or `### <PREFIX><N>: <title>`;
-# features are numbered by position, as shirabe-validate numbers them. Status
-# is the `**Status:**` line's value; `done` is true when it reads Done or
-# Dropped (one trailing period tolerated), compared case-sensitively.
-# Dependencies are the positions named by `Feature N`, `Features N and M`,
-# `Features N, M` or `F<N>` on the `**Dependencies:**` line; a line opening
-# with `None` names none, whatever prose follows.
+# array in source order: {number, id, title, status, finished, done,
+# dependencies}. The picker's reading of a roadmap of either version, its
+# rules applied in this order:
+#   1. An item is a `### <tag>: <title>` heading whose tag is `Feature <N>` or
+#      `<PREFIX><N>` with an optional lower-case letter (`AB10a`); any other
+#      `### ` heading ends the item before it. Items are numbered by
+#      position, as shirabe-validate numbers them; `id` is the tag.
+#   2. `finished` when the `**Status:**` value starts with Done or Shipped
+#      followed by its end or a character other than a letter, digit or
+#      hyphen; closed the same way with Dropped. Case-sensitive, so a
+#      missing Status, `Doneness` or `done` is neither. `done` is finished
+#      or closed.
+#   3. The Dependencies paragraph is the `**Dependencies:**` line and the
+#      lines below it, joined with single spaces, up to a blank line, the
+#      next field line or a heading. One whose first word is None names none.
+#   4. A tag followed by an optional `(` and then soft, optional, preferred,
+#      sequencing-preferred or `paced by` (any case) is a soft mention, and
+#      only that mention goes: a bare marker is struck with its tag, so it
+#      can't make rule 6 drop the sentence (`AB2 soft, AB5` still names AB5);
+#      a marker in parentheses strikes the tag alone and rule 5 takes the
+#      parenthetical. A hard mention of the same tag elsewhere still counts.
+#   5. Parenthesised text goes, innermost pair first, replaced by nothing so
+#      `Features 1 (x), 2 and 3` still reads as one list (at most 20 passes;
+#      an unbalanced paren stays rather than loop).
+#   6. The rest splits into sentences at `.` or `;` and whitespace; one
+#      whose first word is soft (any case) goes.
+#   7. What is left names `Feature N`, `Features N, M and K` and `F<N>`
+#      (the item tagged `Feature N` when there is one, else the Nth item),
+#      and every whole word equal to another item's tag. Soft mentions, the
+#      item itself and tags no item carries are not dependencies.
+# `dependencies` is those positions, ascending, each once. A paragraph over
+# 4096 bytes fails the read: non-zero, the item's tag on stderr, prefixed by
+# the caller's PROG.
 lib_roadmap_features() {
-    tr -d '\r' < "$1" | awk '
-        function flush() { if (have) { gsub(/\t/, " ", title); gsub(/\t/, " ", status); gsub(/\t/, " ", deps)
-            printf "%d\t%s\t%s\t%s\t%s\n", n, id, title, status, deps }; have = 0 }
+    local tsv
+    # LC_ALL=C: length() counts bytes, and the classes are ASCII.
+    tsv=$(tr -d '\r' < "$1" | LC_ALL=C awk -v prog="${PROG:-record-common}" '
+        function flush() {
+            if (have) {
+                gsub(/\t/, " ", title); gsub(/\t/, " ", status); gsub(/\t/, " ", deps)
+                # exit still runs END; `failed` keeps END from flushing again.
+                if (length(deps) > 4096) {
+                    printf "%s: %s: the Dependencies paragraph is over 4096 bytes\n", prog, id > "/dev/stderr"
+                    failed = 1; exit 3
+                }
+                printf "%d\t%s\t%s\t%s\t%s\n", n, id, title, status, deps
+            }
+            have = 0; indeps = 0
+        }
         /^## / { if (infeat) { flush(); infeat = 0 } if ($0 ~ /^## Features[ \t]*$/) infeat = 1; next }
         !infeat { next }
+        indeps && (/^[ \t]*$/ || /^\*\*[A-Z][A-Za-z ]*:\*\*/ || /^#+([ \t]|$)/) { indeps = 0 }
+        indeps { s = $0; sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); deps = (deps == "" ? s : deps " " s); next }
         /^### / {
             flush()
             line = substr($0, 5)
-            if (match(line, /^(Feature [0-9]+|[A-Za-z]+[0-9]+): /)) {
+            if (match(line, /^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?): /)) {
                 n++; have = 1
                 id = substr(line, 1, RLENGTH - 2); title = substr(line, RLENGTH + 1)
                 status = ""; deps = ""
@@ -421,13 +460,32 @@ lib_roadmap_features() {
             next
         }
         have && /^\*\*Status:\*\*/ { s = $0; sub(/^\*\*Status:\*\*[ \t]*/, "", s); sub(/[ \t]+$/, "", s); status = s; next }
-        have && /^\*\*Dependencies:\*\*/ { s = $0; sub(/^\*\*Dependencies:\*\*[ \t]*/, "", s); deps = s; next }
-        END { if (infeat) flush() }' \
-    | jq -R -s -c 'split("\n") | map(select(. != "") | split("\t")) | map({
-            number: (.[0] | tonumber), id: .[1], title: (.[2] | .[0:120]), status: (.[3] | .[0:60]),
-            done: (.[3] | test("^(Done|Dropped)\\.?$")),
-            dependencies: (if (.[4] | test("^None\\b")) then [] else [(.[4] | scan("[Ff]eatures? ([0-9]+(?:(?:,? and |, | & )[0-9]+)*)") | .[0] | scan("[0-9]+") | tonumber),
-                            (.[4] | scan("\\bF([0-9]+)\\b") | .[0] | tonumber)] | unique end)})'
+        have && /^\*\*Dependencies:\*\*/ { s = $0; sub(/^\*\*Dependencies:\*\*[ \t]*/, "", s); sub(/[ \t]+$/, "", s); deps = s; indeps = 1; next }
+        END { if (infeat && !failed) flush() }') || return
+    printf '%s\n' "$tsv" | jq -R -s -c 'split("\n") | map(select(. != "") | split("\t"))
+        | map(.[1]) as $ids | length as $count
+        # num: `Feature N` or `F<N>`, the item tagged `Feature N`, else the Nth.
+        | def num($n): ($ids | index("Feature \($n)")) as $i
+            | if $i != null then $i + 1 elif $n >= 1 and $n <= $count then $n else empty end;
+          def tag($t): range(0; $count) | select($ids[.] == $t) | . + 1;
+          def named: (scan("\\b(?i:features?) ([0-9]+(?:(?:,? and |, | & )[0-9]+)*)") | .[0] | scan("[0-9]+") | tonumber | num(.)),
+              (scan("\\bF([0-9]+)\\b") | .[0] | tonumber | num(.)),
+              (scan("[A-Za-z0-9]+") | tag(.));
+          # A soft mark in parentheses strikes only the tag: the parenthetical
+          # is left whole for rule 5. A bare mark goes with its tag.
+          def desoft: gsub("\\b((?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)(?=\\s*\\(\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b)"; "")
+              | gsub("\\b((?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b"; "");
+          # The space a removed parenthetical leaves before `,` goes too, so
+          # `Features 2 (x), 3 and 4` stays one list.
+          def unparen: reduce range(20) as $_ (.; if test("\\([^()]*\\)") then gsub("\\([^()]*\\)"; "") else . end)
+              | gsub("\\s+(?<p>[,;])"; "\(.p)");
+          def deps($p; $self): if ($p | test("^None([^A-Za-z0-9]|$)")) then [] else
+              ([$p | desoft | unparen | splits("[.;]\\s+") | select(test("^\\s*(?i:soft)\\b") | not) | named] | unique)
+              - [$self] end;
+          def opens($w): test("^(" + $w + ")([^A-Za-z0-9-]|$)");
+        map({number: (.[0] | tonumber), id: .[1], title: (.[2] | .[0:120]), status: (.[3] | .[0:60]),
+             finished: (.[3] | opens("Done|Shipped")), done: (.[3] | opens("Done|Shipped|Dropped")),
+             dependencies: deps(.[4] // ""; .[0] | tonumber)})'
 }
 
 # lib_pr_link <cell>: split a Pull request cell `[#n](https://github.com/o/r/pull/n)`
