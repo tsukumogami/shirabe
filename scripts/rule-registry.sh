@@ -64,12 +64,22 @@ PROG=rule-registry
 # can fail.
 RELEASE_ID=""
 QUIET=""
-prev=""
-for a in "$@"; do
-    [ "$prev" = release ] && RELEASE_ID=$a
-    [ "$a" = log-finding ] && QUIET=1
-    prev=$a
+# The command is the first word after the options, so only that position is
+# read: an id or a logged line that happens to say `release` is not a command.
+ARGV=("$@")
+i=0
+while [ $i -lt ${#ARGV[@]} ]; do
+    case "${ARGV[$i]}" in
+        --root|--registry) i=$((i + 2)) ;;
+        --) i=$((i + 1)); break ;;
+        -*) i=$((i + 1)) ;;
+        *) break ;;
+    esac
 done
+case "${ARGV[$i]-}" in
+    release) RELEASE_ID=${ARGV[$((i + 1))]-} ;;
+    log-finding) QUIET=1 ;;
+esac
 die2() {
     if [ -n "$RELEASE_ID" ]; then
         echo "$PROG: could not release $RELEASE_ID: $*" >&2

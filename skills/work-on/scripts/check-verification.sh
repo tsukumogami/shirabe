@@ -83,8 +83,11 @@ done
 [ -n "$SESSION" ] || { usage; exit 2; }
 
 command -v jq >/dev/null || undecided "jq is not on PATH"
-# shellcheck disable=SC2086
-rf_require $RULE_IDS
+# Every cause the result can name, written out: rf_require checks each against
+# RULE_IDS, and a cause the result names that isn't here holds at rf_finding.
+rf_require verification/command-failed verification/no-map verification/bad-map \
+    verification/needs-person verification/timed-out verification/runaway \
+    verification/not-started verification/dirty-tree
 
 if [ -n "$BASE_REF" ]; then
     LOC=$("$HERE/run-verification.sh" --locate --session "$SESSION" --base-ref "$BASE_REF") || exit 2

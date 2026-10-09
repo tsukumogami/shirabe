@@ -347,6 +347,9 @@ fi
 
 # --- the rule registry ----------------------------------------------------------
 
+# The stand-in validator reports a PB3 violation, so the unaltered copy's
+# control run in rf_test_refusals decides (exit 1) and the --pr-body rules are
+# the ones the refusals exercise.
 FAKE_SHIRABE_RC=2
 FAKE_SHIRABE_OUT=$(msg_json "$PB3")
 rf_test_refusals "--pr-body" skills/work-on/scripts/check-pr-output.sh pr-body/no-ai-trailer --pr-body

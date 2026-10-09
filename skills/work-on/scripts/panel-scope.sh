@@ -302,8 +302,7 @@ if [ "$MODE" = "--verdict" ]; then
     undecided() { refuse 2 "$*"; }
     # shellcheck source=../../../scripts/lib/rule-findings.sh
     . "$(cd "$(dirname "$0")" && pwd)/../../../scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
-    # shellcheck disable=SC2086
-    rf_require $RULE_IDS
+    rf_require panel/blocking-finding
     ledger=$(ctx_get "$LEDGER")
     [ -n "$ledger" ] || refuse 2 "no $LEDGER: no $PANEL seat has a recorded verdict (run panel-scope.sh --record $PANEL)"
     printf '%s' "$ledger" | jq -e 'type == "object"' >/dev/null \
@@ -326,12 +325,15 @@ if [ "$MODE" = "--verdict" ]; then
     done
     [ -z "$missing" ] || refuse 2 "no verdict on record for$missing (run panel-scope.sh --record $PANEL)"
 
-    ref=$(rf_field panel/blocking-finding 2)
-    summary=$(rf_field panel/blocking-finding 3)
+    ref=$(rf_ref panel/blocking-finding) || exit 2
+    summary=$(rf_summary panel/blocking-finding) || exit 2
     # One finding per blocking finding. A seat recorded as blocking with no
     # finding marked blocking (a ledger from before severity) still blocks, and
     # gets one finding naming the seat. The message is the rule's summary, then
-    # the panel, seat and the seat's own summary, control characters replaced.
+    # the panel, seat and the seat's own summary, control characters replaced:
+    # the same shape rf_finding in scripts/lib/rule-findings.sh builds, built
+    # here because one ledger read yields every finding. rf_emit refuses a line
+    # that strays from it.
     findings=$(printf '%s' "$ledger" | jq -c --arg panel "$PANEL" --arg seats "$SEATS" --arg ref "$ref" \
         --arg rule_summary "$summary" \
         "def blocking_findings: [$BLOCKING_FINDINGS];"'

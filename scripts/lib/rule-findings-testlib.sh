@@ -4,7 +4,8 @@
 #
 #   rf_test_setup <dir>        start a findings log in <dir> and export
 #                              SHIRABE_FINDINGS_LOG, so every finding the suite's
-#                              runs print is logged by rule-findings.sh
+#                              runs print is appended there (rule-findings.sh
+#                              passes each to rule-registry.sh log-finding)
 #   rf_test_verify <label>     rule-registry.sh verify-findings on that log: every
 #                              logged finding names an active rule, carries the
 #                              ref the reader computes, and starts with the
@@ -85,6 +86,15 @@ rf_test_refusals() {
     rm -rf "$p"; rf_test_copy_plugin "$p"
     script="$p/$rel"
     tmp="$RF_TEST_DIR/edit.$$"
+
+    # The control: the unaltered copy decides (0 or 1). Without it, a scratch
+    # copy too broken to run at all would make every refusal below pass.
+    SHIRABE_FINDINGS_LOG="" "$script" "$@" >/dev/null 2>"$tmp.err"; rc=$?
+    case $rc in
+        0|1) pass "$label: the unaltered scratch copy decides (exit $rc)" ;;
+        *) fail "$label: the unaltered scratch copy exited $rc; the refusals below would prove nothing: $(head -c 400 "$tmp.err")" ;;
+    esac
+    rm -f "$tmp.err"
 
     awk -v id="$id" '
         /^RULE_IDS="/ {

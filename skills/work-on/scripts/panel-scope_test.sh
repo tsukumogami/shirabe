@@ -735,7 +735,14 @@ WANT_RANGE=$(rf_test_expected_range panel/blocking-finding)
 N=$(verdict_findings | jq -s --arg r "$WANT_RANGE" '[.[] | select((.rule_ref | split("@")[0]) == $r)] | length')
 [ -n "$WANT_RANGE" ] && [ "$N" = 3 ] && pass "every finding's rule_ref range is $WANT_RANGE, found from its anchors with grep" \
     || fail "rule_ref: want range [$WANT_RANGE] on 3 findings, got $N"
+# As run() does: from the fixture repository, with the koto stand-in on PATH,
+# so the unaltered copy reads the same blocking ledger and decides (exit 1).
+RF_SAVED_PATH=$PATH
+PATH="$SHIM_BIN:$PATH"
+cd "$FX/repo" || exit 1
 rf_test_refusals "--verdict" skills/work-on/scripts/panel-scope.sh panel/blocking-finding --verdict scrutiny "$SESSION"
+cd "$WORKDIR" || exit 1
+PATH=$RF_SAVED_PATH
 
 # A blocking seat recorded before severity, with no finding listed, still blocks.
 jq '.seats["scrutiny/justification"].findings = []' "$SHIM_STORE/$SESSION/verdict_ledger.json" > "$WORKDIR/legacy.json" \
