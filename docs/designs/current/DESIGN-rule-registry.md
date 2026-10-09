@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   shirabe's gate scripts read their rules from a tab-separated table beside the scripts, the
   review-shadow trial reads its criteria from its own JSON file, and the rule text both point
@@ -40,7 +40,7 @@ user_visible_surface: false
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
