@@ -29,7 +29,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "branch/no-wip-files",
@@ -298,7 +298,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "pr-body/conformance",
@@ -618,7 +618,7 @@
       "withhold": "eligible",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The cited file states no sentence for this rule; the anchor is the nearest passage, and the criterion's question in scripts/review-shadow/criteria.json is the precise statement. The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The cited file states no sentence for this rule; the anchor is the nearest passage, and the criterion's question in scripts/review-shadow/criteria.json is the precise statement. The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "rs-006",
@@ -768,7 +768,7 @@
         "skills/work-on/references/phases/phase-4-implementation.md#L32-L34"
       ],
       "aliases": [],
-      "notes": ""
+      "notes": "The same question as rs-017, graded on a pull request's hunks; rs-017 grades a local change before a pull request exists."
     },
     {
       "id": "rs-011",
@@ -975,7 +975,7 @@
         "skills/work-on/references/phases/phase-4b-review.md#L11-L11"
       ],
       "aliases": [],
-      "notes": "Shares its text and baseline key with rs-016: one reviewer instruction covers both comment rules."
+      "notes": "Shares its text and baseline key with rs-016: one reviewer instruction covers both comment rules. The same question as rs-010, graded on a local change before a pull request exists."
     },
     {
       "id": "verification/bad-map",
@@ -1003,7 +1003,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "verification/command-failed",
@@ -1031,7 +1031,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "verification/dirty-tree",
@@ -1059,7 +1059,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "verification/needs-person",
@@ -1087,7 +1087,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "verification/no-map",
@@ -1115,7 +1115,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "verification/not-started",
@@ -1143,7 +1143,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "verification/runaway",
@@ -1171,7 +1171,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
       "id": "verification/timed-out",
@@ -1199,7 +1199,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The text's anchors don't resolve at the baseline's pinned commit (first anchor found 0 times), so the rule's wording there differs or it did not exist."
+      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     }
   ]
 }

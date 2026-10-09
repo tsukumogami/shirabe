@@ -20,7 +20,8 @@
 #   log-finding <line>    append a printed ::koto-finding:: line to
 #                         $SHIRABE_FINDINGS_LOG when that names a safe file;
 #                         always exits 0
-#   verify-findings <log> check every logged finding's rule_id and rule_ref
+#   verify-findings <log> check every logged finding's rule_id, rule_ref and
+#                         summary prefix; a log with no findings fails
 #
 # --root and --registry exist for the tests, which point the script at a
 # scratch plugin copy. No gate script passes them.
@@ -54,7 +55,24 @@ ROOT=$(CDPATH='' cd -P -- "$SELF_DIR/.." && pwd -P) || exit 2
 REGISTRY=""
 PROG=rule-registry
 
-die2() { echo "$PROG: $*" >&2; exit 2; }
+# A trigger calls `release` with `|| true`, and its result must never change
+# because a release could not run. So when the command is `release`, every
+# failure before the dispatch (a bad option, a missing jq) still prints the
+# one could-not-release line and exits 0, like a failure inside it.
+RELEASE_ID=""
+prev=""
+for a in "$@"; do
+    [ "$prev" = release ] && RELEASE_ID=$a
+    prev=$a
+done
+die2() {
+    if [ -n "$RELEASE_ID" ]; then
+        echo "$PROG: could not release $RELEASE_ID: $*" >&2
+        exit 0
+    fi
+    echo "$PROG: $*" >&2
+    exit 2
+}
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -107,22 +125,27 @@ safe_path() {
 }
 
 # entry <id>: the entry's JSON on stdout. Exit 1 unknown or retired, 2 when the
-# registry can't be read or the id is malformed.
+# registry can't be read, the id is malformed, or the entry itself is (no
+# status, or two entries with the id; the check script refuses both in CI).
 entry() {
-    local id=$1 e
+    local id=$1 e n status
     valid_id "$id" || { echo "$PROG: [$id] is not a rule id" >&2; return 2; }
     [ -r "$REGISTRY" ] || { echo "$PROG: cannot read $REGISTRY" >&2; return 2; }
-    e=$(jq -ce --arg id "$id" '.rules[] | select(.id == $id)' "$REGISTRY" 2>/dev/null)
-    case $? in
-        0) ;;
-        4|1) jq -e '.rules | type == "array"' "$REGISTRY" >/dev/null 2>&1 \
-                 || { echo "$PROG: $REGISTRY does not parse as a registry" >&2; return 2; }
-             echo "$PROG: no rule $id" >&2; return 1 ;;
-        *) echo "$PROG: $REGISTRY does not parse as a registry" >&2; return 2 ;;
+    jq -e '.rules | type == "array"' "$REGISTRY" >/dev/null 2>&1 \
+        || { echo "$PROG: $REGISTRY does not parse as a registry" >&2; return 2; }
+    n=$(jq --arg id "$id" '[.rules[] | select(.id == $id)] | length' "$REGISTRY")
+    case "$n" in
+        0) echo "$PROG: no rule $id" >&2; return 1 ;;
+        1) ;;
+        *) echo "$PROG: rule $id has $n entries" >&2; return 2 ;;
     esac
-    if [ "$(printf '%s' "$e" | jq -r '.status')" != active ]; then
-        echo "$PROG: rule $id is retired" >&2; return 1
-    fi
+    e=$(jq -c --arg id "$id" '.rules[] | select(.id == $id)' "$REGISTRY")
+    status=$(printf '%s' "$e" | jq -r '.status // ""')
+    case "$status" in
+        active) ;;
+        retired) echo "$PROG: rule $id is retired" >&2; return 1 ;;
+        *) echo "$PROG: rule $id has no valid status" >&2; return 2 ;;
+    esac
     printf '%s\n' "$e"
 }
 
@@ -144,9 +167,16 @@ range() {
         }' "$1"
 }
 
+# git_plain: git on the plugin root and nothing else. The caller's location
+# variables are cleared so its environment can't point git at another
+# repository, the system and global configuration are skipped, and hooks and the
+# filesystem monitor are switched off. Only plumbing runs through it
+# (rev-parse, and hash-object with --no-filters so no clean filter a planted
+# .gitattributes names can run).
 git_plain() {
     env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_CEILING_DIRECTORIES \
-        -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES \
+        -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_COMMON_DIR \
+        -u GIT_CONFIG_COUNT -u GIT_CONFIG_PARAMETERS \
         GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null GIT_TERMINAL_PROMPT=0 \
         git -C "$ROOT" -c core.fsmonitor=false -c core.hooksPath=/dev/null "$@"
 }
@@ -155,6 +185,9 @@ git_plain() {
 revision() {
     local rel=$1 abs=$2 top head at_head now version blob
     if command -v git >/dev/null 2>&1; then
+        # A checkout only when the plugin root is the top of its own work tree:
+        # an installed copy sitting inside some other repository would
+        # otherwise name that repository's commit.
         if top=$(git_plain rev-parse --show-toplevel 2>/dev/null) \
             && top=$(CDPATH='' cd -P -- "$top" 2>/dev/null && pwd -P) \
             && [ "$top" = "$ROOT" ] \
@@ -228,24 +261,37 @@ cmd_text() {
     LC_ALL=C sed -n "${A},${B}p" "$F"
 }
 
+# releasable_path <relative path>: only files a skill already loads in normal
+# runs: anything under references/, and in one skill's directory its SKILL.md,
+# its references/ and its koto-templates/. A case glob's * crosses slashes, so
+# the skill name is split off before the rest is matched.
 releasable_path() {
+    local rest
     case "$1" in
         references/*) return 0 ;;
-        skills/*/koto-templates/*|skills/*/references/*|skills/*/SKILL.md)
-            case "${1#skills/}" in */*/*|*/SKILL.md) return 0 ;; esac ;;
+        skills/*) rest=${1#skills/*/} ;;
+        *) return 1 ;;
+    esac
+    case "${1#skills/}" in */*) ;; *) return 1 ;; esac
+    case "$rest" in
+        SKILL.md|references/*|koto-templates/*) return 0 ;;
     esac
     return 1
 }
 
 cmd_release() {
-    local id=$1 rc lines ref
+    local id=$1 rc lines ref why errf
     fail() { echo "$PROG: could not release $id: $*" >&2; return 0; }
-    resolve "$id" 2>/dev/null; rc=$?
-    case $rc in
-        0) ;;
-        1) fail "no active rule by that id"; return 0 ;;
-        *) fail "the registry or the rule's text could not be read"; return 0 ;;
-    esac
+    # resolve sets the globals release reads, so it runs in this shell and its
+    # reason goes through a file rather than a command substitution.
+    errf=$(mktemp "${TMPDIR:-/tmp}/rule-registry.XXXXXX") || { fail "could not make a temporary file"; return 0; }
+    resolve "$id" 2>"$errf"; rc=$?
+    why=$(sed -n '1s/^rule-registry: //p' "$errf")
+    rm -f "$errf"
+    if [ $rc -ne 0 ]; then
+        [ -n "$why" ] || why="the registry or the rule text could not be read"
+        fail "$why"; return 0
+    fi
     releasable_path "$P" || { fail "$P is not a file a skill loads"; return 0; }
     [ $((B - A + 1)) -le $RELEASE_MAX_LINES ] || { fail "the text is longer than $RELEASE_MAX_LINES lines"; return 0; }
     lines=$(LC_ALL=C sed -n "${A},${B}p" "$F") || { fail "could not read $P"; return 0; }
@@ -282,8 +328,12 @@ cmd_log_finding() {
     return 0
 }
 
+# verify-findings: every logged finding names an active rule, carries the
+# rule_ref ref computes for it, and starts its message with the rule's summary.
+# A log with no findings fails: a suite that meant to check its findings and
+# logged none has checked nothing.
 cmd_verify_findings() {
-    local log=$1 problems=0 n=0 line json id ref want
+    local log=$1 problems=0 n=0 line json id ref msg want summary
     [ -r "$log" ] || die2 "cannot read findings log $log"
     [ -r "$REGISTRY" ] || die2 "cannot read $REGISTRY"
     while IFS= read -r line || [ -n "$line" ]; do
@@ -295,6 +345,7 @@ cmd_verify_findings() {
         n=$((n + 1))
         id=$(printf '%s' "$json" | jq -r '.rule_id // empty' 2>/dev/null)
         ref=$(printf '%s' "$json" | jq -r '.rule_ref // empty' 2>/dev/null)
+        msg=$(printf '%s' "$json" | jq -r '.message // empty' 2>/dev/null)
         if [ -z "$id" ]; then
             echo "finding without rule_id: $json"; problems=$((problems + 1)); continue
         fi
@@ -304,7 +355,16 @@ cmd_verify_findings() {
         if [ "$ref" != "$want" ]; then
             echo "finding $id: rule_ref [$ref] is not [$want]"; problems=$((problems + 1))
         fi
+        summary=$(cmd_summary "$id" 2>/dev/null)
+        case "$msg" in
+            "$summary: "*) ;;
+            *) echo "finding $id: message does not start with the rule's summary [$summary]"; problems=$((problems + 1)) ;;
+        esac
     done < "$log"
+    if [ $n -eq 0 ]; then
+        echo "$PROG: $log holds no findings" >&2
+        return 1
+    fi
     if [ $problems -gt 0 ]; then
         echo "$PROG: $problems of $n findings failed verification" >&2
         return 1

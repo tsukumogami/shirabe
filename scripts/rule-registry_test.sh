@@ -51,6 +51,10 @@ REGISTRY_JSON='{"schema":"shirabe-rule-registry/v1","rules":[
  {"id":"t/docs","status":"active","summary":"Docs","text":{"path":"docs/notes.md","first":"DOCS-RULE"}},
  {"id":"t/marker","status":"active","summary":"Marker","text":{"path":"references/marker.md","first":"MARKER-START","last":"MARKER-END"}},
  {"id":"t/template","status":"active","summary":"Template","text":{"path":"skills/demo/koto-templates/demo.md","first":"TEMPLATE-RULE starts","last":"TEMPLATE-RULE ends"}},
+ {"id":"t/nested","status":"active","summary":"Nested","text":{"path":"skills/demo/sub/SKILL.md","first":"NESTED-RULE"}},
+ {"id":"t/twice","status":"active","summary":"Twice","text":{"path":"references/r.md","first":"RULE-SINGLE only line"}},
+ {"id":"t/twice","status":"active","summary":"Twice again","text":{"path":"references/r.md","first":"RULE-SINGLE only line"}},
+ {"id":"t/nostatus","summary":"No status","text":{"path":"references/r.md","first":"RULE-SINGLE only line"}},
  {"id":"rs-900","status":"active","summary":"Criterion","text":{"path":"references/r.md","first":"RULE-SINGLE only line"}}
 ]}'
 
@@ -78,6 +82,8 @@ make_root() {
     echo "DOCS-RULE in a file no skill loads" > "$d/docs/notes.md"
     printf 'MARKER-START\n::shirabe-rule-end::\nMARKER-END\n' > "$d/references/marker.md"
     printf 'TEMPLATE-RULE starts\n\ttabbed line\nTEMPLATE-RULE ends\n' > "$d/skills/demo/koto-templates/demo.md"
+    mkdir -p "$d/skills/demo/sub"
+    echo "NESTED-RULE in a SKILL.md that is not a skill's own" > "$d/skills/demo/sub/SKILL.md"
 }
 
 # make_repo <dir>: make_root, then commit it as a git repository.
@@ -144,17 +150,23 @@ run "$R" ref t/multi
     || fail "dirty checkout" "out=[$OUT]"
 git -C "$R" checkout -q -- references/r.md
 
-# Planted repository config and a caller's GIT_DIR change nothing and run nothing.
-git -C "$R" config core.fsmonitor "touch $T/fsmonitor-ran; false"
-mkdir -p "$R/.githooks"; printf '#!/bin/sh\ntouch %s/hook-ran\n' "$T" > "$R/.githooks/post-checkout"
-chmod +x "$R/.githooks/post-checkout"; git -C "$R" config core.hooksPath .githooks
+# A clean filter planted in the repository's config and .gitattributes would run
+# when git hashes the file through its filters; --no-filters is what stops it.
+git -C "$R" config filter.planted.clean "touch $T/filter-ran; cat"
+echo '*.md filter=planted' > "$R/.git/info/attributes"
+run "$R" ref t/multi
+if [ "$OUT" = "references/r.md#L6-L8@${head2:0:12}" ] && [ ! -e "$T/filter-ran" ]; then
+    pass "a planted clean filter does not run"
+else
+    fail "planted filter" "out=[$OUT] filter=$( [ -e "$T/filter-ran" ] && echo ran)"
+fi
+rm -f "$R/.git/info/attributes"
+
+# A caller's GIT_DIR and GIT_WORK_TREE can't point git at another repository.
 mkdir -p "$T/other"; git -C "$T/other" init -q
 OUT=$(GIT_DIR="$T/other/.git" GIT_WORK_TREE="$T/other" "$R/scripts/rule-registry.sh" ref t/multi 2>"$T/err"); RC=$?
-if [ $RC -eq 0 ] && [ "$OUT" = "references/r.md#L6-L8@${head2:0:12}" ] && [ ! -e "$T/fsmonitor-ran" ] && [ ! -e "$T/hook-ran" ]; then
-    pass "planted fsmonitor and hooks don't run, and a caller's GIT_DIR is ignored"
-else
-    fail "git hardening" "rc=$RC out=[$OUT] fsmonitor=$( [ -e "$T/fsmonitor-ran" ] && echo ran) hook=$( [ -e "$T/hook-ran" ] && echo ran)"
-fi
+[ $RC -eq 0 ] && [ "$OUT" = "references/r.md#L6-L8@${head2:0:12}" ] && pass "a caller's GIT_DIR is ignored" \
+    || fail "GIT_DIR" "rc=$RC out=[$OUT] err=[$(cat "$T/err")]"
 
 # --- installed-copy revisions ------------------------------------------------
 
@@ -171,7 +183,7 @@ run "$D" ref t/multi
 
 # No git on PATH: the version alone.
 NOGIT="$T/nogit-bin"; mkdir -p "$NOGIT"
-for tool in bash jq awk sed grep tr dirname basename env cat mktemp; do
+for tool in bash jq awk sed grep tr dirname basename env cat mktemp rm wc; do
     p=$(command -v "$tool") && ln -s "$p" "$NOGIT/$tool"
 done
 OUT=$(PATH="$NOGIT" "$D/scripts/rule-registry.sh" ref t/multi 2>"$T/err"); RC=$?
@@ -200,6 +212,8 @@ expect_rc 2 "a symlinked path" ref t/link
 expect_rc 2 "a first anchor on two lines" ref t/dup
 expect_rc 2 "a last anchor before the first" ref t/backwards
 expect_rc 1 "summary of a retired id" summary t/retired
+expect_rc 2 "an id with two entries" ref t/twice
+expect_rc 2 "an entry with no status" ref t/nostatus
 
 run "$I" summary t/multi
 [ "$RC" -eq 0 ] && [ "$OUT" = "Multi-line rule" ] && pass "summary prints the short text" || fail "summary" "out=[$OUT]"
@@ -248,14 +262,44 @@ expect_release_refused "a file no skill loads" t/docs
 expect_release_refused "a text over 60 lines" t/long
 expect_release_refused "a text holding a marker line" t/marker
 expect_release_refused "an unknown id" t/none
+expect_release_refused "a nested SKILL.md that is not a skill's own" t/nested
+
+if printf '%s' "$ERR" | grep -q "is not a file a skill loads"; then
+    pass "release names its reason"
+else
+    fail "release reason" "err=[$ERR]"
+fi
+
+# Failures before the dispatch still give release's notice and exit 0.
+OUT=$("$I/scripts/rule-registry.sh" --bogus release t/template 2>"$T/err"); RC=$?
+[ $RC -eq 0 ] && grep -q "^rule-registry: could not release t/template: unknown option --bogus" "$T/err" \
+    && pass "release with a bad option prints its notice and exits 0" || fail "release bad option" "rc=$RC err=[$(cat "$T/err")]"
+OUT=$(PATH="$NOGIT" "$I/scripts/rule-registry.sh" release t/template 2>"$T/err"); RC=$?
+[ $RC -eq 0 ] && grep -q "^::shirabe-rule::.*@v1.2.3\"}$" "$T/err" \
+    && pass "release works without git on an installed copy" || fail "release no git" "rc=$RC err=[$(cat "$T/err")]"
+NOJQ="$T/nojq-bin"; mkdir -p "$NOJQ"
+for tool in bash awk sed grep tr dirname basename env cat mktemp rm wc git; do
+    p=$(command -v "$tool") && ln -s "$p" "$NOJQ/$tool"
+done
+OUT=$(PATH="$NOJQ" "$I/scripts/rule-registry.sh" release t/template 2>"$T/err"); RC=$?
+[ $RC -eq 0 ] && grep -q "^rule-registry: could not release t/template: jq is required" "$T/err" \
+    && pass "release without jq prints its notice and exits 0" || fail "release no jq" "rc=$RC err=[$(cat "$T/err")]"
 
 # --- the findings log --------------------------------------------------------
 
 ref=$("$I/scripts/rule-registry.sh" ref t/multi)
-good="::koto-finding::{\"rule_id\":\"t/multi\",\"level\":\"error\",\"message\":\"m\",\"rule_ref\":\"$ref\"}"
+good="::koto-finding::{\"rule_id\":\"t/multi\",\"level\":\"error\",\"message\":\"Multi-line rule: detail\",\"rule_ref\":\"$ref\"}"
 printf '%s\n' "$good" > "$T/good.log"
 run "$I" verify-findings "$T/good.log"
 [ $RC -eq 0 ] && pass "verify-findings accepts a correct log" || fail "verify-findings good" "rc=$RC err=[$ERR] out=[$OUT]"
+
+: > "$T/empty.log"
+run "$I" verify-findings "$T/empty.log"
+[ $RC -eq 1 ] && pass "verify-findings refuses a log with no findings" || fail "verify-findings empty" "rc=$RC"
+
+printf '%s\n' "::koto-finding::{\"rule_id\":\"t/multi\",\"level\":\"error\",\"message\":\"detail only\",\"rule_ref\":\"$ref\"}" > "$T/nosummary.log"
+run "$I" verify-findings "$T/nosummary.log"
+[ $RC -eq 1 ] && pass "verify-findings refuses a message without the summary prefix" || fail "verify-findings prefix" "rc=$RC"
 
 printf '%s\n' "$good" '::koto-finding::{"rule_id":"t/none","level":"error","message":"m","rule_ref":"references/r.md#L3-L5@v1.2.3"}' > "$T/unreg.log"
 run "$I" verify-findings "$T/unreg.log"
