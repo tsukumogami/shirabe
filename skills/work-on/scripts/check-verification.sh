@@ -81,7 +81,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$SESSION" ] || { usage; exit 2; }
 
-command -v jq >/dev/null 2>&1 || undecided "jq is not on PATH"
+command -v jq >/dev/null || undecided "jq is not on PATH"
 [ -r "$RULES" ] || undecided "the rule table $RULES is not readable"
 for id in command-failed no-map bad-map needs-person timed-out runaway not-started dirty-tree; do
     [ -n "$(rule_ref "verification/$id")" ] || undecided "the rule table has no row for verification/$id"
@@ -98,7 +98,7 @@ RESULT=$(printf '%s\n' "$LOC" | sed -n 3p)
 
 [ -e "$RESULT" ] || exit 75
 [ -r "$RESULT" ] || undecided "the result $RESULT is not readable"
-jq -e --arg schema "$RESULT_SCHEMA" '.schema == $schema and (.commands | type) == "array"' "$RESULT" >/dev/null 2>&1 \
+jq -e --arg schema "$RESULT_SCHEMA" '.schema == $schema and (.commands | type) == "array"' "$RESULT" >/dev/null \
     || undecided "the result $RESULT is not a $RESULT_SCHEMA object"
 [ "$(jq -r .head "$RESULT")" = "$HEAD_SHA" ] || undecided "the result $RESULT is for another head"
 [ "$(jq -r .merge_base "$RESULT")" = "$MB" ] || exit 75
@@ -139,8 +139,8 @@ $LINES
 EOF
 
 # Record the settled result before reporting it.
-command -v koto >/dev/null 2>&1 || undecided "koto is not on PATH; the result was not recorded"
-koto context add "$SESSION" verification_results.json --from-file "$RESULT" >/dev/null 2>&1 \
+command -v koto >/dev/null || undecided "koto is not on PATH; the result was not recorded"
+koto context add "$SESSION" verification_results.json --from-file "$RESULT" >/dev/null \
     || undecided "could not record verification_results.json in koto context"
 
 while IFS= read -r line; do

@@ -155,15 +155,15 @@ for tool in git jq; do
     command -v "$tool" >/dev/null 2>&1 || undecided "$tool is not on PATH"
 done
 
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || undecided "not inside a git working tree"
+ROOT=$(git rev-parse --show-toplevel) || undecided "not inside a git working tree"
 cd "$ROOT" || undecided "cannot enter $ROOT"
 git rev-parse --verify -q "HEAD^{commit}" >/dev/null || undecided "HEAD does not name a commit"
 
 # resolve_base: sets BASE to the commit the range starts from.
 resolve_base() {
     if [ -n "$SESSION" ]; then
-        command -v koto >/dev/null 2>&1 || undecided "koto is not on PATH"
-        stored=$(koto context get "$SESSION" impl_base 2>/dev/null | tr -d '[:space:]')
+        command -v koto >/dev/null || undecided "koto is not on PATH"
+        stored=$(koto context get "$SESSION" impl_base | tr -d '[:space:]')
         [ -n "$stored" ] || undecided "session [$SESSION] has no impl_base in koto context"
         BASE=$(git rev-parse --verify -q "${stored}^{commit}") \
             || undecided "impl_base [$stored] is not a commit in this repository"
@@ -207,19 +207,19 @@ check_commits() {
             || undecided "--base-ref [$BASE_REF] does not resolve to a commit"
         RANGE="$BASE_REF..HEAD"
     fi
-    list=$(git rev-list --no-merges "$RANGE" 2>/dev/null) \
+    list=$(git rev-list --no-merges "$RANGE") \
         || undecided "cannot list the commits in $RANGE"
     count=0
     for sha in $list; do
         count=$((count + 1))
         short=$(printf '%s' "$sha" | cut -c1-12)
-        subject=$(git log -1 --format=%s "$sha" 2>/dev/null) \
+        subject=$(git log -1 --format=%s "$sha") \
             || undecided "cannot read commit $sha"
         if ! printf '%s\n' "$subject" | grep -Eq "$CONVENTIONAL"; then
             finding commit/conventional-subject \
                 "commit $short subject \"$subject\" is not a Conventional Commits subject: use <type>[optional scope][!]: <description>, with <type> one of feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert"
         fi
-        message=$(git log -1 --format=%B "$sha" 2>/dev/null) \
+        message=$(git log -1 --format=%B "$sha") \
             || undecided "cannot read commit $sha"
         if printf '%s\n' "$message" | is_attributed; then
             finding commit/no-ai-trailer \
@@ -238,7 +238,7 @@ check_commits() {
 
 check_wip() {
     require_rules branch/no-wip-files
-    paths=$(git ls-tree -r --name-only HEAD -- wip/ 2>/dev/null) \
+    paths=$(git ls-tree -r --name-only HEAD -- wip/) \
         || undecided "cannot list HEAD's tree"
     if [ -z "$paths" ]; then
         echo "check-branch-output: no wip/ path in HEAD's tree" >&2
@@ -284,7 +284,7 @@ declared_visibility() {
 check_docs_visibility() {
     require_rules docs/visibility-vision-sections docs/visibility-strategy-sections docs/private-only-type
     resolve_base
-    changed=$(git diff --name-only --diff-filter=d "$BASE" HEAD -- docs/ 2>/dev/null) \
+    changed=$(git diff --name-only --diff-filter=d "$BASE" HEAD -- docs/) \
         || undecided "cannot diff $BASE..HEAD"
     WORK=$(mktemp -d "${TMPDIR:-/tmp}/check-branch-output.XXXXXX") \
         || undecided "cannot create a temporary directory"
@@ -302,7 +302,7 @@ EOF
         echo "check-branch-output: no changed document under docs/" >&2
         exit 0
     fi
-    command -v shirabe >/dev/null 2>&1 || undecided "shirabe is not on PATH"
+    command -v shirabe >/dev/null || undecided "shirabe is not on PATH"
 
     vis=$(declared_visibility)
     set --
@@ -359,7 +359,7 @@ check_synced() {
             ;;
         *) undecided "git merge-base --is-ancestor exited $rc" ;;
     esac
-    merge_head=$(git rev-parse --git-path MERGE_HEAD 2>/dev/null) \
+    merge_head=$(git rev-parse --git-path MERGE_HEAD) \
         || undecided "cannot locate MERGE_HEAD"
     if [ -e "$merge_head" ]; then
         finding branch/current-with-main \

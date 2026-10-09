@@ -157,11 +157,11 @@ resolve() {
     for tool in git jq; do
         command -v "$tool" >/dev/null 2>&1 || die "$tool is not on PATH"
     done
-    ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || die "not inside a git working tree"
+    ROOT=$(git rev-parse --show-toplevel) || die "not inside a git working tree"
     HEAD_SHA=$(git -C "$ROOT" rev-parse --verify -q "HEAD^{commit}") || die "HEAD does not name a commit"
     local base=$BASE_REF
     if [ -z "$base" ]; then
-        base=$(git -C "$ROOT" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null)
+        base=$(git -C "$ROOT" symbolic-ref -q --short refs/remotes/origin/HEAD)
         if [ -z "$base" ]; then
             if git -C "$ROOT" rev-parse --verify -q "origin/main^{commit}" >/dev/null; then
                 base=origin/main
@@ -392,7 +392,7 @@ prune
 # 1. A result for this head and merge-base stands, except a dirty-tree one,
 #    which the next start re-checks once the tree is clean.
 if [ -f "$RESULT" ]; then
-    if jq -e --arg mb "$MB" '.merge_base == $mb and .status != "dirty-tree"' "$RESULT" >/dev/null 2>&1; then
+    if jq -e --arg mb "$MB" '.merge_base == $mb and .status != "dirty-tree"' "$RESULT" >/dev/null; then
         exit 0
     fi
     lock_live "$HEAD_DIR/lock" && exit 0
@@ -400,20 +400,24 @@ if [ -f "$RESULT" ]; then
 fi
 
 # 2. The paths selected on and the code tested must be the same commit.
-DIRTY=$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null) \
+DIRTY=$(git -C "$ROOT" status --porcelain --untracked-files=no) \
     || die "could not read the working tree's status"
 if [ -n "$DIRTY" ]; then
     settle dirty-tree "tracked files have uncommitted changes: $(printf '%s\n' "$DIRTY" | head -n 10 | cut -c4- | tr '\n' ' ')"
 fi
 
 # 3. The map, from the merge-base.
-if ! git -C "$ROOT" cat-file -e "$MB:$MAP_PATH" 2>/dev/null; then
+# ls-tree prints nothing for an absent path and exits 0, so absence is read
+# from its output and a failure from its status, with git's message intact.
+MAP_ENTRY=$(git -C "$ROOT" ls-tree "$MB" -- "$MAP_PATH") \
+    || die "could not list $MAP_PATH at $MB"
+if [ -z "$MAP_ENTRY" ]; then
     settle no-map "no $MAP_PATH at the merge-base $MB"
 fi
-MAP_JSON=$(git -C "$ROOT" show "$MB:$MAP_PATH" 2>/dev/null) || die "could not read $MAP_PATH at $MB"
+MAP_JSON=$(git -C "$ROOT" show "$MB:$MAP_PATH") || die "could not read $MAP_PATH at $MB"
 CHANGED=$(git -C "$ROOT" diff --name-only -z "$MB..HEAD" | jq -Rs 'split("\u0000") | map(select(length > 0))') \
     || die "could not list the changed paths"
-if ! printf '%s' "$MAP_JSON" | jq -se 'length == 1' >/dev/null 2>&1; then
+if ! printf '%s' "$MAP_JSON" | jq -se 'length == 1' >/dev/null; then
     settle bad-map "$MAP_PATH at $MB is not one valid JSON value"
 fi
 SELECTION=$(printf '%s' "$MAP_JSON" | jq -c --argjson changed "$CHANGED" "$SELECT_JQ") \

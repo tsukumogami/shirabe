@@ -200,7 +200,7 @@ check_pr_body() {
             || undecided "gh pr view failed: $(tail -n 1 "$WORK/gh.err")"
     fi
     jq -e 'type == "object" and (.title | type == "string") and (.body | type == "string")' \
-        "$WORK/pr.json" >/dev/null 2>&1 || undecided "gh pr view did not return a title and a body"
+        "$WORK/pr.json" >/dev/null || undecided "gh pr view did not return a title and a body"
     title=$(jq -r '.title' "$WORK/pr.json")
     jq -j '.body' "$WORK/pr.json" > "$WORK/body.md"
 
@@ -215,7 +215,7 @@ check_pr_body() {
         2) ;;
         *) undecided "shirabe validate --pr-body exited $rc: $(tail -n 1 "$WORK/err")" ;;
     esac
-    if jq -r '.findings[].message' "$WORK/out" > "$WORK/messages" 2>/dev/null \
+    if jq -r '.findings[].message' "$WORK/out" > "$WORK/messages" \
         && [ -s "$WORK/messages" ]; then
         while IFS= read -r msg; do
             [ -n "$msg" ] || continue
