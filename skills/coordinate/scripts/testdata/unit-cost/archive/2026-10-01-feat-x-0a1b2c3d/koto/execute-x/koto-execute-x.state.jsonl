@@ -1,0 +1,6 @@
+{"schema_version":1,"workflow":"execute-x","template_hash":"feedface","created_at":"2026-10-01T09:20:05.000Z","template_source_dir":"/plugin/skills/x/koto-templates","execution_dir":"/work/inst/feat-x","template_name":"execute","template_source_file":"execute.md"}
+{"seq":1,"timestamp":"2026-10-01T09:20:05.000Z","type":"workflow_initialized","payload":{"template_path":"/cache/x.json","variables":{}}}
+{"seq":2,"timestamp":"2026-10-01T09:20:05.000Z","type":"transitioned","payload":{"from":null,"to":"entry","condition_type":"auto"}}
+{"seq":3,"timestamp":"2026-10-01T09:20:10.000Z","type":"transitioned","payload":{"from":"entry","to":"spawning","condition_type":"auto"}}
+{"seq":4,"timestamp":"2026-10-01T11:00:00.000Z","type":"transitioned","payload":{"from":"spawning","to":"pr_finalization","condition_type":"auto"}}
+{"seq":5,"timestamp":"2026-10-01T11:30:30.000Z","type":"transitioned","payload":{"from":"pr_finalization","to":"done","condition_type":"auto"}}

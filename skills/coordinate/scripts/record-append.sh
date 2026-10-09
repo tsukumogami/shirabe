@@ -32,7 +32,8 @@
 #
 # K is entry (the default), or one of the kinds the record's other writers
 # append for what they change (the design's Decisions 3 and 4): run, told,
-# pause, go-ahead, approval, answer, assignment, end, work, roadmap-status. The text may not be empty, may hold no control character
+# pause, go-ahead, approval, answer, assignment, end, work, roadmap-status,
+# and cost, the teardown pass's unit-cost summary (unit-cost.sh). The text may not be empty, may hold no control character
 # but a line break or a tab, and the whole comment may not exceed 60,000 bytes
 # (exit 65). On a public host the text may not name a private or unreadable
 # repository (as owner/repo#n or a github.com link), a home-directory path or
@@ -79,7 +80,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status "
+ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status cost "
 case "$MODE" in
     append)
         [ -r "$TEXTFILE" ] || usage

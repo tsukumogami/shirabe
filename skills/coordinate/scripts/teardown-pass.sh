@@ -26,6 +26,12 @@
 #            whose header's execution_dir is at or under the instance path or
 #            the job's tmp/; each copy checked against its source's hash, a
 #            MANIFEST (`<sha256> <bytes> <path>` per file) and a README;
+#         4a. the unit's cost capture (unit-cost.sh capture): one `cost`
+#            entry on the record and unit-cost.json in the archive, under its
+#            own deadline, with no stream of the pass's and its status
+#            ignored, so it never changes the pass's exit code, last line or
+#            RESULT; a capture that posts nothing adds one warning line on
+#            stderr;
 #         5. `niwa destroy --force <name>` at the workspace root, the name
 #            checked before the command is built;
 #         6. `claude rm <job id>`;
@@ -57,7 +63,8 @@
 # TEARDOWN_CLAUDE_HOME (default $HOME/.claude), TEARDOWN_KOTO_SESSIONS (default
 # $HOME/.koto/sessions), TEARDOWN_ARCHIVE_DIR (default
 # ${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive), TEARDOWN_FETCH_SECS
-# (each GitHub read's bound, default 8). bash 3.2.
+# (each GitHub read's bound, default 8), TEARDOWN_CAPTURE_SECS (the cost
+# capture's bound, default 120). bash 3.2.
 set -uo pipefail
 
 PROG=teardown-pass
@@ -73,6 +80,7 @@ CLAUDE_HOME="${TEARDOWN_CLAUDE_HOME:-$HOME/.claude}"
 KOTO_SESSIONS="${TEARDOWN_KOTO_SESSIONS:-$HOME/.koto/sessions}"
 ARCHIVE_ROOT="${TEARDOWN_ARCHIVE_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/teardown-archive}"
 FETCH_SECS="${TEARDOWN_FETCH_SECS:-8}"
+CAPTURE_SECS="${TEARDOWN_CAPTURE_SECS:-120}"
 
 usage() { sed -n '/^# Usage:/,/^# Output (run)/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 
@@ -270,8 +278,20 @@ mv "$ARCH/MANIFEST.new" "$ARCH/MANIFEST"
     printf '%s\n' "$PRS" | sed 's/^/- Merged pull request: /'
     printf -- '- Handoff: %s\n\n' "$HANDOFF"
     printf 'MANIFEST lists every copied file as `<sha256> <bytes> <path>`; each was checked against its source.\n'
+    # shellcheck disable=SC2016 # the backticks are Markdown
+    printf '`unit-cost.json`, when present, is the cost capture'"'"'s derived summary and is not in the MANIFEST.\n'
 } >"$ARCH/README.md"
 
+# The cost capture: a child with none of the pass's streams (stdin empty,
+# output to a file), under its own deadline, its status only ever a warning.
+# It never calls refused or incomplete, and STEP goes back to destroy before
+# anything can name it.
+STEP=capture
+printf '%s\n' "$PRS" >"$T/prs"
+dc_with_deadline "$CAPTURE_SECS" bash "$HERE/unit-cost.sh" capture --session "$SESSION" \
+    --archive "$ARCH" --topic "$TOPIC" --prs-file "$T/prs" \
+    </dev/null >/dev/null 2>"$T/capture.err" \
+    || say "capture: no cost entry (status $?): $(tail -n 1 "$T/capture.err" 2>/dev/null | cut -c1-200)" >&2
 STEP=destroy
 say "destroying $INAME"
 (cd "$ROOT" && "$NIWA" destroy --force "$INAME") >"$T/destroy" 2>&1 || incomplete "niwa destroy failed: $(tail -1 "$T/destroy")"
