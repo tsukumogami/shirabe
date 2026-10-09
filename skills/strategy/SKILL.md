@@ -219,8 +219,8 @@ All three must PASS before Phase 5 begins.
 ### Resume Logic
 
 ```
-parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                         -> see references/fixes/sub-agent-dispatch.md
+dispatch read strategy <topic> prints parent=<session>
+                                                         -> run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 STRATEGY exists with status "Accepted" or "Active"       -> Offer to revise or start fresh
 STRATEGY exists with status "Draft"                      -> Offer to continue from Phase 2 or 3
 wip/research/strategy_<topic>_phase4_*.md files exist    -> Resume at Phase 4 (aggregate)
@@ -231,11 +231,22 @@ On a branch related to the topic                         -> Resume at Phase 1
 On main or unrelated branch                              -> Start at Phase 0
 ```
 
-Phase 0 detection: if the parent-chain sentinel is present in
-`wip/scope_<topic>_state.md` (tactical) or `wip/charter_<topic>_state.md`
-(strategic), see `references/fixes/sub-agent-dispatch.md` for the
-fallback shape that applies. Behavior under direct invocation is
-unchanged when the sentinel is absent.
+**Running under a parent.** The first row runs
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read strategy <topic>`
+with the topic this run works on. A printed `parent=<session>`
+line means `/strategy` runs under that parent (`scope-<topic>` or
+`charter-<topic>`), with the parent's upfront decision in the `rationale=` and
+`suppress_status_aware_prompt=` lines; what changes under a parent is in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
+Four cases are no match. Three print nothing and exit 0, and the run is a
+direct one with the rows below unchanged: no parent session, a finished parent
+session, and a parent whose `chain/dispatch` key names another child. The
+fourth, two parent sessions that both name `/strategy`, exits 3: don't pick one
+and don't run directly; stop and report both sessions, which the script names
+on stderr, so the author can clear the stale key. Exit 127 (koto not
+installed) means no parent can be running, so the run is direct; any other
+non-zero exit stops the run with the script's message. `/strategy` opens no
+session of its own here.
 
 ### Critical Requirements
 

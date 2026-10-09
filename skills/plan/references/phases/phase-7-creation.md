@@ -577,7 +577,7 @@ nothing is transitioned.
 Roadmaps stay at "Active" status. The PLAN artifact tracks the planning work, but the roadmap itself isn't transitioned -- it remains Active until all features are delivered. No status change is needed.
 
 This step is the only place `/plan` moves its upstream DESIGN, on a direct run
-and under a parent's sentinel alike; Phase 1 never transitions it.
+and under a parent's dispatch key alike; Phase 1 never transitions it.
 
 **Then check the chain**, from the repo root:
 
@@ -592,7 +592,7 @@ and re-run before cleanup.
 
 ### 7.6 Cleanup
 
-Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes the
+Under `/scope`'s dispatch key, skip this step: `/scope`'s cleanup phase removes the
 files below at its own exit, as it does every child's working files.
 
 Delete topic-scoped wip/ artifacts on success:
@@ -666,7 +666,7 @@ Run `/execute docs/plans/PLAN-<topic>.md` to begin implementation.
 
 ### 7.8 Upstream Issue Update
 
-**Skip this step under `/scope`'s `parent_orchestration:` sentinel**: ask
+**Skip this step under `/scope`'s dispatch key**: ask
 nothing and run no `gh issue edit`. It is a routing prompt and a GitHub write,
 and under `/scope` both belong to the parent (shape 6, Parent-owned-publishing,
 in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`; recorded in

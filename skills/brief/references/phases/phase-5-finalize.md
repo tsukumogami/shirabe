@@ -21,7 +21,7 @@ By the end of Phase 5:
 
 ## Under /scope
 
-When `/scope`'s `parent_orchestration` sentinel names `brief`, Phase 5 keeps the
+When `/scope`'s dispatch key names `brief`, Phase 5 keeps the
 verdict (5.1 to 5.3), the status transition and the acceptance commit, and skips
 what publishes or routes, which `/scope` owns
 (`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`,
@@ -43,7 +43,7 @@ the Parent-owned-publishing shape in
 If the BRIEF at `docs/briefs/BRIEF-<topic>.md` already has `status: Accepted`,
 Phase 5 already ran. Verify the wip/ cleanup completed (no `wip/brief_<topic>_*`
 files remain) and exit the workflow. If cleanup is incomplete, resume from step
-5.4. Under `/scope`'s sentinel the working files are still there by design,
+5.4. Under `/scope`'s dispatch key the working files are still there by design,
 since `/scope` removes them at its own exit: return control to `/scope`.
 
 If the file is still in Draft status but the workflow is in Phase 5, start at step
@@ -110,7 +110,7 @@ Do not skip the approval step even when both reviewers pass. Jury PASS de-risks 
 approval but does not eliminate human judgment — the user may add caveats, request
 narrowing, or block on a concern the jury did not catch.
 
-The one run that does not ask is an unattended run under `/scope`'s sentinel: it
+The one run that does not ask is an unattended run under `/scope`'s dispatch key: it
 takes the recommended option and says so in its output, as "Took the recommended
 verdict: <verdict>", then handles that outcome below.
 
@@ -135,7 +135,7 @@ verdict: <verdict>", then handles that outcome below.
    docs(brief): accept BRIEF for <topic>
    ```
 
-Proceed to step 5.4 (Cleanup), or, under `/scope`'s sentinel, return control to
+Proceed to step 5.4 (Cleanup), or, under `/scope`'s dispatch key, return control to
 `/scope`.
 
 ### If Request Changes
@@ -150,12 +150,12 @@ Proceed to step 5.4 (Cleanup), or, under `/scope`'s sentinel, return control to
 ### If Reject
 
 1. Confirm the rejection with the user one more time — accepting that the BRIEF
-   draft will be deleted. An unattended run under `/scope`'s sentinel asks
+   draft will be deleted. An unattended run under `/scope`'s dispatch key asks
    nothing: it already named the verdict it took (5.2).
 2. Run `git rm docs/briefs/BRIEF-<topic>.md`.
 3. Run the cleanup at step 5.4 to remove wip/ artifacts. Under `/scope`'s
-   sentinel, skip it: `/scope` removes them.
-4. Commit (under `/scope`'s sentinel too: this discard commit is how `/scope`
+   dispatch key, skip it: `/scope` removes them.
+4. Commit (under `/scope`'s dispatch key too: this discard commit is how `/scope`
    reads the rejection):
 
    ```
@@ -166,7 +166,7 @@ Then exit the workflow.
 
 ## 5.4 Cleanup
 
-Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase and publish
+Under `/scope`'s dispatch key, skip this step: `/scope`'s cleanup phase and publish
 untrack remove the working files, the jury's verdict files included, and `/brief`
 makes no cleanup commit.
 
@@ -199,7 +199,7 @@ chore(brief): clean up working artifacts for <topic>
 
 ## 5.5 Create the PR
 
-Under `/scope`'s sentinel, skip this step: `/scope` pushes and opens the pull
+Under `/scope`'s dispatch key, skip this step: `/scope` pushes and opens the pull
 request at its own exit.
 
 If a PR already exists for the topic branch (the workflow may have been running on
@@ -222,7 +222,7 @@ Formats-map entry drives them; BRIEF has no custom check).
 
 ## 5.6 Suggest Next Steps
 
-Under `/scope`'s sentinel, skip this step and return control to `/scope`, which
+Under `/scope`'s dispatch key, skip this step and return control to `/scope`, which
 decides the next hop.
 
 After the PR is open, suggest follow-up routes:

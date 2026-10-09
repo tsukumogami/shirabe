@@ -2237,6 +2237,11 @@ The value is `continue`, `stop`, or `none`, always present, never empty:
 `intake` resolved it from the invocation's `--intent`, else the intent the
 state file already recorded, else `none`.
 
+**Remove a stale dispatch key.** Run
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope {{TOPIC}}`
+unconditionally and silently: a `chain/dispatch` key present now was left by a
+run that is no longer in flight. No prompt, no warning.
+
 `blocked` here covers neither the branch nor the arguments. It covers a state
 file that cannot be written. Anything else, fix and submit `ready`.
 
@@ -2299,11 +2304,17 @@ path with `git add --` and naming the hop.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order:
-the worktree-staleness check, the `parent_orchestration:` sentinel write, the
-child invocation, the R20 structural file-existence check, the sentinel
-cleanup, the child-snapshot capture, and the validator pass-through. The eighth
-step, the consolidation judgment, does not run at this hop: it compares two
-documents and only one exists.
+the worktree-staleness check, the dispatch key write, the child invocation,
+the dispatch key clear, the R20 structural file-existence check, the
+child-snapshot capture, and the validator pass-through. The eighth step, the
+consolidation judgment, does not run at this hop: it compares two documents
+and only one exists.
+
+Immediately before invoking the child, write the dispatch key:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch write scope {{TOPIC}} brief
+<fresh-chain|revise>`. Immediately after it returns, whatever its outcome
+(landed, rejected, or an error it stopped on), clear it:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope {{TOPIC}}`.
 
 Invoke `/brief` inline via the Skill tool with the topic slug — and, when the
 state file carries `consumed_upstream:`, with `--upstream <that path>` as well.
@@ -2351,6 +2362,11 @@ and name the hop.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.
+Immediately before invoking the child, write the dispatch key:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch write scope {{TOPIC}} prd
+<fresh-chain|revise>`. Immediately after it returns, whatever its outcome,
+clear it: `"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope
+{{TOPIC}}`.
 Invoke `/prd` inline via the Skill tool, passing the nearest produced upstream
 artifact's path as the invocation argument. Keep that path: the fold state asks
 about the pair, and the upstream half of the pair is the argument you passed
@@ -2383,6 +2399,11 @@ and name the hop.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.
+Immediately before invoking the child, write the dispatch key:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch write scope {{TOPIC}} design
+<fresh-chain|revise>`. Immediately after it returns, whatever its outcome,
+clear it: `"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope
+{{TOPIC}}`.
 Invoke `/design` inline via the Skill tool, passing the nearest produced
 upstream artifact's path. Keep that path for the fold state.
 
@@ -2437,6 +2458,11 @@ is the one to follow.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.
+Immediately before invoking the child, write the dispatch key:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch write scope {{TOPIC}} plan
+<fresh-chain|revise>`. Immediately after it returns, whatever its outcome,
+clear it: `"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope
+{{TOPIC}}`.
 Invoke `/plan` inline via the Skill tool, passing the nearest produced upstream
 artifact's path — and, when the state file carries `consumed_upstream:`, also
 `--upstream <that path>`. `/plan` is the child that records the roadmap itself,

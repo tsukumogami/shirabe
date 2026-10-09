@@ -159,8 +159,8 @@ For cross-repo source issues, use `gh` commands to read content.
 ### Resume Logic
 
 ```
-parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                          → see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
+dispatch read design <topic> prints parent=<session>
+                                                          → run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 Design doc status "Accepted"                              → Offer to revise or start fresh
 Design doc status "Proposed"                              → Offer to continue
 wip/research/design_<topic>_phase5_security.md            → Resume at Phase 6
@@ -171,6 +171,23 @@ wip/design_<topic>_coordination.json (some pending)       → Resume at Phase 2
 wip/design_<topic>_summary.md exists, no coordination     → Resume at Phase 1
 On topic branch, no artifacts                             → Resume at Phase 0
 ```
+
+**Running under a parent.** The first row runs
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read design <topic>`
+with the topic this run works on (for a path argument, the `<topic>` in its file name). A printed `parent=<session>`
+line means `/design` runs under that parent (`scope-<topic>` or
+`charter-<topic>`), with the parent's upfront decision in the `rationale=` and
+`suppress_status_aware_prompt=` lines; what changes under a parent is in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
+Four cases are no match. Three print nothing and exit 0, and the run is a
+direct one with the rows below unchanged: no parent session, a finished parent
+session, and a parent whose `chain/dispatch` key names another child. The
+fourth, two parent sessions that both name `/design`, exits 3: don't pick one
+and don't run directly; stop and report both sessions, which the script names
+on stderr, so the author can clear the stale key. Exit 127 (koto not
+installed) means no parent can be running, so the run is direct; any other
+non-zero exit stops the run with the script's message. `/design` opens no
+session of its own here.
 
 ### Critical Requirements
 
@@ -208,7 +225,7 @@ or Complex label alone.
 
 **"Approve only":** stop here; the user handles implementation manually.
 
-**Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names `design` (the
+**Under `/scope`.** When `/scope`'s dispatch key names `design` (the
 Resume Logic's first row), `/design` still reaches its own Phase 6 verdict
 (6.7) and makes its own status transition (6.8), and skips everything that
 publishes or routes, which `/scope` owns: no push, no pull request, no

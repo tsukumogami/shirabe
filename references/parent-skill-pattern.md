@@ -330,13 +330,18 @@ the first place. Both are load-bearing.
 specific flags or arguments. A pattern-level suppression signal —
 defined once in the pattern-doc, read by all parents, and recognized
 by all children identically — is permitted as the sole parent-
-orchestration primitive. The signal mechanism is the parent's state
-file's `parent_orchestration:` block at a substrate-defined path;
-children consult it as a pattern-level convention, not as a per-
-parent API. The block names the invoking child and carries the
-parent's upfront decision about whether the run is a fresh chain or
-a revision, so the child can suppress its own status-aware re-entry
-prompt without learning about the parent that invoked it.
+orchestration primitive. The signal mechanism is the `chain/dispatch`
+key in the parent's own session (`<parent>-<topic>`), written with
+`skill-session.sh dispatch write` immediately before the child,
+removed with `dispatch clear` immediately after the child returns
+whatever its outcome, and removed at the parent's own start; children
+consult it with `skill-session.sh dispatch read <child> <topic>` as a
+pattern-level convention, not as a per-parent API. The key names the
+invoking child (`child`) and carries the parent's upfront decision
+(`suppress_status_aware_prompt`, and `rationale`: a fresh chain or a
+revision), so the child can suppress its own status-aware re-entry
+prompt without learning about the parent that invoked it. The rules
+are in [`skill-session-convention.md`](skill-session-convention.md).
 
 The per-parent prohibition still holds — a parent SHALL NOT add
 flags or arguments to a child's `$ARGUMENTS` parser, and SHALL NOT
@@ -349,15 +354,17 @@ modes. `--upstream <path>` is the worked example: `/brief`,
 `/strategy`, `/prd`, `/roadmap`, and `/comp` each own the flag in
 their own contracts, and a parent passing it is using that surface
 rather than extending it. The test separating the two is whether
-the flag works when the parent is absent. The `parent_orchestration:` convention is the one named
-exception, and only because it is pattern-defined: every parent
-writes the same block at the same path, and every child reads it
-identically. PRD R4's thesis-shift signal illustrates the loose-
-coupling rule the prohibition protects — when a parent elicits a
-shift signal that needs to reach the child, the parent passes the
-topic slug through the child's existing input mode and writes its
-upfront decision to the `parent_orchestration:` block; the child
-reads the block at its own Phase 0 and routes accordingly. The
+the flag works when the parent is absent. The dispatch key is the one
+named exception, and only because it is pattern-defined: every parent
+writes the same key in its own session, and every child reads it
+identically, finding the parent's session by a name it recomputes
+from the closed set of parents and its own topic. PRD R4's
+thesis-shift signal illustrates the loose-coupling rule the
+prohibition protects — when a parent elicits a shift signal that
+needs to reach the child, the parent passes the topic slug through
+the child's existing input mode and writes its upfront decision to
+the dispatch key; the child reads the key at its own entry and
+routes accordingly. The
 child's `$ARGUMENTS` surface, flag parser, and env-var consumption
 are untouched. Extending those would couple the parent to the
 child's API and break the moment the child refactors its inputs;
@@ -603,12 +610,14 @@ directly, so it has no parent of its own in this pattern.
 Before invoking the child, the parent SHALL have written the
 following four pre-dispatch state elements:
 
-1. **`parent_orchestration:` sentinel block** in the parent's state
-   file, with subfields `invoking_child:` (the child the parent is
-   about to invoke), `suppress_status_aware_prompt:` (the upfront
-   decision to silence the child's status-aware re-entry prompt), and
-   `rationale:` (the upfront `fresh-chain | revise` framing the child
-   reads to route its own Slot 2 behavior).
+1. **The `chain/dispatch` key** in the parent's own session, written
+   immediately before the invocation with `skill-session.sh dispatch
+   write <parent> <topic> <child> <fresh-chain|revise>`, holding
+   `child:` (the child the parent is about to invoke),
+   `suppress_status_aware_prompt:` (the upfront decision to silence
+   the child's status-aware re-entry prompt), and `rationale:` (the
+   upfront `fresh-chain | revise` framing the child reads to route
+   its own Slot 2 behavior).
 2. **Worktree-staleness gate output** — the rebase impact
    classification from the parent's worktree-discipline check
    (`None | Informational | Intent-changing-resolved-in-place`).
@@ -630,10 +639,11 @@ following four pre-dispatch state elements:
    parse the file at dispatch time in v1 (see Child Team-Shape
    Declaration below for the v1 read semantics).
 
-The `parent_orchestration:` block is the canonical pre-dispatch
-state element and is described as the pre-dispatch state element of
-the dispatch contract in
-[`parent-skill-state-schema.md`](parent-skill-state-schema.md).
+The dispatch key is the canonical pre-dispatch state element and is
+described as the pre-dispatch state element of the dispatch contract
+in [`parent-skill-state-schema.md`](parent-skill-state-schema.md) and
+in [`skill-session-convention.md`](skill-session-convention.md). It
+is the last thing written before the invocation.
 
 ### Observability Surface
 
@@ -676,28 +686,32 @@ item neither settles nor forecloses.
 When the Skill tool returns, the parent SHALL perform the following
 hand-back steps in order:
 
-1. **R20 file-existence check** — confirm the child's canonical
+1. **Dispatch key clear** — remove `chain/dispatch` from the
+   parent's session with `skill-session.sh dispatch clear <parent>
+   <topic>`, first and whatever the child's outcome (landed,
+   skipped, rejected, or an error). The key is gated on
+   in-flight-dispatch presence (invariant I-5); leaving it set after
+   the child returns is a conditional-field-gating violation, and
+   clearing it first means no later step that stops the parent can
+   leave it behind.
+2. **R20 file-existence check** — confirm the child's canonical
    durable artifact path exists. A returning child with no artifact
    at the canonical path is a PASS-with-no-artifact violation
    surface.
-2. **Frontmatter `status:` read** — read the artifact's frontmatter
+3. **Frontmatter `status:` read** — read the artifact's frontmatter
    `status:` value to learn the child's terminal exit (Accepted,
    Done, Abandoned, etc.).
-3. **Git blob hash capture** — capture the artifact's git blob hash
+4. **Git blob hash capture** — capture the artifact's git blob hash
    as the content-fingerprint for the per-child snapshot dual-check
    (per the pattern-level invariant in
    [`parent-skill-state-schema.md`](parent-skill-state-schema.md)).
-4. **Phase-N Reject discard-commit detection** — run
+5. **Phase-N Reject discard-commit detection** — run
    `git log <pre_invocation_sha>..HEAD` to detect any Phase-N Reject
    discard commits the child may have created; the commits are part
    of the chain's audit trail.
-5. **Validator pass-through** — run `shirabe validate` against the
+6. **Validator pass-through** — run `shirabe validate` against the
    returning artifact; a validator failure is a contract violation
    the parent surfaces to its own exit path.
-6. **`parent_orchestration:` cleanup** — clear the sentinel block
-   from the parent's state file. The block is gated on
-   in-flight-dispatch presence (invariant I-5); leaving it set after
-   the child returns is a conditional-field-gating violation.
 7. **`child_snapshots:` capture** — write the per-child snapshot
    `{status, content_hash, commit_sha}` to the parent's state file
    for the per-child snapshot dual-check.

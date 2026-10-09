@@ -228,15 +228,15 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 (koto entry +     (visibility detect +    (orchestrate     (record exit +        (wip cleanup;
  intake +         child-doc discovery +    child skills     write exit_artifacts;  remove non-
  state-file +     chain proposal)          one-by-one)      R9 hard-finalization)  durable scratch)
- parent_orch
+ dispatch-key
  self-heal)
 ```
 
 | Phase | Purpose | Reference |
 |-------|---------|-----------|
-| 0. Setup | Tokenizing and the residue rule; entry through `scope-open.sh`, where koto checks the arguments and opens or attaches the session; `intake` (effective intent, upstream battery, recorded-intent check); visibility detection; state-file creation with `intent:`; stale `parent_orchestration:` self-heal | `skills/scope/references/phases/phase-0-setup.md` |
+| 0. Setup | Tokenizing and the residue rule; entry through `scope-open.sh`, where koto checks the arguments and opens or attaches the session; `intake` (effective intent, upstream battery, recorded-intent check); visibility detection; state-file creation with `intent:`; stale `chain/dispatch` self-heal (`skill-session.sh dispatch clear`) | `skills/scope/references/phases/phase-0-setup.md` |
 | 1. Discover + Chain Proposal | Topic-related child-doc discovery; re-entry protection; chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
-| 2. Child Invocation Loop | Per-child: worktree-staleness check (Merge / Impact-analysis / Escalation per `worktree-discipline.md`); write `parent_orchestration:` sentinel; invoke child with its upstream artifact's path; structural file-existence check per R20; clear sentinel; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
+| 2. Child Invocation Loop | Per-child: worktree-staleness check (Merge / Impact-analysis / Escalation per `worktree-discipline.md`); `skill-session.sh dispatch write` (the `chain/dispatch` key in `scope-<topic>`); invoke child with its upstream artifact's path; `dispatch clear` whatever the outcome; structural file-existence check per R20; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
 | 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
 
@@ -327,7 +327,7 @@ do not read them all before starting:
    checks the arguments and opens or attaches the session), the
    `intake` state's working-tree checks and effective intent,
    visibility detection, state-file creation with `intent:`, stale
-   `parent_orchestration:` self-heal.
+   `chain/dispatch` self-heal.
    - Instructions: `skills/scope/references/phases/phase-0-setup.md`
 
 1. **Discover + Chain Proposal** — topic-related child-doc
@@ -344,11 +344,13 @@ do not read them all before starting:
    whole tactical chain on every run; a child held back by re-entry
    protection stays in the list and is also recorded in
    `chain_skipped:`), running the worktree-staleness
-   check before each invocation, writing the
-   `parent_orchestration:` sentinel immediately before invoking
-   (under it a child keeps its own verdict and status transition but
-   skips its push, pull request, branch creation, cleanup commit and
-   routing prompts), clearing the sentinel immediately after, capturing the child
+   check before each invocation, writing the `chain/dispatch` key
+   (`skill-session.sh dispatch write scope <topic> <child>
+   <fresh-chain|revise>`) immediately before invoking (under it a
+   child keeps its own verdict and status transition but skips its
+   push, pull request, branch creation, cleanup commit and routing
+   prompts), clearing it (`dispatch clear scope <topic>`)
+   immediately after the child returns whatever its outcome, capturing the child
    snapshot, running the validator pass-through against each
    intermediate, and running the consolidation judgment against
    the nearest surviving artifact above it. The judgment is the only
@@ -412,7 +414,7 @@ session is gone still reports how it ended.
 `/scope` binds the six pattern-level contract surfaces in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` — slug
 re-validation on resume, closed write-target set, state-file enum
-re-validation, stale `parent_orchestration:` self-heal, visibility boundary,
+re-validation, stale `chain/dispatch` self-heal, visibility boundary,
 and no untrusted-input interpolation. `/scope` v1 binds to public-repo tactical
 chains exclusively.
 
@@ -466,7 +468,7 @@ other path in this section is named.
 - `docs/plans/PLAN-<topic>.md`
 
 A child's own verdict commits (its acceptance or discard commit) are the
-child's, not this list's. Under the sentinel no child commits the removal of
+child's, not this list's. Under the dispatch key no child commits the removal of
 its working files: the untrack and cleanup below cover every child's `wip/`
 prefix, its research scratch included (see "What a child keeps and what
 it skips under /scope" in
@@ -506,7 +508,7 @@ The run makes two others, and no more:
   `## Tracking Level: issues|issues-and-milestone` header in CLAUDE.md. The
   hop's `plan_filing` and `filing_approval` gates route a PLAN that filed
   without one to `bail`. A child's own push, pull request and upstream-issue
-  edit are skipped under the sentinel.
+  edit are skipped under the dispatch key.
 - **the coordination PR** — on a run with no intent whose coordination intent
   resolved on, `gh pr create` opens it up front and an abandonment closes it
   with `gh pr close` (see Coordination Intent).
@@ -546,7 +548,7 @@ front. The second column says where each one is cited.
 
 | File | Cited from |
 |------|-------------|
-| `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` | When a phase file cites it — contract surface, invariants, exit paths, Gate Vocabulary (Mandatory-with-auto-skip), L13 `parent_orchestration:` convention, substitution surfaces |
+| `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` | When a phase file cites it — contract surface, invariants, exit paths, Gate Vocabulary (Mandatory-with-auto-skip), L13 `chain/dispatch` convention, substitution surfaces |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` | Phase 0 (slug regex), Phase 2 (state writes including `boundary:` and `plan_execution_mode:`), Phase 3 (R9 check, multi-discriminator Part 2, chain-membership-gated Part 3) |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md` | Resume (`resume_route`) — meta-ladder rows 1-4 and 8-9, refuse-and-redirect Slot 5 paragraph |
 | `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-child-inspection.md` | Phase 2 — child-doc inspection (R14 widened rule, dual-check drift detection) |
@@ -558,4 +560,4 @@ front. The second column says where each one is cited.
 | `skills/scope/references/phases/phase-3-exit-finalization.md` | Phase 3 |
 | `skills/scope/references/phases/phase-4-cleanup.md` | Phase 4 |
 | `skills/scope/references/phases/phase-resume.md` | Resume (`resume_route`) — each row's probe exit code, Slot 5 (11 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), session-recovered value re-validation, Drift Detection (Re-run / Accept / Proceed-without) |
-| `skills/scope/references/state-schema.md` | `setup`, and whenever a directive names a field — `/scope`-specific state-file field enumeration (`intent:`, `visibility:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`, `parent_orchestration:` sentinel) |
+| `skills/scope/references/state-schema.md` | `setup`, and whenever a directive names a field — `/scope`-specific state-file field enumeration (`intent:`, `visibility:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`) |

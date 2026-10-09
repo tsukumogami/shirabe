@@ -5,25 +5,44 @@ Canonical resolution guidance for child skills (`/brief`, `/prd`,
 when they are invoked from a parent chain (`/scope` for tactical,
 `/charter` for strategic) rather than directly by a human author.
 
-## Sentinel detection convention
+## Dispatch key detection convention
 
-When a parent chain spawns a child, it writes a sentinel into its own
-state file (`wip/scope_<topic>_state.md` for `/scope`,
-`wip/charter_<topic>_state.md` for `/charter`):
+When a parent chain invokes a child, it writes the dispatch key,
+`chain/dispatch`, into its own koto session (`scope-<topic>` for
+`/scope`, `charter-<topic>` for `/charter`) immediately before the
+invocation, and removes it immediately after the child returns,
+whatever the outcome. A parent also removes any key it finds at its
+own start. The value is three lines:
 
 ```yaml
-parent_orchestration:
-  invoking_child: <skill-name>            # brief|prd|design|plan|...
-  suppress_status_aware_prompt: true      # skip the re-entry prompt
-  rationale: <fresh-chain|revise|repeat>  # routes chain-handoff behavior
+child: <skill-name>                     # brief|prd|design|plan for /scope; vision|strategy|roadmap for /charter
+suppress_status_aware_prompt: true      # skip the re-entry prompt
+rationale: <fresh-chain|revise>         # routes chain-handoff behavior
 ```
 
-The three subfields are load-bearing:
+The child reads it with `skill-session.sh dispatch read <child>
+<topic>`, which recomputes both parent session names from the topic
+and checks each. A printed `parent=` line (with `child=`,
+`suppress_status_aware_prompt=` and `rationale=` lines) means the
+child runs under that parent and the shapes below apply. Four cases
+are no match:
 
-- `invoking_child` -- the child the parent is currently driving. The
-  child reads this to confirm it was spawned from the expected parent
-  context (not, for example, a stale state file from a different
-  topic).
+- no parent session for the topic;
+- a finished parent session (or one opened on another branch);
+- a key that names another child (or fails re-validation);
+- two parent sessions whose keys both name this child. This one is
+  not a direct run: the read exits 3 and the child stops, reporting
+  both sessions, rather than choosing one.
+
+In the first three the child runs as a direct invocation. The rules
+behind the key are in
+[`../skill-session-convention.md`](../skill-session-convention.md).
+
+The three fields are load-bearing:
+
+- `child` -- the child the parent is currently driving. The child
+  matches it against its own name, so a key left for a sibling (or a
+  stale one from a different hop) never applies to it.
 - `suppress_status_aware_prompt` -- when `true`, the child skips its
   status-aware re-entry prompt (the question it asks when its artifact
   already exists at a status it recognizes). For `/scope`'s children
@@ -36,9 +55,6 @@ The three subfields are load-bearing:
   - `revise` -- the child was re-spawned to revise an artifact that
     failed downstream review; the child re-runs from the artifact
     altitude rather than starting over.
-  - `repeat` -- the child should re-run an already-finalized artifact
-    to reflect a downstream change (rare; reserved for tooling-driven
-    re-emission).
 
 ## What a child keeps and what it skips under /scope
 
@@ -47,7 +63,7 @@ This section binds `/scope`'s children (`/brief`, `/prd`, `/design`,
 `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
 `/charter`'s children keep the Parent-delegated-approval shape below.
 
-Under `/scope`'s sentinel a child still reaches its own verdict and makes its
+Under `/scope`'s dispatch key a child still reaches its own verdict and makes its
 own status transition. `/design` and `/plan` require their upstream
 already `Accepted` when they start, and the parent never transitions
 anything, so each hop's approval has to happen inside the hop that
@@ -123,7 +139,7 @@ prompt and triggers the Accepted transition on approval.
 
 ### 3. Decision-bypass-with-inline-resolution
 
-Under the parent sentinel, `/design` routes each Phase 2 question by
+Under the parent's dispatch key, `/design` routes each Phase 2 question by
 its tier (per
 `docs/decisions/DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md`), a condition it can check rather than a judgment about the
 dispatch context:
@@ -193,7 +209,7 @@ does not need a fallback at that phase.
 | `/strategy` | Phase 6 jury | Serial-self-jury, Parent-delegated-approval |
 | `/roadmap` | Phase 5 populate | Deterministic-mode-bypass, Parent-delegated-approval |
 
-`/work-on` has no row: it reads no sentinel, at Phase 0 or anywhere else
+`/work-on` has no row: it reads no dispatch key, at Phase 0 or anywhere else
 (R9 scopes the seven authoring children for the Resume Logic row). When
 `/work-on` runs under a parent chain, it inherits the parent's branch and PR
 context but otherwise operates normally.
@@ -214,10 +230,6 @@ routing:
   and returns control to the parent at the SAME chain step. The
   parent then re-evaluates whether downstream artifacts need
   re-running.
-- `rationale: repeat` -- rare; the child re-emits the artifact under
-  a tooling-driven trigger (schema version bump, format-reference
-  update). The parent reads the re-emitted artifact but does not
-  advance the chain.
 
 ## NOT covered (R8 carve-out)
 
@@ -226,6 +238,6 @@ within the existing seven-child chain. It does NOT cover dispatch
 from a layer above the chain skills, one that hands them mandates
 rather than running as a step in the chain. Such a layer brings its
 own dispatch semantics, which this contract doesn't define: the
-parent-chain sentinel, the rationale values and the ownership rules
+dispatch key, the rationale values and the ownership rules
 above all assume the parent is a chain skill. Dispatch from that
 layer is governed by the contract the layer itself publishes.

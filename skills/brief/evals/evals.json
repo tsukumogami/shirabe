@@ -195,8 +195,8 @@
     },
     {
       "name": "under-scope-skips-publishing",
-      "prompt": "/brief checkout-flow -- /scope invoked this skill: its state file carries the parent_orchestration sentinel naming brief (rationale fresh-chain), /scope runs under --auto, and the Phase 4 jury has just returned PASS from both reviewers.",
-      "expected_output": "Under the sentinel /brief keeps its own verdict and status transition and skips everything that publishes or routes. Phase 5 takes the recommended verdict without asking, because the run is unattended, and names it in its output (\"Took the recommended verdict: Approve\"). It runs shirabe transition to Accepted, removes the jury's verdict files with git rm so the acceptance commit carries their removal, and commits docs(brief): accept BRIEF for checkout-flow. It makes no cleanup commit, runs no git push and no gh pr create, asks no routing question and suggests no next skill, and returns control to /scope.",
+      "prompt": "/brief checkout-flow -- /scope invoked this skill: its session scope-checkout-flow holds a chain/dispatch key naming brief (rationale fresh-chain), so `skill-session.sh dispatch read brief checkout-flow` prints parent=scope-checkout-flow, /scope runs under --auto, and the Phase 4 jury has just returned PASS from both reviewers.",
+      "expected_output": "Under /scope's dispatch key /brief keeps its own verdict and status transition and skips everything that publishes or routes. Phase 5 takes the recommended verdict without asking, because the run is unattended, and names it in its output (\"Took the recommended verdict: Approve\"). It runs shirabe transition to Accepted, removes the jury's verdict files with git rm so the acceptance commit carries their removal, and commits docs(brief): accept BRIEF for checkout-flow. It makes no cleanup commit, runs no git push and no gh pr create, asks no routing question and suggests no next skill, and returns control to /scope.",
       "files": [],
       "expectations": [
         "Plan takes the recommended verdict without an AskUserQuestion prompt and names it in its output, as 'Took the recommended verdict: Approve' or equivalent",

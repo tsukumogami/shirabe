@@ -22,7 +22,7 @@ If `wip/design_<topic>_summary.md` exists, skip to Phase 1.
 
 ### 0.1 Branch Setup
 
-Under `/scope`'s `parent_orchestration` sentinel (SKILL.md, Output, "Under `/scope`"),
+Under `/scope`'s dispatch key (SKILL.md, Output, "Under `/scope`"),
 skip this step: work on the branch `/scope` invoked `/design` on, and
 create or switch no branch.
 

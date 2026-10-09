@@ -93,26 +93,36 @@ bail-handling rule. The re-validation point is the resume entry; a
 parent's mid-chain writes from validated inputs do not need a second
 check because the write came from validated state.
 
-## Stale `parent_orchestration:` Self-Heal
+## Stale `chain/dispatch` Self-Heal
 
-The `parent_orchestration:` block is ephemeral within a chain
-instance: every parent writes it immediately before invoking a child
-and clears it immediately after the child returns. The block's
-presence at session start (when a fresh parent invocation opens
-against a topic with an existing state file) is by definition stale
-— the chain that wrote the block is no longer in flight.
+The dispatch key, `chain/dispatch` in the parent's own session, is
+ephemeral within a chain instance: every parent writes it
+immediately before invoking a child and clears it immediately after
+the child returns, whatever the child's outcome. The key's presence
+at the parent's start (when a fresh parent invocation opens against
+a topic whose session already holds it) is by definition stale —
+the chain that wrote it is no longer in flight.
 
-Phase 0 SHALL unconditionally clear any `parent_orchestration:`
-block found at session start. The self-heal MUST NOT prompt the
-author about the stale block, MUST NOT surface a warning, and MUST
-NOT treat the block as authoritative on the resume. The clear is
-the contract.
+Phase 0 SHALL unconditionally remove it with
+`skill-session.sh dispatch clear <parent> <topic>`. The self-heal
+MUST NOT prompt the author about the stale key, MUST NOT surface a
+warning, and MUST NOT treat the key as authoritative on the resume.
+The clear is the contract.
 
 The unconditional shape rules out any conditional behavior — no
 "if author confirms", no "if last_updated is recent", no
-prompt-on-clear. The block is removed from the state file silently,
-the rest of the state file is left untouched, and the resume ladder
-proceeds against the cleaned state.
+prompt-on-clear. The key is removed silently, the rest of the
+parent's state is left untouched, and the resume ladder proceeds.
+
+A stale or forged key can at most make a direct run of the named
+child behave as a chain child: skip its push and routing prompt.
+The child reads the key by recomputing the parent's session name
+from the closed set of parents and its own topic, re-validates every
+field against a closed set, and never places a value from it on a
+command line. A key the child finds in a session that is absent,
+finished or on another branch, or that names another child, is no
+match; a key in both parents' sessions stops the child with both
+sessions named.
 
 ## Visibility Boundary
 

@@ -25,6 +25,8 @@ Establish the runtime context for `/charter`:
   author re-invokes `/charter <conforming-slug>`.
 - Canonicalize, bounds-check, and type-check any `--upstream`
   value, then run the three ordered checks in step 0.4.
+- Open `/charter`'s session, `charter-<topic>`, and remove any stale
+  `chain/dispatch` key in it (step 0.4a).
 - Detect repository visibility from CLAUDE.md (deferred to Phase 1
   per the visibility-gate use case; Phase 0 only reads it for the
   third upstream check, and otherwise records the slug and creates
@@ -120,7 +122,8 @@ Flag removal is not normalization: it deletes tokens the author
 marked as flags and leaves everything else exactly as typed.
 
 On match: the topic slug is the residue verbatim; proceed to step
-0.4 (upstream validation) and then step 0.5 (state-file creation).
+0.4 (upstream validation), step 0.4a (session open) and then step
+0.5 (state-file creation).
 
 On regex failure: reject the invocation with an error message that
 names the offending input and the violated pattern. Phase 0 stops;
@@ -289,6 +292,37 @@ writing, so the chain proceeds and the link is what gets dropped.
 When the field is omitted, the author may still describe the
 source context in the produced document's prose, without naming a
 private path or repo.
+
+## 0.4a Open the Session and Clear a Stale Dispatch Key
+
+Once the slug and any `--upstream` have passed, open `/charter`'s
+session and remove any dispatch key a crashed run left in it:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open charter <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch clear charter <topic>
+```
+
+`open` creates `charter-<topic>` from the store template, attaches to
+it when a live one exists (a resumed run), and replaces a finished
+one. The session carries the `chain/dispatch` key `/charter` writes
+around each child in Phase 2; its own state stays in the state file
+below for now. A refusal from `open` (a `refused=`, `failed=` or
+`error=` line, or koto missing or below the floor) stops Phase 0
+with the message `open` printed; nothing falls back to running
+without a session. `open` checks the topic against
+`^[a-z0-9][a-z0-9-]*$`, so a slug that passed step 0.3 but starts
+with a hyphen stops here.
+
+The clear is unconditional and silent: no prompt, no warning. A
+`chain/dispatch` key present at session start was left by a chain
+that is no longer in flight, and a child that later read it would
+wrongly run as `/charter`'s child. The convention behind the session
+and the key is
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`.
+
+Every invocation that gets this far opens the session, a resumed one
+included, so the finalization phase always has a session to close.
 
 ## 0.5 Create the State File
 

@@ -613,26 +613,25 @@ Two cases bind the contract:
   fires because the child is never invoked; `/charter` synthesizes
   the Decision Record from its own context.
 - **Fresh chain chosen** (row 5 "Revise" or row 6 start-fresh):
-  `/charter` invokes the child with a suppression signal. The
-  signal mechanism is a parent-orchestration flag passed alongside
-  the topic slug — concretely, `/charter` invokes the child with
-  the topic plus a `--parent-orchestrated` flag (or an equivalent
-  environment marker the child's SKILL.md recognizes). When the
-  child sees the flag, it suppresses its own status-aware re-entry
-  prompt and treats the run as a fresh invocation from the
+  `/charter` invokes the child under the dispatch key. Immediately
+  before the invocation it writes `chain/dispatch` into its own
+  session with `skill-session.sh dispatch write charter <topic>
+  <child> <revise|fresh-chain>` (`revise` for row 5, `fresh-chain`
+  for row 6), which records `suppress_status_aware_prompt: true`.
+  The child finds the key with `skill-session.sh dispatch read
+  <child> <topic>`, suppresses its own status-aware re-entry
+  prompt, and treats the run as a fresh invocation from the
   parent's perspective, even if the published artifact would
-  normally trigger the child's own resume prompt.
+  normally trigger the child's own resume prompt. `/charter`
+  removes the key with `dispatch clear charter <topic>` immediately
+  after the child returns, whatever its outcome.
 
-When Revise (or the fresh-chain alternative) is selected,
-`/charter`'s child-invocation logic passes the
-`--parent-orchestrated` flag (or an equivalent environment marker
-the child's SKILL.md recognizes) alongside the topic slug. Future
-child-side adoption — when `/strategy`, `/vision`, and `/roadmap`
-SKILL.md updates land — binds to the same flag name; this file is
-the canonical contract surface for the flag's meaning. The
-parent-orchestration contract is documented here so the child-
-side and parent-side bind to the same name once the child-side
-migration ships.
+The signal adds nothing to the child's arguments: the child is
+invoked with the topic slug alone (plus `--upstream` where Phase 2
+says so), and no flag or environment marker carries the
+suppression. The key's write, clear and read are specified in
+Phase 2's dispatch key section and in
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`.
 
 ## R14 Child-Internals Isolation
 
@@ -820,8 +819,9 @@ STRATEGY would see `/strategy`'s own resume prompts (e.g.,
 "continue from the existing artifact" or similar status-aware
 phrasing) instead of `/charter`'s "Re-evaluate / Revise / Bail"
 prompt. The ambiguity would let the child's defaults silently
-override the parent's intended re-entry shape. The suppression
-flag eliminates this ambiguity at the contract layer.
+override the parent's intended re-entry shape. The dispatch key's
+`suppress_status_aware_prompt` eliminates this ambiguity at the
+contract layer.
 
 ### No Third-Party Dependencies
 

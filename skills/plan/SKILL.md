@@ -367,6 +367,9 @@ document filename: `DESIGN-foo-bar.md` produces topic `foo-bar`, `ROADMAP-foo-ba
 produces topic `foo-bar`.
 
 ```
+dispatch read plan <topic> prints parent=<session>
+                                              -> run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md,
+                                                 then continue down this ladder
 if GitHub issues exist for this design        -> Resume at Phase 7 (verify/complete)
 if wip/plan_<topic>_review.md exists          -> Resume at Phase 7
 if wip/plan_<topic>_dependencies.md exists    -> Resume at Phase 6
@@ -384,11 +387,28 @@ gh issue list --search "Design: <design-doc-path>" --json number,title,state
 
 When resuming, read the existing artifact to restore context before continuing.
 
-A `parent_orchestration` sentinel in `/scope`'s state file is not a rung
-of that ladder: the ladder applies the same way under it, and the sentinel only
-changes which steps the run skips, as the next paragraph says.
+**Running under a parent.** The first row runs
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read plan <topic>`
+with the topic this run works on (derived from the source document's file
+name, as above). A printed `parent=<session>` line means `/plan` runs under that parent (`scope-<topic>` or
+`charter-<topic>`), with the parent's upfront decision in the `rationale=` and
+`suppress_status_aware_prompt=` lines; what changes under a parent is in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
+Four cases are no match. Three print nothing and exit 0, and the run is a
+direct one with the rows below unchanged: no parent session, a finished parent
+session, and a parent whose `chain/dispatch` key names another child. The
+fourth, two parent sessions that both name `/plan`, exits 3: don't pick one
+and don't run directly; stop and report both sessions, which the script names
+on stderr, so the author can clear the stale key. Exit 127 (koto not
+installed) means no parent can be running, so the run is direct; any other
+non-zero exit stops the run with the script's message. `/plan` opens no
+session of its own here.
 
-**Under `/scope`'s sentinel** `/plan` still reaches its own verdict (the Phase 6
+The first row is not a resume point: the rest of the ladder applies the same
+way under a parent, and the dispatch key only changes which steps the run
+skips, as the next paragraph says.
+
+**Under `/scope`'s dispatch key** `/plan` still reaches its own verdict (the Phase 6
 review) and makes its own status transition (Phase 7's step 7.5), but skips
 everything that publishes or routes: it pushes nothing, opens no pull request,
 creates no branch, makes no cleanup commit, and asks no routing question, so

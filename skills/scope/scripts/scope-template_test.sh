@@ -24,7 +24,7 @@
 #     context-matches gates; /scope ships no owned-pr script of its own;
 #   - the frontmatter description's state count matches the states declared.
 #   - the child-dispatch reference keeps a child's verdict and lists the
-#     publishing and routing steps a child skips under the sentinel.
+#     publishing and routing steps a child skips under the dispatch key.
 #
 # Usage: bash skills/scope/scripts/scope-template_test.sh
 # Exit 0 when every case holds. The compiled-template cases need koto and jq and
@@ -316,7 +316,7 @@ for phase in 'Merge phase' 'Impact-analysis phase' 'Escalation phase'; do
     fi
 done
 
-# The child-dispatch contract the hops rely on: under the sentinel a child keeps
+# The child-dispatch contract the hops rely on: under the dispatch key a child keeps
 # its verdict and skips every step that publishes or routes, so /scope's one
 # push at exit stays true. The dispatch reference once had children leave their
 # artifact unapproved for the parent, which /design and /plan cannot start from.

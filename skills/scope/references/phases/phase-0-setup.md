@@ -4,8 +4,8 @@ Phase 0 binds five contracts: tokenizing the invocation and the
 residue rule, the entry into koto through `scripts/scope-open.sh`
 (where koto checks every argument its variables can express),
 visibility detection from `CLAUDE.md`, the recording of the run's
-effective intent, and the unconditional self-heal of any stale
-`parent_orchestration:` block found at invocation. Phase 0 ends with
+effective intent, and the unconditional removal of any stale
+`chain/dispatch` key found at invocation. Phase 0 ends with
 the initial state-file written and the phase pointer advanced to
 Phase 1.
 
@@ -312,27 +312,32 @@ from the `setup` directive rather than re-parsed: `EXEC_MODE`,
 `COORDINATION`, `MAX_ROUNDS` (empty means the default of 5), and
 `UPSTREAM`.
 
-## Stale `parent_orchestration:` Self-Heal
+## Stale `chain/dispatch` Self-Heal
 
-The `parent_orchestration:` block is ephemeral within a chain
-instance: `/scope` writes it immediately before invoking a child
-and clears it immediately after the child returns. The block's
-presence at session start (when a fresh `/scope` invocation
-opens against a topic with an existing state file) is by
-definition stale — the chain that wrote the block is no longer
-in flight.
+The dispatch key is ephemeral within a chain instance: `/scope`
+writes `chain/dispatch` into its own session, `scope-<topic>`,
+immediately before invoking a child and clears it immediately after
+the child returns. A key present at session start (when a fresh
+`/scope` invocation opens against a topic with an existing session)
+is by definition stale — the chain that wrote it is no longer in
+flight.
 
-Phase 0 SHALL unconditionally clear any `parent_orchestration:`
-block found at session start. The self-heal MUST NOT prompt the
-author for confirmation; it MUST NOT surface a warning; it MUST
-NOT treat the block as authoritative on the resume. The clear
-is the contract.
+Phase 0 SHALL unconditionally remove it:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch clear scope <topic>
+```
+
+The self-heal MUST NOT prompt the author for confirmation; it MUST
+NOT surface a warning; it MUST NOT treat the key as authoritative on
+the resume. The clear is the contract, and it is idempotent: with no
+key it changes nothing.
 
 The unconditional shape rules out any conditional behavior — no
 "if author confirms", no "if last_updated is recent", no
-prompt-on-clear. The block is removed from the state file
-silently, the rest of the state file is left untouched, and the
-resume ladder proceeds against the cleaned state.
+prompt-on-clear. The key is removed silently, the state file is left
+untouched, and the resume ladder proceeds. The convention behind the
+key is in `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`.
 
 ## Initial State-File Shape
 
@@ -418,8 +423,8 @@ to those.
   conditional-field discipline, and the invocation-intent field.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` —
   storage substrate substitution surface (`wip-yaml-md` is the
-  v1 value), L13 amendment defining the `parent_orchestration:`
-  block as the pattern-level parent-orchestration primitive.
+  v1 value), L13 amendment defining the `chain/dispatch` key as
+  the pattern-level parent-orchestration primitive.
 - `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
   — the three-phase flow Phase 2 invokes before each child
   invocation (not Phase 0).

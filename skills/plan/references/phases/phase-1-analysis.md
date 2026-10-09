@@ -39,7 +39,7 @@ Read the source document at the path provided in $ARGUMENTS and check the Status
 - All required sections must be present
 
 This phase does not transition the DESIGN, with or without a parent's
-`parent_orchestration:` sentinel: a DESIGN `/scope`'s design hop leaves at
+dispatch key: a DESIGN `/scope`'s design hop leaves at
 `Accepted` passes the check below as it is, and Phase 7's step 7.5 is the one
 place `/plan` moves it to `Planned`.
 

@@ -186,10 +186,10 @@ Phase 0: SETUP --> Phase 1: DISCOVER --> Phase 2: CHAIN --> Phase N: FINALIZE
 
 | Phase | Purpose | Reference |
 |-------|---------|-----------|
-| 0. Setup | Slug validation, state-file creation | `skills/charter/references/phases/phase-0-setup.md` |
+| 0. Setup | Slug validation, session open (`skill-session.sh open charter <topic>`) and stale `chain/dispatch` clear, state-file creation | `skills/charter/references/phases/phase-0-setup.md` |
 | 1. Discover | Repository visibility detection, topic-related child-doc discovery, chain proposal | `skills/charter/references/phases/phase-1-discovery.md` |
-| 2. Chain | Sequenced child-skill invocations (`/vision`, `/strategy`, `/roadmap`) | `skills/charter/references/phases/phase-2-chain-orchestration.md` |
-| N. Finalize | Record exit path, write `exit_artifacts:`, run R9 hard-finalization check | `skills/charter/references/phases/phase-finalization.md` |
+| 2. Chain | Sequenced child-skill invocations (`/vision`, `/strategy`, `/roadmap`), each bracketed by `skill-session.sh dispatch write` and `dispatch clear` | `skills/charter/references/phases/phase-2-chain-orchestration.md` |
+| N. Finalize | Record exit path, write `exit_artifacts:`, run R9 hard-finalization check, close `charter-<topic>` | `skills/charter/references/phases/phase-finalization.md` |
 
 The per-phase bodies are authored by downstream issues in the
 PLAN-shirabe-charter-skill plan. This section is the diagram and
@@ -237,6 +237,12 @@ still in flight. Row 6 carries the mid-roadmap disambiguation:
 `wip/roadmap_<topic>_scope.md` exists and no published ROADMAP
 does, and into `/strategy` otherwise.
 
+Every invocation whose slug validates opens `charter-<topic>` and
+clears a stale `chain/dispatch` key in it before the ladder routes
+(Phase 0 step 0.4a), a resumed run included: `open` attaches to a
+live session and replaces a finished one. The session holds only
+the dispatch key for now; the state file stays where it is.
+
 `/charter`'s stale-session threshold is 7 days: state with
 `last_updated` ≥ 7 days old surfaces the Resume / Force-materialize
 / Discard prompt; fresher state silently resumes.
@@ -251,7 +257,10 @@ R14 child-internals isolation discipline) lives in
 
 Execute phases sequentially by reading the corresponding phase file:
 
-0. **Setup** — slug validation, state-file creation.
+0. **Setup** — slug validation, opening `charter-<topic>` with
+   `skill-session.sh open charter <topic>` and clearing any stale
+   dispatch key with `skill-session.sh dispatch clear charter
+   <topic>` (silently, no prompt), state-file creation.
    - Instructions: `skills/charter/references/phases/phase-0-setup.md`
 
 1. **Discover** — repository visibility detection, topic-related
@@ -266,11 +275,19 @@ Execute phases sequentially by reading the corresponding phase file:
    execution, with proceed as the default either way — inspect
    child durable artifacts after each step per the widened R14
    rule, advance the `phase_pointer` after each child completes.
+   Immediately before each of `/vision`, `/strategy` and `/roadmap`
+   write the dispatch key with `skill-session.sh dispatch write
+   charter <topic> <child> <fresh-chain|revise>`, and immediately
+   after the child returns, whatever its outcome, remove it with
+   `skill-session.sh dispatch clear charter <topic>`.
    - Instructions: `skills/charter/references/phases/phase-2-chain-orchestration.md`
 
 N. **Finalization** — set the `exit:` field to one of `full-run`,
    `re-evaluation`, or `abandonment-forced`; write the
-   `exit_artifacts:` list; run the R9 hard-finalization check.
+   `exit_artifacts:` list; run the R9 hard-finalization check; close
+   the session with `skill-session.sh close charter-<topic>
+   <done|abandoned>` (`done` for a completed run, `abandoned` for a
+   bail or abandonment) on every exit path.
    - Instructions: `skills/charter/references/phases/phase-finalization.md`
 
 ## Reference Files
@@ -296,7 +313,7 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
 surfaces enumerated in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` — slug
 re-validation on resume, closed write-target set, state-file enum
-re-validation, stale `parent_orchestration:` self-heal, visibility
+re-validation, stale `chain/dispatch` self-heal, visibility
 boundary, and no untrusted-input interpolation. Two of the six need
 `/charter`-specific statements, because `--upstream` is the first
 author-supplied value this skill accepts that is not derived from a
