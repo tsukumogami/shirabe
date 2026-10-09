@@ -935,15 +935,22 @@ OS_TRUST_BUNDLES = ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt")
 
 def tls_context(base=None, bundles=OS_TRUST_BUNDLES):
     """The default TLS context, given the operating system's trust roots when
-    Python loaded none of its own. SSL_CERT_FILE, when set, is honoured by the
-    default context and leaves it with roots, so nothing is added then."""
+    Python loaded none of its own. A user who names their own roots with
+    SSL_CERT_FILE or SSL_CERT_DIR gets exactly those: certificates in a
+    directory load only during a handshake, so an empty list can't tell that
+    case apart, and the environment is checked instead."""
     import ssl
     ctx = (base or ssl.create_default_context)()
-    if not ctx.get_ca_certs():
-        for path in bundles:
-            if os.path.isfile(path):
-                ctx.load_verify_locations(cafile=path)
-                break
+    if ctx.get_ca_certs() or os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR"):
+        return ctx
+    for path in bundles:
+        if not os.path.isfile(path):
+            continue
+        try:
+            ctx.load_verify_locations(cafile=path)
+            break
+        except (ssl.SSLError, OSError):
+            continue  # an unreadable bundle leaves the next one to try
     return ctx
 
 
