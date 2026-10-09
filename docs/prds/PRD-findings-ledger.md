@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   /work-on's review panels keep their verdicts per reviewer seat. A retry
   spawns every seat that blocked again and re-runs in full any passed seat
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-findings-ledger](docs/briefs/BRIEF-findings-ledger.md); carried in Absorbed Brief.
 
