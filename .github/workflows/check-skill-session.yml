@@ -1,0 +1,70 @@
+name: Check skill-session
+
+# scripts/skill-session.sh carries the skill-session convention's shared
+# operations: open, status, close, the dispatch key, adopt, close-children,
+# ingest, get/put and the reclaimable rule. Its suite drives the real koto
+# against the store template, koto-templates/skill-session.md, and skips those
+# cases with exit 0 when koto is absent. The Linux leg installs koto and
+# asserts it meets the floor before the suite runs, so a skip cannot pass as
+# green. The macOS leg runs the suite on the bash 3.2 floor through
+# scripts/check-bash-floor.sh; koto is absent there, so the stand-in cases run
+# on 3.2 and the engine cases run on Linux.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/skill-session.sh'
+      - 'scripts/skill-session_test.sh'
+      - 'koto-templates/skill-session.md'
+      # The script opens sessions through koto-open.sh and checks the floor
+      # through assert-koto-floor.sh.
+      - 'scripts/koto-open.sh'
+      - 'scripts/assert-koto-floor.sh'
+      - 'scripts/check-bash-floor.sh'
+      - '.tsuku.toml'
+      - '.github/workflows/check-skill-session.yml'
+
+env:
+  # `tsuku install` calls the GitHub API; the token
+  # keeps shared runners from hitting the unauthenticated rate limit.
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  test-skill-session:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      - name: Install jq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install jq
+
+      - name: Install tsuku (Linux)
+        if: runner.os == 'Linux'
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install project tools (Linux)
+        if: runner.os == 'Linux'
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      - name: Assert koto meets the floor (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/assert-koto-floor.sh
+
+      - name: Run skill-session tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash scripts/skill-session_test.sh
+
+      - name: Run skill-session suite on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system skill-session
