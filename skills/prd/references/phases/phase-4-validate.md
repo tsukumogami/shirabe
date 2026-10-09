@@ -237,7 +237,7 @@ Options:
   discard commit lands on the current branch (step 4.6). The author exits the
   workflow; no PRD ships.
 
-Under `/scope`'s `parent_orchestration` sentinel (see "Under `/scope`" in the
+Under `/scope`'s dispatch key (see "Under `/scope`" in the
 `prd` SKILL.md), an interactive run asks as above, and an unattended run
 (`--auto`) takes the recommended verdict and names it in its output, as "Took
 the recommended verdict: <verdict>".
@@ -254,18 +254,18 @@ the recommended verdict: <verdict>".
    If no vocabulary is defined, skip label removal -- the project hasn't
    configured which labels map to PRD completion.
    Skip this step if `source_issue` is not set in the frontmatter.
-   Under `/scope`'s sentinel, skip this step too: the label edit is a `gh`
+   Under `/scope`'s dispatch key, skip this step too: the label edit is a `gh`
    write, and `/scope`'s SKILL.md, which lists the only `gh` writes a run
-   makes, says a child's upstream-issue edit is skipped under the sentinel, per
+   makes, says a child's upstream-issue edit is skipped under the dispatch key, per
    `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
    The label stays on the issue for the author to remove, so say so in your
    output, naming the issue and the label; who should remove it under `/scope`
    is an open question, tracked as #666.
 5. Create PR (or update existing PR if on a shared branch). Under `/scope`'s
-   sentinel, skip this step: `/scope` pushes and opens the pull request at its
+   dispatch key, skip this step: `/scope` pushes and opens the pull request at its
    own exit.
 
-Then present routing options (under `/scope`'s sentinel, skip them and return
+Then present routing options (under `/scope`'s dispatch key, skip them and return
 control to `/scope`, which decides the next hop):
 
 "The PRD is accepted. Based on the complexity, here are the recommended next steps:"
@@ -336,7 +336,7 @@ the workflow. Run the following ordered actions; do not skip steps.
    rm -f wip/research/prd_<topic>_phase4_*.md
    ```
 
-   Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
+   Under `/scope`'s dispatch key, skip this step: `/scope`'s cleanup phase removes
    these files, and the discard commit carries only the PRD's removal.
 
 6. **Commit the discard via `git commit -F`** (file path), never `-m`:
@@ -353,14 +353,14 @@ the workflow. Run the following ordered actions; do not skip steps.
 
 7. **Exit the workflow.** Do not run step 4.7 cleanup (the Reject branch
    handled its own wip cleanup inline in step 5, or, under `/scope`'s
-   sentinel, left it to `/scope`). No PRD ships; the discard
+   dispatch key, left it to `/scope`). No PRD ships; the discard
    commit is the only artifact. If on a shared branch with an open PR,
    surface the discard commit SHA in your final response so the caller can
    route accordingly.
 
 ### 4.7 Cleanup
 
-Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
+Under `/scope`'s dispatch key, skip this step: `/scope`'s cleanup phase removes
 every file the commands below name, and `/prd` makes no cleanup commit.
 
 After the PR is created, clean up temporary artifacts:
@@ -386,4 +386,4 @@ Final PRD at `docs/prds/PRD-<topic>.md` with:
 - YAML frontmatter with status "Accepted"
 - All required sections complete and validated
 - Working artifacts cleaned up (scope doc, research files removed); under
-  `/scope`'s sentinel they are still on disk for `/scope`'s cleanup
+  `/scope`'s dispatch key they are still on disk for `/scope`'s cleanup

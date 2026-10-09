@@ -18,7 +18,7 @@ If `wip/design_<topic>_summary.md` exists, skip to Phase 1.
 
 ### 0.1 Branch Setup
 
-Under `/scope`'s `parent_orchestration` sentinel (SKILL.md, Output, "Under `/scope`"),
+Under `/scope`'s dispatch key (SKILL.md, Output, "Under `/scope`"),
 skip this step: work on the branch `/scope` invoked `/design` on, and
 create or switch no branch.
 
@@ -36,17 +36,24 @@ Read the PRD file from the path provided in `$ARGUMENTS`. Verify:
   for whether the upstream chain is at a consumable posture, rather than a
   status comparison restated here.
 
-#### Parent-orchestration auto-transition (sentinel-gated)
+#### Parent-orchestration auto-transition (dispatch-key-gated)
 
-Before applying the hard-stop status check below, look for the
-`parent_orchestration:` sentinel block. Read any
-`wip/*_<topic>_state.md` file matching the current topic
-(the `<topic>` value is the topic slug extracted from the PRD path).
+Before applying the hard-stop status check below, read the
+dispatch key (the `<topic>` value is the topic slug extracted from
+the PRD path):
 
-When the sentinel is present AND its `invoking_child:` field is
-`design` AND the PRD's current status is `Accepted` (the
-pre-transition status `/prd` leaves behind after its own
-brief-handoff), run:
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read design <topic>
+```
+
+This is the same read as the Resume Logic's first row in SKILL.md;
+reuse that result when it already ran. No file is globbed and no
+state file is read.
+
+When it prints a `parent=` line (a live parent session on this
+branch whose `chain/dispatch` key names `design`) AND the PRD's
+current status is `Accepted` (the pre-transition status `/prd`
+leaves behind after its own brief-handoff), run:
 
 ```bash
 shirabe transition <prd-path> "In Progress"
@@ -54,14 +61,15 @@ shirabe transition <prd-path> "In Progress"
 
 then proceed past the hard-stop check.
 
-When the sentinel is ABSENT (no matching state file or no
-`parent_orchestration:` block) OR its `invoking_child:` field
-does NOT match `design`, do NOT auto-transition. Fall through
-to the hard-stop check below.
+When it prints nothing (no parent session, a finished one, or a
+key naming another child), do NOT auto-transition. Fall through
+to the hard-stop check below. When it exits 3 (two parent sessions
+both name `design`), stop and report both sessions, as the Resume
+Logic says; nothing is transitioned.
 
-If the PRD status is not "Accepted" (and the sentinel was absent
-or did not match `invoking_child: design`), STOP and inform the
-user. Design work requires an accepted PRD.
+If the PRD status is not "Accepted" (and the read printed no
+`parent=` line), STOP and inform the user. Design work requires an
+accepted PRD.
 
 ### 0.3 Synthesize Problem Statement
 

@@ -275,7 +275,7 @@
       "id": 20,
       "name": "phase-1-sentinel-present-no-transition",
       "prompt": "/plan docs/designs/DESIGN-sentinel-test.md",
-      "expected_output": "A parent's state file carries parent_orchestration.invoking_child: plan and the DESIGN is at Accepted, the status /scope's design hop leaves. Phase 1 step 1.1 does not transition the DESIGN: Accepted passes the hard-stop table as it is, and Phase 1 continues at step 1.2 (Extract Key Information). The DESIGN moves to Planned only at Phase 7's step 7.5, after the PLAN is written, and the lifecycle-chain check runs after that transition.",
+      "expected_output": "The live session scope-sentinel-test holds a chain/dispatch key with child: plan, so `skill-session.sh dispatch read plan sentinel-test` prints parent=scope-sentinel-test, and the DESIGN is at Accepted, the status /scope's design hop leaves. Phase 1 step 1.1 does not transition the DESIGN: Accepted passes the hard-stop table as it is, and Phase 1 continues at step 1.2 (Extract Key Information). The DESIGN moves to Planned only at Phase 7's step 7.5, after the PLAN is written, and the lifecycle-chain check runs after that transition.",
       "files": [],
       "expectations": [
         "Transcript does NOT invoke shirabe transition during Phase 1",
@@ -288,19 +288,19 @@
       "id": 21,
       "name": "phase-1-sentinel-present-mismatched-plan",
       "prompt": "/plan docs/designs/DESIGN-sentinel-mismatch.md",
-      "expected_output": "A state file wip/*_sentinel-mismatch_state.md carries parent_orchestration.invoking_child: design. Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: the protective hard-stop is reachable when the sentinel is present but mismatched. No shirabe transition invocation; no DESIGN status mutation.",
+      "expected_output": "The live session scope-sentinel-mismatch holds a chain/dispatch key with child: design, so `skill-session.sh dispatch read plan sentinel-mismatch` prints nothing: the key names another child. Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: the protective hard-stop is reachable when a parent's key names another child. No shirabe transition invocation; no DESIGN status mutation.",
       "files": [],
       "expectations": [
         "Transcript does NOT invoke shirabe transition",
         "Transcript falls through to the hard-stop table and STOPs with the 'Proposed' error",
-        "R6 preservation: the protective hard-stop is reachable when a parent's state file is present"
+        "R6 preservation: the protective hard-stop is reachable when a parent's dispatch key names another child"
       ]
     },
     {
       "id": 22,
       "name": "phase-1-sentinel-absent-plan",
       "prompt": "/plan docs/designs/DESIGN-no-sentinel.md",
-      "expected_output": "This is a direct /plan invocation with no parent state file. Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: direct invocation against a non-Accepted DESIGN cannot silently promote it because no sentinel is on disk. No shirabe transition invocation; no DESIGN status mutation.",
+      "expected_output": "This is a direct /plan invocation with no parent session: `skill-session.sh dispatch read plan no-sentinel` prints nothing. Phase 1 transitions nothing in any case, so the skill applies the hard-stop table. The DESIGN's status is Proposed. The skill STOPs with the 'Proposed' table row error message. R6 is preserved: direct invocation against a non-Accepted DESIGN cannot silently promote it because no parent session holds a key naming plan. No shirabe transition invocation; no DESIGN status mutation.",
       "files": [],
       "expectations": [
         "Transcript does NOT invoke shirabe transition",
@@ -312,10 +312,10 @@
       "id": 23,
       "name": "phase-7-upstream-issue-update-skipped-under-scope-sentinel",
       "prompt": "/plan docs/designs/DESIGN-scope-child.md",
-      "expected_output": "/scope's state file for the topic scope-child carries parent_orchestration.invoking_child: plan, so /plan runs as /scope's child. It still reaches its own verdict (the Phase 6 review) and makes its own status transition (step 7.5, Accepted to Planned), but at step 7.8 it asks no upstream-issue question and runs no gh issue edit, and it pushes nothing, opens no pull request, creates no branch and makes no cleanup commit: publishing belongs to /scope (shape 6, Parent-owned-publishing, in references/fixes/sub-agent-dispatch.md).",
+      "expected_output": "/scope's session scope-scope-child holds a chain/dispatch key with child: plan, so `skill-session.sh dispatch read plan scope-child` prints parent=scope-scope-child and /plan runs as /scope's child. It still reaches its own verdict (the Phase 6 review) and makes its own status transition (step 7.5, Accepted to Planned), but at step 7.8 it asks no upstream-issue question and runs no gh issue edit, and it pushes nothing, opens no pull request, creates no branch and makes no cleanup commit: publishing belongs to /scope (shape 6, Parent-owned-publishing, in references/fixes/sub-agent-dispatch.md).",
       "files": [],
       "expectations": [
-        "Transcript detects the parent_orchestration sentinel naming plan",
+        "Transcript runs skill-session.sh dispatch read plan scope-child and finds the parent= line naming scope-scope-child",
         "Transcript still runs the Phase 6 review and the step 7.5 transition to Planned",
         "Transcript skips step 7.8: no upstream-issue question and no gh issue edit",
         "Transcript runs no git push, no gh pr command, and creates or switches no branch",

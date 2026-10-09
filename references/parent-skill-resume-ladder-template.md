@@ -35,6 +35,18 @@ The template's ordering, written at its minimum width of nine rows:
 Rows 1-4 and 8-9 are the meta-ladder (pattern-level fixed). Rows 5-7 are
 parent-specific body slots each parent fills.
 
+**The dispatch key is removed before the ladder runs, never read by it.**
+At its start, before row 1 is tested, a parent removes any `chain/dispatch`
+key in its own session with `skill-session.sh dispatch clear <parent>
+<topic>`, unconditionally and silently (see the stale-key self-heal in
+[`parent-skill-security.md`](parent-skill-security.md)). A key present at
+that point was left by a run that is no longer in flight, so no row treats
+it as a resume signal; a child that was mid-flight is found by the
+partial-child-run slot, never by the key. The other end of the key is the
+child's: each child's own resume table begins with a row that runs
+`dispatch read`, as [`skill-session-convention.md`](skill-session-convention.md)
+describes.
+
 ### Body-Slot Expansion
 
 A parent MAY expand a body slot into more than one numbered row. The slot

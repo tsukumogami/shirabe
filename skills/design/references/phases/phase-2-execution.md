@@ -25,8 +25,8 @@ Read `wip/design_<topic>_coordination.json`. Identify pending decisions.
 ### 2.2a Route Each Question by Tier
 
 Run directly, every question goes to `/decision` (2.3). Under a parent
-skill (the `parent_orchestration` sentinel in the Resume Logic's first
-row of SKILL.md), route each question by the `complexity` tier Phase 1
+skill (the `chain/dispatch` key the Resume Logic's first
+row of SKILL.md reads), route each question by the `complexity` tier Phase 1
 recorded in the manifest, per
 `docs/decisions/DECISION-contradiction-design-inline-decision-fallback-2026-09-28.md`:
 

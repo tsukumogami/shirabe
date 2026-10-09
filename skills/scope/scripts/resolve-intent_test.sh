@@ -52,7 +52,7 @@ QUOTED=$(state quoted.md 'intent: "stop"
 COMMENT=$(state comment.md 'intent: continue   # recorded at Phase 0
 ')
 CRLF=$(state crlf.md "$(printf 'intent: stop\r\n')")
-NESTED=$(state nested.md 'parent_orchestration:
+NESTED=$(state nested.md 'child_snapshots:
   intent: stop
 ')
 EMPTY=$(state empty.md 'intent:

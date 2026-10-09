@@ -4,7 +4,7 @@ Phase 2 walks `planned_chain:` from Phase 1, invoking each
 child in order. Before each invocation, Phase 2 runs the
 worktree-staleness check from the canonical worktree-discipline
 reference; immediately around the invocation, Phase 2 writes
-and clears the `parent_orchestration:` sentinel; after each
+and clears the `chain/dispatch` key in its own session; after each
 invocation Phase 2 runs the R20 structural file-existence check,
 captures the child snapshot, routes through the validator
 pass-through, and runs the consolidation judgment against the
@@ -18,10 +18,10 @@ Phase-N Reject from `/prd` or `/design` is observed via
 
 - [Per-Child Invocation Loop Ordering](#per-child-invocation-loop-ordering)
 - [Worktree-Staleness Check Before Each Child Invocation](#worktree-staleness-check-before-each-child-invocation)
-- [`parent_orchestration:` Sentinel Write](#parent_orchestration-sentinel-write)
+- [Dispatch Key Write](#dispatch-key-write)
 - [Child Invocation](#child-invocation)
+- [Dispatch Key Clear](#dispatch-key-clear)
 - [R20 Structural File-Existence Check](#r20-structural-file-existence-check)
-- [`parent_orchestration:` Cleanup](#parent_orchestration-cleanup)
 - [Child-Snapshot Capture](#child-snapshot-capture)
 - [Phase-N Reject Handling](#phase-n-reject-handling)
 - [Validator Pass-Through](#validator-pass-through)
@@ -40,18 +40,20 @@ eight steps in sequence:
    (Merge phase → Impact-analysis phase → Escalation phase)
    from
    `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`.
-2. **`parent_orchestration:` sentinel write.** Write the block
-   to the state file immediately before invoking the child.
+2. **Dispatch key write.** Immediately before invoking the
+   child, write `chain/dispatch` into `scope-<topic>` with
+   `skill-session.sh dispatch write`.
 3. **Child invocation.** Invoke the child via its existing
    input mode: the topic slug for `/brief`, the nearest produced
    upstream artifact's path for every later child. When the state
    file carries `consumed_upstream:`, `/brief` and `/plan` also
    take `--upstream <that path>` — see the per-child invocation
    forms below.
-4. **R20 structural file-existence check.** Confirm the child's
-   canonical durable artifact exists after the child returns.
-5. **`parent_orchestration:` cleanup.** Remove the sentinel
-   block from the state file (regardless of child outcome).
+4. **Dispatch key clear.** Immediately after the child returns,
+   whatever its outcome, remove `chain/dispatch` with
+   `skill-session.sh dispatch clear`.
+5. **R20 structural file-existence check.** Confirm the child's
+   canonical durable artifact exists.
 6. **Child-snapshot capture.** Record the child's status +
    content-hash dual-check pair in `child_snapshots:`, and append
    the child to `chain_ran:` with a started-at timestamp.
@@ -69,11 +71,10 @@ eight steps in sequence:
    stricter than "this chain produced something above the current
    artifact" and deliberately so.
 
-The eight-step ordering is the contract. Steps that depend on
-the state file (write/clear of `parent_orchestration:`, child-
-snapshot capture) bracket the child invocation in a way that
-keeps the sentinel ephemeral: present ONLY while a child is in
-flight; cleared the moment the child returns.
+The eight-step ordering is the contract. The dispatch key's
+write and clear bracket the child invocation tightly, which keeps
+the key ephemeral: present ONLY while a child is in flight;
+cleared the moment the child returns, before anything else runs.
 
 ## Worktree-Staleness Check Before Each Child Invocation
 
@@ -107,7 +108,7 @@ The check runs the three-phase flow defined in
   expected recipe withdrawn).
 - **Escalation phase.** None / Informational proceeds silently;
   the merge is recorded in `worktree_rebases:` and Phase 2
-  advances to step 2 (sentinel write). Intent-changing is judged
+  advances to step 2 (dispatch key write). Intent-changing is judged
   by the agent running the chain (per
   `docs/decisions/DECISION-contradiction-worktree-intent-change-owner-2026-09-28.md`), as close to the change as it
   can be decided. What it can settle itself it reconciles in
@@ -174,24 +175,34 @@ proceed against original intent) is committed via the
 `git commit -F` discipline documented in Phase 3, never
 interpolated into `git commit -m "..."`.
 
-## `parent_orchestration:` Sentinel Write
+## Dispatch Key Write
 
 Immediately before invoking the child, Phase 2 writes the
-sentinel block to the state file:
+dispatch key into its own session, `scope-<topic>`:
 
-```yaml
-parent_orchestration:
-  invoking_child: brief | prd | design | plan
-  suppress_status_aware_prompt: true
-  rationale: fresh-chain | revise
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch write scope <topic> <child> <fresh-chain|revise>
 ```
 
-The `invoking_child:` field names the child Phase 2 is about to
-invoke; the `rationale:` field carries the upfront decision
-about whether the run is a fresh chain or a revision (read by
-the child to route its own Slot 2 behavior).
+`<child>` is `brief`, `prd`, `design` or `plan`, the child Phase 2
+is about to invoke; the rationale carries the upfront decision
+about whether the run is a fresh chain or a revision (read by the
+child to route its own Slot 2 behavior). `/scope` always suppresses
+the child's status-aware prompt, so it never passes
+`--no-suppress`. The key holds three lines:
 
-Under the sentinel the child keeps its own verdict and status
+```yaml
+child: brief | prd | design | plan
+suppress_status_aware_prompt: true
+rationale: fresh-chain | revise
+```
+
+The child finds it with `skill-session.sh dispatch read <child>
+<topic>`; the rules, including when a child finds no match, are in
+the dispatch key section of
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`.
+
+Under the dispatch key the child keeps its own verdict and status
 transition, so each artifact is approved inside its own hop, and
 an `--auto` run takes the recommended verdict and says which: the
 child runs inline in this context, under this run's execution mode,
@@ -252,14 +263,33 @@ artifact's git blob hash; `/scope` does NOT extend the child's
 `$ARGUMENTS` parser, does NOT add env-var consumption, does NOT
 add flags or arguments of its own invention per the L13 amendment
 in `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`. The
-sentinel is the pattern-level convention every child reads
+dispatch key is the pattern-level convention every child reads
 identically; the child's input surface is untouched, and
 `--upstream` is part of that surface rather than an addition to
 it.
 
+## Dispatch Key Clear
+
+Immediately after the child returns, Phase 2 removes the key —
+regardless of the child's outcome (landed, skipped, Reject via
+discard commit, STALE, or an error the child stopped on):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch clear scope <topic>
+```
+
+The key is ephemeral within a chain instance; it MUST NOT persist
+into the next loop iteration or into any post-chain state. The
+clear runs before the R20 check, so a hop that stops at R20 or
+later leaves no key behind.
+
+The cleanup is unconditional and silent. No prompt fires, no
+warning surfaces. The key's job is done the moment the child
+returns, and the clear is idempotent.
+
 ## R20 Structural File-Existence Check
 
-After the child returns, Phase 2 confirms the child's canonical
+After the key is cleared, Phase 2 confirms the child's canonical
 durable artifact exists at:
 
 - `docs/briefs/BRIEF-<topic>.md` for `/brief`.
@@ -276,8 +306,8 @@ DESIGN is always at the first; the second is what a chain
 re-entered against an already-Current DESIGN finds. Both count as
 present for R20, and Phase 1's discovery globs the same pair.
 
-When the artifact is present, Phase 2 proceeds to sentinel
-cleanup and snapshot capture. When the artifact is absent —
+When the artifact is present, Phase 2 proceeds to snapshot
+capture. When the artifact is absent —
 PASS-with-no-artifact (the child reported success but the
 canonical durable file does not exist on disk) — the outcome
 is mapped to STALE and routed via R8's bail-handling using the
@@ -287,19 +317,6 @@ The structural check closes a class of silent failure where a
 child reports success but does not actually write its terminal
 artifact. R20's surface is the canonical path test, not a
 content read.
-
-## `parent_orchestration:` Cleanup
-
-Phase 2 removes the entire `parent_orchestration:` block from
-the state file immediately after the child returns —
-regardless of the child's outcome (PASS / Reject via discard
-commit / STALE). The block is ephemeral within a chain
-instance; it MUST NOT persist into the next loop iteration or
-into any post-chain state.
-
-The cleanup is unconditional and silent. No prompt fires, no
-warning surfaces. The sentinel's job is done the moment the
-child returns.
 
 ## Child-Snapshot Capture
 
@@ -394,8 +411,8 @@ re-grepable trace. The asymmetry is solely whether a Decision
 Record gets written.
 
 - **In-chain Reject** — `/brief` Phase 5, `/prd` Phase 4 or
-  `/design` Phase 6 Reject fired while `/scope`'s `parent_orchestration:`
-  sentinel was present. `/scope` writes a rejection-sub-shape
+  `/design` Phase 6 Reject fired while `/scope`'s `chain/dispatch`
+  key named that child. `/scope` writes a rejection-sub-shape
   Decision Record at
   `docs/decisions/DECISION-{brief|prd|design}-<topic>-rejection-<YYYY-MM-DD>.md`
   immediately, observing the discard commit via the `git log
@@ -545,7 +562,7 @@ fi
 quoted.
 
 The child has usually committed its artifact already: under the
-sentinel it keeps its own status transition and the commit that
+dispatch key it keeps its own status transition and the commit that
 carries it (its acceptance commit), so the artifact can arrive clean.
 The hop commit then holds only what the child left uncommitted, such
 as `/plan`'s move of the DESIGN to `Planned`, and when nothing is
@@ -591,8 +608,8 @@ with no intent a branch reaches a remote when the author or a
 downstream skill puts it there; on an intent run the publish step
 pushes it once, at exit (the Publish group in SKILL.md's Security
 Considerations), and never from a hop. The children push nothing
-either: under the sentinel they skip their own push and pull
-request (see the sentinel section above).
+either: under the dispatch key they skip their own push and pull
+request (see the Dispatch Key Write section above).
 
 The absorb's own commit (step 8 of Stage 3 below) is a different
 commit with its own pathspecs, carrying the deletion, the re-point
@@ -882,8 +899,8 @@ and route to R8 bail-handling.
 
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` —
   Gate Vocabulary; L13 amendment defining the
-  `parent_orchestration:` sentinel as the pattern-level parent-
-  orchestration primitive; the Dispatch Contract, whose Layer-2
+  `chain/dispatch` key as the pattern-level parent-orchestration
+  primitive; the Dispatch Contract, whose Layer-2
   binding for `/scope` is inline Skill-tool invocation — the child
   runs in this agent's own context. There is no subagent to poll,
   so semantic invariant I-7 (Team-Lead Operating Discipline) and
@@ -898,8 +915,11 @@ and route to R8 bail-handling.
   — R14 widened isolation rule and the per-parent inspection
   surface table.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
-  — `child_snapshots:`, `parent_orchestration:`,
-  `chain_ran:` semantics consumed by this phase.
+  — `child_snapshots:`, `chain_ran:` semantics consumed by this
+  phase, and the dispatch key.
+- `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`
+  — the dispatch key's value, its write and clear, and how a child
+  reads it.
 - `${CLAUDE_PLUGIN_ROOT}/references/pipeline-model.md` — the
   settled `upstream:` rule the absorb's re-point applies.
 - `crates/shirabe-validate/src/formats.rs` — the per-type

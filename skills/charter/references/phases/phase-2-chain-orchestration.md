@@ -19,6 +19,42 @@ that confirms the accepted plan is documented in section 1.5 of
 documents the per-child internal logic that the chain proposal
 summarizes.
 
+## The Dispatch Key Around Each Child
+
+Immediately before invoking `/vision`, `/strategy` or `/roadmap`,
+Phase 2 writes the dispatch key into `/charter`'s own session,
+`charter-<topic>`, which Phase 0 opened:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch write charter <topic> <vision|strategy|roadmap> <fresh-chain|revise>
+```
+
+The rationale is `revise` when the invocation carries out the
+resume ladder's row 5 Revise, and `fresh-chain` otherwise (row 6's
+start-fresh included). `/charter` always suppresses the child's
+status-aware re-entry prompt, so it never passes `--no-suppress`;
+see Status-Aware Re-Entry Suppression in
+`skills/charter/references/phases/phase-resume.md`.
+
+Immediately after the child returns, whatever its outcome (it
+landed its document, the author declined or bailed, `/strategy`
+rejected, or it stopped on an error), Phase 2 removes the key:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch clear charter <topic>
+```
+
+The clear runs before anything else Phase 2 does after the child,
+so no later step, and no next child, ever sees a key meant for the
+previous one. The child reads the key with `skill-session.sh
+dispatch read <child> <topic>`; the rules are in the dispatch key
+section of
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`.
+
+`/comp` is not one of `/charter`'s keyed children: it is not in the
+fixed set `dispatch write` accepts, so Phase 2 writes no key around
+it and `/comp` runs as it would directly.
+
 ## /vision Invocation Rule (R4)
 
 See [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md) Dispatch Contract section for the mechanism that carries each child invocation.

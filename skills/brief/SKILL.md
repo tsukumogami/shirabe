@@ -99,14 +99,14 @@ normally sequences several features, so they usually do not.
 Log: `Drafting brief with [Private|Public] visibility...`
 
 `/brief` takes no mode flag and runs interactively, except under a parent's
-sentinel, where it follows the parent's execution mode (see "Under `/scope`"
+dispatch key, where it follows the parent's execution mode (see "Under `/scope`"
 below).
 
 ### Resume Logic
 
 ```
-parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                         -> see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
+dispatch read brief <topic> prints parent=<session>
+                                                         -> run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 BRIEF exists with status "Accepted" or "Done"            -> Offer to revise or start fresh
 BRIEF exists with status "Draft"                         -> Offer to continue from Phase 2 or 3
 wip/research/brief_<topic>_phase4_*.md files exist       -> Resume at Phase 4 (aggregate)
@@ -117,7 +117,24 @@ wip/brief_<topic>_context.md exists                      -> Resume at Phase 1
 None of the above                                        -> Start at Phase 0
 ```
 
-**Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names
+**Running under a parent.** The first row runs
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read brief <topic>`
+with the topic this run works on. A printed `parent=<session>`
+line means `/brief` runs under that parent (`scope-<topic>` or
+`charter-<topic>`), with the parent's upfront decision in the `rationale=` and
+`suppress_status_aware_prompt=` lines; what changes under a parent is in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
+Four cases are no match. Three print nothing and exit 0, and the run is a
+direct one with the rows below unchanged: no parent session, a finished parent
+session, and a parent whose `chain/dispatch` key names another child. The
+fourth, two parent sessions that both name `/brief`, exits 3: don't pick one
+and don't run directly; stop and report both sessions, which the script names
+on stderr, so the author can clear the stale key. Exit 127 (koto not
+installed) means no parent can be running, so the run is direct; any other
+non-zero exit stops the run with the script's message. `/brief` opens no
+session of its own here.
+
+**Under `/scope`.** When `/scope`'s dispatch key names
 `brief` (the first row above), `/brief` still reaches its own Phase 5 verdict
 and makes its own status transition, and skips everything that publishes or
 routes, which `/scope` owns: no push, no pull request, no branch creation, no
@@ -128,7 +145,7 @@ execution mode) takes the recommended verdict and names it in its output.
 Phase 5 marks each step this changes. This is the Parent-owned-publishing
 shape in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`, per
 `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
-Without the sentinel, nothing here applies.
+Without a dispatch key naming this skill, nothing here applies.
 
 ### Critical Requirements
 

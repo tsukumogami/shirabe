@@ -84,9 +84,9 @@ Questions covering the four named items:
    flagging healthy detail and surfaces only meaningful overshoot.
 
 The reviewer dereferences references/fixes/sub-agent-dispatch.md
-when the parent_orchestration sentinel is present in
-wip/scope_<topic>_state.md (serial-self-jury fallback applies when
-parallel spawn is not available).
+when this run is under a parent (the Resume Logic's first row found a
+`chain/dispatch` key naming `design` in `scope-<topic>`), and the
+serial-self-jury fallback applies when parallel spawn is not available.
 
 [Include all nine required sections plus the frontmatter]
 
@@ -183,7 +183,7 @@ The frontmatter must be the first content in the file, before the `# DESIGN:` he
 
 ### 6.6 Commit and PR
 
-Under `/scope`'s `parent_orchestration` sentinel (SKILL.md, Output, "Under `/scope`"),
+Under `/scope`'s dispatch key (SKILL.md, Output, "Under `/scope`"),
 run step 1 only: commit, with no push and no pull request.
 
 1. Commit: `docs(design): add design for <topic>`
@@ -236,7 +236,7 @@ Options (mark the recommended one "(Recommended)"):
   when changes are complete. (This is the existing "Needs iteration"
   behavior, renamed.)
 
-Under `/scope`'s `parent_orchestration` sentinel, the verdict is still this step's: an
+Under `/scope`'s dispatch key, the verdict is still this step's: an
 interactive run asks the author as above, and an unattended run (`--auto`)
 takes the recommended verdict and names it in its output, as "Took the
 recommended verdict: <verdict>".
@@ -252,7 +252,7 @@ recommended verdict: <verdict>".
    which labels to remove on design acceptance. If no vocabulary is defined, look
    for any `needs-*` label and remove it. The tracking label is applied later by
    /plan, not here.
-   Under `/scope`'s `parent_orchestration` sentinel, skip this step. The label
+   Under `/scope`'s dispatch key, skip this step. The label
    edit is a `gh` write that is not among the `gh` writes `/scope`'s SKILL.md
    lists for a run (its pull request, `/plan`'s gated issue filing and the
    coordination PR), and that list skips a child's own upstream-issue edit;
@@ -269,15 +269,15 @@ recommended verdict: <verdict>".
    parent doc updates (Mermaid diagram class changes, child reference rows,
    spawned_from metadata). If no extension defines this, skip parent doc updates.
    This is an edit to a file on the branch, not a `gh` write, so it runs
-   under `/scope`'s sentinel too.
+   under `/scope`'s dispatch key too.
 5. **PR body convention.** If spawned from an issue, use `Ref #<N>` in the PR
    body, NOT `Fixes #<N>`. The issue stays open until implementation completes.
-6. Under `/scope`'s `parent_orchestration` sentinel, skip this step and return control to
+6. Under `/scope`'s dispatch key, skip this step and return control to
    `/scope`. Otherwise, run the complexity assessment and routing from the design SKILL.md "Output" section (the table comparing Simple vs Complex criteria, followed by the AskUserQuestion presenting Plan vs Approve options). Use `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for the AskUserQuestion formatting pattern.
 
 ### 6.9 Clean Up wip/ Artifacts
 
-Under `/scope`'s `parent_orchestration` sentinel, skip this step: `/scope`'s cleanup phase
+Under `/scope`'s dispatch key, skip this step: `/scope`'s cleanup phase
 removes these files, and `/design` makes no cleanup commit.
 
 After approval and routing, remove temporary artifacts:
@@ -345,12 +345,12 @@ Run the following ordered actions; do not skip steps.
    rm -f wip/research/design_<topic>_*.md
    ```
 
-   Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
+   Under `/scope`'s dispatch key, skip this step: `/scope`'s cleanup phase removes
    these files.
 
 5. **Commit the discard via `git commit -F`** (file path), never `-m`. This
-   commit still happens under `/scope`'s sentinel: it is the rejection signal
-   `/scope` reads from `git log`, not the cleanup commit the sentinel skips.
+   commit still happens under `/scope`'s dispatch key: it is the rejection signal
+   `/scope` reads from `git log`, not the cleanup commit the dispatch key skips.
 
    ```bash
    git commit -F "$RATIONALE_FILE"
@@ -364,7 +364,7 @@ Run the following ordered actions; do not skip steps.
 6. **Exit the phase.** Do not flip status from Proposed to Accepted; do not
    run the Approved-path complexity assessment or routing; do not run step
    6.9 (the Reject branch handled its own wip cleanup inline in step 4, or
-   left it to `/scope` under the sentinel).
+   left it to `/scope` under the dispatch key).
    No DESIGN ships; the discard commit is the only artifact. The gate
    behaves identically in-chain and out-of-chain — `/design`'s
    responsibility stops at the discard commit. (Any `/scope`-side handling
