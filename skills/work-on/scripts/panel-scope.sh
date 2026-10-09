@@ -81,29 +81,57 @@
 #                                finding), 2 when the round is not fully
 #                                recorded or the keys can't be read.
 #   --record <panel> <session> <round-file>
-#                                the agent, at aggregation, for every seat it
-#                                spawned this round, passed or blocking. Stamps
-#                                judged_at=HEAD and the criteria hash and merges
-#                                the verdicts into the ledger. A seat's verdict
-#                                is derived from its findings' severity.
+#                                the agent, at aggregation, for every run it
+#                                spawned this round, passed or blocking. Records
+#                                each finding raised and each answer given, by
+#                                finding id, stamps judged_at=HEAD and the
+#                                criteria hash on the seats that ran, and
+#                                recomputes every seat entry from the findings.
+#   --mark-fixed <panel> <session> <id>...
+#                                the agent, after committing a fix: a `fixed`
+#                                record per finding, asking for its
+#                                re-verification. It never closes anything.
 #
 # Usage: panel-scope.sh --plan    <panel> <koto-session-name>
 #        panel-scope.sh --carried <panel> <koto-session-name>
 #        panel-scope.sh --recorded <panel> <koto-session-name>
 #        panel-scope.sh --verdict <panel> <koto-session-name>
 #        panel-scope.sh --record  <panel> <koto-session-name> <round-file>
+#        panel-scope.sh --mark-fixed <panel> <koto-session-name> <id>...
 #
 # <panel> is scrutiny, review, qa (the qa_validation state) or light (the
 # light_review state, the `light` review level's one seat).
 #
 # ## The round file
 #
-# A JSON array, one object per spawned seat:
+# A JSON array, one object per spawned run:
 #
-#   [{"seat": "completeness",
+#   [{"seat": "completeness", "run": "<the run id its decision names>",
 #     "cited": [{"path": "src/a.sh", "lines": "10-24"}, {"path": "README.md"}],
 #     "findings": [{"severity": "blocking", "summary": "...",
-#                   "path": "src/a.sh", "lines": "12-12"}]}]
+#                   "path": "src/a.sh", "lines": "12-12", "rule_id": "<optional>"}],
+#     "answers": [{"id": "<finding id>", "record": "holds|reverified|dismissed",
+#                  "reason": "...", "path": "<optional new location>"}]}]
+#
+# `run` is required: when the scope's decision for the seat names a run, the
+# entry must name the same one, and no run is recorded twice. `answers` may
+# name only the ids the seat's decision planned for it; a dismissal needs a
+# reason and the seat that raised the finding, and the re-verifier (seat
+# `reverifier`) may answer only holds or reverified, with a reason on each
+# reverified. A decider's verdict is an entry of its own,
+# {"decider": {"state", "visit_seq", "gate", "rule_id", "declaration_hash",
+# "input_sha256", "outcome"}}, accepted only when koto's session log holds a
+# decider_checked event with those fields that no earlier entry used.
+#
+# Each finding's id is the first 16 hex characters of `git hash-object` over
+# its panel, raiser kind and name, path and whitespace-collapsed summary, so a
+# finding raised again keeps its id; two findings of one run with one id are
+# refused. Its location is `lines` (path and range), `file` (path) or `none`,
+# recorded at the commit it was judged at. Its status is its latest record's:
+# raised and holds are open, reverified and dismissed are closed when their
+# writer was allowed to write them (a reviewer; a check on a check's finding; a
+# decider on its own finding; a dismissal only by the raising seat), fixed (the
+# agent's) and unverified (a decider's no-verdict) are open.
 #
 # `cited` is what the seat judged: the paths and, where it can say, the line
 # ranges ("N" or "N-M", in HEAD's numbering) its verdict rests on. Findings'
@@ -114,7 +142,7 @@
 # numbers no longer name the same code.
 #
 # Every finding carries a `severity`, `blocking` or `advisory`, and a seat is
-# recorded as blocking exactly when one of its findings is `blocking`. A finding
+# recorded as blocking exactly while it raised an unclosed blocking finding. A finding
 # with no severity, or any other value, makes --record refuse the whole round
 # (65), so a seat can't be recorded as passing by leaving the field out.
 # `blocking_count`, `passed` and any other summary field are ignored: the
@@ -123,9 +151,17 @@
 # ## Context keys
 #
 #   verdict_ledger.json   {"rev": N, "seats": {"<panel>/<seat>": {...}},
+#                          "findings": {"<id>": {id, panel, severity, round,
+#                          raiser, run, location, summary, rule_id?, records}},
+#                          "runs": {"<run>": {panel, rev, recorded}},
+#                          "reverified": {"<panel>": {rev, run, head}},
+#                          "decider_events": [...],
 #                          "history": [{"panel", "round", "head", "rev",
 #                          "spawned", "decisions": [{seat, decision, reason}]}]}
 #                         Never cleared by a retry: it is what survives one.
+#                         The seat entries are summaries of the findings, kept
+#                         in the shape review-shadow.py and review-packet.sh
+#                         read.
 #   <panel>_scope.json    this entry's decisions, for the agent to act on
 #   <panel>_results.json  only when every seat is kept, read by --carried;
 #                         otherwise the agent may write it at aggregation as
@@ -169,15 +205,19 @@
 #          can't compute holds the panel state, where a 1 would send the agent
 #          to a retry or an escalation on a guess.
 #   64  -- not a git repository, HEAD names no commit, or mktemp failed
-#   65  -- a JSON step failed: --record's round file is missing, is not a
-#          JSON array of seats, names a seat outside the panel, or holds a
-#          finding whose severity is missing or is not `blocking` or
-#          `advisory`, or (--plan or --record) jq could not merge the result
-#          into the ledger
+#   65  -- a JSON step failed or a write was refused: --record's round file
+#          is missing, is not a JSON array of runs, names a seat outside the
+#          panel, breaks a rule above (a run, an answer, a finding's shape or
+#          severity, a rule id that isn't active, a decider event koto's log
+#          doesn't hold), or --mark-fixed names an id that is unknown, advisory
+#          or closed; or (--plan or --record) jq could not merge the result
+#          into the ledger. A refused write leaves the ledger byte-identical
 #   66  -- a `koto context add` failed; koto's own stderr says why
 #   67  -- a mode, panel or argument is missing or unrecognised
 #   68  -- --record only: HEAD moved since the panel's scope was planned, so
 #          the round's verdicts are about a commit that is no longer HEAD
+#   69  -- --record or --mark-fixed: the ledger changed while the write was
+#          being built; nothing was stored
 #   127 -- jq is not on PATH
 #
 # Bash 3.2: no associative arrays, no mapfile.
@@ -215,9 +255,9 @@ refuse() {
 }
 
 case "$MODE" in
-    --plan|--carried|--recorded|--verdict|--record) ;;
-    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict or --record" ;;
-    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict or --record" ;;
+    --plan|--carried|--recorded|--verdict|--record|--mark-fixed) ;;
+    "") die 67 "missing mode: expected --plan, --carried, --recorded, --verdict, --record or --mark-fixed" ;;
+    *)  die 67 "unrecognised mode [$MODE]: expected --plan, --carried, --recorded, --verdict, --record or --mark-fixed" ;;
 esac
 
 case "$PANEL" in
@@ -374,7 +414,7 @@ AC_SHA=$( { ctx_get context.md; printf '\n--- plan ---\n'; ctx_get plan.md; } | 
 LEDGER_JSON=$(ctx_get "$LEDGER")
 if [ -z "$LEDGER_JSON" ] || ! printf '%s' "$LEDGER_JSON" | jq -e 'type == "object"' >/dev/null; then
     [ -n "$LEDGER_JSON" ] && echo "panel-scope: $LEDGER is unreadable; starting a new ledger" >&2
-    LEDGER_JSON='{"rev": 0, "seats": {}, "history": []}'
+    LEDGER_JSON='{"rev": 0, "seats": {}, "findings": {}, "history": []}'
 fi
 
 put() {
@@ -382,6 +422,88 @@ put() {
     koto context add "$SESSION" "$1" < "$2" >/dev/null \
         || die 66 "koto context add failed for $1 on session [$SESSION]"
 }
+
+# The jq every mode that reads or writes findings shares: the shapes --record
+# accepts, a finding's id string, its status, and whether it is closed.
+# Prepended to each program that needs it.
+JQ_DEFS='
+def run_re: "^[A-Za-z0-9][A-Za-z0-9._:/#-]{3,}$";
+def name_re: "^[a-z][a-z0-9_-]*$";
+def rule_re: "^[a-z0-9][a-z0-9/_-]*$";
+def path_re: "^[A-Za-z0-9._][A-Za-z0-9._/@+-]*$";
+def lines_re: "^[1-9][0-9]*(-[1-9][0-9]*)?$";
+# The string a finding id hashes: panel, raiser kind and name, path, and the
+# summary with runs of whitespace collapsed. Line ranges stay out, so a finding
+# whose lines shift keeps its id.
+def canon($panel; $kind; $name; $path; $summary):
+    [$panel, $kind, $name, $path,
+     ($summary | tostring | gsub("\\s+"; " ") | ltrimstr(" ") | rtrimstr(" "))] | join("\n");
+def status:
+    ({raised: "open", holds: "open", reverified: "reverified", dismissed: "dismissed",
+      fixed: "fixed", unverified: "unverified"})[(.records[-1].kind // "raised")] // "open";
+# Closed: the latest record is a reverified or dismissed one that its writer
+# was allowed to write, naming a run the ledger holds as recorded. Checked when
+# read as well as when written, so a ledger edited by hand can not close a
+# finding with a record --record would have refused.
+def closed($runs):
+    (.records[-1] // {}) as $r
+    | (($runs[$r.writer.run // ""].recorded // false) == true)
+      and (($r.kind == "reverified"
+            and ($r.writer.kind == "reviewer"
+                 or ($r.writer.kind == "check" and .raiser.kind == "check")
+                 or ($r.writer.kind == "decider" and .raiser.kind == "decider" and $r.writer.name == .raiser.name)))
+           or ($r.kind == "dismissed" and $r.writer.kind == "reviewer" and .raiser.kind == "reviewer"
+               and $r.writer.name == .raiser.name and (($r.reason // "") != "")));
+def bad_path:
+    (type != "string") or (test(path_re) | not) or test("(^|/)[.][.](/|$)");
+def finding_problem($seat):
+    if type != "object" then "seat [\($seat)]: a finding is not an object"
+    elif (.severity != "blocking" and .severity != "advisory") then
+        "seat [\($seat)]: a finding has no severity, or one that is not blocking or advisory"
+    elif (.summary | type) != "string" or (.summary | length) == 0 then "seat [\($seat)]: a finding has no summary"
+    elif (.summary | utf8bytelength) > 1000 then "seat [\($seat)]: a finding summary is over 1000 bytes"
+    elif (.path // null) != null and (.path | bad_path) then "seat [\($seat)]: a finding has an unsafe path"
+    elif (.lines // null) != null and (((.path // "") == "") or ((.lines | tostring) | test(lines_re) | not)) then
+        "seat [\($seat)]: a finding has lines without a path, or malformed lines"
+    elif (.rule_id // null) != null and ((.rule_id | type) != "string" or (.rule_id | test(rule_re) | not)) then
+        "seat [\($seat)]: a finding has a malformed rule_id"
+    else empty end;
+def answer_problem($seat; $d; $l; $panel):
+    . as $a
+    | if type != "object" then "seat [\($seat)]: an answer is not an object"
+      elif (.id | type) != "string" or (.id | test("^[0-9a-f]{16}$") | not) then "seat [\($seat)]: an answer has a malformed id"
+      elif ((($l.findings // {})[.id] // null) == null) or ($l.findings[.id].panel != $panel) then
+          "seat [\($seat)] answers id [\(.id)], which the \($panel) ledger does not hold"
+      elif $d == null or ([($d.findings // [])[] | .id] | index($a.id)) == null then
+          "seat [\($seat)] answers id [\(.id)], which its decision did not plan for it"
+      elif (.record != "holds" and .record != "reverified" and .record != "dismissed") then
+          "seat [\($seat)]: an answer record is not holds, reverified or dismissed"
+      elif (.reason // "") != "" and ((.reason | type) != "string" or (.reason | utf8bytelength) > 1000) then
+          "seat [\($seat)]: an answer reason is not a string of at most 1000 bytes"
+      elif .record == "dismissed" and $seat == "reverifier" then "the reverifier may answer only holds or reverified"
+      elif .record == "dismissed" and (.reason // "") == "" then "seat [\($seat)]: a dismissed answer needs a reason"
+      elif .record == "dismissed" and ($l.findings[.id].raiser.name != $seat) then
+          "seat [\($seat)] dismissed id [\(.id)], which another raiser raised"
+      elif .record == "reverified" and $seat == "reverifier" and (.reason // "") == "" then
+          "the reverifier answered reverified for id [\(.id)] without a reason"
+      elif (.path // null) != null and (.path | bad_path) then "seat [\($seat)]: an answer has an unsafe path"
+      elif (.lines // null) != null and (((.path // "") == "") or ((.lines | tostring) | test(lines_re) | not)) then
+          "seat [\($seat)]: an answer has lines without a path, or malformed lines"
+      else empty end;
+'
+
+# store_ledger <file>: store a new ledger, unless another write landed since
+# this run read it (69): the compare is of revisions, which every write bumps.
+# It catches overlapping honest writes; it is not a lock.
+store_ledger() {
+    local now
+    now=$(ctx_get "$LEDGER" | jq -r 'if type == "object" then (.rev // 0) else 0 end' 2>/dev/null)
+    [ "${now:-0}" = "$(printf '%s' "$LEDGER_JSON" | jq -r '.rev // 0')" ] \
+        || die 69 "$LEDGER changed while this write was being built (rev ${now:-?}); run it again"
+    put "$LEDGER" "$1"
+}
+
+REGISTRY="$(cd "$(dirname "$0")/../../.." && pwd)/scripts/rule-registry.sh"
 
 # The decider shadow for the round just recorded: review-shadow.py's site
 # command reads these verdicts from the ledger and records the decider's beside
@@ -407,42 +529,173 @@ shadow_site() {
     return 0
 }
 
+# ---------------------------------------------------------------- --mark-fixed
+
+# The agent's claim that it fixed findings, by id: one `fixed` record each,
+# written by writer `agent`. It asks for re-verification and never closes
+# anything; --verdict counts a fixed finding as open. Refuses (65) an id the
+# panel doesn't hold, an advisory finding (never re-verified), and one that is
+# already closed, all before anything is written.
+if [ "$MODE" = "--mark-fixed" ]; then
+    shift 3
+    [ $# -gt 0 ] || die 67 "--mark-fixed needs at least one finding id"
+    : > "$WORK/fixids"
+    for id in "$@"; do
+        case "$id" in
+            *[!0-9a-f]*|"") die 65 "finding id [$id] is not 16 lowercase hex characters" ;;
+        esac
+        [ "${#id}" -eq 16 ] || die 65 "finding id [$id] is not 16 lowercase hex characters"
+        printf '%s\n' "$id" >> "$WORK/fixids"
+    done
+    problems=$(printf '%s' "$LEDGER_JSON" | jq -r --arg panel "$PANEL" --rawfile ids "$WORK/fixids" "$JQ_DEFS"'
+        . as $l
+        | ($ids | split("\n") | map(select(. != "")) | unique)[] as $id
+        | ($l.findings // {})[$id] as $f
+        | if $f == null or $f.panel != $panel then "the \($panel) ledger holds no finding [\($id)]"
+          elif $f.severity != "blocking" then "finding [\($id)] is advisory, and advisory findings are never re-verified"
+          elif ($f | closed($l.runs // {})) then "finding [\($id)] is already closed"
+          else empty end') || die 65 "could not read $LEDGER"
+    [ -z "$problems" ] || die 65 "$(printf '%s' "$problems" | head -n 3 | tr '\n' ';')"
+    ROUND_NO=$(printf '%s' "$LEDGER_JSON" | jq --arg p "$PANEL" '[(.history // [])[] | select(.panel == $p) | .round] | max // 1')
+    printf '%s' "$LEDGER_JSON" | jq --arg head "$HEAD" --argjson round "$ROUND_NO" --rawfile ids "$WORK/fixids" '
+        .rev = ((.rev // 0) + 1)
+        | .rev as $rev
+        | reduce ($ids | split("\n") | map(select(. != "")) | unique)[] as $id (.;
+            .findings[$id].records += [{kind: "fixed", writer: {kind: "agent", name: "work-on"},
+                                        round: $round, commit: $head, rev: $rev}])' > "$WORK/ledger" \
+        || die 65 "could not write the fixed records"
+    store_ledger "$WORK/ledger"
+    exit 0
+fi
+
 # ---------------------------------------------------------------- --record ----
 
+# The round file is checked whole before anything is written, the new ledger
+# is built whole in $WORK, and it is stored with one `koto context add`, so a
+# refusal (65) or a racing write (69) leaves the stored ledger byte-identical.
 if [ "$MODE" = "--record" ]; then
     ROUND_FILE="${4:-}"
     # The seats judged the commit the scope was planned at. If HEAD has moved
     # since, stamping their verdicts with it would vouch for a commit none of
     # them saw. No scope (the --plan fallback path) has nothing to compare.
-    scope_head=$(ctx_get "${PANEL}_scope.json" | jq -r '.head // empty')
+    SCOPE_JSON=$(ctx_get "${PANEL}_scope.json")
+    if [ -n "$SCOPE_JSON" ] && ! printf '%s' "$SCOPE_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
+        die 65 "${PANEL}_scope.json is unreadable"
+    fi
+    scope_head=$(printf '%s' "${SCOPE_JSON:-{\}}" | jq -r '.head // empty')
     [ -z "$scope_head" ] || [ "$scope_head" = "$HEAD" ] \
         || die 68 "HEAD moved since ${PANEL}_scope.json was planned at $scope_head; tick koto without evidence to re-plan, then run the round again"
     [ -n "$ROUND_FILE" ] || die 67 "missing round file for --record"
     [ -f "$ROUND_FILE" ] || die 65 "round file [$ROUND_FILE] not found"
-    jq -e 'type == "array" and length > 0 and all(.[]; (.seat | type) == "string")' \
-        "$ROUND_FILE" >/dev/null \
-        || die 65 "round file [$ROUND_FILE] is not a JSON array of seats"
-    for s in $(jq -r '.[].seat' "$ROUND_FILE"); do
-        case " $SEATS " in
-            *" $s "*) ;;
-            *) die 65 "seat [$s] is not a $PANEL seat (expected one of: $SEATS)" ;;
-        esac
+    jq -e 'type == "array" and length > 0 and all(.[]; type == "object")' "$ROUND_FILE" >/dev/null 2>&1 \
+        || die 65 "round file [$ROUND_FILE] is not a JSON array of runs"
+
+    # Every problem in the round file, one per line. Empty means it may be
+    # recorded. The checks need the scope (which runs were planned, which ids
+    # each run may answer) and the ledger (which runs are already recorded,
+    # which ids exist).
+    problems=$(jq -r --argjson scope "${SCOPE_JSON:-null}" --argjson l "$LEDGER_JSON" \
+        --arg panel "$PANEL" --arg seats "$SEATS" "$JQ_DEFS"'
+        ($seats | split(" ")) as $real
+        | (($scope // {}).decisions // []) as $decs
+        | [ .[] | . as $e
+            | if (.decider? != null) then
+                (.decider | if type != "object" then "a decider entry is not an object"
+                 else ( (if (.state | type) != "string" or .state == "" then "a decider entry has no state" else empty end),
+                        (if (.visit_seq | type) != "number" then "a decider entry has no visit_seq" else empty end),
+                        (if (.gate | type) != "string" or (.gate | test(name_re) | not) then "a decider entry has no valid gate" else empty end),
+                        (if (.rule_id | type) != "string" or (.rule_id | test(rule_re) | not) then "a decider entry has no valid rule_id" else empty end),
+                        (if (.declaration_hash | type) != "string" or (.declaration_hash | test("^[0-9a-f]{8,64}$") | not) then "a decider entry has no valid declaration_hash" else empty end),
+                        (if (.outcome | type) != "string" or .outcome == "" then "a decider entry has no outcome" else empty end) )
+                 end)
+              else
+                (.seat // "") as $seat
+                | ([$decs[] | select(.seat == $seat)][0] // null) as $d
+                | ( (if ($seat | type) != "string" or $seat == "" then "an entry names no seat"
+                     elif ($real | index($seat)) == null and ($seat != "reverifier" or $d == null) then "seat [\($seat)] is not a \($panel) seat"
+                     else empty end),
+                    (if ($e.run | type) != "string" or ($e.run | test(run_re) | not) then "seat [\($seat)] has no valid run id"
+                     elif $d != null and ($d.run // null) != null and $d.run != $e.run then "seat [\($seat)] names run [\($e.run)], but the scope minted [\($d.run)]"
+                     elif ($scope != null) and $d == null then "seat [\($seat)] was not planned in \($panel)_scope.json"
+                     elif $d != null and $d.decision == "keep" then "seat [\($seat)] was kept, not spawned, in \($panel)_scope.json"
+                     elif (($l.runs // {})[$e.run].recorded // false) then "run [\($e.run)] is already recorded"
+                     else empty end),
+                    (if ($e.findings // []) | type != "array" then "seat [\($seat)]: findings is not an array"
+                     elif ($e.findings // [] | length) > 50 then "seat [\($seat)]: more than 50 findings"
+                     elif $seat == "reverifier" and ($e.findings // [] | length) > 0 and (($d.fix_review // false) | not) then "the reverifier raised findings, but the scope planned no fix-diff review"
+                     else ($e.findings // [])[] | finding_problem($seat) end),
+                    (if ($e.answers // []) | type != "array" then "seat [\($seat)]: answers is not an array"
+                     elif ($e.answers // [] | length) > 50 then "seat [\($seat)]: more than 50 answers"
+                     else ($e.answers // [])[] | answer_problem($seat; $d; $l; $panel) end),
+                    (if ($e.cited // []) | type != "array" then "seat [\($seat)]: cited is not an array" else empty end) )
+              end ]
+        + ( [ .[] | select(.run? != null) | .run ] | group_by(.) | map(select(length > 1) | "run [\(.[0])] appears twice in the round file") )
+        | .[]' "$ROUND_FILE" 2>"$WORK/jq.err") || die 65 "could not read round file [$ROUND_FILE]: $(head -n 1 "$WORK/jq.err")"
+    [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused: $(printf '%s' "$problems" | head -n 5 | tr '\n' ';')"
+
+    # Every rule id a finding names must be an active registry entry now.
+    for rid in $(jq -r '[.[] | (.findings // [])[] | .rule_id? // empty] + [.[] | .decider?.rule_id? // empty] | unique | .[]' "$ROUND_FILE"); do
+        "$REGISTRY" ref "$rid" >/dev/null 2>&1 || die 65 "round file [$ROUND_FILE] names rule [$rid], which is not an active registry entry"
     done
-    # The verdict is derived from severity below, so a finding without one
-    # would be counted as advisory by omission. Refuse the round instead.
-    unsevered=$(jq -r '[.[] | .seat as $s | (.findings // [])
-            | if type == "array" then .[] else "not-an-array" end
-            | select(type != "object" or (.severity != "blocking" and .severity != "advisory"))
-            | $s] | unique | join(" ")' "$ROUND_FILE") \
-        || die 65 "could not read the findings in round file [$ROUND_FILE]"
-    [ -z "$unsevered" ] \
-        || die 65 "round file [$ROUND_FILE]: a finding of seat(s) [$unsevered] has no severity, or one that is not blocking or advisory"
+
+    # A decider entry is accepted only when koto's own log holds the event it
+    # names, and each event backs one entry: the log is koto's to write, so a
+    # round file alone can't mint a decider verdict.
+    : > "$WORK/decider_events"
+    if jq -e 'any(.[]; .decider? != null)' "$ROUND_FILE" >/dev/null; then
+        sdir=$(koto session dir "$SESSION" 2>/dev/null) || die 65 "a decider entry needs koto's session log, and koto session dir failed"
+        slog="$sdir/koto-$SESSION.state.jsonl"
+        [ -r "$slog" ] || die 65 "a decider entry needs koto's session log, and [$slog] can't be read"
+        jq -c '.[] | .decider? // empty' "$ROUND_FILE" | while IFS= read -r dec; do
+            key=$(printf '%s' "$dec" | jq -r '"\(.state)|\(.visit_seq)|\(.gate)|\(.rule_id)|\(.declaration_hash)"')
+            if ! jq -e --argjson d "$dec" 'select(.type? == "decider_checked") | .payload
+                    | select(.state == $d.state and .visit_seq == $d.visit_seq and .gate == $d.gate
+                             and .rule_id == $d.rule_id and .declaration_hash == $d.declaration_hash
+                             and .outcome == $d.outcome
+                             and (($d.input_sha256 // null) == null or .input_sha256 == $d.input_sha256))' \
+                    "$slog" >/dev/null 2>&1; then
+                echo "MISSING $key"
+            fi
+            printf '%s\n' "$key"
+        done > "$WORK/decider_events"
+        if grep -q '^MISSING ' "$WORK/decider_events"; then
+            die 65 "koto's log holds no decider_checked event for: $(grep '^MISSING ' "$WORK/decider_events" | head -n 1 | cut -c9-)"
+        fi
+        dup=$(sort "$WORK/decider_events" | uniq -d | head -n 1)
+        [ -z "$dup" ] || die 65 "decider event [$dup] backs two entries"
+        used=$(printf '%s' "$LEDGER_JSON" | jq -r '(.decider_events // [])[]' | grep -Fxf "$WORK/decider_events" | head -n 1)
+        [ -z "$used" ] || die 65 "decider event [$used] already backed an earlier entry"
+    fi
+
+    # The id of every finding raised this round: a hash of panel, raiser kind
+    # and name, path and whitespace-collapsed summary. jq builds the string and
+    # git hashes it from stdin; nothing a reviewer wrote reaches an argument.
+    jq -c --arg panel "$PANEL" "$JQ_DEFS"'
+        to_entries[] | .key as $i | .value
+        | if .decider? != null then
+            {i: $i, j: 0, canon: canon($panel; "decider"; "\(.decider.gate)/\(.decider.rule_id)"; ""; .decider.rule_id)}
+          else
+            (if .seat == "reverifier" then "fix-review" else .seat end) as $name
+            | (.findings // []) | to_entries[]
+            | {i: $i, j: .key, canon: canon($panel; "reviewer"; $name; (.value.path // ""); .value.summary)}
+          end' "$ROUND_FILE" > "$WORK/canon" || die 65 "could not read the findings in round file [$ROUND_FILE]"
+    : > "$WORK/ids"
+    while IFS= read -r c; do
+        id=$(printf '%s' "$c" | jq -j '.canon' | git hash-object --stdin) || die 65 "git hash-object failed"
+        printf '%s' "$c" | jq -c --arg id "${id:0:16}" '{i, j, id: $id, canon}' >> "$WORK/ids"
+    done < "$WORK/canon"
+    problems=$(jq -rs --argjson l "$LEDGER_JSON" '
+        ( group_by(.i) | map(group_by(.id) | map(select(length > 1) | "two findings of one run share id \(.[0].id): word their summaries apart")) | flatten[] ),
+        ( .[] | . as $f | ($l.findings // {})[$f.id] // null | select(. != null and .canon != $f.canon)
+          | "finding id \($f.id) collides with a different finding already in the ledger" )' "$WORK/ids")
+    [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused: $(printf '%s' "$problems" | head -n 3 | tr '\n' ';')"
+
     # A seat's earlier citations carry forward, but their line ranges are in
     # the numbering of the commit it judged then. Where the file has changed
     # since, the range no longer names the same code, so only the path is
     # carried: coarser, never wrong.
     : > "$WORK/moved"
-    for s in $(jq -r '.[].seat' "$ROUND_FILE"); do
+    for s in $(jq -r '.[] | .seat? // empty' "$ROUND_FILE"); do
         old=$(printf '%s' "$LEDGER_JSON" | jq -r --arg k "$PANEL/$s" '.seats[$k].judged_at // empty')
         [ -n "$old" ] || continue
         if git rev-parse --verify -q "${old}^{commit}" >/dev/null; then
@@ -451,33 +704,104 @@ if [ "$MODE" = "--record" ]; then
             jq -n --arg s "$s" '{seat: $s, path: "*"}'
         fi >> "$WORK/moved"
     done
-    printf '%s' "$LEDGER_JSON" | jq --arg panel "$PANEL" --arg head "$HEAD" \
-        --arg ac "$AC_SHA" --slurpfile round "$ROUND_FILE" --slurpfile moved "$WORK/moved" '
+    ROUND_NO=$(printf '%s' "$LEDGER_JSON" | jq --arg p "$PANEL" '[(.history // [])[] | select(.panel == $p) | .round] | max // 1')
+    printf '%s' "$LEDGER_JSON" | jq --arg panel "$PANEL" --arg head "$HEAD" --arg ac "$AC_SHA" \
+        --arg seats "$SEATS" --argjson round "$ROUND_NO" --argjson scope "${SCOPE_JSON:-null}" \
+        --slurpfile entries "$ROUND_FILE" --slurpfile ids "$WORK/ids" --slurpfile moved "$WORK/moved" \
+        --rawfile events "$WORK/decider_events" "$JQ_DEFS"'
         def norm: map(select(.path | type == "string")
                       | {path} + (if .lines then {lines: (.lines | tostring)} else {} end));
         def carry($seat): map(. as $c
             | if any($moved[]; .seat == $seat and (.path == $c.path or .path == "*"))
               then {path: $c.path} else $c end);
-        .rev = ((.rev // 0) + 1)
+        def idof($i; $j): ([$ids[] | select(.i == $i and .j == $j)][0]);
+        def loc($f): if ($f.path // "") == "" then {kind: "none", at: $head}
+                     elif ($f.lines // "") != "" then {kind: "lines", path: $f.path, lines: ($f.lines | tostring), at: $head}
+                     else {kind: "file", path: $f.path, at: $head} end;
+        def record($kind; $writer; $reason):
+            {kind: $kind, writer: $writer, round: $round, commit: $head, rev: .rev}
+            + (if ($reason // "") != "" then {reason: $reason} else {} end);
+        # raise($id; $canon; $raiser; $run; $f): add or re-open a finding.
+        def raise($id; $canon; $raiser; $run; $f):
+            .rev as $rev
+            | (.findings[$id] // null) as $old
+            | .findings[$id] = (
+                if $old == null then
+                  {id: $id, canon: $canon, panel: $panel,
+                   severity: $f.severity, round: $round, raiser: $raiser, run: $run,
+                   location: loc($f), summary: $f.summary, records: []}
+                  + (if ($f.rule_id // "") != "" then {rule_id: $f.rule_id} else {} end)
+                else
+                  $old
+                  | .severity = (if .severity == "blocking" or $f.severity == "blocking" then "blocking" else "advisory" end)
+                  | .location = loc($f)
+                end
+                | .records += [{kind: ($f.first_kind // "raised"),
+                                writer: ($raiser + {run: $run}), round: $round, commit: $head, rev: $rev}])
+            ;
+        $entries[0] as $E
+        | .rev = ((.rev // 0) + 1)
         | .seats = (.seats // {})
-        | reduce $round[0][] as $s (.;
-            ($panel + "/" + $s.seat) as $k
-            | ((.seats[$k].cited // []) | carry($s.seat)) as $old_cited
-            | ((.seats[$k].finding_locations // []) | carry($s.seat)) as $old_locs
-            | .seats[$k] = {
-                panel: $panel,
-                seat: $s.seat,
-                verdict: (if any(($s.findings // [])[]; .severity == "blocking")
-                          then "blocking" else "passed" end),
-                judged_at: $head,
-                rev: .rev,
-                ac_sha: $ac,
-                cited: ($old_cited + (($s.cited // []) | norm) | unique),
-                finding_locations: ($old_locs
-                    + ([($s.findings // [])[] | select(.path) | {path, lines}] | norm) | unique),
-                findings: ($s.findings // [])
-              })' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
-    put "$LEDGER" "$WORK/ledger"
+        | .findings = (.findings // {})
+        | .runs = (.runs // {})
+        | .decider_events = ((.decider_events // []) + ($events | split("\n") | map(select(. != ""))))
+        | reduce ($E | to_entries[]) as $x (.;
+            $x.key as $i | $x.value as $e
+            | if $e.decider? != null then
+                ($e.decider) as $d
+                | idof($i; 0) as $idr
+                | {kind: "decider", name: "\($d.gate)/\($d.rule_id)",
+                   ref: ($d | {state, visit_seq, gate, rule_id, declaration_hash} + (if .input_sha256 then {input_sha256} else {} end))} as $raiser
+                | ($e.run // "decider:\($d.visit_seq):\($d.gate):\($d.rule_id)") as $run
+                | .runs[$run] = {panel: $panel, rev: .rev, recorded: true}
+                | if $d.outcome == "fail" then
+                    raise($idr.id; $idr.canon; $raiser; $run; {severity: "blocking", summary: $d.rule_id, rule_id: $d.rule_id})
+                  elif $d.outcome == "pass" then
+                    if (.findings[$idr.id] // null) == null then .
+                    else .findings[$idr.id].records += [record("reverified"; $raiser + {run: $run}; "")] end
+                  elif (.findings[$idr.id] // null) == null then
+                    raise($idr.id; $idr.canon; $raiser; $run; {severity: "blocking", summary: $d.rule_id, rule_id: $d.rule_id, first_kind: "unverified"})
+                  else .findings[$idr.id].records += [record("unverified"; $raiser + {run: $run}; "")] end
+              else
+                $e.seat as $seat
+                | {kind: "reviewer", name: (if $seat == "reverifier" then "fix-review" else $seat end)} as $raiser
+                | {kind: "reviewer", name: $seat, run: $e.run} as $writer
+                | .runs[$e.run] = {panel: $panel, rev: .rev, recorded: true}
+                | reduce (($e.findings // []) | to_entries[]) as $fx (.;
+                    idof($i; $fx.key) as $idr
+                    | raise($idr.id; $idr.canon; $raiser; $e.run; $fx.value))
+                | reduce ($e.answers // [])[] as $a (.;
+                    .findings[$a.id].records += [record($a.record; $writer; $a.reason)]
+                    | if ($a.path // "") != "" then .findings[$a.id].location = loc($a) else . end)
+                | if $seat == "reverifier" then
+                    .reverified[$panel] = {rev: .rev, run: $e.run, head: $head}
+                  else
+                    ("\($panel)/\($seat)") as $k
+                    | ((.seats[$k].cited // []) | carry($seat)) as $old_cited
+                    | ((.seats[$k].finding_locations // []) | carry($seat)) as $old_locs
+                    | .seats[$k] = ((.seats[$k] // {}) + {
+                        panel: $panel, seat: $seat, judged_at: $head, rev: .rev, ac_sha: $ac,
+                        cited: ($old_cited + (($e.cited // []) | norm) | unique),
+                        finding_locations: ($old_locs
+                            + ([($e.findings // [])[] | select(.path) | {path, lines}] | norm) | unique)})
+                  end
+              end)
+        # Every seat summary of the panel follows from the findings: a seat is
+        # blocking exactly while it raised an unclosed blocking finding, and its
+        # findings are the unclosed ones it raised, in the shape the readers of
+        # seat entries (review-shadow.py, review-packet.sh) expect.
+        | . as $L
+        | reduce ($seats | split(" "))[] as $s (.;
+            ("\($panel)/\($s)") as $k
+            | if (.seats[$k] // null) == null then . else
+                [ $L.findings[] | select(.panel == $panel and .raiser.kind == "reviewer" and .raiser.name == $s)
+                  | select(closed($L.runs) | not) ] as $open
+                | .seats[$k].findings = [ $open[] | {id, severity, summary}
+                    + (if .location.path then {path: .location.path} else {} end)
+                    + (if .location.lines then {lines: .location.lines} else {} end) ]
+                | .seats[$k].verdict = (if any($open[]; .severity == "blocking") then "blocking" else "passed" end)
+              end)' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
+    store_ledger "$WORK/ledger"
     shadow_site
     exit 0
 fi

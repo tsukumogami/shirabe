@@ -90,8 +90,16 @@ SHIM_STORE="$WORKDIR/shim-store"
 mkdir -p "$SHIM_BIN" "$SHIM_STORE"
 cat > "$SHIM_BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
+# `koto session dir <s>` names a directory a case may hold a fixture log in.
+if [ "$1" = session ] && [ "$2" = dir ]; then echo "$SHIM_STORE/$3/sessiondir"; exit 0; fi
 [ "$1" = context ] || { echo "koto shim: unsupported: $*" >&2; exit 2; }
 f="$SHIM_STORE/$3/$4"
+# SHIM_RACE: every read of the ledger after the first returns it one revision
+# on, as if another write had landed in between.
+if [ -n "${SHIM_RACE:-}" ] && [ "$2" = get ] && [ "$4" = verdict_ledger.json ] && [ -f "$f" ]; then
+    if [ -f "$SHIM_STORE/$3/.raced" ]; then jq '.rev += 1' "$f"; exit 0; fi
+    : > "$SHIM_STORE/$3/.raced"
+fi
 case "$2" in
     add)
         case "$3" in fail-*) echo "koto shim: refusing session $3" >&2; exit 9 ;; esac
@@ -156,7 +164,22 @@ edit() {
 
 RC=0
 OUT=""
+# Every run in a round file names its run id. The scope mints them once
+# --plan does (from outline 3 on); until a case sets its own, run() gives each
+# seat entry that has none a fresh one, so the cases about which seats run and
+# what a verdict carries don't each have to. NO_AUTORUN=1 turns it off for the
+# cases about the run ids themselves.
+RUNSEQ=0
+autorun() {
+    RUNSEQ=$((RUNSEQ + 1))
+    jq --arg n "$RUNSEQ" 'if type == "array" then map(if type == "object" and has("seat") and (has("run") | not)
+        then .run = "test-\($n)-\(.seat)" else . end) else . end' "$1" > "$1.runs" 2>/dev/null \
+        && mv "$1.runs" "$1"
+}
 run() {
+    if [ "${1:-}" = --record ] && [ -f "${4:-}" ] && [ -z "${NO_AUTORUN:-}" ]; then
+        autorun "$4"
+    fi
     OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT" "$@" 2>"$WORKDIR/stderr")
     RC=$?
 }
@@ -177,6 +200,15 @@ record() {
     printf '%s\n' "$2" > "$WORKDIR/round.json"
     run --record "$1" "$SESSION" "$WORKDIR/round.json"
     [ "$RC" -eq 0 ] || fail "setup: --record $1 exited $RC: $(cat "$WORKDIR/stderr")"
+}
+
+# fid <panel> <seat>: the id of the first unclosed finding the seat raised.
+fid() {
+    jq -r --arg k "$1/$2" '.seats[$k].findings[0].id // empty' "$SHIM_STORE/$SESSION/verdict_ledger.json"
+}
+# reverify <panel> <seat> <reason>: the seat answers its first open finding.
+reverify() {
+    record "$1" "[{\"seat\":\"$2\",\"answers\":[{\"id\":\"$(fid "$1" "$2")\",\"record\":\"reverified\",\"reason\":\"$3\"}]}]"
 }
 
 # decision <panel> <seat>: the seat's decision in the stored scope.
@@ -285,7 +317,7 @@ run --plan scrutiny "$SESSION"
 
 echo "--- script: re-check passes; every seat then carries"
 
-record scrutiny '[{"seat":"intent","blocking_count":0}]'
+reverify scrutiny intent "line 5 now reads five"
 run --plan scrutiny "$SESSION"
 for s in completeness justification intent; do expect_decision "after re-check" scrutiny "$s" keep; done
 run --carried scrutiny "$SESSION"
@@ -369,7 +401,8 @@ record scrutiny '[{"seat":"completeness","blocking_count":1,"cited":[{"path":"sr
 (cd "$FX/repo" && { seq 1 10 | sed 's/^/pre/'; cat src/b.sh; } > x && mv x src/b.sh \
     && awk 'NR == 45 { print "fixed"; next } { print }' src/a.sh > y && mv y src/a.sh \
     && git commit -q -am "fix: a.sh, shifting b.sh") >/dev/null 2>&1
-record scrutiny '[{"seat":"completeness","blocking_count":0}]'
+run --plan scrutiny "$SESSION"
+reverify scrutiny completeness "line 45 fixed"
 edit src/b.sh 42 changed     # the old line 32, inside the range first cited
 run --plan scrutiny "$SESSION"
 expect_decision "an edit to code cited before lines shifted" scrutiny completeness rerun
@@ -379,7 +412,8 @@ expect_decision "an edit to code cited before lines shifted" scrutiny completene
 fixture citeless
 record scrutiny '[{"seat":"intent","blocking_count":1,"findings":[{"severity":"blocking","summary":"x","path":"src/a.sh","lines":"41"}]}]'
 edit src/a.sh 41 fixed
-record scrutiny '[{"seat":"intent","blocking_count":0}]'
+run --plan scrutiny "$SESSION"
+reverify scrutiny intent "line 41 fixed"
 edit src/a.sh 2 elsewhere
 run --plan scrutiny "$SESSION"
 expect_decision "a once-blocked seat that cited nothing, fix elsewhere in its diff" scrutiny intent rerun
@@ -572,6 +606,7 @@ done
 for optin in "" 0 1; do
     rm -f "$SHADOW_LOG"
     printf '%s\n' "$ALL_PASS" > "$WORKDIR/round.json"
+    autorun "$WORKDIR/round.json"
     (cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITES="$optin" "$SCRIPT" --record scrutiny "$SESSION" \
         "$WORKDIR/round.json" 2>"$WORKDIR/stderr")
     wait_for_log 1 && pass "--record starts the shadow with REVIEW_SHADOW_SITES=[$optin]; the site command applies the opt-in" \
@@ -592,6 +627,7 @@ for variant in fail missing hang; do
               CMD="$WORKDIR/shadow-bad" ;;
     esac
     printf '%s\n' "$ALL_PASS" > "$WORKDIR/round.json"
+    autorun "$WORKDIR/round.json"
     START=$SECONDS
     OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITE_CMD="$CMD" "$SCRIPT" --record scrutiny "$SESSION" "$WORKDIR/round.json" 2>"$WORKDIR/stderr")
     RC=$?
@@ -613,6 +649,7 @@ if command -v python3 >/dev/null 2>&1; then
     printf '{"panel":"scrutiny","decisions":[{"seat":"completeness","decision":"full"}]}' \
         > "$SHIM_STORE/$SESSION/scrutiny_scope.json"
     printf '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/a.sh"}]}]\n' > "$WORKDIR/round.json"
+    autorun "$WORKDIR/round.json"
     STORE="$WORKDIR/shadow-store"
     (cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITE_CMD="" REVIEW_SHADOW_SITES="" JEV_API_KEY="" \
         KOTO_DECIDER_API_KEY="" REVIEW_SHADOW_HOME="$STORE" "$SCRIPT" --record scrutiny "$SESSION" "$WORKDIR/round.json" \
@@ -848,6 +885,200 @@ expect_rc "--plan when the context write fails" 66
 OUT=$(cd "$WORKDIR" && PATH="$SHIM_BIN:$PATH" "$SCRIPT" --plan scrutiny "$SESSION" 2>"$WORKDIR/stderr"); RC=$?
 expect_rc "--plan outside a git repository" 64
 
+
+# --- the findings ledger: ids, records and the refusals of --record ----------
+
+# led <jq args...>: query the session's ledger.
+led() { jq "$@" "$SHIM_STORE/$SESSION/verdict_ledger.json"; }
+# snap / unchanged <label>: the ledger is byte-identical to the last snap.
+snap() { cp "$SHIM_STORE/$SESSION/verdict_ledger.json" "$WORKDIR/ledger.snap" 2>/dev/null || : > "$WORKDIR/ledger.snap"; }
+unchanged() {
+    cmp -s "$WORKDIR/ledger.snap" "$SHIM_STORE/$SESSION/verdict_ledger.json" \
+        && pass "$1: the ledger is unchanged" || fail "$1: the ledger changed"
+}
+# refused <label> <panel> <json>: --record exits 65 and writes nothing.
+refused() {
+    snap
+    printf '%s\n' "$3" > "$WORKDIR/round.json"
+    NO_AUTORUN=1 run --record "$2" "$SESSION" "$WORKDIR/round.json"
+    expect_rc "$1" 65
+    unchanged "$1"
+}
+# mint: give every decision of the panel's stored scope a run id, as --plan
+# does from outline 3 on.
+# mint <panel> [<prefix>]: each decision gets run <prefix>-<seat> (default minted).
+mint() {
+    jq --arg p "${2:-minted}" '.decisions |= map(. + {run: ($p + "-" + .seat)})' "$SHIM_STORE/$SESSION/$1_scope.json" > "$WORKDIR/scope" \
+        && cp "$WORKDIR/scope" "$SHIM_STORE/$SESSION/$1_scope.json"
+}
+
+echo "--- script: a recorded round's findings, with ids and records"
+
+fixture ledger
+run --plan scrutiny "$SESSION"
+HEAD_SHA=$(cd "$FX/repo" && git rev-parse HEAD)
+record scrutiny '[{"seat":"completeness","run":"run-c1","findings":[{"severity":"blocking","summary":"line 42 is   wrong","path":"src/a.sh","lines":"42"}]},
+                  {"seat":"justification","run":"run-j1","findings":[{"severity":"advisory","summary":"b.sh could say more","path":"src/b.sh"}]},
+                  {"seat":"intent","run":"run-i1","findings":[{"severity":"blocking","summary":"the change misses the design","rule_id":"rs-007"}]}]'
+[ "$(led '.findings | length')" = 3 ] && pass "every finding of the round is in the ledger" || fail "findings: $(led -c '.findings')"
+F1=$(led -r '[.findings[] | select(.raiser.name == "completeness")][0].id')
+F2=$(led -r '[.findings[] | select(.raiser.name == "justification")][0].id')
+F3=$(led -r '[.findings[] | select(.raiser.name == "intent")][0].id')
+case "$F1" in [0-9a-f]*) [ "${#F1}" = 16 ] && pass "a finding id is 16 hex characters" || fail "id [$F1]" ;; *) fail "id [$F1]" ;; esac
+led -e --arg id "$F1" --arg h "$HEAD_SHA" '.findings[$id] | .panel == "scrutiny" and .severity == "blocking" and .round == 1
+    and .raiser == {kind: "reviewer", name: "completeness"} and .run == "run-c1"
+    and .location == {kind: "lines", path: "src/a.sh", lines: "42", at: $h} and .summary == "line 42 is   wrong"
+    and (.records | length == 1) and .records[0].kind == "raised" and .records[0].writer.run == "run-c1"
+    and .records[0].commit == $h' >/dev/null \
+    && pass "a finding records panel, severity, round, raiser, run, location, summary and its first record" \
+    || fail "finding $F1 is $(led -c --arg id "$F1" '.findings[$id]')"
+led -e --arg id "$F2" '.findings[$id].location == {kind: "file", path: "src/b.sh", at: .findings[$id].location.at}' >/dev/null \
+    && pass "a path alone is a file location" || fail "F2 location $(led -c --arg id "$F2" '.findings[$id].location')"
+led -e --arg id "$F3" '.findings[$id].location.kind == "none" and .findings[$id].rule_id == "rs-007"' >/dev/null \
+    && pass "no path is a none location, and a cited active rule is kept" || fail "F3 $(led -c --arg id "$F3" '.findings[$id]')"
+led -e --arg id "$F2" '.findings[$id].severity == "advisory" and (.findings[$id].records | map(.kind)) == ["raised"]' >/dev/null \
+    && pass "an advisory finding is recorded with raised and nothing else" || fail "F2 records"
+led -e --arg id "$F1" --arg h "$HEAD_SHA" '.seats["scrutiny/completeness"] | .verdict == "blocking" and .judged_at == $h
+    and (.ac_sha | length == 40) and .findings == [{id: $id, severity: "blocking", summary: "line 42 is   wrong", path: "src/a.sh", lines: "42"}]' >/dev/null \
+    && pass "the seat entry keeps verdict, judged_at, ac_sha and findings with path and lines" \
+    || fail "seat entry $(led -c '.seats["scrutiny/completeness"]')"
+led -e '.seats["scrutiny/justification"].verdict == "passed" and .runs["run-c1"].recorded == true' >/dev/null \
+    && pass "an advisory-only seat passes, and the round's runs are recorded" || fail "justification $(led -c '.seats["scrutiny/justification"]')"
+[ "$(led '[.history[] | select(.panel == "scrutiny")] | last | .spawned')" = 3 ] \
+    && pass "the round's history spawned equals its runs" || fail "spawned $(led -c '.history')"
+
+echo "--- script: a finding keeps its id across rounds"
+
+run --plan scrutiny "$SESSION"
+mint scrutiny
+NO_AUTORUN=1 record scrutiny '[{"seat":"completeness","run":"minted-completeness","answers":[],"findings":[{"severity":"blocking","summary":"line 42   is wrong ","path":"src/a.sh","lines":"40-44"},
+                                                                                      {"severity":"blocking","summary":"a new one","path":"src/a.sh"}]}]'
+[ "$(led --arg id "$F1" '.findings[$id].records | length')" = 2 ] \
+    && pass "the same panel, raiser, path and summary, re-spaced and on other lines, is the same id" \
+    || fail "re-raise records $(led -c --arg id "$F1" '.findings[$id].records')"
+[ "$(led '.findings | length')" = 4 ] && pass "a different summary is a different id" || fail "count $(led '.findings | length')"
+NEWID=$(cd "$FX/repo" && printf 'scrutiny\nreviewer\nintent\nsrc/a.sh\nline 42 is wrong' | git hash-object --stdin | cut -c1-16)
+[ "$NEWID" != "$F1" ] && pass "a different raiser is a different id" || fail "raiser does not change the id"
+PID=$(cd "$FX/repo" && printf 'review\nreviewer\ncompleteness\nsrc/a.sh\nline 42 is wrong' | git hash-object --stdin | cut -c1-16)
+[ "$PID" != "$F1" ] && pass "a different panel is a different id" || fail "panel does not change the id"
+SID=$(cd "$FX/repo" && printf 'scrutiny\nreviewer\ncompleteness\nsrc/a.sh\nline 42 is wrong' | git hash-object --stdin | cut -c1-16)
+[ "$SID" = "$F1" ] && pass "the id is the hash of panel, raiser kind and name, path and collapsed summary" \
+    || fail "id $F1 is not $SID"
+
+echo "--- script: --record refuses, and writes nothing"
+
+run --plan scrutiny "$SESSION"
+mint scrutiny m2
+refused "two findings of one run with one id" scrutiny \
+    '[{"seat":"completeness","run":"m2-completeness","findings":[{"severity":"blocking","summary":"twin","path":"src/a.sh","lines":"1"},{"severity":"blocking","summary":"twin ","path":"src/a.sh","lines":"9"}]}]'
+grep -q "word their summaries apart" "$WORKDIR/stderr" && pass "the refusal asks for distinct summaries" || fail "stderr: $(cat "$WORKDIR/stderr")"
+refused "a run the scope did not mint" scrutiny '[{"seat":"completeness","run":"made-up-run","findings":[]}]'
+refused "a run with no id" scrutiny '[{"seat":"completeness","findings":[]}]'
+refused "a malformed run id" scrutiny '[{"seat":"completeness","run":"-x","findings":[]}]'
+refused "a run already recorded" scrutiny '[{"seat":"completeness","run":"run-c1","findings":[]}]'
+refused "an answer for an id the decision did not plan" scrutiny \
+    "[{\"seat\":\"completeness\",\"run\":\"m2-completeness\",\"answers\":[{\"id\":\"$F3\",\"record\":\"reverified\",\"reason\":\"x\"}]}]"
+refused "an answer for an id the ledger does not hold" scrutiny \
+    '[{"seat":"completeness","run":"m2-completeness","answers":[{"id":"0000000000000000","record":"holds"}]}]'
+refused "an inactive rule id" scrutiny \
+    '[{"seat":"completeness","run":"m2-completeness","findings":[{"severity":"blocking","summary":"r","rule_id":"panel/no-such-rule"}]}]'
+refused "an unsafe path" scrutiny \
+    '[{"seat":"completeness","run":"m2-completeness","findings":[{"severity":"blocking","summary":"p","path":"../etc/x"}]}]'
+refused "lines without a path" scrutiny \
+    '[{"seat":"completeness","run":"m2-completeness","findings":[{"severity":"blocking","summary":"p","lines":"3"}]}]'
+LONG=$(head -c 1001 /dev/zero | tr '\0' 'a')
+refused "a summary over 1000 bytes" scrutiny \
+    "[{\"seat\":\"completeness\",\"run\":\"m2-completeness\",\"findings\":[{\"severity\":\"blocking\",\"summary\":\"$LONG\"}]}]"
+refused "a severity in the wrong case" scrutiny \
+    '[{"seat":"completeness","run":"m2-completeness","findings":[{"severity":"Blocking","summary":"s"}]}]'
+
+# The re-check seat is planned with its open findings; it answers them by id.
+run --plan scrutiny "$SESSION"
+mint scrutiny m2
+jq --arg id "$F1" '.decisions |= map(if .seat == "completeness" then .decision = "recheck" | .findings = [{id: $id}] else . end)' \
+    "$SHIM_STORE/$SESSION/scrutiny_scope.json" > "$WORKDIR/scope" && cp "$WORKDIR/scope" "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+refused "a dismissed answer without a reason" scrutiny \
+    "[{\"seat\":\"completeness\",\"run\":\"m2-completeness\",\"answers\":[{\"id\":\"$F1\",\"record\":\"dismissed\"}]}]"
+refused "an answer record outside holds, reverified and dismissed" scrutiny \
+    "[{\"seat\":\"completeness\",\"run\":\"m2-completeness\",\"answers\":[{\"id\":\"$F1\",\"record\":\"closed\"}]}]"
+jq --arg id "$F1" '.decisions += [{seat: "reverifier", decision: "recheck", run: "m2-reverifier", findings: [{id: $id}], fix_review: false}]' \
+    "$SHIM_STORE/$SESSION/scrutiny_scope.json" > "$WORKDIR/scope" && cp "$WORKDIR/scope" "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+refused "a dismissal from the re-verifier" scrutiny \
+    "[{\"seat\":\"reverifier\",\"run\":\"m2-reverifier\",\"answers\":[{\"id\":\"$F1\",\"record\":\"dismissed\",\"reason\":\"not a defect\"}]}]"
+refused "a reverified from the re-verifier without a reason" scrutiny \
+    "[{\"seat\":\"reverifier\",\"run\":\"m2-reverifier\",\"answers\":[{\"id\":\"$F1\",\"record\":\"reverified\"}]}]"
+refused "findings from a re-verifier with no fix-diff review planned" scrutiny \
+    '[{"seat":"reverifier","run":"m2-reverifier","findings":[{"severity":"blocking","summary":"new"}]}]'
+
+echo "--- script: --mark-fixed asks for re-verification and closes nothing"
+
+snap
+run --mark-fixed scrutiny "$SESSION" 0000000000000000
+expect_rc "--mark-fixed on an id the ledger does not hold" 65
+run --mark-fixed scrutiny "$SESSION" "$F2"
+expect_rc "--mark-fixed on an advisory finding" 65
+unchanged "the refused --mark-fixed calls"
+run --mark-fixed scrutiny "$SESSION" "$F1"
+expect_rc "--mark-fixed on an open blocking finding" 0
+led -e --arg id "$F1" '.findings[$id].records[-1] | .kind == "fixed" and .writer == {kind: "agent", name: "work-on"}' >/dev/null \
+    && pass "--mark-fixed writes a fixed record by the agent" || fail "last record $(led -c --arg id "$F1" '.findings[$id].records[-1]')"
+led -e '.seats["scrutiny/completeness"].verdict == "blocking"' >/dev/null \
+    && pass "a fixed finding still blocks its seat" || fail "seat $(led -c '.seats["scrutiny/completeness"]')"
+record scrutiny "[{\"seat\":\"completeness\",\"run\":\"m2-completeness\",\"answers\":[{\"id\":\"$F1\",\"record\":\"reverified\",\"reason\":\"fixed\"}]}]"
+led -e --arg id "$F1" '.findings[$id].records[-1].kind == "reverified" and ([.seats["scrutiny/completeness"].findings[] | .id] | index($id)) == null' >/dev/null \
+    && pass "a reviewer's reverified answer closes the finding" || fail "after reverify $(led -c --arg id "$F1" '.findings[$id].records')"
+run --mark-fixed scrutiny "$SESSION" "$F1"
+expect_rc "--mark-fixed on a closed finding" 65
+
+echo "--- script: a write that races another is refused"
+
+SHIM_RACE=1 run --mark-fixed scrutiny "$SESSION" "$F3"
+expect_rc "--mark-fixed when the ledger changed under it" 69
+
+echo "--- script: decider entries, bound to koto's own log"
+
+fixture decider
+run --plan scrutiny "$SESSION"
+mkdir -p "$SHIM_STORE/$SESSION/sessiondir"
+LOG="$SHIM_STORE/$SESSION/sessiondir/koto-$SESSION.state.jsonl"
+dc() { # dc <visit_seq> <rule_id> <outcome>
+    printf '{"type":"decider_checked","payload":{"state":"scrutiny","visit_seq":%s,"gate":"scrutiny_decider","rule_id":"%s","declaration_hash":"abcd1234","outcome":"%s","input_sha256":"ef01"}}\n' "$1" "$2" "$3" >> "$LOG"
+}
+dent() { # dent <visit_seq> <rule_id> <outcome>
+    printf '{"decider":{"state":"scrutiny","visit_seq":%s,"gate":"scrutiny_decider","rule_id":"%s","declaration_hash":"abcd1234","outcome":"%s"}}' "$1" "$2" "$3"
+}
+: > "$LOG"
+refused "a decider entry koto's log does not hold" scrutiny "[$(dent 1 rs-007 fail)]"
+refused "a decider entry with no visit_seq" scrutiny '[{"decider":{"state":"scrutiny","gate":"scrutiny_decider","rule_id":"rs-007","declaration_hash":"abcd1234","outcome":"fail"}}]'
+dc 1 rs-007 fail
+record scrutiny "[$(dent 1 rs-007 fail)]"
+D1=$(led -r '[.findings[] | select(.raiser.kind == "decider")][0].id')
+led -e --arg id "$D1" '.findings[$id] | .severity == "blocking" and .raiser.name == "scrutiny_decider/rs-007"
+    and .raiser.ref.visit_seq == 1 and .summary == "rs-007" and .rule_id == "rs-007" and .location.kind == "none"
+    and .records[-1].kind == "raised"' >/dev/null \
+    && pass "a decider fail raises a blocking finding under its criterion" || fail "decider finding $(led -c --arg id "$D1" '.findings[$id]')"
+refused "a decider event that already backed an entry" scrutiny "[$(dent 1 rs-007 fail)]"
+dc 2 rs-007 escape
+record scrutiny "[$(dent 2 rs-007 escape)]"
+[ "$(led -r --arg id "$D1" '.findings[$id].records[-1].kind')" = unverified ] \
+    && pass "a decider escape on its finding writes unverified" || fail "escape record"
+VS=10
+for o in not_graded unanswered something_new; do
+    VS=$((VS + 1)); dc "$VS" rs-008 "$o"; record scrutiny "[$(dent "$VS" rs-008 "$o")]"
+done
+D2=$(led -r '[.findings[] | select(.raiser.name == "scrutiny_decider/rs-008")][0].id')
+led -e --arg id "$D2" '(.findings[$id].records | map(.kind)) == ["unverified", "unverified", "unverified"]' >/dev/null \
+    && pass "not_graded, unanswered and an unknown outcome create the criterion's finding as unverified, then keep it there" \
+    || fail "rs-008 records $(led -c --arg id "$D2" '.findings[$id].records')"
+dc 4 rs-009 pass
+record scrutiny "[$(dent 4 rs-009 pass)]"
+[ "$(led '[.findings[] | select(.raiser.name == "scrutiny_decider/rs-009")] | length')" = 0 ] \
+    && pass "a decider pass with no finding for its criterion writes nothing" || fail "rs-009 wrote a finding"
+dc 5 rs-007 pass
+record scrutiny "[$(dent 5 rs-007 pass)]"
+led -e --arg id "$D1" '.findings[$id].records[-1] | .kind == "reverified" and .writer.kind == "decider"' >/dev/null \
+    && pass "a decider pass closes its own finding" || fail "rs-007 last $(led -c --arg id "$D1" '.findings[$id].records[-1]')"
+
 # --- engine cases -------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1; then
@@ -914,6 +1145,8 @@ engine_to_qa_retry() {
     printf '%s\n' '[{"seat":"completeness","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
         {"seat":"justification","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
         {"seat":"intent","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]}]' > "$WORKDIR/r.json"
+    autorun "$WORKDIR/r.json"
+    autorun "$WORKDIR/r.json"
     "$SCRIPT" --record scrutiny "$s" "$WORKDIR/r.json" || fail "$s: --record scrutiny failed"
     tick "$s"
     [ "$NEXT_STATE" = review ] || { fail "$s: scrutiny went to [$NEXT_STATE], not review"; return 1; }
@@ -921,12 +1154,14 @@ engine_to_qa_retry() {
     printf '%s\n' '[{"seat":"pragmatic","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
         {"seat":"architect","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]},
         {"seat":"maintainer","blocking_count":0,"cited":[{"path":"src/a.sh","lines":"41-50"}]}]' > "$WORKDIR/r.json"
+    autorun "$WORKDIR/r.json"
     "$SCRIPT" --record review "$s" "$WORKDIR/r.json" || fail "$s: --record review failed"
     tick "$s"
     [ "$NEXT_STATE" = qa_validation ] || { fail "$s: review went to [$NEXT_STATE], not qa_validation"; return 1; }
 
     printf '%s\n' '[{"seat":"tester","blocking_count":1,"cited":[{"path":"src/a.sh","lines":"41-50"}],
         "findings":[{"severity":"blocking","summary":"no test covers lines 41-50","path":"tests/a_test.sh"}]}]' > "$WORKDIR/r.json"
+    autorun "$WORKDIR/r.json"
     "$SCRIPT" --record qa "$s" "$WORKDIR/r.json" || fail "$s: --record qa failed"
     # A tick with nothing submitted re-runs --plan, which must leave the
     # recorded blocking round standing: qa_verdict exits 1, so the retry
@@ -979,7 +1214,11 @@ if engine_to_qa_retry "$S"; then
     [ "$NEXT_STATE" = qa_validation ] \
         && pass "an unrecorded re-check holds qa_validation" \
         || fail "an unrecorded re-check advanced to [$NEXT_STATE]"
-    printf '[{"seat":"tester","findings":[]}]\n' > "$WORKDIR/r.json"
+    # The re-check answers the failing scenario by id: it now passes.
+    QID=$(koto context get "$S" verdict_ledger.json 2>/dev/null | jq -r '.seats["qa/tester"].findings[0].id // empty')
+    jq -n --arg id "$QID" '[{seat: "tester", answers: [{id: $id, record: "reverified", reason: "the scenario passes"}]}]' \
+        > "$WORKDIR/r.json"
+    autorun "$WORKDIR/r.json"
     "$SCRIPT" --record qa "$S" "$WORKDIR/r.json" || fail "$S: --record qa failed"
     tick "$S"
     # koto runs verification itself on entry; this fixture commits no
