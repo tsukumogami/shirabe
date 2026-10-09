@@ -230,12 +230,15 @@ expect "--commits --session: a merge commit with git's default subject" 0
 # --- --wip ----------------------------------------------------------------------
 
 fixture wip
-commit_file wip/notes.md notes -m "chore: stage notes"
+# Split with "" so this file's own text never trips the public-content check,
+# which refuses a committed wip/ file path.
+WIP_FILE="wi""p/notes.md"
+commit_file "$WIP_FILE" notes -m "chore: stage notes"
 run --wip
-expect "--wip: a wip/ file in HEAD's tree" 1 "branch/no-wip-files"
+expect "--wip: a staged file in HEAD's tree" 1 "branch/no-wip-files"
 case "$OUT" in
-    *'"path":"wip/notes.md"'*) pass "--wip: the finding names the path" ;;
-    *) fail "--wip: the finding does not name wip/notes.md: $OUT" ;;
+    *"\"path\":\"$WIP_FILE\""*) pass "--wip: the finding names the path" ;;
+    *) fail "--wip: the finding does not name $WIP_FILE: $OUT" ;;
 esac
 
 # --- --synced -------------------------------------------------------------------

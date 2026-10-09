@@ -52,7 +52,7 @@ WORKDIR=$(mktemp -d)
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 
-# Keep every session out of the developer's real ~/.koto, and the
+# Keep every session out of the developer's real $HOME/.koto, and the
 # verification runner's results out of the developer's state directory.
 export HOME="$WORKDIR/home"
 export XDG_STATE_HOME="$WORKDIR/state"

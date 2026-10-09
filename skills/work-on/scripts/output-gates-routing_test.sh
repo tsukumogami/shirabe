@@ -258,7 +258,7 @@ fi
 
 echo "--- routes"
 
-# Sessions live under a temporary HOME, out of the developer's ~/.koto.
+# Sessions live under a temporary HOME, out of the developer's $HOME/.koto.
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
 REPO="$WORKDIR/repo"
