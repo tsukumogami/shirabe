@@ -40,8 +40,8 @@ stateDiagram-v2
     plan_completion --> ci_monitor : gates.cascade_completed.matches: false, gates.cascade_partial.matches: false, gates.cascade_skipped.matches: true, gates.expected_head_recorded.matches: false, gates.ready_owned_pr.exit_code: 0
     plan_completion --> done_blocked : gates.ready_owned_pr.exit_code: 3
     plan_completion --> done_blocked : gates.ready_owned_pr.exit_code: 2
-    pr_finalization --> paused_for_review : gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, gates.settled_wip_clean.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: true
-    pr_finalization --> plan_completion : gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, gates.settled_wip_clean.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: false
+    pr_finalization --> paused_for_review : finalization_status: updated, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, gates.settled_wip_clean.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: true
+    pr_finalization --> plan_completion : finalization_status: updated, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 0, gates.settled_commits.exit_code: 0, gates.settled_docs_visibility.exit_code: 0, gates.settled_wip_clean.exit_code: 0, vars.PAUSE_BEFORE_FINALIZE: false
     pr_finalization --> done_blocked : finalization_status: update_failed, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 1
     pr_finalization --> done_blocked : finalization_status: update_failed, gates.final_owned_pr.exit_code: 0, gates.owned_pr_body_conformant.exit_code: 2
     pr_finalization --> done_blocked : gates.final_owned_pr.exit_code: 3
