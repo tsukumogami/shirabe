@@ -54,9 +54,11 @@
 # its milestone `not recoverable` (`invalid input`).
 #
 # Dispatch: the created_at of the unit's koto request, found through the
-# archived sessions' request-leg.toml files: of the requests they name, the
-# earliest one no archived session asked for (the coordinator's own); else
-# the job's createdAt; else `not recoverable`.
+# archived sessions' request-leg.toml files. Of the requests they name, those
+# whose requested_by is one of the archived sessions (a /deliver asking its
+# /scope, say) are the unit's own nested requests; the earliest of the rest
+# is the coordinator's dispatch. Else the job's createdAt; else `not
+# recoverable`.
 #
 # Tokens: per message id (assistant lines with a string id), the largest
 # value of each class, summed. `worker` is the job's own transcript and its
@@ -82,7 +84,11 @@
 # default 8, the pass's own); UNIT_COST_BUDGET_SECS (the reads' budget,
 # default 90); UNIT_COST_LIST_SECS (the entry list's bound, default 15);
 # UNIT_COST_POST_SECS (the post's bound, default 25); UNIT_COST_NOW (a fixed
-# captured_at, tests). bash 3.2.
+# captured_at, tests); DC_COORD_LOG and DC_RECORD_HOLDING (dispatch-common.sh's
+# overrides for the run-facts and Holdings readers). The reads and the list
+# share the 90-second budget and the post adds its 25, so a capture ends
+# inside the pass's 120 (TEARDOWN_CAPTURE_SECS); change them together.
+# bash 3.2.
 set -uo pipefail
 export LC_ALL=C
 
@@ -117,8 +123,11 @@ repo_ok() { [[ $1 =~ $RE_REPO ]] && case "$1" in *..* | -* | */-*) return 1 ;; e
 
 # uc_tree <command...>: run the command in a process group of its own and
 # wait for it; a TERM (dc_with_deadline's, or this script's own trap) stops
-# the whole group, so a hung gh under record-append.sh dies with it. The trap
-# kills and returns; it never waits on a child.
+# the whole group, so a hung gh under record-append.sh dies with it.
+# dc_with_deadline TERMs only its direct child, which would leave such a
+# grandchild running; `set -m` is here only to give the command its own
+# process group, so `kill -- -<pid>` reaches all of it. The trap kills and
+# returns; it never waits on a child.
 # shellcheck disable=SC2329 # run through dc_with_deadline's "$@"
 uc_tree() {
     local p
@@ -272,8 +281,11 @@ trap uc_stop TERM
 cd "$WD" || exit 1
 
 # ---------------------------------------------------------------------------
-# The pieces. Each writes one JSON file in $WD; `reason` fields name why a
-# piece was not taken, and the assembly turns them into `missing`.
+# The pieces. Each writes its JSON into $WD for uc_compute to assemble;
+# `reason` fields name why a piece was not taken, and the assembly turns them
+# into `missing`. uc_compute runs them in order: uc_sessions first, since
+# uc_plan_shape and uc_dispatch read what it writes (sessions.json and
+# session-names).
 
 # Sessions: one line per archived session directory holding its state log,
 # in byte order of the names. Names stay here: they carry a plan's issue
@@ -345,6 +357,10 @@ uc_plan_shape() {
           else m("none") end' "$WD/sessions.json" >"$WD/shape.json"
 }
 
+# Dispatch, by the header's rule. A request whose requested_by names an
+# archived session was made inside the unit (its /deliver asking /scope or
+# /execute), after dispatch, so it is never the dispatch; requested_by is
+# only compared, never kept.
 uc_dispatch() {
     local id f out
     : >"$WD/requests.jsonl"
@@ -470,7 +486,11 @@ uc_pulls() {
     jq -s -c '.' "$WD/pulls.jsonl" >"$WD/pulls.json"
 }
 
-# The record, the Unit and the milestone, from the unit file.
+# The record, the Unit and the milestone, from the unit file. An issue
+# reference is checked before the safety pattern: `#12` starts with `#`, which
+# the pattern refuses, yet it is a plain Unit whose milestone is `none`. With
+# no valid record facts the Unit is dropped too, since it came from the same
+# read.
 uc_attribution() {
     [ -s "$WD/unit.json" ] || echo '{"unit_reason": "no source"}' >"$WD/unit.json"
     jq -c --arg re_repo "$RE_REPO" '

@@ -285,7 +285,8 @@ mv "$ARCH/MANIFEST.new" "$ARCH/MANIFEST"
 # The cost capture: a child with none of the pass's streams (stdin empty,
 # output to a file), under its own deadline, its status only ever a warning.
 # It never calls refused or incomplete, and STEP goes back to destroy before
-# anything can name it.
+# anything can name it. The deadline is a backstop: unit-cost.sh keeps its
+# reads to a 90-second budget and its post to 25, inside these 120.
 STEP=capture
 printf '%s\n' "$PRS" >"$T/prs"
 dc_with_deadline "$CAPTURE_SECS" bash "$HERE/unit-cost.sh" capture --session "$SESSION" \
