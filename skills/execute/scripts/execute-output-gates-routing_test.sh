@@ -11,8 +11,10 @@
 #                       owned_pr_body_conformant, settled_commits,
 #                       settled_wip_clean, settled_docs_visibility
 #                                               the output the state presents
-#                       vars.PAUSE_BEFORE_FINALIZE
-#                                               the pause, routed by koto
+#                       finalization_status: updated, vars.PAUSE_BEFORE_FINALIZE
+#                                               the pause, routed by koto once
+#                                               the agent records the body it
+#                                               wrote and the gates pass on it
 #   plan_completion     cascade_completed, cascade_skipped, cascade_partial
 #                                               cascade_result.json (routing)
 #                       ready_owned_pr          the lookup before gh pr ready
@@ -364,7 +366,11 @@ reset_rc
 drive orchestrator_setup '{"status":"blocked","detail":"the create failed"}'
 expect_step "status: blocked" execute:orchestrator_setup
 
-# pr_finalization: the lookup, the four output gates, then the pause.
+# pr_finalization: the lookup, the four output gates, then the pause, which
+# also needs finalization_status: updated -- the agent's record that it wrote
+# the body. A PR adopted from /scope already has a conformant body, so the
+# gates passing alone must not move the run.
+UPDATED='{"finalization_status":"updated"}'
 reset_rc
 for pair in 3:execute:pr-adopt 2:execute:status-read; do
     set_rc check-pr-output.sh--owned-pr "${pair%%:*}"
@@ -372,17 +378,21 @@ for pair in 3:execute:pr-adopt 2:execute:status-read; do
     expect_step "final_owned_pr exit ${pair%%:*}" "${pair#*:}"
 done
 reset_rc
-PAUSE=true drive pr_finalization ""
-expect "every gate passing, PAUSE_BEFORE_FINALIZE true" paused_for_review
-PAUSE=false drive pr_finalization ""
-expect "every gate passing, PAUSE_BEFORE_FINALIZE false" plan_completion
+for p in true false; do
+    PAUSE=$p drive pr_finalization ""
+    holds "every gate passing, no evidence (PAUSE_BEFORE_FINALIZE $p)" pr_finalization
+done
+PAUSE=true drive pr_finalization "$UPDATED"
+expect "updated, every gate passing, PAUSE_BEFORE_FINALIZE true" paused_for_review
+PAUSE=false drive pr_finalization "$UPDATED"
+expect "updated, every gate passing, PAUSE_BEFORE_FINALIZE false" plan_completion
 for key in check-pr-output.sh--pr-body:owned_pr_body_conformant check-branch-output.sh--commits:settled_commits \
            check-branch-output.sh--wip:settled_wip_clean check-branch-output.sh--docs-visibility:settled_docs_visibility; do
     for rc in 1 2; do
         for p in true false; do
             reset_rc; set_rc "${key%%:*}" "$rc"
-            PAUSE=$p drive pr_finalization ""
-            holds "${key#*:} exit $rc (PAUSE_BEFORE_FINALIZE $p)" pr_finalization "${key#*:}"
+            PAUSE=$p drive pr_finalization "$UPDATED"
+            holds "updated, ${key#*:} exit $rc (PAUSE_BEFORE_FINALIZE $p)" pr_finalization "${key#*:}"
         done
     done
 done

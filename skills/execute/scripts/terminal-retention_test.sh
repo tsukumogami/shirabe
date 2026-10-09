@@ -625,10 +625,11 @@ expect_control() {
 }
 
 # paused_for_review, by pr_finalization's pause edge. koto routes that edge on
-# its gates and PAUSE_BEFORE_FINALIZE, with no evidence to submit. The owned-PR
-# lookup runs for real against the gh stub; the four output checks need a real
-# PR body, a validator and an origin, so a recorded override passes each, as a
-# person's override would, and the deciding tick submits nothing.
+# its gates and PAUSE_BEFORE_FINALIZE once the agent submits
+# finalization_status: updated. The owned-PR lookup runs for real against the
+# gh stub; the four output checks need a real PR body, a validator and an
+# origin, so a recorded override passes each, as a person's override would,
+# and the deciding tick submits `updated`.
 pass_output_gates() {
     local g
     for g in owned_pr_body_conformant settled_commits settled_wip_clean settled_docs_visibility; do
@@ -638,7 +639,7 @@ pass_output_gates() {
 init_orchestrator payload-pause false true
 walk execute-payload-pause settled_branch_record drift_facts worktree_sync spawn_and_await pr_finalization
 pass_output_gates execute-payload-pause
-decide_plain execute-payload-pause --no-cleanup
+decide execute-payload-pause '{"finalization_status":"updated"}' --no-cleanup
 expect_payload "paused_for_review" execute-payload-pause paused_for_review paused-for-review "" ""
 if [ "$(k status execute-payload-pause | jq -r .result.payload.resume)" = "/execute docs/plans/PLAN-payload-pause.md" ]; then
     pass "paused_for_review carries the resume command"
@@ -648,7 +649,7 @@ fi
 init_orchestrator payload-pause-ctl false true
 walk execute-payload-pause-ctl settled_branch_record drift_facts worktree_sync spawn_and_await pr_finalization
 pass_output_gates execute-payload-pause-ctl
-decide_plain execute-payload-pause-ctl ""
+decide execute-payload-pause-ctl '{"finalization_status":"updated"}' ""
 expect_control "paused_for_review" execute-payload-pause-ctl paused-for-review
 
 # The DIRTY route: ci_monitor -> escalate_dirty_merge_state -> done_blocked,

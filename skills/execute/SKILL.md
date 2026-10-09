@@ -213,6 +213,7 @@ state (`ci_monitor`), and the pause (`PAUSE_BEFORE_FINALIZE`). A failing output
 check holds the run in its state with findings naming the rule; fix the output
 and tick again. The evidence a state still takes is the agent's own account:
 `completed` (the setup steps ran), `override` and `blocked` at setup,
+`updated` (you wrote the PR body; the checks then judge it) and
 `update_failed`, `cascade_detail`, and the CI repair outcomes. The routes are tested in
 `scripts/execute-output-gates-routing_test.sh`.
 

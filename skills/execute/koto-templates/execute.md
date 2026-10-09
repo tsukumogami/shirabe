@@ -618,13 +618,17 @@ states:
     #
     # With every gate at 0, the pause routes on PAUSE_BEFORE_FINALIZE, which
     # /execute sets from its mode at init (interactive true, --auto false) and
-    # a resume of a paused run rebinds to false. No evidence: the gates
-    # passing is what "the PR was updated" means.
+    # a resume of a paused run rebinds to false. Those routes also require
+    # finalization_status: updated, the agent's record that it wrote the body:
+    # a PR adopted from /scope already carries a conformant body (its scoping
+    # description), so the gates alone would pass on a body nobody wrote for
+    # this run. `updated` says the edit ran; the gates check what it says.
     #
     # The routes share no common field, so each carries the conjuncts that
     # keep koto's exclusivity check satisfied: the lookup routes name
-    # final_owned_pr, the pause routes require the lookup and every output
-    # gate at 0, and update_failed is accepted only while the body gate fails.
+    # final_owned_pr, the pause routes require the lookup, every output gate
+    # at 0 and `updated`, and update_failed is accepted only while the body
+    # gate fails.
     #
     # gh reads GH_TOKEN, which is on koto's default pass-through list, so the
     # template declares no pass_env.
@@ -650,9 +654,10 @@ states:
     accepts:
       finalization_status:
         type: enum
-        values: [update_failed]
+        values: [updated, update_failed]
         description: >-
-          Absent on the passing path: koto routes on the gates. Submit
+          updated once the title and body edit ran (exit=0); the run goes on
+          only when every gate also passes on the PR as it now stands. Submit
           update_failed only when the read, the carry or the edit failed and
           owned_pr_body_conformant is failing; it ends the run.
     transitions:
@@ -674,6 +679,7 @@ states:
           gates.settled_commits.exit_code: 0
           gates.settled_wip_clean.exit_code: 0
           gates.settled_docs_visibility.exit_code: 0
+          finalization_status: updated
           vars.PAUSE_BEFORE_FINALIZE: "true"
         context_assignments:
           outcome: paused-for-review
@@ -685,6 +691,7 @@ states:
           gates.settled_commits.exit_code: 0
           gates.settled_wip_clean.exit_code: 0
           gates.settled_docs_visibility.exit_code: 0
+          finalization_status: updated
           vars.PAUSE_BEFORE_FINALIZE: "false"
       - target: done_blocked
         when:
@@ -1573,9 +1580,9 @@ rm -f "$BODY_FILE" "$LIVE_FILE"
 
 Run this title+body edit **unconditionally** on every finalization (clean and attention runs) — a zero-issue or all-skipped run still yields a conformant title, so R4's no-fix-up guarantee holds.
 
-`PR_NUMBER` holds the owned PR's URL, which `gh pr edit` accepts as the PR argument. Don't write a `<!-- shirabe-run: ... -->` line into the body yourself and don't skip the `carry` step: the carried marker is the only one the PR keeps. The `lookup=` and `exit=` lines are for you; you don't report either. The DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) is unchanged.
+`PR_NUMBER` holds the owned PR's URL, which `gh pr edit` accepts as the PR argument. Don't write a `<!-- shirabe-run: ... -->` line into the body yourself and don't skip the `carry` step: the carried marker is the only one the PR keeps. The `lookup=` line is for you; you don't report it. The DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) is unchanged.
 
-**4. Tick, and let koto check the result.** Run `koto next {{SESSION_NAME}} --no-cleanup` with nothing submitted. koto runs this state's gates over the PR and the branch as they now stand:
+**4. Submit `updated`, and let koto check the result.** When the edit ran (`exit=0`), submit `koto next {{SESSION_NAME}} --with-data '{"finalization_status":"updated"}' --no-cleanup`. That is your record that you wrote this run's body; the run doesn't go on without it, even when the PR's existing body would pass. A PR adopted from `/scope` already carries a conformant body (its scoping description), so the checks alone can't tell that the implementation body was written. With an empty `PR_NUMBER` (the lookup found no single owned PR), tick with nothing submitted; koto's own lookup ends the run. koto runs this state's gates over the PR and the branch as they now stand:
 
 - `final_owned_pr` looks up the owned PR the same way, through `check-pr-output.sh --owned-pr`. None or several ends the run at `execute:pr-adopt`, and a failed read at `execute:status-read`, whatever the edit did.
 - `owned_pr_body_conformant` runs `shirabe validate --pr-body` on that PR's title and body (`pr-body/conventional-title`, `pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1`).
@@ -1585,9 +1592,9 @@ Run this title+body edit **unconditionally** on every finalization (clean and at
 
 The /work-on children skip the wip and docs checks on the shared branch, because they open no PR of their own; this is where the branch is checked, once, before the PR is finalized.
 
-A failing check holds the run here with its findings in the response, each naming the rule and the file. Fix the PR or the branch: re-run the edit above for a body or title finding; for a commit, wip or docs finding, commit the fix and push it through `{{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}`, never a rebase or a force push. Then tick again. A pushed commit's subject or trailer can't be fixed without rewriting the shared branch, which this run never does: leave the run held, say which commit, and let a person decide. An exit 2 from a check means it could not decide (a missing `shirabe` or `jq`, a ref that doesn't resolve); run the command from the response by hand for the reason.
+A failing check holds the run here with its findings in the response, each naming the rule and the file. Fix the PR or the branch: re-run the edit above for a body or title finding; for a commit, wip or docs finding, commit the fix and push it through `{{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}`, never a rebase or a force push. Then submit `finalization_status: updated` again. A pushed commit's subject or trailer can't be fixed without rewriting the shared branch, which this run never does: leave the run held, say which commit, and let a person decide. An exit 2 from a check means it could not decide (a missing `shirabe` or `jq`, a ref that doesn't resolve); run the command from the response by hand for the reason.
 
-When every check passes, the run goes on by itself, on the `{{PAUSE_BEFORE_FINALIZE}}` variable, which `/execute` resolves from the execution mode at `koto init` time (interactive → `true`; `--auto` → `false`). It is NOT a separate user flag, and you don't report it.
+When `updated` is submitted and every check passes, koto routes the run on the `{{PAUSE_BEFORE_FINALIZE}}` variable, which `/execute` resolves from the execution mode at `koto init` time (interactive → `true`; `--auto` → `false`). It is NOT a separate user flag, and you don't report it.
 
 - `true`: the run stops at the non-failure terminal `paused_for_review`. The PR body is assembled but the chain is intact (PLAN present, BRIEF/PRD/DESIGN un-transitioned) and the PR is still DRAFT; the operator reviews the DRAFT PR and resumes to finalize.
 - `false` (the `--auto` path, the default, and a resume of a paused run): the run goes on to `plan_completion`, which runs the cascade and then `gh pr ready`, driving straight through to a ready-to-merge, green PR -- unless the cascade reports `partial`, which halts there instead.
