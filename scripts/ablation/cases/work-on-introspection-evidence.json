@@ -32,8 +32,7 @@
     "evidence": [
       {"mode": "issue_backed", "issue_number": "1"},
       {"status": "override", "detail": "ablation fixture"},
-      {"status": "override", "detail": "ablation fixture"},
-      {"staleness_signal": "stale_requires_introspection", "detail": "ablation fixture: the issue predates recent changes"}
+      {"status": "override", "detail": "ablation fixture"}
     ]
   },
   "prompt": {

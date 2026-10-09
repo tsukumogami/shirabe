@@ -274,25 +274,13 @@ jobs:
         if: runner.os == 'Linux'
         uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
 
-      - name: Cache Cargo (Linux)
-        if: runner.os == 'Linux'
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
       - name: Build and install shirabe (Linux)
         if: runner.os == 'Linux'
         run: |
           cargo build --release --bin shirabe
-          mkdir -p "$HOME/.work-on-bin"
-          install -m 0755 target/release/shirabe "$HOME/.work-on-bin/shirabe"
-          echo "$HOME/.work-on-bin" >> "$GITHUB_PATH"
+          mkdir -p "$RUNNER_TEMP/work-on-bin"
+          install -m 0755 target/release/shirabe "$RUNNER_TEMP/work-on-bin/shirabe"
+          echo "$RUNNER_TEMP/work-on-bin" >> "$GITHUB_PATH"
 
       # The output gate scripts: the branch checks against git fixtures (with
       # the validator built above for --docs-visibility), the PR checks
