@@ -88,6 +88,13 @@ See `references/roadmap-format.md` for the full format specification:
 frontmatter schema, required and optional sections, lifecycle states,
 validation rules, and quality guidance. Load it during Phases 3 and 4.
 
+New roadmaps are milestone roadmaps (`schema: roadmap/v2`): each item is an
+outcome someone can exercise end to end, with Evidence someone other than
+the delivering session can judge and a Left open for the decisions that
+session makes. The format reference's Milestones section has the fields,
+the rule for when a milestone is Done, and what may change once the
+roadmap is Active.
+
 ## File Location
 
 Roadmap documents live at `docs/roadmaps/ROADMAP-<topic>.md` (kebab-case).
@@ -235,7 +242,10 @@ Is there at least one feature to track?
 ```
 parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
                                                            -> see references/fixes/sub-agent-dispatch.md
-ROADMAP exists with status "Active" or "Done"              -> Offer to revise or start fresh
+ROADMAP exists, "Active", schema roadmap/v2                -> Offer: sharpen one milestone's Evidence or Left open in place,
+                                                              or start a new roadmap (references/phases/sharpen.md)
+ROADMAP exists, "Active", schema roadmap/v1                -> Offer: start a new roadmap
+ROADMAP exists with status "Done"                          -> Offer to revise or start fresh
 ROADMAP exists with status "Draft"                         -> Offer to continue from Phase 3
 wip/research/roadmap_<topic>_phase2_*.md files exist       -> Resume at Phase 3
 wip/roadmap_<topic>_scope.md exists                        -> Resume at Phase 2
@@ -570,6 +580,7 @@ See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md
 | `references/phases/phase-2-discover.md` | Phase 2 |
 | `references/phases/phase-3-draft.md` | Phase 3 |
 | `references/phases/phase-4-validate.md` | Phase 4 |
+| `references/phases/sharpen.md` | Resume on an Active `roadmap/v2` roadmap |
 | `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` | Populating reserved sections |
 | `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md` | Populating reserved sections |
 | `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` | R14 approval gate under `--auto` |

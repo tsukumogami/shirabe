@@ -759,7 +759,7 @@ states:
         when:
           event: raise
       # A roadmap feature whose last pull request landed: its Status and
-      # Outcome go back to the roadmap as a pull request. A roadmap event; at
+      # Delivered line go back to the roadmap as a pull request. A roadmap event; at
       # discipline scope no edge takes it.
       - target: roadmap_status
         when:
@@ -3755,20 +3755,22 @@ brings the run back to `wait`, and the row then has to be written again.
 
 A roadmap feature landed: its last pull request merged, or for a spike or a
 design, its acceptance call was made. Write it back to the roadmap with
-`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/roadmap-status.sh" --session {{SESSION_NAME}} --unit "<the feature's tag>" --outcome "<what landed, with its pull requests>"`,
+`"{{PLUGIN_ROOT}}/skills/coordinate/scripts/roadmap-status.sh" --session {{SESSION_NAME}} --unit "<the feature's tag>" --outcome "<what landed, with its pull requests; only public ones in a public roadmap>"`,
 then submit `status: opened` with the same `unit`, or `status: failed` when it
 refused or failed, and report why.
 
 <!-- details -->
 
 The script opens a pull request on the roadmap's repository that sets the
-feature's Status to Done, writes its Outcome line and removes its Needs line,
-regenerates the generated sections, and changes nothing else; then it writes
+feature's Status to Done, writes the text on its `**Delivered:**` line and
+removes its Needs line, regenerates the generated sections, and changes
+nothing else (its `**Outcome:**` line is the promise and is never touched);
+then it writes
 a Side effects in flight row, Action `roadmap-status`, that the record step
 confirms. Never merge that pull request yourself: hand it to whoever merges
 roadmap changes, in the merge-order table, with the rest. Until it merges,
 pick lists the feature as `landed` and you never dispatch it; once the
-roadmap on the default branch reads it Done, run `roadmap-status.sh --confirm
+roadmap on the default branch reads it Done (annotated or not), run `roadmap-status.sh --confirm
 "<tag>"` to clear the row. A pull request closed unmerged is cleared with
 `--drop "<tag>" --reason "<why>"`. Only one roadmap pull request is pending at
 a time, since two would conflict in the generated sections: the script refuses

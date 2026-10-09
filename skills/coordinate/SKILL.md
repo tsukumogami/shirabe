@@ -161,8 +161,11 @@ workers with no pull request yet), deferrals, side effects in flight such as a
 merge attempted and never confirmed, and the reasoning behind reversals.
 Feature state is never stored; it is read from the roadmap and the pull
 requests every time. When a roadmap feature lands, the skill writes it back:
-`scripts/roadmap-status.sh` opens a pull request setting its Status and
-Outcome, which whoever merges roadmap changes merges, and the record holds it
+`scripts/roadmap-status.sh` opens a pull request setting its Status to Done
+and writing what landed on a `**Delivered:**` line (never on its
+`**Outcome:**`, which is the promise, and in a public roadmap naming only
+public pull requests; the script's `--outcome` flag carries that Delivered
+text), which whoever merges roadmap changes merges, and the record holds it
 as a side effect in flight so pick never offers the feature again meanwhile.
 At roadmap scope the record is an issue in the roadmap's repository titled
 `Coordinator record: ROADMAP-<name>`, closed when the roadmap is done; at discipline scope it is a draft

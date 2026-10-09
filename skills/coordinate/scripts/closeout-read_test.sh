@@ -12,10 +12,11 @@
 # `handed-over`. Predecessor: the copied tables, the not-re-checked line and the
 # fixed sentence checked against a fresh render; an edited copy and a copy with
 # reasoning refused; its title never stale; a whole predecessor close through
-# rotation-close.sh. Roadmap: closed, one feature not Done or Dropped, a
-# missing roadmap, no features, holdings, side effects, one undisposed
-# deferral (carried or empty), and ready with every feature Done or Dropped
-# and a clear record; the roadmap read from the default branch; the sealed
+# rotation-close.sh. Roadmap: closed, one feature not Done, Shipped or
+# Dropped, a missing roadmap, no features, holdings, side effects, one
+# undisposed deferral (carried or empty), and ready with every feature Done,
+# Shipped or Dropped (an annotated `Done -- shipped in #12` and
+# `Shipped (#34)` included) and a clear record; the roadmap read from the default branch; the sealed
 # token and coord/closeout.json naming the first blocker; every token in
 # koto's capture alphabet.
 #
@@ -199,13 +200,15 @@ rm_seed "$CLEAR"; file_at main "$RP" "$(roadmap Done Dropped Done.)"
 OUT=$(rm_read); eq "every feature Done or Dropped and a clear record is ready" "ready 7" "$OUT"
 tok_shape "ready is in koto's capture alphabet" "$OUT"
 grep -q "contents/$RP?ref=main" "$GH_DB.calls" && ok "the roadmap is read from the default branch" || bad "the roadmap is read from the default branch" "$(calls)"
+file_at main "$RP" "$(roadmap 'Done -- shipped in #12' 'Shipped (#34)' Dropped)"
+eq "an annotated Done and Shipped close like Done" "ready 7" "$(rm_read)"
 file_at main "$RP" "$(roadmap Done 'In progress' Done)"
 OUT=$(rm_read); eq "one feature not Done or Dropped is features-open" "features-open 7" "$OUT"
 tok_shape "features-open is in koto's capture alphabet" "$OUT"
 file_at feat "$RP" "$(roadmap Done Done Done)"
 eq "a Done copy on another branch doesn't count" "features-open 7" "$(rm_read)"
-file_at main "$RP" "$(roadmap Done 'Done (4 of 5)' Done)"
-eq "a qualified Done is not Done" "features-open 7" "$(rm_read)"
+file_at main "$RP" "$(roadmap Done Doneness Done)"
+eq "a word that only begins with Done is not Done" "features-open 7" "$(rm_read)"
 file_at main "$RP" "$(roadmap Done done Done)"
 eq "the status is case-sensitive" "features-open 7" "$(rm_read)"
 db '.files["acme/widgets"] |= del(.["main:" + $p])' --arg p "$RP"

@@ -9,10 +9,10 @@
 use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
-    check_fc15, check_fc17, check_fc18, check_fc19, check_plan_design_field_consistency,
-    check_plan_section_structure, check_private_only, check_roadmap_reserved_sections,
-    check_schema, check_stale_references, check_strategy_public, check_upstream_legality,
-    check_upstream_resolves, check_vision_public, check_writing_style,
+    check_fc15, check_fc17, check_fc18, check_fc19, check_fc21_milestones,
+    check_plan_design_field_consistency, check_plan_section_structure, check_private_only,
+    check_roadmap_reserved_sections, check_schema, check_stale_references, check_strategy_public,
+    check_upstream_legality, check_upstream_resolves, check_vision_public, check_writing_style,
 };
 use crate::doc::{Doc, ValidationError};
 use crate::formats::FormatSpec;
@@ -151,7 +151,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC20`, `FC-CONVENTIONS`, and `R6`-`R11`. The
+/// can emit: `SCHEMA`, `FC01`-`FC21`, `FC-CONVENTIONS`, and `R6`-`R11`. The
 /// lifecycle codes (`L01`-`L09`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
@@ -178,6 +178,7 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC18"
             | "FC19"
             | "FC20"
+            | "FC21"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
@@ -323,6 +324,9 @@ fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Valida
             // Issues / non-mermaid Dependency Graph). The FC11 analog for
             // roadmaps; error-level (absent from is_intrinsic_notice).
             errs.extend(check_roadmap_reserved_sections(doc, spec));
+            // FC21: the milestone shape on a `roadmap/v2` roadmap; a no-op on
+            // `roadmap/v1`. Error-level (absent from is_intrinsic_notice).
+            errs.extend(check_fc21_milestones(doc, spec));
         }
         "VISION" => {
             errs.extend(check_vision_public(doc, cfg));
@@ -649,6 +653,7 @@ mod tests {
             "FC18",
             "FC19",
             "FC20",
+            "FC21",
             "FC-CONVENTIONS",
             "R6",
             "R7",

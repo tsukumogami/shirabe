@@ -36,8 +36,11 @@
 # host's default branch (the session's ROADMAP path, contents API, never a
 # working tree). First that applies:
 #   closed <n>         the record issue is closed
-#   features-open <n>  a feature under `## Features` doesn't read Done or
-#                      Dropped, the roadmap lists no feature, or it is missing
+#   features-open <n>  a feature under `## Features` doesn't read Done,
+#                      Shipped or Dropped (annotated or not, as in
+#                      `Done -- shipped in #12`, as lib_roadmap_features
+#                      reads it), the roadmap lists no feature, or it is
+#                      missing
 #   holdings <n>       Holdings isn't empty
 #   side-effects <n>   Side effects in flight isn't empty
 #   deferrals <n>      a Deferrals row isn't `filed #<n>` or `closed: <text>`
@@ -149,7 +152,7 @@ if [ "$SCOPE" = roadmap ]; then
     OPEN=$(jq -c '[.[] | select(.done | not)]' "$T/features.json")
     if [ "$(printf '%s' "$OPEN" | jq length)" -gt 0 ]; then
         BLOCKER=$(printf '%s' "$OPEN" | jq -c '.[0] | {id, title, status}')
-        REASON="$(printf '%s' "$OPEN" | jq length) feature(s) not Done or Dropped"
+        REASON="$(printf '%s' "$OPEN" | jq length) feature(s) not Done, Shipped or Dropped"
         finish "features-open $REF"
     fi
     jq -r '.body // ""' "$T/issue.json" > "$T/body.md"
@@ -177,7 +180,7 @@ if [ "$SCOPE" = roadmap ]; then
     if [ "$BLOCKER" != null ]; then
         REASON="a decision is not settled"; finish "decisions $REF"
     fi
-    REASON="every feature Done or Dropped and the record is clear"
+    REASON="every feature Done, Shipped or Dropped and the record is clear"
     finish "ready $REF"
 fi
 

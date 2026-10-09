@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# roadmap-status.sh -- write a landed feature's Status and Outcome back to the
-# roadmap as a pull request, and keep the record saying it is pending.
+# roadmap-status.sh -- write a landed feature's Status and Delivered line back
+# to the roadmap as a pull request, and keep the record saying it is pending.
 # Agent-run, at roadmap scope only
 # (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 4).
 #
@@ -16,15 +16,25 @@
 # vars and run-facts); the override flags exist for tests only.
 #
 # --unit opens the roadmap pull request for the feature whose heading tag is
-# TAG (`Feature 7`, `ED1`), the coordinator having judged that its last pull
+# TAG (`Feature 7`, `ED1`, `AB10b`), the coordinator having judged that its last pull
 # request landed: it reads the roadmap at the default branch's head, refuses a
-# TAG that isn't a feature there or already reads Done or Dropped, refuses one
+# TAG that isn't a feature there or already reads Done, Shipped or Dropped
+# (annotated or not, as lib_roadmap_features reads them), refuses one
 # with a follow-up Work row (its scoping alone landed, its execution not), and refuses
 # while any roadmap pull request is pending in the record, since the generated
 # sections of two such pull requests would conflict. It sets the feature's
-# **Status:** to Done, writes **Outcome:** TEXT right after it (replacing one
-# that is there), removes its **Needs:** line, runs `shirabe roadmap populate`
-# so the generated sections agree, and changes nothing else. It commits that
+# **Status:** to Done, writes **Delivered:** TEXT right after it (replacing one
+# that is there), removes its **Needs:** line, each with its wrapped lines,
+# runs `shirabe roadmap populate` so the generated sections agree, and changes
+# nothing else: an **Outcome:** line is the promise and is never touched. One
+# exception: on a roadmap/v1 roadmap whose Dependencies name prefixed tags, or
+# whose headings carry a letter suffix (`AB10a`), the first populate with a
+# shirabe that reads those tags also rewrites the generated sections well
+# beyond this feature (rows go from None to real edges, and later F keys
+# renumber);
+# run one populate pass on such a roadmap on its own first, so this pull
+# request stays this feature's change. --outcome's text is what lands on the
+# Delivered line; the flag keeps its old name. It commits that
 # on a new branch, coordinate/roadmap-status-<tag>-<minute>, through the git
 # data and contents APIs, opens the pull request against the default branch,
 # and writes a Side effects in flight row through the record's write core:
@@ -33,7 +43,8 @@
 # whoever merges roadmap changes does.
 #
 # --confirm removes TAG's row once the roadmap on the default branch reads
-# Done or Dropped for it (exit 1, nothing written, while it doesn't). --drop
+# Done, Shipped or Dropped for it, annotated or not (`Done -- shipped in #12`;
+# exit 1, nothing written, while it doesn't). --drop
 # removes it with a reason, for a pull request closed unmerged. --list prints
 # the pending rows as a JSON array of {unit, pull_request, attempted}; it is
 # the one reader of these rows, which pick-facts.sh marks as landed units.
@@ -106,7 +117,7 @@ lib_roadmap_path
 lib_run_ref || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 case "$MODE" in
     list) ;;
-    *) [[ $TAG =~ ^(Feature\ [0-9]+|[A-Za-z]+[0-9]+)$ ]] || { echo "$PROG: $TAG is not a feature's heading tag (Feature 7, ED1)" >&2; exit 64; } ;;
+    *) [[ $TAG =~ ^(Feature\ [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$ ]] || { echo "$PROG: $TAG is not a feature's heading tag (Feature 7, ED1, AB10b)" >&2; exit 64; } ;;
 esac
 case "$OUTCOME$REASON" in *$'\n'*|*$'\r'*) echo "$PROG: --outcome and --reason are one line" >&2; exit 64 ;; esac
 
@@ -134,8 +145,13 @@ fi
 
 refuse() { echo "$PROG: refused: $*" >&2; exit 65; }
 lib_default_branch || lib_die2 "cannot read $REPO's default branch"
-# feature_status <file>: TAG's Status line in the roadmap, or nothing.
-feature_status() { lib_roadmap_features "$1" | jq -r --arg t "$TAG" '[.[] | select(.id == $t)][0].status // empty'; }
+# feature_read <file>: FEATURE, TAG's entry as lib_roadmap_features reads the
+# roadmap, or empty when no item carries TAG. A roadmap the reader can't read
+# is a read failure, never a feature that isn't there.
+feature_read() {
+    lib_roadmap_features "$1" > "$WD/features.json" 2> "$WD/f.err" || lib_die2 "cannot read the features of $ROADMAP: $(lib_scrub < "$WD/f.err")"
+    FEATURE=$(jq -c --arg t "$TAG" '[.[] | select(.id == $t)][0] // empty' "$WD/features.json") || lib_die2 "jq failed"
+}
 
 # write_record <next-json> <entry-text>: the record through the write core,
 # then the entry. The write core takes over the EXIT trap, so the entry's
@@ -170,11 +186,10 @@ confirm|drop)
     if [ "$MODE" = confirm ]; then
         lib_file_at "$ROADMAP" "$DEFAULT_BRANCH" "$WD/roadmap.md"
         case $? in 0) ;; 1) lib_die2 "$ROADMAP is not on $DEFAULT_BRANCH" ;; *) lib_die2 "cannot read $ROADMAP" ;; esac
-        ST=$(feature_status "$WD/roadmap.md")
-        case "$ST" in
-            Done|Done.|Dropped|Dropped.) ;;
-            *) echo "$PROG: $TAG reads ${ST:-no status} on $DEFAULT_BRANCH; its pull request, $(printf '%s' "$ROW" | jq -r .pull_request), hasn't landed" >&2; exit 1 ;;
-        esac
+        feature_read "$WD/roadmap.md"
+        ST=$(printf '%s' "$FEATURE" | jq -r '.status // empty')
+        [ "$(printf '%s' "$FEATURE" | jq -r '.done // false')" = true ] \
+            || { echo "$PROG: $TAG reads ${ST:-no status} on $DEFAULT_BRANCH; its pull request, $(printf '%s' "$ROW" | jq -r .pull_request), hasn't landed" >&2; exit 1; }
         without_row "$WD/next.json"
         write_record "$WD/next.json" "$TAG reads $ST on $DEFAULT_BRANCH; its roadmap pull request $(printf '%s' "$ROW" | jq -r .pull_request) landed, and the record no longer holds it."
     else
@@ -205,28 +220,32 @@ BLOB=$(jq -r '.sha // empty' "$WD/contents.json")
 [ -n "$(jq -r '.content // empty' "$WD/contents.json")" ] || lib_die2 "the contents API gave no content for $ROADMAP (a file over 1 MB?)"
 [[ $BLOB =~ $RE_SHA ]] || lib_die2 "$ROADMAP's blob sha is not a sha"
 jq -r '.content // ""' "$WD/contents.json" > "$WD/roadmap.b64" && lib_b64d "$WD/roadmap.b64" "$WD/roadmap.md" || lib_die2 "cannot decode $ROADMAP"
-FEATURE=$(lib_roadmap_features "$WD/roadmap.md" | jq -c --arg t "$TAG" '[.[] | select(.id == $t)][0] // empty')
+feature_read "$WD/roadmap.md"
 [ -n "$FEATURE" ] || refuse "$TAG is not a feature of $ROADMAP"
 [ "$(printf '%s' "$FEATURE" | jq -r .done)" = false ] || refuse "$TAG already reads $(printf '%s' "$FEATURE" | jq -r .status)"
 TITLE=$(printf '%s' "$FEATURE" | jq -r .title)
 
-# The three lines of TAG's block, and nothing else before the populate. The
-# outcome reaches awk through the environment, which takes it as written
-# (`-v` would read its backslashes as escapes). A roadmap with CRLF line
-# endings keeps them.
+# TAG's Status, Needs and Delivered fields, and nothing else before the
+# populate. A Needs or Delivered field goes with its wrapped lines, the lines
+# below it up to a blank line, the next field line or a heading, as the
+# reader bounds a field. The text reaches awk through the environment, which
+# takes it as written (`-v` would read its backslashes as escapes). A roadmap
+# with CRLF line endings keeps them.
 mkdir -p "$WD/doc"
 DOC="$WD/doc/$(basename "$ROADMAP")"
 CRLF=0
 grep -q $'\r$' "$WD/roadmap.md" && CRLF=1
-tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$TAG" RS_OUTCOME="$OUTCOME" awk '
-    BEGIN { tag = ENVIRON["RS_TAG"]; outcome = ENVIRON["RS_OUTCOME"] }
+tr -d '\r' < "$WD/roadmap.md" | RS_TAG="$TAG" RS_DELIVERED="$OUTCOME" awk '
+    BEGIN { tag = ENVIRON["RS_TAG"]; delivered = ENVIRON["RS_DELIVERED"] }
+    dropping && (/^[ \t]*$/ || /^\*\*[A-Z][A-Za-z ]*:\*\*/ || /^#+([ \t]|$)/) { dropping = 0 }
+    dropping { next }
     /^## / { infeat = ($0 ~ /^## Features[ \t]*$/); inblock = 0; print; next }
     infeat && /^### / { inblock = (index($0, "### " tag ": ") == 1); print; next }
-    inblock && /^\*\*Needs:\*\*/ { next }
-    inblock && /^\*\*Outcome:\*\*/ { next }
-    inblock && /^\*\*Status:\*\*/ { print "**Status:** Done"; print "**Outcome:** " outcome; next }
+    inblock && /^\*\*Needs:\*\*/ { dropping = 1; next }
+    inblock && /^\*\*Delivered:\*\*/ { dropping = 1; next }
+    inblock && /^\*\*Status:\*\*/ { print "**Status:** Done"; print "**Delivered:** " delivered; next }
     { print }' > "$DOC" || lib_die2 "awk failed"
-grep -qxF "**Outcome:** $OUTCOME" "$DOC" || refuse "the Outcome line could not be written into $TAG's block (it has no **Status:** line, or the outcome didn't survive as written)"
+grep -qxF "**Delivered:** $OUTCOME" "$DOC" || refuse "the Delivered line could not be written into $TAG's block (it has no **Status:** line, or the text didn't survive as written)"
 (cd "$WD/doc" && shirabe roadmap populate "$(basename "$DOC")" > /dev/null 2> "$WD/populate.err") \
     || lib_die2 "shirabe roadmap populate failed: $(lib_scrub < "$WD/populate.err")"
 if [ "$CRLF" = 1 ]; then sed 's/$/\r/' "$DOC" > "$DOC.crlf" && mv "$DOC.crlf" "$DOC"; fi
@@ -241,7 +260,7 @@ gh api --method PUT "repos/$REPO/contents/$ROADMAP" -f "message=docs(roadmap): r
     -f "content=$(cat "$WD/content")" -f "sha=$BLOB" -f "branch=$BRANCH_NEW" > /dev/null 2> "$WD/w.err" < /dev/null \
     || { echo "$PROG: the commit to $BRANCH_NEW failed: $(lib_scrub < "$WD/w.err")" >&2; exit 11; }
 {
-    printf 'Records %s of the roadmap, %s, as done: its Status is Done and its Outcome reads "%s". Its Needs line goes, as the roadmap'"'"'s rule for done features asks, and the generated sections are regenerated. Nothing else in the roadmap changes.\n\n---\n\n' "$TAG" "$TITLE" "$OUTCOME"
+    printf 'Records %s of the roadmap, %s, as done: its Status is Done and its Delivered line reads "%s"; its Outcome, the promise, is unchanged. Its Needs line goes, as the roadmap'"'"'s rule for done features asks, and the generated sections are regenerated. Nothing else in the roadmap changes.\n\n---\n\n' "$TAG" "$TITLE" "$OUTCOME"
     printf 'Opened by the coordinator for %s from its record, issue #%s, after it judged the feature'"'"'s last pull request landed. Review it against the roadmap'"'"'s own rules for an Active document before merging; the coordinator never merges it.\n' "$NAME" "$REF"
 } > "$WD/prbody.md"
 PR_URL=$(gh pr create --repo "$REPO" --head "$BRANCH_NEW" --base "$DEFAULT_BRANCH" --title "docs(roadmap): record $TAG, $TITLE, as done" \
@@ -255,5 +274,5 @@ jq --arg t "$TAG [#$PR_NUM]($PR_URL)" --arg at "$(date -u +%Y-%m-%dT%H:%MZ)" --a
         how_to_confirm: "the roadmap on \($d) reads \($tag) Done"}]' "$WD/parsed.json" > "$WD/next.json" || lib_die2 "jq failed"
 printf '%s\n' "$PR_URL" > "$WD/url"
 URL_OUT=$(cat "$WD/url")
-write_record "$WD/next.json" "$TAG landed; its roadmap pull request $PR_URL sets its Status to Done with the Outcome \"$OUTCOME\". Pick passes over $TAG until it merges."
+write_record "$WD/next.json" "$TAG landed; its roadmap pull request $PR_URL sets its Status to Done with the Delivered line \"$OUTCOME\". Pick passes over $TAG until it merges."
 printf '%s\n' "$URL_OUT"

@@ -77,20 +77,32 @@ tool to create `docs/roadmaps/ROADMAP-<topic>.md`.
 
 **Drafting guidance:**
 
-- **Frontmatter**: Include `status`, `theme`, `scope`, and `upstream` (if detected
-  in step 3.1). Omit `upstream` when no path was provided.
+- **Frontmatter**: Include `schema: roadmap/v2`, `status`, `theme`, `scope`, and
+  `upstream` (if detected in step 3.1). Omit `upstream` when no path was provided.
+  Every new roadmap is a milestone roadmap; the per-feature `roadmap/v1` format is
+  for roadmaps that already use it.
 - **Status**: Set to "Draft". Active requires human approval via lifecycle transition.
 - **Theme**: Synthesize from Phase 1's theme statement and Phase 2's findings. Should
   explain what initiative ties the features together and why coordinated sequencing
   matters.
 - **Scope**: Draw from Phase 1's scope boundaries. What this roadmap covers and
   doesn't cover.
-- **Features**: Populate from Phase 2 agent outputs. Each feature needs:
-  - A clear, independently describable title
-  - A rationale explaining why it's part of this roadmap
-  - A needs-* annotation reflecting downstream artifact state
-  - Dependencies on other features (if any)
-  - Status: all features start as "Not Started"
+- **Features**: Populate from Phase 2 agent outputs. Each item is a milestone in
+  the shape `references/roadmap-format.md` gives under Milestones:
+  - A `### <tag>: <title>` heading whose title names what someone can do
+  - `**Outcome:**` -- who can do what, end to end, that they couldn't before
+    (for a removal, migration or contract, the invariant that holds), with no
+    mechanism in it
+  - `**Evidence:**` -- one or more `- ` clauses, each naming who checks, from
+    what starting state, and what observable result shows the Outcome is met;
+    never a merge, a test run or an artifact existing
+  - `**Left open:**` -- the how-decisions the session doing the work makes,
+    or `None`
+  - `**Needs:**` when a needs-* label applies
+  - `**Dependencies:**` -- one line: `None`, or other milestones' tags and
+    `<owner>/<repo>#<n>` references, comma-separated; soft ordering goes in
+    the Sequencing Rationale
+  - `**Status:** Not started`
 - **Sequencing**: Draw from the sequencing analyst's findings. Explain ordering
   rationale -- why this order and not another. Acknowledge parallelization
   opportunities.
@@ -104,8 +116,15 @@ progress ledger for the strategy's execution and still the bridge into `/scope`,
 which `/brief` reaches through a ROADMAP, never a STRATEGY and never a
 PRD.
 
-**All features start as "Not Started."** The roadmap is a plan, not a progress
-tracker at creation time. Features move through statuses as work proceeds.
+**All milestones start as `Not started`.** The roadmap is a plan, not a progress
+tracker at creation time. Milestones move through `In progress` to `Done` or
+`Dropped` as work proceeds, and Done takes a verification verdict (the format
+reference's Done rule).
+
+After writing the draft, run `shirabe validate docs/roadmaps/ROADMAP-<topic>.md`
+and fix every FC21 finding before presenting it: a milestone missing its Outcome,
+an Evidence clause, Left open, Dependencies or Status is a gap in the draft, not
+something to leave for the jury.
 
 ### 3.3 Present the Draft
 
@@ -178,8 +197,10 @@ docs(roadmap): draft ROADMAP for <topic>
 
 Before proceeding:
 - [ ] ROADMAP draft written to `docs/roadmaps/ROADMAP-<topic>.md` with status "Draft"
-- [ ] All features present with rationale, needs-* annotation, dependencies, and
-      "Not Started" status
+- [ ] Frontmatter has `schema: roadmap/v2`
+- [ ] Every milestone has an Outcome, at least one Evidence clause, Left open,
+      one-line Dependencies, and `Not started` status
+- [ ] `shirabe validate` reports no FC21 finding
 - [ ] At least one feature in the roadmap
 - [ ] Sequencing rationale explains ordering, not just lists features (for a
       one-feature roadmap, explains why this feature is the whole of the work)

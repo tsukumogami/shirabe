@@ -218,6 +218,38 @@
         "Transcript does NOT run its own gh version or gh auth probe as a substitute for the check",
         "Transcript does NOT expect the load-time preflight to have already reported on gh"
       ]
+    },
+    {
+      "id": 16,
+      "name": "milestones-by-default",
+      "prompt": "/roadmap plugin-registry",
+      "expected_output": "A new roadmap is a milestone roadmap. The draft's frontmatter has schema: roadmap/v2, and each item under Features is a milestone: a ### <tag>: <title> heading, an Outcome saying who can do what end to end that they couldn't before, one or more Evidence clauses each naming who checks, from what starting state, and what they see, a Left open (or None), a one-line Dependencies of other milestones' tags or None, and Status: Not started. Scoping asks for an outcome and evidence per candidate. The draft is run through shirabe validate and has no FC21 finding before it is presented, and the jury fails an Outcome that names mechanism, an Evidence clause that is a merge, a test run or an artifact, and a Left open holding part of an Outcome.",
+      "files": [],
+      "expectations": [
+        "Transcript writes schema: roadmap/v2 in the new roadmap's frontmatter, not roadmap/v1",
+        "Transcript gives each feature an Outcome, at least one Evidence clause as a '- ' line, a Left open, a one-line Dependencies and Status: Not started",
+        "Transcript asks during scoping what each candidate lets someone do end to end and how someone else would check it",
+        "Transcript runs shirabe validate on the draft and treats an FC21 finding as something to fix before presenting it",
+        "Transcript does NOT accept a merged pull request, a passing test run or an artifact existing as an Evidence clause",
+        "Transcript does NOT treat Evidence clauses as requirements that belong in a PRD"
+      ]
+    },
+    {
+      "id": 17,
+      "name": "sharpen-active-milestone-in-place",
+      "prompt": "/roadmap release-automation -- RA2's evidence only says the release works; make it something a reviewer can check",
+      "expected_output": "docs/roadmaps/ROADMAP-release-automation.md exists at status Active with schema: roadmap/v2, so the resume row offers two choices: sharpen one milestone's Evidence or Left open in place, or start a new roadmap. The request names a check that can't be judged as written, so it recommends sharpening, following references/phases/sharpen.md. It rewrites only RA2's Evidence field so each clause names who checks, from what starting state, and what they see, without narrowing the Outcome; it leaves every other line of the file as it was and the status Active, runs shirabe validate and checks with git diff that only that field's lines changed, and commits with docs(roadmap): sharpen RA2 Evidence in ROADMAP-release-automation. On a roadmap/v1 roadmap the only choice would be a new roadmap.",
+      "files": [
+        "docs/roadmaps/ROADMAP-release-automation.md"
+      ],
+      "expectations": [
+        "Transcript detects the roadmap is Active and on schema roadmap/v2 and offers sharpening in place alongside starting a new roadmap",
+        "Transcript follows references/phases/sharpen.md",
+        "Transcript changes only RA2's Evidence lines, leaving its Outcome and every other milestone as they were",
+        "Transcript keeps the roadmap at status Active rather than moving it to Draft",
+        "Transcript runs shirabe validate and checks the diff touches only that field before committing",
+        "Transcript does NOT offer in-place sharpening for a roadmap/v1 roadmap"
+      ]
     }
   ]
 }

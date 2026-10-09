@@ -11,6 +11,7 @@ carries the roadmap-specific deltas, lifecycle, and quality guidance.
 - [Shared References](#shared-references)
 - [Frontmatter](#frontmatter)
 - [Required Sections](#required-sections)
+- [Milestones](#milestones)
 - [Reserved Sections](#reserved-sections)
 - [Content Boundaries](#content-boundaries)
 - [Lifecycle](#lifecycle)
@@ -48,7 +49,7 @@ Every roadmap begins with YAML frontmatter:
 
 ```yaml
 ---
-schema: roadmap/v1
+schema: roadmap/v2
 status: Draft
 theme: |
   1 paragraph describing the overarching theme or initiative this
@@ -61,7 +62,10 @@ upstream: docs/strategies/STRATEGY-<name>.md  # optional
 ---
 ```
 
-Required fields: `schema`, `status`, `theme`, `scope`. Optional:
+Required fields: `schema`, `status`, `theme`, `scope`. `schema` is
+`roadmap/v2` for a milestone roadmap, which is what `/roadmap` writes (see
+[Milestones](#milestones)), or `roadmap/v1` for one in the per-feature
+format below. Optional:
 `upstream` (path to the STRATEGY document that this roadmap sequences
 the work for, when one exists). Each field other than `schema` should
 be 1 paragraph using YAML literal block scalars (`|`).
@@ -148,7 +152,9 @@ Every roadmap has these sections in order:
 
 ### Per-Feature Format
 
-Each feature in the Features section follows this structure:
+Each feature in a `roadmap/v1` roadmap's Features section follows this
+structure (a `roadmap/v2` roadmap uses the milestone format in
+[Milestones](#milestones)):
 
 ```markdown
 ### Feature 1: Recipe validation pipeline
@@ -174,16 +180,175 @@ A feature heading uses one of two forms:
   is the 1-based feature number.
 - **Strategy-derived prefix:** `### <PREFIX><N>: <label>` -- a short
   alphabetic tag immediately followed by the feature number, no space
-  between them (e.g. `### ED1:`, `### SE2:`, `### SR10:`, `### NW1:`).
+  between them (e.g. `### ED1:`, `### SE2:`, `### SR10:`, `### NW1:`),
+  optionally followed by one lowercase letter for an item split out of
+  another (`### AB10a:`).
   This variant fits product-spanning roadmaps derived from a strategy,
   where a per-direction prefix keeps features grouped by their strategic
   building block.
 
 Both forms are equivalent to the tooling: features are numbered
-positionally in source order regardless of the tag, so a
-`**Dependencies:** Feature 1` edge resolves against the first feature
-whether it is written `### Feature 1:` or `### ED1:`. Pick one form per
-roadmap and use it consistently.
+positionally in source order regardless of the tag, and the generated
+tables and graph name them `F<n>` by that position. A Dependencies line
+may name another feature by its tag (`ED1`, `AB10a`), by `Feature <N>`, or
+by `F<N>`: `Feature <N>` and `F<N>` mean the feature tagged `Feature <N>`
+when there is one and the Nth feature otherwise. That is what the tools
+read on either schema; on a `roadmap/v2` roadmap FC21 is stricter and takes
+only another milestone's exact tag, so write the tag there. Pick one form
+per roadmap and use it consistently.
+
+## Milestones
+
+A roadmap whose frontmatter reads `schema: roadmap/v2` is a milestone
+roadmap: every item in its Features section is a milestone, an outcome
+someone can exercise end to end, with a check someone other than the
+session that delivers it can judge. `/roadmap` writes `roadmap/v2` by
+default. A `roadmap/v1` roadmap keeps the per-feature format above and
+validates exactly as before; nothing nudges it to migrate.
+
+### The milestone fields
+
+```markdown
+### Feature 2: A maintainer finds a plugin by name
+
+**Outcome:** A maintainer who installed three plugins runs `widgets list`
+and sees each one by name, with the version it loaded, without reading the
+plugin directory by hand.
+
+**Evidence:**
+- A reviewer, from a clean install with the three sample plugins, runs
+  `widgets list` and sees exactly those three names and versions.
+- The same reviewer removes one plugin's manifest and sees `widgets list`
+  name the plugin it skipped and why, and exit non-zero.
+
+**Left open:** the registry's storage format and the command's output
+layout.
+
+**Needs:** `needs-design` -- the registry shape
+**Dependencies:** Feature 1
+**Status:** Not started
+```
+
+The heading is `### <tag>: <title>`, with a space after the colon and a
+non-empty title. The tag is `Feature <N>` or a prefix tag, letters
+followed by a number and, optionally, one lowercase letter (`AB1`,
+`AB10a`), as in [Heading forms](#heading-forms). A field line starts at
+column 0 with `**<Name>:**`, and its value runs to the first blank line,
+the next field line or the next heading. Write the fields in this order:
+
+- **Outcome** -- who can do what, end to end, that they couldn't before.
+  For a removal, a migration or a contract, the invariant that holds
+  ("nothing visible changed and the old command is gone"). Never the merge
+  that delivered it, and never the mechanism: a command, file or component
+  to build belongs in Left open or in the design.
+- **Evidence** -- one or more clauses, each a `- ` line at column 0 (wrap
+  a long clause onto indented lines). Each clause names who checks, from
+  what starting state (a clean install, a fresh workspace, the session
+  shape users actually hit), and what observable result shows the Outcome
+  is met. A command with expected output, a scripted or end-to-end check,
+  a walkthrough a person follows, and an invariant with a negative clause
+  for refusals all count. A merged pull request, "tests pass", an artifact
+  existing, the author's say-so, or a judgment like "works well" don't.
+- **Left open** -- the how-decisions that belong to the session that does
+  the work (names, layouts, mechanisms), so nobody reads an example as a
+  commitment; `None` when nothing is. It never holds part of the Outcome:
+  anything whose absence would make the Outcome false is in the Outcome,
+  unmet, or is a milestone of its own.
+- **Needs** -- optional, as in the per-feature format.
+- **Dependencies** -- one line: `None`, or a comma-separated list whose
+  every entry is another milestone's tag or a cross-repo issue reference
+  `<owner>/<repo>#<n>`. Soft ordering and the reasons behind an order go
+  in the Sequencing Rationale, not here.
+- **Status** -- exactly `Not started`, `In progress`, `Done` or `Dropped`.
+- **Delivered** -- optional; the pull requests that delivered the work,
+  added as they merge. It is what landed, never the promise: the Outcome
+  stays as written. In a public roadmap it names only public pull requests
+  and issues; nothing checks that yet (a mechanical guard is tracked in
+  #682), so whoever writes the line keeps to it.
+
+Other field lines (a `**Downstream:**` line, for example) and prose after a
+blank line are allowed; they belong to no milestone field.
+
+A Dependencies entry is matched against the other milestones' tags
+exactly: `Feature 2` names the milestone tagged `Feature 2`, `AB1` the one
+tagged `AB1`. `F2` and a bare position are not tags here. The populated
+tables and the Dependency Graph still number milestones `F<n>` by
+position, as on any roadmap.
+
+### When a milestone is Done
+
+A milestone is Done only on a verification verdict from the human or the
+coordinator that dispatched the work, never from the session that
+delivered it. The checker judges the shipped work against the milestone's
+Evidence and against the strategy the roadmap serves, and records one of
+three verdicts:
+
+- **changes needed** -- a clause doesn't hold or the work doesn't fit the
+  strategy; the milestone stays In progress.
+- **verified with follow-ups** -- every clause holds, and what the work
+  revealed becomes new or amended milestones.
+- **verified** -- every clause holds, with nothing to follow up.
+
+Either verified verdict sets the Status to Done, and every follow-up
+milestone the verdict names is added to the roadmap in the same edit that
+sets Done. A verdict is verification, not approval: merging stays wherever
+the repository's permissions put it.
+
+The rule is documentation today: no tool enforces it, and the completion
+cascade and the coordinator's status write-back can still set Done when
+work merges. A coordinator driving a milestone roadmap can decline to run
+the merge-driven write-back until that changes.
+
+### What may change while it is Active
+
+An Active `roadmap/v2` roadmap may change in place in exactly these ways:
+
+- a milestone's Evidence or Left open is sharpened (`/roadmap` offers this
+  on an Active milestone roadmap; the procedure is
+  `references/phases/sharpen.md`);
+- a milestone's Status and Delivered change as the work progresses;
+- the follow-up milestones a verified-with-follow-ups verdict names are
+  added in the same edit that sets Done;
+- an Outcome is narrowed, together with a line in Progress that says so:
+
+  ```markdown
+  - YYYY-MM-DD: <tag> Outcome amended -- <what changed and why>
+  ```
+
+Any other change to the Features section -- adding, removing, reordering
+or retitling a milestone, changing its Dependencies, widening its Outcome
+-- or to the Sequencing Rationale needs a new roadmap, as on a
+`roadmap/v1` roadmap. These rules are documentation: no tool enforces them.
+
+### Validation (FC21)
+
+On a `roadmap/v2` roadmap, `shirabe validate` runs FC21, an error-level
+check that names the milestone it fires on (`[FC21] milestone 'AB1:
+Loader' has no Evidence`). It reports:
+
+- an Outcome that is missing or empty;
+- Evidence that is missing, or has no `- ` clause;
+- a missing Left open, Dependencies or Status;
+- a Dependencies line that continues onto the next line, or names an entry
+  that is neither another milestone's tag nor `<owner>/<repo>#<n>`;
+- a Status other than `Not started`, `In progress`, `Done` or `Dropped`;
+- a tag that repeats an earlier milestone's;
+- a `###` heading in the Features section that isn't a milestone heading,
+  including one with no title or no space after the colon (`### AB2:Lister`).
+
+FC21 checks that the fields are there, not what they say: whether an
+Outcome names mechanism or an Evidence clause is something only the author
+could judge is the `/roadmap` jury's call. A `roadmap/v1` roadmap never
+gets FC21 and gets exactly the findings it got before `roadmap/v2` existed.
+
+### Migrating a roadmap
+
+A roadmap already written with these fields becomes a milestone roadmap by
+changing its `schema:` line to `roadmap/v2`; `shirabe validate` then names
+anything that doesn't fit. A roadmap that recorded merged pull requests on
+an `**Outcome:**` line renames that line `**Delivered:**` and writes the
+item's real outcome in its place. Nothing else needs to move: the tables,
+the Dependency Graph and the coordinator read either version.
 
 ## Reserved Sections
 
@@ -337,7 +502,9 @@ Draft --> Active --> Done
 Active roadmaps can update the Progress section and reserved sections
 (Implementation Issues, Dependency Graph) freely. Changes to the
 Features list or Sequencing Rationale require creating a new roadmap
--- those sections are locked once the roadmap leaves Draft.
+-- those sections are locked once the roadmap leaves Draft. A
+`roadmap/v2` roadmap also allows the in-place milestone edits in [What
+may change while it is Active](#what-may-change-while-it-is-active).
 
 ## File Location
 
@@ -382,7 +549,8 @@ directory movement based on status -- all roadmaps stay in
 
 The validator runs FC05 (issues-table schema conformance), FC06
 (cross-reference existence), and FC16 (reserved-section shape) on roadmap
-docs. See `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the
+docs, and FC21 (the milestone fields) on a `roadmap/v2` roadmap; see
+[Validation (FC21)](#validation-fc21). See `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` for the
 canonical roadmap profile contract FC05/FC06 enforce.
 
 FC05 and FC06 validate a *present* issues table and FC07 reconciles a
