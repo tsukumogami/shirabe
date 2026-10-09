@@ -265,7 +265,7 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str, schema: &st
                 None => "None".to_string(),
             }
         };
-        let deps_cell = render_deps_cell(&f.dependencies, features, &aliases);
+        let deps_cell = render_deps_cell(&f.dependencies, Some(f.id), features, &aliases);
         let status_cell = pick_status_cell(f);
         let desc = concise_description(summary_text(f, schema));
         if feature_is_terminal(f) {
@@ -306,7 +306,7 @@ pub fn render_issueless_diagram(features: &[Feature]) -> String {
         if f.dependencies.is_empty() || f.dependencies == "None" {
             continue;
         }
-        for n in dependency_positions(&f.dependencies, features) {
+        for n in dependency_positions(&f.dependencies, features, Some(f.id)) {
             s.push_str(&format!("    F{} --> F{}\n", n, f.id));
         }
     }
@@ -787,7 +787,7 @@ pub fn render_table(
             Some(n) => format!("[#{}](https://github.com/{}/issues/{})", n, owner_repo, n),
             None => "None".to_string(),
         };
-        let deps_cell = render_deps_cell(&f.dependencies, features, &keys);
+        let deps_cell = render_deps_cell(&f.dependencies, Some(f.id), features, &keys);
         let status_cell = pick_status_cell(f);
         let desc = concise_description(summary_text(f, schema));
         if feature_is_terminal(f) {
@@ -860,7 +860,7 @@ pub fn render_diagram(features: &[Feature], mapping: &IssueMap) -> String {
         let Some(dependent) = mapping.get(&f.id.to_string()) else {
             continue;
         };
-        for pos in dependency_positions(&f.dependencies, features) {
+        for pos in dependency_positions(&f.dependencies, features, Some(f.id)) {
             if let Some(blocker) = mapping.get(&features[pos - 1].id.to_string()) {
                 s.push_str(&format!("    I{} --> I{}\n", blocker, dependent));
             }
@@ -931,7 +931,7 @@ fn ready_or_blocked(f: &Feature, features: &[Feature]) -> &'static str {
     if has_cross_repo_dep(&f.dependencies) {
         return "blocked";
     }
-    for pos in dependency_positions(&f.dependencies, features) {
+    for pos in dependency_positions(&f.dependencies, features, Some(f.id)) {
         if !feature_is_terminal(&features[pos - 1]) {
             return "blocked";
         }
@@ -1155,10 +1155,17 @@ fn first_sentence(text: &str) -> String {
 /// [`dependency_positions`] returns only positions that name a feature, so a
 /// typo such as `Feature 0`, a stale `Feature 12` on a three-feature roadmap,
 /// or a tag no item carries contributes no token, which is what both modes
-/// have always done with a reference they cannot resolve.
-fn render_deps_cell(deps: &str, features: &[Feature], tokens: &[String]) -> String {
+/// have always done with a reference they cannot resolve. `own` is the
+/// position of the feature whose cell this is, so a mention of itself is
+/// dropped too.
+fn render_deps_cell(
+    deps: &str,
+    own: Option<usize>,
+    features: &[Feature],
+    tokens: &[String],
+) -> String {
     let mut parts: Vec<String> = Vec::new();
-    for pos in dependency_positions(deps, features) {
+    for pos in dependency_positions(deps, features, own) {
         let Some(token) = tokens.get(pos - 1) else {
             continue;
         };
@@ -1963,7 +1970,7 @@ mod tests {
             .map(|n| make_feature(n, &format!("L{}", n), "", "None", "Not started", "x."))
             .collect();
         let aliases = feature_aliases(&features);
-        let cell = |deps: &str| render_deps_cell(deps, &features, &aliases);
+        let cell = |deps: &str| render_deps_cell(deps, None, &features, &aliases);
         assert_eq!(cell("Features 2, 3"), "F2, F3");
         assert_eq!(cell("Features 2 and 3"), "F2, F3");
         assert_eq!(cell("Feature 1, 2 and 3"), "F1, F2, F3");
@@ -2019,10 +2026,34 @@ mod tests {
     }
 
     #[test]
+    fn a_mention_of_the_item_itself_draws_no_self_edge() {
+        // AB1 is done; AB2's Dependencies name AB1 and, in a parenthetical,
+        // AB2 itself. Only AB1 is a dependency, so AB2 is ready.
+        let mut features = vec![
+            make_feature(1, "Base", "", "None", "Done", "x."),
+            make_feature(2, "Next", "", "AB1 (the cache AB2 fronts)", "Not started", "x."),
+        ];
+        for (f, tag) in features.iter_mut().zip(["AB1", "AB2"]) {
+            f.tag = tag.to_string();
+        }
+        let table = render_issueless_table(&features, "", "roadmap/v1");
+        assert!(
+            table.contains("| Next | None | F1 | Not started |"),
+            "{table}"
+        );
+        let diagram = render_issueless_diagram(&features);
+        assert!(diagram.contains("    F1 --> F2\n"), "{diagram}");
+        assert!(!diagram.contains("F2 --> F2"), "{diagram}");
+        assert_eq!(pick_class(&features[1], &features), "ready");
+        let map = synthesize_mapping(&features);
+        assert!(!render_diagram(&features, &map).contains("I1002 --> I1002"));
+    }
+
+    #[test]
     fn a_dependency_naming_an_unknown_tag_draws_nothing() {
         let features = prefixed_features();
         let aliases = feature_aliases(&features);
-        assert_eq!(render_deps_cell("ZZ9", &features, &aliases), "None");
+        assert_eq!(render_deps_cell("ZZ9", None, &features, &aliases), "None");
         let diagram = render_issueless_diagram(&features);
         assert!(!diagram.contains("--> F3"), "{diagram}");
         assert_eq!(pick_class(&features[2], &features), "ready");
@@ -2253,15 +2284,15 @@ mod tests {
         // (its row key) so FC06 passes.
         let f4 = make_feature(4, "Dash", "", "Features 2, 3", "Not started", "x.");
         assert_eq!(
-            render_deps_cell(&f4.dependencies, &features, &keys),
+            render_deps_cell(&f4.dependencies, None, &features, &keys),
             "Caching layer, Metrics"
         );
         // Cross-repo refs are preserved verbatim alongside resolved labels.
         assert_eq!(
-            render_deps_cell("tsukumogami/koto#65, Feature 1", &features, &keys),
+            render_deps_cell("tsukumogami/koto#65, Feature 1", None, &features, &keys),
             "Foundation layer, tsukumogami/koto#65"
         );
-        assert_eq!(render_deps_cell("None", &features, &keys), "None");
+        assert_eq!(render_deps_cell("None", None, &features, &keys), "None");
     }
 
     #[test]
@@ -2275,10 +2306,10 @@ mod tests {
             make_feature(2, "Caching layer", "", "Feature 1", "Not started", "x."),
         ];
         let keys = feature_keys(&features);
-        assert_eq!(render_deps_cell("Feature 0", &features, &keys), "None");
-        assert_eq!(render_deps_cell("Feature 99", &features, &keys), "None");
+        assert_eq!(render_deps_cell("Feature 0", None, &features, &keys), "None");
+        assert_eq!(render_deps_cell("Feature 99", None, &features, &keys), "None");
         assert_eq!(
-            render_deps_cell("Feature 1, Feature 99", &features, &keys),
+            render_deps_cell("Feature 1, Feature 99", None, &features, &keys),
             "Foundation layer"
         );
     }
@@ -2300,11 +2331,11 @@ mod tests {
         ];
         let keys = feature_keys(&features);
         assert_eq!(
-            render_deps_cell(&features[1].dependencies, &features, &keys),
+            render_deps_cell(&features[1].dependencies, None, &features, &keys),
             "Foundation layer"
         );
         assert_eq!(
-            render_deps_cell("None (ext: onboarding)", &features, &keys),
+            render_deps_cell("None (ext: onboarding)", None, &features, &keys),
             "None"
         );
     }
@@ -2320,7 +2351,7 @@ mod tests {
         // A dependency on the fallen-back feature names the fallback key.
         let keys = feature_keys(&features);
         assert_eq!(
-            render_deps_cell(&features[1].dependencies, &features, &keys),
+            render_deps_cell(&features[1].dependencies, None, &features, &keys),
             "F1"
         );
 

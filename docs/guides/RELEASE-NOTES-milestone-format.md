@@ -2,11 +2,10 @@
 
 Roadmap items can now be milestones: an outcome someone can exercise end to
 end, with a check someone other than the session that delivers it can
-judge. `/roadmap` writes them by default, `shirabe validate` holds them to
-their fields, and every roadmap reader agrees on what an item's tag,
-dependencies and status mean. An existing roadmap keeps validating as it
-did; the one visible change is that populate now draws dependency edges it
-used to miss.
+judge. `/roadmap` writes them by default and `shirabe validate` holds them
+to their fields. An existing roadmap keeps validating as it did; what
+changes is that populate now draws dependency edges it used to miss (see
+Migrating a roadmap).
 
 ## What's new
 
@@ -39,7 +38,15 @@ validator, not only `Feature N`, and so does an `F<N>` written in a
 Dependencies line. Populate draws those edges on both schema versions, so a
 `roadmap/v1` roadmap whose dependencies name prefixed tags or `F<N>` gains
 diagram edges and `F<n>` dependency cells the next time it is populated.
-A `Feature N` that names no feature no longer draws an edge to nothing.
+A `Feature N` that names no feature no longer draws an edge to nothing,
+and an item that mentions its own tag or number draws no edge to itself.
+
+Populate and the coordinator's picker don't read a Dependencies line the
+same way yet. Populate keeps a mention that is marked soft or sits in
+parentheses and counts it as a dependency; the picker drops both. On a
+`roadmap/v2` roadmap FC21 keeps Dependencies to a plain list of tags, so the
+two agree there; on a `roadmap/v1` roadmap written in prose they can
+differ.
 
 **The coordinator reads older roadmaps the way a person would.** The
 picker reads a Dependencies paragraph across its wrapped lines, ignores
@@ -58,6 +65,15 @@ requests; a mechanical guard is tracked in #682.
 
 ## Migrating a roadmap
 
+**Run populate once on an existing roadmap that uses prefixed tags.** On a
+`roadmap/v1` roadmap whose Dependencies name prefixed tags, or whose
+headings carry a letter suffix (`### AB10a:`), the next populate rewrites
+the Implementation Issues table and the Dependency Graph: rows that read
+`None` gain their real dependencies, and a suffixed heading now counts as a
+feature, so the `F<n>` keys after it renumber. Give each such roadmap one
+populate pass of its own, so the rewrite isn't folded into an unrelated
+change, such as the coordinator's status write-back.
+
 A roadmap already written with the milestone fields (`### Feature N:`
 headings, `**Outcome:**`, `**Evidence:**`, `**Left open:**`,
 `**Dependencies:**` naming `Feature N`, a bare Status word and a
@@ -69,5 +85,7 @@ line `**Delivered:**` and writes the item's real outcome in its place.
 ## Not in this release
 
 The Done rule is documentation for now: the completion cascade and the
-coordinator's write-back can still set Done when work merges. Making every
-tool wait for a verdict is later work.
+coordinator's status write-back still set Done when work merges, before
+anyone has judged the Evidence. Enforcing the rule at the coordinator, so
+that a milestone reaches Done only on a verification verdict, is later
+work.

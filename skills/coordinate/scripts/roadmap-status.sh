@@ -26,7 +26,15 @@
 # **Status:** to Done, writes **Delivered:** TEXT right after it (replacing one
 # that is there), removes its **Needs:** line, each with its wrapped lines,
 # runs `shirabe roadmap populate` so the generated sections agree, and changes
-# nothing else: an **Outcome:** line is the promise and is never touched. It commits that
+# nothing else: an **Outcome:** line is the promise and is never touched. One
+# exception: on a roadmap/v1 roadmap whose Dependencies name prefixed tags, or
+# whose headings carry a letter suffix (`AB10a`), the first populate with a
+# shirabe that reads those tags also rewrites the generated sections well
+# beyond this feature (rows go from None to real edges, and later F keys
+# renumber);
+# run one populate pass on such a roadmap on its own first, so this pull
+# request stays this feature's change. --outcome's text is what lands on the
+# Delivered line; the flag keeps its old name. It commits that
 # on a new branch, coordinate/roadmap-status-<tag>-<minute>, through the git
 # data and contents APIs, opens the pull request against the default branch,
 # and writes a Side effects in flight row through the record's write core:

@@ -389,7 +389,8 @@ It opens a pull request on the roadmap's repository that sets the feature's
 Status to Done, writes `--outcome`'s text on a `**Delivered:**` line after it
 (replacing an earlier one), removes its Needs line and regenerates the
 generated sections, changing nothing else: the feature's `**Outcome:**` line
-is the promise and is never touched. In a public roadmap the text names only
+is the promise and is never touched. The flag is named `--outcome`, but its
+text fills the Delivered line. In a public roadmap the text names only
 public pull requests. It adds a Side effects in flight row:
 
 ```markdown

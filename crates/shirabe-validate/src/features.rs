@@ -342,7 +342,12 @@ static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9]+").
 /// A number or tag that names no feature contributes nothing, and a
 /// cross-repo reference (`owner/repo#7`) never matches, so callers get only
 /// positions they can index.
-pub fn dependency_positions(deps: &str, features: &[Feature]) -> Vec<usize> {
+///
+/// `own` is the position of the item whose Dependencies `deps` is, when it
+/// is one. An item never depends on itself, so a mention of its own tag or
+/// number (`AB7 (the review surface AB10 renders)` under `AB10`) is dropped,
+/// as the coordinator's roadmap reader and FC21 drop it.
+pub fn dependency_positions(deps: &str, features: &[Feature], own: Option<usize>) -> Vec<usize> {
     // `Feature N` names the item tagged so when there is one, else the Nth.
     let numbered = |n: usize| -> Option<usize> {
         let tagged = format!("Feature {n}");
@@ -380,7 +385,7 @@ pub fn dependency_positions(deps: &str, features: &[Feature]) -> Vec<usize> {
     hits.sort_by_key(|&(at, _)| at);
     let mut out: Vec<usize> = Vec::new();
     for (_, id) in hits {
-        if !out.contains(&id) {
+        if Some(id) != own && !out.contains(&id) {
             out.push(id);
         }
     }
@@ -993,30 +998,30 @@ mod tests {
     #[test]
     fn dependency_positions_resolves_every_spelling() {
         let classic = tagged(&["Feature 1", "Feature 2", "Feature 3"]);
-        assert_eq!(dependency_positions("Feature 2", &classic), vec![2]);
+        assert_eq!(dependency_positions("Feature 2", &classic, None), vec![2]);
         assert_eq!(
-            dependency_positions("Features 1, 2 and 3", &classic),
+            dependency_positions("Features 1, 2 and 3", &classic, None),
             vec![1, 2, 3]
         );
-        assert_eq!(dependency_positions("F2", &classic), vec![2]);
-        assert_eq!(dependency_positions("None", &classic), Vec::<usize>::new());
+        assert_eq!(dependency_positions("F2", &classic, None), vec![2]);
+        assert_eq!(dependency_positions("None", &classic, None), Vec::<usize>::new());
         assert_eq!(
-            dependency_positions("Feature 3, Feature 3, Feature 1", &classic),
+            dependency_positions("Feature 3, Feature 3, Feature 1", &classic, None),
             vec![3, 1]
         );
 
         let prefixed = tagged(&["AB1", "AB2", "AB10a"]);
-        assert_eq!(dependency_positions("AB1", &prefixed), vec![1]);
-        assert_eq!(dependency_positions("AB10a, AB1", &prefixed), vec![3, 1]);
+        assert_eq!(dependency_positions("AB1", &prefixed, None), vec![1]);
+        assert_eq!(dependency_positions("AB10a, AB1", &prefixed, None), vec![3, 1]);
         // `Feature N` on a prefixed roadmap is the Nth item.
-        assert_eq!(dependency_positions("Feature 2", &prefixed), vec![2]);
+        assert_eq!(dependency_positions("Feature 2", &prefixed, None), vec![2]);
         // Unknown tags, out-of-range numbers and cross-repo refs name nothing.
         assert_eq!(
-            dependency_positions("ZZ9, Feature 9, owner/repo#7", &prefixed),
+            dependency_positions("ZZ9, Feature 9, owner/repo#7", &prefixed, None),
             Vec::<usize>::new()
         );
         // `AB1` inside `AB10a` is not a whole token.
-        assert_eq!(dependency_positions("AB10a", &prefixed), vec![3]);
+        assert_eq!(dependency_positions("AB10a", &prefixed, None), vec![3]);
     }
 
     #[test]
@@ -1024,16 +1029,30 @@ mod tests {
         // A roadmap whose second item is tagged `Feature 1` (headings out of
         // order): the tag wins over the position.
         let fs = tagged(&["Feature 2", "Feature 1"]);
-        assert_eq!(dependency_positions("Feature 1", &fs), vec![2]);
-        assert_eq!(dependency_positions("Feature 2", &fs), vec![1]);
-        assert_eq!(dependency_positions("F2", &fs), vec![1]);
-        assert_eq!(dependency_positions("F1", &fs), vec![2]);
+        assert_eq!(dependency_positions("Feature 1", &fs, None), vec![2]);
+        assert_eq!(dependency_positions("Feature 2", &fs, None), vec![1]);
+        assert_eq!(dependency_positions("F2", &fs, None), vec![1]);
+        assert_eq!(dependency_positions("F1", &fs, None), vec![2]);
+    }
+
+    #[test]
+    fn an_item_never_depends_on_itself() {
+        // A parenthetical naming the item itself, in every spelling.
+        let prefixed = tagged(&["AB7", "AB8", "AB9", "AB10"]);
+        let deps = "AB7 (the review surface AB10 renders); AB8 + AB9";
+        assert_eq!(dependency_positions(deps, &prefixed, Some(4)), vec![1, 2, 3]);
+        assert_eq!(dependency_positions(deps, &prefixed, None), vec![1, 4, 2, 3]);
+        let classic = tagged(&["Feature 1", "Feature 2"]);
+        assert_eq!(
+            dependency_positions("Feature 1 (unlike Feature 2 or F2)", &classic, Some(2)),
+            vec![1]
+        );
     }
 
     #[test]
     fn a_tag_spelled_like_the_index_alias_resolves_as_the_tag() {
         let fs = tagged(&["F2", "F1"]);
-        assert_eq!(dependency_positions("F2", &fs), vec![1]);
+        assert_eq!(dependency_positions("F2", &fs, None), vec![1]);
     }
 
     #[test]
