@@ -55,7 +55,8 @@ REG="$S/references/rule-registry.json"
 MUTABLE="references/rule-registry.json references/rule-registry.md references/pr-body-conformance.md
 docs/measurement/offload-baseline/template-pin.json .github/workflows/check-rule-registry.yml
 docs/designs/current/DESIGN-output-gates.md skills/execute/koto-templates/execute.md
-skills/work-on/scripts/check-pr-output.sh skills/execute/scripts/adopt-or-create-pr.sh"
+skills/work-on/scripts/check-pr-output.sh skills/execute/scripts/adopt-or-create-pr.sh
+skills/work-on/scripts/panel-scope.sh"
 mkdir -p "$WORK/orig"
 for f in $MUTABLE; do
     mkdir -p "$WORK/orig/$(dirname "$f")"
@@ -222,6 +223,23 @@ expect_problem "an unregistered RULE_IDS id" "RULE_IDS names pr-body/not-registe
 sed 's|^RULE_IDS="\(.*\)"$|RULE_IDS="\1" # trailing words|' \
     "$WORK/orig/skills/work-on/scripts/check-pr-output.sh" > "$S/skills/work-on/scripts/check-pr-output.sh"
 expect_problem "a malformed RULE_IDS line" "check-pr-output.sh:63: malformed RULE_IDS line"
+
+# The declared exception: RULE_IDS_ANY_ACTIVE=1 beside an rf_require_any call,
+# in panel-scope.sh only. Each case builds its alteration from the original so
+# it holds whether or not the original already carries the pair.
+PS=skills/work-on/scripts/panel-scope.sh
+PO=skills/work-on/scripts/check-pr-output.sh
+{ cat "$WORK/orig/$PO"; echo 'RULE_IDS_ANY_ACTIVE=1'; echo 'rf_require_any "$id"'; } > "$S/$PO"
+expect_problem "the any-active marker outside the allowed script" "RULE_IDS_ANY_ACTIVE is allowed only in"
+
+{ sed 's/rf_require_any/rf_require_some/g; /^RULE_IDS_ANY_ACTIVE=/d' "$WORK/orig/$PS"; echo 'RULE_IDS_ANY_ACTIVE=1'; } > "$S/$PS"
+expect_problem "the any-active marker with no rf_require_any call" "declares RULE_IDS_ANY_ACTIVE=1 but never calls rf_require_any"
+
+{ sed '/^RULE_IDS_ANY_ACTIVE=/d' "$WORK/orig/$PO"; echo 'rf_require_any "$id"'; } > "$S/$PO"
+expect_problem "an rf_require_any call with no marker" "calls rf_require_any without declaring RULE_IDS_ANY_ACTIVE=1"
+
+{ sed '/^RULE_IDS_ANY_ACTIVE=/d' "$WORK/orig/$PS"; echo 'RULE_IDS_ANY_ACTIVE=yes'; } > "$S/$PS"
+expect_problem "a malformed any-active marker" "malformed RULE_IDS_ANY_ACTIVE line"
 
 # ---------------------------------------------------------------- releasable
 

@@ -23,7 +23,10 @@
 #      are one set, and each entry's text.path is its criterion's rule_ref
 #   6  printable ids: every id on a RULE_IDS="..." line under skills/ or
 #      scripts/, and every id a script passes to `rule-registry.sh release`,
-#      is an active entry
+#      is an active entry; a RULE_IDS_ANY_ACTIVE=1 line, the declared
+#      exception for a script that resolves a finding's own rule at run time,
+#      appears only in an allowed script and only beside an rf_require_any
+#      call, and no other shipping script calls rf_require_any
 #   7  baseline keys: template-pin.json's commit is 40 hex characters; each
 #      key is <path>#L<a>-L<b>, a <= b, inside its file at that commit; an
 #      entry sharing a key names the others in notes; an empty list has notes
@@ -350,6 +353,40 @@ while IFS= read -r hit; do
         is_active "$id" || problem "$rel:$lineno: RULE_IDS names $id, which is not an active registry entry"
     done
 done < "$TMP/rule-ids"
+
+# The one declared exception to "every printable id is on a static line":
+# a script that prints a finding under the finding's own rule resolves that id
+# at run time with rf_require_any, and says so with RULE_IDS_ANY_ACTIVE=1. The
+# runtime still refuses any id that isn't active; this keeps the exception
+# visible, paired and confined to the scripts listed here.
+ANY_ACTIVE_ALLOWED="skills/work-on/scripts/panel-scope.sh"
+scan "$TMP/any-marker" -rnE '^RULE_IDS_ANY_ACTIVE=' "$ROOT/skills" "$ROOT/scripts"
+scan "$TMP/any-calls" -rlE --include='*.sh' '(^|[^A-Za-z0-9_])rf_require_any([[:space:]]|$)' "$ROOT/skills" "$ROOT/scripts"
+while IFS= read -r hit; do
+    file=${hit%%:*}
+    rest=${hit#*:}
+    lineno=${rest%%:*}
+    text=${rest#*:}
+    rel=${file#"$ROOT"/}
+    if [ "$text" != "RULE_IDS_ANY_ACTIVE=1" ]; then
+        problem "$rel:$lineno: malformed RULE_IDS_ANY_ACTIVE line; want RULE_IDS_ANY_ACTIVE=1"
+        continue
+    fi
+    case " $ANY_ACTIVE_ALLOWED " in
+        *" $rel "*) ;;
+        *) problem "$rel:$lineno: RULE_IDS_ANY_ACTIVE is allowed only in: $ANY_ACTIVE_ALLOWED" ;;
+    esac
+    grep -qxF -- "$file" "$TMP/any-calls" \
+        || problem "$rel:$lineno: declares RULE_IDS_ANY_ACTIVE=1 but never calls rf_require_any"
+done < "$TMP/any-marker"
+while IFS= read -r file; do
+    rel=${file#"$ROOT"/}
+    case "$rel" in
+        *_test.sh|scripts/lib/*|scripts/check-rule-registry*.sh) continue ;;
+    esac
+    grep -qE '^RULE_IDS_ANY_ACTIVE=1$' "$file" \
+        || problem "$rel: calls rf_require_any without declaring RULE_IDS_ANY_ACTIVE=1"
+done < "$TMP/any-calls"
 
 # Ids passed to `rule-registry.sh release` by the scripts that ship. The
 # reader itself, its library, these checks and the test suites are not

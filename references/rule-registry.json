@@ -301,6 +301,38 @@
       "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
+      "id": "panel/open-finding",
+      "status": "active",
+      "summary": "A blocking finding in the panel's ledger has no closing verdict record",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+        "first": "A blocking finding stays open until a verdict record closes it"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/panel-scope.sh",
+        "mode": "--verdict"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/panel-scope_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:scrutiny",
+        "work-on:review",
+        "work-on:qa_validation",
+        "work-on:light_review"
+      ],
+      "guards": [
+        "pr-create",
+        "merge"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "The generic rule for a blocking finding that names no rule of its own; a finding with a rule prints under that rule. The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
       "id": "pr-body/conformance",
       "status": "active",
       "summary": "The pull request body breaks the PR-body conformance rules",
