@@ -355,6 +355,8 @@ echo "== tokens =="
 fresh
 tok() { compute | jq -c -r ".tokens.$1 | \"\(.messages) \(.input) \(.output) \(.cache_creation) \(.cache_read) \(.state)\""; }
 eq "the worker row: its transcript and subagents/, by message id" "3 20 90 150 120 measured" "$(tok worker)"
+grep -q '"id":"msg_w3"' "$A/transcript/0a1b2c3d-77aa.jsonl" && ok "  ... the example holds an assistant line with no usage (msg_w3), not counted" \
+    || bad "  ... the example holds an assistant line with no usage (msg_w3), not counted"
 eq "the nested row: the other transcript only" "1 2 8 0 40 measured" "$(tok nested)"
 W="$A/transcript/0a1b2c3d-77aa.jsonl"
 for u in '"output_tokens":50,"cache_read_input_tokens":5' '"output_tokens":80,"cache_read_input_tokens":5' '"output_tokens":60,"cache_read_input_tokens":5'; do
@@ -363,6 +365,8 @@ done
 eq "an id written three times, output rising then falling, counts once at its largest" "4 21 170 150 125 measured" "$(tok worker)"
 printf '{"type":"assistant","message":{"id":7,"usage":{"output_tokens":1000}}}\n{"type":"assistant","message":{"usage":{"output_tokens":1000}}}\n' >>"$W"
 eq "an assistant line with a non-string or no id is skipped" "4 21 170 150 125 measured" "$(tok worker)"
+printf '{"type":"assistant","message":{"id":"msg_nu"}}\n{"type":"assistant","message":{"id":"msg_nu2","usage":"many"}}\n' >>"$W"
+eq "an assistant line whose usage isn't an object is not a message" "4 21 170 150 125 measured" "$(tok worker)"
 printf '{"type":"assistant","message":{"id":"msg_n2","usage":{"output_tokens":1}}\n' >>"$A/transcript/0a1b2c3d-77aa/workflows/flow-1.jsonl"
 eq "a line that isn't JSON makes its row not recoverable" "null null null null null not recoverable" "$(tok nested)"
 eq "  ... with reason invalid input, the other row kept" "invalid input|measured" \

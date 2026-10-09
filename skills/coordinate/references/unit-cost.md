@@ -84,7 +84,8 @@ means nothing for this unit. Nothing is estimated.
   head, on which any attempt of any workflow run concluded `failure` or
   `timed_out`. A head that failed once and passed on a rerun counts;
   `cancelled` doesn't.
-- **Tokens**: assistant messages counted once by message id, each of the
+- **Tokens**: assistant lines with a string message id and a usage object
+  (a line without either isn't counted), each message once by its id, each of the
   four classes (input, output, cache creation, cache read) at the largest
   value written for that id, since a streamed message is written several
   times with growing usage. `worker` is the job's own transcript and its

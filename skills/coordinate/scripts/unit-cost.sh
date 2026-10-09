@@ -74,8 +74,9 @@
 # makes green `bound` at the latest finish so far, and the figures computed
 # from green bound with it.
 #
-# Tokens: per message id (assistant lines with a string id), the largest
-# value of each class, summed. `worker` is the job's own transcript and its
+# Tokens: per message id (assistant lines with a string id and a usage
+# object; a line without one is not counted at all), the largest value of
+# each class, summed. `worker` is the job's own transcript and its
 # subagents/; `nested` is every other transcript in the archive. A line that
 # isn't JSON makes its row `not recoverable` (`invalid input`).
 #
@@ -476,8 +477,8 @@ uc_token_row() {
              if $l == null then .bad = true
              else $l[0] as $o
                 | if ($o | type) == "object" and $o.type == "assistant" and ($o.message | type) == "object"
-                     and ($o.message.id | type) == "string" then
-                      ($o.message.usage | if type == "object" then . else {} end) as $u
+                     and ($o.message.id | type) == "string" and ($o.message.usage | type) == "object" then
+                      $o.message.usage as $u
                       | .m[$o.message.id] |= ((. // {i: 0, o: 0, cc: 0, cr: 0})
                           | .i = ([.i, n($u.input_tokens)] | max)
                           | .o = ([.o, n($u.output_tokens)] | max)
