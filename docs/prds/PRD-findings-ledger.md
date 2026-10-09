@@ -120,9 +120,9 @@ ledger for the gate to read.
   panel from 1.
 - **Retry**: the stretch of a run from a panel's `blocking_retry` to the next
   round any panel records. A retry's fix is what was committed in it.
-- **Run**: one spawned reviewer or one check execution. Each run in a round
-  carries a run id: the spawned agent's id or the check's own id, a string
-  matching `^[A-Za-z0-9][A-Za-z0-9._:/#-]{3,}$`, unique within the round.
+- **Run**: one spawned reviewer, decider consultation or check execution.
+  `--plan` mints a run id for every run it plans; a round may record only
+  runs its scope minted, each once.
 - **Fix diff**: `git diff --no-renames <base> HEAD`, where `<base>` is the
   commit the location or record in question was written at. With renames off, moving a file is a
   deletion plus an addition, so it touches the old path.
@@ -147,9 +147,10 @@ report` and `review-packet.sh` keep reading it, and each history entry's
 raiser's kind and name, its location's path (empty for `none`), and its
 summary with whitespace collapsed. Line ranges are left out, so a finding
 whose lines shift keeps its id. Two findings equal on all four are one
-finding. Re-verification answers by id; an answer naming an id the ledger
-doesn't hold for that panel is refused, and a due finding the answer omits
-keeps its status.
+finding. Two findings of one run with the same id are refused, with a
+message asking for distinct summaries. Re-verification answers by id; an
+answer naming an id the ledger doesn't hold for that panel is refused, and a
+due finding the answer omits keeps its status.
 
 **R3. Finding fields.** Each finding records its id, panel, severity
 (`blocking` or `advisory`), the round it was raised in, its raiser (kind and
@@ -173,8 +174,8 @@ record yields:
 |---|---|---|---|
 | `raised` | reviewer, check or decider | `open` | no |
 | `holds` (re-verified, still a defect) | reviewer or check | `open` | no |
-| `reverified` (no longer a defect) | reviewer or check; a decider only on a finding it raised for the same criterion | `reverified` | yes |
-| `dismissed` (not a defect), with a reason | reviewer or check | `dismissed` | yes |
+| `reverified` (no longer a defect) | reviewer; a check only on a finding a check raised; a decider only on a finding it raised for the same criterion | `reverified` | yes |
+| `dismissed` (not a defect), with a reason | the raising seat, in a full round | `dismissed` | yes |
 | `fixed` (re-verification is due) | the agent | `fixed` | no |
 | `unverified` (no verdict) | decider | `unverified` | no |
 
@@ -183,8 +184,10 @@ finding.
 
 **R6. Writes are checked and whole.** `panel-scope.sh` refuses, with a
 non-zero exit and the ledger unchanged, a round with a closing record that
-lacks a run id or a reason it needs, names a writer kind the table doesn't
-allow, or names a run that isn't one of the round's runs. The agent's
+lacks a reason it needs, names a writer kind the table doesn't allow, or
+names a run its scope didn't mint or that was already recorded, and a
+decider entry for which koto's own session log holds no matching
+`decider_checked` event. The agent's
 mark-fixed mode writes only `fixed` records. A refused write leaves the
 ledger byte-identical. Advisory findings are recorded with `raised` and
 nothing else, are never due, and never block.
@@ -200,6 +203,8 @@ no longer an ancestor of HEAD; `git status --porcelain` is non-empty; there
 are no commits since `impl_base`; or the fix diff exceeds 200 changed lines.
 In a full round each seat is also given the panel's unclosed blocking
 findings it raised, and answers each by id, so a full round never drops one.
+A panel with an unclosed blocking finding never carries its verdict without
+`--verdict` reading it.
 
 **R8. What is due.** On any other round, a blocking finding is due when its
 row says so:
@@ -223,21 +228,22 @@ review (R10) is what sees new defects instead.
 
 **R10. The fix-diff review.** Each retry runs one review of the fix diff from
 the newest recorded commit that is an ancestor of HEAD (the one with the most
-ancestors among all panels' records), and every finding it raises is
+ancestors among all panels' records, never counting a record the agent wrote), and every finding it raises is
 recorded `blocking`. A full round needs none, since its seats review the whole change.
 Otherwise it runs at the first panel the retry enters whose fix diff from
-that commit is non-empty, and its findings are raised by reviewer
-`fix-review` in that panel, where they block that panel's gate. Once it is
+that commit is non-empty, judged against every panel's blocking criteria,
+and its findings are raised by reviewer `fix-review` in that panel, where they block that panel's gate. Once it is
 recorded, later panels in the same retry see an empty fix diff and don't run
 it.
 
 **R11. One run per panel.** A non-full round makes at most one reviewer run
-per panel: the panel's re-verifier (seat `recheck` for scrutiny and review,
-`tester` for QA, `reviewer` for light), given every due finding by id and,
-when R10 places it there, the fix diff to review. A round with no due
-finding and no fix-diff review spawns nothing and carries the panel's
-verdict. So a retry makes at most three reviewer runs where today it can
-make seven.
+per panel: the panel's re-verifier (seat `reverifier`, a name no real seat
+uses), given every due finding by id and, when R10 places it there, the fix
+diff to review. It answers only `holds` or `reverified`. A round with no due
+finding and no fix-diff review spawns nothing; it carries the panel's
+verdict when no blocking finding is unclosed, and otherwise blocks at
+`--verdict` with no run. So a non-full retry makes at most three reviewer
+runs where today's worst case is seven; that is a bound, not a measurement.
 
 ### The gate
 
@@ -275,20 +281,24 @@ names a path, so the same criterion failing again maps to the same id. A
 decider finding is `blocking`. The raiser carries a reference to the `decider_checked` event
 that produced it: its state, `visit_seq`, gate, rule id, declaration hash,
 and input hash when present. A decider reference missing state, gate, rule
-id or `visit_seq` is refused. Outcomes map as: `fail` writes `raised` (or
-re-opens the finding); `pass` writes `reverified`, under R5's limit, and
-writes nothing when the criterion has no finding; `escape`,
-`unanswered`, `not_graded` and any other value write `unverified`. Nothing
-in this feature produces decider findings; the shape is tested on fixtures.
+id or `visit_seq` is refused, and so is one koto's session log doesn't
+hold. Outcomes map as: `fail` writes `raised` (or re-opens the finding);
+`pass` writes `reverified`, under R5's limit, and writes nothing when the
+criterion has no finding; `escape`, `unanswered`, `not_graded` and any other
+value write `unverified`, creating the criterion's finding with `unverified`
+as its first record when none exists, so a criterion the decider couldn't
+answer blocks under its own rule id instead of passing. Nothing in this
+feature produces decider findings; the shape is tested on fixtures.
 
 ### Retry counting
 
 **R16. The cap is unchanged.** `panel-retry-budget.sh` keeps its rule: the
 first two retries in a run are granted, a third only when this panel's count
 is lower than on its own previous blocking round, never more than three. The
-count is now the number of findings `--verdict` printed for the round, one
-per unclosed blocking finding; advisory findings are never counted. The
-count stays in the `panel_retries` context key, because koto 0.15.0 stamps a
+count is now the number of unclosed blocking findings in the panel, which
+the budget script reads from the ledger itself (`panel-scope.sh
+--open-count`) instead of taking from the agent; advisory findings are never
+counted. Granted retries stay in the `panel_retries` context key, because koto 0.15.0 stamps a
 new attempt on every tick that evaluates a gate, including ticks held at a
 blocked verdict and carried rounds, exposes those counts to no command, and
 keeps no per-round finding count, so its attempt counts can't express this
@@ -341,9 +351,11 @@ The ledger:
 - [ ] Each row of R5's table yields its status, and only `reverified` and
       `dismissed` close (R5).
 - [ ] Each of these is refused with a non-zero exit and an unchanged ledger:
-      a closing record with no run id, a run id not among the round's runs,
-      a `dismissed` with no reason, a closing record by the agent's
-      mark-fixed mode, a decider `reverified` on a reviewer's finding (R6).
+      a run the scope didn't mint, a run recorded twice, a `dismissed` with
+      no reason, a `dismissed` from the re-verifier, a closing record by the
+      agent's mark-fixed mode, a decider `reverified` on a reviewer's
+      finding, a decider entry koto's log doesn't hold, and two findings of
+      one run with the same id (R2, R6).
 - [ ] An advisory finding is recorded, is never due, and `--verdict` exits 0
       with only advisory findings open (R6).
 
@@ -367,8 +379,10 @@ Retries:
       recorded; a finding it raises is `open` under seat `fix-review` and
       makes that panel's `--verdict` exit 1 (R10).
 - [ ] A non-full round with two due findings plans exactly one run, given
-      both ids; a round with none due and no fix-diff review plans no run and
-      the panel's carried gate exits 0 (R11).
+      both ids; a round with none due, no fix-diff review and no unclosed
+      blocking finding plans no run and the carried gate exits 0; with an
+      untouched `open` finding it plans no run, the carried gate exits 1,
+      and `--verdict` exits 1 (R11).
 - [ ] On the R17 fixture, the second round's history records `spawned: 1`,
       and the same fixture under the current `main` rule records 3 (R17).
 
@@ -387,19 +401,24 @@ The gate:
 
 Decider findings:
 
-- [ ] A decider round with a full `decider_checked` reference is accepted;
-      one missing `visit_seq` is refused; `fail` raises, `pass` closes only
-      its own finding, and `escape`, `unanswered`, `not_graded` and an unknown
-      outcome each set `unverified`, which is due next round and keeps
-      `--verdict` at 1 (R15).
+- [ ] A decider entry matching a `decider_checked` event in a fixture
+      session log is accepted; one missing `visit_seq`, or with no matching
+      event, is refused; `fail` raises, `pass` closes only its own finding,
+      and `escape`, `unanswered`, `not_graded` and an unknown outcome each
+      set `unverified`, which is due next round and keeps `--verdict` at 1
+      (R15).
+- [ ] An `escape` in a panel's first decider round, with no earlier finding
+      for the criterion, creates a blocking finding whose first record is
+      `unverified`, and `--verdict` exits 1 printing it under the
+      criterion's rule id (R15).
 
 Retry counting:
 
 - [ ] `panel-retry-budget.sh` on one panel's counts: 5, 5, 5 grants two
       retries and refuses the third; 5, 5, 3 grants all three; a fourth call
-      after three grants is refused; and the scrutiny
-      directive tells the agent to pass the number of findings `--verdict`
-      printed (R16).
+      after three grants is refused; the count is read through
+      `panel-scope.sh --open-count` and equals the number of findings
+      `--verdict` printed, and the script takes no count argument (R16).
 
 Hygiene:
 
