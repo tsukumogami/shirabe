@@ -311,7 +311,17 @@ is_active() {
 
 # RULE_IDS lines: a gate script's whole list, at the start of a line,
 # double-quoted ids separated by single spaces.
-grep -rnE '^RULE_IDS=' "$ROOT/skills" "$ROOT/scripts" > "$TMP/rule-ids" 2>/dev/null
+# grep exits 1 for no match and 2 when it couldn't read; only the first is an
+# answer.
+scan() {
+    local out=$1 rc
+    shift
+    grep "$@" > "$out" 2> "$TMP/grep.err"
+    rc=$?
+    [ "$rc" -le 1 ] || die2 "a scan could not read the tree: $(head -n 1 "$TMP/grep.err")"
+}
+
+scan "$TMP/rule-ids" -rnE '^RULE_IDS=' "$ROOT/skills" "$ROOT/scripts"
 while IFS= read -r hit; do
     file=${hit%%:*}
     rest=${hit#*:}
@@ -330,8 +340,12 @@ done < "$TMP/rule-ids"
 # Ids passed to `rule-registry.sh release` by the scripts that ship. The
 # reader itself, its library, these checks and the test suites are not
 # triggers. A release has to name its id literally so this can check it.
-grep -rnE --include='*.sh' 'rule-registry\.sh"?[[:space:]]+release([[:space:]]|$)' "$ROOT/skills" "$ROOT/scripts" \
-    > "$TMP/releases" 2>/dev/null
+#
+# The exclusions are by path: a new non-shipping script that calls release
+# (another test helper, say) needs adding here, or the check reads its call
+# as a trigger.
+scan "$TMP/releases" -rnE --include='*.sh' 'rule-registry\.sh"?[[:space:]]+release([[:space:]]|$)' \
+    "$ROOT/skills" "$ROOT/scripts"
 while IFS= read -r hit; do
     file=${hit%%:*}
     rest=${hit#*:}
@@ -351,10 +365,18 @@ while IFS= read -r hit; do
         problem "$rel:$lineno: releases $id, which is not an active registry entry"
         continue
     fi
-    # The reader's own release rules decide; its one could-not-release line
-    # is the answer.
-    why=$("$HELPER" --root "$ROOT" release "$id" 2>&1 >/dev/null | grep '^rule-registry: could not release' | head -n 1)
-    [ -z "$why" ] || problem "$rel:$lineno: $id would not be released: ${why#rule-registry: }"
+    # The reader's own release rules decide. release always exits 0, so its
+    # first stderr line is the answer: the opening marker when it would
+    # release, its one could-not-release line when it wouldn't, and anything
+    # else means the reader itself didn't run, which is no answer at all.
+    "$HELPER" --root "$ROOT" release "$id" > /dev/null 2> "$TMP/release.err" </dev/null
+    first=$(head -n 1 "$TMP/release.err")
+    case "$first" in
+        '::shirabe-rule::'*) ;;
+        'rule-registry: could not release '*)
+            problem "$rel:$lineno: $id would not be released: ${first#rule-registry: }" ;;
+        *) die2 "rule-registry.sh release $id gave no answer: ${first:-no output}" ;;
+    esac
 done < "$TMP/releases"
 
 # ---------------------------------------------------------------- 7
@@ -430,19 +452,20 @@ else
     else
         grep -qF 'references/rule-registry.json' "$TMP/d9" \
             || problem "DESIGN-output-gates.md Decision 9 does not name references/rule-registry.json"
-        if grep -qiE 'rule tables?' "$TMP/d9"; then
-            problem "DESIGN-output-gates.md Decision 9 still refers to the gate scripts' rule tables"
-        fi
+        stale=$(grep -iE 'rule tables?' "$TMP/d9" | head -n 1)
+        [ -z "$stale" ] || problem "DESIGN-output-gates.md Decision 9 still refers to the gate scripts' rule tables: [$stale]"
     fi
 fi
 grep -qF 'A **registered rule** is an id with an entry in `references/rule-registry.json`' "$REG_DOC" 2>/dev/null \
     || problem "references/rule-registry.md does not define a registered rule as an id with an entry in references/rule-registry.json"
 
 # The check scripts and their suite name the removed table to look for it.
+# When the adoption script goes, its name goes from this list too.
 : > "$TMP/old-table"
-for scan in skills scripts references docs/guides CLAUDE.md docs/designs/current/DESIGN-output-gates.md; do
-    [ -e "$ROOT/$scan" ] || continue
-    grep -rlF "$OLD_TABLE" "$ROOT/$scan" >> "$TMP/old-table" 2>/dev/null
+for target in skills scripts references docs/guides CLAUDE.md docs/designs/current/DESIGN-output-gates.md; do
+    [ -e "$ROOT/$target" ] || continue
+    scan "$TMP/old-table.part" -rlF "$OLD_TABLE" "$ROOT/$target"
+    cat "$TMP/old-table.part" >> "$TMP/old-table"
 done
 while IFS= read -r f; do
     rel=${f#"$ROOT"/}
@@ -495,7 +518,7 @@ else
                 esac
                 [ -z "$hit" ] || break
             done < "$TMP/globs"
-            [ -n "$hit" ] || problem "$id: text.path $p is outside check-rule-registry.yml's paths filter"
+            [ -n "$hit" ] || problem "$id: text.path $p is outside check-rule-registry.yml's paths filter; add it, or its directory with /**, to the pull_request paths"
         done < "$TMP/text-paths"
     fi
 fi

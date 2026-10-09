@@ -268,6 +268,45 @@ awk '{ print } /^### Decision 9:/ { print "Counted against the gate scripts'"'"'
     "$WORK/orig/docs/designs/current/DESIGN-output-gates.md" > "$S/docs/designs/current/DESIGN-output-gates.md"
 expect_problem "Decision 9 still naming the rule tables" "Decision 9 still refers to the gate scripts' rule tables"
 
+# ---------------------------------------------------------------- could not run
+
+# A check copy beside a reader whose release prints neither of its answers:
+# no answer is exit 2, never a pass.
+F="$WORK/fake-scripts"
+mkdir -p "$F"
+cp "$CHECK" "$F/check-rule-registry.sh"
+cat > "$F/rule-registry.sh" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+    [ "\$a" = release ] && { echo "something else broke" >&2; exit 0; }
+done
+exec "$SCRIPT_DIR/rule-registry.sh" "\$@"
+EOF
+chmod +x "$F/check-rule-registry.sh" "$F/rule-registry.sh"
+OUT=$("$F/check-rule-registry.sh" --root "$S" 2>&1); RC=$?
+if [ "$RC" = 2 ] && printf '%s\n' "$OUT" | grep -qF "gave no answer"; then
+    pass "a release that gives no answer exits 2"
+else
+    fail "a release that gives no answer exits 2" "rc=$RC: $OUT"
+fi
+
+# An unreadable directory under a scanned tree is a scan that couldn't run.
+# Skipped where permissions don't bind (running as root).
+mkdir -p "$S/skills/unreadable"
+chmod 000 "$S/skills/unreadable"
+if [ -r "$S/skills/unreadable" ]; then
+    echo "skip: an unreadable directory exits 2 (permissions don't bind here)"
+else
+    run_check
+    if [ "$RC" = 2 ] && printf '%s\n' "$OUT" | grep -qF "could not read the tree"; then
+        pass "an unreadable directory in a scanned tree exits 2"
+    else
+        fail "an unreadable directory in a scanned tree exits 2" "rc=$RC: $OUT"
+    fi
+fi
+chmod 755 "$S/skills/unreadable"
+rmdir "$S/skills/unreadable"
+
 # ---------------------------------------------------------------- id removal
 
 reg "del(.rules[] | select(.id == \"$TK\"))"
