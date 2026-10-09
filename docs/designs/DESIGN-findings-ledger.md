@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   /work-on's panel ledger keeps verdicts per reviewer seat, so a retry
   re-spawns every blocking seat and re-runs any passed seat whose citations
@@ -31,7 +31,7 @@ upstream: docs/prds/PRD-findings-ledger.md
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
