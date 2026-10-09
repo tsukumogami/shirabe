@@ -88,11 +88,14 @@ case "$PLUGIN_ROOT" in
         ;;
 esac
 
-# The commit_convention gate runs git against the working directory, and so do
-# the referent gates. Stubbing them would remove the cases that exercise a real
-# command, so instead each run happens in a throwaway repository whose tip
-# subject the case chooses. The repository holds the design doc the good record
-# names, and a side branch whose commit is not on the working branch.
+# The commit_convention gate runs check-branch-output.sh --commits over the
+# run's own commits (impl_base..HEAD), and the referent gates run git against
+# the working directory too. Stubbing them would remove the cases that exercise
+# a real command, so instead each run happens in a throwaway repository whose
+# commits the case chooses: the tip's message, and optionally an earlier one
+# below it. impl_base is the root commit, recorded in context as analysis would.
+# The repository holds the design doc the good record names, and a side branch
+# whose commit is not on the working branch.
 build_fixture() {
     local dir="$1"
     cat > "$dir/fixture.md" <<FIXTURE
@@ -134,13 +137,13 @@ Blocked.
 FIXTURE
 }
 
-# land <session> <commit-subject> <summary-body> <pre_pr-body> <evidence-json>
+# land <session> <commit-message> <summary-body> <pre_pr-body> <evidence-json> [<earlier-message>]
 #
 # In the pre_pr body, @HEAD@ is replaced by the fixture's tip sha, @HEAD7@ by
 # its first seven characters and @OTHER@ by the side branch's tip, since none
 # exists until the repository is built.
 land() {
-    local session="$1" subject="$2" summary="$3" prepr="$4" data="$5"
+    local session="$1" subject="$2" summary="$3" prepr="$4" data="$5" earlier="${6:-}"
     local repo; repo=$(mktemp -d); TMPS+=("$repo")
     build_fixture "$repo"
     (
@@ -152,14 +155,16 @@ land() {
         git checkout -q -b other
         git commit -q --allow-empty -m "side work"
         git checkout -q main
+        [ -z "$earlier" ] || git commit -q --allow-empty -m "$earlier"
         mkdir -p docs/designs
         echo x > f.txt
         echo diagram > docs/designs/DESIGN-thing.md
         git add f.txt docs
         git commit -qm "$subject"
     ) >/dev/null 2>&1
-    local head other
+    local head other base
     head=$(git -C "$repo" rev-parse main)
+    base=$(git -C "$repo" rev-list --max-parents=0 main)
     other=$(git -C "$repo" rev-parse other)
     prepr=${prepr//@HEAD@/$head}
     prepr=${prepr//@HEAD7@/${head:0:7}}
@@ -170,6 +175,7 @@ land() {
             --var PLUGIN_ROOT="$PLUGIN_ROOT" >/dev/null 2>&1 || exit 1
         printf '%s\n' "$summary" | koto context add "$session" summary.md >/dev/null 2>&1
         printf '%s\n' "$prepr" | koto context add "$session" pre_pr.md >/dev/null 2>&1
+        printf '%s\n' "$base" | koto context add "$session" impl_base >/dev/null 2>&1
         koto next "$session" >/dev/null 2>&1 || true
         # --no-cleanup keeps the session past its terminal so the rung that
         # fired can be read back from failure_reason.
@@ -252,10 +258,30 @@ fi
 
 # Case 6 — a tip commit that is not a Conventional Commits subject stops the run.
 OUT=$(land "prepr-subject-$$" "fixed some stuff" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
-if echo "$OUT" | grep -q '"state":"done_blocked"'; then
+if echo "$OUT" | grep -q '"state":"done_blocked"' && echo "$OUT" | grep -q 'not a Conventional Commits subject'; then
     pass "a non-conventional commit subject fails the state"
 else
-    fail "subject case: expected done_blocked, got: $(echo "$OUT" | head -c 300)"
+    fail "subject case: expected done_blocked on the commit rung, got: $(echo "$OUT" | head -c 300)"
+fi
+
+# Case 6b — the gate reads every commit the run made, not only the tip: a
+# conventional tip over a non-conventional earlier commit still stops the run.
+OUT=$(land "prepr-early-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" \
+    "wip stuff" || true)
+if echo "$OUT" | grep -q '"state":"done_blocked"' && echo "$OUT" | grep -q 'not a Conventional Commits subject'; then
+    pass "a non-conventional commit below a conventional tip fails the state"
+else
+    fail "earlier-commit case: expected done_blocked on the commit rung, got: $(echo "$OUT" | head -c 300)"
+fi
+
+# Case 6c — an AI-attribution trailer on a commit stops the run too.
+OUT=$(land "prepr-trailer-$$" "feat(work-on): add a thing
+
+Co-Authored-By: Claude <noreply@anthropic.com>" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
+if echo "$OUT" | grep -q '"state":"done_blocked"' && echo "$OUT" | grep -q 'AI-attribution trailer'; then
+    pass "an AI-attribution trailer fails the state"
+else
+    fail "trailer case: expected done_blocked on the commit rung, got: $(echo "$OUT" | head -c 300)"
 fi
 
 # Case 7 — blocked is a first-class answer, not something to fake a referent for.

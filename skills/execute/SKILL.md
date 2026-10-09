@@ -202,6 +202,21 @@ one tick can chain through several states, `merge_route` included, to a
 terminal, so a run may already be past a state you meant to act at. `koto
 status` shows where it landed.
 
+**You don't report what a script or a lookup already answered.** koto reads
+those answers through gates and routes on them itself: which PR the run owns
+(`orchestrator_setup`, `pr_finalization`, `plan_completion` and `ci_monitor`
+each look it up through `check-pr-output.sh --owned-pr`), whether the PR body,
+the shared branch's commits, its `wip/` tree and its `docs/` visibility pass
+(`pr_finalization`), the cascade's verdict (`plan_completion`, from the
+`cascade_result.json` that `run-cascade.sh --session` records), the CI and merge
+state (`ci_monitor`), and the pause (`PAUSE_BEFORE_FINALIZE`). A failing output
+check holds the run in its state with findings naming the rule; fix the output
+and tick again. The evidence a state still takes is the agent's own account:
+`completed` (the setup steps ran), `override` and `blocked` at setup,
+`updated` (you wrote the PR body; the checks then judge it) and
+`update_failed`, `cascade_detail`, and the CI repair outcomes. The routes are tested in
+`scripts/execute-output-gates-routing_test.sh`.
+
 **The per-issue `/work-on` children carry it too.** `/work-on`'s own rule is
 every tick, root or child. On a child the flag only keeps the session: its
 result still reaches this skill's `children-complete` gate on the tick that
@@ -440,7 +455,8 @@ against its chain shape:
      `node-push.sh` from the commit it just pushed.
    - **koto context keys** this run's scripts write: `repos` (the write set,
      fixed at start), `home_pr` (only from `owned-pr.sh`'s output), `waiting`,
-     `expected_head` (only after a successful push), `merge_verdict`,
+     `expected_head` (only after a successful push), `cascade_result.json`
+     (only `run-cascade.sh --session`'s own verdict), `merge_verdict`,
      `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
      `coord_branch`, `plan_abs`, `merge_attempts`, `coord_verdict`, `pr`, and
      `resume`; and the `outcome`, `step`, `reason`, `loop_line`, and `waiting` keys

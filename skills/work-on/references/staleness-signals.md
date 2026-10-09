@@ -42,17 +42,20 @@ Details that decide edge cases:
 
 ## Exit statuses
 
-| Status | Verdict | The directive's evidence |
+`staleness_check`'s gate is a routing gate: koto routes on the exit status
+itself, and the agent submits no evidence on any answered path.
+
+| Status | Verdict | Where koto sends the run |
 |--------|---------|--------------------------|
-| 0 | fresh | `fresh` |
-| 1 | stale | `stale_requires_introspection` |
-| 3 | unavailable: `gh`, `jq` or `git` missing, a `gh` call failed, a `git log` failed, a response couldn't be read, or the temporary directory or the report couldn't be made | `unavailable`, with the reason in `detail` |
-| 2 | usage error: anything but `--issue <positive integer>` | `blocked`; the template passed a bad argument |
+| 0 | fresh | `analysis` |
+| 1 | stale | `introspection` |
+| 3 | unavailable: `gh`, `jq` or `git` missing, a `gh` call failed, a `git log` failed, a response couldn't be read, or the temporary directory or the report couldn't be made | `analysis`, with staleness not assessed |
+| 2 | usage error: anything but `--issue <positive integer>` | nowhere: the state holds, and the agent submits `staleness_signal: blocked` (the template passed a bad argument) or, only when the user said to skip the check, `override` |
 
 The gate also exits 3 itself when the script isn't executable at
 `{{PLUGIN_ROOT}}`, and koto reports -1 when it couldn't run the gate to
-completion (the gate timed out or failed to start), which the state treats as
-unavailable too.
+completion (the gate timed out or failed to start), which routes to
+`analysis` like 3.
 
 On 0, 1 and 3 the script prints a JSON report: `verdict`,
 `introspection_recommended`, the `issue` (number, title, created_at, age_days,

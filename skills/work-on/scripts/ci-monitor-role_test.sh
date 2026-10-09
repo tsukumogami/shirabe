@@ -12,15 +12,17 @@
 # to ci_monitor. That path runs through roughly a dozen states, each demanding
 # evidence, and the harness would be a reimplementation of /execute. What stands
 # in its place is narrower and honest: the routing table is exercised directly
-# with each role, and the claim that a coordinated child reaches ci_monitor at
+# with each answer of the is_root gate (stubbed to a fixed exit, beside the two
+# CI gates), and the claim that a coordinated child reaches ci_monitor at
 # all rests on /execute's own contract (a coordinated child works on its own
 # branch and lands its own per-repo pull request), not on anything measured here.
 # A single-pr child would prove nothing either way — it submits pr_status: shared
 # and routes to done long before ci_monitor, for reasons that have nothing to do
-# with session_role.
+# with the run's role.
 #
 # The discriminator itself — scripts/session-role.sh, which reads `root` and
-# `child` from koto's parent_workflow — is covered at the end of this file. Its
+# `child` from koto's parent_workflow, and the is_root gate command that tests
+# its answer — is covered at the end of this file. Its
 # cases describe BEHAVIOUR ("a child classifies as child"), never the mechanism
 # session-role.sh uses to decide, so they survive a change in how koto records
 # parentage.
@@ -98,17 +100,19 @@ CI_MONITOR=$(extract_state ci_monitor)
 # `start` stands in for pr_creation: it routes into ci_monitor with no evidence
 # of its own. cascade_entry and the terminals are stubs — this file is about
 # which one the run lands on, not what happens after.
-# stub_gates <block> <ci_passing exit> <merge_state_clean exit>
+# stub_gates <block> <ci_passing exit> <merge_state_clean exit> <is_root exit>
 # Replaces each gate's command with a fixed exit, keyed on the gate name above
-# it. A blanket substitution would give both gates the same exit and make the
-# DIRTY case untestable, since that case is exactly the two disagreeing: checks
-# that look green because a conflicted pull request never ran any.
+# it. A blanket substitution would give every gate the same exit and make the
+# DIRTY and child cases untestable, since those are exactly the gates
+# disagreeing: checks that look green because a conflicted pull request never
+# ran any, and green CI on a run that is not the root.
 stub_gates() {
-    printf '%s\n' "$1" | awk -v ci="$2" -v merge="$3" '
+    printf '%s\n' "$1" | awk -v ci="$2" -v merge="$3" -v root="$4" '
         /^      [a-z_]+:$/ { gate = $1; sub(/:$/, "", gate) }
         /^        command:/ {
             if (gate == "ci_passing") { print "        command: \"exit " ci "\""; next }
             if (gate == "merge_state_clean") { print "        command: \"exit " merge "\""; next }
+            if (gate == "is_root") { print "        command: \"exit " root "\""; next }
         }
         { print }
     '
@@ -126,11 +130,14 @@ variables:
   ISSUE_NUMBER:
     description: Issue under test
     required: false
+  PLUGIN_ROOT:
+    description: Plugin root the is_root gate reaches session-role.sh through
+    required: false
 states:
   start:
     transitions:
       - target: ci_monitor
-$(stub_gates "$block" "${3:-0}" "${4:-0}")
+$(stub_gates "$block" "${3:-0}" "${4:-0}" "${5:-0}")
   cascade_entry:
     terminal: true
   done:
@@ -147,7 +154,7 @@ $(stub_gates "$block" "${3:-0}" "${4:-0}")
 Stand-in for pr_creation.
 
 ## ci_monitor
-Submit ci_outcome and session_role.
+Green CI routes on the gates; submit ci_outcome only while CI fails.
 
 ## cascade_entry
 Stub terminal standing in for the cascade path.
@@ -160,24 +167,29 @@ Blocked.
 FIXTURE
 }
 
-# land <dir> <session> <block> <evidence-json> — drive to ci_monitor, submit, print the state.
+# land <dir> <session> <block> <evidence-json-or-empty> [ci] [merge] [is_root]
+# Drives to ci_monitor and, with evidence, submits it; prints the response.
 land() {
     local dir="$1" session="$2" block="$3" data="$4"
-    local ci_exit="${5:-0}" merge_exit="${6:-0}"
-    build_fixture "$dir" "$block" "$ci_exit" "$merge_exit"
+    local ci_exit="${5:-0}" merge_exit="${6:-0}" root_exit="${7:-0}"
+    build_fixture "$dir" "$block" "$ci_exit" "$merge_exit" "$root_exit"
     koto init "$session" --template "$dir/fixture.md" >/dev/null 2>&1 || return 1
     SESSIONS+=("$session")
-    koto next "$session" >/dev/null 2>&1 || true
-    koto next "$session" --with-data "$data" 2>/dev/null
+    if [[ -z "$data" ]]; then
+        koto next "$session" 2>/dev/null
+    else
+        koto next "$session" >/dev/null 2>&1 || true
+        koto next "$session" --with-data "$data" 2>/dev/null
+    fi
 }
 
 # ---------------------------------------------------------------------------
-# Case 1 — a root with green CI reaches the cascade.
+# Case 1 — a root with green CI reaches the cascade, with no evidence.
 # ---------------------------------------------------------------------------
 D1=$(mktemp -d); TMPS+=("$D1")
-OUT1=$(land "$D1" "ci-role-root-$$" "$CI_MONITOR" '{"ci_outcome":"passing","session_role":"root"}' || true)
+OUT1=$(land "$D1" "ci-role-root-$$" "$CI_MONITOR" '' 0 0 0 || true)
 if echo "$OUT1" | grep -q '"state":"cascade_entry"'; then
-    pass "a root with passing CI routes to cascade_entry"
+    pass "a root with passing CI routes to cascade_entry with no evidence"
 else
     fail "root case: expected cascade_entry, got: $(echo "$OUT1" | head -c 200)"
 fi
@@ -187,7 +199,7 @@ fi
 # and never reaches the cascade.
 # ---------------------------------------------------------------------------
 D2=$(mktemp -d); TMPS+=("$D2")
-OUT2=$(land "$D2" "ci-role-child-$$" "$CI_MONITOR" '{"ci_outcome":"passing","session_role":"child"}' || true)
+OUT2=$(land "$D2" "ci-role-child-$$" "$CI_MONITOR" '' 0 0 1 || true)
 if echo "$OUT2" | grep -q '"state":"cascade_entry"'; then
     fail "a child reached cascade_entry — it would cascade a PLAN its siblings are still using"
 elif echo "$OUT2" | grep -qE '"state":"done"|"action":"done"'; then
@@ -197,17 +209,12 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Case 3 — the control: ci_monitor as it stood BEFORE this branch existed. A
-# child submitting the same evidence reaches the cascade, which is the defect
-# the branch removes, and which is what makes Case 2 worth running.
+# Case 3 — the control: ci_monitor as it stood BEFORE the root-or-child split
+# existed. A child submitting the same evidence reaches the cascade, which is
+# the defect the split removes, and which is what makes Case 2 worth running.
 #
-# A literal rather than a mutation of the shipped block, because the obvious
-# mutation does not compile. Stripping `session_role: root` from the cascade edge
-# leaves it as {passing, gate 0} beside a child edge of {passing, gate 0, child},
-# and koto refuses that template: the first could match anything the second
-# matches, so it cannot prove them exclusive. The engine will not let the
-# half-changed shape exist, so the control has to be the whole earlier shape.
-# Being a fixed historical artifact, it cannot drift.
+# A literal rather than a mutation of the shipped block: a fixed historical
+# artifact cannot drift.
 # ---------------------------------------------------------------------------
 LEGACY_CI_MONITOR='  ci_monitor:
     gates:
@@ -237,9 +244,9 @@ LEGACY_CI_MONITOR='  ci_monitor:
 D3=$(mktemp -d); TMPS+=("$D3")
 OUT3=$(land "$D3" "ci-role-legacy-$$" "$LEGACY_CI_MONITOR" '{"ci_outcome":"passing"}' || true)
 if echo "$OUT3" | grep -q '"state":"cascade_entry"'; then
-    pass "the pre-branch state sends a child to cascade_entry — the branch is load-bearing"
+    pass "the pre-split state sends a child to cascade_entry — the split is load-bearing"
 else
-    fail "control case: the pre-branch state did not reach cascade_entry, so Case 2 proves nothing: $(echo "$OUT3" | head -c 200)"
+    fail "control case: the pre-split state did not reach cascade_entry, so Case 2 proves nothing: $(echo "$OUT3" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -248,65 +255,62 @@ fi
 # ci_monitor, where the gates poll CI on the new push.
 # ---------------------------------------------------------------------------
 D4=$(mktemp -d); TMPS+=("$D4")
-OUT4=$(land "$D4" "ci-role-fixed-$$" "$CI_MONITOR" '{"ci_outcome":"failing_fixed","session_role":"root"}' || true)
+OUT4=$(land "$D4" "ci-role-fixed-$$" "$CI_MONITOR" '{"ci_outcome":"failing_fixed"}' 1 0 0 || true)
 if echo "$OUT4" | grep -qE '"state":"done"|"action":"done"'; then
     fail "failing_fixed reached done — a fix nobody re-checked ended the run"
 elif echo "$OUT4" | grep -q '"advanced":true' && echo "$OUT4" | grep -q '"state":"ci_monitor"'; then
-    pass "failing_fixed returns to ci_monitor for a root"
+    pass "failing_fixed on red CI returns to ci_monitor"
 else
     fail "failing_fixed case: expected ci_monitor, got: $(echo "$OUT4" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
-# Case 4b — passing while the CI gate still fails never reaches done. koto
-# holds the state and names the failing gate, so the agent waits for the checks
-# and submits again; reporting success on red or unfinished CI is the defect.
+# Case 4b — red or unfinished CI never reaches done. With no evidence koto
+# holds the state and names the failing gate, so the agent waits for the
+# checks and ticks again; reporting success on red CI is the defect.
 # ---------------------------------------------------------------------------
 D4B=$(mktemp -d); TMPS+=("$D4B")
-OUT4B=$(land "$D4B" "ci-role-red-$$" "$CI_MONITOR" '{"ci_outcome":"passing","session_role":"child"}' 1 0 || true)
+OUT4B=$(land "$D4B" "ci-role-red-$$" "$CI_MONITOR" '' 1 0 1 || true)
 if echo "$OUT4B" | grep -qE '"state":"done"|"action":"done"'; then
-    fail "passing on red CI reached done — the run reported success on failing checks"
-elif echo "$OUT4B" | grep -q '"advanced":false' && echo "$OUT4B" | grep -q '"name":"ci_passing"'; then
-    pass "passing on red CI holds ci_monitor, naming the ci_passing gate"
+    fail "red CI reached done — the run reported success on failing checks"
+elif echo "$OUT4B" | grep -q '"state":"ci_monitor"' && echo "$OUT4B" | grep -q '"name":"ci_passing"'; then
+    pass "red CI holds ci_monitor, naming the ci_passing gate"
 else
     fail "red-CI case: expected a hold on ci_passing, got: $(echo "$OUT4B" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
-# Case 4c — the state's last edge, the one nothing else catches, ends at
-# done_blocked rather than done. Read from the shipped block: the final
-# transition carries no when clause and targets done_blocked.
+# Case 4c — no edge out of ci_monitor is unconditional, and every one names
+# ci_passing: green CI is the only way to done or the cascade, and the two
+# evidence values apply only while it fails. Read from the shipped block.
 # ---------------------------------------------------------------------------
-LAST_TARGET=$(printf '%s\n' "$CI_MONITOR" | awk '/^      - target:/ { t = $3 } END { print t }')
-if [[ "$LAST_TARGET" == "done_blocked" ]]; then
-    pass "ci_monitor's fallback edge targets done_blocked"
+EDGES=$(printf '%s\n' "$CI_MONITOR" | awk '/^      - target:/ { n++ } END { print n + 0 }')
+NAMED=$(printf '%s\n' "$CI_MONITOR" | grep -c '^          gates\.ci_passing\.exit_code:')
+if [[ "$EDGES" -gt 0 && "$EDGES" -eq "$NAMED" ]]; then
+    pass "every ci_monitor edge names ci_passing ($EDGES of $EDGES)"
 else
-    fail "ci_monitor's fallback edge targets '$LAST_TARGET', not done_blocked"
+    fail "ci_monitor has $EDGES edges and $NAMED name ci_passing"
 fi
 
 # ---------------------------------------------------------------------------
 # Case 5 — an unresolvable failure still blocks, and carries its reason.
 # ---------------------------------------------------------------------------
 D5=$(mktemp -d); TMPS+=("$D5")
-OUT5=$(land "$D5" "ci-role-unresolvable-$$" "$CI_MONITOR" '{"ci_outcome":"failing_unresolvable","session_role":"child","rationale":"upstream outage"}' || true)
+OUT5=$(land "$D5" "ci-role-unresolvable-$$" "$CI_MONITOR" '{"ci_outcome":"failing_unresolvable","rationale":"upstream outage"}' 1 0 1 || true)
 if echo "$OUT5" | grep -q '"state":"done_blocked"'; then
-    pass "failing_unresolvable still routes to done_blocked for a child"
+    pass "failing_unresolvable on red CI routes to done_blocked"
 else
     fail "unresolvable case: expected done_blocked, got: $(echo "$OUT5" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
-# Case 6 — session_role is required. A submission without it must not advance:
-# the green-CI edges part on it, and the state's last edge is unconditional, so
-# an unrecognised submission would otherwise end the run at done_blocked
-# instead of reaching the cascade it owes.
+# Case 6 — the root-or-child answer is the gate's, never the agent's: the
+# state accepts no field for it.
 # ---------------------------------------------------------------------------
-D6=$(mktemp -d); TMPS+=("$D6")
-OUT6=$(land "$D6" "ci-role-missing-$$" "$CI_MONITOR" '{"ci_outcome":"passing"}' || true)
-if echo "$OUT6" | grep -qE '"state":"done"|"state":"done_blocked"|"state":"cascade_entry"'; then
-    fail "a submission with no session_role advanced — the fallback edge took it"
+if printf '%s\n' "$CI_MONITOR" | grep -q 'session_role'; then
+    fail "ci_monitor still accepts a role field; the is_root gate is the only source"
 else
-    pass "a submission with no session_role does not advance"
+    pass "ci_monitor accepts no role field; is_root decides"
 fi
 
 # ---------------------------------------------------------------------------
@@ -319,7 +323,7 @@ fi
 # and the merge-state gate is the only thing that can tell them apart.
 # ---------------------------------------------------------------------------
 D7=$(mktemp -d); TMPS+=("$D7")
-OUT7=$(land "$D7" "ci-role-dirty-$$" "$CI_MONITOR" '{"ci_outcome":"passing","session_role":"root"}' 0 1 || true)
+OUT7=$(land "$D7" "ci-role-dirty-$$" "$CI_MONITOR" '' 0 1 0 || true)
 if echo "$OUT7" | grep -q '"state":"done_blocked"'; then
     pass "a DIRTY pull request blocks even with the CI gate passing"
 elif echo "$OUT7" | grep -q '"state":"cascade_entry"'; then
@@ -330,7 +334,7 @@ fi
 
 # Case 7b — and a clean one still passes, so Case 7 is not blocking everything.
 D7B=$(mktemp -d); TMPS+=("$D7B")
-OUT7B=$(land "$D7B" "ci-role-clean-$$" "$CI_MONITOR" '{"ci_outcome":"passing","session_role":"root"}' 0 0 || true)
+OUT7B=$(land "$D7B" "ci-role-clean-$$" "$CI_MONITOR" '' 0 0 0 || true)
 if echo "$OUT7B" | grep -q '"state":"cascade_entry"'; then
     pass "a clean merge state still reaches the cascade"
 else
@@ -350,12 +354,12 @@ fi
 # real sessions walking the whole workflow.
 # ---------------------------------------------------------------------------
 CASCADE_COUNT=0
-PLAN_RUN_ROLES="root child child child"
+PLAN_RUN_ROLES="0 1 1 1"
 RUN_N=0
-for role in $PLAN_RUN_ROLES; do
+for root_exit in $PLAN_RUN_ROLES; do
     RUN_N=$((RUN_N + 1))
     D=$(mktemp -d); TMPS+=("$D")
-    OUT=$(land "$D" "ci-role-plan-${RUN_N}-$$" "$CI_MONITOR" "{\"ci_outcome\":\"passing\",\"session_role\":\"$role\"}" || true)
+    OUT=$(land "$D" "ci-role-plan-${RUN_N}-$$" "$CI_MONITOR" '' 0 0 "$root_exit" || true)
     if echo "$OUT" | grep -q '"state":"cascade_entry"'; then
         CASCADE_COUNT=$((CASCADE_COUNT + 1))
     fi
@@ -368,7 +372,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# The discriminator — the session_role every case above takes as given.
+# The discriminator — the is_root answer every case above stubs.
 #
 # Sessions live in their own HOME, so nothing here reaches the developer's
 # ~/.koto. An unresolvable session must answer `child`: a child that wrongly
@@ -457,6 +461,47 @@ ROLE_PARENT
         got=$(role_of role_parent)
         [[ "$got" == root ]] && pass "the parent of a materialized child still classifies as root" \
             || fail "the parent classified as '$got', expected root"
+        # The shipped is_root gate's own command, rendered as koto would: it
+        # passes for the root and fails for the child.
+        IS_ROOT_CMD=$(printf '%s\n' "$CI_MONITOR" | awk '
+            /^      is_root:$/ { f = 1; next }
+            f && /^        command:/ { sub(/^        command: /, ""); print substr($0, 2, length($0) - 2); exit }')
+        PLUGIN_ROOT_DIR=$(cd "$SKILL_DIR/../.." && pwd)
+        for pair in role_root:0 role_parent.leaf:1; do
+            cmd=${IS_ROOT_CMD//\{\{PLUGIN_ROOT\}\}/$PLUGIN_ROOT_DIR}
+            cmd=${cmd//\{\{SESSION_NAME\}\}/${pair%%:*}}
+            (cd "$RD" && HOME="$RD/home" sh -c "$cmd" >/dev/null 2>&1)
+            rc=$?
+            [[ "$rc" == "${pair#*:}" ]] && pass "the shipped is_root command exits $rc for ${pair%%:*}" \
+                || fail "the shipped is_root command exited $rc for ${pair%%:*}, expected ${pair#*:}"
+        done
+        # A role nobody decided is exit 2, which no ci_monitor edge names, so
+        # the state holds: an unreachable PLUGIN_ROOT, and a script that fails.
+        cmd=${IS_ROOT_CMD//\{\{PLUGIN_ROOT\}\}/$RD/no-such-plugin}
+        cmd=${cmd//\{\{SESSION_NAME\}\}/role_root}
+        (cd "$RD" && HOME="$RD/home" sh -c "$cmd" >/dev/null 2>&1)
+        rc=$?
+        [[ "$rc" == 2 ]] && pass "the shipped is_root command exits 2 when PLUGIN_ROOT does not reach session-role.sh" \
+            || fail "the shipped is_root command exited $rc with an unreachable PLUGIN_ROOT, expected 2"
+        FAKE_PR="$RD/fake-plugin"
+        mkdir -p "$FAKE_PR/skills/work-on/scripts"
+        printf '#!/bin/sh\necho "session-role: broken" >&2\nexit 2\n' > "$FAKE_PR/skills/work-on/scripts/session-role.sh"
+        chmod +x "$FAKE_PR/skills/work-on/scripts/session-role.sh"
+        cmd=${IS_ROOT_CMD//\{\{PLUGIN_ROOT\}\}/$FAKE_PR}
+        cmd=${cmd//\{\{SESSION_NAME\}\}/role_root}
+        err=$( (cd "$RD" && HOME="$RD/home" sh -c "$cmd" 2>&1 >/dev/null) )
+        (cd "$RD" && HOME="$RD/home" sh -c "$cmd" >/dev/null 2>&1)
+        rc=$?
+        [[ "$rc" == 2 ]] && pass "the shipped is_root command exits 2 when session-role.sh fails" \
+            || fail "the shipped is_root command exited $rc when session-role.sh failed, expected 2"
+        [[ "$err" == *"session-role: broken"* ]] && pass "the is_root gate keeps session-role.sh's stderr" \
+            || fail "the is_root gate discarded session-role.sh's stderr: [$err]"
+        # And the template: no edge names is_root's exit 2.
+        if printf '%s\n' "$CI_MONITOR" | grep -q 'gates\.is_root\.exit_code: 2'; then
+            fail "a ci_monitor edge routes is_root exit 2; an undecided role must hold"
+        else
+            pass "no ci_monitor edge routes is_root exit 2, so an undecided role holds"
+        fi
     fi
     got=$(role_of no-such-session-anywhere)
     [[ "$got" == child ]] && pass "an unresolvable session classifies as child, which skips the cascade" \

@@ -27,16 +27,14 @@ Each reviewer writes full findings to a `mktemp`-produced file outside the repos
 ```json
 {
   "focus": "pragmatic",
-  "blocking_count": 0,
-  "advisory_count": 2,
   "summary": "<1-3 paragraphs>",
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
-  "findings": [{"summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
+  "findings": [{"severity": "advisory", "summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
   "detail_file": "<the reviewer's mktemp path>"
 }
 ```
 
-`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`: what the verdict rests on, which decides whether a later fix re-runs this seat, and each blocking finding with its location.
+`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`: what the verdict rests on, which decides whether a later fix re-runs this seat, and every finding with its location and a `severity` of `blocking` or `advisory`. The severity is the verdict: a seat with one `blocking` finding is blocking, and a finding without a severity makes `--record` refuse the round.
 
 Delete the detail files once the round is aggregated; anything worth keeping goes into `review_results.json`.
 
@@ -52,16 +50,19 @@ ROUND=$(mktemp)
 
 If `--record` fails, fix it and run it again before submitting anything; if it can't be fixed, submit `review_outcome: blocking_escalate`.
 
-Then:
+Then tick koto with nothing submitted. The `review_verdict` gate reads the ledger (`panel-scope.sh --verdict review`) and decides, as at scrutiny:
 
-- If any `blocking_count > 0`: collect blocking findings and submit `review_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
-- If all `blocking_count: 0`: write `review_results.json` to koto context and submit `review_outcome: passed`.
+- Exit 0, every seat recorded and none blocking: koto advances (to `qa_validation`, or to `verification` at `standard`). Optionally write `review_results.json` first, as the round's summary for a reader; no gate reads it.
+- Exit 1, a seat is blocking: the gate prints one `panel/blocking-finding` finding per blocking finding. Collect them and submit `review_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
+- Exit 2, the round isn't fully recorded or the ledger can't be read: record the round and tick again.
 
 ```bash
+# Optional: the round's summary for a reader. No gate reads it; skip
+# straight to `koto next` if you don't write one.
 koto context add <WF> review_results.json < /dev/stdin <<EOF
-{"passed": true, "round": <N>, "blocking_count": 0}
+{"round": <N>, "summary": "<one line per seat>"}
 EOF
-koto next <WF> --with-data '{"review_outcome": "passed"}' --no-cleanup
+koto next <WF> --no-cleanup
 ```
 
 `<N>` is the number of the review round that just ran: 1 the first time through, incremented on each pass through the retry loop below.
@@ -77,8 +78,8 @@ for KEY in scrutiny_results.json review_results.json qa_results.json light_resul
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
     echo "$KEY was not confirmed cleared from context."
-    echo "The stale artifact may still be in place, and its gate may accept it."
-    echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
+    echo "The stale artifact may still be in place, and a later gate may accept it."
+    echo "Do NOT submit $OUTCOME_FIELD: blocking_retry by hand."
     echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
     exit 1
   fi
@@ -86,9 +87,9 @@ done
 koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-cleanup
 ```
 
-The `review_results` gate is `context-exists`, so it asks whether the key is present and nothing else. A verdict left in context satisfies it on the next pass and this panel can advance on a review of code the coder agent has since changed. Removing the key makes the gate demand this round's artifact.
+No gate reads `review_results.json` for the pass any more, but a summary left in context would read as this round's on the next pass, and `finalization`'s `summary_exists` gate would accept a `summary.md` written before the fix.
 
-Every key in the list goes, not only this panel's — see `phase-4a-scrutiny.md` for why a retry raised anywhere invalidates every panel's verdict, and `summary.md` with them. The verdict ledger stays, so clearing a verdict doesn't mean re-running its seats: on the way back, scrutiny re-runs only seats whose cited scope the fix touched, and on re-entering this phase the seat that raised the finding re-checks it.
+Every key in the list goes, not only this panel's — see `phase-4a-scrutiny.md` for why a retry raised anywhere invalidates every panel's summary, and `summary.md` with them. The verdict ledger stays, so clearing a verdict doesn't mean re-running its seats: on the way back, scrutiny re-runs only seats whose cited scope the fix touched, and on re-entering this phase the seat that raised the finding re-checks it.
 
 ## Escalation
 

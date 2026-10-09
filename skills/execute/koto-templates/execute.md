@@ -184,11 +184,30 @@ states:
           failure_reason: "write_set_record blocked: ${evidence.detail}"
 
   orchestrator_setup:
+    gates:
+      # A routing gate (DESIGN-output-gates Decision 9): which PR does this run
+      # own on the branch it is on? check-pr-output.sh --owned-pr runs
+      # owned-pr.sh, bounded in time, and answers 0 for exactly one owned PR,
+      # 3 for none or several, 2 for a read that failed. Its non-zero exits are
+      # answers, not violations, so it prints no finding. The branch is the
+      # checked-out one: settled_branch_record, the next state, records it.
+      #
+      # The routed edges also need `status: completed`, the agent's word that
+      # the directive's steps ran. That is not a restated verdict: before the
+      # steps run there is no PR, the gate answers 3, and an edge keyed on the
+      # gate alone would end every fresh run at execute:pr-adopt on entry.
+      setup_owned_pr:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(git rev-parse --abbrev-ref HEAD)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
     accepts:
       status:
         type: enum
-        values: [completed, override, blocked, pr_adopt, status_read]
+        values: [completed, override, blocked]
         required: true
+        description: >-
+          completed once the directive's steps ran, whatever they answered:
+          setup_owned_pr reads the result. override and blocked are the
+          agent's own calls.
       detail:
         type: string
         description: Failure reason if blocked
@@ -196,6 +215,7 @@ states:
       - target: settled_branch_record
         when:
           status: completed
+          gates.setup_owned_pr.exit_code: 0
       - target: settled_branch_record
         when:
           status: override
@@ -206,19 +226,20 @@ states:
           outcome: error
           step: "execute:orchestrator_setup"
           failure_reason: "orchestrator_setup blocked: ${evidence.detail}"
-      # adopt-or-create-pr.sh's exit codes, mapped as the directive's exit-code
-      # paragraphs say: several owned PRs (or none after a create) is pr-adopt,
-      # a failed read is status-read.
+      # The lookup's answer, routed by koto: none or several owned PRs is
+      # pr-adopt, a failed read is status-read.
       - target: done_blocked
         when:
-          status: pr_adopt
+          status: completed
+          gates.setup_owned_pr.exit_code: 3
         context_assignments:
           outcome: error
           step: "execute:pr-adopt"
-          failure_reason: "orchestrator_setup: no single owned PR to adopt: ${evidence.detail}"
+          failure_reason: "orchestrator_setup: no single owned PR on the checked-out branch: ${evidence.detail}"
       - target: done_blocked
         when:
-          status: status_read
+          status: completed
+          gates.setup_owned_pr.exit_code: 2
         context_assignments:
           outcome: error
           step: "execute:status-read"
@@ -408,7 +429,10 @@ states:
     # A conflicted merge already fails the ancestry test (HEAD hasn't moved);
     # the MERGE_HEAD test keeps a half-resolved merge from passing if HEAD
     # somehow contains main while one is still in progress. `git rev-parse
-    # --git-path` finds MERGE_HEAD in a worktree too.
+    # --git-path` finds MERGE_HEAD in a worktree too. The test lives in
+    # check-branch-output.sh --synced, unchanged, so a failure prints a
+    # finding named branch/current-with-main; exit 2 (the test could not run)
+    # matches no edge and holds.
     #
     # drift_clear routes the no-drift case. It matches only when drift_facts
     # computed `route: none`, so the single edge to spawn_and_await needs both
@@ -433,7 +457,7 @@ states:
     gates:
       current_with_main:
         type: command
-        command: 'git merge-base --is-ancestor origin/main HEAD && test ! -e "$(git rev-parse --git-path MERGE_HEAD)"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --synced'
       drift_clear:
         type: context-matches
         key: drift_facts.json
@@ -573,25 +597,69 @@ states:
           failure_reason: "spawn_and_await: ${gates.batch_done.failed} failed, ${gates.batch_done.skipped} skipped, ${gates.batch_done.spawn_failed} not spawned; batch_final_view names each child and its reason"
 
   pr_finalization:
+    # Gates 10 to 15 of DESIGN-output-gates. The agent assembles and applies
+    # the title and body; koto decides whether that worked and where the run
+    # goes, from the PR and the branch as they now stand.
+    #
+    # final_owned_pr is a routing gate (Decision 9): check-pr-output.sh
+    # --owned-pr answers 0 for exactly one owned PR, 3 for none or several, 2
+    # for a failed read, and prints no finding. The four output gates check
+    # what this state presents for review, and hold the run (no edge matches)
+    # on 1 (a violation, with findings) or 2 (could not decide):
+    #   owned_pr_body_conformant  the owned PR's title and body, through
+    #                             shirabe validate --pr-body (PB1 to PB4)
+    #   settled_commits           every non-merge commit on the shared branch
+    #   settled_wip_clean         no path under wip/ in HEAD's tree
+    #   settled_docs_visibility   the branch's docs/ changes at the declared
+    #                             visibility (R7, R8, R9)
+    # These are the checks /work-on's children skip on SHARED_BRANCH, run once
+    # here over the whole branch. The base is origin's default branch, read
+    # from refs/remotes/origin/HEAD, with origin/main when that ref is absent.
+    #
+    # With every gate at 0, the pause routes on PAUSE_BEFORE_FINALIZE, which
+    # /execute sets from its mode at init (interactive true, --auto false) and
+    # a resume of a paused run rebinds to false. Those routes also require
+    # finalization_status: updated, the agent's record that it wrote the body:
+    # a PR adopted from /scope already carries a conformant body (its scoping
+    # description), so the gates alone would pass on a body nobody wrote for
+    # this run. `updated` says the edit ran; the gates check what it says.
+    #
+    # The routes share no common field, so each carries the conjuncts that
+    # keep koto's exclusivity check satisfied: the lookup routes name
+    # final_owned_pr, the pause routes require the lookup, every output gate
+    # at 0 and `updated`, and update_failed is accepted only while the body
+    # gate fails.
+    #
+    # gh reads GH_TOKEN, which is on koto's default pass-through list, so the
+    # template declares no pass_env.
+    gates:
+      # Not overridable: an override can't make a PR exist, and every state
+      # after this one reads the PR the lookup found.
+      final_owned_pr:
+        type: command
+        overridable: false
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
+      owned_pr_body_conformant:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body --owned --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
+      settled_commits:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --base-ref "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)"'
+      settled_wip_clean:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --wip'
+      settled_docs_visibility:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --docs-visibility --base-ref "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)"'
     accepts:
       finalization_status:
         type: enum
-        values: [updated, update_failed, pr_adopt, status_read]
-        required: true
-      pause_decision:
-        type: enum
-        values: [pause, finalize]
-        default: finalize
-        description: >
-          Mode-driven routing after the PR body is assembled. The agent reads
-          the {{PAUSE_BEFORE_FINALIZE}} variable and submits `pause` when it is
-          `true` (interactive mode: stop at paused_for_review with the chain
-          intact) or `finalize` when it is `false` (--auto mode: drive straight
-          through plan_completion). Defaults to `finalize` so a submission that
-          omits it (e.g. an `update_failed` run, or a fresh non-paused run that
-          leaves it unset) preserves today's default path (R7). On a resume of a
-          paused run it is `finalize` because resume re-enters with
-          PAUSE_BEFORE_FINALIZE=false.
+        values: [updated, update_failed]
+        description: >-
+          updated once the title and body edit ran (exit=0); the run goes on
+          only when every gate also passes on the PR as it now stands. Submit
+          update_failed only when the read, the carry or the edit failed and
+          owned_pr_body_conformant is failing; it ends the run.
     transitions:
       # Reordered for the DRAFT-vs-READY discipline (#117): the
       # cascade (plan_completion) runs BEFORE gh pr ready so the
@@ -600,29 +668,35 @@ states:
       # plan_completion; pr_finalization here only updates the PR
       # body and confirms `gh pr ready` is NOT yet invoked.
       #
-      # D2 (execute-friction): the single `updated` edge is split into
-      # two guarded edges driven by the mode-derived PAUSE_BEFORE_FINALIZE
-      # variable, which the agent reflects into the pause_decision evidence
-      # field. When pause_decision is `pause` (interactive), route to the
-      # non-failure terminal paused_for_review (chain intact, PR DRAFT). When
-      # `finalize` (--auto, or a resume of a paused run), route to
-      # plan_completion (cascade + gh pr ready) unchanged.
+      # D2 (execute-friction): interactive mode stops at the non-failure
+      # terminal paused_for_review (chain intact, PR DRAFT); --auto, or a
+      # resume of a paused run, goes on to plan_completion (cascade + gh pr
+      # ready). The variable decides, not the agent.
       - target: paused_for_review
         when:
+          gates.final_owned_pr.exit_code: 0
+          gates.owned_pr_body_conformant.exit_code: 0
+          gates.settled_commits.exit_code: 0
+          gates.settled_wip_clean.exit_code: 0
+          gates.settled_docs_visibility.exit_code: 0
           finalization_status: updated
-          pause_decision: pause
+          vars.PAUSE_BEFORE_FINALIZE: "true"
         context_assignments:
           outcome: paused-for-review
           resume: "/execute {{PLAN_DOC}}"
-      # plan_completion fires when pause_decision is `finalize` (--auto, resume,
-      # or the default when omitted), so the default path (R7) is preserved
-      # byte-for-byte for a fresh non-paused run.
       - target: plan_completion
         when:
+          gates.final_owned_pr.exit_code: 0
+          gates.owned_pr_body_conformant.exit_code: 0
+          gates.settled_commits.exit_code: 0
+          gates.settled_wip_clean.exit_code: 0
+          gates.settled_docs_visibility.exit_code: 0
           finalization_status: updated
-          pause_decision: finalize
+          vars.PAUSE_BEFORE_FINALIZE: "false"
       - target: done_blocked
         when:
+          gates.final_owned_pr.exit_code: 0
+          gates.owned_pr_body_conformant.exit_code: 1
           finalization_status: update_failed
         context_assignments:
           outcome: error
@@ -630,14 +704,23 @@ states:
           failure_reason: "pr_finalization failed: could not update or ready the PR"
       - target: done_blocked
         when:
-          finalization_status: pr_adopt
+          gates.final_owned_pr.exit_code: 0
+          gates.owned_pr_body_conformant.exit_code: 2
+          finalization_status: update_failed
+        context_assignments:
+          outcome: error
+          step: "execute:pr_finalization"
+          failure_reason: "pr_finalization failed: could not update or ready the PR"
+      - target: done_blocked
+        when:
+          gates.final_owned_pr.exit_code: 3
         context_assignments:
           outcome: error
           step: "execute:pr-adopt"
           failure_reason: "pr_finalization: no single owned PR on the settled branch"
       - target: done_blocked
         when:
-          finalization_status: status_read
+          gates.final_owned_pr.exit_code: 2
         context_assignments:
           outcome: error
           step: "execute:status-read"
@@ -673,62 +756,94 @@ states:
       # scripts/check-template-interpolation.sh refuses $NAME in a gate.)
       # `run-id.sh get` only reads: the id was minted by execute-open.sh, and a
       # failed read fails the gate rather than giving the run a new identity.
+      #
+      # owned_merge_state_clean exits 1 only when GitHub reports DIRTY, since
+      # koto routes that answer to escalate_dirty_merge_state with no evidence.
+      # A read that returned nothing (a failed lookup or gh call) is 2, which
+      # matches no edge, so the run holds and the next tick reads again.
       owned_ci_passing:
         type: command
         command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
       owned_merge_state_clean:
         type: command
-        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk 'NF && $0 != \"DIRTY\" {ok = 1} END {exit !ok}'"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk '$0 == \"DIRTY\" {dirty = 1} NF && $0 != \"DIRTY\" {ok = 1} END {exit ok ? 0 : (dirty ? 1 : 2)}'"
+      # A routing gate (DESIGN-output-gates Decision 9): the same lookup the
+      # two gates above run, through check-pr-output.sh --owned-pr, so its
+      # answer routes. 0 is exactly one owned PR; 3 (none or several) and 2 (a
+      # failed read) end the run, and the two CI gates are read only on 0. It
+      # prints no finding. Not overridable, like pr_finalization's lookup: an
+      # override can't make a PR exist.
+      monitor_owned_pr:
+        type: command
+        overridable: false
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
     accepts:
       ci_outcome:
         type: enum
-        values: [passing, failing_fixed, pending, failing_unresolvable, dirty_merge_state, pr_adopt, status_read]
-        required: true
+        values: [failing_fixed, pending, failing_unresolvable]
+        description: >-
+          Absent on the green, DIRTY and lookup paths: koto routes those on
+          the gates. Submit a value only while owned_ci_passing fails.
       rationale:
         type: string
         description: What was fixed or why CI failures are unresolvable
     transitions:
       # Every way on goes through merge_readiness, which re-reads the PR and
-      # owns the per-head-commit CI deadline. No edge reaches a terminal on the
-      # agent's word that CI is green.
+      # owns the per-head-commit CI deadline. Green CI on a clean PR routes
+      # with no evidence.
       - target: merge_readiness
         when:
-          ci_outcome: passing
+          gates.monitor_owned_pr.exit_code: 0
           gates.owned_ci_passing.exit_code: 0
           gates.owned_merge_state_clean.exit_code: 0
+      # A DIRTY PR: GitHub runs no checks on one, so owned_ci_passing can read
+      # green on zero checks; the merge state is what tells them apart. koto
+      # routes it, whatever the CI gate says.
+      - target: escalate_dirty_merge_state
+        when:
+          gates.monitor_owned_pr.exit_code: 0
+          gates.owned_merge_state_clean.exit_code: 1
+        context_assignments:
+          failure_reason: "ci_monitor: PR merge state is DIRTY; checks suppressed. Merge the default branch into the shared branch and resolve the conflicts."
+      # The three evidence edges apply while CI is red on a clean PR, which
+      # is also what lets koto prove them exclusive of the routed edges.
       # failing_fixed: agent pushed a follow-up commit to fix CI; gate may be
       # stale. merge_readiness reads the checks on the new head itself.
       - target: merge_readiness
         when:
+          gates.monitor_owned_pr.exit_code: 0
+          gates.owned_ci_passing.exit_code: 1
+          gates.owned_merge_state_clean.exit_code: 0
           ci_outcome: failing_fixed
       # pending: checks are still running. merge_readiness's verdict waits on
       # them (pending:checks) up to the per-head-commit deadline, then ends
       # the run at execute:ci-timeout, so waiting is bounded there.
       - target: merge_readiness
         when:
+          gates.monitor_owned_pr.exit_code: 0
+          gates.owned_ci_passing.exit_code: 1
+          gates.owned_merge_state_clean.exit_code: 0
           ci_outcome: pending
       - target: done_blocked
         when:
+          gates.monitor_owned_pr.exit_code: 0
+          gates.owned_ci_passing.exit_code: 1
+          gates.owned_merge_state_clean.exit_code: 0
           ci_outcome: failing_unresolvable
         context_assignments:
           outcome: error
           step: "execute:ci"
           failure_reason: "ci_monitor: unresolvable CI failures: ${evidence.rationale}"
-      - target: escalate_dirty_merge_state
-        when:
-          ci_outcome: dirty_merge_state
-        context_assignments:
-          failure_reason: "ci_monitor: PR merge state is DIRTY; checks suppressed. ${evidence.rationale}"
       - target: done_blocked
         when:
-          ci_outcome: pr_adopt
+          gates.monitor_owned_pr.exit_code: 3
         context_assignments:
           outcome: error
           step: "execute:pr-adopt"
           failure_reason: "ci_monitor: no single owned PR on the settled branch"
       - target: done_blocked
         when:
-          ci_outcome: status_read
+          gates.monitor_owned_pr.exit_code: 2
         context_assignments:
           outcome: error
           step: "execute:status-read"
@@ -753,9 +868,9 @@ states:
         context_assignments:
           outcome: ready-awaiting-merge
           reason: "merge-state:DIRTY"
-          # No failure_reason: ci_monitor's tick chains through this state and
-          # its rationale doesn't carry, so the reason ci_monitor's edge wrote
-          # is the one that holds it.
+          # No failure_reason: ci_monitor's gate-routed tick chains through
+          # this state, so the reason ci_monitor's edge wrote is the one that
+          # holds it.
 
   plan_completion:
     # The completion cascade runs BEFORE gh pr ready so the chain is
@@ -767,64 +882,98 @@ states:
     # the agent never invokes the validator itself; (2) gh pr ready,
     # only on a completed or skipped verdict.
     #
+    # The verdict routes, not the agent. run-cascade.sh --session clears
+    # cascade_result.json before it starts and records its verdict there, the
+    # same JSON it prints, compacted so it leads with
+    # {"cascade_status":"<verdict>",. The three context-matches gates read
+    # that record (routing gates, Decision 9: a non-match is an answer):
+    # completed or skipped goes on to ci_monitor, and partial, or no record at
+    # all (a run that stopped before its verdict), matches no edge, so the
+    # run holds here as the directive's halt says. clear_on_entry drops a
+    # record left from an earlier visit, so a re-entry can't route on it
+    # before the cascade runs again.
+    #
+    # ready_owned_pr is the owned-PR lookup in front of gh pr ready, routed
+    # the same way as the other states' lookups: 3 and 2 end the run, and
+    # the ci_monitor edges need it at 0. It prints no finding.
+    #
     # expected_head_recorded makes a missing expected-head record visible.
     # run-cascade.sh --push --session records the pushed commit; this gate
     # reports whether a record exists. It routes nothing: a run that reaches
     # merge_readiness without a record passes `--expected-head none`, and the
     # verdict ends it ready-awaiting-merge naming head-moved rather than
     # merging a head the run never pushed.
+    clear_on_entry: [cascade_result.json]
     gates:
       expected_head_recorded:
         type: context-matches
         key: expected_head
         pattern: '^[0-9a-f]{40}$'
+      cascade_completed:
+        type: context-matches
+        key: cascade_result.json
+        pattern: '^\{"cascade_status":"completed",'
+      cascade_skipped:
+        type: context-matches
+        key: cascade_result.json
+        pattern: '^\{"cascade_status":"skipped",'
+      cascade_partial:
+        type: context-matches
+        key: cascade_result.json
+        pattern: '^\{"cascade_status":"partial",'
+      ready_owned_pr:
+        type: command
+        overridable: false
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
     accepts:
-      cascade_status:
-        type: enum
-        values: [completed, partial, skipped, pr_adopt, status_read]
-        required: true
       cascade_detail:
         type: string
         description: Summary of what the cascade did or why steps were skipped
     transitions:
-      # Each verdict has one edge per value of the gate, both to ci_monitor:
-      # the edge taken, and the gate's output in the response, are where a
-      # missing record shows. Neither edge blocks the run.
+      # Each verdict has one edge per value of expected_head_recorded, both to
+      # ci_monitor: the edge taken, and the gate's output in the response, are
+      # where a missing record shows. Neither edge blocks the run. Every edge
+      # names all three cascade gates, which is what makes them exclusive; no
+      # edge takes partial anywhere.
       - target: ci_monitor
         when:
-          cascade_status: completed
+          gates.ready_owned_pr.exit_code: 0
+          gates.cascade_completed.matches: true
+          gates.cascade_skipped.matches: false
+          gates.cascade_partial.matches: false
           gates.expected_head_recorded.matches: true
       - target: ci_monitor
         when:
-          cascade_status: completed
+          gates.ready_owned_pr.exit_code: 0
+          gates.cascade_completed.matches: true
+          gates.cascade_skipped.matches: false
+          gates.cascade_partial.matches: false
           gates.expected_head_recorded.matches: false
       - target: ci_monitor
         when:
-          cascade_status: partial
+          gates.ready_owned_pr.exit_code: 0
+          gates.cascade_completed.matches: false
+          gates.cascade_skipped.matches: true
+          gates.cascade_partial.matches: false
           gates.expected_head_recorded.matches: true
       - target: ci_monitor
         when:
-          cascade_status: partial
+          gates.ready_owned_pr.exit_code: 0
+          gates.cascade_completed.matches: false
+          gates.cascade_skipped.matches: true
+          gates.cascade_partial.matches: false
           gates.expected_head_recorded.matches: false
-      - target: ci_monitor
-        when:
-          cascade_status: skipped
-          gates.expected_head_recorded.matches: true
-      - target: ci_monitor
-        when:
-          cascade_status: skipped
-          gates.expected_head_recorded.matches: false
-      # The owned-PR lookup in front of gh pr ready, mapped as the directive says.
+      # The owned-PR lookup in front of gh pr ready.
       - target: done_blocked
         when:
-          cascade_status: pr_adopt
+          gates.ready_owned_pr.exit_code: 3
         context_assignments:
           outcome: error
           step: "execute:pr-adopt"
           failure_reason: "plan_completion: no single owned PR to mark ready"
       - target: done_blocked
         when:
-          cascade_status: status_read
+          gates.ready_owned_pr.exit_code: 2
         context_assignments:
           outcome: error
           step: "execute:status-read"
@@ -1203,7 +1352,7 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 echo "exit=$?"
 ```
 
-Exit 0 means you own exactly one open PR there. That PR (including a `docs/<topic>` scoping PR, or the topic branch `/scope --intent=continue` pushed) is **ADOPTED** as the home PR and the branch you stay on is the **settled branch**: `/execute` opens no second PR, cuts no `impl/<slug>`, and pushes nothing here. Submit `status: override`. Exit 4 means you own no PR on this branch (a fork's or another author's PR there doesn't count): go on to step 2. Exit 3 (several owned PRs, or an ambiguous lookup) submits `status: pr_adopt`; exit 2 (a failed read) submits `status: status_read`. Exit 6 (the PR on this branch was opened by another run) submits `status: pr_adopt` with `detail` naming the PR: the current branch may belong to another PLAN or another run entirely, so it is never taken over. A takeover exists only for this PLAN's own `impl/{{PLAN_SLUG}}`, in step 2.
+Exit 0 means you own exactly one open PR there. That PR (including a `docs/<topic>` scoping PR, or the topic branch `/scope --intent=continue` pushed) is **ADOPTED** as the home PR and the branch you stay on is the **settled branch**: `/execute` opens no second PR, cuts no `impl/<slug>`, and pushes nothing here. Submit `status: completed`. Exit 4 means you own no PR on this branch (a fork's or another author's PR there doesn't count): go on to step 2. Exit 3 (several owned PRs, or an ambiguous lookup) and exit 2 (a failed read) stop here: submit `status: completed` and koto routes the lookup's answer. Exit 6 (the PR on this branch was opened by another run) also stops here: submit `status: completed` with `detail` naming the PR, and the lookup ends the run at `execute:pr-adopt`. The current branch may belong to another PLAN or another run entirely, so it is never taken over. A takeover exists only for this PLAN's own `impl/{{PLAN_SLUG}}`, in step 2.
 
 **2. The shared branch.** Otherwise create the shared branch and its draft PR. This runs once before children are spawned:
 
@@ -1216,7 +1365,7 @@ git checkout impl/{{PLAN_SLUG}} 2>/dev/null || git checkout -b impl/{{PLAN_SLUG}
 echo "exit=$?"
 ```
 
-Exit 0 (this run's PR, or an unmarked one it adopts) or exit 4 (none yet) goes on to the push and the create below. Anything else stops here, **before the push**, so this run never pushes onto a branch whose PR another run opened: exit 6 is **Another run's PR** below (after a takeover that exits 0, go on to the push); exit 3 submits `status: pr_adopt`; exit 2 submits `status: status_read`.
+Exit 0 (this run's PR, or an unmarked one it adopts) or exit 4 (none yet) goes on to the push and the create below. Anything else stops here, **before the push**, so this run never pushes onto a branch whose PR another run opened: exit 6 is **Another run's PR** below (after a takeover that exits 0, go on to the push); exit 3 and exit 2 submit `status: completed`, and koto routes the lookup's answer.
 
 ```bash
 {{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}
@@ -1228,16 +1377,18 @@ echo "exit=$?"
 
 `push-and-record.sh` pushes with an explicit `HEAD:refs/heads/<branch>` refspec and no force option, refuses the default branch and a detached HEAD, and records the pushed commit as `expected_head` only after the push succeeds. Every push this run makes goes through it (or through `run-cascade.sh --push --session`); nothing else writes `expected_head`, and you never write it yourself.
 
-`adopt-or-create-pr.sh --create` reuses an owned PR if one is already there (after a crash and re-run) and otherwise makes exactly one `gh pr create --draft`, stamped with this run's marker, then resolves the PR again and records it. Exit 0 submits `status: completed`. Exit 3 (several owned PRs, an ambiguous lookup, or still none after the create) submits `status: pr_adopt`; exit 2 submits `status: status_read`; exit 5 (the create failed) submits `status: blocked` with `detail`; exit 6 is **Another run's PR** below.
+`adopt-or-create-pr.sh --create` reuses an owned PR if one is already there (after a crash and re-run) and otherwise makes exactly one `gh pr create --draft`, stamped with this run's marker, then resolves the PR again and records it. Exit 0, exit 3 (several owned PRs, an ambiguous lookup, or still none after the create) and exit 2 all submit `status: completed`; exit 5 (the create failed) submits `status: blocked` with `detail`; exit 6 is **Another run's PR** below.
 
 **Another run's PR (exit 6 on `impl/{{PLAN_SLUG}}`, step 2).** The one PR on this PLAN's shared branch carries a marker naming a different run, so it is neither adopted nor replaced (GitHub allows one open PR per head). Nothing was recorded, created, or pushed. A PR marked by a run that is still going looks exactly the same as one marked by a run that ended and lost its identity, and nothing in this checkout can tell a live session in another checkout or on another machine apart from a finished one. So the default is **not** to take it over, and taking over needs a positive signal:
 
-- **Take it over** only when the invocation that started this run says the earlier run on this PLAN has ended and this is its re-entry (the user or the coordinating session said so, in so many words). A replaced session is not that signal: `execute-open.sh` carries a finished session's identity into its replacement, so after a replacement a foreign marker usually means a run somewhere else marked the PR; the exception is a carry that failed (`execute-open.sh` says so on stderr), and the default of not taking over covers both. Then re-run step 2's pre-push lookup with `--take-over --plan-slug {{PLAN_SLUG}}` added (`adopt-or-create-pr.sh` refuses `--take-over` on any head other than `impl/{{PLAN_SLUG}}`). `owned-pr.sh --take-over` rewrites only that PR's marker line to name this run, and only for a PR that already passed every other ownership check (this repository, your login, the base, the branch). Submit as that run's exit code says, and name the PR you took over in `detail`.
-- **Otherwise** -- no such signal, or any doubt -- don't take it over: submit `status: pr_adopt` with `detail` naming the PR and saying it carries another run's marker, so whoever re-invokes can confirm the earlier run is over.
+- **Take it over** only when the invocation that started this run says the earlier run on this PLAN has ended and this is its re-entry (the user or the coordinating session said so, in so many words). A replaced session is not that signal: `execute-open.sh` carries a finished session's identity into its replacement, so after a replacement a foreign marker usually means a run somewhere else marked the PR; the exception is a carry that failed (`execute-open.sh` says so on stderr), and the default of not taking over covers both. Then re-run step 2's pre-push lookup with `--take-over --plan-slug {{PLAN_SLUG}}` added (`adopt-or-create-pr.sh` refuses `--take-over` on any head other than `impl/{{PLAN_SLUG}}`). `owned-pr.sh --take-over` rewrites only that PR's marker line to name this run, and only for a PR that already passed every other ownership check (this repository, your login, the base, the branch). Submit `status: completed`, and name the PR you took over in `detail`.
+- **Otherwise** -- no such signal, or any doubt -- don't take it over: submit `status: completed` with `detail` naming the PR and saying it carries another run's marker, so whoever re-invokes can confirm the earlier run is over. The lookup still finds no PR this run owns, so the run ends at `execute:pr-adopt`.
 
 `--take-over` is never passed on the first attempt and never by any other lookup; only this exit-6 decision, on step 2's `impl/{{PLAN_SLUG}}`, adds it.
 
-**You do not record the settled branch.** That is `settled_branch_record`, the next state, which koto drives itself. Submit `status: completed` after the branch and draft PR exist, `status: override` if you adopted an owned PR on the current branch, `status: pr_adopt` or `status: status_read` as the exit codes above say, or `status: blocked` with `detail` if a step fails for any other reason.
+**You do not report the lookup's answer.** koto reads it through `setup_owned_pr`, which runs `check-pr-output.sh --owned-pr` over the checked-out branch when you submit: exactly one owned PR goes on to `settled_branch_record`, none or several ends the run at `execute:pr-adopt`, and a failed read at `execute:status-read`. `status: completed` says only that the steps above ran. Submit it whatever they answered, `status: blocked` with `detail` if a step failed for another reason (a create that failed), or `status: override` to go on without the lookup, which is a person's call, never a way past an answer you don't like.
+
+**You do not record the settled branch.** That is `settled_branch_record`, the next state, which koto drives itself.
 
 ## write_set_record
 
@@ -1393,8 +1544,8 @@ Author the title and body to the mechanical rule in `references/pr-body-conforma
 
 ```bash
 # The owned PR on the settled branch, never the first `gh pr list --head` hit.
-# Empty output or exit 3, 4, or 5 submits finalization_status: pr_adopt; exit 2
-# submits finalization_status: status_read. Either way, edit nothing.
+# Empty output or a non-zero exit: edit nothing, and tick; koto's own lookup
+# (final_owned_pr) ends the run.
 PR_NUMBER=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
   --repo "$(koto context get {{SESSION_NAME}} repos)" \
   --head "$(koto context get {{SESSION_NAME}} settled_branch)" --state open \
@@ -1429,18 +1580,38 @@ rm -f "$BODY_FILE" "$LIVE_FILE"
 
 Run this title+body edit **unconditionally** on every finalization (clean and attention runs) — a zero-issue or all-skipped run still yields a conformant title, so R4's no-fix-up guarantee holds.
 
-`PR_NUMBER` holds the owned PR's URL, which `gh pr edit` accepts as the PR argument. Don't write a `<!-- shirabe-run: ... -->` line into the body yourself and don't skip the `carry` step: the carried marker is the only one the PR keeps. Read the `lookup=` line first; it decides before `exit=` does. `lookup=2` submits `finalization_status: status_read`. `pr=none`, or `lookup=` 3, 4 or 5, submits `finalization_status: pr_adopt`. In both cases the chain stopped before any read or edit, and its `exit=` line is ignored. Only when the lookup found the PR (`lookup=0` with a URL) does `exit=` decide: `exit=0` submits `finalization_status: updated`, anything else submits `finalization_status: update_failed` (the `gh pr view` read, the `carry`, or the edit failed; the body was not edited unless the edit itself ran). The `update_failed`→`done_blocked` route and the DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) are unchanged.
+`PR_NUMBER` holds the owned PR's URL, which `gh pr edit` accepts as the PR argument. Don't write a `<!-- shirabe-run: ... -->` line into the body yourself and don't skip the `carry` step: the carried marker is the only one the PR keeps. The `lookup=` line is for you; you don't report it. The DRAFT-before-READY ordering (no `gh pr ready` here — that stays in `plan_completion`) is unchanged.
 
-**4. Submit the mode-driven `pause_decision` (D2).** Alongside `finalization_status: updated`, set `pause_decision` from the `{{PAUSE_BEFORE_FINALIZE}}` variable, which `/execute` resolves from the execution mode at `koto init` time (interactive → `true`; `--auto` → `false`). It is NOT a separate user flag.
+**4. Submit `updated`, and let koto check the result.** When the edit ran (`exit=0`), submit `koto next {{SESSION_NAME}} --with-data '{"finalization_status":"updated"}' --no-cleanup`. That is your record that you wrote this run's body; the run doesn't go on without it, even when the PR's existing body would pass. A PR adopted from `/scope` already carries a conformant body (its scoping description), so the checks alone can't tell that the implementation body was written. With an empty `PR_NUMBER` (the lookup found no single owned PR), tick with nothing submitted; koto's own lookup ends the run. koto runs this state's gates over the PR and the branch as they now stand:
 
-- If `{{PAUSE_BEFORE_FINALIZE}}` is `true`, submit `pause_decision: pause`. The PR body is now assembled but the chain is intact (PLAN present, BRIEF/PRD/DESIGN un-transitioned) and the PR is still DRAFT. The workflow routes to the non-failure terminal `paused_for_review` and stops — the operator reviews the DRAFT PR and resumes to finalize.
-- If `{{PAUSE_BEFORE_FINALIZE}}` is `false` (the `--auto` path, and the default), submit `pause_decision: finalize` (or omit it — the fallback edge finalizes). The workflow routes to `plan_completion`, which runs the cascade and then `gh pr ready`, driving straight through to a ready-to-merge, green PR -- unless the cascade reports `partial`, which halts there instead.
+- `final_owned_pr` looks up the owned PR the same way, through `check-pr-output.sh --owned-pr`. None or several ends the run at `execute:pr-adopt`, and a failed read at `execute:status-read`, whatever the edit did.
+- `owned_pr_body_conformant` runs `shirabe validate --pr-body` on that PR's title and body (`pr-body/conventional-title`, `pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1`).
+- `settled_commits` checks every non-merge commit on the shared branch, against origin's default branch: a Conventional Commits subject and no AI-attribution trailer (`commit/conventional-subject`, `commit/no-ai-trailer`).
+- `settled_wip_clean` checks that no path under `wip/` is in `HEAD`'s tree (`branch/no-wip-files`).
+- `settled_docs_visibility` checks every `docs/` document the branch changed against the repository's declared visibility (`docs/private-only-type`, `docs/visibility-vision-sections`, `docs/visibility-strategy-sections`).
+
+The /work-on children skip the wip and docs checks on the shared branch, because they open no PR of their own; this is where the branch is checked, once, before the PR is finalized.
+
+A failing check holds the run here with its findings in the response, each naming the rule and the file. Fix the PR or the branch: re-run the edit above for a body or title finding; for a commit, wip or docs finding, commit the fix and push it through `{{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}`, never a rebase or a force push. Then submit `finalization_status: updated` again. A pushed commit's subject or trailer can't be fixed without rewriting the shared branch, which this run never does: leave the run held, say which commit, and let a person decide. An exit 2 from a check means it could not decide (a missing `shirabe` or `jq`, a ref that doesn't resolve); run the command from the response by hand for the reason.
+
+When `updated` is submitted and every check passes, koto routes the run on the `{{PAUSE_BEFORE_FINALIZE}}` variable, which `/execute` resolves from the execution mode at `koto init` time (interactive → `true`; `--auto` → `false`). It is NOT a separate user flag, and you don't report it.
+
+- `true`: the run stops at the non-failure terminal `paused_for_review`. The PR body is assembled but the chain is intact (PLAN present, BRIEF/PRD/DESIGN un-transitioned) and the PR is still DRAFT; the operator reviews the DRAFT PR and resumes to finalize.
+- `false` (the `--auto` path, the default, and a resume of a paused run): the run goes on to `plan_completion`, which runs the cascade and then `gh pr ready`, driving straight through to a ready-to-merge, green PR -- unless the cascade reports `partial`, which halts there instead.
+
+Submit `finalization_status: update_failed` only when the `gh pr view` read, the `carry` or the edit failed (`lookup=0` with an `exit=` other than 0) and `owned_pr_body_conformant` fails on the PR as it stands: the body was not edited unless the edit itself ran, and the run ends at `done_blocked`.
 
 ## ci_monitor
 
 Monitor CI on the shared branch until all checks pass AND merge state is clean.
 
-Both gates read the PR this run owns on its settled branch, resolved through `owned-pr.sh` on the recorded repository: `owned_ci_passing` is the `ci_passing` check (every check in the `pass` or `skipping` bucket) and `owned_merge_state_clean` is the `merge_state_clean` check (the merge state is not `DIRTY`). To read the PR yourself, resolve it the same way:
+Three gates read the PR this run owns on its settled branch, resolved through `owned-pr.sh` on the recorded repository: `owned_ci_passing` is the `ci_passing` check (every check in the `pass` or `skipping` bucket), `owned_merge_state_clean` is the `merge_state_clean` check (the merge state is not `DIRTY`), and `monitor_owned_pr` is the lookup itself, through `check-pr-output.sh --owned-pr`. koto routes on them without asking you:
+
+- Green CI on a clean PR goes on to `merge_readiness`.
+- A `DIRTY` PR goes to `escalate_dirty_merge_state` → `done_blocked`, whatever the CI gate says: GitHub creates no new check-runs on a `DIRTY` PR, so `owned_ci_passing` reads true on zero checks exactly as it does on a green PR, and only the merge state tells the two apart.
+- No single owned PR ends the run at `execute:pr-adopt`, and a failed lookup read at `execute:status-read`.
+
+You see this state only while `owned_ci_passing` fails on a clean PR: a check failed, or one is still running. To read the PR yourself, resolve it the same way:
 
 ```bash
 PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
@@ -1449,7 +1620,7 @@ PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
   --run-id "$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get {{SESSION_NAME}})")
 ```
 
-Empty output or exit 3, 4, or 5 means no single owned PR this run can use: submit `ci_outcome: pr_adopt`. Exit 2 means the read failed: submit `ci_outcome: status_read`.
+Empty output or a non-zero exit means no single owned PR this run can use, or a failed read; tick with nothing submitted, and `monitor_owned_pr` ends the run.
 
 If the gate fails because a check failed, read which failed with `gh pr checks "$PR"` and its log with `gh run view <run-id> --log-failed`, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
 
@@ -1461,15 +1632,13 @@ If failures are unresolvable, submit `ci_outcome: failing_unresolvable` with rat
 
 **CI repair is capped at 3 fix pushes, all within this one visit to `ci_monitor`.** Nothing routes back here: `failing_fixed` goes to `merge_readiness`, which waits on the new head's checks and records a failed one as the `error:execute:ci` verdict, so a head that is red after the run leaves `ci_monitor` ends the run at `done_blocked` (`execute:ci`). More than one fix push happens only when you read a fix's checks here before submitting. Once a third fix push has failed, submit `ci_outcome: failing_unresolvable` with rationale, which ends the run at `done_blocked` (`execute:ci`). Never stop to ask the user in an unattended run. The cap is set by `docs/decisions/DECISION-contradiction-retry-caps-2026-09-28.md`, and is stated here only until koto enforces retry caps from its own attempt counts; the number stays 3 when it does, and this paragraph goes.
 
-**Waiting on CI is bounded, and not here.** If checks are still pending, don't loop in this state: submit `ci_outcome: pending`. `merge_readiness` reads the checks itself and waits on them against a per-head-commit deadline (1800 s from the head commit's date, `EXECUTE_CI_WAIT_LIMIT_SECS`), after which the run ends at `step=execute:ci-timeout`. `passing` (with both gates green), `failing_fixed`, and `pending` all go to `merge_readiness`; nothing here ends the run as green on your word.
+**Waiting on CI is bounded, and not here.** If checks are still pending, don't loop in this state: submit `ci_outcome: pending`. `merge_readiness` reads the checks itself and waits on them against a per-head-commit deadline (1800 s from the head commit's date, `EXECUTE_CI_WAIT_LIMIT_SECS`), after which the run ends at `step=execute:ci-timeout`. Green CI (on the gates), `failing_fixed`, and `pending` all go to `merge_readiness`; nothing here ends the run as green on your word.
 
-Read the merge state with `gh pr view "$PR" --json mergeStateStatus --jq .mergeStateStatus`. On a `DIRTY` PR GitHub creates no new check-runs, so `owned_ci_passing` reads true on zero checks exactly as it does on a green PR; only `owned_merge_state_clean` tells the two apart, so don't loop on `ci_passing` there.
-
-When `mergeStateStatus` is `DIRTY`, submit `ci_outcome: dirty_merge_state` with `rationale` naming the conflict files. The workflow routes to `escalate_dirty_merge_state` → `done_blocked` with the DIRTY-specific failure reason. The operator's recovery is to merge the default branch into the shared branch and resolve the conflicts before re-running CI, never a rebase or a force push; the koto state machine does not retry automatically because the resolution takes judgment about what preserves the PLAN's intent.
+A `DIRTY` PR needs nothing from you: koto routes it to `escalate_dirty_merge_state` → `done_blocked` with the DIRTY-specific failure reason. The operator's recovery is to merge the default branch into the shared branch and resolve the conflicts before re-running CI, never a rebase or a force push; the koto state machine does not retry automatically because the resolution takes judgment about what preserves the PLAN's intent.
 
 ## escalate_dirty_merge_state
 
-The PR's merge state is DIRTY (conflicts with the target branch); GitHub has suppressed new check-runs. The `rationale` naming the conflict files is submitted at `ci_monitor` with `ci_outcome: dirty_merge_state`; that tick chains through here to `done_blocked`, and the DIRTY-specific failure reason `ci_monitor` wrote, rationale included, is the one the run ends with. The run's result is `outcome=ready-awaiting-merge` with `reason=merge-state:DIRTY`: nothing errored, and the PR waits on a human to resolve the conflict.
+The PR's merge state is DIRTY (conflicts with the target branch); GitHub has suppressed new check-runs. `ci_monitor` routed here on its `owned_merge_state_clean` gate, with no evidence; that tick chains through here to `done_blocked`, and the DIRTY-specific failure reason `ci_monitor` wrote is the one the run ends with. Read `gh pr view <pr> --json files` or merge the default branch locally to name the conflicting files for the operator. The run's result is `outcome=ready-awaiting-merge` with `reason=merge-state:DIRTY`: nothing errored, and the PR waits on a human to resolve the conflict.
 
 ## plan_completion
 
@@ -1481,6 +1650,8 @@ Run the completion cascade that pulls the chain to its strict-mode passing state
 RESULT=$(${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/run-cascade.sh --push --session {{SESSION_NAME}} {{PLAN_DOC}})
 CASCADE_STATUS=$(echo "$RESULT" | jq -r '.cascade_status // empty')
 ```
+
+`--session` makes the script record its verdict, the same JSON it prints, as this session's `cascade_result.json`; it clears any earlier record before it starts, so a run that stops before its verdict (exit 1) leaves none. That record is what routes this state: you never report the verdict yourself.
 
 If the pre-probe sees a clean pass — the chain is already at its strict-mode terminal — the script emits `cascade_status: skipped` with a single `lifecycle_pre_probe` step recording the no-op, exits 0, and the cascade proceeds directly to step 2 without performing any transitions. If the post-verify sees a failure, the script logs the validator's output and emits `cascade_status: partial`; halt and surface the failure.
 
@@ -1511,8 +1682,8 @@ Surface the failing step's `detail` and stop. The shapes differ in what recovery
 **Step 2: Mark the PR ready for review.**
 
 ```bash
-# The owned PR on the settled branch. Empty output or exit 3, 4, or 5 submits
-# cascade_status: pr_adopt; exit 2 submits cascade_status: status_read.
+# The owned PR on the settled branch. Empty output or a non-zero exit: mark
+# nothing ready, and tick; koto's own lookup (ready_owned_pr) ends the run.
 PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
   --repo "$(koto context get {{SESSION_NAME}} repos)" \
   --head "$(koto context get {{SESSION_NAME}} settled_branch)" --state open \
@@ -1522,15 +1693,16 @@ PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
 [ -n "$PR" ] && gh pr ready "$PR"
 ```
 
-The CI workflow re-runs on the `ready_for_review` event with strict mode set, and the check should pass on the now-finalized chain. If `gh pr ready` fails, carry on and submit the cascade's verdict: the PR stays a draft, and `merge_readiness`'s verdict ends the run at `step=execute:ready` without merging.
+The CI workflow re-runs on the `ready_for_review` event with strict mode set, and the check should pass on the now-finalized chain. If `gh pr ready` fails, carry on and tick: the PR stays a draft, and `merge_readiness`'s verdict ends the run at `step=execute:ready` without merging.
 
-On a `completed` or `skipped` verdict, submit `cascade_status` from the JSON output and a brief `cascade_detail` summarising what ran (which transitions, which paths, post-cascade verification outcome). On a `partial`, submit nothing: the verdict routes to `ci_monitor` like the other two, whose gates can evaluate clean on a still-DRAFT PR and reach a non-failure terminal, so submitting would report a failed cascade as a successful run.
+**Step 3: Tick.** Run step 2 before you tick, since the tick is what moves the run on. On a `completed` or `skipped` verdict, submit a brief `cascade_detail` summarising what ran (which transitions, which paths, post-cascade verification outcome); it is the only thing you submit here. koto reads the verdict from `cascade_result.json` through `cascade_completed`, `cascade_skipped` and `cascade_partial`, and the owned PR through `ready_owned_pr`:
 
-- `cascade_status: completed` — pre-probe saw the expected mid-PR failure, all applicable transitions ran successfully, post-verify saw the expected clean pass
-- `cascade_status: partial` — some steps ran but at least one failed (a transition was refused, an upstream was missing, the finalization commit or push failed, or the post-verify failed); halt and inspect the `steps` array for the failure detail. Do not mark the PR ready on a `partial`.
-- `cascade_status: skipped` — pre-probe saw a clean pass (chain already terminal) or the PLAN doc had no `upstream` field; no transitions were performed. Note that the second of those still commits and pushes: the PLAN's own deletion is part of the finalization, so a no-upstream chain publishes that one change and reports `skipped` about the chain walk it did not have to do.
+- `completed` — pre-probe saw the expected mid-PR failure, all applicable transitions ran successfully, post-verify saw the expected clean pass. Goes on to `ci_monitor`.
+- `skipped` — pre-probe saw a clean pass (chain already terminal) or the PLAN doc had no `upstream` field; no transitions were performed. Note that the second of those still commits and pushes: the PLAN's own deletion is part of the finalization, so a no-upstream chain publishes that one change and reports `skipped` about the chain walk it did not have to do. Goes on to `ci_monitor`.
+- `partial` — some steps ran but at least one failed (a transition was refused, an upstream was missing, the finalization commit or push failed, or the post-verify failed). No edge takes it anywhere: the run holds here, which is the halt. Inspect the `steps` array, recover as the list above says, and run the cascade again; its new verdict replaces the old one. Do not mark the PR ready on a `partial`.
+- No record at all (the script stopped with exit 1 before its verdict): the run holds the same way. Read the script's stderr, fix the precondition, and run it again.
 
-- `cascade_status: pr_adopt` / `status_read` — the owned-PR lookup in front of `gh pr ready` found no single owned PR, or its read failed. Both end the run at `done_blocked` (`execute:pr-adopt`, `execute:status-read`) without marking anything ready.
+The lookup in front of `gh pr ready` finding no single owned PR, or failing to read, ends the run at `done_blocked` (`execute:pr-adopt`, `execute:status-read`) without marking anything ready.
 
 ## escalate
 

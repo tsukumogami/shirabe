@@ -216,6 +216,7 @@ Read one of these next to your own state; they are the worked examples.
 | `pr_precheck` | `skills/work-on/koto-templates/work-on.md` | A read, captured, gated ahead of the step it feeds |
 | `analysis` | `skills/work-on/koto-templates/work-on.md` | A write-once record on a state that still asks for judgment; the action's failure is recoverable by submitting the state's own evidence |
 | `changed_paths_record` | `skills/work-on/koto-templates/work-on.md` | A write gated by `context-exists` on its key, whose failure path removes a stale key so the gate can't pass on an earlier lap |
+| `verification` | `skills/work-on/koto-templates/work-on.md` | A launcher that starts a bounded, detached run and returns at once, with a `poll:` gate waiting on the result it leaves on disk; for work longer than one command's 30 seconds |
 
 The states below convert with `/deliver`, `/execute`'s merge step, and
 `/scope`'s intake and intent shortcuts. Each one's action **writes no GitHub

@@ -26,24 +26,23 @@ stateDiagram-v2
     changed_paths_record --> issue_type_routing : gates.changed_paths_recorded.exists: true
     changed_paths_record --> issue_type_routing : gates.changed_paths_recorded.exists: false, paths_status: override
     changed_paths_record --> done_blocked : gates.changed_paths_recorded.exists: false, paths_status: blocked
-    ci_monitor --> cascade_entry : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: root
-    ci_monitor --> done : ci_outcome: passing, gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 0, session_role: child
-    ci_monitor --> done_blocked : ci_outcome: passing, gates.merge_state_clean.exit_code: 1
-    ci_monitor --> ci_monitor : ci_outcome: failing_fixed
-    ci_monitor --> done_blocked : ci_outcome: failing_unresolvable
-    ci_monitor --> done_blocked
+    ci_monitor --> cascade_entry : gates.ci_passing.exit_code: 0, gates.is_root.exit_code: 0, gates.merge_state_clean.exit_code: 0
+    ci_monitor --> done : gates.ci_passing.exit_code: 0, gates.is_root.exit_code: 1, gates.merge_state_clean.exit_code: 0
+    ci_monitor --> done_blocked : gates.ci_passing.exit_code: 0, gates.merge_state_clean.exit_code: 1
+    ci_monitor --> ci_monitor : ci_outcome: failing_fixed, gates.ci_passing.exit_code: 1
+    ci_monitor --> done_blocked : ci_outcome: failing_unresolvable, gates.ci_passing.exit_code: 1
     context_injection --> setup_issue_backed : gates.context_artifact.exists: true, status: completed
     context_injection --> setup_issue_backed : status: override
     context_injection --> done_blocked : status: blocked
     context_injection --> setup_issue_backed
-    deferral_approval --> pre_pr_evidence : approval_decision: approved, gates.cleanup_referent.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    deferral_approval --> pre_pr_evidence : approval_decision: approved, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     deferral_approval --> done_blocked : approval_decision: rejected
     entry --> context_injection : mode: issue_backed
     entry --> task_validation : mode: free_form
     entry --> plan_context_injection : mode: plan_backed
     entry --> skipped_due_to_dep_failure : mode: skipped
     finalization --> implementation : finalization_status: issues_found
-    finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
+    finalization --> pre_pr_evidence : finalization_status: ready_for_pr, gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_exists.exists: true, gates.summary_shape.matches: true
     finalization --> deferral_approval : finalization_status: deferral_requested
     implementation --> changed_paths_record : gates.on_feature_branch_impl.exit_code: 0, implementation_status: complete
     implementation --> implementation : implementation_status: partial_tests_failing_retry
@@ -58,9 +57,10 @@ stateDiagram-v2
     issue_type_routing --> verification : gates.has_commits.exit_code: 0, issue_type: docs
     issue_type_routing --> verification : issue_type: task
     light_review --> verification : gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 0
-    light_review --> verification : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_results.exists: true, light_outcome: passed
-    light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, light_outcome: blocking_retry
-    light_review --> done_blocked : gates.light_carried.exit_code: 1, light_outcome: blocking_escalate
+    light_review --> verification : gates.has_commits.exit_code: 0, gates.level_unchanged.exit_code: 0, gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 0
+    light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 1, light_outcome: blocking_retry
+    light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 1, light_outcome: blocking_escalate
+    light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 2, light_outcome: blocking_escalate
     plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, issue_source: github, status: completed
     plan_context_injection --> plan_validation : gates.context_artifact.exists: true, issue_source: plan_outline, status: completed
     plan_context_injection --> setup_plan_backed : status: override
@@ -71,33 +71,36 @@ stateDiagram-v2
     post_research_validation --> setup_free_form : verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
     post_research_validation --> validation_exit : verdict: exit
-    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, pr_status: created
+    pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, pr_status: created
     pr_creation --> done_blocked : gates.closing_keyword.exit_code: 1, pr_status: created
-    pr_creation --> done : pr_status: shared
+    pr_creation --> done : pr_status: shared, vars.SHARED_BRANCH: {"is_set":true}
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
-    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 0
-    pr_precheck --> pr_creation : gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
+    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.branch_wip_clean.exit_code: 0, gates.on_feature_branch_pr.exit_code: 0
+    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.branch_wip_clean.exit_code: 0, gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
     pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
     pre_pr_evidence --> pr_precheck : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : gates.summary_shape.matches: false, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : gates.commit_convention.exit_code: 1, gates.summary_shape.matches: true, pre_pr_status: recorded
+    pre_pr_evidence --> done_blocked : gates.commit_convention.exit_code: 2, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : gates.cleanup_referent.exit_code: 1, gates.commit_convention.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 1, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : pre_pr_status: blocked
     qa_validation --> verification : gates.qa_carried.exit_code: 0
-    qa_validation --> verification : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_results.exists: true, qa_outcome: passed
-    qa_validation --> implementation : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, qa_outcome: blocking_retry
-    qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, qa_outcome: blocking_escalate
+    qa_validation --> verification : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_verdict.exit_code: 0
+    qa_validation --> implementation : gates.qa_carried.exit_code: 1, gates.qa_recorded.exit_code: 0, gates.qa_verdict.exit_code: 1, qa_outcome: blocking_retry
+    qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, gates.qa_verdict.exit_code: 1, qa_outcome: blocking_escalate
+    qa_validation --> done_blocked : gates.qa_carried.exit_code: 1, gates.qa_verdict.exit_code: 2, qa_outcome: blocking_escalate
     research --> post_research_validation
     review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: standard
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: full
     review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
-    review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: standard
-    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: full
-    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_results.exists: true, review_outcome: passed, vars.REVIEW_LEVEL: {"is_set":false}
-    review --> implementation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, review_outcome: blocking_retry
-    review --> done_blocked : gates.review_carried.exit_code: 1, review_outcome: blocking_escalate
+    review --> verification : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: standard
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: full
+    review --> qa_validation : gates.level_unchanged.exit_code: 0, gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 0, vars.REVIEW_LEVEL: {"is_set":false}
+    review --> implementation : gates.review_carried.exit_code: 1, gates.review_recorded.exit_code: 0, gates.review_verdict.exit_code: 1, review_outcome: blocking_retry
+    review --> done_blocked : gates.review_carried.exit_code: 1, gates.review_verdict.exit_code: 1, review_outcome: blocking_escalate
+    review --> done_blocked : gates.review_carried.exit_code: 1, gates.review_verdict.exit_code: 2, review_outcome: blocking_escalate
     review_level_check --> light_review : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: light
     review_level_check --> scrutiny : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: standard
     review_level_check --> scrutiny : gates.level_floor.exit_code: 0, vars.REVIEW_LEVEL: full
@@ -106,9 +109,10 @@ stateDiagram-v2
     review_level_choice --> implementation : vars.REVIEW_LEVEL: {"is_set":true}
     review_level_choice --> done_blocked : level_status: blocked, vars.REVIEW_LEVEL: {"is_set":false}
     scrutiny --> review : gates.scrutiny_carried.exit_code: 0
-    scrutiny --> review : gates.has_commits.exit_code: 0, gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, gates.scrutiny_results.exists: true, scrutiny_outcome: passed
-    scrutiny --> implementation : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, scrutiny_outcome: blocking_retry
-    scrutiny --> done_blocked : gates.scrutiny_carried.exit_code: 1, scrutiny_outcome: blocking_escalate
+    scrutiny --> review : gates.has_commits.exit_code: 0, gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, gates.scrutiny_verdict.exit_code: 0
+    scrutiny --> implementation : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_recorded.exit_code: 0, gates.scrutiny_verdict.exit_code: 1, scrutiny_outcome: blocking_retry
+    scrutiny --> done_blocked : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_verdict.exit_code: 1, scrutiny_outcome: blocking_escalate
+    scrutiny --> done_blocked : gates.scrutiny_carried.exit_code: 1, gates.scrutiny_verdict.exit_code: 2, scrutiny_outcome: blocking_escalate
     setup_free_form --> analysis : gates.baseline_exists.exists: true, gates.on_feature_branch.exit_code: 0, status: completed
     setup_free_form --> analysis : status: override
     setup_free_form --> done_blocked : status: blocked
@@ -121,17 +125,21 @@ stateDiagram-v2
     setup_plan_backed --> analysis : status: override
     setup_plan_backed --> done_blocked : status: blocked
     setup_plan_backed --> analysis
-    staleness_check --> introspection : staleness_signal: stale_requires_introspection
-    staleness_check --> analysis : gates.staleness_fresh.exit_code: 0, staleness_signal: fresh
-    staleness_check --> analysis : gates.staleness_fresh.exit_code: 3, staleness_signal: unavailable
-    staleness_check --> analysis : gates.staleness_fresh.exit_code: -1, staleness_signal: unavailable
-    staleness_check --> analysis : staleness_signal: override
-    staleness_check --> done_blocked : staleness_signal: blocked
+    staleness_check --> analysis : gates.staleness_fresh.exit_code: 0
+    staleness_check --> introspection : gates.staleness_fresh.exit_code: 1
+    staleness_check --> analysis : gates.staleness_fresh.exit_code: 3
+    staleness_check --> analysis : gates.staleness_fresh.exit_code: -1
+    staleness_check --> analysis : gates.staleness_fresh.exit_code: 2, staleness_signal: override
+    staleness_check --> done_blocked : gates.staleness_fresh.exit_code: 2, staleness_signal: blocked
     task_validation --> research : verdict: proceed
     task_validation --> validation_exit : verdict: exit
-    verification --> finalization : verification_outcome: passed
-    verification --> implementation : verification_outcome: failed
-    verification --> done_blocked : verification_outcome: cannot_verify
+    verification --> finalization : gates.verification_verdict.exit_code: 0
+    verification --> implementation : gates.verification_verdict.exit_code: 1
+    verification --> done_blocked : gates.verification_verdict.exit_code: 3
+    verification --> done_blocked : gates.verification_verdict.exit_code: 4
+    verification --> done_blocked : gates.verification_verdict.exit_code: 75, verification_status: blocked
+    verification --> done_blocked : gates.verification_verdict.exit_code: 2, verification_status: blocked
+    verification --> done_blocked : gates.verification_verdict.exit_code: -1, verification_status: blocked
     done --> [*]
     done_already_complete --> [*]
     done_blocked --> [*]
@@ -150,6 +158,9 @@ stateDiagram-v2
         gate: ci_passing
     end note
     note left of ci_monitor
+        gate: is_root
+    end note
+    note left of ci_monitor
         gate: merge_state_clean
     end note
     note left of context_injection
@@ -157,6 +168,9 @@ stateDiagram-v2
     end note
     note left of deferral_approval
         gate: cleanup_referent
+    end note
+    note left of deferral_approval
+        gate: commit_convention
     end note
     note left of deferral_approval
         gate: diagram_referent
@@ -169,6 +183,9 @@ stateDiagram-v2
     end note
     note left of finalization
         gate: cleanup_referent
+    end note
+    note left of finalization
+        gate: commit_convention
     end note
     note left of finalization
         gate: diagram_referent
@@ -201,13 +218,22 @@ stateDiagram-v2
         gate: light_recorded
     end note
     note left of light_review
-        gate: light_results
+        gate: light_verdict
     end note
     note left of plan_context_injection
         gate: context_artifact
     end note
     note left of pr_creation
         gate: closing_keyword
+    end note
+    note left of pr_creation
+        gate: pr_body_conformant
+    end note
+    note left of pr_precheck
+        gate: branch_docs_visibility
+    end note
+    note left of pr_precheck
+        gate: branch_wip_clean
     end note
     note left of pr_precheck
         gate: on_feature_branch_pr
@@ -231,7 +257,7 @@ stateDiagram-v2
         gate: qa_recorded
     end note
     note left of qa_validation
-        gate: qa_results
+        gate: qa_verdict
     end note
     note left of review
         gate: level_unchanged
@@ -243,7 +269,7 @@ stateDiagram-v2
         gate: review_recorded
     end note
     note left of review
-        gate: review_results
+        gate: review_verdict
     end note
     note left of review_level_check
         gate: level_fits_facts
@@ -261,7 +287,7 @@ stateDiagram-v2
         gate: scrutiny_recorded
     end note
     note left of scrutiny
-        gate: scrutiny_results
+        gate: scrutiny_verdict
     end note
     note left of setup_free_form
         gate: baseline_exists
@@ -283,5 +309,8 @@ stateDiagram-v2
     end note
     note left of staleness_check
         gate: staleness_fresh
+    end note
+    note left of verification
+        gate: verification_verdict
     end note
 ```

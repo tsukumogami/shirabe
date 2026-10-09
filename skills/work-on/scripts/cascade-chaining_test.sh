@@ -124,6 +124,9 @@ variables:
       without it and exercise what the gate does with an unresolved root.
     required: false
 states:
+  # `start` is this fixture's own stand-in for ci_monitor. Its
+  # `ci_outcome: passing` is fixture-only: the shipped ci_monitor routes green
+  # CI on its gates and accepts no such value.
   start:
     accepts:
       ci_outcome:

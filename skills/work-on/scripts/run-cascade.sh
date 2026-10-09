@@ -28,6 +28,18 @@
 #             safe side. A caller that passes no --session (/work-on) gets
 #             exactly the behavior it had before the option existed.
 #
+#             It also makes the verdict a record /execute's plan_completion
+#             routes on. Before anything else runs, the script removes
+#             `cascade_result.json` from that session's context, so a verdict
+#             left by an earlier run can't route this one; if the removal
+#             fails, the script stops there (exit 1, nothing done), because a
+#             stale verdict it could not clear is worse than no run. When the
+#             cascade reaches its verdict, the same JSON it prints on stdout
+#             is written, compacted to one line, as `cascade_result.json`. A
+#             run that stops before its verdict (exit 1) leaves no key, so
+#             plan_completion's cascade gates all fail and the run holds. A
+#             failed write is logged to stderr and holds the run the same way.
+#
 # Output: JSON on stdout for every run that reaches the cascade -- success,
 # partial or skipped alike. Two classes of run do not reach it: a usage error
 # exits 1 from usage() with no JSON at all, and the exit-1 precondition failures
@@ -54,8 +66,9 @@
 #
 # Exit codes:
 #   0 — cascade ran (completed, partial, or skipped)
-#   1 — a usage error, or: PLAN doc not found, path validation failed, not a
-#       git repo, or the shirabe binary could not be resolved. Setup and
+#   1 — a usage error, or: an earlier cascade_result.json that --session could
+#       not clear, PLAN doc not found, path validation failed, not a git
+#       repo, or the shirabe binary could not be resolved. Setup and
 #       precondition failures only -- never a failure of the cascade itself.
 
 set -euo pipefail
@@ -492,6 +505,18 @@ emit_result() {
     local steps_array="[$STEPS_JSON]"
     jq -n --arg cs "$cascade_status" --argjson steps "$steps_array" \
         '{cascade_status: $cs, steps: $steps}'
+    # The verdict /execute's plan_completion routes on: the same object,
+    # compacted, so its cascade gates can anchor on the leading
+    # {"cascade_status":"<verdict>", that jq's key order guarantees.
+    if [[ -n "$SESSION" ]]; then
+        if jq -cn --arg cs "$cascade_status" --argjson steps "$steps_array" \
+                '{cascade_status: $cs, steps: $steps}' \
+                | koto context add "$SESSION" cascade_result.json >/dev/null; then
+            log_info "recorded cascade_result.json ($cascade_status) in session $SESSION"
+        else
+            log_warn "could not record cascade_result.json in session $SESSION; plan_completion will hold"
+        fi
+    fi
 }
 
 # ── Handler: handle_roadmap ───────────────────────────────────────────────────
@@ -741,8 +766,9 @@ stderr instead, and a usage error (this message) emits none at all.
 
 Exit codes:
   0 — cascade ran (completed, partial, or skipped)
-  1 — usage error, or a setup/precondition failure (PLAN missing, path
-      validation, not a git repo, or shirabe binary unresolvable)
+  1 — usage error, or a setup/precondition failure (an earlier verdict
+      --session could not clear, PLAN missing, path validation, not a git
+      repo, or shirabe binary unresolvable)
 EOF
     exit 1
 }
@@ -788,6 +814,19 @@ done
 if [[ -z "$PLAN_DOC" ]]; then
     echo "Error: plan-doc-path is required" >&2
     usage
+fi
+
+# ── Clear an earlier verdict ──────────────────────────────────────────────────
+#
+# Before anything can fail: a run that stops short of its verdict must leave no
+# cascade_result.json behind, or plan_completion would route on the previous
+# run's answer. `koto context remove` succeeds when the key is already absent.
+
+if [[ -n "$SESSION" ]]; then
+    if ! koto context remove "$SESSION" cascade_result.json >/dev/null; then
+        echo "{\"cascade_status\":\"skipped\",\"steps\":[],\"error\":\"could not clear cascade_result.json in session $SESSION\"}" >&2
+        exit 1
+    fi
 fi
 
 # ── Setup ─────────────────────────────────────────────────────────────────────

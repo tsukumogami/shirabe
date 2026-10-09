@@ -24,7 +24,7 @@
 #              full-body `gh pr edit`, so the finalized body keeps the marker
 #   takeover   --take-over appears in no script or template call except the
 #              exit-6 re-entry instruction and adopt-or-create-pr.sh's
-#              pass-through
+#              pass-through (check-pr-output.sh names it only to refuse it)
 #
 # Usage: owned-pr-callers_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -204,6 +204,7 @@ fi
 TAKE=$(grep -rn --include='*.sh' --include='*.md' --exclude-dir=workspace -e '--take-over' skills \
     | grep -v '_test.sh:' | grep -v 'skills/execute/scripts/owned-pr.sh:' \
     | grep -v 'skills/execute/scripts/adopt-or-create-pr.sh:' \
+    | grep -v 'skills/work-on/scripts/check-pr-output.sh:.*--take-over is refused' \
     | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#')
 BAD=$(printf '%s\n' "$TAKE" | grep -v '^$' \
     | grep -v 'skills/execute/SKILL.md:' | grep -v 'skills/execute/koto-templates/execute.md:')

@@ -207,6 +207,10 @@ suite_scripts() {
             # structure test's compile, skip without koto.
             echo "skills/execute/scripts/execute-open_test.sh"
             echo "skills/execute/scripts/execute-template-structure_test.sh"
+            # The output gates' routes need koto and skip without it; the
+            # removed-value counts and the routing gates' stdout run on the
+            # floor.
+            echo "skills/execute/scripts/execute-output-gates-routing_test.sh"
             # Its script cases write through a koto stand-in and need only git
             # and jq, so they run on the macOS leg; its engine cases skip there.
             echo "skills/execute/scripts/drift-facts_test.sh"
@@ -290,6 +294,23 @@ suite_scripts() {
             # a koto stand-in, so they execute on the floor; its real-session
             # case skips without koto.
             echo "skills/work-on/scripts/panel-retry-budget_test.sh"
+            # The output gate scripts against git fixtures and stand-ins; no
+            # engine. The --docs-visibility cases need the real validator and
+            # skip without it, so they run on the Linux leg.
+            echo "skills/work-on/scripts/check-branch-output_test.sh"
+            echo "skills/work-on/scripts/check-pr-output_test.sh"
+            # Reads the rule table and the files it references at HEAD.
+            echo "skills/work-on/scripts/gate-rule-refs_test.sh"
+            # Reads the committed verification map with jq and the files that
+            # document it; no engine.
+            echo "skills/work-on/scripts/verification-map-schema_test.sh"
+            # The verification runner and verdict against git fixtures and a
+            # koto stand-in; its real-koto case skips without koto.
+            echo "skills/work-on/scripts/run-verification_test.sh"
+            # The output gates' routes need koto and skip without it; the
+            # removed-value counts, the routing gates' stdout and the kept
+            # directive lines run on the floor.
+            echo "skills/work-on/scripts/output-gates-routing_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

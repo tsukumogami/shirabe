@@ -380,19 +380,19 @@ gh_fixture() {
 }
 gh_fixture default
 
-# init_orchestrator <slug> [MERGE] — open execute-<slug> the way the session is
+# init_orchestrator <slug> [MERGE] [PAUSE_BEFORE_FINALIZE] — open execute-<slug> the way the session is
 # named in production (the actions rebuild the name as execute-{{PLAN_SLUG}}),
 # and take the first tick, which runs write_set_record and lands on
 # orchestrator_setup. A session that did not get there fails the suite rather
 # than letting later assertions prove nothing.
 init_orchestrator() {
-    local s="execute-$1" merge="${2:-false}" st
+    local s="execute-$1" merge="${2:-false}" pause="${3:-false}" st
     # $KOTO_LEGACY_ENV_ARG: #483.
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" \
         --var PLAN_DOC="docs/plans/PLAN-$1.md" \
         --var PLAN_SLUG="$1" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
-        --var PAUSE_BEFORE_FINALIZE=false \
+        --var PAUSE_BEFORE_FINALIZE="$pause" \
         --var MERGE="$merge" >/dev/null 2>&1
     if ! k status "$s" >/dev/null 2>&1; then
         echo "FAIL: koto init did not produce session '$s' -- the engine-backed cases cannot run" >&2
@@ -405,6 +405,11 @@ init_orchestrator() {
     # The run identity execute-open.sh mints at the session's birth; the
     # scripts the template runs only read it.
     printf '00112233445566778899aabbccddeeff' | k context add "$s" run_id >/dev/null 2>&1
+    # The settled branch, as settled_branch_record would record it. The
+    # owned-PR lookups on pr_finalization, plan_completion and ci_monitor are
+    # non-overridable, so a directed hop out of those states runs them, and
+    # they resolve the PR on this branch through the gh stub.
+    printf 'impl/probe' | k context add "$s" settled_branch >/dev/null 2>&1
     k next "$s" --no-cleanup >/dev/null 2>&1
     st=$(k status "$s" 2>/dev/null | jq -r '.current_state // "gone"')
     if [ "$st" != "orchestrator_setup" ]; then
@@ -575,6 +580,16 @@ decide() {
     fi
 }
 
+# decide_plain <session> <flag|""> — the deciding tick with nothing submitted,
+# for an edge koto routes on its gates; sets RESP.
+decide_plain() {
+    if [ -n "$2" ]; then
+        RESP=$(k next "$1" "$2" 2>/dev/null)
+    else
+        RESP=$(k next "$1" 2>/dev/null)
+    fi
+}
+
 # expect_payload <label> <session> <final state> <outcome> <step> <reason>
 # — with the flag: the retained session's `koto status` result.
 expect_payload() {
@@ -609,41 +624,60 @@ expect_control() {
     fi
 }
 
-# paused_for_review, by pr_finalization's pause edge.
-init_orchestrator payload-pause
+# paused_for_review, by pr_finalization's pause edge. koto routes that edge on
+# its gates and PAUSE_BEFORE_FINALIZE once the agent submits
+# finalization_status: updated. The owned-PR lookup runs for real against the
+# gh stub; the four output checks need a real PR body, a validator and an
+# origin, so a recorded override passes each, as a person's override would,
+# and the deciding tick submits `updated`.
+pass_output_gates() {
+    local g
+    for g in owned_pr_body_conformant settled_commits settled_wip_clean settled_docs_visibility; do
+        k overrides record "$1" --gate "$g" --rationale "terminal-retention probe" >/dev/null 2>&1
+    done
+}
+init_orchestrator payload-pause false true
 walk execute-payload-pause settled_branch_record drift_facts worktree_sync spawn_and_await pr_finalization
-decide execute-payload-pause '{"finalization_status":"updated","pause_decision":"pause"}' --no-cleanup
+pass_output_gates execute-payload-pause
+decide execute-payload-pause '{"finalization_status":"updated"}' --no-cleanup
 expect_payload "paused_for_review" execute-payload-pause paused_for_review paused-for-review "" ""
 if [ "$(k status execute-payload-pause | jq -r .result.payload.resume)" = "/execute docs/plans/PLAN-payload-pause.md" ]; then
     pass "paused_for_review carries the resume command"
 else
     fail "paused_for_review resume: [$(k status execute-payload-pause | jq -r .result.payload.resume)]"
 fi
-init_orchestrator payload-pause-ctl
+init_orchestrator payload-pause-ctl false true
 walk execute-payload-pause-ctl settled_branch_record drift_facts worktree_sync spawn_and_await pr_finalization
-decide execute-payload-pause-ctl '{"finalization_status":"updated","pause_decision":"pause"}' ""
+pass_output_gates execute-payload-pause-ctl
+decide execute-payload-pause-ctl '{"finalization_status":"updated"}' ""
 expect_control "paused_for_review" execute-payload-pause-ctl paused-for-review
 
-# The DIRTY route: ci_monitor -> escalate_dirty_merge_state -> done_blocked.
+# The DIRTY route: ci_monitor -> escalate_dirty_merge_state -> done_blocked,
+# routed by owned_merge_state_clean with no evidence. The stub answers the
+# merge-state read with DIRTY.
+gh_fixture dirty
+echo DIRTY > "$GH_FIX/view.out"
 at_ci_monitor payload-dirty
-decide execute-payload-dirty '{"ci_outcome":"dirty_merge_state","rationale":"src/a.go conflicts"}' --no-cleanup
+decide_plain execute-payload-dirty --no-cleanup
 expect_payload "the DIRTY done_blocked" execute-payload-dirty done_blocked ready-awaiting-merge "" "merge-state:DIRTY"
 if k status execute-payload-dirty | jq -e '.result.status == "failure"' >/dev/null; then
     pass "the DIRTY route still ends at the failure terminal (abandonment-forced)"
 else
     fail "the DIRTY route's result status is not failure"
 fi
-# The deciding tick chains through escalate_dirty_merge_state, where the
-# rationale submitted at ci_monitor doesn't carry, so ci_monitor's reason is
-# the one that must survive to the terminal.
+# The deciding tick chains through escalate_dirty_merge_state, which writes no
+# reason of its own, so ci_monitor's reason is the one that must survive to
+# the terminal.
 got=$(k context get execute-payload-dirty failure_reason 2>/dev/null)
-if [ "$got" = "ci_monitor: PR merge state is DIRTY; checks suppressed. src/a.go conflicts" ]; then
-    pass "the DIRTY done_blocked keeps ci_monitor's failure_reason with the rationale"
+if [ "$got" = "ci_monitor: PR merge state is DIRTY; checks suppressed. Merge the default branch into the shared branch and resolve the conflicts." ]; then
+    pass "the DIRTY done_blocked keeps ci_monitor's failure_reason"
 else
     fail "the DIRTY done_blocked failure_reason: [$got]"
 fi
+gh_fixture dirty-ctl
+echo DIRTY > "$GH_FIX/view.out"
 at_ci_monitor payload-dirty-ctl
-decide execute-payload-dirty-ctl '{"ci_outcome":"dirty_merge_state","rationale":"src/a.go conflicts"}' ""
+decide_plain execute-payload-dirty-ctl ""
 expect_control "the DIRTY done_blocked" execute-payload-dirty-ctl ready-awaiting-merge failure
 
 # The attention route: a child fails, and the gate-routed tick chains

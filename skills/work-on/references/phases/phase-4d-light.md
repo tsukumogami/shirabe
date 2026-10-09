@@ -42,16 +42,14 @@ The seat writes full findings to a `mktemp`-produced file outside the repository
 ```json
 {
   "focus": "light",
-  "blocking_count": 0,
-  "advisory_count": 1,
   "summary": "<1-3 paragraphs>",
   "cited": [{"path": "src/a.sh", "lines": "10-24"}],
-  "findings": [{"summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
+  "findings": [{"severity": "advisory", "summary": "<one line>", "path": "src/a.sh", "lines": "12"}],
   "detail_file": "<the reviewer's mktemp path>"
 }
 ```
 
-`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`. Delete the detail file once the round is aggregated; anything worth keeping goes into `light_results.json`.
+`cited` and `findings` mean what they mean in `phase-4a-scrutiny.md`, and every finding carries a `severity` of `blocking` or `advisory`: the seat is blocking exactly when one finding is `blocking`, and a finding without a severity makes `--record` refuse the round. Delete the detail file once the round is aggregated; anything worth keeping goes into `light_results.json`.
 
 ## Aggregation
 
@@ -65,16 +63,19 @@ ROUND=$(mktemp)
 
 If `--record` fails, fix it and run it again before submitting anything; if it can't be fixed, submit `light_outcome: blocking_escalate`.
 
-Then:
+Then tick koto with nothing submitted. The `light_verdict` gate reads the ledger (`panel-scope.sh --verdict light`) and decides, as at scrutiny:
 
-- If `blocking_count > 0`: submit `light_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the findings; the run then walks forward through the review-level check, which gathers the facts again and may hold the run until the level is raised (a fix that grows the change can take it past a threshold), and re-enters this phase only if the level is still `light`.
-- If `blocking_count: 0`: write `light_results.json` to koto context and submit `light_outcome: passed`.
+- Exit 0, the seat recorded no blocking finding: koto advances to `verification`. Optionally write `light_results.json` first, as the round's summary for a reader; no gate reads it.
+- Exit 1, the seat is blocking: the gate prints one `panel/blocking-finding` finding per blocking finding. Submit `light_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the findings; the run then walks forward through the review-level check, which gathers the facts again and may hold the run until the level is raised (a fix that grows the change can take it past a threshold), and re-enters this phase only if the level is still `light`.
+- Exit 2, the round isn't recorded or the ledger can't be read: record the round and tick again.
 
 ```bash
+# Optional: the round's summary for a reader. No gate reads it; skip
+# straight to `koto next` if you don't write one.
 koto context add <WF> light_results.json <<EOF
-{"passed": true, "round": <N>, "blocking_count": 0}
+{"round": <N>, "summary": "<one line>"}
 EOF
-koto next <WF> --with-data '{"light_outcome": "passed"}' --no-cleanup
+koto next <WF> --no-cleanup
 ```
 
 `<N>` is the number of the light round that just ran: 1 the first time through, incremented on each pass through the retry loop below.
@@ -90,8 +91,8 @@ for KEY in scrutiny_results.json review_results.json qa_results.json light_resul
   REMOVE_STATUS=$?
   if [ "$REMOVE_STATUS" -ne 0 ] || koto context exists <WF> "$KEY" >/dev/null 2>&1; then
     echo "$KEY was not confirmed cleared from context."
-    echo "The stale artifact may still be in place, and its gate may accept it."
-    echo "Do NOT submit $OUTCOME_FIELD: passed on the next pass."
+    echo "The stale artifact may still be in place, and a later gate may accept it."
+    echo "Do NOT submit $OUTCOME_FIELD: blocking_retry by hand."
     echo "To stop the run, submit $OUTCOME_FIELD: blocking_escalate with a failure_reason."
     exit 1
   fi
@@ -99,7 +100,7 @@ done
 koto next <WF> --with-data "{\"$OUTCOME_FIELD\": \"blocking_retry\"}" --no-cleanup
 ```
 
-Every panel's key goes, not only this one's: if the level is raised on the way back, the run enters scrutiny and review, and neither gate may pass on a verdict written before the fix. `phase-4a-scrutiny.md` explains the removal and the two checks. The verdict ledger and the review-level ledger stay.
+Every panel's key goes, not only this one's: if the level is raised on the way back, the run enters scrutiny and review, and neither may be read on a summary written before the fix; their verdicts come from the ledger. `phase-4a-scrutiny.md` explains the removal and the two checks. The verdict ledger and the review-level ledger stay.
 
 ## Escalation
 

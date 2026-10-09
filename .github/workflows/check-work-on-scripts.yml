@@ -26,6 +26,19 @@ on:
       # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
+      # The rule reference test re-resolves each row of
+      # skills/work-on/scripts/gate-rules.tsv inside these files, and the
+      # branch output gate test runs the validator built from these sources,
+      # so an edit to either can break the suite.
+      - 'references/pr-body-conformance.md'
+      - 'references/wip-hygiene.md'
+      - 'docs/guides/doc-validation.md'
+      - 'crates/**'
+      - 'Cargo.lock'
+      # The verification map schema test reads shirabe's map and the
+      # extension file that points at it.
+      - '.claude/shirabe-extensions/verification-map.json'
+      - '.claude/shirabe-extensions/work-on.md'
       # An edit to this workflow changes what runs, so it has to run the suite.
       - '.github/workflows/check-work-on-scripts.yml'
   # Also on main, so a change that breaks the suite shows on the push that
@@ -41,6 +54,13 @@ on:
       - 'scripts/check-bash-floor.sh'
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
+      - 'references/pr-body-conformance.md'
+      - 'references/wip-hygiene.md'
+      - 'docs/guides/doc-validation.md'
+      - 'crates/**'
+      - 'Cargo.lock'
+      - '.claude/shirabe-extensions/verification-map.json'
+      - '.claude/shirabe-extensions/work-on.md'
       - '.github/workflows/check-work-on-scripts.yml'
 
 env:
@@ -246,6 +266,64 @@ jobs:
       - name: Run panel retry budget tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/panel-retry-budget_test.sh
+
+      # The branch output gate test runs the real validator for its
+      # --docs-visibility cases and skips them without one, so this leg builds
+      # it from the checkout, the way check-scope-scripts.yml does.
+      - name: Install Rust toolchain (Linux)
+        if: runner.os == 'Linux'
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Build and install shirabe (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          cargo build --release --bin shirabe
+          mkdir -p "$RUNNER_TEMP/work-on-bin"
+          install -m 0755 target/release/shirabe "$RUNNER_TEMP/work-on-bin/shirabe"
+          echo "$RUNNER_TEMP/work-on-bin" >> "$GITHUB_PATH"
+
+      # The output gate scripts: the branch checks against git fixtures (with
+      # the validator built above for --docs-visibility), the PR checks
+      # against stand-in gh, shirabe and owned-pr.sh, and the rule table's
+      # references re-resolved at HEAD. No engine needed; the macOS leg runs
+      # all three on the floor through the work-on suite.
+      - name: Run branch output gate tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/check-branch-output_test.sh
+
+      - name: Run PR output gate tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/check-pr-output_test.sh
+
+      - name: Run gate rule reference tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/gate-rule-refs_test.sh
+
+      # Holds shirabe's verification map to the v1 schema with jq, and the
+      # schema reference and work-on.md to what they must say. Needs only git
+      # and jq; the macOS leg runs it on the floor through the work-on suite.
+      - name: Run verification map schema tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/verification-map-schema_test.sh
+
+      # Starts the verification runner against git fixtures with fixture
+      # commands (passing, failing, slow, forking under a small max_procs,
+      # missing) and checks the verdict exit and finding for each, then drives
+      # the launcher and the poll: gate through a real koto tick. The macOS leg
+      # runs it on the floor through the work-on suite, without the koto case.
+      - name: Run verification runner tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/run-verification_test.sh
+
+      # The output gates wired into work-on.md: every route the gates take,
+      # driven through a real koto tick against the shipped state blocks with
+      # fake gate scripts under a fake plugin root; the removed evidence
+      # values; routing gates printing no finding; and the directive lines the
+      # build kept. The macOS leg runs its engine-free cases on the floor
+      # through the work-on suite.
+      - name: Run output gate routing tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/output-gates-routing_test.sh
 
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so

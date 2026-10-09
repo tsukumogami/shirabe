@@ -212,6 +212,17 @@ k() { (cd "$FIXREPO" && koto "$@"); }
 # owner/repo inside the gate's pattern.
 record_write_set() { printf 'o/r' | k context add "$1" repos >/dev/null 2>&1; }
 
+# The walks to paused_for_review hop out of pr_finalization, whose owned-PR
+# lookup (final_owned_pr) is overridable: false, so koto runs it on the hop
+# and refuses the hop unless it answers 0. /koto-probe has no scripts to run,
+# so those two sessions are opened under a stand-in plugin root whose lookup
+# answers one owned PR; nothing else on the walk runs a script.
+WALK_ROOT="$WORK/walk-plugin"
+mkdir -p "$WALK_ROOT/skills/work-on/scripts" "$WALK_ROOT/skills/execute/scripts"
+printf '#!/usr/bin/env bash\necho https://github.com/o/r/pull/1\n' > "$WALK_ROOT/skills/work-on/scripts/check-pr-output.sh"
+printf '#!/usr/bin/env bash\necho 00112233445566778899aabbccddeeff\n' > "$WALK_ROOT/skills/execute/scripts/run-id.sh"
+chmod +x "$WALK_ROOT/skills/work-on/scripts/check-pr-output.sh" "$WALK_ROOT/skills/execute/scripts/run-id.sh"
+
 # session_var <session> <VAR> — the variable's effective value from the log.
 session_var() {
     local dir
@@ -409,7 +420,7 @@ fi
 
 # A retained paused_for_review session: replaced, and resumed as the finalize
 # invocation.
-run_open '["docs/plans/PLAN-paused.md"]'
+run_open '["docs/plans/PLAN-paused.md"]' CLAUDE_PLUGIN_ROOT="$WALK_ROOT"
 FIRST_RUN_ID=$(k context get execute-paused run_id 2>/dev/null)
 if [[ $FIRST_RUN_ID =~ ^[0-9a-f]{32}$ ]]; then
     pass "an opened session carries a run identity (run_id)"
@@ -502,7 +513,7 @@ else
 fi
 
 # A retained terminal execute.md session is replaced by the coordinated run.
-run_open '["docs/plans/PLAN-swap.md"]'
+run_open '["docs/plans/PLAN-swap.md"]' CLAUDE_PLUGIN_ROOT="$WALK_ROOT"
 record_write_set execute-swap
 for t in orchestrator_setup settled_branch_record drift_facts worktree_sync worktree_discipline_check \
          spawn_and_await pr_finalization paused_for_review; do
