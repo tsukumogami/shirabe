@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   /scope and /charter, and the skills they run, keep a run's working state as
   files in the branch's staging folder, and /scope keeps a koto session as
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-resume-convention](docs/briefs/BRIEF-resume-convention.md); carried in Absorbed Brief.
 
@@ -138,7 +138,7 @@ is the repository's `wip/` directory.
   koto's own session store.
 - **R3. Key naming.** A skill's working file `wip/<skill>_<topic>_<rest>`
   becomes key `work/<rest>` in session `<skill>-<topic>`, and a research or
-  verdict file `wip/research/<skill>_<topic>_<rest>` becomes key
+  verdict file `<skill>_<topic>_<rest>` in the folder's `research/` directory becomes key
   `research/<rest>`, keeping `<rest>` (extension included) byte for byte. A
   `<rest>` that koto's key grammar refuses (each `/`-separated component must
   start with a letter or digit and contain only letters, digits, `.`, `_` and
