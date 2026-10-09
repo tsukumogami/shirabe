@@ -57,14 +57,16 @@ Join records on `rule_id`; `rule_ref` is for opening the text.
 
 ## Checking what the gate scripts print
 
-When `SHIRABE_FINDINGS_LOG` names a file, `rule-registry.sh log-finding <line>` appends a
-printed `::koto-finding::` line to it. The gate scripts' finding helpers call it, and their
-test suites set the variable. Because an agent can also run a gate script from its own shell,
+Gate scripts source `scripts/lib/rule-findings.sh`, which resolves every id in their mode
+before any check runs and builds each finding. When `SHIRABE_FINDINGS_LOG` names a file,
+`rule-registry.sh log-finding <line>` appends a printed `::koto-finding::` line to it; the
+library calls it for every finding, and the gate scripts' test suites set the variable. Because an agent can also run a gate script from its own shell,
 the log is honored only for a regular file under `$TMPDIR` (or `/tmp`) that isn't a symlink;
 anything else is ignored. `rule-registry.sh verify-findings <log>` then fails unless the log
 holds at least one finding and every finding's `rule_id` is an active entry whose `rule_ref` is
-the one `ref` computes. Log only what the scripts print: a koto fallback finding carries a gate
-name, which is not a registered rule.
+the one `ref` computes and whose `message` starts with the entry's summary and `: `. Log only
+what the scripts print: a koto fallback finding carries a gate name, which is not a registered
+rule.
 
 ## Adding, changing or retiring a rule
 

@@ -299,8 +299,6 @@ suite_scripts() {
             # skip without it, so they run on the Linux leg.
             echo "skills/work-on/scripts/check-branch-output_test.sh"
             echo "skills/work-on/scripts/check-pr-output_test.sh"
-            # Reads the rule table and the files it references at HEAD.
-            echo "skills/work-on/scripts/gate-rule-refs_test.sh"
             # Reads the committed verification map with jq and the files that
             # document it; no engine.
             echo "skills/work-on/scripts/verification-map-schema_test.sh"

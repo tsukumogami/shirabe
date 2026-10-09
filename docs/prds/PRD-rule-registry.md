@@ -191,9 +191,10 @@ Four consequences fall on the people doing the offload work now:
   it prints one line saying so on standard error and nothing else changes. The mechanism is a
   shared helper the design names, so later triggers reuse it, and it needs no koto capability
   koto 0.15.0 lacks. It copies the text: the template keeps its takeover prose byte for byte.
-- **R9. No withholding.** This change removes no line from any file the offload baseline's load
-  manifest (`docs/measurement/offload-baseline/load-manifest.tsv`) lists or from any skill
-  template. After it lands, R6(b) keeps every active rule's text in the file its pointer names,
+- **R9. No withholding.** This change removes no line from any span the offload baseline's load
+  manifest (`docs/measurement/offload-baseline/load-manifest.tsv`) loads into an agent's context,
+  and no rule text from any skill template. (A comment in a template's frontmatter, which no
+  agent is shown, may be reworded.) After it lands, R6(b) keeps every active rule's text in the file its pointer names,
   so a later change that withholds a rule has to change its entry too.
 - **R10. Baseline mapping.** Each entry records, as a list, the baseline source-location keys
   (`<path>#L<start>-L<end>`, at the baseline pin's commit in `template-pin.json`) that hold the
@@ -276,7 +277,8 @@ Standing criteria are checked on every pull request their paths cover; criteria 
   error contains no rule text. With the registry unreadable, it prints one notice line and its
   exit code and standard output are unchanged. Each is shown by a test.
 - [ ] *(this change)* `git diff` of the merge base against the head shows no removed line in any
-  file the baseline's load manifest lists or in `/execute`'s template.
+  span the baseline's load manifest loads (a whole file, a file's body, or a template state
+  section) or in `/execute`'s template.
 - [ ] Each entry's baseline keys match `<path>#L<start>-L<end>`, each range lies within its file
   at the baseline's pinned commit, every entry sharing a key with another names the others in
   its notes, and every empty list carries a reason; a check enforces this, with a test for an

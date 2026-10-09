@@ -85,6 +85,12 @@ mkdir -p "$KOTO_STUB_STORE"
 STUB_PATH="$WORKDIR/bin:$PATH"
 export PATH="$STUB_PATH"
 
+# Every finding the verdicts below print is logged and verified against the
+# rule registry at the end.
+# shellcheck source=../../../scripts/lib/rule-findings-testlib.sh
+. "$SCRIPT_DIR/../../../scripts/lib/rule-findings-testlib.sh"
+rf_test_setup "$WORKDIR"
+
 # --- fixtures ------------------------------------------------------------------------
 
 # mkrepo <name> <map json | NONE>: a repository on branch `work`, one commit
@@ -246,6 +252,11 @@ start s-fail
 settle s-fail
 expect_rc "a failing command" 1
 expect_rule "a failing command" verification/command-failed
+REF=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r 'select(.rule_id == "verification/command-failed") | .rule_ref' | head -n 1)
+WANT_RANGE=$(rf_test_expected_range verification/command-failed)
+[ "${REF%@*}" = "$WANT_RANGE" ] && pass "a failing command: verification/command-failed's range is $WANT_RANGE, found from its anchors with grep" \
+    || fail "a failing command: range [${REF%@*}], want [$WANT_RANGE]"
+rf_test_refusals "--verdict" skills/work-on/scripts/check-verification.sh verification/command-failed --verdict --session s-fail
 
 echo "--- a command that forks past max_procs"
 mkrepo fork "$(map '{"forker": {"run": ["bin/forker.sh"], "max_procs": 4}}' '[]' '["forker"]')"
@@ -544,6 +555,8 @@ sleep 1
 LEFT=""
 command -v pgrep >/dev/null 2>&1 && LEFT=$(pgrep -f "$MARK" 2>/dev/null | grep -v "^$$\$" | tr '\n' ' ')
 [ -z "$LEFT" ] && pass "no process this suite started is still running" || fail "left running: $LEFT"
+
+rf_test_verify "check-verification"
 
 echo
 echo "run-verification_test: $PASS_COUNT passed, $FAIL_COUNT failed"

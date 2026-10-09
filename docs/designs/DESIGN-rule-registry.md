@@ -315,14 +315,17 @@ the start of a line, in the form `RULE_IDS="<id> <id> ..."` on one line, and the
 any other shape), and every literal id passed to
 `rule-registry.sh release`, and requires each id to be an active registry entry.
 
-The second half is a finding log. When `SHIRABE_FINDINGS_LOG` names a file, each gate script's
-finding helper appends the line it printed there. Because an agent can also run a gate script
+The second half is a finding log. The four gate scripts share one sourced library,
+`scripts/lib/rule-findings.sh`, which resolves a mode's ids, builds each finding and passes
+every printed line to `rule-registry.sh log-finding`. When `SHIRABE_FINDINGS_LOG` names a
+file, `log-finding` appends the line there. Because an agent can also run a gate script
 from its own shell, where the environment isn't cleared, the log is honored only when its path
 lies under `${TMPDIR:-/tmp}`, is not a symlink, and either doesn't exist or is a regular file;
 anything else is ignored. The four gate scripts' test suites set it, and at the end each
 suite runs `rule-registry.sh verify-findings <log>`, which fails unless every logged
-`rule_id` is an active entry and every `rule_ref` names that entry's path and the same range
-`ref` computes for it.
+`rule_id` is an active entry, every `rule_ref` is the one `ref` computes for it, and every
+`message` starts with the entry's summary; an empty log fails, since a suite that logged
+nothing checked nothing.
 
 *Alternative: grep the scripts for id-shaped strings.* No declaration needed, and `<area>/<rule>`
 matches paths like `skills/work-on` as easily as rules. Rejected as unreliable.
@@ -457,7 +460,8 @@ it without making codes into ids.
 | `scripts/check-rule-registry-adoption.sh` | new | The one-time *(this change)* comparison against the merge base, kept apart so the standing check stays standing. |
 | `scripts/check-rule-registry_test.sh` | new | Shows each check failing on an altered copy, and passing on the real registry; pins the real registry's shape (exactly 21 `level: gate` entries, 17 `rs-` entries, 39 in all) and its never-withhold entries (the 21 gate rules, `rs-001` to `rs-003`, the takeover rule); runs the adoption script against a scratch repository with a base that has the table and one that doesn't. |
 | `scripts/rule-registry_test.sh` | new | `ref` from a clean scratch repository, a dirty one, an installed-style copy with a release version and one with a `-dev` version, and one with no `git`; anchor movement after lines are inserted above; retired, unknown and unsafe-path entries; `release` output, its line cap, its path restriction and its failure line; `verify-findings`. |
-| `check-branch-output.sh`, `check-pr-output.sh`, `check-verification.sh`, `panel-scope.sh` | changed | `RULE_IDS=`; each mode resolves its ids up front and keeps the refs and summaries; the finding helper builds the line with `jq --arg`, refuses other ids, and appends to `SHIRABE_FINDINGS_LOG` when set. |
+| `check-branch-output.sh`, `check-pr-output.sh`, `check-verification.sh`, `panel-scope.sh` | changed | `RULE_IDS=`; each sources `scripts/lib/rule-findings.sh`, whose `rf_require` resolves a mode's ids up front and whose `rf_finding` builds the line with `jq --arg`, refuses other ids, and logs it through `log-finding`. |
+| `scripts/lib/rule-findings.sh`, `scripts/lib/rule-findings-testlib.sh` | new | The gate scripts' shared finding code, and the suites' shared checks: log setup, `verify-findings`, a grep-based range, and the three refusals run in a scratch plugin copy. |
 | the four gate scripts' `_test.sh` suites | changed | Expected `rule_ref` and message forms; each sets `SHIRABE_FINDINGS_LOG` and ends with `rule-registry.sh verify-findings`, plus one case per suite asserting a literal expected range for one rule (independent of the resolver), and cases showing an id outside `RULE_IDS` and a retired id each exit 2. `panel-scope.sh --verdict` now requires the ref (today it omits `rule_ref` when the lookup fails); an unresolvable rule exits 2 like the other scripts. |
 | `skills/work-on/scripts/gate-rules.tsv`, `gate-rule-refs_test.sh` | removed | Replaced by the registry and its check. |
 | `skills/execute/scripts/adopt-or-create-pr.sh` | changed | Calls `rule-registry.sh release execute/pr-takeover-needs-signal </dev/null >&2 || true` in its exit-6 branch, after its existing line. |

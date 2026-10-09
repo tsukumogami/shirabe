@@ -1346,7 +1346,7 @@ states:
     #   75 no result yet                          waits
     #   2  the result could not be read           holds
     # Each violation exit prints `::koto-finding::` lines whose rule_id is a
-    # verification/ name from gate-rules.tsv, so the event log names the cause.
+    # verification/ rule from references/rule-registry.json, so the event log names the cause.
     #
     # The one evidence left is `verification_status: blocked`, for a run that
     # can't settle: a launcher that can't start (the wait is then pending and,

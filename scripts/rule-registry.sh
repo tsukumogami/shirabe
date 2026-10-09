@@ -39,6 +39,10 @@
 # git runs only on the plugin root, with the system and global configuration,
 # hooks and the filesystem monitor disabled and the caller's GIT_* location
 # variables cleared, so a configuration planted in the directory runs nothing.
+# The plumbing used (rev-parse, hash-object --no-filters) runs no hook and no
+# monitor anyway; those flags, and clearing GIT_CONFIG_COUNT and
+# GIT_CONFIG_PARAMETERS, are defense in depth the tests can't exercise. The
+# tests do show a planted clean filter not running, which --no-filters stops.
 #
 # Exit codes (ref, summary, text):
 #   0  printed
@@ -50,19 +54,20 @@
 
 set -u
 
-SELF_DIR=$(CDPATH='' cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P) || exit 2
-ROOT=$(CDPATH='' cd -P -- "$SELF_DIR/.." && pwd -P) || exit 2
-REGISTRY=""
 PROG=rule-registry
 
-# A trigger calls `release` with `|| true`, and its result must never change
-# because a release could not run. So when the command is `release`, every
-# failure before the dispatch (a bad option, a missing jq) still prints the
-# one could-not-release line and exits 0, like a failure inside it.
+# `release` and `log-finding` run beside another script's own work, and must
+# never change its result. So for those two, every failure before the
+# dispatch (the script can't find itself, a bad option, a missing jq) exits 0
+# like a failure inside them: release still prints its one could-not-release
+# line, log-finding stays silent. This is decided first, before anything that
+# can fail.
 RELEASE_ID=""
+QUIET=""
 prev=""
 for a in "$@"; do
     [ "$prev" = release ] && RELEASE_ID=$a
+    [ "$a" = log-finding ] && QUIET=1
     prev=$a
 done
 die2() {
@@ -70,9 +75,15 @@ die2() {
         echo "$PROG: could not release $RELEASE_ID: $*" >&2
         exit 0
     fi
+    [ -z "$QUIET" ] || exit 0
     echo "$PROG: $*" >&2
     exit 2
 }
+
+SELF_DIR=$(CDPATH='' cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P) \
+    || die2 "cannot find its own directory"
+ROOT=$(CDPATH='' cd -P -- "$SELF_DIR/.." && pwd -P) || die2 "cannot find the plugin root"
+REGISTRY=""
 
 while [ $# -gt 0 ]; do
     case "$1" in

@@ -38,6 +38,12 @@ trap cleanup EXIT
 
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
+
+# Every finding the runs below print is logged and verified against the rule
+# registry at the end.
+# shellcheck source=../../../scripts/lib/rule-findings-testlib.sh
+. "$SCRIPT_DIR/../../../scripts/lib/rule-findings-testlib.sh"
+rf_test_setup "$WORKDIR"
 export GIT_CONFIG_NOSYSTEM=1
 export GIT_CEILING_DIRECTORIES="$WORKDIR"
 git config --global user.email t@example.invalid
@@ -196,6 +202,19 @@ else
 fi
 check_shape "--commits --session"
 
+# A control character in a commit subject is replaced in the finding's message,
+# so the finding stays one line koto can parse.
+fixture control
+commit_file a.txt a -m "$(printf 'bad\001subject')"
+run --commits --base-ref origin/main
+LINES=$(printf '%s\n' "$OUT" | grep -c '^::koto-finding::')
+CTRL=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '.message' | LC_ALL=C tr -d '\n' | LC_ALL=C grep -c '[[:cntrl:]]')
+if [ "$RC" -eq 1 ] && [ "$LINES" -eq 1 ] && [ "$CTRL" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | grep -c .)" -eq 1 ]; then
+    pass "--commits: a control character in a subject is replaced and the finding is one line"
+else
+    fail "--commits: control character: rc=$RC lines=$LINES ctrl=$CTRL out=[$OUT]"
+fi
+
 fixture trailer
 commit_file a.txt a -m "feat: add a" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
 run --commits --base-ref origin/main
@@ -240,6 +259,22 @@ case "$OUT" in
     *"\"path\":\"$WIP_FILE\""*) pass "--wip: the finding names the path" ;;
     *) fail "--wip: the finding does not name $WIP_FILE: $OUT" ;;
 esac
+REF=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '.rule_ref' | head -n 1)
+WANT_RANGE=$(rf_test_expected_range branch/no-wip-files)
+[ "${REF%@*}" = "$WANT_RANGE" ] && pass "--wip: branch/no-wip-files's range is $WANT_RANGE, found from its anchors with grep" \
+    || fail "--wip: branch/no-wip-files range [${REF%@*}], want [$WANT_RANGE]"
+SUMMARY=$("$SCRIPT_DIR/../../../scripts/rule-registry.sh" summary branch/no-wip-files)
+case "$OUT" in
+    *"\"message\":\"$SUMMARY: "*) pass "--wip: the message starts with the rule's summary" ;;
+    *) fail "--wip: the message does not start with [$SUMMARY: ]: $OUT" ;;
+esac
+# A branch with nothing under wip/: the refusals hold the gate before any check.
+fixture refusals
+run --wip
+expect "--wip: a clean branch" 0
+cd "$REPO" || exit 2
+rf_test_refusals "--wip on a clean branch" skills/work-on/scripts/check-branch-output.sh branch/no-wip-files --wip
+cd "$WORKDIR" || exit 2
 
 # --- --synced -------------------------------------------------------------------
 
@@ -414,6 +449,8 @@ if command -v shirabe >/dev/null 2>&1; then
 else
     echo "SKIP: shirabe not on PATH -- the --docs-visibility validator cases did not run"
 fi
+
+rf_test_verify "check-branch-output"
 
 echo
 echo "check-branch-output_test: $PASS_COUNT passed, $FAIL_COUNT failed"

@@ -46,9 +46,10 @@
 #      failed to run. No finding is printed; the reason goes to stderr.
 #
 # Each finding is koto's finding shape, built with jq:
-#   ::koto-finding::{"rule_id":"<name>","level":"error","message":"...",
-#                    "rule_ref":"<path>#L<a>-L<b>@<commit>"[,"path":"..."[,"line":N]]}
-# The rule names and their refs live in gate-rules.tsv beside this script.
+#   ::koto-finding::{"rule_id":"<name>","level":"error","message":"<summary>: ...",
+#                    "rule_ref":"<path>#L<a>-L<b>@<revision>"[,"path":"..."[,"line":N]]}
+# The rules are entries of references/rule-registry.json; scripts/lib/rule-findings.sh
+# resolves each one's reference and summary through scripts/rule-registry.sh.
 #
 # Runs from anywhere inside the repository's working tree. Written for the
 # bash 3.2 floor and deliberately without `set -e`: an unexpected failure must
@@ -57,7 +58,7 @@
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-RULES="$HERE/gate-rules.tsv"
+RULE_IDS="commit/conventional-subject commit/no-ai-trailer branch/no-wip-files docs/visibility-vision-sections docs/visibility-strategy-sections docs/private-only-type branch/current-with-main"
 
 usage() {
     cat >&2 <<'EOF'
@@ -75,31 +76,21 @@ undecided() {
     exit 2
 }
 
-# rule_ref <rule_id>: `<ref>@<commit>` from the rule table, or nothing.
-rule_ref() {
-    awk -F'\t' -v id="$1" '$0 !~ /^#/ && $1 == id { print $2 "@" $3; exit }' "$RULES" 2>/dev/null
-}
+# shellcheck source=../../../scripts/lib/rule-findings.sh
+. "$HERE/../../../scripts/lib/rule-findings.sh"
 
-# require_rules <id>...: every rule this mode can report has a table row, so a
-# violation is never reported without its reference.
+# require_rules <id>...: every rule this mode can report resolves before the
+# check runs, so a violation is never reported without its reference.
 require_rules() {
-    [ -r "$RULES" ] || undecided "the rule table $RULES is not readable"
-    for id in "$@"; do
-        [ -n "$(rule_ref "$id")" ] || undecided "the rule table has no row for $id"
-    done
+    rf_require "$@"
 }
 
 VIOLATIONS=0
 
-# finding <rule_id> <message> [<path> [<line>]]
+# finding <rule_id> <detail> [<path> [<line>]]
 finding() {
     VIOLATIONS=$((VIOLATIONS + 1))
-    jq -cn --arg id "$1" --arg msg "$2" --arg ref "$(rule_ref "$1")" \
-        --arg path "${3-}" --arg line "${4-}" '
-        {rule_id: $id, level: "error", message: $msg, rule_ref: $ref}
-        + (if $path != "" then {path: $path} else {} end)
-        + (if $path != "" and ($line | test("^[1-9][0-9]*$")) then {line: ($line | tonumber)} else {} end)
-        ' | sed 's/^/::koto-finding::/'
+    rf_finding "$@"
 }
 
 # --- arguments ----------------------------------------------------------------

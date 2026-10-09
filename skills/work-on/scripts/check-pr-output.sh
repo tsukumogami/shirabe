@@ -52,14 +52,15 @@
 #   PB3 (AI attribution)     pr-body/no-ai-trailer
 #   PB4 (heading in Part 1)  pr-body/no-heading-in-part1
 #   anything else            pr-body/conformance
-# The rule refs live in gate-rules.tsv beside this script.
+# The rules are entries of references/rule-registry.json; scripts/lib/rule-findings.sh
+# resolves each one's reference and summary through scripts/rule-registry.sh.
 #
 # Written for the bash 3.2 floor and deliberately without `set -e`.
 
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-RULES="$HERE/gate-rules.tsv"
+RULE_IDS="pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/conformance"
 # Seconds owned-pr.sh may run. koto stops a gate command at 30 seconds; this
 # stays under it so the answer is this script's 2, not koto's timeout.
 OWNED_PR_TIMEOUT=${CHECK_PR_OUTPUT_OWNED_TIMEOUT:-20}
@@ -80,25 +81,19 @@ undecided() {
     exit 2
 }
 
-rule_ref() {
-    awk -F'\t' -v id="$1" '$0 !~ /^#/ && $1 == id { print $2 "@" $3; exit }' "$RULES" 2>/dev/null
-}
+# shellcheck source=../../../scripts/lib/rule-findings.sh
+. "$HERE/../../../scripts/lib/rule-findings.sh"
 
 require_rules() {
-    [ -r "$RULES" ] || undecided "the rule table $RULES is not readable"
-    for id in "$@"; do
-        [ -n "$(rule_ref "$id")" ] || undecided "the rule table has no row for $id"
-    done
+    rf_require "$@"
 }
 
 VIOLATIONS=0
 
-# finding <rule_id> <message>
+# finding <rule_id> <detail>
 finding() {
     VIOLATIONS=$((VIOLATIONS + 1))
-    jq -cn --arg id "$1" --arg msg "$2" --arg ref "$(rule_ref "$1")" \
-        '{rule_id: $id, level: "error", message: $msg, rule_ref: $ref}' \
-        | sed 's/^/::koto-finding::/'
+    rf_finding "$1" "$2"
 }
 
 WORK=""

@@ -264,10 +264,17 @@ expect_release_refused "a text holding a marker line" t/marker
 expect_release_refused "an unknown id" t/none
 expect_release_refused "a nested SKILL.md that is not a skill's own" t/nested
 
-if printf '%s' "$ERR" | grep -q "is not a file a skill loads"; then
+run "$I" release t/docs
+if printf '%s' "$ERR" | grep -q "^rule-registry: could not release t/docs: docs/notes.md is not a file a skill loads$"; then
     pass "release names its reason"
 else
     fail "release reason" "err=[$ERR]"
+fi
+run "$I" release t/dup
+if printf '%s' "$ERR" | grep -q "^rule-registry: could not release t/dup: rule t/dup: its first anchor is not on exactly one line"; then
+    pass "release passes the reader's own reason through"
+else
+    fail "release reader reason" "err=[$ERR]"
 fi
 
 # Failures before the dispatch still give release's notice and exit 0.
@@ -284,6 +291,15 @@ done
 OUT=$(PATH="$NOJQ" "$I/scripts/rule-registry.sh" release t/template 2>"$T/err"); RC=$?
 [ $RC -eq 0 ] && grep -q "^rule-registry: could not release t/template: jq is required" "$T/err" \
     && pass "release without jq prints its notice and exits 0" || fail "release no jq" "rc=$RC err=[$(cat "$T/err")]"
+# An empty PATH: not even dirname. bash is called by its full path.
+BASH_BIN=$(command -v bash)
+OUT=$(PATH="" "$BASH_BIN" "$I/scripts/rule-registry.sh" release t/template 2>"$T/err"); RC=$?
+[ $RC -eq 0 ] && grep -q "^rule-registry: could not release t/template: " "$T/err" \
+    && pass "release with an empty PATH prints its notice and exits 0" || fail "release empty PATH" "rc=$RC err=[$(cat "$T/err")]"
+OUT=$(PATH="$NOJQ" SHIRABE_FINDINGS_LOG="$T/tmpdir/nojq.log" TMPDIR="$T/tmpdir" "$I/scripts/rule-registry.sh" log-finding x 2>"$T/err"); RC=$?
+[ $RC -eq 0 ] && [ ! -s "$T/err" ] && pass "log-finding without jq exits 0 silently" || fail "log-finding no jq" "rc=$RC err=[$(cat "$T/err")]"
+OUT=$(PATH="" "$BASH_BIN" "$I/scripts/rule-registry.sh" log-finding x 2>"$T/err"); RC=$?
+[ $RC -eq 0 ] && pass "log-finding with an empty PATH exits 0" || fail "log-finding empty PATH" "rc=$RC err=[$(cat "$T/err")]"
 
 # --- the findings log --------------------------------------------------------
 
@@ -305,7 +321,7 @@ printf '%s\n' "$good" '::koto-finding::{"rule_id":"t/none","level":"error","mess
 run "$I" verify-findings "$T/unreg.log"
 [ $RC -eq 1 ] && pass "verify-findings refuses an unregistered id" || fail "verify-findings unregistered" "rc=$RC"
 
-printf '%s\n' '::koto-finding::{"rule_id":"t/multi","level":"error","message":"m","rule_ref":"references/r.md#L3-L4@v1.2.3"}' > "$T/range.log"
+printf '%s\n' '::koto-finding::{"rule_id":"t/multi","level":"error","message":"Multi-line rule: m","rule_ref":"references/r.md#L3-L4@v1.2.3"}' > "$T/range.log"
 run "$I" verify-findings "$T/range.log"
 [ $RC -eq 1 ] && pass "verify-findings refuses a wrong range" || fail "verify-findings range" "rc=$RC"
 
