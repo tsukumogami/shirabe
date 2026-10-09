@@ -143,6 +143,10 @@ exit 4, never 1: none of them says the change is wrong, so none sends the run ba
 implementation; they stop the run for a person. When one result holds both a failed command
 and a command that exits 4, the verdict is 4.
 
+The whole run has a budget too: two hours, the length of the gate's wait. A command still
+running when the budget runs out is killed and reported as `verification/timed-out`, and the
+commands after it are not started.
+
 ## Illustrative example (not a real project's map)
 
 The map below is illustrative only. Real commands live in a project's own map file.

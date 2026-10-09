@@ -20,7 +20,8 @@
 #   3   no map, or a map that selects nothing  verification/no-map
 #       a map that does not parse              verification/bad-map
 #   4   a command needs a person               verification/needs-person
-#       a command timed out                    verification/timed-out
+#       a command timed out, or the run        verification/timed-out
+#       passed its total budget
 #       a command grew past max_procs          verification/runaway
 #       a command could not start, or the      verification/not-started
 #       supervisor stopped before it finished
@@ -103,25 +104,29 @@ jq -e --arg schema "$RESULT_SCHEMA" '.schema == $schema and (.commands | type) =
 [ "$(jq -r .head "$RESULT")" = "$HEAD_SHA" ] || undecided "the result $RESULT is for another head"
 [ "$(jq -r .merge_base "$RESULT")" = "$MB" ] || exit 75
 
+JQ_ERR=$(mktemp "${TMPDIR:-/tmp}/check-verification.XXXXXX") || undecided "could not create a temporary file"
+trap 'rm -f "$JQ_ERR"' EXIT
+
 # The findings and the verdict, both from the result, in one jq program. Each
 # line is `<exit>\t<rule>\t<message>`; the verdict is the highest-ranked exit.
 LINES=$(jq -r '
     def argv: (.argv // []) | join(" ");
     def logpart: if .log then " (log: \(.log))" else "" end;
-    if .status == "done" then
+    if .status == "done" or .status == "timed-out" then
         (.commands[]
          | if .not_started then "4\tnot-started\tcommand \(.id) did not start: [\(.argv[0])] is not an executable program\(logpart)"
            elif .runaway then "4\trunaway\tcommand \(.id) [\(argv)] grew past its max_procs and was killed\(logpart)"
-           elif .timed_out then "4\ttimed-out\tcommand \(.id) [\(argv)] ran past its timeout_secs and was killed\(logpart)"
+           elif .timed_out then "4\ttimed-out\tcommand \(.id) [\(argv)] ran past its timeout_secs or the total run budget and was killed\(logpart)"
            elif .exit_status != 0 then "1\tcommand-failed\tcommand \(.id) [\(argv)] exited \(.exit_status)\(logpart)"
-           else empty end)
+           else empty end),
+        (if .status == "timed-out" then "4\ttimed-out\t\(.detail)" else empty end)
     elif .status == "no-map" then "3\tno-map\t\(.detail)"
     elif .status == "bad-map" then "3\tbad-map\tthe verification map does not parse: \(.detail)"
     elif .status == "attended" then "4\tneeds-person\t\(.detail)"
     elif .status == "dirty-tree" then "4\tdirty-tree\t\(.detail)"
     elif .status == "supervisor-error" then "4\tnot-started\t\(.detail)"
     else "2\t\t" + "unknown result status \(.status)" end
-' "$RESULT" 2>/dev/null) || undecided "could not read the result $RESULT"
+' "$RESULT" 2>"$JQ_ERR") || undecided "could not read the result $RESULT: $(tail -n 3 "$JQ_ERR")"
 
 VERDICT=0
 TAB=$(printf '\t')

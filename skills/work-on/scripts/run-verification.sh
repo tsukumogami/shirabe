@@ -43,7 +43,7 @@
 #
 #   {"schema": "shirabe-verification-result/v1", "head": "...",
 #    "merge_base": "...", "status": "done|no-map|bad-map|attended|dirty-tree|
-#    supervisor-error", "detail": "...", "commands": [{"id", "argv",
+#    timed-out|supervisor-error", "detail": "...", "commands": [{"id", "argv",
 #    "exit_status", "duration_secs", "timed_out", "runaway", "not_started",
 #    "pgid", "log"}]}
 #
@@ -61,6 +61,13 @@
 # command left running outlives it. A descendant that moves to its own session
 # or process group escapes both; the schema reference states that residual.
 #
+# The bound on the whole run: the supervisor stops after BUDGET_SECS (7200,
+# the verification gate's poll timeout_secs, so the run can't outlive the wait
+# for it). A command still running at the budget is killed as a timeout, the
+# commands after it are not started, and the result's status is `timed-out`.
+# SHIRABE_VERIFICATION_BUDGET_SECS overrides it for tests; koto's cleared
+# environment never carries it.
+#
 # Exit status: 0 the launcher did its job (a result exists, or a supervisor is
 # running); 2 it could not decide (usage, a missing tool, no HEAD, no
 # merge-base, no state directory). The verdict is never this script's exit.
@@ -75,6 +82,7 @@ SELF="$HERE/$(basename "$0")"
 MAP_PATH=.claude/shirabe-extensions/verification-map.json
 KEEP_HEADS=10
 RESULT_SCHEMA=shirabe-verification-result/v1
+BUDGET_SECS=7200
 
 usage() {
     cat >&2 <<'EOF'
@@ -269,11 +277,24 @@ supervise() {
     fi
 
     local n i id safe limit maxp prog log start now pid status timed_out runaway count
+    local budget sup_start left capped=0 over=0 stopped=""
+    budget=$(jq -r ".budget_secs // $BUDGET_SECS" "$RUN")
+    case "$budget" in ''|*[!0-9]*|0) budget=$BUDGET_SECS ;; esac
+    sup_start=$(date +%s)
     n=$(jq '.invocations | length' "$RUN")
     i=0
     while [ "$i" -lt "$n" ]; do
         id=$(jq -r --argjson i "$i" '.invocations[$i].id' "$RUN")
         limit=$(jq -r --argjson i "$i" '.invocations[$i].timeout_secs' "$RUN")
+        # The run's budget caps each command's own deadline.
+        left=$((sup_start + budget - $(date +%s)))
+        if [ "$left" -le 0 ]; then
+            over=1; break
+        fi
+        capped=0
+        if [ "$left" -lt "$limit" ]; then
+            limit=$left; capped=1
+        fi
         maxp=$(jq -r --argjson i "$i" '.invocations[$i].max_procs' "$RUN")
         argv=()
         while IFS= read -r -d '' a; do argv+=("$a"); done < <(jq -j --argjson i "$i" '.invocations[$i].argv[] | (., "\u0000")' "$RUN")
@@ -331,10 +352,21 @@ supervise() {
             '{id: $id, argv: $run[0].invocations[$i].argv, exit_status: $status, duration_secs: $dur,
               timed_out: $to, runaway: $ra, not_started: false, pgid: $pgid, log: $log}' >> "$SUP_ENTRIES"
         i=$((i + 1))
+        if [ "$timed_out" = true ] && [ "$capped" -eq 1 ]; then
+            over=1; stopped=$id; break
+        fi
     done
 
+    local final=done detail=""
+    if [ "$over" -eq 1 ]; then
+        final=timed-out
+        detail="the run passed its total budget of $budget seconds"
+        [ -n "$stopped" ] && detail="$detail; command $stopped was stopped"
+        [ "$i" -lt "$n" ] && detail="$detail; $((n - i)) later command(s) were not started: $(jq -r --argjson i "$i" '[.invocations[$i:][].id] | join(", ")' "$RUN")"
+    fi
     write_result "$RESULT" "$(jq -cs --arg schema "$RESULT_SCHEMA" --arg head "$HEAD_SHA" --arg mb "$MB" \
-        '{schema: $schema, head: $head, merge_base: $mb, status: "done", detail: "", commands: .}' "$SUP_ENTRIES")" \
+        --arg status "$final" --arg detail "$detail" \
+        '{schema: $schema, head: $head, merge_base: $mb, status: $status, detail: $detail, commands: .}' "$SUP_ENTRIES")" \
         && SUP_WRITTEN=1
     rm -f "$SUP_LOCK" "$SUP_ENTRIES"
     exit 0
@@ -446,8 +478,10 @@ if ! ln -s "$$" "$LOCK" 2>/dev/null; then
     ln -s "$$" "$LOCK" 2>/dev/null || exit 0
 fi
 
-jq -cn --arg root "$ROOT" --arg head "$HEAD_SHA" --arg mb "$MB" --argjson sel "$SELECTION" \
-    '{root: $root, head: $head, merge_base: $mb, invocations: $sel.invocations}' > "$HEAD_DIR/run.json" \
+BUDGET=${SHIRABE_VERIFICATION_BUDGET_SECS:-$BUDGET_SECS}
+case "$BUDGET" in ''|*[!0-9]*|0) BUDGET=$BUDGET_SECS ;; esac
+jq -cn --arg root "$ROOT" --arg head "$HEAD_SHA" --arg mb "$MB" --argjson sel "$SELECTION" --argjson budget "$BUDGET" \
+    '{root: $root, head: $head, merge_base: $mb, budget_secs: $budget, invocations: $sel.invocations}' > "$HEAD_DIR/run.json" \
     || { rm -f "$LOCK"; die "could not write run.json"; }
 
 # 6. Detach. `set -m` gives the background job its own process group, so the

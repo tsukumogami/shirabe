@@ -272,6 +272,30 @@ PGID=$(jq -r '.commands[0].pgid' "$(result_of s-slow)")
 [ "$(group_alive "$PGID")" -eq 0 ] && pass "no process of the timed-out group is alive" \
     || fail "the timed-out group $PGID is still alive"
 
+echo "--- a run past its total budget"
+# Two commands, each well inside its own timeout_secs, under a 2-second budget
+# for the whole run: the first is stopped at the budget, the second never starts.
+mkrepo budget "$(map '{"a": {"run": ["bin/slow.sh"], "timeout_secs": 60}, "b": {"run": ["bin/slow.sh"], "timeout_secs": 60}}' '[]' '["a", "b"]')"
+change top.txt
+T0=$(date +%s)
+SHIRABE_VERIFICATION_BUDGET_SECS=2 start s-budget
+settle s-budget
+T1=$(date +%s)
+expect_rc "past the total budget" 4
+expect_rule "past the total budget" verification/timed-out
+BRES=$(result_of s-budget)
+if jq -e '.status == "timed-out" and (.commands | length) == 1 and .commands[0].timed_out == true
+          and (.detail | test("not started: b"))' "$BRES" >/dev/null 2>&1; then
+    pass "the budget stops the running command and starts no other (status timed-out)"
+else
+    fail "the budget result is wrong: $(cat "$BRES" 2>&1 | head -c 400)"
+fi
+[ $((T1 - T0)) -lt 20 ] && pass "the run ended at its budget ($((T1 - T0))s), not at the commands' own timeouts" \
+    || fail "the run took $((T1 - T0))s under a 2-second budget"
+PGID=$(jq -r '.commands[0].pgid' "$BRES")
+[ "$(group_alive "$PGID")" -eq 0 ] && pass "no process of the group stopped at the budget is alive" \
+    || fail "the group $PGID stopped at the budget is still alive"
+
 echo "--- a command that cannot start"
 mkrepo nostart "$(map '{"gone": {"run": ["bin/missing.sh"]}}' '[]' '["gone"]')"
 change top.txt

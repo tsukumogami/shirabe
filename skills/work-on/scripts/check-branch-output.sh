@@ -320,8 +320,8 @@ EOF
         *) undecided "shirabe validate exited $rc: $(tail -n 1 "$WORK/err")" ;;
     esac
     jq -c '.findings[] | select(.code == "R7" or .code == "R8" or .code == "R9")' \
-        "$WORK/out" > "$WORK/hits" 2>/dev/null \
-        || undecided "cannot read shirabe validate's JSON output"
+        "$WORK/out" > "$WORK/hits" 2> "$WORK/jq.err" \
+        || undecided "cannot read shirabe validate's JSON output: $(tail -n 3 "$WORK/jq.err")"
     while IFS= read -r hit; do
         [ -n "$hit" ] || continue
         code=$(printf '%s' "$hit" | jq -r '.code')
