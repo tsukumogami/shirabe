@@ -1035,6 +1035,64 @@ echo "--- script: a write that races another is refused"
 SHIM_RACE=1 run --mark-fixed scrutiny "$SESSION" "$F3"
 expect_rc "--mark-fixed when the ledger changed under it" 69
 
+
+echo "--- script: answers by id, row by row"
+
+fixture answers
+run --plan scrutiny "$SESSION"
+mint scrutiny a1
+record scrutiny '[{"seat":"completeness","run":"a1-completeness","findings":[{"severity":"blocking","summary":"one","path":"src/a.sh"},{"severity":"blocking","summary":"two","path":"src/b.sh"}]},
+                  {"seat":"justification","run":"a1-justification","findings":[{"severity":"blocking","summary":"three"}]},
+                  {"seat":"intent","run":"a1-intent","findings":[]}]'
+A1=$(led -r '[.findings[] | select(.summary == "one")][0].id')
+A2=$(led -r '[.findings[] | select(.summary == "two")][0].id')
+A3=$(led -r '[.findings[] | select(.summary == "three")][0].id')
+# The full round's seats are planned with their own open findings; the
+# re-verifier with the ones it is to re-check.
+run --plan scrutiny "$SESSION"
+jq --arg a "$A1" --arg b "$A2" --arg c "$A3" '
+    .decisions = [{seat: "completeness", decision: "full", run: "a2-completeness", findings: [{id: $a}, {id: $b}]},
+                  {seat: "justification", decision: "full", run: "a2-justification", findings: [{id: $c}]},
+                  {seat: "intent", decision: "keep"}]' \
+    "$SHIM_STORE/$SESSION/scrutiny_scope.json" > "$WORKDIR/scope" && cp "$WORKDIR/scope" "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+record scrutiny "[{\"seat\":\"completeness\",\"run\":\"a2-completeness\",\"answers\":[{\"id\":\"$A1\",\"record\":\"holds\"}]},
+                  {\"seat\":\"justification\",\"run\":\"a2-justification\",\"answers\":[{\"id\":\"$A3\",\"record\":\"dismissed\",\"reason\":\"intended\"}]}]"
+led -e --arg a "$A1" '.findings[$a].records[-1].kind == "holds" and ([.seats["scrutiny/completeness"].findings[].id] | index($a)) != null' >/dev/null \
+    && pass "a holds answer keeps the finding open" || fail "A1 $(led -c --arg a "$A1" '.findings[$a].records')"
+led -e --arg b "$A2" '(.findings[$b].records | map(.kind)) == ["raised"]' >/dev/null \
+    && pass "a due finding the answer omits keeps its status" || fail "A2 $(led -c --arg b "$A2" '.findings[$b].records')"
+led -e --arg c "$A3" '.findings[$c].records[-1] | .kind == "dismissed" and .reason == "intended" and .writer.name == "justification"' >/dev/null \
+    && led -e '.seats["scrutiny/justification"].verdict == "passed"' >/dev/null \
+    && pass "a dismissal with a reason by the raising seat closes the finding" || fail "A3 $(led -c --arg c "$A3" '.findings[$c].records')"
+led -e '[.history[] | select(.panel == "scrutiny")] | last | .spawned == (.runs | length) and (.runs | index("a2-completeness")) != null' >/dev/null \
+    && pass "a round's history spawned is the runs it recorded" || fail "history $(led -c '.history')"
+run --plan scrutiny "$SESSION"
+jq --arg a "$A1" '.decisions = [{seat: "completeness", decision: "keep"}, {seat: "justification", decision: "keep"},
+                  {seat: "intent", decision: "keep"},
+                  {seat: "reverifier", decision: "recheck", run: "a3-reverifier", findings: [{id: $a}], fix_review: false}]' \
+    "$SHIM_STORE/$SESSION/scrutiny_scope.json" > "$WORKDIR/scope" && cp "$WORKDIR/scope" "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+record scrutiny "[{\"seat\":\"reverifier\",\"run\":\"a3-reverifier\",\"answers\":[{\"id\":\"$A1\",\"record\":\"reverified\",\"reason\":\"the fix rewrote it\"}]}]"
+led -e --arg a "$A1" --arg h "$(cd "$FX/repo" && git rev-parse HEAD)" '.findings[$a].records[-1].kind == "reverified"
+    and .findings[$a].records[-1].writer == {kind: "reviewer", name: "reverifier", run: "a3-reverifier"}
+    and .reverified.scrutiny.run == "a3-reverifier" and .reverified.scrutiny.head == $h' >/dev/null \
+    && pass "the re-verifier's reverified answer closes the finding and sets the panel's marker" \
+    || fail "A1 after reverify $(led -c --arg a "$A1" '.findings[$a].records[-1]') marker $(led -c '.reverified')"
+led -e '[.history[] | select(.panel == "scrutiny")] | last | .spawned == (.runs | length) and (.runs | index("a3-reverifier")) != null' >/dev/null \
+    && pass "a re-verification run is counted in its round's spawned" || fail "history $(led -c '.history')"
+refused "a malformed answer id" scrutiny '[{"seat":"intent","run":"a4-intent","answers":[{"id":"ABC","record":"holds"}]}]'
+LONG=$(head -c 1001 /dev/zero | tr '\0' 'a')
+run --plan scrutiny "$SESSION"
+jq --arg a "$A2" '.decisions = [{seat: "completeness", decision: "full", run: "a5-completeness", findings: [{id: $a}]}]' \
+    "$SHIM_STORE/$SESSION/scrutiny_scope.json" > "$WORKDIR/scope" && cp "$WORKDIR/scope" "$SHIM_STORE/$SESSION/scrutiny_scope.json"
+refused "an answer reason over 1000 bytes" scrutiny \
+    "[{\"seat\":\"completeness\",\"run\":\"a5-completeness\",\"answers\":[{\"id\":\"$A2\",\"record\":\"dismissed\",\"reason\":\"$LONG\"}]}]"
+snap
+printf '%s\n' "[{\"seat\":\"completeness\",\"run\":\"a5-completeness\",\"answers\":[{\"id\":\"$A2\",\"record\":\"holds\"}]}]" > "$WORKDIR/round.json"
+rm -f "$SHIM_STORE/$SESSION/.raced"
+SHIM_RACE=1 NO_AUTORUN=1 run --record scrutiny "$SESSION" "$WORKDIR/round.json"
+expect_rc "--record when the ledger changed under it" 69
+rm -f "$SHIM_STORE/$SESSION/.raced"
+
 echo "--- script: decider entries, bound to koto's own log"
 
 fixture decider
@@ -1045,10 +1103,14 @@ dc() { # dc <visit_seq> <rule_id> <outcome>
     printf '{"type":"decider_checked","payload":{"state":"scrutiny","visit_seq":%s,"gate":"scrutiny_decider","rule_id":"%s","declaration_hash":"abcd1234","outcome":"%s","input_sha256":"ef01"}}\n' "$1" "$2" "$3" >> "$LOG"
 }
 dent() { # dent <visit_seq> <rule_id> <outcome>
-    printf '{"decider":{"state":"scrutiny","visit_seq":%s,"gate":"scrutiny_decider","rule_id":"%s","declaration_hash":"abcd1234","outcome":"%s"}}' "$1" "$2" "$3"
+    printf '{"decider":{"state":"scrutiny","visit_seq":%s,"gate":"scrutiny_decider","rule_id":"%s","declaration_hash":"abcd1234","input_sha256":"ef01","outcome":"%s"}}' "$1" "$2" "$3"
 }
 : > "$LOG"
 refused "a decider entry koto's log does not hold" scrutiny "[$(dent 1 rs-007 fail)]"
+refused "a decider entry with a malformed gate" scrutiny '[{"decider":{"state":"scrutiny","visit_seq":1,"gate":"Bad Gate","rule_id":"rs-007","declaration_hash":"abcd1234","outcome":"fail"}}]'
+dc 1 rs-007 fail
+refused "a decider entry whose input hash differs from the event's" scrutiny '[{"decider":{"state":"scrutiny","visit_seq":1,"gate":"scrutiny_decider","rule_id":"rs-007","declaration_hash":"abcd1234","input_sha256":"ffff","outcome":"fail"}}]'
+: > "$LOG"
 refused "a decider entry with no visit_seq" scrutiny '[{"decider":{"state":"scrutiny","gate":"scrutiny_decider","rule_id":"rs-007","declaration_hash":"abcd1234","outcome":"fail"}}]'
 dc 1 rs-007 fail
 record scrutiny "[$(dent 1 rs-007 fail)]"

@@ -1882,6 +1882,30 @@ class TestSiteGrading(unittest.TestCase):
         self.assertEqual(sites["not_graded"], {"work-on:review": 1})
         self.assertEqual((sites["seats"], sites["criteria"]), ({}, {}))
 
+    def test_work_on_ledger_with_finding_records(self):
+        # panel-scope.sh --record now keeps a findings map beside the seats and
+        # recomputes each seat entry from it; the seat entry keeps the shape
+        # this reader pairs on, with an id on each finding.
+        root, head = self.work_on_repo(lambda head, ac: {
+            "verdict": "blocking", "judged_at": head, "ac_sha": ac, "rev": 1,
+            "findings": [{"id": "0123456789abcdef", "severity": "blocking", "summary": "wrong output",
+                          "path": "scripts/a.sh", "lines": "3"}]})
+        ctx_ledger = json.loads(rs.koto_context("wf.child", "verdict_ledger.json"))
+        ctx_ledger["findings"] = {"0123456789abcdef": {
+            "id": "0123456789abcdef", "panel": "scrutiny", "severity": "blocking", "round": 1,
+            "raiser": {"kind": "reviewer", "name": "completeness"}, "run": "r1",
+            "location": {"kind": "lines", "path": "scripts/a.sh", "lines": "3", "at": head},
+            "summary": "wrong output", "records": [{"kind": "raised"}]}}
+        ctx_ledger["runs"] = {"r1": {"panel": "scrutiny", "rev": 1, "recorded": True}}
+        ctx_ledger["reverified"] = {}
+        ctx_ledger["decider_events"] = []
+        real = rs.koto_context
+        rs.koto_context = lambda session, key: json.dumps(ctx_ledger) if key == "verdict_ledger.json" else real(session, key)
+        _, recs, _ = self.run_site("work-on", root, session="wf.child", panel="scrutiny", head=head)
+        seat = recs[0]["seats"][0]
+        self.assertEqual((seat["seat"], seat["verdict"], seat["rule_ids"]), ("completeness", "fail", ["rs-015"]))
+        self.assertEqual(seat["attributed"], {"ac-hunks-1": True})
+
     def test_work_on_stale_and_kept_seats(self):
         root, head = self.work_on_repo(lambda head, ac: {"verdict": "passed", "judged_at": "0" * 40, "ac_sha": ac})
         _, recs, _ = self.run_site("work-on", root, session="wf.child", panel="scrutiny", head=head)

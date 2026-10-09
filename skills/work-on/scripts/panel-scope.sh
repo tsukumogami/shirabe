@@ -114,7 +114,9 @@
 #                  "reason": "...", "path": "<optional new location>"}]}]
 #
 # `run` is required: when the scope's decision for the seat names a run, the
-# entry must name the same one, and no run is recorded twice. `answers` may
+# entry must name the same one, and no run is recorded twice. A decision that
+# names no run (one --plan wrote before it minted them, or none at all on the
+# fallback path) takes any well-formed run id. `answers` may
 # name only the ids the seat's decision planned for it; a dismissal needs a
 # reason and the seat that raised the finding, and the re-verifier (seat
 # `reverifier`) may answer only holds or reverified, with a reason on each
@@ -606,7 +608,11 @@ if [ "$MODE" = "--record" ]; then
                         (if (.gate | type) != "string" or (.gate | test(name_re) | not) then "a decider entry has no valid gate" else empty end),
                         (if (.rule_id | type) != "string" or (.rule_id | test(rule_re) | not) then "a decider entry has no valid rule_id" else empty end),
                         (if (.declaration_hash | type) != "string" or (.declaration_hash | test("^[0-9a-f]{8,64}$") | not) then "a decider entry has no valid declaration_hash" else empty end),
-                        (if (.outcome | type) != "string" or .outcome == "" then "a decider entry has no outcome" else empty end) )
+                        (if (.outcome | type) != "string" or .outcome == "" then "a decider entry has no outcome" else empty end),
+                        (if ($e.run // null) == null then empty
+                         elif ($e.run | type) != "string" or ($e.run | test(run_re) | not) then "a decider entry has a malformed run id"
+                         elif (($l.runs // {})[$e.run].recorded // false) then "run [\($e.run)] is already recorded"
+                         else empty end) )
                  end)
               else
                 (.seat // "") as $seat
@@ -652,7 +658,7 @@ if [ "$MODE" = "--record" ]; then
                     | select(.state == $d.state and .visit_seq == $d.visit_seq and .gate == $d.gate
                              and .rule_id == $d.rule_id and .declaration_hash == $d.declaration_hash
                              and .outcome == $d.outcome
-                             and (($d.input_sha256 // null) == null or .input_sha256 == $d.input_sha256))' \
+                             and ((.input_sha256 // null) == ($d.input_sha256 // null)))' \
                     "$slog" >/dev/null 2>&1; then
                 echo "MISSING $key"
             fi
@@ -800,7 +806,14 @@ if [ "$MODE" = "--record" ]; then
                     + (if .location.path then {path: .location.path} else {} end)
                     + (if .location.lines then {lines: .location.lines} else {} end) ]
                 | .seats[$k].verdict = (if any($open[]; .severity == "blocking") then "blocking" else "passed" end)
-              end)' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
+              end)
+        # The round history counts the runs it recorded, so `spawned` is the
+        # reviewer runs the round made, whatever its plan said.
+        | ([(.history // []) | to_entries[] | select(.value.panel == $panel)] | last) as $h
+        | if $h != null and $h.value.head == $head then
+            .history[$h.key].runs = (((.history[$h.key].runs // []) + [$E[] | select(.seat? != null) | .run]) | unique)
+            | .history[$h.key].spawned = (.history[$h.key].runs | length)
+          else . end' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
     store_ledger "$WORK/ledger"
     shadow_site
     exit 0
