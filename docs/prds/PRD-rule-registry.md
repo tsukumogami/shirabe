@@ -26,6 +26,11 @@ In Progress
 
 Absorbed [BRIEF-rule-registry](docs/briefs/BRIEF-rule-registry.md); carried in Absorbed Brief.
 
+Amended after acceptance, during design review: R10 now lets one baseline key sit on several
+entries whose texts shared a range at the pinned commit, provided each says so, and requires a
+reason for an empty key list. The three visibility rules and the two attribution rules share
+ranges, and a one-owner rule would have hidden that from a reader joining baseline records.
+
 ## Absorbed Brief
 
 The feature exists because shirabe's rules have no single home, and the offload work can't
@@ -192,8 +197,11 @@ Four consequences fall on the people doing the offload work now:
   so a later change that withholds a rule has to change its entry too.
 - **R10. Baseline mapping.** Each entry records, as a list, the baseline source-location keys
   (`<path>#L<start>-L<end>`, at the baseline pin's commit in `template-pin.json`) that hold the
-  rule's text at that commit, or an empty list when the text didn't exist there. No key appears
-  in two entries. The baseline commits no list of rule keys, so completeness against one isn't
+  rule's text at that commit, or an empty list with a recorded reason (the text didn't exist
+  there, or its wording at the pin doesn't match). A key may appear on several entries only when
+  their texts shared that range at the pin, and each such entry records which others share it,
+  so a reader joining a record keyed there knows it maps to several rules. The baseline commits
+  no list of rule keys, so completeness against one isn't
   checked; each listed key is checked to lie within its file at the pinned commit. The
   baseline's own files are not edited.
 - **R11. Routing-gate rule.** The interim rule (a koto fallback finding whose `rule_id` isn't a
@@ -270,7 +278,9 @@ Standing criteria are checked on every pull request their paths cover; criteria 
 - [ ] *(this change)* `git diff` of the merge base against the head shows no removed line in any
   file the baseline's load manifest lists or in `/execute`'s template.
 - [ ] Each entry's baseline keys match `<path>#L<start>-L<end>`, each range lies within its file
-  at the baseline's pinned commit, and no key is listed by two entries; a check enforces this.
+  at the baseline's pinned commit, every entry sharing a key with another names the others in
+  its notes, and every empty list carries a reason; a check enforces this, with a test for an
+  unexplained shared key and one for an unexplained empty list.
 - [ ] `DESIGN-output-gates.md` Decision 9 and the registry's documentation each define a
   registered rule as an id with a registry entry, and a check fails if Decision 9 still refers
   to the gate scripts' rule tables.
