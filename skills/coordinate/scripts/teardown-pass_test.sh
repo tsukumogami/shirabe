@@ -127,7 +127,11 @@ case "$*" in
     "pr view 600 --repo acme/widgets --json state,mergeCommit")
         echo '{"state":"MERGED","mergeCommit":{"oid":"0123456789012345678901234567890123456789"}}' ;;
     "api repos/acme/widgets/issues/comments/1") echo '{"body":"handed off"}' ;;
-    "pr view 600 --repo acme/widgets --json mergedAt") hang; echo '{"mergedAt":"2026-10-01T11:30:00Z"}' ;;
+    "pr view 600 --repo acme/widgets --json mergedAt,headRefName") hang; echo '{"mergedAt":"2026-10-01T11:30:00Z","headRefName":"feat/w5"}' ;;
+    "api --method GET repos/acme/widgets/pulls/600/commits --paginate") echo '[{"sha":"0123456789012345678901234567890123456789"}]' ;;
+    "run list --repo acme/widgets --branch feat/w5 "*)
+        echo '[{"databaseId":7,"headSha":"0123456789012345678901234567890123456789","attempt":1,"status":"completed","conclusion":"success","updatedAt":"2026-10-01T11:00:00Z"}]' ;;
+    "api --method GET repos/acme/widgets --jq .private") echo false ;;
     "api --method POST "*)
         hang
         [ -f "$ST/post-fails" ] && { echo "HTTP 502" >&2; exit 1; }
@@ -232,8 +236,10 @@ eq_ "the archive keeps unit-cost.json, keyed by its name" "unit-cost/1 ${ARCHD##
 grep -qxF '`unit-cost.json`, when present, is the cost capture'"'"'s derived summary and is not in the MANIFEST.' "$ARCHD/README.md" \
     && ok "the README says what unit-cost.json is" || bad "the README says what unit-cost.json is" "$(cat "$ARCHD/README.md")"
 grep -q 'unit-cost.json' "$ARCHD/MANIFEST" && bad "unit-cost.json is not in the MANIFEST" || ok "unit-cost.json is not in the MANIFEST"
-eq_ "the posted text opens with the summary line" "Cost of w5 (${ARCHD##*/}): 1 sessions, 7 output tokens, dispatch to merge not recoverable." \
+eq_ "the posted text opens with the summary line" "Cost of w5 (${ARCHD##*/}): 1 sessions, 7 output tokens, dispatch to merge 151.0 min." \
     "$(head -n 1 "$ST/posted.txt")"
+eq_ "  ... green read from the run on the pull request's head, the pull request named" "121 measured|acme/widgets#600" \
+    "$(jq -r '"\(.figures.dispatch_to_green_min.value) \(.figures.dispatch_to_green_min.state)|\(.pulls[0].repo)#\(.pulls[0].number)"' "$ARCHD/unit-cost.json" 2>&1)"
 
 echo "== a crashing capture =="
 setup_run

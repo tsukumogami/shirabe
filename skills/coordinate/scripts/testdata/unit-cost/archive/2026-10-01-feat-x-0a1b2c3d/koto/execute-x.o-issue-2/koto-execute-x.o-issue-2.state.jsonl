@@ -5,5 +5,8 @@
 {"seq":4,"timestamp":"2026-10-01T10:20:30.000Z","type":"transitioned","payload":{"from":"entry","to":"analysis","condition_type":"auto"}}
 {"seq":5,"timestamp":"2026-10-01T10:30:00.000Z","type":"transitioned","payload":{"from":"analysis","to":"implementation","condition_type":"auto"}}
 {"seq":6,"timestamp":"2026-10-01T10:45:00.000Z","type":"transitioned","payload":{"from":"implementation","to":"scrutiny","condition_type":"auto"}}
-{"seq":7,"timestamp":"2026-10-01T10:50:00.000Z","type":"transitioned","payload":{"from":"scrutiny","to":"review","condition_type":"auto"}}
-{"seq":8,"timestamp":"2026-10-01T11:00:00.000Z","type":"transitioned","payload":{"from":"review","to":"done","condition_type":"auto"}}
+{"seq":7,"timestamp":"2026-10-01T10:47:00.000Z","type":"rewound","payload":{"from":"scrutiny","to":"implementation"}}
+{"seq":8,"timestamp":"2026-10-01T10:52:30.000Z","type":"transitioned","payload":{"from":"implementation","to":"scrutiny","condition_type":"auto"}}
+{"seq":9,"timestamp":"2026-10-01T10:55:00.000Z","type":"transitioned","payload":{"from":"scrutiny","to":"review","condition_type":"auto"}}
+{"seq":10,"timestamp":"2026-10-01T11:00:00.000Z","type":"transitioned","payload":{"from":"review","to":"done","condition_type":"auto"}}
+{"seq":11,"timestamp":"2026-10-01T11:05:00.000Z","type":"transitioned","payload":{"from":"done","to":"analysis","condition_type":"auto"}}

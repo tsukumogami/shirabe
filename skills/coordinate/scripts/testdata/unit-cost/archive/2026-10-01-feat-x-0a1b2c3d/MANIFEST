@@ -3,8 +3,10 @@ e3a1e744d1ea25ae8aba5487c6c10c25ddc408f6ebeff2cdccff30c448e313ad 99 job/timeline
 37b654af571cab02705598690361f6f1ee205f835044638668255c7db5883941 9 koto/deliver-x/ctx/plan_execution_mode
 fdfa57d8ec1125202e0d467c747505954a9535bf32a36acdc89cfe6bd5d347c8 951 koto/deliver-x/koto-deliver-x.state.jsonl
 52180fef48ad21d0724cdadbec80f570509345811d40a43592ba763314deb05a 87 koto/deliver-x/request-leg.toml
+d671c6fa7d179e002fb4050f5ca4cc4b80149f3b43de0e7b9831be7f17e833a5 334 koto/execute-x.o-issue-1/ctx/verdict_ledger.json
 e5e7aae19db0aa95bbdb2f3c635968611c88bd4409667066d19e227d121ff49d 1448 koto/execute-x.o-issue-1/koto-execute-x.o-issue-1.state.jsonl
-ded8be53ceb797f50a15fd313b9c19f7c848d957a31de0b2de8590f2b0c9695e 1448 koto/execute-x.o-issue-2/koto-execute-x.o-issue-2.state.jsonl
+4e44cf77524a4f630b034ed367e65de9902b24090c9cb765e131f07197cbb13e 534 koto/execute-x.o-issue-2/ctx/verdict_ledger.json
+8dd77c673efd2db33d05d2b14246a911162d9568efa1172f57e9779940e05448 1852 koto/execute-x.o-issue-2/koto-execute-x.o-issue-2.state.jsonl
 a08c3c4f9d203a4fab5f19747e2d89f1798807f4790c0544c12b4ed3845b281e 965 koto/execute-x/koto-execute-x.state.jsonl
 c0e11e6a794500bfb048c159a0d1850adb99cb73b625b2d8e937d39439dee6b4 85 koto/execute-x/request-leg.toml
 a415ab486c38b71fff7ffc1680c6e971f93ea6ffabb0306ee3efaae7f5698f14 804 koto/scope-x/koto-scope-x.state.jsonl

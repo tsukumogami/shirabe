@@ -32,6 +32,12 @@
 # DELETE git/refs; graphql author/editor queries), issue create|edit|close|view,
 # pr list|view|create|edit|ready. A trailing --jq is applied the way gh does.
 #
+# For the cost capture: GET repos/R/pulls/<n>/commits (the shas listed under
+# "pr_commits": {"R#<n>": [...]}), `run list --repo R [--branch B]` and GET
+# repos/R/actions/runs/<id>/attempts/<n> (from "runs": [{repo, databaseId,
+# headBranch, headSha, attempt, status, conclusion, updatedAt, attempts:
+# [{attempt, status, conclusion, updated_at}]}], the earlier attempts).
+#
 # Also served, for the close-out and turn scripts: GET repos/R/issues/<n> (an
 # issue or pull request, 404 when absent), GET repos/R/commits/<sha> (the
 # commit's date from "commits": {"<sha>": {"date": ...}}), a contents read's
@@ -79,6 +85,7 @@ shift 2 2>/dev/null || shift $#
 [ "$W1" = api ] && set -- "$W2" "$@" && W2=
 
 METHOD=GET JQF= REPO= HEAD= BASE= STATE=open JSONF= TITLE= BODYFILE= PAGINATE=0 DRAFT=0 LIMIT=30 LABEL= INPUT=
+BRANCH=
 FIELDS=
 POS=
 while [ $# -gt 0 ]; do
@@ -91,6 +98,7 @@ while [ $# -gt 0 ]; do
         --state|-s) STATE=$2; shift 2 ;;
         --limit|-L) LIMIT=$2; shift 2 ;;
         --label|-l) LABEL=$2; shift 2 ;;
+        --branch|-b) BRANCH=$2; shift 2 ;;
         --json) JSONF=$2; shift 2 ;;
         --title|-t) TITLE=$2; shift 2 ;;
         --body-file|-F) if [ "$W1" = api ]; then FIELDS="$FIELDS$2"$'\n'; else BODYFILE=$2; fi; shift 2 ;;
@@ -192,6 +200,21 @@ case "$W1 $W2" in
             p=$((p + 1))
             [ "$PAGINATE" = 1 ] && [ $((p * per)) -lt "$total" ] || break
         done
+        ;;
+    "GET repos/"*/pulls/*/commits)
+        r=${path#repos/}; r=${r%%/pulls/*}
+        n=${path#*/pulls/}; n=${n%/commits}
+        need_repo "$r"
+        emit "$(jq -c --arg k "$r#$n" '[(.pr_commits[$k] // [])[] | {sha: .}]' "$GH_DB")"
+        ;;
+    "GET repos/"*/actions/runs/*/attempts/*)
+        r=${path#repos/}; r=${r%%/actions/*}
+        id=${path#*/actions/runs/}; id=${id%%/*}
+        a=${path##*/attempts/}
+        out=$(jq -c --arg r "$r" --argjson id "$id" --argjson a "$a" '[(.runs // [])[] | select(.repo == $r and .databaseId == $id)][0] // empty
+            | [.attempts[] | select(.attempt == $a)][0] // empty | {run_attempt: .attempt, status, conclusion, updated_at}' "$GH_DB")
+        [ -n "$out" ] || notfound
+        emit "$out"
         ;;
     "GET repos/"*/branches/*)
         r=${path#repos/}; r=${r%%/branches/*}
@@ -379,6 +402,12 @@ case "$W1 $W2" in
             and ($s == "all" or .state == ($s | ascii_upcase)))
         | {number, title, body, state, isDraft, isCrossRepository, baseRefName, headRefName, headRefOid,
            url: "https://github.com/\(.repo)/pull/\(.number)", author: {login: .author}}]' "$GH_DB")
+    emit "$(project "$j")"
+    ;;
+"run list")
+    need_repo "$REPO"
+    j=$(jq -c --arg r "$REPO" --arg b "$BRANCH" --argjson n "$LIMIT" '[(.runs // [])[] | select(.repo == $r and ($b == "" or .headBranch == $b))
+        | del(.repo, .attempts)] | .[0:$n]' "$GH_DB")
     emit "$(project "$j")"
     ;;
 "pr view")

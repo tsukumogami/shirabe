@@ -1,0 +1,42 @@
+{
+  "figures": {
+    "dispatch_to_green_min": {"value": 130.0, "raw": 7800, "state": "measured", "source": "derived"},
+    "dispatch_to_merge_min": {"value": 150.0, "raw": 9000, "state": "measured", "source": "derived"},
+    "writing_code_min": {"value": 40.5, "raw": 2430, "state": "measured", "source": "koto-state"},
+    "review_min": {"value": 29.5, "raw": 1770, "state": "measured", "source": "koto-state"},
+    "outside_share_pct": {"value": 68.8, "state": "measured", "source": "derived"},
+    "review_share_pct": {"value": 22.7, "state": "measured", "source": "derived"},
+    "panel_rounds": {"value": 3, "raw": 3, "state": "measured", "source": "verdict-ledger"},
+    "failing_heads": {"value": 2, "raw": 2, "state": "measured", "source": "github-runs"},
+    "sessions_without_done": {"value": 0, "raw": 0, "state": "measured", "source": "koto-state"},
+    "summed_session_span_min": {"value": 99.3, "raw": 5955, "state": "measured", "source": "koto-state"},
+    "minutes_per_unit": {"value": 49.6, "raw": 2977.5, "state": "measured", "source": "koto-state"}
+  },
+  "sessions": [
+    {"index": 1, "template": "deliver", "unit_session": false, "done": true, "span_s": 9290,
+     "states": {"entry": 2, "executing": 8100, "scoping": 1188},
+     "figures": {"span_min": {"value": 154.8, "state": "measured", "source": "koto-state"},
+                 "impl_share_pct": {"value": null, "state": "not applicable", "source": "koto-state"},
+                 "review_share_pct": {"value": null, "state": "not applicable", "source": "koto-state"}}},
+    {"index": 2, "template": "execute", "unit_session": false, "done": true, "span_s": 7825,
+     "states": {"entry": 5, "pr_finalization": 1830, "spawning": 5990},
+     "figures": {"span_min": {"value": 130.4, "state": "measured", "source": "koto-state"},
+                 "impl_share_pct": {"value": null, "state": "not applicable", "source": "koto-state"},
+                 "review_share_pct": {"value": null, "state": "not applicable", "source": "koto-state"}}},
+    {"index": 3, "template": "work-on", "unit_session": true, "done": true, "span_s": 3585,
+     "states": {"analysis": 1185, "entry": 0, "implementation": 1200, "review": 600, "scrutiny": 600},
+     "figures": {"span_min": {"value": 59.8, "state": "measured", "source": "koto-state"},
+                 "impl_share_pct": {"value": 33.5, "state": "measured", "source": "koto-state"},
+                 "review_share_pct": {"value": 33.5, "state": "measured", "source": "koto-state"}}},
+    {"index": 4, "template": "work-on", "unit_session": true, "done": true, "span_s": 2370,
+     "states": {"analysis": 570, "entry": 0, "implementation": 1230, "review": 300, "scrutiny": 270},
+     "figures": {"span_min": {"value": 39.5, "state": "measured", "source": "koto-state"},
+                 "impl_share_pct": {"value": 51.9, "state": "measured", "source": "koto-state"},
+                 "review_share_pct": {"value": 24.1, "state": "measured", "source": "koto-state"}}},
+    {"index": 5, "template": "scope", "unit_session": false, "done": true, "span_s": 1120,
+     "states": {"drafting": 1115, "entry": 5},
+     "figures": {"span_min": {"value": 18.7, "state": "measured", "source": "koto-state"},
+                 "impl_share_pct": {"value": null, "state": "not applicable", "source": "koto-state"},
+                 "review_share_pct": {"value": null, "state": "not applicable", "source": "koto-state"}}}
+  ]
+}
