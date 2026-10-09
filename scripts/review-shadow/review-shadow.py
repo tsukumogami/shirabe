@@ -1096,7 +1096,13 @@ def run_status(criterion_verdicts, rounds, jev_slices, no_key, jev_verdicts):
     """unanimous-pass, dissent, inconclusive, or not-graded when Jev had slices to
     grade and never answered, so an outage is never counted as agreement. A
     head whose every Jev slice was over the bound is not-graded too: nothing
-    was ever sent, so it has no verdict to count as open."""
+    was ever sent, so it has no verdict to count as open. A run where no
+    criterion had a single slice of its kind (a code-hunks seat on a docs-only
+    change) is not-graded as well: worst([]) is pass, and a pass over nothing
+    isn't agreement. A pull-request run never gets here while a script
+    criterion grades pr-text."""
+    if not any(c["slices"] for c in criterion_verdicts):
+        return "not-graded", "no-slices"
     if jev_slices and not any(r["answered"] for r in rounds):
         if no_key:
             return "not-graded", "no-key"
@@ -1113,7 +1119,7 @@ def run_status(criterion_verdicts, rounds, jev_slices, no_key, jev_verdicts):
     return "unanimous-pass", None
 
 
-TOOL_VERSION = 3  # bump when grading behaviour changes; the hashes below catch the rest
+TOOL_VERSION = 4  # bump when grading behaviour changes; the hashes below catch the rest
 
 
 def tool_version():

@@ -269,7 +269,8 @@ every path in the repository at the head (for `rs-006`).
 The criterion verdict is the worst of its slice verdicts (PRD Terms), so a
 criterion with no slice at all, such as a comment criterion on a docs-only
 change, is `pass` with `slices: 0` recorded: nothing it checks was touched.
-The report counts how many unanimous passes rested on at least one
+A run in which every criterion has `slices: 0` is `not-graded` with
+`no-slices` instead, since nothing was looked at. The report counts how many unanimous passes rested on at least one
 zero-slice criterion, so a pass that looked at little is visible.
 
 #### Alternatives Considered
@@ -371,12 +372,12 @@ A grade record (`schema: review-shadow/record/v1`):
 | `unread_usage_attempts` | billed answers whose usage couldn't be read, counted as koto counts them |
 | `tokens` | totals of input and output tokens over `rounds` |
 | `status` | `unanimous-pass`, `dissent`, `inconclusive` or `not-graded`; a run where no Jev request got an answer (no key, transport or provider failure on every request) is `not-graded`, so an outage never counts as agreement |
-| `not_graded_reason` | for `not-graded` runs: `no-key`, `transport`, `provider`, `outcome-without-grade`, `over-bound` (every Jev slice stayed over the bound after the body was cut), or `no-changed-paths` for a head that changes nothing (a merge-only head or an empty diff), which is never counted as docs |
+| `not_graded_reason` | for `not-graded` runs: `no-key`, `transport`, `provider`, `outcome-without-grade`, `over-bound` (every Jev slice stayed over the bound after the body was cut), `no-changed-paths` for a head that changes nothing (a merge-only head or an empty diff), which is never counted as docs, or `no-slices` for a run where no criterion had a slice of its kind (a site seat that grades `code-hunks` on a change with none), so a pass over nothing never counts as agreement |
 
 Every `reason` in a record comes from one closed list: `over-bound`,
 `no-key`, `transport`, `provider`, `unreadable-answer`, `missing-answer`,
 `outcome-without-grade`, `body-history-unreadable`, `no-denylist`, `no-changed-paths`,
-`file-unreadable`, `not-applicable`,
+`no-slices`, `file-unreadable`, `not-applicable`,
 `tree-unreadable`. No record field holds
 free text taken from the pull request or typed by a person.
 

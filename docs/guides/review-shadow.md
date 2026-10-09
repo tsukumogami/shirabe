@@ -96,6 +96,7 @@ answer. Its reason says why:
 | `transport`, `provider` | Jev couldn't be reached, or answered with an error, twice | grade again later |
 | `over-bound` | every slice Jev would grade was still over 2,560 bytes after the body was cut (the file list leaves under 512 bytes for the body) | nothing; it's left out of the agreement rates |
 | `no-changed-paths` | the head changes nothing | nothing; this head can't be graded |
+| `no-slices` | no criterion the run grades had anything of its kind to look at, such as a site seat that grades code comments on a change that touched only Markdown | nothing; it's left out of the agreement rates |
 | `outcome-without-grade` | an outcome was recorded for a head nobody graded | nothing; it's counted as not graded |
 
 Grading again is safe: each run writes a new record, and the report reads
