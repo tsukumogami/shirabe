@@ -94,6 +94,7 @@ KEY_SHAPE='^([A-Za-z0-9._][A-Za-z0-9._/-]*)#L([0-9]+)-L([0-9]+)$'
 TIMING_SHAPE='^([a-z0-9-]+):([a-z0-9_]+)$'
 ID_SHAPE='^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3})$'
 RULE_IDS_LINE='^RULE_IDS="([a-z0-9/-]+( [a-z0-9/-]+)*)"$'
+COMMENT_LINE='^[[:space:]]*#'
 
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/check-rule-registry.XXXXXX") || die2 "cannot make a scratch directory"
 trap 'rm -rf "$TMP"' EXIT
@@ -288,17 +289,30 @@ fi
 
 MARK_LINE='^::shirabe-rule(-end)?::'
 CTL=$(printf '[\001-\010\013-\037\177]')
+# matches <grep arguments...>: 0 a match, 1 none; a grep that couldn't run is
+# no answer, so it exits 2.
+matches() {
+    local rc
+    LC_ALL=C grep -q "$@"
+    rc=$?
+    [ "$rc" -le 1 ] || die2 "grep could not run: grep $*"
+    return "$rc"
+}
+
 jqf "$TMP/active" -r '.rules[] | objects | select(.status == "active") | .id | strings' "$REG"
+# Every check below reads the active entries; with none, each would pass on
+# nothing.
+[ -s "$TMP/active" ] || problem "the registry has no active entries"
 while IFS= read -r id; do
     [[ $id =~ $ID_SHAPE ]] || continue
     if ! "$HELPER" --root "$ROOT" text "$id" > "$TMP/text" 2> "$TMP/text.err"; then
         problem "$id: its text does not resolve: $(head -n 1 "$TMP/text.err")"
         continue
     fi
-    if grep -Eq "$MARK_LINE" "$TMP/text"; then
+    if matches -E "$MARK_LINE" "$TMP/text"; then
         problem "$id: its range holds a ::shirabe-rule marker line"
     fi
-    if LC_ALL=C grep -q "$CTL" "$TMP/text"; then
+    if matches "$CTL" "$TMP/text"; then
         problem "$id: its range holds a control character other than tab"
     fi
 done < "$TMP/active"
@@ -355,7 +369,9 @@ while IFS= read -r hit; do
     case "$rel" in
         *_test.sh|scripts/rule-registry.sh|scripts/lib/*|scripts/check-rule-registry*.sh) continue ;;
     esac
-    case "$text" in [[:space:]]*'#'*|'#'*) continue ;; esac
+    # A comment line only: `#` as the first character after any indent. A
+    # call with a trailing comment is still a call.
+    [[ $text =~ $COMMENT_LINE ]] && continue
     id=$(printf '%s\n' "$text" | sed -E 's/.*rule-registry\.sh"?[[:space:]]+release[[:space:]]+([^[:space:]<>|&;]*).*/\1/')
     if ! [[ $id =~ $ID_SHAPE ]]; then
         problem "$rel:$lineno: release is passed [$id], not a literal rule id"

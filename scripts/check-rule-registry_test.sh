@@ -123,6 +123,9 @@ OUT=$("$CHECK" 2>&1); RC=$?
 reg "del($(sel $G).summary)"
 expect_problem "a missing field" "$G: missing field summary"
 
+reg '.rules = []'
+expect_problem "an empty registry" "the registry has no active entries"
+
 reg "$(sel $G).level = \"hard\""
 expect_problem "an out-of-vocabulary value" "level \"hard\" is not gate"
 
@@ -226,6 +229,11 @@ expect_problem "a malformed RULE_IDS line" "check-pr-output.sh:63: malformed RUL
   printf '%s\n' '"$SELF_DIR/../../../scripts/rule-registry.sh" release rs-001 </dev/null >&2 || true'
 } > "$S/skills/execute/scripts/adopt-or-create-pr.sh"
 expect_problem "a released id outside the releasable directories" "rs-001 would not be released"
+
+{ cat "$WORK/orig/skills/execute/scripts/adopt-or-create-pr.sh"
+  printf '%s\n' '    "$SELF_DIR/../../../scripts/rule-registry.sh" release no-such/rule >&2 || true  # a trailing comment'
+} > "$S/skills/execute/scripts/adopt-or-create-pr.sh"
+expect_problem "an indented release with a trailing comment is still read" "releases no-such/rule, which is not an active registry entry"
 
 awk '{ print } index($0, "**Another run'"'"'s PR (exit 6 on") { for (i = 0; i < 70; i++) print "filler line" }' \
     "$WORK/orig/skills/execute/koto-templates/execute.md" > "$S/skills/execute/koto-templates/execute.md"
@@ -408,6 +416,18 @@ expect_adopt "adoption: a state section the manifest doesn't load is outside" 0 
 
 drop_line skills/execute/koto-templates/execute.md "execute one"
 expect_adopt "adoption: a line removed from /execute's template" 1 "execute.md (file): base line(s) 1 removed"
+
+# A manifest row that cuts nothing at the base would protect nothing; with a
+# line removed from its file, it is no answer.
+git -C "$A" stash -q -u
+printf 'p\tdocs/loaded.md\tstate:missing\t1\tx\n' >> "$A/docs/measurement/offload-baseline/load-manifest.tsv"
+git -C "$A" add -A
+git $GIT_ID -C "$A" commit -qm "a state the file doesn't have"
+BAD_BASE=$(git -C "$A" rev-parse HEAD)
+git -C "$A" reset -q --hard "$BASE"
+git -C "$A" stash pop -q
+drop_line docs/loaded.md "loaded two"
+expect_adopt "adoption: a selector that cuts nothing exits 2" 2 "docs/loaded.md (state:missing) selects no lines at the base" "$BAD_BASE"
 
 echo '# changed' >> "$A/scripts/review-shadow/review-shadow.py"
 expect_adopt "adoption: review-shadow.py changed" 1 "scripts/review-shadow/review-shadow.py differs from the base"

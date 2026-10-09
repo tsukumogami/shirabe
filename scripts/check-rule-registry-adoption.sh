@@ -68,7 +68,16 @@ repo_git() {
 
 repo_git rev-parse --verify --quiet "$BASE^{commit}" >/dev/null 2>&1 || die2 "$BASE is not a commit"
 
-if ! repo_git cat-file -e "$BASE:$OLD_TABLE" 2>/dev/null; then
+# at_base <path>: 0 when the base has the file, 1 when it doesn't. A tree git
+# can't read (a partial clone, say) is no answer, so it exits 2 rather than
+# reading as absent.
+at_base() {
+    local out
+    out=$(repo_git ls-tree --name-only "$BASE" -- "$1" 2>/dev/null) || die2 "cannot read the base's tree for $1"
+    [ -n "$out" ]
+}
+
+if ! at_base "$OLD_TABLE"; then
     echo "$PROG: skipped: the base has no $OLD_TABLE, so there is no adoption to check"
     exit 0
 fi
@@ -88,7 +97,7 @@ jq -r '.rules[] | objects | .id | strings' "$REG" > "$TMP/head-ids" 2>/dev/null 
     || die2 "cannot read references/rule-registry.json"
 repo_git show "$BASE:$OLD_TABLE" > "$TMP/table" || die2 "cannot read $OLD_TABLE at the base"
 awk -F'\t' '/^#/ || NF == 0 { next } { print $1 }' "$TMP/table" > "$TMP/base-ids"
-if repo_git cat-file -e "$BASE:$CRITERIA" 2>/dev/null; then
+if at_base "$CRITERIA"; then
     repo_git show "$BASE:$CRITERIA" > "$TMP/criteria.json" || die2 "cannot read $CRITERIA at the base"
     jq -r '.criteria[].rule_id | strings' "$TMP/criteria.json" >> "$TMP/base-ids" 2>/dev/null \
         || die2 "$CRITERIA at the base does not parse"
@@ -103,8 +112,13 @@ done < "$TMP/base-ids"
 # ---------------------------------------------------------------- review-shadow
 
 for f in $SHADOW_FILES; do
-    if repo_git cat-file -e "$BASE:$f" 2>/dev/null; then
-        repo_git diff --quiet --no-renames "$BASE" -- "$f" || problem "$f differs from the base"
+    if at_base "$f"; then
+        repo_git diff --quiet --no-renames "$BASE" -- "$f"
+        case $? in
+            0) ;;
+            1) problem "$f differs from the base" ;;
+            *) die2 "git diff failed on $f" ;;
+        esac
     fi
 done
 
@@ -149,13 +163,20 @@ printf '%s\tfile\n' "$EXECUTE_TEMPLATE" >> "$TMP/spans"
 
 cut -f1 "$TMP/spans" | sort -u > "$TMP/span-paths"
 while IFS= read -r p; do
-    repo_git cat-file -e "$BASE:$p" 2>/dev/null || continue
+    # A manifest row for a file the base doesn't have loads nothing to lose.
+    at_base "$p" || continue
     removed_lines "$p" > "$TMP/removed"
     [ -s "$TMP/removed" ] || continue
-    repo_git show "$BASE:$p" > "$TMP/base-file"
+    repo_git show "$BASE:$p" > "$TMP/base-file" || die2 "cannot read $p at the base"
     awk -F'\t' -v p="$p" '$1 == p { print $2 }' "$TMP/spans" > "$TMP/selectors"
     while IFS= read -r sel; do
-        span_lines "$sel" < "$TMP/base-file" > "$TMP/span"
+        case "$sel" in
+            file|body|state:?*) ;;
+            *) die2 "$MANIFEST names selector [$sel] for $p, which this script can't cut" ;;
+        esac
+        span_lines "$sel" < "$TMP/base-file" > "$TMP/span" || die2 "cannot cut $p ($sel)"
+        # A selector that selects nothing would protect nothing, silently.
+        [ -s "$TMP/span" ] || die2 "$p ($sel) selects no lines at the base"
         hits=$(awk 'NR == FNR { in_span[$1] = 1; next } ($1 in in_span) { printf "%s%s", sep, $1; sep = "," }' \
             "$TMP/span" "$TMP/removed")
         [ -z "$hits" ] || problem "$p ($sel): base line(s) $hits removed"
