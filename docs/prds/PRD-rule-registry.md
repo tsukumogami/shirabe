@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   shirabe's output gates, gate scripts and review-shadow criteria each keep their own rule
   list with their own id scheme and reference format, and the rule text they point at lives
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-rule-registry](docs/briefs/BRIEF-rule-registry.md); carried in Absorbed Brief.
 
