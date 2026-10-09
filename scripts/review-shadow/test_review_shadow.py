@@ -909,6 +909,97 @@ class TestGrade(unittest.TestCase):
             rs.https_transport("http://example.com", "k", 1)
 
 
+# A self-signed root that signs nothing; only its loading is tested.
+TEST_ROOT_PEM = """-----BEGIN CERTIFICATE-----
+MIIBnDCCAUGgAwIBAgIUC1Utx0rh7mlWbvTdtAaPbRteOBowCgYIKoZIzj0EAwIw
+IjEgMB4GA1UEAwwXcmV2aWV3LXNoYWRvdyB0ZXN0IHJvb3QwIBcNMjYxMDA5MTUy
+NTU4WhgPMjEyNjA5MTUxNTI1NThaMCIxIDAeBgNVBAMMF3Jldmlldy1zaGFkb3cg
+dGVzdCByb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEscUlMbAHlAhG5OTo
+B6hQxv3NIonKkajgaQsMeLAe47ZhP9VfRNK3aMFk22cObaDH5Iedy44+Agab2xW1
+5sC+xKNTMFEwHQYDVR0OBBYEFB2qL9VrxGO94wJ7QiwjmAR4pTUdMB8GA1UdIwQY
+MBaAFB2qL9VrxGO94wJ7QiwjmAR4pTUdMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZI
+zj0EAwIDSQAwRgIhAMLcrPYh/DkgdeC6PxyfbCZptSlqhEt3qdV6pMKfwRjiAiEA
+iJvItrTR691DkycbvktpKVjMEGQNCpoL/XugF1ZHwfI=
+-----END CERTIFICATE-----
+"""
+
+
+class TestTrustRoots(unittest.TestCase):
+    """A Python with no trust roots of its own borrows the operating system's,
+    so a send isn't refused by every certificate check."""
+
+    def setUp(self):
+        import ssl
+        self.ssl = ssl
+        self.tmp = Path(tempfile.mkdtemp())
+        self.root = _write(self.tmp, "root.pem", TEST_ROOT_PEM)
+        self.not_pem = _write(self.tmp, "not.pem", "not a certificate")
+        self.loaded = []
+        for var in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+            if var in os.environ:
+                self.addCleanup(os.environ.__setitem__, var, os.environ.pop(var))
+
+    def empty(self):
+        loaded = self.loaded
+
+        class Recording(self.ssl.SSLContext):
+            def load_verify_locations(self, *a, **k):
+                loaded.append(k.get("cafile"))
+                return super().load_verify_locations(*a, **k)
+        return Recording(self.ssl.PROTOCOL_TLS_CLIENT)
+
+    def test_no_roots_of_its_own_loads_the_first_bundle_present(self):
+        ctx = rs.tls_context(self.empty, (str(self.tmp / "missing.pem"), str(self.root), str(self.not_pem)))
+        self.assertEqual(len(ctx.get_ca_certs()), 1)
+        self.assertEqual(self.loaded, [str(self.root)])
+
+    def test_an_unreadable_bundle_falls_through_to_the_next(self):
+        ctx = rs.tls_context(self.empty, (str(self.not_pem), str(self.root)))
+        self.assertEqual(len(ctx.get_ca_certs()), 1)
+        self.assertEqual(self.loaded, [str(self.not_pem), str(self.root)])
+
+    def test_no_bundle_present_leaves_it_empty(self):
+        ctx = rs.tls_context(self.empty, (str(self.tmp / "missing.pem"),))
+        self.assertEqual(ctx.get_ca_certs(), [])
+
+    def test_roots_of_its_own_are_kept_alone(self):
+        def with_roots():
+            ctx = self.empty()
+            ctx.load_verify_locations(cafile=str(self.root))
+            return ctx
+        rs.tls_context(with_roots, (str(self.root),))
+        self.assertEqual(self.loaded, [str(self.root)])  # the base's own load, nothing after
+
+    def test_roots_named_in_the_environment_are_kept_alone(self):
+        for var in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+            os.environ[var] = str(self.tmp)
+            try:
+                ctx = rs.tls_context(self.empty, (str(self.root),))
+            finally:
+                del os.environ[var]
+            self.assertEqual((var, ctx.get_ca_certs(), self.loaded), (var, [], []))
+
+    def test_the_default_context_still_verifies(self):
+        ctx = rs.tls_context(bundles=())
+        self.assertEqual(ctx.verify_mode, self.ssl.CERT_REQUIRED)
+        self.assertTrue(ctx.check_hostname)
+
+    def test_the_opener_uses_the_context_and_refuses_redirects(self):
+        made = []
+        real = rs.tls_context
+        rs.tls_context = lambda: made.append(self.empty()) or made[-1]
+        self.addCleanup(setattr, rs, "tls_context", real)
+        prev = rs.urllib.request.build_opener
+        rs.urllib.request.build_opener = _REAL_BUILD_OPENER
+        self.addCleanup(setattr, rs.urllib.request, "build_opener", prev)
+        opener = rs.https_opener()
+        https = [h for h in opener.handlers if isinstance(h, rs.urllib.request.HTTPSHandler)]
+        self.assertEqual([h._context for h in https], made)
+        redirects = [h for h in opener.handlers if isinstance(h, rs.urllib.request.HTTPRedirectHandler)]
+        self.assertTrue(redirects)
+        self.assertTrue(all(isinstance(h, rs._NoRedirect) for h in redirects))
+
+
 class TestStore(unittest.TestCase):
     def setUp(self):
         self.home = Path(tempfile.mkdtemp()) / "store"
@@ -2030,6 +2121,8 @@ def _refuse_real_opener(*a, **k):
     raise AssertionError("a test tried to open a real HTTP transport to Jev")
 
 
+# Building an opener reaches nothing; TestTrustRoots builds one to inspect it.
+_REAL_BUILD_OPENER = rs.urllib.request.build_opener
 rs.urllib.request.build_opener = _refuse_real_opener
 
 
