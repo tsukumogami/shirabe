@@ -784,6 +784,12 @@ seed edge-verify review_results.json
 seed edge-verify light_results.json
 seed edge-verify summary.md
 record_round edge-verify qa clean
+# The four panels' scopes, seeded after the round is recorded: a scope left
+# from before the fix would make --record refuse (exit 68) on the --plan
+# fallback path, where no new scope replaces it.
+for k in scrutiny_scope.json review_scope.json qa_scope.json light_scope.json; do
+    seed edge-verify "$k"
+done
 prestart_verification edge-verify
 tick_bare edge-verify
 if [ "$NEXT_STATE" = implementation ]; then
@@ -801,6 +807,22 @@ if [ -z "$left" ]; then
     pass "verification failed: every key the traversal re-reads is cleared on entry to implementation"
 else
     fail "verification failed: keys survive the return to implementation:$left"
+fi
+left=""
+for k in scrutiny_scope.json review_scope.json qa_scope.json light_scope.json; do
+    if koto context exists edge-verify "$k" >/dev/null 2>&1; then
+        left="$left $k"
+    fi
+done
+if [ -z "$left" ]; then
+    pass "verification failed: every panel's scope is cleared on entry to implementation"
+else
+    fail "verification failed: panel scopes survive the return to implementation:$left"
+fi
+if koto context exists edge-verify verdict_ledger.json >/dev/null 2>&1; then
+    pass "verification failed: the verdict ledger survives the return to implementation"
+else
+    fail "verification failed: the verdict ledger was cleared; a retry must keep it"
 fi
 if koto context exists edge-verify plan.md >/dev/null 2>&1; then
     pass "verification failed: plan.md is left alone"

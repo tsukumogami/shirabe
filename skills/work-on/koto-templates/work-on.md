@@ -621,7 +621,14 @@ states:
     # them before routing back, and confirm it; verification's exit 1 is koto's
     # own edge, with no agent step before it, so koto clears them on entry. The
     # session's first entry clears nothing.
-    clear_on_entry: [scrutiny_results.json, review_results.json, qa_results.json, light_results.json, summary.md]
+    #
+    # The four panels' <panel>_scope.json go too. A scope names the HEAD it was
+    # planned at, and panel-scope.sh --record refuses (exit 68) a round whose
+    # scope names another HEAD. On the --plan fallback path no new scope is
+    # written, so a scope left from before the fix would refuse every round;
+    # with none, --record has nothing to compare and records. The verdict
+    # ledger is never cleared: it is what a retry keeps.
+    clear_on_entry: [scrutiny_results.json, review_results.json, qa_results.json, light_results.json, summary.md, scrutiny_scope.json, review_scope.json, qa_scope.json, light_scope.json]
     gates:
       on_feature_branch_impl:
         type: command
@@ -1343,9 +1350,21 @@ states:
     #
     # The one evidence left is `verification_status: blocked`, for a run that
     # can't settle: a launcher that can't start (the wait is then pending and,
-    # past its deadline, timed out, both exit 75) or a result that can't be
-    # read (2). Each edge names the gate value, which is what lets koto prove
+    # past its deadline, timed out, both exit 75), a result that can't be
+    # read (2), or a gate run koto killed or could not start (-1). Each edge names the gate value, which is what lets koto prove
     # it exclusive of the routed ones.
+    #
+    # How koto 0.15.0 reports the gate when it is not one of the exits above:
+    #   - Still pending at the poll deadline (timeout_secs): the gate's outcome
+    #     becomes timed_out, but its routable output is unchanged, so
+    #     gates.verification_verdict.exit_code is still 75 (koto's
+    #     src/engine/poll.rs leaves the output as the last run left it). The
+    #     75 + blocked edge is the way out, as for a launcher that never starts.
+    #   - One run killed by the gate's own per-run timeout, or a run koto
+    #     could not spawn: exit_code -1 with a failure_kind. That is not the
+    #     pending code, so koto does not wait on it, and no settled edge names
+    #     it: the -1 + blocked edge below is its way out, so the state can't
+    #     trap the run.
     #
     # The return to implementation on exit 1 used to be the agent's, which
     # cleared the panel and summary keys first. koto now takes the edge
@@ -1376,7 +1395,8 @@ states:
         description: >-
           Absent on every settled path: koto routes on the verdict. Submit
           `blocked` only when the run can't settle -- the launcher can't
-          start, or the result can't be read.
+          start, the wait timed out, the result can't be read, or koto
+          could not run the check (exit -1).
       detail:
         type: string
         description: Why verification could not run or be read.
@@ -1406,6 +1426,12 @@ states:
       - target: done_blocked
         when:
           gates.verification_verdict.exit_code: 2
+          verification_status: blocked
+        context_assignments:
+          failure_reason: "verification blocked: ${evidence.detail}"
+      - target: done_blocked
+        when:
+          gates.verification_verdict.exit_code: -1
           verification_status: blocked
         context_assignments:
           failure_reason: "verification blocked: ${evidence.detail}"
@@ -1794,9 +1820,16 @@ states:
           gates.closing_keyword.exit_code: 1
         context_assignments:
           failure_reason: "pr_creation: the pull request body does not close issue #{{ISSUE_NUMBER}} — add a closing keyword (Fixes #{{ISSUE_NUMBER}}) so the issue closes when this merges. If the body does carry it, the gate could not read the pull request."
+      # Only a run on /execute's shared branch opens no pull request of its
+      # own, so the edge also needs SHARED_BRANCH set: a root run that
+      # submitted `shared` would otherwise end at done past the closing-keyword
+      # and PR-body gates. With it unset, `shared` matches no edge and the
+      # state holds.
       - target: done
         when:
           pr_status: shared
+          vars.SHARED_BRANCH:
+            is_set: true
       - target: pr_creation
         when:
           pr_status: creation_failed_retry
@@ -1838,13 +1871,21 @@ states:
         command: "[ \"$(gh pr view --json mergeStateStatus --jq .mergeStateStatus)\" != \"DIRTY\" ]"
       # A routing gate (DESIGN-output-gates Decision 9): is this run the
       # root, or a child /execute materialized? session-role.sh reads koto's
-      # own parent_workflow and prints `root` or `child`; anything that is not
-      # exactly `root` -- a usage error, an unreachable PLUGIN_ROOT, a failed
-      # read -- fails the test and reads as child, the safe direction. Its
-      # exit 1 is an answer, not a violation, so it prints no finding.
+      # own parent_workflow and prints `root` or `child`. Exit 0 is root and
+      # exit 1 is child; a lookup that can't decide (koto or jq missing, the
+      # session not listed) prints `child` and says why on stderr, the safe
+      # direction the script documents. Its exit 1 is an answer, not a
+      # violation, so it prints no finding.
+      #
+      # Exit 2 is a role nobody decided: an unreachable PLUGIN_ROOT (the
+      # test -x guard), or session-role.sh printing neither word (it prints
+      # nothing on a usage error).
+      # No edge names it, so the state holds: an undecided role must neither
+      # run the cascade nor skip it. The script's stderr is left to koto, so
+      # the hold carries the reason.
       is_root:
         type: command
-        command: 'test "$("{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" "{{SESSION_NAME}}" 2>/dev/null)" = root'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" || exit 2; case "$("{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" "{{SESSION_NAME}}")" in root) exit 0 ;; child) exit 1 ;; *) exit 2 ;; esac'
     accepts:
       ci_outcome:
         type: enum
@@ -2534,9 +2575,7 @@ Retry cap: retries from this panel share the run's blocking retries with scrutin
 ## verification
 
 koto runs this state itself; don't run the commands yourself. What it runs is the
-definition-of-done gate, described here as SKILL.md describes it:
-
-Run the definition-of-done gate. See the `## Definition of Done` section of SKILL.md
+definition-of-done gate, and koto follows the `## Definition of Done` section of SKILL.md
 for the full procedure: read the project's verification map, classify the issue's
 changed files against it, run each matched command (or the default test command when
 nothing matches), and require every run to pass.
@@ -2562,6 +2601,14 @@ on the result and koto routes on it, with no evidence from you:
   `koto next {{SESSION_NAME}} --no-cleanup`, submitting nothing; the wait lasts up to
   two hours.
 - **exit 2**: the result could not be read. The state holds.
+- **exit -1**: koto killed the check at its own per-run timeout or could not start
+  it. The state holds; tick again, and submit `verification_status: blocked` if it
+  keeps happening.
+
+If the two-hour wait passes with no result, the gate reports `timed_out` and still
+reads exit 75; nothing more will arrive, so submit `verification_status: blocked`.
+The run itself stops at two hours too: a command still running then is killed and
+reported as `verification/timed-out` (exit 4).
 
 Commit everything before ticking into this state: a tracked file with uncommitted
 changes is exit 4, since the paths selected and the code tested would differ.
@@ -2572,8 +2619,8 @@ each command's id, argv, exit status, duration, and whether it timed out or was
 killed for runaway growth. Each command's log is beside it, under
 `${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/{{SESSION_NAME}}/<head>/`.
 
-If koto could not start the run (the action's fallback is shown above), or the gate
-holds on exit 2 and the cause can't be fixed, submit `verification_status: blocked`
+If koto could not start the run (the action's fallback is shown above), the wait
+timed out, or the gate holds on exit 2 or -1 and the cause can't be fixed, submit `verification_status: blocked`
 with the reason in `detail`. The run stops at `done_blocked`.
 
 Evidence schema (only when the run can't settle):
@@ -2747,7 +2794,8 @@ Submit `precheck_status: override` to proceed from the default branch anyway, or
 
 If `SHARED_BRANCH` is set, this child is running on the orchestrator's shared
 branch and the orchestrator owns the PR. Submit `pr_status: shared` — no PR
-creation step is needed here.
+creation step is needed here. `shared` advances only when `SHARED_BRANCH` is set;
+a run without it opens its own pull request.
 
 Otherwise, read `references/phases/phase-6-pr.md` for PR format, pre-PR
 verification, and push instructions.
@@ -2782,12 +2830,14 @@ every check on the current head green and the pull request not DIRTY, the
 `is_root` gate decides where the run goes: it runs
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/session-role.sh" {{SESSION_NAME}}`, which
 reads koto's own `parent_workflow`, and passes only when it prints exactly `root`.
-A root goes on to `cascade_entry`; anything else, a child or an answer the script
-could not give, goes to `done`. That is the safe direction: a child that wrongly
-stops has landed its pull request and left the chain for the run that owns it,
-while a child that wrongly cascades deletes a PLAN its siblings are still working
-from. A DIRTY pull request stops at `done_blocked`, since GitHub runs no checks on
-one.
+A root goes on to `cascade_entry`; a child, or a lookup the script could not
+complete (it then answers `child`), goes to `done`. That is the safe direction: a
+child that wrongly stops has landed its pull request and left the chain for the run
+that owns it, while a child that wrongly cascades deletes a PLAN its siblings are
+still working from. When the gate exits 2 the role was never decided (PLUGIN_ROOT
+does not reach the script, or the script failed): the state holds rather than
+choosing either way. Read the gate's stderr, fix the cause, and tick again. A DIRTY
+pull request stops at `done_blocked`, since GitHub runs no checks on one.
 
 While checks are still running the state holds on `ci_passing`; tick again once
 they finish. If the gate fails, fix what you can, push, and submit

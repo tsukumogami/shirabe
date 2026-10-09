@@ -99,7 +99,8 @@ printf '%s\n' "$SITES" | grep -q 'phase-4d-light\.md' && pass "the light panel h
 # back to implementation, which is the only clearing on verification's exit-1
 # edge, since koto takes that edge itself.
 CLEAR_ON_ENTRY=$(awk '$0 == "  implementation:" { f = 1; next } f && /^  [a-z_]+:$/ { exit } f && /^    clear_on_entry:/ { print; exit }' "$TEMPLATE")
-for k in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md; do
+for k in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md \
+         scrutiny_scope.json review_scope.json qa_scope.json light_scope.json; do
     printf '%s\n' "$CLEAR_ON_ENTRY" | grep -q "$k" && pass "implementation's clear_on_entry clears $k" \
         || fail "implementation's clear_on_entry does not clear $k: [$CLEAR_ON_ENTRY]"
 done

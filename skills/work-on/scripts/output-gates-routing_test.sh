@@ -294,16 +294,16 @@ reset_rc() { rm -f "$RC_DIR"/*; }
 
 # stub_block <block> <gate=exit>... : the gh one-liners replaced by fixed exits,
 # keyed on the gate name above each command. Also shortens the verification
-# poll so a pending case returns in a second, and gives staleness_fresh a
-# one-second timeout when STALE_TIMEOUT is set.
+# poll so a pending case returns in a second, and gives the gate named in
+# TIMEOUT_GATE a one-second per-run timeout.
 stub_block() {
     local block="$1"; shift
-    printf '%s\n' "$block" | awk -v stubs="$*" -v st="${STALE_TIMEOUT:-}" '
+    printf '%s\n' "$block" | awk -v stubs="$*" -v st="${TIMEOUT_GATE:-}" '
         BEGIN { n = split(stubs, a, " "); for (i = 1; i <= n; i++) { split(a[i], kv, "="); ex[kv[1]] = kv[2] } }
         /^      [a-z_]+:$/ { gate = $1; sub(/:$/, "", gate) }
         /^        command:/ {
             if (gate in ex) { print "        command: \"exit " ex[gate] "\""; next }
-            if (gate == "staleness_fresh" && st != "") { print; print "        timeout: 1"; next }
+            if (st != "" && gate == st) { print; print "        timeout: 1"; next }
         }
         /^          interval_secs:/ { print "          interval_secs: 1"; next }
         /^          timeout_secs:/  { print "          timeout_secs: 60"; next }
@@ -396,7 +396,7 @@ for pair in 0:analysis 1:introspection 3:analysis; do
     expect "staleness_fresh exit ${pair%%:*}, no evidence" "${pair#*:}"
 done
 reset_rc; set_rc check-staleness.sh--issue sleep
-STALE_TIMEOUT=1 drive staleness_check "" ""
+TIMEOUT_GATE=staleness_fresh drive staleness_check "" ""
 expect "staleness_fresh exit -1 (timed out), no evidence" analysis
 reset_rc; set_rc check-staleness.sh--issue 2
 drive staleness_check "" ""
@@ -429,6 +429,13 @@ expect "verification_status: blocked on exit 2" done_blocked
 reset_rc; set_rc run-verification.sh--start 2
 drive verification "" ""
 holds "a launcher that cannot start" verification __action__
+# A run koto kills at the gate's per-run timeout reads -1, not the pending
+# code: the state holds, and blocked is its way out.
+reset_rc; set_rc check-verification.sh--verdict sleep
+TIMEOUT_GATE=verification_verdict drive verification "" ""
+holds "verification_verdict exit -1 (timed out), no evidence" verification verification_verdict
+TIMEOUT_GATE=verification_verdict drive verification "" '{"verification_status":"blocked","detail":"the check keeps timing out"}'
+expect "verification_status: blocked on exit -1" done_blocked
 
 # ci_monitor: green CI routes on is_root; the two failing values route on red CI.
 reset_rc
@@ -437,6 +444,10 @@ expect "green CI, is_root exit 0" cascade_entry
 set_rc role child
 drive ci_monitor "" "" ci_passing=0 merge_state_clean=0
 expect "green CI, is_root exit 1" done
+# is_root exit 2, a role nobody decided: neither the cascade nor done.
+reset_rc
+drive ci_monitor "" "" ci_passing=0 merge_state_clean=0 is_root=2
+holds "green CI, is_root exit 2" ci_monitor is_root
 reset_rc
 drive ci_monitor "" "" ci_passing=0 merge_state_clean=1
 expect "green CI on a DIRTY pull request" done_blocked
@@ -498,6 +509,15 @@ expect "pr_body_conformant exit 0" ci_monitor
 set_rc check-pr-output.sh--pr-body 1
 drive pr_creation "docs/shared" '{"pr_status":"shared"}' closing_keyword=0
 expect "pr_status: shared does not wait on the body check" done
+# Without SHARED_BRANCH, `shared` is not a way past the PR gates.
+drive pr_creation "" '{"pr_status":"shared"}' closing_keyword=1
+if [ "$STATE" = done ]; then
+    fail "pr_status: shared on a root run (SHARED_BRANCH unset) reached done past the PR gates"
+elif [ "$STATE" = pr_creation ]; then
+    pass "pr_status: shared on a root run (SHARED_BRANCH unset) stays at pr_creation"
+else
+    fail "pr_status: shared with SHARED_BRANCH unset: want pr_creation, got $STATE ($(printf '%s' "$RESP" | head -c 300))"
+fi
 
 # The panels (gate 6): <panel>_verdict decides the pass. Each case starts with
 # <panel>_carried at 1, the path where seats ran, unless it says otherwise;

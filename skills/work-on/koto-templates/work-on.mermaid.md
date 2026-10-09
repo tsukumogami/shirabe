@@ -73,7 +73,7 @@ stateDiagram-v2
     post_research_validation --> validation_exit : verdict: exit
     pr_creation --> ci_monitor : gates.closing_keyword.exit_code: 0, gates.pr_body_conformant.exit_code: 0, pr_status: created
     pr_creation --> done_blocked : gates.closing_keyword.exit_code: 1, pr_status: created
-    pr_creation --> done : pr_status: shared
+    pr_creation --> done : pr_status: shared, vars.SHARED_BRANCH: {"is_set":true}
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
     pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.branch_wip_clean.exit_code: 0, gates.on_feature_branch_pr.exit_code: 0
@@ -139,6 +139,7 @@ stateDiagram-v2
     verification --> done_blocked : gates.verification_verdict.exit_code: 4
     verification --> done_blocked : gates.verification_verdict.exit_code: 75, verification_status: blocked
     verification --> done_blocked : gates.verification_verdict.exit_code: 2, verification_status: blocked
+    verification --> done_blocked : gates.verification_verdict.exit_code: -1, verification_status: blocked
     done --> [*]
     done_already_complete --> [*]
     done_blocked --> [*]

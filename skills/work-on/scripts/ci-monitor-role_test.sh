@@ -475,6 +475,33 @@ ROLE_PARENT
             [[ "$rc" == "${pair#*:}" ]] && pass "the shipped is_root command exits $rc for ${pair%%:*}" \
                 || fail "the shipped is_root command exited $rc for ${pair%%:*}, expected ${pair#*:}"
         done
+        # A role nobody decided is exit 2, which no ci_monitor edge names, so
+        # the state holds: an unreachable PLUGIN_ROOT, and a script that fails.
+        cmd=${IS_ROOT_CMD//\{\{PLUGIN_ROOT\}\}/$RD/no-such-plugin}
+        cmd=${cmd//\{\{SESSION_NAME\}\}/role_root}
+        (cd "$RD" && HOME="$RD/home" sh -c "$cmd" >/dev/null 2>&1)
+        rc=$?
+        [[ "$rc" == 2 ]] && pass "the shipped is_root command exits 2 when PLUGIN_ROOT does not reach session-role.sh" \
+            || fail "the shipped is_root command exited $rc with an unreachable PLUGIN_ROOT, expected 2"
+        FAKE_PR="$RD/fake-plugin"
+        mkdir -p "$FAKE_PR/skills/work-on/scripts"
+        printf '#!/bin/sh\necho "session-role: broken" >&2\nexit 2\n' > "$FAKE_PR/skills/work-on/scripts/session-role.sh"
+        chmod +x "$FAKE_PR/skills/work-on/scripts/session-role.sh"
+        cmd=${IS_ROOT_CMD//\{\{PLUGIN_ROOT\}\}/$FAKE_PR}
+        cmd=${cmd//\{\{SESSION_NAME\}\}/role_root}
+        err=$( (cd "$RD" && HOME="$RD/home" sh -c "$cmd" 2>&1 >/dev/null) )
+        (cd "$RD" && HOME="$RD/home" sh -c "$cmd" >/dev/null 2>&1)
+        rc=$?
+        [[ "$rc" == 2 ]] && pass "the shipped is_root command exits 2 when session-role.sh fails" \
+            || fail "the shipped is_root command exited $rc when session-role.sh failed, expected 2"
+        [[ "$err" == *"session-role: broken"* ]] && pass "the is_root gate keeps session-role.sh's stderr" \
+            || fail "the is_root gate discarded session-role.sh's stderr: [$err]"
+        # And the template: no edge names is_root's exit 2.
+        if printf '%s\n' "$CI_MONITOR" | grep -q 'gates\.is_root\.exit_code: 2'; then
+            fail "a ci_monitor edge routes is_root exit 2; an undecided role must hold"
+        else
+            pass "no ci_monitor edge routes is_root exit 2, so an undecided role holds"
+        fi
     fi
     got=$(role_of no-such-session-anywhere)
     [[ "$got" == child ]] && pass "an unresolvable session classifies as child, which skips the cascade" \
