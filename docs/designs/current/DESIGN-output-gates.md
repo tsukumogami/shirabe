@@ -654,7 +654,7 @@ gate reads.
 
 ## Implementation Approach
 
-The build proceeds in this order, all in one pull request:
+The build went in this order, all in one pull request:
 
 1. **Gate script library.** `check-branch-output.sh` and `check-pr-output.sh`
    with their rule tables, `_test.sh` suites using fixture repositories and a
@@ -683,6 +683,44 @@ The template tests that exist (`pre-pr-evidence_test.sh`,
 `finalization-shape_test.sh`, `ci-monitor-role_test.sh`,
 `panel-scope_test.sh`, `execute-template-structure_test.sh`) gain cases for
 each new route, driven by fake gate results in the way they already are.
+
+## As Built
+
+A few details settled during the build that the sections above don't state.
+
+The `panel/blocking-finding` rule's reference pins one line of
+`phase-4a-scrutiny.md`, the sentence giving the severity rule, for all four
+panels. The review, QA and light phase files refer back to it rather than
+restating it, so one excerpt serves every panel's findings. Each
+`verification/*` reference pins a single line of `verification-map.md`: the row
+of the exit table naming that cause.
+
+The output gates that run `check-branch-output.sh`, `check-pr-output.sh` or
+`check-verification.sh`, the verification launcher, and the `is_root` gate
+start with `test -x "<script>" || exit 2`. An empty or wrong `PLUGIN_ROOT` then reads as
+"could not decide" (exit 2), which holds the state, instead of 127, which no
+edge names and which carries no diagnostic.
+
+Three routing details were added after review:
+
+- `pr_creation`'s `pr_status: shared` edge also requires `SHARED_BRANCH` to be
+  set (a variable route, `is_set: true`). A root run that submitted `shared`
+  would otherwise reach `done` past the closing-keyword and PR-body gates; with
+  the variable unset the value matches no edge and the state holds.
+- `ci_monitor`'s `is_root` gate carries the `test -x` guard, exits 2 when
+  `session-role.sh` itself fails, and keeps the script's stderr. No edge names
+  exit 2, so a role nobody decided holds the state: it neither runs the
+  cascade nor skips it. A lookup the script can't complete still answers
+  `child`, the direction it already documented.
+- At `verification`, koto 0.15.0 reports a polling gate still pending at
+  `timeout_secs` as `timed_out` but leaves its routable `exit_code` at 75, so
+  the existing `75` plus `verification_status: blocked` edge is the way out. A
+  run koto kills at the gate's own per-run timeout, or can't spawn, reads
+  `exit_code: -1`, which is not the pending code; a `-1` plus `blocked` edge
+  was added so that case can't trap the run. The supervisor also caps the
+  whole run at 7200 seconds, the gate's `timeout_secs`: a command still running
+  then is killed, later commands don't start, and the result reads
+  `verification/timed-out`.
 
 ## Security Considerations
 
