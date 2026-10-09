@@ -1,0 +1,82 @@
+name: Check rule registry
+
+# references/rule-registry.json is the one home of every rule a gate script
+# reports, every review-shadow criterion and every rule a script releases.
+# This keeps it true to the repository: the reader's and the check's suites on
+# Linux and on the bash 3.2 floor, the standing check against the pull
+# request's merge base, and, while the merge base still has the gate scripts'
+# old rule table, the one-time comparison the registry's adoption needs.
+#
+# The paths filter is broad on purpose. A rule's text can live in any of
+# these, and scripts/check-rule-registry.sh fails when an active entry's
+# text.path falls outside them, so an edit to a rule always runs the check.
+# Keep the filter to literal paths and a trailing /**: the check matches
+# globs as a path or a directory prefix, not with GitHub's full syntax.
+
+on:
+  pull_request:
+    paths:
+      - 'references/**'
+      - 'skills/**'
+      - 'scripts/**'
+      - 'docs/guides/**'
+      - 'docs/designs/current/DESIGN-output-gates.md'
+      - 'docs/measurement/offload-baseline/template-pin.json'
+      - 'CLAUDE.md'
+      - '.claude-plugin/plugin.json'
+      - '.github/workflows/check-rule-registry.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test-rule-registry:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The check reads the baseline's pinned commit, and the adoption
+          # step the merge base, from history.
+          fetch-depth: 0
+
+      - name: Install jq (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y jq
+
+      # The suites need bash, git, jq, awk and sed. These steps run them under
+      # Linux's own bash 5; the macOS leg runs them on the floor in the last
+      # step, through the `rule-registry` suite.
+      - name: Run the suites (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          bash scripts/rule-registry_test.sh
+          bash scripts/check-rule-registry_test.sh
+
+      - name: Check the registry against the merge base (Linux)
+        if: runner.os == 'Linux'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base=$(git merge-base "$BASE_SHA" HEAD)
+          scripts/check-rule-registry.sh --base "$base"
+
+      # The one-time comparison with the merge base. It prints that it skipped
+      # once the base no longer has the old rule table.
+      - name: Check the registry's adoption (Linux)
+        if: runner.os == 'Linux'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          base=$(git merge-base "$BASE_SHA" HEAD)
+          scripts/check-rule-registry-adoption.sh "$base"
+
+      # A bare `bash` on a macOS runner is Homebrew's bash 5; only /bin/bash
+      # is 3.2 (shirabe#416), and the runner is the one way onto it.
+      - name: Run the suites on the bash 3.2 floor (macOS, system bash)
+        if: runner.os == 'macOS'
+        run: scripts/check-bash-floor.sh --backend system rule-registry

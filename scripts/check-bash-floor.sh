@@ -481,10 +481,12 @@ suite_scripts() {
             echo "scripts/check-skill_test.sh"
             ;;
         rule-registry)
-            # The rule registry's reader. Its suite builds scratch plugin
-            # roots, plain and as git repositories, and needs only bash, git,
-            # jq, awk and sed, so every case runs on 3.2.
+            # The rule registry's reader and its checks. The suites build
+            # scratch plugin roots and repositories, plain and as git
+            # repositories, and need only bash, git, jq, awk and sed, so every
+            # case runs on 3.2.
             echo "scripts/rule-registry_test.sh"
+            echo "scripts/check-rule-registry_test.sh"
             ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is

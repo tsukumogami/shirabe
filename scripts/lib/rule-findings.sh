@@ -104,6 +104,8 @@ rf_emit() {
 
 rf_finding() {
     local id=$1 detail=$2 path=${3-} line=${4-} ref summary json
+    # A refusal inside a command substitution ends only the subshell; `|| exit
+    # 2` carries the could-not-decide out to the caller's exit code.
     ref=$(rf_ref "$id") || exit 2
     summary=$(rf_summary "$id") || exit 2
     json=$(jq -cn --arg id "$id" --arg ref "$ref" --arg summary "$summary" --arg detail "$detail" \

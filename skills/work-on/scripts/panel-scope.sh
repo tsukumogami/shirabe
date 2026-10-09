@@ -325,6 +325,8 @@ if [ "$MODE" = "--verdict" ]; then
     done
     [ -z "$missing" ] || refuse 2 "no verdict on record for$missing (run panel-scope.sh --record $PANEL)"
 
+    # rf_ref and rf_summary refuse inside the command substitution, which can't
+    # end this shell; `|| exit 2` carries their could-not-decide out.
     ref=$(rf_ref panel/blocking-finding) || exit 2
     summary=$(rf_summary panel/blocking-finding) || exit 2
     # One finding per blocking finding. A seat recorded as blocking with no
@@ -333,7 +335,8 @@ if [ "$MODE" = "--verdict" ]; then
     # the panel, seat and the seat's own summary, control characters replaced:
     # the same shape rf_finding in scripts/lib/rule-findings.sh builds, built
     # here because one ledger read yields every finding. rf_emit refuses a line
-    # that strays from it.
+    # whose rule_id, rule_ref or summary prefix strays from it; replacing the
+    # control characters is this jq's job, not rf_emit's.
     findings=$(printf '%s' "$ledger" | jq -c --arg panel "$PANEL" --arg seats "$SEATS" --arg ref "$ref" \
         --arg rule_summary "$summary" \
         "def blocking_findings: [$BLOCKING_FINDINGS];"'

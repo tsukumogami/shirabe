@@ -169,8 +169,9 @@ case "$LOOKUP_RC" in
        # The takeover decision is the agent's next step, so the rule for it is
        # released into this command's output now (references/rule-registry.md,
        # "Delivering a rule when it applies"). It's a copy: execute.md keeps the
-       # text. release prints on stderr and always exits 0; `|| true` and the
-       # closed stdin keep it from touching this script's answer either way.
+       # text. release prints on stderr and always exits 0. The closed stdin
+       # keeps it from reading anything this script's caller piped in, and
+       # `|| true` keeps exit 6 even if a broken copy of the reader can't run.
        "$SELF_DIR/../../../scripts/rule-registry.sh" release execute/pr-takeover-needs-signal </dev/null >&2 || true
        exit 6 ;;
     *) echo "$PROG: owned-pr.sh exited $LOOKUP_RC" >&2; exit 2 ;;

@@ -87,6 +87,10 @@ rf_test_refusals() {
     script="$p/$rel"
     tmp="$RF_TEST_DIR/edit.$$"
 
+    # Every run below clears SHIRABE_FINDINGS_LOG: a scratch copy's findings
+    # carry the copy's refs, and the suite's verify-findings would check them
+    # against the real registry and fail.
+    #
     # The control: the unaltered copy decides (0 or 1). Without it, a scratch
     # copy too broken to run at all would make every refusal below pass.
     SHIRABE_FINDINGS_LOG="" "$script" "$@" >/dev/null 2>"$tmp.err"; rc=$?
