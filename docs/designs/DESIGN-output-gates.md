@@ -406,13 +406,13 @@ marks a gate whose non-zero exit is an answer (Decision 9).
 | 6 | work-on `scrutiny`, `review`, `qa_validation`, `light_review` | `<panel>_verdict` | `panel-scope.sh --verdict <panel> {{SESSION_NAME}}` | 0 advances with no evidence (with the state's existing `recorded`, `has_commits` and level gates), 1 the agent decides retry or escalate, 2 holds |
 | 7 | work-on `ci_monitor` | `is_root` (routing) | `test "$(session-role.sh {{SESSION_NAME}})" = root` | with green CI: 0 `cascade_entry`, 1 `done` |
 | 8 | work-on `staleness_check` | `staleness_fresh` (existing, routing) | unchanged | 0, 3 and -1 `analysis`, 1 `introspection`, with no evidence |
-| 9 | execute `orchestrator_setup` | `setup_owned_pr` (routing) | `check-pr-output.sh --owned-pr ...` after the agent runs `adopt-or-create-pr.sh` | 0 `settled_branch_record`, 3 `pr_adopt` terminal, 2 `status_read` terminal |
+| 9 | execute `orchestrator_setup` | `setup_owned_pr` (routing) | `check-pr-output.sh --owned-pr ...` after the agent runs `adopt-or-create-pr.sh` | with `status: completed`: 0 `settled_branch_record`, 3 `pr_adopt` terminal, 2 `status_read` terminal |
 | 10 | execute `pr_finalization` | `final_owned_pr` (routing) | `check-pr-output.sh --owned-pr ...` | 3 and 2 to the `pr_adopt` and `status_read` terminals |
 | 11 | execute `pr_finalization` | `owned_pr_body_conformant` | `check-pr-output.sh --pr-body --owned` (resolves the PR itself) | hold on 1 or 2 |
 | 12 | execute `pr_finalization` | `settled_commits` | `check-branch-output.sh --commits --base-ref origin/<default>` | hold on 1 or 2 |
 | 13 | execute `pr_finalization` | `settled_wip_clean` | `check-branch-output.sh --wip` | hold on 1 or 2 |
 | 14 | execute `pr_finalization` | `settled_docs_visibility` | `check-branch-output.sh --docs-visibility --base-ref origin/<default>` | hold on 1 or 2 |
-| 15 | execute `pr_finalization` | none: routes on `vars.PAUSE_BEFORE_FINALIZE` | variable routing (koto#296) | `true` to `paused_for_review`, `false` to `plan_completion`, replacing `pause_decision` |
+| 15 | execute `pr_finalization` | none: routes on `vars.PAUSE_BEFORE_FINALIZE` | variable routing (koto#296) | with `finalization_status: updated` and gates 10 to 14 at 0: `true` to `paused_for_review`, `false` to `plan_completion`, replacing `pause_decision` |
 | 16 | execute `plan_completion` | `cascade_completed`, `cascade_skipped`, `cascade_partial` (routing) | context matches on `cascade_result.json`'s `cascade_status` | completed or skipped to `ci_monitor`; partial holds, as the directive already halts it (the two `partial` edges to `ci_monitor` the state has today are removed) |
 | 17 | execute `plan_completion` | `ready_owned_pr` (routing) | `check-pr-output.sh --owned-pr ...` | 3 and 2 to the terminals |
 | 18 | execute `ci_monitor` | `owned_ci_passing`, `owned_merge_state_clean` (existing), `monitor_owned_pr` (new, routing) | unchanged, plus the lookup | green: `merge_readiness` with no evidence; DIRTY: `escalate_dirty_merge_state`; lookup 3 or 2: terminals |
@@ -427,6 +427,23 @@ evidence value that share no common field, so koto's exclusivity check needs
 each route to carry the conjuncts that separate it: the lookup routes name
 `final_owned_pr`, and the pause routes also require the lookup and every output
 gate at exit 0, the cross-product pattern `plan_completion`'s routes use today.
+
+Two states keep an evidence value beside their gates, because the gate alone
+would answer before the agent acted. `orchestrator_setup` requires
+`status: completed`: a fresh run has no PR until the agent runs the setup
+steps, so a route keyed on `setup_owned_pr` alone would end every new run at
+`pr_adopt` on entry. The pause routes out of `pr_finalization` require
+`finalization_status: updated`: a PR adopted from /scope already carries a
+conformant body, its scoping description, so the output gates would pass
+before the agent wrote the implementation body.
+
+The three owned-PR lookups in `pr_finalization`, `plan_completion` and
+`ci_monitor` (`final_owned_pr`, `ready_owned_pr`, `monitor_owned_pr`) are
+declared `overridable: false`. koto's compile checks that some route fires when
+every overridable gate takes its override default, and with the lookup
+overridable at 0 beside the other gates' defaults, these states fail that
+check. An override couldn't make a PR exist anyway, and every later state reads
+the PR the lookup found.
 
 Gate names differ between the templates, and between states with different
 arguments, because `validate-template-mermaid.sh` check 4 holds one gate name
@@ -450,8 +467,8 @@ commit walk (gate 1) still runs per child over that child's own
 | work-on `scrutiny`, `review`, `qa_validation`, `light_review` | `*_outcome: passed`, gated on a results key existing; each seat's blocking status taken from the agent's `blocking_count` | `<panel>_verdict` exit 0 advances with no evidence; blocking comes from finding severity; `*_outcome` keeps `blocking_retry` and `blocking_escalate`, accepted on exit 1 (and `blocking_escalate` on exit 2) |
 | work-on `verification` | `verification_outcome` and a free-text `commands_run` | koto starts the map's commands and routes on the result; the only evidence left is `verification_status: blocked` with `detail`, for a runner that can't start |
 | work-on `ci_monitor` | `session_role: root` or `child`, copied from `session-role.sh`; `ci_outcome: passing` next to green gates | `is_root` decides the role; green CI routes with no evidence; `ci_outcome` keeps `failing_fixed` and `failing_unresolvable` |
-| execute `orchestrator_setup` | `status: completed`, `pr_adopt` or `status_read`, restating `adopt-or-create-pr.sh`'s result | `setup_owned_pr` routes all three; `status` keeps `override` and `blocked` |
-| execute `pr_finalization` | `finalization_status: pr_adopt` or `status_read`, restating `owned-pr.sh`; `updated`, restating `gh pr edit`; `pause_decision`, restating `PAUSE_BEFORE_FINALIZE` | `final_owned_pr` routes the lookup; the output gates (11 to 14) passing is what "updated" meant; the variable routes the pause; `finalization_status` keeps `update_failed` |
+| execute `orchestrator_setup` | `status: completed`, `pr_adopt` or `status_read`, restating `adopt-or-create-pr.sh`'s result | `setup_owned_pr` routes all three; `status: completed` stays as the record that the setup steps ran, since a fresh run has no PR before them; `status` also keeps `override` and `blocked` |
+| execute `pr_finalization` | `finalization_status: pr_adopt` or `status_read`, restating `owned-pr.sh`; `updated`, restating `gh pr edit`; `pause_decision`, restating `PAUSE_BEFORE_FINALIZE` | `final_owned_pr` routes the lookup; `updated` stays as the record that the body was written, and the output gates (11 to 14) check what it says; the variable routes the pause; `finalization_status` also keeps `update_failed` |
 | execute `plan_completion` | `cascade_status: completed`, `partial` or `skipped`, copied from `run-cascade.sh`'s JSON; `pr_adopt` or `status_read`, restating `owned-pr.sh` | Gates on `cascade_result.json`, which the script records itself, and `ready_owned_pr` route all five; the agent submits only `cascade_detail` |
 | execute `ci_monitor` | `ci_outcome: pr_adopt`, `status_read`, restating `owned-pr.sh`; `dirty_merge_state`, restating `mergeStateStatus`; `passing` next to green gates | Gates route all four; `ci_outcome` keeps `failing_fixed`, `pending` and `failing_unresolvable` |
 
@@ -514,10 +531,16 @@ within a second:
    environment, and exit 0.
 
 The supervisor never calls koto. It runs each command in turn in its own
-process group, with its own deadline and, when `systemd-run --user --scope`
-works on the host, inside a scope with `TasksMax=<max_procs>`. Where it
-doesn't, a watchdog counts the processes in the command's process group every
-second and kills the group when the count exceeds `max_procs`. It uses job
+process group, with its own deadline, and a watchdog counts the processes in
+the command's process group every 0.25 seconds and kills the group when the
+count exceeds `max_procs`. When `systemd-run --user --scope` works on the
+host, the command also runs inside a scope with `TasksMax` at twice
+`max_procs` plus 64, a hard ceiling for a storm between two polls. The ceiling
+sits well above the bound on purpose: at the ceiling a fork fails, a shell
+whose fork fails often exits before the next poll, and the runaway would read
+as an ordinary failure. With the headroom, the watchdog sees the count pass
+`max_procs` first; the fixed 64 also covers threads, which `TasksMax` counts
+and the watchdog doesn't. It uses job
 control and a sleep loop rather than GNU `timeout` or `setsid`, which the
 macOS floor lacks. Each command's output goes to a log under
 `${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/verification/<session>/<head>/`,
@@ -672,10 +695,10 @@ it. The suites those commands run come from the branch, and a change can still
 weaken a test it is judged by; that residual is #384's and stays open.
 Commands run as argv, never through a shell, from the repository root. A
 networked command must be marked `unattended` explicitly, and one marked
-`false` is never started. Process growth is bounded by `TasksMax` where the
-host supports a user scope and by a watchdog elsewhere. The watchdog is a
-one-second poll over one process group, so a fork storm can overshoot the
-limit briefly, and a descendant that starts its own session escapes the count.
+`false` is never started. Process growth is bounded by a watchdog, with a
+`TasksMax` ceiling behind it where the host supports a user scope. The
+watchdog is a quarter-second poll over one process group, so a fork storm can
+overshoot the limit briefly, and a descendant that starts its own session escapes the count.
 Both residuals are stated in the map schema.
 
 **Logs stay out of the repository.** Runner logs go under the user's state
