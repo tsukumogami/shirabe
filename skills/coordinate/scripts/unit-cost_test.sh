@@ -429,7 +429,7 @@ seed; fresh; prs "acme/widgets#21 $MERGE"
 # Built at run time, so this file holds none of the shapes it plants.
 KEYLIKE="gh""p_$(printf 'Q%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30)"
 APIKEY="sk-""ant-$(printf 'z%.0s' 1 2 3 4 5 6 7 8 9 10 11 12)"
-HOMEP="/Use""rs/someone/private/notes.md"
+HOMEP="/ho""me/someone/notes.md"
 PROMPT="PLANTED PROMPT: summarise the secret roadmap"
 jq -nc --arg k "$KEYLIKE" --arg h "$HOMEP" --arg p "$PROMPT" '{type: "user", message: {role: "user", content: "\($p) \($k) \($h)"}}' >>"$A/transcript/0a1b2c3d-77aa.jsonl"
 jq -nc --arg k "$APIKEY" --arg h "$HOMEP" '{type: "assistant", message: {id: "msg_p1", content: [{type: "text", text: "\($k) \($h)"}], usage: {output_tokens: 1}}}' \
