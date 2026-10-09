@@ -38,8 +38,8 @@
 # `measured`, `bound`, `not recoverable` or `not applicable`, and every figure
 # not taken is listed in `missing` with a reason from a closed list: `no
 # source`, `read failed`, `time limit`, `entry size`, `invalid input`.
-# references/unit-cost.md has the definitions; they are the functional
-# increments baseline's, computed the way its derivation computes them.
+# references/unit-cost.md has the definitions; each figure is computed the
+# way the baseline derivation those definitions come from computes it.
 #
 # Plan shape, first match wins, over the archived sessions in byte order of
 # their names: a `deliver` session's context key plan_execution_mode; an
@@ -732,7 +732,7 @@ def statems($evs):
   | { states: ($s | group_by(.k) | map({key: .[0].k, value: ((map(.v) | add) / 1000)}) | from_entries),
       span_s: (($s | map(.v) | add // 0) / 1000) };
 # Green and failing heads for one pull request. A head is green when its
-# runs final attempts all concluded success or skipped; pending when none
+# runs (each at its final attempt) concluded success or skipped; pending when none
 # concluded otherwise and some have not concluded, which bounds green.
 def prf($heads; $runs):
   [ range(0; $heads | length) as $i | $heads[$i] as $h

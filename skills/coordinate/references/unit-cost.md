@@ -155,7 +155,7 @@ Cost of <topic> (<capture key>): <n> sessions, <worker output> output tokens, di
 | `complete` | `true` when `missing` is empty |
 | `missing` | `[{figure, reason}]`, reason one of `no source`, `read failed`, `time limit`, `entry size`, `invalid input` |
 
-`value` is a number (or `null` unless the state is measured or bound),
+A figure's `value` is a number (`null` unless the state is measured or bound),
 rounded as above; `raw` keeps what it was rounded from: seconds for the time
 figures, the percentage for shares, the count for counts. `source` is one of
 `koto-request`, `job-state`, `koto-state`, `verdict-ledger`, `transcripts`,
