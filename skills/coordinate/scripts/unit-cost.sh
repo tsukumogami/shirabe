@@ -371,7 +371,10 @@ uc_dispatch() {
         "$WD/requests.jsonl" >"$WD/dispatch.json"
 }
 
-# uc_token_row <file-list> <out>: the row over the transcripts listed.
+# uc_token_row <file-list>: the row over the transcripts listed, on stdout.
+# Run through uc_run, so a large transcript counts against the budget and a
+# TERM never waits on a foreground jq.
+# shellcheck disable=SC2329 # run through uc_run
 uc_token_row() {
     local f
     while IFS= read -r f; do
@@ -395,11 +398,11 @@ uc_token_row() {
                   else . end
              end)
         | {bad, messages: (.m | length), input: ([.m[].i] | add // 0), output: ([.m[].o] | add // 0),
-           cache_creation: ([.m[].cc] | add // 0), cache_read: ([.m[].cr] | add // 0)}' >"$2" 2>/dev/null
+           cache_creation: ([.m[].cc] | add // 0), cache_read: ([.m[].cr] | add // 0)}'
 }
 
 uc_tokens() {
-    local sid="" tr="$ARCH/transcript" row reason
+    local sid="" tr="$ARCH/transcript" row reason b
     : >"$WD/worker.list"
     : >"$WD/nested.list"
     if [ -f "$ARCH/job/state.json" ] && [ ! -L "$ARCH/job/state.json" ]; then
@@ -416,12 +419,15 @@ uc_tokens() {
         find "$tr" -type f -name '*.jsonl' 2>/dev/null | sort | grep -vxF -f "$WD/worker.list" >"$WD/nested.list"
     fi
     for row in worker nested; do
-        reason=""
-        if [ "$(uc_left)" -le 0 ]; then
+        reason="" b=$(uc_left)
+        if [ "$b" -le 0 ]; then
             reason="time limit"
         elif [ ! -d "$tr" ] || [ -L "$tr" ] || { [ "$row" = worker ] && [ ! -s "$WD/worker.list" ]; }; then
             reason="no source"
-        elif ! uc_token_row "$WD/$row.list" "$WD/$row.raw" || [ ! -s "$WD/$row.raw" ]; then
+        elif ! uc_run "$b" "$WD/$row.raw" uc_token_row "$WD/$row.list"; then
+            reason="read failed"
+            [ "$(uc_left)" -gt 0 ] || reason="time limit"
+        elif [ ! -s "$WD/$row.raw" ]; then
             reason="read failed"
         elif jq -e '.bad' "$WD/$row.raw" >/dev/null; then
             reason="invalid input"
@@ -606,6 +612,9 @@ else
 fi
 
 # One entry per key: a `cost` entry already carrying it ends the capture.
+# The list is a read, so its bound comes out of the budget too: every read
+# together stays inside UNIT_COST_BUDGET_SECS (90), and the post's own bound
+# (25) on top keeps the whole capture inside the pass's 120.
 B=$(uc_bound "$LIST_SECS")
 if [ "$B" -gt 0 ] && uc_run "$B" "$WD/entries.json" bash "$HERE/record-append.sh" --session "$SESSION" --list; then
     if jq -e --arg k "$KEY" '

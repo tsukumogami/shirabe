@@ -286,12 +286,21 @@ capture; eq "with the transcripts missing, the capture posts" 0 $?
 POSTED=$((POSTED + 1))
 eq "  ... complete false, naming the token rows" "false|tokens.worker:no source,tokens.nested:no source" \
     "$(cost_bodies | jq -r '.[-1] | split("\n") | .[6] | fromjson | "\(.complete)|\([.missing[] | select(.figure | startswith("tokens")) | "\(.figure):\(.reason)"] | join(","))"')"
+# A failing `gh run list` alone. The run-derived figures (failing_heads,
+# green) are not measured yet, so this pins only that the capture posts and
+# names them; once they are, the same case shows the read's own failure.
 seed; fresh
-db '.fail = [{match: "run list", rc: 1, stderr: "HTTP 502"}, {match: "pr view 21", rc: 1, stderr: "HTTP 502"}]'
-capture; eq "with gh run list and gh pr view failing, the capture posts" 0 $?
+db '.fail = [{match: "run list", rc: 1, stderr: "HTTP 502"}]'
+capture; eq "with gh run list failing, the capture posts" 0 $?
 POSTED=$((POSTED + 1))
-eq "  ... complete false, naming the merge time and the GitHub figures" "false|read failed|no source" \
-    "$(cost_bodies | jq -r '.[-1] | split("\n") | .[6] | fromjson | "\(.complete)|\([.missing[] | select(.figure == "pulls.merged_at") | .reason][0])|\([.missing[] | select(.figure == "failing_heads") | .reason][0])"')"
+eq "  ... complete false, naming the run figures" "false|failing_heads,dispatch_to_green_min" \
+    "$(cost_bodies | jq -r '.[-1] | split("\n") | .[6] | fromjson | "\(.complete)|\([.missing[] | select(.figure == "failing_heads" or .figure == "dispatch_to_green_min") | .figure] | sort_by(. != "failing_heads") | join(","))"')"
+seed; fresh
+db '.fail = [{match: "pr view 21", rc: 1, stderr: "HTTP 502"}]'
+capture; eq "with gh pr view failing, the capture posts" 0 $?
+POSTED=$((POSTED + 1))
+eq "  ... complete false, the merge time read failed, the pull request kept" "false|read failed|21|null" \
+    "$(cost_bodies | jq -r '.[-1] | split("\n") | .[6] | fromjson | "\(.complete)|\([.missing[] | select(.figure == "pulls.merged_at") | .reason][0])|\(.pulls[0].number)|\(.pulls[0].merged_at)"')"
 seed; fresh
 UNIT_COST_BUDGET_SECS=0 bash "$UC" capture --session "$S" --archive "$A" --topic feat-x --prs-file "$T/prs" 2>"$T/cap.err"
 eq "with the budget spent, the capture still posts" "0 1" "$? $(cost_bodies | jq length)"
