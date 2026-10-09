@@ -2,12 +2,13 @@
 # panel-scope.sh -- for /work-on: which review seats a panel round actually
 # needs, decided from git rather than from the agent's judgment.
 #
-# Before this, a blocking finding from any of the three panels cleared all three
-# verdicts and the run walked back through all seven seats: three scrutiny,
-# three review, one QA. Two retries could spawn 21 reviewers for one issue, and
-# a QA finding about one test re-ran reviewers on code they had already passed.
+# Without it, a blocking finding from any of the three panels would clear all
+# three verdicts and send the run back through all seven seats: three
+# scrutiny, three review, one QA. Two retries could spawn 21 reviewers for one
+# issue, and a QA finding about one test would re-run reviewers on code they
+# had already passed.
 #
-# Now each seat's verdict is kept in a ledger, and on every panel entry this
+# Each seat's verdict is kept in a ledger, and on every panel entry this
 # script decides, per seat, what the round does:
 #
 #   full     no verdict on record yet (the first round): a fresh full review

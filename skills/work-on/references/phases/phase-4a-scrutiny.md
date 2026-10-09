@@ -73,6 +73,8 @@ Then tick koto with nothing submitted. The `scrutiny_verdict` gate reads the led
 - Exit 2, the round isn't fully recorded or the ledger can't be read: record the round and tick again.
 
 ```bash
+# Optional: the round's summary for a reader. No gate reads it; skip
+# straight to `koto next` if you don't write one.
 koto context add <WF> scrutiny_results.json <<EOF
 {"round": <N>, "summary": "<one line per seat>"}
 EOF
@@ -109,7 +111,7 @@ Every key in the list goes, not only this panel's. A `blocking_retry` returns to
 
 The block stops if **either** signal fires — `koto context remove` reporting failure, or `koto context exists` still reporting the key present — because neither alone is enough. `exists` catches a removal that returns success without the key going away, which `remove`'s status cannot: it deletes the content file, then the lock, then the manifest, so it can report failure after the gate-relevant effect already landed. `remove`'s status catches the reverse: `ctx_exists` reports absent for a store it cannot READ as well as for a key that is not there, so on an unreadable store `exists` says the key is gone while it is still on disk.
 
-That second case is why this is not caution for its own sake. A `context-exists` gate such as `summary_exists` makes the same blind read, so the advancing outcome is refused when you submit it — but koto re-evaluates that buffered evidence, and the moment the permission problem clears the run advances on the surviving artifact with no further submission. The gate agreeing with `exists` is a delay, not a defence.
+That second case is why this is not caution for its own sake. A `context-exists` gate such as `summary_exists`, on `finalization` and `deferral_approval`, makes the same blind read, so the advancing outcome is refused when you submit it — but koto re-evaluates that buffered evidence, and the moment the permission problem clears the run advances on the surviving artifact with no further submission. The gate agreeing with `exists` is a delay, not a defence.
 
 The rule that falls out, and the reason there is no `exists` guard *before* the removal: `koto context exists` may be used to detect a key that is present, never to conclude one is absent.
 

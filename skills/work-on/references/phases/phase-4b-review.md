@@ -57,6 +57,8 @@ Then tick koto with nothing submitted. The `review_verdict` gate reads the ledge
 - Exit 2, the round isn't fully recorded or the ledger can't be read: record the round and tick again.
 
 ```bash
+# Optional: the round's summary for a reader. No gate reads it; skip
+# straight to `koto next` if you don't write one.
 koto context add <WF> review_results.json < /dev/stdin <<EOF
 {"round": <N>, "summary": "<one line per seat>"}
 EOF

@@ -70,6 +70,8 @@ Then tick koto with nothing submitted. The `light_verdict` gate reads the ledger
 - Exit 2, the round isn't recorded or the ledger can't be read: record the round and tick again.
 
 ```bash
+# Optional: the round's summary for a reader. No gate reads it; skip
+# straight to `koto next` if you don't write one.
 koto context add <WF> light_results.json <<EOF
 {"round": <N>, "summary": "<one line>"}
 EOF
