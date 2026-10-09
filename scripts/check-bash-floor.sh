@@ -425,6 +425,11 @@ suite_scripts() {
             echo "skills/coordinate/scripts/dispatch-worker_test.sh"
             echo "skills/coordinate/scripts/wait-target_test.sh"
             echo "skills/coordinate/scripts/teardown-inventory_test.sh"
+            # The teardown pass's field checks and its cost capture: stand-in
+            # niwa, claude, gh and record scripts, process groups under the
+            # deadline, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/teardown-pass_test.sh"
+            echo "skills/coordinate/scripts/unit-cost_test.sh"
             # The decision-phrasing list's reader: bash, awk and grep only.
             echo "skills/coordinate/scripts/decision-phrasings_test.sh"
             echo "skills/coordinate/scripts/decision-render_test.sh"

@@ -24,7 +24,9 @@ compares the key seal you pass, so the message can't point it anywhere else.
 It re-reads every fact, re-inventories the instance, copies the transcript,
 the job's files and the worker's koto sessions into the archive with a
 checksummed manifest, destroys the one instance, removes the one job and
-confirms both are gone.
+confirms both are gone. Before the destroy it also posts the unit's cost
+entry on the coordinator's record (`unit-cost.md`), which can make the pass
+run up to two minutes longer and never changes its exit code or last line.
 
 Report back to the coordinator the script's exit code and its last line,
 verbatim: `teardown-pass: done <archive>`, `teardown-pass: refused: <why>` or
