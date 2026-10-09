@@ -63,7 +63,7 @@ undecided() {
 }
 
 # shellcheck source=../../../scripts/lib/rule-findings.sh
-. "$HERE/../../../scripts/lib/rule-findings.sh"
+. "$HERE/../../../scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
 
 [ $# -ge 1 ] && [ "$1" = --verdict ] || { usage; exit 2; }
 shift

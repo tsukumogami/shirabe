@@ -77,7 +77,7 @@ undecided() {
 }
 
 # shellcheck source=../../../scripts/lib/rule-findings.sh
-. "$HERE/../../../scripts/lib/rule-findings.sh"
+. "$HERE/../../../scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
 
 # require_rules <id>...: every rule this mode can report resolves before the
 # check runs, so a violation is never reported without its reference.

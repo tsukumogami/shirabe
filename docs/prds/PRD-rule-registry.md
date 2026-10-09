@@ -193,8 +193,10 @@ Four consequences fall on the people doing the offload work now:
   koto 0.15.0 lacks. It copies the text: the template keeps its takeover prose byte for byte.
 - **R9. No withholding.** This change removes no line from any span the offload baseline's load
   manifest (`docs/measurement/offload-baseline/load-manifest.tsv`) loads into an agent's context,
-  and no rule text from any skill template. (A comment in a template's frontmatter, which no
-  agent is shown, may be reworded.) After it lands, R6(b) keeps every active rule's text in the file its pointer names,
+  and no rule text from any skill template. A comment in a template's frontmatter may be
+  reworded: the manifest loads a template by its state sections, so the frontmatter is not a
+  loaded span, and removing the gate table (R1) leaves `/work-on`'s template with a comment that
+  names it, which must change. After it lands, R6(b) keeps every active rule's text in the file its pointer names,
   so a later change that withholds a rule has to change its entry too.
 - **R10. Baseline mapping.** Each entry records, as a list, the baseline source-location keys
   (`<path>#L<start>-L<end>`, at the baseline pin's commit in `template-pin.json`) that hold the

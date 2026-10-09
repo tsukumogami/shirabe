@@ -17,8 +17,9 @@
 #                              in a scratch copy of the plugin, the script run
 #                              with <arg>... (from the current directory) exits
 #                              2 when <id> is dropped from its RULE_IDS line,
-#                              when the registry marks <id> retired, and when
-#                              <id>'s first anchor no longer resolves; <arg>...
+#                              when the registry marks <id> retired, when
+#                              <id>'s first anchor no longer resolves, and when
+#                              scripts/lib/rule-findings.sh is missing; <arg>...
 #                              must name a mode that reports <id>
 #
 # Needs bash, jq, grep, awk. Written for the bash 3.2 floor.
@@ -110,5 +111,11 @@ rf_test_refusals() {
     SHIRABE_FINDINGS_LOG="" "$script" "$@" >/dev/null 2>&1; rc=$?
     [ $rc -eq 2 ] && pass "$label: a rule whose text no longer resolves exits 2 before checking" \
         || fail "$label: unresolvable rule exited $rc, want 2"
+
+    rm -rf "$p"; rf_test_copy_plugin "$p"
+    rm -f "$p/scripts/lib/rule-findings.sh"
+    SHIRABE_FINDINGS_LOG="" "$script" "$@" >/dev/null 2>&1; rc=$?
+    [ $rc -eq 2 ] && pass "$label: a missing scripts/lib/rule-findings.sh exits 2" \
+        || fail "$label: missing library exited $rc, want 2"
     rm -rf "$p" "$tmp"
 }

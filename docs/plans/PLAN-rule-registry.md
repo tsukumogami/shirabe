@@ -71,7 +71,7 @@ front through `rule-registry.sh`, finding lines built with `jq --arg` carrying t
 **Acceptance Criteria**:
 - [ ] Each of the four scripts has exactly one line matching `^RULE_IDS="[a-z0-9/ -]+"$`, and the union of those lines is the 21 gate ids.
 - [ ] Each script's test suite passes, sets `SHIRABE_FINDINGS_LOG`, and ends by running `rule-registry.sh verify-findings` on the log with exit 0.
-- [ ] Each suite has one case asserting a `rule_ref` range for one of its rules against the range found independently of the reader (grep on the entry's anchors), a case where the finding helper is called with an id outside `RULE_IDS` and the script exits 2, and a case where a registry copy marks one of its ids retired and the script exits 2.
+- [ ] Each suite has one case asserting a `rule_ref` range for one of its rules against the range found independently of the reader (grep on the entry's anchors; a literal line number would break on every edit that shifts the rule, which the registry exists to absorb), a case where the finding helper is called with an id outside `RULE_IDS` and the script exits 2, and a case where a registry copy marks one of its ids retired and the script exits 2.
 - [ ] Every finding's `message` starts with the entry's `summary` followed by `: `, and a commit subject or file name holding a control character yields a finding that is one line with the character replaced, shown by a test in `check-branch-output_test.sh`.
 - [ ] With a registry copy whose anchor for one of a mode's ids doesn't resolve, the script exits 2 even when the branch has no violation, shown by a test (ids are resolved before checking).
 - [ ] `panel-scope.sh --verdict` exits 2 when `panel/blocking-finding` can't be resolved, shown by a test.

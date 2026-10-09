@@ -82,7 +82,7 @@ undecided() {
 }
 
 # shellcheck source=../../../scripts/lib/rule-findings.sh
-. "$HERE/../../../scripts/lib/rule-findings.sh"
+. "$HERE/../../../scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
 
 require_rules() {
     rf_require "$@"

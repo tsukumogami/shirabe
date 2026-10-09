@@ -301,7 +301,7 @@ if [ "$MODE" = "--verdict" ]; then
     # the gate whether or not a seat is blocking.
     undecided() { refuse 2 "$*"; }
     # shellcheck source=../../../scripts/lib/rule-findings.sh
-    . "$(cd "$(dirname "$0")" && pwd)/../../../scripts/lib/rule-findings.sh"
+    . "$(cd "$(dirname "$0")" && pwd)/../../../scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
     # shellcheck disable=SC2086
     rf_require $RULE_IDS
     ledger=$(ctx_get "$LEDGER")
