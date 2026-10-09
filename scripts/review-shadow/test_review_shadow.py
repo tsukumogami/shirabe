@@ -880,6 +880,20 @@ class TestGrade(unittest.TestCase):
         self.assertEqual((b["status"], b["not_graded_reason"]), ("not-graded", "no-changed-paths"))
         self.assertEqual(sent, [])
 
+    def test_no_slice_for_any_criterion_is_not_graded(self):
+        rows = [{"rule_id": "rs-016", "verdict": "pass", "slices": 0}, {"rule_id": "rs-017", "verdict": "pass", "slices": 0}]
+        for crit_rows in (rows, []):
+            self.assertEqual(rs.run_status(crit_rows, [], 0, False, []), ("not-graded", "no-slices"))
+        # A docs-only pull request still has its script criteria over pr-text, so it
+        # is graded; its code-hunks criterion, turned on here, stays a zero-slice pass.
+        self.crit["_enabled"] = ["rs-010"]
+        self.pr["files"] = [{"path": "docs/a.md", "status": "modified", "additions": 1, "deletions": 1,
+                             "patch": "@@ -1 +1 @@\n-Says one.\n+Says two.\n"}]
+        b = self.graded(stub_send())
+        self.assertNotEqual(b["status"], "not-graded")
+        slices = {c["rule_id"]: c["slices"] for c in b["criteria"]}
+        self.assertEqual((slices["rs-001"], slices["rs-010"]), (1, 0))
+
     def test_a_bad_key_never_reaches_an_error_message(self):
         with self.assertRaises(rs.ConfigError) as cm:
             rs.https_transport("https://example.invalid", "SECRETKEY\nX", 1)
@@ -1815,10 +1829,12 @@ class TestSiteGrading(unittest.TestCase):
         self.assertEqual(recs[-1]["seats"][0]["verdict"], "pass")
 
     def work_on_repo(self, ledger_for, decisions=("full",), panel="scrutiny", seat="completeness",
-                     criteria="## Acceptance Criteria\n\n- [ ] `scripts/a.sh` prints two.\n- [ ] It is fast.\n"):
-        root = site_repo({"scripts/a.sh": "#!/bin/sh\n# says one\necho one\n", "CLAUDE.md": PUBLIC_CLAUDE_MD})
+                     criteria="## Acceptance Criteria\n\n- [ ] `scripts/a.sh` prints two.\n- [ ] It is fast.\n",
+                     path="scripts/a.sh", before="#!/bin/sh\n# says one\necho one\n",
+                     after="#!/bin/sh\n# says two\necho two\n"):
+        root = site_repo({path: before, "CLAUDE.md": PUBLIC_CLAUDE_MD})
         base = git(root, "rev-parse", "HEAD")
-        (root / "scripts" / "a.sh").write_text("#!/bin/sh\n# says two\necho two\n")
+        (root / path).write_text(after)
         git(root, "commit", "-q", "-am", "change")
         head = git(root, "rev-parse", "HEAD")
         ctx = {"impl_base": base, "context.md": criteria, "plan.md": "plan\n"}
@@ -1847,6 +1863,24 @@ class TestSiteGrading(unittest.TestCase):
         self.assertEqual(rec["criteria"], [{"rule_id": "rs-015", "verdict": "unanswered", "slices": 2}])
         self.assertEqual(rec["subject"]["site"], "work-on")
         self.assertEqual(rec["panel"], "scrutiny")
+
+    def test_a_round_with_no_slice_for_its_criteria_is_not_graded(self):
+        # The review seat grades code-hunks only; a Markdown-only change has none.
+        root, head = self.work_on_repo(lambda head, ac: {"verdict": "passed", "judged_at": head, "ac_sha": ac},
+                                       panel="review", seat="maintainer", path="docs/a.md",
+                                       before="# A\n\nSays one.\n", after="# A\n\nSays two.\n")
+        out, recs, _ = self.run_site("work-on", root, session="wf.child", panel="review", head=head)
+        rec = recs[-1]
+        self.assertEqual((rec["status"], rec["not_graded_reason"]), ("not-graded", "no-slices"))
+        self.assertEqual(rec["criteria"], [{"rule_id": "rs-016", "verdict": "pass", "slices": 0},
+                                           {"rule_id": "rs-017", "verdict": "pass", "slices": 0}])
+        self.assertEqual((rec["rounds"], rec["models"]), ([], []))
+        self.assertIn("reason=no-slices", out)
+        self.assertEqual(self.log, [])
+        crit = rs.load_criteria()
+        sites = rs.report_data(self.home, crit, rs.load_categories(crit))["sites"]["out-of-sample"]
+        self.assertEqual(sites["not_graded"], {"work-on:review": 1})
+        self.assertEqual((sites["seats"], sites["criteria"]), ({}, {}))
 
     def test_work_on_stale_and_kept_seats(self):
         root, head = self.work_on_repo(lambda head, ac: {"verdict": "passed", "judged_at": "0" * 40, "ac_sha": ac})
