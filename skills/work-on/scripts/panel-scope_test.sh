@@ -92,6 +92,8 @@ cat > "$SHIM_BIN/koto" <<'SHIM'
 #!/usr/bin/env bash
 # `koto session dir <s>` names a directory a case may hold a fixture log in.
 if [ "$1" = session ] && [ "$2" = dir ]; then echo "$SHIM_STORE/$3/sessiondir"; exit 0; fi
+# review-level.sh report asks for a session's overrides; none here.
+if [ "$1" = overrides ] && [ "$2" = list ]; then echo '{}'; exit 0; fi
 [ "$1" = context ] || { echo "koto shim: unsupported: $*" >&2; exit 2; }
 f="$SHIM_STORE/$3/$4"
 # SHIM_RACE: every read of the ledger after the first returns it one revision
@@ -728,7 +730,7 @@ run --plan scrutiny "$SESSION"
 expect_decision "a seat blocking on one of two findings" scrutiny intent recheck
 GOT=$(jq -r '.decisions[] | select(.seat == "intent") | [.findings[].summary] | join("|")' "$SHIM_STORE/$SESSION/scrutiny_scope.json")
 [ "$GOT" = "must fix" ] && pass "the re-check gets only the blocking finding" || fail "the re-check findings are [$GOT]"
-GOT=$(jq -r '.seats["scrutiny/intent"].findings | length' "$SHIM_STORE/$SESSION/verdict_ledger.json")
+GOT=$(jq -r '[.findings[] | select(.raiser.name == "intent")] | length' "$SHIM_STORE/$SESSION/verdict_ledger.json")
 [ "$GOT" = 2 ] && pass "the ledger keeps both findings" || fail "the ledger holds $GOT findings"
 
 echo "--- script: --verdict, the panel's pass"
@@ -1032,8 +1034,12 @@ expect_rc "--mark-fixed on a closed finding" 65
 
 echo "--- script: a write that races another is refused"
 
+snap
+rm -f "$SHIM_STORE/$SESSION/.raced"
 SHIM_RACE=1 run --mark-fixed scrutiny "$SESSION" "$F3"
 expect_rc "--mark-fixed when the ledger changed under it" 69
+rm -f "$SHIM_STORE/$SESSION/.raced"
+unchanged "--mark-fixed that lost the race"
 
 
 echo "--- script: answers by id, row by row"
@@ -1092,6 +1098,20 @@ rm -f "$SHIM_STORE/$SESSION/.raced"
 SHIM_RACE=1 NO_AUTORUN=1 run --record scrutiny "$SESSION" "$WORKDIR/round.json"
 expect_rc "--record when the ledger changed under it" 69
 rm -f "$SHIM_STORE/$SESSION/.raced"
+unchanged "--record that lost the race"
+
+echo "--- script: the ledger --record writes, read by review-level.sh report"
+
+fixture rlreport
+run --plan scrutiny "$SESSION"
+record scrutiny "$ALL_PASS"
+RL=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT_DIR/review-level.sh" report "$SESSION" 2>"$WORKDIR/rl.err" | sed -n 2p)
+[ "$(printf '%s' "$RL" | awk -F'\t' '{ print $1 "=" $NF }')" = "rlreport=3" ] \
+    && pass "review-level.sh report counts the three runs a recorded round spawned" \
+    || fail "report row [$RL] err [$(cat "$WORKDIR/rl.err")]"
+# review-shadow.py's reader is fed a --record-written ledger by the "through
+# the real review-shadow.py" case above, which this suite runs whenever
+# python3 is present.
 
 echo "--- script: decider entries, bound to koto's own log"
 

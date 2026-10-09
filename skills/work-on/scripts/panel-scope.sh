@@ -794,14 +794,14 @@ if [ "$MODE" = "--record" ]; then
               end)
         # Every seat summary of the panel follows from the findings: a seat is
         # blocking exactly while it raised an unclosed blocking finding, and its
-        # findings are the unclosed ones it raised, in the shape the readers of
+        # findings are the unclosed blocking ones it raised, in the shape the readers of
         # seat entries (review-shadow.py, review-packet.sh) expect.
         | . as $L
         | reduce ($seats | split(" "))[] as $s (.;
             ("\($panel)/\($s)") as $k
             | if (.seats[$k] // null) == null then . else
                 [ $L.findings[] | select(.panel == $panel and .raiser.kind == "reviewer" and .raiser.name == $s)
-                  | select(closed($L.runs) | not) ] as $open
+                  | select(.severity == "blocking" and (closed($L.runs) | not)) ] as $open
                 | .seats[$k].findings = [ $open[] | {id, severity, summary}
                     + (if .location.path then {path: .location.path} else {} end)
                     + (if .location.lines then {lines: .location.lines} else {} end) ]
