@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   /work-on and /execute take the agent's word for verdicts that shipped checks
   can decide: whether the pull request title and body conform, whether every
@@ -37,7 +37,7 @@ upstream: docs/prds/PRD-output-gates.md
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

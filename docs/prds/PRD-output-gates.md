@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   /work-on and /execute ship validators for their own output, but those
   validators mostly run in CI or not at all, and several states ask the agent to
@@ -20,7 +20,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-output-gates](docs/briefs/BRIEF-output-gates.md); carried in Absorbed Brief.
 
