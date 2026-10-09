@@ -14,7 +14,8 @@ goals: |
   carry that id and a reference that opens the rule's current text. CI keeps ids and pointers
   honest. A script can release a rule's text into an agent's context when the rule applies,
   shown on one real trigger, with nothing yet withheld.
-upstream: docs/briefs/BRIEF-rule-registry.md
+absorbed:
+  - docs/briefs/BRIEF-rule-registry.md
 ---
 
 # PRD: Rule registry
@@ -22,6 +23,29 @@ upstream: docs/briefs/BRIEF-rule-registry.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-rule-registry](docs/briefs/BRIEF-rule-registry.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because shirabe's rules have no single home, and the offload work can't
+take its next step without one. The brief framed four gaps: nobody can list which rules exist
+and what checks each; a rule's stored location rots on the next edit and often pins a commit
+that isn't on `main`; nothing marks which rules must never leave an agent's default context;
+and a rule reaches an agent only by being loaded up front, so withholding one would lose it.
+This document's Problem Statement states those in full.
+
+The outcome it asked for is a maintainer or measurement reader who looks any rule id up in
+one place and finds its text, check, fixtures, enforcement, timing and withhold safety, and
+an agent who sees a rare rule's text from the script that noticed it applies, while the rule
+stays in its default prose. That's this document's Goals. Its four journeys (a maintainer
+tracing a gate finding, a measurement reader joining old records to new ones, an agent taking
+over a pull request, a contributor adding a rule) are the User Stories, with the review-shadow
+maintainer and the installed-copy user added.
+
+Its boundary held the feature to giving rules a home and one delivery shape: no withholding,
+no panel replacement, no koto change, no harness edits, no registering of uncited prose rules,
+and the validator's own codes kept as aliases at most. Those are this document's Out of Scope.
 
 ## Problem Statement
 
