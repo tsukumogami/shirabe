@@ -144,11 +144,11 @@ Install the `shirabe` binary locally to validate docs without a PR:
 curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/main/install.sh | bash
 ```
 
-Adds `shirabe` to `~/.shirabe/bin/`. Add that to `PATH`:
+Adds `shirabe` to `$HOME/.shirabe/bin/`. Add that to `PATH`:
 
 ```bash
-echo 'source "$HOME/.shirabe/env"' >> ~/.bashrc  # or ~/.zshrc
-source ~/.shirabe/env
+echo 'source "$HOME/.shirabe/env"' >> "$HOME/.bashrc"  # or "$HOME/.zshrc"
+source "$HOME/.shirabe/env"
 ```
 
 Then validate a file:

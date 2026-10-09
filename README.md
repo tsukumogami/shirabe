@@ -347,7 +347,7 @@ the COMP adoption notes, and migration notes for repos with existing docs.
 curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/main/install.sh | bash
 ```
 
-Installs `shirabe` to `~/.shirabe/bin/`. Add that directory to `PATH`, then
+Installs `shirabe` to `$HOME/.shirabe/bin/`. Add that directory to `PATH`, then
 run `shirabe validate docs/designs/DESIGN-foo.md`.
 
 ## Roadmap

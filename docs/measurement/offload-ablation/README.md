@@ -247,6 +247,12 @@ that the denylisted-term check did not run and what it did check;
 `--require-denylist` makes a missing list an error. A maintainer can supply
 the list in CI from a repository secret; the workflow runs without one today.
 
+The check isn't only the harness's. `.github/workflows/check-public-content.yml`
+runs it on every pull request, over the lines added under the paths the plugin
+ships (`docs/`, `skills/`, `references/`, `.claude/`, `.claude-plugin/` and
+the top-level Markdown files) and over the body, so a docs-only change is
+checked as well as one that touches the harness.
+
 ## Regenerating the figures
 
 ```bash

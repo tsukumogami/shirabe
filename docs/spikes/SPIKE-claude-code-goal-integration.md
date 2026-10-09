@@ -43,9 +43,9 @@ Three parallel research agents investigated independently:
 1. **Official source.** Searched Anthropic docs, the Claude Code changelog,
    GitHub releases, and recent community write-ups for the definition and
    behavior of `/goal`.
-2. **Local install.** Swept `~/.claude/` (plugins, marketplaces, sessions,
+2. **Local install.** Swept `$HOME/.claude/` (plugins, marketplaces, sessions,
    settings), the Claude Code binary install under
-   `~/.local/share/claude/versions/`, and the on-disk changelog to verify
+   `$HOME/.local/share/claude/versions/`, and the on-disk changelog to verify
    what is actually present on a current machine and at what version.
 3. **shirabe surface.** Cataloged every shirabe skill — trigger phrases,
    input/output, workflow shape, and stated relationships — to map the
@@ -64,7 +64,7 @@ attempted; that's design work that follows from this recommendation.
   a plugin, not an MCP tool.
 - **Source visibility:** Internal to Claude Code. The evaluator's system prompt
   is not part of the public surface — it does not appear under
-  `~/.claude/plugins/` or elsewhere on disk.
+  `$HOME/.claude/plugins/` or elsewhere on disk.
 - **Version availability:** Introduced in v2.1.139 (released 2026-05-11). This
   workspace runs v2.1.148, so `/goal` is live now.
 - **Gating:** Requires hooks enabled (`disableAllHooks` and

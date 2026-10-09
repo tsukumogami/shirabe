@@ -200,7 +200,7 @@ category that stored outcomes use.
 ## Where records live
 
 Records and outcomes are written under
-`${XDG_STATE_HOME:-~/.local/state}/shirabe/review-shadow/`, with directories
+`${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/review-shadow/`, with directories
 0700 and files 0600, and never inside a git work tree. Every record carries
 `trial: jev-review-shadow`, the tool version and the criteria version, so the
 trial's spend can be reported apart from normal work. The report's last line

@@ -831,7 +831,7 @@ reaches a person.
   stays on the cells that hold nothing else (Holdings Repo, Side effects Target), so "and/or",
   "n/a" or "CI/CD" in a question are never read as a repository. A token shape must start at
   the start of the text or after a character that can't be part of a name, so a kebab-case
-  name that contains `sk-` isn't refused. A home-relative path (`~/.config`) names no user and
+  name that contains `sk-` isn't refused. A home-relative path (`~/` and a dot-directory under it) names no user and
   is accepted; a path under `/home/<user>/` or `/Users/<user>/` is refused.
 - `record-write.sh`, `record-holding.sh`: call the write core; `record-write.sh` refuses a body
   whose Decisions section differs from the live one's. Exit 13 (`record-full`) is in both

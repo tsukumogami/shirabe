@@ -1,0 +1,53 @@
+name: Check public content
+
+# shirabe is public, so the text a pull request adds to what the plugin ships
+# must not carry a home-directory path, a wip/ file path, a session or job
+# identifier, a hosted-session URL or a secret shape. The offload-ablation
+# workflow runs the same check, but only behind its own paths: filter, which
+# leaves most of docs/ and skills/ unchecked (#669). This workflow has no
+# paths: filter, so every pull request runs it; the check itself reads only
+# the shipped paths listed below, plus the pull request body.
+#
+# The top-level scripts/, crates/ and .github/ are left out on purpose: they
+# use home-relative paths as working code (cache paths, install defaults),
+# where a refusal would fight the code rather than catch a leak. A skill's own
+# scripts and tests are in skills/ and are checked; a test that plants a
+# refused shape splits the string, as check-public-content_test.sh does.
+
+# `edited` re-runs the job when the body changes after the pull request opens.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  shipped-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test the check
+        run: bash scripts/ablation/check-public-content_test.sh
+
+      # The PR's own head against its base, not the merge commit CI checks
+      # out, so commits that landed on main meanwhile are not this PR's lines.
+      - name: Check the added lines in shipped paths
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          scripts/ablation/check-public-content.sh --diff "$BASE" --head "$HEAD" -- \
+            docs skills references .claude .claude-plugin ':(glob)*.md'
+
+      # The body arrives through the environment, never interpolated into the
+      # script, so nothing in it can run. It runs even when the step above
+      # refused a line, so one refusal doesn't hide the other.
+      - name: Check the pull request body
+        if: success() || failure()
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: printf '%s\n' "$PR_BODY" | scripts/ablation/check-public-content.sh -

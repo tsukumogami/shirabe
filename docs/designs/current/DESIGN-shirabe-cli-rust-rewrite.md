@@ -152,7 +152,7 @@ inside this PR — is resolved in **Decision 5** below.
   binary inherits the same minimum.
 - **install.sh contract preservation.** The shell installer's URL
   pattern (`shirabe-<os>-<arch>` release asset names), install path
-  (`~/.shirabe/bin/shirabe`), and PATH guidance are part of the
+  (`$HOME/.shirabe/bin/shirabe`), and PATH guidance are part of the
   public contract. Cargo-built binaries must match the same asset
   naming convention.
 
@@ -1314,7 +1314,7 @@ reach CI.
 The check is also a runtime hedge against future supply-chain
 drift: after the first `cargo build` in Phase 1, verify the
 absence of build scripts in the saphyr tree by running
-`find ~/.cargo/registry/src -name build.rs -path '*/saphyr-*'`
+`find "$HOME/.cargo/registry/src" -name build.rs -path '*/saphyr-*'`
 (and the same for clap). If a future saphyr patch ships a
 `build.rs`, the bare hygiene-note assumption breaks silently;
 the runtime check fails loudly and the implementer can pin to
