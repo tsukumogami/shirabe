@@ -154,19 +154,20 @@ EOF
 chmod +x "$P2"/*.sh "$B2"/*
 
 IP="$T/inst/w5"
-SID=4b3597d2-6184-4a48
-TR="$T/home/.claude/projects/p/$SID.jsonl"
-export TEARDOWN_CLAUDE_HOME="$T/home/.claude" TEARDOWN_KOTO_SESSIONS="$T/ksess" TEARDOWN_ARCHIVE_DIR="$T/archive" \
+JID=4b3597d2
+SID=$JID-6184-4a48
+TR="$HOME/.claude/projects/p/$SID.jsonl"
+export TEARDOWN_CLAUDE_HOME="$HOME/.claude" TEARDOWN_KOTO_SESSIONS="$T/ksess" TEARDOWN_ARCHIVE_DIR="$T/archive" \
     KOTO_REQUESTS="$T/requests" UNIT_COST_FETCH_SECS=1 UNIT_COST_LIST_SECS=2 UNIT_COST_POST_SECS=2
 # setup_run: a fresh instance, job, transcript, worker session and request,
 # both listings, an empty log, and the real unit-cost.sh.
 setup_run() {
-    rm -rf "$T/archive" "$T/ksess" "$T/requests" "$T/home/.claude" "$IP" "$ST"
-    mkdir -p "$ST" "$IP" "$(dirname "$TR")" "$TEARDOWN_CLAUDE_HOME/jobs/4b3597d2" "$T/ksess/issue_7" "$T/requests/r_w5"
+    rm -rf "$T/archive" "$T/ksess" "$T/requests" "$TEARDOWN_CLAUDE_HOME" "$IP" "$ST"
+    mkdir -p "$ST" "$IP" "$(dirname "$TR")" "$TEARDOWN_CLAUDE_HOME/jobs/$JID" "$T/ksess/issue_7" "$T/requests/r_w5"
     : >"$ST/log"
     : >"$ST/pids"
     printf '{"type":"assistant","message":{"id":"m1","usage":{"input_tokens":1,"output_tokens":7}}}\n' >"$TR"
-    printf '{"createdAt":"2026-10-01T09:00:00.000Z","sessionId":"%s"}\n' "$SID" >"$TEARDOWN_CLAUDE_HOME/jobs/4b3597d2/state.json"
+    printf '{"createdAt":"2026-10-01T09:00:00.000Z","sessionId":"%s"}\n' "$SID" >"$TEARDOWN_CLAUDE_HOME/jobs/$JID/state.json"
     jq -nc --arg e "$IP" '{schema_version: 1, workflow: "issue_7", template_name: "work-on", template_source_file: "work-on.md", execution_dir: $e}' \
         >"$T/ksess/issue_7/koto-issue_7.state.jsonl"
     printf '{"seq":1,"timestamp":"2026-10-01T09:00:01.000Z","type":"evidence_submitted","payload":{"state":"entry","fields":{"mode":"issue_backed"}}}\n' \
