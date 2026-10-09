@@ -278,6 +278,10 @@ states never ask you to do these steps by hand.
   worker's koto sessions with a checksummed manifest, destroys the one
   instance, removes the one job and confirms both are gone. The coordinator
   removes the holding row last, and `teardown_confirm` checks the result.
+  Before the destroy the pass posts the unit's `cost` entry on the record
+  (`references/unit-cost.md`), which can add up to two minutes, so a
+  coordinator running the pass itself asks its shell tool for the longest
+  timeout it allows.
 
 ## Bounds and Authority
 
