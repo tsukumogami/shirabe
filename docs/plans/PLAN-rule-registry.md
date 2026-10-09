@@ -37,7 +37,7 @@ guards, wouldn't be useful on its own.
 
 **Complexity**: critical
 
-**Goal**: Create `references/rule-registry.json` with 40 entries (the 22 gate rules and
+**Goal**: Create `references/rule-registry.json` with 39 entries (the 21 gate rules and
 `rs-001` to `rs-017` under their existing ids, plus `execute/pr-takeover-needs-signal`), each
 carrying every field the design lists, with anchors resolved against the current files and
 baseline keys computed from the baseline's pinned commit. Add `scripts/rule-registry.sh`
@@ -45,8 +45,8 @@ baseline keys computed from the baseline's pinned commit. Add `scripts/rule-regi
 register a `rule-registry` suite in `scripts/check-bash-floor.sh`.
 
 **Acceptance Criteria**:
-- [ ] `references/rule-registry.json` parses, has exactly 40 entries, 22 with `level: gate` and 17 with an `rs-` id, and every id in `skills/work-on/scripts/gate-rules.tsv` and `scripts/review-shadow/criteria.json` is the id of exactly one entry.
-- [ ] Every entry with a protected guard, and every entry with `check.kind: none`, has `withhold: never`; the 22 gate entries, `rs-001` to `rs-003` and the takeover entry are `never`, and `rs-004` to `rs-017` are `eligible` with guards `["none"]`.
+- [ ] `references/rule-registry.json` parses, has exactly 39 entries, 21 with `level: gate` and 17 with an `rs-` id, and every id in `skills/work-on/scripts/gate-rules.tsv` and `scripts/review-shadow/criteria.json` is the id of exactly one entry.
+- [ ] Every entry with a protected guard, and every entry with `check.kind: none`, has `withhold: never`; the 21 gate entries, `rs-001` to `rs-003` and the takeover entry are `never`, and `rs-004` to `rs-017` are `eligible` with guards `["none"]`.
 - [ ] `summary <id>` prints the entry's summary and `text <id>` prints its lines; a `plugin.json` version that doesn't match the version pattern gives the revision `unknown`; a scratch plugin root with a planted `core.hooksPath` hook and `core.fsmonitor` command, and a caller environment with `GIT_DIR` pointing elsewhere, still yields the correct revision and runs neither command, each shown by a test.
 - [ ] Every entry with an empty `baseline_keys`, or sharing a key with another entry, has a non-empty `notes` naming the reason or the other entries.
 - [ ] `rule-registry.sh ref <id>` prints `<path>#L<a>-L<b>@<revision>` where lines a to b are the entry's first to last line; the revision is the 12-character `HEAD` commit in a clean scratch repository, `worktree` when the file differs from `HEAD`, `vX.Y.Z` in a copy with no `.git` and a release version, `<version>+<12-hex blob>` with a `-dev` version, and `<version>` when `git` is missing, each shown by a test in `scripts/rule-registry_test.sh`.
@@ -69,7 +69,7 @@ front through `rule-registry.sh`, finding lines built with `jq --arg` carrying t
 `gate-rules.tsv`, `gate-rule-refs_test.sh` and every mention of the table.
 
 **Acceptance Criteria**:
-- [ ] Each of the four scripts has exactly one line matching `^RULE_IDS="[a-z0-9/ -]+"$`, and the union of those lines is the 22 gate ids.
+- [ ] Each of the four scripts has exactly one line matching `^RULE_IDS="[a-z0-9/ -]+"$`, and the union of those lines is the 21 gate ids.
 - [ ] Each script's test suite passes, sets `SHIRABE_FINDINGS_LOG`, and ends by running `rule-registry.sh verify-findings` on the log with exit 0.
 - [ ] Each suite has one case asserting a literal expected `rule_ref` range for one of its rules, a case where the finding helper is called with an id outside `RULE_IDS` and the script exits 2, and a case where a registry copy marks one of its ids retired and the script exits 2.
 - [ ] Every finding's `message` starts with the entry's `summary` followed by `: `, and a commit subject or file name holding a control character yields a finding that is one line with the character replaced, shown by a test in `check-branch-output_test.sh`.

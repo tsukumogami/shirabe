@@ -55,7 +55,7 @@ and the validator's own codes kept as aliases at most. Those are this document's
 ## Problem Statement
 
 shirabe checks its workflow rules in three places that don't know about each other. At
-commit `4dc0df0` on `main`, the output gates' scripts report 22 rules, named like
+commit `4dc0df0` on `main`, the output gates' scripts report 21 rules, named like
 `pr-body/no-ai-trailer`, from `skills/work-on/scripts/gate-rules.tsv`. The review-shadow
 trial grades 17 criteria with opaque ids `rs-001` to `rs-017` from
 `scripts/review-shadow/criteria.json`, whose reference for each criterion is a bare file path.
@@ -266,7 +266,7 @@ Standing criteria are checked on every pull request their paths cover; criteria 
   retired entry with an unresolvable pointer passes.
 - [ ] A CI job fails when an entry lacks the withhold field or has a value other than the two
   allowed, and when an entry with any of the nine protected guards isn't never-withhold, each
-  shown by a test. Every entry for one of the 22 gate rules carries at least one protected guard
+  shown by a test. Every entry for one of the 21 gate rules carries at least one protected guard
   and is never-withhold, as do `rs-001` (attribution), `rs-002` (private names) and `rs-003`
   (scratch paths), whose violations are published the moment a commit or body is pushed, and
   the takeover rule, which guards pushing onto and rewriting another run's pull request.
@@ -323,7 +323,7 @@ Standing criteria are checked on every pull request their paths cover; criteria 
   CI derives never-withhold from that, rather than trusting each entry's own marking.
   Alternative: rely on review of each new entry. Rejected because a mismarked rule is exactly
   the mistake a reviewer misses and the costliest one to make.
-- **The registry covers what is already cited.** The 22 gate rules, the 17 criteria and the
+- **The registry covers what is already cited.** The 21 gate rules, the 17 criteria and the
   takeover rule (a new entry, named in the design). Alternative: register every prose rule now.
   Rejected as unbounded; later features add rules as they cite them.
 - **Baseline keys are recorded, not rewritten.** The baseline's records keep their keys and

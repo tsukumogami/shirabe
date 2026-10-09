@@ -9,7 +9,7 @@ problem: |
   squashed off main. Nothing records a rule's check, fixtures, enforcement, timing or whether
   it may ever be withheld, and no script can hand an agent a rule's text when the rule applies.
 decision: |
-  One JSON registry, references/rule-registry.json, holds an entry per rule: the 22 gate rule
+  One JSON registry, references/rule-registry.json, holds an entry per rule: the 21 gate rule
   names and rs-001 to rs-017 under their existing ids, plus the takeover rule. Each entry finds
   its full text by two literal anchors (a substring of the first and of the last line), so
   scripts/rule-registry.sh computes rule_ref when a finding is printed, as
@@ -245,7 +245,7 @@ guards nothing would be a routing gate, which prints no findings and has no entr
 commit and pull-request rules guard `pr-create` and `push` (the commit walk runs before the pull
 request opens and before `/execute` pushes its settled branch), the branch and docs rules guard
 `pr-create` and `publish`, the verification rules guard `pr-create`, the panel rule guards
-`pr-create` and `merge`, and `branch/current-with-main` guards `push` and `merge`. All 22 are
+`pr-create` and `merge`, and `branch/current-with-main` guards `push` and `merge`. All 21 are
 therefore `never`. Of the criteria, `rs-001` (attribution), `rs-002` (private names) and `rs-003`
 (scratch paths) guard `publish`: their violation is public the moment a commit or body is
 pushed, and a later fix doesn't take it back. `rs-004` to `rs-017` judge quality a later commit
@@ -363,7 +363,7 @@ read the registry. Rejected.
 ## Decision Outcome
 
 The registry is `references/rule-registry.json`: `{"schema": "shirabe-rule-registry/v1",
-"rules": [...]}`, one object per rule, sorted by id. 40 entries ship: the 22 gate rules, the 17
+"rules": [...]}`, one object per rule, sorted by id. 39 entries ship: the 21 gate rules, the 17
 review-shadow criteria and `execute/pr-takeover-needs-signal`. Ids follow
 `^[a-z0-9-]+/[a-z0-9-]+$` or `^rs-[0-9]{3}$`.
 
@@ -455,7 +455,7 @@ it without making codes into ids.
 | `scripts/rule-registry.sh` | new | `ref <id>`, `summary <id>`, `text <id>`, `release <id>`, `verify-findings <log>`. Finds the plugin root from its own location, never from the working directory (gate scripts run from the repository being gated). `--registry <file>` and `--root <dir>` exist for tests; no gate script passes them. Exit 0 found, 1 unknown or retired id, 2 unreadable registry, unsafe path or unresolvable text. |
 | `scripts/check-rule-registry.sh` | new | The standing checks below; `--base <ref>` adds the id-removal check. Exit 0 clean, 1 problems listed, 2 could not run. |
 | `scripts/check-rule-registry-adoption.sh` | new | The one-time *(this change)* comparison against the merge base, kept apart so the standing check stays standing. |
-| `scripts/check-rule-registry_test.sh` | new | Shows each check failing on an altered copy, and passing on the real registry; pins the real registry's shape (exactly 22 `level: gate` entries, 17 `rs-` entries, 40 in all) and its never-withhold entries (the 22 gate rules, `rs-001` to `rs-003`, the takeover rule); runs the adoption script against a scratch repository with a base that has the table and one that doesn't. |
+| `scripts/check-rule-registry_test.sh` | new | Shows each check failing on an altered copy, and passing on the real registry; pins the real registry's shape (exactly 21 `level: gate` entries, 17 `rs-` entries, 39 in all) and its never-withhold entries (the 21 gate rules, `rs-001` to `rs-003`, the takeover rule); runs the adoption script against a scratch repository with a base that has the table and one that doesn't. |
 | `scripts/rule-registry_test.sh` | new | `ref` from a clean scratch repository, a dirty one, an installed-style copy with a release version and one with a `-dev` version, and one with no `git`; anchor movement after lines are inserted above; retired, unknown and unsafe-path entries; `release` output, its line cap, its path restriction and its failure line; `verify-findings`. |
 | `check-branch-output.sh`, `check-pr-output.sh`, `check-verification.sh`, `panel-scope.sh` | changed | `RULE_IDS=`; each mode resolves its ids up front and keeps the refs and summaries; the finding helper builds the line with `jq --arg`, refuses other ids, and appends to `SHIRABE_FINDINGS_LOG` when set. |
 | the four gate scripts' `_test.sh` suites | changed | Expected `rule_ref` and message forms; each sets `SHIRABE_FINDINGS_LOG` and ends with `rule-registry.sh verify-findings`, plus one case per suite asserting a literal expected range for one rule (independent of the resolver), and cases showing an id outside `RULE_IDS` and a retired id each exit 2. `panel-scope.sh --verdict` now requires the ref (today it omits `rule_ref` when the lookup fails); an unresolvable rule exits 2 like the other scripts. |
@@ -540,7 +540,7 @@ run, well inside koto's 30-second command limit.
 
 One pull request, built in this order so each step's tests can run:
 
-1. **Registry and helper.** Write `references/rule-registry.json` with all 40 entries, anchors
+1. **Registry and helper.** Write `references/rule-registry.json` with all 39 entries, anchors
    resolved and baseline keys computed from the pinned commit; write `rule-registry.sh` and its
    tests; write `references/rule-registry.md`; register the `rule-registry` floor suite.
 2. **Gate scripts.** Move the four scripts to `RULE_IDS` and the helper; update their tests'
