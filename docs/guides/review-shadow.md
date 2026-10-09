@@ -73,6 +73,13 @@ The arguments:
 The Jev key is read from `JEV_API_KEY`, or `KOTO_DECIDER_API_KEY` when that is
 unset.
 
+Certificates are checked against Python's own trust roots, or against
+`SSL_CERT_FILE` when it's set. A Python that ships with none, like the
+python.org installer on macOS before its "Install Certificates" step runs,
+uses the operating system's bundle at `/etc/ssl/cert.pem` (or
+`/etc/ssl/certs/ca-certificates.crt`) instead. Without either, every request
+fails its certificate check and is recorded as `transport`.
+
 ### When grade fails or records not-graded
 
 `grade` exits 2 without writing a record when an argument is wrong or `gh`

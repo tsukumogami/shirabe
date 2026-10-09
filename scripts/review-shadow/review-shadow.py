@@ -926,6 +926,31 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
 
 
+# Where an operating system keeps its own trust roots. A Python that ships
+# without any (the python.org installer on macOS, until its "Install
+# Certificates" step is run) fails every certificate check, and each send
+# would be recorded as a transport failure with nothing saying why.
+OS_TRUST_BUNDLES = ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt")
+
+
+def tls_context(base=None, bundles=OS_TRUST_BUNDLES):
+    """The default TLS context, given the operating system's trust roots when
+    Python loaded none of its own. SSL_CERT_FILE, when set, is honoured by the
+    default context and leaves it with roots, so nothing is added then."""
+    import ssl
+    ctx = (base or ssl.create_default_context)()
+    if not ctx.get_ca_certs():
+        for path in bundles:
+            if os.path.isfile(path):
+                ctx.load_verify_locations(cafile=path)
+                break
+    return ctx
+
+
+def https_opener():
+    return urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=tls_context()))
+
+
 def https_transport(endpoint, key, timeout):
     """POST a JSON body; return (status, raw body). The key goes in an
     unredirected Authorization header and nowhere else."""
@@ -940,7 +965,7 @@ def https_transport(endpoint, key, timeout):
 
     def send(body):
         if not opener:
-            opener.append(urllib.request.build_opener(_NoRedirect))
+            opener.append(https_opener())
         req = urllib.request.Request(endpoint, data=json.dumps(body).encode("utf-8"), method="POST",
                                      headers={"Content-Type": "application/json"})
         req.add_unredirected_header("Authorization", "Bearer " + key)
