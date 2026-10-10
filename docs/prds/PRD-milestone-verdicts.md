@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The roadmap format says a milestone is Done only on a verification verdict
   from the coordinator that dispatched the work or a person, but the
@@ -24,7 +24,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-milestone-verdicts](docs/briefs/BRIEF-milestone-verdicts.md); carried in Absorbed Brief.
 
