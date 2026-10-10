@@ -268,12 +268,16 @@ file survives, so there is no `phase_pointer` and no `chain_ran` to
 consult and the on-disk artifacts are the only evidence.
 "Continue draft" resolves the target this way:
 
-1. If `has-work roadmap <topic>` exits 0, or key
+1. If no ROADMAP exists at `docs/roadmaps/ROADMAP-<topic>.md` AND
+   either `has-work roadmap <topic>` exits 0 or key
    `chain/roadmap-scope` exists in `charter-<topic>` (`koto context
-   exists charter-<topic> chain/roadmap-scope`) with no ROADMAP at
-   `docs/roadmaps/ROADMAP-<topic>.md`, the chain got at least as
-   far as `/charter`'s roadmap-scope write and `/roadmap` was
-   mid-run. Resume into `/roadmap`, passing
+   exists charter-<topic> chain/roadmap-scope`), the chain got at
+   least as far as `/charter`'s roadmap-scope write and `/roadmap`
+   was mid-run. The no-ROADMAP guard covers both clauses: a
+   `roadmap-<topic>` session stays live with its keys until the
+   parent's `close-children`, so after a clean `/roadmap` return
+   the published ROADMAP, not the session, is what says the hop is
+   done. Resume into `/roadmap`, passing
    `--upstream docs/strategies/STRATEGY-<topic>.md`; `/roadmap`'s
    own resume logic reads its keys, and the dispatch key it
    matches points it back at `chain/roadmap-scope`.
