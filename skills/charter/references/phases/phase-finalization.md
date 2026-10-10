@@ -674,7 +674,8 @@ document. The parent's own value follows the table below: `done` on
 full-run and re-evaluation — a re-evaluation is a deliberate
 finalization judgment, recorded in a Decision Record, not an
 abandonment of the parent's run — and `abandoned` on
-abandonment-forced and clean-cancel.
+abandonment-forced. A clean cancel closes nothing, so no value
+applies there.
 
 | How the run ended | Children close with | Parent closes with |
 |---|---|---|
