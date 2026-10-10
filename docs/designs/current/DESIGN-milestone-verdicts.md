@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   On a milestone roadmap the coordinator's landing path and the completion
   cascade still set a milestone Done when work merges, goal fit never reads
@@ -34,7 +34,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
