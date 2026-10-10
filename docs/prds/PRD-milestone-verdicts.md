@@ -16,7 +16,8 @@ goals: |
   request's goal fit names the Evidence clause it advances, a post-Done
   failure returns the milestone to In progress where the picker offers it
   again, and no tool sets a milestone Done because something merged.
-upstream: docs/briefs/BRIEF-milestone-verdicts.md
+absorbed:
+  - docs/briefs/BRIEF-milestone-verdicts.md
 ---
 
 # PRD: milestone verdicts
@@ -24,6 +25,36 @@ upstream: docs/briefs/BRIEF-milestone-verdicts.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-milestone-verdicts](docs/briefs/BRIEF-milestone-verdicts.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because a milestone roadmap's one promise, that Done
+means someone other than the builder checked the work against its
+Evidence, isn't kept by the tools. The brief framed four gaps: the
+coordinator's status write-back and the completion cascade set Done when
+work merges; the coordinator judges each pull request against its brief,
+never the milestone's Evidence; a milestone whose Evidence is host state or
+a walkthrough produces no pull request and so has no route to a verdict;
+and a Done milestone later found short of its Evidence has no way back, so
+the gap is filed as new work or forgotten while the roadmap keeps saying
+Done.
+
+The cost lands on whoever reads the roadmap to decide what comes next: a
+dependent milestone starts on a capability that isn't there, the owner
+judging the roadmap's bet counts outcomes that never arrived, and the
+rework surfaces later, attached to whatever tripped over it.
+
+The outcome the brief set: a coordinator closes every milestone the same
+way, with one pull request, several or none, by checking its Evidence and
+recording a verdict that names who checked; Done follows only from that
+verdict; each landed pull request's goal fit names the Evidence clause it
+advances; and a roadmap owner who finds a Done milestone failing can have
+it returned to In progress and offered again, so the gap is fixed in the
+milestone that promised it. Its boundary kept out verdict consumption by a
+separate reviewing session, roadmap migration, merge ownership, plan
+format, cost capture, and any change to koto or niwa.
 
 ## Problem Statement
 
