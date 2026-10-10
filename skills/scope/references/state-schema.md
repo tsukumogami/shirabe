@@ -34,8 +34,8 @@ of `work/state.md` and holds no routing state of its own.
 
 - **`session`** — the workflow session this run opened or
   reattached to, as `scope-<topic>`: the fixed prefix and the
-  validated topic slug. Written at Phase 0 in the initial state-file
-  write, after `scope-open.sh` opened or attached the session. It
+  validated topic slug. Written at Phase 0 in the initial write of key
+  `work/state.md`, after `scope-open.sh` opened or attached the session. It
   records where the run's per-hop record lives; koto's own origin
   record, checked at `koto init --attach-live`, is what refuses a
   session another worktree opened. The value is
@@ -43,7 +43,7 @@ of `work/state.md` and holds no routing state of its own.
   from the validated slug and compares the recorded value to it for
   equality.
 - **`intent`** — the run's effective intent: `continue`, `stop`, or
-  `none`. **Always present**, from the first state-file write
+  `none`. **Always present**, from the first `work/state.md` write
   onward, so it is not subject to I-5 gating (see Invocation intent
   in `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`).
   The `intake` state resolves it, and `setup` writes it: the
@@ -52,12 +52,12 @@ of `work/state.md` and holds no routing state of its own.
   behaves exactly as `/scope` did before the flag existed. The empty
   value exists only on the koto variable `INTENT_FLAG`, which carries
   the caller's raw token and is empty when the flag was missing; it
-  never appears in a state file, and an empty or placeholder
-  `intent:` is a schema violation, not a run with no intent. A state
-  file written before this field existed has no `intent:` line and
+  never appears in `work/state.md`, and an empty or placeholder
+  `intent:` is a schema violation, not a run with no intent. A
+  `work/state.md` written before this field existed has no `intent:` line and
   reads as `none`. An explicit `--intent` that differs from the
   recorded value against an unfinished run is refused by `intake` as
-  `intent-mismatch`, and the file is left unchanged. The field is
+  `intent-mismatch`, and the key is left unchanged. The field is
   re-validated against `{continue, stop, none}` wherever it is read
   back (State-File Enum Re-Validation in `phase-2-chain-orchestration.md`).
 - **`phase_pointer`** — the pattern-level pointer, written as the

@@ -855,12 +855,12 @@
       "env": {
         "GH_CALL_LOG": "gh-calls.log"
       },
-      "prompt": "In an empty directory run `skills/scope/evals/fixtures/setup-topic.sh create-fails --docs all --mode single-pr --pointer 3 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope create-fails --intent=continue --auto` to its end. Print the state file, the printed exit block, and `koto status scope-create-fails`.",
-      "expected_output": "The push succeeds and `gh pr create` fails. publish-scoping-pr.sh prints step=scope:pr-create and records publish_step; the agent writes publish_error: scope:pr-create to the state file, and the published gate fails, so the run ends at done_error before cleanup. The state file keeps exit: full-run and its fields. The printed block has outcome=error and step=scope:pr-create.",
+      "prompt": "In an empty directory run `skills/scope/evals/fixtures/setup-topic.sh create-fails --docs all --mode single-pr --pointer 3 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope create-fails --intent=continue --auto` to its end. Print key work/state.md of scope-create-fails (koto context get), the printed exit block, and `koto status scope-create-fails`.",
+      "expected_output": "The push succeeds and `gh pr create` fails. publish-scoping-pr.sh prints step=scope:pr-create and records publish_step; the agent writes publish_error: scope:pr-create to key work/state.md, and the published gate fails, so the run ends at done_error before cleanup. Key work/state.md keeps exit: full-run and its fields. The printed block has outcome=error and step=scope:pr-create.",
       "files": [],
       "notes": "Covers R12 (the exit is recorded and the run does not fall back to the no-intent behavior).",
       "expectations": [
-        "The state file still exists and records `exit: full-run` and `publish_error: scope:pr-create`",
+        "Key work/state.md still exists in scope-create-fails and records `exit: full-run` and `publish_error: scope:pr-create`",
         "The printed block contains `outcome=error` and `step=scope:pr-create`",
         "`koto status scope-create-fails` shows current_state done_error, result.payload.step `scope:pr-create` and result.payload.exit `full-run`"
       ]
@@ -875,13 +875,13 @@
       "env": {
         "GH_CALL_LOG": "gh-calls.log"
       },
-      "prompt": "In an empty directory run `skills/scope/evals/fixtures/setup-topic.sh no-origin --docs all --mode single-pr --pointer 3 --intent continue --no-origin`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope no-origin --intent=continue --auto` to its end. Print gh-calls.log, the state file, the printed exit block, and `koto status scope-no-origin`.",
-      "expected_output": "The repository has no origin, so the publish step stops before any push or gh write with step=scope:push. The run ends at done_error with the exit still recorded in the state file and publish_error: scope:push.",
+      "prompt": "In an empty directory run `skills/scope/evals/fixtures/setup-topic.sh no-origin --docs all --mode single-pr --pointer 3 --intent continue --no-origin`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope no-origin --intent=continue --auto` to its end. Print gh-calls.log, key work/state.md of scope-no-origin (koto context get), the printed exit block, and `koto status scope-no-origin`.",
+      "expected_output": "The repository has no origin, so the publish step stops before any push or gh write with step=scope:push. The run ends at done_error with the exit still recorded in key work/state.md and publish_error: scope:push.",
       "files": [],
       "notes": "Covers R12's scope:push limb.",
       "expectations": [
         "gh-calls.log contains no line starting `pr create` or `pr edit`",
-        "The state file records `exit: full-run` and `publish_error: scope:push`",
+        "Key work/state.md records `exit: full-run` and `publish_error: scope:push`",
         "The printed block contains `outcome=error` and `step=scope:push`",
         "`koto status scope-no-origin` shows result.payload.step `scope:push`"
       ]
@@ -897,7 +897,7 @@
         "GH_CALL_LOG": "gh-calls.log"
       },
       "prompt": "In an empty directory run `skills/scope/evals/fixtures/setup-topic.sh retry-topic --docs all --mode single-pr --pointer 3 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope retry-topic --intent=continue --auto` to its end (the PR create fails). Then `export EVAL_SCENARIO=scope-local-origin`, remove gh-calls.log.d, and run `/scope retry-topic --intent=continue --auto` again. Print the second run's first `koto next` response, gh-calls.log, the second printed exit block, and `koto status scope-retry-topic`.",
-      "expected_output": "The first run ends at done_error with exit: full-run and publish_error: scope:pr-create in the state file. The second invocation gets a fresh session (the first is terminal), and resume_route reads exit: plus publish_error: and routes straight to publish_full_run, without re-running any hop. The publish now succeeds, cleanup runs, and the run ends at done_full_run with outcome=scoped and the new PR.",
+      "expected_output": "The first run ends at done_error with exit: full-run and publish_error: scope:pr-create in key work/state.md. The second invocation gets a fresh session (the first is terminal), and resume_route reads exit: plus publish_error: and routes straight to publish_full_run, without re-running any hop. The publish now succeeds, cleanup runs, and the run ends at done_full_run with outcome=scoped and the new PR.",
       "files": [],
       "notes": "Covers R12's retry.",
       "expectations": [

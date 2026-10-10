@@ -24,8 +24,8 @@ The `DECISION-` prefix matches shirabe's `<TYPE>-<name>.md`
 convention (alongside BRIEF-, DESIGN-, PLAN-, PRD-, ROADMAP-,
 STRATEGY-, VISION-).
 
-Runtime population reads from `/charter`'s state file at
-`wip/charter_<topic>_state.md` per the schema documented in
+Runtime population reads from `/charter`'s state at key
+`work/state.md` in `charter-<topic>` per the schema documented in
 `skills/charter/references/phases/phase-state-management.md`.
 Fields consumed when populating this template:
 
@@ -57,7 +57,7 @@ walks the reader from the chain's starting question through the
 Draft STRATEGY's conclusion to the rejection.
 
 The Context section MUST reference the discard commit SHA
-(populated at runtime from the state file's `discard_commit_sha:`
+(populated at runtime from the state's `discard_commit_sha:`
 field). The reference shape: cite the SHA inline in the prose
 (e.g., "the Draft STRATEGY was discarded in commit
 `<discard_commit_sha>`") so a future reader can navigate from
@@ -71,7 +71,7 @@ The Decision section states this conclusion as a complete
 sentence: the Draft STRATEGY `/strategy` produced was rejected at
 its Phase 5 finalization judgment; no STRATEGY is warranted for
 this topic at this time. The author's stated rejection rationale
-(populated at runtime from the state file's `rejection_rationale:`
+(populated at runtime from the state's `rejection_rationale:`
 field) follows as 1-3 sentences explaining the reasoning the
 author entered when picking Reject.
 
@@ -113,7 +113,7 @@ of the topic:
 
 - **No STRATEGY on disk.** The Draft STRATEGY was discarded in
   the commit identified by `discard_commit_sha:` (substituted
-  from the state file); no STRATEGY exists at
+  from the state); no STRATEGY exists at
   `docs/strategies/STRATEGY-<topic>.md` after the rejection.
   Future `/charter` invocations against the same topic see no
   STRATEGY at the published path.

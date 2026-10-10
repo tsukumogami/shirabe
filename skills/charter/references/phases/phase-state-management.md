@@ -1,13 +1,14 @@
 # Phase: State Management
 
-`/charter`'s durable state lives in a single file per topic at
-`wip/charter_<topic>_state.md`. This document specifies the full schema
-the file carries, the conditional-field gating discipline that controls
-which fields MUST be present versus MUST be absent at each exit, and the
-R9 hard finalization check that surfaces a contract violation when the
-chain terminates without recording a valid exit.
+`/charter`'s durable state lives in a single key per topic:
+`work/state.md` in koto session `charter-<topic>`. This document
+specifies the full schema the key carries, the conditional-field gating
+discipline that controls which fields MUST be present versus MUST be
+absent at each exit, and the R9 hard finalization check that surfaces a
+contract violation when the chain terminates without recording a valid
+exit.
 
-This file is documentation only — the runtime that READS the state file
+This file is documentation only — the runtime that READS the state
 lives in the resume ladder (a companion outline owns the implementation)
 and the runtime that WRITES the exit fields and runs the R9 finalization
 check lives in the exit-path orchestration (another companion outline
@@ -29,25 +30,26 @@ runtimes bind to.
 
 ## Pure YAML With `.md` Extension
 
-The state file at `wip/charter_<topic>_state.md` is **pure YAML**
-despite the `.md` extension. The body contains no markdown — no
+Key `work/state.md` in session `charter-<topic>` is **pure YAML**
+despite the `.md` key name. The content contains no markdown — no
 headings, no prose, no code fences, no front-matter delimiters. A YAML
-parser reads the file end-to-end; any markdown rendering of the file is
-incidental.
+parser reads the key's content end-to-end; any markdown rendering of it
+is incidental.
 
-The `.md` extension matches shirabe's existing `wip/` convention for
-committed intermediates (every other `wip/<skill>_<topic>_*.md` shipped
-by other shirabe skills uses the same extension). Authors and tooling
-SHOULD NOT parse the file as markdown — load it as YAML, not as a doc
-with frontmatter. The convention is documented here so downstream
-tooling does not confuse the extension with the file format.
+The `.md` key name keeps the shape the state had as a staging file, per
+the key naming in
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. Authors
+and tooling SHOULD NOT parse the content as markdown — load it as YAML,
+not as a doc with frontmatter. The convention is documented here so
+downstream tooling does not confuse the name with the format.
 
-The substrate that materializes this serialization is the v1 core-layer
-`storage_substrate = wip-yaml-md` named in
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`. The
-substitution surface lets the amplifier layer ship a different
-serialization (e.g., a context-store key-value layout) without changing
-this document's field semantics.
+The substrate that materializes this serialization is the session: the
+state lives in koto session context, written with `koto context add
+charter-<topic> work/state.md` (which rewrites the whole document) and
+read with `koto context get`. The substitution surface named in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` is what
+this move exercised; the field semantics in this document did not
+change with the carrier.
 
 ## 5-Field Minimum and Pattern-Level Invariants
 
@@ -56,7 +58,7 @@ minimum is **cited**, not re-derived, from
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`
 (Minimum Required Fields section). The five required-of-every-parent
 fields are `topic`, `last_updated`, `phase_pointer`, `exit`, and
-`exit_artifacts`. Every conforming `/charter` state file satisfies the
+`exit_artifacts`. Every conforming `/charter` state satisfies the
 minimum; the additional fields below are `/charter`'s parent-specific
 extension.
 
@@ -82,13 +84,13 @@ reference the same constraint. The schema does NOT re-assert or
 re-derive the regex — it is cited so the constraint cannot drift
 between surfaces.
 
-The topic slug also appears in the state-file path
-(`wip/charter_<topic>_state.md`), the terminal artifact filename
+The topic slug also appears in the session name
+(`charter-<topic>`), the terminal artifact filename
 (`docs/strategies/STRATEGY-<topic>.md`), and the children's session
 names. The Phase 0 setup procedure (see
 `skills/charter/references/phases/phase-0-setup.md`) rejects any
-non-conforming `$ARGUMENTS` before the state file is created, so a
-state file on disk has a topic that already satisfies the regex.
+non-conforming `$ARGUMENTS` before the state key is written, so a
+recorded state has a topic that already satisfies the regex.
 
 ## Full Field Schema
 
@@ -102,7 +104,7 @@ is documented below with its type, semantics, and gating condition
 ### Always-Present Fields
 
 These 11 fields are present in every well-formed `/charter` state
-file at every phase pointer.
+at every phase pointer.
 
 - **`topic`** — string matching `^[a-z0-9-]+$`. The topic slug; set
   at Phase 0 and never modified afterward. Cited from the pattern-
@@ -124,7 +126,7 @@ file at every phase pointer.
   `full-run`, `re-evaluation`, or `abandonment-forced`). Absent
   while the chain is in progress; required at finalization.
 - **`last_updated`** — ISO-8601 timestamp string. Written on every
-  state-file modification. Used by the resume-ladder stale-session
+  write of `work/state.md`. Used by the resume-ladder stale-session
   check.
 - **`planned_chain`** — ordered list of child-name strings naming
   which children are in scope for this run. Values are drawn from
@@ -139,12 +141,12 @@ file at every phase pointer.
 
   The conditional feeder `/comp` is not a value here, on either
   side of its gate. A gate that never opened means the child was
-  never planned, so there is nothing to record; and the state file
-  is durably public from feature-branch push, so an entry naming a
-  private-only artifact type is a visibility violation whatever the
+  never planned, so there is nothing to record; and the state is
+  readable by anything that can read the session, so an entry naming
+  a private-only artifact type is a visibility violation whatever the
   field around it says. That argument does not weaken in a repo
   where the gate does open, because the field's domain is one shape
-  everywhere: a reader of a state file never has to work out
+  everywhere: a reader of the state never has to work out
   whether a `comp` entry was legal in the repo it came from. The
   feeder sits beside the tracked chain rather than in it. The rule
   and its reasoning live under `/comp` Invocation Rule in
@@ -202,7 +204,7 @@ These 8 fields are present iff their trigger fires — a specific
 validated `--upstream` invocation argument for the seventh, and a
 resume-ladder row firing for the eighth. When
 the triggering condition does not hold, the field MUST be absent
-from the state file — not set to null, not set to an empty string,
+from the state — not set to null, not set to an empty string,
 not set to a placeholder value. Absence-when-not-applicable is the
 R9 gating discipline (see Conditional-Field Gating Discipline
 below).
@@ -222,27 +224,27 @@ below).
     supplied AND when the flag's value was dropped by the
     visibility check. The two cases are deliberately
     indistinguishable in state: recording a private path in a
-    public repo's state file would leak it onto the pushed feature
-    branch, which is exactly what the check exists to prevent.
+    public repo's state would leak it, which is exactly what the
+    check exists to prevent.
   - Written at Phase 0 rather than at finalization, because its
     trigger fires at invocation or never. Read at Phase 2, where
     it becomes the `--upstream` argument `/charter` hands
     `/strategy`, and re-validated by the resume ladder on every
     re-entry (see
     `skills/charter/references/phases/phase-resume.md`).
-- **`consumed_handoff`** — path string naming the `/explore`
-  handoff this run consumed: `wip/charter_<topic>_handoff.md`,
-  composed from `/charter`'s own prefix and the validated topic
-  slug.
+- **`consumed_handoff`** — string naming the `/explore`
+  handoff this run consumed: the constant `handoff/charter.md`, the
+  key read from session `explore-<topic>` (composed from the
+  validated topic slug).
   - **Required iff** the resume ladder's row 8.5 fired and consumed
-    the file.
-  - **MUST be absent otherwise** — including when a handoff was on
-    disk but a higher row matched first, and when a handoff was
+    the key.
+  - **MUST be absent otherwise** — including when a handoff key was
+    present but a higher row matched first, and when a handoff was
     found malformed and the run degraded to a cold start. Nothing
     was consumed in either case, and a field written anyway would
     record a consumption that did not happen.
-  - Written by row 8.5 in the same state-file write that creates the
-    file. **Its reader is the resume ladder**
+  - Written by row 8.5 in the same write that creates
+    `work/state.md`. **Its reader is the resume ladder**
     (`skills/charter/references/phases/phase-resume.md`), which
     reads it on a later re-entry to tell a run that consumed a
     handoff from one that started cold. The field is specified here,
@@ -339,13 +341,13 @@ gating discipline binds them identically.
 
 The discipline has two halves and BOTH bind:
 
-1. **Required when the triggering condition holds.** A state file
+1. **Required when the triggering condition holds.** A state
    with `exit: re-evaluation` MUST have
-   `decision_record_sub_shape:` set; a state file with
+   `decision_record_sub_shape:` set; a state with
    `decision_record_sub_shape: re-evaluation` MUST have
    `referenced_strategy:` set; and so on.
 2. **Absent when the triggering condition does not hold.** A
-   conditional field MUST NOT appear in the state file when its
+   conditional field MUST NOT appear in the state when its
    trigger does not fire. It MUST NOT be set to null, MUST NOT be
    set to an empty string, MUST NOT be set to a placeholder value
    like `"TBD"` or `"<unset>"`. The field is simply not in the
@@ -379,9 +381,9 @@ The R9 check is a **finalization-time** procedure. It runs when the
 chain reaches finalization (the moment `exit:`,
 `decision_record_sub_shape:` if applicable, `chain_completed:`, and
 `exit_artifacts:` are written). The check does NOT run at resume
-time — the resume ladder has its own malformed-state-file detection
+time — the resume ladder has its own malformed-state detection
 (see the resume-ladder reference owned by a companion outline). The
-check does NOT run at every state-file write — the intermediate
+check does NOT run at every state write — the intermediate
 writes legitimately have `exit:` unset.
 
 ### What the Check Verifies
@@ -391,7 +393,7 @@ the check passes only when none of them does.
 
 1. **Failure mode 1 — `exit:` unset or invalid.** The `exit:` field
    is unset, or its value is not in `{full-run, re-evaluation,
-   abandonment-forced}`. A finalization-time state file with `exit:
+   abandonment-forced}`. A finalization-time state with `exit:
    UNSET`, `exit: null`, `exit: ""`, or `exit: <typo>` fails the
    check.
 2. **Failure mode 2 — sub-shape unset or invalid for re-evaluation
@@ -401,7 +403,7 @@ the check passes only when none of them does.
    field, or with `decision_record_sub_shape: <typo>`, fails the
    check.
 3. **Failure mode 3 — conditional field present when ungated.** A
-   conditional field is present in the state file when its
+   conditional field is present in the state when its
    triggering condition does not hold. Example: `referenced_strategy:
    docs/strategies/STRATEGY-<topic>.md` set when `exit: full-run`,
    or `triggering_child: /strategy` set when `exit: re-evaluation`.
@@ -439,17 +441,17 @@ Example error wording:
 > sub-shape explicitly before completing finalization."*
 >
 > *"R9 finalization check failed: `referenced_strategy:` is set
-> in the state file but `exit:` is `full-run` (gating condition
+> in the state but `exit:` is `full-run` (gating condition
 > `decision_record_sub_shape: re-evaluation` does not hold).
 > Conditional fields MUST be absent when their triggering
 > condition does not hold; remove `referenced_strategy:` from the
-> state file."*
+> state."*
 
 The clear-error surfacing is the load-bearing behavior. Silent
-absorption would let a malformed state file persist as durable
-evidence (under the v1 `wip-yaml-md` substrate the file lives on
-the feature branch; under any amplifier-layer substrate the
-malformed record is similarly durable); the malformed record then
+absorption would let a malformed state persist as durable
+evidence (the key outlives the run: a close keeps the session, so
+the malformed record is what the next re-entry reads); the
+malformed record then
 breaks the resume ladder's contract surface on the next re-entry.
 Failing closed at finalization makes the malformation surface at
 write time, not at the next read.
@@ -462,50 +464,47 @@ the check, a `/charter` run that terminates without recording a
 valid exit, or that records an inconsistent combination of `exit:`
 and conditional fields, would silently accept the malformed
 record. The check turns "I-1 and I-5 hold for every conforming
-state file" into a verifiable, eval-able assertion at finalization
+state" into a verifiable, eval-able assertion at finalization
 time.
 
 ## Security Considerations
 
-The state file at `wip/charter_<topic>_state.md` is a **public-repo
-durable-evidence surface** in repos with Public visibility. Two
-properties matter:
+Key `work/state.md` in `charter-<topic>` is a **durable-evidence
+surface**: a close keeps the session, so the key outlives the run
+and anything that can read the session can read it. Two properties
+matter:
 
-### Pre-Merge Feature-Branch Exposure
+### Key Content Outlives the Run
 
-The `wip/` artifact is committed to the feature branch during the
-run; on push, the branch is publicly visible (in public repos),
-and the state file's content is durably part of the branch's
-pre-merge history. Squash-merge to main removes the `wip/` files
-from main's history, but it does NOT remove them from the feature
-branch's pre-merge commits — the durable evidence persists on the
-feature branch as long as the branch exists, even after the
-squash-merged main no longer carries the file.
+The state no longer lands on the feature branch — the move to the
+session took it out of git history entirely — but it did not become
+private. The key persists after finalization (that persistence is
+what lets the resume ladder's row 2 read a finished run's `exit:`),
+and koto context is cloud-backed storage shared by every reader of
+the session.
 
 The free-text fields are the exposure surface. Authors should
-treat these fields as durably public from the moment the feature
-branch is pushed:
+treat these fields as readable by anyone who can read the session:
 
 - **`rejection_rationale`** — the author's prose explaining why a
-  Draft STRATEGY was rejected. Durable on the feature branch
-  pre-merge; public.
+  Draft STRATEGY was rejected.
 - **`referenced_strategy`** — a path string. The path itself is
   unlikely to be sensitive, but it points at a STRATEGY whose body
-  is also durably public on the feature branch.
+  is durably public once pushed.
 - **`chain_skipped[].detail`** — the optional free-text sibling of
   the closed `reason` enum. `reason` itself is a vocabulary member
   and carries nothing an author wrote; `detail:` carries prose and
-  paths, and is durable on the feature branch pre-merge and public.
+  paths.
 - **`consumed_upstream`** — an author-supplied path. This is the
   one field whose value comes from outside the chain, which is why
   Phase 0 refuses to write it at all when a public repo was pointed
   at a private artifact: an omitted field cannot leak, whereas a
-  field written "just in state" would be durably public the moment
-  the branch is pushed.
+  field written "just in state" is still a recorded value with
+  readers.
 
 The same property applies to other free-text fields the schema
-might gain later through extension. Treat the entire state file as
-durably public from feature-branch push time.
+might gain later through extension. Treat the entire state as a
+record with readers beyond this run.
 
 ### Free-Text Content Discipline
 
@@ -517,13 +516,12 @@ fields above:
   identifying transcripts).
 - Unpublished competitive positioning (pre-announcement product
   framings, deal pricing, internal-only positioning prose).
-- Anything else that would not be safe to publish on the feature
-  branch's public history.
+- Anything else that would not be safe to publish.
 
-The discipline is the same as any other public-repo durable
-artifact (committed docs, committed code). The schema spec names
-it explicitly so authors do not assume `wip/` content is hidden by
-the eventual cleanup commit.
+The discipline is the same as any other durable artifact
+(committed docs, committed code). The schema spec names it
+explicitly so authors do not assume key content is hidden because
+it never reaches git.
 
 ### Fail-Closed R9 Check
 
@@ -539,16 +537,17 @@ keeps the contract intact across substrates.
 
 ### Topic-Slug Input Validation
 
-The topic slug is the only state-file field whose value is
-author-supplied and appears in filesystem paths. The pattern-level
+The topic slug is the only state field whose value is
+author-supplied and appears in filesystem paths and session names.
+The pattern-level
 regex `^[a-z0-9-]+$` (cited above) prevents path traversal via
 slug: slashes, dots, and any other path-separator characters are
-hard-rejected at Phase 0 before the state file is created. The
+hard-rejected at Phase 0 before the state key is written. The
 regex source lives in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`;
 this schema spec cites that source rather than re-asserting the
 regex, so the constraint cannot drift between SKILL.md, Phase 0,
-and the state-file schema.
+and this schema.
 
 ### Conditional-Field Discipline as a Contract-Confusion Defense
 

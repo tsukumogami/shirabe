@@ -1,10 +1,13 @@
 #schema	skill-requires/v1
 # Split rule: references/tool-declaration-policy.md
 #
-# /charter writes and removes the roadmap scope handoff as key chain/roadmap-scope
-# in its own session (koto context add and remove), and resume row 6 checks the
-# key with koto context exists; the other session operations go through
-# scripts/skill-session.sh.
+# /charter keeps its state as key work/state.md in its own session (koto
+# context add writes and rewrites it, koto context remove discards it) and
+# writes and removes the roadmap scope handoff as key chain/roadmap-scope the
+# same way; the resume ladder reads work/state.md and the /explore handoff key
+# with koto context exists and koto context get before anything opens a
+# session, and resume row 6 checks chain/roadmap-scope with koto context
+# exists; the other session operations go through scripts/skill-session.sh.
 #
 # The finalization pass-through invokes `shirabe validate --format json
 # --visibility=<repo-visibility>` against the Draft STRATEGY and parses the
@@ -20,4 +23,5 @@ shirabe	validate	--format,--visibility	always
 git	-	-	always
 koto	context add	-	always
 koto	context exists	-	always
+koto	context get	-	always
 koto	context remove	-	always

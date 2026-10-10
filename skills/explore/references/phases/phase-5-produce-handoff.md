@@ -139,8 +139,15 @@ With a ROADMAP: `/scope <topic> --upstream docs/roadmaps/ROADMAP-<name>.md`.
 
 ## `/charter` Binding
 
-Write `wip/charter_<topic>_handoff.md`: the six shared sections, then the one
-block below.
+Write the handoff as key `handoff/charter.md` in session `explore-<topic>`,
+following `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`: the
+six shared sections, then the one block below. The write runs exactly as the
+`/scope` arm's does — `open explore <topic>`, assemble the content as
+`charter.md` in a `scratch` directory, `ingest explore-<topic> handoff` — and
+carries the same no-fallback rule: a non-zero exit stops the run with the
+script's message, and nothing falls back to a file in `wip/`. `/explore` does
+not close the session: `/charter` reads the key, removes it once consumed, and
+closes `explore-<topic>` when it holds nothing else.
 
 ```markdown
 ## Thesis-Shift Answer
@@ -172,7 +179,7 @@ the strategic chain reads it there.
 
 Tell the author:
 
-> Wrote `wip/charter_<topic>_handoff.md`. Run `/charter <topic>` to walk the
+> Wrote the handoff to session `explore-<topic>`. Run `/charter <topic>` to walk the
 > strategic chain (VISION, STRATEGY, ROADMAP) with the exploration pre-loaded
 > into discovery. Your research stays in `wip/`.
 
@@ -182,15 +189,13 @@ With a VISION: `/charter <topic> --upstream docs/visions/VISION-<name>.md`.
 
 Neither arm invokes its parent. The parent consumes the handoff through its own
 resume ladder, below re-entry protection, and enters its own Phase 1 with the
-file pre-loaded. That ordering is what lets a settled artifact on disk win over
-a handoff written last week, and `/explore` cannot reproduce it by invoking the
-parent mid-session.
+handoff pre-loaded. That ordering is what lets a settled artifact on disk win
+over a handoff written last week, and `/explore` cannot reproduce it by invoking
+the parent mid-session.
 
-The `/charter` handoff is left on disk after the parent consumes it. A parent
-that bails at Phase 1 does not delete it, so a later invocation reaches the same
-clause rather than starting cold. The `/scope` handoff key is removed by `/scope`
-once it has consumed it; one `/scope` never consumed stays in `explore-<topic>`
-for the next `/scope` run.
+Each parent removes its handoff key once it has consumed it; a handoff never
+consumed — the parent bailed at Phase 1, or was never run — stays in
+`explore-<topic>` for the next run of that parent to reach.
 
 ## Commit
 
@@ -200,6 +205,6 @@ Commit before naming the command: `docs(explore): hand off <topic> to /<parent>`
 
 After this step:
 - All explore artifacts in `wip/` (untouched)
-- Key `handoff/scope.md` in `explore-<topic>` (new, `/scope` arm), or
-  the `/charter` handoff file in its current staging location (new, `/charter` arm; unchanged by this move -- its own group moves it)
+- Key `handoff/scope.md` (`/scope` arm) or `handoff/charter.md`
+  (`/charter` arm) in `explore-<topic>` (new)
 - No durable document written; the session stops and the author runs the parent

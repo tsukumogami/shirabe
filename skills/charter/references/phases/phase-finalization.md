@@ -19,7 +19,7 @@ defined in `skills/charter/references/phases/phase-state-management.md`
 **artifact authoring** (Decision Record bodies, the HTML-comment
 abandonment marker) is owned by a companion outline.
 
-After this orchestration writes the state file, the R9 hard
+After this orchestration writes the state, the R9 hard
 finalization check (see
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md` and
 `skills/charter/references/phases/phase-state-management.md`) runs and
@@ -57,7 +57,7 @@ below produces the writes; the R9 check validates them.
   most-recently-running child's intermediate is force-materialized
   as a schema-compliant Draft with an HTML-comment marker.
 - **Clean-cancel** — the author bails before any chain progress
-  exists. NOT an exit value; no state file written, no terminal
+  exists. NOT an exit value; no state written, no terminal
   artifact, no contract violation. See R8 Tie-Break below.
 
 ## Exit 1 — full-run
@@ -75,7 +75,7 @@ exception path, not the common one.
 
 ### State-Field Assignments
 
-The state file at `wip/charter_<topic>_state.md` is written with:
+Key `work/state.md` in `charter-<topic>` is written with:
 
 - `exit: full-run`
 - `chain_completed: <ISO-8601 timestamp>` (set at the finalization
@@ -126,7 +126,7 @@ exit_artifacts:
 ### Conditional-Field Absence (R9)
 
 For Exit 1, the following conditional fields MUST be absent from the
-state file (not set to null, empty string, or placeholder):
+the state (not set to null, empty string, or placeholder):
 `decision_record_sub_shape`, `referenced_strategy`,
 `discard_commit_sha`, `rejection_rationale`, `triggering_child`,
 `partial_phase_reached`. R9 conditional-field gating (defined in
@@ -193,7 +193,7 @@ Procedure:
    - **2 (violations)** — the validator completed and found at
      least one error-level result. Block chain finalization until
      the violation is resolved; do NOT write `exit: full-run` to
-     the state file. Surface the parsed `findings` readably: for
+     the state. Surface the parsed `findings` readably: for
      each error-severity finding, show
      `<message> (<file>:<line>)` rather than dumping the raw
      annotation text — the gate names *which* check failed in
@@ -277,7 +277,7 @@ fires versus when bail fires — lives here.
 
 ### State-Field Assignments
 
-The state file is written with:
+The state is written with:
 
 - `exit: re-evaluation`
 - `decision_record_sub_shape: re-evaluation`
@@ -326,7 +326,7 @@ The rejection sub-shape's full flow:
 5. Control returns to `/charter`.
 6. `/charter` captures the discard commit SHA via read-only
    `git log` — no git writes from `/charter`.
-7. `/charter` writes the state file with the rejection sub-shape
+7. `/charter` writes the state with the rejection sub-shape
    fields.
 
 `/charter` issues **no git writes** during rejection orchestration.
@@ -335,7 +335,7 @@ captures the SHA via `git log`.
 
 ### State-Field Assignments
 
-The state file is written with:
+The state is written with:
 
 - `exit: re-evaluation`
 - `decision_record_sub_shape: rejection`
@@ -425,7 +425,7 @@ into Exit 3:
    originates there; the routing decision logic — when Bail produces
    abandonment-forced versus clean-cancel — lives here.
 3. **Force-materialize at the stale-session prompt** — the
-   resume-ladder row 4 prompt (state file `last_updated` ≥ 7 days
+   resume-ladder row 4 prompt (`work/state.md` `last_updated` ≥ 7 days
    old) offers Resume / Force-materialize / Discard; the author
    picks Force-materialize. The row 4 prompt originates from
    `skills/charter/references/phases/phase-resume.md`; the routing
@@ -437,7 +437,7 @@ into Exit 3:
 
 ### State-Field Assignments
 
-The state file is written with:
+The state is written with:
 
 - `exit: abandonment-forced`
 - `triggering_child: <child-name>` — the child that was running at
@@ -472,7 +472,7 @@ Status section of the artifact body:
 ```
 
 The marker carries the abandonment metadata (triggering child,
-partial phase reached, the `wip/charter_<topic>_state.md` path for
+partial phase reached, and key `work/state.md` in `charter-<topic>` as
 the durable record). The marker authoring (specific marker content,
 placement in the artifact body, schema compliance) is owned by the
 companion outline that writes exit artifacts; this orchestration
@@ -503,7 +503,7 @@ step that resolves to a child takes the child as the
 
 ### Step 1 — Last Entry in `chain_ran`
 
-Take the last entry in the state file's `chain_ran` field. If
+Take the last entry in the state's `chain_ran` field. If
 `chain_ran` is non-empty, that child is the most-recently-running;
 the tie-break resolves to it and `triggering_child` is set to the
 child name. Proceed to artifact materialization.
@@ -517,9 +517,9 @@ Take the first entry in `planned_chain` whose session holds work:
 `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" has-work <child>
 <topic>` exits 0 for a live `<child>-<topic>` on this branch with a
 key under `work/`. The tie-break runs inside a chain whose state
-file records that the child was invoked, so a `work/` key here is
+records that the child was invoked, so a `work/` key here is
 direct evidence of which child was in flight. Ladder rows 7-8 run
-the same check in a weaker position — no state file survives there
+the same check in a weaker position — no state survives there
 — which is why the ladder consults the published artifacts first
 and reaches those rows only when the documents say nothing.
 
@@ -539,14 +539,20 @@ history exists AND no `planned_chain` entry's session holds work
 
 Clean-cancel means:
 
-- **No state file is written.** The state file at
-  `wip/charter_<topic>_state.md` is NOT created (or, if it already
-  exists from Phase 0, is removed).
+- **No state is written.** Key `work/state.md` is NOT written (or,
+  if Phase 0 already wrote it, it is removed from `charter-<topic>`
+  with `koto context remove` on the way out).
 - **No terminal artifact is produced.** No STRATEGY, no Decision
   Record, no abandonment-forced partial; nothing gets force-
   materialized because nothing exists to materialize.
 - **No `exit:` value is written.** The chain ends without recording
   an exit because there is no chain progress to record.
+- **Nothing is closed.** The removal of the one key is the whole
+  teardown: no `close-children`, no close of `charter-<topic>`. The
+  children's live sessions are what a later run's resume rows detect
+  a mid-flight chain by, so closing them here would erase exactly
+  the state a cancelled run exists to leave behind (the design's
+  close rule binds the exits that record an `exit:` value).
 
 Clean-cancel is **NOT a contract violation** of the three-exits
 invariant (semantic invariant I-2 in
@@ -554,8 +560,8 @@ invariant (semantic invariant I-2 in
 invariant requires every chain that produces a terminal artifact to
 record an exit; a clean-cancel chain produces no terminal artifact
 because the chain never started in a load-bearing sense. Phase 0
-state-file creation occurred (per Phase 0's spec), but no chain
-progress followed; tearing down the empty state file is correct.
+wrote the initial `work/state.md` (per Phase 0's spec), but no chain
+progress followed; removing the empty state key is correct.
 
 ### AC12c — Chain-Proposal Bail Routing
 
@@ -640,10 +646,13 @@ rejection` mutually exclusive with Bail's `triggering_child:` and
 
 ## Closing the Session
 
-Every exit path ends by closing the children this chain dispatched
-and then the session Phase 0 opened, in that order, as the last
-thing finalization does
-(`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`):
+Every path that records an `exit:` value — full-run, re-evaluation
+and abandonment-forced — ends by closing the children this chain
+dispatched and then the session Phase 0 opened, in that order, as
+the last thing finalization does
+(`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`).
+A clean cancel records no exit and deliberately closes nothing (see
+its section above):
 
 ```bash
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close-children charter <topic> <done|abandoned>
@@ -672,12 +681,13 @@ abandonment-forced and clean-cancel.
 | Exit 1, full-run | `done` | `done` |
 | Exit 2, re-evaluation (either sub-shape) | `abandoned` | `done` |
 | Exit 3, abandonment-forced (a bail mid-chain or inside a child) | `abandoned` | `abandoned` |
-| Clean-cancel (a bail with no chain progress) | `abandoned` | `abandoned` |
+| Clean-cancel (a bail with no chain progress) | no close | no close |
 
 On the three exits the close follows the R9 hard finalization check
 accepting the state; when the check surfaces an error, the session
 stays live so the next invocation resumes against it. Clean-cancel
-has no R9 check and closes right after the state file is removed.
+has no R9 check and closes nothing: it removes key `work/state.md`
+on its way out and stops.
 No `chain/dispatch` key survives to this point, since Phase 2 clears
 it after every child, but a close keeps the session's keys readable
 either way: `close` submits the evidence with `--no-cleanup`. It is
@@ -705,7 +715,7 @@ not re-derived here:
   Fields § triggering_child / partial_phase_reached
 
 The R9 hard finalization check (defined in the state-schema spec)
-runs immediately after this orchestration writes the state file. The
+runs immediately after this orchestration writes the state. The
 check verifies the exit-field consistency above; orchestration
 writes that violate the check (e.g., a stray `referenced_strategy`
 under `exit: full-run`) surface as clear errors at finalization.
@@ -735,7 +745,7 @@ prompt-emitting outlines are the origination sources.
 
 Each exit produces a durable artifact whose body shape is specified
 by a template under `skills/charter/references/templates/`. The
-orchestration above writes the state-file fields each artifact
+orchestration above writes the state fields each artifact
 consumes; the templates specify the artifact body content and (for
 the abandonment-forced marker) the placement rules.
 
@@ -754,7 +764,7 @@ the abandonment-forced marker) the placement rules.
   section when Exit 3 fires; the host artifact type (STRATEGY,
   VISION, or ROADMAP) is determined by the R8 tie-break above.
 
-Each template names the state-file fields it consumes at runtime
+Each template names the state fields it consumes at runtime
 population (see `<<ISSUE:5>>`'s state schema for the field
 semantics).
 
@@ -781,7 +791,7 @@ semantic invariant I-2 from
 
 Step 3 of the R8 tie-break explicitly prevents writing incomplete
 state when nothing exists to force-materialize. The clean-cancel
-case ends the chain with NO state file, NO terminal artifact, and NO
+case ends the chain with NO state, NO terminal artifact, and NO
 `exit:` value written. Without the explicit fallthrough, a Bail
 event with no prior chain progress would either write an empty
 `exit: abandonment-forced` state (corrupting the contract) or fail
@@ -851,21 +861,20 @@ runtime that implements the orchestration logic is part of the
 `/charter` skill's main flow, and the validation that enforces R9
 lives in the state-schema spec from `<<ISSUE:5>>`.
 
-### Public-Repo Durable-Evidence Surface
+### Durable-Evidence Surface
 
-The state file at `wip/charter_<topic>_state.md` is durably public
-on feature branches from the moment the branch is pushed (squash-
-merge removes the file from main's history but not from the feature
-branch's pre-merge commits). Two fields in the exit orchestration
+Key `work/state.md` in `charter-<topic>` outlives the run — a close
+keeps the session — and is readable by anything that can read the
+session. Two fields in the exit orchestration
 above are user-supplied free-text or path-shaped:
 
 - **`rejection_rationale`** — author's prose explaining the
-  rejection. Durable on the feature branch pre-merge; public.
+  rejection.
 - **`triggering_child`** — child name string. Not free-text but
   identifies which child was running when the chain bailed.
 - **`referenced_strategy`** — path string. The path itself is
   unlikely to be sensitive, but the STRATEGY body it points at is
-  also durably public on the feature branch.
+  durably public once pushed.
 
 Authors MUST NOT paste secrets, customer-identifiable context, or
 unpublished competitive positioning into the `rejection_rationale`

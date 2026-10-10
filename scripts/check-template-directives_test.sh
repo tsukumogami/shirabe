@@ -808,6 +808,144 @@ EOF
     teardown
 }
 
+# A name merely containing the letters, with its own leading characters, is
+# not the folder: the left boundary is word-shaped.
+test_gate_swip_prefix_passes() {
+    local name="a path whose segment merely ends in wip is not a staging-folder read"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "cat swip/x"
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
+    assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# A hyphenated identifier is not the folder: the right boundary is word-shaped
+# in the hyphen direction too, not only for wip_paths.
+test_gate_wip_hyphen_identifier_passes() {
+    local name="a hyphenated identifier containing wip is not a staging-folder read"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "grep -q wip-paths out.txt"
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
+    assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# The folder behind an interpolated prefix is still the folder, with the bare
+# word at the end of the command string.
+test_gate_var_slash_wip_flagged() {
+    local name="a gate command reading an interpolated \$R/wip is flagged"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "ls $R/wip"
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
+    assert_fails "$name" "gate command names the staging folder" \
+        "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# The matcher's own header comment promises the interpolated $ROOT/wip case: a
+# path under the folder behind a variable prefix, mid-command.
+test_gate_root_var_wip_path_flagged() {
+    local name="a gate command reading a path under an interpolated \$ROOT/wip is flagged"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "test -f $ROOT/wip/brief_x_state.md && echo present"
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
+    assert_fails "$name" "gate command names the staging folder" \
+        "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
 # The limb reads the gate's own command string only: a script the gate invokes
 # may still name the folder (the publish untrack step does), and only the
 # parent state-file prefix limb applies inside it.
@@ -1139,6 +1277,10 @@ test_gate_bare_wip_flagged
 test_gate_wip_identifier_passes
 test_gate_wip_file_name_passes
 test_gate_dot_slash_wip_flagged
+test_gate_swip_prefix_passes
+test_gate_wip_hyphen_identifier_passes
+test_gate_var_slash_wip_flagged
+test_gate_root_var_wip_path_flagged
 test_invoked_script_staging_not_flagged
 test_gate_staging_allowlisted_passes
 test_rule_two_does_not_apply_elsewhere

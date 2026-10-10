@@ -95,7 +95,7 @@ prefixes break the match) and is rejected at Phase 0. Concrete
 example: `/charter docs/visions/VISION-foo.md` is rejected at the
 regex check (slashes, dots, and uppercase letters all violate
 `^[a-z0-9-]+$`); it is NOT treated as a pointer to the VISION at
-that path, and Phase 0 stops without creating any state file.
+that path, and Phase 0 stops without writing any state.
 
 Path-as-upstream is the wrong shape for `/charter`'s entry mode.
 An upstream the chain should consume is named with `--upstream
@@ -136,13 +136,13 @@ consumed as the flag's argument and is never tested against the
 topic-slug regex, which is what leaves the positional contract
 untouched: a path in the positional slot is still rejected.
 `--upstream` with no value is a Phase 0 rejection naming the
-missing argument, and it stops before any state file is written.
+missing argument, and it stops before any state is written.
 
 A supplied upstream is validated inbound — canonicalized and
 bounds-checked, its basename required to start with `VISION-`, and
 run through three ordered checks (not under `wip/`, tracked by git,
 and not a private artifact named from a public repo). It is then
-recorded in the state file's conditional `consumed_upstream:`
+recorded in the state's conditional `consumed_upstream:`
 field, re-validated on every resume, and handed to `/strategy` as
 `/strategy <topic-slug> --upstream <path>` — the slug stays the
 parent's, the upstream travels separately.
@@ -165,8 +165,8 @@ and 0.4.
 
 ## Topic-Slug Constraint
 
-The topic slug appears in the state-file path
-(`wip/charter_<topic>_state.md`), the terminal artifact filename
+The topic slug appears in the session name
+(`charter-<topic>`), the terminal artifact filename
 (`docs/strategies/STRATEGY-<topic>.md`), and the children's session
 names. The slug MUST match the regex `^[a-z0-9-]+$` — the
 pattern-level constraint canonical in
@@ -181,12 +181,12 @@ rule. Phase 0's slug-handling procedure lives at
 ```
 Phase 0: SETUP --> Phase 1: DISCOVER --> Phase 2: CHAIN --> Phase N: FINALIZE
 (slug validation +  (visibility detect +   (orchestrate     (record exit +
- state-file create)  chain proposal)        child skills)    write artifacts)
+ state-key write)   chain proposal)        child skills)    write artifacts)
 ```
 
 | Phase | Purpose | Reference |
 |-------|---------|-----------|
-| 0. Setup | Slug validation, session open (`skill-session.sh open charter <topic>`) and stale `chain/dispatch` clear, state-file creation | `skills/charter/references/phases/phase-0-setup.md` |
+| 0. Setup | Slug validation, session open (`skill-session.sh open charter <topic>`) and stale `chain/dispatch` clear, initial `work/state.md` write | `skills/charter/references/phases/phase-0-setup.md` |
 | 1. Discover | Repository visibility detection, topic-related child-doc discovery, chain proposal | `skills/charter/references/phases/phase-1-discovery.md` |
 | 2. Chain | Sequenced child-skill invocations (`/vision`, `/strategy`, `/roadmap`), each bracketed by `skill-session.sh dispatch write` and `dispatch clear` | `skills/charter/references/phases/phase-2-chain-orchestration.md` |
 | N. Finalize | Record exit path, write `exit_artifacts:`, run R9 hard-finalization check, close `charter-<topic>` | `skills/charter/references/phases/phase-finalization.md` |
@@ -206,12 +206,13 @@ window / 10-cycle patience budget) applies to each child invocation.
 
 ## Resume Logic
 
-`/charter` maintains state at `wip/charter_<topic>_state.md` (one
-file per topic, keyed by the topic slug). The full state-file
+`/charter` maintains state at key `work/state.md` in session
+`charter-<topic>` (one key per topic, the session named by the topic
+slug). The full state
 schema, conditional-field gating discipline, and R9 hard
 finalization check spec are documented in
 `skills/charter/references/phases/phase-state-management.md`. On
-re-entry, the resume ladder consults the state file, the per-child
+re-entry, the resume ladder consults that key, the per-child
 snapshots recorded in state, and the current branch context to
 decide where to re-enter.
 
@@ -225,7 +226,7 @@ pattern-level meta-ladder; rows 5-8.5 are parent-specific body slots
 for Accepted/Active vs Draft STRATEGY; slot 6 (partial-child-run)
 expands into rows 7-8 for `/strategy` vs `/vision`; slot 7
 (feeder-doc-detected) is row 8.5, matching the `/explore` handoff at
-`wip/charter_<topic>_handoff.md`. The fractional number keeps rows 9
+key `handoff/charter.md` in `explore-<topic>`. The fractional number keeps rows 9
 and 10 — the shared meta-ladder tail `/scope` uses too — at their
 existing ordinals; the template licenses a body slot to expand this
 way.
@@ -238,11 +239,16 @@ holds work (`skill-session.sh has-work`) or key
 `chain/roadmap-scope` exists in `charter-<topic>` with no
 published ROADMAP, and into `/strategy` otherwise.
 
-Every invocation whose slug validates opens `charter-<topic>` and
-clears a stale `chain/dispatch` key in it before the ladder routes
-(Phase 0 step 0.4a), a resumed run included: `open` attaches to a
-live session and replaces a finished one. The session holds only
-the dispatch key for now; the state file stays where it is.
+The ladder's reads are read-only and run before anything opens the
+session: `koto context exists` and `koto context get` read
+`work/state.md` from a live or a finished `charter-<topic>` alike,
+so a finished run's `exit:` record reaches row 2 intact. The open —
+`skill-session.sh open charter <topic>`, which attaches to a live
+session and replaces a finished one — runs as a row's action enters
+its phase (Phase 0 runs it at step 0.4a, with the stale
+`chain/dispatch` clear riding it), never before the ladder has read
+what a replace would discard. The session holds the dispatch key,
+the `chain/roadmap-scope` key, and the `work/state.md` state key.
 
 `/charter`'s stale-session threshold is 7 days: state with
 `last_updated` ≥ 7 days old surfaces the Resume / Force-materialize
@@ -261,7 +267,7 @@ Execute phases sequentially by reading the corresponding phase file:
 0. **Setup** — slug validation, opening `charter-<topic>` with
    `skill-session.sh open charter <topic>` and clearing any stale
    dispatch key with `skill-session.sh dispatch clear charter
-   <topic>` (silently, no prompt), state-file creation.
+   <topic>` (silently, no prompt), the initial `work/state.md` write.
    - Instructions: `skills/charter/references/phases/phase-0-setup.md`
 
 1. **Discover** — repository visibility detection, topic-related
@@ -307,7 +313,7 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
 | `skills/charter/references/phases/phase-0-setup.md` | Phase 0 |
 | `skills/charter/references/phases/phase-1-discovery.md` | Phase 1 |
 | `skills/charter/references/phases/phase-2-chain-orchestration.md` | Phase 2 |
-| `skills/charter/references/phases/phase-state-management.md` | All phases — state-file schema, conditional-field gating, R9 hard finalization check spec |
+| `skills/charter/references/phases/phase-state-management.md` | All phases — state schema, conditional-field gating, R9 hard finalization check spec |
 | `skills/charter/references/phases/phase-resume.md` | All phases — 10-row resume ladder, dual-check drift detection, R14 child-internals isolation |
 | `skills/charter/references/phases/phase-finalization.md` | Phase N |
 
@@ -316,7 +322,7 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
 `/charter`'s security envelope binds the six pattern-level contract
 surfaces enumerated in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` — slug
-re-validation on resume, closed write-target set, state-file enum
+re-validation on resume, closed write-target set, state enum
 re-validation, stale `chain/dispatch` self-heal, visibility
 boundary, and no untrusted-input interpolation. Two of the six need
 `/charter`-specific statements, because `--upstream` is the first
@@ -360,21 +366,24 @@ motivates it, since the strategic corpus commonly lives outside the
 repo the chain runs in.
 
 **Closed write-target set.** `/charter` writes to exactly six
-places: the state file at `wip/charter_<topic>_state.md`, the
-`/roadmap` scope handoff as key `chain/roadmap-scope` in its own
-session `charter-<topic>`, Decision
+places: the state key `work/state.md` in its own session
+`charter-<topic>` (written, rewritten, and removed there), the
+`/roadmap` scope handoff as key `chain/roadmap-scope` in the same
+session, Decision
 Records under `docs/decisions/`, the force-materialized partial
 artifact its abandonment path produces under `docs/strategies/`
 (plus the `git rm` of a rejected Draft at the same path), the
-removal of the `/explore` handoff at
-`wip/charter_<topic>_handoff.md` once a run has consumed it, and the
+removal of the `/explore` handoff key `handoff/charter.md` from
+`explore-<topic>` once a run has consumed it (and the close of that
+session when it then holds nothing else), and the
 closes its finalization performs — `close-children` over the chain's
-own children, then its own session — along with the `wip/` cleanup
-of its state file. Every one of those paths
-is composed from the validated topic slug, never from
-author-supplied text. The `/explore` handoff is a read target that
-becomes a delete target, and it is named here for the same reason
-the rest are: the set is a closed list of concrete paths, so a path
-`/charter` touches and the list omits is outside the set. The `--upstream` value does not widen the
+own children, then its own session. Every one of those paths,
+session names and key names
+is composed from the validated topic slug and constant names, never
+from author-supplied text. The `/explore` handoff is a read target
+that becomes a delete target, and it is named here for the same
+reason the rest are: the set is a closed list of concrete targets,
+so a target `/charter` touches and the list omits is outside the
+set. The `--upstream` value does not widen the
 set: it is a read target only — validated, recorded, handed to a
 child — and is never written to.

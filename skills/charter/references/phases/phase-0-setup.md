@@ -1,7 +1,7 @@
 # Phase 0: Setup
 
 Parse the flags, validate the topic slug, validate any supplied
-upstream, and create the state file. Phase 0 is the entry-point
+upstream, and write the initial `work/state.md` key. Phase 0 is the entry-point
 guard rail: it rejects unsafe or non-conforming inputs before any
 other phase runs and records the bootstrap context the rest of the
 workflow assumes. Repository visibility detection is deferred to
@@ -31,14 +31,14 @@ Establish the runtime context for `/charter`:
   per the visibility-gate use case; Phase 0 only reads it for the
   third upstream check, and otherwise records the slug and creates
   state).
-- On match, create the state file at `wip/charter_<topic>_state.md`
+- On match, write key `work/state.md` in `charter-<topic>`
   with `phase_pointer: 0` and `exit: UNSET`, plus
   `consumed_upstream:` when — and only when — an upstream survived
   step 0.4.
 
 By the end of Phase 0, downstream phases can assume the slug
 recorded in state is byte-identical to the validated positional
-argument and that the state file exists with the expected initial
+argument and that `work/state.md` exists with the expected initial
 fields.
 
 ## 0.1 Parse Flags Before the Positional Slug Is Read
@@ -70,7 +70,7 @@ today.
 is the last token in `$ARGUMENTS`, or the token following it
 begins with `--`, there is no value to consume. Reject naming the
 missing argument and stop — before the slug is validated, before
-the state file is written, before any child is invoked:
+the state key is written, before any child is invoked:
 
 > *"`--upstream` requires a path argument naming the upstream
 > artifact this chain consumes, for example `--upstream
@@ -123,11 +123,11 @@ marked as flags and leaves everything else exactly as typed.
 
 On match: the topic slug is the residue verbatim; proceed to step
 0.4 (upstream validation), step 0.4a (session open) and then step
-0.5 (state-file creation).
+0.5 (the state-key write).
 
 On regex failure: reject the invocation with an error message that
 names the offending input and the violated pattern. Phase 0 stops;
-no state file is created; no Phase 1 invocation; no "best effort"
+no state key is written; no Phase 1 invocation; no "best effort"
 slug derivation.
 
 The error message MUST name the violated pattern explicitly so the
@@ -171,8 +171,8 @@ Normalization would silently absorb input the author did not
 intend. If a user types `my_topic` expecting it to be a literal
 slug, normalizing to `my-topic` and proceeding would:
 
-- write `wip/charter_my-topic_state.md` while the author searches
-  for `wip/charter_my_topic_state.md`;
+- open session charter-my-topic while the author searches
+  for charter-my_topic;
 - name `docs/strategies/STRATEGY-my-topic.md` as the terminal
   artifact while the author refers to it as `my_topic`;
 - create drift between what the author typed and what the
@@ -205,7 +205,7 @@ repo. Neither route parses a path out of the slug.
 
 Runs only when step 0.1 consumed a value. Every check below is a
 hard stop or a documented omission — no `--upstream` value reaches
-the state file, a child invocation, or a committed frontmatter
+key `work/state.md`, a child invocation, or a committed frontmatter
 field without passing all of them.
 
 ### Canonicalize and Bounds-Check
@@ -306,8 +306,8 @@ session and remove any dispatch key a crashed run left in it:
 `open` creates `charter-<topic>` from the store template, attaches to
 it when a live one exists (a resumed run), and replaces a finished
 one. The session carries the `chain/dispatch` key `/charter` writes
-around each child in Phase 2; its own state stays in the state file
-below for now. A refusal from `open` (a `refused=`, `failed=` or
+around each child in Phase 2 and the `work/state.md` key step 0.5
+writes below. A refusal from `open` (a `refused=`, `failed=` or
 `error=` line, or koto missing or below the floor) stops Phase 0
 with the message `open` printed; nothing falls back to running
 without a session. `open` checks the topic against
@@ -323,18 +323,23 @@ and the key is
 
 Every invocation that gets this far opens the session, a resumed one
 included, so the finalization phase always has a session to close.
+The resume ladder's own reads run before this step: `koto context
+exists` and `koto context get` read a finished session's keys
+without opening it, so the replace `open` performs here never
+discards a record the ladder has yet to read.
 
-## 0.5 Create the State File
+## 0.5 Write the Initial `work/state.md` Key
 
 On regex match (step 0.3 passed) and after step 0.4 has settled any
-`--upstream` value, create the state file at
-`wip/charter_<topic>_state.md` (where `<topic>` is the validated
-positional argument, byte-for-byte). The file is the v1 core-layer
-materialization of the `storage_substrate = wip-yaml-md`
-substitution variable (see
-`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`).
+`--upstream` value, write key `work/state.md` in session
+`charter-<topic>` (where `<topic>` is the validated positional
+argument, byte-for-byte). The state lives in koto session context —
+write it with `koto context add charter-<topic> work/state.md`,
+content on stdin; the storage-substrate substitution surface this
+exercises is named in
+`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`.
 
-Initial state-file fields (Phase 0 writes these; Phase 1 and later
+Initial state fields (Phase 0 writes these; Phase 1 and later
 phases update them):
 
 ```yaml
@@ -367,11 +372,10 @@ otherwise, never `none`, never null, never an empty string. A run
 whose upstream was dropped by the visibility check is
 indistinguishable in state from a run that supplied no upstream,
 which is the intended shape — nothing records a private path in a
-public repo, including the state file, which is itself durable on
-the pushed feature branch. See the field's entry in
+public repo, including `work/state.md`. See the field's entry in
 `skills/charter/references/phases/phase-state-management.md`.
 
-After the state file is created, Phase 0 completes and control
+After the state key is written, Phase 0 completes and control
 transfers to Phase 1 (discovery + visibility gate + chain
 proposal). The Phase 1 procedure is at
 `skills/charter/references/phases/phase-1-discovery.md`.

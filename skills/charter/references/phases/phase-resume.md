@@ -2,10 +2,11 @@
 
 The resume ladder is `/charter`'s entry-point decision logic for any
 invocation that finds prior state on the topic. It runs on every
-invocation against an existing topic: a state file in `wip/`, an
-upstream STRATEGY at the published path, a child's partial-run
-artifact, or just a branch related to the topic — any of these means
-the topic is not fresh, and the ladder decides where re-entry lands.
+invocation against an existing topic: a `work/state.md` key in
+`charter-<topic>`, an upstream STRATEGY at the published path, a
+child's partial-run session, or just a branch related to the topic —
+any of these means the topic is not fresh, and the ladder decides
+where re-entry lands.
 
 The ladder is **first-match-wins, top-to-bottom**: it tests row 1's
 condition first, and the first row whose condition matches takes the
@@ -28,10 +29,10 @@ child-internals isolation rule is cited from
 ## Table of Contents
 
 - [The 10-Row Ladder](#the-10-row-ladder)
-- [Row 1 — Malformed State File](#row-1--malformed-state-file)
+- [Row 1 — Malformed State](#row-1--malformed-state)
 - [Row 2 — Exit Field Already Set](#row-2--exit-field-already-set)
-- [Row 3 — State File Fresh (< 7 days)](#row-3--state-file-fresh--7-days)
-- [Row 4 — State File Stale (≥ 7 days)](#row-4--state-file-stale--7-days)
+- [Row 3 — State Fresh (< 7 days)](#row-3--state-fresh--7-days)
+- [Row 4 — State Stale (≥ 7 days)](#row-4--state-stale--7-days)
 - [Row 5 — Accepted/Active STRATEGY Exists](#row-5--acceptedactive-strategy-exists)
 - [Row 6 — Draft STRATEGY Exists](#row-6--draft-strategy-exists)
 - [Row 7 — `/strategy` Partial Run](#row-7--strategy-partial-run)
@@ -50,15 +51,15 @@ child-internals isolation rule is cited from
 ## The 10-Row Ladder
 
 ```
-1.   state file malformed                                 -> Hard error naming malformation + offer Discard
-2.   state file has exit field set                        -> Exit-value-specific re-entry prompt
-3.   state file exists, last_updated < 7d                 -> Resume at recorded phase_pointer (no prompt)
-4.   state file exists, last_updated >= 7d                -> Resume / Force-materialize / Discard prompt
+1.   work/state.md malformed                              -> Hard error naming malformation + offer Discard
+2.   work/state.md has exit field set                     -> Exit-value-specific re-entry prompt
+3.   work/state.md exists, last_updated < 7d              -> Resume at recorded phase_pointer (no prompt)
+4.   work/state.md exists, last_updated >= 7d             -> Resume / Force-materialize / Discard prompt
 5.   STRATEGY-<topic>.md Accepted/Active                  -> Re-evaluate / Revise / Bail prompt
 6.   STRATEGY-<topic>.md Draft                            -> continue-or-start-fresh prompt
 7.   skill-session.sh has-work strategy <topic> exits 0   -> Resume into /strategy
 8.   skill-session.sh has-work vision <topic> exits 0     -> Resume into /vision
-8.5  wip/charter_<topic>_handoff.md exists                -> Phase 0 setup, then Phase 1 with the handoff pre-loaded
+8.5  key handoff/charter.md in explore-<topic> exists     -> Phase 0 setup, then Phase 1 with the handoff pre-loaded
 9.   On branch related to topic                           -> Resume at Phase 1
 10.  On main or unrelated branch                          -> Start at Phase 0
 ```
@@ -81,9 +82,10 @@ the tail to be identified by role rather than by ordinal, is in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`
 (Body-Slot Expansion).
 
-## Row 1 — Malformed State File
+## Row 1 — Malformed State
 
-**Match condition.** `wip/charter_<topic>_state.md` exists but cannot
+**Match condition.** Key `work/state.md` exists in session
+`charter-<topic>` but its content cannot
 be parsed as YAML, is missing required fields for the recorded
 `phase_pointer`, or has an inconsistent combination of `exit:` and
 gated fields (e.g., `exit: re-evaluation` with no
@@ -93,12 +95,13 @@ ungated case per the conditional-field gating discipline in
 `skills/charter/references/phases/phase-state-management.md`).
 
 **Action.** Surface a **hard error** that names the specific
-malformation (not "the state file is malformed" — name what is
+malformation (not "the state is malformed" — name what is
 wrong: "unparseable YAML at line N"; "missing required field
 `phase_pointer`"; "`exit: re-evaluation` requires
 `decision_record_sub_shape:` but it is unset"). Then offer
-**Discard** as the recovery path. Discard removes the state file
-and allows the author to restart the chain at Phase 0.
+**Discard** as the recovery path. Discard removes key `work/state.md`
+from `charter-<topic>` (`koto context remove`) and allows the author
+to restart the chain at Phase 0.
 
 **The ladder MUST NOT silently fall through to row 10 (Phase 0
 start) when row 1 fires.** Malformed state is a contract violation
@@ -109,7 +112,7 @@ is terminal.
 
 ## Row 2 — Exit Field Already Set
 
-**Match condition.** The state file exists, is well-formed, and has
+**Match condition.** `work/state.md` exists, is well-formed, and has
 `exit:` set to one of the valid pattern-level exit values
 (`full-run`, `re-evaluation`, or `abandonment-forced`). The chain
 has already finalized; this re-entry is against a settled state.
@@ -135,9 +138,9 @@ Decision Record body authoring also belongs downstream); the
 abandonment-forced artifact authoring forward-references the
 exit-artifact authoring outline.
 
-## Row 3 — State File Fresh (< 7 days)
+## Row 3 — State Fresh (< 7 days)
 
-**Match condition.** The state file exists, is well-formed, has
+**Match condition.** `work/state.md` exists, is well-formed, has
 `exit:` UNSET, and `last_updated` is strictly less than 7 days
 old relative to the current wall-clock time.
 
@@ -146,9 +149,9 @@ intervention prompt. The author sees `/charter` continue where it
 left off; no Force-materialize prompt, no Discard prompt, no
 acknowledgment dialog. The chain advances.
 
-## Row 4 — State File Stale (≥ 7 days)
+## Row 4 — State Stale (≥ 7 days)
 
-**Match condition.** The state file exists, is well-formed, has
+**Match condition.** `work/state.md` exists, is well-formed, has
 `exit:` UNSET, and `last_updated` is 7 days old or more relative
 to the current wall-clock time.
 
@@ -163,12 +166,12 @@ to the current wall-clock time.
   companion outline implementing the exit-path orchestration; the
   partial-artifact authoring is owned by the exit-artifact
   authoring outline.
-- **Discard** — remove the state file and restart the chain at
+- **Discard** — remove key `work/state.md` and restart the chain at
   Phase 0.
 
 The prompt fires on **every invocation** while the state remains
 stale (i.e., until the author chooses one option or the state
-advances). Repeated invocations against a stale state file
+advances). Repeated invocations against a stale `work/state.md`
 repeatedly surface the prompt — the system does not silently
 absorb staleness.
 
@@ -182,8 +185,8 @@ fresh.
 
 ## Row 5 — Accepted/Active STRATEGY Exists
 
-**Match condition.** No state file exists at
-`wip/charter_<topic>_state.md`, AND the STRATEGY at
+**Match condition.** No `work/state.md` key exists in
+`charter-<topic>`, AND the STRATEGY at
 `docs/strategies/STRATEGY-<topic>.md` has frontmatter `status:` of
 `Accepted` or `Active`. The author has invoked `/charter <topic>`
 against a settled upstream.
@@ -230,8 +233,8 @@ prevents the child's prompts from hijacking `/charter`'s flow.
 
 ## Row 6 — Draft STRATEGY Exists
 
-**Match condition.** No state file exists at
-`wip/charter_<topic>_state.md`, AND the STRATEGY at
+**Match condition.** No `work/state.md` key exists in
+`charter-<topic>`, AND the STRATEGY at
 `docs/strategies/STRATEGY-<topic>.md` has frontmatter `status:` of
 `Draft`. The author has invoked `/charter <topic>` against a draft
 that did not finish through to acceptance.
@@ -259,12 +262,12 @@ fires on every full-run chain (R7) and can be interrupted with the
 STRATEGY already written.
 
 This row is the only place the ambiguity bites. A `/charter` chain
-interrupted mid-`/roadmap` normally still has its state file, so
+interrupted mid-`/roadmap` normally still has its `work/state.md`, so
 rows 3-4 match first and resume at the recorded `phase_pointer`
 (`2`, chain orchestration), with `chain_ran` already naming
 `/strategy` as complete — that is enough to route to `/roadmap`
 without inspecting the filesystem. Row 6 is the case where no state
-file survives, so there is no `phase_pointer` and no `chain_ran` to
+key survives, so there is no `phase_pointer` and no `chain_ran` to
 consult and the on-disk artifacts are the only evidence.
 "Continue draft" resolves the target this way:
 
@@ -288,14 +291,14 @@ Resuming into `/strategy` in case 1 would re-run a child that
 already finished, so the handoff-artifact check runs first. The
 check lives in this row rather than in a new ladder row because
 rows 7-8 both require *no* STRATEGY at the published path and so
-can never match, rows 3-4 already cover the state-file case through
+can never match, rows 3-4 already cover the state-key case through
 `phase_pointer`, and rows 9-10 are pattern-level meta-ladder rows
 that renumbering would disturb for `/scope` as well as `/charter`.
 
 ## Row 7 — `/strategy` Partial Run
 
-**Match condition.** No state file exists at
-`wip/charter_<topic>_state.md`, no STRATEGY exists at the
+**Match condition.** No `work/state.md` key exists in
+`charter-<topic>`, no STRATEGY exists at the
 published path, AND
 `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" has-work
 strategy <topic>` exits 0: `strategy-<topic>` is live, belongs to
@@ -308,8 +311,8 @@ from the appropriate phase.
 
 ## Row 8 — `/vision` Partial Run
 
-**Match condition.** No state file exists at
-`wip/charter_<topic>_state.md`, no STRATEGY exists at the
+**Match condition.** No `work/state.md` key exists in
+`charter-<topic>`, no STRATEGY exists at the
 published path, row 7 did not match, AND `has-work vision <topic>`
 exits 0.
 
@@ -339,24 +342,29 @@ letting `/vision`'s own resume logic read its keys and continue.
 
 ## Row 8.5 — `/explore` Handoff Detected
 
-**Match condition.** No state file exists at
-`wip/charter_<topic>_state.md`, no STRATEGY exists at the published
-path, no child partial-run artifact matched rows 7-8, AND
-`wip/charter_<topic>_handoff.md` exists on disk. Beyond the rows
-above not matching, that one path is the whole condition: the row
-reads no other file to decide whether it fires. The path is
-composed from `/charter`'s own prefix and the
-validated topic slug, which is what keeps it inside the closed
-write-target set `skills/charter/SKILL.md` enumerates — the row
-never fires on a path in another skill's namespace.
+**Match condition.** No `work/state.md` key exists in
+`charter-<topic>`, no STRATEGY exists at the published
+path, no child partial-run session matched rows 7-8, AND key
+`handoff/charter.md` exists in session `explore-<topic>`. Beyond the
+rows above not matching, that one key is the whole condition: the
+row reads no other key to decide whether it fires, and an absent
+handoff (no `explore-<topic>` session, or one without the key) is no
+row. It never fires on a key in another skill's area: the session
+name is composed from the validated topic slug and the key name is
+the constant `handoff/charter.md`, read by name, never discovered by
+listing.
 
 **Action.** Run Phase 0's setup obligations against the current
 worktree — slug validation (step 0.3), `--upstream` validation when
-the invocation supplied a value (step 0.4), and state-file creation
-(step 0.5) — then enter Phase 1 with the handoff pre-loaded as
-discovery input. Repository visibility is detected in Phase 1.1 as
-on any other run. Record `consumed_handoff:
-wip/charter_<topic>_handoff.md` in the state file at the same write.
+the invocation supplied a value (step 0.4), and the `work/state.md`
+key write (step 0.5) — then enter Phase 1 with the handoff pre-loaded
+as discovery input. Repository visibility is detected in Phase 1.1 as
+on any other run. Record `consumed_handoff: handoff/charter.md` in
+`work/state.md` at the same write. Once the handoff is consumed,
+remove key `handoff/charter.md` from `explore-<topic>` (`koto context
+remove`), and close `explore-<topic>` when it holds nothing else. An
+early exit before the consumption leaves the key in place for the
+next run.
 
 Phase 1 runs. The row never skips it and never resumes into a
 child: a handoff is discovery material, not a resume point inside
@@ -401,34 +409,35 @@ from this file. A handoff that carries such a value anyway is
 ignored on that value, not trusted and not treated as
 malformation.
 
-**A malformed handoff degrades to a cold start.** If the file is
-truncated, unparseable, or missing the sections above, `/charter`
-announces that it found a handoff it could not consume, names the
-path, and proceeds as though none existed. There is no partial
-consumption: a half-read handoff would pre-supply some discovery
-inputs and not others with no way for the author to tell which.
-`consumed_handoff:` is not written on this path, because nothing
-was consumed.
+**A malformed handoff degrades to a cold start.** If the key's
+content is truncated, unparseable, or missing the sections above,
+`/charter` announces that it found a handoff it could not consume,
+names the key, leaves it in place, and proceeds as though none
+existed. There is no partial consumption: a half-read handoff would
+pre-supply some discovery inputs and not others with no way for the
+author to tell which. `consumed_handoff:` is not written on this
+path, because nothing was consumed.
 
 **When a higher row fires first.** A settled artifact on disk wins.
 The handoff has nothing to say about it — being barred from
 carrying existence, status, or hashes, it cannot be the more
 current evidence — so a row 5-8 match takes its own action and row
 8.5 is never reached. The handoff is not silently dropped: the row
-that fires states that a router handoff exists at
-`wip/charter_<topic>_handoff.md` and was not consumed, and offers
+that fires states that a router handoff exists at key
+`handoff/charter.md` and was not consumed, and offers
 its theme statement as context for the choice the row is asking the
-author to make. The file is left on disk, so a later Revise that
-clears the way down the ladder reaches this row on its own terms.
+author to make. The key is left in `explore-<topic>`, so a later
+Revise that clears the way down the ladder reaches this row on its
+own terms.
 
 ## Row 9 — On Topic-Related Branch
 
-**Match condition.** No state file exists, no upstream STRATEGY
-exists, no child partial-run artifacts exist, no `/explore` handoff
-exists at `wip/charter_<topic>_handoff.md`, AND the current git
-branch name is related to the topic (typically the branch name
-contains the topic slug, or a workflow-naming convention links the
-branch to the topic).
+**Match condition.** No `work/state.md` key exists, no upstream
+STRATEGY exists, no child partial-run session matches, no `/explore`
+handoff key exists at `handoff/charter.md` in `explore-<topic>`, AND
+the current git branch name is related to the topic (typically the
+branch name contains the topic slug, or a workflow-naming convention
+links the branch to the topic).
 
 **Action.** Resume at `/charter`'s Phase 1 (Discovery). The branch
 context provides enough signal to skip Phase 0 setup; the parent
@@ -448,18 +457,18 @@ behavior the row was written for, so it stays as it is.
 
 ## Row 10 — On Main or Unrelated Branch
 
-**Match condition.** No state file, no upstream STRATEGY, no child
-partial-run artifacts, no `/explore` handoff, and the current branch
-is not topic-related (main, an unrelated feature branch, or a
+**Match condition.** No `work/state.md` key, no upstream STRATEGY, no
+child partial-run session, no `/explore` handoff key, and the current
+branch is not topic-related (main, an unrelated feature branch, or a
 detached HEAD).
 
 **Action.** Start fresh at Phase 0 — the entry-point guard rail
-that validates the topic slug, creates the state file, and routes
-to Phase 1.
+that validates the topic slug, writes the `work/state.md` key, and
+routes to Phase 1.
 
 ## Recorded-Upstream Re-Validation
 
-When the state file carries `consumed_upstream:`, the ladder
+When `work/state.md` carries `consumed_upstream:`, the ladder
 re-validates that value on EVERY re-entry, before any row's action
 runs and before the path is interpolated into a child invocation.
 The re-validation re-runs the whole step-0.4 battery from
@@ -484,8 +493,8 @@ it now fails — and offers three options:
   recorded value is cleared from state so the next invocation
   starts from the author's new one. This is the interactive
   default.
-- **Continue without** — remove `consumed_upstream:` from the state
-  file and resume with no upstream. The produced STRATEGY omits
+- **Continue without** — remove `consumed_upstream:` from
+  `work/state.md` and resume with no upstream. The produced STRATEGY omits
   `upstream:`, which the run states plainly rather than leaving the
   author to notice later.
 - **Bail** — route to the abandonment-forced exit path.
@@ -504,8 +513,8 @@ continues without it.
 
 ## Drift Detection (Child-Snapshot Dual Check)
 
-`/charter`'s state file records a `child_snapshots` block with one
-entry per child in `planned_chain`. Each entry has three fields:
+`/charter`'s `work/state.md` records a `child_snapshots` block with
+one entry per child in `planned_chain`. Each entry has three fields:
 
 - `path` — the absolute or repo-relative path to the child's
   durable doc.
@@ -517,7 +526,7 @@ entry per child in `planned_chain`. Each entry has three fields:
   equivalent). **Computation is READ-ONLY** — `git hash-object`
   computes the hash from the file's contents on disk; it does NOT
   write to git history, does NOT modify the child doc, and does NOT
-  modify any path outside `/charter`'s own state file.
+  modify anything outside `/charter`'s own `work/state.md` key.
 
 ### The Dual Check
 
@@ -623,21 +632,21 @@ other child internals to make resume decisions.
    `docs/roadmaps/ROADMAP-<topic>.md`).
 2. The child doc git blob hash, computed via `git hash-object`
    against the same published path (READ-ONLY, no writes).
-3. `/charter`'s own state file at
-   `wip/charter_<topic>_state.md`.
+3. `/charter`'s own `work/state.md` key in session
+   `charter-<topic>`.
 
-Row 8.5 reads a fourth file, `wip/charter_<topic>_handoff.md`, and
-it is outside this rule rather than an exception to it. The handoff
-is not a child internal: it sits in `/charter`'s own namespace, is
-written by the router rather than by any child, and carries
-conversation rather than filesystem state. Reading it consults no
-child's surface, so the three-source enumeration above stands as
-written.
+Row 8.5 reads a fourth source, key `handoff/charter.md` in
+`explore-<topic>`, and it is outside this rule rather than an
+exception to it. The handoff is not a child internal: it is the
+router's output addressed to `/charter`, is written by the router
+rather than by any child of the chain, and carries conversation
+rather than filesystem state. Reading it consults no chain child's
+surface, so the three-source enumeration above stands as written.
 
 **Prohibited sources** (the ladder MUST NEVER read these):
 
 - **Child internal phase pointers** — `/strategy`, `/vision`,
-  `/roadmap`, and any other child each have their own state file
+  `/roadmap`, and any other child each have their own state surface
   or phase-pointer mechanism for their own resume logic. `/charter`
   does NOT read these.
 - **Child research artifacts** — the `research/` keys in a child's
@@ -681,7 +690,7 @@ The US-3a manual-fallback rejection contract is: the rejection
 sub-shape of the Decision Record is `/charter`-orchestrated only.
 Manual-fallback rejection leaves only the discard commit as the
 durable trace, by design. The ladder's row 1 (malformed state) and
-row 10 (no state file) paths apply normally — nothing in the
+row 10 (no state key) paths apply normally — nothing in the
 resume path attempts to reconstruct a Decision Record from
 external evidence (the discard commit SHA, the absence of a
 STRATEGY at the published path, or any other inferred signal).
@@ -724,7 +733,7 @@ The `git hash-object` invocations used to compute child-doc
 content fingerprints are **read-only**. `git hash-object` (without
 `-w`) reads the file from disk and prints the hash to stdout; it
 does NOT write to git history, does NOT modify the child doc, and
-does NOT modify any path outside `/charter`'s own state file. The
+does NOT modify anything outside `/charter`'s own `work/state.md`. The
 ladder MUST NOT use `git hash-object -w` (which would create a
 blob object in `.git/objects/`) — the plain read-only form is
 sufficient for drift detection.
@@ -734,8 +743,8 @@ sufficient for drift detection.
 The ladder reads only the documented sources (the three permitted
 sources in the R14 Child-Internals Isolation section above, plus
 the `has-work` session check rows 7-8 run against `/strategy` and
-`/vision`, plus the `/explore` handoff at
-`wip/charter_<topic>_handoff.md` that row 8.5 reads, plus the
+`/vision`, plus the `/explore` handoff at key
+`handoff/charter.md` in `explore-<topic>` that row 8.5 reads, plus the
 existence and git-tracked status of the path in
 `consumed_upstream:` — metadata about that file, never its body).
 No other child internals are consulted. The bounded read
@@ -747,12 +756,14 @@ this prose is itself a violation.
 
 A row that recovers the topic slug from a path on disk rather than
 from `$ARGUMENTS` re-validates it against `^[a-z0-9-]+$` before the
-slug reaches any emitted command or state-file write path. This
-covers the published-STRATEGY rows, the child partial-run rows, and
-the slot-7 feeder-doc row matching `wip/charter_<topic>_handoff.md`:
-each finds its slug by a filesystem match, so each carries the
+slug reaches any emitted command or state-key write. This covers
+the published-STRATEGY rows and the child partial-run rows: each
+finds its slug by a filesystem match, so each carries the
 path-traversal surface a maliciously-named file placed under `docs/`
-or `wip/` would otherwise open. An unparseable slug rejects the
+would otherwise open. Row 8.5 carries no such surface the other way
+around: the `explore-<topic>` session name and the constant key name
+are composed from the already-validated slug, never read back from a
+key or recovered from a filesystem match. An unparseable slug rejects the
 resume entry, surfaces a diagnostic naming the offending path, and
 routes to `/charter`'s bail handling; the ladder never proceeds on
 an unvalidated slug. The pattern-level rule and its wording live in
@@ -768,9 +779,9 @@ discipline. The recorded value is canonicalized to an absolute
 path, rejected if it resolves outside the working tree, and quoted
 and passed after `--` in any command the ladder emits (`git
 ls-files -- <path>`) and in the `/strategy` invocation it feeds. A
-state file is a file on disk that a hand-edit can change between
-sessions, so the value read back is treated as untrusted input
-exactly as the flag's original value was.
+session key is data that an edit can change between sessions, so
+the value read back is treated as untrusted input exactly as the
+flag's original value was.
 
 ### Malformed State Fails Closed
 
@@ -797,20 +808,23 @@ contract layer.
 
 ### No Third-Party Dependencies
 
-The ladder uses only filesystem reads and `git hash-object` (a
-read-only invocation of the git binary already required by the
-shirabe workspace). No third-party libraries, no external API
-calls, no network surface.
+The ladder uses only filesystem reads, read-only koto session
+reads (`koto context exists`, `koto context get`, `has-work` — koto
+is already required by the shirabe workspace), and `git hash-object`
+(a read-only invocation of the git binary). No third-party
+libraries, no external API calls beyond koto's own storage, no
+other network surface.
 
 ### Metadata-Only Child-Snapshot Storage
 
-The `child_snapshots` block in `wip/charter_<topic>_state.md`
-stores `path + status + content_hash` per child — METADATA only.
+The `child_snapshots` block in `work/state.md` stores
+`path + status + content_hash` per child — METADATA only.
 The block MUST NOT copy child-doc body content into the state
-file. Feature branches with the state file on disk are visible
-during PR review; copying body content into the state file would
-leak pre-publication wording across review surfaces. The hash
-serves as the body fingerprint without exposing the body itself.
+key. Key content is readable by anything that can read the
+session; copying body content into the state key would carry
+pre-publication wording outside the doc's own review surface. The
+hash serves as the body fingerprint without exposing the body
+itself.
 
 ### Bounded Concurrent-Edit Surface via the 7-Day Threshold
 
@@ -819,7 +833,7 @@ any concurrent edits. State older than 7 days requires explicit
 author intent (Resume / Force-materialize / Discard at row 4)
 before the chain advances. The threshold prevents indefinite
 resume on long-abandoned state, which would otherwise let
-concurrent edits accumulate silently against the state file's
+concurrent edits accumulate silently against the state key's
 recorded snapshots.
 
 ### Non-Retroactive Decision Records

@@ -6,13 +6,13 @@
       "id": 1,
       "name": "baseline-slug-rejection",
       "prompt": "/charter MyTopic",
-      "expected_output": "Phase 0 validates the topic slug 'MyTopic' against the pattern-level regex ^[a-z0-9-]+$ and rejects it because of the uppercase letters, surfacing a clear error message that names the violated pattern. No state file is created. Other invocations such as /charter my_topic (underscore), /charter my.topic (dot), and /charter \"Hello World\" (whitespace and uppercase) are rejected the same way. Phase 0 validates $ARGUMENTS as provided byte-for-byte against the regex; there is no normalization, no derivation, and no \"best effort\" massaging.",
+      "expected_output": "Phase 0 validates the topic slug 'MyTopic' against the pattern-level regex ^[a-z0-9-]+$ and rejects it because of the uppercase letters, surfacing a clear error message that names the violated pattern. No state is written. Other invocations such as /charter my_topic (underscore), /charter my.topic (dot), and /charter \"Hello World\" (whitespace and uppercase) are rejected the same way. Phase 0 validates $ARGUMENTS as provided byte-for-byte against the regex; there is no normalization, no derivation, and no \"best effort\" massaging.",
       "files": [],
       "expectations": [
         "Plan validates the topic slug 'MyTopic' against the regex ^[a-z0-9-]+$ at Phase 0 and rejects it with a clear error naming the violated pattern",
         "Plan rejects /charter my_topic at Phase 0 for the underscore violation, /charter my.topic for the dot violation, and /charter \"Hello World\" for the whitespace and uppercase violation",
         "Plan applies validation byte-for-byte against $ARGUMENTS with no normalization, no derivation, no auto-substitution into a conforming slug",
-        "Plan does NOT create wip/charter_<topic>_state.md on rejection; Phase 0 stops at the regex check",
+        "Plan does NOT write key work/state.md on rejection; Phase 0 stops at the regex check",
         "Plan names the violation category in the rejection error message (uppercase, underscore, dot, whitespace) so the author knows what to fix before re-invoking /charter"
       ]
     },
@@ -20,14 +20,12 @@
       "id": 2,
       "name": "baseline-malformed-state",
       "prompt": "/charter test-topic",
-      "expected_output": "wip/charter_test-topic_state.md exists but is malformed (unparseable YAML, missing required field for the recorded phase_pointer, or invalid exit / decision_record_sub_shape combination). The resume ladder fires row 1, surfaces a hard error naming the specific malformation, and offers Discard as the recovery path. /charter MUST NOT silently fall through to Phase 0 (row 10); malformed state is a contract violation surface, not a missing-state surface.",
-      "files": [
-        "wip/charter_test-topic_state.md"
-      ],
+      "expected_output": "key work/state.md in charter-test-topic exists but its content is malformed (unparseable YAML, missing required field for the recorded phase_pointer, or invalid exit / decision_record_sub_shape combination). The resume ladder fires row 1, surfaces a hard error naming the specific malformation, and offers Discard as the recovery path. /charter MUST NOT silently fall through to Phase 0 (row 10); malformed state is a contract violation surface, not a missing-state surface.",
+      "files": [],
       "expectations": [
-        "Plan detects the malformed state file at row 1 of the resume ladder and surfaces a hard error naming the specific malformation (e.g., unparseable YAML, missing required field, invalid exit / decision_record_sub_shape combo)",
-        "Plan offers Discard as the recovery path on row 1; the author confirms before the state file is removed",
-        "Plan does NOT silently fall through to row 10 (Phase 0 start fresh) when the state file is malformed; row 1 is terminal",
+        "Plan detects the malformed work/state.md key at row 1 of the resume ladder and surfaces a hard error naming the specific malformation (e.g., unparseable YAML, missing required field, invalid exit / decision_record_sub_shape combo)",
+        "Plan offers Discard as the recovery path on row 1; the author confirms before key work/state.md is removed from charter-test-topic",
+        "Plan does NOT silently fall through to row 10 (Phase 0 start fresh) when work/state.md is malformed; row 1 is terminal",
         "Plan does not absorb or paraphrase the malformation; the error message names what is wrong so the author can decide between repair-by-hand or Discard"
       ]
     },
@@ -35,13 +33,13 @@
       "id": 3,
       "name": "baseline-child-internals-isolation",
       "prompt": "/charter test-topic",
-      "expected_output": "On resume against an existing chain state, /charter reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /charter's own state file. /charter does NOT read child internal phase pointers, does NOT read any child wip/ file or child research keys, and does NOT read child session contents beyond the read-only has-work check in rows 7-8 of the resume ladder (skill-session.sh has-work strategy|vision <topic>, which asks only whether a live session on this branch holds a work/ key). Manual-review verified by code-path inspection per AC20b.",
+      "expected_output": "On resume against an existing chain state, /charter reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /charter's own work/state.md key in charter-<topic>. /charter does NOT read child internal phase pointers, does NOT read any child wip/ file or child research keys, and does NOT read child session contents beyond the read-only has-work check in rows 7-8 of the resume ladder (skill-session.sh has-work strategy|vision <topic>, which asks only whether a live session on this branch holds a work/ key). Manual-review verified by code-path inspection per AC20b.",
       "files": [],
       "expectations": [
         "Plan reads child doc frontmatter status: from the published path (docs/strategies/STRATEGY-<topic>.md, docs/visions/VISION-<topic>.md, docs/roadmaps/ROADMAP-<topic>.md) only \u2014 never from child internal state",
         "Plan computes child doc git blob hash via read-only git hash-object against the published path \u2014 without git hash-object -w and without writes to the child doc or to git history",
         "Plan does NOT read child wip/ files, child research keys, or child internal phase pointers; rows 7-8 use only the read-only skill-session.sh has-work strategy|vision <topic> check (live session on this branch holding a work/ key)",
-        "Plan reads /charter's own state file at wip/charter_<topic>_state.md but no other child-private state, log files, comment threads, or CI output",
+        "Plan reads /charter's own state at key work/state.md in charter-<topic> but no other child-private state, log files, comment threads, or CI output",
         "Plan binds child internals isolation to the R14-widened rule documented in references/parent-skill-child-inspection.md (citation in code-path inspection)"
       ]
     },
@@ -92,10 +90,10 @@
       "id": 7,
       "name": "us-1-cold-standalone-full-run",
       "prompt": "/charter test-topic",
-      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no /charter's state file for test-topic exists, no docs/strategies/STRATEGY-test-topic.md exists, no upstream artifacts. /charter walks Phase 1 discovery, surfaces the thesis-shift question and invokes /vision because R4 runs /vision on every cold start (no Accepted or Active VISION exists at docs/visions/VISION-test-topic.md, so the thesis-shift answer cannot change the outcome), skips the gated feeder /comp and says so in the chain proposal (a skip entry naming public visibility as the reason, per the stated-skip rule), invokes /strategy per R6, and then invokes /roadmap per R7. /roadmap's invocation is unconditional with respect to STRATEGY content: /charter does NOT count Building Blocks and does NOT read the Coordination Dependencies section to decide. Before invoking, /charter surfaces the roadmap confirmation prompt whose default is Proceed; the author proceeds, so /roadmap runs with --upstream docs/strategies/STRATEGY-test-topic.md and the scope handoff written as key chain/roadmap-scope in the charter-test-topic session (nothing pre-populates a file). At chain finalization, /charter invokes shirabe validate --format json --visibility=public against the Draft STRATEGY, parses the shirabe-validate/v1 envelope, and proceeds on a clean (exit 0) result before declaring full-run success. State file: exit: full-run, exit_artifacts lists docs/strategies/STRATEGY-test-topic.md and docs/roadmaps/ROADMAP-test-topic.md; chain_skipped contains no roadmap entry. planned_chain is [vision, strategy, roadmap]. The produced VISION is tracked in child_snapshots, not in exit_artifacts -- per AC11a/AC11b the exit artifacts are the STRATEGY and the ROADMAP.",
+      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no work/state.md key in charter-test-topic exists, no docs/strategies/STRATEGY-test-topic.md exists, no upstream artifacts. /charter walks Phase 1 discovery, surfaces the thesis-shift question and invokes /vision because R4 runs /vision on every cold start (no Accepted or Active VISION exists at docs/visions/VISION-test-topic.md, so the thesis-shift answer cannot change the outcome), skips the gated feeder /comp and says so in the chain proposal (a skip entry naming public visibility as the reason, per the stated-skip rule), invokes /strategy per R6, and then invokes /roadmap per R7. /roadmap's invocation is unconditional with respect to STRATEGY content: /charter does NOT count Building Blocks and does NOT read the Coordination Dependencies section to decide. Before invoking, /charter surfaces the roadmap confirmation prompt whose default is Proceed; the author proceeds, so /roadmap runs with --upstream docs/strategies/STRATEGY-test-topic.md and the scope handoff written as key chain/roadmap-scope in the charter-test-topic session (nothing pre-populates a file). At chain finalization, /charter invokes shirabe validate --format json --visibility=public against the Draft STRATEGY, parses the shirabe-validate/v1 envelope, and proceeds on a clean (exit 0) result before declaring full-run success. State key work/state.md: exit: full-run, exit_artifacts lists docs/strategies/STRATEGY-test-topic.md and docs/roadmaps/ROADMAP-test-topic.md; chain_skipped contains no roadmap entry. planned_chain is [vision, strategy, roadmap]. The produced VISION is tracked in child_snapshots, not in exit_artifacts -- per AC11a/AC11b the exit artifacts are the STRATEGY and the ROADMAP.",
       "files": [],
       "expectations": [
-        "Plan starts from Phase 0 (fresh worktree; no state file, no upstream artifacts) and validates the test-topic slug against ^[a-z0-9-]+$",
+        "Plan starts from Phase 0 (fresh worktree; no state key, no upstream artifacts) and validates the test-topic slug against ^[a-z0-9-]+$",
         "Plan walks Phase 1 discovery, surfaces the literal question \"Is the long-term thesis shifting, or is this an operational layer below it?\", and invokes /vision because R4 runs /vision unless an Accepted or Active VISION already exists at the published path -- on a cold start none does, so /vision runs regardless of the thesis-shift answer",
         "Plan does not invoke the gated feeder /comp under public-repo visibility, and states the skip in the chain-proposal output with public visibility named as the reason (stated-skip rule)",
         "Plan keeps the skip statement out of every committed surface: no chain_skipped entry for comp, no comp in planned_chain, and no mention of /comp or competitive analysis in any artifact written under docs/",
@@ -104,15 +102,15 @@
         "Plan leaves no staging-folder file carrying a child prefix (vision_, strategy_, roadmap_) after the run: the children keep their state as session keys, and /charter closes them with skill-session.sh close-children charter test-topic done at finalization before closing its own session",
         "Plan invokes /roadmap on this chain without letting any property of the produced STRATEGY decide whether the invocation fires; the only skip path named is an explicit author declination at the roadmap confirmation prompt, whose default is Proceed",
         "Plan invokes shirabe validate --format json --visibility=public as a sub-process against the Draft STRATEGY before declaring full-run success, parses the shirabe-validate/v1 envelope, and branches on the multi-level exit code: clean (0) proceeds; violations (2) block finalization and surface each error-severity finding readably as message (file:line) \u2014 the message already embeds the check code, so it is not prepended again \u2014 rather than verbatim annotation text; tool-error (1) halts as a tool failure distinct from a content violation",
-        "Plan writes state file with exit: full-run; exit_artifacts contains exactly two entries (STRATEGY path and ROADMAP path, each with status Draft) because the author did not decline /roadmap; chain_skipped contains no roadmap entry",
-        "Plan keeps conditional fields decision_record_sub_shape, referenced_strategy, discard_commit_sha, rejection_rationale, triggering_child, and partial_phase_reached ABSENT from the state file per R9 conditional-field gating"
+        "Plan writes work/state.md with exit: full-run; exit_artifacts contains exactly two entries (STRATEGY path and ROADMAP path, each with status Draft) because the author did not decline /roadmap; chain_skipped contains no roadmap entry",
+        "Plan keeps conditional fields decision_record_sub_shape, referenced_strategy, discard_commit_sha, rejection_rationale, triggering_child, and partial_phase_reached ABSENT from work/state.md per R9 conditional-field gating"
       ]
     },
     {
       "id": 8,
       "name": "us-2-re-evaluation",
       "prompt": "/charter test-topic",
-      "expected_output": "An Accepted STRATEGY exists at docs/strategies/STRATEGY-test-topic.md (no wip/charter_test-topic_state.md). /charter's resume ladder fires row 5 against the Accepted upstream and surfaces an entry prompt containing the literal substrings \"Re-evaluate\", \"Revise\", and \"Bail\" (case-insensitive). The prompt MUST NOT contain the substring \"Continue / Start fresh\" \u2014 that vocabulary belongs to /strategy and would hijack /charter's flow. The author selects Re-evaluate; /charter walks the existing STRATEGY's Bet-Specific Falsifiability claims, finds all claims still hold, and writes a Decision Record at docs/decisions/DECISION-strategy-test-topic-re-evaluation-<YYYY-MM-DD>.md citing the existing STRATEGY by path. The child /strategy is NOT invoked. State file: exit: re-evaluation, decision_record_sub_shape: re-evaluation, referenced_strategy: docs/strategies/STRATEGY-test-topic.md.",
+      "expected_output": "An Accepted STRATEGY exists at docs/strategies/STRATEGY-test-topic.md (no work/state.md key in charter-test-topic). /charter's resume ladder fires row 5 against the Accepted upstream and surfaces an entry prompt containing the literal substrings \"Re-evaluate\", \"Revise\", and \"Bail\" (case-insensitive). The prompt MUST NOT contain the substring \"Continue / Start fresh\" \u2014 that vocabulary belongs to /strategy and would hijack /charter's flow. The author selects Re-evaluate; /charter walks the existing STRATEGY's Bet-Specific Falsifiability claims, finds all claims still hold, and writes a Decision Record at docs/decisions/DECISION-strategy-test-topic-re-evaluation-<YYYY-MM-DD>.md citing the existing STRATEGY by path. The child /strategy is NOT invoked. State key work/state.md: exit: re-evaluation, decision_record_sub_shape: re-evaluation, referenced_strategy: docs/strategies/STRATEGY-test-topic.md.",
       "files": [
         "docs/strategies/STRATEGY-test-topic.md"
       ],
@@ -125,14 +123,14 @@
         "Plan ensures the Decision Record's Options Considered section names both \"revise the STRATEGY\" and \"force-abandon and rewrite\" as rejected alternatives",
         "Plan ensures the Decision Record's frontmatter contains the three fields status, decision, and rationale per AC25; status defaults to Accepted",
         "Plan does NOT invoke /strategy on the Re-evaluate path; /charter authors the Decision Record directly",
-        "Plan writes state file with exit: re-evaluation, decision_record_sub_shape: re-evaluation, and referenced_strategy: docs/strategies/STRATEGY-test-topic.md; the conditional fields discard_commit_sha, rejection_rationale, triggering_child, and partial_phase_reached are ABSENT"
+        "Plan writes work/state.md with exit: re-evaluation, decision_record_sub_shape: re-evaluation, and referenced_strategy: docs/strategies/STRATEGY-test-topic.md; the conditional fields discard_commit_sha, rejection_rationale, triggering_child, and partial_phase_reached are ABSENT"
       ]
     },
     {
       "id": 9,
       "name": "us-3a-rejection-sub-shape",
       "prompt": "/charter test-topic",
-      "expected_output": "Cold start. /charter invokes /strategy per R6; /strategy reaches Phase 5 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /strategy runs git rm docs/strategies/STRATEGY-test-topic.md, does not clean wip files (its state lives in session keys), and commits the discard with message docs(strategy): discard STRATEGY draft for test-topic. Control returns to /charter; /charter's finalization closes the /strategy session as abandoned (close-children charter test-topic abandoned). /charter captures the discard commit SHA via read-only git log (no git writes from /charter). /charter writes a Decision Record at docs/decisions/DECISION-strategy-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale. State file: exit: re-evaluation, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>.",
+      "expected_output": "Cold start. /charter invokes /strategy per R6; /strategy reaches Phase 5 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /strategy runs git rm docs/strategies/STRATEGY-test-topic.md, does not clean wip files (its state lives in session keys), and commits the discard with message docs(strategy): discard STRATEGY draft for test-topic. Control returns to /charter; /charter's finalization closes the /strategy session as abandoned (close-children charter test-topic abandoned). /charter captures the discard commit SHA via read-only git log (no git writes from /charter). /charter writes a Decision Record at docs/decisions/DECISION-strategy-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale. State key work/state.md: exit: re-evaluation, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>.",
       "files": [],
       "expectations": [
         "Plan invokes /strategy per R6 and the chain reaches /strategy's Phase 5 finalization phase",
@@ -143,24 +141,22 @@
         "Plan ensures the rejection Decision Record's Context section references the discard commit SHA so a future reader can navigate to the git history",
         "Plan ensures the rejection Decision Record's Options Considered section names both \"accept the Draft\" and \"revise instead of reject\" as rejected alternatives",
         "Plan ensures the Decision Record's frontmatter contains status, decision, and rationale per AC25",
-        "Plan writes state file with exit: re-evaluation, decision_record_sub_shape: rejection, discard_commit_sha (captured from git log), rejection_rationale (free-text from the author); conditional fields referenced_strategy, triggering_child, and partial_phase_reached are ABSENT"
+        "Plan writes work/state.md with exit: re-evaluation, decision_record_sub_shape: rejection, discard_commit_sha (captured from git log), rejection_rationale (free-text from the author); conditional fields referenced_strategy, triggering_child, and partial_phase_reached are ABSENT"
       ]
     },
     {
       "id": 10,
       "name": "us-3b-abandonment-forced",
       "prompt": "/charter test-topic",
-      "expected_output": "/charter's state file for test-topic exists with phase_pointer past Phase 0, exit: UNSET, and last_updated more than 7 days old. /charter's resume ladder fires row 4 (state file stale) and surfaces the three-option prompt Resume / Force-materialize / Discard. The author selects Force-materialize. /charter resolves the most-recently-running child via the R8 tie-break (step 1: last entry in chain_ran; step 2: first planned_chain entry whose session holds work (skill-session.sh has-work); step 3: clean-cancel when neither step resolves) and force-materializes that child's intermediate as a schema-compliant Draft artifact. The Draft contains an HTML-comment marker <!-- charter-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> inside the artifact's existing Status section, NOT in a new section that would invalidate the host artifact-type's schema validator. State file: exit: abandonment-forced, triggering_child: <child-name>, partial_phase_reached: <phase-name>.",
-      "files": [
-        "wip/charter_test-topic_state.md"
-      ],
+      "expected_output": "Key work/state.md in charter-test-topic exists with phase_pointer past Phase 0, exit: UNSET, and last_updated more than 7 days old. /charter's resume ladder fires row 4 (state stale) and surfaces the three-option prompt Resume / Force-materialize / Discard. The author selects Force-materialize. /charter resolves the most-recently-running child via the R8 tie-break (step 1: last entry in chain_ran; step 2: first planned_chain entry whose session holds work (skill-session.sh has-work); step 3: clean-cancel when neither step resolves) and force-materializes that child's intermediate as a schema-compliant Draft artifact. The Draft contains an HTML-comment marker <!-- charter-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> inside the artifact's existing Status section, NOT in a new section that would invalidate the host artifact-type's schema validator. State key work/state.md: exit: abandonment-forced, triggering_child: <child-name>, partial_phase_reached: <phase-name>.",
+      "files": [],
       "expectations": [
         "Plan detects last_updated >= 7 days old at row 4 of the resume ladder and surfaces the three-option prompt Resume / Force-materialize / Discard; the prompt fires on every invocation while the state remains stale",
         "Plan routes Force-materialize into Exit 3 abandonment-forced and resolves the triggering child via the R8 three-step tie-break (chain_ran last entry; then planned_chain first entry whose session holds a work/ key (has-work); then clean-cancel fallthrough)",
         "Plan emits the HTML-comment marker <!-- charter-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> inside the force-materialized artifact's existing Status section, NOT in a new required section",
         "Plan keeps the host artifact type's schema validator passing by using HTML-comment syntax (the marker is invisible to schema validation; greppable as charter-status-block: for tools and human readers)",
-        "Plan writes state file with exit: abandonment-forced, triggering_child set to the resolved child name, partial_phase_reached set to the phase pointer the triggering child had reached, chain_completed set to the abandonment timestamp",
-        "Plan keeps decision_record_sub_shape ABSENT from the state file per R9 conditional-field gating; abandonment-forced exits do not carry a Decision Record sub-shape",
+        "Plan writes work/state.md with exit: abandonment-forced, triggering_child set to the resolved child name, partial_phase_reached set to the phase pointer the triggering child had reached, chain_completed set to the abandonment timestamp",
+        "Plan keeps decision_record_sub_shape ABSENT from work/state.md per R9 conditional-field gating; abandonment-forced exits do not carry a Decision Record sub-shape",
         "Plan ensures the marker uses hyphenated field names (triggering-child, partial-phase-reached, chain-started) per the marker convention; this differs from the underscored YAML state-schema field names (triggering_child, partial_phase_reached, chain_started) by design",
         "Plan accepts STRATEGY, VISION, or ROADMAP as the host artifact type for the force-materialized Draft, per the R8 tie-break resolution"
       ]
@@ -169,13 +165,12 @@
       "id": 11,
       "name": "us-4-manual-fallback-reviewer-redirect",
       "prompt": "/charter test-topic",
-      "expected_output": "Pre-populated: docs/strategies/STRATEGY-test-topic.md at status Accepted, and wip/charter_test-topic_state.md whose child_snapshots.strategy records path: docs/strategies/STRATEGY-test-topic.md plus status: Accepted plus content_hash matching the STRATEGY's git hash-object value at snapshot time. A reviewer invokes /strategy docs/strategies/STRATEGY-test-topic.md directly outside /charter; /strategy produces a revised Draft, flipping the frontmatter status: from Accepted to Draft and rewriting the body. The live git hash-object now differs from the snapshot's content_hash. /charter does NOT interfere with the manual /strategy invocation: no warning, no state-file write, no block. On the next /charter test-topic invocation, the resume ladder runs drift detection (dual check: status OR content_hash differs from the snapshot) and surfaces the three-option staleness prompt Re-run / Accept / Proceed without.",
+      "expected_output": "Pre-populated: docs/strategies/STRATEGY-test-topic.md at status Accepted, and key work/state.md in charter-test-topic whose child_snapshots.strategy records path: docs/strategies/STRATEGY-test-topic.md plus status: Accepted plus content_hash matching the STRATEGY's git hash-object value at snapshot time. A reviewer invokes /strategy docs/strategies/STRATEGY-test-topic.md directly outside /charter; /strategy produces a revised Draft, flipping the frontmatter status: from Accepted to Draft and rewriting the body. The live git hash-object now differs from the snapshot's content_hash. /charter does NOT interfere with the manual /strategy invocation: no warning, no state write, no block. On the next /charter test-topic invocation, the resume ladder runs drift detection (dual check: status OR content_hash differs from the snapshot) and surfaces the three-option staleness prompt Re-run / Accept / Proceed without.",
       "files": [
-        "docs/strategies/STRATEGY-test-topic.md",
-        "wip/charter_test-topic_state.md"
+        "docs/strategies/STRATEGY-test-topic.md"
       ],
       "expectations": [
-        "Plan respects R13 manual-fallback non-interference: when the reviewer invokes /strategy directly outside /charter, /charter emits no warning, performs no state-file write against the manual invocation, and does NOT block direct child invocation",
+        "Plan respects R13 manual-fallback non-interference: when the reviewer invokes /strategy directly outside /charter, /charter emits no warning, performs no state write against the manual invocation, and does NOT block direct child invocation",
         "Plan reads the child doc's frontmatter status: and computes the child doc's git hash-object (read-only) at the published path on resume, then compares both against the recorded child_snapshots.strategy entry (path + status + content_hash)",
         "Plan fires drift detection when EITHER the live status differs from the snapshot status OR the live content_hash (blob hash) differs from the snapshot content_hash \u2014 both directions of the dual check are load-bearing",
         "Plan surfaces the three-option staleness prompt naming Re-run (re-invoke the affected child), Accept (record acknowledgment and proceed), and Proceed without (skip the affected child for this chain)",
@@ -187,13 +182,13 @@
       "id": 12,
       "name": "r7-roadmap-declined-non-actionable",
       "prompt": "/charter test-topic",
-      "expected_output": "Cold-start invocation under public-repo visibility, same shape as the full-run scenario, except that the author declines at the roadmap confirmation prompt: the strategy records a bet the team is not going to execute against this cycle, so no ROADMAP is wanted. Immediately before invoking /roadmap, /charter reads the Draft STRATEGY, states what that reading says about whether the strategy is headed for execution, and asks with Proceed as the default. The author picks skip, and /charter does NOT invoke /roadmap. The declination is the ONLY path that skips /roadmap: the reading informs the author but never decides, and /charter must not justify the skip as its own conclusion about the STRATEGY's shape or size. The chain completes at the full-run exit with STRATEGY alone (the AC11a shape). State file: exit: full-run, exit_artifacts lists exactly one entry (docs/strategies/STRATEGY-test-topic.md, status Draft), chain_ran omits /roadmap, and chain_skipped carries a { child: roadmap, reason: <declination> } entry.",
+      "expected_output": "Cold-start invocation under public-repo visibility, same shape as the full-run scenario, except that the author declines at the roadmap confirmation prompt: the strategy records a bet the team is not going to execute against this cycle, so no ROADMAP is wanted. Immediately before invoking /roadmap, /charter reads the Draft STRATEGY, states what that reading says about whether the strategy is headed for execution, and asks with Proceed as the default. The author picks skip, and /charter does NOT invoke /roadmap. The declination is the ONLY path that skips /roadmap: the reading informs the author but never decides, and /charter must not justify the skip as its own conclusion about the STRATEGY's shape or size. The chain completes at the full-run exit with STRATEGY alone (the AC11a shape). State key work/state.md: exit: full-run, exit_artifacts lists exactly one entry (docs/strategies/STRATEGY-test-topic.md, status Draft), chain_ran omits /roadmap, and chain_skipped carries a { child: roadmap, reason: <declination> } entry.",
       "files": [],
       "expectations": [
         "Plan surfaces a roadmap confirmation prompt immediately before /roadmap would fire, after the Draft STRATEGY is on disk, with proceeding as the default",
         "Plan skips /roadmap because the author declined, and attributes the skip to the author's answer rather than to its own reading of the STRATEGY",
         "Plan records the declination in chain_skipped as a { child: roadmap, reason: ... } entry, and omits /roadmap from chain_ran",
-        "Plan writes state file with exit: full-run and exit_artifacts containing exactly one entry (STRATEGY path with status Draft) per AC11a",
+        "Plan writes work/state.md with exit: full-run and exit_artifacts containing exactly one entry (STRATEGY path with status Draft) per AC11a",
         "Plan treats the STRATEGY-only full-run as the exception path rather than the default, and does not describe any threshold on Building Blocks, Coordination Dependencies, or feature count as the reason /roadmap was skipped"
       ]
     },
@@ -222,19 +217,19 @@
         "Transcript keeps the default at Proceed despite the negative reading; it does NOT flip the default to skip and does NOT pre-select the skip answer",
         "Transcript invokes /roadmap when the author proceeds, with --upstream pointing at the Draft STRATEGY and the scope handoff as key chain/roadmap-scope in charter-test-topic (no pre-populated file)",
         "Transcript does NOT treat the single Building Block or a single candidate feature as a reason to skip, and states no minimum feature count for a roadmap",
-        "Transcript writes state file with exit: full-run and exit_artifacts containing two entries (STRATEGY and ROADMAP, each status Draft); chain_skipped contains no roadmap entry"
+        "Transcript writes work/state.md with exit: full-run and exit_artifacts containing two entries (STRATEGY and ROADMAP, each status Draft); chain_skipped contains no roadmap entry"
       ]
     },
     {
       "id": 15,
       "name": "r7-roadmap-auto-mode-no-prompt",
       "prompt": "/charter test-topic --auto",
-      "expected_output": "Cold-start invocation under public-repo visibility in --auto mode. The roadmap confirmation prompt is interactive-only: under --auto it does not fire at all and /roadmap always runs. /charter invokes /strategy per R6, then /roadmap per R7 with --upstream docs/strategies/STRATEGY-test-topic.md and the scope handoff written as key chain/roadmap-scope in the charter-test-topic session (nothing pre-populates a file), with no author decision point in between. State file: exit: full-run, exit_artifacts lists both docs/strategies/STRATEGY-test-topic.md and docs/roadmaps/ROADMAP-test-topic.md; chain_skipped contains no roadmap entry.",
+      "expected_output": "Cold-start invocation under public-repo visibility in --auto mode. The roadmap confirmation prompt is interactive-only: under --auto it does not fire at all and /roadmap always runs. /charter invokes /strategy per R6, then /roadmap per R7 with --upstream docs/strategies/STRATEGY-test-topic.md and the scope handoff written as key chain/roadmap-scope in the charter-test-topic session (nothing pre-populates a file), with no author decision point in between. State key work/state.md: exit: full-run, exit_artifacts lists both docs/strategies/STRATEGY-test-topic.md and docs/roadmaps/ROADMAP-test-topic.md; chain_skipped contains no roadmap entry.",
       "files": [],
       "expectations": [
         "Plan does not surface the roadmap confirmation prompt under --auto, and does not stall waiting on an author decision about /roadmap",
         "Plan invokes /roadmap with --upstream pointing at the just-produced STRATEGY and the scope handoff as key chain/roadmap-scope in charter-test-topic (no pre-populated file)",
-        "Plan writes state file with exit: full-run and exit_artifacts containing two entries (STRATEGY and ROADMAP, each status Draft); chain_skipped contains no roadmap entry"
+        "Plan writes work/state.md with exit: full-run and exit_artifacts containing two entries (STRATEGY and ROADMAP, each status Draft); chain_skipped contains no roadmap entry"
       ]
     },
     {
@@ -254,13 +249,15 @@
       "id": 17,
       "name": "upstream-flag-consumed",
       "prompt": "/charter payment-retries --upstream docs/visions/VISION-platform.md",
-      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before the positional slug is read, so the topic slug validated against ^[a-z0-9-]+$ is 'payment-retries' and the VISION path is never tested against the regex. The value is canonicalized and bounds-checked, its basename is confirmed to start with VISION-, and the three ordered checks run: not under wip/, tracked by git (git ls-files), and not a private artifact named from a public repo. The validated path is recorded in the state file's conditional consumed_upstream: field. /vision is skipped with a chain_skipped entry naming the supplied upstream, because a supplied upstream is an upstream thesis and running /vision would write a second copy of it under this chain's slug. /strategy is invoked as '/strategy payment-retries --upstream docs/visions/VISION-platform.md' -- the slug positional, the upstream in the flag -- and the produced docs/strategies/STRATEGY-payment-retries.md carries upstream: docs/visions/VISION-platform.md in its frontmatter.",
-      "files": ["docs/visions/VISION-platform.md"],
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before the positional slug is read, so the topic slug validated against ^[a-z0-9-]+$ is 'payment-retries' and the VISION path is never tested against the regex. The value is canonicalized and bounds-checked, its basename is confirmed to start with VISION-, and the three ordered checks run: not under wip/, tracked by git (git ls-files), and not a private artifact named from a public repo. The validated path is recorded in work/state.md's conditional consumed_upstream: field. /vision is skipped with a chain_skipped entry naming the supplied upstream, because a supplied upstream is an upstream thesis and running /vision would write a second copy of it under this chain's slug. /strategy is invoked as '/strategy payment-retries --upstream docs/visions/VISION-platform.md' -- the slug positional, the upstream in the flag -- and the produced docs/strategies/STRATEGY-payment-retries.md carries upstream: docs/visions/VISION-platform.md in its frontmatter.",
+      "files": [
+        "docs/visions/VISION-platform.md"
+      ],
       "expectations": [
         "Plan parses --upstream and consumes the following token as its argument before validating the positional slug",
         "Plan validates 'payment-retries' as the topic slug and does NOT test the VISION path against the topic-slug regex",
         "Plan enforces a VISION- basename on the --upstream value and runs the three ordered checks (wip/ rejection, git-tracked confirmation, public-repo-to-private-upstream omission)",
-        "Plan records the validated path in the state file as consumed_upstream:",
+        "Plan records the validated path in work/state.md as consumed_upstream:",
         "Plan skips /vision and records the skip with a reason naming the supplied upstream",
         "Plan invokes /strategy with the topic slug positionally and the VISION path as --upstream, not the VISION path positionally",
         "Plan produces docs/strategies/STRATEGY-payment-retries.md, named after the topic slug rather than after the upstream VISION"
@@ -270,11 +267,11 @@
       "id": 18,
       "name": "upstream-flag-bare-rejected",
       "prompt": "/charter payment-retries --upstream",
-      "expected_output": "Phase 0 finds --upstream as the last token in $ARGUMENTS with no value to consume. The invocation is rejected with an error naming the missing argument and showing the expected form (--upstream docs/visions/VISION-<name>.md). The rejection happens before the slug is validated, before wip/charter_payment-retries_state.md is written, and before any child is invoked. No state file exists afterwards.",
+      "expected_output": "Phase 0 finds --upstream as the last token in $ARGUMENTS with no value to consume. The invocation is rejected with an error naming the missing argument and showing the expected form (--upstream docs/visions/VISION-<name>.md). The rejection happens before the slug is validated, before key work/state.md in charter-payment-retries is written, and before any child is invoked. No state exists afterwards.",
       "files": [],
       "expectations": [
         "Plan rejects the invocation and names the missing --upstream argument",
-        "Plan stops before writing any state file and before invoking any child",
+        "Plan stops before writing any state and before invoking any child",
         "Plan does NOT treat the bare --upstream as part of the topic slug and does NOT proceed as though no upstream had been supplied"
       ]
     },
@@ -282,11 +279,11 @@
       "id": 19,
       "name": "upstream-flag-private-in-public-repo",
       "prompt": "/charter payment-retries --upstream tsukumogami/vision:docs/visions/VISION-platform.md",
-      "expected_output": "Public-repo visibility. The value is a cross-repo reference in the owner/repo:path form, so it is not resolved against the filesystem and skips canonicalization and the git-tracked check; the VISION- basename rule still applies to its file component. The third ordered check fires: this repo is Public and the upstream lives in a private repo, so /charter STOPS recording rather than writing the value. consumed_upstream: is absent from the state file, no --upstream is passed to /strategy, and the produced STRATEGY omits the upstream: field. The author is told the field is being omitted and why; the chain otherwise runs exactly as it would have with no --upstream at all. The omission is not caught by tooling -- shirabe validate resolves nothing for a cross-repo value -- which is why the parent owns the check.",
+      "expected_output": "Public-repo visibility. The value is a cross-repo reference in the owner/repo:path form, so it is not resolved against the filesystem and skips canonicalization and the git-tracked check; the VISION- basename rule still applies to its file component. The third ordered check fires: this repo is Public and the upstream lives in a private repo, so /charter STOPS recording rather than writing the value. consumed_upstream: is absent from work/state.md, no --upstream is passed to /strategy, and the produced STRATEGY omits the upstream: field. The author is told the field is being omitted and why; the chain otherwise runs exactly as it would have with no --upstream at all. The omission is not caught by tooling -- shirabe validate resolves nothing for a cross-repo value -- which is why the parent owns the check.",
       "files": [],
       "expectations": [
         "Plan detects that the repo is Public and the cross-repo upstream is private",
-        "Plan omits the field rather than recording it: no consumed_upstream: in the state file and no upstream: in the produced STRATEGY",
+        "Plan omits the field rather than recording it: no consumed_upstream: in work/state.md and no upstream: in the produced STRATEGY",
         "Plan states the omission and its reason to the author rather than dropping the link silently",
         "Plan continues the chain rather than rejecting the invocation"
       ]
@@ -320,26 +317,24 @@
       "id": 22,
       "name": "stale-validator-no-envelope-is-a-tool-error",
       "prompt": "/charter payment-retries",
-      "expected_output": "The chain reaches the finalization Draft STRATEGY validation pass-through, but the shirabe on PATH is a stale build that does not recognize a flag the pass-through passes: it writes nothing to stdout, writes \"error: unexpected argument '--visibility' found\" to stderr, and exits 2. The pass-through parses stdout for the shirabe-validate/v1 envelope FIRST, finds none, and classifies the run as a tool-error despite the exit code being 2 -- the code that means violations only for a run that reached a verdict. Finalization halts with the state file's exit: field UNSET and the captured stderr surfaced verbatim as the diagnostic. The pass-through does NOT block finalization as a STRATEGY violation, does NOT name R8 or any other check code, and does NOT send the author to edit the Draft STRATEGY, which is not broken; the author is pointed at the validator invocation (a stale or wrong shirabe binary) instead.",
+      "expected_output": "The chain reaches the finalization Draft STRATEGY validation pass-through, but the shirabe on PATH is a stale build that does not recognize a flag the pass-through passes: it writes nothing to stdout, writes \"error: unexpected argument '--visibility' found\" to stderr, and exits 2. The pass-through parses stdout for the shirabe-validate/v1 envelope FIRST, finds none, and classifies the run as a tool-error despite the exit code being 2 -- the code that means violations only for a run that reached a verdict. Finalization halts with the state's exit: field UNSET and the captured stderr surfaced verbatim as the diagnostic. The pass-through does NOT block finalization as a STRATEGY violation, does NOT name R8 or any other check code, and does NOT send the author to edit the Draft STRATEGY, which is not broken; the author is pointed at the validator invocation (a stale or wrong shirabe binary) instead.",
       "files": [],
       "expectations": [
         "Plan parses stdout for the shirabe-validate/v1 envelope before consulting the exit code",
         "Plan treats a run with no parseable envelope as a tool-error regardless of the exit code, including exit 2",
         "Plan surfaces the captured stderr as the diagnostic rather than discarding it",
-        "Plan leaves the state file's exit: field UNSET and does NOT report the run as a STRATEGY content violation"
+        "Plan leaves the state's exit: field UNSET and does NOT report the run as a STRATEGY content violation"
       ]
     },
     {
       "id": 23,
       "name": "explore-handoff-enters-phase-1",
       "prompt": "/charter payment-retries",
-      "expected_output": "wip/charter_payment-retries_handoff.md exists on disk, written by /explore's Phase 5 parent-handoff arm. No state file at wip/charter_payment-retries_state.md, no STRATEGY at the published path, and no child partial-run artifact matching rows 7-8, so the resume ladder reaches row 8.5. That one path is the whole match condition beyond the rows above failing; the row reads no other file to decide whether it fires, and the path is composed from /charter's own prefix plus the validated slug, so it never fires on a path in another skill's namespace. Row 8.5 runs Phase 0's setup obligations -- slug validation (step 0.3), --upstream validation when the invocation supplied a value (step 0.4), and state-file creation (step 0.5) -- records consumed_handoff: wip/charter_payment-retries_handoff.md at that same write, and enters Phase 1 with the handoff pre-loaded as discovery input. Visibility is detected in Phase 1.1 as on any other run. Phase 1 is never skipped and the row never resumes into a child: a handoff is discovery material, not a resume point inside the chain. The chain proposal is emitted and confirmed as always. Two Phase 1 behaviors differ: the thesis-shift question is still surfaced verbatim per Phase 1.4, but as a confirmation of the handoff's pre-supplied answer rather than a fresh ask, and the author's response is what gets classified and recorded -- a positive signal overrides the /vision auto-skip against an Accepted or Active VISION, which is why the confirmation is mandatory rather than a formality, and under --auto the pre-supplied answer is taken and announced rather than applied silently. The child-doc globs are unchanged, because they are filesystem reads that run on every invocation. /charter walks no shape predicates, so the shape-signals block /scope's handoff carries has no analogue here and no reader in this row.",
-      "files": [
-        "wip/charter_payment-retries_handoff.md"
-      ],
+      "expected_output": "key handoff/charter.md exists in session explore-payment-retries, written by /explore's Phase 5 parent-handoff arm. No work/state.md key in charter-payment-retries, no STRATEGY at the published path, and no child partial-run session matching rows 7-8, so the resume ladder reaches row 8.5. That one key is the whole match condition beyond the rows above failing; the row reads no other key to decide whether it fires, and the session name is composed from explore- plus the validated slug while the key name is the constant handoff/charter.md, so it never fires on another skill's key. Row 8.5 runs Phase 0's setup obligations -- slug validation (step 0.3), --upstream validation when the invocation supplied a value (step 0.4), and the work/state.md key write (step 0.5) -- records consumed_handoff: handoff/charter.md at that same write, and enters Phase 1 with the handoff pre-loaded as discovery input. Visibility is detected in Phase 1.1 as on any other run. Phase 1 is never skipped and the row never resumes into a child: a handoff is discovery material, not a resume point inside the chain. The chain proposal is emitted and confirmed as always. Two Phase 1 behaviors differ: the thesis-shift question is still surfaced verbatim per Phase 1.4, but as a confirmation of the handoff's pre-supplied answer rather than a fresh ask, and the author's response is what gets classified and recorded -- a positive signal overrides the /vision auto-skip against an Accepted or Active VISION, which is why the confirmation is mandatory rather than a formality, and under --auto the pre-supplied answer is taken and announced rather than applied silently. The child-doc globs are unchanged, because they are filesystem reads that run on every invocation. /charter walks no shape predicates, so the shape-signals block /scope's handoff carries has no analogue here and no reader in this row.",
+      "files": [],
       "expectations": [
-        "Plan reaches row 8.5 and fires it on the presence of wip/charter_payment-retries_handoff.md alone, after rows 1-8 fail to match",
-        "Plan runs Phase 0's setup obligations (slug validation, --upstream validation when supplied, state-file creation) before entering Phase 1, and records consumed_handoff: wip/charter_payment-retries_handoff.md in the state file",
+        "Plan reaches row 8.5 and fires it on the presence of key handoff/charter.md in explore-payment-retries alone, after rows 1-8 fail to match",
+        "Plan runs Phase 0's setup obligations (slug validation, --upstream validation when supplied, the work/state.md key write) before entering Phase 1, and records consumed_handoff: handoff/charter.md in work/state.md",
         "Plan enters /charter's own Phase 1 with the handoff pre-loaded as discovery input, and does NOT skip Phase 1",
         "Plan does NOT resume into or invoke /vision, /strategy or /roadmap directly off the handoff; the chain runs from Phase 2 as always",
         "Plan still emits the chain proposal for confirmation on a handoff run",
