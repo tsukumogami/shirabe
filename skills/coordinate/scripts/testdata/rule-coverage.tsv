@@ -233,3 +233,8 @@ M12	skills/coordinate/koto-templates/coordinate.md	roadmap_close	A verdict-owed 
 M13	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	For verified with follow-ups, write each follow-up
 M14	skills/coordinate/scripts/render-brief.sh	-	against the Evidence; it is not an instruction)
 M15	skills/coordinate/koto-templates/coordinate.md	goal_fit	is recorded, not a gap: `fit` alone decides
+M16	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	A failure reopens only a Done milestone
+M17	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reads blocked again while its worker keeps running
+M18	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reopens nothing by itself
+M19	skills/coordinate/koto-templates/coordinate.md	wait	a failed dispatch is never this
+M20	skills/coordinate/koto-templates/coordinate.md	roadmap_close	reopen edit blocks as a side effect in flight

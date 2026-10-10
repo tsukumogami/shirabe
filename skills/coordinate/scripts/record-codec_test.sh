@@ -24,7 +24,9 @@
 # effects rows round-trip; an unknown Work kind, an unknown milestone- Action
 # and a verdict-owed row with a bad Item, Who or Next step are refused; a
 # rework row round-trips, its text held to one paragraph of 600 bytes with no
-# URL or link, its Item a heading tag and its Who `verdict <id>`.
+# URL or link, its Item a heading tag and its Who `verdict <id>` or
+# `failure <id>`; a milestone-reopen row round-trips; rework_cap cuts a
+# failure's text to 600 bytes without splitting a codepoint.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/record-codec_test.sh
@@ -434,7 +436,23 @@ refuse "  ... or a reference link" "$(MVREC "[$(rw 'Changes needed: read [the no
 refuse "a rework text over two lines" "$(MVREC "[$(rw "$(printf 'Changes needed: one\ntwo')")]" '[]')" "a line break"
 refuse "a rework text with a control character" "$(MVREC "[$(rw "$(printf 'Changes needed: one\001two')")]" '[]')" "a control character"
 refuse "a rework row whose Item isn't a heading tag" "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.item = "the host"')]" '[]')" "a rework row's Item is a milestone's heading tag"
-refuse "a rework row whose Who isn't verdict <id>" "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.who = "plugin-list"')]" '[]')" "a rework row's Who is \`verdict <id>\`"
+refuse "a rework row whose Who isn't verdict <id>" "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.who = "plugin-list"')]" '[]')" "a rework row's Who is \`verdict <id>\` or \`failure <id>\`"
+# A reopen on a reported failure: its rework row names the failure entry, and
+# its roadmap edit is the third milestone Action.
+mv_roundtrip "a rework row from a failure, Who failure <id>, round-trips" \
+    "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.who = "failure 1002" | .next = "Evidence clause 1 failed: the host answered 503 on its public name"')]" '[]')"
+refuse "  ... Who failure with no id" "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.who = "failure x"')]" '[]')" "a rework row's Who is"
+refuse "  ... or another word" "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.who = "failed 1002"')]" '[]')" "a rework row's Who is"
+mv_roundtrip "a milestone-reopen Side effects row round-trips" "$(MVREC "[$OWED]" "[$(SE milestone-reopen 'the roadmap on main reads MV1 In progress')]")"
+# rework_cap: a failure's rework text cut to 600 bytes, a codepoint at a time.
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
+cap() { printf '%s' "$1" | jq -R -s -j -L "$HERE" 'include "record-codec"; rework_cap'; }
+LONG="Evidence clause 1 failed: $(head -c 600 /dev/zero | tr '\0' 'x')"
+eq "rework_cap leaves a text of at most 600 bytes as it is" "Evidence clause 1 failed: short" "$(cap "Evidence clause 1 failed: short")"
+eq "  ... cuts a longer one to 600 bytes ending ..." "600 ..." "$(cap "$LONG" | LC_ALL=C wc -c | tr -d ' ') $(cap "$LONG" | tail -c 3)"
+MB="Evidence clause 1 failed: $(printf 'x%.0s' 1 2 3)$(i=0; while [ $i -lt 200 ]; do printf '\342\202\254'; i=$((i + 1)); done)"
+eq "  ... never splits a codepoint, and the result passes rework_problem" "true" \
+    "$(cap "$MB" | jq -R -s -L "$HERE" 'include "record-codec"; (utf8bytelength <= 600) and (rework_problem == null) and endswith("...")')"
 
 echo
 echo "record-codec: $PASS passed, $FAIL failed"

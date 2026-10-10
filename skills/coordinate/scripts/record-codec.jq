@@ -51,9 +51,10 @@ def pr_link: pr_link_parts | select(.a == .b) | {repo: .r, number: .a};
 
 # A Side effects row's Action is free text (merge, close, teardown,
 # roadmap-status, ...), except the milestone roadmap edits
-# roadmap-status.sh --verdict writes: an Action starting `milestone-` is one of
-# these, so a misspelt one never reads as a pending edit nobody confirms.
-def milestone_actions: ["milestone-done", "milestone-verdict"];
+# roadmap-status.sh --verdict and --reopen write: an Action starting
+# `milestone-` is one of these, so a misspelt one never reads as a pending
+# edit nobody confirms.
+def milestone_actions: ["milestone-done", "milestone-verdict", "milestone-reopen"];
 
 # Columns a person may leave empty; every other column must hold a value.
 def optional_cols: ["mode", "branch", "verified_head", "pull_request", "disposition"];
@@ -283,18 +284,21 @@ def parse_holds($p):
 #            work the coordinator judged finished, its verdict not yet
 #            confirmed on the roadmap; only roadmap-status.sh writes and
 #            clears it) | rework (a milestone a confirmed changes-needed
-#            verdict sent back for more work; roadmap-status.sh --confirm
-#            writes it, record-state.sh --done removes it once a worker is
-#            dispatched for it)
+#            verdict, or a confirmed reopen on a reported failure, sent back
+#            for more work; roadmap-status.sh --confirm writes it,
+#            record-state.sh --done removes it once a worker is dispatched
+#            for it)
 #   Who      a holding's Worker (a dispatch topic), or who does the work; for
 #            a decision row `decision <n>`, the entry it waits on; for a
 #            follow-up row the pull request that landed its scoping,
 #            `owner/repo#n`; for a verdict-owed row the topic of the worker
 #            that held the milestone, or `none`; for a rework row
-#            `verdict <id>`, the record comment holding the verdict entry
+#            `verdict <id>` or `failure <id>`, the record comment holding the
+#            verdict or failure entry
 #   Next step  what happens next, one line; a verdict-owed row's is
 #            `verdict owed since YYYY-MM-DD`; a rework row's is the
-#            verdict's not-held clauses and Changes needed line, one
+#            verdict's not-held clauses and Changes needed line, or the
+#            failure's `Evidence clause <n> failed: <what was seen>`, one
 #            paragraph of at most 600 bytes with no URL or markdown link
 #            (rework_problem), since the next brief quotes it
 #   Wakes    a holding's wakes counted so far (record-state.sh adds this run's
@@ -326,6 +330,15 @@ def rework_problem:
   elif test("[a-z][a-z0-9+.-]*://"; "i") or test("(^|[^A-Za-z0-9])www\\."; "i") then "a URL"
   elif test("\\]\\(|\\]\\[|<[a-z][a-z0-9+.-]*:"; "i") then "a markdown link"
   else null end;
+# rework_cap: a failure's rework text held to the 600 bytes rework_problem
+# allows. What was seen may itself be 600 bytes and the row's text puts
+# `Evidence clause <n> failed: ` before it, so a longer text is cut, a whole
+# codepoint at a time, and ends `...` to show the cut. A changes-needed
+# verdict's text is refused instead (roadmap-status.sh --verdict), since the
+# coordinator writes it and can shorten it.
+def rework_cap:
+  if utf8bytelength <= 600 then .
+  else (explode | until((implode | utf8bytelength) <= 597; .[:-1]) | implode) + "..." end;
 # A milestone's heading tag, as a verdict-owed row's Item names it: the
 # heading-tag grammar roadmap-status.sh takes (`Feature 7`, `ED1`, `AB10b`).
 def re_heading_tag: "^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$";
@@ -388,7 +401,7 @@ def check_srow($sec; $private):
        else (.who | check_worker) as $_ | . end)
     elif $sec.key == "work" and .kind == "rework" then
       (if (.item | test(re_heading_tag) | not) then refuse("work.item: a rework row's Item is a milestone's heading tag (`Feature 2`, `MV1`, `AB10b`)")
-       elif (.who | test("^verdict [1-9][0-9]*$") | not) then refuse("work.who: a rework row's Who is `verdict <id>`, the record comment holding its verdict")
+       elif (.who | test("^(verdict|failure) [1-9][0-9]*$") | not) then refuse("work.who: a rework row's Who is `verdict <id>` or `failure <id>`, the record comment holding its verdict or failure entry")
        elif (.next | rework_problem) != null then refuse("work.next: a rework row's text is one paragraph of at most 600 bytes with no URL or markdown link: \(.next | rework_problem)")
        else . end)
     elif $sec.key == "standing" then

@@ -80,7 +80,7 @@
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
 #      name niwa reported, which the coordinator uses to message the worker
 #      and never records. A rework Work row on the unit (a milestone a
-#      confirmed changes-needed verdict sent back, whose text the brief
+#      confirmed changes-needed verdict or reopen sent back, whose text the brief
 #      quoted) is removed then, with record-state.sh --done --kind rework;
 #      a failed removal is reported on stderr and the dispatch still
 #      succeeds. On a failure or the deadline, look for the topic's
@@ -566,7 +566,7 @@ confirm() {
     printf 'session=%s\n' "$1"
     exit 0
 }
-# clear_rework <unit cell>: a milestone a changes-needed verdict sent back
+# clear_rework <unit cell>: a milestone a changes-needed verdict or a reopen sent back
 # carries a rework row until a worker is dispatched for it, whose brief
 # quoted the row (render-brief.sh); the dispatch confirmed, the row goes.
 # The worker is already launched, so a failed removal is reported, not

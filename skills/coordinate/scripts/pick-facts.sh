@@ -65,7 +65,8 @@
 # dispatched (docs/designs/DESIGN-milestone-verdicts.md, Decision 1). And
 # each carries `rework`, the Next step of a `rework` row that names it (the
 # not-held clauses and Changes needed line a confirmed changes-needed verdict
-# left, roadmap-status.sh --confirm), or null: such a milestone reads In
+# left, or the failed clause and what was seen a confirmed reopen left,
+# roadmap-status.sh --confirm), or null: such a milestone reads In
 # progress and is offered like any other once no holding covers it, and its
 # next brief quotes the text (render-brief.sh), which dispatch clears.
 #

@@ -998,4 +998,91 @@ mod tests {
         );
         assert_eq!(errs[0].code, "R9", "R9 must fire before FC checks");
     }
+
+    // --- a reopened milestone (docs/designs/DESIGN-milestone-verdicts.md) ---
+
+    /// A `roadmap/v2` roadmap whose milestone AB1 reads `status`, after the
+    /// Progress lines `progress`.
+    fn milestone_roadmap(status: &str, progress: &str) -> String {
+        format!(
+            "---\nschema: roadmap/v2\nstatus: Active\ntheme: |\n  Plugins a maintainer can find.\n\
+             scope: |\n  The loader and the registry.\n---\n\n\
+             # ROADMAP: plugins\n\n\
+             ## Status\n\nActive\n\n\
+             ## Theme\n\nPlugins a maintainer can find.\n\n\
+             ## Features\n\n\
+             ### AB1: Loader\n\n\
+             **Outcome:** A maintainer who installed three plugins sees each one listed.\n\n\
+             **Evidence:**\n\
+             - A reviewer, from a clean install with three sample plugins, runs the\n  \
+               list command and sees exactly those three names.\n\
+             - The same reviewer removes a manifest and sees the plugin skipped by name.\n\n\
+             **Left open:** None\n\n\
+             **Dependencies:** None\n\
+             **Status:** {status}\n\
+             **Delivered:** acme/widgets#12\n\n\
+             ### AB2: Registry\n\n\
+             **Outcome:** A maintainer finds a plugin by name.\n\n\
+             **Evidence:**\n\
+             - A reviewer runs the find command and sees the plugin's path.\n\n\
+             **Left open:** None\n\n\
+             **Dependencies:** AB1\n\
+             **Status:** Not started\n\n\
+             ## Sequencing Rationale\n\nThe loader comes first because the registry reads what it loads.\n\n\
+             ## Progress\n\n{progress}\n\n\
+             ## Implementation Issues\n\n\
+             <!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->\n\n\
+             | Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n\n\
+             ## Dependency Graph\n\n\
+             <!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->\n\n\
+             ```mermaid\ngraph TD\n```\n"
+        )
+    }
+
+    /// The errors (not the notices) a document gets under the Ready posture.
+    fn blocking_errors(md: &str) -> Vec<ValidationError> {
+        let path = "docs/roadmaps/ROADMAP-plugins.md";
+        let doc = crate::frontmatter::parse_doc_bytes(path, md.as_bytes()).expect("parse");
+        let spec = formats()
+            .into_iter()
+            .find(|f| f.accepts_schema("roadmap/v2"))
+            .expect("a format accepts roadmap/v2");
+        validate_file(&doc, &spec, &Config::default())
+            .into_iter()
+            .filter(|e| !is_notice(e, ReviewPosture::Ready))
+            .collect()
+    }
+
+    /// A milestone that read Done and went back to In progress on a reported
+    /// failure, with the reopen's Progress line, validates clean: FC21 checks
+    /// the Status is one of its four values and compares nothing with an
+    /// earlier version of the roadmap.
+    #[test]
+    fn a_reopened_milestone_roadmap_validates_clean() {
+        let verified = "- 2026-10-01: AB1 and AB2 started\n\
+                        - 2026-10-05: AB1 -- verified, checked by coordinate-plugins \
+                        (https://github.com/acme/widgets/issues/7#issuecomment-101, 0123abcd)";
+        let done = milestone_roadmap("Done", verified);
+        let errs = blocking_errors(&done);
+        assert!(errs.is_empty(), "the Done roadmap must validate clean, got {errs:?}");
+
+        let reopened = milestone_roadmap(
+            "In progress",
+            &format!(
+                "{verified}\n- 2026-10-09: AB1 -- reopened: clause 2 failed, reported by an operator \
+                 (https://github.com/acme/widgets/issues/7#issuecomment-102, 89abcdef)"
+            ),
+        );
+        let errs = blocking_errors(&reopened);
+        assert!(errs.is_empty(), "the reopened roadmap must validate clean, got {errs:?}");
+        assert!(reopened.contains("**Status:** In progress\n**Delivered:** acme/widgets#12"));
+
+        // FC21 does run on this document: a Status outside its four values
+        // is reported.
+        let errs = blocking_errors(&milestone_roadmap("Reopened", verified));
+        assert!(
+            errs.iter().any(|e| e.code == "FC21"),
+            "a Status outside the four values must be an FC21 error, got {errs:?}"
+        );
+    }
 }

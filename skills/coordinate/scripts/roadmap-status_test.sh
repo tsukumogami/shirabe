@@ -52,7 +52,18 @@
 # new tag already used, a new follow-up with no section, an amend of a tag
 # the roadmap lacks, a section missing a field, a section the verdict
 # doesn't name, a home path or a control character in the file, and a file
-# over 32 KiB.
+# over 32 KiB. --reopen: a failure against a Done milestone opens one pull
+# request whose diff is MV1's Status back to In progress and the reopen
+# Progress line with the entry's URL and hash, carries the entry in its body,
+# writes a milestone-reopen row, prints the held dependent and is never
+# merged; refused with nothing opened: a milestone not Done, a clause out of
+# range, a comment of another kind, an entry file unlike its comment, an
+# entry URL off the record, a bad TAG, a feature roadmap, and a second failure
+# while the edit is pending. --confirm on it exits 1 while main reads Done or
+# reads In progress with no reopen line, refuses a comment changed since its
+# line hashed it, then writes a rework row (Who `failure <id>`, `Evidence
+# clause <n> failed: ...`, a 600-byte report cut to 600 bytes); --drop clears
+# it and the same entry reopens again.
 #
 # Usage: bash skills/coordinate/scripts/roadmap-status_test.sh
 set -uo pipefail
@@ -568,5 +579,109 @@ furefuse "a control character in the follow-ups file" "$FU2" "$T/fu5.md" "contro
 furefuse "a follow-ups file over 32 KiB" "$FU2" "$T/fu6.md" "over 32768"
 sed 's/^### MV2: the host serves/### MV2: the host answers/' "$T/fu.md" > "$T/fu7.md"
 furefuse "an amend that retitles its milestone" "$FU2" "$T/fu7.md" "retitles it"
+
+# ---- --reopen: a failure against a Done milestone ---------------------------
+# The roadmap with MV1 Done (the first In progress Status) and MV2, which
+# depends on MV1, still In progress and held by a worker.
+printf '%s\n' "$MV" | awk '!d && /^\*\*Status:\*\* In progress$/ { print "**Status:** Done"; d = 1; next } { print }' > "$T/mvd.md"
+MVD=$(cat "$T/mvd.md")
+rs_seed() { # rs_seed: the record with MV2's holding, main reading MV1 Done
+    mv_seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')" '.holdings = [$h]')"
+    db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$MVD"
+}
+fentry() { # fentry <file> <tag> <clause> <what>
+    printf 'Failure: %s\nReported by: an operator\nSeen on: %s\nClause: %s\nWhat was seen: %s\n' "$2" "$TODAY" "$3" "$4" > "$1"
+}
+fpost() { bash "$RA" "${RM[@]}" --kind milestone-failure --text-file "$1"; }
+rrefuse() { # rrefuse <label> <tag> <entry-file> [url]
+    local u=${4-}
+    [ -n "$u" ] || u=$(fpost "$3")
+    reset_calls
+    bash "$RS" "${W[@]}" --reopen "$2" --entry-file "$3" --entry-url "$u" >/dev/null 2>"$T/err"; local rc=$?
+    if [ $rc = 65 ] && [ "$(writes)" = 0 ]; then ok "$1"; else bad "$1" "rc $rc, writes $(writes): $(cat "$T/err")"; fi
+}
+main_md() { jq -r '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"]' "$GH_DB"; }
+
+echo "== --reopen: refusals =="
+rs_seed
+fentry "$T/f2.txt" MV2 1 "the public name timed out"
+rrefuse "a failure against a milestone not Done" MV2 "$T/f2.txt"
+grep -q 'line 1: MV2 reads In progress, not Done' "$T/err" && ok "  ... naming the line" || bad "  ... naming the line" "$(cat "$T/err")"
+fentry "$T/f3.txt" MV1 3 "a third check failed"
+rrefuse "a clause out of range" MV1 "$T/f3.txt"
+grep -q "line 4: clause 3 is not one of MV1's Evidence clauses" "$T/err" && ok "  ... naming the line" || bad "  ... naming the line" "$(cat "$T/err")"
+fentry "$T/f.txt" MV1 2 "the removed manifest was listed as installed"
+rrefuse "a comment of another entry kind" MV1 "$T/f.txt" "$(bash "$RA" "${RM[@]}" --kind milestone-verdict --text-file "$T/f.txt")"
+grep -q 'is not a milestone-failure entry' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+URLF=$(fpost "$T/f.txt")
+sed 's/listed as installed/listed twice/' "$T/f.txt" > "$T/f4.txt"
+rrefuse "an entry file that differs from the comment at its URL" MV1 "$T/f4.txt" "$URLF"
+rrefuse "an entry URL that isn't on the record" MV1 "$T/f.txt" "https://github.com/acme/widgets/issues/8#issuecomment-1001"
+bash "$RS" "${W[@]}" --reopen "not a tag" --entry-file "$T/f.txt" --entry-url "$URLF" >/dev/null 2>&1; eq "a TAG outside the heading-tag grammar is refused" 65 $?
+bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f.txt" --entry-url "$URLF" --follow-ups "$T/f.txt" >/dev/null 2>&1; eq "--reopen with --follow-ups is a usage error" 64 $?
+bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f.txt" >/dev/null 2>&1; eq "--reopen without --entry-url is a usage error" 64 $?
+eq "no refusal opened a pull request" 0 "$(jq '.prs | length' "$GH_DB")"
+
+echo "== --reopen: the edit =="
+reset_calls
+OUT=$(bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f.txt" --entry-url "$URLF" 2>"$T/err"); rc=$?
+eq "a failure against Done MV1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(printf '%s\n' "$OUT" | head -1)"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... and names MV2, which depends on MV1 and holds a worker" "held-dependent MV2 mv2-host" "$(printf '%s\n' "$OUT" | sed -n '2,$p')"
+PRR=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+case "$PRR" in coordinate/roadmap-reopen-mv1-[0-9]*) ok "  ... from a new coordinate/roadmap-reopen branch" ;; *) bad "  ... from a new coordinate/roadmap-reopen branch" "$PRR" ;; esac
+HASHF=$( (sha256sum < "$T/f.txt" 2>/dev/null || shasum -a 256 < "$T/f.txt") | cut -c1-8)
+diff "$T/mvd.md" <(on_branch "$PRR") > "$T/d"
+eq "  ... setting MV1 In progress and adding the reopen Progress line, and nothing else" \
+    "$(printf '%s\n' '23c23' '< **Status:** Done' '---' '> **Status:** In progress' '52a53' "> - $TODAY: MV1 -- reopened: clause 2 failed, reported by an operator ($URLF, $HASHF)")" "$(cat "$T/d")"
+jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB" | grep -qxF '> What was seen: the removed manifest was listed as installed' \
+    && ok "  ... its body carries the entry" || bad "  ... its body carries the entry" "$(jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB")"
+eq "  ... titled for the reopen" "docs(roadmap): reopen MV1, the plugin list, on a reported failure" "$(jq -r '.prs[] | select(.number == 8) | .title' "$GH_DB")"
+grep -qE 'pr merge|/merges|pulls/[0-9]+/merge' "$GH_DB.calls" && bad "  ... never merged" "$(calls)" || ok "  ... never merged"
+eq "  ... a milestone-reopen row" "milestone-reopen|MV1 [#8](https://github.com/acme/widgets/pull/8)|the roadmap on main reads MV1 In progress" \
+    "$(live | jq -r '.side_effects[0] | "\(.action)|\(.target)|\(.how_to_confirm)"')"
+eq "--list names its Action" '[{"unit":"MV1","action":"milestone-reopen"}]' "$(bash "$RS" "${RM[@]}" --list | jq -c 'map({unit, action})')"
+bash "$RA" "${RM[@]}" --list | jq -e '.[-1].kind == "roadmap-status" and (.[-1].text | test("A failure of Evidence clause 2 of MV1"))' >/dev/null \
+    && ok "  ... told as an entry" || bad "  ... told as an entry" "$(bash "$RA" "${RM[@]}" --list | jq -r '.[-1].text')"
+fentry "$T/f5.txt" MV1 1 "the list printed nothing"
+rrefuse "a second failure while the reopen edit is pending opens nothing" MV1 "$T/f5.txt"
+grep -q 'already pending' "$T/err" && ok "  ... saying an edit is pending" || bad "  ... saying an edit is pending" "$(cat "$T/err")"
+
+echo "== --reopen: --confirm =="
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm while main still reads Done is 1" 1 $?
+eq "  ... and leaves the row" 1 "$(live | jq '.side_effects | length')"
+# In progress on main by some other hand, with no reopen line: not this edit.
+sed 's/^\*\*Status:\*\* Done$/**Status:** In progress/' "$T/mvd.md" | awk '/^### MV3/ { m = 1 } m && /^\*\*Status:\*\*/ { print "**Status:** Done"; m = 0; next } { print }' > "$T/hand.md"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(cat "$T/hand.md")"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm with MV1 In progress but no reopen line on main is 1" 1 $?
+grep -q 'is no reopen on this run' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$PRR")"
+db '(.comments[] | select((.id | tostring) == $i)).body |= sub("listed as installed"; "fine after all")' --arg i "${URLF##*#issuecomment-}"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm refuses a failure entry whose text no longer hashes to its Progress line" 65 $?
+eq "  ... and writes nothing" "1 0" "$(live | jq '.side_effects | length') $(live | jq '[(.work // [])[] | select(.kind == "rework")] | length')"
+db '(.comments[] | select((.id | tostring) == $i)).body |= sub("fine after all"; "listed as installed")' --arg i "${URLF##*#issuecomment-}"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm once main reads MV1 In progress with the reopen line" 0 $rc; [ $rc = 0 ] || cat "$T/err"
+eq "  ... removes the row and writes a rework row from the failure" \
+    "0|failure ${URLF##*#issuecomment-}|Evidence clause 2 failed: the removed manifest was listed as installed" \
+    "$(live | jq '.side_effects | length')|$(live | jq -r '[.work[] | select(.kind == "rework" and .item == "MV1")][0] | "\(.who)|\(.next)"')"
+bash "$RA" "${RM[@]}" --list | jq -e '.[-1].kind == "roadmap-status" and (.[-1].text | test("goes back to pick with a rework row"))' >/dev/null \
+    && ok "  ... told as an entry" || bad "  ... told as an entry" "$(bash "$RA" "${RM[@]}" --list | jq -r '.[-1].text')"
+
+echo "== --reopen: --drop, and a long report =="
+rs_seed
+fentry "$T/f6.txt" MV1 1 "$(head -c 600 /dev/zero | tr '\0' 'x')"
+URL6=$(fpost "$T/f6.txt")
+bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f6.txt" --entry-url "$URL6" >/dev/null 2>"$T/err"; eq "a 600-byte What was seen opens its edit" 0 $?
+bash "$RS" "${W[@]}" --drop MV1 --reason "closed unmerged: the report was a misread" >/dev/null 2>"$T/err"; eq "--drop removes the reopen row" "0 0" "$? $(live | jq '.side_effects | length')"
+NPR=$(jq '.prs | length' "$GH_DB")
+bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f6.txt" --entry-url "$URL6" >/dev/null 2>"$T/err"; eq "after --drop the same entry's --reopen opens a new edit" "0 1" "$? $(( $(jq '.prs | length' "$GH_DB") - NPR ))"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$(jq -r '.prs[-1].headRefName' "$GH_DB")")"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "  ... which confirms" 0 $?
+live | jq -r '[.work[] | select(.kind == "rework")][0].next' > "$T/next.txt"
+eq "  ... into a rework text cut to 600 bytes, ending ..." "600 true" \
+    "$(tr -d '\n' < "$T/next.txt" | LC_ALL=C wc -c | tr -d ' ') $(grep -q '^Evidence clause 1 failed: x*\.\.\.$' "$T/next.txt" && echo true)"
+seed
+bash "$RS" "${W[@]}" --reopen "Feature 1" --entry-file "$T/f.txt" --entry-url "https://github.com/acme/widgets/issues/7#issuecomment-1001" >/dev/null 2>"$T/err"
+eq "--reopen on a feature roadmap is refused" 65 $?
 
 done_tests roadmap-status_test

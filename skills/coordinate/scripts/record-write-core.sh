@@ -152,8 +152,9 @@ core_write() {
             echo "$PROG: refused: a verdict-owed Work row changes only through roadmap-status.sh; carry the rows as the live record has them" >&2
             exit 65
         fi
-        # A rework row is written only there too, at a changes-needed
-        # verdict's confirmation; record-state.sh may only remove one.
+        # A rework row is written only there too, at the confirmation of a
+        # changes-needed verdict or a reopen; record-state.sh may only remove
+        # one.
         if ! jq -e --slurpfile live "$T/live.json" '
                 [(.work // [])[] | select(.kind == "rework")] as $n
                 | [($live[0].work // [])[] | select(.kind == "rework")] as $l

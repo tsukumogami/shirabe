@@ -9,6 +9,8 @@
 # decision_apply (reversal and deferral), posture_ask, roadmap_status (the
 # feature's roadmap-status row), milestone_verdict (a milestone-done or
 # milestone-verdict row for the unit; another kind, unit or an older row
+# waits; no unit is a conflict), milestone_reopen (a milestone-reopen row
+# for the unit; a verdict's row, another unit, no row or an older row
 # waits; no unit is a conflict), and --verified
 # (confirmed, waiting, moved). A multi-repository record where acme/widgets#12
 # and acme/gadgets#12 are both held: the unit is found by its Worker from the
@@ -434,6 +436,30 @@ eq "milestone_verdict: a row from before the step became due waits" waiting "$(c
 mv_session '{"verdict":"recorded"}'
 body "$(rec | jq -c --argjson r "$MVROW" '.side_effects = [$r]')"
 eq "milestone_verdict: evidence naming no unit is a conflict" conflict "$(confirm)"
+
+echo "== milestone_reopen =="
+# failure on a milestone roadmap: the reopen's roadmap edit at milestone_reopen.
+MRROW='{"action":"milestone-reopen","target":"MV1 [#9](https://github.com/acme/widgets/pull/9)","verified_head":"","attempted":"2026-09-26T09:58Z","how_to_confirm":"the roadmap on main reads MV1 In progress"}'
+mr_session() { # mr_session <evidence>
+    session
+    log_to "$S" pick_facts wait "$EVT"; log_to "$S" wait milestone_reopen "$EVT"
+    log_evidence "$S" milestone_reopen "$1" "$EVT"
+    log_to "$S" milestone_reopen record "$EVT"
+}
+mr_session '{"status":"opened","unit":"MV1"}'
+body "$(rec | jq -c --argjson r "$MRROW" '.side_effects = [$r]')"
+eq "milestone_reopen: the milestone's milestone-reopen row confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson r "$MRROW" '.side_effects = [$r | .action = "milestone-done" | .how_to_confirm = "the roadmap on main reads MV1 Done"]')"
+eq "milestone_reopen: a verdict's milestone-done row waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson r "$MRROW" '.side_effects = [$r | .target = "MV2 [#9](https://github.com/acme/widgets/pull/9)"]')"
+eq "milestone_reopen: another milestone's row waits" waiting "$(confirm)"
+body "$(rec)"
+eq "milestone_reopen: no row waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson r "$MRROW" '.side_effects = [$r]')" "$BEFORE"
+eq "milestone_reopen: a row from before the step became due waits" waiting "$(confirm)"
+mr_session '{"status":"opened"}'
+body "$(rec | jq -c --argjson r "$MRROW" '.side_effects = [$r]')"
+eq "milestone_reopen: evidence naming no unit is a conflict" conflict "$(confirm)"
 
 echo "== the natural order: written before the evidence that leaves the step =="
 # decision_apply: the coordinator reached the hub at 09:50, the human's

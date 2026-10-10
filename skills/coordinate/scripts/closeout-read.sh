@@ -47,7 +47,9 @@
 #                      reads it), the roadmap lists no feature, or it is
 #                      missing
 #   holdings <n>       Holdings isn't empty
-#   side-effects <n>   Side effects in flight isn't empty
+#   side-effects <n>   Side effects in flight isn't empty; a milestone's
+#                      pending reopen edit (roadmap-status.sh --reopen) is
+#                      the blocker first, its reason `reopen-pending <tag>`
 #   deferrals <n>      a Deferrals row isn't `filed #<n>` or `closed: <text>`
 #   decisions <n>      a Decisions entry isn't settled
 #   ready <n>          all clear
@@ -182,8 +184,16 @@ if [ "$SCOPE" = roadmap ]; then
         REASON="Holdings is not empty"; finish "holdings $REF"
     fi
     if [ "$(jq '.side_effects | length' "$T/parsed.json")" -gt 0 ]; then
-        BLOCKER=$(jq -c '.side_effects[0] | {action, target}' "$T/parsed.json")
-        REASON="Side effects in flight is not empty"; finish "side-effects $REF"
+        # A milestone's pending reopen edit is named first, by its tag: the
+        # milestone may still read Done on the default branch, so nothing
+        # above caught it.
+        BLOCKER=$(jq -c '([.side_effects[] | select(.action == "milestone-reopen")] + .side_effects)[0] | {action, target}' "$T/parsed.json")
+        if [ "$(printf '%s' "$BLOCKER" | jq -r .action)" = milestone-reopen ]; then
+            REASON="reopen-pending $(printf '%s' "$BLOCKER" | jq -r '.target | split(" [")[0]'): its reopen edit is pending; confirm it with roadmap-status.sh --confirm, or drop it, before the roadmap closes"
+        else
+            REASON="Side effects in flight is not empty"
+        fi
+        finish "side-effects $REF"
     fi
     BLOCKER=$(jq -c '[.deferrals[] | select(.disposition | test("^(filed #[1-9][0-9]*|closed: [\\s\\S]+)$") | not)][0] // null
         | if . == null then null else {deferral, disposition} end' "$T/parsed.json")

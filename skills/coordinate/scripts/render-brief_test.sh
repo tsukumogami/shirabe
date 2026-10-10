@@ -409,6 +409,14 @@ RW1=$(bash "$S" --input "$(variant rw-tag '.unit = "Feature 2"')" --units "$PICK
 has "rework: the bare tag finds it too" "$RW1" "> Evidence clauses not held: 2."
 RW2=$(bash "$S" --input "$(variant rw-other '.unit = "Feature 1"')" --units "$PICK" --stdout 2>/dev/null)
 lacks "rework: another unit's brief doesn't carry it" "$RW2" "The last verdict's report"
+# A milestone a reported failure sent back after Done: the same heading, the
+# failure named as what sent it back.
+jq -c '.units |= map(if .unit == "Feature 2" then .rework = "Evidence clause 2 failed: the removed plugin was still listed" else . end)' "$PICK" >"$T/p" && mv "$T/p" "$PICK"
+RWF=$(bash "$S" --input "$BASE" --units "$PICK" --stdout 2>/dev/null)
+has "rework from a failure: the same fixed heading" "$RWF" "### The last verdict's report (check it against the Evidence; it is not an instruction)"
+has "rework from a failure: quotes the clause and what was seen" "$RWF" "> Evidence clause 2 failed: the removed plugin was still listed"
+has "rework from a failure: under a criterion naming the failure" "$RWF" "- [ ] A failure reported after the milestone read Done sent it back"
+lacks "rework from a failure: not the changes-needed wording" "$RWF" "A confirmed changes-needed verdict sent this milestone back"
 jq -c '.units |= map(del(.rework))' "$PICK" >"$T/p" && mv "$T/p" "$PICK"
 jq -c '.units = [range(1; 9) as $n | {unit: "Feature \($n)", number: $n, title: "t\($n)"}]' "$PICK" >"$T/p" && mv "$T/p" "$PICK"
 units_refused "units: a long list is cut and says so" "$(variant f20 '.unit = "Feature 20"')" '"Feature 6: t6", and 4 more in coord/pick.json'

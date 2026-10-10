@@ -705,12 +705,12 @@ states:
     accepts:
       event:
         type: enum
-        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed, resume, redispatch]
+        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed, failure, resume, redispatch]
         required: true
         description: What arrived, or what is due.
       unit:
         type: string
-        description: The dispatch topic the event is about, when it is about one (a holding's Worker, never the unit's tag or title). A merged event whose unit names no holding with a pull request is refused as unknown-topic, with the reason in coord/merged_facts.json, and comes back here.
+        description: The dispatch topic the event is about, when it is about one (a holding's Worker, never the unit's tag or title). A merged event whose unit names no holding with a pull request is refused as unknown-topic, with the reason in coord/merged_facts.json, and comes back here. With landed or failure, the heading tag of the feature or milestone instead (MV2, Feature 7).
       report:
         type: string
         description: With a report or progress event, the worker's message as it arrived.
@@ -783,6 +783,17 @@ states:
       - target: roadmap_status
         when:
           event: landed
+          vars.ROADMAP:
+            is_set: true
+      # A failure reported against a milestone that reads Done: its failure
+      # entry is checked and posted, and roadmap-status.sh --reopen opens the
+      # edit that sets it In progress. Not the `failure` state, which a held
+      # re-dispatch reaches through `redispatch`. A roadmap event; at
+      # discipline scope no edge takes it.
+      - target: milestone_reopen
+        when:
+          event: failure
+          evidence.unit: present
           vars.ROADMAP:
             is_set: true
       # A pause ended, or its condition may be met: pick reads the pauses
@@ -2096,6 +2107,31 @@ states:
         when:
           verdict: deferred
 
+  milestone_reopen:
+    # Evidence-closed, as milestone_verdict is: the coordinator checks the
+    # failure entry, posts it, and roadmap-status.sh --reopen opens the
+    # roadmap edit setting the milestone In progress and writes its row
+    # before `opened`; the record step confirms the row. `failed` changes
+    # nothing and goes back to wait
+    # (docs/designs/DESIGN-milestone-verdicts.md, Decision 3).
+    accepts:
+      status:
+        type: enum
+        values: [opened, failed]
+        required: true
+        description: opened after the checked failure entry was posted and roadmap-status.sh --reopen opened its roadmap edit; failed when the entry couldn't be checked or the script refused (the milestone isn't Done, or a roadmap edit is pending).
+      unit:
+        type: string
+        description: With opened, the milestone's heading tag (MV2, Feature 7).
+    transitions:
+      - target: record
+        when:
+          status: opened
+          evidence.unit: present
+      - target: wait
+        when:
+          status: failed
+
   roadmap_close:
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/closeout-read.sh" --session "{{SESSION_NAME}}"'
@@ -2878,7 +2914,10 @@ pull request you handed over; `landed`, with the feature's tag as `unit`, when a
 roadmap feature's last pull request has merged and its Status should go back to
 the roadmap, and on a milestone roadmap when a milestone's work is finished,
 its last pull request merged or, with nothing to merge, its work reported or
-seen done (it goes to its verdict, never to Done by itself); `retire` to finish with a worker; `resume` when a pause has ended
+seen done (it goes to its verdict, never to Done by itself); `failure`, with
+the milestone's tag as `unit`, when a person or you find that a milestone
+reading Done on a milestone roadmap no longer meets a clause of its Evidence
+(a failed dispatch is never this: that is `redispatch`); `retire` to finish with a worker; `resume` when a pause has ended
 or its condition may be met, so pick reads the pauses again; `redispatch`, with
 the unit, to take up again a re-dispatch a pause held; `end` when the
 rotation or the scope ends.
@@ -4018,6 +4057,75 @@ An entry posted on the record changes nothing by itself: Done, the
 verdict-owed and rework rows and every pick follow only the record's body
 and the default branch.
 
+## milestone_reopen
+
+A failure was reported against a milestone that reads Done. Write the failure
+entry, check it with `milestone.sh check-failure`, post it with
+`record-append.sh --kind milestone-failure`, run `roadmap-status.sh --reopen`
+with the URL it printed, and submit `status: opened` with the milestone's tag
+as `unit`. When the entry can't be checked or the script refuses, submit
+`status: failed`: nothing changes.
+
+<!-- details -->
+
+A failure reopens only a Done milestone, and only through a roadmap pull
+request whoever merges roadmap changes reviews, so the report is checked
+before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
+
+1. Read the roadmap on the default branch into a file outside any repository
+   (`mktemp`), and the milestone's clauses with
+   `"$S/milestone.sh" evidence <file> "<tag>"`: they are numbered in the
+   roadmap's order. Find the clause the report says no longer holds.
+2. Write the entry to a file outside any repository, exactly these lines:
+
+   ```
+   Failure: <tag>
+   Reported by: <the person who reported it, or {{SESSION_NAME}}>
+   Seen on: <YYYY-MM-DD, UTC, no later than today>
+   Clause: <n>
+   What was seen: <what showed the clause failing>
+   ```
+
+   `Reported by` is a login, a session name or a plain name, 60 characters
+   at most. `What was seen` is one paragraph of at most 600 bytes with no URL
+   or link: the milestone's next brief quotes it to a worker as a report to
+   check against the Evidence. On a public host the entry is public: no
+   tokens, host paths or private repositories.
+3. Check it: `"$S/milestone.sh" check-failure <roadmap file> "<tag>" <entry file>`.
+   It refuses a milestone that doesn't read Done and a clause it doesn't
+   have. Fix the entry until it passes.
+4. Post it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-failure --text-file <entry file>`,
+   which prints the entry's URL.
+5. Open the reopen edit:
+   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --reopen "<tag>" --entry-file <entry file> --entry-url <URL>`.
+   It re-reads the comment at the URL, which must hold the entry file's text,
+   checks the entry against the roadmap on the default branch and opens one
+   pull request that sets the Status to In progress and adds a Progress line
+   naming the failed clause, the reporter and the entry; Delivered, Outcome
+   and Evidence stay. Never merge it; it goes to whoever merges roadmap
+   changes, in the merge-order table, and a person reviews the report there.
+   Only one roadmap edit is pending at a time: a second failure reported
+   while one is pending opens nothing, so submit `failed` and report it again
+   once the pending edit is confirmed or dropped.
+6. The script prints `held-dependent <tag> <worker>` for each milestone that
+   depends on this one and has a holding: once the edit lands that milestone
+   reads blocked again while its worker keeps running. Tell the person who
+   owns each such worker what failed and that the dependent is blocked again,
+   and leave the decision to stop or keep it with them.
+7. Submit `status: opened` with `unit`; the record step waits for its Side
+   effects row. Until the edit merges, pick passes over the milestone. Once
+   the default branch reads it In progress, run
+   `roadmap-status.sh --confirm "<tag>"`, which writes a rework row from the
+   entry (`Evidence clause <n> failed: <what was seen>`): pick offers the
+   milestone again like any other once nothing blocks it, and its next brief
+   quotes the failure. A pending edit whose pull request closed unmerged is
+   dropped with `roadmap-status.sh --drop "<tag>" --reason "<why>"`, and the
+   same entry's `--reopen` opens it again.
+
+A failure entry posted on the record reopens nothing by itself: the Status,
+the rework row and every pick follow only the record's body and the default
+branch.
+
 ## roadmap_close
 
 Checking whether the roadmap is done. koto runs `closeout-read.sh` itself: no
@@ -4026,7 +4134,9 @@ feature Done or Dropped, no holdings, nothing in flight, every deferral filed or
 closed, and every decision settled.
 A verdict-owed row blocks first (`verdict-owed`, the milestone named in the
 reason), even once the milestone reads Done: its verdict's edit is confirmed
-with `roadmap-status.sh --confirm` before the roadmap closes.
+with `roadmap-status.sh --confirm` before the roadmap closes. A pending
+reopen edit blocks as a side effect in flight (`side-effects`, with the
+reason `reopen-pending <tag>`), even while the milestone still reads Done.
 
 ## roadmap_blocked
 

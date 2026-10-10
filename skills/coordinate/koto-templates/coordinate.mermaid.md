@@ -96,6 +96,8 @@ stateDiagram-v2
     merged_facts --> record : gates.merged_facts_verdict.exit_code: 91
     merged_facts --> wait : gates.merged_facts_verdict.exit_code: 92
     merged_facts --> wait : gates.merged_facts_verdict.exit_code: 46
+    milestone_reopen --> record : evidence.unit: present, status: opened
+    milestone_reopen --> wait : status: failed
     milestone_verdict --> record : evidence.unit: present, verdict: recorded
     milestone_verdict --> wait : verdict: deferred
     pick --> dispatch_check : choice: dispatch
@@ -239,6 +241,7 @@ stateDiagram-v2
     wait --> decision_evidence : event: evidence, evidence.decision: present
     wait --> decision_raise : event: raise
     wait --> roadmap_status : event: landed, vars.ROADMAP: {"is_set":true}
+    wait --> milestone_reopen : event: failure, evidence.unit: present, vars.ROADMAP: {"is_set":true}
     wait --> pick_facts : event: resume
     wait --> failure : event: redispatch
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}

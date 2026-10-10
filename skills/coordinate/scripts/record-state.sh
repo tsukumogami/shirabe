@@ -65,7 +65,8 @@
 # whose verdict is owed, docs/designs/DESIGN-milestone-verdicts.md) is listed
 # and kept by every write here, but only roadmap-status.sh writes or removes
 # it: --work refuses its kind, and --done leaves it. A rework row (a
-# milestone a confirmed changes-needed verdict sent back) is written only by
+# milestone a confirmed changes-needed verdict or reopen sent back) is
+# written only by
 # roadmap-status.sh --confirm, so --work refuses its kind too; --done
 # --kind rework removes it, which dispatch-worker.sh does once a worker is
 # dispatched for the milestone.
@@ -277,7 +278,7 @@ work)
     case "$KIND" in
         holding|local-agent|decision|follow-up) ;;
         verdict-owed) echo "$PROG: a verdict-owed row is written only by roadmap-status.sh --unit, on a milestone roadmap" >&2; exit 64 ;;
-        rework) echo "$PROG: a rework row is written only by roadmap-status.sh --confirm, from a confirmed changes-needed verdict" >&2; exit 64 ;;
+        rework) echo "$PROG: a rework row is written only by roadmap-status.sh --confirm, from a confirmed changes-needed verdict or reopen" >&2; exit 64 ;;
         *) echo "$PROG: --kind takes holding, local-agent, decision or follow-up" >&2; exit 64 ;;
     esac
     if [ "$KIND" = holding ]; then

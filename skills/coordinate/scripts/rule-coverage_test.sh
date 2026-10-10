@@ -24,7 +24,7 @@ TOTAL=190
 # The decision flow's rules, added after the inventory: D1..D$DTOTAL.
 DTOTAL=16
 # The milestone verdict rules (docs/designs/DESIGN-milestone-verdicts.md): M1..M$MTOTAL.
-MTOTAL=15
+MTOTAL=20
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }

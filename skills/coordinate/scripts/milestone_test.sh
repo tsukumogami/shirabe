@@ -20,7 +20,14 @@
 # each Fit, and refusing, naming the line: a clause the milestone lacks, a
 # clause named twice or malformed, another tag, a pull request not shaped
 # owner/repo#n, a Fit outside its values, an empty Rationale, a reordered,
-# missing or extra line, CRLF endings and an entry over 16 KiB.
+# missing or extra line, CRLF endings and an entry over 16 KiB;
+# check-failure accepting a well-formed failure against a Done milestone and
+# refusing, naming the line: a milestone not Done, another tag, a clause out
+# of range or malformed, a missing, reordered or extra line, a Seen on later
+# than --today or not a date, a reporter outside its closed shape (a
+# backtick, over 60 characters, a work-in-progress path), What was seen over
+# 600 bytes, with a URL or a markdown link, or empty, a control character and
+# an entry over 16 KiB.
 #
 # Usage: bash skills/coordinate/scripts/milestone_test.sh
 set -uo pipefail
@@ -227,6 +234,66 @@ gf acme/widgets#12 MV1 fits 1 > "$T/g.txt"
 bash "$MS" check-goal-fit "$T/v2.md" MV9 "$T/g.txt" >/dev/null 2>&1; eq "check-goal-fit on a tag that isn't a milestone is 2" 2 $?
 bash "$MS" check-goal-fit "$T/v1.md" MV1 "$T/g.txt" >/dev/null 2>&1; eq "  ... and on a v1 roadmap" 2 $?
 bash "$MS" check-goal-fit "$T/v2.md" MV1 "$T/g.txt" --today 2026-10-10 >/dev/null 2>&1; eq "check-goal-fit takes no option" 64 $?
+
+echo "== check-failure =="
+# A copy of the roadmap where MV1 reads Done (two clauses) and MV2 doesn't.
+sed 's/^\*\*Status:\*\* In progress$/**Status:** Done/' "$T/v2.md" > "$T/done.md"
+fe() { # fe <tag> <reporter> <seen-on> <clause> <what>
+    printf 'Failure: %s\nReported by: %s\nSeen on: %s\nClause: %s\nWhat was seen: %s\n' "$1" "$2" "$3" "$4" "$5"
+}
+fcheck() { bash "$MS" check-failure "$T/done.md" "${FTAG:-MV1}" "$T/f.txt" --today 2026-10-10 2>"$T/err"; }
+faccept() { # faccept <label> <fe args...>
+    local l=$1; shift
+    fe "$@" > "$T/f.txt"; fcheck > "$T/out"; eq "$l" 0 $?
+}
+frefuse() { # frefuse <label> <stderr phrase> <fe args...>
+    local l=$1 p=$2; shift 2
+    fe "$@" > "$T/f.txt"; fcheck > /dev/null; local rc=$?
+    if [ $rc = 1 ] && grep -q -- "$p" "$T/err"; then ok "$l"; else bad "$l" "rc $rc: $(cat "$T/err")"; fi
+}
+# repeat <n> <char>: the character n times.
+repeat() { head -c "$1" /dev/zero | tr '\0' "$2"; }
+faccept "a failure against a Done milestone passes" MV1 "an operator" 2026-10-09 2 "the removed manifest was listed as installed"
+eq "  ... printed as JSON, with the clause it names" \
+    'MV1|an operator|2026-10-09|2|The same reviewer removes one manifest and sees it named as skipped.|the removed manifest was listed as installed' \
+    "$(jq -r '"\(.tag)|\(.reported_by)|\(.seen_on)|\(.clause)|\(.clause_text)|\(.what_was_seen)"' "$T/out")"
+faccept "a reporter that is a session name, seen today" MV1 coordinate-widgets-20261010T000000Z 2026-10-10 1 "three names, one of them twice"
+FTAG=MV2 frefuse "a milestone not Done" "line 1: MV2 reads Not started, not Done" MV2 "an operator" 2026-10-09 1 "it fails"
+fe MV1 "an operator" 2026-10-09 1 "it fails" > "$T/f.txt"
+bash "$MS" check-failure "$T/v2.md" MV1 "$T/f.txt" --today 2026-10-10 >/dev/null 2>"$T/err"
+[ $? = 1 ] && grep -q 'line 1: MV1 reads In progress, not Done' "$T/err" && ok "  ... In progress too" || bad "  ... In progress too" "$(cat "$T/err")"
+frefuse "another tag" "line 1: the entry names MV2, not MV1" MV2 "an operator" 2026-10-09 1 "it fails"
+frefuse "a clause out of range" "line 4: clause 3 is not one of MV1's Evidence clauses; it has 2" MV1 "an operator" 2026-10-09 3 "it fails"
+frefuse "clause 0" "line 4: expected" MV1 "an operator" 2026-10-09 0 "it fails"
+frefuse "a clause that isn't one number" "line 4: expected" MV1 "an operator" 2026-10-09 "1, 2" "it fails"
+frefuse "a Seen on later than today" "line 3: Seen on 2026-10-11 is later than today" MV1 "an operator" 2026-10-11 1 "it fails"
+frefuse "a Seen on that isn't a date" "line 3: 2026-13-01 is not a date" MV1 "an operator" 2026-13-01 1 "it fails"
+frefuse "a reporter with a backtick" "line 2: Reported by is a login" MV1 'an `operator`' 2026-10-09 1 "it fails"
+frefuse "a reporter over 60 characters" "line 2: Reported by is a login" MV1 "$(repeat 61 a)" 2026-10-09 1 "it fails"
+# Built at run time: the hygiene and public-content scans hold the suite's
+# own text to naming no staging path.
+WIPDIR="w""ip"
+frefuse "a reporter that is a work-in-progress path" "line 2: Reported by is a login" MV1 "$WIPDIR/reports" 2026-10-09 1 "it fails"
+frefuse "What was seen over 600 bytes" "line 5: What was seen is one paragraph of at most 600 bytes" MV1 "an operator" 2026-10-09 1 "$(repeat 601 x)"
+faccept "What was seen of exactly 600 bytes passes" MV1 "an operator" 2026-10-09 1 "$(repeat 600 x)"
+frefuse "What was seen with a URL" "this one has a URL" MV1 "an operator" 2026-10-09 1 "see https://example.com/log"
+frefuse "What was seen with a bare www address" "this one has a URL" MV1 "an operator" 2026-10-09 1 "see www.example.com"
+frefuse "What was seen with a markdown link" "this one has a markdown link" MV1 "an operator" 2026-10-09 1 "see [the log](log.txt)"
+frefuse "an empty What was seen" "line 5: expected" MV1 "an operator" 2026-10-09 1 " "
+fe MV1 "an operator" 2026-10-09 1 "it fails" | awk 'NR == 3 { l = $0; next } NR == 4 { print; print l; next } { print }' > "$T/f.txt"; fcheck >/dev/null
+[ $? = 1 ] && grep -q 'line 3: expected `Seen on' "$T/err" && ok "a reordered failure is refused, naming the line" || bad "a reordered failure is refused, naming the line" "$(cat "$T/err")"
+fe MV1 "an operator" 2026-10-09 1 "it fails" | sed '/^What was seen:/d' > "$T/f.txt"; fcheck >/dev/null
+[ $? = 1 ] && grep -q 'line 5: missing' "$T/err" && ok "a missing line is refused, naming it" || bad "a missing line is refused, naming it" "$(cat "$T/err")"
+{ fe MV1 "an operator" 2026-10-09 1 "it fails"; echo "Note: more"; } > "$T/f.txt"; fcheck >/dev/null
+[ $? = 1 ] && grep -q 'line 6: nothing follows What was seen' "$T/err" && ok "a line after What was seen is refused" || bad "a line after What was seen is refused" "$(cat "$T/err")"
+fe MV1 "an operator" 2026-10-09 1 "it fails" | sed 's/$/\r/' > "$T/f.txt"; fcheck >/dev/null
+[ $? = 1 ] && grep -q 'control character' "$T/err" && ok "a failure with CRLF endings is refused" || bad "a failure with CRLF endings is refused" "$(cat "$T/err")"
+{ fe MV1 "an operator" 2026-10-09 1 "it fails"; repeat 17000 x; echo; } > "$T/f.txt"; fcheck >/dev/null
+[ $? = 1 ] && grep -q 'over 16384' "$T/err" && ok "a failure over 16 KiB is refused" || bad "a failure over 16 KiB is refused" "$(cat "$T/err")"
+fe MV1 "an operator" 2026-10-09 1 "it fails" > "$T/f.txt"
+bash "$MS" check-failure "$T/done.md" MV9 "$T/f.txt" >/dev/null 2>&1; eq "check-failure on a tag that isn't a milestone is 2" 2 $?
+bash "$MS" check-failure "$T/v1.md" MV1 "$T/f.txt" >/dev/null 2>&1; eq "  ... and on a v1 roadmap" 2 $?
+bash "$MS" check-failure "$T/done.md" MV1 "$T/f.txt" --worker x >/dev/null 2>&1; eq "check-failure takes no --worker" 64 $?
 echo
 echo "milestone: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

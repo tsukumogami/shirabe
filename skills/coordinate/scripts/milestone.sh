@@ -11,6 +11,7 @@
 #   milestone.sh check-verdict ROADMAP TAG ENTRY [--worker TOPIC] [--today YYYY-MM-DD]
 #   milestone.sh progress-has ROADMAP TEXT
 #   milestone.sh check-goal-fit ROADMAP TAG ENTRY
+#   milestone.sh check-failure ROADMAP TAG ENTRY [--today YYYY-MM-DD]
 #
 # schema prints the frontmatter's `schema:` value, or roadmap/v1 when the
 # frontmatter names none (a roadmap with no schema line is a version 1 one).
@@ -72,12 +73,33 @@
 # entry apply. A refusal names the line on stderr; on success it prints
 # {pr, tag, fit, clauses: [n, ...], rationale} ([] for advances none).
 #
-# Exit codes: 0 pass (or found); 1 the check failed (check-verdict and
-# check-goal-fit: the entry; progress-has: TEXT is not there); 2 a file
+# check-failure checks ENTRY, a failure reported against TAG's milestone after
+# it read Done, against ROADMAP, the roadmap on the default branch: TAG must
+# read Done there, and the clause must be one of its Evidence clauses. The
+# entry is these five lines, in this order:
+#
+#   Failure: <tag>
+#   Reported by: <a login, a session name or a plain name, 60 characters at most>
+#   Seen on: <YYYY-MM-DD, no later than today>
+#   Clause: <n>
+#   What was seen: <text>
+#
+# Reported by has Checked by's closed shape (no backtick, slash or control
+# character, so no path either). What was seen is one paragraph of at most
+# 600 bytes with no URL or markdown link: it is the first report text that
+# reaches a worker's brief, quoted under the rework heading, so it gets the
+# rework row's shape (record-codec.jq rework_problem). The same 16 KiB cap and
+# plain-lines rule as a verdict entry apply. A refusal names the line on
+# stderr; on success it prints {tag, reported_by, seen_on, clause, clause_text,
+# what_was_seen}.
+#
+# Exit codes: 0 pass (or found); 1 the check failed (the entry checks: the
+# entry; progress-has: TEXT is not there); 2 a file
 # couldn't be read, or TAG isn't a milestone with Evidence; 64 usage.
 set -uo pipefail
 
 PROG=milestone
+HERE=$(cd "$(dirname "$0")" && pwd)
 usage() { sed -n '/^# Usage:/,/^# schema prints/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' >&2; exit 64; }
 die2() { echo "$PROG: $*" >&2; exit 2; }
 # An entry is at most this many bytes (roadmap-status.sh --verdict holds the
@@ -181,24 +203,24 @@ progress-has)
         END { exit(found ? 0 : 1) }'
     exit $?
     ;;
-check-verdict|check-goal-fit) ;;
+check-verdict|check-goal-fit|check-failure) ;;
 *) usage ;;
 esac
 
-# ---- the two entry checks: their arguments and the entry's lines ------------
+# ---- the entry checks: their arguments and the entry's lines ----------------
 [ $# -ge 3 ] || usage
 ROADMAP_FILE=$1 TAG=$2 ENTRY=$3; shift 3
 WORKER= TODAY=
-[ "$CMD" = check-verdict ] || [ $# -eq 0 ] || usage
+[ "$CMD" != check-goal-fit ] || [ $# -eq 0 ] || usage
 while [ $# -gt 0 ]; do
     case "$1" in
-        --worker) [ $# -ge 2 ] || usage; WORKER=$2; shift 2 ;;
+        --worker) [ $# -ge 2 ] && [ "$CMD" = check-verdict ] || usage; WORKER=$2; shift 2 ;;
         --today) [ $# -ge 2 ] || usage; TODAY=$2; shift 2 ;;
         *) usage ;;
     esac
 done
 [[ $TAG =~ $RE_TAG ]] || { echo "$PROG: $TAG is not a milestone's heading tag (Feature 7, ED1, AB10b)" >&2; exit 64; }
-if [ "$CMD" = check-verdict ]; then
+if [ "$CMD" != check-goal-fit ]; then
     [ -n "$TODAY" ] || TODAY=$(date -u +%Y-%m-%d)
     [[ $TODAY =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
 fi
@@ -257,6 +279,39 @@ if [ "$CMD" = check-goal-fit ]; then
     [ "$N" -le 4 ] || fail "line 5: nothing follows Rationale"
     jq -n -c --arg pr "$GF_PR" --arg tag "$TAG" --arg fit "$GF_FIT" --argjson cl "$CL_JSON" --arg why "$GF_WHY" \
         '{pr: $pr, tag: $tag, fit: $fit, clauses: $cl, rationale: $why}' || die2 "jq failed"
+    exit 0
+fi
+
+# ---- check-failure -----------------------------------------------------------
+if [ "$CMD" = check-failure ]; then
+    shape 1 "Failure: <tag>" '^Failure: (.+)$'
+    F_TAG=${BASH_REMATCH[1]}
+    [ "$F_TAG" = "$TAG" ] || fail "line 1: the entry names ${F_TAG:0:80}, not $TAG"
+    F_STATUS=$(printf '%s' "$MS" | jq -r .status)
+    case "$F_STATUS" in
+        Done*) ;;
+        *) fail "line 1: $TAG reads ${F_STATUS:-no status}, not Done; a failure reopens only a Done milestone" ;;
+    esac
+    shape 2 "Reported by: <who>" '^Reported by: (.+)$'
+    F_BY=${BASH_REMATCH[1]}
+    RE_BY='^[A-Za-z0-9][A-Za-z0-9 ._-]{0,59}$'
+    [[ $F_BY =~ $RE_BY ]] || fail "line 2: Reported by is a login, a session name or a plain name: letters, digits, spaces, . _ -, 60 characters at most"
+    shape 3 "Seen on: <YYYY-MM-DD>" '^Seen on: ([0-9]{4})-([0-9]{2})-([0-9]{2})$'
+    F_ON="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
+    M=${BASH_REMATCH[2]#0} D=${BASH_REMATCH[3]#0}
+    [ "$M" -ge 1 ] && [ "$M" -le 12 ] && [ "$D" -ge 1 ] && [ "$D" -le 31 ] || fail "line 3: $F_ON is not a date"
+    [[ $F_ON > $TODAY ]] && fail "line 3: Seen on $F_ON is later than today, $TODAY"
+    # At most four digits, as Clauses in a goal-fit entry.
+    shape 4 "Clause: <n>" '^Clause: ([1-9][0-9]{0,3})$'
+    F_CLAUSE=${BASH_REMATCH[1]}
+    [ "$F_CLAUSE" -le "$NCLAUSES" ] || fail "line 4: clause $F_CLAUSE is not one of $TAG's Evidence clauses; it has $NCLAUSES"
+    shape 5 "What was seen: <text>" '^What was seen: (.*[^ ].*)$'
+    F_WHAT=${BASH_REMATCH[1]}
+    WHY=$(printf '%s' "$F_WHAT" | jq -R -s -r -L "$HERE" 'include "record-codec"; rework_problem // empty') || die2 "jq failed"
+    [ -z "$WHY" ] || fail "line 5: What was seen is one paragraph of at most 600 bytes with no URL or markdown link; this one has $WHY"
+    [ "$N" -le 5 ] || fail "line 6: nothing follows What was seen"
+    printf '%s' "$MS" | jq -c --arg by "$F_BY" --arg on "$F_ON" --argjson n "$F_CLAUSE" --arg what "$F_WHAT" \
+        '{tag, reported_by: $by, seen_on: $on, clause: $n, clause_text: .evidence[$n - 1], what_was_seen: $what}' || die2 "jq failed"
     exit 0
 fi
 

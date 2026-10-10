@@ -22,6 +22,11 @@
 #      --verdict, then `recorded`, is confirmed by the record step and the
 #      run reaches pick, where both milestones read verdict_owed; nothing was
 #      merged;
+#   3a. once main takes that edit and --confirm runs, a `failure` tick for
+#      the Done milestone reaches milestone_reopen, `failed` goes back to
+#      wait, and a checked, posted failure entry with roadmap-status.sh
+#      --reopen, then `opened`, is confirmed by the record step and reaches
+#      pick, which passes over the milestone while its reopen is pending;
 #   4. on the feature run `landed` still opens the Done pull request;
 #   5. the rendered merged_facts directive on the milestone run names the
 #      milestone landing guidance, which carries no status-line pull request
@@ -205,6 +210,28 @@ if open_run milestones "$MV" "$REC" yes; then
     [ -n "$PRN" ] && ok "  ... titled for the milestone" || bad "  ... titled for the milestone" "$(jq -c '.prs' "$GH_DB")"
     eq "recorded: the record confirms the row and the run reaches pick" pick "$(at --with-data '{"verdict":"recorded","unit":"MV1"}')"
     eq "pick reads both milestones verdict_owed" "true true" "$(pick_json | jq -r '[.units[] | .verdict_owed | tostring] | join(" ")')"
+    eq "nothing was merged" 0 "$(merges)"
+    eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
+
+    echo "== 3a. a failure against the Done milestone =="
+    # main takes MV1's verdict edit and --confirm clears it, so MV1 reads Done.
+    PRB=$(jq -r --argjson n "$PRN" '.prs[] | select(.number == $n) | .headRefName' "$GH_DB")
+    db '.files["acme/widgets"]["main:" + $p] = .files["acme/widgets"][$b + ":" + $p]' --arg p "$RM" --arg b "$PRB"
+    as_agent roadmap-status.sh --confirm MV1; eq "MV1's verdict edit is confirmed" 0 $?
+    eq "failure reaches milestone_reopen" milestone_reopen "$(at --with-data '{"event":"failure","unit":"MV1"}')"
+    eq "failed changes nothing and goes back to wait" wait "$(at --with-data '{"status":"failed"}')"
+    eq "failure reaches milestone_reopen again" milestone_reopen "$(at --with-data '{"event":"failure","unit":"MV1"}')"
+    sleep 1
+    printf 'Failure: MV1\nReported by: an operator\nSeen on: %s\nClause: 2\nWhat was seen: the removed manifest was listed as installed\n' "$TODAY" > "$T/failure.txt"
+    jq -r --arg k "main:$RM" '.files["acme/widgets"][$k]' "$GH_DB" > "$T/main.md"
+    bash "$PS/milestone.sh" check-failure "$T/main.md" MV1 "$T/failure.txt" > /dev/null 2>"$T/err"; eq "the failure passes milestone.sh check-failure" 0 $?
+    as_agent record-append.sh --kind milestone-failure --text-file "$T/failure.txt"; eq "the failure is posted" 0 $?
+    FURL=$(cat "$T/w.out")
+    as_agent roadmap-status.sh --reopen MV1 --entry-file "$T/failure.txt" --entry-url "$FURL"; eq "roadmap-status.sh --reopen opens the reopen edit" 0 $?
+    [ -n "$(jq -r '[.prs[] | select(.title == "docs(roadmap): reopen MV1, the plugin list, on a reported failure")][0].number // empty' "$GH_DB")" ] \
+        && ok "  ... titled for the reopen" || bad "  ... titled for the reopen" "$(jq -c '.prs' "$GH_DB")"
+    eq "opened: the record confirms the row and the run reaches pick" pick "$(at --with-data '{"status":"opened","unit":"MV1"}')"
+    eq "pick passes over MV1 while the reopen is pending" "true" "$(pick_json | jq -r '.units[] | select(.unit == "MV1") | .landed != null')"
     eq "nothing was merged" 0 "$(merges)"
     eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
 fi

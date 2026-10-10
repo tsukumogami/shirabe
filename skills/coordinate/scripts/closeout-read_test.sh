@@ -223,6 +223,14 @@ OUT=$(rm_read); eq "a holding left is holdings" "holdings 7" "$OUT"; tok_shape "
 rm_seed "$(printf '%s' "$CLEAR" | jq -c '.side_effects = [{action: "merge", target: "acme/widgets#12", verified_head: "2222222222222222222222222222222222222222", attempted: "2026-09-26T10:00Z", how_to_confirm: "gh pr view 12"}]')"
 file_at main "$RP" "$(roadmap Done Done Dropped)"
 OUT=$(rm_read); eq "a side effect in flight is side-effects" "side-effects 7" "$OUT"; tok_shape "side-effects is in koto's capture alphabet" "$OUT"
+grep -q 'reopen-pending' "$T/err" && bad "  ... with no reopen named" "$(cat "$T/err")" || ok "  ... with no reopen named"
+# A milestone's pending reopen edit, the milestone still reading Done: named
+# first, by its tag, whatever row comes before it.
+rm_seed "$(printf '%s' "$CLEAR" | jq -c '.side_effects = [{action: "merge", target: "acme/widgets#12", verified_head: "2222222222222222222222222222222222222222", attempted: "2026-09-26T10:00Z", how_to_confirm: "gh pr view 12"},
+    {action: "milestone-reopen", target: "Feature 2 [#9](https://github.com/acme/widgets/pull/9)", verified_head: "", attempted: "2026-09-26T10:00Z", how_to_confirm: "the roadmap on main reads Feature 2 In progress"}]')"
+file_at main "$RP" "$(roadmap Done Done Dropped)"
+eq "a pending reopen edit is side-effects" "side-effects 7" "$(rm_read)"
+grep -q 'reopen-pending Feature 2: its reopen edit is pending' "$T/err" && ok "  ... its reason naming the milestone" || bad "  ... its reason naming the milestone" "$(cat "$T/err")"
 D_OK='{"deferral":"a","reason":"r","raised":"2026-09-25T10:00Z","disposition":"filed #40"}'
 D_CL='{"deferral":"b","reason":"r","raised":"2026-09-25T10:00Z","disposition":"closed: moot"}'
 D_CA='{"deferral":"c","reason":"r","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-26T08:30Z: later"}'
