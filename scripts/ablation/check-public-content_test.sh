@@ -27,6 +27,10 @@ pass() { echo "PASS: $1" >&2; PASS_COUNT=$((PASS_COUNT + 1)); }
 DENY="$TEST_DIR/deny.txt"
 printf '# made-up terms for the test\nzorblatt-private\nacme/secretrepo\n' > "$DENY"
 
+# The repository's committed allow file stays out of every case unless a test
+# opts in: an empty override reads as no records.
+export PUBLIC_CONTENT_ALLOWLIST=""
+
 run() {
     STATUS=0
     ERR=$("$SUT" --denylist "$DENY" "$@" 2>&1 >/dev/null) || STATUS=$?
@@ -189,6 +193,89 @@ OUT=$("$SUT" --denylist "$SCRIPT_DIR/check-public-content.sh" "$CLEAN" 2>&1) || 
 case "$STATUS:$OUT" in
     2:*"inside the checkout"*) pass "a list inside the checkout is refused" ;;
     *) fail "a list inside the checkout is refused" "status $STATUS: $OUT" ;;
+esac
+
+# --- the allow file ----------------------------------------------------------
+# Planted wip strings below are split with "" like the rest of this file, so
+# the public-content job never refuses this suite's own text.
+
+ALLOW="$TEST_DIR/allow.tsv"
+CASE_A="$TEST_DIR/listed-case.txt"
+CASE_B="$TEST_DIR/unlisted-case.txt"
+printf 'left in wi''p/plan_foo_state.md\n' > "$CASE_A"
+printf 'left in wi''p/plan_foo_state.md\n' > "$CASE_B"
+printf 'wip-path\t%s\ttsukumogami/shirabe#738\tthe fixture tests the rule itself\n' "$CASE_A" > "$ALLOW"
+
+STATUS=0
+OUT=$(env PUBLIC_CONTENT_ALLOWLIST="$ALLOW" "$SUT" --denylist "$DENY" "$CASE_A" 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    0:*"allowed: $CASE_A:1: wip/ path (tsukumogami/shirabe#738)"*) pass "a listed file's literal passes with an allowed notice naming the issue" ;;
+    *) fail "a listed file's literal passes with an allowed notice naming the issue" "status $STATUS: $OUT" ;;
+esac
+
+STATUS=0
+OUT=$(env PUBLIC_CONTENT_ALLOWLIST="$ALLOW" "$SUT" --denylist "$DENY" "$CASE_B" 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    1:*"$CASE_B:1: wip/ path"*) pass "an unlisted file's literal still fails" ;;
+    *) fail "an unlisted file's literal still fails" "status $STATUS: $OUT" ;;
+esac
+
+expect_allow_error() { # expect_allow_error <name> <record> <needle>
+    local name="$1" rec="$2" needle="$3" f="$TEST_DIR/allow-err.tsv"
+    printf '%s\n' "$rec" > "$f"
+    STATUS=0
+    OUT=$(env PUBLIC_CONTENT_ALLOWLIST="$f" "$SUT" --denylist "$DENY" "$CASE_B" 2>&1) || STATUS=$?
+    case "$STATUS:$OUT" in
+        2:*"$needle"*) pass "$name" ;;
+        *) fail "$name" "status $STATUS: $OUT" ;;
+    esac
+}
+
+expect_allow_error "a record for a non-allowlistable class is an error" \
+    "$(printf 'secret\t%s\ttsukumogami/shirabe#738\tnever\n' "$CASE_A")" \
+    "not allowlistable"
+expect_allow_error "a record with a malformed issue is an error" \
+    "$(printf 'wip-path\t%s\tdone\treason\n' "$CASE_A")" \
+    "issue must be owner/repo#N"
+expect_allow_error "a record missing fields is an error" \
+    "$(printf 'wip-path\t%s\n' "$CASE_A")" \
+    "expected 4 tab-separated fields"
+expect_allow_error "a record covering stdin is an error" \
+    "$(printf 'wip-path\tstdin\ttsukumogami/shirabe#738\treason\n')" \
+    "never covers stdin"
+expect_allow_error "a record carrying a refused shape is itself an error" \
+    "$(printf 'wip-path\t%s\ttsukumogami/shirabe#738\tsee wi''p/plan_foo_state.md\n' "$CASE_A")" \
+    "may quote the rule, never the content"
+
+printf 'wip-path\t%s\ttsukumogami/shirabe#738\tone\nwip-path\t%s\ttsukumogami/shirabe#738\ttwo\n' "$CASE_A" "$CASE_A" > "$ALLOW"
+STATUS=0
+OUT=$(env PUBLIC_CONTENT_ALLOWLIST="$ALLOW" "$SUT" --denylist "$DENY" "$CASE_A" 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    2:*"duplicate record"*) pass "a duplicate class-and-file record is an error" ;;
+    *) fail "a duplicate class-and-file record is an error" "status $STATUS: $OUT" ;;
+esac
+
+# The committed allow file is the default: the lint's own test file holds old
+# staging literals on purpose, and an invocation with no override reads the
+# record for it; disabling the allowlist refuses the same file.
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+STATUS=0
+OUT=$(cd "$REPO_ROOT" && env -u PUBLIC_CONTENT_ALLOWLIST "$SUT" --denylist "$DENY" scripts/check-template-directives_test.sh 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    0:*"allowed: scripts/check-template-directives_test.sh:"*) pass "the committed allow file covers the lint's own fixtures by default" ;;
+    *) fail "the committed allow file covers the lint's own fixtures by default" "status $STATUS: $(printf '%s' "$OUT" | head -3)" ;;
+esac
+STATUS=0
+OUT=$(cd "$REPO_ROOT" && env -u PUBLIC_CONTENT_ALLOWLIST "$SUT" --denylist "$DENY" skills/scope/scripts/resume-probe_test.sh 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    0:*"allowed: skills/scope/scripts/resume-probe_test.sh:"*) pass "the committed allow file covers the probe's seeds by default" ;;
+    *) fail "the committed allow file covers the probe's seeds by default" "status $STATUS: $(printf '%s' "$OUT" | head -3)" ;;
+esac
+STATUS=0
+OUT=$(cd "$REPO_ROOT" && env PUBLIC_CONTENT_ALLOWLIST="" "$SUT" --denylist "$DENY" scripts/check-template-directives_test.sh 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    1:*"wip/ path"*) pass "with the allowlist disabled the same file is refused" ;;
+    *) fail "with the allowlist disabled the same file is refused" "status $STATUS: $(printf '%s' "$OUT" | head -3)" ;;
 esac
 
 echo "check-public-content_test: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
