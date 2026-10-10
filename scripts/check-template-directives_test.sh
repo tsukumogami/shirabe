@@ -431,7 +431,7 @@ EOF
 # left ROUTING_SCRIPTS: a probe that reads the old state file is a finding
 # like any other script's.
 test_scope_probe_state_read_fails() {
-    local name="a resume probe reading wip/scope_ is scanned like any other script"
+    local name="a resume probe reading the old state path is scanned like any other script"
     setup
     write_clean_scope_fixture
     cat > "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh" <<'EOF'
@@ -451,7 +451,7 @@ EOF
 
 # The one script still named in ROUTING_SCRIPTS keeps its carve-out.
 test_scope_routing_script_read_passes() {
-    local name="the publish script named in ROUTING_SCRIPTS may name wip/scope_"
+    local name="the publish script named in ROUTING_SCRIPTS may name the state prefix"
     setup
     write_clean_scope_fixture
     cat > "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh" <<'EOF'
@@ -462,7 +462,7 @@ EOF
     cat > "$TEST_DIR/skills/scope/scripts/publish-scoping-pr.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-git rm --cached -- "wip/scope_${2}_state.md" 2>/dev/null || true
+git rm --cached -- "wip/""scope_${2}_state.md" 2>/dev/null || true
 EOF
     chmod +x "$TEST_DIR/skills/scope/scripts/publish-scoping-pr.sh"
     assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
@@ -845,7 +845,7 @@ EOF
 # The gate command is clean; this script's own folder read stays legal.
 set -euo pipefail
 slug="$1"
-ls "wip/brief_${slug}_notes.md"
+ls "wip/""brief_${slug}_notes.md"
 EOF
     chmod +x "$TEST_DIR/skills/scope/scripts/fixture-untrack.sh"
     assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"

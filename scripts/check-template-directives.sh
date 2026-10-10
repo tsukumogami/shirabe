@@ -427,7 +427,7 @@ resolve_script() {
 }
 
 # ROUTING_SCRIPTS -- the one script in /scope's tree that names the parent's
-# own wip/scope_ prefix and is nonetheless invoked by a gate. It does not
+# own staging state prefix and is nonetheless invoked by a gate. It does not
 # decide a hop's completion, which is what rule two protects:
 #
 #   skills/scope/scripts/publish-scoping-pr.sh

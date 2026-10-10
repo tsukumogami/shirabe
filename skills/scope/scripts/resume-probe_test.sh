@@ -137,7 +137,7 @@ repo;               printf 'x\n' | putkey explore-t work/other.md; expect "a liv
 repo;               printf 'h\n' | putkey explore-t handoff/charter.md; expect "a charter handoff is not /scope's" 10 t none
 repo;               printf 'h\n' | putkey explore-other handoff/scope.md; expect "another topic's handoff does not fire" 10 t none
 repo;               expect "an absent explore-t session does not fire" 10 t none
-repo;               : >"$R/wip/scope_t_handoff.md"; expect "the old handoff file no longer fires" 10 t none
+repo;               : >"$R/wip/""scope_t_handoff.md"; expect "the old handoff file no longer fires" 10 t none
 
 echo "== fresh state file, by phase pointer =="
 repo; PP=1 state t ""; expect "pointer 1" 20 t none
@@ -157,7 +157,7 @@ repo; state t "intent: stop
 intent: continue
 ";                                 expect "a duplicated field" 25 t none
 repo; printf 'phase_pointer: 1\n' | putkey scope-t work/state.md; expect "no topic line" 25 t none
-repo; printf 'topic: t\nphase_pointer: 1\nlast_updated: %s\n' "$FRESH" >"$R/wip/scope_t_state.md"; expect "a state file in the staging folder is not read" 10 t none
+repo; printf 'topic: t\nphase_pointer: 1\nlast_updated: %s\n' "$FRESH" >"$R/wip/""scope_t_state.md"; expect "a state file in the staging folder is not read" 10 t none
 repo; state t ""; (cd "$R" && koto next scope-t --no-cleanup --with-data '{"close":"done"}' >/dev/null 2>&1); expect "a finished session's work/state.md still reads" 21 t none
 repo; state other ""; expect "another topic's state is not this run's" 10 t none
 repo; printf 'topic: other\nlast_updated: %s\nphase_pointer: 1\n' "$FRESH" | putkey scope-t work/state.md; expect "a state naming another topic is malformed" 25 t none

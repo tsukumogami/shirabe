@@ -201,5 +201,5 @@ Commit before naming the command: `docs(explore): hand off <topic> to /<parent>`
 After this step:
 - All explore artifacts in `wip/` (untouched)
 - Key `handoff/scope.md` in `explore-<topic>` (new, `/scope` arm), or
-  `wip/charter_<topic>_handoff.md` (new, `/charter` arm)
+  the `/charter` handoff file in its current staging location (new, `/charter` arm; unchanged by this move -- its own group moves it)
 - No durable document written; the session stops and the author runs the parent

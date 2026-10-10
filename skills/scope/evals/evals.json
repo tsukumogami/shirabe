@@ -33,12 +33,12 @@
       "id": 3,
       "name": "baseline-child-internals-isolation",
       "prompt": "/scope test-topic",
-      "expected_output": "On resume against an existing chain state, /scope reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /scope's own state key work/state.md in its session. /scope does NOT read child internal phase pointers, does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, does NOT read any child wip/ intermediate beyond the Slot 6 session probe (skill-session.sh has-work <child> <topic>: a live <child>-<topic> session on this branch holding a work/ key). Manual-review verified by code-path inspection per AC20b.",
+      "expected_output": "On resume against an existing chain state, /scope reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /scope's own state key work/state.md in its session. /scope does NOT read child internal phase pointers, does NOT read the children's research keys or any research scratch, and does NOT read any child intermediate beyond the Slot 6 session probe (skill-session.sh has-work <child> <topic>: a live <child>-<topic> session on this branch holding a work/ key). Manual-review verified by code-path inspection per AC20b.",
       "files": [],
       "expectations": [
         "Plan reads child doc frontmatter status: from the published path (docs/briefs/BRIEF-<topic>.md, docs/prds/PRD-<topic>.md, docs/designs/DESIGN-<topic>.md, docs/designs/current/DESIGN-<topic>.md, docs/plans/PLAN-<topic>.md) only — never from child internal state",
         "Plan computes child doc git blob hash via read-only git hash-object against the published path — without git hash-object -w and without writes to the child doc or to git history",
-        "Plan does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, child internal phase pointers, or any child intermediate beyond the Slot 6 session probe (skill-session.sh has-work <child> <topic> for brief, prd, design and plan: a live <child>-<topic> session on this branch holding a work/ key)",
+        "Plan does NOT read the children's research keys or scratch, child internal phase pointers, or any child intermediate beyond the Slot 6 session probe (skill-session.sh has-work <child> <topic> for brief, prd, design and plan: a live <child>-<topic> session on this branch holding a work/ key)",
         "Plan reads /scope's own work/state.md key in scope-<topic> but no other child-private state, log files, comment threads, or CI output",
         "Plan binds child internals isolation to the R14-widened rule documented in references/parent-skill-child-inspection.md (citation in code-path inspection)"
       ]
