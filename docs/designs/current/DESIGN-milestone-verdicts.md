@@ -175,7 +175,7 @@ scripts behind `lib_write_guard`, has to carry every decision.
 ## Considered Options
 
 The decisions below were resolved inline within this design under `/scope`
-(standard tier, no `/decision` delegation).
+(standard level, no `/decision` delegation).
 
 ### Decision 1: How the verdict enters the coordinate loop and holds the milestone
 

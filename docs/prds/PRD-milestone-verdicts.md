@@ -16,8 +16,6 @@ goals: |
   request's goal fit names the Evidence clause it advances, a post-Done
   failure returns the milestone to In progress where the picker offers it
   again, and no tool sets a milestone Done because something merged.
-absorbed:
-  - docs/briefs/BRIEF-milestone-verdicts.md
 ---
 
 # PRD: milestone verdicts
@@ -26,7 +24,8 @@ absorbed:
 
 Done
 
-Absorbed [BRIEF-milestone-verdicts](docs/briefs/BRIEF-milestone-verdicts.md); carried in Absorbed Brief.
+The feature's brief was folded into this PRD while it was scoped and never
+landed on its own; its framing is carried in Absorbed Brief.
 
 ## Absorbed Brief
 
