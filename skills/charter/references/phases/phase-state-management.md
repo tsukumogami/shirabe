@@ -84,8 +84,8 @@ between surfaces.
 
 The topic slug also appears in the state-file path
 (`wip/charter_<topic>_state.md`), the terminal artifact filename
-(`docs/strategies/STRATEGY-<topic>.md`), and downstream child wip/
-paths. The Phase 0 setup procedure (see
+(`docs/strategies/STRATEGY-<topic>.md`), and the children's session
+names. The Phase 0 setup procedure (see
 `skills/charter/references/phases/phase-0-setup.md`) rejects any
 non-conforming `$ARGUMENTS` before the state file is created, so a
 state file on disk has a topic that already satisfies the regex.

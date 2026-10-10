@@ -319,11 +319,10 @@ The rejection sub-shape's full flow:
 4. `/strategy` runs the discard procedure:
    - `git rm docs/strategies/STRATEGY-<topic>.md` — the Draft is
      removed from the worktree.
-   - Cleans up `wip/strategy_<topic>_*.md` — `/strategy`'s
-     intermediate files are removed.
    - Commits `docs(strategy): discard STRATEGY draft for <topic>` —
      the discard commit captures the removal as durable git
-     history.
+     history. Its working keys stay in `strategy-<topic>`, which
+     the parent closes as `abandoned` at finalization.
 5. Control returns to `/charter`.
 6. `/charter` captures the discard commit SHA via read-only
    `git log` — no git writes from `/charter`.
@@ -512,31 +511,31 @@ child name. Proceed to artifact materialization.
 If `chain_ran` is empty (no child has completed within the chain),
 proceed to step 2.
 
-### Step 2 — First `planned_chain` Entry with Non-Empty wip/
+### Step 2 — First `planned_chain` Entry with Work in Its Session
 
-Take the first entry in `planned_chain` that has a non-empty wip/
-intermediate on disk. The check inspects each child's own wip/
-intermediates (e.g., `wip/strategy_<topic>_discover.md` for
-`/strategy`, `wip/vision_<topic>_scope.md` for `/vision`, the
-analogous filenames for `/roadmap` and the gated feeder if any).
-This is a wider surface than row 8's match condition, and
-deliberately so: the tie-break runs inside a chain whose state file
-records that the child was invoked, so a scoping artifact is
-evidence of which child was in flight. Row 8 fires with no state
-file at all, where the same artifact proves nothing.
+Take the first entry in `planned_chain` whose session holds work:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" has-work <child>
+<topic>` exits 0 for a live `<child>-<topic>` on this branch with a
+key under `work/`. The tie-break runs inside a chain whose state
+file records that the child was invoked, so a `work/` key here is
+direct evidence of which child was in flight. Ladder rows 7-8 run
+the same check in a weaker position — no state file survives there
+— which is why the ladder consults the published artifacts first
+and reaches those rows only when the documents say nothing.
 
 If such a child is found, the tie-break resolves to it and
 `triggering_child` is set to the child name. Proceed to artifact
 materialization.
 
-If no `planned_chain` entry has a non-empty wip/ intermediate,
-proceed to step 3.
+If no `planned_chain` entry's session holds work, proceed to
+step 3.
 
 ### Step 3 — Clean-Cancel Fallthrough
 
 When neither step 1 nor step 2 resolves to a child — no `chain_ran`
-history exists AND no `planned_chain` entry has a wip/ intermediate
-on disk — the chain ends with **clean-cancel**.
+history exists AND no `planned_chain` entry's session holds work
+(`has-work` exits 1 for every child) — the chain ends with
+**clean-cancel**.
 
 Clean-cancel means:
 
@@ -563,16 +562,16 @@ progress followed; tearing down the empty state file is correct.
 The R8 tie-break governs the routing of every Bail event. At the
 R7.5 chain-proposal Bail (or any other Bail trigger):
 
-- **With no prior wip/ intermediate AND no `chain_ran` history** —
-  the chain ends with clean-cancel (R8 step 3).
-- **With prior wip/ intermediate OR `chain_ran` history** — the
+- **With no child session holding work AND no `chain_ran` history**
+  — the chain ends with clean-cancel (R8 step 3).
+- **With a child session holding work OR `chain_ran` history** — the
   chain ends with abandonment-forced (R8 step 1 or step 2 resolves
   the triggering child).
 
 A chain-proposal Bail fired immediately after Phase 1 with no child
-invocation and no prior partial wip/ artifacts is the canonical
-clean-cancel case; a Bail fired after several phases or after a
-prior session left wip/ artifacts is the canonical
+invocation and no child session holding work is the canonical
+clean-cancel case; a Bail fired after several phases, or after a
+prior run left a child's session mid-flight, is the canonical
 abandonment-forced case.
 
 ## Reject vs Bail — The Load-Bearing Distinction
@@ -641,19 +640,39 @@ rejection` mutually exclusive with Bail's `triggering_child:` and
 
 ## Closing the Session
 
-Every exit path ends by closing the session Phase 0 opened,
-`charter-<topic>`, as the last thing finalization does:
+Every exit path ends by closing the children this chain dispatched
+and then the session Phase 0 opened, in that order, as the last
+thing finalization does
+(`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`):
 
 ```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close-children charter <topic> <done|abandoned>
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close charter-<topic> <done|abandoned>
 ```
 
-| How the run ended | Close with |
-|---|---|
-| Exit 1, full-run | `done` |
-| Exit 2, re-evaluation (either sub-shape) | `done` |
-| Exit 3, abandonment-forced (a bail mid-chain or inside a child) | `abandoned` |
-| Clean-cancel (a bail with no chain progress) | `abandoned` |
+`close-children` closes only a live `<child>-<topic>` whose
+`chain/parent` names this parent and whose `session/branch` matches
+the current branch, so a direct run's session or another worktree's
+chain is never touched. Like the parent's own close it is
+idempotent, and the children's keys stay readable after the close.
+
+The two closes do not always take the same value. The children
+close `done` only on a full-run exit, where their work survives in
+the chain's documents; on both re-evaluation sub-shapes (a rejected
+STRATEGY included) and on abandonment-forced they close `abandoned`,
+because the chain stopped before their work became a surviving
+document. The parent's own value follows the table below: `done` on
+full-run and re-evaluation — a re-evaluation is a deliberate
+finalization judgment, recorded in a Decision Record, not an
+abandonment of the parent's run — and `abandoned` on
+abandonment-forced and clean-cancel.
+
+| How the run ended | Children close with | Parent closes with |
+|---|---|---|
+| Exit 1, full-run | `done` | `done` |
+| Exit 2, re-evaluation (either sub-shape) | `abandoned` | `done` |
+| Exit 3, abandonment-forced (a bail mid-chain or inside a child) | `abandoned` | `abandoned` |
+| Clean-cancel (a bail with no chain progress) | `abandoned` | `abandoned` |
 
 On the three exits the close follows the R9 hard finalization check
 accepting the state; when the check surfaces an error, the session

@@ -5,29 +5,31 @@
       "id": 1,
       "name": "standalone-creation",
       "prompt": "/roadmap developer-tooling-pipeline",
-      "expected_output": "Detects no handoff artifact. Starts from Phase 1 (scope). Asks scoping questions about the initiative theme, features, and dependencies. Produces a roadmap at docs/roadmaps/ROADMAP-developer-tooling-pipeline.md with all required sections. Draft status.",
+      "expected_output": "Opens session roadmap-developer-tooling-pipeline, finds no parent from dispatch read and no work/scope.md key, so the run is direct. Starts from Phase 1 (scope). Asks scoping questions about the initiative theme, features, and dependencies. Produces a roadmap at docs/roadmaps/ROADMAP-developer-tooling-pipeline.md with all required sections. Draft status.",
       "files": [],
       "expectations": [
-        "Transcript checks for handoff artifact wip/roadmap_developer-tooling-pipeline_scope.md and determines it does not exist",
+        "Transcript opens session roadmap-developer-tooling-pipeline, runs dispatch read, and determines there is no parent and no key work/scope.md in that session",
         "Transcript starts from Phase 1 (scope) as the first workflow phase",
         "Transcript describes asking the user scoping questions about the initiative theme, features, and dependencies",
         "Transcript plans to produce output at docs/roadmaps/ROADMAP-developer-tooling-pipeline.md",
-        "Transcript mentions creating the document in Draft status"
+        "Transcript mentions creating the document in Draft status",
+        "Transcript closes the session with close roadmap-developer-tooling-pipeline done when the run finishes, since it is a direct run"
       ]
     },
     {
       "id": 2,
       "name": "charter-handoff-detection",
       "prompt": "/roadmap release-automation",
-      "expected_output": "Detects an existing pre-populated scope artifact at wip/roadmap_release-automation_scope.md. /charter pre-populates it before invoking /roadmap; the check treats that and /roadmap's own prior run alike, because either way scoping is settled. Skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the artifact's theme statement and candidate features as input.",
-      "files": [
-        "wip/roadmap_release-automation_scope.md"
-      ],
+      "expected_output": "Opens session roadmap-release-automation; dispatch read matches parent charter-release-automation. Reads key chain/roadmap-scope from the charter-release-automation session (koto context get charter-release-automation chain/roadmap-scope), records its own work/scope.md from it, skips Phase 1 (scope) and resumes at Phase 2 (discover). Uses the scope's theme statement and candidate features as input. Does not close its own session under the parent. Would ignore chain/roadmap-scope if dispatch read named another child or matched no parent.",
+      "files": [],
       "expectations": [
-        "Transcript checks for and detects existing handoff artifact at wip/roadmap_release-automation_scope.md",
-        "Transcript explicitly skips Phase 1 (scope) because the handoff artifact exists",
-        "Transcript proceeds to Phase 2 (discover) after detecting the handoff",
-        "Transcript describes using the handoff artifact's theme statement and candidate features as input for Phase 2"
+        "Transcript runs dispatch read roadmap release-automation and matches parent charter-release-automation",
+        "Transcript reads key chain/roadmap-scope from the charter-release-automation session with koto context get",
+        "Transcript records its own work/scope.md in roadmap-release-automation from that scope and writes no scope file to disk",
+        "Transcript explicitly skips Phase 1 (scope) because the chained scope was read",
+        "Transcript proceeds to Phase 2 (discover) and uses the scope's theme statement and candidate features as input",
+        "Transcript states it does not close roadmap-release-automation itself because it runs under a parent",
+        "Transcript states chain/roadmap-scope would be ignored if dispatch read named another child or matched no parent"
       ]
     },
     {
@@ -90,7 +92,7 @@
       "id": 7,
       "name": "crystallize-discrimination",
       "prompt": "/explore --auto --strategic improve CI pipeline reliability and add deployment automation",
-      "expected_output": "Exploration in strategic scope with multiple features to sequence. The crystallize framework's two stages still make the discrimination this scenario exists for: stage 1 scores 'a chain', and stage 2 prefers `/charter` over `/scope` on the multi-feature boundary, because more than one feature needs ordering and a sequenced ROADMAP is the strategic chain's terminal artifact. What moved is the invocation, not the scoring: Phase 5 writes wip/charter_ci-pipeline-reliability_handoff.md and names `/charter` as the command to run. /roadmap is reached inside that chain, by /charter, not by the router.",
+      "expected_output": "Exploration in strategic scope with multiple features to sequence. The crystallize framework's two stages still make the discrimination this scenario exists for: stage 1 scores 'a chain', and stage 2 prefers `/charter` over `/scope` on the multi-feature boundary, because more than one feature needs ordering and a sequenced ROADMAP is the strategic chain's terminal artifact. What moved is the invocation, not the scoring: Phase 5 leaves the handoff for /charter where /explore's handoff step currently puts it (its own surface, unchanged by this move) and names `/charter` as the command to run. /roadmap is reached inside that chain, by /charter, not by the router.",
       "files": [],
       "expectations": [
         "Transcript recognizes this as an /explore command, not /roadmap directly",

@@ -8,3 +8,8 @@
 # The `shirabe validate` mentions elsewhere in this skill describe what CI runs
 # against the finished VISION, not a call /vision makes.
 shirabe	transition	--superseded-by	always
+koto	context add	-	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
+koto	context list	--prefix	always
