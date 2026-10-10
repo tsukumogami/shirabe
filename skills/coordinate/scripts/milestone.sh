@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # milestone.sh -- read a milestone roadmap's schema and a milestone's
-# Evidence, and check a milestone verdict entry against them. Files only: no
+# Evidence, and check a milestone's verdict, goal-fit and failure entries
+# against them. Files only: no
 # network, no git, no koto. The coordinator, roadmap-status.sh and the suites
 # call it on a roadmap they have already fetched
 # (docs/designs/DESIGN-milestone-verdicts.md, Decisions 2 and 4).

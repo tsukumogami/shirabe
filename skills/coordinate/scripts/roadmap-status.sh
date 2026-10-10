@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # roadmap-status.sh -- write a landed feature's Status and Delivered line back
 # to the roadmap as a pull request, and keep the record saying it is pending;
-# on a milestone roadmap, mark the milestone's verdict owed and open the one
-# roadmap edit a checked verdict calls for. Agent-run, at roadmap scope only
+# on a milestone roadmap, mark the milestone's verdict owed, open the one
+# roadmap edit a checked verdict calls for, and open the edit that sends a
+# Done milestone back to In progress on a checked failure. Agent-run, at
+# roadmap scope only
 # (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 4;
 # docs/designs/DESIGN-milestone-verdicts.md, Decisions 1 and 3).
 #
@@ -321,7 +323,7 @@ write_record() {
 }
 # without_row <out> [clear-owed]: the record without TAG's pending row, and
 # with clear-owed also without TAG's verdict-owed and rework Work rows (a
-# confirmed verdict supersedes the rework an earlier one left).
+# confirmed verdict or reopen supersedes the rework an earlier one left).
 without_row() {
     jq --arg t "$TAG" --argjson owed "${2:-false}" --argjson acts "$EDIT_ACTIONS" 'del(.written)
         | .side_effects = [.side_effects[] | select(((.action as $a | any($acts[]; . == $a))
@@ -595,7 +597,8 @@ rework_problem_of() {
 # failure_rework_of <entry>: the rework text a confirmed reopen leaves for the
 # milestone's next brief, `Evidence clause <n> failed: <what was seen>`, cut
 # to the codec's 600 bytes (rework_cap): What was seen may be 600 bytes
-# itself, and the prefix would put the whole over.
+# itself, and the prefix would put the whole over. render-brief.sh picks its
+# failure wording on that prefix, so the two change together.
 failure_rework_of() {
     awk '/^Clause: / { c = substr($0, 9) } /^What was seen: / { w = substr($0, 16) }
          END { printf "Evidence clause %s failed: %s", c, w }' "$1" \

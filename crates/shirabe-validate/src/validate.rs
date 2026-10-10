@@ -1064,7 +1064,10 @@ mod tests {
                         (https://github.com/acme/widgets/issues/7#issuecomment-101, 0123abcd)";
         let done = milestone_roadmap("Done", verified);
         let errs = blocking_errors(&done);
-        assert!(errs.is_empty(), "the Done roadmap must validate clean, got {errs:?}");
+        assert!(
+            errs.is_empty(),
+            "the Done roadmap must validate clean, got {errs:?}"
+        );
 
         let reopened = milestone_roadmap(
             "In progress",
@@ -1074,7 +1077,10 @@ mod tests {
             ),
         );
         let errs = blocking_errors(&reopened);
-        assert!(errs.is_empty(), "the reopened roadmap must validate clean, got {errs:?}");
+        assert!(
+            errs.is_empty(),
+            "the reopened roadmap must validate clean, got {errs:?}"
+        );
         assert!(reopened.contains("**Status:** In progress\n**Delivered:** acme/widgets#12"));
 
         // FC21 does run on this document: a Status outside its four values
