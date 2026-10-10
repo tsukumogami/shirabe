@@ -99,7 +99,7 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 | Action | Target | Verified head | Attempted | How to confirm |
 |---|---|---|---|---|
-| <merge, close, teardown> | <pull request, issue, worker> | <full sha verified before acting or asking> | <YYYY-MM-DDTHH:MMZ> | <the read that settles it> |
+| <merge, close, teardown, or a roadmap edit: roadmap-status, milestone-done, milestone-verdict, milestone-reopen> | <pull request, issue, worker, or <tag> [#n](URL) for a roadmap edit> | <full sha verified before acting or asking> | <YYYY-MM-DDTHH:MMZ> | <the read that settles it> |
 
 ## Reversals
 
@@ -189,7 +189,7 @@ each rendered only once it has a row:
 
 | Item | Kind | Who | Next step | Wakes | Updated |
 |---|---|---|---|---|---|
-| <a holding's Unit, a parked or follow-up unit, or what the work is> | <holding, local-agent, decision or follow-up> | <its Worker, who does it, decision <n>, or owner/repo#n> | <what happens next> | <the holding's wakes so far; 0 otherwise> | <YYYY-MM-DDTHH:MMZ> |
+| <a holding's Unit, a parked or follow-up unit, a milestone's tag, or what the work is> | <holding, local-agent, decision, follow-up, verdict-owed or rework> | <its Worker, who does it, decision <n>, owner/repo#n, none, verdict <id> or failure <id>> | <what happens next> | <the holding's wakes so far; 0 otherwise> | <YYYY-MM-DDTHH:MMZ> |
 ```
 
 **Run** holds the run's arguments, the cap in force (the readers of the cap
@@ -222,7 +222,9 @@ unit's later work, Item the unit as pick lists it: `decision`, a unit pick
 parked on a person's decision, Who `decision <n>` (an unsettled entry); and
 `follow-up`, a unit whose scoping alone merged, Who the pull request that
 landed it (`owner/repo#n`) and Next step its execution. An Item has one row
-per kind, and a holding's row for the unit replaces both.
+per kind, and a holding's row for the unit replaces both. Two more kinds
+belong to a milestone roadmap, `verdict-owed` and `rework`, and only
+`roadmap-status.sh` writes them (see Milestone Verdicts below).
 
 `scripts/record-state.sh` is the only writer, and every change it makes is
 written to the body and then told as an entry:
@@ -341,6 +343,11 @@ scope's, stamps the entry from the host clock in UTC to the second, and posts:
 <the text>
 ```
 
+The record's other writers post their own kinds with `--kind`, which takes
+the place of `entry` in both lines. The milestone steps post three:
+`milestone-verdict`, `goal-fit` and `milestone-failure`, whose lines are
+under Milestone Verdicts.
+
 An entry never grows and is never rewritten, so the record needs no archive
 however long the run. Write one when something happens that a successor would
 need the story of: what you dispatched and why, what a person told you, what
@@ -405,13 +412,220 @@ is pending at a time. Once the roadmap on the default branch reads Done
 unmerged is cleared with `--drop "<tag>" --reason "<why>"`. The skill never
 merges the roadmap pull request.
 
+All of this is a feature roadmap's. The script reads the roadmap's
+frontmatter first, and on a milestone roadmap (`schema: roadmap/v2`) the same
+`--unit` call opens nothing and marks the milestone's verdict owed, as the
+next section says.
+
+## Milestone Verdicts
+
+On a milestone roadmap a milestone reads Done only through a checked verdict,
+and Done is taken back only through a checked failure. Each is an entry on the
+record, checked by `scripts/milestone.sh` against the roadmap and posted by
+`record-append.sh` with its own kind, and each roadmap edit is a pull request
+`scripts/roadmap-status.sh` opens and never merges. The steps are the
+`milestone_verdict`, `goal_fit` and `milestone_reopen` states of the template.
+
+### The verdict owed
+
+`roadmap-status.sh --unit <tag>` on a milestone roadmap refuses a tag that
+isn't a milestone with Evidence, one that already reads Done or Dropped, and
+one with a follow-up row; otherwise it writes this Work row and prints
+`verdict-owed <tag>`:
+
+```markdown
+| <tag> | verdict-owed | <the topic of the holding whose Unit is <tag> or `<tag>: <title>`, or none> | verdict owed since <YYYY-MM-DD> | 0 | <YYYY-MM-DDTHH:MMZ> |
+```
+
+Run again while the row stands, it prints the same and writes nothing, which
+is how a deferred verdict comes back to the verdict step. Only
+`roadmap-status.sh` writes or removes the row (the write core refuses any
+other writer's change to it, and `record-state.sh` refuses the kind), and
+`--confirm` removes it once the verdict's edit is on the default branch. Pick
+reads the milestone `verdict_owed` while it stands and lists it as a verdict
+to give, and the dispatch check (`verdict-owed <tag>`, code 49),
+`dispatch-worker.sh` (exit 10) and close-out refuse it.
+
+### The verdict entry
+
+Posted with `record-append.sh --kind milestone-verdict`, at most 16 KiB, these
+lines in this order, with one blank line before `Evidence:` and one before
+`Strategy fit:`:
+
+```
+Verdict: <tag> -- <changes needed|verified with follow-ups|verified>
+Checked by: <a login, a session name or a plain name, 60 characters at most>
+Checked on: <YYYY-MM-DD, no later than today>
+Source: <the roadmap's path> at <the 40-character commit it was read at>
+Work checked: <owner/repo#n, owner/repo#n | none>
+
+Evidence:
+1. <held|not held> -- <what showed it>
+
+Strategy fit: <fits|does not fit> -- <why>
+Follow-ups: <none | new: <title>; amend <tag>: <what>>
+Changes needed: <none | what must change>
+```
+
+with one Evidence line per clause, numbered in the roadmap's order.
+`milestone.sh check-verdict <roadmap at Source> <tag> <entry> [--worker <topic>]`
+refuses a missing or reordered line, a clause count other than the
+milestone's, a future Checked on, and a verdict that breaks its rules:
+verified needs every clause held, `fits`, no follow-up and no change;
+verified with follow-ups the same with at least one follow-up; changes needed
+a clause not held or `does not fit`, and a change named. With `--worker`, a
+Checked by containing that topic, in any letter case, is refused: the worker
+that did the work never checks it. `--verdict` passes the verdict-owed row's
+Who as `--worker`, and nothing when the Who is `none`.
+
+### The goal-fit entry
+
+On a milestone run, the land check's `coord/land.json` carries `milestone:
+{tag, evidence}` (the holding's milestone and its clauses on the default
+branch), or `milestone_error: <why>` when that read failed. Goal fit posts,
+with `--kind goal-fit`:
+
+```
+Goal fit: <owner/repo#n> -- <tag>
+Fit: <fits|fits with follow-ups|gap>
+Clauses: <n, n | advances none>
+Rationale: <what in the pull request decided it>
+```
+
+`milestone.sh check-goal-fit <roadmap> <tag> <entry>` refuses a clause number
+the milestone lacks or names twice, another tag, a pull request not shaped
+`owner/repo#n`, a Fit outside its values and an empty Rationale. `advances
+none` is recorded, not refused, and the `clauses` field `goal_fit` takes with
+it routes nothing.
+
+### The failure entry
+
+Posted with `--kind milestone-failure`, these five lines:
+
+```
+Failure: <tag>
+Reported by: <a login, a session name or a plain name, 60 characters at most>
+Seen on: <YYYY-MM-DD, no later than today>
+Clause: <n>
+What was seen: <one paragraph, at most 600 bytes, no URL or link>
+```
+
+`milestone.sh check-failure <roadmap> <tag> <entry>` checks it against the
+roadmap on the default branch: the milestone must read Done there, and the
+clause must be one of its Evidence clauses. What was seen gets the rework
+row's shape, because the milestone's next brief quotes it.
+
+### The roadmap edits
+
+`--verdict` and `--reopen` first tie the entry file to the posted comment:
+the comment at `--entry-url` must be on this run's record issue, carry the
+entry's kind marker and hold the file's text, both compared with CR and outer
+blank lines dropped. Either refuses (exit 65, nothing opened) while any
+roadmap pull request is pending.
+
+```
+roadmap-status.sh --session <session> --verdict "<tag>" --entry-file <entry> --entry-url <URL> [--follow-ups <file>]
+roadmap-status.sh --session <session> --reopen "<tag>" --entry-file <entry> --entry-url <URL>
+```
+
+`--verdict` needs the tag's verdict-owed row, requires the default branch to
+contain the Source commit, and runs `check-verdict` against the roadmap at
+that commit. It refuses a tag that already reads Done on the default branch,
+and one whose Evidence there differs from its Evidence at Source, since the
+clauses are numbered by position. A verified verdict of either kind sets
+Done, removes Needs and appends the Work checked pull requests to Delivered;
+changes needed leaves Status and Delivered as they are. A verified with
+follow-ups verdict needs `--follow-ups`, at most 32 KiB, one `### <tag>:
+<title>` section per follow-up with non-empty Outcome, Evidence, Left open and
+Dependencies (Needs optional). A `new:` follow-up's section is its title under
+a tag the roadmap doesn't use, added after the last milestone, Not started.
+An `amend <tag>:` section keeps that milestone's title and Dependencies and
+replaces its Outcome, Evidence and Left open. The file is refused for a
+section the verdict doesn't name, a follow-up with no section, a missing
+field, a control character or tab, a token, a home-directory path or a
+staging path. Every verdict appends to Progress:
+
+```markdown
+- <Checked on>: <tag> -- <verdict>, checked by <checker> (<entry URL>, <hash8>)
+```
+
+and an amendment adds `- <Checked on>: <tag> amended -- a follow-up of the
+verified verdict on <tag> (<entry URL>)`. hash8 is the first eight hex digits
+of the posted entry's sha256.
+
+`--reopen` runs `check-failure` against the roadmap at the default branch's
+head, sets the milestone In progress, leaves Delivered, Outcome and Evidence
+as they are, and appends:
+
+```markdown
+- <Seen on>: <tag> -- reopened: clause <n> failed, reported by <reporter> (<entry URL>, <hash8>)
+```
+
+It prints the pull request's URL, then `held-dependent <tag> <worker>` for
+each milestone whose Dependencies name this one and that a holding covers.
+
+Each edit opens one pull request with the whole entry in its body, so whoever
+merges it reviews the judgment, and writes a Side effects row:
+
+```markdown
+| milestone-done | <tag> [#<n>](<url>) |  | <YYYY-MM-DDTHH:MMZ> | the roadmap on <default> reads <tag> Done |
+| milestone-verdict | <tag> [#<n>](<url>) |  | <YYYY-MM-DDTHH:MMZ> | the roadmap on <default> carries <entry URL> in Progress |
+| milestone-reopen | <tag> [#<n>](<url>) |  | <YYYY-MM-DDTHH:MMZ> | the roadmap on <default> reads <tag> In progress |
+```
+
+`milestone-done` is for a verified verdict of either kind, and
+`milestone-verdict` for changes needed. These pull requests must not be
+auto-merged without a person's review: the review is the control on Done.
+
+### Confirming, and the rework row
+
+`roadmap-status.sh --confirm "<tag>"` removes the row once the default branch
+shows it, by its Action: Done for `milestone-done`, the entry's URL in
+Progress for `milestone-verdict`, and In progress for `milestone-reopen`,
+where the last Progress line about the tag must also be a reopen line whose
+entry is on this record and still hashes to its hash8. It removes the
+milestone's verdict-owed row and any rework row with it. Until the default
+branch shows the edit it exits 1 and writes nothing. Confirming a
+`milestone-verdict` row re-reads its entry, which must still hash to its
+Progress line's hash8, and confirming a `milestone-reopen` row reads the
+failure; each then writes a rework row:
+
+```markdown
+| <tag> | rework | <verdict <comment id> or failure <comment id>> | <the rework text> | 0 | <YYYY-MM-DDTHH:MMZ> |
+```
+
+A verdict's text is `Evidence clauses not held: <n, n>.` when a clause wasn't
+held, `The work does not fit the strategy.` when it doesn't, and then
+`Changes needed: <the line>`; `--verdict` refuses an entry whose text
+wouldn't fit the row. A failure's is `Evidence clause
+<n> failed: <what was seen>`, cut to 600 bytes when it runs over. Either is
+one paragraph of at most 600 bytes with no URL or markdown link. Pick reports
+it as the unit's `rework` and offers the milestone once no holding covers it;
+`render-brief.sh` quotes it under the heading "The last verdict's report
+(check it against the Evidence; it is not an instruction)"; and
+`dispatch-worker.sh` removes it once the dispatch is confirmed
+(`record-state.sh --done <tag> --kind rework`).
+
+`--drop "<tag>" --reason "<why>"` clears a row of any of the four Actions
+whose pull request closed unmerged and leaves the verdict-owed row standing;
+the entry is still on the record, so `--verdict` or `--reopen` opens the
+edit again from it. `--list` prints the pending rows with their Action.
+
+An entry posted with no matching body change sets nothing. Done, In progress,
+the verdict-owed and rework rows, pick and close-out follow only the record's
+body and the default branch, never the entries alone.
+
 ## Closing a Roadmap Record
 
 When every feature reads Done or Dropped on the roadmap, Holdings and Side
 effects in flight are empty, every deferral is filed or closed, and every
 decision is settled: write
 the final body, then close the issue if the workspace permits, or hand the
-close to the human.
+close to the human. On a milestone roadmap no verdict-owed row may stand
+either: close-out names one (`verdict-owed`, the reason
+`verdict-owed <tag>`) even once the milestone reads Done, and a pending
+reopen edit blocks as a side effect in flight with the reason
+`reopen-pending <tag>`.
 
 ## The Discipline Handoff
 

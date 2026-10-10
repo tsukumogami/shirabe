@@ -52,7 +52,9 @@
 # the unit and the pause that holds it); for `unready`, the reason (no-evidence,
 # malformed:<rule>, too-few-seats, not-unanimous, stale:<why>, body-checks or
 # message); the changed files, the evidence as parsed, the freshness result, the body checks' findings, the
-# built message and the holds with their states, as far as the check got.
+# built message and the holds with their states, as far as the check got;
+# and from step 9, `milestone` ({tag, evidence}) when the milestone's
+# Evidence was read, or `milestone_error` (why it couldn't be) when it wasn't.
 #
 # The repository is the one the record's Holdings row for #<pr> links;
 # --repo overrides it, for tests. --no-seal (tests) prints the bare token.

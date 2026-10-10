@@ -31,7 +31,73 @@
 #     verified, after which close-out, refused while any verdict was owed,
 #     closes the roadmap;
 #   - a failure against MV3, whose pending reopen edit holds close-out back
-#     though every milestone still reads Done.
+#     though every milestone still reads Done;
+#   - the roadmap format reference and this skill's documentation, read for
+#     what they say about the Done rule.
+#
+# The PRD's acceptance criteria, numbered in the order the PRD lists them,
+# and where each is covered. Each case below names its criterion in a
+# `PRD AC <n>` comment; a criterion another suite covers points there.
+#    1 a verdict recorded for each milestone, Checked by naming the
+#      coordinator's session: here.
+#    2 after the PR-bearing milestone's PLAN completes, the cascade reports
+#      completed, its roadmap step skipped, the roadmap unchanged and kept:
+#      skills/work-on/scripts/run-cascade_test.sh, Scenarios 32 and 33.
+#    3 on a feature roadmap the cascade still sets Done through Downstream:
+#      run-cascade_test.sh, Scenarios 1 and 2 (and 34, a frontmatter it
+#      can't read).
+#    4 landed on the milestone roadmap leaves no merge-driven status write
+#      and the run at the verdict step; on a feature roadmap it opens the
+#      Done pull request: here (the --unit half), and
+#      milestone-verdict_engine_test.sh, cases 2 and 4.
+#    5 the rendered merge_confirm and merged_facts guidance suggests no
+#      status-line pull request: milestone-verdict_engine_test.sh, case 5.
+#    6 a finished host-state milestone with no pull request reaches landed
+#      handling: milestone-verdict_engine_test.sh, case 1.
+#    7 the verdict check accepts each verdict and refuses the malformed
+#      ones: here (one entry of each verdict passes), and milestone_test.sh
+#      (every refusal).
+#    8 a verified verdict's edit sets Done, adds the Progress line and the
+#      work to Delivered and removes Needs; follow-ups land in the same
+#      change; changes needed leaves Status and Delivered; nothing merges:
+#      here, and roadmap-status_test.sh (the exact edits).
+#    9 the writer refuses a Done milestone, Evidence changed since Source and
+#      a second pending edit, and a dropped edit opens again:
+#      roadmap-status_test.sh.
+#   10 a deferred verdict keeps its mark, pick passes over it, and the next
+#      landed reaches the verdict step: milestone-verdict_engine_test.sh,
+#      case 2.
+#   11 a new: follow-up under a used tag and an amend of a tag the roadmap
+#      lacks are refused: roadmap-status_test.sh.
+#   12 pick passes over a milestone between landed and the confirmation,
+#      with its holding and after it is retired; a confirmed changes-needed
+#      edit re-offers it with the rework in its next brief: here (with no
+#      holding), and milestone-verdict_engine_test.sh, case 2 (with the
+#      holding, then retired).
+#   13 goal fit names the pull request and clauses the milestone has, the
+#      check refuses clause 3, and advances none still lands: here, and
+#      coordinate_engine_test.sh, case 23 (advances none).
+#   14 a failure against the Done host-state milestone reopens it, the check
+#      refuses the malformed ones, a second failure opens nothing, and the
+#      reopened roadmap validates: here, milestone_test.sh (the refusals),
+#      and the crates/shirabe-validate test
+#      a_reopened_milestone_roadmap_validates_clean.
+#   15 pick passes over a pending reopen; once confirmed it offers the
+#      milestone with the failure in its brief, a dependent reads blocked,
+#      and a dependent holding a worker is named: here.
+#   16 close-out refuses while a verdict is owed and while a reopen is
+#      pending, naming the milestone, and closes once neither stands: here,
+#      and closeout-read_test.sh.
+#   17 a verdict or failure entry posted alone changes nothing: here.
+#   18 the roadmap format reference doesn't call the Done rule unenforced,
+#      and the coordinate skill documents verdicts: here.
+#   19 every changed script is on scripts/check-bash-floor.sh's list and
+#      passes there, and a CI workflow runs each suite:
+#      scripts/check-bash-floor.sh, with
+#      .github/workflows/check-coordinate-scripts.yml and
+#      check-execute-scripts.yml.
+#   20 shirabe validate passes on every changed document and CI is green:
+#      CI on the pull request, not a suite.
 #
 # Usage: bash skills/coordinate/scripts/milestone-verdicts_test.sh
 set -uo pipefail
@@ -113,7 +179,7 @@ picker() { bash "$PF" --session "$S" >/dev/null 2>"$T/pf.err" && cat "$KOTO_STOR
 TODAY=$(date -u +%Y-%m-%d)
 
 echo "== landed for each milestone =="
-# PRD AC: ticking landed on the milestone roadmap leaves no merge-driven
+# PRD AC 4: ticking landed on the milestone roadmap leaves no merge-driven
 # status write in the GitHub stand-in's log (the --unit half; the template
 # half is milestone-verdict_engine_test.sh).
 for tag in MV1 MV2; do
@@ -125,7 +191,7 @@ eq "the record holds two verdict-owed rows, Who none (no holding named them)" "M
     "$(live | jq -r '[.work[] | select(.kind == "verdict-owed") | "\(.item):\(.who)"] | join(" ")')"
 
 echo "== the picker passes over both =="
-# PRD AC: between landed and the verdict edit's confirmation the picker
+# PRD AC 12: between landed and the verdict edit's confirmation the picker
 # doesn't offer the milestone (here with no holding).
 eq "pick reads both milestones verdict_owed" "MV1:true MV2:true" "$(picker | jq -r '[.units[] | "\(.unit):\(.verdict_owed)"] | join(" ")')"
 
@@ -161,13 +227,13 @@ closeout() { bash "$HERE/closeout-read.sh" "${RM[@]}" --no-seal 2>"$T/co.err"; }
 unit_of() { picker | jq -c --arg u "$1" '.units[] | select(.unit == $u)'; }
 
 echo "== close-out waits while a verdict is owed =="
-# PRD AC: close-out refuses the test roadmap while a verdict is owed, naming
+# PRD AC 16: close-out refuses the test roadmap while a verdict is owed, naming
 # the milestone.
 eq "close-out is refused while both verdicts are owed" "verdict-owed 7" "$(closeout)"
 grep -q 'verdict-owed MV1' "$T/co.err" && ok "  ... naming the milestone" || bad "  ... naming the milestone" "$(cat "$T/co.err")"
 
 echo "== goal fit for the PR-bearing milestone's pull request =="
-# PRD AC: landing a pull request for the PR-bearing milestone posts a goal-fit
+# PRD AC 13: landing a pull request for the PR-bearing milestone posts a goal-fit
 # entry naming the pull request and the clauses it advances, each a clause of
 # the milestone's Evidence on the default branch, and the check refuses a
 # clause the milestone lacks. (A second pull request judged advances none
@@ -181,13 +247,18 @@ sed 's/^Clauses: 1, 2$/Clauses: 3/' "$T/gf.txt" > "$T/gf3.txt"
 bash "$MS" check-goal-fit "$T/main.md" MV1 "$T/gf3.txt" >/dev/null 2>"$T/err"; eq "an entry naming clause 3 of MV1's two is refused" 1 $?
 
 echo "== the PR-bearing milestone's verdict =="
+# PRD AC 7 and 8: a well-formed verified entry passes the check, and its
+# edit sets the milestone Done (roadmap-status_test.sh holds the whole
+# diff: the Progress line, Delivered and Needs).
 verdict MV1 verified "acme/widgets#12" none none "held -- three names listed from a clean install" "held -- the removed manifest was named as skipped"
 eq "its edit sets MV1 Done on its branch" "Done" "$(on_branch "$PRB" > "$T/b.md"; bash "$MS" evidence "$T/b.md" MV1 | jq -r .status)"
 eq "pick still passes over both before any --confirm" "MV1:true MV2:true" "$(picker | jq -r '[.units[] | "\(.unit):\(.verdict_owed)"] | join(" ")')"
 merge_edit MV1
 
 echo "== the host-state milestone: changes needed, sent back =="
-# PRD AC: after a changes-needed edit is confirmed, with no holding, the
+# PRD AC 7 and 8: a well-formed changes-needed entry passes the check, and
+# its edit leaves the milestone In progress.
+# PRD AC 12: after a changes-needed edit is confirmed, with no holding, the
 # picker offers the milestone and the next brief carries the Changes needed
 # line and the not-held clauses.
 verdict MV2 "changes needed" none none "answer on the public name, not the internal one" "not held -- the public name timed out"
@@ -218,6 +289,9 @@ bash "$HERE/record-state.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T
 eq "  ... and the picker reads none" "null" "$(unit_of MV2 | jq -r '.rework')"
 
 echo "== the host-state milestone: verified with follow-ups =="
+# PRD AC 7 and 8: a well-formed verified-with-follow-ups entry passes the
+# check, and its edit sets the milestone Done and adds the new milestone in
+# the same change.
 OUT=$(bash "$RS" "${W[@]}" --unit MV2 2>"$T/err"); eq "landed again marks MV2's verdict owed again" "0 verdict-owed MV2" "$? $OUT"
 cat > "$T/fu.md" <<'EOF'
 ### MV3: the host renews its certificate
@@ -258,7 +332,7 @@ retire_holding() {
 }
 
 echo "== a failure entry alone changes nothing =="
-# PRD AC: a failure entry posted on the record with no matching record-body
+# PRD AC 17: a failure entry posted on the record with no matching record-body
 # change sets nothing In progress, clears nothing and re-offers nothing.
 BODY0=$(body_now)
 failure "$T/alone.txt" MV2 1 "the public name answered 503 for an hour"
@@ -273,9 +347,10 @@ holding mv3-cert '{"unit": "MV3", "pull_request": ""}' > "$T/h3.json"
 bash "$HERE/record-holding.sh" "${W[@]}" --topic mv3-cert --row-file "$T/h3.json" >/dev/null 2>"$T/err"; rc=$?
 eq "a worker holds MV3" 0 "$rc"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
-# PRD AC: a failure entry against the Done host-state milestone passes its
-# check and produces a roadmap pull request setting it In progress with the
-# Progress line, and the dependent holding a worker is named.
+# PRD AC 14 and 15: a failure entry against the Done host-state milestone
+# passes its check and produces a roadmap pull request setting it In
+# progress with the Progress line, a second failure opens nothing while it
+# is pending, and the dependent holding a worker is named.
 failure "$T/fail.txt" MV2 1 "the public name answered 503 after the certificate change"
 main_roadmap > "$T/main.md"
 bash "$MS" check-failure "$T/main.md" MV2 "$T/fail.txt" > /dev/null 2>"$T/err"; eq "the failure passes milestone.sh check-failure" 0 $?
@@ -295,14 +370,15 @@ F2URL=$(bash "$RA" "${RM[@]}" --kind milestone-failure --text-file "$T/fail2.txt
 NPR=$(jq '.prs | length' "$GH_DB")
 bash "$RS" "${W[@]}" --reopen MV2 --entry-file "$T/fail2.txt" --entry-url "$F2URL" >/dev/null 2>"$T/err"
 eq "a second failure while the reopen edit is pending opens no second pull request" "65 0" "$? $(( $(jq '.prs | length' "$GH_DB") - NPR ))"
-# PRD AC: while the reopen edit is pending the picker doesn't offer the
-# milestone, and close-out refuses.
+# PRD AC 15 and 16: while the reopen edit is pending the picker doesn't
+# offer the milestone, and close-out refuses.
 eq "while it is pending, pick lists MV2 landed, its edit unconfirmed" "true|true" "$(unit_of MV2 | jq -r '"\(.done)|\(.landed != null)"')"
 [ "$(closeout)" != "ready 7" ] && ok "  ... and close-out refuses" || bad "  ... and close-out refuses" "$(cat "$T/co.err")"
 bash "$RS" "${W[@]}" --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm before main takes the edit is 1" 1 $?
 merge_edit MV2
-# PRD AC: once confirmed the picker lists it not done and offers it, the next
-# brief carries the clause and what was seen, and a dependent reads blocked.
+# PRD AC 15: once confirmed the picker lists it not done and offers it, the
+# next brief carries the clause and what was seen, and a dependent reads
+# blocked.
 eq "the confirmation leaves a rework row from the failure" \
     "rework|failure ${FURL##*#issuecomment-}|Evidence clause 1 failed: the public name answered 503 after the certificate change" \
     "$(live | jq -r '[.work[] | select(.item == "MV2")] | map("\(.kind)|\(.who)|\(.next)") | join(",")')"
@@ -321,6 +397,9 @@ printf '%s\n' "$BRIEF" | grep -qF "A failure reported after the milestone read D
     && ok "  ... under the criterion that names the failure" || bad "  ... under the criterion that names the failure" "$BRIEF"
 
 echo "== the reopened milestone, verified again =="
+# PRD AC 7 and 8 again, on a reopened milestone: its new verified verdict
+# passes the check and its edit sets it Done, so the dependent MV3 no longer
+# reads blocked.
 bash "$HERE/record-state.sh" "${W[@]}" --done MV2 --kind rework >/dev/null 2>"$T/err"; eq "a dispatch clears the rework row" 0 $?
 retire_holding MV3
 OUT=$(bash "$RS" "${W[@]}" --unit MV2 2>"$T/err"); eq "landed again marks MV2's verdict owed" "0 verdict-owed MV2" "$? $OUT"
@@ -330,9 +409,10 @@ eq "MV2 reads Done again and MV3 is no longer blocked" "Done false" \
     "$(main_roadmap > "$T/m.md"; bash "$MS" evidence "$T/m.md" MV2 | jq -r .status) $(unit_of MV3 | jq -r .blocked)"
 
 echo "== the follow-up milestone's verdict, and close-out =="
+# PRD AC 16: close-out names the milestone whose verdict is owed.
 bash "$RS" "${W[@]}" --unit MV3 >/dev/null 2>"$T/err"; eq "landed for MV3 marks its verdict owed" 0 $?
 eq "close-out names it" "verdict-owed 7 verdict-owed MV3" "$(closeout) $(grep -o 'verdict-owed MV3' "$T/co.err")"
-# PRD AC: a verdict entry posted on the record with no matching record-body
+# PRD AC 17: a verdict entry posted on the record with no matching record-body
 # change sets nothing Done, clears no mark and doesn't let close-out pass.
 BODY0=$(body_now)
 printf 'Verdict: MV3 -- verified\nChecked by: %s\nChecked on: %s\nSource: %s at %s\nWork checked: none\n\nEvidence:\n1. held -- posted with no roadmap edit\n\nStrategy fit: fits -- it is the plugin bet\nFollow-ups: none\nChanges needed: none\n' \
@@ -344,15 +424,15 @@ eq "  ... MV3 is not Done on main and the picker still passes over it" "Not star
 eq "  ... and close-out is still refused" "verdict-owed 7" "$(closeout)"
 verdict MV3 verified none none none "held -- renewed and curled; a 200 both times"
 merge_edit MV3
-# PRD AC: close-out closes the roadmap once every milestone reads Done with
+# PRD AC 16: close-out closes the roadmap once every milestone reads Done with
 # no verdict owed.
 eq "with every milestone Done and no verdict owed, close-out is ready" "ready 7" "$(closeout)"
 
 echo "== the record and the roadmap after all of it =="
-# PRD AC: a suite records a verdict for each test milestone through the
-# verdict check and the record scripts, and the record holds the verdict
-# entries, each passing the check and each with a Checked by line naming the
-# coordinator's session.
+# PRD AC 1 and 13: a suite records a verdict for each test milestone
+# through the verdict check and the record scripts, and the record holds the
+# verdict entries, each passing the check and each with a Checked by line
+# naming the coordinator's session, and the goal-fit entry as posted.
 bash "$RA" "${RM[@]}" --list | jq -c '[.[] | select(.kind == "milestone-verdict")]' > "$T/entries.json"
 eq "the record holds six milestone-verdict entries (MV2's third and MV3's lone one among them)" 6 "$(jq length "$T/entries.json")"
 eq "  ... and three milestone-failure entries, the lone one and both against MV2" 3 \
@@ -374,13 +454,28 @@ eq "the record holds the goal-fit entry for MV1's pull request, as posted" "$(ca
     "$(bash "$RA" "${RM[@]}" --list | jq -r '[.[] | select(.kind == "goal-fit")] | if length == 1 then .[0].text else "\(length) goal-fit entries" end')"
 
 echo "== close-out waits while a reopen edit is pending =="
-# PRD AC: close-out refuses the test roadmap while a reopen edit is pending,
-# naming the milestone, though every milestone still reads Done on main.
+# PRD AC 16: close-out refuses the test roadmap while a reopen edit is
+# pending, naming the milestone, though every milestone still reads Done on
+# main. PRD AC 8: across every edit above, nothing was merged.
 failure "$T/fail3.txt" MV3 1 "the renewal left the old certificate in place"
 F3URL=$(bash "$RA" "${RM[@]}" --kind milestone-failure --text-file "$T/fail3.txt" 2>"$T/err")
 bash "$RS" "${W[@]}" --reopen MV3 --entry-file "$T/fail3.txt" --entry-url "$F3URL" >/dev/null 2>"$T/err"; eq "a failure against MV3 opens its reopen edit" 0 $?
 eq "close-out is refused while it is pending" "side-effects 7" "$(closeout)"
 grep -q 'reopen-pending MV3' "$T/co.err" && ok "  ... naming the milestone" || bad "  ... naming the milestone" "$(cat "$T/co.err")"
 grep -qE 'pr merge|pulls/[0-9]+/merge' "$GH_DB.calls" && bad "nothing was ever merged" "$(calls)" || ok "nothing was ever merged"
+
+echo "== what the documentation says =="
+# PRD AC 18: the roadmap format reference says nowhere that the Done rule is
+# unenforced or that the cascade or the coordinator sets a milestone's
+# status on merge, and the coordinate skill has a section on verdicts that
+# covers the verdict step, the three entries and reopening.
+FORMAT="$HERE/../../roadmap/references/roadmap-format.md"
+grep -nE 'unenforced|updates it as downstream plans land|can decline to run the merge-driven' "$FORMAT" > "$T/stale.txt"
+[ -f "$FORMAT" ] && [ ! -s "$T/stale.txt" ] && ok "the roadmap format reference has no sentence calling the Done rule unenforced" \
+    || bad "the roadmap format reference has no sentence calling the Done rule unenforced" "$(cat "$T/stale.txt")"
+awk '/^## Verdicts$/ { on = 1; next } on && /^## / { exit } on' "$HERE/../SKILL.md" > "$T/verdicts.md"
+for want in milestone_verdict milestone-verdict goal-fit milestone-failure milestone_reopen 'roadmap-status.sh --reopen'; do
+    grep -qF -- "$want" "$T/verdicts.md" && ok "SKILL.md's Verdicts section names $want" || bad "SKILL.md's Verdicts section names $want" "$(head -3 "$T/verdicts.md")"
+done
 
 done_tests milestone-verdicts

@@ -42,8 +42,10 @@ version: "1.0"
 #                               Review panel as parsed, the reviewed head's
 #                               freshness, the squash message and the holds
 #                               with their states, and for a milestone's
-#                               pull request its tag and Evidence (goal_fit's
-#                               reading; merge-order-entry.sh's input)
+#                               pull request `milestone` (its tag and
+#                               Evidence) or `milestone_error` (why they
+#                               couldn't be read) (goal_fit's reading;
+#                               merge-order-entry.sh's input)
 #   coord/quiet.json            quiet_check: the quiet workers and why
 #   coord/closeout.json         roadmap_close, rotation_close,
 #                               predecessor_close: the stage and its facts
@@ -1669,7 +1671,10 @@ states:
     # The coordinator's judgment against the unit's brief; the land check's
     # sealed verdict, re-read by goal_fit_land (as reconcile re-reads the
     # start's posture), picks where a fit pull request goes. gap doesn't read
-    # the gate.
+    # the gate. On a milestone roadmap coord/land.json's `milestone` field
+    # carries the holding's milestone tag and its Evidence on the default
+    # branch, the clauses a goal-fit entry names, and `milestone_error` says
+    # why that read failed, so the coordinator reads the Evidence itself.
     accepts:
       fit:
         type: enum
