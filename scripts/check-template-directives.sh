@@ -55,14 +55,14 @@ set -euo pipefail
 # child's files in the staging folder decides on files nothing writes any more.
 # The bail state asks `scripts/skill-session.sh has-work` over the four
 # children instead. The limb reads the gate's command, not the scripts it
-# invokes: an invoked script is still held only to the `wip/scope_` limb above,
+# invokes: an invoked script is still held only to the parent state-file prefix limb above,
 # because the enforcement layer (publish-scoping-pr.sh's untrack pathspec) and
 # the state file's readers still name the folder until later work moves them.
 #
 # Three boundaries are deliberate:
 #
 #   In an invoked script, `wip/` on its own is not flagged. Only the parent's
-#   own `wip/scope_` prefix is; the staging-folder limb covers gate commands.
+#   own state-file prefix is; the staging-folder limb covers gate commands.
 #
 #   A template variable is not an evidence field. `{{KEY}}` references are
 #   stripped before matching. koto resolves and compile-time-validates them,
