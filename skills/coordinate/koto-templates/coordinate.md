@@ -41,8 +41,9 @@ version: "1.0"
 #                               unready's reason, the changed files, the
 #                               Review panel as parsed, the reviewed head's
 #                               freshness, the squash message and the holds
-#                               with their states (goal_fit's reading;
-#                               merge-order-entry.sh's input)
+#                               with their states, and for a milestone's
+#                               pull request its tag and Evidence (goal_fit's
+#                               reading; merge-order-entry.sh's input)
 #   coord/quiet.json            quiet_check: the quiet workers and why
 #   coord/closeout.json         roadmap_close, rotation_close,
 #                               predecessor_close: the stage and its facts
@@ -1668,6 +1669,12 @@ states:
         type: string
         required: true
         description: What in the pull request, against the brief, decided it; for fits_with_follow_ups, each follow-up; for gap, what to correct.
+      # Recorded only: no transition reads it, so advances none never blocks
+      # a landing (docs/designs/DESIGN-milestone-verdicts.md, R7).
+      clauses:
+        type: string
+        required: false
+        description: On a milestone roadmap, the Clauses value of the goal-fit entry you posted, the Evidence clause numbers the pull request advances (`1, 2`) or `advances none`; left out on a feature roadmap.
     gates:
       goal_fit_land:
         type: command
@@ -3526,6 +3533,39 @@ merge-order table, where it doesn't. Before it goes on, file each follow-up as
 an issue where the workspace lets you, or raise it as a proposed issue in your
 report up, and name it beside the pull request in the merge-order table. A gap
 goes to `rebrief`.
+
+This run's roadmap form is `{{ROADMAP_FORM}}`. On a milestone roadmap goal
+fit also names the Evidence clauses a pull request advances, and goes on the
+record. When `coord/land.json` carries `milestone`, the tag of the milestone
+the pull request's holding names and its Evidence on the default branch,
+clause 1 first:
+
+1. Write the entry to a file outside any repository, exactly these lines:
+
+   ```
+   Goal fit: <owner/repo#n> -- <tag>
+   Fit: <fits|fits with follow-ups|gap>
+   Clauses: <n, n | advances none>
+   Rationale: <what in the pull request decided it>
+   ```
+
+   `Fit` is the judgment you submit as `fit`, written with spaces
+   (`fits_with_follow_ups` is `fits with follow-ups`). `Clauses` names each clause
+   the pull request moves toward held, by its number, or `advances none`.
+2. Read the roadmap on the default branch into a file outside any
+   repository (`mktemp`) and check the entry:
+   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/milestone.sh" check-goal-fit <roadmap file> "<tag>" <entry file>`.
+   Fix the entry until it passes.
+3. Post it:
+   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --text-file <entry file>`.
+4. Submit, with `clauses` set to the entry's Clauses value.
+
+`advances none` is recorded, not a gap: `fit` alone decides where the pull
+request goes, so a pull request that fits and moves no clause still lands.
+When `coord/land.json` carries `milestone_error` instead, the Evidence read
+failed: read it yourself with `milestone.sh evidence <roadmap file> "<tag>"`
+and write the entry the same way. With neither, no holding names a
+milestone for the pull request, and no entry is posted.
 
 ## land_merge
 

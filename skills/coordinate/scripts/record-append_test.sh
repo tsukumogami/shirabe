@@ -10,7 +10,7 @@
 # list; a failed access read listing nothing (2); an entry on a discipline
 # rotation's pull request; the refusals: a closed record, a target without the
 # declaration line, another scope's record, an empty entry, a control
-# character, an entry over the budget, an unknown kind (a milestone-verdict
+# character, an entry over the budget, an unknown kind (a milestone-verdict or goal-fit
 # entry is posted under its kind), and on a public host a
 # private repository (as owner/repo#n and as a link), a home-directory path
 # and a token-shaped string, without echoing it; what is fine: a tab and CRLF
@@ -119,6 +119,9 @@ bash "$RA" "${RM[@]}" --kind gossip --text-file "$T/entry.txt" >/dev/null 2>"$T/
 bash "$RA" "${RM[@]}" --kind milestone-verdict --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "a milestone-verdict entry is posted" 0 $?
 eq "  ... under its kind" "milestone-verdict" "$(list "${RM[@]}" | jq -r '.[-1].kind')"
 bash "$RA" "${RM[@]}" --kind milestone-verdicts --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "  ... and a kind close to it is still a usage error" 64 $?
+bash "$RA" "${RM[@]}" --kind goal-fit --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "a goal-fit entry is posted" 0 $?
+eq "  ... under its kind" "goal-fit" "$(list "${RM[@]}" | jq -r '.[-1].kind')"
+bash "$RA" "${RM[@]}" --kind goal_fit --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "  ... and goal_fit is still a usage error" 64 $?
 entry "Blocked on acme/secret#5 landing."
 bash "$RA" "${RM[@]}" --text-file "$T/entry.txt" >/dev/null 2>"$T/err"; eq "a private repository on a public host is refused" 65 $?
 grep -q 'acme/secret' "$T/err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/err")"

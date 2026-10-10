@@ -15,7 +15,12 @@
 # clause held and `fits` and with `Changes needed: none`, a Checked on later
 # than --today, a Checked by containing the --worker topic in any letter
 # case, a Checked by or Work checked outside its closed shape, a follow-up
-# title with markdown in it, and an entry over 16 KiB; progress-has.
+# title with markdown in it, and an entry over 16 KiB; progress-has;
+# check-goal-fit accepting entries naming clauses or `advances none` with
+# each Fit, and refusing, naming the line: a clause the milestone lacks, a
+# clause named twice or malformed, another tag, a pull request not shaped
+# owner/repo#n, a Fit outside its values, an empty Rationale, a reordered,
+# missing or extra line, CRLF endings and an entry over 16 KiB.
 #
 # Usage: bash skills/coordinate/scripts/milestone_test.sh
 set -uo pipefail
@@ -147,7 +152,7 @@ refuse "changes needed with every clause held and fits" "line 1: changes needed 
 refuse "changes needed with Changes needed: none" "line 13: changes needed names what must change" "changes needed" held "not held" fits none none
 refuse "a Checked on later than today" "line 3: Checked on 2026-10-11 is later than today" verified held held fits none none "" 2026-10-11
 refuse "a Checked by naming the worker" "line 2: Checked by names plugin-list" verified held held fits none none "relayed from Plugin-List"
-refuse "a Checked by with a slash" "line 2: Checked by is a login" verified held held fits none none "wip/me"
+refuse "a Checked by with a slash" "line 2: Checked by is a login" verified held held fits none none "team/me"
 refuse "a Work checked item that isn't owner/repo#n" "line 5: Work checked is" verified held held fits none none "" "" "#12"
 refuse "a follow-up title with markdown" "line 12: a new follow-up's title holds" "verified with follow-ups" held held fits "new: [a link](x)" none
 refuse "a follow-up that is neither new nor amend" "line 12: a follow-up is" "verified with follow-ups" held held fits "later: x" none
@@ -175,6 +180,53 @@ bash "$MS" check-verdict "$T/v2.md" MV9 "$T/e.txt" --today 2026-10-10 >/dev/null
 bash "$MS" check-verdict "$T/v2.md" "not a tag" "$T/e.txt" >/dev/null 2>&1; eq "a malformed tag is 64" 64 $?
 bash "$MS" frobnicate >/dev/null 2>&1; eq "an unknown subcommand is 64" 64 $?
 
+
+echo "== check-goal-fit =="
+# MV1 has two Evidence clauses.
+gf() { # gf <pr> <tag> <fit> <clauses> [rationale]
+    printf 'Goal fit: %s -- %s\nFit: %s\nClauses: %s\nRationale: %s\n' "$1" "$2" "$3" "$4" "${5:-it lists the installed plugins}"
+}
+gcheck() { bash "$MS" check-goal-fit "$T/v2.md" MV1 "$T/g.txt" 2>"$T/err"; }
+gaccept() { # gaccept <label> <gf args...>
+    local l=$1; shift
+    gf "$@" > "$T/g.txt"; gcheck > "$T/out"; eq "$l" 0 $?
+}
+grefuse() { # grefuse <label> <stderr phrase> <gf args...>
+    local l=$1 p=$2; shift 2
+    gf "$@" > "$T/g.txt"; gcheck > /dev/null; local rc=$?
+    if [ $rc = 1 ] && grep -q -- "$p" "$T/err"; then ok "$l"; else bad "$l" "rc $rc: $(cat "$T/err")"; fi
+}
+gaccept "an entry naming both clauses passes" acme/widgets#12 MV1 fits "1, 2"
+eq "  ... printed as JSON" 'acme/widgets#12|MV1|fits|[1,2]|it lists the installed plugins' \
+    "$(jq -r '"\(.pr)|\(.tag)|\(.fit)|\(.clauses | tojson)|\(.rationale)"' "$T/out")"
+gaccept "one clause, fits with follow-ups" acme/widgets#12 MV1 "fits with follow-ups" 2
+gaccept "advances none passes" acme/widgets#14 MV1 fits "advances none" "a refactor the list builds on"
+eq "  ... with no clause" '[]' "$(jq -c .clauses "$T/out")"
+gaccept "a gap passes the check too" acme/widgets#12 MV1 gap 1
+grefuse "clause 3 on a two-clause milestone" "line 3: clause 3 is not one of MV1's Evidence clauses; it has 2" acme/widgets#12 MV1 fits "1, 3"
+grefuse "a clause named twice" "line 3: a clause is named twice" acme/widgets#12 MV1 fits "2, 2"
+grefuse "clause 0" "line 3: Clauses is" acme/widgets#12 MV1 fits 0
+grefuse "clauses not separated by a comma and a space" "line 3: Clauses is" acme/widgets#12 MV1 fits "1,2"
+grefuse "an empty Clauses" "line 3: expected" acme/widgets#12 MV1 fits ""
+grefuse "a tag other than TAG" "line 1: the entry names MV2, not MV1" acme/widgets#12 MV2 fits 1
+grefuse "a pull request not shaped owner/repo#n" "line 1: the pull request is owner/repo#n" "#12" MV1 fits 1
+grefuse "a pull request with no number" "line 1: the pull request is owner/repo#n" acme/widgets MV1 fits 1
+grefuse "a Fit outside its values" "line 2: expected" acme/widgets#12 MV1 "fits well" 1
+grefuse "an empty Rationale" "line 4: expected" acme/widgets#12 MV1 fits 1 " "
+gf acme/widgets#12 MV1 fits 1 | awk 'NR == 2 { l = $0; next } NR == 3 { print; print l; next } { print }' > "$T/g.txt"; gcheck >/dev/null
+[ $? = 1 ] && grep -q 'line 2: expected `Fit' "$T/err" && ok "a reordered entry is refused, naming the line" || bad "a reordered entry is refused, naming the line" "$(cat "$T/err")"
+gf acme/widgets#12 MV1 fits 1 | sed '/^Rationale:/d' > "$T/g.txt"; gcheck >/dev/null
+[ $? = 1 ] && grep -q 'line 4: missing' "$T/err" && ok "a missing line is refused, naming it" || bad "a missing line is refused, naming it" "$(cat "$T/err")"
+{ gf acme/widgets#12 MV1 fits 1; echo "Note: more"; } > "$T/g.txt"; gcheck >/dev/null
+[ $? = 1 ] && grep -q 'line 5: nothing follows Rationale' "$T/err" && ok "a line after Rationale is refused" || bad "a line after Rationale is refused" "$(cat "$T/err")"
+{ gf acme/widgets#12 MV1 fits 1; head -c 17000 /dev/zero | tr '\0' 'x'; echo; } > "$T/g.txt"; gcheck >/dev/null
+[ $? = 1 ] && grep -q 'over 16384' "$T/err" && ok "a goal-fit entry over 16 KiB is refused" || bad "a goal-fit entry over 16 KiB is refused" "$(cat "$T/err")"
+gf acme/widgets#12 MV1 fits 1 | sed 's/$/\r/' > "$T/g.txt"; gcheck >/dev/null
+[ $? = 1 ] && grep -q 'control character' "$T/err" && ok "a goal-fit entry with CRLF endings is refused" || bad "a goal-fit entry with CRLF endings is refused" "$(cat "$T/err")"
+gf acme/widgets#12 MV1 fits 1 > "$T/g.txt"
+bash "$MS" check-goal-fit "$T/v2.md" MV9 "$T/g.txt" >/dev/null 2>&1; eq "check-goal-fit on a tag that isn't a milestone is 2" 2 $?
+bash "$MS" check-goal-fit "$T/v1.md" MV1 "$T/g.txt" >/dev/null 2>&1; eq "  ... and on a v1 roadmap" 2 $?
+bash "$MS" check-goal-fit "$T/v2.md" MV1 "$T/g.txt" --today 2026-10-10 >/dev/null 2>&1; eq "check-goal-fit takes no option" 64 $?
 echo
 echo "milestone: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

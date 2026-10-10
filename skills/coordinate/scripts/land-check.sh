@@ -34,6 +34,18 @@
 # 8. The merge posture: the start's POSTURE capture narrowed by a fresh
 #    posture-read.sh (board-lib.sh's bl_merge_posture): `permit <pr> <sha>`,
 #    `deny <pr> <sha>` or `confirm <pr> <sha>`.
+# 9. For those three, the tokens goal_fit reads: when the run is at roadmap
+#    scope and the pull request's Holdings row names a unit by its roadmap
+#    heading tag, the roadmap is read on the host's default branch, and on a
+#    roadmap/v2 roadmap the detail gains `milestone: {tag, evidence: [clause, ...]}` (milestone.sh
+#    evidence; the clauses in the roadmap's order, numbered from 1), so goal
+#    fit can name the clauses the pull request advances
+#    (docs/designs/DESIGN-milestone-verdicts.md, Decision 2). A version 1
+#    roadmap, a discipline scope or no holding naming the pull request adds
+#    nothing. A read that fails (a contents read with no content, as for a
+#    file over 1 MB, included), or a unit that isn't a milestone with
+#    Evidence, adds `milestone_error: <why>` instead and never changes the
+#    token: the merge question is already answered.
 # The token is sealed to the latest entry into land (captured as LAND). The
 # detail goes to context key coord/land.json as data: the verdict and the
 # pull request it is about; the pauses as read (pause-read.sh's JSON, with
@@ -196,4 +208,46 @@ if [ "$(printf '%s' "$HOLDS" | jq 'any(.[]; .state != "met")')" = true ]; then
 fi
 
 P=$(bl_merge_posture "$SESSION") || exit 2
+
+# milestone_evidence: step 9. Prints the milestone detail as JSON, nothing
+# when there is none to add; returns 1 with the reason on stdout when the
+# read failed.
+milestone_evidence() {
+    local vars scope roadmap host unit db ms re='^docs/roadmaps/([A-Za-z0-9._-]+/)*ROADMAP-[A-Za-z0-9._-]+\.md$'
+    local tagre='^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
+    vars=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || { echo "the session's variables couldn't be read"; return 1; }
+    scope=$(printf '%s' "$vars" | jq -r '.SCOPE // ""')
+    roadmap=$(printf '%s' "$vars" | jq -r '.ROADMAP // ""')
+    host=$(printf '%s' "$vars" | jq -r '.HOST_REPO // ""')
+    [ "$scope" = roadmap ] || return 0
+    # The unit of the Holdings row that links this pull request, as
+    # bl_pauses_on finds it.
+    unit=$(jq -r --arg r "$REPO" --arg n "$PR" \
+        '[.holdings[] | select(.pull_request | test("^\\[#" + $n + "\\]\\(https://github\\.com/" + ($r | gsub("\\."; "\\.")) + "/pull/" + $n + "\\)$"; "i")) | .unit][0] // ""' "$MS.rec") \
+        || { echo "the record's holdings couldn't be read"; return 1; }
+    # Only a roadmap heading's tag can name a milestone; work a person assigned
+    # outside the roadmap holds a unit of another shape and gets nothing.
+    [[ $unit =~ $tagre ]] || return 0
+    bl_repo_ok "$host" || { echo "the host [$host] is not owner/repo"; return 1; }
+    if ! [[ $roadmap =~ $re ]] || case "$roadmap" in *..*) true ;; *) false ;; esac; then
+        echo "the roadmap path [$roadmap] is not docs/roadmaps/.../ROADMAP-<name>.md"; return 1
+    fi
+    # Read without --jq, and parsed here, as every other read in this check.
+    bl_gh "$MS.host" api --method GET "repos/$host" || { echo "$host couldn't be read for its default branch"; return 1; }
+    db=$(jq -r '.default_branch // ""' "$MS.host")
+    bl_branch_ok "$db" || { echo "$host's default branch [$db] isn't a branch name"; return 1; }
+    bl_gh "$MS.rm" api --method GET "repos/$host/contents/$roadmap?ref=$db" || { echo "$roadmap couldn't be read on $db"; return 1; }
+    jq -r '.content // empty' "$MS.rm" > "$MS.rm.b64" && [ -s "$MS.rm.b64" ] && lib_b64d "$MS.rm.b64" "$MS.roadmap" \
+        || { echo "$roadmap on $db couldn't be decoded"; return 1; }
+    [ "$(bash "$HERE/milestone.sh" schema "$MS.roadmap" 2>/dev/null)" = roadmap/v2 ] || return 0
+    ms=$(bash "$HERE/milestone.sh" evidence "$MS.roadmap" "$unit" 2> "$MS.ms.err") \
+        || { echo "$unit has no Evidence on $db: $(head -1 "$MS.ms.err" | sed 's/^milestone: //')"; return 1; }
+    printf '%s' "$ms" | jq -c '{tag, evidence}'
+}
+if M=$(milestone_evidence); then
+    [ -z "$M" ] || detail '.milestone = $m' --argjson m "$M"
+else
+    echo "$PROG: the milestone's Evidence wasn't read: $M" >&2
+    detail '.milestone_error = $e' --arg e "$M"
+fi
 finish "$P $PR $SHA"

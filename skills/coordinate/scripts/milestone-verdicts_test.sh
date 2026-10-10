@@ -12,6 +12,8 @@
 # record-append.sh and roadmap-status.sh --verdict, checking the record, the
 # picker and close-out before and after the stand-in's default branch takes
 # each roadmap edit and --confirm runs:
+#   - the PR-bearing milestone's pull request, judged against MV1's Evidence
+#     in a goal-fit entry checked by milestone.sh check-goal-fit and posted;
 #   - the PR-bearing milestone, MV1, verified;
 #   - the host-state milestone, MV2, first changes needed: confirmed into a
 #     rework row, re-offered by the picker, quoted into its next brief and
@@ -153,6 +155,20 @@ echo "== close-out waits while a verdict is owed =="
 eq "close-out is refused while both verdicts are owed" "verdict-owed 7" "$(closeout)"
 grep -q 'verdict-owed MV1' "$T/co.err" && ok "  ... naming the milestone" || bad "  ... naming the milestone" "$(cat "$T/co.err")"
 
+echo "== goal fit for the PR-bearing milestone's pull request =="
+# PRD AC: landing a pull request for the PR-bearing milestone posts a goal-fit
+# entry naming the pull request and the clauses it advances, each a clause of
+# the milestone's Evidence on the default branch, and the check refuses a
+# clause the milestone lacks. (A second pull request judged advances none
+# reaching land_merge is coordinate_engine_test.sh's case 23.)
+main_roadmap > "$T/main.md"
+printf 'Goal fit: acme/widgets#12 -- MV1\nFit: fits\nClauses: 1, 2\nRationale: the list reads the installed manifests and names a removed one as skipped\n' > "$T/gf.txt"
+bash "$MS" check-goal-fit "$T/main.md" MV1 "$T/gf.txt" > "$T/gf.json" 2>"$T/err"; eq "MV1's pull request's goal-fit entry passes milestone.sh check-goal-fit" 0 $?
+eq "  ... naming the pull request and clauses MV1 has" "acme/widgets#12 [1,2]" "$(jq -r '"\(.pr) \(.clauses | tojson)"' "$T/gf.json")"
+bash "$RA" "${RM[@]}" --kind goal-fit --text-file "$T/gf.txt" >/dev/null 2>"$T/err"; eq "  ... and is posted as a goal-fit entry" 0 $?
+sed 's/^Clauses: 1, 2$/Clauses: 3/' "$T/gf.txt" > "$T/gf3.txt"
+bash "$MS" check-goal-fit "$T/main.md" MV1 "$T/gf3.txt" >/dev/null 2>"$T/err"; eq "an entry naming clause 3 of MV1's two is refused" 1 $?
+
 echo "== the PR-bearing milestone's verdict =="
 verdict MV1 verified "acme/widgets#12" none none "held -- three names listed from a clean install" "held -- the removed manifest was named as skipped"
 eq "its edit sets MV1 Done on its branch" "Done" "$(on_branch "$PRB" > "$T/b.md"; bash "$MS" evidence "$T/b.md" MV1 | jq -r .status)"
@@ -245,6 +261,8 @@ eq "every milestone reads Done on main" "Done Done Done" \
 eq "no verdict-owed or rework row and nothing pending remains" "0 0" \
     "$(live | jq '[(.work // [])[] | select(.kind == "verdict-owed" or .kind == "rework")] | length') $(live | jq '.side_effects | length')"
 eq "pick reads every milestone done, none verdict_owed" "MV1:true:false MV2:true:false MV3:true:false" "$(picker | jq -r '[.units[] | "\(.unit):\(.done):\(.verdict_owed)"] | join(" ")')"
+eq "the record holds the goal-fit entry for MV1's pull request, as posted" "$(cat "$T/gf.txt")" \
+    "$(bash "$RA" "${RM[@]}" --list | jq -r '[.[] | select(.kind == "goal-fit")] | if length == 1 then .[0].text else "\(length) goal-fit entries" end')"
 grep -qE 'pr merge|pulls/[0-9]+/merge' "$GH_DB.calls" && bad "nothing was ever merged" "$(calls)" || ok "nothing was ever merged"
 
 done_tests milestone-verdicts

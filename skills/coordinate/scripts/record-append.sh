@@ -34,7 +34,9 @@
 # append for what they change (the design's Decisions 3 and 4): run, told,
 # pause, go-ahead, approval, answer, assignment, end, work, roadmap-status,
 # milestone-verdict (a checked verdict on a milestone, milestone.sh
-# check-verdict; docs/designs/DESIGN-milestone-verdicts.md),
+# check-verdict; docs/designs/DESIGN-milestone-verdicts.md), goal-fit (a
+# landed pull request judged against its milestone's Evidence, milestone.sh
+# check-goal-fit),
 # and cost, the teardown pass's unit-cost summary (unit-cost.sh). The text may not be empty, may hold no control character
 # but a line break or a tab, and the whole comment may not exceed 60,000 bytes
 # (exit 65). On a public host the text may not name a private or unreadable
@@ -82,7 +84,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status cost milestone-verdict "
+ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status cost milestone-verdict goal-fit "
 case "$MODE" in
     append)
         [ -r "$TEXTFILE" ] || usage

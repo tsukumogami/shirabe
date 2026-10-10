@@ -10,6 +10,7 @@
 #   milestone.sh evidence ROADMAP TAG
 #   milestone.sh check-verdict ROADMAP TAG ENTRY [--worker TOPIC] [--today YYYY-MM-DD]
 #   milestone.sh progress-has ROADMAP TEXT
+#   milestone.sh check-goal-fit ROADMAP TAG ENTRY
 #
 # schema prints the frontmatter's `schema:` value, or roadmap/v1 when the
 # frontmatter names none (a roadmap with no schema line is a version 1 one).
@@ -55,9 +56,25 @@
 #
 # progress-has exits 0 when the `## Progress` section holds TEXT, as written.
 #
-# Exit codes: 0 pass (or found); 1 the check failed (check-verdict: the entry;
-# progress-has: TEXT is not there); 2 a file couldn't be read, or TAG isn't a
-# milestone with Evidence; 64 usage.
+# check-goal-fit checks ENTRY, the goal-fit judgment of one pull request for
+# TAG's milestone, against TAG's Evidence in ROADMAP (the roadmap on the
+# default branch, which coord/land.json's `milestone.evidence` was read from).
+# The entry is these four lines, in this order:
+#
+#   Goal fit: <owner/repo#n> -- <tag>
+#   Fit: <fits|fits with follow-ups|gap>
+#   Clauses: <n, n, ... | advances none>
+#   Rationale: <text>
+#
+# Each clause number must be one of TAG's Evidence clauses, named once;
+# `advances none` says the pull request advances none of them, which is
+# recorded, not refused. The same 16 KiB cap and plain-lines rule as a verdict
+# entry apply. A refusal names the line on stderr; on success it prints
+# {pr, tag, fit, clauses: [n, ...], rationale} ([] for advances none).
+#
+# Exit codes: 0 pass (or found); 1 the check failed (check-verdict and
+# check-goal-fit: the entry; progress-has: TEXT is not there); 2 a file
+# couldn't be read, or TAG isn't a milestone with Evidence; 64 usage.
 set -uo pipefail
 
 PROG=milestone
@@ -164,14 +181,15 @@ progress-has)
         END { exit(found ? 0 : 1) }'
     exit $?
     ;;
-check-verdict) ;;
+check-verdict|check-goal-fit) ;;
 *) usage ;;
 esac
 
-# ---- check-verdict ---------------------------------------------------------
+# ---- the two entry checks: their arguments and the entry's lines ------------
 [ $# -ge 3 ] || usage
 ROADMAP_FILE=$1 TAG=$2 ENTRY=$3; shift 3
 WORKER= TODAY=
+[ "$CMD" = check-verdict ] || [ $# -eq 0 ] || usage
 while [ $# -gt 0 ]; do
     case "$1" in
         --worker) [ $# -ge 2 ] || usage; WORKER=$2; shift 2 ;;
@@ -180,8 +198,10 @@ while [ $# -gt 0 ]; do
     esac
 done
 [[ $TAG =~ $RE_TAG ]] || { echo "$PROG: $TAG is not a milestone's heading tag (Feature 7, ED1, AB10b)" >&2; exit 64; }
-[ -n "$TODAY" ] || TODAY=$(date -u +%Y-%m-%d)
-[[ $TODAY =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
+if [ "$CMD" = check-verdict ]; then
+    [ -n "$TODAY" ] || TODAY=$(date -u +%Y-%m-%d)
+    [[ $TODAY =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
+fi
 [ -r "$ENTRY" ] || die2 "cannot read $ENTRY"
 MS=$(milestone_json "$ROADMAP_FILE" "$TAG") || exit 2
 NCLAUSES=$(printf '%s' "$MS" | jq '.evidence | length')
@@ -208,6 +228,39 @@ shape() {
     [ "$1" -le "$N" ] || fail "line $1: missing; expected \`$2\`"
     [[ $l =~ $3 ]] || fail "line $1: expected \`$2\`, read [${l:0:80}]"
 }
+
+# ---- check-goal-fit ----------------------------------------------------------
+if [ "$CMD" = check-goal-fit ]; then
+    shape 1 "Goal fit: <owner/repo#n> -- <tag>" '^Goal fit: ([^ ]+) -- (.+)$'
+    GF_PR=${BASH_REMATCH[1]} GF_TAG=${BASH_REMATCH[2]}
+    RE_PR_REF='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
+    [[ $GF_PR =~ $RE_PR_REF ]] || fail "line 1: the pull request is owner/repo#n, read [${GF_PR:0:80}]"
+    [ "$GF_TAG" = "$TAG" ] || fail "line 1: the entry names ${GF_TAG:0:80}, not $TAG"
+    shape 2 "Fit: <fits|fits with follow-ups|gap>" '^Fit: (fits|fits with follow-ups|gap)$'
+    GF_FIT=${BASH_REMATCH[1]}
+    shape 3 "Clauses: <n, n | advances none>" '^Clauses: (.+)$'
+    GF_CLAUSES=${BASH_REMATCH[1]}
+    CL_JSON='[]'
+    if [ "$GF_CLAUSES" != "advances none" ]; then
+        # At most four digits a number: a milestone never has a thousand
+        # clauses, and jq's tonumber never sees a value it would round.
+        RE_NUMS='^[1-9][0-9]{0,3}(, [1-9][0-9]{0,3})*$'
+        [[ $GF_CLAUSES =~ $RE_NUMS ]] \
+            || fail "line 3: Clauses is \`advances none\` or clause numbers separated by \", \", read [${GF_CLAUSES:0:80}]"
+        CL_JSON=$(printf '%s' "$GF_CLAUSES" | jq -R -c 'split(", ") | map(tonumber)') || die2 "jq failed"
+        printf '%s' "$CL_JSON" | jq -e '(unique | length) == length' > /dev/null || fail "line 3: a clause is named twice"
+        BIG=$(printf '%s' "$CL_JSON" | jq --argjson n "$NCLAUSES" '[.[] | select(. > $n)][0] // empty')
+        [ -z "$BIG" ] || fail "line 3: clause $BIG is not one of $TAG's Evidence clauses; it has $NCLAUSES"
+    fi
+    shape 4 "Rationale: <text>" '^Rationale: (.*[^ ].*)$'
+    GF_WHY=${BASH_REMATCH[1]}
+    [ "$N" -le 4 ] || fail "line 5: nothing follows Rationale"
+    jq -n -c --arg pr "$GF_PR" --arg tag "$TAG" --arg fit "$GF_FIT" --argjson cl "$CL_JSON" --arg why "$GF_WHY" \
+        '{pr: $pr, tag: $tag, fit: $fit, clauses: $cl, rationale: $why}' || die2 "jq failed"
+    exit 0
+fi
+
+# ---- check-verdict -----------------------------------------------------------
 
 shape 1 "Verdict: <tag> -- <verdict>" '^Verdict: (.+) -- (changes needed|verified with follow-ups|verified)$'
 V_TAG=${BASH_REMATCH[1]} VERDICT=${BASH_REMATCH[2]}

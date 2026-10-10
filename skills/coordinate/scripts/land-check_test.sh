@@ -19,7 +19,13 @@
 # Reversals row from the human about the posture, dated at or after it, is on
 # GitHub (Reversals prose alone never widens it); a missing,
 # unverified or wrongly sealed verify capture (exit 2); a failed posture
-# re-read; the repository found from the record's Holdings row.
+# re-read; the repository found from the record's Holdings row. The
+# milestone's Evidence for goal fit: on a roadmap/v2 roadmap read on the
+# default branch, coord/land.json carries the holding's milestone tag and its
+# numbered clauses (under permit and deny alike); a v1 roadmap and a pull
+# request no holding names add nothing; a failed roadmap or default-branch
+# read and a unit with no milestone leave the token as it was and say why in
+# milestone_error.
 #
 # Runs offline on the gh-board and koto stand-ins in a localized plugin tree.
 # Usage: bash skills/coordinate/scripts/land-check_test.sh
@@ -329,6 +335,88 @@ scenario "$PERMIT" "$PERMIT"
 paused_record "[$(prow s1 pause all "time 2000-01-01T00:00Z")]"
 eq "a pause whose minute has passed: permit" "permit 12 $H" "$(token)"
 
+
+echo "== the milestone's Evidence for goal fit =="
+# milestone_record <unit>: record #7 with pull request #12's holding on <unit>.
+milestone_record() {
+    jq -nc --arg u "$1" '{scope: {kind: "roadmap", name: "demo"},
+        holdings: [{unit: $u, entry_point: "/shirabe:deliver", mode: "--auto", phase: "executing",
+            dispatch_status: "dispatched", return_path: "message", worker: "worker-mv1", repo: "acme/widgets",
+            branch: "feat/x", verified_head: "", dispatched: "2026-09-26",
+            pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}],
+        deferrals: [], side_effects: [], reversals: [], holds: []}' > "$T/rec.json"
+    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
+    jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+}
+# main_roadmap <file>: the host's default branch, main, with <file> as the
+# run's roadmap on it.
+main_roadmap() {
+    echo '{"full_name":"acme/widgets","default_branch":"main"}' > "$GH_BOARD_DIR/repo.out"
+    jq -nc --arg c "$(base64 < "$1")" '{content: $c, encoding: "base64"}' > "$GH_BOARD_DIR/contents-main-docs__roadmaps__ROADMAP-demo.md.out"
+}
+landjson() { "$KOTO_BIN" context get "$S" coord/land.json; }
+cat > "$T/v2.md" <<'EOF'
+---
+schema: roadmap/v2
+status: Active
+---
+
+# ROADMAP: demo
+
+## Features
+
+### MV1: the plugin list
+
+**Outcome:** A maintainer lists the plugins they installed.
+
+**Evidence:**
+- A reviewer runs `widgets list` and sees exactly the three sample plugins.
+- The same reviewer removes one manifest and sees it named as skipped.
+
+**Left open:** the output layout.
+
+**Dependencies:** None
+**Status:** In progress
+
+## Progress
+
+- 2026-10-01: MV1 started
+EOF
+printf -- '---\nstatus: Active\n---\n\n# Roadmap\n\n## Features\n\n### Feature 2: second\n\n**Dependencies:** None\n**Status:** In progress\n' > "$T/v1.md"
+
+scenario "$PERMIT" "$PERMIT"
+milestone_record MV1; main_roadmap "$T/v2.md"
+eq "a pull request for a milestone on a v2 roadmap: the token is unchanged" "permit 12 $H" "$(token)"
+eq "  ... and coord/land.json carries the milestone's tag and numbered Evidence" \
+    '{"tag":"MV1","evidence":["A reviewer runs `widgets list` and sees exactly the three sample plugins.","The same reviewer removes one manifest and sees it named as skipped."]}' \
+    "$(landjson | jq -c .milestone)"
+grep -q 'contents/docs/roadmaps/ROADMAP-demo.md?ref=main' "$GH_BOARD_DIR/calls" && ok "  ... read on the default branch" || bad "  ... read on the default branch" "$(cat "$GH_BOARD_DIR/calls")"
+scenario "$PERMIT" "readable merge:deny close:permit teardown:permit"
+milestone_record MV1; main_roadmap "$T/v2.md"
+eq "under a denied merge too, which goal fit also reads" "deny 12 $H MV1" "$(token) $(landjson | jq -r .milestone.tag)"
+scenario "$PERMIT" "$PERMIT"
+milestone_record "Feature 2"; main_roadmap "$T/v1.md"
+eq "a v1 roadmap adds nothing" "permit 12 $H null null" "$(token) $(landjson | jq -c '.milestone, .milestone_error' | tr '\n' ' ' | sed 's/ $//')"
+scenario "$PERMIT" "$PERMIT"
+main_roadmap "$T/v2.md"
+eq "no holding naming the pull request adds nothing" "permit 12 $H null null" "$(token) $(landjson | jq -c '.milestone, .milestone_error' | tr '\n' ' ' | sed 's/ $//')"
+grep -q 'contents/' "$GH_BOARD_DIR/calls" && bad "  ... and reads no roadmap" "$(cat "$GH_BOARD_DIR/calls")" || ok "  ... and reads no roadmap"
+scenario "$PERMIT" "$PERMIT"
+milestone_record MV1; main_roadmap "$T/v2.md"
+K="$GH_BOARD_DIR/contents-main-docs__roadmaps__ROADMAP-demo.md"
+rm -f "$K.out"; echo 'gh: Server Error (HTTP 502)' > "$K.err"; echo 1 > "$K.rc"
+eq "a failed roadmap read doesn't change the token" "permit 12 $H" "$(token)"
+eq "  ... coord/land.json says why, with no milestone" "null true" "$(landjson | jq -c '.milestone, (.milestone_error | test("couldn.t be read"))' | tr '\n' ' ' | sed 's/ $//')"
+scenario "$PERMIT" "$PERMIT"
+milestone_record MV1
+eq "neither does a failed default-branch read" "permit 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+milestone_record MV7; main_roadmap "$T/v2.md"
+eq "a unit with no milestone on a v2 roadmap: the token stands" "permit 12 $H" "$(token)"
+case "$(landjson | jq -r '.milestone_error // ""')" in
+    "MV7 has no Evidence on main"*) ok "  ... and coord/land.json says so" ;;
+    *) bad "  ... and coord/land.json says so" "$(landjson | jq -c .)" ;;
+esac
 echo
 echo "land-check: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
