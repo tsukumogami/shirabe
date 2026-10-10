@@ -117,8 +117,9 @@ of `work/state.md` and holds no routing state of its own.
   (`skills/scope/references/phases/phase-resume.md`), which reads it
   on a later re-entry to tell a run that consumed a handoff from one
   that started cold. The value is recovered from state and is
-  re-validated against the slug regex before it is interpolated
-  anywhere, on the same grounds as `consumed_upstream:`.
+  compared against the constant `handoff/scope.md` before it is used
+  anywhere — a value read back from state is untrusted input, on the
+  same grounds as `consumed_upstream:` — and never interpolated.
 - **`planned_chain`** — list of child names the chain plans to
   invoke: the whole tactical chain (`brief`, `prd`, `design`,
   `plan`) in order, on every run. A child held back by re-entry
