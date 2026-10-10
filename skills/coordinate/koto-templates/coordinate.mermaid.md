@@ -4,7 +4,8 @@ stateDiagram-v2
     [*] --> start
     ask_up --> wait : asked: sent
     classify_report --> verify : classification: done, gates.report_pr.exit_code: 0
-    classify_report --> wait : classification: done, gates.report_pr.exit_code: 1
+    classify_report --> wait : classification: done, gates.report_pr.exit_code: 1, vars.ROADMAP_FORM: feature
+    classify_report --> roadmap_status : classification: done, gates.report_pr.exit_code: 1, vars.ROADMAP_FORM: milestone
     classify_report --> surface : classification: blocked
     classify_report --> rebrief : classification: needs_fix
     decision_answer --> decision_next : answered: recorded
@@ -58,6 +59,7 @@ stateDiagram-v2
     dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 44
     dispatch_check --> decision_next : gates.dispatch_check_verdict.exit_code: 45
     dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 46
+    dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 49
     dispatch_check --> failure : gates.dispatch_check_verdict.exit_code: 47
     dispatch_check --> wait : gates.dispatch_check_verdict.exit_code: 48
     escalate --> escalate_send : gates.escalate_verdict.exit_code: 180
@@ -94,6 +96,8 @@ stateDiagram-v2
     merged_facts --> record : gates.merged_facts_verdict.exit_code: 91
     merged_facts --> wait : gates.merged_facts_verdict.exit_code: 92
     merged_facts --> wait : gates.merged_facts_verdict.exit_code: 46
+    milestone_verdict --> record : evidence.unit: present, verdict: recorded
+    milestone_verdict --> wait : verdict: deferred
     pick --> dispatch_check : choice: dispatch
     pick --> dispatch_check : choice: scope
     pick --> dispatch_check : choice: scope_ahead
@@ -170,6 +174,7 @@ stateDiagram-v2
     roadmap_close_step --> roadmap_close : step: closed
     roadmap_close_step --> done_handed_over : step: handed_over
     roadmap_status --> record : evidence.unit: present, status: opened
+    roadmap_status --> milestone_verdict : evidence.unit: present, status: verdict_owed
     roadmap_status --> wait : status: failed
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 120
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 121

@@ -19,7 +19,10 @@
 # section: each of the three conditions round-trips, beside Decisions and in a
 # pull request; no holds renders the same bytes as before the section existed;
 # it sits before Decisions; each malformed hold is refused; and a handoff
-# carries the holds as they stand.
+# carries the holds as they stand. Milestone verdicts: a verdict-owed Work row
+# (Who a topic or none) and the milestone-done and milestone-verdict Side
+# effects rows round-trip; an unknown Work kind, an unknown milestone- Action
+# and a verdict-owed row with a bad Item, Who or Next step are refused.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/record-codec_test.sh
@@ -383,6 +386,36 @@ printf '%s' "$RUNREC" | bash "$R" --written "$W" > "$T/run.md" 2> "$T/run.err" \
 GOT=$(bash "$HERE/record-parse.sh" "$T/run.md" 2>&1 | jq -r '[.run[].value] | join(" ")' 2>&1)
 [ "$GOT" = "lane_owner plugin_api-worker" ] \
     && ok "address: and parses back" || bad "address: and parses back" "$GOT"
+
+# A milestone roadmap's rows (docs/designs/DESIGN-milestone-verdicts.md): a
+# verdict-owed Work row and the Side effects rows of the verdict's roadmap
+# edit render and parse back unchanged; an unknown kind or milestone Action
+# is refused.
+echo "== milestone verdicts =="
+MVREC() { # MVREC <work-json> <side-effects-json>
+    jq -nc --argjson w "$1" --argjson s "$2" '{scope: {kind: "roadmap", name: "widgets"}, holdings: [], deferrals: [],
+        side_effects: $s, reversals: [], work: $w}'
+}
+OWED='{"item":"MV1","kind":"verdict-owed","who":"plugin-list","next":"verdict owed since 2026-10-09","wakes":"0","updated":"2026-10-09T10:00Z"}'
+NOBODY='{"item":"AB10b","kind":"verdict-owed","who":"none","next":"verdict owed since 2026-10-09","wakes":"0","updated":"2026-10-09T10:00Z"}'
+SE() { jq -nc --arg a "$1" --arg c "$2" '{action: $a, target: "MV1 [#8](https://github.com/acme/widgets/pull/8)", verified_head: "", attempted: "2026-10-09T10:05Z", how_to_confirm: $c}'; }
+mv_roundtrip() { # mv_roundtrip <label> <json>
+    printf '%s' "$2" | bash "$R" --written "$W" > "$T/mv.md" 2> "$T/mv.err" || { bad "$1 (render)" "$(cat "$T/mv.err")"; return; }
+    bash "$P" "$T/mv.md" > "$T/mv.json" 2> "$T/mv.err" || { bad "$1 (parse)" "$(cat "$T/mv.err")"; return; }
+    jq 'del(.written)' "$T/mv.json" | bash "$R" --written "$W" > "$T/mv2.md" 2> "$T/mv.err" || { bad "$1 (render again)" "$(cat "$T/mv.err")"; return; }
+    if cmp -s "$T/mv.md" "$T/mv2.md" && [ "$(jq -S 'del(.written)' "$T/mv.json")" = "$(printf '%s' "$2" | jq -S .)" ]; then ok "$1"
+    else bad "$1" "$(diff "$T/mv.md" "$T/mv2.md"; diff <(jq -S 'del(.written)' "$T/mv.json") <(printf '%s' "$2" | jq -S .))"; fi
+}
+mv_roundtrip "a verdict-owed Work row round-trips" "$(MVREC "[$OWED]" '[]')"
+mv_roundtrip "  ... and one whose Who is none, for a tag with a letter suffix" "$(MVREC "[$NOBODY]" '[]')"
+mv_roundtrip "a milestone-done Side effects row round-trips" "$(MVREC "[$OWED]" "[$(SE milestone-done 'the roadmap on main reads MV1 Done')]")"
+mv_roundtrip "a milestone-verdict Side effects row round-trips" \
+    "$(MVREC "[$OWED]" "[$(SE milestone-verdict 'the roadmap on main carries https://github.com/acme/widgets/issues/7#issuecomment-1001 in Progress')]")"
+refuse "an unknown Work kind is still refused" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.kind = "verdict-due"')]" '[]')" "work.kind: not holding"
+refuse "an unknown milestone Action is refused" "$(MVREC '[]' "[$(SE milestone-reopened x)]")" "action: milestone-reopened is not one of the milestone roadmap edits"
+refuse "a verdict-owed row whose Item isn't a heading tag" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.item = "the plugin list"')]" '[]')" "a verdict-owed row's Item is a milestone's heading tag"
+refuse "a verdict-owed row whose Who isn't a topic" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.who = "a/b"')]" '[]')" "worker: contains '/'"
+refuse "a verdict-owed row whose Next step isn't its date" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.next = "judge it"')]" '[]')" "verdict owed since YYYY-MM-DD"
 
 echo
 echo "record-codec: $PASS passed, $FAIL failed"

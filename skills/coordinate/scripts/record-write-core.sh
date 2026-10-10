@@ -16,7 +16,9 @@
 #     record-hold.sh sets; even it may only add a hold or stamp a blank
 #     Lifted cell, never drop or change a hold (exit 65);
 #   - the stored set's sections (Run, Standing, Work) likewise, through
-#     STATE_WRITER=1, which only record-state.sh sets (exit 65);
+#     STATE_WRITER=1, which only record-state.sh sets (exit 65), except a
+#     milestone's verdict-owed Work row, which changes only through
+#     VERDICT_WRITER=1, which only roadmap-status.sh sets (exit 65);
 #   - a body over RECORD_BUDGET bytes, as given or as rendered, is refused
 #     before GitHub sees it (exit 13, record-full), leaving room under
 #     GitHub's 65,536-byte limit.
@@ -46,6 +48,7 @@ RECORD_BUDGET=60000
 DECISIONS_WRITER=0
 HOLDS_WRITER=0
 STATE_WRITER=0
+VERDICT_WRITER=0
 
 core_write() {
     if [ -z "$REF" ]; then
@@ -136,10 +139,22 @@ core_write() {
         exit 65
     fi
 
-    # The stored set's sections change only through record-state.sh.
+    # A milestone's verdict-owed Work row changes only through
+    # roadmap-status.sh, which writes it at the landed tick and clears it
+    # when the verdict's roadmap edit is confirmed.
+    if [ "$VERDICT_WRITER" != 1 ]; then
+        NEW_V=$(jq -cS '[(.work // [])[] | select(.kind == "verdict-owed")]' "$T/parsed.json") \
+            && LIVE_V=$(jq -cS '[(.work // [])[] | select(.kind == "verdict-owed")]' "$T/live.json") \
+            || lib_die2 "cannot compare the verdict-owed rows"
+        if [ "$NEW_V" != "$LIVE_V" ]; then
+            echo "$PROG: refused: a verdict-owed Work row changes only through roadmap-status.sh; carry the rows as the live record has them" >&2
+            exit 65
+        fi
+    fi
+    # The stored set's other rows change only through record-state.sh.
     if [ "$STATE_WRITER" != 1 ]; then
-        NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$T/parsed.json") \
-            && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$T/live.json") \
+        NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed")]}' "$T/parsed.json") \
+            && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed")]}' "$T/live.json") \
             || lib_die2 "cannot compare the stored set's sections"
         if [ "$NEW_S" != "$LIVE_S" ]; then
             echo "$PROG: refused: the Run, Standing and Work sections change only through record-state.sh; carry them as the live record has them" >&2

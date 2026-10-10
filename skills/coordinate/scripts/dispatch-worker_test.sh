@@ -426,6 +426,16 @@ run >/dev/null 2>&1; eq "pause: another unit's pause doesn't hold this one" 0 "$
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s5" | .units[0].paused = null | .units[1].paused = "s5"' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "pause: under a pause on all, the unit a go-ahead let through (paused null) is dispatched" 0 "$?"
+# A milestone whose verdict is owed is never dispatched, held or not.
+reset "$INPUT_DELIVER"
+printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).verdict_owed = true' >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "verdict owed: a new dispatch of a unit pick marked verdict_owed exits 10" 10 "$RC"
+has "verdict owed: naming why and the value to submit" "$ERR" "a verdict is owed on this milestone"
+nothing_written "verdict owed, unit"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
+printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).verdict_owed = true' >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "verdict owed: another unit's owed verdict doesn't hold this one" 0 "$?"
 # The brief's reporting address is the record's Run coordinator, never the
 # koto session name the input carries (shirabe#610).
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.reports_to = "someone-else"')"

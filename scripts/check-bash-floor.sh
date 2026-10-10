@@ -444,6 +444,16 @@ suite_scripts() {
             echo "skills/coordinate/scripts/decision-next_test.sh"
             echo "skills/coordinate/scripts/need-check_test.sh"
             echo "skills/coordinate/scripts/skill-states_test.sh"
+            # Milestone verdicts (docs/designs/DESIGN-milestone-verdicts.md):
+            # the file-only reader and checker, the writer of verdict-owed
+            # rows and verdict edits, the record scripts it changes, and the
+            # feature's acceptance suite. gh and koto stand-ins and a stand-in
+            # shirabe, so every case runs on 3.2.
+            echo "skills/coordinate/scripts/milestone_test.sh"
+            echo "skills/coordinate/scripts/roadmap-status_test.sh"
+            echo "skills/coordinate/scripts/record-state_test.sh"
+            echo "skills/coordinate/scripts/record-append_test.sh"
+            echo "skills/coordinate/scripts/milestone-verdicts_test.sh"
             ;;
         deliver)
             # The report, the probes, the mode map, and the eval gh shim. They

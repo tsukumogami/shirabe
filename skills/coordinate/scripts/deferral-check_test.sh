@@ -20,7 +20,8 @@
 # a run without a found record; at-cap at the cap and at the parked bound, with
 # send_execution adding no active worker, and CAP from the session; a failed
 # read (2); the sealed token and its detail; every token in koto's capture
-# alphabet.
+# alphabet; verdict-owed for a topic whose holding covers a milestone with a
+# verdict-owed row, or that the row names as its Who, and ok for another topic.
 #
 # Usage: bash skills/coordinate/scripts/deferral-check_test.sh
 set -uo pipefail
@@ -222,6 +223,21 @@ session "$(roadmap_vars plugin-system)" 7 scope beta
 eq "scope on a held topic is refused too" "duplicate-topic beta" "$(check)"
 session "$(roadmap_vars plugin-system)" 7 scope gamma
 eq "scope on a free topic is clear" "ok gamma" "$(check)"
+session "$(roadmap_vars plugin-system)" 7 dispatch gamma
+eq "another topic is clear" "ok gamma" "$(check)"
+
+echo "== check mode: a milestone whose verdict is owed =="
+# A verdict-owed Work row (docs/designs/DESIGN-milestone-verdicts.md): the
+# topic that held the milestone, through its holding or the row's Who, gets
+# no dispatch.
+OWEDROW() { jq -nc --arg t "$1" --arg w "$2" '{item: $t, kind: "verdict-owed", who: $w, next: "verdict owed since 2026-09-26", wakes: "0", updated: "2026-09-26T07:00Z"}'; }
+seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding beta '{"unit": "MV1: the plugin list", "phase": "scoping-ahead", "pull_request": ""}')" \
+    --argjson o "$(OWEDROW MV1 beta)" --argjson p "$(OWEDROW MV2 epsilon)" '.holdings = [$h] | .work = [$o, $p]')"
+session "$(roadmap_vars plugin-system)" 7 send_execution beta
+OUT=$(check); eq "sending a held milestone's worker more work is refused" "verdict-owed MV1" "$OUT"
+tok_shape "verdict-owed is in koto's capture alphabet" "$OUT"
+session "$(roadmap_vars plugin-system)" 7 dispatch epsilon
+eq "dispatching the topic a verdict-owed row names, its holding gone, is refused" "verdict-owed MV2" "$(check)"
 session "$(roadmap_vars plugin-system)" 7 dispatch gamma
 eq "another topic is clear" "ok gamma" "$(check)"
 

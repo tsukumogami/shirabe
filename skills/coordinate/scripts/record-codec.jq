@@ -49,6 +49,12 @@ def pr_link_parts:
 # pr_link: the cell as {repo, number} when its two numbers agree, else nothing.
 def pr_link: pr_link_parts | select(.a == .b) | {repo: .r, number: .a};
 
+# A Side effects row's Action is free text (merge, close, teardown,
+# roadmap-status, ...), except the milestone roadmap edits
+# roadmap-status.sh --verdict writes: an Action starting `milestone-` is one of
+# these, so a misspelt one never reads as a pending edit nobody confirms.
+def milestone_actions: ["milestone-done", "milestone-verdict"];
+
 # Columns a person may leave empty; every other column must hold a value.
 def optional_cols: ["mode", "branch", "verified_head", "pull_request", "disposition"];
 
@@ -122,6 +128,8 @@ def check_cell($key; $private):
     elif ($v == "") and (any(optional_cols[]; . == $key) | not) then refuse("\($key): empty")
     elif $v == "" then $v
     elif $key == "worker" then check_worker
+    elif $key == "action" and startswith("milestone-") then
+      (if any(milestone_actions[]; . == $v) then . else refuse("action: \($v) is not one of the milestone roadmap edits, \(milestone_actions | join(" or "))") end)
     elif $key == "phase" then (if test("^(scoping|scoping-ahead|executing|held)$") then . else refuse("phase: not scoping, scoping-ahead, executing or held") end)
     elif $key == "dispatch_status" then (if test("^(dispatching|dispatched|dispatch-failed)$") then . else refuse("dispatch_status: not dispatching, dispatched or dispatch-failed") end)
     elif $key == "return_path" then (if test("^(message|leg [a-z0-9_][a-z0-9_-]{0,63}:[a-z0-9_-]+)$") then . else refuse("return_path: not `message` or `leg <request-id>:<leg>` (the word leg, a space, then the request and leg)") end)
@@ -271,12 +279,17 @@ def parse_holds($p):
 #   Item     a holding's Unit, or what the work is; unique within its Kind
 #   Kind     holding | local-agent | decision (a unit pick parked on a
 #            decision entry) | follow-up (a unit whose scoping landed, its
-#            execution not yet dispatched)
+#            execution not yet dispatched) | verdict-owed (a milestone whose
+#            work the coordinator judged finished, its verdict not yet
+#            confirmed on the roadmap; only roadmap-status.sh writes and
+#            clears it)
 #   Who      a holding's Worker (a dispatch topic), or who does the work; for
 #            a decision row `decision <n>`, the entry it waits on; for a
 #            follow-up row the pull request that landed its scoping,
-#            `owner/repo#n`
-#   Next step  what happens next, one line
+#            `owner/repo#n`; for a verdict-owed row the topic of the worker
+#            that held the milestone, or `none`
+#   Next step  what happens next, one line; a verdict-owed row's is
+#            `verdict owed since YYYY-MM-DD`
 #   Wakes    a holding's wakes counted so far (record-state.sh adds this run's
 #            from the session log at each write); 0 for a local agent, and
 #            read as 0 when blank (docs/designs/current/DESIGN-coordinate-paused-state.md,
@@ -296,7 +309,10 @@ def run_keys: ["arguments", "cap", "coordinator", "told"];
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment"];
 # A unit a person assigns outside the scope: an issue, or a release.
 def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
-def work_kinds: ["holding", "local-agent", "decision", "follow-up"];
+def work_kinds: ["holding", "local-agent", "decision", "follow-up", "verdict-owed"];
+# A milestone's heading tag, as a verdict-owed row's Item names it: the
+# heading-tag grammar roadmap-status.sh takes (`Feature 7`, `ED1`, `AB10b`).
+def re_heading_tag: "^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$";
 def s_text_cols: {run: ["value", "set_by"], standing: ["what", "owner", "relayed_by"], work: ["item", "who", "next"]};
 # A unit as pick lists it: a roadmap feature's heading tag or an issue.
 def re_unit: "^(Feature [1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*)$";
@@ -320,7 +336,7 @@ def check_scell($sk; $key; $private):
     elif $sk == "run" and $key == "key" then (if any(run_keys[]; . == $v) then . else refuse("run.key: not one of \(run_keys | join(", "))") end)
     elif $sk == "standing" and $key == "standing" then (if test("^s[1-9][0-9]*$") then . else refuse("standing.standing: not s<n>") end)
     elif $sk == "standing" and $key == "kind" then (if any(standing_kinds[]; . == $v) then . else refuse("standing.kind: not one of \(standing_kinds | join(", "))") end)
-    elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding, local-agent, decision or follow-up") end)
+    elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding, local-agent, decision, follow-up or verdict-owed") end)
     elif $sk == "work" and $key == "wakes" then (if test("^(0|[1-9][0-9]{0,5})$") then . else refuse("work.wakes: not a count") end)
     elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) or test(re_assigned) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)") end)
     elif $sk == "standing" and $key == "until" then (if pause_until_ok then . else refuse("standing.until: not `lifted`, `time <YYYY-MM-DDTHH:MMZ>`, `merged owner/repo#n` or `tag owner/repo <tag>`") end)
@@ -350,6 +366,10 @@ def check_srow($sec; $private):
        elif .kind == "decision" and (.who | test("^decision [1-9][0-9]*$") | not) then refuse("work.who: a decision row's Who is `decision <n>`")
        elif .kind == "follow-up" and (.who | test(re_pr_ref) | not) then refuse("work.who: a follow-up row's Who is the pull request that landed its scoping, `owner/repo#n`")
        else . end)
+    elif $sec.key == "work" and .kind == "verdict-owed" then
+      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a verdict-owed row's Item is a milestone's heading tag (`Feature 2`, `MV1`, `AB10b`)")
+       elif (.next | test("^verdict owed since [0-9]{4}-[0-9]{2}-[0-9]{2}$") | not) then refuse("work.next: a verdict-owed row's Next step is `verdict owed since YYYY-MM-DD`")
+       else (.who | check_worker) as $_ | . end)
     elif $sec.key == "standing" then
       (if .kind == "pause" then
          (if .on == "" or .until == "" then refuse("standing.\(.standing): a pause names its On and its Until") else . end)

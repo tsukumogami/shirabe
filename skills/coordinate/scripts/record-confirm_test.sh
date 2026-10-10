@@ -7,7 +7,9 @@
 # (merged: the unit's row kept with its Pull request cell cleared; unconfirmed: a
 # Side effects row naming owner/repo#n at the sha), teardown (done and kept),
 # decision_apply (reversal and deferral), posture_ask, roadmap_status (the
-# feature's roadmap-status row), and --verified
+# feature's roadmap-status row), milestone_verdict (a milestone-done or
+# milestone-verdict row for the unit; another kind, unit or an older row
+# waits; no unit is a conflict), and --verified
 # (confirmed, waiting, moved). A multi-repository record where acme/widgets#12
 # and acme/gadgets#12 are both held: the unit is found by its Worker from the
 # log, links are matched by their full URL, and the live head is read from
@@ -403,6 +405,35 @@ log_evidence "$S" roadmap_status '{"status":"opened"}' "$EVT"
 log_to "$S" roadmap_status record "$EVT"
 body "$(rec | jq -c --argjson r "$RSROW" '.side_effects = [$r]')"
 eq "roadmap_status: evidence naming no unit is a conflict" conflict "$(confirm)"
+
+echo "== milestone_verdict =="
+# landed on a milestone roadmap: roadmap_status (verdict_owed), then the
+# verdict's roadmap edit at milestone_verdict (docs/designs/DESIGN-milestone-verdicts.md).
+MVROW='{"action":"milestone-done","target":"MV1 [#8](https://github.com/acme/widgets/pull/8)","verified_head":"","attempted":"2026-09-26T09:58Z","how_to_confirm":"the roadmap on main reads MV1 Done"}'
+mv_session() { # mv_session <evidence>
+    session
+    log_to "$S" pick_facts wait "$EVT"; log_to "$S" wait roadmap_status "$EVT"
+    log_evidence "$S" roadmap_status '{"status":"verdict_owed","unit":"MV1"}' "$EVT"
+    log_to "$S" roadmap_status milestone_verdict "$EVT"
+    log_evidence "$S" milestone_verdict "$1" "$EVT"
+    log_to "$S" milestone_verdict record "$EVT"
+}
+mv_session '{"verdict":"recorded","unit":"MV1"}'
+body "$(rec | jq -c --argjson r "$MVROW" '.side_effects = [$r]')"
+eq "milestone_verdict: the milestone's milestone-done row confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson r "$MVROW" '.side_effects = [$r | .action = "milestone-verdict" | .how_to_confirm = "the roadmap on main carries x in Progress"]')"
+eq "milestone_verdict: a milestone-verdict row confirms" confirmed "$(confirm)"
+body "$(rec | jq -c --argjson r "$MVROW" '.side_effects = [$r | .action = "roadmap-status"]')"
+eq "milestone_verdict: a feature's roadmap-status row waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson r "$MVROW" '.side_effects = [$r | .target = "MV2 [#8](https://github.com/acme/widgets/pull/8)"]')"
+eq "milestone_verdict: another milestone's row waits" waiting "$(confirm)"
+body "$(rec)"
+eq "milestone_verdict: no row waits" waiting "$(confirm)"
+body "$(rec | jq -c --argjson r "$MVROW" '.side_effects = [$r]')" "$BEFORE"
+eq "milestone_verdict: a row from before the step became due waits" waiting "$(confirm)"
+mv_session '{"verdict":"recorded"}'
+body "$(rec | jq -c --argjson r "$MVROW" '.side_effects = [$r]')"
+eq "milestone_verdict: evidence naming no unit is a conflict" conflict "$(confirm)"
 
 echo "== the natural order: written before the evidence that leaves the step =="
 # decision_apply: the coordinator reached the hub at 09:50, the human's

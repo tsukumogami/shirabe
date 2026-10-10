@@ -61,7 +61,10 @@
 # rows, unless that holding is at Phase scoping (the one whose merge wrote the
 # follow-up). An ITEM has at most one row per kind. --done removes ITEM's rows, or
 # only its --kind K row. Every write also drops a holding row whose holding
-# is gone, so a teardown leaves no orphan.
+# is gone, so a teardown leaves no orphan. A verdict-owed row (a milestone
+# whose verdict is owed, docs/designs/DESIGN-milestone-verdicts.md) is listed
+# and kept by every write here, but only roadmap-status.sh writes or removes
+# it: --work refuses its kind, and --done leaves it.
 #
 # A holding's row carries its Wakes: at each --work write, this run's wakes
 # for the holding (coord-log.sh wakes: its worker's topic, and its leg's
@@ -267,7 +270,11 @@ end)
     ETEXT="$ID ($(printf '%s' "$ROW" | jq -r .kind): $(printf '%s' "$ROW" | jq -r .what)) ended by $BY."
     ;;
 work)
-    case "$KIND" in holding|local-agent|decision|follow-up) ;; *) echo "$PROG: --kind takes holding, local-agent, decision or follow-up" >&2; exit 64 ;; esac
+    case "$KIND" in
+        holding|local-agent|decision|follow-up) ;;
+        verdict-owed) echo "$PROG: a verdict-owed row is written only by roadmap-status.sh --unit, on a milestone roadmap" >&2; exit 64 ;;
+        *) echo "$PROG: --kind takes holding, local-agent, decision or follow-up" >&2; exit 64 ;;
+    esac
     if [ "$KIND" = holding ]; then
         jq -e --arg u "$ITEM" --arg w "$WHO" 'any(.holdings[]; .unit == $u and .worker == $w)' "$P" > /dev/null \
             || refuse "no holding has Unit $ITEM and Worker $WHO"
@@ -323,9 +330,12 @@ work)
     [ "$KIND" = holding ] && ETEXT="$ETEXT Wakes so far: $WAKES."
     ;;
 done)
-    jq -e --arg i "$ITEM" --arg k "$KIND" 'any((.work // [])[]; .item == $i and ($k == "" or .kind == $k))' "$P" > /dev/null \
+    # A verdict-owed row leaves only when its verdict's roadmap edit is
+    # confirmed (roadmap-status.sh --confirm), never by hand.
+    [ "$KIND" != verdict-owed ] || refuse "a verdict-owed row leaves Work only through roadmap-status.sh --confirm, once its verdict's roadmap edit is on the default branch"
+    jq -e --arg i "$ITEM" --arg k "$KIND" 'any((.work // [])[]; .item == $i and .kind != "verdict-owed" and ($k == "" or .kind == $k))' "$P" > /dev/null \
         || refuse "no Work row for $ITEM${KIND:+ of kind $KIND}"
-    jq --arg i "$ITEM" --arg k "$KIND" '.work = [(.work // [])[] | select(.item != $i or ($k != "" and .kind != $k))]' "$P" > "$WD/next.json" || lib_die2 "jq failed"
+    jq --arg i "$ITEM" --arg k "$KIND" '.work = [(.work // [])[] | select(.item != $i or .kind == "verdict-owed" or ($k != "" and .kind != $k))]' "$P" > "$WD/next.json" || lib_die2 "jq failed"
     EKIND=work ETEXT="$ITEM${KIND:+ ($KIND)} is done and leaves Work."
     ;;
 esac

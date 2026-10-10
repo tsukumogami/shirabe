@@ -1,6 +1,8 @@
 # rule-coverage.tsv -- where each rule of the prose /coordinate skill lives now.
 #
-# One row per rule of the pre-koto rule inventory (IDs C1..C190). Columns,
+# One row per rule of the pre-koto rule inventory (IDs C1..C190), then the
+# decision flow's rules (D1 onward) and the milestone verdict rules (M1
+# onward, docs/designs/DESIGN-milestone-verdicts.md). Columns,
 # tab-separated:
 #   <ID>  <carrier, repo-relative>  <state in coordinate.md, or ->  <key phrase>  [changed: <why>]
 # The key phrase is a verbatim substring of the carrier; when a state is named
@@ -128,7 +130,7 @@ C118	skills/coordinate/koto-templates/coordinate.md	land_merge	by reading the ch
 C119	skills/coordinate/references/verification-checklist.md	-	| Pull request | Worker | Verified at | Why this position |
 C120	skills/coordinate/koto-templates/coordinate.md	surface	back to unverified until you read it again
 C121	skills/coordinate/references/verification-checklist.md	-	report it before dispatching anything that depends on it
-C122	skills/coordinate/koto-templates/coordinate.md	merge_confirm	whose repository doesn't hold that feature's PLAN
+C122	skills/coordinate/references/landing-feature-roadmap.md	-	whose repository doesn't hold that feature's PLAN	changed: on a milestone roadmap a status follows a recorded verdict, so merge_confirm and merged_facts read it through references/landing-{{ROADMAP_FORM}}-roadmap.md
 C123	skills/coordinate/koto-templates/coordinate.md	land	A denial covers the step, not the command
 C124	skills/coordinate/koto-templates/coordinate.md	land	person's confirmation is reserved for a person too
 C125	skills/coordinate/koto-templates/coordinate.md	land	Never ask the human for a
@@ -216,3 +218,12 @@ D13	skills/coordinate/scripts/render-brief.sh	-	Your questions go to the coordin
 D14	skills/coordinate/koto-templates/coordinate.md	decision_next	Don't retry it by hand
 D15	skills/coordinate/SKILL.md	-	nothing blocks `wait`
 D16	skills/coordinate/scripts/progress-view.sh	-	a decision is raised as an entry
+M1	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	A milestone reads Done only on a verdict from you
+M2	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	An entry posted on the record changes nothing by itself
+M3	skills/coordinate/koto-templates/coordinate.md	classify_report	is classified `done` and goes to `roadmap_status`
+M4	skills/coordinate/koto-templates/coordinate.md	roadmap_status	On a milestone roadmap the script opens no
+M5	skills/coordinate/koto-templates/coordinate.md	pick	**Never a verdict-owed unit.**
+M6	skills/coordinate/koto-templates/coordinate.md	dispatch_check	A milestone whose verdict is owed gets no worker
+M7	skills/coordinate/koto-templates/coordinate.md	merge_confirm	references/landing-{{ROADMAP_FORM}}-roadmap.md
+M8	skills/coordinate/koto-templates/coordinate.md	merged_facts	references/landing-{{ROADMAP_FORM}}-roadmap.md
+M9	skills/coordinate/references/landing-milestone-roadmap.md	-	A merge never sets a milestone's status.

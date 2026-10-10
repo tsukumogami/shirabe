@@ -20,7 +20,8 @@
 # after the roadmap's, covered by a holding, their forms the dispatch path
 # takes, and an open one keeping the roadmap from completing; a unit's
 # awaiting, answered and follow_up from the record's Work rows and Decisions
-# entries, none of them holding a slot.
+# entries, none of them holding a slot; a unit's verdict_owed from a
+# verdict-owed Work row, with and without its holding, and no brief form for it.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail
@@ -210,6 +211,24 @@ facts > "$T/pick.json"
 dc_unit_forms "$T/pick.json" | grep -qx 'Feature 4' && bad "  ... and the dispatch path renders no brief for it" "$(dc_unit_forms "$T/pick.json")" \
     || ok "  ... and the dispatch path renders no brief for it"
 dc_unit_forms "$T/pick.json" | grep -qx 'Feature 5' && ok "  ... while other units keep their forms" || bad "  ... while other units keep their forms"
+
+echo "== roadmap: a milestone whose verdict is owed =="
+# A verdict-owed Work row (docs/designs/DESIGN-milestone-verdicts.md) marks
+# its unit with and without the holding that did the work.
+OWED=$(jq -nc '[{item: "Feature 2", kind: "verdict-owed", who: "alpha", next: "verdict owed since 2026-09-26", wakes: "0", updated: "2026-09-26T07:00Z"},
+    {item: "Feature 5", kind: "verdict-owed", who: "none", next: "verdict owed since 2026-09-26", wakes: "0", updated: "2026-09-26T07:00Z"}]')
+seed "$(printf '%s' "$REC" | jq -c --argjson w "$OWED" '.work = $w')"; pr 21 OPEN true; pr 23 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'In progress' 'Not started' 'Not started')"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"; eq "the facts are read with verdicts owed" 0 $?
+eq "a unit with a verdict-owed row and its holding reads verdict_owed" "true alpha" \
+    "$(facts | jq -r '.units[] | select(.unit == "Feature 2") | "\(.verdict_owed) \(.holding.worker)"')"
+eq "  ... and one whose holding is gone too" "true null" \
+    "$(facts | jq -r '.units[] | select(.unit == "Feature 5") | "\(.verdict_owed) \(.holding)"')"
+eq "  ... no other unit does" "false false false" "$(facts | jq -r '[.units[] | select(.unit != "Feature 2" and .unit != "Feature 5") | .verdict_owed | tostring] | join(" ")')"
+facts > "$T/owed-pick.json"
+dc_unit_forms "$T/owed-pick.json" | grep -qx 'Feature 5' && bad "  ... and the dispatch path renders no brief for it" "$(dc_unit_forms "$T/owed-pick.json")" \
+    || ok "  ... and the dispatch path renders no brief for it"
 
 echo "== roadmap: pauses =="
 pause_row() { # pause_row <id> <kind> <on> <until>
