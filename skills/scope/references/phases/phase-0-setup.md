@@ -6,7 +6,7 @@ residue rule, the entry into koto through `scripts/scope-open.sh`
 visibility detection from `CLAUDE.md`, the recording of the run's
 effective intent, and the unconditional removal of any stale
 `chain/dispatch` key found at invocation. Phase 0 ends with
-the initial state-file written and the phase pointer advanced to
+the initial `work/state.md` key written and the phase pointer advanced to
 Phase 1.
 
 ## Tokenizing and the Residue Rule
@@ -108,7 +108,7 @@ Read the lines it prints:
 - `refused=<code>` followed by `outcome=error` and
   `step=scope:refused`, with the refusal text on stderr — print the
   text and those two lines and stop. Nothing was created: no session,
-  no state file. `refused` is never printed after `outcome=`.
+  no state key. `refused` is never printed after `outcome=`.
 - `failed=<kind>` or `error=usage`, also followed by `outcome=error`
   and `step=scope:refused` — the same: report and stop.
 
@@ -207,7 +207,7 @@ docs-directory walk or the >50% threshold in SKILL prose.
 
 Phase 0 reads `CLAUDE.md` for the `## Repo Visibility:` header.
 Accepted values: `Public` or `Private`. The detected value is
-recorded in the state file and consumed by Phase 2's validator
+recorded in key `work/state.md` and consumed by Phase 2's validator
 pass-through
 (`shirabe validate --format json --visibility=<value>`). When the
 header is absent, `/scope` defaults to `Private` and surfaces a
@@ -218,7 +218,7 @@ the run proceeds against the Private default.
 ## Upstream Validation
 
 Runs only when the invocation named `--upstream`. No `--upstream`
-value reaches the state file, a child invocation, or a committed
+value reaches key `work/state.md`, a child invocation, or a committed
 frontmatter field without passing every check below. Two of the
 three places they run are not Phase 0 prose.
 
@@ -297,8 +297,8 @@ same cascade that deletes the roadmap and goes first — see
 
 `intake` resolved the run's effective intent before `setup`, and the
 `setup` directive delivers it as `RUN_INTENT`: the caller's
-`--intent` when one was given, else the `intent:` the state file
-already records, else `none`. Phase 0 writes it into the state file
+`--intent` when one was given, else the `intent:` key `work/state.md`
+already records, else `none`. Phase 0 writes it into that key
 as `intent: <value>` — always present, always one of `continue`,
 `stop`, `none`, never empty. An explicit `--intent` equal to the
 recorded one proceeds; a different one against an unfinished run
@@ -335,14 +335,16 @@ key it changes nothing.
 
 The unconditional shape rules out any conditional behavior — no
 "if author confirms", no "if last_updated is recent", no
-prompt-on-clear. The key is removed silently, the state file is left
+prompt-on-clear. The key is removed silently, `work/state.md` is left
 untouched, and the resume ladder proceeds. The convention behind the
 key is in `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`.
 
-## Initial State-File Shape
+## Initial `work/state.md` Shape
 
 After the session opened and the self-heal completes, Phase 0
-writes (or updates) the state file at `wip/scope_<topic>_state.md`
+writes (or updates) key `work/state.md` in session `scope-<topic>`
+(the state lives in koto session context; write it with
+`koto context add scope-<topic> work/state.md`, content on stdin)
 with the initial shape:
 
 ```yaml
@@ -372,12 +374,12 @@ chain.
 
 `session:` records the session this run opened or attached to. It
 is the name recomputed from the validated slug, written here so a
-reader of the state file can find the run's per-hop record, and it
+reader of the key can find the run's per-hop record, and it
 is never read back for interpolation: a use recomputes the name and
 compares.
 
 `intent:` is the effective intent above. Every later write that
-rewrites the file keeps it.
+rewrites the key keeps it.
 
 `consumed_upstream:` is the one conditional field Phase 0 can
 write, because its trigger — an author supplying `--upstream` —
@@ -387,8 +389,7 @@ ABSENT otherwise, never `none`, never null, never an empty string.
 A run whose upstream was dropped by the visibility check is
 indistinguishable in state from a run that supplied no upstream,
 which is the intended shape — nothing records a private path in a
-public repo, including the state file, which is itself durable on
-the pushed feature branch.
+public repo, including `work/state.md`.
 
 Phase 0 advances the `phase_pointer:` to `1` immediately
 before returning control to Phase 1, so a resume against the
@@ -412,7 +413,7 @@ analysis phase → Escalation phase) defined in
 `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
 fires BEFORE EACH Phase 2 child invocation. It does NOT fire in
 Phase 0. Phase 0's contracts are bounded to tokenizing, the koto
-entry, visibility detection, self-heal, and the initial state-file
+entry, visibility detection, self-heal, and the initial `work/state.md`
 write; the trigger condition for worktree-discipline is upstream
 to those.
 
@@ -422,8 +423,8 @@ to those.
   — topic-slug regex, 5-field minimum, parent-specific
   conditional-field discipline, and the invocation-intent field.
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` —
-  storage substrate substitution surface (`wip-yaml-md` is the
-  v1 value), L13 amendment defining the `chain/dispatch` key as
+  storage substrate substitution surface (this skill's value is the
+  session: the state lives in koto session context), L13 amendment defining the `chain/dispatch` key as
   the pattern-level parent-orchestration primitive.
 - `${CLAUDE_PLUGIN_ROOT}/references/worktree-discipline.md`
   — the three-phase flow Phase 2 invokes before each child

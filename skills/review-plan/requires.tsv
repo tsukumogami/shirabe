@@ -1,6 +1,12 @@
 #schema	skill-requires/v1
 # Split rule: references/tool-declaration-policy.md
 #
-# Explicitly empty. /review-plan reads the plan artifact and /plan's session keys
-# and writes a verdict; nothing in SKILL.md, the seven phase files, or the two
-# templates invokes a host tool.
+# /review-plan makes no shirabe, gh, jq or git call. It reads /plan's keys from
+# the `plan-<topic>` session and writes its verdict there: `koto context get`,
+# `exists`, `add` and `remove` on single keys, and `koto context list --prefix`
+# over the issue-body keys.
+koto	context add	-	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
+koto	context list	--prefix	always

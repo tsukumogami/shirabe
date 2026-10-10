@@ -592,7 +592,7 @@ The plan hop carries the DESIGN because `/plan` moves it from
 on the row's paths and nothing else. Never `-A`, never `-a` on
 the commit, and the pathspec is repeated on `git commit` so a change
 staged by something else does not ride along. A sweeping stage would
-put the run's own `wip/` intermediates into the tree, and the
+put stray working files into the tree, and the
 wip-hygiene rule is not the only reason that is wrong: a commit
 naming a hop should contain the hop.
 

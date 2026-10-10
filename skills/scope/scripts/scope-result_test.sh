@@ -213,14 +213,28 @@ eq "republish: the body now records intent=continue" "1" "$(jq -r '.[0].body' "$
 
 echo "== a full-run exit, with and without intent =="
 
-# pointer 3 with a fresh state file resumes at finalize.
-state3() { printf 'topic: %s\nlast_updated: %s\nphase_pointer: 3\nintent: %s\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" >"$R/wip/scope_$1_state.md"; }
+# pointer 3 with a fresh state key resumes at finalize. The key lives in the
+# session, so this runs after `open`.
+state3() { printf 'topic: %s\nlast_updated: %s\nphase_pointer: 3\nintent: %s\n' "$1" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" | k context add "scope-$1" work/state.md >/dev/null; }
+
+# carry_prior <topic> -- what scope-open.sh does after it replaces a finished
+# session: the replaced result's closed-set values become work/prior-run.md.
+# The function is taken from scope-open.sh itself, and fed koto's own
+# `koto init` answer, so the suite exercises the shipped code on the real
+# template's result map.
+PRIOR_LIB="$T/write-prior-run.sh"
+sed -n '/^write_prior_run() {/,/^}/p' "$HERE/scope-open.sh" >"$PRIOR_LIB"
+carry_prior() {
+    local out
+    out=$(printf 'opened=replaced\nreplaced_result=%s\n' "$(jq -c '.replaced_result' "$T/init.out")")
+    (cd "$R" && HOME="$KH" PATH="$BIN:$PATH" PROG=scope-open bash -c '. "$1"; write_prior_run "$2" "$3"' _ "$PRIOR_LIB" "scope-$1" "$out")
+}
 
 repo fn
 every_hop fn single-pr
 : >"$GHF/calls"
-state3 fn none
 open fn
+state3 fn none
 eq "no intent, pointer 3: finalize" "finalize" "$(tick fn | jq -r '.state')"
 tick fn '{"exit":"full-run"}' >/dev/null
 tick fn '{"exit_artifacts":"docs/plans/PLAN-fn.md: Active","plan_execution_mode":"single-pr"}' >/dev/null
@@ -241,8 +255,8 @@ case "$OUT" in *pr=*) bad "no intent: prints no pr=" "$OUT" ;; *) ok "no intent:
 
 repo fi
 every_hop fi single-pr
-state3 fi continue
 open fi --var INTENT_FLAG=continue
+state3 fi continue
 tick fi >/dev/null
 tick fi '{"exit":"full-run"}' >/dev/null
 tick fi '{"exit_artifacts":"docs/plans/PLAN-fi.md: Active","plan_execution_mode":"single-pr"}' >/dev/null
@@ -252,8 +266,8 @@ eq "intent: claiming a publish that never happened is refused by the gate" "done
 
 repo fi2
 every_hop fi2 single-pr
-state3 fi2 continue
 open fi2 --var INTENT_FLAG=continue
+state3 fi2 continue
 tick fi2 >/dev/null
 tick fi2 '{"exit":"full-run"}' >/dev/null
 tick fi2 '{"exit_artifacts":"docs/plans/PLAN-fi2.md: Active","plan_execution_mode":"single-pr"}' >/dev/null
@@ -272,30 +286,35 @@ has "intent: prints the PR" "pr=https://github.com/acme/widgets/pull/100" "$OUT"
 echo "== a failed publish, and its retry =="
 repo pf
 every_hop pf single-pr
-state3 pf continue
 echo 1 >"$GHF/pr-create.rc"
 open pf --var INTENT_FLAG=continue
+state3 pf continue
 tick pf >/dev/null
 tick pf '{"exit":"full-run"}' >/dev/null
 tick pf '{"exit_artifacts":"docs/plans/PLAN-pf.md: Active","plan_execution_mode":"single-pr"}' >/dev/null
 publish pf full-run continue
-# The directive's own step: record the failed step in the state file.
+# The directive's own step: record the failed step in the state key.
 STEP=$(sed -n 's/^step=//p' "$T/publish.out")
-printf 'exit: full-run\nplan_execution_mode: single-pr\npublish_error: %s\n' "$STEP" >>"$R/wip/scope_pf_state.md"
+{ k context get scope-pf work/state.md; printf 'exit: full-run\nplan_execution_mode: single-pr\npublish_error: %s\n' "$STEP"; } \
+    | k context add scope-pf work/state.md >/dev/null
 tick pf '{"publish_result":"attempted"}' >/dev/null
 eq "a failing pr create: done_error" "done_error" "$(state_of pf)"
 eq "a failing pr create: step=scope:pr-create" "scope:pr-create" "$(result pf step)"
 eq "a failing pr create: the exit is still recorded" "full-run" "$(result pf exit)"
-has "the state file keeps publish_error" "publish_error: scope:pr-create" "$(cat "$R/wip/scope_pf_state.md")"
+has "the state key keeps publish_error" "publish_error: scope:pr-create" "$(k context get scope-pf work/state.md)"
 OUT=$(printed pf)
 has "prints outcome=error" "outcome=error" "$OUT"
 has "prints step=scope:pr-create" "step=scope:pr-create" "$OUT"
 
 rm -f "$GHF/pr-create.rc"
 open pf
+carry_prior pf
+eq "the replaced run's intent, exit and failed step reach the new run" \
+    "outcome: error|exit: full-run|intent: continue|step: scope:pr-create" "$(k context get scope-pf work/prior-run.md | paste -sd'|' -)"
 eq "the retry routes through resume_route back to publish_full_run" "publish_full_run" "$(tick pf | jq -r '.state')"
 publish pf full-run continue
-sed -i.bak '/^publish_error:/d' "$R/wip/scope_pf_state.md" && rm -f "$R/wip/scope_pf_state.md.bak"
+# A successful publish ends the retry: the facts that fired it are removed.
+k context remove scope-pf work/prior-run.md >/dev/null
 tick pf '{"publish_result":"attempted"}' >/dev/null
 tick pf '{"cleanup_result":"done"}' >/dev/null
 eq "the retry reaches done_full_run" "done_full_run" "$(state_of pf)"

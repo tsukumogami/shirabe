@@ -75,6 +75,14 @@
 # run's result), so a second /scope <topic> after a finished run starts over at
 # intake rather than ticking the finished session.
 #
+# After a replace (opened=replaced), the replaced run's result is parsed with
+# jq and its closed-set values (outcome, exit, intent, and step when it is
+# scope:push or scope:pr-create) are written as key work/prior-run.md of the
+# new session, before the run identity or anything else. That key is how a
+# finished run's intent, exit and failed publish step reach this run; see
+# resume-probe.sh and resolve-intent.sh. A failed write prints a warning and
+# the run goes on without it.
+#
 # Output. stdout carries koto-open.sh's machine-readable lines, then:
 #
 #   session=scope-<topic>            on success
@@ -288,6 +296,49 @@ printf '%s' "$MAPPED" | jq -c --arg root "$PLUGIN_ROOT" --arg placement "$PLACEM
     '.vars + [["PLUGIN_ROOT", $root], ["PLUGIN_ROOT_PLACEMENT", $placement]]' >"$VARS_FILE" \
     || own_refusal "error=usage" "could not write the vars file $VARS_FILE" 64
 
+# --- the finished run's facts ---------------------------------------------------------
+
+# write_prior_run <session> <koto-open-output> -- after a replace, keep the
+# closed-set values of the replaced session's result (koto prints it as
+# {payload: {...}, status, summary}; outcome, exit, intent,
+# and step when it is scope:push or scope:pr-create) as key work/prior-run.md
+# of the new session, one `name: value` line each. Nothing else of the result
+# is carried, so a hostile or odd value never reaches a script. When the
+# result is missing, unparseable or holds none of those values, no key is
+# written. When the write fails, the warning is all there is: the resume
+# probe then finds no publish failure and falls through to the artifact rows.
+write_prior_run() {
+    local session="$1" out="$2" line result doc
+    result=""
+    while IFS= read -r line; do
+        case "$line" in replaced_result=*) result="${line#replaced_result=}" ;; esac
+    done <<EOF_OUT
+$out
+EOF_OUT
+    if [ -z "$result" ]; then
+        printf '%s: the replaced run left no result; %s gets no work/prior-run.md\n' "$PROG" "$session" >&2
+        return 0
+    fi
+    # (re-ev[a]luation is spelled with a class so the suite's grep for the
+    # shell builtin does not match the word.)
+    doc=$(printf '%s' "$result" | jq -r '
+        (if type == "object" and (.payload | type) == "object" then .payload else . end)
+        | if type != "object" then empty else
+        [ (.outcome | select(type == "string" and test("^[a-z][a-z-]*$")) | "outcome: " + .),
+          (.exit    | select(type == "string" and test("^(full-run|re-ev[a]luation|abandonment-forced)$")) | "exit: " + .),
+          (.intent  | select(type == "string" and test("^(continue|stop|none)$")) | "intent: " + .),
+          (.step    | select(type == "string" and test("^scope:(push|pr-create)$")) | "step: " + .)
+        ] | .[] end' 2>/dev/null) || doc=""
+    if [ -z "$doc" ]; then
+        printf '%s: the replaced result holds no value to carry; %s gets no work/prior-run.md\n' "$PROG" "$session" >&2
+        return 0
+    fi
+    if ! printf '%s\n' "$doc" | "${KOTO_BIN:-koto}" context add "$session" work/prior-run.md >/dev/null 2>&1; then
+        printf '%s: could not write work/prior-run.md in %s; a failed publish of the replaced run will not be retried\n' "$PROG" "$session" >&2
+    fi
+    return 0
+}
+
 # --- the one koto init ----------------------------------------------------------------
 
 # --replace-terminal beside --attach-live: a scope-<topic> session that already
@@ -304,6 +355,10 @@ VARS_FILE=""   # koto-open.sh removed it on its own exit path
 
 [ -n "$OUT" ] && printf '%s\n' "$OUT"
 if [ "$RC" -eq 0 ]; then
+    # A replaced finished run hands its facts to this one first of all.
+    case "$OUT" in
+        *opened=replaced*) write_prior_run "$SESSION" "$OUT" ;;
+    esac
     # The run identity every owned-PR lookup of this run carries: minted here,
     # where the session is born, and only read afterwards (run-id.sh get).
     bash "$HERE/../../execute/scripts/run-id.sh" mint "$SESSION" </dev/null >/dev/null \

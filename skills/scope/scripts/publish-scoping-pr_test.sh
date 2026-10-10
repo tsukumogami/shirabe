@@ -162,6 +162,26 @@ eq "second run: no pr edit (intent unchanged)" "0" "$(calls edit)"
 eq "second run: no new push" "$BEFORE" "$(remote_sha docs/topic)"
 eq "second run: the same PR" "https://github.com/acme/widgets/pull/100" "$(line pr)"
 
+echo "== a successful publish consumes the prior-run facts =="
+setup single-pr
+mkdir -p "$STORE/s-prior/work"
+printf 'step: scope:push\nexit: full-run\nintent: continue\n' >"$STORE/s-prior/work/prior-run.md"
+run --topic topic --exit full-run --intent continue --session s-prior
+eq "prior-run: exit 0" "0" "$RC"
+if [ -f "$STORE/s-prior/work/prior-run.md" ]; then
+    bad "a successful publish removes work/prior-run.md"
+else
+    ok "a successful publish removes work/prior-run.md"
+fi
+printf 'step: scope:push\n' >"$STORE/s-prior/work/prior-run.md"
+run --topic topic --verify --expect-intent continue --session s-prior
+eq "prior-run: verify exits 0" "0" "$RC"
+if [ -f "$STORE/s-prior/work/prior-run.md" ]; then
+    ok "--verify leaves work/prior-run.md alone (no context write)"
+else
+    bad "--verify leaves work/prior-run.md alone (no context write)"
+fi
+
 echo "== /brief's jury verdict files are untracked too =="
 setup single-pr
 VERDICT="research/brief_topic_phase4_content-quality.md"

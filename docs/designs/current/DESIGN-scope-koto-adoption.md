@@ -216,6 +216,14 @@ session holds position within a run and nothing else. The resume ladder is
 carried across unchanged, because sixteen of its twenty rows key on artifact
 status, child intermediates or the branch, none of which the substrate replaces.
 
+> **Note (2026-10-10).** This design's state-file exception — `/scope` keeping
+> its state in the staging folder while driving a koto session — is closed.
+> `docs/designs/DESIGN-resume-convention.md` moved the state into key
+> `work/state.md` of the run's own session, with finished-run facts carried by
+> `work/prior-run.md` from koto's replaced result, so a `/scope` run now has
+> one store. The paragraphs above describe the design as it stood when it was
+> current.
+
 Together these produce the property the whole effort is for: a run that wrote its
 documents and folded them reaches the full-run terminal, a run that asserted them
 away does not, and the difference is a gate outcome the engine wrote.

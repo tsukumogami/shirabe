@@ -3,13 +3,20 @@
 # produce.
 #
 # Usage: bash skills/scope/scripts/check-recorded-intent_test.sh
-# Exit 0 when every case holds. Needs nothing but bash; runs on the 3.2 floor.
+# Exit 0 when every case holds. Every case runs against real koto in a store
+# isolated by KOTO_SESSIONS_BASE; each fixture is a session holding key
+# work/state.md and, for the replaced-run cases, work/prior-run.md. SKIPs
+# (exit 0) without koto; the CI job asserts koto is present first.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/check-recorded-intent.sh"
+command -v koto >/dev/null 2>&1 || { echo "SKIP: koto not on PATH -- no case ran"; exit 0; }
 T="$(mktemp -d "${TMPDIR:-/tmp}/check-recorded-intent-test.XXXXXX")"
 trap 'rm -rf "$T"' EXIT
+export HOME="$T/home" KOTO_SESSIONS_BASE="$T/store"
+mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
+STORE_TEMPLATE="$HERE/../../../koto-templates/skill-session.md"
 
 PASS=0
 FAIL=0
@@ -27,50 +34,74 @@ expect() { # expect <label> <want-exit> <want-stdout> <args...>
     fi
 }
 
-state() { printf '%s' "$2" >"$T/$1"; printf '%s' "$T/$1"; }
+putkey() { # putkey <session> <key> <content>
+    koto status "$1" >/dev/null 2>&1 || koto init "$1" --template "$STORE_TEMPLATE" >/dev/null 2>&1 || return 1
+    printf '%s' "$3" | koto context add "$1" "$2" >/dev/null 2>&1
+}
+state() { putkey "scope-$1" work/state.md "$2"; printf 'scope-%s' "$1"; }
+prior() { putkey "scope-$1" work/prior-run.md "$2"; printf 'scope-%s' "$1"; }
 
-NOFILE="$T/absent.md"
-STOP=$(state stop.md 'topic: demo
+NOFILE="scope-absent"
+STOP=$(state stop 'topic: demo
 intent: stop
 ')
-CONT=$(state cont.md 'topic: demo
+CONT=$(state cont 'topic: demo
 intent: continue
 ')
-NONE=$(state none.md 'topic: demo
+NONE=$(state none 'topic: demo
 intent: none
 ')
-PRE=$(state pre.md 'topic: demo
+PRE=$(state pre 'topic: demo
 exit:
 ')
-BOGUS=$(state bogus.md 'intent: later
+BOGUS=$(state bogus 'intent: later
 ')
-BEFORE=$(cat "$STOP")
+PR_FAIL=$(prior prfail 'outcome: error
+exit: full-run
+intent: stop
+step: scope:push
+')
+PR_CLEAN=$(prior prclean 'outcome: landed
+exit: full-run
+intent: stop
+')
+PR_BOGUS=$(prior prbogus 'outcome: error
+intent: later
+step: scope:pr-create
+')
+BEFORE=$(koto context get "$STOP" work/state.md)
 
 echo "== no mismatch (exit 0, nothing on stdout) =="
-expect "a bare invocation is never a mismatch"          0 "" --intent-flag "" --state-file "$STOP"
-expect "a bare invocation against a bogus record"       0 "" --intent-flag "" --state-file "$BOGUS"
-expect "no state file: nothing recorded to differ from" 0 "" --intent-flag continue --state-file "$NOFILE"
-expect "an equal explicit intent proceeds (stop)"       0 "" --intent-flag stop --state-file "$STOP"
-expect "an equal explicit intent proceeds (continue)"   0 "" --intent-flag continue --state-file "$CONT"
+expect "a bare invocation is never a mismatch"          0 "" --intent-flag "" --session "$STOP"
+expect "a bare invocation against a bogus record"       0 "" --intent-flag "" --session "$BOGUS"
+expect "no session: nothing recorded to differ from" 0 "" --intent-flag continue --session "$NOFILE"
+expect "an equal explicit intent proceeds (stop)"       0 "" --intent-flag stop --session "$STOP"
+expect "an equal explicit intent proceeds (continue)"   0 "" --intent-flag continue --session "$CONT"
+
+expect "a clean finish records nothing to differ from"  0 "" --intent-flag continue --session "$PR_CLEAN"
+expect "an equal explicit intent after a failed publish" 0 "" --intent-flag stop --session "$PR_FAIL"
 
 echo "== mismatch (exit 1, the reason and the recorded value) =="
-expect "continue against a recorded stop"  1 "intent-mismatch${NL}recorded=stop"     --intent-flag continue --state-file "$STOP"
-expect "stop against a recorded continue"  1 "intent-mismatch${NL}recorded=continue" --intent-flag stop --state-file "$CONT"
-expect "continue against a recorded none"  1 "intent-mismatch${NL}recorded=none"     --intent-flag continue --state-file "$NONE"
+expect "continue against a recorded stop"  1 "intent-mismatch${NL}recorded=stop"     --intent-flag continue --session "$STOP"
+expect "stop against a recorded continue"  1 "intent-mismatch${NL}recorded=continue" --intent-flag stop --session "$CONT"
+expect "continue against a recorded none"  1 "intent-mismatch${NL}recorded=none"     --intent-flag continue --session "$NONE"
 expect "a pre-change state file records none, so an explicit intent differs" \
-    1 "intent-mismatch${NL}recorded=none" --intent-flag stop --state-file "$PRE"
+    1 "intent-mismatch${NL}recorded=none" --intent-flag stop --session "$PRE"
+
+expect "a failed publish records its intent (prior-run)" 1 "intent-mismatch${NL}recorded=stop" --intent-flag continue --session "$PR_FAIL"
 
 echo "== cannot tell (exit 2) =="
-expect "a recorded intent outside the enum"   2 "" --intent-flag stop --state-file "$BOGUS"
-expect "an INTENT_FLAG outside continue|stop" 2 "" --intent-flag none --state-file "$STOP"
-expect "a missing --state-file"               2 "" --intent-flag stop
-expect "a missing --intent-flag"              2 "" --state-file "$STOP"
-expect "an unknown argument"                  2 "" --intent-flag stop --state-file "$STOP" --x
+expect "an out-of-set prior intent beside a publish step" 2 "" --intent-flag stop --session "$PR_BOGUS"
+expect "a recorded intent outside the enum"   2 "" --intent-flag stop --session "$BOGUS"
+expect "an INTENT_FLAG outside continue|stop" 2 "" --intent-flag none --session "$STOP"
+expect "a missing --session"               2 "" --intent-flag stop
+expect "a missing --intent-flag"              2 "" --session "$STOP"
+expect "an unknown argument"                  2 "" --intent-flag stop --session "$STOP" --x
 
-if [ "$(cat "$STOP")" = "$BEFORE" ]; then
-    PASS=$((PASS + 1)); echo "ok   the state file is never written"
+if [ "$(koto context get "$STOP" work/state.md)" = "$BEFORE" ]; then
+    PASS=$((PASS + 1)); echo "ok   the state key is never written"
 else
-    FAIL=$((FAIL + 1)); echo "FAIL the state file changed"
+    FAIL=$((FAIL + 1)); echo "FAIL the state key changed"
 fi
 
 echo

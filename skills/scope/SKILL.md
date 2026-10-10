@@ -51,7 +51,7 @@ ROADMAP this chain consumes, validated as Upstream Validation in
 classify what remains. koto, not this file, checks every argument:
 the tokens reach `koto init` through `scripts/scope-open.sh`, and a
 value the template's variables do not admit is refused there, with
-exit 2 and no session or state file.
+exit 2 and no session or state key.
 
 1. **Empty** — surface a cold-start prompt asking the author what
    feature scope they want to settle. The cold-start prompt says
@@ -116,8 +116,8 @@ with an error naming `--intent`, and a repeated `--intent` is refused
 the same way. A lone, empty `--intent=` is treated as a missing flag.
 
 The run's effective intent is resolved by the template's `intake`
-state and recorded in the state file as `intent: continue|stop|none`:
-the flag when given, else the intent the state file already records,
+state and recorded in key `work/state.md` as `intent: continue|stop|none`:
+the flag when given, else the intent that key already records,
 else `none`. Against an unfinished run, a different explicit intent is
 refused — by koto as `var_mismatch` while the session lives, by
 `intake` as `intent-mismatch` once it is gone — and a bare
@@ -225,20 +225,20 @@ This skill binds to that contract and does not restate it.
 
 ```
 Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -> Phase 4: CLEANUP
-(koto entry +     (visibility detect +    (orchestrate     (record exit +        (wip cleanup;
- intake +         child-doc discovery +    child skills     write exit_artifacts;  remove non-
- state-file +     chain proposal)          one-by-one)      R9 hard-finalization)  durable scratch)
+(koto entry +     (visibility detect +    (orchestrate     (record exit +        (cleanup;
+ intake +         child-doc discovery +    child skills     write exit_artifacts;  remove
+ work/state.md +  chain proposal)          one-by-one)      R9 hard-finalization)  prior-run key)
  dispatch-key
  self-heal)
 ```
 
 | Phase | Purpose | Reference |
 |-------|---------|-----------|
-| 0. Setup | Tokenizing and the residue rule; entry through `scope-open.sh`, where koto checks the arguments and opens or attaches the session; `intake` (effective intent, upstream battery, recorded-intent check); visibility detection; state-file creation with `intent:`; stale `chain/dispatch` self-heal (`skill-session.sh dispatch clear`) | `skills/scope/references/phases/phase-0-setup.md` |
+| 0. Setup | Tokenizing and the residue rule; entry through `scope-open.sh`, where koto checks the arguments and opens or attaches the session; `intake` (effective intent, upstream battery, recorded-intent check); visibility detection; `work/state.md` creation with `intent:`; stale `chain/dispatch` self-heal (`skill-session.sh dispatch clear`) | `skills/scope/references/phases/phase-0-setup.md` |
 | 1. Discover + Chain Proposal | Topic-related child-doc discovery; re-entry protection; chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
 | 2. Child Invocation Loop | Per-child: worktree-staleness check (Merge / Impact-analysis / Escalation per `worktree-discipline.md`); `skill-session.sh dispatch write` (the `chain/dispatch` key in `scope-<topic>`); invoke child with its upstream artifact's path; `dispatch clear` whatever the outcome; structural file-existence check per R20; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
 | 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; close the chain's children (`skill-session.sh close-children`); run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
-| 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
+| 4. Cleanup | Remove key `work/prior-run.md`; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
 
 Before each child invocation the loop runs a worktree-staleness check —
 the Merge / Impact-analysis / Escalation flow in
@@ -310,7 +310,7 @@ the directive tells you to, or when you hit a corner case it does not cover.
 They are not required reading up front, and reading all of them before starting
 is the failure this arrangement exists to avoid.
 
-The state file at `wip/scope_<topic>_state.md` stays authoritative for
+Key `work/state.md` in `scope-<topic>` stays authoritative for
 `/scope`'s own position; the session carries the workflow's.
 
 Never run a workflow cleanup or cancel verb against a session this run did not
@@ -326,7 +326,7 @@ do not read them all before starting:
 0. **Setup** — tokenizing, the entry through `scope-open.sh` (koto
    checks the arguments and opens or attaches the session), the
    `intake` state's working-tree checks and effective intent,
-   visibility detection, state-file creation with `intent:`, stale
+   visibility detection, `work/state.md` creation with `intent:`, stale
    `chain/dispatch` self-heal.
    - Instructions: `skills/scope/references/phases/phase-0-setup.md`
 
@@ -371,12 +371,9 @@ do not read them all before starting:
    `parent-skill-state-schema.md`).
    - Instructions: `skills/scope/references/phases/phase-3-exit-finalization.md`
 
-4. **wip Cleanup** — remove the topic's wip/ scratch artifacts
-   (`wip/scope_<topic>_*` plus, on full-run or re-evaluation,
-   `wip/{brief,prd,design,plan}_<topic>_*` and
-   `wip/research/{prd,design}_<topic>_*`); preserve durable
-   artifacts under `docs/`. The research sweep also takes `/brief`'s jury
-   verdict files (`research/brief_<topic>_phase4_*.md`).
+4. **Cleanup** — remove key `work/prior-run.md`; preserve durable
+   artifacts under `docs/`. The parent's own state is key `work/state.md`
+   and each child keeps its own session keys, so no file sweep runs.
    - Instructions: `skills/scope/references/phases/phase-4-cleanup.md`
 
 ## Three Exit Paths
@@ -401,23 +398,28 @@ Decision Record templates, and the abandonment marker are in
 
 ## State File Schema
 
-`/scope` writes `wip/scope_<topic>_state.md`. The pattern-level schema and the
+`/scope` writes key `work/state.md` in session `scope-<topic>`
+(`koto context add scope-<topic> work/state.md`). The pattern-level schema and the
 conditional-field gating discipline are in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`; the
 `/scope`-specific field enumeration, including which fields the workflow
 session feeds and which it does not, is in
 `skills/scope/references/state-schema.md`.
 
-The substrate declaration stays `storage_substrate: wip-yaml-md`. A workflow
-session does not change it: the session carries the workflow's position, the
-state file carries `/scope`'s, and `exit:` lives in the file so a run whose
-session is gone still reports how it ended.
+The substrate declaration is the session: the state lives in koto session
+context, as key `work/state.md`, in the same session the workflow ticks. The
+workflow's position and `/scope`'s own state share that session, and `exit:`
+lives in the key. A later run needs three facts from a finished run (its
+`intent`, its `exit` and a failed publish step); `scope-open.sh` writes them
+as key `work/prior-run.md` from koto's replaced result, with the closed field
+set `outcome`, `exit`, `intent` and `step` (`scope:push` or
+`scope:pr-create`). A successful publish and the cleanup phase remove it.
 
 ## Security Considerations
 
 `/scope` binds the six pattern-level contract surfaces in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md` — slug
-re-validation on resume, closed write-target set, state-file enum
+re-validation on resume, closed write-target set, state-key enum
 re-validation, stale `chain/dispatch` self-heal, visibility boundary,
 and no untrusted-input interpolation. `/scope` v1 binds to public-repo tactical
 chains exclusively.
@@ -449,19 +451,22 @@ PLAN is the survivor at the terminal hop.
 force-materialized partials under `docs/{briefs,prds,designs}/` and
 `docs/designs/current/` on `abandonment-forced` (never a PLAN: an abandoned
 run writes no PLAN, only the upstream documents), the deletion of an
-uncommitted `docs/plans/PLAN-<topic>.md` `/plan` left behind on that exit, and state-file plus child-wip
-cleanup under `wip/`.
+uncommitted `docs/plans/PLAN-<topic>.md` `/plan` left behind on that exit, and the
+session-key writes below: removal of key `work/prior-run.md` in `scope-<topic>`,
+and removal of key `handoff/scope.md` from `explore-<topic>` once consumed
+(closing `explore-<topic>` when it holds nothing else).
 
 **R8's clean cancel** deletes one further path, and carves one out:
 
-- deletes `wip/scope_<topic>_state.md` — that single path, not the prefix
-- never deletes `wip/scope_<topic>_handoff.md`, which sits under the same
-  prefix but belongs to the router rather than to this run, so a bail leaves
-  it for a later invocation to resume against
+- deletes key `work/state.md` in `scope-<topic>` — that single key
+- never touches key `handoff/scope.md` in `explore-<topic>`, which belongs to
+  `/explore`'s session rather than to this run, so a bail leaves it for a
+  later invocation to resume against
 
 The carve-out is enumerated here because an omission from a set that governs
 deletion is a live delete at an undeclared target — the same reason every
-other path in this section is named.
+other path in this section is named. A clean cancel writes no `exit:`, so it
+does not close the children; their live sessions wait for the next run.
 
 **Commits**, by Phase 2's per-hop commit and by the absorb's own:
 
@@ -473,9 +478,8 @@ other path in this section is named.
 
 A child's own verdict commits (its acceptance or discard commit) are the
 child's, not this list's. Under the dispatch key no child commits the removal of
-its working files: the untrack and cleanup below cover every child's `wip/`
-prefix, its research scratch included (see "What a child keeps and what
-it skips under /scope" in
+its working files: children keep them as session keys, closed at exit (see
+"What a child keeps and what it skips under /scope" in
 `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`).
 
 `.git/` writes are confined to `git add` and `git commit` restricted to those
@@ -490,7 +494,8 @@ runs in the publish states and in `republish` and never as a default action:
 - **untrack** — `git rm --cached` of the topic's own
   `wip/{scope,brief,prd,design,plan}_<topic>_*` and
   `wip/research/{prd,design}_<topic>_*`, committed as exactly that removal and
-  nothing else staged; the files stay on disk for Phase 4. `/brief`'s jury
+  nothing else staged; the step is the enforcement layer's guard against
+  staging-folder files in history, which no moved skill now writes. `/brief`'s jury
   verdict files (`research/brief_<topic>_phase4_*.md`, beside `/prd`'s and
   `/design`'s research scratch) are untracked with them
 - **push** — `git push origin HEAD:refs/heads/<branch>`, with no force option
@@ -527,8 +532,8 @@ field. Every `wip/` path in unpushed history is reported as `wip_paths=`, and
 the public-content visibility check runs over those files: a line naming a
 `private/` path component, or declaring `Repo Visibility: Private`, in a
 repository whose CLAUDE.md declares `## Repo Visibility: Public` stops the push
-with `scope:push`. A failed publish writes `publish_error:` into the state file
-under the parent's own prefix, which is already in this set.
+with `scope:push`. A failed publish writes `publish_error:` into key
+`work/state.md`, which is already in this set.
 
 **Out-of-repo ephemera**, by the workflow session: the koto session store
 (`$HOME/.koto/sessions/` under the default local backend) and koto's template
@@ -564,4 +569,4 @@ front. The second column says where each one is cited.
 | `skills/scope/references/phases/phase-3-exit-finalization.md` | Phase 3 |
 | `skills/scope/references/phases/phase-4-cleanup.md` | Phase 4 |
 | `skills/scope/references/phases/phase-resume.md` | Resume (`resume_route`) — each row's probe exit code, Slot 5 (11 rows), Slot 6 (4 rows), Slot 7 (`/explore` handoff), session-recovered value re-validation, Drift Detection (Re-run / Accept / Proceed-without) |
-| `skills/scope/references/state-schema.md` | `setup`, and whenever a directive names a field — `/scope`-specific state-file field enumeration (`intent:`, `visibility:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`) |
+| `skills/scope/references/state-schema.md` | `setup`, and whenever a directive names a field — `/scope`-specific `work/state.md` field enumeration (`intent:`, `visibility:`, `consolidation_judgments:`, exit discriminators, worktree audit fields, `drift_acknowledged:`) |

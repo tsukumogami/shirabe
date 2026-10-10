@@ -6,7 +6,7 @@
 #   (b) a surviving downstream document declares this hop under its `absorbed:`
 #       frontmatter key, as a whole entry.
 #
-# Reads only the artifact tree. Never reads wip/scope_<topic>_state.md.
+# Reads only the artifact tree. Never reads key work/state.md of scope-<topic>.
 #
 # Exit statuses are three, not two, and the third carries weight: 0 complete,
 # 1 not complete, 2 CANNOT TELL. Anything that stops this script deciding --
