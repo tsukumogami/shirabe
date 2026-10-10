@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   /scope and /charter and the skills a chain runs keep their working state as
   files in the staging folder, and the folder is also their interface: a parent
@@ -31,7 +31,7 @@ user_visible_surface: false
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 

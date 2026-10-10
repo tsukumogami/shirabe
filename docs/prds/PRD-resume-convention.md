@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   /scope and /charter, and the skills they run, keep a run's working state as
   files in the branch's staging folder, and /scope keeps a koto session as
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-resume-convention](docs/briefs/BRIEF-resume-convention.md); carried in Absorbed Brief.
 
@@ -280,7 +280,7 @@ is the repository's `wip/` directory.
 
 The convention and its code:
 
-- [ ] `docs/designs/DESIGN-resume-convention.md` (or its `current/` location)
+- [ ] `docs/designs/current/DESIGN-resume-convention.md` (or its `current/` location)
       has one section each for session naming, key naming, finding a session
       by name, finding one after an import, the dispatch key, closing and the
       reclaimable rule, and the reserved coordinator keys, plus a table of

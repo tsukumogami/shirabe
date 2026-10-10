@@ -14,7 +14,7 @@ folder was also the interface between them: a parent signalled a child through
 a block in a state file, detected a mid-flight child from that child's files,
 and skills run inline read each other's files. The decisions behind it, and
 the alternatives they rejected, are in
-`docs/designs/DESIGN-resume-convention.md`.
+`docs/designs/current/DESIGN-resume-convention.md`.
 
 It describes koto 0.15.0 and later, shirabe's koto minimum
 (`scripts/assert-koto-floor.sh`).
