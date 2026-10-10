@@ -427,10 +427,11 @@ EOF
     teardown
 }
 
-# The resume ladder is defined over the state file, so the named routing script
-# may read it; nothing it invokes inherits that.
-test_scope_routing_script_read_passes() {
-    local name="the resume probe named in ROUTING_SCRIPTS may read wip/scope_"
+# The resume ladder reads the state key from the session now, so the probe
+# left ROUTING_SCRIPTS: a probe that reads the old state file is a finding
+# like any other script's.
+test_scope_probe_state_read_fails() {
+    local name="a resume probe reading the old state path is scanned like any other script"
     setup
     write_clean_scope_fixture
     cat > "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh" <<'EOF'
@@ -443,6 +444,27 @@ EOF
 set -euo pipefail
 test -f "wip/scope_${2}_state.md"
 EOF
+    assert_fails "$name" "invoked script reads the run's own state file" \
+        "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# The one script still named in ROUTING_SCRIPTS keeps its carve-out.
+test_scope_routing_script_read_passes() {
+    local name="the publish script named in ROUTING_SCRIPTS may name the state prefix"
+    setup
+    write_clean_scope_fixture
+    cat > "$TEST_DIR/skills/scope/scripts/fixture-hop-complete.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+bash "skills/scope/scripts/publish-scoping-pr.sh" "$@"
+EOF
+    cat > "$TEST_DIR/skills/scope/scripts/publish-scoping-pr.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+git rm --cached -- "wip/scope_${2}_state.md" 2>/dev/null || true
+EOF
+    chmod +x "$TEST_DIR/skills/scope/scripts/publish-scoping-pr.sh"
     assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
     teardown
 }
@@ -715,6 +737,117 @@ states:
     terminal: true
 ---
 EOF
+    assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# A file that merely ends in the letters is not the folder.
+test_gate_wip_file_name_passes() {
+    local name="a gate command reading a wip.txt file is not a staging-folder read"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "cat wip.txt"
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
+    assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# The folder behind a leading ./ or an interpolated prefix is still the folder.
+test_gate_dot_slash_wip_flagged() {
+    local name="a gate command reading ./wip is flagged"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "ls ./wip"
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
+    assert_fails "$name" "gate command names the staging folder" \
+        "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# The limb reads the gate's own command string only: a script the gate invokes
+# may still name the folder (the publish untrack step does), and only the
+# parent state-file prefix limb applies inside it.
+test_invoked_script_staging_not_flagged() {
+    local name="an invoked script's own wip/ read is not a staging-folder finding"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "skills/scope/scripts/fixture-untrack.sh demo"
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
+    mkdir -p "$TEST_DIR/skills/scope/scripts"
+    cat > "$TEST_DIR/skills/scope/scripts/fixture-untrack.sh" <<'EOF'
+#!/usr/bin/env bash
+# The gate command is clean; this script's own folder read stays legal.
+set -euo pipefail
+slug="$1"
+ls "wip/brief_${slug}_notes.md"
+EOF
+    chmod +x "$TEST_DIR/skills/scope/scripts/fixture-untrack.sh"
     assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
     teardown
 }
@@ -994,6 +1127,7 @@ test_scope_gate_reading_state_file_fails
 test_scope_gate_reading_evidence_fails
 test_scope_invoked_script_read_fails
 test_scope_invoked_script_comment_passes
+test_scope_probe_state_read_fails
 test_scope_routing_script_read_passes
 test_scope_routing_script_callee_still_scanned
 test_scope_invoked_script_trailing_comment_still_read
@@ -1003,6 +1137,9 @@ test_malformed_interpolation_terminates
 test_gate_wip_path_flagged
 test_gate_bare_wip_flagged
 test_gate_wip_identifier_passes
+test_gate_wip_file_name_passes
+test_gate_dot_slash_wip_flagged
+test_invoked_script_staging_not_flagged
 test_gate_staging_allowlisted_passes
 test_rule_two_does_not_apply_elsewhere
 test_unresolvable_invoked_script_fails

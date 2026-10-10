@@ -140,7 +140,7 @@ refused_case() {
         ok "$label: never prints outcome=refused"
     fi
     if no_session "$topic"; then ok "$label: no scope-$topic session"; else bad "$label: no scope-$topic session" "a session exists"; fi
-    if [ -e "$R/wip/scope_${topic}_state.md" ]; then bad "$label: no state file"; else ok "$label: no state file"; fi
+    if k context exists "scope-$topic" work/state.md >/dev/null 2>&1; then bad "$label: no state key"; else ok "$label: no state key"; fi
     if [ -e "$ARGS" ] || [ -e "$ARGS_DIR" ]; then bad "$label: the args file is removed" "$ARGS"; else ok "$label: the args file is removed"; fi
 }
 
@@ -302,12 +302,10 @@ echo "== a finished session is replaced, never ticked (R31) =="
 
 # Drive a session to a terminal the cheap way: intake refuses an explicit
 # --intent that differs from the one an unfinished run recorded.
-mkdir -p "$R/wip"
 finish_topic() { # finish_topic <topic> -- leaves scope-<topic> at done_refused
-    printf 'topic: %s\nintent: stop\n' "$1" >"$R/wip/scope_$1_state.md"
     open_scope "[\"$1\",\"--intent=continue\"]"
+    printf 'topic: %s\nintent: stop\n' "$1" | k context add "scope-$1" work/state.md >/dev/null
     k next "scope-$1" --no-cleanup >/dev/null 2>&1
-    rm -f "$R/wip/scope_$1_state.md"
 }
 
 finish_topic t-fin
@@ -333,6 +331,170 @@ has "intent: under the effective intent continue" "intent: continue" "$(printf '
 open_scope '["t-fin2"]'
 eq "a live session is attached, never replaced" "opened=attached" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
 has "every call passes --replace-terminal" "--replace-terminal" "$(cat "$T/koto.argv")"
+
+echo "== a replaced run's facts reach the new run as work/prior-run.md =="
+
+# A plugin root of our own holds a minimal scope.md whose terminals declare
+# the result maps the real template's do (outcome, exit, intent, step), so
+# real koto prints a real replaced_result. koto admits a plugin root only
+# inside its character set, so the cases need a clean path.
+if clean "$T"; then
+    FP="$T/fakeplug"
+    mkdir -p "$FP/skills/scope/koto-templates"
+    cat >"$FP/skills/scope/koto-templates/scope.md" <<'FAKE'
+---
+name: scope
+version: "1.0"
+description: A minimal stand-in for scope.md with terminals that declare result maps.
+initial_state: start
+variables:
+  TOPIC:
+    description: topic
+    pattern: '^[a-z0-9][a-z0-9-]*$'
+    required: true
+  PLUGIN_ROOT:
+    description: root
+    pattern: '^/.*$'
+    required: true
+    rebind: true
+  PLUGIN_ROOT_PLACEMENT:
+    description: placement
+    pattern: '^outside$'
+    required: true
+    rebind: true
+  INTENT_FLAG:
+    description: intent
+    pattern: '^(continue|stop|)$'
+    required: false
+states:
+  start:
+    accepts:
+      pick:
+        type: enum
+        values: [publish_fail, hostile, clean, plain]
+        required: true
+    transitions:
+      - target: done_publish_fail
+        when:
+          pick: publish_fail
+      - target: done_hostile
+        when:
+          pick: hostile
+      - target: done_clean
+        when:
+          pick: clean
+      - target: done_plain
+        when:
+          pick: plain
+  done_publish_fail:
+    terminal: true
+    failure: true
+    result:
+      outcome: error
+      exit: full-run
+      intent: continue
+      step: "scope:push"
+      reason: "not carried"
+  done_hostile:
+    terminal: true
+    failure: true
+    result:
+      outcome: "Bad Value; rm -rf"
+      exit: sideways
+      intent: maybe
+      step: "scope:elsewhere"
+  done_clean:
+    terminal: true
+    result:
+      outcome: landed
+      exit: full-run
+      intent: continue
+  done_plain:
+    terminal: true
+---
+
+## start
+
+Pick a terminal.
+
+## done_publish_fail
+
+Done.
+
+## done_hostile
+
+Done.
+
+## done_clean
+
+Done.
+
+## done_plain
+
+Done.
+FAKE
+    FIXT_PLUGIN_ARG="$FP"
+    prior_case() { # prior_case <topic> <pick> -- run, finish with <pick>, run again
+        PLUGIN_ARG="$FP" open_scope "[\"$1\"]"
+        k next "scope-$1" --no-cleanup --with-data "{\"pick\":\"$2\"}" >/dev/null 2>&1
+        PLUGIN_ARG="$FP" open_scope "[\"$1\"]"
+    }
+    prior_key() { k context get "scope-$1" work/prior-run.md 2>/dev/null; }
+
+    prior_case t-pf publish_fail
+    eq "a failed publish: the replace is reported" "opened=replaced" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+    eq "a failed publish: outcome, exit, intent and the step reach the new run" \
+        "outcome: error|exit: full-run|intent: continue|step: scope:push" "$(prior_key t-pf | paste -sd'|' -)"
+    eq "a failed publish: resolve-intent reads the prior intent with no flag" "continue" \
+        "$(HOME="$KH" bash "$HERE/resolve-intent.sh" --intent-flag "" --session scope-t-pf)"
+    eq "a failed publish: check-recorded-intent refuses a differing explicit intent" "1" \
+        "$(HOME="$KH" bash "$HERE/check-recorded-intent.sh" --intent-flag stop --session scope-t-pf >/dev/null 2>&1; echo $?)"
+    eq "a failed publish: the same explicit intent proceeds" "0" \
+        "$(HOME="$KH" bash "$HERE/check-recorded-intent.sh" --intent-flag continue --session scope-t-pf >/dev/null 2>&1; echo $?)"
+    PROBE="$HERE/resume-probe.sh"
+    rc=0; (cd "$R" && HOME="$KH" bash "$PROBE" --topic t-pf --intent continue >/dev/null 2>&1) || rc=$?
+    eq "a failed publish: the probe fires the publish-retry row (27)" "27" "$rc"
+    rc=0; (cd "$R" && HOME="$KH" bash "$PROBE" --topic t-pf --intent none >/dev/null 2>&1) || rc=$?
+    eq "a failed publish: with no intent the probe falls through to the tail (not 27)" "10" "$rc"
+
+    prior_case t-cl clean
+    eq "a clean finish: only the closed values without a step are carried" \
+        "outcome: landed|exit: full-run|intent: continue" "$(prior_key t-cl | paste -sd'|' -)"
+    eq "a clean finish: resolve-intent does not carry its intent" "none" \
+        "$(HOME="$KH" bash "$HERE/resolve-intent.sh" --intent-flag "" --session scope-t-cl)"
+    eq "a clean finish: check-recorded-intent does not refuse an explicit intent" "0" \
+        "$(HOME="$KH" bash "$HERE/check-recorded-intent.sh" --intent-flag stop --session scope-t-cl >/dev/null 2>&1; echo $?)"
+    rc=0; (cd "$R" && HOME="$KH" bash "$PROBE" --topic t-cl --intent continue >/dev/null 2>&1) || rc=$?
+    eq "a clean finish: the probe falls through to the artifact rows (row 10)" "10" "$rc"
+
+    prior_case t-hs hostile
+    eq "hostile result values: opened=replaced still" "opened=replaced" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+    if k context exists scope-t-hs work/prior-run.md >/dev/null 2>&1; then bad "hostile result values: nothing is written" "$(prior_key t-hs)"; else ok "hostile result values: nothing is written"; fi
+
+    prior_case t-pl plain
+    eq "a result with no keys: opened=replaced still" "opened=replaced" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+    if k context exists scope-t-pl work/prior-run.md >/dev/null 2>&1; then bad "a result with no keys: no prior-run key" ""; else ok "a result with no keys: no prior-run key"; fi
+    rc=0; (cd "$R" && HOME="$KH" bash "$PROBE" --topic t-pl --intent continue >/dev/null 2>&1) || rc=$?
+    eq "a result with no keys: the probe falls through to the artifact rows (row 10)" "10" "$rc"
+
+    # A failing write is a warning, not a failure.
+    BADKOTO="$T/bin/koto-nocontext"
+    cat >"$BADKOTO" <<'BAD'
+#!/usr/bin/env bash
+case "$1 $2" in "context add") exit 1 ;; esac
+exec "$SCOPE_TEST_REAL_KOTO" "$@"
+BAD
+    chmod +x "$BADKOTO"
+    PLUGIN_ARG="$FP" open_scope '["t-wf"]'
+    k next scope-t-wf --no-cleanup --with-data '{"pick":"publish_fail"}' >/dev/null 2>&1
+    ARGS_DIR=$(bash "$KOTO_OPEN" --alloc-dir); ARGS="$ARGS_DIR/args.json"; printf '["t-wf"]' >"$ARGS"
+    (cd "$R" && HOME="$KH" KOTO_BIN="$BADKOTO" bash "$OPEN" --plugin-root "$FP" "$ARGS" >"$T/out" 2>"$T/err"); RC=$?
+    eq "a failing key write: the open still succeeds" "0" "$RC"
+    has "a failing key write: the session is still reported" "session=scope-t-wf" "$(cat "$T/out")"
+    has "a failing key write: a warning names the key" "work/prior-run.md" "$(cat "$T/err")"
+else
+    echo "SKIP: TMPDIR holds a character koto refuses in a plugin root -- the prior-run cases did not run"
+fi
 
 echo "== the few refusals scope-open.sh makes itself =="
 

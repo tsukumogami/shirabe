@@ -4,10 +4,12 @@
 # /decision keeps its working state as koto context keys in its own session
 # (decision-<topic>) or, run by /design, under work/decision-<N>/ in
 # design-<topic>: `koto context add`, `get`, `exists` and `remove` on single
-# keys, and `koto context list --prefix` over a decision's key directory.
-# `koto status` backs the no-session fallback check. The session itself is
-# opened and closed through scripts/skill-session.sh, whose own koto floor is
-# declared where that script lives; the records here are the calls this
-# skill's prose shows directly.
+# keys, and `koto context list --prefix` over a decision's key directory. The
+# session itself is opened and closed through scripts/skill-session.sh, whose
+# own koto floor is declared where that script lives; the records here are the
+# calls this skill's prose shows directly.
+koto	context add	-	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
 koto	context list	--prefix	always
-koto	status	-	always

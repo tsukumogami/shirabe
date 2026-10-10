@@ -8,6 +8,15 @@
 #
 # Phase 4 removes a rejected draft with `git rm` and commits the rationale with
 # `git commit -F`.
+# Working state is koto context keys in the `prd-<topic>` session: `koto context add`,
+# `get`, `exists` and `remove` on single keys, and `koto context list --prefix` over
+# a key directory. The session is opened and closed through scripts/skill-session.sh,
+# whose own koto floor is declared where that script lives.
 shirabe	transition	-	always
 shirabe	validate	--check	always
 git	-	-	always
+koto	context add	-	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
+koto	context list	--prefix	always

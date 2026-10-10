@@ -56,7 +56,8 @@ transition files GitHub issues, after the filing approval. By mode:
   is authored at Active; at `issues` or `issues-and-milestone` it is
   Active once its filing approval has run.
 
-Phase 3 populates the state file with:
+Phase 3 writes these fields into key `work/state.md` (a read-modify-write
+of the whole key with `koto context add scope-<topic> work/state.md`):
 
 ```yaml
 exit: full-run
@@ -72,8 +73,8 @@ cleanup (the publish states in `skills/scope/koto-templates/scope.md`):
 the branch is pushed and one PR opened, a draft for `single-pr` and
 `coordinated` and ready for `multi-pr` (R9). A publish that fails
 records `publish_error: scope:push` or `publish_error:
-scope:pr-create` in the state file and ends the run with that step;
-the state file keeps `exit:` and its fields, and the next invocation
+scope:pr-create` in `work/state.md` and ends the run with that step;
+the key keeps `exit:` and its fields, and the next invocation
 retries the publish.
 
 `exit_artifacts:` lists every durable artifact the run leaves
@@ -88,9 +89,9 @@ in
 
 #### Durable record of what the chain produced
 
-Phase 4 removes the state file, so the record of which artifacts
-were produced and which were absorbed has to leave `wip/` before
-then. On an intent run the PR body is the publish script's fixed
+The session's keys do not outlast the run as a record, so the account of
+which artifacts were produced and which were absorbed has to reach a durable
+place before then. On an intent run the PR body is the publish script's fixed
 template -- the slug, exit, outcome, `intent=`, mode, the `docs/`
 artifact paths that survive, and the work-item IDs, with no
 free-text field -- so the list of surviving artifacts is what it
@@ -110,7 +111,7 @@ had one.** The roadmap a chain consumed is recorded on the PLAN the
 chain produces, and a run that ends before `/plan` has no PLAN and
 therefore no legal node to carry it — no durable artifact may name a
 working one. On a `re-evaluation` or `abandonment-forced` exit the
-roadmap would otherwise be lost with the state file, leaving no trace
+roadmap would otherwise be lost with `work/state.md`, leaving no trace
 of what the chain was scoping under. Name it in the PR body:
 
 > Consumed upstream: `docs/roadmaps/ROADMAP-<name>.md`. Not recorded in
@@ -242,7 +243,7 @@ resolved on, which did create one up front, closes it here.
 
 ## Closing the Children
 
-On every exit path, once the state file records its `exit:` value, the
+On every exit path, once `work/state.md` records its `exit:` value, the
 run closes the children this chain dispatched
 (`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`):
 
@@ -261,28 +262,31 @@ its next pass, and a closed session's keys stay readable.
 
 ## R8 Bail Route
 
-A bail routes on what a child produced. The abandonment-forced
-branch is taken when a child intermediate under
-`wip/{brief,prd,design,plan}_<topic>_*` or research scratch under
-`wip/research/{prd,design}_<topic>_*` exists for the topic;
-otherwise the bail is a clean cancel.
+A bail routes on what a child left in its session. The bail gate runs
 
-Nothing under the parent's own `wip/scope_<topic>_*` prefix counts
-toward the abandonment-forced branch, because nothing under that
-prefix is a child's output. The test is stated that way rather than
-as an exclusion of the state file, so a later file under the same
-prefix inherits it: `wip/scope_<topic>_handoff.md` is no more a
-child's output than the state file is, and an exclusion naming only
-the state file would route a bail on it. `/charter`'s bail step
-already tests this way.
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" has-work <child> <topic>
+```
+
+over the four children (`brief`, `prd`, `design`, `plan`). The
+abandonment-forced branch is taken when any of them reports live work in
+its `<child>-<topic>` session (the session is live, dispatched by this
+chain on this branch, and holds a key under `work/`); otherwise the bail
+is a clean cancel.
+
+Nothing in the parent's own `scope-<topic>` session counts toward the
+abandonment-forced branch, because the parent's keys (`work/state.md`,
+`work/prior-run.md`, `chain/dispatch`) are not a child's output. The test is
+over the children's sessions rather than an exclusion list, so a key
+added to the parent's session later inherits it. `/charter`'s bail step
+tests the same way.
 
 ### R8 Tie-Break for `triggering_child:`
 
-When more than one child has an unfinished `wip/` intermediate
+When more than one child has live work in its session
 at the moment of abandonment, the `triggering_child:` field is
 set to the child whose Phase 2 invocation began most recently.
-The most-recently-running rule reads from the state file's
-per-child Phase 2 start timestamps (recorded as the child's
+The most-recently-running rule reads from the per-child Phase 2 start timestamps (recorded as the child's
 entry in `chain_ran:` includes a started-at timestamp).
 
 The tie-break is deterministic: the most-recent timestamp
@@ -294,14 +298,14 @@ fully mechanical.
 The tie-break runs only where an abandonment-forced exit is
 already the outcome — the route above, or a Force-materialize
 selected at the resume ladder's stale-session row. A bail with no
-child intermediate and no research scratch takes the clean cancel
+child holding live work takes the clean cancel
 instead and never names a `triggering_child:` at all.
 
 ### Clean Cancel
 
-A bail at Phase 1 is the canonical case: Phase 0 wrote the state
-file before returning control, no child has been invoked, and
-nothing under `wip/scope_<topic>_*` is a child's output. The bail
+A bail at Phase 1 is the canonical case: Phase 0 wrote key
+`work/state.md` before returning control, no child has been invoked, and
+no child session holds work. The bail
 is a clean cancel, which means:
 
 - **No terminal artifact.** Nothing is force-materialized, because
@@ -309,25 +313,26 @@ is a clean cancel, which means:
   preserve a partial artifact; at Phase 1 there is none.
 - **No `exit:` value and no `triggering_child:`.** The run records
   neither. There is no chain progress to record.
-- **One deletion.** The bail handler removes
-  `wip/scope_<topic>_state.md`. Phase 4 does not run on a cancel,
-  which is why the disposal is the handler's rather than Phase 4's.
+- **One deletion.** The bail handler removes key `work/state.md` from
+  `scope-<topic>`. Phase 4 does not run on a cancel, which is why the
+  disposal is the handler's rather than Phase 4's.
+- **The children's sessions stay.** A clean cancel closes no child. The
+  close-children rule above binds the paths that write `exit:`, and a cancel
+  writes none, so any child session that is live is left for the next run's
+  Slot 6 (`has-work`) to find.
 
-The deletion is one path, not the prefix, and the inverse of the
-route test above: the test ignores the whole `wip/scope_<topic>_*`
-prefix, the deletion touches a single file inside it.
-`wip/scope_<topic>_handoff.md` is NOT removed by a bail — it
-belongs to the router rather than to the parent, and leaving it is
-what lets a later invocation resume against it instead of starting
-cold.
+The deletion is that single key. Key `handoff/scope.md` in
+`explore-<topic>` is NOT removed by a bail -- it belongs to `/explore`'s
+session rather than to the parent, and leaving it is what lets a later
+invocation resume against it instead of starting cold.
 
 **R9 does not fire.** The check runs at finalization against a
 recorded exit, and a clean cancel finalizes nothing: it records no
 exit, so it never reaches the check and never trips condition 2's
 empty-`exit_artifacts:` refusal. That is not a hole in the
 three-exits invariant. The invariant binds every run that produces
-a terminal artifact, and a clean cancel produces none — tearing
-down the empty state file is the whole of what it leaves behind.
+a terminal artifact, and a clean cancel produces none — removing
+the empty `work/state.md` key is the whole of what it leaves behind.
 
 ## HTML-Comment Marker
 
@@ -352,7 +357,7 @@ Four contract rules bind the marker:
   `triggering-child` → `partial-phase-reached` → `chain-started`.
   The lead identifier `scope-status-block:` precedes them.
 - **(c) Substitution sources.** The four `<...>` substitutions
-  come from the state file: `<name>` from `triggering_child:`,
+  come from `work/state.md`: `<name>` from `triggering_child:`,
   `<phase>` from `partial_phase_reached:`, `<ISO-8601 timestamp>`
   from `chain_started:`.
 - **(d) Enum constraint on `<name>`.** `<name>` MUST be one of

@@ -5,7 +5,10 @@
 # init`. What is left needs the working tree, and this script runs it:
 #
 #   1. resolve-intent.sh      the effective intent, RUN_INTENT, printed on
-#                             stdout for koto to capture
+#                             stdout for koto to capture; with no --intent it
+#                             falls back to key work/state.md of the run's
+#                             session, then to work/prior-run.md (a replaced
+#                             run's failed publish), then none
 #   2. check-upstream.sh      the --upstream battery (wip, tracked, confined,
 #                             basename)
 #   3. check-recorded-intent.sh
@@ -137,12 +140,12 @@ ctx_remove recorded
 # --- the checks -------------------------------------------------------------------
 
 if ! [[ "$TOPIC" =~ $RE_TOPIC ]]; then
-    printf '%s: topic does not match %s; no state file path can be composed\n' "$PROG" "$RE_TOPIC" >&2
+    printf '%s: topic does not match %s; no session name can be composed\n' "$PROG" "$RE_TOPIC" >&2
     finish error "$(fallback_intent)"
 fi
-STATE_FILE="wip/scope_${TOPIC}_state.md"
+RUN_SESSION="scope-${TOPIC}"
 
-RUN_INTENT=$(bash "$HERE/resolve-intent.sh" --intent-flag "$FLAG" --state-file "$STATE_FILE")
+RUN_INTENT=$(bash "$HERE/resolve-intent.sh" --intent-flag "$FLAG" --session "$RUN_SESSION")
 RC=$?
 if [ "$RC" -ne 0 ] || ! [[ "$RUN_INTENT" =~ $RE_RECORDED ]]; then
     printf '%s: resolve-intent.sh could not resolve the intent (exit %s)\n' "$PROG" "$RC" >&2
@@ -167,7 +170,7 @@ case "$RC" in
         ;;
 esac
 
-OUT=$(bash "$HERE/check-recorded-intent.sh" --intent-flag "$FLAG" --state-file "$STATE_FILE")
+OUT=$(bash "$HERE/check-recorded-intent.sh" --intent-flag "$FLAG" --session "$RUN_SESSION")
 RC=$?
 case "$RC" in
     0) ;;

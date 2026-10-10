@@ -6,7 +6,9 @@
 # Two groups:
 #
 #   stand-in cases, which need bash, git and jq but no koto. A koto stand-in
-#   on PATH stores each context key as a file, so every verdict, reason and
+#   on PATH stores each context key as a file (the run's state is key
+#   work/state.md of scope-<topic>, a replaced run's failed publish is
+#   work/prior-run.md), so every verdict, reason and
 #   recorded value run-intake.sh can write is read back byte for byte, along
 #   with what it clears and what it prints for koto to capture.
 #
@@ -51,12 +53,13 @@ STORE="$T/store"
 mkdir -p "$SHIM" "$STORE"
 cat >"$SHIM/koto" <<'STUB'
 #!/usr/bin/env bash
-# koto stand-in: `context add|remove|get <session> <key>` over $STORE/<session>/<key>.
+# koto stand-in: `context add|remove|get|exists <session> <key>` over $STORE/<session>/<key>.
 [ "$1" = context ] || { echo "stand-in: unsupported: $*" >&2; exit 2; }
 [ -n "${STUB_FAIL:-}" ] && [ "$2" = "$STUB_FAIL" ] && { echo "stand-in: failing $2" >&2; exit 9; }
 d="$STORE/$3"
 case "$2" in
-    add) mkdir -p "$d"; cat >"$d/$4" ;;
+    add) mkdir -p "$(dirname "$d/$4")"; cat >"$d/$4" ;;
+    exists) [ -f "$d/$4" ] ;;
     remove) rm -f "$d/$4" ;;
     get) cat "$d/$4" 2>/dev/null || exit 1 ;;
     *) exit 2 ;;
@@ -82,8 +85,16 @@ ln -s "$T/elsewhere/ROADMAP-far.md" "$R/docs/roadmaps/ROADMAP-away.md"
 git -C "$R" add docs wip
 printf 'r\n' >"$R/docs/roadmaps/ROADMAP-untracked.md"
 
-state_file() { # state_file <topic> <content>
-    printf '%s' "$2" >"$R/wip/scope_$1_state.md"
+# state_file <topic> <content> -- key work/state.md of scope-<topic>, in the
+# stand-in store (the scripts compose the session name from the topic).
+state_file() {
+    mkdir -p "$STORE/scope-$1/work"
+    printf '%s' "$2" >"$STORE/scope-$1/work/state.md"
+}
+# prior_file <topic> <content> -- key work/prior-run.md of scope-<topic>.
+prior_file() {
+    mkdir -p "$STORE/scope-$1/work"
+    printf '%s' "$2" >"$STORE/scope-$1/work/prior-run.md"
 }
 
 # run <session> <topic> <flag> <upstream> -- sets OUT and RC.
@@ -146,11 +157,33 @@ intent: stop
 run s-mm mismatch continue ""
 eq "an intent mismatch still captures the explicit intent" "continue" "$OUT"
 verdict s-mm refused intent-mismatch stop "continue against a recorded stop"
-eq "the state file is unchanged by a refusal" "topic: mismatch
-intent: stop" "$(cat "$R/wip/scope_mismatch_state.md")"
+eq "the state key is unchanged by a refusal" "topic: mismatch
+intent: stop" "$(key scope-mismatch work/state.md)"
 
 run s-mm-pre pre continue ""
 verdict s-mm-pre refused intent-mismatch none "an explicit intent against a pre-change state file"
+
+prior_file pf 'outcome: error
+exit: full-run
+intent: continue
+step: scope:push
+'
+run s-pf-bare pf "" ""
+eq "a replaced run's failed publish: a bare invocation resumes under its intent" "continue" "$OUT"
+verdict s-pf-bare ok "" "" "bare invocation after a failed publish"
+run s-pf-same pf continue ""
+verdict s-pf-same ok "" "" "the same explicit intent after a failed publish"
+run s-pf-mm pf stop ""
+eq "a different explicit intent after a failed publish still captures the explicit intent" "stop" "$OUT"
+verdict s-pf-mm refused intent-mismatch continue "a different explicit intent after a failed publish"
+
+prior_file pc 'outcome: landed
+exit: full-run
+intent: continue
+'
+run s-pc pc stop ""
+eq "a clean finish binds no intent" "stop" "$OUT"
+verdict s-pc ok "" "" "an explicit intent after a clean finish"
 
 run s-wip up "" docs/roadmaps/ROADMAP-intowip.md
 verdict s-wip refused upstream-wip "" "an upstream resolving into wip/"
@@ -175,7 +208,7 @@ eq "with an explicit flag, the flag is the capturable line" "stop" "$OUT"
 verdict s-corrupt2 error "" "" "an explicit flag against a corrupt record"
 
 run s-topic "Bad Topic" "" ""
-verdict s-topic error "" "" "a topic no state path can be composed from"
+verdict s-topic error "" "" "a topic no session name can be composed from"
 
 mkdir -p "$T/notrepo"
 OUT=$(cd "$T/notrepo" && PATH="$SHIM:$PATH" bash "$S" --session s-norepo --topic t --intent-flag "" --upstream docs/roadmaps/ROADMAP-good.md 2>/dev/null)
@@ -265,19 +298,22 @@ mkdir -p "$EH"
 git -C "$R" -c user.email=t@example.invalid -c user.name=t commit -q -m fixture
 git -C "$R" checkout -q -b scope-fixture
 
-# engine <topic> <state-file-content-or-empty> <var...> -- a fresh session,
-# one tick; sets EST (current state) and ERES (the result payload, compact).
+# engine <topic> <state-content-or-empty> <var...> -- a fresh session whose
+# key work/state.md holds the content, one tick; sets EST (current state) and
+# ERES (the result payload, compact).
 EST=""
 ERES=""
 engine() {
     local topic="$1" content="$2"
     shift 2
-    rm -f "$R/wip/scope_${topic}_state.md"
-    [ -n "$content" ] && printf '%s' "$content" >"$R/wip/scope_${topic}_state.md"
     (cd "$R" && HOME="$EH" koto init "scope-$topic" --template "$TEMPLATE" \
         --var TOPIC="$topic" --var PLUGIN_ROOT="$PLUGIN_ROOT" \
         --var PLUGIN_ROOT_PLACEMENT=outside "$@" >/dev/null 2>"$T/init.err") \
         || { bad "engine init for $topic" "$(cat "$T/init.err")"; EST=""; ERES=""; return; }
+    if [ -n "$content" ]; then
+        printf '%s' "$content" | (cd "$R" && HOME="$EH" koto context add "scope-$topic" work/state.md >/dev/null 2>&1) \
+            || { bad "engine state write for $topic"; EST=""; ERES=""; return; }
+    fi
     (cd "$R" && HOME="$EH" koto next "scope-$topic" --no-cleanup >/dev/null 2>&1)
     local st
     st=$(cd "$R" && HOME="$EH" koto status "scope-$topic" 2>/dev/null)
@@ -305,11 +341,11 @@ intent: stop
 ' --var INTENT_FLAG=continue
 eq "intent-mismatch ends at done_refused" "done_refused" "$EST"
 eq "intent-mismatch: the result's reason" "intent-mismatch" "$(field reason)"
-eq "intent-mismatch: recorded is non-empty and is the state file's" "stop" "$(field recorded)"
+eq "intent-mismatch: recorded is non-empty and is the state key's" "stop" "$(field recorded)"
 eq "intent-mismatch: requested is non-empty and is the flag" "continue" "$(field requested)"
 eq "intent-mismatch: intent is the effective intent" "continue" "$(field intent)"
-eq "the state file is unchanged" "topic: e-mismatch
-intent: stop" "$(cat "$R/wip/scope_e-mismatch_state.md")"
+eq "the state key is unchanged" "topic: e-mismatch
+intent: stop" "$(cd "$R" && HOME="$EH" koto context get scope-e-mismatch work/state.md)"
 
 engine e-error 'intent: sometimes
 '

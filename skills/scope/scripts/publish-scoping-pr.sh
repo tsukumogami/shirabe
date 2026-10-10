@@ -534,5 +534,15 @@ else
     [[ "$URL" =~ $RE_PR_URL ]] || fail scope:pr-create "owned-pr.sh printed a URL outside the pattern"
 fi
 
+# A successful publish consumes the prior-run facts: the retry they exist for
+# has happened, and leaving the key would let it fire twice. Genuinely
+# best-effort, unlike ctx, whose exit 66 would report failure for a publish
+# that already succeeded -- the PR exists by this line, and the cleanup phase
+# removes the key too.
+if [ -n "$SESSION" ]; then
+    koto context remove "${KOTO_TICK_SESSION:-$SESSION}" work/prior-run.md >/dev/null 2>&1 \
+        || printf '%s: could not remove work/prior-run.md; the cleanup phase removes it too\n' "$PROG" >&2
+fi
+
 printf 'pr=%s\n' "$URL"
 exit 0

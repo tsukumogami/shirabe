@@ -32,8 +32,17 @@
 # scripts/check-skill-requires.sh; an exemption that stops matching its line
 # fails as stale.
 #not-a-call-site	skills/plan/scripts/plan-to-tasks.sh	shirabe	--release	cargo's build flag, quoted in the "shirabe binary not found" message; not a shirabe flag.
+# Working state is koto context keys in the `plan-<topic>` session: `koto context add`,
+# `get`, `exists` and `remove` on single keys, and `koto context list --prefix` over
+# a key directory. The session is opened and closed through scripts/skill-session.sh,
+# whose own koto floor is declared where that script lives.
 shirabe	transition	-	always
 shirabe	validate	--lifecycle-chain	always
 gh	-	-	always
 jq	-	-	always
 git	-	-	always
+koto	context add	-	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
+koto	context list	--prefix	always

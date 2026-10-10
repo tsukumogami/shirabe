@@ -15,9 +15,10 @@ runs against `child_snapshots:` on every ladder match.
 The ladder runs in the workflow, not as agent prose. After
 `branch_check`, the `resume_route` state's one gate runs
 `skills/scope/scripts/resume-probe.sh --topic <topic> --intent
-<RUN_INTENT>`. The probe reads the artifact tree, the state file,
-the child partials and the `/explore` handoff, makes no write and no
-`gh` call, and exits with the code of the first row that matches;
+<RUN_INTENT>`. The probe reads the artifact tree, key `work/state.md`
+and key `work/prior-run.md` in `scope-<topic>`, the children's sessions
+(`has-work`) and key `handoff/scope.md` in `explore-<topic>`, makes
+no write and no `gh` call, and exits with the code of the first row that matches;
 `resume_route` sends each code to a state. The rows below name their
 code as **[code]**. This file stays the normative spec: the probe's
 header, its `_test.sh` (one fixture per row), and the routing table
@@ -28,19 +29,28 @@ to these codes:
 
 | Row | Condition | Code | State |
 |-----|-----------|------|-------|
-| 1 | state file malformed | [25] | `resume_malformed` (names the malformation, offers Discard) |
-| 2 | exit set, a `publish_error:` recorded, intent set | [27] / [28] / [29] | `publish_full_run` / `publish_re_evaluation` / `publish_abandonment` (the publish retry) |
+| 1 | `work/state.md` malformed | [25] | `resume_malformed` (names the malformation, offers Discard) |
+| 2 | exit set (in `work/state.md`, or in `work/prior-run.md` after a replace), a `publish_error:` recorded or a `prior-run` step of `scope:push` / `scope:pr-create`, intent set | [27] / [28] / [29] | `publish_full_run` / `publish_re_evaluation` / `publish_abandonment` (the publish retry) |
 | 2 | exit set, nothing to publish | [26] | `resume_exit_set` (revise-equivalent / start fresh) |
-| 4 | stale (7 days or more) | [24] | `resume_stale` (Resume / Force-materialize / Discard; `--auto` takes Resume and announces it) |
-| 3 | fresh, `phase_pointer` 0-1 / 2 / 3 | [20] / [21] / [22] | `discovery` / `hop_select` / `finalize` |
+| 4 | `work/state.md` stale (7 days or more) | [24] | `resume_stale` (Resume / Force-materialize / Discard; `--auto` takes Resume and announces it) |
+| 3 | `work/state.md` fresh, `phase_pointer` 0-1 / 2 / 3 | [20] / [21] / [22] | `discovery` / `hop_select` / `finalize` |
 | 8 | nothing on disk, on a branch naming the topic | [11] | `setup` |
 | 9 | nothing on disk, any other branch | [10] | `setup` |
 | — | the probe cannot tell | [2] | `done_error` with `step=scope:resume-probe` |
 
 The publish retry sits under row 2 because it is an exit already
-recorded: the run ended at `done_error` before cleanup, so the state
-file still holds `exit:` and `publish_error:`, and the retry goes
-straight back to the publish state rather than asking.
+recorded: the run ended at `done_error` before cleanup, so `work/state.md`
+still holds `exit:` and `publish_error:` (or, once `scope-open.sh` replaced
+the finished session, `work/prior-run.md` holds the `exit`, `intent` and
+failed `step`), and the retry goes straight back to the publish state
+rather than asking. A successful publish removes `work/prior-run.md`
+(the publish script consumes it; the cleanup phase removes it too).
+
+The prior-run key binds an intent or fires a retry only when it records
+a failed publish `step`. That is deliberate, and it keeps the old
+semantics: the state file lingered after a failed publish and nowhere
+else, so a cleanly finished run's replaced result writes the key but
+routes nothing — the artifact rows decide, as they always did.
 
 ## Slot 5 — Status-Aware Re-Entry (11 rows, most-downstream-first)
 
@@ -165,7 +175,7 @@ session can exist, so Slot 6 matches nothing and the ladder falls
 through.
 
 The slug recovered during the Slot 7 feeder-doc match against the
-`/explore` handoff file (its path is in Slot 7 below) follows the
+`/explore` handoff key (named in Slot 7 below) follows the
 slug re-validation rule
 documented in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md`
@@ -176,24 +186,26 @@ from the validated topic, never read back from a key.
 
 ## Slot 7 — Feeder-Doc-Detected (the `/explore` handoff)
 
-**Match condition [12].** `wip/scope_<topic>_handoff.md` exists on disk,
-and no row above matched — no state file at
-`wip/scope_<topic>_state.md`, no child doc at a status Slot 5
-recognizes, and no child wip partial Slot 6 matches. Beyond the
-rows above not matching, that one path is the whole condition: the
-slot reads no other file to decide whether it fires, and it never
-fires on a path in another skill's
-namespace: `wip/scope_<topic>_handoff.md` is composed from
-`/scope`'s own prefix and the validated topic slug, which is what
-keeps it inside the closed write-target set enumerated in
-`skills/scope/SKILL.md`.
+**Match condition [12].** Key `handoff/scope.md` exists in session
+`explore-<topic>`, and no row above matched -- no `work/state.md` key
+in `scope-<topic>`, no child doc at a status Slot 5 recognizes, and no
+child session Slot 6 matches. Beyond the rows above not matching, that
+one key is the whole condition: the slot reads no other key to decide
+whether it fires, and an absent handoff (no `explore-<topic>` session,
+or one without the key) is no row. It never fires on a key in another
+skill's area: the session name is composed from the validated topic
+slug and the key name is the constant `handoff/scope.md`, read by
+name, never discovered by listing.
 
 **Action.** Run Phase 0's setup obligations against the current
-worktree — slug validation, the slug-prefix convention check,
+worktree -- slug validation, the slug-prefix convention check,
 visibility detection, `--upstream` validation when the invocation
-supplied one, and state-file creation — then enter Phase 1 with the
+supplied one, and `work/state.md` creation -- then enter Phase 1 with the
 handoff pre-loaded as discovery input. Record `consumed_handoff:
-wip/scope_<topic>_handoff.md` in the state file at the same write.
+handoff/scope.md` in `work/state.md` at the same write. Once the handoff
+is consumed, remove key `handoff/scope.md` from `explore-<topic>`, and
+close `explore-<topic>` when it holds nothing else. An early exit
+before the consumption leaves the key in place for the next run.
 
 Phase 1 runs. The slot never skips it, and it never invokes a child
 directly: a handoff is discovery material, not a resume point
@@ -240,10 +252,10 @@ Visibility:` header, Phase 2 computes child snapshots itself, and a
 than from this file. A handoff that carries such a value anyway is
 ignored on that value, not trusted and not treated as malformation.
 
-**A malformed handoff degrades to a cold start.** If the file is
+**A malformed handoff degrades to a cold start.** If the key's content is
 truncated, unparseable, or missing the sections above, `/scope`
 announces that it found a handoff it could not consume, names the
-path, and proceeds as though none existed — cold-start projection
+key, leaves it in place, and proceeds as though none existed — cold-start projection
 included. There is no partial consumption: a half-read handoff
 would pre-supply some discovery inputs and not others with no way
 for the author to tell which. `consumed_handoff:` is not written on
@@ -255,9 +267,9 @@ carrying existence, status, or hashes, it cannot be the more
 current evidence — so a Slot 5 or Slot 6 match takes its own
 action, and Slot 7 is never reached. The handoff is not silently
 dropped: the row that fires states that a router handoff exists at
-`wip/scope_<topic>_handoff.md` and was not consumed, and offers its
+key `handoff/scope.md` and was not consumed, and offers its
 problem statement as context for the choice the row is asking the
-author to make. The file is left on disk, so a later Revise that
+author to make. The key is left in `explore-<topic>`, so a later Revise that
 clears the way down the ladder reaches this slot on its own terms.
 
 **The topic-branch row below, and why it does not collide.**
@@ -276,7 +288,7 @@ behavior that row was written for, so it stays as it is.
 
 ## Recorded-Upstream Re-Validation
 
-When the state file carries `consumed_upstream:`, the ladder
+When `work/state.md` carries `consumed_upstream:`, the ladder
 re-validates that value on EVERY re-entry, before any slot's action
 runs and before the path is interpolated into a child invocation.
 The re-validation re-runs the whole battery from
@@ -316,8 +328,8 @@ output whether or not anyone is watching.
 The re-validation is a second interpolation site, not a repeat of
 the first, and carries the same discipline: the recorded value is
 canonicalized, bounds-checked, and quoted and passed after `--` in
-every command the ladder emits with it. A state file is a file on
-disk that a hand-edit can change between sessions, so the value
+every command the ladder emits with it. A session key is data
+that an edit can change between sessions, so the value
 read back is treated as untrusted input exactly as the flag's
 original value was.
 
@@ -368,8 +380,8 @@ state-file check does.
 
 **The ladder evaluates without a session, and that is the ordinary
 case.** Its rows key on artifact status, child intermediates, the
-handoff and the branch — none of which the session holds. A topic
-with an Accepted PRD at `docs/prds/PRD-<topic>.md`, no state file
+handoff and the branch — none of which `scope-<topic>` holds. A topic
+with an Accepted PRD at `docs/prds/PRD-<topic>.md`, no `work/state.md`
 and no session still reaches row 5.6 and offers that row's triad at
 the PRD boundary, because nothing above it matched and the row's
 condition is a file on disk. The probe's finding changes what the
@@ -378,7 +390,7 @@ run reattaches to, never which row fires.
 ## Drift Detection
 
 When `/scope` re-enters a chain (any Slot 5 or Slot 6 ladder match
-against a topic with an existing state file), it walks
+against a topic with an existing `work/state.md`), it walks
 `child_snapshots:` and compares each child's frozen
 `{status, content_hash}` against the live child doc at the
 canonical durable path. Drift fires when EITHER the live
@@ -391,14 +403,13 @@ direction alone is sufficient to trigger the staleness prompt.
 The inspection surface is intentionally narrow: `/scope` reads only
 the child doc's frontmatter `status:` and computes the doc's git
 blob hash. It does NOT read child internals, does NOT read
-`wip/research/<child>_*.md`, and does NOT consult any other
+the children's `research/` session keys, and does NOT consult any other
 child-private state per the R14-widened isolation rule. The drift
 check uses the same externally-visible surface the initial snapshot
 capture used in Phase 2, so the comparison is symmetric.
 
 **This trigger is preserved as it stands, not repaired here.** It is
-unsatisfiable as written: its condition wants an existing state
-file, and the rows that could match it are reached only when the
+unsatisfiable as written: its condition wants an existing `work/state.md`, and the rows that could match it are reached only when the
 universal rows above them did not fire — which, for every shape of
 state file, is a case those upper rows take. So no Slot 5 or Slot 6
 match arrives carrying the state file this condition asks for, and

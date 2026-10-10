@@ -7,16 +7,19 @@
 # skills/scope/references/phases/phase-resume.md, which stays the normative
 # spec and names this probe's exit code on every row.
 #
-# It reads the artifact tree, the run's state file, the four children's koto
-# sessions (through scripts/skill-session.sh has-work, which only reads), the
-# /explore handoff, and the current branch name. It writes nothing, it ticks
-# no session, and it makes no gh call and no network call. RUN_INTENT arrives as an
+# It reads the artifact tree, the run's state (key work/state.md of session
+# scope-<topic>) and, after a replace, the finished run's facts (key
+# work/prior-run.md of the same session), the four children's koto sessions
+# (through scripts/skill-session.sh has-work, which only reads), the /explore
+# handoff (key handoff/scope.md of session explore-<topic>), and the current
+# branch name. It writes nothing, it ticks no session, and it makes no gh call
+# and no network call. RUN_INTENT arrives as an
 # argument, because the intent shortcuts (rows 40 and 44) exist only on intent
 # runs and a plan-active topic (row 41) is refused only without one.
 #
 # Rows, first match wins (the ladder's order, most-downstream first):
 #
-#   state file present (meta-ladder rows 1-4)
+#   key work/state.md present in scope-<topic> (meta-ladder rows 1-4)
 #     25  malformed: unreadable, a duplicate or missing required field, or a
 #         value outside its enum or pattern (exit, phase_pointer, intent,
 #         plan_execution_mode, publish_error, published_pr, and the exit
@@ -30,7 +33,15 @@
 #     20  exit unset, fresh, phase_pointer 0 or 1   -> discovery
 #     21  exit unset, fresh, phase_pointer 2        -> hop_select
 #     22  exit unset, fresh, phase_pointer 3        -> finalize
-#   no state file: Slot 5, the artifact tree
+#   no work/state.md, but key work/prior-run.md holds a failed publish step
+#   (step scope:push or scope:pr-create, exit full-run, re-evaluation or
+#   abandonment-forced) and intent is set: the publish retry of a finished
+#   run that scope-open.sh replaced. Any other content, or a key whose values
+#   fail their closed sets, is no match and the ladder falls through.
+#     27  exit full-run
+#     28  exit re-evaluation
+#     29  exit abandonment-forced
+#   neither key: Slot 5, the artifact tree
 #     40  a PLAN at Active or Draft, intent set                -> republish
 #     42  a PLAN at Done                                       -> refused
 #     41  a PLAN at Active, no intent                          -> refused
@@ -52,7 +63,8 @@
 #     62  prd-<topic>
 #     63  brief-<topic>
 #   Slot 7, and the meta-ladder tail
-#     12  the /explore handoff wip/scope_<topic>_handoff.md
+#     12  key handoff/scope.md in session explore-<topic> (live or finished;
+#         an absent session is no match)
 #     11  nothing on disk, on a branch whose name contains the topic
 #     10  nothing on disk, any other branch
 #
@@ -74,9 +86,11 @@
 #
 # The working directory is the repository being scoped. SCOPE_PROBE_NOW, an
 # epoch second count, replaces the clock for the staleness test (tests only).
-# KOTO_BIN and KOTO_SESSIONS_BASE reach skill-session.sh unchanged.
+# KOTO_BIN and KOTO_SESSIONS_BASE reach skill-session.sh unchanged, and KOTO_BIN
+# names the koto the state, prior-run and handoff reads use. With koto absent
+# no session can exist, so those reads match nothing.
 #
-# Requires: bash 3.2+, git, awk; koto and jq for Slot 6.
+# Requires: bash 3.2+, git, awk; koto for the key reads and Slot 6.
 set -uo pipefail
 
 PROG=resume-probe
@@ -126,17 +140,44 @@ case "$INTENT" in
     *) cannot_tell "intent [$INTENT] is not continue, stop or none" ;;
 esac
 
-STATE="wip/scope_${TOPIC}_state.md"
+SESSION="scope-${TOPIC}"
+STATE="work/state.md"
+PRIOR="work/prior-run.md"
+KOTO="${KOTO_BIN:-koto}"
 PLAN="docs/plans/PLAN-${TOPIC}.md"
 DESIGN_CUR="docs/designs/current/DESIGN-${TOPIC}.md"
 DESIGN="docs/designs/DESIGN-${TOPIC}.md"
 PRD="docs/prds/PRD-${TOPIC}.md"
 BRIEF="docs/briefs/BRIEF-${TOPIC}.md"
-HANDOFF="wip/scope_${TOPIC}_handoff.md"
+HANDOFF_SESSION="explore-${TOPIC}"
+HANDOFF="handoff/scope.md"
 
 present() { [ -e "$1" ] || [ -L "$1" ]; }
 
-# --- the state file ---------------------------------------------------------------
+# --- the state key ----------------------------------------------------------------
+
+# key_exists <session> <key> -- 0 when the key exists, 1 when it or its session
+# does not (or koto is absent: no session can exist). Anything else cannot be
+# told.
+key_exists() {
+    local rc=0
+    "$KOTO" context exists "$1" "$2" >/dev/null 2>&1 || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1|127) return 1 ;;
+        *) cannot_tell "koto context exists $1 $2 exited $rc" ;;
+    esac
+}
+
+# DOC holds the key's text; sfield reads it.
+DOC=""
+# read_key <session> <key> -- set DOC to the key's bytes. Returns 1 when koto
+# cannot return them.
+read_key() {
+    local out
+    out=$("$KOTO" context get "$1" "$2" 2>/dev/null && printf '.') || return 1
+    DOC="${out%.}"
+}
 
 # sfield <name> -- the value of the one column-0 `<name>:` line. Prints
 # nothing when the field is absent; returns 3 when it appears twice.
@@ -150,11 +191,13 @@ sfield() {
             if (v ~ /^".*"$/ || v ~ /^'"'"'.*'"'"'$/) v = substr(v, 2, length(v) - 2)
         }
         END { if (n > 1) exit 3; if (n == 1) print v }
-    ' "$STATE"
+    ' <<EOF_DOC
+$DOC
+EOF_DOC
 }
 
 malformed() {
-    printf '%s: state file %s is malformed: %s\n' "$PROG" "$STATE" "$1" >&2
+    printf '%s: key %s of session %s is malformed: %s\n' "$PROG" "$STATE" "$SESSION" "$1" >&2
     row 25 state-malformed
 }
 
@@ -196,7 +239,7 @@ epoch() {
 }
 
 probe_state() {
-    [ -f "$STATE" ] && [ -r "$STATE" ] || malformed "it exists but is not a readable file"
+    read_key "$SESSION" "$STATE" || malformed "it exists but koto cannot read it"
 
     local f v exitv pointer updated intentv perr now then
     for f in topic phase_pointer last_updated exit intent publish_error boundary \
@@ -296,8 +339,39 @@ probe_state() {
     esac
 }
 
-if present "$STATE"; then
+if key_exists "$SESSION" "$STATE"; then
     probe_state
+fi
+
+# --- the finished run's publish failure ---------------------------------------------
+
+# probe_prior -- key work/prior-run.md, written by scope-open.sh from the
+# replaced session's result. Every value must match its closed set; a key
+# that does not is no match.
+probe_prior() {
+    read_key "$SESSION" "$PRIOR" || return 0
+    local f perr exitv intentv outc
+    for f in outcome exit intent step; do
+        sfield "$f" >/dev/null || return 0
+    done
+    perr=$(sfield step)
+    case "$perr" in scope:push|scope:pr-create) ;; *) return 0 ;; esac
+    exitv=$(sfield exit)
+    intentv=$(sfield intent)
+    case "$intentv" in ''|continue|stop|none) ;; *) return 0 ;; esac
+    outc=$(sfield outcome)
+    [[ "$outc" =~ ^[a-z][a-z-]*$ ]] || [ -z "$outc" ] || return 0
+    [ "$HAS_INTENT" -eq 1 ] || return 0
+    case "$exitv" in
+        full-run) row 27 publish-retry-full-run ;;
+        re-evaluation) row 28 publish-retry-re-evaluation ;;
+        abandonment-forced) row 29 publish-retry-abandonment ;;
+    esac
+    return 0
+}
+
+if key_exists "$SESSION" "$PRIOR"; then
+    probe_prior
 fi
 
 # --- Slot 5: the artifact tree ------------------------------------------------------
@@ -395,7 +469,7 @@ child_partial brief && row 63 brief-partial
 
 # --- Slot 7 and the tail ------------------------------------------------------------------
 
-present "$HANDOFF" && row 12 explore-handoff
+key_exists "$HANDOFF_SESSION" "$HANDOFF" && row 12 explore-handoff
 
 BRANCH=$(git symbolic-ref --quiet --short HEAD) || BRANCH=""
 if [ -z "$BRANCH" ]; then

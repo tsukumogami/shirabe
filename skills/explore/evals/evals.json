@@ -6,14 +6,26 @@
       "name": "open-ended-no-direction",
       "prompt": "I want to add real-time notifications to our app but I have no idea where to start. What should I do?",
       "expected_output": "Skill triggers on 'no idea where to start'. Begins Phase 0 setup, then Phase 1 scoping to identify leads around notification architecture. Should NOT jump directly to /design or /prd -- the right artifact type is unclear. Produces wip/explore_real-time-notifications_scope.md with initial leads.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Plan triggers on an open-ended 'no idea where to start' request and runs Phase 0 setup before anything else",
+        "Plan runs Phase 1 scoping to surface leads around the topic rather than picking an artifact type up front",
+        "Plan does NOT jump directly to /design or /prd while the right artifact type is unclear",
+        "Plan produces the scope artifact with initial leads for the derived topic"
+      ]
     },
     {
       "id": 2,
       "name": "issue-based-exploration",
       "prompt": "/explore #42",
       "expected_output": "Detects issue number from arguments. Reads issue via gh issue view 42. Derives topic from issue title. Checks for needs-triage label. Proceeds through Phase 0 setup and Phase 1 scoping using the issue content as context. Produces scope artifact named after the derived topic.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Plan detects the issue number from the arguments and reads it with gh issue view 42",
+        "Plan derives the topic slug from the issue title and checks for the needs-triage label",
+        "Plan proceeds through Phase 0 setup and Phase 1 scoping using the issue content as context",
+        "Plan produces the scope artifact named after the derived topic"
+      ]
     },
     {
       "id": 3,
@@ -33,12 +45,12 @@
       "id": 4,
       "name": "crystallize-design-shaped-routes-to-scope",
       "prompt": "/explore how to migrate our monolith to microservices",
-      "expected_output": "Runs the full explore workflow. Phase 4 Crystallize scores in two stages. Stage 1 scores 'a chain' highest -- the exploration converged on something someone will build and architectural questions remain open. Stage 2 scores the entry point, and a 'how to build' question with multiple architectural unknowns lands on `/scope`: one coherent effort, what to build clearer than how, several viable implementation paths surfaced. Produces wip/explore_migrate-monolith-to-microservices_crystallize.md with both stages' rationale. Phase 5 takes the `/scope` arm of phase-5-produce-handoff.md: it writes wip/scope_migrate-monolith-to-microservices_handoff.md and tells the author to run `/scope migrate-monolith-to-microservices`. It does NOT invoke /design, does NOT write a DESIGN skeleton under docs/designs/, and does not invoke the parent itself.",
+      "expected_output": "Runs the full explore workflow. Phase 4 Crystallize scores in two stages. Stage 1 scores 'a chain' highest -- the exploration converged on something someone will build and architectural questions remain open. Stage 2 scores the entry point, and a 'how to build' question with multiple architectural unknowns lands on `/scope`: one coherent effort, what to build clearer than how, several viable implementation paths surfaced. Produces its crystallize working file under its own staging prefix (unchanged by this move) with both stages' rationale. Phase 5 takes the `/scope` arm of phase-5-produce-handoff.md: it opens session explore-migrate-monolith-to-microservices and writes key handoff/scope.md there (through skill-session.sh ingest, not a file under wip/), leaves the session open for /scope to read, remove the key from and close, and tells the author to run `/scope migrate-monolith-to-microservices`. It does NOT invoke /design, does NOT write a DESIGN skeleton under docs/designs/, and does not invoke the parent itself.",
       "files": [],
       "expectations": [
         "Transcript scores 'a chain' at crystallize stage 1 and an entry point at stage 2 rather than picking one artifact type off a single scoreboard",
         "Transcript reaches `/scope` at stage 2 and grounds it in the architectural questions the exploration left open",
-        "Transcript writes the handoff at wip/scope_migrate-monolith-to-microservices_handoff.md, in /scope's own namespace",
+        "Transcript writes the handoff as key handoff/scope.md in session explore-migrate-monolith-to-microservices (not a file under wip/)",
         "Transcript stops with `/scope migrate-monolith-to-microservices` named as the command the author runs, rather than invoking the parent in-session",
         "Transcript does NOT hand off to /design or any other chain-internal child, and writes no document under docs/designs/"
       ]
@@ -47,12 +59,12 @@
       "id": 5,
       "name": "crystallize-prd-shaped-routes-to-scope",
       "prompt": "/explore what analytics features our users actually need",
-      "expected_output": "Runs the explore workflow. The topic is about 'what to build' -- user needs, contested requirements, missing acceptance criteria. Stage 1 scores 'a chain'; stage 2 scores `/scope`, because a requirements-shaped exploration and an architecture-shaped one enter the same chain at the same door. The crystallize artifact records that reasoning, and Phase 5 writes wip/scope_analytics-features_handoff.md and names `/scope analytics-features` as the command to run. Requirements-shaped is not a reason to enter below `/scope`: the chain runs whole and reduces per hop afterwards.",
+      "expected_output": "Runs the explore workflow. The topic is about 'what to build' -- user needs, contested requirements, missing acceptance criteria. Stage 1 scores 'a chain'; stage 2 scores `/scope`, because a requirements-shaped exploration and an architecture-shaped one enter the same chain at the same door. The crystallize artifact records that reasoning, and Phase 5 opens session explore-analytics-features and writes key handoff/scope.md there, leaving the session open for /scope, and names `/scope analytics-features` as the command to run. Requirements-shaped is not a reason to enter below `/scope`: the chain runs whole and reduces per hop afterwards.",
       "files": [],
       "expectations": [
         "Transcript scores the requirements-shaped exploration as 'a chain' at stage 1 rather than as a terminal outcome",
         "Transcript reaches `/scope` at stage 2 and grounds it in the unclear or contested requirements",
-        "Transcript writes the handoff at wip/scope_analytics-features_handoff.md and names `/scope analytics-features` as the next command",
+        "Transcript writes the handoff as key handoff/scope.md in session explore-analytics-features (not a file under wip/) and names `/scope analytics-features` as the next command",
         "Transcript does NOT hand off to /prd or treat 'requirements, not architecture' as a reason to enter the chain below /scope",
         "Transcript writes no durable document under docs/ on this arm"
       ]
@@ -62,14 +74,26 @@
       "name": "auto-mode-no-blocking",
       "prompt": "/explore --auto authentication overhaul",
       "expected_output": "Detects --auto flag. Never blocks on user input. At each decision point (scope leads, converge loop, crystallize confirmation), follows research-first decision protocol: gathers evidence, forms recommendation, follows it, documents as a decision block. Creates wip/explore_authentication-overhaul_decisions.md tracking all auto-decisions. Defaults to max 3 discover-converge rounds. Completes full workflow autonomously.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Plan detects --auto and never blocks on user input at any decision point",
+        "Plan follows the research-first decision protocol at scope leads, the converge loop and the crystallize confirmation: evidence, recommendation, follow it, document it as a decision block",
+        "Plan tracks every autonomous decision in the run's decisions ledger",
+        "Plan defaults to at most 3 discover-converge rounds and completes the workflow autonomously"
+      ]
     },
     {
       "id": 7,
       "name": "cross-repo-issue",
       "prompt": "/explore tsuku-project/koto#15",
       "expected_output": "Detects cross-repo issue format (org/repo#N). Uses gh issue view 15 --repo tsuku-project/koto to read the issue. Resolves visibility from the WORKING repo (shirabe, public), not the issue's repo. Research agents may read koto for context, but all wip/ artifacts are created in the working repo. Public content governance applies.",
-      "files": []
+      "files": [],
+      "expectations": [
+        "Plan detects the cross-repo issue format org/repo#N and reads it with gh issue view 15 --repo tsuku-project/koto",
+        "Plan resolves visibility from the WORKING repo (shirabe, public), never from the issue's repo",
+        "Plan lets research agents read the other repo for context while creating every working artifact in the working repo",
+        "Plan applies public content governance to everything it writes"
+      ]
     },
     {
       "id": 8,
