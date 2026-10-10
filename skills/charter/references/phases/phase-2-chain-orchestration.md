@@ -12,7 +12,7 @@ computed gate to evaluate.
 
 This file documents the four per-child invocation rules: `/vision`
 (R4), `/comp` (R5 + R12), `/strategy` (R6, the load-bearing child), and
-`/roadmap` (R7, unconditional with handoff pre-population). The
+`/roadmap` (R7, unconditional with the scope-handoff key write). The
 chain-proposal output
 that confirms the accepted plan is documented in section 1.5 of
 `skills/charter/references/phases/phase-1-discovery.md`; this file
@@ -336,7 +336,7 @@ Coordination Dependencies section for qualifying entries, and does
 NOT parse the document for feature-sequencing surface. The chain
 that produced a STRATEGY produces a ROADMAP.
 
-`/charter` still READS those sections. The handoff pre-population
+`/charter` still READS those sections. The scope-handoff key write
 below derives Candidate Features from Building Blocks and the
 Dependency Sketch from Coordination Dependencies, and the
 confirmation prompt's observation walk reads the STRATEGY to tell

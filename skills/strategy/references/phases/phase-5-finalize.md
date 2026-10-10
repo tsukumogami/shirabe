@@ -91,7 +91,8 @@ Options:
    ROADMAP to reference it as a stable upstream.
 2. **Request changes** — name what needs to change; the workflow loops
    back to Phase 2, Phase 3, or Phase 4 as appropriate.
-3. **Reject** — discard the draft. The session is closed `abandoned` and the
+3. **Reject** — discard the draft. On a direct run the session is closed
+   `abandoned` (under a parent, the parent closes it) and the
    file is deleted via `git rm`; no STRATEGY ships.
 
 Description field grounds the recommendation in the jury verdicts (e.g.,

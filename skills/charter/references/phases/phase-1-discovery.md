@@ -428,7 +428,8 @@ across runs; agents and eval scenarios assert against them.
 - **Bail** — the author abandons the chain. Routing is owned by
   the companion outline implementing the exit-path orchestration
   (the R8 tie-break rule between abandonment-forced and clean-
-  cancel based on whether any wip/ state exists for the topic).
+  cancel, based on `chain_ran` history and whether any child's
+  session holds work).
   The prompt option lives here; the routing behavior lives in
   the exit-path orchestration phase reference.
 

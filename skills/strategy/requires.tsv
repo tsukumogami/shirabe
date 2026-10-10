@@ -11,4 +11,8 @@ shirabe	transition	--reason	always
 git	-	-	always
 gh	-	-	always
 # Session keys: `koto context list strategy-<topic> --prefix research/phase4_`.
+koto	context add	-	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
 koto	context list	--prefix	always

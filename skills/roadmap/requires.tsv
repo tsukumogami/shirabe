@@ -18,6 +18,10 @@
 # before the R14 gate.
 # Session keys: SKILL.md "Session and Keys" and the phase files list a
 # session's keys by prefix.
+koto	context add	-	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
 koto	context list	--prefix	always
 shirabe	roadmap populate	--no-issues	always
 shirabe	transition	-	always

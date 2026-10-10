@@ -527,14 +527,15 @@ If such a child is found, the tie-break resolves to it and
 `triggering_child` is set to the child name. Proceed to artifact
 materialization.
 
-If no `planned_chain` entry has a non-empty wip/ intermediate,
-proceed to step 3.
+If no `planned_chain` entry's session holds work, proceed to
+step 3.
 
 ### Step 3 — Clean-Cancel Fallthrough
 
 When neither step 1 nor step 2 resolves to a child — no `chain_ran`
-history exists AND no `planned_chain` entry has a wip/ intermediate
-on disk — the chain ends with **clean-cancel**.
+history exists AND no `planned_chain` entry's session holds work
+(`has-work` exits 1 for every child) — the chain ends with
+**clean-cancel**.
 
 Clean-cancel means:
 
@@ -561,16 +562,16 @@ progress followed; tearing down the empty state file is correct.
 The R8 tie-break governs the routing of every Bail event. At the
 R7.5 chain-proposal Bail (or any other Bail trigger):
 
-- **With no prior wip/ intermediate AND no `chain_ran` history** —
-  the chain ends with clean-cancel (R8 step 3).
-- **With prior wip/ intermediate OR `chain_ran` history** — the
+- **With no child session holding work AND no `chain_ran` history**
+  — the chain ends with clean-cancel (R8 step 3).
+- **With a child session holding work OR `chain_ran` history** — the
   chain ends with abandonment-forced (R8 step 1 or step 2 resolves
   the triggering child).
 
 A chain-proposal Bail fired immediately after Phase 1 with no child
-invocation and no prior partial wip/ artifacts is the canonical
-clean-cancel case; a Bail fired after several phases or after a
-prior session left wip/ artifacts is the canonical
+invocation and no child session holding work is the canonical
+clean-cancel case; a Bail fired after several phases, or after a
+prior run left a child's session mid-flight, is the canonical
 abandonment-forced case.
 
 ## Reject vs Bail — The Load-Bearing Distinction

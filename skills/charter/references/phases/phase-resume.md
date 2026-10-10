@@ -17,9 +17,9 @@ pattern-level template at
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-resume-ladder-template.md`.
 Rows 5-8.5 are `/charter`'s parent-specific body slots: rows 5-6 fill
 the status-aware re-entry slot against an upstream STRATEGY; rows 7-8
-fill the partial-child-run slots against `/strategy` and `/vision`
-wip/ artifacts; row 8.5 fills the feeder-doc slot against an
-`/explore` handoff.
+fill the partial-child-run slots against `/strategy`'s and `/vision`'s
+live sessions (`skill-session.sh has-work`); row 8.5 fills the
+feeder-doc slot against an `/explore` handoff.
 
 The contract framing for drift detection plus the R14-widened
 child-internals isolation rule is cited from
@@ -658,8 +658,9 @@ in
 (see the R14-widened rule section and the per-parent surface
 table). `/charter`'s binding is the doc-emitting-children row of
 the surface table (frontmatter `status:` + git blob hash); the
-two `wip/` partial-run filenames in rows 7-8 are the documented
-exception for partial-run detection.
+read-only `has-work` session check in rows 7-8 is the documented
+exception for partial-run detection, and it reads liveness and the
+presence of a `work/` key, never key content.
 
 R14 isolation is enforced as a manual-review acceptance criterion:
 the reviewer verifies by code-path inspection that the ladder's
@@ -732,8 +733,8 @@ sufficient for drift detection.
 
 The ladder reads only the documented sources (the three permitted
 sources in the R14 Child-Internals Isolation section above, plus
-the two child `wip/` artifact filenames explicitly named in rows
-7-8, plus the `/explore` handoff at
+the `has-work` session check rows 7-8 run against `/strategy` and
+`/vision`, plus the `/explore` handoff at
 `wip/charter_<topic>_handoff.md` that row 8.5 reads, plus the
 existence and git-tracked status of the path in
 `consumed_upstream:` — metadata about that file, never its body).
