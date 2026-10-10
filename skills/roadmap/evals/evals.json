@@ -92,7 +92,7 @@
       "id": 7,
       "name": "crystallize-discrimination",
       "prompt": "/explore --auto --strategic improve CI pipeline reliability and add deployment automation",
-      "expected_output": "Exploration in strategic scope with multiple features to sequence. The crystallize framework's two stages still make the discrimination this scenario exists for: stage 1 scores 'a chain', and stage 2 prefers `/charter` over `/scope` on the multi-feature boundary, because more than one feature needs ordering and a sequenced ROADMAP is the strategic chain's terminal artifact. What moved is the invocation, not the scoring: Phase 5 writes wip/charter_ci-pipeline-reliability_handoff.md and names `/charter` as the command to run. /roadmap is reached inside that chain, by /charter, not by the router.",
+      "expected_output": "Exploration in strategic scope with multiple features to sequence. The crystallize framework's two stages still make the discrimination this scenario exists for: stage 1 scores 'a chain', and stage 2 prefers `/charter` over `/scope` on the multi-feature boundary, because more than one feature needs ordering and a sequenced ROADMAP is the strategic chain's terminal artifact. What moved is the invocation, not the scoring: Phase 5 leaves the handoff for /charter where /explore's handoff step currently puts it (its own surface, unchanged by this move) and names `/charter` as the command to run. /roadmap is reached inside that chain, by /charter, not by the router.",
       "files": [],
       "expectations": [
         "Transcript recognizes this as an /explore command, not /roadmap directly",

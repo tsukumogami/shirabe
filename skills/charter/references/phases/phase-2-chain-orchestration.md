@@ -44,6 +44,15 @@ rejected, or it stopped on an error), Phase 2 removes the key:
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch clear charter <topic>
 ```
 
+When the child was `/roadmap`, the same moment removes the scope
+handoff, whatever the outcome — resume row 6 reads the key's
+survival as proof `/roadmap` is mid-run, so a key outliving the
+return would misroute a later resume:
+
+```bash
+koto context remove charter-<topic> chain/roadmap-scope
+```
+
 The clear runs before anything else Phase 2 does after the child,
 so no later step, and no next child, ever sees a key meant for the
 previous one. The child reads the key with `skill-session.sh
