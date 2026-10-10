@@ -63,7 +63,8 @@ set -uo pipefail
 PROG=milestone
 usage() { sed -n '/^# Usage:/,/^# schema prints/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' >&2; exit 64; }
 die2() { echo "$PROG: $*" >&2; exit 2; }
-# An entry or a follow-ups file is at most this many bytes.
+# An entry is at most this many bytes (roadmap-status.sh --verdict holds the
+# entry file to the same cap).
 ENTRY_MAX=16384
 RE_TAG='^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
 RE_ROADMAP_PATH='^docs/roadmaps/([A-Za-z0-9._-]+/)*ROADMAP-[A-Za-z0-9._-]+\.md$'
