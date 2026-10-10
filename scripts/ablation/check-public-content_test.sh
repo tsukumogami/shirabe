@@ -240,6 +240,9 @@ expect_allow_error "a record with a malformed issue is an error" \
 expect_allow_error "a record missing fields is an error" \
     "$(printf 'wip-path\t%s\n' "$CASE_A")" \
     "expected 4 tab-separated fields"
+expect_allow_error "a record covering stdin is an error" \
+    "$(printf 'wip-path\tstdin\ttsukumogami/shirabe#738\treason\n')" \
+    "never covers stdin"
 expect_allow_error "a record carrying a refused shape is itself an error" \
     "$(printf 'wip-path\t%s\ttsukumogami/shirabe#738\tsee wi''p/plan_foo_state.md\n' "$CASE_A")" \
     "may quote the rule, never the content"
@@ -261,6 +264,12 @@ OUT=$(cd "$REPO_ROOT" && env -u PUBLIC_CONTENT_ALLOWLIST "$SUT" --denylist "$DEN
 case "$STATUS:$OUT" in
     0:*"allowed: scripts/check-template-directives_test.sh:"*) pass "the committed allow file covers the lint's own fixtures by default" ;;
     *) fail "the committed allow file covers the lint's own fixtures by default" "status $STATUS: $(printf '%s' "$OUT" | head -3)" ;;
+esac
+STATUS=0
+OUT=$(cd "$REPO_ROOT" && env -u PUBLIC_CONTENT_ALLOWLIST "$SUT" --denylist "$DENY" skills/scope/scripts/resume-probe_test.sh 2>&1) || STATUS=$?
+case "$STATUS:$OUT" in
+    0:*"allowed: skills/scope/scripts/resume-probe_test.sh:"*) pass "the committed allow file covers the probe's seeds by default" ;;
+    *) fail "the committed allow file covers the probe's seeds by default" "status $STATUS: $(printf '%s' "$OUT" | head -3)" ;;
 esac
 STATUS=0
 OUT=$(cd "$REPO_ROOT" && env PUBLIC_CONTENT_ALLOWLIST="" "$SUT" --denylist "$DENY" scripts/check-template-directives_test.sh 2>&1) || STATUS=$?

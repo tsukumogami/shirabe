@@ -88,7 +88,7 @@ while [ "$#" -gt 0 ]; do
         --require-denylist) require_denylist=1 ;;
         --diff) [ "$#" -ge 2 ] || die "--diff requires a base"; base="$2"; shift ;;
         --head) [ "$#" -ge 2 ] || die "--head requires a commit"; head="$2"; shift ;;
-        -h|--help) sed -n '2,60p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,66p' "$0"; exit 0 ;;
         --) shift; after_dashdash=("$@"); break ;;
         -) files+=("-") ;;
         -*) die "unknown option: $1" ;;
@@ -187,7 +187,7 @@ ALLOW_DEFAULT="$SCRIPT_DIR/check-public-content.allow"
 allow_file="${PUBLIC_CONTENT_ALLOWLIST-$ALLOW_DEFAULT}"
 allow="$TMP/allow"
 : > "$allow"
-if [ -n "$allow_file" ] && [ -f "$allow_file" ] && [ "$allow_file" != /dev/null ]; then
+if [ -n "$allow_file" ] && [ -f "$allow_file" ]; then
     lineno=0
     while IFS= read -r rec || [ -n "$rec" ]; do
         lineno=$((lineno + 1))
@@ -197,6 +197,9 @@ if [ -n "$allow_file" ] && [ -f "$allow_file" ] && [ "$allow_file" != /dev/null 
         case " $ALLOWLISTABLE " in
             *" $a_id "*) ;;
             *) die "allow file line $lineno: class '$a_id' is not allowlistable (only: $ALLOWLISTABLE)" ;;
+        esac
+        case "$a_file" in
+            stdin|-) die "allow file line $lineno: a record never covers stdin; only a named file can carry a deferral" ;;
         esac
         printf '%s' "$a_issue" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*#[0-9]+$' \
             || die "allow file line $lineno: issue must be owner/repo#N, got '$a_issue'"
