@@ -4,13 +4,13 @@ Define the dependency graph between issues.
 
 ## Resume Check
 
-If `wip/plan_<topic>_dependencies.md` exists, read it and skip to Phase 6.
+If key `work/dependencies.md` exists in `plan-<topic>`, read it and skip to Phase 6.
 
 ## Prerequisites
 
 Read:
-- `wip/plan_<topic>_decomposition.md` - Issue outlines with initial dependencies
-- `wip/plan_<topic>_manifest.json` - Generated issue bodies and complexity levels
+- Key `work/decomposition.md` - Issue outlines with initial dependencies
+- Key `work/manifest.json` - Generated issue bodies (keys `work/issue_<id>_body.md`) and complexity levels
 
 ## Goal
 
@@ -21,7 +21,7 @@ Establish clear sequencing:
 
 ## Input Type Branching
 
-Read `input_type` from `wip/plan_<topic>_decomposition.md` YAML frontmatter.
+Read `input_type` from key `work/decomposition.md`'s YAML frontmatter.
 
 - **design** or **prd**: Follow the standard dependency flow (steps 5.1 through 5.6)
 - **roadmap**: Follow the roadmap dependency import flow (step 5.R1), then rejoin at step 5.2
@@ -32,14 +32,14 @@ Read `input_type` from `wip/plan_<topic>_decomposition.md` YAML frontmatter.
 
 ### 5.R1 Import Roadmap Dependencies (input_type: roadmap only)
 
-Import dependencies from the roadmap's Sequencing Rationale section (captured in `wip/plan_<topic>_analysis.md` under "Sequencing Rationale" and "Cross-Feature Dependencies"):
+Import dependencies from the roadmap's Sequencing Rationale section (captured in key `work/analysis.md` under "Sequencing Rationale" and "Cross-Feature Dependencies"):
 
-1. Read `wip/plan_<topic>_analysis.md` to get the Sequencing Rationale and Cross-Feature Dependencies
+1. Read key `work/analysis.md` to get the Sequencing Rationale and Cross-Feature Dependencies
 2. For each dependency relationship:
    - **Hard dependencies** (technical blockers explicitly stated in the Sequencing Rationale, e.g., "Feature B requires Feature A's API"): Map to `Blocked by <<ISSUE:N>>` edges
    - **Soft dependencies** (ordering preferences, e.g., "Feature B ideally follows Feature A"): Record as notes in the dependency artifact, NOT as `Blocked by` edges
 3. Match feature names from the analysis artifact to issue IDs from the decomposition artifact
-4. Update the issue outlines in `wip/plan_<topic>_decomposition.md` if any hard dependencies were missing from Phase 3's initial mapping
+4. Update the issue outlines in key `work/decomposition.md` (get it, edit, add it back) if any hard dependencies were missing from Phase 3's initial mapping
 
 After importing, proceed to step 5.2 to build the dependency graph.
 
@@ -84,7 +84,8 @@ Check for problems:
 
 ### 5.6 Write Artifact
 
-Create `wip/plan_<topic>_dependencies.md` (Write tool):
+Write key `work/dependencies.md` in `plan-<topic>` (`koto context add plan-<topic> work/dependencies.md`,
+the content on stdin):
 
 ```markdown
 # Plan Dependencies: <design-doc-name>

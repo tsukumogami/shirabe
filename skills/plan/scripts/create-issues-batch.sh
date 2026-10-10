@@ -25,7 +25,7 @@
 #       "issue_id": "1",
 #       "title": "feat: add X",
 #       "complexity": "testable",
-#       "file": "wip/plan_issue_1_body.md",
+#       "file": "issue_1_body.md",
 #       "status": "PASS",
 #       "dependencies": [],
 #       "needs_label": "needs-design"
@@ -48,7 +48,12 @@
 #   2 - Invalid arguments
 #
 # Example:
-#   create-issues-batch.sh --manifest wip/plan_issue_manifest.json --milestone "v1.0"
+#   create-issues-batch.sh --manifest "$DIR/manifest.json" --milestone "v1.0"
+#
+# A relative "file" resolves against the manifest's directory. /plan keeps the
+# manifest and the bodies as keys in its koto session (plan-<topic>) and
+# materializes them together into a scratch directory ($DIR above, from
+# `scripts/skill-session.sh scratch` and `get`) before calling this script.
 
 set -euo pipefail
 

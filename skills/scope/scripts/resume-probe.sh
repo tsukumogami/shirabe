@@ -7,9 +7,10 @@
 # skills/scope/references/phases/phase-resume.md, which stays the normative
 # spec and names this probe's exit code on every row.
 #
-# It reads the artifact tree, the run's state file, the child partials under
-# wip/, the /explore handoff, and the current branch name. It writes nothing,
-# and it makes no gh call and no network call. RUN_INTENT arrives as an
+# It reads the artifact tree, the run's state file, the four children's koto
+# sessions (through scripts/skill-session.sh has-work, which only reads), the
+# /explore handoff, and the current branch name. It writes nothing, it ticks
+# no session, and it makes no gh call and no network call. RUN_INTENT arrives as an
 # argument, because the intent shortcuts (rows 40 and 44) exist only on intent
 # runs and a plan-active topic (row 41) is refused only without one.
 #
@@ -43,18 +44,23 @@
 #     48  a Draft PRD                                          -> resume_draft
 #     49  an Accepted or Done BRIEF                            -> setup
 #     50  a Draft BRIEF                                        -> resume_draft
-#   Slot 6, a child partial
-#     60  wip/plan_<topic>_*
-#     61  wip/design_<topic>_coordination.json
-#     62  wip/prd_<topic>_decisions.md
-#     63  wip/brief_<topic>_*
+#   Slot 6, a child partial: the child's session <child>-<topic> is live,
+#   belongs to this branch and holds a key under work/ (`skill-session.sh
+#   has-work <child> <topic>`)
+#     60  plan-<topic>
+#     61  design-<topic>
+#     62  prd-<topic>
+#     63  brief-<topic>
 #   Slot 7, and the meta-ladder tail
 #     12  the /explore handoff wip/scope_<topic>_handoff.md
 #     11  nothing on disk, on a branch whose name contains the topic
 #     10  nothing on disk, any other branch
 #
 #   2   cannot tell: an invalid topic or intent, an artifact whose status
-#       cannot be read, or a git read that failed
+#       cannot be read, a git read that failed, or a child session whose state
+#       koto could not report (has-work exit 4). koto absent from PATH
+#       (has-work exit 127) means no child session can exist, so Slot 6
+#       matches nothing.
 #   64  usage error
 #
 # A status outside the sets above (a Superseded DESIGN, say) is not a row of
@@ -68,11 +74,16 @@
 #
 # The working directory is the repository being scoped. SCOPE_PROBE_NOW, an
 # epoch second count, replaces the clock for the staleness test (tests only).
+# KOTO_BIN and KOTO_SESSIONS_BASE reach skill-session.sh unchanged.
 #
-# Requires: bash 3.2+, git, awk.
+# Requires: bash 3.2+, git, awk; koto and jq for Slot 6.
 set -uo pipefail
 
 PROG=resume-probe
+
+HERE=$(cd -P -- "$(dirname -- "$0")" && pwd -P)
+SKILL_SESSION="$HERE/../../../scripts/skill-session.sh"
+BASH_BIN="${BASH:-bash}"
 
 RE_TOPIC='^[a-z0-9][a-z0-9-]*$'
 RE_PR_URL='^https://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/pull/[1-9][0-9]*$'
@@ -361,18 +372,26 @@ fi
 
 # --- Slot 6: a child partial -------------------------------------------------------------
 
-has_prefix() { # has_prefix <glob-prefix> -- any wip/ entry starting with it
-    local p
-    for p in "$1"*; do
-        present "$p" && return 0
-    done
-    return 1
+# child_partial <child> -- exit 0 when the child's session is live on this
+# branch and holds a work/ key. Only the child writes work/ keys in its own
+# session, so a match always means the child itself ran; no feeder document
+# can imitate one.
+child_partial() {
+    local rc=0 err
+    err=$("$BASH_BIN" "$SKILL_SESSION" has-work "$1" "$TOPIC" 2>&1 >/dev/null) || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1|127) return 1 ;;
+        *) cannot_tell "skill-session.sh has-work $1 $TOPIC exited $rc: $err" ;;
+    esac
 }
 
-has_prefix "wip/plan_${TOPIC}_" && row 60 plan-partial
-present "wip/design_${TOPIC}_coordination.json" && row 61 design-partial
-present "wip/prd_${TOPIC}_decisions.md" && row 62 prd-partial
-has_prefix "wip/brief_${TOPIC}_" && row 63 brief-partial
+[ -f "$SKILL_SESSION" ] || cannot_tell "scripts/skill-session.sh not found at $SKILL_SESSION"
+
+child_partial plan && row 60 plan-partial
+child_partial design && row 61 design-partial
+child_partial prd && row 62 prd-partial
+child_partial brief && row 63 brief-partial
 
 # --- Slot 7 and the tail ------------------------------------------------------------------
 

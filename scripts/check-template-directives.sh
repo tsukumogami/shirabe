@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Fails the build on the two koto authoring shapes the engine punishes silently.
+# Fails the build on the koto authoring shapes the engine punishes silently,
+# and on /scope gates that read the staging folder.
 #
 # Both are shapes a template compiles cleanly with. `koto template compile`
 # reports neither, and nothing at runtime raises them either -- the run simply
@@ -47,12 +48,21 @@ set -euo pipefail
 # finished, which is the self-report the design exists to remove. An evidence
 # field is the same self-report arriving through the agent instead.
 #
+# The rule has a second limb, over a gate's own command string only: a /scope
+# gate command that names `wip/` at all fails (rule id staging-folder-read).
+# /scope's children keep their working state as keys in their own koto
+# sessions (references/skill-session-convention.md), so a gate that looks for a
+# child's files in the staging folder decides on files nothing writes any more.
+# The bail state asks `scripts/skill-session.sh has-work` over the four
+# children instead. The limb reads the gate's command, not the scripts it
+# invokes: an invoked script is still held only to the parent state-file prefix limb above,
+# because the enforcement layer (publish-scoping-pr.sh's untrack pathspec) and
+# the state file's readers still name the folder until later work moves them.
+#
 # Three boundaries are deliberate:
 #
-#   `wip/` on its own is not flagged. Only the parent's own `wip/scope_`
-#   prefix is. The design's bail state legitimately reads child-intermediate
-#   `wip/` prefixes, and flagging those would make the shipped template
-#   unwritable.
+#   In an invoked script, `wip/` on its own is not flagged. Only the parent's
+#   own state-file prefix is; the staging-folder limb covers gate commands.
 #
 #   A template variable is not an evidence field. `{{KEY}}` references are
 #   stripped before matching. koto resolves and compile-time-validates them,
@@ -114,9 +124,10 @@ TAB=$(printf '\t')
 
 errors=0
 
-# The two rule identifiers, used in allowlist records and in findings.
+# The rule identifiers, used in allowlist records and in findings.
 RULE_UNGUARDED="unguarded-evidence"
 RULE_STATE_FILE="state-file-read"
+RULE_STAGING="staging-folder-read"
 
 # -- allowlist ---------------------------------------------------------------
 
@@ -319,6 +330,15 @@ reads_state_file() {
     return 1
 }
 
+# names_staging_folder <text> -- any path under the staging folder. Applied to
+# a gate's own command string only (see the header's second limb).
+names_staging_folder() {
+    case "$1" in
+        *wip/*) return 0 ;;
+    esac
+    return 1
+}
+
 # reads_evidence <text> -- koto's agent-submitted evidence namespace.
 #
 # `${evidence.<field>}` is the form koto itself uses. `$evidence.` and
@@ -499,6 +519,19 @@ report_state_file() {
     errors=$((errors + 1))
 }
 
+# report_staging_folder <state> <gate> <where> <line-text>
+report_staging_folder() {
+    local state="$1" gate="$2" where="$3" text="$4"
+    echo "FAIL: $where state '$state' gate '$gate': gate command names the staging folder"
+    echo "  line: $(printf '%s' "$text" | sed 's/^[[:space:]]*//')"
+    echo "  /scope's children keep their working state as keys in their own koto"
+    echo "  sessions, so files under the staging folder are not where a child's"
+    echo "  progress is. A gate looking there decides on files nothing writes."
+    echo "  Fix: ask the sessions -- scripts/skill-session.sh has-work <child>"
+    echo "  <topic> exits 0 when the child's session holds work/ keys."
+    errors=$((errors + 1))
+}
+
 # report_evidence <state> <gate> <where> <line-text> <kind>
 report_evidence() {
     local state="$1" gate="$2" where="$3" text="$4" kind="$5"
@@ -577,6 +610,9 @@ check_rule_state_file() {
             report_state_file "$state" "$gate" "$rel:$lineno" "$text" "gate"
         elif reads_evidence "$stripped"; then
             report_evidence "$state" "$gate" "$rel:$lineno" "$text" "gate"
+        elif names_staging_folder "$stripped" \
+            && ! allowlist_has "$RULE_STAGING" "$rel" "$gate"; then
+            report_staging_folder "$state" "$gate" "$rel:$lineno" "$text"
         fi
 
         # Queue every script the gate invokes. Rule two covers what those
@@ -672,7 +708,7 @@ check_template() {
 
 # -- main --------------------------------------------------------------------
 
-allowlist_load "$ALLOWLIST" template "$RULE_UNGUARDED" "$RULE_STATE_FILE"
+allowlist_load "$ALLOWLIST" template "$RULE_UNGUARDED" "$RULE_STATE_FILE" "$RULE_STAGING"
 errors=$((errors + allowlist_rejected))
 
 TEMPLATES=""

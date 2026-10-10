@@ -36,14 +36,17 @@ Complex (3+ options, trade-offs genuinely contested, stakeholders disagree)>
 After writing the brief:
 
 1. Read the decision skill: `skills/decision/SKILL.md`
-2. Invoke the decision skill with the brief as input context:
+2. Invoke the decision skill as a direct run on `<topic>`, with the brief as
+   input context. It opens and closes its own session, `decision-<topic>`
+   (see the skill's Session and Keys):
    - question: from the Decision Question section
-   - prefix: `explore_<topic>_decision`
    - options: from Known Options (if any)
    - constraints: from Constraints
    - background: from Context
    - complexity: from Complexity Signal ("simple" → standard, "complex" → critical)
-3. The decision skill runs its phases and produces `wip/explore_<topic>_decision_report.md`
+3. The decision skill runs its phases and writes its report as key
+   `work/report.md` in `decision-<topic>` (`koto context get decision-<topic>
+   work/report.md` reads it)
 4. The report serves as the Decision Record (ADR)
 
 ## Escalation from Lightweight

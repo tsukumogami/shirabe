@@ -4,21 +4,21 @@ The decider reads all findings and produces the final decision report.
 
 ## Resume Check
 
-If `wip/<prefix>_report.md` exists, the decision is complete. Skip this phase.
+If key `<report_key>` exists in `<session>`, the decision is complete. Skip this phase.
 
 ## Steps
 
 ### 6.1 Read All Inputs
 
 **Fast path (Tier 3):**
-- Context artifact (`wip/<prefix>_context.md`)
-- Research findings (`wip/<prefix>_research.md`)
-- Alternatives comparison (`wip/<prefix>_alternatives.md`)
+- Context (key `<key_dir>/context.md`)
+- Research findings (key `<key_dir>/research.md`)
+- Alternatives comparison (key `<key_dir>/alternatives.md`)
 
 **Full path (Tier 4):**
 - All of the above, plus:
-- Bakeoff reports (`wip/<prefix>_bakeoff_*.md`)
-- Cross-examination record (`wip/<prefix>_examination.md`)
+- Bakeoff reports (keys `<key_dir>/bakeoff_*.md`)
+- Cross-examination record (key `<key_dir>/examination.md`)
 
 ### 6.2 Synthesize Decision
 
@@ -31,7 +31,8 @@ record provides the most refined view -- focus on:
 
 ### 6.3 Write Decision Report
 
-Write `wip/<prefix>_report.md` using the canonical format from
+Write key `<report_key>` in `<session>` (`koto context add <session>
+<report_key>`, the content on stdin) using the canonical format from
 `references/decision-report-format.md`:
 
 ```markdown
@@ -67,17 +68,20 @@ Apply the status threshold from `references/decision-block-format.md`:
 - If assumptions exist, or evidence was contested, or the decision was made in
   --auto mode without user confirmation: `assumed`
 
-### 6.5 Cleanup Intermediate Artifacts
+### 6.5 Remove the Intermediate Keys
 
-Delete all intermediate files for this decision:
-- `wip/<prefix>_context.md`
-- `wip/<prefix>_research.md`
-- `wip/<prefix>_alternatives.md`
-- `wip/<prefix>_bakeoff_*.md`
-- `wip/<prefix>_examination.md`
+Remove every intermediate key for this decision (`koto context remove
+<session> <key>` for each):
+- `<key_dir>/context.md`
+- `<key_dir>/research.md`
+- `<key_dir>/alternatives.md`
+- `<key_dir>/bakeoff_<k>.md`, each one `koto context list <session> --prefix
+  <key_dir>/bakeoff_` lists
+- `<key_dir>/examination.md`
 
-Only the report (`wip/<prefix>_report.md`) persists. This is essential for
-multi-decision contexts where 5 decisions would otherwise produce 25+ files.
+Only the report (key `<report_key>`) persists, so a parent reading the session
+finds one answer per decision and a restarted decision starts fresh. Nothing
+is deleted from the staging folder: `/decision` writes nothing there.
 
 ### 6.6 Return Result
 
@@ -94,17 +98,26 @@ decision_result:
   rejected:
     - name: "<alt>"
       reason: "<reason>"
-  report_file: "wip/<prefix>_report.md"
+  report_key: "<report_key>"
 ```
 
-If running standalone, commit the report and present a summary to the user.
+If running standalone, present a summary and the report to the user (it stays
+readable as key `work/report.md` in `decision-<topic>`), then close the
+session:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close decision-<topic> done
+```
+
+Under a parent skill, close nothing: the parent owns the session and closes
+it at its own end.
 
 ## Quality Checklist
 
 - [ ] All relevant inputs read (fast path or full path)
 - [ ] Decision report written in canonical format
 - [ ] Status correctly assigned (confirmed vs assumed)
-- [ ] Intermediate artifacts cleaned up
+- [ ] Intermediate keys removed; a standalone run closed `decision-<topic>`
 
 ## Next Phase
 
