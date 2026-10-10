@@ -240,21 +240,46 @@ second pending edit; per-Action `--confirm` and `--list`; `verdict_owed` in
 **Type**: refinement
 **Complexity**: testable
 
-**Goal**: When a PLAN completes under a `roadmap/v2` roadmap the cascade
-writes nothing to the roadmap, never deletes it, records its roadmap step
-`skipped` with the Done-rule detail and reports `completed`; feature
-roadmaps keep today's behaviour.
+**Goal**: When a PLAN completes under a `roadmap/v2` roadmap, the completion
+cascade (`skills/work-on/scripts/run-cascade.sh`) writes nothing to the
+roadmap, never transitions or deletes it, records its roadmap step `skipped`
+with a detail naming the milestone Done rule, and reports `completed` when
+no other step failed; feature roadmaps keep today's behaviour, including the
+`**Downstream:**` Done write and the not-found `partial`.
+
+This step is independent of the coordinate scripts steps 1 and 2 changed.
+The coordinator side already never writes Done on landing for a milestone
+roadmap (step 1), so this closes the remaining merge-driven path.
 
 **Acceptance Criteria**:
-- [ ] A `run-cascade_test.sh` scenario on a v2 roadmap in a scratch git
-  repository shows `cascade_status` `completed`, an `update_roadmap_feature`
-  step `skipped` with the detail naming the milestone Done rule, the
-  roadmap's hash unchanged, and the roadmap present; another with every
-  milestone Done shows it isn't deleted.
-- [ ] The existing feature-roadmap scenarios, including the
-  `**Downstream:**` Done write and the not-found `partial`, still pass.
-- [ ] The acceptance suite's PR-bearing milestone, after its PLAN's cascade
-  runs, still reads In progress until its verdict edit is confirmed.
+- [ ] `handle_roadmap` reads the roadmap's frontmatter `schema:` before its
+  `**Downstream:**` lookup. For `roadmap/v2` it records the step through
+  `add_step` with action `update_roadmap_feature`, the roadmap path as
+  target, `found_in` null, status `skipped` and the detail `milestone
+  roadmap: status follows a recorded verdict (roadmap format, When a
+  milestone is Done)`. It writes nothing to the file and returns without
+  calling `handle_roadmap_deletion`, even when the roadmap carries a
+  `**Downstream:**` line naming the plan.
+- [ ] A new `run-cascade_test.sh` scenario, copied from the
+  roadmap-feature-not-found and design-roadmap scenarios, runs a PLAN whose
+  chain reaches a v2 roadmap (with no `**Downstream:**` line) in a scratch
+  git repository. It asserts `cascade_status` is `completed`, the step
+  record above appears verbatim, the roadmap's `git hash-object` is
+  unchanged, and the file is still tracked after the finalization commit.
+- [ ] A second v2 scenario has every milestone reading Done and a
+  `**Downstream:**` line naming the plan. It asserts the roadmap is neither
+  transitioned nor deleted and no milestone's Status line changed.
+- [ ] The existing feature-roadmap scenarios still pass unchanged, among
+  them the `**Downstream:**` Done write, the not-found `partial` and the
+  deletion scenarios.
+- [ ] A frontmatter that can't be read (no closing `---`, or no `schema:`
+  line) is treated as a feature roadmap, exactly as today. A scenario pins
+  that.
+- [ ] `run-cascade_test.sh` passes locally (it rebuilds shirabe with cargo;
+  set TMPDIR to a mktemp directory outside /var/folders if the host's
+  symlinked temp path breaks it) and stays in `check-execute-scripts.yml`
+  and in `scripts/check-bash-floor.sh`'s list. The step changes no
+  coordinate script.
 
 **Dependencies**: Issue 1
 
@@ -292,7 +317,9 @@ clauses it advances or `advances none`.
 **Goal**: A failure recorded against a Done milestone is checked, posted,
 and followed by a pull request setting it In progress; once confirmed the
 picker offers it again with the failure in its brief, and close-out waits
-while the reopen edit is pending.
+while the reopen edit is pending. Step 2's rework row (Who `verdict <id>`)
+and the confirm path's entry-reading helpers are specific to verdict
+entries; this step widens both for failure entries.
 
 **Acceptance Criteria**:
 - [ ] `milestone.sh check-failure` accepts a well-formed failure against a
@@ -350,6 +377,10 @@ covers every criterion of the feature's requirements.
   follows the PRD over the design: a changes-needed edit leaves Delivered
   unchanged, and a verdict-owed row's Who is `none` when no holding names the
   milestone, in which case the checker check is skipped.
+- [ ] The coordinate documentation also covers what step 2 landed:
+  `--follow-ups` and its file format, the rework row and the brief heading
+  that quotes it, the entry-to-comment binding, and that close-out reuses
+  the `verdict-owed` word and code 49.
 
 **Dependencies**: Issue 3, Issue 4, Issue 5
 
