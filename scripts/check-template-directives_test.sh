@@ -462,7 +462,7 @@ EOF
     cat > "$TEST_DIR/skills/scope/scripts/publish-scoping-pr.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-git rm --cached -- "wip/""scope_${2}_state.md" 2>/dev/null || true
+git rm --cached -- "wip/scope_${2}_state.md" 2>/dev/null || true
 EOF
     chmod +x "$TEST_DIR/skills/scope/scripts/publish-scoping-pr.sh"
     assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
@@ -845,7 +845,7 @@ EOF
 # The gate command is clean; this script's own folder read stays legal.
 set -euo pipefail
 slug="$1"
-ls "wip/""brief_${slug}_notes.md"
+ls "wip/brief_${slug}_notes.md"
 EOF
     chmod +x "$TEST_DIR/skills/scope/scripts/fixture-untrack.sh"
     assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
