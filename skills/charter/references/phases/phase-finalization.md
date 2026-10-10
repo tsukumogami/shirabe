@@ -517,10 +517,11 @@ Take the first entry in `planned_chain` whose session holds work:
 `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" has-work <child>
 <topic>` exits 0 for a live `<child>-<topic>` on this branch with a
 key under `work/`. The tie-break runs inside a chain whose state
-file records that the child was invoked, so a `work/` key is
-evidence of which child was in flight; the same check in ladder
-rows 7-8 fires with no state file at all, which is why those rows
-sit below the artifact rows.
+file records that the child was invoked, so a `work/` key here is
+direct evidence of which child was in flight. Ladder rows 7-8 run
+the same check in a weaker position — no state file survives there
+— which is why the ladder consults the published artifacts first
+and reaches those rows only when the documents say nothing.
 
 If such a child is found, the tie-break resolves to it and
 `triggering_child` is set to the child name. Proceed to artifact
@@ -651,16 +652,26 @@ thing finalization does
 `close-children` closes only a live `<child>-<topic>` whose
 `chain/parent` names this parent and whose `session/branch` matches
 the current branch, so a direct run's session or another worktree's
-chain is never touched. It takes the same value as the parent's own
-close below, and like it is idempotent, with the children's keys
-staying readable after the close.
+chain is never touched. Like the parent's own close it is
+idempotent, and the children's keys stay readable after the close.
 
-| How the run ended | Close with |
-|---|---|
-| Exit 1, full-run | `done` |
-| Exit 2, re-evaluation (either sub-shape) | `done` |
-| Exit 3, abandonment-forced (a bail mid-chain or inside a child) | `abandoned` |
-| Clean-cancel (a bail with no chain progress) | `abandoned` |
+The two closes do not always take the same value. The children
+close `done` only on a full-run exit, where their work survives in
+the chain's documents; on both re-evaluation sub-shapes (a rejected
+STRATEGY included) and on abandonment-forced they close `abandoned`,
+because the chain stopped before their work became a surviving
+document. The parent's own value follows the table below: `done` on
+full-run and re-evaluation — a re-evaluation is a deliberate
+finalization judgment, recorded in a Decision Record, not an
+abandonment of the parent's run — and `abandoned` on
+abandonment-forced and clean-cancel.
+
+| How the run ended | Children close with | Parent closes with |
+|---|---|---|
+| Exit 1, full-run | `done` | `done` |
+| Exit 2, re-evaluation (either sub-shape) | `abandoned` | `done` |
+| Exit 3, abandonment-forced (a bail mid-chain or inside a child) | `abandoned` | `abandoned` |
+| Clean-cancel (a bail with no chain progress) | `abandoned` | `abandoned` |
 
 On the three exits the close follows the R9 hard finalization check
 accepting the state; when the check surfaces an error, the session

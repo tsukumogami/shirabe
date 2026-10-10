@@ -105,8 +105,9 @@ On startup, check for key `work/scope.md` in `vision-<topic>` anyway. It is
 what this skill's own Phase 1 writes, so finding one means an earlier run got
 through scoping and stopped before Phase 2 finished. Skip Phase 1 and resume at Phase 2
 against it -- the scope key already holds the problem statement and research
-leads. /charter's resume ladder reads the same key for the same reason, to
-route a partial run back into /vision.
+leads. /charter's resume ladder routes a partial run back into /vision the
+same way, through `skill-session.sh has-work vision <topic>` — a live
+session holding any `work/` key.
 
 If it does not exist, start from Phase 1.
 

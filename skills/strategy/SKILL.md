@@ -270,8 +270,9 @@ STRATEGY exists with status "Draft"                      -> Offer to continue fr
 keys research/phase4_* exist in strategy-<topic>         -> Resume at Phase 4 (aggregate)
 STRATEGY has Building Blocks section                     -> Resume at Phase 4
 STRATEGY has Defensibility Thesis section                -> Resume at Phase 3
-key work/discover.md exists in strategy-<topic>       -> Resume at Phase 2
-key work/context.md exists in strategy-<topic>        -> Resume at Phase 1
+key work/discover.md exists in strategy-<topic>          -> Resume at Phase 2
+key work/context.md exists in strategy-<topic>           -> Resume at Phase 1
+On a branch related to the topic                         -> Resume at Phase 1
 None of the above                                        -> Start at Phase 0
 ```
 
