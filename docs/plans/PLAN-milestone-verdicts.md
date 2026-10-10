@@ -352,34 +352,74 @@ v2 skip. CI at the step 3 head fails on these checks, which this step fixes:
 **Goal**: A failure recorded against a Done milestone is checked, posted,
 and followed by a pull request setting it In progress; once confirmed the
 picker offers it again with the failure in its brief, and close-out waits
-while the reopen edit is pending. Step 2's rework row (Who `verdict <id>`)
-and the confirm path's entry-reading helpers are specific to verdict
-entries; this step widens both for failure entries.
+while the reopen edit is pending.
+
+Steps 1 to 4 landed (build on them): `milestone.sh` with `schema`,
+`evidence`, `check-verdict`, `progress-has` and `check-goal-fit` (the last
+two share one entry reader, so `check-failure` goes beside them); the
+codec's closed `milestone-` Action prefix and the `verdict-owed` and `rework`
+Work kinds; `roadmap-status.sh --verdict`, per-Action `--confirm` and
+`--list`, the entry-to-comment binding, and the rework row (Who `verdict
+<comment id>`, Next the rework text, cleared at dispatch and by a later
+confirmed verdict); `rework` in `pick-facts.sh` and quoted by
+`render-brief.sh`; close-out code 49 (`verdict-owed`); `record-append.sh`
+kinds `milestone-verdict` and `goal-fit`; the board test helpers copy
+`milestone.sh`. The rework row's Who rule and the confirm path's
+entry-reading helpers (`rework_of` and the posted-entry read) are specific
+to verdict entries; this step widens them for failure entries without
+changing what a verdict does.
 
 **Acceptance Criteria**:
-- [ ] `milestone.sh check-failure` accepts a well-formed failure against a
-  Done milestone and refuses one against a milestone not Done, a clause out
-  of range, a malformed entry and What-was-seen text outside its closed
-  shape; `record-append.sh` accepts `milestone-failure`.
-- [ ] `roadmap-status.sh --reopen` opens a pull request setting In progress
-  with the reopen Progress line and the entry in its body, writes a
-  `milestone-reopen` row, lists dependents that hold a worker, and refuses a
-  second edit while one is pending; `--confirm` checks In progress and
-  writes a `rework` row with the clause and what was seen.
-- [ ] The record codec accepts and renders the Side effects Action
-  `milestone-reopen`, and the reporter is refused outside its closed shape.
-- [ ] `wait` accepts `event: failure` with `unit`, routing to a new
-  `milestone_reopen` state (`status: opened|failed`, `unit`) with its
-  record-confirm rule, mermaid edges and structure-test entry.
-- [ ] While the reopen edit is pending the picker doesn't offer the
-  milestone; once the reopen is confirmed it lists it not done and offers
-  it, its next brief quotes the failure, a dependent reads
-  blocked, and close-out refuses while the reopen edit is pending.
-- [ ] A test in `crates/shirabe-validate` shows a milestone roadmap with a
-  reopened milestone and a reopen Progress line validates.
-- [ ] A failure or verdict entry posted with no matching record-body change
-  sets nothing, clears nothing, re-offers nothing and doesn't let close-out
-  pass.
+- [ ] `milestone.sh check-failure ROADMAP TAG ENTRY [--today DATE]` accepts
+  a well-formed failure (`Failure: <tag>`, `Reported by:`, `Seen on:`,
+  `Clause: <n>`, `What was seen:`) against a milestone that reads Done. It
+  refuses, naming the line: a milestone not Done, a clause number out of
+  range, a malformed or reordered entry, a future `Seen on`, a reporter
+  outside its closed shape (a login, session name or plain name, at most 60
+  characters, no backticks, control characters or `wip/` path), What-was-
+  seen text outside its closed shape (one paragraph, at most 600 bytes, no
+  URLs or markdown links, no control characters), and a file over 16 KiB.
+  `record-append.sh` accepts the kind `milestone-failure` and still refuses
+  an unknown kind.
+- [ ] `roadmap-status.sh --reopen TAG --entry-file F --entry-url URL` binds
+  the file to the posted `milestone-failure` comment on this run's record
+  issue, refuses while any roadmap edit is pending, and opens one pull
+  request. Its diff sets TAG's Status to In progress and appends `- <date>:
+  <TAG> -- reopened: clause <n> failed, reported by <reporter> (<URL>,
+  <hash8>)` to Progress, and its body carries the entry. It writes a Side
+  effects row with Action `milestone-reopen` (How to confirm `reads <TAG> In
+  progress`), prints the tags of milestones that depend on TAG and have a
+  holding, and never merges.
+- [ ] `--confirm TAG` on a `milestone-reopen` row checks the default branch
+  reads TAG In progress and writes a `rework` row (Who `failure <comment
+  id>`) whose Next carries `Evidence clause <n> failed: <what was seen>`
+  under the rework shape. The codec accepts that Who form, and the verdict
+  path's rework behaviour is unchanged.
+- [ ] `wait` accepts `event: failure` (with `unit`), routing to a new agent
+  state `milestone_reopen` that accepts `status: opened|failed` and `unit`.
+  `opened` goes to `record`, whose `record-confirm.sh` rule requires a
+  pending `milestone-reopen` row naming the unit; `failed` goes to `wait`.
+  The directive walks writing, checking (`check-failure`), posting and
+  `--reopen`, and says to tell the person who owns any held dependent it
+  prints. `coordinate.mermaid.md` is regenerated with `koto template
+  export`, and the structure test's WANT list, rule coverage and the
+  template checks are updated.
+- [ ] `milestone-verdicts_test.sh` takes the host-state milestone to Done,
+  records a failure against it and opens the reopen edit. While the edit is
+  pending, the picker doesn't offer the milestone and close-out refuses.
+  After the stand-in's default branch takes the edit and `--confirm` runs,
+  the picker lists it not done and offers it, the next rendered brief quotes
+  the failure under the rework heading, and a milestone depending on it
+  reads blocked. A failure or verdict entry posted with no matching
+  record-body change sets nothing, clears nothing, re-offers nothing and
+  doesn't let close-out pass.
+- [ ] A test in `crates/shirabe-validate` shows that a `roadmap/v2` roadmap
+  whose milestone went from Done back to In progress, with a reopen Progress
+  line, validates clean. Run cargo tests with TMPDIR outside /var/folders.
+- [ ] The engine suite ticks `failure` and reaches `milestone_reopen` and
+  then `record`. Every new or changed script and test is in
+  `scripts/check-bash-floor.sh`'s coordinate list, and `run-tests.sh` and
+  the public-content scan pass.
 
 **Dependencies**: Issue 2
 
@@ -420,6 +460,9 @@ covers every criterion of the feature's requirements.
   skips a `roadmap/v2` roadmap (one `update_roadmap_feature` step at
   `skipped`, the run still `completed`), and that when a PLAN's chain points
   straight at a v2 roadmap the `--push` after-commit check reads `skipped`.
+- [ ] The coordinate documentation describes the goal-fit entry, and both
+  `land-check.sh`'s `coord/land.json` header and the template's comment name
+  the `milestone` and `milestone_error` fields it carries.
 
 **Dependencies**: Issue 3, Issue 4, Issue 5
 
