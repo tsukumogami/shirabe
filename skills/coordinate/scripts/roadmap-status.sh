@@ -73,7 +73,12 @@
 # refuses (a checker or Work checked value outside its closed shape among
 # them), a verified-with-follow-ups verdict (its follow-up milestones aren't
 # written yet, so Done is never set without them), a TAG already reading Done
-# on the default branch, and any roadmap pull request already pending. For a
+# on the default branch, TAG's Evidence on the default branch differing from
+# its Evidence at Source (clauses are numbered by position, so a judgment is
+# never applied to Evidence it wasn't made against), and any roadmap pull
+# request already pending. Whether the default branch contains the Source
+# commit, and that the entry file matches the comment at URL, are not checked
+# here yet. For a
 # verified verdict the edit sets TAG's Status to Done, removes its Needs line
 # and appends the Work checked pull requests to its Delivered line (adding
 # the line after Status when there is none); for changes needed it leaves
@@ -393,6 +398,14 @@ if [ "$MODE" = verdict ]; then
         || refuse "$TAG is not a milestone with Evidence on $DEFAULT_BRANCH: $(lib_scrub < "$WD/m.err")"
     TITLE=$(jq -r .title "$WD/milestone.json")
     case "$(jq -r .status "$WD/milestone.json")" in Done*) refuse "$TAG already reads Done on $DEFAULT_BRANCH" ;; esac
+    # Clauses are identified by position in the Evidence at Source; a
+    # judgment is only good for the Evidence the default branch carries now,
+    # so a sharpened or renumbered Evidence list is re-checked, never edited
+    # against (Decision 3).
+    bash "$HERE/milestone.sh" evidence "$WD/source.md" "$TAG" > "$WD/source-milestone.json" 2> /dev/null \
+        || refuse "$TAG is not a milestone with Evidence at the entry's Source"
+    [ "$(jq -c .evidence "$WD/source-milestone.json")" = "$(jq -c .evidence "$WD/milestone.json")" ] \
+        || refuse "$TAG's Evidence on $DEFAULT_BRANCH differs from its Evidence at the entry's Source, $SRC_COMMIT; check the clauses again against the current Evidence and write a new entry"
     grep -qE $'^## Progress[ \t\r]*$' "$WD/roadmap.md" || refuse "$ROADMAP has no ## Progress section for the verdict's line"
     if command -v sha256sum > /dev/null 2>&1; then HASH=$(sha256sum < "$ENTRY_IN" | cut -c1-8)
     else HASH=$(shasum -a 256 < "$ENTRY_IN" | cut -c1-8); fi

@@ -36,7 +36,8 @@
 # opened: no verdict-owed row, an entry check-verdict refuses, verified with
 # follow-ups, a checker naming the holding worker, a checker or Work checked
 # value outside its shape, an entry file over 16 KiB, an entry URL that isn't
-# on the record, a Source naming another roadmap, and a TAG outside the
+# on the record, a Source naming another roadmap, Evidence on main that
+# differs from the Evidence at Source, and a TAG outside the
 # heading-tag grammar.
 #
 # Usage: bash skills/coordinate/scripts/roadmap-status_test.sh
@@ -366,6 +367,14 @@ vrefuse "an entry file over 16 KiB" MV1 "$T/big.txt" "https://github.com/acme/wi
 vrefuse "an entry URL that isn't a comment on the record" MV1 "$T/r.txt" "https://github.com/acme/widgets/issues/8#issuecomment-1001"
 sed "s|^Source: .*|Source: docs/roadmaps/ROADMAP-other.md at $SHA_MAIN|" "$T/r.txt" > "$T/r2.txt"
 vrefuse "a Source naming another roadmap" MV1 "$T/r2.txt"
+# Evidence sharpened on main since the entry's Source: the clauses it judged
+# are not the ones main carries now.
+db '.files["acme/widgets"][$k] = $t' --arg k "$SHA_OTHER:docs/roadmaps/ROADMAP-plugin-system.md" --arg t "$MV"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] |= sub("named as skipped"; "named as skipped, with the reason")'
+sed "s|^Source: .*|Source: docs/roadmaps/ROADMAP-plugin-system.md at $SHA_OTHER|" "$T/r.txt" > "$T/r3.txt"
+vrefuse "Evidence on main that differs from the Evidence at Source" MV1 "$T/r3.txt"
+grep -q "differs from its Evidence at the entry's Source" "$T/err" && ok "  ... saying to check the clauses again" || bad "  ... saying to check the clauses again" "$(cat "$T/err")"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $t' --arg t "$MV"
 bash "$RS" "${W[@]}" --verdict "not a tag" --entry-file "$T/r.txt" --entry-url "https://github.com/acme/widgets/issues/7#issuecomment-1001" >/dev/null 2>"$T/err"
 eq "a TAG outside the heading-tag grammar is refused" 65 $?
 eq "no refusal opened a pull request" 0 "$(jq '.prs | length' "$GH_DB")"
