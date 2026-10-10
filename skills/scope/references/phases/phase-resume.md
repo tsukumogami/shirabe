@@ -129,67 +129,49 @@ re-enter the chain at the row's own hop through `setup` and
 
 ## Slot 6 — Partial-Child-Run (4 rows, most-downstream-first)
 
-The 4 rows detect a child's wip-partial intermediate and re-invoke
-the child against its own resume ladder, most-downstream first:
+The 4 rows detect a mid-flight child from its session and re-invoke
+the child against its own resume ladder, most-downstream first. A
+child is mid-flight when its session `<child>-<topic>` is live,
+belongs to this branch, and holds a key under `work/` — the
+`skill-session.sh has-work` check
+(`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`),
+which only reads:
 
-- **6.1 `wip/plan_<topic>_*` exists [60].** Re-invoke `/plan` against
+- **6.1 `has-work plan <topic>` [60].** Re-invoke `/plan` against
   its own resume logic; do not re-run from scratch.
-- **6.2 `wip/design_<topic>_coordination.json` exists [61].** Re-invoke
-  `/design`.
-- **6.3 `wip/prd_<topic>_decisions.md` exists [62].** Re-invoke `/prd`.
-- **6.4 `wip/brief_<topic>_*` exists [63].** Re-invoke `/brief`.
+- **6.2 `has-work design <topic>` [61].** Re-invoke `/design`.
+- **6.3 `has-work prd <topic>` [62].** Re-invoke `/prd`.
+- **6.4 `has-work brief <topic>` [63].** Re-invoke `/brief`.
 
 Each code routes to `setup`, and `hop_select` then enters the
 partial's hop.
 
-**Why 6.2 and 6.3 name one file where 6.1 and 6.4 glob a prefix.**
-A child's scoping artifact is the one file in its namespace that a
-feeder doc imitates by construction. A feeder doc pre-supplies the
-child's Phase 1 output so the child can skip Phase 1, which lands it
-at the child's own scoping path: `wip/design_<topic>_summary.md` for
-`/design`, `wip/prd_<topic>_scope.md` for `/prd`. Neither file proves
-a `/design` or `/prd` run started, so neither can carry a row whose
-action is to jump straight into that child.
-`wip/design_<topic>_coordination.json` is `/design`'s decomposition
-ledger, written by its Phase 1 and by nothing else.
-`wip/prd_<topic>_decisions.md` is `/prd`'s autonomous-decision
-ledger, written at context resolution under `--auto`. Both exist only
-because the child itself ran. `/plan` and `/brief` write nothing at a
-scoping path a feeder doc would reach for (their intermediates are
-`wip/plan_<topic>_analysis.md`, `wip/brief_<topic>_discover.md`, and
-their siblings), so 6.1 and 6.4 keep the prefix glob.
+**Why a session key can carry a row a staging file could not.** Only
+the child writes `work/` keys in its own session, so a match always
+means the child itself ran. A feeder document — a pre-supplied Phase 1
+output that lets the child skip Phase 1 — lands on disk, not in the
+child's session, so no feeder can imitate a mid-flight child the way
+a `wip/prd_<topic>_scope.md` on disk once imitated an interrupted
+`/prd` run. The old rows' narrowed globs were defense in depth
+against exactly that collision; the session check removes the
+surface they defended.
 
-**The narrowing is defense in depth, not the live fix.** The
-collision was real: the old 6.3 globbed `wip/prd_<topic>_*`, which
-caught `wip/prd_<topic>_scope.md`, the file the pre-router
-`/explore` wrote for `/prd`, so a router handoff read as an
-interrupted `/prd` run and skipped `/brief`, Phase 1, and the chain
-proposal. What closed that is the move of the handoff to
-`wip/scope_<topic>_handoff.md`, which Slot 7 matches and no Slot 6
-row can. The narrowing covers what the move does not reach: a
-handoff left on disk by an older `/explore`, a hand-written feeder
-doc, or a future producer that reaches for the child-namespaced
-convention `/charter` still uses for its own pre-populated
-`/roadmap` handoff.
+**A finished session is not a partial.** `has-work` matches only a
+live session, so a child whose direct run finished and closed its
+session falls through to the Slot 5 artifact rows, which read the
+durable document's status. A session koto cannot report is the
+probe's cannot-tell [2]; koto absent from `PATH` means no child
+session can exist, so Slot 6 matches nothing and the ladder falls
+through.
 
-**What it costs is one hop, in the safe direction.** An interactive
-`/prd` interrupted after its own Phase 1 leaves only
-`wip/prd_<topic>_scope.md`, so no Slot 6 row fires and the ladder
-falls through to a normal start: Phase 0, Phase 1, the chain
-proposal. The scoping work is not lost. `/prd` resumes at its own
-Phase 2 off that same file when the chain reaches it, because that is
-what `/prd`'s resume ladder does with it. All the row gives up is a
-jump taken on evidence that cannot support it.
-
-Slugs recovered from on-disk paths during Slot 6 matches and during
-the Slot 7 feeder-doc match against `wip/scope_<topic>_handoff.md`
-follow the slug re-validation rule documented in
+The slug recovered during the Slot 7 feeder-doc match against
+`wip/scope_<topic>_handoff.md` follows the slug re-validation rule
+documented in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md`
 (Slug Re-Validation on Resume section): re-validate against
 `^[a-z0-9-]+$` before interpolation into any emitted shell command.
-Slot 7 is covered for the same reason the wip partials above are:
-the slug arrives from a filename found on disk, not from the
-author's argument.
+Slot 6 interpolates no recovered slug: the session names are composed
+from the validated topic, never read back from a key.
 
 ## Slot 7 — Feeder-Doc-Detected (the `/explore` handoff)
 

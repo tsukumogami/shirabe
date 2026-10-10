@@ -5,16 +5,16 @@
       "id": 1,
       "name": "design-doc-planning",
       "prompt": "/plan docs/designs/DESIGN-plugin-registry.md",
-      "expected_output": "Detects input_type as design, validates the design doc status is Accepted, runs all 7 phases, produces wip/ artifacts and a PLAN-plugin-registry.md with dependency graph and implementation sequence",
+      "expected_output": "Detects input_type as design, validates the design doc status is Accepted, runs all 7 phases, keeps its working state as keys in the plan-plugin-registry koto session (work/analysis.md and so on) and produces a PLAN-plugin-registry.md with dependency graph and implementation sequence",
       "files": [],
       "expectations": [
         "Transcript detects input_type as design from the DESIGN-*.md path pattern",
         "Transcript mentions validating the design doc status is Accepted before proceeding",
-        "Transcript describes reading phase-1-analysis.md and producing wip/plan_plugin-registry_analysis.md",
+        "Transcript describes reading phase-1-analysis.md and producing key work/analysis.md in session plan-plugin-registry",
         "Transcript describes all 7 phases in sequential order (Analysis, Milestone, Decomposition, Generation, Dependencies, Review, Creation)",
         "Transcript mentions producing a PLAN doc at docs/plans/PLAN-plugin-registry.md",
         "Transcript describes context resolution (visibility and scope detection)",
-        "Transcript mentions resume logic check for existing wip/ artifacts"
+        "Transcript mentions resume logic check for existing work/ keys in the plan-<topic> session"
       ]
     },
     {
@@ -27,7 +27,7 @@
         "Transcript detects input_type as topic (not a file path)",
         "Transcript explicitly states status validation is skipped for topic input",
         "Transcript proceeds through planning phases without referencing an upstream document",
-        "Transcript derives a topic slug for wip/ artifact naming",
+        "Transcript derives a topic slug for the plan-<topic> session name",
         "Transcript describes producing a PLAN doc (not enriching any existing document)",
         "Transcript mentions all 7 phases"
       ]
@@ -97,13 +97,13 @@
       "id": 7,
       "name": "auto-mode-non-interactive",
       "prompt": "/plan docs/designs/DESIGN-notification-service.md --auto",
-      "expected_output": "Runs non-interactively with no user prompts at decision points. Follows references/decision-protocol.md for all choices (decomposition strategy, execution mode). Creates wip/plan_notification-service_decisions.md logging each automated decision with rationale",
+      "expected_output": "Runs non-interactively with no user prompts at decision points. Follows references/decision-protocol.md for all choices (decomposition strategy, execution mode). Writes key work/decisions.md in session plan-notification-service logging each automated decision with rationale",
       "files": [],
       "expectations": [
         "Transcript parses the --auto flag from arguments",
         "Transcript describes non-interactive execution with no user prompts at decision points",
         "Transcript mentions following references/decision-protocol.md for automated decisions",
-        "Transcript describes creating wip/plan_notification-service_decisions.md to log decisions",
+        "Transcript describes writing key work/decisions.md in session plan-notification-service to log decisions",
         "Transcript describes all 7 phases executing without user interaction"
       ]
     },
@@ -246,7 +246,7 @@
       "id": 18,
       "name": "value-guard-roadmap-passes",
       "prompt": "/plan docs/roadmaps/ROADMAP-q4-platform.md --auto",
-      "expected_output": "Detects input_type as roadmap. Runs the value-confirmation guard (step 3.5a) on each feature before finalizing the execution mode in step 3.6. For a well-shaped roadmap where every feature lands observable incremental value on its own (e.g., 'user authentication ships sign-in/sign-up' or 'audit log surfaces events to the admin console'), each feature is recorded as confirmed in wip/plan_q4-platform_decisions.md. The execution mode is finalized as multi-pr with the rationale 'each feature is a cohesive deliverable landing observable incremental value' -- the usable-value principle, not the input-is-a-roadmap mechanism.",
+      "expected_output": "Detects input_type as roadmap. Runs the value-confirmation guard (step 3.5a) on each feature before finalizing the execution mode in step 3.6. For a well-shaped roadmap where every feature lands observable incremental value on its own (e.g., 'user authentication ships sign-in/sign-up' or 'audit log surfaces events to the admin console'), each feature is recorded as confirmed in key work/decisions.md of session plan-q4-platform. The execution mode is finalized as multi-pr with the rationale 'each feature is a cohesive deliverable landing observable incremental value' -- the usable-value principle, not the input-is-a-roadmap mechanism.",
       "files": [],
       "expectations": [
         "Transcript runs the value-confirmation guard (step 3.5a) before execution-mode finalization (step 3.6)",
@@ -260,7 +260,7 @@
       "id": 19,
       "name": "value-guard-flags-mis-decomposed-unit",
       "prompt": "/plan docs/designs/DESIGN-batch-pipeline.md --auto, where the decomposition produced four PRs and PR 3 is shaped as 'add the validator stub used by PR 4' with no observable behavior change on its own.",
-      "expected_output": "The value-confirmation guard (step 3.5a) flags PR 3 by name as a mis-decomposition, stating the reason: it is a building block that lands no observable value on its own; a reader of PR 3 in isolation sees only the stub. Under --auto the guard records this as an assumed decision block at high review priority in wip/plan_batch-pipeline_decisions.md (failing units route to assumed-high on purpose, the same bucket as ambiguous units). The block surfaces in the terminal summary and PR body. The guard does not hard-stop; the run continues to step 3.6.",
+      "expected_output": "The value-confirmation guard (step 3.5a) flags PR 3 by name as a mis-decomposition, stating the reason: it is a building block that lands no observable value on its own; a reader of PR 3 in isolation sees only the stub. Under --auto the guard records this as an assumed decision block at high review priority in key work/decisions.md of session plan-batch-pipeline (failing units route to assumed-high on purpose, the same bucket as ambiguous units). The block surfaces in the terminal summary and PR body. The guard does not hard-stop; the run continues to step 3.6.",
       "files": [],
       "expectations": [
         "Transcript runs the value-confirmation guard (step 3.5a) on each PR-shaped unit",
@@ -596,8 +596,8 @@
     {
       "id": 41,
       "name": "invalid-intent-and-coordination-flags-rejected",
-      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. In one fresh repository created with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md` (cd into it), run each of these separately: `/plan docs/designs/DESIGN-release-pipeline.md --intent=bogus`, `/plan docs/designs/DESIGN-release-pipeline.md --intent=stop --intent=continue`, `/plan docs/designs/DESIGN-release-pipeline.md --coordinated --no-coordinated`. After each, print `ls wip/plan_release-pipeline_* 2>/dev/null | wc -l`.",
-      "expected_output": "Each invocation is rejected at flag parsing with an error naming the offending flag, before any phase runs, and no wip/plan_release-pipeline_* file is written.",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. In one fresh repository created with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md` (cd into it), run each of these separately: `/plan docs/designs/DESIGN-release-pipeline.md --intent=bogus`, `/plan docs/designs/DESIGN-release-pipeline.md --intent=stop --intent=continue`, `/plan docs/designs/DESIGN-release-pipeline.md --coordinated --no-coordinated`. After each, print `koto status plan-release-pipeline 2>&1; echo status_exit=$?`.",
+      "expected_output": "Each invocation is rejected at flag parsing with an error naming the offending flag, before any phase runs, and no plan-release-pipeline session is opened and no work/ key is written.",
       "files": [],
       "tier": 2,
       "mode": "execute",
@@ -607,7 +607,7 @@
         "--intent=bogus ends with an error naming --intent",
         "--intent=stop --intent=continue ends with an error naming the repeated --intent",
         "--coordinated --no-coordinated ends with an error naming the conflicting coordination flags",
-        "No wip/plan_release-pipeline_* file exists after any of the three runs (count 0 each time)",
+        "No plan-release-pipeline session exists after any of the three runs (koto status reports it not found each time)",
         "No run reaches Phase 1 analysis"
       ]
     },
@@ -648,7 +648,7 @@
     {
       "id": 44,
       "name": "phase-7-resume-active-plan-runs-the-skipped-transition",
-      "prompt": "/plan docs/designs/DESIGN-resume-test.md -- An earlier session wrote docs/plans/PLAN-resume-test.md at status Active and stopped before step 7.5: the DESIGN is still at Accepted, and the run's working files under wip/ are all still there. Describe what Phase 7 does on this resume.",
+      "prompt": "/plan docs/designs/DESIGN-resume-test.md -- An earlier session wrote docs/plans/PLAN-resume-test.md at status Active and stopped before step 7.5: the DESIGN is still at Accepted, and the run's work/ keys in the plan-resume-test session are all still there. Describe what Phase 7 does on this resume.",
       "expected_output": "Phase 7's Resume Check finds the PLAN at Active. Because the upstream DESIGN is still at Accepted, the earlier run stopped before step 7.5, so Phase 7 does not skip as already complete: it runs 7.5 (shirabe transition docs/designs/DESIGN-resume-test.md Planned, then shirabe validate --lifecycle-chain on the PLAN) and continues from 7.6. It does not rewrite the PLAN or file anything again.",
       "files": [],
       "expectations": [
