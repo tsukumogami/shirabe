@@ -165,41 +165,73 @@ exactly as before.
 
 **Goal**: Close-out refuses while a verdict is owed, a deferred verdict
 comes back at each pick, a confirmed changes-needed verdict leaves a rework
-row that the milestone's next brief quotes, verified-with-follow-ups
-verdicts add their follow-up milestones in the same edit, and the writer
-refuses the edge cases the design names.
+row that the milestone's next brief quotes, a verified-with-follow-ups
+verdict adds its follow-up milestones in the same edit, and the verdict
+writer refuses a Source commit the default branch doesn't contain and an
+entry file that differs from the posted comment.
+
+Step 1 landed (build on it, don't redo it): `milestone.sh` with `schema`,
+`evidence`, `check-verdict` and `progress-has`; the `verdict-owed` Work kind
+and `milestone-done` and `milestone-verdict` Actions (the codec closes only
+the `milestone-` prefix of the Action column); the `VERDICT_WRITER` flag
+that lets only `roadmap-status.sh` change a verdict-owed row; schema-gated
+`--unit` (Who `none` when no holding names the milestone);
+`--verdict` for verified and changes-needed, refusing verified with
+follow-ups, a milestone already Done, Evidence changed since Source, and a
+second pending edit; per-Action `--confirm` and `--list`; `verdict_owed` in
+`pick-facts.sh` and the `dispatch_check` refusal (code 49); the
+`milestone_verdict` state with `verdict: recorded|deferred`; the
+`ROADMAP_FORM` koto variable and the
+`references/landing-{feature,milestone}-roadmap.md` guidance; and the suites
+`milestone_test.sh`, `milestone-verdicts_test.sh` and
+`milestone-verdict_engine_test.sh`.
 
 **Acceptance Criteria**:
-- [ ] `closeout-read.sh` refuses with `verdict-owed <tag>` while any
-  `verdict-owed` row stands, and closes the test roadmap once every
-  milestone reads Done with none standing.
-- [ ] Deferring at `milestone_verdict` keeps the row, the picker doesn't
-  offer the milestone, the pick directive lists it as a verdict owed, and a
-  later `landed` tick reaches the verdict step again.
-- [ ] Confirming a changes-needed edit writes a `rework` row carrying the
-  Changes needed line and not-held clause numbers under the design's closed
-  shape; `pick-facts.sh` reports it, `render-brief.sh` quotes it under a
-  fixed heading labelled as a report to check against the Evidence, and a
-  successful dispatch clears it; the picker offers the milestone again once
-  no holding covers it.
-- [ ] `--verdict --follow-ups FILE` for verified with follow-ups adds each
-  `new:` milestone and applies each `amend` in the same pull request, and
-  refuses a `new:` tag already used, a `new:` with no section in FILE, an
-  `amend` of a tag the roadmap lacks, and sections missing Outcome,
-  Evidence, Left open or Dependencies.
-- [ ] The writer refuses a milestone already Done, Evidence that changed
-  between Source and the default branch, a Source commit the default branch
-  doesn't contain, any second edit while one is pending, and an entry file
-  that doesn't match the comment at `--entry-url`; after `--drop`, the same
-  entry's edit opens again.
-- [ ] The record codec accepts and renders the Work kind `rework`, and the
-  rework text is refused outside its closed shape (one paragraph, at most
-  600 bytes, no URLs or markdown links, no control characters).
-- [ ] Follow-up sections and `amend` text pass redaction and the
-  control-character check, the `--follow-ups` file is capped at 32 KiB, and
-  the suite checks the added milestone sections' content and the amended
-  milestone's changed lines in the pull request's diff.
-- [ ] The acceptance suite gains these cases and passes.
+- [ ] `closeout-read.sh` refuses with a `verdict-owed <tag>` reason while any
+  `verdict-owed` Work row stands, routes through `roadmap_blocked` as its
+  other blockers do (with `coord-verdict.sh`'s table and test updated if a
+  new word is needed), and still closes the test roadmap once every
+  milestone reads Done with no such row; `closeout-read_test.sh` covers both.
+- [ ] The pick directive lists each unit whose `verdict_owed` is true as a
+  verdict to give, and `milestone-verdict_engine_test.sh` shows a deferred
+  verdict: `verdict: deferred` returns to `wait` with the row standing, the
+  picker passes over the milestone with and without its holding, and a later
+  `landed` tick reaches `milestone_verdict` again without writing a second
+  row.
+- [ ] `roadmap-status.sh --confirm` on a `milestone-verdict` (changes needed)
+  row writes a `rework` Work row for the tag whose Next carries the verdict's
+  Changes needed line and its not-held clause numbers. The codec accepts the
+  `rework` kind and refuses rework text outside its closed shape (one
+  paragraph, at most 600 bytes, no URLs or markdown links, no control
+  characters). `pick-facts.sh` reports `rework` for the unit, and
+  `render-brief.sh` quotes it into the brief's acceptance under a fixed
+  heading that labels it a report to check against the Evidence, not
+  instructions. A successful `dispatch-worker.sh` clears the row, and the
+  picker offers the milestone (In progress, no holding) again.
+- [ ] `roadmap-status.sh --verdict --follow-ups FILE` accepts verified with
+  follow-ups. In the same pull request it adds each `new:` follow-up as its
+  FILE section (a `### <tag>: <title>` heading with non-empty Outcome,
+  Evidence, Left open and Dependencies) after the last milestone, applies
+  each `amend <tag>:` section from FILE to that milestone with a Progress
+  line naming the amendment, and sets Done. The suite checks the added
+  sections' text and the amended milestone's changed lines in the diff. It
+  refuses a `new:` tag already used, a `new:` with no FILE section, an
+  `amend` of a tag the roadmap lacks, a section missing a required field,
+  follow-up text failing the redaction or control-character check, and a
+  FILE over 32 KiB.
+- [ ] `--verdict` refuses a Source commit the default branch doesn't contain
+  (the GitHub stand-in in `testdata/gh` gains the compare read it needs). It
+  also refuses an entry file whose text differs from the comment at
+  `--entry-url` (re-read through the record's comment API and required to
+  sit on this run's record issue with the `milestone-verdict` kind marker).
+  After `--drop` of a pending edit whose pull request closed unmerged, the
+  same entry's `--verdict` opens a new edit.
+- [ ] `milestone-verdicts_test.sh` gains a changes-needed verdict confirmed
+  into a rework row and re-offered, a verified-with-follow-ups verdict, and
+  close-out refused then passing. Every new or changed script and test is in
+  `scripts/check-bash-floor.sh`'s coordinate list. `run-tests.sh` and the
+  coordinate engine suites that run on this host pass, and the PR body names
+  those that stall.
 
 **Dependencies**: Issue 1
 
@@ -314,6 +346,10 @@ covers every criterion of the feature's requirements.
   this feature added runs in a CI workflow.
 - [ ] `milestone-verdicts_test.sh` names, in a comment beside each case, the
   feature acceptance criterion it covers, and every criterion has one.
+- [ ] The documentation states the two points where the shipped behaviour
+  follows the PRD over the design: a changes-needed edit leaves Delivered
+  unchanged, and a verdict-owed row's Who is `none` when no holding names the
+  milestone, in which case the checker check is skipped.
 
 **Dependencies**: Issue 3, Issue 4, Issue 5
 
