@@ -94,6 +94,9 @@
 #      leg and no run mode; each brief names the record's Run coordinator
 #      address and never the koto session name (shirabe#610). (22 sits after
 #      19.)
+#  23. on a roadmap/v2 roadmap, land's check puts the holding's milestone and
+#      its numbered Evidence in coord/land.json, and a pull request judged
+#      `fits` with `clauses: advances none` still reaches land_merge.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -204,8 +207,8 @@ db_init
 roadmap_text() { # roadmap_text <status>
     printf -- '---\nstatus: %s\n---\n\n# Roadmap\n\n## Features\n\n### Feature 1: first\n\n**Dependencies:** None\n**Status:** Planned\n\n### Feature 2: second\n\n**Dependencies:** Feature 1\n**Status:** Planned\n' "$1"
 }
-seed_roadmap() { # seed_roadmap <name> [status]
-    db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-\($n).md"] = $t' --arg n "$1" --arg t "$(roadmap_text "${2:-Active}")"
+seed_roadmap() { # seed_roadmap <name> [status]; ROADMAP_TEXT, when set, is the roadmap instead
+    db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-\($n).md"] = $t' --arg n "$1" --arg t "${ROADMAP_TEXT:-$(roadmap_text "${2:-Active}")}"
 }
 # stored <record-json>: the record with a complete stored set, so the
 # reconcile's handover gate passes: the run's arguments and cap, this
@@ -540,8 +543,8 @@ echo "== 11. land needs a recorded verified head, and refuses a moved one =="
 # land_run <name> <number>: a run whose holding links acme/widgets#12, driven
 # wait -> report -> classify_report (done) -> verify, then on through
 # verify_board (the complete-board fixture) to verified_confirm.
-land_row() { # land_row [verified-head]; LAND_PHASE sets the Phase (executing)
-    holding feat-1 "$(jq -nc --arg h "${1-}" --arg p "${LAND_PHASE:-executing}" '{unit: "Feature 1", branch: "feat/x", verified_head: $h,
+land_row() { # land_row [verified-head]; LAND_PHASE sets the Phase (executing), LAND_UNIT the unit (Feature 1)
+    holding feat-1 "$(jq -nc --arg h "${1-}" --arg p "${LAND_PHASE:-executing}" --arg u "${LAND_UNIT:-Feature 1}" '{unit: $u, branch: "feat/x", verified_head: $h,
         phase: $p, pull_request: "[#12](https://github.com/acme/widgets/pull/12)"}')"
 }
 land_run() {
@@ -1257,6 +1260,27 @@ if LAND_PHASE=scoping land_run scopemerge 211; then
 else
     bad "21: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
+rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
+
+# ---- 23. goal fit on a milestone roadmap --------------------------------------
+echo "== 23. on a milestone roadmap, a pull request judged advances none still lands =="
+# The run's roadmap on the default branch is a roadmap/v2 one, and the
+# holding is on its milestone MV1. The land check reads MV1's Evidence into
+# coord/land.json; this pull request, a second one for MV1 (the first one's
+# goal-fit entry is milestone-verdicts_test.sh's), moves no clause, and fits.
+ROADMAP_TEXT=$(printf -- '---\nschema: roadmap/v2\nstatus: Active\n---\n\n# ROADMAP: mvland\n\n## Features\n\n### MV1: the plugin list\n\n**Outcome:** A maintainer lists the plugins they installed.\n\n**Evidence:**\n- A reviewer runs `widgets list` and sees the three sample plugins.\n- The same reviewer removes one manifest and sees it named as skipped.\n\n**Left open:** None\n\n**Dependencies:** None\n**Status:** In progress\n')
+LAND_UNIT=MV1
+if land_run mvland 113; then
+    record_verified
+    eq "23: land reads the round and permits, to goal_fit" goal_fit "$(at)"
+    eq "23: coord/land.json carries MV1's numbered Evidence" "MV1 2" \
+        "$(cd "$WD" && koto context get "$S" coord/land.json 2>/dev/null | jq -r '"\(.milestone.tag) \(.milestone.evidence | length)"')"
+    eq "23: fits, advancing none of it, reaches land_merge" land_merge \
+        "$(at --with-data '{"fit":"fits","clauses":"advances none","rationale":"a refactor of the loader the list builds on; it moves no clause"}')"
+else
+    bad "23: reach verified_confirm" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+ROADMAP_TEXT= LAND_UNIT=
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 
 echo

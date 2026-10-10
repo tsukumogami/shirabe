@@ -161,11 +161,18 @@ chmod +x "$BIN/koto" "$BIN/niwa" "$T/record-holding.sh"
 export PATH="$BIN:$PATH"
 export DC_RECORD_HOLDING="$T/record-holding.sh"
 # record-state.sh: the Run section names the coordinator's address,
-# lane-coord, unless RECORD_ADDRESS sets another or is empty.
+# lane-coord, unless RECORD_ADDRESS sets another or is empty; the Work rows
+# are RECORD_WORK's (a JSON array), none by default. Every call but --list is
+# logged as `record-state <args>`; RECORD_DONE_MODE=fail fails a --done.
 cat >"$T/record-state.sh" <<'EOF'
 #!/usr/bin/env bash
 [ "${RECORD_STATE_MODE:-}" = fail ] && exit 2
-jq -nc --arg a "${RECORD_ADDRESS-lane-coord}" '{run: (if $a == "" then [] else [{key: "coordinator", value: $a, set_by: "lane-coord", set: "2026-09-26T08:00Z"}] end), standing: [], work: []}'
+if [ "${1-}" != --list ]; then
+    printf 'record-state %s\n' "$*" >>"$ST/calls.log"
+    [ "${RECORD_DONE_MODE:-}" = fail ] && { echo "record-state: the record changed" >&2; exit 12; }
+    exit 0
+fi
+jq -nc --arg a "${RECORD_ADDRESS-lane-coord}" --argjson w "${RECORD_WORK:-[]}" '{run: (if $a == "" then [] else [{key: "coordinator", value: $a, set_by: "lane-coord", set: "2026-09-26T08:00Z"}] end), standing: [], work: $w}'
 EOF
 chmod +x "$T/record-state.sh"
 export DC_RECORD_STATE="$T/record-state.sh"
@@ -202,7 +209,7 @@ reset() {
     printf '%s' "$PICK_ROADMAP" >"$ST/ctx/coord/pick.json"
     rm -rf "$W/.niwa/dispatch-briefs"
     export NIWA_MODE=ok NIWA_NAME=plugin_api-1a2b3c4d
-    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_STATE_MODE
+    unset NIWA_LIST_FAIL KOTO_CREATE_FAIL RECORD_READ_MODE RECORD_WRITE_MODE DISPATCH_DEADLINE_SECS NIWA_HELP RECORD_ADDRESS RECORD_STATE_MODE RECORD_WORK RECORD_DONE_MODE
 }
 run() { (cd "$W/inst" && bash "$S" --session coord "$@"); }
 row() { jq -r ".$1" "$ST/rows/plugin-api.json"; }
@@ -245,6 +252,36 @@ has "prompt: repository" "$P" "in acme/widgets"
 has "prompt: stop checkpoint" "$P" "stop at: The PR is ready with CI green."
 has "prompt: brief path" "$P" "$W/.niwa/dispatch-briefs/plugin-api.md"
 [ -f "$W/.niwa/dispatch-briefs/plugin-api.md" ] && ok "brief: written" || bad "brief: written" ""
+lacks "fresh: no rework row, no removal" "$(calls)" "record-state --session"
+
+# --- a milestone a changes-needed verdict sent back -----------------------------------------
+# Its rework row is quoted into the brief and removed once the dispatch is
+# confirmed; a failed removal is reported and the dispatch still succeeds.
+REWORK_ROWS='[{"item":"Feature 2","kind":"rework","who":"verdict 1001","next":"Evidence clauses not held: 2. Changes needed: name the skipped plugin","wakes":"0","updated":"2026-09-26T07:00Z"},{"item":"Feature 1","kind":"rework","who":"verdict 1002","next":"Changes needed: other","wakes":"0","updated":"2026-09-26T07:00Z"}]'
+reset "$INPUT_DELIVER"
+printf '%s' "$PICK_ROADMAP" | jq -c '.units |= map(if .unit == "Feature 2" then .rework = "Evidence clauses not held: 2. Changes needed: name the skipped plugin" else . end)' >"$ST/ctx/coord/pick.json"
+export RECORD_WORK="$REWORK_ROWS"
+OUT=$(run 2>"$T/rw.err"); RC=$?
+eq  "rework: dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
+has "rework: the brief quotes the verdict's report" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "> Evidence clauses not held: 2. Changes needed: name the skipped plugin"
+has "rework: the unit's rework row is removed" "$(calls)" "record-state --session coord --done Feature 2 --kind rework"
+lacks "rework: and no other unit's" "$(calls)" "--done Feature 1"
+RM_AT=$(grep -n 'record-state --session coord --done' "$ST/calls.log" | head -1 | cut -d: -f1)
+LAST_WRITE=$(grep -n 'record write plugin-api dispatched' "$ST/calls.log" | tail -1 | cut -d: -f1)
+if [ -n "$RM_AT" ] && [ -n "$LAST_WRITE" ] && [ "$RM_AT" -gt "$LAST_WRITE" ]; then ok "rework: removed after the holding reads dispatched"; else bad "rework: removed after the holding reads dispatched" "$(calls)"; fi
+reset "$INPUT_DELIVER"
+export RECORD_WORK="$REWORK_ROWS" RECORD_DONE_MODE=fail
+OUT=$(run 2>"$T/rw.err"); RC=$?
+eq  "rework: a failed removal still dispatches" "0 session=$NIWA_NAME" "$RC $OUT"
+has "rework: and says how to remove the row" "$(cat "$T/rw.err")" 'remove it with record-state.sh --session coord --done "Feature 2" --kind rework'
+reset "$INPUT_DELIVER"
+export RECORD_WORK="$REWORK_ROWS"
+NIWA_MODE=fail; export NIWA_MODE
+run >/dev/null 2>&1
+lacks "rework: a failed launch removes nothing" "$(calls)" "record-state --session"
+# The fresh dispatch again, which the re-run below starts from.
+reset "$INPUT_DELIVER"
+run >/dev/null 2>&1
 
 # --- a re-run on a dispatched topic ---------------------------------------------------------
 
@@ -426,6 +463,16 @@ run >/dev/null 2>&1; eq "pause: another unit's pause doesn't hold this one" 0 "$
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
 printf '%s' "$PICK_ROADMAP" | jq -c '.paused_all = "s5" | .units[0].paused = null | .units[1].paused = "s5"' >"$ST/ctx/coord/pick.json"
 run >/dev/null 2>&1; eq "pause: under a pause on all, the unit a go-ahead let through (paused null) is dispatched" 0 "$?"
+# A milestone whose verdict is owed is never dispatched, held or not.
+reset "$INPUT_DELIVER"
+printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).verdict_owed = true' >"$ST/ctx/coord/pick.json"
+ERR=$(run 2>&1 >/dev/null); RC=$?
+eq  "verdict owed: a new dispatch of a unit pick marked verdict_owed exits 10" 10 "$RC"
+has "verdict owed: naming why and the value to submit" "$ERR" "a verdict is owed on this milestone"
+nothing_written "verdict owed, unit"
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.unit = "Feature 1"')"
+printf '%s' "$PICK_ROADMAP" | jq -c '(.units[] | select(.unit == "Feature 2")).verdict_owed = true' >"$ST/ctx/coord/pick.json"
+run >/dev/null 2>&1; eq "verdict owed: another unit's owed verdict doesn't hold this one" 0 "$?"
 # The brief's reporting address is the record's Run coordinator, never the
 # koto session name the input carries (shirabe#610).
 reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.reports_to = "someone-else"')"

@@ -474,6 +474,21 @@ instead of the right one. All substitutions use `awk` with `ENVIRON["varname"]`
    `skills/roadmap/scripts/transition-status.sh <path> Done`.
 5. `git add` the file.
 
+**Note (2026-10-10): milestone roadmaps.** `handle_roadmap` now reads the
+ROADMAP's frontmatter `schema:` before the `**Downstream:**` lookup. On a
+`roadmap/v2` (milestone) ROADMAP it records one `update_roadmap_feature`
+step at `skipped`, with the roadmap as its target and the detail
+`milestone roadmap: status follows a recorded verdict (roadmap format, When
+a milestone is Done)`, and returns. It writes no Status or Downstream line,
+transitions and deletes nothing, and stages nothing, so the run still
+reports `completed` when nothing else failed. A milestone's status follows
+the coordinator's recorded verdict instead (the milestone verdicts
+design). Because nothing is staged for
+the ROADMAP, a `--push` run whose PLAN's chain points straight at a v2
+ROADMAP has no surviving document to anchor on, and its after-commit
+verification step, `lifecycle_post_verify`, reads `skipped`. A frontmatter
+that can't be read, or that names no schema, is still a feature roadmap.
+
 After all nodes are processed, and only under `--push`, the script commits once
 it has recorded at least one staged change, in a single commit,
 `chore(cascade): post-implementation artifact transitions`, and pushes it. The

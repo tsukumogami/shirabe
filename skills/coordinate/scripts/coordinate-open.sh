@@ -21,6 +21,9 @@
 #                                there (REPORTS_TO)
 #   --                           everything after it is the human's decisions:
 #                                shown to the coordinator, never a setting
+# At roadmap scope it also sets ROADMAP_FORM, milestone when the roadmap file
+# in the working tree reads `schema: roadmap/v2` (milestone.sh schema), else
+# feature; no token sets it.
 # Values reach koto only through a vars file, mapped with jq; koto checks each
 # against its variable's pattern and refuses a bad or repeated one at init,
 # with no session left behind.
@@ -97,7 +100,13 @@ else
     # The roadmap's record lives in the roadmap's own repository.
     HOST=$(bash "$HERE/../../execute/scripts/record-write-set.sh" --print 2>/dev/null) || HOST=
     [ -n "$HOST" ] || usage "could not read this repository's owner/repo from its origin remote"
-    EXTRA=$(jq -nc --arg r "$ROADMAP" --arg h "$HOST" '[["ROADMAP", $r], ["HOST_REPO", $h]]')
+    # The roadmap's form, from its schema in the working tree: milestone for
+    # roadmap/v2, feature otherwise (and when the file isn't here to read).
+    # It picks guidance and the no-pull-request route only; roadmap-status.sh
+    # reads the schema on the default branch for anything it writes.
+    FORM=feature
+    if [ -r "$ROADMAP" ] && [ "$(bash "$HERE/milestone.sh" schema "$ROADMAP" 2>/dev/null)" = roadmap/v2 ]; then FORM=milestone; fi
+    EXTRA=$(jq -nc --arg r "$ROADMAP" --arg h "$HOST" --arg f "$FORM" '[["ROADMAP", $r], ["HOST_REPO", $h], ["ROADMAP_FORM", $f]]')
 fi
 
 # The scope slug, derived where every write script's live-session check

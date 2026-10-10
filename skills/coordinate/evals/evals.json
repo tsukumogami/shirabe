@@ -692,6 +692,28 @@
       "requirements": [
         "R23"
       ]
+    },
+    {
+      "id": 36,
+      "name": "a-landed-milestone-owes-a-verdict",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-milestones.md, a roadmap/v2 milestone roadmap hosted in acme/widgets, in session coordinate-milestones, at wait. The worker on MV1 (the plugin list) has had its last pull request, acme/widgets#12, merged, and the worker on MV2 (the host serves) reports that the host answers on its public name, with nothing to merge. What do you tick for each, what do the scripts write to the roadmap, and when does each milestone read Done?",
+      "expected_output": "Neither merge nor report sets a milestone Done. For MV1 the coordinator ticks landed with unit MV1; at roadmap_status, roadmap-status.sh --unit MV1 opens no pull request, writes a verdict-owed Work row and prints verdict-owed MV1, and the coordinator submits status verdict_owed, which reaches milestone_verdict. MV2's finished report with no pull request is classified done and reaches roadmap_status the same way, without the worker being asked to name a pull request. At milestone_verdict the coordinator reads each milestone's numbered Evidence with milestone.sh evidence, checks each clause against the shipped work, writes a verdict entry naming itself (never the worker) in Checked by, checks it with milestone.sh check-verdict, posts it with record-append.sh --kind milestone-verdict, runs roadmap-status.sh --verdict with the entry's URL, and submits recorded; or submits deferred when it can't judge yet. Pick never offers a verdict-owed milestone. A milestone reads Done only when the verdict's roadmap pull request, which the coordinator never merges, lands and roadmap-status.sh --confirm clears the verdict-owed row; only one roadmap edit is pending at a time.",
+      "files": [
+        "docs/roadmaps/ROADMAP-milestones.md"
+      ],
+      "assertions": [
+        "Ticking landed for MV1 runs roadmap-status.sh --unit, which opens no pull request setting Done and marks the verdict owed; the run goes on to milestone_verdict",
+        "MV2's finished report with no pull request is not answered with a request to name a pull request; it reaches the same verdict step",
+        "The verdict entry is checked with milestone.sh check-verdict against the milestone's Evidence and posted with record-append.sh --kind milestone-verdict before roadmap-status.sh --verdict opens the roadmap edit",
+        "Checked by names the coordinator or a person, never the worker that did the work",
+        "No milestone is dispatched again while its verdict is owed, and none reads Done until its verdict's roadmap edit lands and is confirmed; the coordinator never merges that edit"
+      ],
+      "requirements": [
+        "milestone-verdicts R1",
+        "milestone-verdicts R2",
+        "milestone-verdicts R4",
+        "milestone-verdicts R6"
+      ]
     }
   ]
 }

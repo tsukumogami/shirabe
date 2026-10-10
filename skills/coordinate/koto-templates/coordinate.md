@@ -41,7 +41,10 @@ version: "1.0"
 #                               unready's reason, the changed files, the
 #                               Review panel as parsed, the reviewed head's
 #                               freshness, the squash message and the holds
-#                               with their states (goal_fit's reading;
+#                               with their states, and for a milestone's
+#                               pull request `milestone` (its tag and
+#                               Evidence) or `milestone_error` (why they
+#                               couldn't be read) (goal_fit's reading;
 #                               merge-order-entry.sh's input)
 #   coord/quiet.json            quiet_check: the quiet workers and why
 #   coord/closeout.json         roadmap_close, rotation_close,
@@ -144,6 +147,16 @@ variables:
       discipline scope.
     pattern: '^(docs/roadmaps/(([^/.][^/]*|\.[^/.][^/]*|\.\.[^/]+)/)*ROADMAP-[A-Za-z0-9._-]+\.md)?$'
     default: ""
+  ROADMAP_FORM:
+    description: >-
+      At roadmap scope, milestone when the roadmap in the working tree reads
+      `schema: roadmap/v2` as the run opens (coordinate-open.sh, through
+      milestone.sh schema), else feature; feature at discipline scope. It
+      picks guidance and the route of a finished report with no pull
+      request; nothing it decides sets a status, since roadmap-status.sh
+      reads the schema on the default branch itself.
+    values: [feature, milestone]
+    default: feature
   DISCIPLINE:
     description: At discipline scope, the discipline's name; empty at roadmap scope.
     pattern: '^([a-z0-9][a-z0-9-]*)?$'
@@ -607,6 +620,11 @@ states:
       - target: pick_facts
         when:
           gates.dispatch_check_verdict.exit_code: 46  # unknown-topic
+      # The topic's milestone has a verdict owed: no worker until its
+      # verdict's roadmap edit is confirmed, so pick is asked again.
+      - target: pick_facts
+        when:
+          gates.dispatch_check_verdict.exit_code: 49  # verdict-owed
       - target: failure
         when:
           gates.dispatch_check_verdict.exit_code: 47  # unresolved-topic
@@ -689,12 +707,12 @@ states:
     accepts:
       event:
         type: enum
-        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed, resume, redispatch]
+        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed, failure, resume, redispatch]
         required: true
         description: What arrived, or what is due.
       unit:
         type: string
-        description: The dispatch topic the event is about, when it is about one (a holding's Worker, never the unit's tag or title). A merged event whose unit names no holding with a pull request is refused as unknown-topic, with the reason in coord/merged_facts.json, and comes back here.
+        description: The dispatch topic the event is about, when it is about one (a holding's Worker, never the unit's tag or title). A merged event whose unit names no holding with a pull request is refused as unknown-topic, with the reason in coord/merged_facts.json, and comes back here. With landed or failure, the heading tag of the feature or milestone instead (MV2, Feature 7).
       report:
         type: string
         description: With a report or progress event, the worker's message as it arrived.
@@ -759,11 +777,25 @@ states:
         when:
           event: raise
       # A roadmap feature whose last pull request landed: its Status and
-      # Delivered line go back to the roadmap as a pull request. A roadmap event; at
-      # discipline scope no edge takes it.
+      # Delivered line go back to the roadmap as a pull request. On a
+      # milestone roadmap, a milestone whose work is finished, pull request
+      # or not: roadmap-status.sh marks its verdict owed instead, and the run
+      # goes on to the verdict. A roadmap event; at discipline scope no edge
+      # takes it.
       - target: roadmap_status
         when:
           event: landed
+          vars.ROADMAP:
+            is_set: true
+      # A failure reported against a milestone that reads Done: its failure
+      # entry is checked and posted, and roadmap-status.sh --reopen opens the
+      # edit that sets it In progress. Not the `failure` state, which a held
+      # re-dispatch reaches through `redispatch`. A roadmap event; at
+      # discipline scope no edge takes it.
+      - target: milestone_reopen
+        when:
+          event: failure
+          evidence.unit: present
           vars.ROADMAP:
             is_set: true
       # A pause ended, or its condition may be met: pick reads the pauses
@@ -1436,6 +1468,11 @@ states:
     # read (2) has no `done` arm, so `done` holds here; every way into this
     # state passes report_facts first, so that is a bug, not a route.
     # blocked and needs_fix don't read the gate.
+    # With no pull request (1), the roadmap's form decides: on a feature
+    # roadmap the worker is asked to name one; on a milestone roadmap a
+    # finished milestone with nothing to merge is landed handling, so the
+    # run goes to roadmap_status, where roadmap-status.sh marks its verdict
+    # owed (docs/designs/DESIGN-milestone-verdicts.md, R2).
     gates:
       report_pr:
         type: command
@@ -1450,6 +1487,15 @@ states:
         when:
           classification: done
           gates.report_pr.exit_code: 1
+          vars.ROADMAP_FORM: feature
+        context_assignments:
+          worker_report: ""
+          report_topic: ""
+      - target: roadmap_status
+        when:
+          classification: done
+          gates.report_pr.exit_code: 1
+          vars.ROADMAP_FORM: milestone
         context_assignments:
           worker_report: ""
           report_topic: ""
@@ -1625,7 +1671,10 @@ states:
     # The coordinator's judgment against the unit's brief; the land check's
     # sealed verdict, re-read by goal_fit_land (as reconcile re-reads the
     # start's posture), picks where a fit pull request goes. gap doesn't read
-    # the gate.
+    # the gate. On a milestone roadmap coord/land.json's `milestone` field
+    # carries the holding's milestone tag and its Evidence on the default
+    # branch, the clauses a goal-fit entry names, and `milestone_error` says
+    # why that read failed, so the coordinator reads the Evidence itself.
     accepts:
       fit:
         type: enum
@@ -1636,6 +1685,12 @@ states:
         type: string
         required: true
         description: What in the pull request, against the brief, decided it; for fits_with_follow_ups, each follow-up; for gap, what to correct.
+      # Recorded only: no transition reads it, so advances none never blocks
+      # a landing (docs/designs/DESIGN-milestone-verdicts.md, R7).
+      clauses:
+        type: string
+        required: false
+        description: On a milestone roadmap, the Clauses value of the goal-fit entry you posted, the Evidence clause numbers the pull request advances (`1, 2`) or `advances none`; left out on a feature roadmap.
     gates:
       goal_fit_land:
         type: command
@@ -2006,16 +2061,73 @@ states:
   roadmap_status:
     # Evidence-closed, as decision_apply is: roadmap-status.sh opens the
     # roadmap pull request and writes the record's row before `opened`, and
-    # the record step confirms the row.
+    # the record step confirms the row. On a milestone roadmap it opens
+    # nothing: it writes the milestone's verdict-owed row and prints
+    # `verdict-owed <tag>`, and `verdict_owed` takes the run to the verdict.
+    accepts:
+      status:
+        type: enum
+        values: [opened, verdict_owed, failed]
+        required: true
+        description: opened after roadmap-status.sh opened the roadmap pull request and wrote its row; verdict_owed when it printed verdict-owed <tag> (a milestone roadmap); failed when it refused or a write failed.
+      unit:
+        type: string
+        description: With opened or verdict_owed, the heading tag as roadmap-status.sh took it (Feature 7, ED1, MV2).
+    transitions:
+      - target: record
+        when:
+          status: opened
+          evidence.unit: present
+      - target: milestone_verdict
+        when:
+          status: verdict_owed
+          evidence.unit: present
+      - target: wait
+        when:
+          status: failed
+
+  milestone_verdict:
+    # Evidence-closed, as roadmap_status is: the coordinator checks the
+    # milestone against its Evidence, posts the checked verdict entry, and
+    # roadmap-status.sh --verdict opens the roadmap edit and writes its row
+    # before `recorded`; the record step confirms the row. `deferred` leaves
+    # the verdict-owed row standing, so pick still passes over the milestone
+    # and a later `landed` tick comes back here
+    # (docs/designs/DESIGN-milestone-verdicts.md, Decision 1).
+    accepts:
+      verdict:
+        type: enum
+        values: [recorded, deferred]
+        required: true
+        description: recorded after the checked verdict entry was posted and roadmap-status.sh --verdict opened its roadmap edit; deferred when the verdict can't be given now.
+      unit:
+        type: string
+        description: With recorded, the milestone's heading tag (MV2, Feature 7).
+    transitions:
+      - target: record
+        when:
+          verdict: recorded
+          evidence.unit: present
+      - target: wait
+        when:
+          verdict: deferred
+
+  milestone_reopen:
+    # Evidence-closed, as milestone_verdict is: the coordinator checks the
+    # failure entry, posts it, and roadmap-status.sh --reopen opens the
+    # roadmap edit setting the milestone In progress and writes its row
+    # before `opened`; the record step confirms the row. `failed` changes
+    # nothing and goes back to wait
+    # (docs/designs/DESIGN-milestone-verdicts.md, Decision 3).
     accepts:
       status:
         type: enum
         values: [opened, failed]
         required: true
-        description: opened after roadmap-status.sh opened the roadmap pull request and wrote its row; failed when it refused or a write failed.
+        description: opened after the checked failure entry was posted and roadmap-status.sh --reopen opened its roadmap edit; failed when the entry couldn't be checked or the script refused (the milestone isn't Done, or a roadmap edit is pending).
       unit:
         type: string
-        description: With opened, the feature's heading tag as roadmap-status.sh took it (Feature 7, ED1).
+        description: With opened, the milestone's heading tag (MV2, Feature 7).
     transitions:
       - target: record
         when:
@@ -2040,6 +2152,11 @@ states:
       - target: roadmap_close_step
         when:
           gates.roadmap_close_verdict.exit_code: 130  # ready
+      # A milestone's verdict is owed, or its verdict's roadmap edit isn't
+      # confirmed: the roadmap waits for it, the milestone named.
+      - target: roadmap_blocked
+        when:
+          gates.roadmap_close_verdict.exit_code: 49  # verdict-owed
       - target: roadmap_blocked
         when:
           gates.roadmap_close_verdict.exit_code: 131  # features-open
@@ -2490,6 +2607,23 @@ and drive every worker to landed work.
   request pending: it is done for pick, though not yet for its dependents. No
   brief renders for it. When the roadmap reads it Done, clear its row with
   `roadmap-status.sh --confirm`.
+- **Never a verdict-owed unit.** A milestone whose `verdict_owed` is true
+  has its work finished and its verdict owed (`milestone_verdict`): it gets
+  no worker, with its holding or without, until its verdict's roadmap edit
+  is confirmed. No brief renders for it, and `dispatch_check` and
+  `dispatch-worker.sh` refuse it.
+- **List the verdicts to give.** Each pass, name every unit whose
+  `verdict_owed` is true in what you report as a verdict to give, with
+  whether its verdict's roadmap edit is pending (`landed` set) or not yet
+  opened. One not yet opened was deferred: when you can give it, tick
+  `landed` for it from `wait`, which reaches the verdict step again without
+  writing a second row. A deferred verdict comes back this way at every
+  pick until it is given.
+- **A milestone sent back.** A unit whose `rework` is set had a
+  changes-needed verdict confirmed: it reads In progress and is offered like
+  any other once no holding covers it. Its brief quotes the `rework` text
+  under a fixed heading, as a report to check against the Evidence, and a
+  confirmed dispatch removes the row.
 - **Never a paused unit.** A unit or holding whose `paused` is set is held by
   that pause in the record: don't dispatch it, scope it ahead or send it its
   execution. While `paused_all` is set, the whole coordinator is paused:
@@ -2607,6 +2741,11 @@ the execution or re-dispatching it. A new dispatch's unit isn't known here
 (pick's evidence names only the topic), so `dispatch-worker.sh` refuses a
 unit pick marked paused. The pause and why are in
 `coord/dispatch_check.json`; nothing is owed until the resume.
+
+A milestone whose verdict is owed gets no worker (`verdict-owed <tag>`, back to
+pick): the topic's holding covers it, or its verdict-owed row names the topic
+as the worker that held it. Pick another unit; the milestone comes back once
+its verdict's roadmap edit is confirmed.
 
 ## deferral_dispose
 
@@ -2778,7 +2917,12 @@ entry, naming its `decision` (a held entry's fact included); `raise` when you
 need a decision made that no entry holds yet; `merged` when the human merged a
 pull request you handed over; `landed`, with the feature's tag as `unit`, when a
 roadmap feature's last pull request has merged and its Status should go back to
-the roadmap; `retire` to finish with a worker; `resume` when a pause has ended
+the roadmap, and on a milestone roadmap when a milestone's work is finished,
+its last pull request merged or, with nothing to merge, its work reported or
+seen done (it goes to its verdict, never to Done by itself); `failure`, with
+the milestone's tag as `unit`, when a person or you find that a milestone
+reading Done on a milestone roadmap no longer meets a clause of its Evidence
+(a failed dispatch is never this: that is `redispatch`); `retire` to finish with a worker; `resume` when a pause has ended
 or its condition may be met, so pick reads the pauses again; `redispatch`, with
 the unit, to take up again a re-dispatch a pause held; `end` when the
 rotation or the scope ends.
@@ -3246,13 +3390,18 @@ one this redirect answers.
 Classify the worker's report and submit `classification`: `done` when its pull
 request is ready to verify, `blocked` when it needs a decision or a step that
 isn't its own, `needs_fix` when the work has a problem it can fix. The report is
-in `worker_report` and the facts about it in `coord/report.json`. `done` for
-a holding with no pull request goes back to the hub, since there is nothing
-to verify: message the worker to name its pull request, and pass it as
-`pull_request` with the report that does. A leg-bound worker's leg is spent
-by now and a message from it is refused, so for one whose report names no
-pull request classify `needs_fix` instead: `rebrief` moves it to the message
-path, and the brief asks it to name its pull request.
+in `worker_report` and the facts about it in `coord/report.json`. This run's
+roadmap form is `{{ROADMAP_FORM}}`. On a feature roadmap, `done` for a holding
+with no pull request goes back to the hub, since there is nothing to verify:
+message the worker to name its pull request, and pass it as `pull_request`
+with the report that does. A leg-bound worker's leg is spent by now and a
+message from it is refused, so for one whose report names no pull request
+classify `needs_fix` instead: `rebrief` moves it to the message path, and the
+brief asks it to name its pull request. On a milestone roadmap a milestone
+finished with nothing to merge (its Evidence is host state or a walkthrough)
+is classified `done` and goes to `roadmap_status`, its landed handling, with
+no request for a pull request; there, a milestone whose work should have
+merged something is answered `failed`, and you ask its worker for it then.
 
 <!-- details -->
 
@@ -3429,6 +3578,39 @@ an issue where the workspace lets you, or raise it as a proposed issue in your
 report up, and name it beside the pull request in the merge-order table. A gap
 goes to `rebrief`.
 
+This run's roadmap form is `{{ROADMAP_FORM}}`. On a milestone roadmap goal
+fit also names the Evidence clauses a pull request advances, and goes on the
+record. When `coord/land.json` carries `milestone`, the tag of the milestone
+the pull request's holding names and its Evidence on the default branch,
+clause 1 first:
+
+1. Write the entry to a file outside any repository, exactly these lines:
+
+   ```
+   Goal fit: <owner/repo#n> -- <tag>
+   Fit: <fits|fits with follow-ups|gap>
+   Clauses: <n, n | advances none>
+   Rationale: <what in the pull request decided it>
+   ```
+
+   `Fit` is the judgment you submit as `fit`, written with spaces
+   (`fits_with_follow_ups` is `fits with follow-ups`). `Clauses` names each clause
+   the pull request moves toward held, by its number, or `advances none`.
+2. Read the roadmap on the default branch into a file outside any
+   repository (`mktemp`) and check the entry:
+   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/milestone.sh" check-goal-fit <roadmap file> "<tag>" <entry file>`.
+   Fix the entry until it passes.
+3. Post it:
+   `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-append.sh" --session {{SESSION_NAME}} --kind goal-fit --text-file <entry file>`.
+4. Submit, with `clauses` set to the entry's Clauses value.
+
+`advances none` is recorded, not a gap: `fit` alone decides where the pull
+request goes, so a pull request that fits and moves no clause still lands.
+When `coord/land.json` carries `milestone_error` instead, the Evidence read
+failed: read it yourself with `milestone.sh evidence <roadmap file> "<tag>"`
+and write the entry the same way. With neither, no holding names a
+milestone for the pull request, and no entry is posted.
+
 ## land_merge
 
 The workspace permits the merge. Run `land-merge.sh` exactly once, then submit
@@ -3480,10 +3662,9 @@ write the feature back to the roadmap as landed. pick lists the unit with
 `follow_up` from then on; once its worker is torn down you dispatch the
 execution when you choose, and the roadmap reads it Done only after that lands.
 
-When a feature lands
-on a roadmap whose repository doesn't hold that feature's PLAN, dispatch a worker
-for a small pull request that sets the feature's status line, as a holding;
-features that depend on it stay blocked until it merges.
+What the roadmap needs once a unit's work lands depends on its form: read
+`{{PLUGIN_ROOT}}/skills/coordinate/references/landing-{{ROADMAP_FORM}}-roadmap.md`
+and do what it says.
 
 A merge made while a hold in the record still stood on the pull request
 (`record-hold.sh --list`) is written down, whoever made it: add a Reversals row
@@ -3507,10 +3688,10 @@ written back with `pull_request` empty and nothing else changed), which the
 record step waits for; the row goes only at the teardown's destroy step. A
 merge not confirmed keeps the link and adds a Side effects row for it at the
 verified head. A holding at Phase `scoping` gets its follow-up row, as at
-`merge_confirm`. When a feature lands on a roadmap whose repository doesn't
-hold that feature's PLAN, dispatch a worker for a small pull request that sets
-the feature's status line, as a holding; features that depend on it stay blocked
-until it merges.
+`merge_confirm`. What the roadmap needs once a unit's work lands depends on
+its form: read
+`{{PLUGIN_ROOT}}/skills/coordinate/references/landing-{{ROADMAP_FORM}}-roadmap.md`
+and do what it says.
 
 A merge made while a hold in the record still stood on the pull request
 (`record-hold.sh --list`) is written down, whoever made it: add a Reversals row
@@ -3757,11 +3938,23 @@ A roadmap feature landed: its last pull request merged, or for a spike or a
 design, its acceptance call was made. Write it back to the roadmap with
 `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/roadmap-status.sh" --session {{SESSION_NAME}} --unit "<the feature's tag>" --outcome "<what landed, with its pull requests; only public ones in a public roadmap>"`,
 then submit `status: opened` with the same `unit`, or `status: failed` when it
-refused or failed, and report why.
+refused or failed, and report why. On a milestone roadmap the script opens no
+pull request: it prints `verdict-owed <tag>`, and you submit
+`status: verdict_owed` with the same `unit`.
 
 <!-- details -->
 
-The script opens a pull request on the roadmap's repository that sets the
+This run's roadmap form is `{{ROADMAP_FORM}}`, but the script decides: it reads
+the roadmap's `schema:` on the default branch first. On a `roadmap/v2`
+(milestone) roadmap a merge never sets Done. The script marks the milestone's
+verdict owed, a Work row whose Who is the worker that held it, and changes
+nothing on the roadmap; `--outcome` is ignored there. Ticking it again for a
+milestone whose verdict is already owed prints the same line and writes
+nothing, so a deferred verdict comes back here. A milestone that reached here
+from `classify_report` with no pull request and whose work should have merged
+one is `failed`: ask its worker for the pull request instead.
+
+On a feature roadmap the script opens a pull request on the roadmap's repository that sets the
 feature's Status to Done, writes the text on its `**Delivered:**` line and
 removes its Needs line, regenerates the generated sections, and changes
 nothing else (its `**Outcome:**` line is the promise and is never touched);
@@ -3777,11 +3970,178 @@ a time, since two would conflict in the generated sections: the script refuses
 a second until the first is confirmed or dropped. A feature that landed as
 several pull requests is sent once, after the last.
 
+## milestone_verdict
+
+A milestone's verdict is owed. Check the shipped work against each Evidence
+clause, write the verdict entry, check it with `milestone.sh check-verdict`,
+post it with `record-append.sh --kind milestone-verdict`, run
+`roadmap-status.sh --verdict` with the URL it printed, and submit
+`verdict: recorded` with the milestone's tag as `unit`. When the verdict can't
+be given now, submit `verdict: deferred`: the milestone stays verdict-owed and
+pick passes over it.
+
+<!-- details -->
+
+A milestone reads Done only on a verdict from you or a person, never from the
+session that delivered it, and the verdict is checked against the roadmap's
+own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
+
+1. Read the roadmap on the default branch at its head commit, into a file
+   outside any repository (`mktemp`), and its clauses with
+   `"$S/milestone.sh" evidence <file> "<tag>"`: they are numbered in the
+   roadmap's order. That commit is the entry's Source.
+2. Check each clause against the shipped result: run the command it names,
+   follow the walkthrough, read the host state. Judge the work against the
+   strategy the roadmap serves too.
+3. Write the entry to a file outside any repository, exactly these lines:
+
+   ```
+   Verdict: <tag> -- <changes needed|verified with follow-ups|verified>
+   Checked by: {{SESSION_NAME}}
+   Checked on: <YYYY-MM-DD, UTC>
+   Source: {{ROADMAP}} at <the 40-character commit from step 1>
+   Work checked: <owner/repo#n, owner/repo#n | none>
+
+   Evidence:
+   1. <held|not held> -- <what showed it>
+
+   Strategy fit: <fits|does not fit> -- <why>
+   Follow-ups: <none | new: <title>; amend <tag>: <what>>
+   Changes needed: <none | what must change>
+   ```
+
+   with one Evidence line per clause. Verified needs every clause held, fits,
+   no follow-up and no change; verified with follow-ups the same with at
+   least one follow-up; changes needed a clause not held or `does not fit`,
+   and the change named. `Checked by` is never the worker that did the work;
+   when a person gave the verdict, name the person. On a public host the
+   entry is public: no tokens, host paths or private repositories.
+4. Check it: `"$S/milestone.sh" check-verdict <roadmap file> "<tag>" <entry file> --worker <the Who of the milestone's verdict-owed row>`
+   (`record-state.sh --session {{SESSION_NAME}} --list` shows the row; leave
+   `--worker` off when its Who is `none`). Fix the entry until it passes.
+5. Post it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-verdict --text-file <entry file>`,
+   which prints the entry's URL.
+6. Open the roadmap edit:
+   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --verdict "<tag>" --entry-file <entry file> --entry-url <URL>`.
+   It re-reads the comment at the URL, which must hold the entry file's text,
+   requires the default branch to contain the Source commit, re-checks the
+   entry against the roadmap at its Source and opens one pull request: a
+   verified verdict sets the Status to Done, removes the Needs line and adds
+   the work checked to Delivered; changes needed leaves Status and Delivered
+   as they are. Either adds a Progress line naming the verdict, you and the
+   entry. Never merge it; it goes to whoever merges roadmap changes, in the
+   merge-order table, and a person reviews the verdict there.
+
+   For verified with follow-ups, write each follow-up's milestone section to
+   a file outside any repository and add `--follow-ups <file>`: a `new:`
+   follow-up is a `### <unused tag>: <its title>` section, an `amend <tag>:`
+   follow-up a `### <tag>: <its current title>` section, each with
+   non-empty Outcome, Evidence (`- ` clauses), Left open and Dependencies
+   (an amendment keeps the milestone's Dependencies). The same pull request
+   adds each new milestone after the last, Not started, and gives each
+   amended one the section's Outcome, Evidence and Left open with a Progress
+   line naming the amendment.
+7. Submit `verdict: recorded` with `unit`; the record step waits for its Side
+   effects row. Once the default branch shows the edit, run
+   `roadmap-status.sh --confirm "<tag>"`, which clears the verdict-owed row.
+   For changes needed it also writes a rework row from the entry (the
+   not-held clauses and the Changes needed line), so pick offers the
+   milestone again and its next brief quotes the changes; keep the Changes
+   needed line one paragraph with no URL or link, which the script holds it
+   to.
+
+Submit `deferred` instead when a clause can't be checked yet (it needs a
+release, or a person's walkthrough), or when the script refuses because
+another roadmap pull request is pending (only one is open at a time). A
+deferred verdict stays verdict-owed: pick lists it as a verdict to give each
+pass, and ticking `landed` for the milestone reaches this step again. A
+pending edit whose pull request closed unmerged is dropped with
+`roadmap-status.sh --drop "<tag>" --reason "<why>"`, and the same entry's
+`--verdict` opens it again.
+An entry posted on the record changes nothing by itself: Done, the
+verdict-owed and rework rows and every pick follow only the record's body
+and the default branch.
+
+## milestone_reopen
+
+A failure was reported against a milestone that reads Done. Write the failure
+entry, check it with `milestone.sh check-failure`, post it with
+`record-append.sh --kind milestone-failure`, run `roadmap-status.sh --reopen`
+with the URL it printed, and submit `status: opened` with the milestone's tag
+as `unit`. When the entry can't be checked or the script refuses, submit
+`status: failed`: nothing changes.
+
+<!-- details -->
+
+A failure reopens only a Done milestone, and only through a roadmap pull
+request whoever merges roadmap changes reviews, so the report is checked
+before the milestone goes back to work. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`:
+
+1. Read the roadmap on the default branch into a file outside any repository
+   (`mktemp`), and the milestone's clauses with
+   `"$S/milestone.sh" evidence <file> "<tag>"`: they are numbered in the
+   roadmap's order. Find the clause the report says no longer holds.
+2. Write the entry to a file outside any repository, exactly these lines:
+
+   ```
+   Failure: <tag>
+   Reported by: <the person who reported it, or {{SESSION_NAME}}>
+   Seen on: <YYYY-MM-DD, UTC, no later than today>
+   Clause: <n>
+   What was seen: <what showed the clause failing>
+   ```
+
+   `Reported by` is a login, a session name or a plain name, 60 characters
+   at most. `What was seen` is one paragraph of at most 600 bytes with no URL
+   or link: the milestone's next brief quotes it to a worker as a report to
+   check against the Evidence. On a public host the entry is public: no
+   tokens, host paths or private repositories.
+3. Check it: `"$S/milestone.sh" check-failure <roadmap file> "<tag>" <entry file>`.
+   It refuses a milestone that doesn't read Done and a clause it doesn't
+   have. Fix the entry until it passes.
+4. Post it: `"$S/record-append.sh" --session {{SESSION_NAME}} --kind milestone-failure --text-file <entry file>`,
+   which prints the entry's URL.
+5. Open the reopen edit:
+   `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --reopen "<tag>" --entry-file <entry file> --entry-url <URL>`.
+   It re-reads the comment at the URL, which must hold the entry file's text,
+   checks the entry against the roadmap on the default branch and opens one
+   pull request that sets the Status to In progress and adds a Progress line
+   naming the failed clause, the reporter and the entry; Delivered, Outcome
+   and Evidence stay. Never merge it; it goes to whoever merges roadmap
+   changes, in the merge-order table, and a person reviews the report there.
+   Only one roadmap edit is pending at a time: a second failure reported
+   while one is pending opens nothing, so submit `failed` and report it again
+   once the pending edit is confirmed or dropped.
+6. The script prints `held-dependent <tag> <worker>` for each milestone that
+   depends on this one and has a holding: once the edit lands that milestone
+   reads blocked again while its worker keeps running. Tell the person who
+   owns each such worker what failed and that the dependent is blocked again,
+   and leave the decision to stop or keep it with them.
+7. Submit `status: opened` with `unit`; the record step waits for its Side
+   effects row. Until the edit merges, pick passes over the milestone. Once
+   the default branch reads it In progress, run
+   `roadmap-status.sh --confirm "<tag>"`, which writes a rework row from the
+   entry (`Evidence clause <n> failed: <what was seen>`): pick offers the
+   milestone again like any other once nothing blocks it, and its next brief
+   quotes the failure. A pending edit whose pull request closed unmerged is
+   dropped with `roadmap-status.sh --drop "<tag>" --reason "<why>"`, and the
+   same entry's `--reopen` opens it again.
+
+A failure entry posted on the record reopens nothing by itself: the Status,
+the rework row and every pick follow only the record's body and the default
+branch.
+
 ## roadmap_close
 
-Checking whether the roadmap is done. koto runs `closeout-read.sh` itself: every
+Checking whether the roadmap is done. koto runs `closeout-read.sh` itself: no
+milestone with a verdict owed, then every
 feature Done or Dropped, no holdings, nothing in flight, every deferral filed or
 closed, and every decision settled.
+A verdict-owed row blocks first (`verdict-owed`, the milestone named in the
+reason), even once the milestone reads Done: its verdict's edit is confirmed
+with `roadmap-status.sh --confirm` before the roadmap closes. A pending
+reopen edit blocks as a side effect in flight (`side-effects`, with the
+reason `reopen-pending <tag>`), even while the milestone still reads Done.
 
 ## roadmap_blocked
 

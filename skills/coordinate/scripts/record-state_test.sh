@@ -19,7 +19,12 @@
 # cap, a session-shaped address, a private repository on a public host); the
 # one-writer rule (record-write.sh changing a section refused); a failed entry
 # post after a written body (14); an assignment (an issue or a release a
-# person assigned) and its refusals; and record-handover.sh's report and gaps.
+# person assigned) and its refusals; a verdict-owed row (a milestone's
+# verdict owed) listed and kept by every write, --done leaving it and
+# --done --kind verdict-owed and --work --kind verdict-owed refused; a rework
+# row kept by other writes, --work --kind rework refused, record-write.sh
+# changing or removing it refused, --done --kind rework removing it; and
+# record-handover.sh's report and gaps.
 #
 # Usage: bash skills/coordinate/scripts/record-state_test.sh
 set -uo pipefail
@@ -183,6 +188,46 @@ eq "a titled holding row takes over its tag's follow-up row" "Feature 6: the exp
     "$(live | jq -r '[.work[] | select(.item | startswith("Feature 6")) | "\(.item):\(.kind)"] | join(",")')"
 eq "  ... and the handover reads the holding's own next step" "executing" \
     "$(bash "$RH" "${RM[@]}" | jq -r '.workers[] | select(.worker == "worker-f6") | .next')"
+
+echo "== a verdict-owed row is roadmap-status.sh's =="
+# A milestone whose verdict is owed (docs/designs/DESIGN-milestone-verdicts.md):
+# listed and kept by every write here, written and removed only by
+# roadmap-status.sh.
+OWED=$(jq -nc '{item: "Feature 2", kind: "verdict-owed", who: "worker-f2", next: "verdict owed since 2026-09-26", wakes: "0", updated: "2026-09-26T07:00Z"}')
+seed "$(printf '%s' "$TWO" | jq -c --argjson o "$OWED" '.work = [$o]')"
+eq "--list shows it" "Feature 2 verdict-owed worker-f2" "$(bash "$RS" "${RM[@]}" --list | jq -r '.work[] | "\(.item) \(.kind) \(.who)"')"
+bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next "teardown" >/dev/null 2>"$T/err"; eq "a holding row is written beside it" 0 $?
+eq "  ... and it stays" "holding verdict-owed" "$(live | jq -r '[.work[] | select(.item == "Feature 2") | .kind] | sort | join(" ")')"
+bash "$RS" "${W[@]}" --done "Feature 2" >/dev/null 2>"$T/err"; eq "--done for the unit removes its other rows" 0 $?
+eq "  ... and leaves the verdict-owed row" "verdict-owed" "$(live | jq -r '[.work[] | select(.item == "Feature 2") | .kind] | join(" ")')"
+bash "$RS" "${W[@]}" --done "Feature 2" >/dev/null 2>"$T/err"; eq "  ... which alone is no row --done can remove" 65 $?
+bash "$RS" "${W[@]}" --done "Feature 2" --kind verdict-owed >/dev/null 2>"$T/err"; eq "--done --kind verdict-owed is refused" 65 $?
+grep -q 'roadmap-status.sh --confirm' "$T/err" && ok "  ... naming what clears it" || bad "  ... naming what clears it" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --work "Feature 3" --kind verdict-owed --who worker-f3 --next "verdict owed since 2026-09-26" >/dev/null 2>"$T/err"; eq "--work --kind verdict-owed is a usage error" 64 $?
+live > "$T/now.json"
+jq -c 'del(.written) | .work = [.work[] | select(.kind != "verdict-owed")] | if (.work | length) == 0 then del(.work) else . end' "$T/now.json" > "$T/edit.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/edit.json" > "$T/edit.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/edit.md" >/dev/null 2>"$T/err"; eq "record-write.sh removing it is refused" 65 $?
+grep -q 'only through roadmap-status.sh' "$T/err" && ok "  ... naming its one writer" || bad "  ... naming its one writer" "$(cat "$T/err")"
+
+echo "== a rework row: roadmap-status.sh writes it, --done removes it =="
+REWORK=$(jq -nc '{item: "Feature 2", kind: "rework", who: "verdict 1001", next: "Evidence clauses not held: 2. Changes needed: name the skipped plugin", wakes: "0", updated: "2026-09-26T07:00Z"}')
+seed "$(printf '%s' "$TWO" | jq -c --argjson r "$REWORK" '.work = [$r]')"
+eq "--list shows it" "Feature 2 rework verdict 1001" "$(bash "$RS" "${RM[@]}" --list | jq -r '.work[] | "\(.item) \(.kind) \(.who)"')"
+bash "$RS" "${W[@]}" --work "Feature 3" --kind local-agent --who "a local agent" --next "check the docs" >/dev/null 2>"$T/err"; eq "another row is written beside it" 0 $?
+eq "  ... and it stays" "rework" "$(live | jq -r '[.work[] | select(.item == "Feature 2") | .kind] | join(" ")')"
+bash "$RS" "${W[@]}" --work "Feature 2" --kind rework --who "verdict 1001" --next "Changes needed: x" >/dev/null 2>"$T/err"; eq "--work --kind rework is a usage error" 64 $?
+grep -q 'roadmap-status.sh --confirm' "$T/err" && ok "  ... naming its one writer" || bad "  ... naming its one writer" "$(cat "$T/err")"
+live > "$T/now.json"
+jq -c 'del(.written) | .work = [.work[] | if .kind == "rework" then .next = "Changes needed: nothing" else . end]' "$T/now.json" > "$T/edit.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/edit.json" > "$T/edit.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/edit.md" >/dev/null 2>"$T/err"; eq "record-write.sh changing its text is refused" 65 $?
+grep -q 'written only by roadmap-status.sh --confirm' "$T/err" && ok "  ... naming its one writer" || bad "  ... naming its one writer" "$(cat "$T/err")"
+jq -c 'del(.written) | .work = [.work[] | select(.kind != "rework")]' "$T/now.json" > "$T/edit.json"
+bash "$HERE/record-render.sh" --written "$(jq -r .written "$T/now.json")" "$T/edit.json" > "$T/edit.md"
+bash "$HERE/record-write.sh" "${W[@]}" --body-file "$T/edit.md" >/dev/null 2>"$T/err"; eq "record-write.sh removing it is refused" 65 $?
+bash "$RS" "${W[@]}" --done "Feature 2" --kind rework >/dev/null 2>"$T/err"; eq "--done --kind rework removes it" 0 $?
+eq "  ... and only it" "Feature 3 local-agent" "$(live | jq -r '[.work[] | "\(.item) \(.kind)"] | join(",")')"
 
 echo "== one writer =="
 seed "$TWO"

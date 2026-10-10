@@ -40,7 +40,9 @@
 #                      written: the dispatch check can't name a new
 #                      dispatch's unit, so this is where a unit's pause holds
 #                      one (docs/designs/current/DESIGN-coordinate-paused-state.md,
-#                      Decision 1)
+#                      Decision 1); so does a unit pick marked
+#                      verdict_owed, a milestone whose verdict is owed
+#                      (docs/designs/DESIGN-milestone-verdicts.md)
 #
 # The run, in order, under a per-topic lock:
 #
@@ -77,7 +79,11 @@
 #      niwa lists both flags in `niwa dispatch --help`.
 #   7. Confirm: on success, rewrite the row `dispatched` and print the session
 #      name niwa reported, which the coordinator uses to message the worker
-#      and never records. On a failure or the deadline, look for the topic's
+#      and never records. A rework Work row on the unit (a milestone a
+#      confirmed changes-needed verdict or reopen sent back, whose text the brief
+#      quoted) is removed then, with record-state.sh --done --kind rework;
+#      a failed removal is reported on stderr and the dispatch still
+#      succeeds. On a failure or the deadline, look for the topic's
 #      session in `niwa list --json` before concluding anything: found means
 #      it launched (confirm it); not found means it didn't (rewrite the row
 #      `dispatch-failed`, abandon the request, exit 4); a listing that can't be
@@ -152,7 +158,8 @@
 #      holding that links a pull request, or for an entry point that takes no
 #      leg; a send_execution whose scoping leg a worker is still bound to;
 #      nothing written
-#   10 a new dispatch of a unit a pause holds or a decision parks, as pick
+#   10 a new dispatch of a unit a pause holds, a decision parks or whose
+#      milestone verdict is owed, as pick
 #      marked it; nothing written (submit `dispatched: paused`)
 #
 # Environment: KOTO, NIWA (the binaries), DC_RECORD_HOLDING (the record's
@@ -555,8 +562,23 @@ REPO=$(jq -r '.repo // "" | strings' "$INPUT")
 
 confirm() {
     write_row "$(with_status "$ROW" dispatched)"
+    clear_rework "$(printf '%s' "$ROW" | jq -r '.unit // ""')"
     printf 'session=%s\n' "$1"
     exit 0
+}
+# clear_rework <unit cell>: a milestone a changes-needed verdict or a reopen sent back
+# carries a rework row until a worker is dispatched for it, whose brief
+# quoted the row (render-brief.sh); the dispatch confirmed, the row goes.
+# The worker is already launched, so a failed removal is reported, not
+# fatal: the row stays and the next brief for the unit quotes it again.
+clear_rework() {
+    local item
+    item=$(jq -r --arg u "$1" '[(.work // [])[] | select(.kind == "rework") | .item as $x
+        | select($x == $u or ($u | startswith($x + ": ")))][0].item // empty' "$WORK/state.json") || item=""
+    [ -n "$item" ] || return 0
+    bash "$DC_RECORD_STATE" --session "$SESSION" --done "$item" --kind rework >/dev/null 2>"$WORK/rework.err" ||
+        printf '%s: %s is dispatched, but its rework row stands (%s); remove it with record-state.sh --session %s --done "%s" --kind rework\n' \
+            "$PROG" "$TOPIC" "$(head -1 "$WORK/rework.err")" "$SESSION" "$item" >&2
 }
 
 if [ "$STATUS" = dispatching ]; then
@@ -594,10 +616,14 @@ if [ "$STATUS" != dispatching ]; then
         (.host // "") as $h
         | [.units[]? | .unit as $x | select($x == $u or ($u | startswith($x + ": ")) or ($h != "" and ($h + $x) == $u))][0] as $m
         | {paused: (if $m == null then (.paused_all // null) else ($m.paused // null) end),
-           awaiting: ($m.awaiting // null), follow_up: ($m.follow_up // null)}' "$UNITS_FILE" >"$WORK/unit-facts.json" \
+           awaiting: ($m.awaiting // null), follow_up: ($m.follow_up // null), verdict_owed: ($m.verdict_owed // false)}' "$UNITS_FILE" >"$WORK/unit-facts.json" \
         || die 2 "coord/pick.json is not pick_facts' JSON"
     PAUSED=$(jq -r '.paused // empty' "$WORK/unit-facts.json")
     [ -z "$PAUSED" ] || die 10 "pause $PAUSED holds this unit, as pick_facts read it: nothing dispatched; submit dispatched: paused"
+    # A milestone whose verdict is owed waits for that verdict, never a new
+    # worker (docs/designs/DESIGN-milestone-verdicts.md, Decision 1).
+    jq -e '.verdict_owed == true' "$WORK/unit-facts.json" >/dev/null \
+        && die 10 "a verdict is owed on this milestone, as pick_facts read it: nothing dispatched until its verdict's roadmap edit is confirmed; submit dispatched: paused"
     # A unit parked on a decision waits for its answer like a pause; one
     # whose scoping landed is sent its execution, never scoped again.
     AWAITING=$(jq -r '.awaiting // empty' "$WORK/unit-facts.json")

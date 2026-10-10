@@ -36,13 +36,20 @@
 # host's default branch (the session's ROADMAP path, contents API, never a
 # working tree). First that applies:
 #   closed <n>         the record issue is closed
+#   verdict-owed <n>   a Work row of kind verdict-owed stands: a milestone
+#                      whose verdict is owed or whose verdict's roadmap edit
+#                      isn't confirmed (roadmap-status.sh); the reason names
+#                      it, `verdict-owed <tag>`, and the detail's blocker is
+#                      its row (docs/designs/DESIGN-milestone-verdicts.md)
 #   features-open <n>  a feature under `## Features` doesn't read Done,
 #                      Shipped or Dropped (annotated or not, as in
 #                      `Done -- shipped in #12`, as lib_roadmap_features
 #                      reads it), the roadmap lists no feature, or it is
 #                      missing
 #   holdings <n>       Holdings isn't empty
-#   side-effects <n>   Side effects in flight isn't empty
+#   side-effects <n>   Side effects in flight isn't empty; a milestone's
+#                      pending reopen edit (roadmap-status.sh --reopen) is
+#                      the blocker first, its reason `reopen-pending <tag>`
 #   deferrals <n>      a Deferrals row isn't `filed #<n>` or `closed: <text>`
 #   decisions <n>      a Decisions entry isn't settled
 #   ready <n>          all clear
@@ -145,6 +152,23 @@ if [ "$SCOPE" = roadmap ]; then
         1) REASON="$ROADMAP is not on $DEFAULT_BRANCH"; finish "features-open $REF" ;;
         *) lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")" ;;
     esac
+    # A milestone whose verdict is owed blocks first, naming the milestone:
+    # it may already read Done on the default branch (its verdict's edit
+    # merged, not yet confirmed) or still In progress, and either way the
+    # roadmap isn't closed until its verdict-owed row is confirmed away.
+    jq -r '.body // ""' "$T/issue.json" > "$T/body.md"
+    lib_parse "$T/body.md" "$T/parsed.json"
+    case $? in
+        0) ;;
+        3|65) lib_die2 "#$REF is not a canonical roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
+        *) lib_die2 "record-parse.sh failed" ;;
+    esac
+    BLOCKER=$(jq -c '[(.work // [])[] | select(.kind == "verdict-owed")][0] // null
+        | if . == null then null else {item, who, next} end' "$T/parsed.json")
+    if [ "$BLOCKER" != null ]; then
+        REASON="verdict-owed $(printf '%s' "$BLOCKER" | jq -r .item): its verdict is owed; give it, and confirm its roadmap edit, before the roadmap closes"
+        finish "verdict-owed $REF"
+    fi
     lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
     if [ "$(jq length "$T/features.json")" -eq 0 ]; then
         REASON="the roadmap lists no feature under ## Features"; finish "features-open $REF"
@@ -155,20 +179,21 @@ if [ "$SCOPE" = roadmap ]; then
         REASON="$(printf '%s' "$OPEN" | jq length) feature(s) not Done, Shipped or Dropped"
         finish "features-open $REF"
     fi
-    jq -r '.body // ""' "$T/issue.json" > "$T/body.md"
-    lib_parse "$T/body.md" "$T/parsed.json"
-    case $? in
-        0) ;;
-        3|65) lib_die2 "#$REF is not a canonical roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
-        *) lib_die2 "record-parse.sh failed" ;;
-    esac
     if [ "$(jq '.holdings | length' "$T/parsed.json")" -gt 0 ]; then
         BLOCKER=$(jq -c '.holdings[0] | {unit, worker, pull_request}' "$T/parsed.json")
         REASON="Holdings is not empty"; finish "holdings $REF"
     fi
     if [ "$(jq '.side_effects | length' "$T/parsed.json")" -gt 0 ]; then
-        BLOCKER=$(jq -c '.side_effects[0] | {action, target}' "$T/parsed.json")
-        REASON="Side effects in flight is not empty"; finish "side-effects $REF"
+        # A milestone's pending reopen edit is named first, by its tag: the
+        # milestone may still read Done on the default branch, so nothing
+        # above caught it.
+        BLOCKER=$(jq -c '([.side_effects[] | select(.action == "milestone-reopen")] + .side_effects)[0] | {action, target}' "$T/parsed.json")
+        if [ "$(printf '%s' "$BLOCKER" | jq -r .action)" = milestone-reopen ]; then
+            REASON="reopen-pending $(printf '%s' "$BLOCKER" | jq -r '.target | split(" [")[0]'): its reopen edit is pending; confirm it with roadmap-status.sh --confirm, or drop it, before the roadmap closes"
+        else
+            REASON="Side effects in flight is not empty"
+        fi
+        finish "side-effects $REF"
     fi
     BLOCKER=$(jq -c '[.deferrals[] | select(.disposition | test("^(filed #[1-9][0-9]*|closed: [\\s\\S]+)$") | not)][0] // null
         | if . == null then null else {deferral, disposition} end' "$T/parsed.json")

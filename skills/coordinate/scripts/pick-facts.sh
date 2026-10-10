@@ -58,7 +58,17 @@
 # dispatchable again with the answer; and `follow_up`, {after, next} from a
 # `follow-up` row (the pull request that landed its scoping alone, and its
 # execution), or null. A Work row matches a unit as a pause's On does. None
-# of the three holds a slot.
+# of the three holds a slot. Each unit also carries `verdict_owed`, true while
+# a `verdict-owed` row names it (a milestone whose work the coordinator
+# judged finished and whose verdict's roadmap edit isn't confirmed yet,
+# roadmap-status.sh), with or without its holding: such a unit is never
+# dispatched (docs/designs/DESIGN-milestone-verdicts.md, Decision 1). And
+# each carries `rework`, the Next step of a `rework` row that names it (the
+# not-held clauses and Changes needed line a confirmed changes-needed verdict
+# left, or the failed clause and what was seen a confirmed reopen left,
+# roadmap-status.sh --confirm), or null: such a milestone reads In
+# progress and is offered like any other once no holding covers it, and its
+# next brief quotes the text (render-brief.sh), which dispatch clears.
 #
 # Verdict tokens:
 #   decisions        decision-next.sh --owed pick names a rule: an unrecorded
@@ -74,7 +84,7 @@
 #   {scope, name, host (the repository an issue's `<host>#<n>` names),
 #    units: [{unit, number, title, status, done, blocked,
 #    blocked_by, blocker_landed, holding, landed, paused, awaiting, answered,
-#    follow_up, assigned?}], holdings: [{worker, unit, phase,
+#    follow_up, verdict_owed, rework, assigned?}], holdings: [{worker, unit, phase,
 #    dispatch_status, parked, merged, pull_request, paused}], decisions: [{decision, question,
 #    state, round, verdict, reason, recommendation, target, owed}], active,
 #    parked, cap, parked_bound, pauses, go_aheads, paused_all}
@@ -247,7 +257,9 @@ jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "
           else {awaiting: null, answered: {decision: $n, outcome: ($e.outcome // "")}} end;
     {scope: $scope, name: $name, host: $host,
      units: [$u[0][] | . + {paused: ($p.covers[.unit] // null)} + parked_on(.unit)
-                     + {follow_up: (row("follow-up"; .unit) | if . == null then null else {after: .who, next: .next} end)}],
+                     + {follow_up: (row("follow-up"; .unit) | if . == null then null else {after: .who, next: .next} end)}
+                     + {verdict_owed: (row("verdict-owed"; .unit) != null)}
+                     + {rework: (row("rework"; .unit) | if . == null then null else .next end)}],
      holdings: [$h[0][] | {worker, unit, phase, dispatch_status, parked, merged, pull_request, paused: ($p.covers[.unit] // null)}],
      decisions: [$d[0].entries[] | select(.state != "settled")
                  | {decision, question, state, round, verdict: (.verdict // ""), reason: (.reason // ""),

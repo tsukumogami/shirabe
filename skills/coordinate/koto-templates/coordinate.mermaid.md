@@ -4,7 +4,8 @@ stateDiagram-v2
     [*] --> start
     ask_up --> wait : asked: sent
     classify_report --> verify : classification: done, gates.report_pr.exit_code: 0
-    classify_report --> wait : classification: done, gates.report_pr.exit_code: 1
+    classify_report --> wait : classification: done, gates.report_pr.exit_code: 1, vars.ROADMAP_FORM: feature
+    classify_report --> roadmap_status : classification: done, gates.report_pr.exit_code: 1, vars.ROADMAP_FORM: milestone
     classify_report --> surface : classification: blocked
     classify_report --> rebrief : classification: needs_fix
     decision_answer --> decision_next : answered: recorded
@@ -58,6 +59,7 @@ stateDiagram-v2
     dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 44
     dispatch_check --> decision_next : gates.dispatch_check_verdict.exit_code: 45
     dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 46
+    dispatch_check --> pick_facts : gates.dispatch_check_verdict.exit_code: 49
     dispatch_check --> failure : gates.dispatch_check_verdict.exit_code: 47
     dispatch_check --> wait : gates.dispatch_check_verdict.exit_code: 48
     escalate --> escalate_send : gates.escalate_verdict.exit_code: 180
@@ -94,6 +96,10 @@ stateDiagram-v2
     merged_facts --> record : gates.merged_facts_verdict.exit_code: 91
     merged_facts --> wait : gates.merged_facts_verdict.exit_code: 92
     merged_facts --> wait : gates.merged_facts_verdict.exit_code: 46
+    milestone_reopen --> record : evidence.unit: present, status: opened
+    milestone_reopen --> wait : status: failed
+    milestone_verdict --> record : evidence.unit: present, verdict: recorded
+    milestone_verdict --> wait : verdict: deferred
     pick --> dispatch_check : choice: dispatch
     pick --> dispatch_check : choice: scope
     pick --> dispatch_check : choice: scope_ahead
@@ -161,6 +167,7 @@ stateDiagram-v2
     report_questions --> surface : gates.report_questions_verdict.exit_code: 172
     roadmap_blocked --> wait : noted: noted
     roadmap_close --> roadmap_close_step : gates.roadmap_close_verdict.exit_code: 130
+    roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 49
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 131
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 132
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 133
@@ -170,6 +177,7 @@ stateDiagram-v2
     roadmap_close_step --> roadmap_close : step: closed
     roadmap_close_step --> done_handed_over : step: handed_over
     roadmap_status --> record : evidence.unit: present, status: opened
+    roadmap_status --> milestone_verdict : evidence.unit: present, status: verdict_owed
     roadmap_status --> wait : status: failed
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 120
     rotation_close --> rotation_step : gates.rotation_close_verdict.exit_code: 121
@@ -233,6 +241,7 @@ stateDiagram-v2
     wait --> decision_evidence : event: evidence, evidence.decision: present
     wait --> decision_raise : event: raise
     wait --> roadmap_status : event: landed, vars.ROADMAP: {"is_set":true}
+    wait --> milestone_reopen : event: failure, evidence.unit: present, vars.ROADMAP: {"is_set":true}
     wait --> pick_facts : event: resume
     wait --> failure : event: redispatch
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}

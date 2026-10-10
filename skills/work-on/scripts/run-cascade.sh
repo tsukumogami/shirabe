@@ -519,6 +519,27 @@ emit_result() {
     fi
 }
 
+# roadmap_schema_of <file>: print the frontmatter's `schema:` value, or nothing
+# when the file has no frontmatter, the frontmatter never closes, or it names no
+# schema. The value is printed only once the closing `---` is seen, so an
+# unclosed frontmatter reads as no schema. awk reads the file itself rather than
+# a pipe: under pipefail an early exit could SIGPIPE the writer and fail the
+# substitution after the value was already captured. handle_roadmap is the
+# only caller.
+roadmap_schema_of() {
+    awk '
+        { sub(/\r$/, "") }
+        NR == 1 { if ($0 != "---") exit; fm = 1; next }
+        fm && $0 == "---" { if (s != "") print s; exit }
+        fm && s == "" && /^schema:/ {
+            s = $0
+            sub(/^schema:[ \t]*/, "", s)
+            sub(/[ \t]+$/, "", s)
+            gsub(/^["\x27]|["\x27]$/, "", s)
+        }
+    ' "$1"
+}
+
 # ── Handler: handle_roadmap ───────────────────────────────────────────────────
 # Locate the feature entry referencing plan-slug, update Status and Downstream,
 # guard full ROADMAP → Done transition. Runs on the roadmap node finalize-chain
@@ -544,8 +565,22 @@ emit_result() {
 # first arm and scenario_roadmap_feature_no_heading the second.
 #
 # The lookup keys on a `Downstream:` line that the roadmap format does not
-# define, so on a ROADMAP the roadmap skill produced the first arm is the usual
-# outcome today (shirabe#370).
+# define, so on a feature ROADMAP the roadmap skill produced the first arm is
+# the usual outcome today (shirabe#370).
+#
+# A milestone roadmap (frontmatter `schema: roadmap/v2`) is never edited here.
+# Its milestones close on a recorded, checked verdict (the roadmap format's
+# "When a milestone is Done"), not on a PLAN completing, so a merge must not
+# set one Done or retire the file. The check runs before the Downstream lookup,
+# so a v2 roadmap is left byte-for-byte unchanged even when a Downstream line
+# names the plan and every milestone already reads Done: one
+# `update_roadmap_feature` step at `skipped` (found_in null; nothing was
+# searched), no handle_roadmap_deletion, and ANY_FAILED untouched, so the run
+# still reports `completed` when nothing else failed. The file is not appended
+# to STAGED_FILES either: nothing about it changed, and any entry there opens
+# the finalization commit, which would publish the index on a run that had
+# already failed. A frontmatter that can't be read (no opening or closing
+# `---`, or no `schema:` line) is a feature roadmap, as before this check.
 #
 # Usage: handle_roadmap <roadmap-path> <found-in> <plan-slug>
 
@@ -553,6 +588,15 @@ handle_roadmap() {
     local path="$1"
     local found_in="$2"
     local plan_slug="$3"
+
+    local schema=""
+    schema=$(roadmap_schema_of "$path") || schema=""
+    if [[ "$schema" == "roadmap/v2" ]]; then
+        log_info "$path is a milestone roadmap (roadmap/v2); leaving it unchanged"
+        add_step "update_roadmap_feature" "$path" "null" "skipped" \
+            "milestone roadmap: status follows a recorded verdict (roadmap format, When a milestone is Done)"
+        return 0
+    fi
 
     log_info "Updating ROADMAP feature for plan slug: $plan_slug"
 
@@ -1237,8 +1281,9 @@ fi
 #               delete node (no upstream chain). The pre-probe no-op exits
 #               earlier with the same verdict.
 #   completed -- nothing failed and the chain held more than the PLAN. A
-#               completed run can still carry `skipped` steps: a ROADMAP
-#               deletion deferred on an open issue, or a verification with no
+#               completed run can still carry `skipped` steps: a milestone
+#               (roadmap/v2) ROADMAP left as it was, a ROADMAP deletion
+#               deferred on an open issue, or a verification with no
 #               surviving document to anchor on.
 # The script exits 0 whenever the cascade ran; exit 1 is reserved for the
 # setup/precondition failures handled above (before this point).

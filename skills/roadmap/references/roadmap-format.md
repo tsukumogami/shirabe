@@ -294,10 +294,30 @@ milestone the verdict names is added to the roadmap in the same edit that
 sets Done. A verdict is verification, not approval: merging stays wherever
 the repository's permissions put it.
 
-The rule is documentation today: no tool enforces it, and the completion
-cascade and the coordinator's status write-back can still set Done when
-work merges. A coordinator driving a milestone roadmap can decline to run
-the merge-driven write-back until that changes.
+On a roadmap a coordinator drives, the tools hold to this rule. When a
+milestone's work is finished, `/coordinate` doesn't write Done: it marks
+the verdict owed, and its verdict step checks the shipped work against
+each Evidence clause and posts the verdict on its record. Then
+`roadmap-status.sh --verdict` opens the one roadmap pull request the
+verdict calls for. For either verified verdict that pull request sets Done
+and adds any follow-up milestones; for changes needed it leaves the Status
+alone. Either way it adds a Progress line naming the verdict, the checker
+and the entry. Merging that pull request is what sets Done, and nothing else does:
+the coordinator writes no status when work merges, and the completion
+cascade leaves a `roadmap/v2` roadmap untouched, recording its roadmap step
+as `skipped`. The coordinator never merges the verdict's pull request, so
+whoever merges it reviews the verdict; a repository that auto-merges
+roadmap edits gives that review up. On a roadmap nobody coordinates, the
+person editing it keeps to the rule: `shirabe validate` checks the
+fields, not where a Done came from.
+
+Done can be taken back. When a milestone that reads Done is found to fail
+a clause of its Evidence, the coordinator records the failure and
+`roadmap-status.sh --reopen` opens a roadmap pull request that returns it
+to In progress, with a Progress line naming the clause and who reported
+it. Once that merges, the milestone is offered for work again, and the
+milestones that depend on it read blocked until a new verdict sets it
+Done.
 
 ### What may change while it is Active
 
@@ -306,9 +326,11 @@ An Active `roadmap/v2` roadmap may change in place in exactly these ways:
 - a milestone's Evidence or Left open is sharpened (`/roadmap` offers this
   on an Active milestone roadmap; the procedure is
   `references/phases/sharpen.md`);
-- a milestone's Status and Delivered change as the work progresses;
+- a milestone's Status and Delivered change through the verdict and
+  reopen edits above;
 - the follow-up milestones a verified-with-follow-ups verdict names are
-  added in the same edit that sets Done;
+  added in the same edit that sets Done, and the milestones it amends take
+  their new Outcome, Evidence and Left open in that edit too;
 - an Outcome is narrowed, together with a line in Progress that says so:
 
   ```markdown
@@ -318,7 +340,8 @@ An Active `roadmap/v2` roadmap may change in place in exactly these ways:
 Any other change to the Features section -- adding, removing, reordering
 or retitling a milestone, changing its Dependencies, widening its Outcome
 -- or to the Sequencing Rationale needs a new roadmap, as on a
-`roadmap/v1` roadmap. These rules are documentation: no tool enforces them.
+`roadmap/v1` roadmap. The coordinator's roadmap edits stay inside these
+rules, but nothing checks a hand edit against them.
 
 ### Validation (FC21)
 
@@ -461,8 +484,10 @@ chain, write a roadmap.
 **A one-feature roadmap is legitimate.** The routing rule is about
 altitude, not feature count. A roadmap does two jobs a PRD cannot: it
 is the progress ledger for a strategy's execution (its per-feature
-status is the only record of how far along the work is, and the
-completion cascade updates it as downstream plans land), and it is
+status is the only record of how far along the work is: on a
+`roadmap/v1` roadmap the completion cascade sets a feature Done when its
+downstream plan completes, and on a milestone roadmap a recorded verdict
+does, as [When a milestone is Done](#when-a-milestone-is-done) says), and it is
 the only bridge from the strategic chain to the tactical one --
 `/brief` is framed against a ROADMAP, never a STRATEGY and never a PRD,
 and the produced PLAN is what records the crossing (a durable document

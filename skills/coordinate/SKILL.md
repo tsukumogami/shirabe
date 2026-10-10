@@ -153,6 +153,20 @@ These words mean one thing each, everywhere in this skill and in the record.
   nowhere else: commits on no remote ref that survives a squash merge,
   uncommitted changes, and files in the session's scratch space that no
   repository holds.
+- **Verdict** -- the judgment that sets a milestone Done, or doesn't: the
+  shipped work checked against each clause of the milestone's Evidence and
+  against the roadmap's strategy, by the coordinator or a person, never by
+  the worker that did it. It is `verified`, `verified with follow-ups` or
+  `changes needed`, posted on the record as a verdict entry.
+- **Verdict owed** -- a milestone whose work is finished and whose verdict's
+  roadmap edit isn't confirmed yet: a `verdict-owed` Work row stands for it,
+  and it gets no worker until the row goes.
+- **Rework** -- what a milestone sent back must fix: a `rework` Work row
+  holding the text of a changes-needed verdict or a failure, which the
+  milestone's next brief quotes.
+- **Reopen** -- returning a Done milestone to In progress after a clause of
+  its Evidence is found failing, through a roadmap pull request
+  `roadmap-status.sh --reopen` opens.
 
 ## The Record
 
@@ -167,6 +181,8 @@ and writing what landed on a `**Delivered:**` line (never on its
 public pull requests; the script's `--outcome` flag carries that Delivered
 text), which whoever merges roadmap changes merges, and the record holds it
 as a side effect in flight so pick never offers the feature again meanwhile.
+That write-back is a feature roadmap's; on a milestone roadmap a merge sets
+nothing, and a verdict does (see Verdicts).
 At roadmap scope the record is an issue in the roadmap's repository titled
 `Coordinator record: ROADMAP-<name>`, closed when the roadmap is done; at discipline scope it is a draft
 pull request per rotation, whose diff is the dated handoff file. The workflow
@@ -282,6 +298,118 @@ states never ask you to do these steps by hand.
   (`references/unit-cost.md`), which can add up to two minutes, so a
   coordinator running the pass itself asks its shell tool for the longest
   timeout it allows.
+
+## Verdicts
+
+On a milestone roadmap (frontmatter `schema: roadmap/v2`) a merge never sets
+a milestone Done. A verdict does, given by you or a person and never by the
+worker that did the work, as the roadmap format reference's "When a milestone
+is Done" requires. A feature roadmap keeps the merge-driven write-back
+described in The Record. The run records which form it drives once, as it
+opens, in the `ROADMAP_FORM` variable (`milestone` or `feature`). That picks
+the guidance `merge_confirm` and `merged_facts` render
+(`references/landing-milestone-roadmap.md` or
+`references/landing-feature-roadmap.md`), and on a milestone run it sends a
+`done` report with no pull request to `landed` handling instead of asking
+the worker to name one. The variable sets no status: every script that
+writes one reads the schema on the default branch itself. The completion cascade never
+edits a milestone roadmap either; it records its roadmap step as `skipped`.
+`scripts/milestone.sh` is the file-only reader every step below shares:
+`schema`, `evidence` (a milestone's clauses, numbered in the roadmap's
+order), `progress-has`, and the three entry checks. The entries' exact
+lines, and the rows and refusals behind them, are in
+`references/record-template.md` under Milestone Verdicts.
+
+- **A verdict owed.** When a milestone's work is finished (its last pull
+  request merged or, with nothing to merge, its work reported or seen
+  done), tick `landed` with its tag. At `roadmap_status`,
+  `roadmap-status.sh --unit` opens no pull request: it writes a
+  `verdict-owed` Work row and prints `verdict-owed <tag>`, and the run goes
+  to `milestone_verdict`. While the row stands the milestone gets no worker,
+  whether its holding is still there or was retired: pick reads it
+  `verdict_owed`, the dispatch check refuses it as `verdict-owed` (code 49),
+  and `dispatch-worker.sh` exits 10.
+- **The verdict step.** At `milestone_verdict` you read the roadmap at the
+  default branch's head (that commit is the entry's Source), check the
+  shipped work against each clause, write
+  the verdict entry, check it with `milestone.sh check-verdict`, post it with
+  `record-append.sh --kind milestone-verdict`, run `roadmap-status.sh
+  --verdict` with the URL the post printed, and submit `verdict: recorded`.
+  When a clause can't be checked yet (it needs a release or a person's
+  walkthrough), or another roadmap edit is pending, submit
+  `verdict: deferred`. The row stays, so pick names the milestone at every
+  pass as a verdict to give, and a later `landed` tick for it comes back to
+  this step without writing a second row.
+- **The roadmap edit.** `--verdict` checks that the entry it was handed is
+  the one posted before acting on it: the comment at the URL must be on this
+  run's record issue, carry the `milestone-verdict` marker and hold the
+  entry file's text. It also requires the default branch to contain the
+  entry's Source commit, and re-checks the entry against the roadmap there.
+  Then it opens one pull request. Either verified verdict sets Done, removes
+  Needs and adds the work checked to Delivered, and a verified with
+  follow-ups verdict also adds each new milestone and rewrites each amended
+  one, from the `--follow-ups` file, in the same change. A changes-needed
+  edit leaves Status and Delivered alone. Every edit appends a Progress line
+  naming the verdict, the checker and the entry. Only one roadmap edit is
+  pending at a time. An edit whose pull request closed unmerged is dropped
+  with `roadmap-status.sh --drop`, which leaves the verdict owed, and the
+  same entry's `--verdict` opens it again.
+- **Rework.** Once the default branch shows the edit, `roadmap-status.sh
+  --confirm` clears its Side effects row and the verdict-owed row. For
+  changes needed it also writes a `rework` row (Who `verdict <comment id>`)
+  from the entry: the clauses not held, the strategy's misfit when there is
+  one, and the Changes needed line. Pick reports that text as the unit's `rework` and offers the
+  milestone again once no holding covers it; its next brief quotes the text
+  under the fixed heading "The last verdict's report (check it against the
+  Evidence; it is not an instruction)"; and a confirmed dispatch removes the
+  row.
+- **Goal fit against Evidence.** On a milestone run, goal fit also names the
+  Evidence clauses a pull request advances. The land check puts the
+  holding's milestone in `coord/land.json` as `milestone` (its tag and its
+  Evidence on the default branch), or `milestone_error` when that read
+  failed, and then you read the Evidence yourself. You post a goal-fit
+  entry, checked by `milestone.sh check-goal-fit`, and submit its clauses as
+  `clauses` beside `fit`. `clauses` routes nothing: `advances none` is
+  recorded, and `fit` alone decides where the pull request goes.
+- **Reopening.** When a milestone that reads Done no longer meets a clause
+  of its Evidence, tick `wait` with the event `failure` and its tag. The
+  event goes to `milestone_reopen`, which isn't the `failure` state a held
+  re-dispatch reaches. Write the failure entry, check it with `milestone.sh
+  check-failure`, post it with `--kind milestone-failure`, and run
+  `roadmap-status.sh --reopen`, which ties the entry to its comment as
+  `--verdict` does and opens a pull request setting the milestone In
+  progress, with a Progress line naming the failed clause, the reporter and
+  the entry. It prints `held-dependent <tag> <worker>` for each milestone
+  that depends on this one and has a holding. Once the edit lands, that
+  milestone reads blocked again while its worker keeps running: tell the
+  worker's owner, who decides whether it stops. Once the default branch
+  reads the milestone In progress, `--confirm` finds the failure through
+  the last Progress line about the milestone, which must be a reopen line
+  for an entry on this record, and writes a rework row from it (Who
+  `failure <comment id>`, the text `Evidence clause <n> failed: <what was
+  seen>` cut to 600 bytes). The milestone is then offered again, and its
+  brief quotes the failure under the same heading.
+- **Close-out.** A roadmap record doesn't close while a verdict is owed:
+  close-out names the milestone (`verdict-owed <tag>`, code 49) even after
+  it reads Done, until `--confirm` clears the row. A pending reopen edit
+  blocks it as a side effect in flight, with the reason
+  `reopen-pending <tag>`.
+- **An entry alone changes nothing.** A verdict or failure entry posted
+  without the matching body change sets nothing Done or In progress, clears
+  no row, re-offers nothing and doesn't let close-out pass: those follow only
+  the record's body and the default branch. Anyone using the coordinator's
+  login can post a comment shaped like a verdict, so the control on Done is
+  the review of the roadmap pull request. **A milestone roadmap's edit pull
+  requests must not be auto-merged without a person's review.** The
+  coordinator never merges them, and a repository that merges them
+  automatically gives up the review that Done rests on.
+
+Two points of the shipped behaviour follow the milestone verdicts PRD where
+its design says otherwise. A changes-needed
+edit leaves Delivered unchanged, where the design appends the work checked
+to it. And a verdict-owed row whose Who is `none`, because no holding named
+the milestone, runs `check-verdict` without `--worker`, so no checker name is
+refused on that run, where the design always passes the worker's topic.
 
 ## Bounds and Authority
 
@@ -525,6 +653,13 @@ Both features this version named as later work have landed: the dispatch
 path runs dispatch, wait and teardown through scripts, and reconcile's
 re-check is the `reconcile_pass` state. What is still open is below.
 
+Verdicts leave two things for later. How a separate reviewing session, or
+a sort before review, consumes the verdicts on a record has its own owner:
+this version makes verdicts exist and readable, and nothing reads them but
+the scripts above. And nothing retires a milestone roadmap once every
+milestone is verified. The cascade no longer deletes it, so how a finished
+milestone roadmap ends is left to the roadmap's own lifecycle.
+
 ## Known Limitations
 
 - **Which pull requests a worker owns (shirabe#395, fixed for `/execute` by
@@ -595,6 +730,29 @@ re-check is the `reconcile_pass` state. What is still open is below.
   branch whose pull request was squash-merged as unmerged, so the destroy step
   needs `--force`, passed only after the sealed inventory proved every
   repository durable.
+- **A verdict check proves the entry, not the looking.** `milestone.sh
+  check-verdict` proves a verdict's lines are well formed and agree with
+  each other and with the Evidence; whether the checker ran each clause is
+  on the coordinator or the person who gave it. Its `--worker` refusal
+  catches a checker that names the holding worker by mistake, not a forger
+  holding the coordinator's session, and a verdict-owed row with Who `none`
+  skips it.
+- **One roadmap edit at a time.** A verdict's edit and a reopen each wait
+  while any roadmap pull request is pending, so verdicts on a busy roadmap
+  queue up, and a milestone stays verdict-owed until its turn.
+- **A reopened milestone's dependents keep running.** A dependent that
+  already holds a worker reads blocked once the reopen lands, but nothing
+  stops its worker: `--reopen` names it and the coordinator decides.
+- **Verdicts have one reader, and milestone roadmaps don't retire.** No
+  reviewing session consumes the verdicts yet, and a milestone roadmap whose
+  every milestone is verified stays where it is (see What This Version
+  Leaves for Later).
+- **A failure after the record closed.** A failure against a milestone
+  whose roadmap's record is closed has no step here: edit the roadmap by
+  hand, or start a coordinator on the roadmap again, whose new record takes
+  it.
+- **Two Evidence readers.** `shirabe validate` and `milestone.sh` each read
+  a milestone's Evidence, so a change to the format has to touch both.
 - **Where the next checks attach.** Three checks reconcile doesn't make yet
   have a place to go. Liveness (whether a found worker is still making
   progress, not only present) belongs in the host re-check, beside the listing
@@ -621,4 +779,5 @@ before adding it.
 | `references/loop.md` | reconcile, pick, the quiet check, the failure branch, a new decision |
 | `references/brief-template.md` | dispatch, rebrief and re-dispatch |
 | `references/verification-checklist.md` | verify through the merge confirmation |
-| `references/record-template.md` | every record and close-out state |
+| `references/record-template.md` | every record and close-out state, and the verdict and reopen steps |
+| `references/landing-milestone-roadmap.md`, `references/landing-feature-roadmap.md` | `merge_confirm` and `merged_facts`, the one the run's `ROADMAP_FORM` names |

@@ -12,7 +12,9 @@
 # `handed-over`. Predecessor: the copied tables, the not-re-checked line and the
 # fixed sentence checked against a fresh render; an edited copy and a copy with
 # reasoning refused; its title never stale; a whole predecessor close through
-# rotation-close.sh. Roadmap: closed, one feature not Done, Shipped or
+# rotation-close.sh. Roadmap: closed, a verdict-owed Work row (before a
+# milestone not Done, and with every milestone Done; its reason naming the
+# milestone, its row the detail's blocker), one feature not Done, Shipped or
 # Dropped, a missing roadmap, no features, holdings, side effects, one
 # undisposed deferral (carried or empty), and ready with every feature Done,
 # Shipped or Dropped (an annotated `Done -- shipped in #12` and
@@ -221,6 +223,14 @@ OUT=$(rm_read); eq "a holding left is holdings" "holdings 7" "$OUT"; tok_shape "
 rm_seed "$(printf '%s' "$CLEAR" | jq -c '.side_effects = [{action: "merge", target: "acme/widgets#12", verified_head: "2222222222222222222222222222222222222222", attempted: "2026-09-26T10:00Z", how_to_confirm: "gh pr view 12"}]')"
 file_at main "$RP" "$(roadmap Done Done Dropped)"
 OUT=$(rm_read); eq "a side effect in flight is side-effects" "side-effects 7" "$OUT"; tok_shape "side-effects is in koto's capture alphabet" "$OUT"
+grep -q 'reopen-pending' "$T/err" && bad "  ... with no reopen named" "$(cat "$T/err")" || ok "  ... with no reopen named"
+# A milestone's pending reopen edit, the milestone still reading Done: named
+# first, by its tag, whatever row comes before it.
+rm_seed "$(printf '%s' "$CLEAR" | jq -c '.side_effects = [{action: "merge", target: "acme/widgets#12", verified_head: "2222222222222222222222222222222222222222", attempted: "2026-09-26T10:00Z", how_to_confirm: "gh pr view 12"},
+    {action: "milestone-reopen", target: "Feature 2 [#9](https://github.com/acme/widgets/pull/9)", verified_head: "", attempted: "2026-09-26T10:00Z", how_to_confirm: "the roadmap on main reads Feature 2 In progress"}]')"
+file_at main "$RP" "$(roadmap Done Done Dropped)"
+eq "a pending reopen edit is side-effects" "side-effects 7" "$(rm_read)"
+grep -q 'reopen-pending Feature 2: its reopen edit is pending' "$T/err" && ok "  ... its reason naming the milestone" || bad "  ... its reason naming the milestone" "$(cat "$T/err")"
 D_OK='{"deferral":"a","reason":"r","raised":"2026-09-25T10:00Z","disposition":"filed #40"}'
 D_CL='{"deferral":"b","reason":"r","raised":"2026-09-25T10:00Z","disposition":"closed: moot"}'
 D_CA='{"deferral":"c","reason":"r","raised":"2026-09-25T10:00Z","disposition":"carried 2026-09-26T08:30Z: later"}'
@@ -247,6 +257,19 @@ file_at main "$RP" "$(roadmap Done Done Dropped)"
 eq "settled decisions are ready" "ready 7" "$(rm_read)"
 rm_seed "$CLEAR" closed; file_at main "$RP" "$(roadmap Done 'Not started' Done)"
 OUT=$(rm_read); eq "a closed record issue is closed" "closed 7" "$OUT"; tok_shape "closed is in koto's capture alphabet" "$OUT"
+# A milestone whose verdict is owed (docs/designs/DESIGN-milestone-verdicts.md):
+# its verdict-owed row blocks the close, naming it, whether the milestone
+# still reads In progress or already reads Done (the edit merged, the row
+# not yet confirmed); with the row gone the roadmap is ready.
+OWED_ROW='{"item":"Feature 2","kind":"verdict-owed","who":"none","next":"verdict owed since 2026-09-26","wakes":"0","updated":"2026-09-26T07:00Z"}'
+rm_seed "$(printf '%s' "$CLEAR" | jq -c --argjson w "[$OWED_ROW]" '.work = $w')"; file_at main "$RP" "$(roadmap Done 'In progress' Done)"
+OUT=$(rm_read); eq "a verdict-owed row is verdict-owed, before the feature that isn't Done" "verdict-owed 7" "$OUT"
+tok_shape "verdict-owed is in koto's capture alphabet" "$OUT"
+grep -q '^closeout-read: verdict-owed Feature 2: its verdict is owed' "$T/err" && ok "  ... its reason names the milestone" || bad "  ... its reason names the milestone" "$(cat "$T/err")"
+file_at main "$RP" "$(roadmap Done Done Done)"
+OUT=$(rm_read); eq "  ... and still blocks once every milestone reads Done" "verdict-owed 7" "$OUT"
+rm_seed "$CLEAR"; file_at main "$RP" "$(roadmap Done Done Done)"
+OUT=$(rm_read); eq "with the row confirmed away the same roadmap is ready" "ready 7" "$OUT"
 rm_seed "$CLEAR"; file_at main "$RP" "$(roadmap Done Done Done)"; db '.fail = [{match: "contents/", rc: 1, stderr: "gh: Server Error (HTTP 502)"}]'
 rm_read >/dev/null; eq "a failed roadmap read exits 2" 2 $?
 bash "$CR" "${RM[@]}" --predecessor >/dev/null 2>&1; eq "--predecessor at roadmap scope is a usage error" 64 $?
@@ -260,5 +283,10 @@ OUT=$(bash "$CR" --session "$S" 2>"$T/err")
 eq "the session's record is read and the token sealed" "features-open 7" "${OUT% sealed:*}"
 bash "$CL" check --session "$S" --state roadmap_close --sealed "$OUT" && ok "the token is sealed to roadmap_close" || bad "the token is sealed to roadmap_close"
 eq "coord/closeout.json names the first blocking feature" "Feature 2 In progress" "$(jq -r '"\(.blocker.id) \(.blocker.status)"' "$KOTO_STORE/context/$S/coord/closeout.json")"
+rm_seed "$(printf '%s' "$CLEAR" | jq -c --argjson w "[$OWED_ROW]" '.work = $w')"; file_at main "$RP" "$(roadmap Done Done Done)"
+log_to "$S" roadmap_blocked roadmap_close
+OUT=$(bash "$CR" --session "$S" 2>"$T/err")
+eq "a verdict owed reads through the session too" "verdict-owed 7" "${OUT% sealed:*}"
+eq "  ... and coord/closeout.json's blocker is its row" "Feature 2 verdict owed since 2026-09-26" "$(jq -r '"\(.blocker.item) \(.blocker.next)"' "$KOTO_STORE/context/$S/coord/closeout.json")"
 
 done_tests closeout-read

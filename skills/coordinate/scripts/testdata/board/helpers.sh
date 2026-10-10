@@ -20,7 +20,7 @@ bt_setup() {
     mkdir -p "$S" "$T/plugin/skills/execute/scripts" "$T/plugin/skills/coordinate/koto-templates" "$T/bin" "$T/koto/sessions" "$T/koto/cache" "$T/state"
     for f in board-lib.sh board-verdict.sh board-record.sh land-check.sh land-merge.sh merge-confirm.sh \
              merged-facts.sh coord-log.sh coord-verdict.sh record-common.sh record-parse.sh record-render.sh record-codec.jq \
-             panel-evidence.sh squash-message.sh merge-order-entry.sh pause-read.sh; do
+             panel-evidence.sh squash-message.sh merge-order-entry.sh pause-read.sh milestone.sh; do
         cp "$HERE/$f" "$S/$f"
     done
     ln -sf "$TD/board/stand-in-shirabe" "$T/bin/shirabe"
