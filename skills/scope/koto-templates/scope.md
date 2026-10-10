@@ -2839,11 +2839,10 @@ on the tick that reaches the terminal.
 Read the R8 Bail Route section of
 `skills/scope/references/phases/phase-3-exit-finalization.md`.
 
-The `child_intermediate_present` gate looks for a child's intermediate under
-`wip/{brief,prd,design,plan}_<topic>_*` or research scratch under
-`wip/research/{prd,design}_<topic>_*`. Nothing under the parent's own
-`wip/scope_<topic>_*` prefix counts toward it: nothing under that prefix is a
-child's output.
+The `child_intermediate_present` gate asks the four children's sessions with
+`skill-session.sh has-work`: a live `<child>-<topic>` on this branch holding a
+`work/` key is a child mid-flight. The parent's own session counts for
+nothing here: it is not a child's output.
 
 `bail_ack: force_materialize` routes to the abandonment exit whatever the gate
 found. That is deliberate -- the resume ladder offers Force-materialize as an
