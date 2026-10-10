@@ -62,6 +62,56 @@ re-messaged via `SendMessage` in Phases 4-5. They retain their full conversation
 history to revise and defend their positions. Research and alternative agents are
 disposable (single task, then done).
 
+## Session and Keys
+
+`/decision` keeps every intermediate and its report as keys in a koto session,
+following `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It
+writes no file to the staging folder. Three names locate its state, and every
+phase file uses them:
+
+| Name | Run by a parent skill (`/design`) | Run directly |
+|------|-----------------------------------|--------------|
+| `<session>` | the parent's session, from `decision_context.session` (`design-<topic>`) | `decision-<topic>` |
+| `<key_dir>` | `decision_context.key_dir` (`work/decision-<N>`) | `work` |
+| `<report_key>` | `decision_context.report_key` (`work/decision_<N>_report.md`) | `work/report.md` |
+
+The keys are `<key_dir>/context.md`, `<key_dir>/research.md`,
+`<key_dir>/alternatives.md`, `<key_dir>/bakeoff_<k>.md` (one per validator)
+and `<key_dir>/examination.md`, then `<report_key>`.
+
+**Run by a parent skill.** The parent's session is already open, and the
+parent owns it: `/decision` opens, adopts and closes nothing, and writes only
+under the `key_dir` and `report_key` it was given.
+
+**Run directly.** Phase 0 derives `<topic>` from the question (lowercase,
+whitespace and underscores to `-`, every character outside `[a-z0-9-]`
+dropped, at most 60 characters, never starting or ending with `-`; ask for one
+when nothing is left), then opens the session and records that no parent
+dispatched it:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open decision <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt decision <topic>
+```
+
+Any non-zero exit from either command stops the run with the script's message:
+127 or 69 means koto is missing or too old, and the skill never falls back to
+files. At the end of Phase 6 a direct run closes its session:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close decision-<topic> done`
+(`abandoned` when the user abandons the decision). Under a parent `/decision`
+never closes a session.
+
+Keys are read and written with koto: `koto context exists <session> <key>`
+tests one (exit 0 present, 1 absent), `koto context get <session> <key>` prints
+it, `koto context add <session> <key>` stores the content given on stdin,
+`koto context list <session> --prefix <key_dir>/` lists them, and `koto
+context remove <session> <key>` removes one. The decider writes keys itself;
+the research and validator agents it spawns never do. Each writes one file in a
+`skill-session.sh scratch` directory, which the decider ingests with
+`skill-session.sh ingest <session> <key_dir> <dir>`; a validator revising its
+report edits a copy materialized with `skill-session.sh get` and the decider
+writes it back with `skill-session.sh put`.
+
 ## Sub-Operation Interface
 
 When invoked by a parent skill, the decider receives a decision context:
@@ -69,7 +119,9 @@ When invoked by a parent skill, the decider receives a decision context:
 ```yaml
 decision_context:
   question: "Which cache invalidation strategy?"
-  prefix: "design_foo_decision_1"
+  session: "design-foo"
+  key_dir: "work/decision-1"
+  report_key: "work/decision_1_report.md"
   options:
     - name: "TTL-based"
       description: "..."
@@ -93,7 +145,7 @@ decision_result:
   rejected:
     - name: "Event-driven"
       reason: "Adds infrastructure dependency for marginal gain"
-  report_file: "wip/design_foo_decision_1_report.md"
+  report_key: "work/decision_1_report.md"
 ```
 
 See `references/decision-report-format.md` for the canonical output format
@@ -117,13 +169,13 @@ Phase 0: CONTEXT --> Phase 1: RESEARCH --> Phase 2: ALTERNATIVES --> Phase 3: BA
 
 | Phase | Purpose | Agents | Artifact |
 |-------|---------|--------|----------|
-| 0 | Context and framing | None | `wip/<prefix>_context.md` |
-| 1 | Research critical unknowns | 1 research agent (disposable) | `wip/<prefix>_research.md` |
-| 2 | Identify and present alternatives | N alternative agents (disposable) | `wip/<prefix>_alternatives.md` |
-| 3 | Validation bakeoff | N validator agents (persistent) | `wip/<prefix>_bakeoff_<N>.md` |
-| 4 | Informed peer revision | Same validators (SendMessage) | Updated bakeoff files |
-| 5 | Cross-examination | Same validators (SendMessage) | `wip/<prefix>_examination.md` |
-| 6 | Synthesis and report | None (decider synthesizes) | `wip/<prefix>_report.md` |
+| 0 | Context and framing | None | key `<key_dir>/context.md` |
+| 1 | Research critical unknowns | 1 research agent (disposable) | key `<key_dir>/research.md` |
+| 2 | Identify and present alternatives | N alternative agents (disposable) | key `<key_dir>/alternatives.md` |
+| 3 | Validation bakeoff | N validator agents (persistent) | keys `<key_dir>/bakeoff_<k>.md` |
+| 4 | Informed peer revision | Same validators (SendMessage) | Updated bakeoff keys |
+| 5 | Cross-examination | Same validators (SendMessage) | key `<key_dir>/examination.md` |
+| 6 | Synthesis and report | None (decider synthesizes) | key `<report_key>` |
 
 **Fast path (Tier 3):** skip Phases 3-5. No validators spawned. The decider
 goes from alternatives presentation directly to synthesis.
@@ -131,13 +183,13 @@ goes from alternatives presentation directly to synthesis.
 ## Resume Logic
 
 ```
-if wip/<prefix>_report.md exists           -> Decision complete
-if wip/<prefix>_examination.md exists      -> Resume at Phase 6
-if wip/<prefix>_bakeoff_*.md exist         -> Resume at Phase 4
-if wip/<prefix>_alternatives.md exists     -> Resume at Phase 3 (or Phase 6 for fast path)
-if wip/<prefix>_research.md exists         -> Resume at Phase 2
-if wip/<prefix>_context.md exists          -> Resume at Phase 1
-else                                       -> Start at Phase 0
+if key <report_key> exists                    -> Decision complete
+if key <key_dir>/examination.md exists        -> Resume at Phase 6
+if keys <key_dir>/bakeoff_* exist             -> Resume at Phase 4
+if key <key_dir>/alternatives.md exists       -> Resume at Phase 3 (or Phase 6 for fast path)
+if key <key_dir>/research.md exists           -> Resume at Phase 2
+if key <key_dir>/context.md exists            -> Resume at Phase 1
+else                                          -> Start at Phase 0
 ```
 
 ## Phase Execution
@@ -152,17 +204,25 @@ Execute phases sequentially by reading the corresponding phase file:
 5. **Cross-Examination**: `references/phases/phase-5-examination.md`
 6. **Synthesis and Report**: `references/phases/phase-6-synthesis.md`
 
+Every key row is tested in `<session>` (`koto context exists <session>
+<key>`; the bakeoff row with `koto context list <session> --prefix
+<key_dir>/bakeoff_`). A direct run reads the rows after Phase 0's open, so an
+interrupted run's live session is attached and read; a finished one was
+replaced and starts at Phase 0.
+
 ## Cleanup
 
-After Phase 6 writes the report, delete intermediate artifacts:
-- `wip/<prefix>_context.md`
-- `wip/<prefix>_research.md`
-- `wip/<prefix>_alternatives.md`
-- `wip/<prefix>_bakeoff_*.md`
-- `wip/<prefix>_examination.md`
+After Phase 6 writes the report, remove the intermediate keys, since a parent
+reads only the report and a restarted decision (`/design`'s Phase 3) must
+start fresh:
+- `<key_dir>/context.md`
+- `<key_dir>/research.md`
+- `<key_dir>/alternatives.md`
+- `<key_dir>/bakeoff_<k>.md`, each one
+- `<key_dir>/examination.md`
 
-Only the final `wip/<prefix>_report.md` persists. This keeps wip/ manageable
-when the parent skill runs multiple decisions.
+Only `<report_key>` persists. Nothing is deleted from the staging folder:
+`/decision` writes nothing there.
 
 ## Validator Agent Contract
 

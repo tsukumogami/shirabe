@@ -10,7 +10,7 @@ removes the safety net that catches cross-component failures.
 Read the following from Phase 0 context:
 
 - All issue body files (already read in Phase 0)
-- Full dependency graph (from `wip/plan_<topic>_dependencies.md`)
+- Full dependency graph (from key `work/dependencies.md`, or the PLAN document)
 - Complexity breakdown — critical count and which issues are critical
 - Decomposition strategy (`walking-skeleton` or `horizontal`)
 - Input type (gates behavior below)

@@ -4,7 +4,7 @@ Spawn a research agent to build context and identify critical unknowns.
 
 ## Resume Check
 
-If `wip/<prefix>_research.md` exists, skip to Phase 2.
+If key `<key_dir>/research.md` exists in `<session>`, skip to Phase 2.
 
 ## Steps
 
@@ -16,7 +16,14 @@ not background knowledge.
 
 ### 1.2 Spawn Research Agent
 
-Launch a disposable research agent via the Agent tool:
+Allocate a private directory outside the work tree for the agent's findings and
+keep the path it prints, `<research-dir>`:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch
+```
+
+Launch a disposable research agent via the Agent tool. It never calls koto:
 
 ```
 Agent tool:
@@ -36,7 +43,8 @@ Agent tool:
     - In non-interactive mode: make a reasonable assumption and document it
       explicitly ("Assumed: <X>. If wrong: <consequence>")
 
-    Write your findings to wip/<prefix>_research.md with sections:
+    Write your findings to <research-dir>/research.md, and nowhere else,
+    with sections:
     - Research conducted (what you looked at)
     - Findings (what you learned)
     - Assumptions made (if any, with consequences)
@@ -47,13 +55,20 @@ Agent tool:
 
 ### 1.3 Collect Results
 
+Turn the findings file into key `<key_dir>/research.md` (`ingest` removes the
+directory):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest <session> <key_dir> <research-dir>
+```
+
 Read the research summary. If the agent made assumptions (non-interactive mode),
 these will propagate into the decision report's Assumptions field.
 
 ## Quality Checklist
 
 - [ ] Critical unknowns identified and investigated
-- [ ] Research artifact written to wip/
+- [ ] Research stored as key `<key_dir>/research.md`
 - [ ] Assumptions documented if information gaps remain
 
 ## Next Phase

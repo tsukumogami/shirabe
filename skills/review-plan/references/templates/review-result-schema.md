@@ -1,8 +1,8 @@
 # Review Result Schema
 
 The `review_result` YAML block is the machine-readable verdict produced by Phase 5
-and written to either `wip/plan_<topic>_review.md` (proceed) or
-`wip/plan_<topic>_review_loopback.md` (loop-back). Both files use the same schema.
+and written as key `work/review.md` (proceed) or `work/review_loopback.md`
+(loop-back) in `plan-<topic>`. Both keys use the same schema.
 
 ## Schema
 
@@ -69,13 +69,13 @@ The review round number. Monotonically increasing per topic.
 
 **Authoritative source**: `args.round` when called as a sub-operation (passed in by
 `/plan`). When called standalone, derive as `review_rounds + 1` from
-`wip/plan_<topic>_analysis.md`. **Never compute from `review_rounds + 1` when
+key `work/analysis.md` in `plan-<topic>`. **Never compute from `review_rounds + 1` when
 `args.round` is present** — `/plan` increments `review_rounds` in Phase 6 loop-back,
-so on a second review call the file-derived value and the args value can diverge.
+so on a second review call the key-derived value and the args value can diverge.
 
 This field is informational — it provides context to the review skill and to anyone
 reading the artifact. `/plan` tracks the authoritative round counter independently
-in `wip/plan_<topic>_analysis.md` as `review_rounds`.
+in key `work/analysis.md` as `review_rounds`.
 
 ### `confidence`
 

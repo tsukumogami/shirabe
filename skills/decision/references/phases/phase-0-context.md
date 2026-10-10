@@ -4,7 +4,9 @@ Accept the decision question, extract constraints, and create the context artifa
 
 ## Resume Check
 
-If `wip/<prefix>_context.md` exists, skip to Phase 1.
+If key `<key_dir>/context.md` exists in `<session>` (the names SKILL.md's
+Session and Keys defines), skip to Phase 1. A direct run opens its session in
+0.1 before this check can read anything.
 
 ## Steps
 
@@ -14,10 +16,16 @@ If `wip/<prefix>_context.md` exists, skip to Phase 1.
 - Parse `$ARGUMENTS` as the decision question
 - If empty and interactive: ask what needs to be decided
 - If empty and --auto: infer from branch name, recent issues, or error
+- Derive `<topic>` from the question and open the session, as SKILL.md's
+  Session and Keys says (`skill-session.sh open decision <topic>`, then
+  `skill-session.sh adopt decision <topic>`); `<session>` is
+  `decision-<topic>`, `<key_dir>` is `work`, `<report_key>` is
+  `work/report.md`
 
 **Sub-operation invocation** (from parent skill via agent):
 - Read the `decision_context` from the agent prompt
-- Extract: question, prefix, options (if pre-identified), constraints, background, complexity
+- Extract: question, session, key_dir, report_key, options (if pre-identified), constraints, background, complexity
+- Open, adopt and close nothing: the parent owns the session
 
 ### 0.2 Build Context
 
@@ -32,7 +40,8 @@ If invoked standalone, read the codebase and recent issues to build background c
 
 ### 0.3 Write Context Artifact
 
-Create `wip/<prefix>_context.md`:
+Write key `<key_dir>/context.md` in `<session>` (`koto context add <session>
+<key_dir>/context.md`, the content on stdin):
 
 ```markdown
 # Decision Context: <question>
@@ -58,7 +67,7 @@ Create `wip/<prefix>_context.md`:
 
 - [ ] Decision question is a clear, answerable sentence
 - [ ] Complexity is assigned (determines fast path vs full path)
-- [ ] Context artifact written to wip/
+- [ ] Context key written to `<session>`
 
 ## Next Phase
 

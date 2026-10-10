@@ -23,7 +23,7 @@
 #   skill-session.sh adopt <child> <topic>
 #   skill-session.sh close-children <parent> <topic> <done|abandoned>
 #   skill-session.sh scratch
-#   skill-session.sh ingest <session> <work|research|handoff> <dir>
+#   skill-session.sh ingest <session> <area> <dir>
 #   skill-session.sh get <session> <key> <dir>
 #   skill-session.sh put <session> <key> <file>
 #   skill-session.sh reclaimable <session>
@@ -42,6 +42,10 @@
 #   <key>       for get and put: under work/ or research/, at most 255 bytes,
 #               each `/`-separated component matching
 #               ^[A-Za-z0-9][A-Za-z0-9._-]*$ (koto's key grammar), and no `..`.
+#   <area>      for ingest: work, research or handoff, or a sub-area of work/
+#               or research/ (work/decision-1, for a skill run inside another
+#               skill's session), each component matching the key grammar
+#               above, and no `..`.
 #   <dir>       for ingest and get: a scratch directory -- a real directory
 #               (not a symlink), owned by the caller, with no group or other
 #               permission bits (mode 0700, as `scratch` makes it), outside
@@ -142,9 +146,15 @@
 #             removed on every exit path once it has passed the scratch
 #             checks: success, a failed add, a refused session, a signal.
 #
-#   get       writes the key's bytes to <dir>/<last key component> (which must
-#             not already exist as anything but a regular file) and prints the
-#             path. The session may be live or finished.
+#   get       writes the key's bytes to <dir>/<key below its area> -- work/a.md
+#             to <dir>/a.md, work/decision-1/a.md to <dir>/decision-1/a.md, so
+#             two keys of one area never share a path -- and prints the path.
+#             A missing intermediate directory is created with mode 0700, so
+#             the printed path's directory passes put's scratch checks. An
+#             intermediate that exists as anything but a real directory, and a
+#             target that exists as anything but a regular file, are refused
+#             (refused=not_scratch); a directory that cannot be created prints
+#             failed=mkdir. The session may be live or finished.
 #   put       writes <file>'s bytes to <key> in a live <session>, and prints
 #             put=<key>. <file> is left in place.
 #
@@ -381,6 +391,31 @@ check_key() {
     while :; do
         comp="${rest%%/*}"
         [[ "$comp" =~ $RE_COMPONENT ]] || { say "key component '$comp' must match $RE_COMPONENT"; return 1; }
+        case "$rest" in
+            */*) rest="${rest#*/}" ;;
+            *) break ;;
+        esac
+    done
+    return 0
+}
+
+# check_area <area> -- the ingest area rules: work, research or handoff, or a
+# sub-area below work/ or research/ whose components follow the key grammar.
+check_area() {
+    local a="$1" rest comp
+    case "$a" in
+        work|research|handoff) return 0 ;;
+        work/*|research/*) ;;
+        *) return 1 ;;
+    esac
+    case "$a" in
+        *..*) return 1 ;;
+    esac
+    [ "${#a}" -le 200 ] || return 1
+    rest="${a#*/}"
+    while :; do
+        comp="${rest%%/*}"
+        [[ "$comp" =~ $RE_COMPONENT ]] || return 1
         case "$rest" in
             */*) rest="${rest#*/}" ;;
             *) break ;;
@@ -943,7 +978,7 @@ cmd_scratch() {
 
 cmd_ingest() {
     local s area dir f name size failed=0 added=0
-    [ "$#" -eq 3 ] || usage "ingest takes <session> <work|research|handoff> <dir>"
+    [ "$#" -eq 3 ] || usage "ingest takes <session> <area> <dir>"
     s="$1"; area="$2"; dir="$3"
     # The directory is checked first: once it passes, it is removed on every
     # exit path from here on, usage errors included. One that fails is never
@@ -954,10 +989,7 @@ cmd_ingest() {
     fi
     INGEST_DIR="$SCRATCH"
     check_session "$s"
-    case "$area" in
-        work|research|handoff) ;;
-        *) usage "area must be work, research or handoff" ;;
-    esac
+    check_area "$area" || usage "area must be work, research or handoff, or a sub-area of work/ or research/"
     need_tools
     session_state "$s" || { say "cannot tell the state of $s"; exit 4; }
     if [ "$SSTATE" != "live" ]; then
@@ -1003,7 +1035,7 @@ cmd_ingest() {
 # --- get / put -------------------------------------------------------------------------
 
 cmd_get() {
-    local s key dir target rc
+    local s key dir target rc rel sub rest
     [ "$#" -eq 3 ] || usage "get takes <session> <key> <dir>"
     s="$1"; key="$2"; dir="$3"
     check_session "$s"
@@ -1012,7 +1044,25 @@ cmd_get() {
         *..*) printf 'refused=not_scratch\n'; say "the directory must not contain '..'"; exit 2 ;;
     esac
     scratch_dir "$dir" || { printf 'refused=not_scratch\n'; exit 2; }
-    target="$SCRATCH/${key##*/}"
+    # The path below the area, so work/a.md and work/decision-1/a.md land
+    # apart. check_key has already held every component to the key grammar.
+    rel="${key#*/}"
+    sub="$SCRATCH"
+    rest="$rel"
+    while :; do
+        case "$rest" in
+            */*) ;;
+            *) break ;;
+        esac
+        sub="$sub/${rest%%/*}"
+        rest="${rest#*/}"
+        if [ -L "$sub" ] || { [ -e "$sub" ] && [ ! -d "$sub" ]; }; then
+            printf 'refused=not_scratch\n'
+            say "$sub exists and is not a directory"
+            exit 2
+        fi
+    done
+    target="$SCRATCH/$rel"
     if [ -L "$target" ] || { [ -e "$target" ] && [ ! -f "$target" ]; }; then
         printf 'refused=not_scratch\n'
         say "$target exists and is not a regular file"
@@ -1032,6 +1082,11 @@ cmd_get() {
         1) printf 'refused=key_absent\n'; say "$s holds no key $key"; exit 2 ;;
         *) say "cannot read $key from $s"; exit 4 ;;
     esac
+    if [ "$sub" != "$SCRATCH" ] && ! (umask 077 && mkdir -p -- "$sub"); then
+        printf 'failed=mkdir\n'
+        say "could not create $sub"
+        exit 1
+    fi
     rm -f -- "$target"
     if ! "$KOTO" context get "$s" "$key" --to-file "$target" >/dev/null 2>&1; then
         printf 'failed=koto_error\n'

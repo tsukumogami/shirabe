@@ -5,14 +5,23 @@ Full path (Tier 4) only -- skipped for fast path.
 
 ## Resume Check
 
-If `wip/<prefix>_bakeoff_*.md` files exist, skip to Phase 4.
+If keys `<key_dir>/bakeoff_*` exist in `<session>` (`koto context list <session>
+--prefix <key_dir>/bakeoff_`), skip to Phase 4.
 
 ## Steps
 
 ### 3.1 Spawn Validator Agents
 
+Allocate a private directory outside the work tree for the validation reports
+and keep the path it prints, `<bakeoff-dir>`:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch
+```
+
 For each alternative, spawn a persistent validator agent via the Agent tool
 with `run_in_background: true`. Launch ALL validators in a single message.
+Validators never call koto: each writes one file, which the decider ingests.
 
 Each validator receives:
 
@@ -35,7 +44,8 @@ Agent tool:
     4. Implementation implications: what it means for the codebase
     5. Recommendation: your overall assessment
 
-    Write your validation report to wip/<prefix>_bakeoff_<N>.md
+    Write your validation report to <bakeoff-dir>/bakeoff_<N>.md, and
+    nowhere else.
     Return a 5-line summary of your position.
 ```
 
@@ -43,7 +53,12 @@ Agent tool:
 
 Wait for all validators to complete. Read each summary. If a validator fails
 or times out, note the failure -- Phase 4 and 5 will work with available
-validators.
+validators. Then turn the reports into keys `<key_dir>/bakeoff_<N>.md`
+(`ingest` removes the directory):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest <session> <key_dir> <bakeoff-dir>
+```
 
 **Store validator agent IDs.** They will be re-messaged in Phases 4 and 5
 via SendMessage. The agent IDs are needed for continuation.
