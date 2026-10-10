@@ -237,7 +237,7 @@ Phase 0: SETUP  -> Phase 1: DISCOVER  -> Phase 2: CHAIN  -> Phase 3: FINALIZE  -
 | 0. Setup | Tokenizing and the residue rule; entry through `scope-open.sh`, where koto checks the arguments and opens or attaches the session; `intake` (effective intent, upstream battery, recorded-intent check); visibility detection; state-file creation with `intent:`; stale `chain/dispatch` self-heal (`skill-session.sh dispatch clear`) | `skills/scope/references/phases/phase-0-setup.md` |
 | 1. Discover + Chain Proposal | Topic-related child-doc discovery; re-entry protection; chain-proposal output | `skills/scope/references/phases/phase-1-discovery.md` |
 | 2. Child Invocation Loop | Per-child: worktree-staleness check (Merge / Impact-analysis / Escalation per `worktree-discipline.md`); `skill-session.sh dispatch write` (the `chain/dispatch` key in `scope-<topic>`); invoke child with its upstream artifact's path; `dispatch clear` whatever the outcome; structural file-existence check per R20; capture child snapshot; validator pass-through; consolidation judgment | `skills/scope/references/phases/phase-2-chain-orchestration.md` |
-| 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
+| 3. Exit Finalization | Set `exit:` field; write `exit_artifacts:`; close the chain's children (`skill-session.sh close-children`); run R9 hard-finalization check | `skills/scope/references/phases/phase-3-exit-finalization.md` |
 | 4. wip Cleanup | Remove the topic's wip/ scratch artifacts; preserve durable Decision Records and force-materialized partials in `docs/` | `skills/scope/references/phases/phase-4-cleanup.md` |
 
 Before each child invocation the loop runs a worktree-staleness check —
@@ -361,7 +361,11 @@ do not read them all before starting:
 
 3. **Exit Finalization** — set the `exit:` field to one of
    `full-run`, `re-evaluation`, or `abandonment-forced`; write the
-   `exit_artifacts:` list; run the R9 hard-finalization check
+   `exit_artifacts:` list; once the exit is recorded, close the
+   children this chain dispatched
+   (`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close-children
+   scope <topic> <done|abandoned>` — `done` on full-run, `abandoned`
+   on the other two); run the R9 hard-finalization check
    (including R9 Part 2 multi-discriminator and R9 Part 3
    chain-membership-gated extensions from
    `parent-skill-state-schema.md`).
