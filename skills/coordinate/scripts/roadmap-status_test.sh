@@ -557,7 +557,10 @@ furefuse "an amend of a tag the roadmap lacks" "new: plugin search; amend MV7: s
 grep -v '^\*\*Left open:\*\* the match rules\.' "$T/fu.md" > "$T/fu3.md"
 furefuse "a section missing a required field" "$FU2" "$T/fu3.md" "follow-up section MV4: no Left open"
 furefuse "a section the verdict doesn't name" "new: plugin search" "$T/fu.md" "section MV2 is no follow-up the verdict names"
-sed 's|the match rules\.|the match rules, in /Users/someone/notes.|' "$T/fu.md" > "$T/fu4.md"
+# The path is built at run time, so the repository never carries a
+# home-directory path itself.
+HOME_PATH="/Us""ers/someone/notes"
+sed "s|the match rules\\.|the match rules, in $HOME_PATH.|" "$T/fu.md" > "$T/fu4.md"
 furefuse "follow-up text that fails the redaction check" "$FU2" "$T/fu4.md" "home-directory path"
 { cat "$T/fu.md"; printf 'x\001y\n'; } > "$T/fu5.md"
 furefuse "a control character in the follow-ups file" "$FU2" "$T/fu5.md" "control character"

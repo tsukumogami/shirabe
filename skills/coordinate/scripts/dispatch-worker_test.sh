@@ -262,7 +262,7 @@ reset "$INPUT_DELIVER"
 printf '%s' "$PICK_ROADMAP" | jq -c '.units |= map(if .unit == "Feature 2" then .rework = "Evidence clauses not held: 2. Changes needed: name the skipped plugin" else . end)' >"$ST/ctx/coord/pick.json"
 export RECORD_WORK="$REWORK_ROWS"
 OUT=$(run 2>"$T/rw.err"); RC=$?
-eq  "rework: dispatched" "0 session=plugin_api-1a2b3c4d" "$RC $OUT"
+eq  "rework: dispatched" "0 session=$NIWA_NAME" "$RC $OUT"
 has "rework: the brief quotes the verdict's report" "$(cat "$W/.niwa/dispatch-briefs/plugin-api.md")" "> Evidence clauses not held: 2. Changes needed: name the skipped plugin"
 has "rework: the unit's rework row is removed" "$(calls)" "record-state --session coord --done Feature 2 --kind rework"
 lacks "rework: and no other unit's" "$(calls)" "--done Feature 1"
@@ -272,7 +272,7 @@ if [ -n "$RM_AT" ] && [ -n "$LAST_WRITE" ] && [ "$RM_AT" -gt "$LAST_WRITE" ]; th
 reset "$INPUT_DELIVER"
 export RECORD_WORK="$REWORK_ROWS" RECORD_DONE_MODE=fail
 OUT=$(run 2>"$T/rw.err"); RC=$?
-eq  "rework: a failed removal still dispatches" "0 session=plugin_api-1a2b3c4d" "$RC $OUT"
+eq  "rework: a failed removal still dispatches" "0 session=$NIWA_NAME" "$RC $OUT"
 has "rework: and says how to remove the row" "$(cat "$T/rw.err")" 'remove it with record-state.sh --session coord --done "Feature 2" --kind rework'
 reset "$INPUT_DELIVER"
 export RECORD_WORK="$REWORK_ROWS"

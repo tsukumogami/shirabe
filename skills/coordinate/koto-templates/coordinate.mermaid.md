@@ -165,6 +165,7 @@ stateDiagram-v2
     report_questions --> surface : gates.report_questions_verdict.exit_code: 172
     roadmap_blocked --> wait : noted: noted
     roadmap_close --> roadmap_close_step : gates.roadmap_close_verdict.exit_code: 130
+    roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 49
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 131
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 132
     roadmap_close --> roadmap_blocked : gates.roadmap_close_verdict.exit_code: 133
