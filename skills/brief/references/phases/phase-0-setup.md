@@ -30,9 +30,11 @@ from the strategy skill's Phase 0.
 
 ## Resume Check
 
-If key `work/context.md` exists in `brief-<topic>` (`koto context exists
-brief-<topic> work/context.md`, after the open and adopt in SKILL.md's Session
-and Keys), Phase 0 has already run for this topic.
+The session is opened once, by step 0.6's `open` and `adopt`, as soon as the
+slug has passed step 0.2; on a re-entry those same calls attach to the live
+session, so run them before this check. If key `work/context.md` then exists
+in `brief-<topic>` (`koto context exists brief-<topic> work/context.md`),
+Phase 0 has already run for this topic.
 Re-read it with `koto context get`, verify the recorded visibility still matches the current
 CLAUDE.md, and skip ahead to whichever phase the recorded state indicates.
 
@@ -117,9 +119,12 @@ The `<topic>` slug appears in the session name `brief-<topic>`, on the koto and
 script command lines that name it, and in the final artifact filename. Without
 constraint, a slug containing `../` or shell metacharacters could redirect a
 file write or a command. `skill-session.sh` refuses a topic outside
-`^[a-z0-9][a-z0-9-]*$` before any koto call; the rule below is stricter.
+`^[a-z0-9][a-z0-9-]*$` before any koto call, which already rules out a
+leading hyphen; the rule below adds the trailing-hyphen rejection the
+post-derivation test applies.
 
-**Rule:** the slug MUST match `^[a-z0-9-]+$`.
+**Rule:** the slug MUST match `^[a-z0-9-]+$` and MUST NOT start or end
+with `-`.
 
 Derive the slug as follows. In every case the derivation reads the POSITIONAL
 argument only; the `--upstream` value is never an input to it.

@@ -4,10 +4,10 @@ set -euo pipefail
 # Fails the build on the koto authoring shapes the engine punishes silently,
 # and on /scope gates that read the staging folder.
 #
-# Both are shapes a template compiles cleanly with. `koto template compile`
-# reports neither, and nothing at runtime raises them either -- the run simply
-# does the wrong thing and reports success. That is what makes them worth a
-# static check rather than a review note.
+# All of them are shapes a template compiles cleanly with. `koto template
+# compile` reports none of them, and nothing at runtime raises them either --
+# the run simply does the wrong thing and reports success. That is what makes
+# them worth a static check rather than a review note.
 #
 # ---------------------------------------------------------------------------
 # Rule one (every template): unguarded evidence on a non-terminal state

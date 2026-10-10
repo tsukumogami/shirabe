@@ -1352,13 +1352,17 @@ states:
     gates:
       # The four children's sessions only. The parent's own session is not a
       # child's output and is deliberately not part of this test, which is why
-      # the loop names the children rather than excluding the parent.
-      # has-work exits 0 for a live session holding a work/ key, 1 for none,
-      # and 4 when it cannot tell; cannot-tell maps to exit 2 so the
-      # force_materialize arms below can route on it.
+      # the chain names the children rather than excluding the parent.
+      # has-work exits 0 for a live session holding a work/ key and 1 for
+      # none; anything else (4 cannot-tell, 127 koto absent) maps to exit 2 so
+      # the force_materialize arms below can route on it -- unlike the resume
+      # probe, which reads 127 as "no session can exist", this gate decides a
+      # destructive choice and fails toward the arm that only informs.
+      # The first child with work short-circuits to exit 0; otherwise each
+      # `test $? -eq 1` requires a clean "no work" before the next child runs.
       child_intermediate_present:
         type: command
-        command: 'found=1; for c in brief prd design plan; do "{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work "$c" "{{TOPIC}}"; rc=$?; case $rc in 0) found=0 ;; 1) : ;; *) exit 2 ;; esac; done; exit $found'
+        command: '"{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work brief "{{TOPIC}}" && exit 0; test $? -eq 1 || exit 2; "{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work prd "{{TOPIC}}" && exit 0; test $? -eq 1 || exit 2; "{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work design "{{TOPIC}}" && exit 0; test $? -eq 1 || exit 2; "{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work plan "{{TOPIC}}" && exit 0; test $? -eq 1 || exit 2; exit 1'
     accepts:
       bail_ack:
         type: enum
