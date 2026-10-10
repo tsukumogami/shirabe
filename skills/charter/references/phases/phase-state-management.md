@@ -249,9 +249,10 @@ below).
     reads it on a later re-entry to tell a run that consumed a
     handoff from one that started cold. The field is specified here,
     with its reader named, rather than being written by a phase file
-    and read by nobody. The recorded value is re-validated against
-    the slug regex before it is interpolated anywhere, on the same
-    grounds as `consumed_upstream:`.
+    and read by nobody. The recorded value is compared against
+    the constant `handoff/charter.md` before it is used anywhere —
+    a value read back from state is untrusted input, on the same
+    grounds as `consumed_upstream:` — and never interpolated.
 - **`decision_record_sub_shape`** — string from `{re-evaluation,
   rejection}`. The sub-shape identifies which Decision Record body
   shape the chain produced.

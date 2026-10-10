@@ -171,8 +171,9 @@ Normalization would silently absorb input the author did not
 intend. If a user types `my_topic` expecting it to be a literal
 slug, normalizing to `my-topic` and proceeding would:
 
-- open session charter-my-topic while the author searches
-  for charter-my_topic;
+- open session `charter-my-topic` and write its state there while
+  the author looks for a session named from the `my_topic` they
+  typed, and finds none;
 - name `docs/strategies/STRATEGY-my-topic.md` as the terminal
   artifact while the author refers to it as `my_topic`;
 - create drift between what the author typed and what the

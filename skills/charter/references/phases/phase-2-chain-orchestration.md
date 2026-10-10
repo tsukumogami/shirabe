@@ -181,11 +181,13 @@ Nothing that gets committed carries it:
 
 - Key `work/state.md` in `charter-<topic>` — no `chain_skipped:` entry for
   `comp`, and `comp` is absent from `planned_chain`. The state
-  outlives the run and has readers beyond it (see the
-  security discussion in
+  outlives the run — a close keeps the session — and its content is
+  readable by anything that can read the session (see the security
+  discussion in
   `skills/charter/references/phases/phase-state-management.md`),
   so an entry naming `comp` would put a private-only artifact type
-  into a public record whatever the `reason` field said. A child
+  into a record with readers whatever the `reason` field said, which
+  is why the skip stays out of state. A child
   whose gate never opened was never planned, so there is nothing to
   record; `chain_skipped:` is for children that were planned and
   then held back, like a declined `/roadmap`.
