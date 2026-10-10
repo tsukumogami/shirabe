@@ -9,5 +9,5 @@
 # opened and closed through scripts/skill-session.sh, whose own koto floor is
 # declared where that script lives; the records here are the calls this
 # skill's prose shows directly.
-koto	context	--prefix	always
+koto	context list	--prefix	always
 koto	status	-	always
