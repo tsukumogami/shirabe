@@ -534,5 +534,10 @@ else
     [[ "$URL" =~ $RE_PR_URL ]] || fail scope:pr-create "owned-pr.sh printed a URL outside the pattern"
 fi
 
+# A successful publish consumes the prior-run facts: the retry they exist for
+# has happened, and leaving the key would let it fire twice. Best-effort, like
+# the other context writes -- the cleanup phase removes the key too.
+ctx remove work/prior-run.md
+
 printf 'pr=%s\n' "$URL"
 exit 0

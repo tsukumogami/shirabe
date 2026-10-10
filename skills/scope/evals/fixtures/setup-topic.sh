@@ -22,10 +22,10 @@
 #   --mode            the PLAN's execution_mode; `mixed` is the multi-pr PLAN
 #                     fixtures/plans/PLAN-mixed-deps.md (two roots, a chain,
 #                     a diamond)
-#   --pointer N       write a fresh wip/scope_<topic>_state.md at
+#   --pointer N       open scope-<topic> and write key work/state.md at
 #                     phase_pointer N, so /scope resumes at discovery (1),
 #                     the first open hop (2) or finalize (3)
-#   --intent V        the intent that state file records (default none); it
+#   --intent V        the intent that state record carries (default none); it
 #                     must equal the --intent the eval invokes /scope with,
 #                     or intake refuses the run as intent-mismatch
 #   --split           append to the DESIGN a delivery constraint /plan's split
@@ -107,8 +107,21 @@ git add -A docs
 git commit -q -m "docs: $TOPIC" || true
 
 if [ -n "$POINTER" ]; then
+    # The resume premise lives in the session now: open scope-<topic> the way
+    # a real run does (so the eval's /scope attaches to it) and write the
+    # state key a stopped run would have left.
+    ROOT="$(cd "$HERE/../../../.." && pwd)"
+    AD="$(mktemp -d)"
+    if [ "$INTENT" = none ]; then
+        printf '["%s"]\n' "$TOPIC" >"$AD/args.json"
+    else
+        printf '["%s","--intent=%s"]\n' "$TOPIC" "$INTENT" >"$AD/args.json"
+    fi
+    "$ROOT/skills/scope/scripts/scope-open.sh" --plugin-root "$ROOT" "$AD/args.json" >/dev/null
+    rm -rf "$AD"
     printf 'topic: %s\nlast_updated: %s\nphase_pointer: %s\nintent: %s\n' \
-        "$TOPIC" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$POINTER" "$INTENT" >"wip/scope_${TOPIC}_state.md"
+        "$TOPIC" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$POINTER" "$INTENT" |
+        koto context add "scope-${TOPIC}" work/state.md >/dev/null
 fi
 
 printf '%s\n' "$R"

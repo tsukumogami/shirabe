@@ -43,7 +43,14 @@ recorded: the run ended at `done_error` before cleanup, so `work/state.md`
 still holds `exit:` and `publish_error:` (or, once `scope-open.sh` replaced
 the finished session, `work/prior-run.md` holds the `exit`, `intent` and
 failed `step`), and the retry goes straight back to the publish state
-rather than asking. A successful publish removes `work/prior-run.md`.
+rather than asking. A successful publish removes `work/prior-run.md`
+(the publish script consumes it; the cleanup phase removes it too).
+
+The prior-run key binds an intent or fires a retry only when it records
+a failed publish `step`. That is deliberate, and it keeps the old
+semantics: the state file lingered after a failed publish and nowhere
+else, so a cleanly finished run's replaced result writes the key but
+routes nothing — the artifact rows decide, as they always did.
 
 ## Slot 5 — Status-Aware Re-Entry (11 rows, most-downstream-first)
 
