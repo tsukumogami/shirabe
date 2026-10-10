@@ -11,15 +11,18 @@ org fit rationale, and a list of topics worth investigating in Phase 2.
 
 ## Resume Check
 
-If `wip/vision_<topic>_scope.md` exists and this is NOT a loop-back from Phase 2, skip
-to Phase 2.
+If key `work/scope.md` exists in `vision-<topic>` (`koto context exists
+vision-<topic> work/scope.md`) and this is NOT a loop-back from Phase 2, skip to
+Phase 2.
 
 If this IS a loop-back (Phase 2 determined the thesis direction was fundamentally wrong),
-delete `wip/vision_<topic>_scope.md` first, then re-scope from scratch.
+remove the key first (`koto context remove vision-<topic> work/scope.md`), then
+re-scope from scratch.
 
-Either way the file came from this phase on an earlier run. Nothing hands /vision a
-pre-populated scope file: /charter invokes /vision and lets this phase do the scoping,
-so a file on disk means an interrupted run, never a handoff.
+Either way the key came from this phase on an earlier run. Nothing hands /vision a
+pre-populated scope: /charter invokes /vision and lets this phase do the scoping,
+and only `/vision` writes `work/` keys in `vision-<topic>`, so the key means an
+interrupted run, never a handoff.
 
 ## Approach: Conversational with Coverage Tracking
 
@@ -80,7 +83,8 @@ Proceed to persist scope and move to Phase 2.
 
 ## 1.2 Persist Scope
 
-Write the scoping output to `wip/vision_<topic>_scope.md`:
+Write the scoping output to key `work/scope.md` in `vision-<topic>` (`koto context
+add vision-<topic> work/scope.md`, the content on stdin):
 
 ```markdown
 # /vision Scope: <topic>
@@ -110,7 +114,7 @@ Write the scoping output to `wip/vision_<topic>_scope.md`:
 <Any gaps or uncertainties to resolve in Phase 2>
 ```
 
-Commit: `docs(vision): capture scope for <topic>`
+The key lives in the session, not the work tree, so there is nothing to commit.
 
 ## Quality Checklist
 
@@ -123,7 +127,7 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Scope document at `wip/vision_<topic>_scope.md`
+- Key `work/scope.md` in `vision-<topic>`
 - No VISION draft yet
 - No research files yet
 

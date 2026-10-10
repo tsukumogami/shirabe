@@ -470,6 +470,17 @@ run close design-t6 done
 RC=0; run has-work design t6
 assert_eq "has-work is false for a finished session" "1" "$RC"
 
+# /charter's ladder rows 7-8 ride on this check: a mid-flight child is a live
+# session with a work/ key, with nothing in the staging folder to glob.
+run open strategy t6
+kadd strategy-t6 work/discover.md "d"
+assert_no_staging "a mid-flight strategy child leaves the staging folder empty"
+RC=0; run has-work strategy t6
+assert_eq "an empty staging folder with a live strategy session holding work/ is mid-flight" "0" "$RC"
+run close strategy-t6 done
+RC=0; run has-work strategy t6
+assert_eq "the same strategy session finished is not mid-flight" "1" "$RC"
+
 # --- the dispatch key ---
 
 run open scope t5

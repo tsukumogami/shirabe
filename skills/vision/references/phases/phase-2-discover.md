@@ -10,17 +10,18 @@ inform the VISION draft in Phase 3.
 
 ## Resume Check
 
-If `wip/research/vision_<topic>_phase2_*.md` files exist, summarize their findings and
-skip to Phase 3.
+If keys `research/phase2_*` exist in `vision-<topic>` (`koto context list
+vision-<topic> --prefix research/phase2_`), summarize their findings and skip to
+Phase 3.
 
 ## Approach: Parallel Specialist Agents with Role Selection
 
-Launch 2-4 agents to investigate research leads from `wip/vision_<topic>_scope.md`. Select
+Launch 2-4 agents to investigate research leads from key `work/scope.md`. Select
 roles based on the thesis and scope.
 
 ### 2.1 Select Roles
 
-Read `wip/vision_<topic>_scope.md` and select 2-4 roles from the pool below. Match roles
+Read key `work/scope.md` (`koto context get vision-<topic> work/scope.md`) and select 2-4 roles from the pool below. Match roles
 to research leads -- every lead should map to at least one role.
 
 ### Role Descriptions
@@ -52,10 +53,17 @@ on vanity metrics or unmeasurable claims.
 
 ### 2.2 Launch Agents
 
+Before launching, allocate a private directory outside the work tree for the
+agents' findings and keep the path it prints, `<research-dir>`:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch
+```
+
 Launch agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
-- The scope document (`wip/vision_<topic>_scope.md`)
+- The scope (the contents of key `work/scope.md`, pasted into the prompt)
 - Their assigned research leads
 - Their role description
 - Output instructions
@@ -66,7 +74,7 @@ Each agent receives:
 You are investigating strategic positioning for a project from the perspective of a [ROLE].
 
 ## Context
-[Contents of wip/vision_<topic>_scope.md]
+[Contents of key work/scope.md]
 
 ## Your Research Leads
 [Specific leads assigned to this role]
@@ -78,7 +86,7 @@ You are investigating strategic positioning for a project from the perspective o
 3. Note anything surprising or that contradicts the initial thesis direction
 
 ## Output
-Write your full findings to `wip/research/vision_<topic>_phase2_<role>.md` using the Write tool.
+Write your full findings to `<research-dir>/phase2_<role>.md` using the Write tool. Do not call koto.
 
 Format:
 # Phase 2 Research: <Role>
@@ -107,14 +115,21 @@ Not all leads need deep investigation. Calibrate agent effort based on the lead:
 - **Quick leads** (the answer is in 1-2 files or is common knowledge): Agent reads,
   summarizes, returns. No persisted file needed -- return the summary directly.
 - **Deep leads** (requires reading multiple files, tracing patterns, analyzing the
-  landscape): Agent writes full findings to `wip/research/vision_<topic>_phase2_<role>.md`
+  landscape): Agent writes full findings to `<research-dir>/phase2_<role>.md`
   and returns a summary.
 
 Tell each agent which of their leads are quick vs. deep in the prompt.
 
 ### 2.4 Synthesize Findings
 
-After all agents complete, synthesize their findings:
+After all agents complete, turn the findings files into keys (this also removes
+`<research-dir>`; with only quick leads it holds nothing and adds no key):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest vision-<topic> research <research-dir>
+```
+
+Then synthesize their findings:
 
 1. Read the summary from each agent
 2. Identify themes across agents (multiple agents noticing the same signal = high
@@ -155,8 +170,8 @@ findings support the thesis or which gaps suggest more investigation.
 If the user picks "Investigate more leads," launch another round of agents for the
 new leads only.
 
-If the user picks "Restart scoping," delete `wip/vision_<topic>_scope.md` before
-returning to Phase 1 so the resume check doesn't skip re-scoping.
+If the user picks "Restart scoping," remove key `work/scope.md` (`koto context
+remove vision-<topic> work/scope.md`) before returning to Phase 1 so the resume check doesn't skip re-scoping.
 
 ## Quality Checklist
 
@@ -168,8 +183,8 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Scope document still at `wip/vision_<topic>_scope.md`
-- Research findings at `wip/research/vision_<topic>_phase2_*.md` (for deep leads)
+- Key `work/scope.md` still in `vision-<topic>`
+- Research findings as keys `research/phase2_*.md` in `vision-<topic>` (for deep leads)
 - No VISION draft yet
 
 ## Next Phase

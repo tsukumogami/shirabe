@@ -118,9 +118,9 @@ of the topic:
   Future `/charter` invocations against the same topic see no
   STRATEGY at the published path.
 - **Chain discarded.** The `/charter` chain that produced the
-  rejected Draft ended at this Decision Record; any in-progress
-  wip/ intermediates `/strategy` was working with were cleaned
-  up by `/strategy`'s discard procedure. The chain does NOT
+  rejected Draft ended at this Decision Record; `/strategy`'s
+  working keys stay in its session, which `/charter`'s
+  finalization closes as `abandoned`. The chain does NOT
   produce a force-materialized partial; the rejection is a
   deliberate finalization, not a bail.
 - **Next steps for the strategic question.** Name the paths
