@@ -18,7 +18,9 @@
 #   - the stored set's sections (Run, Standing, Work) likewise, through
 #     STATE_WRITER=1, which only record-state.sh sets (exit 65), except a
 #     milestone's verdict-owed Work row, which changes only through
-#     VERDICT_WRITER=1, which only roadmap-status.sh sets (exit 65);
+#     VERDICT_WRITER=1, which only roadmap-status.sh sets (exit 65), and a
+#     rework Work row, which only VERDICT_WRITER adds or changes and either
+#     writer removes (exit 65);
 #   - a body over RECORD_BUDGET bytes, as given or as rendered, is refused
 #     before GitHub sees it (exit 13, record-full), leaving room under
 #     GitHub's 65,536-byte limit.
@@ -150,14 +152,28 @@ core_write() {
             echo "$PROG: refused: a verdict-owed Work row changes only through roadmap-status.sh; carry the rows as the live record has them" >&2
             exit 65
         fi
+        # A rework row is written only there too, at a changes-needed
+        # verdict's confirmation; record-state.sh may only remove one.
+        if ! jq -e --slurpfile live "$T/live.json" '
+                [(.work // [])[] | select(.kind == "rework")] as $n
+                | [($live[0].work // [])[] | select(.kind == "rework")] as $l
+                | all($n[]; . as $r | any($l[]; . == $r))' "$T/parsed.json" > /dev/null; then
+            echo "$PROG: refused: a rework Work row is written only by roadmap-status.sh --confirm; carry the rows as the live record has them" >&2
+            exit 65
+        fi
     fi
-    # The stored set's other rows change only through record-state.sh.
+    # The stored set's other rows change only through record-state.sh, and a
+    # rework row leaves through it or roadmap-status.sh.
     if [ "$STATE_WRITER" != 1 ]; then
-        NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed")]}' "$T/parsed.json") \
-            && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed")]}' "$T/live.json") \
+        NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/parsed.json") \
+            && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/live.json") \
             || lib_die2 "cannot compare the stored set's sections"
         if [ "$NEW_S" != "$LIVE_S" ]; then
             echo "$PROG: refused: the Run, Standing and Work sections change only through record-state.sh; carry them as the live record has them" >&2
+            exit 65
+        fi
+        if [ "$VERDICT_WRITER" != 1 ] && [ "$(jq -cS '[(.work // [])[] | select(.kind == "rework")]' "$T/parsed.json")" != "$(jq -cS '[(.work // [])[] | select(.kind == "rework")]' "$T/live.json")" ]; then
+            echo "$PROG: refused: a rework Work row leaves only through record-state.sh --done or roadmap-status.sh; carry the rows as the live record has them" >&2
             exit 65
         fi
     fi

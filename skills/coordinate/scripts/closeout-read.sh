@@ -36,6 +36,11 @@
 # host's default branch (the session's ROADMAP path, contents API, never a
 # working tree). First that applies:
 #   closed <n>         the record issue is closed
+#   verdict-owed <n>   a Work row of kind verdict-owed stands: a milestone
+#                      whose verdict is owed or whose verdict's roadmap edit
+#                      isn't confirmed (roadmap-status.sh); the reason names
+#                      it, `verdict-owed <tag>`, and the detail's blocker is
+#                      its row (docs/designs/DESIGN-milestone-verdicts.md)
 #   features-open <n>  a feature under `## Features` doesn't read Done,
 #                      Shipped or Dropped (annotated or not, as in
 #                      `Done -- shipped in #12`, as lib_roadmap_features
@@ -145,6 +150,23 @@ if [ "$SCOPE" = roadmap ]; then
         1) REASON="$ROADMAP is not on $DEFAULT_BRANCH"; finish "features-open $REF" ;;
         *) lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")" ;;
     esac
+    # A milestone whose verdict is owed blocks first, naming the milestone:
+    # it may already read Done on the default branch (its verdict's edit
+    # merged, not yet confirmed) or still In progress, and either way the
+    # roadmap isn't closed until its verdict-owed row is confirmed away.
+    jq -r '.body // ""' "$T/issue.json" > "$T/body.md"
+    lib_parse "$T/body.md" "$T/parsed.json"
+    case $? in
+        0) ;;
+        3|65) lib_die2 "#$REF is not a canonical roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
+        *) lib_die2 "record-parse.sh failed" ;;
+    esac
+    BLOCKER=$(jq -c '[(.work // [])[] | select(.kind == "verdict-owed")][0] // null
+        | if . == null then null else {item, who, next} end' "$T/parsed.json")
+    if [ "$BLOCKER" != null ]; then
+        REASON="verdict-owed $(printf '%s' "$BLOCKER" | jq -r .item): its verdict is owed; give it, and confirm its roadmap edit, before the roadmap closes"
+        finish "verdict-owed $REF"
+    fi
     lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
     if [ "$(jq length "$T/features.json")" -eq 0 ]; then
         REASON="the roadmap lists no feature under ## Features"; finish "features-open $REF"
@@ -155,13 +177,6 @@ if [ "$SCOPE" = roadmap ]; then
         REASON="$(printf '%s' "$OPEN" | jq length) feature(s) not Done, Shipped or Dropped"
         finish "features-open $REF"
     fi
-    jq -r '.body // ""' "$T/issue.json" > "$T/body.md"
-    lib_parse "$T/body.md" "$T/parsed.json"
-    case $? in
-        0) ;;
-        3|65) lib_die2 "#$REF is not a canonical roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
-        *) lib_die2 "record-parse.sh failed" ;;
-    esac
     if [ "$(jq '.holdings | length' "$T/parsed.json")" -gt 0 ]; then
         BLOCKER=$(jq -c '.holdings[0] | {unit, worker, pull_request}' "$T/parsed.json")
         REASON="Holdings is not empty"; finish "holdings $REF"

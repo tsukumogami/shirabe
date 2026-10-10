@@ -21,7 +21,9 @@
 # takes, and an open one keeping the roadmap from completing; a unit's
 # awaiting, answered and follow_up from the record's Work rows and Decisions
 # entries, none of them holding a slot; a unit's verdict_owed from a
-# verdict-owed Work row, with and without its holding, and no brief form for it.
+# verdict-owed Work row, with and without its holding, and no brief form for
+# it; a unit's rework text from a rework Work row, the unit offered and
+# briefable.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail
@@ -229,6 +231,21 @@ eq "  ... no other unit does" "false false false" "$(facts | jq -r '[.units[] | 
 facts > "$T/owed-pick.json"
 dc_unit_forms "$T/owed-pick.json" | grep -qx 'Feature 5' && bad "  ... and the dispatch path renders no brief for it" "$(dc_unit_forms "$T/owed-pick.json")" \
     || ok "  ... and the dispatch path renders no brief for it"
+
+echo "== roadmap: a milestone a changes-needed verdict sent back =="
+# A rework row (roadmap-status.sh --confirm of a changes-needed verdict)
+# carries its text to the unit, which is offered like any other.
+REWORK=$(jq -nc '[{item: "Feature 5", kind: "rework", who: "verdict 1001", next: "Evidence clauses not held: 2. Changes needed: name the skipped plugin", wakes: "0", updated: "2026-09-26T07:00Z"}]')
+seed "$(printf '%s' "$REC" | jq -c --argjson w "$REWORK" '.work = $w')"; pr 21 OPEN true; pr 23 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done 'In progress' 'In progress' 'Not started' 'In progress')"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+bash "$PF" --session "$S" >/dev/null 2>"$T/err"; eq "the facts are read with a rework row" 0 $?
+eq "the unit carries its rework text, not verdict_owed, no holding, not done" \
+    "Evidence clauses not held: 2. Changes needed: name the skipped plugin|false|null|false" \
+    "$(facts | jq -r '.units[] | select(.unit == "Feature 5") | "\(.rework)|\(.verdict_owed)|\(.holding)|\(.done)"')"
+eq "  ... no other unit carries one" "null null null null" "$(facts | jq -r '[.units[] | select(.unit != "Feature 5") | .rework | tostring] | join(" ")')"
+facts > "$T/rework-pick.json"
+dc_unit_forms "$T/rework-pick.json" | grep -qx 'Feature 5' && ok "  ... and the dispatch path can brief it" || bad "  ... and the dispatch path can brief it" "$(dc_unit_forms "$T/rework-pick.json")"
 
 echo "== roadmap: pauses =="
 pause_row() { # pause_row <id> <kind> <on> <until>

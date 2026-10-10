@@ -56,7 +56,7 @@ case "$WORD" in
     unknown-topic) exit 46 ;; unresolved-topic) exit 47 ;;
     # dispatch_check and land: a pause in the record holds the dispatch or the merge
     paused) exit 48 ;;
-    # dispatch_check (the topic's milestone has a verdict owed)
+    # dispatch_check, roadmap_close (a milestone's verdict is owed: no worker for it, no close)
     verdict-owed) exit 49 ;;
     # record, verified_confirm ("waiting" holds the state: exit 4 below)
     confirmed) exit 50 ;; conflict) exit 52 ;; moved) exit 53 ;; directed) exit 54 ;;

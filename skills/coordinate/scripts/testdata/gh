@@ -27,6 +27,12 @@
 # "updated_at"}]; GET repos/R/issues/N/comments pages them, and POST adds one
 # from --input's JSON body, stamped with "now" when the DB sets it.
 #
+# One comment by id: GET repos/R/issues/comments/<id> (404 when absent), with
+# its html_url and issue_url. GET repos/R/compare/<base>...<head> answers
+# {status}: identical, ahead (base is in head's history: the DB's "history":
+# {"R": [sha...]}, or the "parents" a PUT records), diverged, or what
+# "compare": {"R": {"<base>...<head>": "<status>"}} sets ("notfound" is a 404).
+#
 # Served: api (GET issues listing with --paginate, repos/R, branches, collaborator
 # permission, contents, git/ref, git/commits; POST git/commits, git/refs;
 # DELETE git/refs; graphql author/editor queries), issue create|edit|close|view,
@@ -256,6 +262,38 @@ case "$W1 $W2" in
         [ -n "$tree" ] || notfound
         emit "$(jq -nc --arg s "$sha" --arg t "$tree" '{sha: $s, tree: {sha: $t}}')"
         ;;
+    "GET repos/"*/issues/comments/*)
+        r=${path#repos/}; r=${r%%/issues/comments/*}
+        id=${path##*/issues/comments/}
+        case "$id" in ''|*[!0-9]*) unexpected ;; esac
+        need_repo "$r"
+        out=$(jq -c --arg r "$r" --argjson i "$id" '[(.comments // [])[] | select(.repo == $r and .id == $i)][0] // empty
+            | {id, body, created_at, updated_at, user: {login: .user},
+               html_url: "https://github.com/\(.repo)/issues/\(.number)#issuecomment-\(.id)",
+               issue_url: "https://api.github.com/repos/\(.repo)/issues/\(.number)"}' "$GH_DB")
+        [ -n "$out" ] || notfound
+        emit "$out"
+        ;;
+    "GET repos/"*/compare/*)
+        r=${path#repos/}; r=${r%%/compare/*}
+        spec=${path#*/compare/}; base=${spec%%...*}; head=${spec#*...}
+        need_repo "$r"
+        # A branch name reads as its head commit. identical when the two are
+        # one commit; else the DB's "compare" entry for the pair when it sets
+        # one; else ahead when base is in head's history (the DB's "history"
+        # list for the repository, or the "parents" chain a PUT records from
+        # head); else diverged.
+        b=$(jq -r --arg r "$r" --arg b "$base" '.branches[$r][$b] // $b' "$GH_DB")
+        h=$(jq -r --arg r "$r" --arg b "$head" '.branches[$r][$b] // $b' "$GH_DB")
+        st=$(jq -r --arg r "$r" --arg b "$b" --arg h "$h" '
+            def anc($s; $n): if $n > 50 then [] else ((.commits[$s].parents // []) as $p | $p + [$p[] as $x | anc($x; $n + 1)[]]) end;
+            if $b == $h then "identical"
+            elif ((.compare // {})[$r] // {})[$b + "..." + $h] != null then .compare[$r][$b + "..." + $h]
+            elif ((.history[$r] // []) | index($b)) != null or (anc($h; 0) | index($b)) != null then "ahead"
+            else "diverged" end' "$GH_DB")
+        [ "$st" = notfound ] && notfound
+        emit "$(jq -nc --arg s "$st" '{status: $s}')"
+        ;;
     "GET repos/"*/issues/*/comments*)
         r=${path#repos/}; r=${r%%/issues/*}
         n=${path#*/issues/}; n=${n%%/comments*}
@@ -321,8 +359,9 @@ case "$W1 $W2" in
         text=$(field content | base64 -d 2>/dev/null) || { echo "gh: content is not base64 (HTTP 422)" >&2; exit 1; }
         n=$(jq '(.commits // {}) | length' "$GH_DB")
         sha=$(printf 'd%039d' $((n + 1)))
-        dbset '.files[$r][$b + ":" + $f] = $t | .files[$r][$s + ":" + $f] = $t | .branches[$r][$b] = $s
-            | .commits[$s] = {tree: "5555555555555555555555555555555555555555", message: $m}
+        dbset '.branches[$r][$b] as $parent
+            | .files[$r][$b + ":" + $f] = $t | .files[$r][$s + ":" + $f] = $t | .branches[$r][$b] = $s
+            | .commits[$s] = {tree: "5555555555555555555555555555555555555555", message: $m, parents: [$parent]}
             | .prs |= map(if .repo == $r and .headRefName == $b and .state == "OPEN" then .headRefOid = $s else . end)' \
             --arg r "$r" --arg b "$b" --arg f "$f" --arg t "$text" --arg s "$sha" --arg m "$(field message)"
         emit "$(jq -nc --arg s "$sha" --arg c "$(blob_sha "$text")" '{content: {sha: $c}, commit: {sha: $s}}')"

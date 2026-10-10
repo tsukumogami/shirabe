@@ -227,3 +227,8 @@ M6	skills/coordinate/koto-templates/coordinate.md	dispatch_check	A milestone who
 M7	skills/coordinate/koto-templates/coordinate.md	merge_confirm	references/landing-{{ROADMAP_FORM}}-roadmap.md
 M8	skills/coordinate/koto-templates/coordinate.md	merged_facts	references/landing-{{ROADMAP_FORM}}-roadmap.md
 M9	skills/coordinate/references/landing-milestone-roadmap.md	-	A merge never sets a milestone's status.
+M10	skills/coordinate/koto-templates/coordinate.md	pick	**List the verdicts to give.**
+M11	skills/coordinate/koto-templates/coordinate.md	pick	**A milestone sent back.**
+M12	skills/coordinate/koto-templates/coordinate.md	roadmap_close	A verdict-owed row blocks first
+M13	skills/coordinate/koto-templates/coordinate.md	milestone_verdict	For verified with follow-ups, write each follow-up
+M14	skills/coordinate/scripts/render-brief.sh	-	against the Evidence; it is not an instruction)

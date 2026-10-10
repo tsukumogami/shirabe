@@ -8,7 +8,7 @@
 #
 # Usage:
 #   roadmap-status.sh --session S --unit TAG [--outcome TEXT]
-#   roadmap-status.sh --session S --verdict TAG --entry-file F --entry-url URL
+#   roadmap-status.sh --session S --verdict TAG --entry-file F --entry-url URL [--follow-ups FILE]
 #   roadmap-status.sh --session S --confirm TAG
 #   roadmap-status.sh --session S --drop TAG --reason TEXT
 #   roadmap-status.sh --session S --list
@@ -64,45 +64,74 @@
 # --verdict opens the roadmap edit a checked verdict entry calls for. F is the
 # entry as posted with record-append.sh --kind milestone-verdict, at most 16
 # KiB, and URL that comment's URL on this run's record issue. It requires
-# TAG's verdict-owed row, reads the roadmap at the commit the entry's Source
-# line names (whose path must be this run's roadmap) and runs milestone.sh
-# check-verdict against it, with --worker the row's Who unless that is
-# `none`. It refuses (exit 65, nothing opened) a TAG outside the heading-tag
-# grammar, one with no verdict-owed row, an entry file over 16 KiB, an entry
-# URL that isn't a comment on the record issue, an entry check-verdict
-# refuses (a checker or Work checked value outside its closed shape among
-# them), a verified-with-follow-ups verdict (its follow-up milestones aren't
-# written yet, so Done is never set without them), a TAG already reading Done
-# on the default branch, TAG's Evidence on the default branch differing from
-# its Evidence at Source (clauses are numbered by position, so a judgment is
+# TAG's verdict-owed row, re-reads the comment at URL (GitHub's comment API),
+# which must be on this run's record issue, carry the milestone-verdict entry
+# marker and hold F's text exactly (both with CR and outer blank lines
+# dropped), requires the default branch to contain the commit the entry's
+# Source line names (the compare API: identical or ahead), reads the roadmap
+# at that commit (whose path must be this run's roadmap) and runs
+# milestone.sh check-verdict against it, with --worker the row's Who unless
+# that is `none`. It refuses (exit 65, nothing opened) a TAG outside the
+# heading-tag grammar, one with no verdict-owed row, an entry file over 16
+# KiB, an entry URL that isn't a comment on the record issue, a comment whose
+# text or kind isn't the entry's, a Source commit the default branch doesn't
+# contain, an entry check-verdict refuses (a checker or Work checked value
+# outside its closed shape among them), a changes-needed verdict whose rework
+# text (below) the record couldn't hold, a TAG already reading Done on the
+# default branch, TAG's Evidence on the default branch differing from its
+# Evidence at Source (clauses are numbered by position, so a judgment is
 # never applied to Evidence it wasn't made against), and any roadmap pull
-# request already pending. Whether the default branch contains the Source
-# commit, and that the entry file matches the comment at URL, are not checked
-# here yet. For a
-# verified verdict the edit sets TAG's Status to Done, removes its Needs line
-# and appends the Work checked pull requests to its Delivered line (adding
-# the line after Status when there is none); for changes needed it leaves
-# Status and Delivered as they are. Either way it appends to `## Progress`
+# request already pending.
+#
+# A verified-with-follow-ups verdict needs --follow-ups FILE (and no other
+# verdict takes it): at most 32 KiB, one `### <tag>: <title>` section per
+# follow-up with non-empty Outcome, Evidence (`- ` clauses), Left open and
+# Dependencies fields, and optionally Needs, nothing else. A `new: <title>`
+# follow-up is the section with that title, under a tag the roadmap doesn't
+# use; an `amend <tag>: <what>` follow-up is the section with that tag, a
+# milestone the roadmap has (never TAG itself), with its title and
+# Dependencies unchanged. FILE is refused for a section the verdict doesn't
+# name, a follow-up with no section, a missing field, a control character or
+# tab, a token, a home-directory path or a work-in-progress path.
+#
+# For either verified verdict the edit sets TAG's Status to Done, removes its
+# Needs line and appends the Work checked pull requests to its Delivered line
+# (adding the line after Status when there is none); for verified with
+# follow-ups it also replaces each amended milestone's Outcome, Evidence and
+# Left open with its section's and adds each new section, Status Not
+# started, after the last milestone. For changes needed it leaves Status and
+# Delivered as they are. Either way it appends to `## Progress`
 #
 #   - <Checked on>: <TAG> -- <verdict>, checked by <checker> (<URL>, <hash8>)
 #
-# where hash8 is the first eight hex digits of the entry file's sha256, runs
-# `shirabe roadmap populate`, commits on coordinate/roadmap-verdict-<tag>-
-# <minute>, and opens one pull request whose body carries the whole entry, so
-# whoever merges it reviews the judgment. It writes a Side effects row:
-# Action `milestone-done` (How to confirm `the roadmap on <default> reads
-# <TAG> Done`) for a verified verdict, `milestone-verdict` (How to confirm
-# `the roadmap on <default> carries <URL> in Progress`) for changes needed.
-# It never merges.
+# where hash8 is the first eight hex digits of the posted entry's sha256, and
+# for each amendment `- <Checked on>: <tag> amended -- a follow-up of the
+# verified verdict on <TAG> (<URL>)`; runs `shirabe roadmap populate`,
+# commits on coordinate/roadmap-verdict-<tag>-<second>, and opens one pull
+# request whose body carries the whole entry, so whoever merges it reviews
+# the judgment. It writes a Side effects row: Action `milestone-done` (How to
+# confirm `the roadmap on <default> reads <TAG> Done`) for a verified verdict
+# of either kind, `milestone-verdict` (How to confirm `the roadmap on
+# <default> carries <URL> in Progress`) for changes needed. It never merges.
 #
 # --confirm removes TAG's row once the roadmap on the default branch shows
 # it, by the row's Action: `roadmap-status` and `milestone-done` read Done,
 # Shipped or Dropped for TAG, annotated or not (`Done -- shipped in #12`);
 # `milestone-verdict` finds the entry's URL in `## Progress` (milestone.sh
 # progress-has). Confirming a milestone row also removes TAG's verdict-owed
-# Work row. While the default branch doesn't show it: exit 1, nothing
+# and rework Work rows. Confirming a `milestone-verdict` (changes needed)
+# row re-reads its entry, which must still hash to its Progress line's
+# hash8, and writes a rework Work row for TAG (Who `verdict <comment id>`)
+# whose Next step is the rework text: `Evidence clauses not held: <n, n>.`,
+# `The work does not fit the strategy.` when it doesn't, and `Changes
+# needed: <the line>`, one paragraph the codec holds to 600 bytes with no URL
+# or link. pick-facts.sh reports it, render-brief.sh quotes it into the
+# milestone's next brief, and dispatch-worker.sh removes it once a worker is
+# dispatched. While the default branch doesn't show it: exit 1, nothing
 # written. --drop removes a row of any of the three Actions with a reason,
-# for a pull request closed unmerged, and leaves a verdict-owed row standing.
+# for a pull request closed unmerged, and leaves a verdict-owed row
+# standing; the entry is still on the record, so --verdict can open the
+# edit again from it.
 # --list prints the pending rows as a JSON array of {unit, pull_request,
 # attempted, action}; it is the one reader of these rows, which pick-facts.sh
 # marks as landed units.
@@ -130,6 +159,8 @@
 #           gh api --method GET repos/R/git/ref/heads/<default> --jq .object.sha
 #           gh api --method GET repos/R/contents/<roadmap>?ref=<that sha>   (--unit, --verdict)
 #           gh api --method GET repos/R/contents/<roadmap>?ref=<Source>     (--verdict)
+#           gh api --method GET repos/R/compare/<Source>...<head sha>       (--verdict)
+#           gh api --method GET repos/R/issues/comments/<id>               (--verdict, --confirm)
 #           gh api --method GET repos/R/contents/<roadmap>?ref=<default>    (--confirm)
 #   writes: gh api --method POST repos/R/git/refs -f ref=... -f sha=...
 #           gh api --method PUT repos/R/contents/<roadmap> (message, content, sha, branch)
@@ -139,12 +170,17 @@ set -uo pipefail
 
 PROG=roadmap-status
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= ROADMAP= MODE= TAG= OUTCOME= REASON= ENTRY_IN= ENTRY_URL=
+SESSION= SCOPE= NAME= REPO= REF= ROADMAP= MODE= TAG= OUTCOME= REASON= ENTRY_IN= ENTRY_URL= FOLLOW_UPS=
 SKIP_CHECKS=0
 ARG_ROADMAP=
 OUTCOME_SET=0
-# An entry file is at most this many bytes (milestone.sh's own cap).
+# An entry file is at most this many bytes (milestone.sh's own cap), and a
+# follow-ups file at most this many.
 ENTRY_MAX=16384
+FOLLOW_UPS_MAX=32768
+# A verdict's branch carries the second, so an edit opened again after --drop
+# (its pull request closed unmerged, its branch left) gets a branch of its own.
+BRANCH_STAMP=%Y%m%d%H%M
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 setmode() { [ -z "$MODE" ] || usage; MODE=$1; }
@@ -165,15 +201,16 @@ while [ $# -gt 0 ]; do
         --reason) [ $# -ge 2 ] || usage; REASON=$2; shift 2 ;;
         --entry-file) [ $# -ge 2 ] || usage; ENTRY_IN=$2; shift 2 ;;
         --entry-url) [ $# -ge 2 ] || usage; ENTRY_URL=$2; shift 2 ;;
+        --follow-ups) [ $# -ge 2 ] || usage; FOLLOW_UPS=$2; shift 2 ;;
         --skip-session-checks) SKIP_CHECKS=1; shift ;;
         *) usage ;;
     esac
 done
 case "$MODE" in
-    open) [ -z "$REASON$ENTRY_IN$ENTRY_URL" ] || usage ;;
+    open) [ -z "$REASON$ENTRY_IN$ENTRY_URL$FOLLOW_UPS" ] || usage ;;
     verdict) [ -n "$ENTRY_IN" ] && [ -n "$ENTRY_URL" ] && [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON" ] || usage ;;
-    drop) [ -n "$REASON" ] && [ "$OUTCOME_SET" = 0 ] && [ -z "$ENTRY_IN$ENTRY_URL" ] || usage ;;
-    confirm|list) [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$ENTRY_IN$ENTRY_URL" ] || usage ;;
+    drop) [ -n "$REASON" ] && [ "$OUTCOME_SET" = 0 ] && [ -z "$ENTRY_IN$ENTRY_URL$FOLLOW_UPS" ] || usage ;;
+    confirm|list) [ "$OUTCOME_SET" = 0 ] && [ -z "$REASON$ENTRY_IN$ENTRY_URL$FOLLOW_UPS" ] || usage ;;
     *) usage ;;
 esac
 . "$HERE/record-common.sh"
@@ -248,12 +285,13 @@ write_record() {
     rm -f "$ENTRY_FILE"
 }
 # without_row <out> [clear-owed]: the record without TAG's pending row, and
-# with clear-owed also without TAG's verdict-owed Work row.
+# with clear-owed also without TAG's verdict-owed and rework Work rows (a
+# confirmed verdict supersedes the rework an earlier one left).
 without_row() {
     jq --arg t "$TAG" --argjson owed "${2:-false}" 'del(.written)
         | .side_effects = [.side_effects[] | select(((.action == "roadmap-status" or .action == "milestone-done" or .action == "milestone-verdict")
                                                      and (.target | startswith($t + " ["))) | not)]
-        | if $owed then .work = [(.work // [])[] | select((.kind == "verdict-owed" and .item == $t) | not)]
+        | if $owed then .work = [(.work // [])[] | select(((.kind == "verdict-owed" or .kind == "rework") and .item == $t) | not)]
                         | (if (.work | length) == 0 then del(.work) else . end)
           else . end' \
         "$WD/parsed.json" > "$1" || lib_die2 "jq failed"
@@ -281,7 +319,7 @@ populate_and_commit() {
     if [ "$2" = 1 ]; then sed 's/$/\r/' "$1" > "$1.crlf" && mv "$1.crlf" "$1"; fi
     local slug
     slug=$(printf '%s' "$TAG" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '-')
-    BRANCH_NEW="$3-$slug-$(date -u +%Y%m%d%H%M)"
+    BRANCH_NEW="$3-$slug-$(date -u +"$BRANCH_STAMP")"
     gh api --method POST "repos/$REPO/git/refs" -f "ref=refs/heads/$BRANCH_NEW" -f "sha=$BASE_SHA" > /dev/null 2> "$WD/w.err" < /dev/null \
         || { echo "$PROG: creating $BRANCH_NEW failed: $(lib_scrub < "$WD/w.err")" >&2; exit 11; }
     base64 < "$1" | tr -d '\n\r ' > "$WD/content"
@@ -313,6 +351,212 @@ follow_up_refuse() {
 }
 OWED_WHO=$(jq -r --arg t "$TAG" '[(.work // [])[] | select(.kind == "verdict-owed" and .item == $t) | .who][0] // empty' "$WD/parsed.json")
 
+# norm_entry <in> <out>: an entry's text as record-append.sh posts it: CR
+# dropped, leading and trailing blank lines dropped, one final line break.
+norm_entry() {
+    tr -d '\r' < "$1" | awk '{ l[NR] = $0 } END { s = 1; while (s <= NR && l[s] ~ /^[ \t]*$/) s++
+        e = NR; while (e >= s && l[e] ~ /^[ \t]*$/) e--; for (i = s; i <= e; i++) print l[i] }' > "$2"
+}
+# sha8 <file>: the first eight hex digits of its sha256.
+sha8() {
+    if command -v sha256sum > /dev/null 2>&1; then sha256sum < "$1" | cut -c1-8
+    else shasum -a 256 < "$1" | cut -c1-8; fi
+}
+# posted_entry <comment-id> <out>: the text of record comment ID, as
+# record-append.sh --list reads it back, normalised as norm_entry does. The
+# comment must be on this run's record issue and carry the milestone-verdict
+# entry marker; anything else is refused (65), and a failed read exits 2.
+posted_entry() {
+    local c
+    if ! c=$(gh api --method GET "repos/$REPO/issues/comments/$1" 2> "$WD/pc.err" < /dev/null); then
+        grep -q 'HTTP 404' "$WD/pc.err" && refuse "no comment $1 on $REPO: the entry URL names no posted entry"
+        lib_die2 "cannot read comment $1: $(lib_scrub < "$WD/pc.err")"
+    fi
+    printf '%s' "$c" | jq -e --arg u "https://github.com/$REPO/issues/$REF#issuecomment-$1" \
+        '(.html_url // "" | ascii_downcase) == ($u | ascii_downcase)' > /dev/null \
+        || refuse "comment $1 is not on this run's record, issue #$REF"
+    printf '%s' "$c" | jq -r '.body // ""' | tr -d '\r' > "$WD/pc.body" || lib_die2 "comment $1 is not JSON"
+    [ "$(head -1 "$WD/pc.body")" = "${ENTRY_MARKER_PREFIX}milestone-verdict -->" ] \
+        || refuse "comment $1 is not a milestone-verdict entry (one record-append.sh --kind milestone-verdict posted)"
+    # record-append.sh writes `&` as `&amp;` and `@` as `&#64;`; decoded in
+    # its reader's order, the text comes back as written.
+    tail -n +4 "$WD/pc.body" | sed -e 's/&#64;/@/g' -e 's/&amp;/\&/g' > "$WD/pc.raw"
+    norm_entry "$WD/pc.raw" "$2"
+}
+# rework_of <entry>: the rework text a changes-needed verdict leaves for the
+# milestone's next brief: the not-held clause numbers, a strategy that
+# doesn't fit, and the Changes needed line, one paragraph.
+rework_of() {
+    awk '
+        /^[0-9]+\. not held -- / { n = $0; sub(/\..*$/, "", n); nh = nh (nh == "" ? "" : ", ") n }
+        /^Strategy fit: does not fit -- / { nofit = 1 }
+        /^Changes needed: / { ch = substr($0, 17) }
+        END {
+            s = ""
+            if (nh != "") s = "Evidence clauses not held: " nh "."
+            if (nofit) s = s (s == "" ? "" : " ") "The work does not fit the strategy."
+            printf "%s%sChanges needed: %s\n", s, (s == "" ? "" : " "), ch
+        }' "$1"
+}
+# field_of <section-file> <name>: the field's lines in a follow-up section,
+# from its `**<name>:**` line to the first blank line, field line or heading.
+field_of() {
+    RS_F="**$2:**" awk '
+        BEGIN { f = ENVIRON["RS_F"] }
+        on && (/^[ \t]*$/ || /^\*\*[A-Z][A-Za-z ]*:\*\*/ || /^#/) { exit }
+        index($0, f) == 1 { on = 1 }
+        on { print }' "$1"
+}
+# follow_ups_read: the --follow-ups FILE checked against the verdict's
+# Follow-ups line and the roadmap at the default branch's head, and split
+# into $WD/fu/<n>.md, one per `### <tag>: <title>` section. Writes
+# $WD/fu-plan.tsv, one line per follow-up in the verdict's order: `new <n>`
+# or `amend <n> <tag>`. Every refusal exits 65.
+follow_ups_read() {
+    local size n i head tag title fields why k t ftitle used
+    [ -r "$FOLLOW_UPS" ] && [ -f "$FOLLOW_UPS" ] || refuse "cannot read the follow-ups file $FOLLOW_UPS"
+    size=$(wc -c < "$FOLLOW_UPS" | tr -d ' ')
+    [ "$size" -le "$FOLLOW_UPS_MAX" ] || refuse "the follow-ups file is $size bytes, over $FOLLOW_UPS_MAX"
+    # Text that lands in a committed roadmap: no control character or tab
+    # (the Evidence reader refuses a tab), no token or home-directory path,
+    # and no path into a work-in-progress directory.
+    LC_ALL=C grep -q $'[\001-\010\011\013-\037\177]' "$FOLLOW_UPS" && refuse "the follow-ups file holds a control character or a tab"
+    why=$(jq -R -s -r -L "$HERE" 'include "record-codec"; text_problem([]) // empty' < "$FOLLOW_UPS")
+    [ -z "$why" ] || refuse "the follow-ups file holds $why"
+    # (The bracket keeps the directory's name out of this file, which the
+    # skill's hygiene suite holds to naming no staging path.)
+    grep -qE '(^|[^A-Za-z0-9_.-])wi[p]/' "$FOLLOW_UPS" && refuse "the follow-ups file names a path into a work-in-progress directory"
+    mkdir -p "$WD/fu"
+    tr -d '\r' < "$FOLLOW_UPS" | awk -v d="$WD/fu" '
+        /^### / { n++; f = d "/" n ".md" }
+        n == 0 && /[^ \t]/ { bad = 1; exit }
+        n > 0 { print > f }
+        END { exit(bad ? 1 : 0) }' || refuse "the follow-ups file holds text before its first \`### <tag>: <title>\` section"
+    n=$(ls "$WD/fu" | grep -c '\.md$')
+    [ "$n" -gt 0 ] || refuse "the follow-ups file holds no \`### <tag>: <title>\` section"
+    RE_FU_HEAD='^### (Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?): (.+)$'
+    : > "$WD/fu/index.tsv"
+    i=1
+    while [ "$i" -le "$n" ]; do
+        head=$(head -1 "$WD/fu/$i.md")
+        [[ $head =~ $RE_FU_HEAD ]] || refuse "follow-up section $i's heading is not \`### <tag>: <title>\`: [${head:0:80}]"
+        tag=${BASH_REMATCH[1]} title=${BASH_REMATCH[2]}
+        # Field lines only, each once, from the closed set; the four a
+        # milestone needs present and not empty.
+        fields=$(awk '
+            NR == 1 { next }
+            /^\*\*[A-Z][A-Za-z ]*:\*\*/ {
+                name = $0; sub(/^\*\*/, "", name); sub(/:\*\*.*$/, "", name)
+                if (name != "Outcome" && name != "Evidence" && name != "Left open" && name != "Needs" && name != "Dependencies") { print "a " name " field, which a follow-up section doesn'"'"'t take"; exit }
+                if (seen[name]++) { print "two " name " fields"; exit }
+                val = $0; sub(/^\*\*[^*]*:\*\*[ \t]*/, "", val); v[name] = val; cur = name; next
+            }
+            /^[ \t]*$/ { cur = ""; next }
+            /^#/ { print "a heading inside it"; exit }
+            cur != "" { v[cur] = v[cur] $0; next }
+            { print "text outside its fields: " substr($0, 1, 60); exit }
+            END {
+                split("Outcome|Evidence|Left open|Dependencies", req, "|")
+                for (j = 1; j <= 4; j++) if (!(req[j] in v) || v[req[j]] !~ /[^ \t]/) { print "no " req[j]; exit }
+            }' "$WD/fu/$i.md")
+        [ -z "$fields" ] || refuse "follow-up section $tag: $fields"
+        # The Evidence as the roadmap's reader takes it: one `- ` clause or
+        # more, nothing it can't classify.
+        { printf -- '---\nschema: roadmap/v2\n---\n\n## Features\n\n'; cat "$WD/fu/$i.md"; printf '**Status:** Not started\n'; } > "$WD/fu/$i.check"
+        bash "$HERE/milestone.sh" evidence "$WD/fu/$i.check" "$tag" > "$WD/fu/$i.json" 2> /dev/null \
+            || refuse "follow-up section $tag: its Evidence is not one \`- \` clause or more"
+        printf '%s\t%s\t%s\n' "$i" "$tag" "$title" >> "$WD/fu/index.tsv"
+        i=$((i + 1))
+    done
+    [ "$(cut -f2 "$WD/fu/index.tsv" | sort | uniq -d | head -1)" = "" ] || refuse "two follow-up sections share a tag"
+    # Each follow-up the verdict names has its section, and each section is
+    # one the verdict names.
+    : > "$WD/fu-plan.tsv"
+    used=
+    while IFS='	' read -r k t; do
+        if [ "$k" = new ]; then
+            i=$(awk -F'\t' -v t="$t" '$3 == t { print $1; exit }' "$WD/fu/index.tsv")
+            [ -n "$i" ] || refuse "the follow-up \`new: $t\` has no section in the follow-ups file (a \`### <tag>: $t\` heading)"
+            tag=$(awk -F'\t' -v i="$i" '$1 == i { print $2 }' "$WD/fu/index.tsv")
+            grep -qE "^### $tag:( |$)" "$WD/roadmap.md" && refuse "the follow-up \`new: $t\` takes the tag $tag, which the roadmap already uses"
+            printf 'new\t%s\t%s\n' "$i" "$tag" >> "$WD/fu-plan.tsv"
+        else
+            [ "$t" != "$TAG" ] || refuse "a follow-up amends $TAG itself; the milestone this verdict verifies keeps the Evidence it was judged against"
+            bash "$HERE/milestone.sh" evidence "$WD/roadmap.md" "$t" > "$WD/fu/target.json" 2> /dev/null \
+                || refuse "the follow-up \`amend $t\` names a tag the roadmap has no milestone for"
+            i=$(awk -F'\t' -v t="$t" '$2 == t { print $1; exit }' "$WD/fu/index.tsv")
+            [ -n "$i" ] || refuse "the follow-up \`amend $t\` has no section in the follow-ups file (a \`### $t: <title>\` heading)"
+            ftitle=$(awk -F'\t' -v i="$i" '$1 == i { print $3 }' "$WD/fu/index.tsv")
+            [ "$ftitle" = "$(jq -r .title "$WD/fu/target.json")" ] \
+                || refuse "the amend section for $t retitles it; an amendment changes Outcome, Evidence or Left open, never the title"
+            # Dependencies don't change in place (roadmap format): the
+            # section's must be the milestone's.
+            [ "$(field_of "$WD/fu/$i.md" Dependencies)" = "$(tr -d '\r' < "$WD/roadmap.md" | awk -v h="### $t: " '
+                    /^## / { inf = ($0 ~ /^## Features[ \t]*$/); inb = 0; next }
+                    inf && /^### / { inb = (index($0, h) == 1); next }
+                    inb && /^\*\*Dependencies:\*\*/ { print; exit }')" ] \
+                || refuse "the amend section for $t changes its Dependencies, which a milestone roadmap never changes in place"
+            printf 'amend\t%s\t%s\n' "$i" "$t" >> "$WD/fu-plan.tsv"
+        fi
+        used="$used $i "
+    done <<EOF
+$(jq -r '.follow_ups[] | if .kind == "new" then "new\t\(.title)" else "amend\t\(.tag)" end' "$WD/verdict.json")
+EOF
+    while IFS='	' read -r i tag title; do
+        case "$used" in *" $i "*) ;; *) refuse "the follow-ups file's section $tag is no follow-up the verdict names" ;; esac
+    done < "$WD/fu/index.tsv"
+}
+# follow_ups_apply <doc>: each follow-up of $WD/fu-plan.tsv written into DOC:
+# an amend replaces its milestone's Outcome, Evidence and Left open fields
+# with the section's, and the new milestones go after the last one, each
+# Not started. Checked after: every new tag reads as a milestone, and every
+# amended milestone carries its section's Evidence.
+follow_ups_apply() {
+    local k i at new=
+    while IFS='	' read -r k i at; do
+        if [ "$k" = amend ]; then
+            RS_TAG="$at" RS_OUT="$(field_of "$WD/fu/$i.md" Outcome)" RS_EVI="$(field_of "$WD/fu/$i.md" Evidence)" \
+            RS_LEFT="$(field_of "$WD/fu/$i.md" "Left open")" awk '
+                BEGIN { h = "### " ENVIRON["RS_TAG"] ": "; r["Outcome"] = ENVIRON["RS_OUT"]; r["Evidence"] = ENVIRON["RS_EVI"]; r["Left open"] = ENVIRON["RS_LEFT"] }
+                dropping && (/^[ \t]*$/ || /^\*\*[A-Z][A-Za-z ]*:\*\*/ || /^#/) { dropping = 0 }
+                dropping { next }
+                /^## / { inf = ($0 ~ /^## Features[ \t]*$/); inb = 0; print; next }
+                inf && /^### / { inb = (index($0, h) == 1); print; next }
+                inb && /^\*\*(Outcome|Evidence|Left open):\*\*/ {
+                    name = $0; sub(/^\*\*/, "", name); sub(/:\*\*.*$/, "", name)
+                    print r[name]; dropping = 1; next
+                }
+                { print }' "$1" > "$1.fu" && mv "$1.fu" "$1" || lib_die2 "awk failed"
+            [ "$(bash "$HERE/milestone.sh" evidence "$1" "$at" 2> /dev/null | jq -c .evidence)" = "$(jq -c .evidence "$WD/fu/$i.json")" ] \
+                || refuse "the amendment of $at could not be written into $ROADMAP"
+        else
+            new="$new$(awk '{ l[NR] = $0 } END { e = NR; while (e > 0 && l[e] ~ /^[ \t]*$/) e--; for (j = 1; j <= e; j++) print l[j] }' "$WD/fu/$i.md")"$'\n'"**Status:** Not started"$'\n\n'
+        fi
+    done < "$WD/fu-plan.tsv"
+    if [ -n "$new" ]; then
+        # After the last milestone: where the Features section ends, at the
+        # next `## ` heading or the end of the file.
+        RS_NEW="$new" awk '
+            BEGIN { s = ENVIRON["RS_NEW"]; sub(/\n+$/, "", s) }
+            function put() { if (pb) print ""; print s; print ""; done = 1 }
+            /^## / && inf && !done { put() }
+            /^## / { inf = ($0 ~ /^## Features[ \t]*$/) }
+            { print; pb = ($0 !~ /^[ \t]*$/) }
+            END { if (inf && !done) { if (pb) print ""; print s } }' "$1" > "$1.fu" && mv "$1.fu" "$1" || lib_die2 "awk failed"
+        while IFS='	' read -r k i at; do
+            [ "$k" = new ] || continue
+            bash "$HERE/milestone.sh" evidence "$1" "$at" 2> /dev/null | jq -e '.status == "Not started"' > /dev/null \
+                || refuse "the follow-up milestone $at could not be written into $ROADMAP"
+        done < "$WD/fu-plan.tsv"
+    fi
+}
+# rework_problem_of <text>: why the codec would refuse TEXT as a rework row's
+# Next step (its closed shape, or text a public record never carries), or
+# nothing.
+rework_problem_of() {
+    printf '%s' "$1" | jq -R -s -r -L "$HERE" 'include "record-codec"; (rework_problem // text_problem([])) // empty'
+}
+
 case "$MODE" in
 confirm|drop)
     ROW=$(jq -c --arg t "$TAG" '[.[] | select(.unit == $t)][0] // empty' "$WD/pending.json")
@@ -332,6 +576,21 @@ confirm|drop)
                 *) lib_die2 "cannot read $ROADMAP's Progress section" ;;
             esac
             ST="its verdict's Progress line"
+            # The rework the changes-needed verdict leaves, read from the
+            # entry itself, which must still be the text its Progress line
+            # hashed: a comment edited since is not the judgment the person
+            # who merged the edit reviewed.
+            [[ ${URL##*#issuecomment-} =~ $RE_NUM ]] || lib_die2 "$TAG's milestone-verdict row names no comment"
+            posted_entry "${URL##*#issuecomment-}" "$WD/posted.txt"
+            PH=$(tr -d '\r' < "$WD/roadmap.md" | RS_URL="$URL" awk '
+                BEGIN { u = "(" ENVIRON["RS_URL"] ", " }
+                /^## / { inprog = ($0 ~ /^## Progress[ \t]*$/); next }
+                inprog && (p = index($0, u)) > 0 { print substr($0, p + length(u), 8); exit }')
+            [ -n "$PH" ] && [ "$PH" = "$(sha8 "$WD/posted.txt")" ] \
+                || refuse "the entry at $URL is not the text its Progress line hashed (${PH:-no hash}); it changed since its verdict's edit, so nothing is confirmed: check the comment's history"
+            REWORK=$(rework_of "$WD/posted.txt")
+            WHY=$(rework_problem_of "$REWORK")
+            [ -z "$WHY" ] || refuse "the entry's rework text can't go in the record ($WHY)"
         else
             feature_read "$WD/roadmap.md"
             ST=$(printf '%s' "$FEATURE" | jq -r '.status // empty')
@@ -339,6 +598,14 @@ confirm|drop)
                 || { echo "$PROG: $TAG reads ${ST:-no status} on $DEFAULT_BRANCH; its pull request, $PRL, hasn't landed" >&2; exit 1; }
         fi
         case "$ACTION" in
+            milestone-verdict)
+                # Changes needed: the milestone goes back to pick, In
+                # progress, with a rework row its next brief quotes.
+                without_row "$WD/next.json" true
+                jq --arg t "$TAG" --arg w "verdict ${URL##*#issuecomment-}" --arg n "$REWORK" --arg u "$(date -u +%Y-%m-%dT%H:%MZ)" '
+                    .work = ((.work // []) + [{item: $t, kind: "rework", who: $w, next: $n, wakes: "0", updated: $u}])' \
+                    "$WD/next.json" > "$WD/next2.json" && mv "$WD/next2.json" "$WD/next.json" || lib_die2 "jq failed"
+                write_record "$WD/next.json" "$TAG reads $ST on $DEFAULT_BRANCH; its verdict's roadmap pull request $PRL landed, and the record no longer holds it or $TAG's verdict owed. The verdict asked for changes, so $TAG goes back to pick with a rework row its next brief quotes: $REWORK" ;;
             milestone-*)
                 without_row "$WD/next.json" true
                 write_record "$WD/next.json" "$TAG reads $ST on $DEFAULT_BRANCH; its verdict's roadmap pull request $PRL landed, and the record no longer holds it or $TAG's verdict owed." ;;
@@ -367,20 +634,39 @@ if [ "$MODE" = verdict ]; then
     [[ ${ENTRY_URL##*#issuecomment-} =~ ^[1-9][0-9]*$ ]] || refuse "--entry-url's comment id is not a number"
     [ -n "$OWED_WHO" ] || refuse "$TAG has no verdict-owed row: tick landed for it first, which writes one"
     pending_refuse
+    # The entry is the comment at URL, as posted: on this run's record, with
+    # the milestone-verdict marker, and the entry file's text exactly, so the
+    # judgment the edit carries is the one the record shows. ENTRY is the
+    # text from here on.
+    ENTRY="$WD/entry.txt"
+    norm_entry "$ENTRY_IN" "$ENTRY"
+    posted_entry "${ENTRY_URL##*#issuecomment-}" "$WD/posted.txt"
+    cmp -s "$ENTRY" "$WD/posted.txt" \
+        || refuse "the entry file differs from the comment at $ENTRY_URL; give the file that was posted, or post this one and use its URL"
     # The roadmap at the entry's Source commit, the copy its clauses were
-    # judged against.
-    SRC_LINE=$(sed -n 4p "$ENTRY_IN")
+    # judged against: a commit the default branch contains, so the judgment
+    # was made on Evidence that was on the roadmap, not on a branch.
+    SRC_LINE=$(sed -n 4p "$ENTRY")
     RE_SRC='^Source: ([^ ]+) at ([0-9a-f]{40})$'
     [[ $SRC_LINE =~ $RE_SRC ]] || refuse "the entry's line 4 is not \`Source: <roadmap path> at <40-character commit>\`"
     SRC_PATH=${BASH_REMATCH[1]} SRC_COMMIT=${BASH_REMATCH[2]}
     [ "$SRC_PATH" = "$ROADMAP" ] || refuse "the entry's Source is $SRC_PATH, not this run's roadmap, $ROADMAP"
+    head_read
+    if ! CMP=$(gh api --method GET "repos/$REPO/compare/$SRC_COMMIT...$BASE_SHA" --jq .status 2> "$WD/cmp.err" < /dev/null); then
+        grep -q 'HTTP 404' "$WD/cmp.err" && refuse "the entry's Source commit, $SRC_COMMIT, is not a commit of $REPO"
+        lib_die2 "cannot compare $SRC_COMMIT with $DEFAULT_BRANCH: $(lib_scrub < "$WD/cmp.err")"
+    fi
+    case "$CMP" in
+        identical|ahead) ;;
+        *) refuse "$DEFAULT_BRANCH doesn't contain the entry's Source commit, $SRC_COMMIT ($CMP); judge the clauses against the roadmap on $DEFAULT_BRANCH" ;;
+    esac
     lib_file_at "$ROADMAP" "$SRC_COMMIT" "$WD/source.md"
     case $? in
         0) ;;
         1) refuse "$ROADMAP is not at the entry's Source commit, $SRC_COMMIT" ;;
         *) lib_die2 "cannot read $ROADMAP at $SRC_COMMIT" ;;
     esac
-    set -- check-verdict "$WD/source.md" "$TAG" "$ENTRY_IN"
+    set -- check-verdict "$WD/source.md" "$TAG" "$ENTRY"
     [ "$OWED_WHO" = none ] || set -- "$@" --worker "$OWED_WHO"
     bash "$HERE/milestone.sh" "$@" > "$WD/verdict.json" 2> "$WD/check.err"
     case $? in
@@ -391,9 +677,17 @@ if [ "$MODE" = verdict ]; then
     VERDICT=$(jq -r .verdict "$WD/verdict.json")
     CHECKER=$(jq -r .checked_by "$WD/verdict.json")
     CHECKED_ON=$(jq -r .checked_on "$WD/verdict.json")
-    [ "$VERDICT" != "verified with follow-ups" ] \
-        || refuse "a verified-with-follow-ups verdict adds its follow-up milestones in the same edit, which this writer doesn't do yet; record verified or changes needed, or defer the verdict"
-    head_read
+    if [ "$VERDICT" = "changes needed" ]; then
+        # Its confirmation leaves a rework row for the next brief: text the
+        # record can't hold is refused now, before any edit is opened.
+        WHY=$(rework_problem_of "$(rework_of "$ENTRY")")
+        [ -z "$WHY" ] || refuse "the Changes needed line becomes the milestone's rework text, which the next brief quotes, and it can't ($WHY): keep it one paragraph of at most 600 bytes with no URL or link"
+    fi
+    if [ "$VERDICT" = "verified with follow-ups" ]; then
+        [ -n "$FOLLOW_UPS" ] || refuse "a verified-with-follow-ups verdict adds its follow-up milestones in the same edit: give each one's section with --follow-ups FILE"
+    else
+        [ -z "$FOLLOW_UPS" ] || refuse "--follow-ups goes with a verified-with-follow-ups verdict; this one is $VERDICT"
+    fi
     bash "$HERE/milestone.sh" evidence "$WD/roadmap.md" "$TAG" > "$WD/milestone.json" 2> "$WD/m.err" \
         || refuse "$TAG is not a milestone with Evidence on $DEFAULT_BRANCH: $(lib_scrub < "$WD/m.err")"
     TITLE=$(jq -r .title "$WD/milestone.json")
@@ -407,11 +701,20 @@ if [ "$MODE" = verdict ]; then
     [ "$(jq -c .evidence "$WD/source-milestone.json")" = "$(jq -c .evidence "$WD/milestone.json")" ] \
         || refuse "$TAG's Evidence on $DEFAULT_BRANCH differs from its Evidence at the entry's Source, $SRC_COMMIT; check the clauses again against the current Evidence and write a new entry"
     grep -qE $'^## Progress[ \t\r]*$' "$WD/roadmap.md" || refuse "$ROADMAP has no ## Progress section for the verdict's line"
-    if command -v sha256sum > /dev/null 2>&1; then HASH=$(sha256sum < "$ENTRY_IN" | cut -c1-8)
-    else HASH=$(shasum -a 256 < "$ENTRY_IN" | cut -c1-8); fi
+    : > "$WD/fu-plan.tsv"
+    [ -z "$FOLLOW_UPS" ] || follow_ups_read
+    # The hash of the entry as posted (the text --confirm re-reads), so a
+    # later edit of the comment shows.
+    HASH=$(sha8 "$ENTRY")
     PROGRESS="- $CHECKED_ON: $TAG -- $VERDICT, checked by $CHECKER ($ENTRY_URL, $HASH)"
+    # Each amendment a follow-up makes is named in Progress, as the format
+    # asks of an Outcome, Evidence or Left open changed in place.
+    while IFS='	' read -r k i at; do
+        [ "$k" = amend ] || continue
+        PROGRESS="$PROGRESS"$'\n'"- $CHECKED_ON: $at amended -- a follow-up of the verified verdict on $TAG ($ENTRY_URL)"
+    done < "$WD/fu-plan.tsv"
     DONE=0 DELIVER=
-    if [ "$VERDICT" = verified ]; then
+    if [ "$VERDICT" != "changes needed" ]; then
         DONE=1
         # The Work checked pull requests the Delivered line doesn't name yet.
         DELIVER=$(jq -r '.work_checked | join("\n")' "$WD/verdict.json" | while IFS= read -r item; do
@@ -490,7 +793,12 @@ if [ "$MODE" = verdict ]; then
     else
         mv "$DOC.1" "$DOC"
     fi
-    bash "$HERE/milestone.sh" progress-has "$DOC" "$PROGRESS" || refuse "the Progress line could not be written into $ROADMAP"
+    [ ! -s "$WD/fu-plan.tsv" ] || follow_ups_apply "$DOC"
+    while IFS= read -r pl; do
+        bash "$HERE/milestone.sh" progress-has "$DOC" "$pl" || refuse "the Progress line could not be written into $ROADMAP"
+    done <<EOF
+$PROGRESS
+EOF
     if [ "$DONE" = 1 ]; then
         bash "$HERE/milestone.sh" evidence "$DOC" "$TAG" 2> /dev/null | jq -e '.status == "Done"' > /dev/null \
             || refuse "$TAG's Status could not be set to Done (its block has no **Status:** line?)"
@@ -500,15 +808,23 @@ if [ "$MODE" = verdict ]; then
     else
         MSG="docs(roadmap): record the changes-needed verdict on $TAG, $TITLE"
     fi
+    BRANCH_STAMP=%Y%m%d%H%M%S
     populate_and_commit "$DOC" "$CRLF" coordinate/roadmap-verdict "$MSG"
     {
         if [ "$DONE" = 1 ]; then
-            printf 'Records the verified verdict on %s of the roadmap, %s: its Status is Done, its Needs line goes and its Delivered line names the work checked; a Progress line names the verdict, who checked it and the entry. Its Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$TAG" "$TITLE"
+            printf 'Records the %s verdict on %s of the roadmap, %s: its Status is Done, its Needs line goes and its Delivered line names the work checked; a Progress line names the verdict, who checked it and the entry. Its Outcome and Evidence are unchanged, and the generated sections are regenerated.\n' "$VERDICT" "$TAG" "$TITLE"
         else
             printf 'Records the changes-needed verdict on %s of the roadmap, %s: a Progress line names the verdict, who checked it and the entry. Its Status and Delivered line are unchanged; the milestone stays open for the changes the verdict names.\n' "$TAG" "$TITLE"
         fi
+        if [ -s "$WD/fu-plan.tsv" ]; then
+            printf '\nIts follow-ups, in the same edit:\n\n'
+            while IFS='	' read -r k i at; do
+                if [ "$k" = new ]; then printf -- '- adds %s, Not started, after the last milestone\n' "$(head -1 "$WD/fu/$i.md" | sed -e 's/^### //' -e 's/&/\&amp;/g' -e 's/@/\&#64;/g')"
+                else printf -- '- amends %s: its Outcome, Evidence and Left open are the follow-up'"'"'s, with a Progress line naming the amendment\n' "$at"; fi
+            done < "$WD/fu-plan.tsv"
+        fi
         printf '\nThe verdict entry, as posted on the record (%s):\n\n' "$ENTRY_URL"
-        sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' -e 's/^/> /' "$ENTRY_IN"
+        sed -e 's/&/\&amp;/g' -e 's/@/\&#64;/g' -e 's/^/> /' "$ENTRY"
         printf '\n---\n\n'
         printf 'Opened by the coordinator for %s from its record, issue #%s. Review the verdict against the milestone'"'"'s Evidence before merging: on a milestone roadmap this pull request is what sets the Status, and the coordinator never merges it.\n' "$NAME" "$REF"
     } > "$WD/prbody.md"

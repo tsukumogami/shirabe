@@ -22,7 +22,9 @@
 # carries the holds as they stand. Milestone verdicts: a verdict-owed Work row
 # (Who a topic or none) and the milestone-done and milestone-verdict Side
 # effects rows round-trip; an unknown Work kind, an unknown milestone- Action
-# and a verdict-owed row with a bad Item, Who or Next step are refused.
+# and a verdict-owed row with a bad Item, Who or Next step are refused; a
+# rework row round-trips, its text held to one paragraph of 600 bytes with no
+# URL or link, its Item a heading tag and its Who `verdict <id>`.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/record-codec_test.sh
@@ -416,6 +418,23 @@ refuse "an unknown milestone Action is refused" "$(MVREC '[]' "[$(SE milestone-r
 refuse "a verdict-owed row whose Item isn't a heading tag" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.item = "the plugin list"')]" '[]')" "a verdict-owed row's Item is a milestone's heading tag"
 refuse "a verdict-owed row whose Who isn't a topic" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.who = "a/b"')]" '[]')" "worker: contains '/'"
 refuse "a verdict-owed row whose Next step isn't its date" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.next = "judge it"')]" '[]')" "verdict owed since YYYY-MM-DD"
+# A rework row: a confirmed changes-needed verdict's text for the next brief,
+# held to one paragraph of at most 600 bytes with no URL or markdown link.
+REWORK='{"item":"MV2","kind":"rework","who":"verdict 1001","next":"Evidence clauses not held: 1, 2. Changes needed: name the skipped plugin and its reason; keep `widgets list` quiet | no pager","wakes":"0","updated":"2026-10-09T10:00Z"}'
+mv_roundtrip "a rework Work row round-trips, a pipe and backticks in its text" "$(MVREC "[$REWORK]" '[]')"
+mv_roundtrip "  ... at 600 bytes" "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.next = ("Changes needed: " + ("x" * 584))')]" '[]')"
+mv_roundtrip "  ... beside the same milestone's verdict-owed row" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.item = "MV2"'), $REWORK]" '[]')"
+rw() { printf '%s' "$REWORK" | jq -c --arg n "$1" '.next = $n'; }
+refuse "a rework text over 600 bytes" "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.next = ("Changes needed: " + ("x" * 585))')]" '[]')" "over 600 bytes"
+refuse "a rework text with a URL" "$(MVREC "[$(rw 'Changes needed: see https://example.com/x')]" '[]')" "a URL"
+refuse "  ... or a bare www. address" "$(MVREC "[$(rw 'Changes needed: see www.example.com')]" '[]')" "a URL"
+refuse "  ... or another scheme" "$(MVREC "[$(rw 'Changes needed: fetch ftp://host/x')]" '[]')" "a URL"
+refuse "a rework text with a markdown link" "$(MVREC "[$(rw 'Changes needed: read [the notes](notes.md)')]" '[]')" "a markdown link"
+refuse "  ... or a reference link" "$(MVREC "[$(rw 'Changes needed: read [the notes][1]')]" '[]')" "a markdown link"
+refuse "a rework text over two lines" "$(MVREC "[$(rw "$(printf 'Changes needed: one\ntwo')")]" '[]')" "a line break"
+refuse "a rework text with a control character" "$(MVREC "[$(rw "$(printf 'Changes needed: one\001two')")]" '[]')" "a control character"
+refuse "a rework row whose Item isn't a heading tag" "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.item = "the host"')]" '[]')" "a rework row's Item is a milestone's heading tag"
+refuse "a rework row whose Who isn't verdict <id>" "$(MVREC "[$(printf '%s' "$REWORK" | jq -c '.who = "plugin-list"')]" '[]')" "a rework row's Who is \`verdict <id>\`"
 
 echo
 echo "record-codec: $PASS passed, $FAIL failed"

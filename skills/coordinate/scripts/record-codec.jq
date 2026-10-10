@@ -282,14 +282,21 @@ def parse_holds($p):
 #            execution not yet dispatched) | verdict-owed (a milestone whose
 #            work the coordinator judged finished, its verdict not yet
 #            confirmed on the roadmap; only roadmap-status.sh writes and
-#            clears it)
+#            clears it) | rework (a milestone a confirmed changes-needed
+#            verdict sent back for more work; roadmap-status.sh --confirm
+#            writes it, record-state.sh --done removes it once a worker is
+#            dispatched for it)
 #   Who      a holding's Worker (a dispatch topic), or who does the work; for
 #            a decision row `decision <n>`, the entry it waits on; for a
 #            follow-up row the pull request that landed its scoping,
 #            `owner/repo#n`; for a verdict-owed row the topic of the worker
-#            that held the milestone, or `none`
+#            that held the milestone, or `none`; for a rework row
+#            `verdict <id>`, the record comment holding the verdict entry
 #   Next step  what happens next, one line; a verdict-owed row's is
-#            `verdict owed since YYYY-MM-DD`
+#            `verdict owed since YYYY-MM-DD`; a rework row's is the
+#            verdict's not-held clauses and Changes needed line, one
+#            paragraph of at most 600 bytes with no URL or markdown link
+#            (rework_problem), since the next brief quotes it
 #   Wakes    a holding's wakes counted so far (record-state.sh adds this run's
 #            from the session log at each write); 0 for a local agent, and
 #            read as 0 when blank (docs/designs/current/DESIGN-coordinate-paused-state.md,
@@ -309,7 +316,16 @@ def run_keys: ["arguments", "cap", "coordinator", "told"];
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment"];
 # A unit a person assigns outside the scope: an issue, or a release.
 def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
-def work_kinds: ["holding", "local-agent", "decision", "follow-up", "verdict-owed"];
+def work_kinds: ["holding", "local-agent", "decision", "follow-up", "verdict-owed", "rework"];
+# The rework text a rework row carries into a worker's brief: one paragraph
+# (the cell already refuses a line break and a control character), at most
+# 600 bytes, with no URL and no markdown link, so what a brief quotes as data
+# can't point a worker anywhere. null when it fits.
+def rework_problem:
+  if utf8bytelength > 600 then "over 600 bytes"
+  elif test("[a-z][a-z0-9+.-]*://"; "i") or test("(^|[^A-Za-z0-9])www\\."; "i") then "a URL"
+  elif test("\\]\\(|\\]\\[|<[a-z][a-z0-9+.-]*:"; "i") then "a markdown link"
+  else null end;
 # A milestone's heading tag, as a verdict-owed row's Item names it: the
 # heading-tag grammar roadmap-status.sh takes (`Feature 7`, `ED1`, `AB10b`).
 def re_heading_tag: "^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$";
@@ -336,7 +352,7 @@ def check_scell($sk; $key; $private):
     elif $sk == "run" and $key == "key" then (if any(run_keys[]; . == $v) then . else refuse("run.key: not one of \(run_keys | join(", "))") end)
     elif $sk == "standing" and $key == "standing" then (if test("^s[1-9][0-9]*$") then . else refuse("standing.standing: not s<n>") end)
     elif $sk == "standing" and $key == "kind" then (if any(standing_kinds[]; . == $v) then . else refuse("standing.kind: not one of \(standing_kinds | join(", "))") end)
-    elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding, local-agent, decision, follow-up or verdict-owed") end)
+    elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding, local-agent, decision, follow-up, verdict-owed or rework") end)
     elif $sk == "work" and $key == "wakes" then (if test("^(0|[1-9][0-9]{0,5})$") then . else refuse("work.wakes: not a count") end)
     elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) or test(re_assigned) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)") end)
     elif $sk == "standing" and $key == "until" then (if pause_until_ok then . else refuse("standing.until: not `lifted`, `time <YYYY-MM-DDTHH:MMZ>`, `merged owner/repo#n` or `tag owner/repo <tag>`") end)
@@ -370,6 +386,11 @@ def check_srow($sec; $private):
       (if (.item | test(re_heading_tag) | not) then refuse("work.item: a verdict-owed row's Item is a milestone's heading tag (`Feature 2`, `MV1`, `AB10b`)")
        elif (.next | test("^verdict owed since [0-9]{4}-[0-9]{2}-[0-9]{2}$") | not) then refuse("work.next: a verdict-owed row's Next step is `verdict owed since YYYY-MM-DD`")
        else (.who | check_worker) as $_ | . end)
+    elif $sec.key == "work" and .kind == "rework" then
+      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a rework row's Item is a milestone's heading tag (`Feature 2`, `MV1`, `AB10b`)")
+       elif (.who | test("^verdict [1-9][0-9]*$") | not) then refuse("work.who: a rework row's Who is `verdict <id>`, the record comment holding its verdict")
+       elif (.next | rework_problem) != null then refuse("work.next: a rework row's text is one paragraph of at most 600 bytes with no URL or markdown link: \(.next | rework_problem)")
+       else . end)
     elif $sec.key == "standing" then
       (if .kind == "pause" then
          (if .on == "" or .until == "" then refuse("standing.\(.standing): a pause names its On and its Until") else . end)

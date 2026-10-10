@@ -14,7 +14,10 @@
 #      roadmap-status.sh --unit prints `verdict-owed` and leaves no branch,
 #      commit or pull request in the GitHub stand-in's log, and
 #      `verdict_owed` reaches milestone_verdict; `deferred` goes back to
-#      wait and the next `landed` reaches the verdict step again;
+#      wait with its one row standing, pick (through a resume) reads the
+#      milestone verdict_owed with its holding and after the holding is
+#      retired, and the next `landed` reaches the verdict step again and
+#      writes no second row;
 #   3. a checked verdict, posted and opened with roadmap-status.sh
 #      --verdict, then `recorded`, is confirmed by the record step and the
 #      run reaches pick, where both milestones read verdict_owed; nothing was
@@ -58,6 +61,18 @@ at() { tick "$@" | jq -r '.state // empty'; }
 as_agent() { local s=$1; shift; (cd "$WD" && bash "$PS/$s" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err"); }
 pick_json() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }
 writes() { grep -cE 'POST repos/[^ ]*/git/refs|PUT repos|pr create' "$GH_DB.calls"; }
+live_record() { jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$PS/record-parse.sh"; }
+owed_rows() { live_record | jq --arg t "$1" '[(.work // [])[] | select(.kind == "verdict-owed" and .item == $t)] | length'; }
+# retire_holding <unit>: the unit's holding and its Work row leave the record,
+# as a teardown leaves them, the record written in place on the stand-in.
+retire_holding() {
+    live_record > "$T/rec.json"
+    jq --arg u "$1" 'del(.written) | .holdings |= map(select(.unit != $u))
+        | .work = [(.work // [])[] | select((.kind == "holding" and .item == $u) | not)]' "$T/rec.json" > "$T/rec2.json"
+    bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/rec.json")" "$T/rec2.json" > "$T/rec.md" \
+        || { bad "the holding of $1 is retired" "$(cat "$T/rec.md")"; return; }
+    db '(.issues[] | select(.number == 7)).body = $b' --rawfile b "$T/rec.md"
+}
 merges() { grep -cE 'pr merge|pulls/[0-9]+/merge' "$GH_DB.calls"; }
 run_rows() { # run_rows <active worker>: the Run rows, the worker told the address
     jq -nc --arg w "$1" '[{key: "arguments", value: "--roadmap", set_by: "the human", set: "2026-10-07T10:00Z"},
@@ -163,9 +178,19 @@ if open_run milestones "$MV" "$REC" yes; then
     eq "  ... with no branch, commit or pull request in the stand-in's log" 0 "$(writes)"
     eq "verdict_owed reaches milestone_verdict" milestone_verdict "$(at --with-data '{"status":"verdict_owed","unit":"MV1"}')"
     eq "deferred goes back to wait" wait "$(at --with-data '{"verdict":"deferred"}')"
+    eq "  ... with MV1's verdict-owed row standing, one of it" 1 "$(owed_rows MV1)"
+    echo "== 2a. a deferred verdict at pick, with and without its holding =="
+    eq "a resume reaches pick" pick "$(at --with-data '{"event":"resume"}')"
+    eq "pick reads MV1 verdict_owed with its holding" "true mv1-worker" "$(pick_json | jq -r '.units[] | select(.unit == "MV1") | "\(.verdict_owed) \(.holding.worker)"')"
+    eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
+    retire_holding MV1
+    eq "a resume reaches pick again" pick "$(at --with-data '{"event":"resume"}')"
+    eq "pick reads MV1 verdict_owed with its holding retired" "true null" "$(pick_json | jq -r '.units[] | select(.unit == "MV1") | "\(.verdict_owed) \(.holding)"')"
+    eq "it holds to wait" wait "$(at --with-data '{"choice":"hold"}')"
     eq "the next landed tick comes back to roadmap_status" roadmap_status "$(at --with-data '{"event":"landed","unit":"MV1"}')"
     as_agent roadmap-status.sh --unit MV1; eq "  ... where --unit prints the same and writes nothing" "0 verdict-owed MV1 0" "$? $(cat "$T/w.out") $(writes)"
     eq "  ... and the verdict step is reached again" milestone_verdict "$(at --with-data '{"status":"verdict_owed","unit":"MV1"}')"
+    eq "  ... with still one verdict-owed row for MV1" 1 "$(owed_rows MV1)"
 
     echo "== 3. a checked verdict, recorded =="
     TODAY=$(date -u +%Y-%m-%d)

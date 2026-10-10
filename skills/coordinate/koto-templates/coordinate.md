@@ -2104,6 +2104,11 @@ states:
       - target: roadmap_close_step
         when:
           gates.roadmap_close_verdict.exit_code: 130  # ready
+      # A milestone's verdict is owed, or its verdict's roadmap edit isn't
+      # confirmed: the roadmap waits for it, the milestone named.
+      - target: roadmap_blocked
+        when:
+          gates.roadmap_close_verdict.exit_code: 49  # verdict-owed
       - target: roadmap_blocked
         when:
           gates.roadmap_close_verdict.exit_code: 131  # features-open
@@ -2559,6 +2564,18 @@ and drive every worker to landed work.
   no worker, with its holding or without, until its verdict's roadmap edit
   is confirmed. No brief renders for it, and `dispatch_check` and
   `dispatch-worker.sh` refuse it.
+- **List the verdicts to give.** Each pass, name every unit whose
+  `verdict_owed` is true in what you report as a verdict to give, with
+  whether its verdict's roadmap edit is pending (`landed` set) or not yet
+  opened. One not yet opened was deferred: when you can give it, tick
+  `landed` for it from `wait`, which reaches the verdict step again without
+  writing a second row. A deferred verdict comes back this way at every
+  pick until it is given.
+- **A milestone sent back.** A unit whose `rework` is set had a
+  changes-needed verdict confirmed: it reads In progress and is offered like
+  any other once no holding covers it. Its brief quotes the `rework` text
+  under a fixed heading, as a report to check against the Evidence, and a
+  confirmed dispatch removes the row.
 - **Never a paused unit.** A unit or holding whose `paused` is set is held by
   that pause in the record: don't dispatch it, scope it ahead or send it its
   execution. While `paused_all` is set, the whole coordinator is paused:
@@ -3922,30 +3939,54 @@ own words. The steps, with `S` for `"{{PLUGIN_ROOT}}/skills/coordinate/scripts"`
    which prints the entry's URL.
 6. Open the roadmap edit:
    `"$S/roadmap-status.sh" --session {{SESSION_NAME}} --verdict "<tag>" --entry-file <entry file> --entry-url <URL>`.
-   It re-checks the entry against the roadmap at its Source and opens one pull
-   request: a verified verdict sets the Status to Done, removes the Needs line
-   and adds the work checked to Delivered; changes needed leaves Status and
-   Delivered as they are. Either adds a Progress line naming the verdict, you
-   and the entry. Never merge it; it goes to whoever merges roadmap changes,
-   in the merge-order table, and a person reviews the verdict there.
+   It re-reads the comment at the URL, which must hold the entry file's text,
+   requires the default branch to contain the Source commit, re-checks the
+   entry against the roadmap at its Source and opens one pull request: a
+   verified verdict sets the Status to Done, removes the Needs line and adds
+   the work checked to Delivered; changes needed leaves Status and Delivered
+   as they are. Either adds a Progress line naming the verdict, you and the
+   entry. Never merge it; it goes to whoever merges roadmap changes, in the
+   merge-order table, and a person reviews the verdict there.
+
+   For verified with follow-ups, write each follow-up's milestone section to
+   a file outside any repository and add `--follow-ups <file>`: a `new:`
+   follow-up is a `### <unused tag>: <its title>` section, an `amend <tag>:`
+   follow-up a `### <tag>: <its current title>` section, each with
+   non-empty Outcome, Evidence (`- ` clauses), Left open and Dependencies
+   (an amendment keeps the milestone's Dependencies). The same pull request
+   adds each new milestone after the last, Not started, and gives each
+   amended one the section's Outcome, Evidence and Left open with a Progress
+   line naming the amendment.
 7. Submit `verdict: recorded` with `unit`; the record step waits for its Side
    effects row. Once the default branch shows the edit, run
    `roadmap-status.sh --confirm "<tag>"`, which clears the verdict-owed row.
+   For changes needed it also writes a rework row from the entry (the
+   not-held clauses and the Changes needed line), so pick offers the
+   milestone again and its next brief quotes the changes; keep the Changes
+   needed line one paragraph with no URL or link, which the script holds it
+   to.
 
 Submit `deferred` instead when a clause can't be checked yet (it needs a
-release, or a person's walkthrough), when the script refuses because another
-roadmap pull request is pending (only one is open at a time), or for a
-verified-with-follow-ups verdict, whose follow-up milestones the writer
-doesn't add yet. A deferred verdict is reached again by ticking `landed` for
-the milestone. An entry posted on the record changes nothing by itself: Done,
-the verdict-owed row and every pick follow only the record's body and the
-default branch.
+release, or a person's walkthrough), or when the script refuses because
+another roadmap pull request is pending (only one is open at a time). A
+deferred verdict stays verdict-owed: pick lists it as a verdict to give each
+pass, and ticking `landed` for the milestone reaches this step again. A
+pending edit whose pull request closed unmerged is dropped with
+`roadmap-status.sh --drop "<tag>" --reason "<why>"`, and the same entry's
+`--verdict` opens it again.
+An entry posted on the record changes nothing by itself: Done, the
+verdict-owed and rework rows and every pick follow only the record's body
+and the default branch.
 
 ## roadmap_close
 
-Checking whether the roadmap is done. koto runs `closeout-read.sh` itself: every
+Checking whether the roadmap is done. koto runs `closeout-read.sh` itself: no
+milestone with a verdict owed, then every
 feature Done or Dropped, no holdings, nothing in flight, every deferral filed or
 closed, and every decision settled.
+A verdict-owed row blocks first (`verdict-owed`, the milestone named in the
+reason), even once the milestone reads Done: its verdict's edit is confirmed
+with `roadmap-status.sh --confirm` before the roadmap closes.
 
 ## roadmap_blocked
 
