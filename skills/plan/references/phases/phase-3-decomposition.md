@@ -33,13 +33,13 @@ this land as PRs?"
 
 ## Resume Check
 
-If `wip/plan_<topic>_decomposition.md` exists, read it and skip to Phase 4. The artifact contains the decomposition strategy decision and issue outlines.
+If key `work/decomposition.md` exists in `plan-<topic>`, read it and skip to Phase 4. The key holds the decomposition strategy decision and issue outlines.
 
 ## Prerequisites
 
 Read:
-- `wip/plan_<topic>_analysis.md` - Components/features and scope (includes `input_type`)
-- `wip/plan_<topic>_milestones.md` - Milestone groupings
+- Key `work/analysis.md` - Components/features and scope (includes `input_type`)
+- Key `work/milestones.md` - Milestone groupings
 - The original source document
 
 Parse the `Input Type` field from the analysis artifact to determine which branch to follow.
@@ -53,7 +53,7 @@ Create issue specifications that are:
 
 ## Input Type Branching
 
-Read `input_type` from `wip/plan_<topic>_analysis.md`:
+Read `input_type` from key `work/analysis.md`:
 
 - **design** or **prd**: Follow the standard decomposition flow (steps 3.0 through 3.6)
 - **roadmap**: Follow the roadmap decomposition flow (steps 3.R1 through 3.R4), then skip to step 3.6
@@ -243,7 +243,8 @@ Arrange issues in implementation order:
 
 #### 3.5 Write Artifact
 
-Create `wip/plan_<topic>_decomposition.md` (Write tool):
+Write key `work/decomposition.md` in `plan-<topic>` (`koto context add plan-<topic> work/decomposition.md`,
+the content on stdin):
 
 ```yaml
 ---
@@ -340,7 +341,8 @@ For each planning issue, check:
 
 ### 3.R4 Write Artifact
 
-Create `wip/plan_<topic>_decomposition.md` (Write tool):
+Write key `work/decomposition.md` in `plan-<topic>` (`koto context add plan-<topic> work/decomposition.md`,
+the content on stdin):
 
 ```yaml
 ---
@@ -449,7 +451,7 @@ decomposition. The guard never silently passes a failing unit.
 Under `--auto` the guard does not hard-stop. Per
 `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md`, write a decision block
 per unit into the decomposition artifact and append an entry to
-`wip/plan_<topic>_decisions.md`:
+key `work/decisions.md`:
 
 - **Pass** -> `status="confirmed"`. The block records the value the unit lands.
 - **Ambiguous** -> `status="assumed"` at high review priority.
@@ -476,7 +478,7 @@ Before proceeding to step 3.6:
 - [ ] Every fail and every ambiguous unit named with its reason
 - [ ] Under interactive mode: every non-pass unit reviewed by the author
 - [ ] Under `--auto`: every non-pass unit recorded as a high-review-priority
-      `assumed` block in `wip/plan_<topic>_decisions.md`
+      `assumed` block in key `work/decisions.md`
 
 ---
 
@@ -639,7 +641,7 @@ Use <recommended mode>, or override?
    not write the mode by hand.
 
 7. **Under `--auto`** follow the recommendation and record a `confirmed` decision
-   block in `wip/plan_<topic>_decisions.md` if the rationale is clear, or
+   block in key `work/decisions.md` if the rationale is clear, or
    `assumed` at high review priority if a split was chosen without a hard
    constraint or a clear incremental-value rationale for every unit.
 

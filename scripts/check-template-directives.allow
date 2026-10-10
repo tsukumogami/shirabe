@@ -5,9 +5,10 @@
 #
 #   <rule>  <template>  <subject>  <issue>  <reason>
 #
-#   rule      unguarded-evidence | state-file-read
+#   rule      unguarded-evidence | state-file-read | staging-folder-read
 #   template  repository-relative path
 #   subject   state name for unguarded-evidence, gate name for state-file-read
+#             and staging-folder-read
 #   issue     owner/repo#N -- required; a record without one is an error
 #   reason    why it is deferred rather than fixed
 #

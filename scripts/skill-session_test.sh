@@ -718,6 +718,23 @@ run ingest brief-t2 legs "$SCR4"
 assert_eq "ingest into a reserved area is a usage error" "64" "$RC"
 assert_gone "ingest removes its directory on a usage error" "$SCR4"
 
+# A sub-area: a skill run inside another skill's session (/decision under
+# /design) ingests below work/<sub-area>.
+SCR4B=$(PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" scratch)
+printf 'ctx' >"$SCR4B/context.md"
+run ingest brief-t2 work/decision-1 "$SCR4B"
+assert_eq "ingest into a work/ sub-area exits 0" "0" "$RC"
+assert_contains "the sub-area key is reported" "added=work/decision-1/context.md" "$STDOUT"
+assert_eq "the file lands below the sub-area" "ctx" "$(kget brief-t2 work/decision-1/context.md)"
+assert_gone "ingest removes its directory after a sub-area ingest" "$SCR4B"
+for bad in "work/../chain" "work/" "work/.x" "chain/x" "handoff/x" "work/a b"; do
+    SCR4C=$(PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" scratch)
+    printf 'x' >"$SCR4C/a.md"
+    run ingest brief-t2 "$bad" "$SCR4C"
+    assert_eq "ingest refuses area '$bad' as a usage error" "64" "$RC"
+    assert_gone "ingest removes its directory after refusing area '$bad'" "$SCR4C"
+done
+
 private_dir "$REPO/tree-scratch"
 printf 'x' >"$REPO/tree-scratch/a.md"
 run ingest brief-t2 work "$REPO/tree-scratch"
@@ -751,6 +768,31 @@ assert_eq "get prints the written path" "$SCR7/decisions.md" "$STDOUT"
 if cmp -s "$SCR6/decisions.md" "$SCR7/decisions.md"; then pass "get and put round-trip the bytes"; else fail "get returned other bytes than put stored"; fi
 run get brief-t2 research/phase4_a.md "$SCR7"
 assert_eq "get reads a research/ key" "alpha" "$(cat "$SCR7/phase4_a.md")"
+# Two keys sharing a last component land apart: the path below the area is
+# kept, and the directory get creates passes put's scratch checks.
+printf 'nested\n' >"$SCR6/context.md"
+run put brief-t2 work/decision-1/context.md "$SCR6/context.md"
+assert_eq "put writes a nested work/ key" "0" "$RC"
+printf 'flat\n' >"$SCR6/context.md"
+run put brief-t2 work/context.md "$SCR6/context.md"
+run get brief-t2 work/context.md "$SCR7"
+assert_eq "get of a top-level key writes below the directory" "$SCR7/context.md" "$STDOUT"
+run get brief-t2 work/decision-1/context.md "$SCR7"
+assert_eq "get of a nested key keeps the path below the area" "$SCR7/decision-1/context.md" "$STDOUT"
+assert_eq "the nested key's bytes" "nested" "$(cat "$SCR7/decision-1/context.md")"
+assert_eq "the top-level key is not overwritten by the nested one" "flat" "$(cat "$SCR7/context.md")"
+MODE=$(stat -c '%a' "$SCR7/decision-1" 2>/dev/null || stat -f '%Lp' "$SCR7/decision-1")
+assert_eq "the directory get creates is private (0700)" "700" "$MODE"
+printf 'edited\n' >"$SCR7/decision-1/context.md"
+run put brief-t2 work/decision-1/context.md "$SCR7/decision-1/context.md"
+assert_eq "put takes a file from the directory get created" "0" "$RC"
+assert_eq "the edit round-trips into the nested key" "edited" "$(kget brief-t2 work/decision-1/context.md)"
+printf 'x' >"$SCR7/blocker"
+run get brief-t2 work/blocker/x.md "$SCR7"
+assert_eq "get refuses an intermediate that exists as a file" "2" "$RC"
+ln -s "$T" "$SCR7/linkdir"
+run get brief-t2 work/linkdir/x.md "$SCR7"
+assert_eq "get refuses an intermediate that is a symlink" "2" "$RC"
 run get brief-t2 work/missing.md "$SCR7"
 assert_eq "get of a missing key is refused" "2" "$RC"
 run get brief-t2 work/../session/branch "$SCR7"

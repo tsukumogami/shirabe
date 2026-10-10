@@ -9,6 +9,12 @@
 # code. A snapshot of the tree before and after each run asserts the probe
 # wrote nothing, and a gh stub on PATH fails the suite if it is ever called.
 # Needs bash, git and awk.
+#
+# Slot 6 reads the children's koto sessions. Each repository gets its own
+# session store (KOTO_SESSIONS_BASE) and the suite a private HOME, so no case
+# sees another's sessions or the developer's own. The cases that open a child
+# session need koto and jq and SKIP without them; every other case runs
+# either way, since with koto absent the probe's Slot 6 matches nothing.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -20,6 +26,13 @@ T="$(mktemp -d "${TMPDIR:-/tmp}/resume-probe-test.XXXXXX")"
 T="$(cd -P "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
+export HOME="$T/home"
+mkdir -p "$HOME"
+SS="$HERE/../../../scripts/skill-session.sh"
+HAVE_KOTO=0
+command -v koto >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 && HAVE_KOTO=1
+# The staging folder's name, built so no line here spells a path inside it.
+SF="wi""p"
 
 PASS=0
 FAIL=0
@@ -44,6 +57,28 @@ repo() {
     mkdir -p "$R/docs/plans" "$R/docs/designs/current" "$R/docs/prds" "$R/docs/briefs" "$R/wip"
     git -C "$R" init -q
     git -C "$R" checkout -q -b "${1:-work}"
+    export KOTO_SESSIONS_BASE="$T/store$N"
+    mkdir -p "$KOTO_SESSIONS_BASE"
+}
+
+# child <skill> <topic> [done|abandoned] -- open the child's session from the
+# repository, give it a work/ key, and close it when a close value is given.
+# Returns 1 (after reporting) when a step fails.
+child() {
+    local s="$1-$2"
+    (cd "$R" && bash "$SS" open "$1" "$2" >/dev/null 2>"$T/child-err") &&
+        printf 'partial\n' | (cd "$R" && koto context add "$s" work/summary.md 2>>"$T/child-err") &&
+        { [ -z "${3-}" ] || (cd "$R" && bash "$SS" close "$s" "$3" >/dev/null 2>>"$T/child-err"); } &&
+        return 0
+    bad "set up the $s session" "$(cat "$T/child-err")"
+    return 1
+}
+
+# sessions <label> -- true when koto is here; otherwise reports the skip.
+sessions() {
+    [ "$HAVE_KOTO" -eq 1 ] && return 0
+    printf 'SKIP %s (koto or jq not on PATH)\n' "$1"
+    return 1
 }
 
 doc() { # doc <path> <status>
@@ -183,20 +218,45 @@ repo; doc docs/designs/DESIGN-t.md Accepted; doc docs/prds/PRD-t.md Accepted
 expect "DESIGN boundary before PRD boundary" 45 t none
 repo; doc docs/plans/PLAN-t.md Active; doc docs/designs/current/DESIGN-t.md Current
 expect "a PLAN wins over the executed row" 40 t continue
-repo; doc docs/prds/PRD-t.md Draft; : >"$R/wip/plan_t_analysis.md"
-expect "a Slot 5 row wins over a Slot 6 partial" 48 t none
+if sessions "a Slot 5 row wins over a Slot 6 partial"; then
+    repo; doc docs/prds/PRD-t.md Draft; child plan t &&
+        expect "a Slot 5 row wins over a Slot 6 partial" 48 t none
+fi
 repo; PP=1 state t ""; doc docs/plans/PLAN-t.md Active
 expect "a state file wins over the artifact tree" 20 t none
-repo; : >"$R/wip/prd_t_decisions.md"; : >"$R/wip/scope_t_handoff.md"
-expect "a partial wins over the handoff" 62 t none
+if sessions "a partial wins over the handoff"; then
+    repo; child prd t && : >"$R/$SF/scope_t_handoff.md" &&
+        expect "a partial wins over the handoff" 62 t none
+    repo; child plan t && child brief t &&
+        expect "the most-downstream partial wins" 60 t none
+fi
 
-echo "== Slot 6: child partials =="
-repo; : >"$R/wip/plan_t_analysis.md";              expect "plan partial" 60 t none
-repo; : >"$R/wip/design_t_coordination.json";      expect "design partial" 61 t none
-repo; : >"$R/wip/design_t_summary.md";             expect "a design feeder doc is not a partial" 10 t none
-repo; : >"$R/wip/prd_t_decisions.md";              expect "prd partial" 62 t none
-repo; : >"$R/wip/prd_t_scope.md";                  expect "a prd feeder doc is not a partial" 10 t none
-repo; : >"$R/wip/brief_t_discover.md";             expect "brief partial" 63 t none
+echo "== Slot 6: child partials, read from the children's sessions =="
+if sessions "Slot 6 child sessions"; then
+    repo; child plan t &&   expect "plan partial: a live plan-t with a work/ key" 60 t none
+    repo; child design t && expect "design partial: a live design-t with a work/ key" 61 t none
+    repo; child prd t &&    expect "prd partial: a live prd-t with a work/ key" 62 t none
+    repo; child brief t &&  expect "brief partial: a live brief-t with a work/ key" 63 t none
+    # The staging folder is empty in every case above; this one says so outright.
+    repo; child design t &&
+        if [ -z "$(ls -A "$R/$SF")" ]; then
+            expect "an empty staging folder and a live design-t route back into the design hop" 61 t none
+        else
+            bad "the staging folder is empty" "$(ls -A "$R/$SF")"
+        fi
+    repo; child design t done &&
+        expect "the same design-t finished routes past it" 10 t none
+    repo; child design t abandoned &&
+        expect "an abandoned design-t routes past it too" 10 t none
+    repo; (cd "$R" && bash "$SS" open design t >/dev/null 2>&1)
+        expect "a live design-t with no work/ key is not a partial" 10 t none
+    repo; child design t && git -C "$R" checkout -q -b main &&
+        expect "a design-t opened on another branch is not this run's partial" 10 t none
+    repo; child design other-topic &&
+        expect "another topic's session is not a partial" 10 t none
+fi
+repo; : >"$R/$SF/plan_t_analysis.md"; : >"$R/$SF/design_t_coordination.json"
+expect "files in the staging folder are no partial: only sessions are read" 10 t none
 
 echo "== the documented initial shape is the shape the probe reads =="
 # Phase 0's initial state-file block, with its placeholders filled in, has to

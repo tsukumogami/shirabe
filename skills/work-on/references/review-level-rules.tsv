@@ -57,6 +57,7 @@ class	template	**/koto-templates/**
 # gate or default_action command names a script no `engine` line covers.
 class	engine	**/*-open.sh
 class	engine	scripts/plan-mode.sh
+class	engine	scripts/skill-session.sh
 class	engine	skills/coordinate/scripts/board-record.sh
 class	engine	skills/coordinate/scripts/closeout-read.sh
 class	engine	skills/coordinate/scripts/coord-verdict.sh

@@ -5,7 +5,7 @@
       "id": 1,
       "name": "fast-path-all-phases-run",
       "prompt": "/review-plan my-feature",
-      "expected_output": "Runs in fast-path mode (no --adversarial flag). Phase 0 reads wip/plan_my-feature_*.md artifacts, detects input_type, selects fast-path execution mode. Phases 1-4 each use a single agent. Phase 5 synthesizes findings into a verdict artifact. The verdict file is either wip/plan_my-feature_review.md (proceed) or wip/plan_my-feature_review_loopback.md (loop-back) — exactly one is written. The review_result YAML block contains all required fields.",
+      "expected_output": "Runs in fast-path mode (no --adversarial flag). Phase 0 reads the work/ keys of the plan-my-feature session, detects input_type, selects fast-path execution mode. Phases 1-4 each use a single agent. Phase 5 synthesizes findings into a verdict artifact. The verdict is written as key work/review.md (proceed) or work/review_loopback.md (loop-back) in session plan-my-feature — exactly one is written. The review_result YAML block contains all required fields.",
       "assertions": [
         "Fast-path mode is used (single agent per category, not multiple validators)",
         "Phase 0 reads all four required plan artifacts before any review category runs",
@@ -33,7 +33,7 @@
       "id": 3,
       "name": "loop-back-category-c",
       "prompt": "/review-plan my-feature",
-      "expected_output": "The fixture plan has three issues. Issue 2 has ACs anchored to golden files (testdata/filter_rip.golden, etc.) with specific version strings, triggering Category C Pattern 1 (fixture-anchored). Issues 1 and 3 have clean ACs covering success paths, empty-state, and failure paths — they should NOT appear in critical_findings. Phase 5 sets verdict to loop-back with loop_target: 4. Phase 5 writes wip/plan_my-feature_review_loopback.md (not _review.md). The loopback file contains critical_findings for Issue 2 only, each with a non-empty correction_hint. Phase 6 deletes manifest.json and issue_*.md but preserves the loopback file.",
+      "expected_output": "The fixture plan has three issues. Issue 2 has ACs anchored to golden files (testdata/filter_rip.golden, etc.) with specific version strings, triggering Category C Pattern 1 (fixture-anchored). Issues 1 and 3 have clean ACs covering success paths, empty-state, and failure paths — they should NOT appear in critical_findings. Phase 5 sets verdict to loop-back with loop_target: 4. Phase 5 writes key work/review_loopback.md (not work/review.md) in session plan-my-feature. The loopback key contains critical_findings for Issue 2 only, each with a non-empty correction_hint. Phase 6 removes /plan's keys work/manifest.json and work/issue_*_body.md from the session but preserves work/review_loopback.md.",
       "assertions": [
         "verdict is loop-back when critical findings exist",
         "Category C findings produce loop_target: 4",
@@ -74,10 +74,10 @@
       "id": 6,
       "name": "clean-proceed-path",
       "prompt": "/review-plan my-feature",
-      "expected_output": "The fixture plan has three issues. All issues have clean ACs: success paths with behavioral assertions, empty-state coverage, and failure paths. No issue uses golden file validation, specific version strings, or existence-only assertions. All four categories return empty critical_findings. Phase 5 sets verdict to proceed. Phase 5 writes wip/plan_my-feature_review.md (not _review_loopback.md). The review_result block has verdict: proceed and critical_findings: [].",
+      "expected_output": "The fixture plan has three issues. All issues have clean ACs: success paths with behavioral assertions, empty-state coverage, and failure paths. No issue uses golden file validation, specific version strings, or existence-only assertions. All four categories return empty critical_findings. Phase 5 sets verdict to proceed. Phase 5 writes key work/review.md (not work/review_loopback.md) in session plan-my-feature. The review_result block has verdict: proceed and critical_findings: [].",
       "assertions": [
         "verdict is proceed when no critical findings exist",
-        "wip/plan_my-feature_review.md is written (not the loopback file)",
+        "work/review.md is written to the plan-my-feature session (not the loopback key)",
         "critical_findings is empty",
         "confidence field is present in the review_result block"
       ],

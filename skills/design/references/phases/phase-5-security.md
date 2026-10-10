@@ -20,7 +20,8 @@ The review is always thorough. What varies is the design doc output.
 
 ## Resume Check
 
-If `wip/research/design_<topic>_phase5_security.md` exists, read it and apply its
+If key `research/phase5_security.md` exists in `design-<topic>`, read it (`koto
+context get design-<topic> research/phase5_security.md`) and apply its
 recommended outcome. Skip to Phase 6.
 
 ## Steps
@@ -29,7 +30,15 @@ recommended outcome. Skip to Phase 6.
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): the security researcher runs on `model: "sonnet"` with a 12-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
 
+Allocate a private directory outside the work tree for the report and keep the
+path it prints, `<research-dir>`:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch
+```
+
 Launch a dedicated security agent using the Agent tool with `run_in_background: true`.
+It never calls koto: it writes one file, which the orchestrator ingests.
 
 **Security researcher prompt:**
 
@@ -67,7 +76,7 @@ If it doesn't apply, explain concretely why not.
 
 ## Output
 
-Write your full analysis to `wip/research/design_<topic>_phase5_security.md`.
+Write your full analysis to `<research-dir>/phase5_security.md`, and nowhere else.
 
 Format:
 # Security Review: <topic>
@@ -98,12 +107,19 @@ Choose one:
 
 **OPTION 3 - N/A with justification:**
 <Self-contained explanation of why no dimensions apply. This text will appear
-in the design doc as-is, so it must make sense without the wip/ report.>
+in the design doc as-is, so it must make sense without the full report.>
 
 ## Summary
 <2-3 sentences: verdict and reasoning>
 
 Return the Summary and Recommended Outcome choice to this conversation.
+```
+
+When the agent returns, turn the report into a key (`ingest` removes the
+directory):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest design-<topic> research <research-dir>
 ```
 
 ### 5.2 Apply Outcome
@@ -115,7 +131,8 @@ Based on the security researcher's recommendation:
 - Discuss which changes to make
 - Return to Phase 3 (if the approach needs rethinking) or Phase 4 (if architecture
   needs adjustment)
-- After fixes, re-run Phase 5
+- After fixes, remove key `research/phase5_security.md` (`koto context remove
+  design-<topic> research/phase5_security.md`) and re-run Phase 5
 
 **Option 2 -- Document considerations:**
 - Write the "Security Considerations" section in the design doc using the
@@ -125,10 +142,12 @@ Based on the security researcher's recommendation:
 **Option 3 -- N/A with justification:**
 - Write a brief "Security Considerations" section with the self-contained
   justification from the researcher
-- The justification must make sense on its own -- wip/ gets cleaned before merge,
-  so future readers won't have access to the full report
+- The justification must make sense on its own -- the full report is a session
+  key, not part of the repository, so future readers won't have access to it
 
-### 5.3 Update wip/ Summary
+### 5.3 Update the Summary Key
+
+Get key `work/summary.md`, add the section below, and add the key back:
 
 ```markdown
 ## Security Review (Phase 5)
@@ -146,7 +165,7 @@ Commit: `docs(design): complete security review for <topic>`
 
 Before proceeding:
 - [ ] Security researcher agent was launched and completed
-- [ ] Full report written to `wip/research/design_<topic>_phase5_security.md`
+- [ ] Full report stored as key `research/phase5_security.md` in `design-<topic>`
 - [ ] All security dimensions addressed (applicable or justified N/A)
 
 ## Artifact State

@@ -23,9 +23,9 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 # Review Plan Skill
 
 `/review-plan` adversarially challenges a complete plan artifact before any issues
-are created. It runs four review categories against the plan's wip/ artifacts and
-the upstream design doc, then writes a structured verdict to one of two files
-depending on outcome.
+are created. It runs four review categories against the plan's working keys (or,
+with no plan session, the PLAN document alone) and the upstream design doc, then
+writes a structured verdict to one of two keys depending on outcome.
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
@@ -42,6 +42,52 @@ issue #19:
 | B | Design Fidelity | Plan inherits a contradiction from the design doc |
 | C | AC Discriminability | ACs pass for the wrong implementation |
 | D | Sequencing/Priority Integrity | Must-run QA scenarios are deprioritized |
+
+## Session and Keys
+
+`/review-plan` names its state with `/plan`'s prefix, so under
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md` it reads and
+writes `/plan`'s session, `plan-<topic>`, and has no session of its own. It
+writes no file to the staging folder.
+
+| Key in `plan-<topic>` | Read or written | Holds |
+|-----------------------|-----------------|-------|
+| `work/analysis.md`, `work/decomposition.md`, `work/manifest.json`, `work/dependencies.md`, `work/issue_<id>_body.md` | read (Phase 0); removed back to the loop target on loop-back (Phase 6) | `/plan`'s artifacts under review |
+| `work/review.md` | written (Phase 5) | a proceed verdict |
+| `work/review_loopback.md` | written (Phase 5) | a loop-back verdict |
+
+Phase 0 picks one of three cases from `skill-session.sh status plan-<topic>`
+and the keys it holds:
+
+- **Run by `/plan`** (a sub-operation, `plan_topic` in its args): `/plan` has
+  `plan-<topic>` open. `/review-plan` reads and writes it, and opens, adopts
+  and closes nothing.
+- **Run directly on a plan in flight** (`plan-<topic>` is `live` and holds
+  `/plan`'s keys): the same reads and writes; the session belongs to `/plan`,
+  which closes it, so `/review-plan` closes nothing.
+- **Run directly on a topic with no plan session** (`absent` or `finished`):
+  it reviews the PLAN document alone (`docs/plans/PLAN-<topic>.md`), opens
+  `plan-<topic>` to write its verdict, and closes it when it finishes, since it
+  opened it:
+
+  ```bash
+  "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open plan <topic>
+  "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt plan <topic>
+  # ... Phases 1 to 5 ...
+  "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close plan-<topic> done
+  ```
+
+  When `adopt` prints `adopted=scope-<topic>` (a `/scope` run has dispatched
+  `/plan` on this topic), the session belongs to that chain: write the verdict
+  and close nothing, since a session under a parent is the parent's to close.
+
+Keys are read with `koto context get plan-<topic> <key>`, tested with `koto
+context exists plan-<topic> <key>`, written with `koto context add
+plan-<topic> <key>` (content on stdin), listed with `koto context list
+plan-<topic> --prefix <prefix>`, and removed with `koto context remove
+plan-<topic> <key>`. Review agents never write keys: they return findings to
+this conversation, and the packet they read is materialized into a
+`skill-session.sh scratch` directory (`skill-session.sh get`).
 
 ## Execution Modes
 
@@ -95,7 +141,7 @@ For each category, spawn three independent validator agents in parallel. Each ag
 Spawn all three agents for all four categories in a single message (12 agents total)
 to minimize wall-clock time. Each agent runs with `run_in_background: true`.
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): validators run on `model: "sonnet"` with a 10-call budget, and cross-examination agents on `model: "sonnet"` with a 6-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc <decomposition-artifact> --format skills/review-plan/references/phases/<category-phase-file> --extra <analysis-artifact> --extra <dependencies-artifact> --extra <upstream-design-doc> --extra <issue-body-file> ...`, one per category. The artifacts are the ones `references/phases/phase-0-setup.md` lists; `<category-phase-file>` is the category's phase reference. A cross-examination agent gets the same packet plus the disagreeing findings.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): validators run on `model: "sonnet"` with a 10-call budget, and cross-examination agents on `model: "sonnet"` with a 6-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc <decomposition-artifact> --format skills/review-plan/references/phases/<category-phase-file> --extra <analysis-artifact> --extra <dependencies-artifact> --extra <upstream-design-doc> --extra <issue-body-file> ...`, one per category. The artifacts are the keys `references/phases/phase-0-setup.md` lists, materialized into a scratch directory with `skill-session.sh get` (step 0.4); with no plan session, `--doc` is the PLAN document and there are no extras but the upstream doc. `<category-phase-file>` is the category's phase reference. A cross-examination agent gets the same packet plus the disagreeing findings.
 
 ### Step 2: Collect and Compare
 
@@ -139,16 +185,16 @@ findings at the cost of significantly higher latency.
 
 ## Verdict Artifacts
 
-Phase 5 writes the verdict file; `references/phases/phase-5-verdict.md` says which
-file each verdict gets. See `references/templates/review-result-schema.md` for the
+Phase 5 writes the verdict key; `references/phases/phase-5-verdict.md` says which
+key each verdict gets. See `references/templates/review-result-schema.md` for the
 `review_result` YAML schema and its full field specification.
 
 ## Resume Logic
 
 ```
-if wip/plan_<topic>_review.md exists          → skip to Phase 7 (already reviewed, proceed)
-if wip/plan_<topic>_review_loopback.md exists → Phase 6 already wrote verdict; execute loop-back
-else                                           → start at Phase 0
+if key work/review.md exists in plan-<topic>          → skip to Phase 7 (already reviewed, proceed)
+if key work/review_loopback.md exists in plan-<topic> → Phase 5 already wrote the verdict; execute loop-back
+else                                                   → start at Phase 0
 ```
 
 ## Reference Files

@@ -28,15 +28,15 @@ If the file does not exist, proceed to step 2.1.
 
 Read all available context:
 
-- `wip/brief_<topic>_context.md` (Phase 0)
-- `wip/brief_<topic>_discover.md` (Phase 1)
+- Key `work/context.md` in `brief-<topic>` (Phase 0)
+- Key `work/discover.md` in `brief-<topic>` (Phase 1)
 - The grounding ROADMAP if Phase 0 recorded one (read for framing; the
   produced BRIEF records the ancestor Phase 0 resolved from it, not the
   roadmap itself)
 - `skills/brief/references/brief-format.md` (format specification — load this in
   full at Phase 2 since the section-by-section guidance lives there)
 
-Detect repo visibility from `wip/brief_<topic>_context.md`. Load the appropriate
+Detect repo visibility from key `work/context.md`. Load the appropriate
 content governance skill:
 
 - **Private repos:** Read `skills/private-content/SKILL.md`
@@ -207,7 +207,7 @@ Commit the partial draft:
 docs(brief): draft BRIEF for <topic>
 ```
 
-Update `wip/brief_<topic>_context.md`'s `## Phase` line to `2`.
+Update key `work/context.md`'s `## Phase` line to `2`.
 
 ## Quality Checklist
 
@@ -223,7 +223,7 @@ Before proceeding:
 
 After this phase:
 - Partial BRIEF draft at `docs/briefs/BRIEF-<topic>.md` with `status: Draft`
-- Context and discovery files still in `wip/`
+- Keys `work/context.md` and `work/discover.md` still in `brief-<topic>`
 - Phase 3 will extend the same file
 
 ## Next Phase
