@@ -10,17 +10,20 @@
 # wrote nothing, and a gh stub on PATH fails the suite if it is ever called.
 # Needs bash, git and awk.
 #
-# Slot 6 reads the children's koto sessions. Each repository gets its own
-# session store (KOTO_SESSIONS_BASE) and the suite a private HOME, so no case
-# sees another's sessions or the developer's own. The cases that open a child
-# session need koto and jq and SKIP without them; every other case runs
-# either way, since with koto absent the probe's Slot 6 matches nothing.
+# The probe reads koto sessions: the run's own state (key work/state.md of
+# scope-<topic>) and prior-run facts (work/prior-run.md), the children's
+# sessions (Slot 6) and the /explore handoff (key handoff/scope.md of
+# explore-<topic>). Each repository gets its own session store
+# (KOTO_SESSIONS_BASE) and the suite a private HOME, so no case sees another's
+# sessions or the developer's own. The suite needs koto and jq and SKIPs
+# without them; the CI job asserts koto is present first.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/resume-probe.sh"
 
 command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH"; exit 0; }
+command -v koto >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || { echo "SKIP: koto or jq not on PATH -- no case ran"; exit 0; }
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/resume-probe-test.XXXXXX")"
 T="$(cd -P "$T" && pwd -P)"
@@ -85,12 +88,27 @@ doc() { # doc <path> <status>
     printf -- '---\nschema: x/v1\nstatus: %s\n---\n\n# Doc\n' "$2" >"$R/$1"
 }
 
-state() { # state <topic> <extra-lines>
-    printf 'topic: %s\nlast_updated: %s\nphase_pointer: %s\n%s' "$1" "${LU:-$FRESH}" "${PP:-2}" "$2" >"$R/wip/scope_$1_state.md"
+STORE_TEMPLATE="$HERE/../../../koto-templates/skill-session.md"
+
+# putkey <session> <key> -- open the session from the store template when it
+# is not there yet, then write stdin as the key.
+putkey() {
+    koto context exists "$1" "$2" >/dev/null 2>&1 || true
+    koto status "$1" >/dev/null 2>&1 || koto init "$1" --template "$STORE_TEMPLATE" >/dev/null 2>"$T/put-err" ||
+        { bad "open $1" "$(cat "$T/put-err")"; return 1; }
+    koto context add "$1" "$2" >/dev/null 2>"$T/put-err" || { bad "write $2 of $1" "$(cat "$T/put-err")"; return 1; }
 }
+
+state() { # state <topic> <extra-lines> -- key work/state.md of scope-<topic>
+    printf 'topic: %s\nlast_updated: %s\nphase_pointer: %s\n%s' "$1" "${LU:-$FRESH}" "${PP:-2}" "$2" | putkey "scope-$1" work/state.md
+}
+
+# prior <topic> <lines> -- key work/prior-run.md of scope-<topic>
+prior() { printf '%s' "$2" | putkey "scope-$1" work/prior-run.md; }
 
 snapshot() {
     (cd "$R" && find . -path ./.git -prune -o -print | sort && git status --porcelain)
+    find "$KOTO_SESSIONS_BASE" -path '*/ctx/*' -type f ! -name '*.lock' -exec cksum {} + 2>/dev/null | sort
 }
 
 # expect <label> <code> <topic> <intent> [extra args]
@@ -112,7 +130,14 @@ expect() {
 echo "== meta-ladder tail and Slot 7 =="
 repo main;          expect "nothing on disk, unrelated branch" 10 t none
 repo docs/t-work;   expect "nothing on disk, topic branch" 11 t-work none
-repo;               : >"$R/wip/scope_t_handoff.md"; expect "an /explore handoff" 12 t none
+repo;               printf 'h\n' | putkey explore-t handoff/scope.md; expect "an /explore handoff: key handoff/scope.md in a live explore-t" 12 t none
+repo;               printf 'h\n' | putkey explore-t handoff/scope.md && koto next explore-t --no-cleanup --with-data '{"close":"done"}' >/dev/null 2>&1
+                    expect "an /explore handoff in a finished explore-t still fires" 12 t none
+repo;               printf 'x\n' | putkey explore-t work/other.md; expect "a live explore-t without handoff/scope.md does not fire" 10 t none
+repo;               printf 'h\n' | putkey explore-t handoff/charter.md; expect "a charter handoff is not /scope's" 10 t none
+repo;               printf 'h\n' | putkey explore-other handoff/scope.md; expect "another topic's handoff does not fire" 10 t none
+repo;               expect "an absent explore-t session does not fire" 10 t none
+repo;               : >"$R/wip/scope_t_handoff.md"; expect "the old handoff file no longer fires" 10 t none
 
 echo "== fresh state file, by phase pointer =="
 repo; PP=1 state t ""; expect "pointer 1" 20 t none
@@ -131,7 +156,13 @@ repo; state t "intent: maybe
 repo; state t "intent: stop
 intent: continue
 ";                                 expect "a duplicated field" 25 t none
-repo; printf 'phase_pointer: 1\n' >"$R/wip/scope_t_state.md"; expect "no topic line" 25 t none
+repo; printf 'phase_pointer: 1\n' | putkey scope-t work/state.md; expect "no topic line" 25 t none
+repo; printf 'topic: t\nphase_pointer: 1\nlast_updated: %s\n' "$FRESH" >"$R/wip/scope_t_state.md"; expect "a state file in the staging folder is not read" 10 t none
+repo; state t ""; (cd "$R" && koto next scope-t --no-cleanup --with-data '{"close":"done"}' >/dev/null 2>&1); expect "a finished session's work/state.md still reads" 21 t none
+repo; state other ""; expect "another topic's state is not this run's" 10 t none
+repo; printf 'topic: other\nlast_updated: %s\nphase_pointer: 1\n' "$FRESH" | putkey scope-t work/state.md; expect "a state naming another topic is malformed" 25 t none
+repo; printf '' | putkey scope-t work/state.md; expect "an empty work/state.md is malformed" 25 t none
+repo; printf '\377\376garbage: [\n' | putkey scope-t work/state.md; expect "binary garbage in work/state.md is malformed" 25 t none
 repo; state t "exit: re-evaluation
 boundary: prd
 ";                                 expect "re-evaluation without its sub-shape" 25 t none
@@ -187,6 +218,67 @@ repo; LU=$STALE state t "exit: full-run
 plan_execution_mode: single-pr
 publish_error: scope:push
 ";                                 expect "a publish retry is not held back by staleness" 27 t stop
+
+echo "== publish retry from work/prior-run.md =="
+repo; prior t "outcome: error
+exit: full-run
+intent: continue
+step: scope:push
+";                                 expect "prior-run: full-run push failure" 27 t continue
+repo; prior t "outcome: error
+exit: re-evaluation
+intent: stop
+step: scope:pr-create
+";                                 expect "prior-run: re-evaluation pr-create failure" 28 t stop
+repo; prior t "outcome: error
+exit: abandonment-forced
+intent: continue
+step: scope:push
+";                                 expect "prior-run: abandonment failure" 29 t continue
+repo; prior t "outcome: error
+exit: full-run
+intent: continue
+step: scope:push
+";                                 expect "prior-run: no intent on the run, no retry" 10 t none
+repo; prior t "outcome: landed
+exit: full-run
+intent: continue
+";                                 expect "prior-run: no failed step falls through to the artifact rows" 10 t continue
+repo; prior t "outcome: error
+exit: full-run
+intent: continue
+step: scope:elsewhere
+";                                 expect "prior-run: a step outside its set is no match" 10 t continue
+repo; prior t "outcome: error
+exit: sideways
+intent: continue
+step: scope:push
+";                                 expect "prior-run: an exit outside its set is no match" 10 t continue
+repo; prior t "outcome: error
+exit: full-run
+intent: maybe
+step: scope:push
+";                                 expect "prior-run: an intent outside its set is no match" 10 t continue
+repo; prior t "outcome: error
+exit: full-run
+exit: re-evaluation
+intent: continue
+step: scope:push
+";                                 expect "prior-run: a repeated field is no match" 10 t continue
+repo; prior t "outcome: error
+exit: full-run
+intent: continue
+step: scope:push
+"; doc docs/plans/PLAN-t.md Active; expect "prior-run: a publish retry comes before the artifact rows" 27 t continue
+repo; prior t "outcome: landed
+exit: full-run
+intent: continue
+"; doc docs/plans/PLAN-t.md Active; expect "prior-run: with no failed step the artifact rows decide (PLAN Active, intent: republish)" 40 t continue
+repo; state t "" && prior t "outcome: error
+exit: full-run
+intent: continue
+step: scope:push
+";                                 expect "work/state.md wins over work/prior-run.md" 21 t continue
 
 echo "== Slot 5: the PLAN =="
 repo; doc docs/plans/PLAN-t.md Active; expect "Active PLAN, intent set" 40 t continue
@@ -262,18 +354,19 @@ echo "== the documented initial shape is the shape the probe reads =="
 # Phase 0's initial state-file block, with its placeholders filled in, has to
 # resume at pointer 0; the old phase-0 / UNSET spelling has to be malformed.
 P0="$HERE/../references/phases/phase-0-setup.md"
-# The state file's path for topic t, taken from the probe's own STATE= line.
+# The state key, taken from the probe's own STATE= line.
 STATE_REL=$(sed -n 's/^STATE="\(.*\)"$/\1/p' "$S" | sed 's/\${TOPIC}/t/')
 repo
-SF="$R/$STATE_REL"
-awk '/^## Initial State-File Shape/{f=1} f&&/^```yaml/{y=1;next} y&&/^```/{exit} y' "$P0" |
+SFILE="$T/initial-state.md"
+awk '/^## Initial .*Shape$/{f=1} f&&/^```yaml/{y=1;next} y&&/^```/{exit} y' "$P0" |
     grep -v '^consumed_upstream:' |
     sed -e 's/<slug>/t/; s/scope-<topic>/scope-t/; s/<continue|stop|none>.*$/none/' \
-        -e "s/<ISO-8601 timestamp>/$FRESH/" >"$SF"
-if [ -n "$STATE_REL" ] && grep -q '^phase_pointer: 0$' "$SF" && grep -q '^exit:$' "$SF"; then
+        -e "s/<ISO-8601 timestamp>/$FRESH/" >"$SFILE"
+putkey scope-t work/state.md <"$SFILE"
+if [ "$STATE_REL" = "work/state.md" ] && grep -q '^phase_pointer: 0$' "$SFILE" && grep -q '^exit:$' "$SFILE"; then
     ok "phase-0-setup.md writes phase_pointer: 0 and an empty exit:"
 else
-    bad "phase-0-setup.md writes phase_pointer: 0 and an empty exit:" "[$STATE_REL] $(cat "$SF" 2>&1)"
+    bad "phase-0-setup.md writes phase_pointer: 0 and an empty exit:" "[$STATE_REL] $(cat "$SFILE" 2>&1)"
 fi
 expect "the documented initial state file" 20 t none
 repo; PP=phase-0 state t "";            expect "a phase-0 pointer is malformed" 25 t none

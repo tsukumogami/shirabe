@@ -57,7 +57,7 @@ checking against the contract.
 
 ## Cold-Start Projected-PRD Evaluation
 
-On a cold-start invocation (no `wip/scope_<topic>_state.md` and
+On a cold-start invocation (no `work/state.md` key and
 no on-disk artifacts at the canonical paths), Phase 1 projects
 what the downstream PRD's shape will likely be from the
 $ARGUMENTS topic-slug alone. The projection is keyword-driven:
@@ -77,7 +77,7 @@ authoring conversation).
 ## Entering Phase 1 With an `/explore` Handoff
 
 When the resume ladder's Slot 7 clause fired, Phase 1 runs with the
-handoff at `wip/scope_<topic>_handoff.md` pre-loaded as discovery
+handoff at key `handoff/scope.md` in `explore-<topic>` pre-loaded as discovery
 input. Two things change and nothing else does: the framing-shift
 question is put as a confirmation of the answer the handoff carries
 rather than as a fresh ask, and the author's response is what gets
@@ -160,14 +160,13 @@ The three branch behaviors:
   (`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md`,
   What Adjust reaches); this is `/scope`'s declaration.
 - **Bail** — route to R8 bail-handling per the parent's own
-  bail-handling rule: force-materialize when a child intermediate
-  (`wip/{brief,prd,design,plan}_<topic>_*`) or research scratch
-  (`wip/research/{prd,design}_<topic>_*`) exists for the topic;
-  clean-cancel otherwise. Nothing under the parent's own
-  `wip/scope_<topic>_*` prefix counts toward the first branch, so
-  a bail here — where Phase 0 has written the state file and no
+  bail-handling rule: force-materialize when a child session holds
+  live work (`skill-session.sh has-work`, the bail gate's check over
+  the four children); clean-cancel otherwise. Nothing in the parent's
+  own `scope-<topic>` session counts toward the first branch, so
+  a bail here — where Phase 0 has written `work/state.md` and no
   child has run — reaches the clean cancel, and the bail handler
-  disposes of that state file.
+  deletes that key.
 
 ### The Pre-Authoring Upstream Notice
 

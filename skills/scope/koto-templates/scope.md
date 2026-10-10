@@ -2112,9 +2112,9 @@ mode is `{{EXEC_MODE}}`), take Resume and announce that you did.
   chain, or to finalization.
 - **Force-materialize** (`stale_choice: force_materialize`) routes to the
   `abandonment-forced` exit.
-- **Discard** (`stale_choice: discard`) removes the state file
-  `wip/scope_{{TOPIC}}_state.md` -- that one path -- and restarts at Phase 0.
-  Remove it before submitting.
+- **Discard** (`stale_choice: discard`) removes the state key -- `koto
+  context remove scope-{{TOPIC}} work/state.md`, that one key -- and restarts
+  at Phase 0. Remove it before submitting.
 
 Announcing the auto default is the load-bearing half under `--auto`: the run
 output says Resume was taken whether or not anyone is watching.
@@ -2134,8 +2134,8 @@ the author discards, or the run stops.
 The probe's reason is in the response above (its stderr names the field). Say
 exactly what is wrong -- a missing field, a value outside its enum, a duplicate
 line -- and offer Discard. **Discard** (`malformed_choice: discard`) removes
-`wip/scope_{{TOPIC}}_state.md` and restarts the chain at Phase 0; remove the
-file before submitting. `malformed_choice: stop` ends the run at the cancelled
+key `work/state.md` from `scope-{{TOPIC}}` and restarts the chain at Phase 0;
+remove the key before submitting. `malformed_choice: stop` ends the run at the cancelled
 terminal with nothing changed. The author confirms Discard; it is never
 automatic, under `--auto` included.
 
@@ -2153,9 +2153,9 @@ publish. Offer the revise-equivalent flow for that exit, or a fresh chain.
 - `exit_set_choice: revise` re-opens finalization, so the exit is recorded
   again from the artifacts as they stand -- the revise-equivalent of a
   recorded exit.
-- `exit_set_choice: start_fresh` is Discard + restart: remove
-  `wip/scope_{{TOPIC}}_state.md` before submitting, and the chain starts at
-  Phase 0.
+- `exit_set_choice: start_fresh` is Discard + restart: remove key
+  `work/state.md` from `scope-{{TOPIC}}` before submitting, and the chain
+  starts at Phase 0.
 - `exit_set_choice: bail` stops with nothing changed.
 
 Evidence schema:
@@ -2170,8 +2170,8 @@ A Draft artifact this chain owns exists for the topic. Offer the
 <!-- details -->
 
 The probe's row names the draft (a Draft PLAN, a Proposed DESIGN, a Draft PRD,
-or a Draft BRIEF). If a router handoff exists at
-`wip/scope_{{TOPIC}}_handoff.md`, say that it exists and was not consumed, and
+or a Draft BRIEF). If a router handoff key `handoff/scope.md` exists in
+`explore-{{TOPIC}}`, say that it exists and was not consumed, and
 offer its problem statement as context for the choice.
 
 - `draft_choice: continue` runs setup and re-enters the chain at the draft's
@@ -2211,8 +2211,11 @@ Evidence schema:
 
 ## setup
 
-Establish the run: write the state file, recording `intent: {{RUN_INTENT}}`,
-and confirm the worktree is the one this run owns. The arguments were checked
+Establish the run: write the state record -- key `work/state.md` in
+`scope-{{TOPIC}}`, written with `koto context add`, the same YAML shape the
+state file carried -- recording `intent: {{RUN_INTENT}}`, and confirm the
+worktree is the one this run owns. Every later mention of the state record
+or state file in this template means that key. The arguments were checked
 at `koto init` and in `intake`; the branch is settled as `{{BRANCH}}`. Submit
 `setup_result: ready`, or `blocked` with `detail`.
 
@@ -2238,8 +2241,9 @@ This run's settings are the session's variables: execution mode
 (empty means none was given; the visibility check in the Phase 0 reference
 still decides whether it is recorded).
 
-**Record the effective intent.** Write `intent: {{RUN_INTENT}}` into the state
-file, on the initial write and on every later write that rewrites the file.
+**Record the effective intent.** Write `intent: {{RUN_INTENT}}` into the
+state record, on the initial write and on every later write that rewrites the
+key (`koto context add` replaces the whole key, so rewrite the document).
 The value is `continue`, `stop`, or `none`, always present, never empty:
 `intake` resolved it from the invocation's `--intent`, else the intent the
 state file already recorded, else `none`.
@@ -2855,15 +2859,18 @@ is not a choice. The gate's finding tells you what there is to materialize; it
 does not decide where the run goes.
 
 `bail_ack: cancel` is the clean cancel: no terminal artifact, no `exit:` value,
-no `triggering_child:`, and one deletion -- `wip/scope_<topic>_state.md`. The
-deletion is that single path, not the prefix: `wip/scope_<topic>_handoff.md`
-belongs to the router and is left in place so a later invocation can resume
-against it.
+no `triggering_child:`, and one deletion -- key `work/state.md` in
+`scope-{{TOPIC}}` (`koto context remove`). The deletion is that single key:
+the router's `handoff/scope.md` belongs to `explore-{{TOPIC}}` and is left in
+place, and the children's live sessions stay too, so a later invocation can
+resume against them through the probe's Slot 6 and Slot 7 -- a cancel writes
+no `exit:`, and the close-children step binds only the exits that do.
 
-Advance with `--no-cleanup` on the `koto next` that reaches the terminal. This
-applies to the cancel route as much as to the three cleanup states: a cancelled
-run is the one whose per-hop record a reader is most likely to want, because
-the question after a cancel is what the run had done before it stopped.
+Every `koto next` on this session carries `--no-cleanup`, on every tick --
+the cancel route included, not only the tick that reaches the terminal. A
+cancelled run is the one whose per-hop record a reader is most likely to
+want, because the question after a cancel is what the run had done before it
+stopped; see `references/koto-session-retention.md`.
 
 Evidence schema:
 - `bail_ack`: `cancel` or `force_materialize`
@@ -2891,9 +2898,9 @@ opens one when there is none, and stops on several. Do not push, create, or
 edit a PR any other way.
 
 **When it fails** it prints `step=scope:push` or `step=scope:pr-create`.
-Write that value into the state file as `publish_error: <step>` before you
-submit; the run then ends at the error terminal without cleanup, the state
-file keeps `exit:` and its fields, and the next `/scope {{TOPIC}}` routes
+Write that value into the state record as `publish_error: <step>` before you
+submit; the run then ends at the error terminal without cleanup, the record
+keeps `exit:` and its fields, and the next `/scope {{TOPIC}}` routes
 straight back here to retry. **When it succeeds**, record its `pr=` URL as
 `published_pr: <url>` and remove any `publish_error:` line from the state
 file.
@@ -2920,7 +2927,7 @@ pull request with the Decision Record. Run the publish script, then submit
 <!-- details -->
 
 Everything in `publish_full_run` applies: on a `step=` failure write
-`publish_error: <step>` to the state file before submitting, and on success
+`publish_error: <step>` to the state record before submitting, and on success
 record `published_pr:` and remove `publish_error:`. The PR is always a draft
 on this exit.
 
@@ -2941,7 +2948,7 @@ script, then submit `publish_result: attempted`.
 <!-- details -->
 
 Everything in `publish_full_run` applies: on a `step=` failure write
-`publish_error: <step>` to the state file before submitting, and on success
+`publish_error: <step>` to the state record before submitting, and on success
 record `published_pr:` and remove `publish_error:`. The PR is always a draft
 on this exit.
 
@@ -3008,15 +3015,16 @@ Advance with `--no-cleanup`, and print the exit block from the terminal result
 
 <!-- details -->
 
-Procedure: `skills/scope/references/phases/phase-4-cleanup.md`. Remove the run's
-`wip/` intermediates, including the state file, and confirm no committed
-artifact references a `wip/` path.
+Procedure: `skills/scope/references/phases/phase-4-cleanup.md`. Remove key
+`work/prior-run.md` from `scope-{{TOPIC}}` if the replace wrote one, and
+confirm no committed artifact references a staging-folder path.
 
-`--no-cleanup` on the `koto next` that reaches the terminal is not optional
-here. Without it the per-hop record is destroyed with the session at the exact
-moment the run finishes and an author would go looking for it. The record is
-read where it lives; it is never copied into a committed artifact or a
-pull-request body.
+Every `koto next` on this session carries `--no-cleanup`, on every tick, and
+at this state the stakes are highest: without it the per-hop record -- and now
+the state record and `work/prior-run.md` with it -- is destroyed with the
+session at the exact moment the run finishes and an author would go looking
+for it. The record is read where it lives; it is never copied into a
+committed artifact or a pull-request body.
 
 koto already recorded, on entry here, what the terminal reports: the PLAN's
 path and mode, the next command, the startable items, and on an intent run the
@@ -3038,9 +3046,10 @@ result.
 
 <!-- details -->
 
-Procedure: `skills/scope/references/phases/phase-4-cleanup.md`. Remove the run's
-`wip/` intermediates, including the state file, and confirm no committed
-artifact -- the Decision Record in particular -- references a `wip/` path.
+Procedure: `skills/scope/references/phases/phase-4-cleanup.md`. Remove key
+`work/prior-run.md` from `scope-{{TOPIC}}` if the replace wrote one, and
+confirm no committed artifact -- the Decision Record in particular --
+references a staging-folder path.
 
 `--no-cleanup` for the reason it carries at every cleanup state: the per-hop
 record does not survive the session otherwise. Once the tick has reached the
@@ -3058,9 +3067,9 @@ from the terminal result.
 
 <!-- details -->
 
-Procedure: `skills/scope/references/phases/phase-4-cleanup.md`. Remove the run's
-`wip/` intermediates, including the state file, and confirm no committed
-artifact references a `wip/` path.
+Procedure: `skills/scope/references/phases/phase-4-cleanup.md`. Remove key
+`work/prior-run.md` from `scope-{{TOPIC}}` if the replace wrote one, and
+confirm no committed artifact references a staging-folder path.
 
 The force-materialized artifact keeps its marker; cleanup does not touch it.
 `--no-cleanup` for the reason it carries at every cleanup state. Once the tick

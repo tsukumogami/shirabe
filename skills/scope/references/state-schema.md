@@ -1,19 +1,34 @@
-# `/scope` State-File Schema
+# `/scope` State Schema (key `work/state.md`)
 
-The `/scope` state file lives at `wip/scope_<topic>_state.md` as
-YAML-in-`.md` under the `wip-yaml-md` substrate. The schema extends
+The `/scope` state is key `work/state.md` in koto session
+`scope-<topic>`, as YAML-in-`.md`; the substrate is the session (the state
+lives in koto session context, written with `koto context add`, read with
+`koto context get`). The schema extends
 the pattern's 5-field minimum (`topic`, `last_updated`,
 `phase_pointer`, `exit`, `exit_artifacts` — see
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`)
 with `/scope`-specific fields. Every conditional field below is
-absent from the state file when its triggering condition does not
+absent from the key when its triggering condition does not
 hold (invariant I-5; see Parent-specific conditional fields in the
 state-schema reference).
 
-Driving the phases from a workflow session moves no field out of
-this file. The session holds the run's position within one run; the
-state file remains authoritative for every field enumerated below,
-and each is written at the site it was already written at.
+The carrier moved from a file to a key; no field changed shape. The
+workflow's position and this key share one session; the key remains
+authoritative for every field enumerated below, and each is written at
+the site it was already written at. Every script that reads it
+re-validates each field against its closed set.
+
+## Key `work/prior-run.md`
+
+A second key, `work/prior-run.md`, carries facts from a finished run to
+the next one. `scope-open.sh` writes it from koto's replaced result when
+it replaces a finished session, before anything else, and keeps only
+values that match closed patterns. Its field set is closed: `outcome`,
+`exit`, `intent`, and `step` (the last only when it is `scope:push` or
+`scope:pr-create`). No other field is ever written to it. The probe's
+publish-retry rows and the intent scripts read it; a successful publish
+and the cleanup phase remove it, so it cannot fire twice. It is not part
+of `work/state.md` and holds no routing state of its own.
 
 ## Field Enumeration
 
@@ -84,25 +99,24 @@ and each is written at the site it was already written at.
   the value passed validation; absent otherwise — including when
   the value was dropped by the visibility check, which is
   deliberately indistinguishable from no flag at all, since
-  recording a private path in a public repo's state file would leak
-  it onto the pushed feature branch. Written at Phase 0 rather than
+  recording a private path in a public repo's state would leak it. Written at Phase 0 rather than
   at finalization, because its trigger fires at invocation or
   never. Read at Phase 2, where it becomes the `--upstream`
   argument `/scope` hands `/brief`, and re-validated by the resume
   ladder on every re-entry.
 - **`consumed_handoff`** — conditional path string naming the
-  `/explore` handoff this run consumed:
-  `wip/scope_<topic>_handoff.md`, composed from `/scope`'s own
-  prefix and the validated topic slug. Present iff the resume
-  ladder's Slot 7 clause fired and consumed the file; absent
-  otherwise, including when a handoff was on disk but a higher row
+  `/explore` handoff this run consumed: the constant
+  `handoff/scope.md`, the key read from session `explore-<topic>`
+  (composed from the validated topic slug). Present iff the resume
+  ladder's Slot 7 clause fired and consumed the key; absent
+  otherwise, including when a handoff key was present but a higher row
   matched first, and when a handoff was found malformed and the run
   degraded to a cold start — in both of those cases nothing was
-  consumed. Written by Slot 7 in the same state-file write that
-  creates the file. **Its reader is the resume ladder**
+  consumed. Written by Slot 7 in the same write that
+  creates `work/state.md`. **Its reader is the resume ladder**
   (`skills/scope/references/phases/phase-resume.md`), which reads it
   on a later re-entry to tell a run that consumed a handoff from one
-  that started cold. The value is a path recovered from state and is
+  that started cold. The value is recovered from state and is
   re-validated against the slug regex before it is interpolated
   anywhere, on the same grounds as `consumed_upstream:`.
 - **`planned_chain`** — list of child names the chain plans to
@@ -214,7 +228,7 @@ and each is written at the site it was already written at.
   step succeeded (the publish states or `republish`): the URL of the
   one owned PR `skills/scope/scripts/publish-scoping-pr.sh` reused or
   opened, as it printed on its `pr=` line. It is a record for a reader
-  of the state file, never a routing input: every later step finds the
+  of the key, never a routing input: every later step finds the
   PR again through the ownership filter. Re-validated on read against
   `^https://github\.com/<owner>/<repo>/pull/<n>$`, and joins the
   State-File Enum Re-Validation list in `phase-2-chain-orchestration.md`.
@@ -278,13 +292,14 @@ and each is written at the site it was already written at.
 `exit:` is written at the exit state and outlives the session
 whatever becomes of it. That is what keeps a finished run
 distinguishable from one that never started: the resume row keying
-on the exit field being set reads this file, so a run whose session
+on the exit field being set reads this key (or, after a replace,
+`work/prior-run.md`), so a run whose session
 is gone still reports how it ended. It is the one resume decision a
 session could otherwise have taken with it.
 
 Phase 3 copies `chain_ran`, `chain_skipped`, and
-`consolidation_judgments` into the run's PR body before Phase 4
-removes the state file. The `wip/` copy is scratch; the PR body
+`consolidation_judgments` into the run's PR body because the session's keys are not a durable record. The key is
+scratch; the PR body
 is where a reviewer can tell "not produced" from "absorbed into
 this other document" after the scratch is gone.
 

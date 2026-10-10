@@ -7,6 +7,15 @@
 #
 # The `shirabe validate` mentions in this skill describe what CI runs against
 # the finished BRIEF, not a call /brief makes.
+# Working state is koto context keys in the `brief-<topic>` session: `koto context add`,
+# `get`, `exists` and `remove` on single keys, and `koto context list --prefix` over
+# a key directory. The session is opened and closed through scripts/skill-session.sh,
+# whose own koto floor is declared where that script lives.
 shirabe	transition	-	always
 git	-	-	always
 gh	-	-	always
+koto	context add	-	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
+koto	context list	--prefix	always

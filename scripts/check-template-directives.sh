@@ -330,16 +330,16 @@ reads_state_file() {
     return 1
 }
 
-# names_staging_folder <text> -- any path under the staging folder, or the
-# folder itself as a bare path word (`find wip -name ...` reads it without a
-# slash). Applied to a gate's own command string only (see the header's
-# second limb). The word form is delimited so identifiers merely containing
-# the letters (wip_paths, swipe) do not match.
+# names_staging_folder <text> -- the staging folder as a path component: a
+# path under it (`wip/...`, `./wip`, `$R/wip`) or the bare folder word
+# (`find wip -name ...` reads it without a slash). Applied to a gate's own
+# command string only (see the header's second limb). The boundaries are
+# word-shaped on both sides, so a name merely containing the letters
+# (`swip/x`), an identifier (`wip_paths`, `wip-paths`), or a file that is
+# not the folder (`wip.txt`) never matches, while a leading `/` still does:
+# `./wip` and an interpolated `$ROOT/wip` are the folder.
 names_staging_folder() {
-    case "$1" in
-        *wip/*) return 0 ;;
-    esac
-    [[ "$1" =~ (^|[^A-Za-z0-9_./-])wip($|[^A-Za-z0-9_/-]) ]] && return 0
+    [[ "$1" =~ (^|[^A-Za-z0-9_.-])wip(/|$|[^A-Za-z0-9_.-]) ]] && return 0
     return 1
 }
 
@@ -426,25 +426,24 @@ resolve_script() {
     return 0
 }
 
-# ROUTING_SCRIPTS -- the two scripts in /scope's tree that name the parent's
-# own wip/scope_ prefix and are nonetheless invoked by a gate. Neither decides
-# a hop's completion, which is what rule two protects:
+# ROUTING_SCRIPTS -- the one script in /scope's tree that names the parent's
+# own wip/scope_ prefix and is nonetheless invoked by a gate. It does not
+# decide a hop's completion, which is what rule two protects:
 #
-#   skills/scope/scripts/resume-probe.sh
-#       resume_route's gate. It IS the resume ladder, whose meta-ladder rows
-#       (malformed, exit set, fresh, stale) are defined over the state file
-#       and whose Slot 7 is the /explore handoff under the same prefix. Where
-#       a run resumes is a different question from whether a hop landed; every
-#       hop gate still reads the artifact tree alone.
 #   skills/scope/scripts/publish-scoping-pr.sh
 #       the publish states' `published` gate runs its --verify mode, which
 #       reads git and the owned PR only. The prefix appears in its publish
 #       mode as a pathspec of paths to untrack, never read.
 #
+# resume-probe.sh left this list when /scope's state moved into its session:
+# the ladder's meta rows read key work/state.md and Slot 7 reads the handoff
+# key, so the script names no folder path any more and is scanned as any
+# other.
+#
 # Matched by path relative to the template root, so a copy elsewhere, or a new
 # script, is scanned as before. Reads in the scripts these invoke are still
 # followed and scanned.
-ROUTING_SCRIPTS="skills/scope/scripts/resume-probe.sh skills/scope/scripts/publish-scoping-pr.sh"
+ROUTING_SCRIPTS="skills/scope/scripts/publish-scoping-pr.sh"
 
 is_ladder_script() {
     local p="$1" s

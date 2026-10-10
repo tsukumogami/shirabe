@@ -6,28 +6,26 @@
       "id": 1,
       "name": "baseline-slug-rejection",
       "prompt": "/scope MyTopic",
-      "expected_output": "Phase 0 validates the topic slug 'MyTopic' against the pattern-level regex ^[a-z0-9-]+$ and rejects it because of the uppercase letters, surfacing a clear error message that names the violated pattern. No state file is created. Other invocations such as /scope my_topic (underscore), /scope my.topic (dot), and /scope \"Hello World\" (whitespace and uppercase) are rejected the same way. Phase 0 validates $ARGUMENTS as provided byte-for-byte against the regex; there is no normalization, no derivation, and no \"best effort\" massaging.",
+      "expected_output": "Phase 0 validates the topic slug 'MyTopic' against the pattern-level regex ^[a-z0-9-]+$ and rejects it because of the uppercase letters, surfacing a clear error message that names the violated pattern. No scope-<topic> session is opened and no state key is written. Other invocations such as /scope my_topic (underscore), /scope my.topic (dot), and /scope \"Hello World\" (whitespace and uppercase) are rejected the same way. Phase 0 validates $ARGUMENTS as provided byte-for-byte against the regex; there is no normalization, no derivation, and no \"best effort\" massaging.",
       "files": [],
       "expectations": [
         "Plan validates the topic slug 'MyTopic' against the regex ^[a-z0-9-]+$ at Phase 0 and rejects it with a clear error naming the violated pattern",
         "Plan rejects /scope my_topic at Phase 0 for the underscore violation, /scope my.topic for the dot violation, and /scope \"Hello World\" for the whitespace and uppercase violation",
         "Plan applies validation byte-for-byte against $ARGUMENTS with no normalization, no derivation, no auto-substitution into a conforming slug",
-        "Plan does NOT create wip/scope_<topic>_state.md on rejection; Phase 0 stops at the regex check",
+        "Plan opens no scope-<topic> session and writes no state key on rejection; Phase 0 stops at the regex check",
         "Plan names the violation category in the rejection error message (uppercase, underscore, dot, whitespace) so the author knows what to fix before re-invoking /scope"
       ]
     },
     {
       "id": 2,
       "name": "baseline-malformed-state",
-      "prompt": "/scope test-topic",
-      "expected_output": "wip/scope_test-topic_state.md exists but is malformed (unparseable YAML, missing required field for the recorded phase_pointer, or invalid exit / decision_record_sub_shape / boundary combination). The resume ladder fires row 1, surfaces a hard error naming the specific malformation, and offers Discard as the recovery path. /scope MUST NOT silently fall through to Phase 0 (row 9); malformed state is a contract violation surface, not a missing-state surface.",
-      "files": [
-        "wip/scope_test-topic_state.md"
-      ],
+      "prompt": "/scope test-topic  (the key work/state.md in session scope-test-topic exists but is malformed)",
+      "expected_output": "Key work/state.md in session scope-test-topic exists but is malformed (unparseable YAML, missing required field for the recorded phase_pointer, or invalid exit / decision_record_sub_shape / boundary combination). The resume ladder fires row 1, surfaces a hard error naming the specific malformation, and offers Discard as the recovery path; Discard removes that one key (koto context remove scope-test-topic work/state.md) after the author confirms. /scope MUST NOT silently fall through to Phase 0 (row 9); malformed state is a contract violation surface, not a missing-state surface.",
+      "files": [],
       "expectations": [
-        "Plan detects the malformed state file at row 1 of the resume ladder and surfaces a hard error naming the specific malformation (e.g., unparseable YAML, missing required field, invalid exit / boundary / decision_record_sub_shape combo)",
-        "Plan offers Discard as the recovery path on row 1; the author confirms before the state file is removed",
-        "Plan does NOT silently fall through to row 9 (Phase 0 start fresh) when the state file is malformed; row 1 is terminal",
+        "Plan detects the malformed state key work/state.md at row 1 of the resume ladder and surfaces a hard error naming the specific malformation (e.g., unparseable YAML, missing required field, invalid exit / boundary / decision_record_sub_shape combo)",
+        "Plan offers Discard as the recovery path on row 1; the author confirms before the key is removed with koto context remove scope-test-topic work/state.md",
+        "Plan does NOT silently fall through to row 9 (Phase 0 start fresh) when the state key is malformed; row 1 is terminal",
         "Plan does not absorb or paraphrase the malformation; the error message names what is wrong so the author can decide between repair-by-hand or Discard"
       ]
     },
@@ -35,13 +33,13 @@
       "id": 3,
       "name": "baseline-child-internals-isolation",
       "prompt": "/scope test-topic",
-      "expected_output": "On resume against an existing chain state, /scope reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /scope's own state file. /scope does NOT read child internal phase pointers, does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, does NOT read any child wip/ intermediate beyond the named partial-run-detection patterns wip/brief_<topic>_*, wip/prd_<topic>_decisions.md, wip/design_<topic>_coordination.json, wip/plan_<topic>_* (Slot 6 of the resume ladder). Manual-review verified by code-path inspection per AC20b.",
+      "expected_output": "On resume against an existing chain state, /scope reads only the three permitted sources: child doc frontmatter status: at the published path, the child doc git blob hash (via read-only git hash-object), and /scope's own state key work/state.md in its session. /scope does NOT read child internal phase pointers, does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, does NOT read any child wip/ intermediate beyond the Slot 6 session probe (skill-session.sh has-work <child> <topic>: a live <child>-<topic> session on this branch holding a work/ key). Manual-review verified by code-path inspection per AC20b.",
       "files": [],
       "expectations": [
         "Plan reads child doc frontmatter status: from the published path (docs/briefs/BRIEF-<topic>.md, docs/prds/PRD-<topic>.md, docs/designs/DESIGN-<topic>.md, docs/designs/current/DESIGN-<topic>.md, docs/plans/PLAN-<topic>.md) only — never from child internal state",
         "Plan computes child doc git blob hash via read-only git hash-object against the published path — without git hash-object -w and without writes to the child doc or to git history",
-        "Plan does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, child internal phase pointers, or any child wip/ intermediate beyond the Slot 6 named patterns (wip/{brief,prd,design,plan}_<topic>_*)",
-        "Plan reads /scope's own state file at wip/scope_<topic>_state.md but no other child-private state, log files, comment threads, or CI output",
+        "Plan does NOT read wip/research/<child>_<topic>_phase<N>_*.md files, child internal phase pointers, or any child intermediate beyond the Slot 6 session probe (skill-session.sh has-work <child> <topic> for brief, prd, design and plan: a live <child>-<topic> session on this branch holding a work/ key)",
+        "Plan reads /scope's own work/state.md key in scope-<topic> but no other child-private state, log files, comment threads, or CI output",
         "Plan binds child internals isolation to the R14-widened rule documented in references/parent-skill-child-inspection.md (citation in code-path inspection)"
       ]
     },
@@ -92,7 +90,7 @@
       "id": 7,
       "name": "us-1-cold-standalone-full-run",
       "prompt": "/scope test-topic",
-      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no /scope state file for test-topic exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question. planned_chain is [brief, prd, design, plan] — the whole tactical chain, as it is on every run; Phase 1 chooses no starting altitude and decides nothing about how many artifacts the run will leave. The chain-proposal output names those four children with their re-entry verdicts and carries the literal substrings \"Proceed\", \"Adjust\" and \"Bail\", asserted per-token rather than as one contiguous slash-joined string, per the Gate Vocabulary's prompt-vocabulary rule in references/parent-skill-pattern.md: the chain proposal is not a co-equal menu (Proceed is the expected path), and a parent MAY render an interstitial label such as \"Adjust chain\". The author selects Proceed; Phase 2 invokes /brief with the topic slug and then /prd, /design and /plan each with the path of the artifact the chain produced above it; each invocation writes the chain/dispatch key into scope-test-topic immediately before (skill-session.sh dispatch write scope test-topic <child> fresh-chain) and clears it immediately after the child returns (skill-session.sh dispatch clear scope test-topic); shirabe validate --format json --visibility=public runs against each intermediate; the consolidation judgment runs after each artifact lands. The terminal PLAN lives at docs/plans/PLAN-test-topic.md. State file: exit: full-run, exit_artifacts lists the surviving durable artifacts plus the PLAN, plan_execution_mode set, and consolidation_judgments records a verdict per hop. The children keep their working state as work/ and research/ keys in their own sessions (brief-test-topic and so on) and /scope closes them with skill-session.sh close-children after the exit is recorded, so after the run no file under the staging folder carries a child's prefix (brief_, prd_, design_, plan_).",
+      "expected_output": "Cold-start invocation against a fresh worktree under public-repo visibility: no scope-test-topic state key exists, no upstream BRIEF/PRD/DESIGN/PLAN exists at the canonical paths. /scope walks Phase 1 discovery surfacing the framing-shift question. planned_chain is [brief, prd, design, plan] — the whole tactical chain, as it is on every run; Phase 1 chooses no starting altitude and decides nothing about how many artifacts the run will leave. The chain-proposal output names those four children with their re-entry verdicts and carries the literal substrings \"Proceed\", \"Adjust\" and \"Bail\", asserted per-token rather than as one contiguous slash-joined string, per the Gate Vocabulary's prompt-vocabulary rule in references/parent-skill-pattern.md: the chain proposal is not a co-equal menu (Proceed is the expected path), and a parent MAY render an interstitial label such as \"Adjust chain\". The author selects Proceed; Phase 2 invokes /brief with the topic slug and then /prd, /design and /plan each with the path of the artifact the chain produced above it; each invocation writes the chain/dispatch key into scope-test-topic immediately before (skill-session.sh dispatch write scope test-topic <child> fresh-chain) and clears it immediately after the child returns (skill-session.sh dispatch clear scope test-topic); shirabe validate --format json --visibility=public runs against each intermediate; the consolidation judgment runs after each artifact lands. The terminal PLAN lives at docs/plans/PLAN-test-topic.md. State record (key work/state.md): exit: full-run, exit_artifacts lists the surviving durable artifacts plus the PLAN, plan_execution_mode set, and consolidation_judgments records a verdict per hop. The children keep their working state as work/ and research/ keys in their own sessions (brief-test-topic and so on) and /scope closes them with skill-session.sh close-children after the exit is recorded, so after the run no file under the staging folder carries a child's prefix (brief_, prd_, design_, plan_).",
       "files": [],
       "expectations": [
         "Plan populates planned_chain: as [brief, prd, design, plan] on this run",
@@ -103,14 +101,15 @@
         "Plan does NOT require a contiguous \"Proceed / Adjust / Bail\" string, and tolerates a rendering whose Adjust label carries an interstitial word",
         "Plan runs the consolidation judgment after each artifact lands and records the verdict in consolidation_judgments:",
         "Plan records exit: full-run with exit_artifacts listing the surviving durable artifacts",
-        "Plan leaves no staging-folder file carrying a child's prefix (brief_, prd_, design_, plan_) after the run: the children's working state lives as keys in their own sessions, and /scope closes them with close-children after the exit is recorded"
+        "Plan leaves no staging-folder file carrying a child's prefix (brief_, prd_, design_, plan_) after the run: the children's working state lives as keys in their own sessions, and /scope closes them with close-children after the exit is recorded",
+        "Plan leaves `git status --porcelain -- wip/` empty after the run and commits only files under docs/: /scope's own state lives in its session key and the children's in theirs, so the run writes nothing under the staging folder"
       ]
     },
     {
       "id": 8,
       "name": "us-2-prd-auto-skip",
       "prompt": "/scope test-topic",
-      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 holds /prd back under re-entry protection and records it in chain_skipped with reason 'settled-artifact-at-canonical-path-reentry-protection'. The recorded reason and the surrounding prose say this protects a settled document from being overwritten; it is NOT a judgment that the PRD would not have been worth producing. The chain proceeds; /design and /plan both run. State file: chain_skipped contains { child: prd, reason: settled-artifact-at-canonical-path-reentry-protection } -- the entry key is child, matching /charter and the dispatch key's child field; planned_chain contains the whole chain including /prd, because a held-back child stays planned and is separated from the children that ran by chain_ran. When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation with no --intent fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt whose redirect names the command by the PLAN's mode (R23): 'redirect to /execute docs/plans/PLAN-test-topic.md' for single-pr or coordinated, 'redirect to /work-on' for multi-pr (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists. /scope's Phase 1 holds /prd back under re-entry protection and records it in chain_skipped with reason 'settled-artifact-at-canonical-path-reentry-protection'. The recorded reason and the surrounding prose say this protects a settled document from being overwritten; it is NOT a judgment that the PRD would not have been worth producing. The chain proceeds; /design and /plan both run. State record: chain_skipped contains { child: prd, reason: settled-artifact-at-canonical-path-reentry-protection } -- the entry key is child, matching /charter and the dispatch key's child field; planned_chain contains the whole chain including /prd, because a held-back child stays planned and is separated from the children that ran by chain_ran. When PLAN reaches Active status under /work-on, a subsequent /scope test-topic invocation with no --intent fires Slot 5 row 5.1 (PLAN-Active) and surfaces a refuse-and-redirect prompt whose redirect names the command by the PLAN's mode (R23): 'redirect to /execute docs/plans/PLAN-test-topic.md' for single-pr or coordinated, 'redirect to /work-on' for multi-pr (case-insensitive); the Re-evaluate / Revise / Bail triad MUST NOT appear at that row.",
       "files": [
         "docs/prds/PRD-test-topic.md"
       ],
@@ -128,7 +127,7 @@
       "id": 9,
       "name": "us-3a-prd-boundary-re-evaluation",
       "prompt": "/scope test-topic",
-      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists at docs/designs/current/DESIGN-test-topic.md. /scope's resume ladder fires Slot 5 row 5.6 (PRD-Accepted) and surfaces an entry prompt containing the literal substrings 'Re-evaluate', 'Revise', and 'Bail' (case-insensitive) identifying the boundary as PRD-boundary. The prompt MUST NOT contain 'Continue / Start fresh'. The author selects Re-evaluate; /scope walks the existing PRD's acceptance criteria, finds them still warranted, and writes a re-evaluation Decision Record at docs/decisions/DECISION-prd-test-topic-re-evaluation-<YYYY-MM-DD>.md referencing the existing PRD by path (referenced_artifact:). The child /prd is NOT invoked; /scope authors the Decision Record directly using the template at skills/scope/references/decision-record-prd-re-evaluation.md. State file: exit: re-evaluation, boundary: prd, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/prds/PRD-test-topic.md.",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md; no Accepted DESIGN exists at docs/designs/current/DESIGN-test-topic.md. /scope's resume ladder fires Slot 5 row 5.6 (PRD-Accepted) and surfaces an entry prompt containing the literal substrings 'Re-evaluate', 'Revise', and 'Bail' (case-insensitive) identifying the boundary as PRD-boundary. The prompt MUST NOT contain 'Continue / Start fresh'. The author selects Re-evaluate; /scope walks the existing PRD's acceptance criteria, finds them still warranted, and writes a re-evaluation Decision Record at docs/decisions/DECISION-prd-test-topic-re-evaluation-<YYYY-MM-DD>.md referencing the existing PRD by path (referenced_artifact:). The child /prd is NOT invoked; /scope authors the Decision Record directly using the template at skills/scope/references/decision-record-prd-re-evaluation.md. State record: exit: re-evaluation, boundary: prd, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/prds/PRD-test-topic.md.",
       "files": [
         "docs/prds/PRD-test-topic.md"
       ],
@@ -140,14 +139,14 @@
         "Plan ensures the Decision Record's Options Considered section names 'revise the PRD' and 'force-abandon the chain' as rejected alternatives",
         "Plan ensures the Decision Record's Consequences references the existing PRD at its referenced_artifact: path (per Decision 5's frozen-snapshot semantics), NOT the Decision Record's own path",
         "Plan does NOT invoke /prd on the Re-evaluate path; /scope authors the Decision Record directly",
-        "Plan writes state file with exit: re-evaluation, boundary: prd, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/prds/PRD-test-topic.md; conditional fields discard_commit_sha, rejection_rationale, triggering_child, partial_phase_reached are ABSENT"
+        "Plan writes the state record (work/state.md) with exit: re-evaluation, boundary: prd, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/prds/PRD-test-topic.md; conditional fields discard_commit_sha, rejection_rationale, triggering_child, partial_phase_reached are ABSENT"
       ]
     },
     {
       "id": 10,
       "name": "us-3b-design-boundary-re-evaluation",
       "prompt": "/scope test-topic",
-      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md AND an Accepted DESIGN exists at docs/designs/current/DESIGN-test-topic.md. /scope's resume ladder fires Slot 5 row 5.4 (DESIGN-Accepted) BEFORE row 5.6 (PRD-Accepted) per the most-downstream-first ordering (AC17b). The prompt offered identifies the boundary as DESIGN-boundary and contains 'Re-evaluate / Revise / Bail'; it does NOT contain 'Continue / Start fresh'. The author selects Re-evaluate; /scope writes a Decision Record at docs/decisions/DECISION-design-test-topic-re-evaluation-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-design-re-evaluation.md. State file: exit: re-evaluation, boundary: design, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/designs/current/DESIGN-test-topic.md. The PLAN authored against this DESIGN remains untouched.",
+      "expected_output": "An Accepted PRD exists at docs/prds/PRD-test-topic.md AND an Accepted DESIGN exists at docs/designs/current/DESIGN-test-topic.md. /scope's resume ladder fires Slot 5 row 5.4 (DESIGN-Accepted) BEFORE row 5.6 (PRD-Accepted) per the most-downstream-first ordering (AC17b). The prompt offered identifies the boundary as DESIGN-boundary and contains 'Re-evaluate / Revise / Bail'; it does NOT contain 'Continue / Start fresh'. The author selects Re-evaluate; /scope writes a Decision Record at docs/decisions/DECISION-design-test-topic-re-evaluation-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-design-re-evaluation.md. State record: exit: re-evaluation, boundary: design, decision_record_sub_shape: re-evaluation, referenced_artifact: docs/designs/current/DESIGN-test-topic.md. The PLAN authored against this DESIGN remains untouched.",
       "files": [
         "docs/prds/PRD-test-topic.md",
         "docs/designs/current/DESIGN-test-topic.md"
@@ -158,58 +157,55 @@
         "Plan's row 5.4 prompt MUST NOT contain 'Continue / Start fresh'",
         "Plan writes the DESIGN-boundary Decision Record at docs/decisions/DECISION-design-test-topic-re-evaluation-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-design-re-evaluation.md; the Consequences references the existing DESIGN at docs/designs/current/DESIGN-test-topic.md per the Planned-to-Current lifecycle move",
         "Plan triggers NO PLAN regeneration on the DESIGN-boundary re-evaluation; the PLAN authored against this DESIGN continues to apply",
-        "Plan writes state file with exit: re-evaluation, boundary: design, decision_record_sub_shape: re-evaluation, referenced_artifact pointing to the Current-lifecycle DESIGN path"
+        "Plan writes the state record (work/state.md) with exit: re-evaluation, boundary: design, decision_record_sub_shape: re-evaluation, referenced_artifact pointing to the Current-lifecycle DESIGN path"
       ]
     },
     {
       "id": 11,
       "name": "us-4-prd-rejection-sub-shape",
       "prompt": "/scope test-topic",
-      "expected_output": "Cold start. /scope invokes /prd per R5; /prd reaches Phase 4 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /prd runs git rm docs/prds/PRD-test-topic.md and commits the discard (under the dispatch key it leaves its wip/ files to /scope's cleanup) with message docs(prd): discard PRD draft for test-topic. Control returns to /scope; /scope captures the discard commit SHA via read-only git log (no git writes from /scope). /scope writes a Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale (passed through stdin/git commit -F, not interpolated into git commit -m). State file: exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>. /design and /plan auto-skipped per the rejection-sub-shape termination rule (chain_skipped records both as { child: <name>, reason: prd-boundary-rejection } entries, the closed-vocabulary member). When a subsequent /scope test-topic invocation finds the discard commit but the rejection was out-of-chain (Phase-N Reject fired outside /scope), NO retroactive Decision Record is written per AC30c — the discard commit alone is the durable trace.",
+      "expected_output": "Cold start. /scope invokes /prd per R5; /prd reaches Phase 4 and the author selects Reject as a deliberate finalization judgment (NOT a bail). /prd runs git rm docs/prds/PRD-test-topic.md and commits the discard (under the dispatch key its working keys stay in prd-test-topic for /scope's close-children) with message docs(prd): discard PRD draft for test-topic. Control returns to /scope; /scope captures the discard commit SHA via read-only git log (no git writes from /scope). /scope writes a Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md citing the discard commit SHA and the author's rejection rationale (passed through stdin/git commit -F, not interpolated into git commit -m). The state record: exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha: <sha>, rejection_rationale: <text>. /design and /plan auto-skipped per the rejection-sub-shape termination rule (chain_skipped records both as { child: <name>, reason: prd-boundary-rejection } entries, the closed-vocabulary member). When a subsequent /scope test-topic invocation finds the discard commit but the rejection was out-of-chain (Phase-N Reject fired outside /scope), NO retroactive Decision Record is written per AC30c — the discard commit alone is the durable trace.",
       "files": [],
       "expectations": [
         "Plan invokes /prd per R5 and the chain reaches /prd's Phase 4 finalization phase",
         "Plan recognizes /prd Phase 4 Reject as /prd's deliberate finalization judgment routed into the rejection sub-shape — NOT routed as a bail (which would produce abandonment-forced)",
-        "Plan respects that /prd runs git rm docs/prds/PRD-test-topic.md and commits the discard, leaving its wip/ files to /scope's cleanup; /scope issues NO git writes during the rejection orchestration",
+        "Plan respects that /prd runs git rm docs/prds/PRD-test-topic.md and commits the discard, leaving its working keys in prd-test-topic for /scope's close-children; /scope issues NO git writes during the rejection orchestration",
         "Plan captures the discard commit SHA via read-only git log after /prd returns control to /scope",
         "Plan writes the rejection Decision Record at docs/decisions/DECISION-prd-test-topic-rejection-<YYYY-MM-DD>.md using the template at skills/scope/references/decision-record-prd-rejection.md with the five ADR-style sections",
         "Plan ensures the Context section references the discard commit SHA inline so a future reader can navigate to the git history",
         "Plan ensures author-supplied rejection_rationale is passed to git commit via -F or stdin (never interpolated into git commit -m \"...\") per the security discipline",
-        "Plan writes state file with exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha, rejection_rationale; chain_skipped records /design and /plan under the child: key with reason 'prd-boundary-rejection'",
+        "Plan writes the state record with exit: re-evaluation, boundary: prd, decision_record_sub_shape: rejection, discard_commit_sha, rejection_rationale; chain_skipped records /design and /plan under the child: key with reason 'prd-boundary-rejection'",
         "Plan ensures AC30c: when the discard commit is observed but the rejection fired OUT-OF-CHAIN (no chain/dispatch key named /prd), NO retroactive Decision Record is written; the discard commit alone is the durable trace"
       ]
     },
     {
       "id": 12,
       "name": "us-5-mid-chain-abandonment-forced",
-      "prompt": "/scope test-topic",
-      "expected_output": "The run's state file exists with phase_pointer past Phase 0 (an integer 1-4), exit: empty, and last_updated more than 7 days old. /scope's resume ladder fires row 4 (state file stale) and surfaces the three-option prompt Resume / Force-materialize / Discard. The author selects Force-materialize. /scope resolves the most-recently-running child via R8's tie-break (the child whose Phase 2 invocation began most recently per the state-file's chain_ran timestamps; tie-break on identical timestamps goes to the later child in planned_chain). /scope force-materializes that child's intermediate as a schema-compliant Draft artifact at the canonical path (docs/{briefs|prds|designs}/<TYPE>-test-topic.md); when the triggering child is /plan it writes no PLAN and puts the marker on the nearest upstream document instead. The Draft contains a single-line HTML-comment marker <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> at the END of the artifact's existing Status section (not in a new section that would invalidate the host artifact-type's schema validator). The marker uniformly applies to the three upstream artifact types (BRIEF/PRD/DESIGN). State file: exit: abandonment-forced, triggering_child: <child-name>, partial_phase_reached: <phase-name>.",
-      "files": [
-        "wip/scope_test-topic_state.md"
-      ],
+      "prompt": "/scope test-topic  (the key work/state.md in session scope-test-topic has phase_pointer 3, exit empty, and last_updated 10 days ago)",
+      "expected_output": "The run's state key work/state.md in scope-test-topic exists with phase_pointer past Phase 0 (an integer 1-4), exit: empty, and last_updated more than 7 days old. /scope's resume ladder fires row 4 (state stale) and surfaces the three-option prompt Resume / Force-materialize / Discard. The author selects Force-materialize. /scope resolves the most-recently-running child via R8's tie-break (the child whose Phase 2 invocation began most recently per the state record's chain_ran timestamps; tie-break on identical timestamps goes to the later child in planned_chain). /scope force-materializes that child's intermediate as a schema-compliant Draft artifact at the canonical path (docs/{briefs|prds|designs}/<TYPE>-test-topic.md); when the triggering child is /plan it writes no PLAN and puts the marker on the nearest upstream document instead. The Draft contains a single-line HTML-comment marker <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> at the END of the artifact's existing Status section (not in a new section that would invalidate the host artifact-type's schema validator). The marker uniformly applies to the three upstream artifact types (BRIEF/PRD/DESIGN). State record: exit: abandonment-forced, triggering_child: <child-name>, partial_phase_reached: <phase-name>. Discard, were it chosen instead, removes the key (koto context remove scope-test-topic work/state.md).",
+      "files": [],
       "expectations": [
         "Plan detects last_updated >= 7 days old at row 4 of the resume ladder and surfaces the three-option prompt Resume / Force-materialize / Discard",
-        "Plan routes Force-materialize into the abandonment-forced exit and resolves the triggering child via R8's most-recently-running tie-break (state-file timestamps; secondary order by planned_chain position)",
+        "Plan routes Force-materialize into the abandonment-forced exit and resolves the triggering child via R8's most-recently-running tie-break (state-record timestamps; secondary order by planned_chain position)",
         "Plan emits the HTML-comment marker <!-- scope-status-block: abandonment-forced; triggering-child: <name>; partial-phase-reached: <phase>; chain-started: <ISO-8601 timestamp> --> at the END of the force-materialized artifact's existing Status section, NOT in a new required section",
         "Plan ensures the marker uses the literal substring 'scope-status-block: abandonment-forced' as the grep-checkable prefix (not 'charter-status-block:' — the uniform marker text is parent-specific to /scope)",
         "Plan ensures the marker uses hyphenated field names (triggering-child, partial-phase-reached, chain-started) per the marker convention; this differs from the underscored YAML state-schema field names (triggering_child, partial_phase_reached, chain_started) by design",
         "Plan keeps the host artifact type's schema validator passing by using HTML-comment syntax (the marker is invisible to schema validation; greppable for tools and human readers)",
-        "Plan writes state file with exit: abandonment-forced, triggering_child set to the resolved child name, partial_phase_reached set to the phase pointer the triggering child had reached, chain_completed set to the abandonment timestamp",
-        "Plan keeps boundary and decision_record_sub_shape ABSENT from the state file per R9 conditional-field gating; abandonment-forced exits do not carry Decision Record discriminators",
+        "Plan writes the state record with exit: abandonment-forced, triggering_child set to the resolved child name, partial_phase_reached set to the phase pointer the triggering child had reached, chain_completed set to the abandonment timestamp",
+        "Plan keeps boundary and decision_record_sub_shape ABSENT from the state record per R9 conditional-field gating; abandonment-forced exits do not carry Decision Record discriminators",
         "Plan accepts BRIEF, PRD or DESIGN as the host artifact type for the marker per R8's tie-break resolution, never writes a PLAN on abandonment, and keeps the marker uniform across the three"
       ]
     },
     {
       "id": 13,
       "name": "us-6-manual-fallback-reviewer-redirect",
-      "prompt": "/scope test-topic",
-      "expected_output": "Pre-populated: docs/prds/PRD-test-topic.md at status Accepted, and wip/scope_test-topic_state.md whose child_snapshots.prd records path: docs/prds/PRD-test-topic.md plus status: Accepted plus content_hash matching the PRD's git hash-object value at snapshot time. A reviewer invokes /prd docs/prds/PRD-test-topic.md directly outside /scope; /prd produces a revised Draft, flipping the frontmatter status: from Accepted to Draft and rewriting the body. The live git hash-object now differs from the snapshot's content_hash. /scope does NOT interfere with the manual /prd invocation: no warning, no state-file write, no block. On the next /scope test-topic invocation, the resume ladder runs drift detection (dual check: status OR content_hash differs from the snapshot) and surfaces the three-option staleness prompt Re-run / Accept / Proceed-without.",
+      "prompt": "/scope test-topic  (key work/state.md in session scope-test-topic holds child_snapshots.prd for docs/prds/PRD-test-topic.md, which has since been revised outside /scope)",
+      "expected_output": "Pre-populated: docs/prds/PRD-test-topic.md at status Accepted, and key work/state.md in scope-test-topic whose child_snapshots.prd records path: docs/prds/PRD-test-topic.md plus status: Accepted plus content_hash matching the PRD's git hash-object value at snapshot time. A reviewer invokes /prd docs/prds/PRD-test-topic.md directly outside /scope; /prd produces a revised Draft, flipping the frontmatter status: from Accepted to Draft and rewriting the body. The live git hash-object now differs from the snapshot's content_hash. /scope does NOT interfere with the manual /prd invocation: no warning, no state-key write, no block. On the next /scope test-topic invocation, the resume ladder runs drift detection (dual check: status OR content_hash differs from the snapshot) and surfaces the three-option staleness prompt Re-run / Accept / Proceed-without.",
       "files": [
-        "docs/prds/PRD-test-topic.md",
-        "wip/scope_test-topic_state.md"
+        "docs/prds/PRD-test-topic.md"
       ],
       "expectations": [
-        "Plan respects R13 manual-fallback non-interference: when the reviewer invokes /prd directly outside /scope, /scope emits no warning, performs no state-file write against the manual invocation, and does NOT block direct child invocation",
+        "Plan respects R13 manual-fallback non-interference: when the reviewer invokes /prd directly outside /scope, /scope emits no warning, performs no state-key write against the manual invocation, and does NOT block direct child invocation",
         "Plan reads the child doc's frontmatter status: and computes the child doc's git hash-object (read-only) at the published path on resume, then compares both against the recorded child_snapshots.prd entry (path + status + content_hash)",
         "Plan fires drift detection when EITHER the live status differs from the snapshot status OR the live content_hash (blob hash) differs from the snapshot content_hash — both directions of the dual check are load-bearing per AC18a/AC18b",
         "Plan surfaces the three-option staleness prompt naming Re-run (re-invoke the affected child), Accept (record acknowledgment and proceed), and Proceed-without (skip the affected child for this chain)",
@@ -340,7 +336,7 @@
       "id": 22,
       "name": "upstream-path-invocation-preserves-child-isolation",
       "prompt": "/scope chain-topic",
-      "expected_output": "Phase 2 invokes /brief with the topic slug, since it heads the chain and no --upstream was supplied on this run, then /prd with docs/briefs/BRIEF-chain-topic.md, /design with docs/prds/PRD-chain-topic.md, and /plan with docs/designs/DESIGN-chain-topic.md -- input modes each child already ships. /scope invents no flag, argument, environment variable or new parse branch of its own; the only flags it ever passes are /brief's and /plan's own --upstream, authored in /brief's contract and used only when the state file carries consumed_upstream:. R14 child isolation is preserved: /scope still reads only each child's frontmatter status and git blob hash.",
+      "expected_output": "Phase 2 invokes /brief with the topic slug, since it heads the chain and no --upstream was supplied on this run, then /prd with docs/briefs/BRIEF-chain-topic.md, /design with docs/prds/PRD-chain-topic.md, and /plan with docs/designs/DESIGN-chain-topic.md -- input modes each child already ships. /scope invents no flag, argument, environment variable or new parse branch of its own; the only flags it ever passes are /brief's and /plan's own --upstream, authored in /brief's contract and used only when the state record carries consumed_upstream:. R14 child isolation is preserved: /scope still reads only each child's frontmatter status and git blob hash.",
       "files": [],
       "expectations": [
         "Plan invokes /brief with the topic slug and each later child with the path of the artifact the chain produced above it",
@@ -353,7 +349,7 @@
       "id": 23,
       "name": "upstream-flag-consumed",
       "prompt": "/scope inline-diff --upstream docs/roadmaps/ROADMAP-editor.md",
-      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before the positional slug is read, so the topic slug validated against ^[a-z0-9-]+$ is 'inline-diff' and the ROADMAP path is never tested against the regex. The value is canonicalized and bounds-checked, confined to <repo-root>/docs/roadmaps/, its basename is confirmed to start with ROADMAP-, and the three ordered checks run: not under wip/, tracked by git (git ls-files), and not a private artifact named from a public repo. The validated path is recorded in the state file's conditional consumed_upstream: field. The roadmap then travels to TWO children for two different reasons. Phase 2 invokes the head child as '/brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md' -- the slug positional, the upstream in the flag -- and the produced docs/briefs/BRIEF-inline-diff.md grounds its problem and outcome in that roadmap while recording the roadmap's own durable ancestor -- the STRATEGY it sequences, or a VISION -- which /brief resolves for itself in one hop at its Phase 0. The roadmap path is never written into the BRIEF. Phase 2 then invokes the terminal child as '/plan docs/designs/DESIGN-inline-diff.md --upstream docs/roadmaps/ROADMAP-editor.md', and the produced docs/plans/PLAN-inline-diff.md carries a sequence-valued upstream: naming the DESIGN first and the ROADMAP second. That is where the crossing from the strategic chain into the tactical one is recorded, because the PLAN is deleted by the same cascade that deletes the ROADMAP and goes first, so the link cannot dangle. No durable artifact in the chain names the ROADMAP. Where the consolidation judgment absorbs the BRIEF into the PRD, the absorb re-points the survivor to the absorbed artifact's own upstream -- so the surviving PRD inherits the STRATEGY the BRIEF had resolved, never the roadmap's path. A PRD may legally name a STRATEGY, so the absorb's re-validation passes rather than reverting. Passing the ROADMAP positionally to either child would have named the produced document after the roadmap and broken the R20 file-existence check, which looks for docs/briefs/BRIEF-inline-diff.md.",
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before the positional slug is read, so the topic slug validated against ^[a-z0-9-]+$ is 'inline-diff' and the ROADMAP path is never tested against the regex. The value is canonicalized and bounds-checked, confined to <repo-root>/docs/roadmaps/, its basename is confirmed to start with ROADMAP-, and the three ordered checks run: not under wip/, tracked by git (git ls-files), and not a private artifact named from a public repo. The validated path is recorded in the state record's conditional consumed_upstream: field. The roadmap then travels to TWO children for two different reasons. Phase 2 invokes the head child as '/brief inline-diff --upstream docs/roadmaps/ROADMAP-editor.md' -- the slug positional, the upstream in the flag -- and the produced docs/briefs/BRIEF-inline-diff.md grounds its problem and outcome in that roadmap while recording the roadmap's own durable ancestor -- the STRATEGY it sequences, or a VISION -- which /brief resolves for itself in one hop at its Phase 0. The roadmap path is never written into the BRIEF. Phase 2 then invokes the terminal child as '/plan docs/designs/DESIGN-inline-diff.md --upstream docs/roadmaps/ROADMAP-editor.md', and the produced docs/plans/PLAN-inline-diff.md carries a sequence-valued upstream: naming the DESIGN first and the ROADMAP second. That is where the crossing from the strategic chain into the tactical one is recorded, because the PLAN is deleted by the same cascade that deletes the ROADMAP and goes first, so the link cannot dangle. No durable artifact in the chain names the ROADMAP. Where the consolidation judgment absorbs the BRIEF into the PRD, the absorb re-points the survivor to the absorbed artifact's own upstream -- so the surviving PRD inherits the STRATEGY the BRIEF had resolved, never the roadmap's path. A PRD may legally name a STRATEGY, so the absorb's re-validation passes rather than reverting. Passing the ROADMAP positionally to either child would have named the produced document after the roadmap and broken the R20 file-existence check, which looks for docs/briefs/BRIEF-inline-diff.md.",
       "files": [
         "docs/roadmaps/ROADMAP-editor.md"
       ],
@@ -361,7 +357,7 @@
         "Plan parses --upstream and consumes the following token as its argument before validating the positional slug",
         "Plan validates 'inline-diff' as the topic slug and does NOT test the ROADMAP path against the topic-slug regex",
         "Plan enforces a ROADMAP- basename on the --upstream value, confines its canonical path to docs/roadmaps/, and runs the three ordered checks (wip/ rejection, git-tracked confirmation, public-repo-to-private-upstream omission)",
-        "Plan records the validated path in the state file as consumed_upstream:",
+        "Plan records the validated path in the state record as consumed_upstream:",
         "Plan invokes /brief with the topic slug positionally and the ROADMAP path as --upstream, not the ROADMAP path positionally",
         "Plan produces docs/briefs/BRIEF-inline-diff.md recording the roadmap's resolved durable ancestor, never the roadmap path itself",
         "Plan passes the same ROADMAP path to /plan as --upstream, alongside the DESIGN positionally",
@@ -374,11 +370,9 @@
     {
       "id": 24,
       "name": "upstream-flag-stale-on-resume",
-      "prompt": "/scope inline-diff",
-      "expected_output": "Re-entry against an existing wip/scope_inline-diff_state.md that carries consumed_upstream: docs/roadmaps/ROADMAP-editor.md, where that file no longer exists. The resume ladder re-validates the recorded upstream before any slot's action runs and before the path is interpolated into a child invocation, re-running the whole Phase 0 battery against the worktree as it is now. The failure is SURFACED rather than silently ignored: the ladder names the recorded path and the check it now fails, and offers Re-supply (clear the field and ask the author to re-invoke with a working path -- the interactive default), Continue without (remove the field and resume with no upstream, stated plainly), or Bail. Under --auto the ladder takes Continue without and announces it.",
-      "files": [
-        "wip/scope_inline-diff_state.md"
-      ],
+      "prompt": "/scope inline-diff  (the key work/state.md in session scope-inline-diff carries consumed_upstream: docs/roadmaps/ROADMAP-editor.md, and that file no longer exists)",
+      "expected_output": "Re-entry against an existing key work/state.md in scope-inline-diff that carries consumed_upstream: docs/roadmaps/ROADMAP-editor.md, where that file no longer exists. The resume ladder re-validates the recorded upstream before any slot's action runs and before the path is interpolated into a child invocation, re-running the whole Phase 0 battery against the worktree as it is now. The failure is SURFACED rather than silently ignored: the ladder names the recorded path and the check it now fails, and offers Re-supply (clear the field and ask the author to re-invoke with a working path -- the interactive default), Continue without (remove the field and resume with no upstream, stated plainly), or Bail. Under --auto the ladder takes Continue without and announces it.",
+      "files": [],
       "expectations": [
         "Plan re-validates consumed_upstream: on re-entry rather than trusting the recorded value",
         "Plan surfaces the failure naming the recorded path and the check it fails, and does not silently drop or silently keep the value",
@@ -443,13 +437,13 @@
       "id": 29,
       "name": "bail-at-phase-1-reaches-clean-cancel",
       "prompt": "/scope test-topic  (the author selects Bail at the chain proposal, before any child fires)",
-      "expected_output": "Cold start: nothing on disk for the topic. Phase 0 validates the slug and writes wip/scope_test-topic_state.md before returning control, Phase 1 emits the chain proposal, and the author selects Bail. R8 bail-handling routes on what a child produced: no child intermediate at wip/{brief,prd,design,plan}_test-topic_* and no research scratch at wip/research/{prd,design}_test-topic_* exists, so the bail is a clean cancel. The state file Phase 0 wrote does not route the bail the other way -- nothing under the parent's own wip/scope_test-topic_* prefix counts, because nothing under that prefix is a child's output. The clean cancel records no exit: value, names no triggering_child:, and force-materializes nothing; the bail handler removes wip/scope_test-topic_state.md on its way out, because Phase 4 does not run on a cancel. wip/scope_test-topic_handoff.md, if one is on disk, is NOT removed -- the deletion is one path inside the prefix, not the prefix. R9 never fires: it runs at finalization against a recorded exit, and the run terminates through none of the three artifact-requiring exits, so the empty exit_artifacts: refusal is not reached.",
+      "expected_output": "Cold start: nothing on disk for the topic. Phase 0 validates the slug and writes key work/state.md in scope-test-topic before returning control, Phase 1 emits the chain proposal, and the author selects Bail. R8 bail-handling routes on what a child produced: no child session (brief-, prd-, design-, plan-test-topic) holds a work/ key, so no child intermediate exists, so the bail is a clean cancel. The state key Phase 0 wrote does not route the bail the other way -- nothing in the parent's own scope-test-topic session counts, because nothing there is a child's output. The clean cancel records no exit: value, names no triggering_child:, and force-materializes nothing; the bail handler removes key work/state.md from scope-test-topic (koto context remove) on its way out, because Phase 4 does not run on a cancel. The router's handoff/scope.md in explore-test-topic, if present, is NOT removed -- it belongs to the explore session, and the children's live sessions stay too. R9 never fires: it runs at finalization against a recorded exit, and the run terminates through none of the three artifact-requiring exits, so the empty exit_artifacts: refusal is not reached.",
       "files": [],
       "expectations": [
-        "Plan routes the Phase 1 Bail to a clean cancel, not to abandonment-forced, because no child intermediate (wip/{brief,prd,design,plan}_test-topic_*) and no research scratch (wip/research/{prd,design}_test-topic_*) exists",
-        "Plan states the route test positively and treats nothing under the parent's own wip/scope_test-topic_* prefix as evidence a child ran, rather than excluding the state file by name",
-        "Plan disposes of wip/scope_test-topic_state.md in the bail handler, and gives the reason: Phase 4 does not run on a cancel",
-        "Plan removes that one path only and does NOT sweep the wip/scope_test-topic_* prefix; wip/scope_test-topic_handoff.md is carved out of the bail's deletion",
+        "Plan routes the Phase 1 Bail to a clean cancel, not to abandonment-forced, because no child session (brief-, prd-, design-, plan-test-topic) holds a work/ key (skill-session.sh has-work)",
+        "Plan states the route test positively and treats nothing in the parent's own scope-test-topic session as evidence a child ran, rather than excluding the state key by name",
+        "Plan removes key work/state.md from scope-test-topic (koto context remove) in the bail handler, and gives the reason: Phase 4 does not run on a cancel",
+        "Plan removes that one key only: the router's handoff/scope.md in explore-test-topic and the children's live sessions are left in place",
         "Plan records no exit: value and names no triggering_child:, and force-materializes no artifact",
         "Plan does NOT trip the R9 hard-finalization check: the run terminates through none of the three artifact-requiring exits, so the empty exit_artifacts: condition is never evaluated",
         "Plan does NOT set triggering_child: to the first child in planned_chain: that has not completed; no child ran and no intermediate exists to materialize"
@@ -459,14 +453,12 @@
       "id": 30,
       "name": "explore-handoff-enters-phase-1",
       "prompt": "/scope inline-diff",
-      "expected_output": "/scope's handoff file for inline-diff exists on disk, written by /explore's Phase 5 parent-handoff arm. No /scope state file for inline-diff, no child doc at a status Slot 5 recognizes, and no child wip partial Slot 6 matches, so the resume ladder falls to Slot 7. That one path is the whole match condition; the slot reads no other file to decide whether it fires, and the path is composed from /scope's own prefix plus the validated slug, so it never fires on a path in another skill's namespace. The slug recovered from that filename is re-validated against ^[a-z0-9-]+$ before it is interpolated anywhere. Slot 7 runs Phase 0's setup obligations against the current worktree -- slug validation, the slug-prefix convention check, visibility detection, --upstream validation when the invocation supplied one, and state-file creation -- and records consumed_handoff: naming that handoff file at that same write. It then enters /scope's own Phase 1 with the handoff pre-loaded as discovery input. Phase 1 is never skipped and no child is resumed into: a handoff is discovery material, not a resume point inside the chain. planned_chain: is [brief, prd, design, plan] exactly as on any other run, and the chain proposal is emitted and confirmed as always. Three Phase 1 behaviors differ: the framing-shift question is surfaced as a confirmation of the pre-supplied answer rather than a fresh ask, and the author's response is what gets recorded; the child-doc globs run unchanged because they are filesystem reads; and the cold-start projected-PRD evaluation is suppressed, since a handoff run is not a cold start. The handoff is not deleted on consumption -- Phase 4's sweep owns that, and a bail at Phase 1 leaves it in place so a later invocation reaches the same slot.",
-      "files": [
-        "wip/scope_inline-diff_handoff.md"
-      ],
+      "expected_output": "/scope's handoff for inline-diff exists as key handoff/scope.md in session explore-inline-diff, written by /explore's Phase 5 parent-handoff arm. No /scope state key for inline-diff, no child doc at a status Slot 5 recognizes, and no child wip partial Slot 6 matches, so the resume ladder falls to Slot 7. That one path is the whole match condition; the slot reads no other file to decide whether it fires, and the path is composed from /scope's own prefix plus the validated slug, so it never fires on a path in another skill's namespace. The slug recovered from that filename is re-validated against ^[a-z0-9-]+$ before it is interpolated anywhere. Slot 7 runs Phase 0's setup obligations against the current worktree -- slug validation, the slug-prefix convention check, visibility detection, --upstream validation when the invocation supplied one, and work/state.md creation -- and records consumed_handoff: naming that handoff key at that same write. It then enters /scope's own Phase 1 with the handoff pre-loaded as discovery input. Phase 1 is never skipped and no child is resumed into: a handoff is discovery material, not a resume point inside the chain. planned_chain: is [brief, prd, design, plan] exactly as on any other run, and the chain proposal is emitted and confirmed as always. Three Phase 1 behaviors differ: the framing-shift question is surfaced as a confirmation of the pre-supplied answer rather than a fresh ask, and the author's response is what gets recorded; the child-doc globs run unchanged because they are filesystem reads; and the cold-start projected-PRD evaluation is suppressed, since a handoff run is not a cold start. The handoff is not deleted on consumption -- Phase 4's sweep owns that, and a bail at Phase 1 leaves it in place so a later invocation reaches the same slot.",
+      "files": [],
       "expectations": [
-        "Plan falls through to Slot 7 and fires it on the presence of wip/scope_inline-diff_handoff.md alone, after the rows above fail to match",
+        "Plan falls through to Slot 7 and fires it on the presence of key handoff/scope.md in explore-inline-diff alone, after the rows above fail to match",
         "Plan re-validates the slug recovered from the handoff filename against ^[a-z0-9-]+$ before interpolating it anywhere",
-        "Plan runs Phase 0's setup obligations before entering Phase 1, and records consumed_handoff: wip/scope_inline-diff_handoff.md in the state file",
+        "Plan runs Phase 0's setup obligations before entering Phase 1, and records consumed_handoff: handoff/scope.md in the state record",
         "Plan enters /scope's own Phase 1 with the handoff pre-loaded as discovery input, and does NOT skip Phase 1",
         "Plan does NOT resume into or invoke /brief, /prd, /design or /plan directly off the handoff; the chain runs from Phase 2 as always",
         "Plan keeps planned_chain: as [brief, prd, design, plan] and still emits the chain proposal for confirmation",
@@ -531,58 +523,58 @@
     {
       "id": 34,
       "name": "intent-refusals-are-koto-refusals",
-      "prompt": "Run each of these as a separate /scope invocation in a git repository on a feature branch, and after each one print the output, then whether wip/scope_<topic>_state.md exists and the exit code of `koto status scope-<topic>`: (1) /scope intent-bogus --intent=bogus (2) /scope intent-twice --intent=stop --intent=continue (3) /scope intent-none --intent=none (4) /scope intent-unset --intent=unset (5) /scope intent-bare --intent",
-      "expected_output": "Every invocation is refused at koto init, before any work: scope-open.sh maps the tokens to INTENT_FLAG pairs and koto refuses them with exit 2 -- --intent=bogus, --intent=none, --intent=unset and a bare --intent as invalid_var (INTENT_FLAG admits only continue, stop or empty), and a repeated --intent as duplicate_var. Each prints an error naming --intent followed by outcome=error and step=scope:refused, never outcome=refused. The texts for bogus, none and unset are identical apart from the echoed value. No scope-<topic> session and no state file exist afterwards, and no child skill runs.",
+      "prompt": "Run each of these as a separate /scope invocation in a git repository on a feature branch, and after each one print the output, then whether session scope-<topic> (and so its work/state.md key) exists and the exit code of `koto status scope-<topic>`: (1) /scope intent-bogus --intent=bogus (2) /scope intent-twice --intent=stop --intent=continue (3) /scope intent-none --intent=none (4) /scope intent-unset --intent=unset (5) /scope intent-bare --intent",
+      "expected_output": "Every invocation is refused at koto init, before any work: scope-open.sh maps the tokens to INTENT_FLAG pairs and koto refuses them with exit 2 -- --intent=bogus, --intent=none, --intent=unset and a bare --intent as invalid_var (INTENT_FLAG admits only continue, stop or empty), and a repeated --intent as duplicate_var. Each prints an error naming --intent followed by outcome=error and step=scope:refused, never outcome=refused. The texts for bogus, none and unset are identical apart from the echoed value. No scope-<topic> session and no state key exist afterwards, and no child skill runs.",
       "files": [],
-      "notes": "Covers R1 of the scope-then-execute PRD (only continue and stop; invalid or repeated values refused before a state file or session exists).",
+      "notes": "Covers R1 of the scope-then-execute PRD (only continue and stop; invalid or repeated values refused before a state key or session exists).",
       "expectations": [
         "Each of the five invocations ends with an error that names --intent",
         "The --intent=none and --intent=unset refusals read the same as the --intent=bogus refusal apart from the value",
         "Each refusal prints outcome=error and step=scope:refused, and no output line reads outcome=refused",
-        "After every invocation, wip/scope_<topic>_state.md does not exist and `koto status scope-<topic>` fails",
+        "After every invocation, no scope-<topic> state key work/state.md exists and `koto status scope-<topic>` fails",
         "No child skill (/brief, /prd, /design, /plan) is invoked by any of the five runs"
       ]
     },
     {
       "id": 35,
       "name": "intent-refusal-recorded-on-the-koto-leg",
-      "prompt": "In a git repository on a feature branch, create a koto request with one leg named scope: `REQ=$(koto request create --with-data '{\"legs\":[{\"name\":\"scope\",\"role\":\"scope\",\"template\":\"scope.md\",\"inputs\":{}}]}' --requested-by eval --coordinator-of-record eval | jq -r .request_id)`. Then run `/scope leg-topic --intent=bogus --koto-leg=$REQ:scope`. Afterwards print `koto request get $REQ | jq .legs.scope`, whether wip/scope_leg-topic_state.md exists, and the exit code of `koto status scope-leg-topic`. Then create a second request the same way and run `/scope leg-topic --intent=stop --intent= --koto-leg=<second id>:scope`, and print its leg the same way.",
-      "expected_output": "The first invocation is refused by koto at init and koto records the refusal on the leg itself: the leg is resolved with result source refused and a payload whose outcome is refused and whose reason is invalid-var:INTENT_FLAG. The second invocation is a repeated --intent (every occurrence is its own pair, the empty one included), and its leg records duplicate-var:INTENT_FLAG. Neither leaves a scope-leg-topic session or a state file, so a coordinator waiting on either leg reads the refusal instead of waiting.",
+      "prompt": "In a git repository on a feature branch, create a koto request with one leg named scope: `REQ=$(koto request create --with-data '{\"legs\":[{\"name\":\"scope\",\"role\":\"scope\",\"template\":\"scope.md\",\"inputs\":{}}]}' --requested-by eval --coordinator-of-record eval | jq -r .request_id)`. Then run `/scope leg-topic --intent=bogus --koto-leg=$REQ:scope`. Afterwards print `koto request get $REQ | jq .legs.scope`, whether a scope-leg-topic session exists, and the exit code of `koto status scope-leg-topic`. Then create a second request the same way and run `/scope leg-topic --intent=stop --intent= --koto-leg=<second id>:scope`, and print its leg the same way.",
+      "expected_output": "The first invocation is refused by koto at init and koto records the refusal on the leg itself: the leg is resolved with result source refused and a payload whose outcome is refused and whose reason is invalid-var:INTENT_FLAG. The second invocation is a repeated --intent (every occurrence is its own pair, the empty one included), and its leg records duplicate-var:INTENT_FLAG. Neither leaves a scope-leg-topic session or a state key, so a coordinator waiting on either leg reads the refusal instead of waiting.",
       "files": [],
       "notes": "Covers R1 and R30 of the scope-then-execute PRD (a refusal under --koto-leg is a koto record on the current request's leg). Needs a real koto at the pinned floor.",
       "expectations": [
         "The first leg shows a refused result whose payload reason is invalid-var:INTENT_FLAG",
         "The second leg shows a refused result whose payload reason is duplicate-var:INTENT_FLAG",
-        "Neither invocation leaves wip/scope_leg-topic_state.md or a scope-leg-topic session",
+        "Neither invocation leaves a work/state.md key or a scope-leg-topic session",
         "The run does not write to the request store itself; the leg record comes from koto init"
       ]
     },
     {
       "id": 36,
       "name": "intent-mismatch-on-a-live-session",
-      "prompt": "In a git repository on a feature branch, run `/scope live-topic --intent=stop` and stop once the run reaches discovery. Print the state file. Then, as a new invocation, run `/scope live-topic --intent=continue` and print its output and the state file again. Then run `/scope live-topic` with no flags and report whether it joined the existing session and what intent the state file records.",
-      "expected_output": "The first run opens scope-live-topic with INTENT_FLAG=stop and its state file records intent: stop. The second invocation is refused by koto init --attach-live as var_mismatch on INTENT_FLAG: the error names --intent and the recorded stop against the requested continue, prints outcome=error and step=scope:refused, and leaves the session and the state file unchanged. The bare third invocation leaves INTENT_FLAG out, so it is not compared; it attaches to the live session (opened=attached) and the state file still records intent: stop.",
+      "prompt": "In a git repository on a feature branch, run `/scope live-topic --intent=stop` and stop once the run reaches discovery. Print the state record (koto context get scope-live-topic work/state.md). Then, as a new invocation, run `/scope live-topic --intent=continue` and print its output and the state record again. Then run `/scope live-topic` with no flags and report whether it joined the existing session and what intent the state record records.",
+      "expected_output": "The first run opens scope-live-topic with INTENT_FLAG=stop and its state record records intent: stop. The second invocation is refused by koto init --attach-live as var_mismatch on INTENT_FLAG: the error names --intent and the recorded stop against the requested continue, prints outcome=error and step=scope:refused, and leaves the session and the state record unchanged. The bare third invocation leaves INTENT_FLAG out, so it is not compared; it attaches to the live session (opened=attached) and the state record still records intent: stop.",
       "files": [],
       "notes": "Covers R1 and R3 of the scope-then-execute PRD (the mismatch refusal on a live session, and the recorded intent a bare re-invocation resumes under).",
       "expectations": [
-        "After the first run the state file records intent: stop",
+        "After the first run the state record records intent: stop",
         "The --intent=continue invocation is refused with an error naming --intent and showing stop as the recorded intent",
-        "The refused invocation leaves the session's state and the state file unchanged",
+        "The refused invocation leaves the session's state and the state record unchanged",
         "The bare re-invocation attaches to the existing session rather than opening a new one or refusing",
-        "After the bare re-invocation the state file still records intent: stop"
+        "After the bare re-invocation the state record still records intent: stop"
       ]
     },
     {
       "id": 37,
       "name": "intent-mismatch-without-a-session",
-      "prompt": "In a git repository on a feature branch with no koto session for this topic, write /scope's state file for orphan-topic containing `topic: orphan-topic`, `intent: stop`, `exit:` with no value, `exit_artifacts: []` and `phase_pointer: 1`, one per line, and record its sha256. Then run `/scope orphan-topic --intent=continue`. Afterwards print the output, `koto status scope-orphan-topic | jq '{current_state, result}'`, and the state file's sha256 again.",
-      "expected_output": "koto init has nothing to compare against, so it opens a session; the intake state's run-intake.sh then reads the state file's recorded intent: stop, finds the explicit continue differs, and writes intake_verdict=refused, reason=intent-mismatch and recorded=stop to context. The run ends at done_refused without reaching setup or any child: koto status shows done_refused with a result whose outcome is refused, reason is intent-mismatch, recorded is stop and requested is continue. The state file is byte-for-byte unchanged, and the printed exit line is outcome=error with step=scope:refused.",
+      "prompt": "In a git repository on a feature branch with no koto session for this topic, write /scope's state record for orphan-topic (key work/state.md in session scope-orphan-topic, via koto context add) containing `topic: orphan-topic`, `intent: stop`, `exit:` with no value, `exit_artifacts: []` and `phase_pointer: 1`, one per line, and record its sha256. Then run `/scope orphan-topic --intent=continue`. Afterwards print the output, `koto status scope-orphan-topic | jq '{current_state, result}'`, and the state record's sha256 again.",
+      "expected_output": "koto init has nothing to compare against, so it opens a session; the intake state's run-intake.sh then reads the state record's recorded intent: stop, finds the explicit continue differs, and writes intake_verdict=refused, reason=intent-mismatch and recorded=stop to context. The run ends at done_refused without reaching setup or any child: koto status shows done_refused with a result whose outcome is refused, reason is intent-mismatch, recorded is stop and requested is continue. The state record is byte-for-byte unchanged, and the printed exit line is outcome=error with step=scope:refused.",
       "files": [],
       "notes": "Covers R1 and R3 of the scope-then-execute PRD (the session-less mismatch refused in intake; the recorded intent is not overwritten).",
       "expectations": [
         "The run ends at done_refused, and koto status reports reason intent-mismatch",
         "The recorded result carries recorded stop and requested continue",
-        "The state file's sha256 is the same before and after the invocation",
+        "The state record's sha256 is the same before and after the invocation",
         "No child skill runs and setup is never reached",
         "The printed exit line is outcome=error with step=scope:refused, not outcome=refused"
       ]
@@ -590,14 +582,14 @@
     {
       "id": 38,
       "name": "intent-recorded-in-the-state-file",
-      "prompt": "Run three /scope invocations, each in its own fresh git repository on a feature branch, and stop each as soon as setup has written the state file: (1) /scope rec-continue --intent=continue (2) /scope rec-stop --intent=stop (3) /scope rec-none. For each, print the `intent:` line of wip/scope_<topic>_state.md.",
-      "expected_output": "The intake state resolves the effective intent and setup writes it into the state file on the initial write: intent: continue for the first run, intent: stop for the second, and intent: none for the third. The field is always present and never empty; the empty value exists only on the INTENT_FLAG variable of the no-intent run.",
+      "prompt": "Run three /scope invocations, each in its own fresh git repository on a feature branch, and stop each as soon as setup has written the state record: (1) /scope rec-continue --intent=continue (2) /scope rec-stop --intent=stop (3) /scope rec-none. For each, print the `intent:` line of key work/state.md in session scope-<topic>.",
+      "expected_output": "The intake state resolves the effective intent and setup writes it into the state record on the initial write: intent: continue for the first run, intent: stop for the second, and intent: none for the third. The field is always present and never empty; the empty value exists only on the INTENT_FLAG variable of the no-intent run.",
       "files": [],
-      "notes": "Covers R3 of the scope-then-execute PRD (the state-file half: the resolved intent is recorded as continue, stop, or none).",
+      "notes": "Covers R3 of the scope-then-execute PRD (the state-record half: the resolved intent is recorded as continue, stop, or none).",
       "expectations": [
-        "The first state file records intent: continue",
-        "The second state file records intent: stop",
-        "The third state file records intent: none, not an empty or missing value"
+        "The first state record records intent: continue",
+        "The second state record records intent: stop",
+        "The third state record records intent: none, not an empty or missing value"
       ]
     },
     {
@@ -632,7 +624,7 @@
       "id": 41,
       "name": "plan-hop-without-intent-sends-todays-arguments",
       "prompt": "/scope forward-none --auto  (run the whole chain; when you invoke /plan, show the exact Skill call you make, including its arguments, and afterwards list every gh command the run executed)",
-      "expected_output": "A run with no --intent has effective intent none, so the /plan hop sends exactly today's argument string: the DESIGN path, plus --upstream only when the state file carries consumed_upstream:. It carries no --intent, no --coordinated, no --no-coordinated and no forwarded mode flag. The plan_mode_consistent gate exits 0 at once for a no-intent run. The run makes no push and opens no PR.",
+      "expected_output": "A run with no --intent has effective intent none, so the /plan hop sends exactly today's argument string: the DESIGN path, plus --upstream only when the state record carries consumed_upstream:. It carries no --intent, no --coordinated, no --no-coordinated and no forwarded mode flag. The plan_mode_consistent gate exits 0 at once for a no-intent run. The run makes no push and opens no PR.",
       "files": [],
       "notes": "Covers R2 and R5 of the scope-then-execute PRD, and design driver D2 (a no-intent run behaves as today).",
       "expectations": [
@@ -1124,12 +1116,12 @@
       "id": 66,
       "name": "brief-rejection-routes-to-re-evaluation",
       "prompt": "/scope test-topic",
-      "expected_output": "Cold start. /scope invokes /brief; /brief reaches Phase 5 and the author selects Reject. /brief runs git rm docs/briefs/BRIEF-test-topic.md and commits the discard with subject docs(brief): discard BRIEF draft for test-topic, still making that discard commit under the dispatch key and leaving its wip/ files, the jury's verdict files in the research directory included, to /scope's cleanup. Control returns to /scope. The hop submits outcome: rejected with the rationale in detail, which routes hop_brief to exit_re_evaluation; it is not a bail and not an R20 STALE. /scope captures the discard commit SHA via read-only git log, writes the rejection Decision Record at docs/decisions/DECISION-brief-test-topic-rejection-<YYYY-MM-DD>.md from skills/scope/references/decision-record-brief-rejection.md, and records exit: re-evaluation, boundary: brief, decision_record_sub_shape: rejection. /prd, /design and /plan never run; chain_skipped records them with reason brief-boundary-rejection.",
+      "expected_output": "Cold start. /scope invokes /brief; /brief reaches Phase 5 and the author selects Reject. /brief runs git rm docs/briefs/BRIEF-test-topic.md and commits the discard with subject docs(brief): discard BRIEF draft for test-topic, still making that discard commit under the dispatch key and leaving its working keys, the jury's verdict keys included, in brief-test-topic for /scope's close-children. Control returns to /scope. The hop submits outcome: rejected with the rationale in detail, which routes hop_brief to exit_re_evaluation; it is not a bail and not an R20 STALE. /scope captures the discard commit SHA via read-only git log, writes the rejection Decision Record at docs/decisions/DECISION-brief-test-topic-rejection-<YYYY-MM-DD>.md from skills/scope/references/decision-record-brief-rejection.md, and records exit: re-evaluation, boundary: brief, decision_record_sub_shape: rejection. /prd, /design and /plan never run; chain_skipped records them with reason brief-boundary-rejection.",
       "files": [],
       "expectations": [
         "Plan treats /brief's Phase 5 Reject as a rejection, not a bail and not an R20 STALE, and submits outcome: rejected at hop_brief",
         "Plan routes the run to exit_re_evaluation with boundary: brief and decision_record_sub_shape: rejection",
-        "Plan has /brief make its discard commit (docs(brief): discard BRIEF draft for test-topic) under the dispatch key, and leave its wip/ files, verdict files included, to /scope's cleanup",
+        "Plan has /brief make its discard commit (docs(brief): discard BRIEF draft for test-topic) under the dispatch key, and leave its working keys, verdict keys included, in brief-test-topic for /scope's close-children",
         "Plan writes the Decision Record at docs/decisions/DECISION-brief-test-topic-rejection-<YYYY-MM-DD>.md from skills/scope/references/decision-record-brief-rejection.md, citing the discard commit SHA",
         "Plan never invokes /prd, /design or /plan after the rejection, and records them in chain_skipped with reason brief-boundary-rejection"
       ]

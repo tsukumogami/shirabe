@@ -80,8 +80,23 @@ Then exactly one parent-specific block, per the binding below.
 
 ## `/scope` Binding
 
-Write `wip/scope_<topic>_handoff.md`: the six shared sections, then both blocks
-below.
+Write the handoff as key `handoff/scope.md` in session `explore-<topic>`,
+following `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`: the six
+shared sections, then both blocks below. This is the only step where `/explore`
+opens that session. Open it, then assemble the content in a private directory
+and ingest it, so the key is the file name:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open explore <topic>
+dir=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch)
+# write the handoff to "$dir/scope.md", then:
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest explore-<topic> handoff "$dir"
+```
+
+A non-zero exit from any of these stops the run with the script's message
+(127 or 69 means koto is missing or too old); there is no fallback to a file in
+`wip/`. `/explore` does not close the session: `/scope` reads the key, removes
+it once consumed, and closes `explore-<topic>` when it holds nothing else.
 
 ```markdown
 ## Framing-Shift Answer
@@ -116,7 +131,7 @@ the basename; nothing else belongs on the flag.
 
 Tell the author:
 
-> Wrote `wip/scope_<topic>_handoff.md`. Run `/scope <topic>` to walk the
+> Wrote the handoff to session `explore-<topic>`. Run `/scope <topic>` to walk the
 > tactical chain (BRIEF, PRD, DESIGN, PLAN) with the exploration pre-loaded
 > into discovery. Your research stays in `wip/`.
 
@@ -171,9 +186,11 @@ file pre-loaded. That ordering is what lets a settled artifact on disk win over
 a handoff written last week, and `/explore` cannot reproduce it by invoking the
 parent mid-session.
 
-The handoff is left on disk after the parent consumes it. A parent that bails at
-Phase 1 does not delete it, so a later invocation reaches the same clause rather
-than starting cold.
+The `/charter` handoff is left on disk after the parent consumes it. A parent
+that bails at Phase 1 does not delete it, so a later invocation reaches the same
+clause rather than starting cold. The `/scope` handoff key is removed by `/scope`
+once it has consumed it; one `/scope` never consumed stays in `explore-<topic>`
+for the next `/scope` run.
 
 ## Commit
 
@@ -183,5 +200,6 @@ Commit before naming the command: `docs(explore): hand off <topic> to /<parent>`
 
 After this step:
 - All explore artifacts in `wip/` (untouched)
-- `wip/scope_<topic>_handoff.md` or `wip/charter_<topic>_handoff.md` (new)
+- Key `handoff/scope.md` in `explore-<topic>` (new, `/scope` arm), or
+  `wip/charter_<topic>_handoff.md` (new, `/charter` arm)
 - No durable document written; the session stops and the author runs the parent
