@@ -614,10 +614,11 @@ EOF
     teardown
 }
 
-# The bail state legitimately reads child-intermediate wip/ prefixes. Only the
-# parent's own wip/scope_ prefix is the state file.
-test_child_wip_prefix_passes() {
-    local name="a wip/ read that is not wip/scope_ passes"
+# The children keep their state as session keys, so a gate command that looks
+# in the staging folder decides on files nothing writes any more
+# (staging-folder-read, the rule's second limb).
+test_gate_wip_path_flagged() {
+    local name="a gate command naming a wip/ path is flagged"
     setup
     scope_template <<'EOF'
 ---
@@ -644,7 +645,114 @@ states:
     terminal: true
 ---
 EOF
+    assert_fails "$name" "gate command names the staging folder" \
+        "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# The folder read without a slash -- `find wip -name ...` -- is the shape the
+# bail gate actually had, so the limb matches the bare path word too.
+test_gate_bare_wip_flagged() {
+    local name="a gate command reading the folder without a slash is flagged"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "find wip -maxdepth 2 -name 'brief_x_*' -print 2>/dev/null | grep -q ."
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
+    assert_fails "$name" "gate command names the staging folder" \
+        "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# An identifier that merely contains the letters is not the folder: the
+# wip_paths= report line and similar names stay legal in a gate command.
+test_gate_wip_identifier_passes() {
+    local name="an identifier containing wip is not a staging-folder read"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "grep -q wip_paths= out.txt"
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
     assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
+    teardown
+}
+
+# A staging-folder-read allowlist record defers the finding like the other
+# rules' records do.
+test_gate_staging_allowlisted_passes() {
+    local name="an allowlisted staging-folder read is deferred, not failed"
+    setup
+    scope_template <<'EOF'
+---
+name: scope
+version: "1.0"
+initial_state: bail
+
+states:
+  bail:
+    gates:
+      child_intermediate_present:
+        type: command
+        command: "ls wip/prd_*_state.md"
+    accepts:
+      bail_mode:
+        type: string
+        required: true
+    transitions:
+      - target: done
+        when:
+          bail_mode: force_materialize
+
+  done:
+    terminal: true
+---
+EOF
+    local rel="${TEST_DIR}/skills/scope/koto-templates/scope.md"
+    printf 'staging-folder-read\t%s\tchild_intermediate_present\towner/repo#7\tdeferred for the test\n' \
+        "$rel" > "$TEST_DIR/allow"
+    assert_passes "$name" "$rel"
     teardown
 }
 
@@ -892,7 +1000,10 @@ test_scope_invoked_script_trailing_comment_still_read
 test_scope_block_scalar_command_is_read
 test_template_variable_is_not_evidence
 test_malformed_interpolation_terminates
-test_child_wip_prefix_passes
+test_gate_wip_path_flagged
+test_gate_bare_wip_flagged
+test_gate_wip_identifier_passes
+test_gate_staging_allowlisted_passes
 test_rule_two_does_not_apply_elsewhere
 test_unresolvable_invoked_script_fails
 

@@ -330,12 +330,16 @@ reads_state_file() {
     return 1
 }
 
-# names_staging_folder <text> -- any path under the staging folder. Applied to
-# a gate's own command string only (see the header's second limb).
+# names_staging_folder <text> -- any path under the staging folder, or the
+# folder itself as a bare path word (`find wip -name ...` reads it without a
+# slash). Applied to a gate's own command string only (see the header's
+# second limb). The word form is delimited so identifiers merely containing
+# the letters (wip_paths, swipe) do not match.
 names_staging_folder() {
     case "$1" in
         *wip/*) return 0 ;;
     esac
+    [[ "$1" =~ (^|[^A-Za-z0-9_./-])wip($|[^A-Za-z0-9_/-]) ]] && return 0
     return 1
 }
 

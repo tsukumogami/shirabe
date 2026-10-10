@@ -1350,13 +1350,15 @@ states:
   bail:
     # phase: 3
     gates:
-      # Child-intermediate prefixes only. The parent's own prefix, the state
-      # file included, is not a child's output and is deliberately not part of
-      # this test, which is why the patterns name the children rather than
-      # excluding one file.
+      # The four children's sessions only. The parent's own session is not a
+      # child's output and is deliberately not part of this test, which is why
+      # the loop names the children rather than excluding the parent.
+      # has-work exits 0 for a live session holding a work/ key, 1 for none,
+      # and 4 when it cannot tell; cannot-tell maps to exit 2 so the
+      # force_materialize arms below can route on it.
       child_intermediate_present:
         type: command
-        command: 'find wip -maxdepth 2 \( -name "brief_{{TOPIC}}_*" -o -name "prd_{{TOPIC}}_*" -o -name "design_{{TOPIC}}_*" -o -name "plan_{{TOPIC}}_*" \) -print 2>/dev/null | grep -q .'
+        command: 'found=1; for c in brief prd design plan; do "{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work "$c" "{{TOPIC}}"; rc=$?; case $rc in 0) found=0 ;; 1) : ;; *) exit 2 ;; esac; done; exit $found'
     accepts:
       bail_ack:
         type: enum
@@ -1382,12 +1384,13 @@ states:
         when:
           bail_ack: force_materialize
           gates.child_intermediate_present.exit_code: 1
-      # `find | grep -q` can exit non-zero for a reason that is neither "found"
-      # nor "not found" -- an unreadable directory, say. Without this arm that
-      # status matches nothing, and the run stalls in a state whose details are
-      # never redelivered. force_materialize routes to abandonment on ANY gate
-      # outcome by design: the author already chose it, and the gate only
-      # informs how much there is to materialize.
+      # has-work can exit for a reason that is neither "work" nor "no work" --
+      # a session whose state it cannot tell, say -- which the gate maps to
+      # exit 2. Without this arm that status matches nothing, and the run
+      # stalls in a state whose details are never redelivered.
+      # force_materialize routes to abandonment on ANY gate outcome by design:
+      # the author already chose it, and the gate only informs how much there
+      # is to materialize.
       - target: exit_abandonment
         when:
           bail_ack: force_materialize
@@ -2631,6 +2634,18 @@ a verdict, because the validator is missing or a validation returned no verdict.
 Nothing about the chain was established in that case, and the two must not be
 recorded as the same thing.
 
+Once the state file records `exit: full-run`, close the children this chain
+dispatched (`references/skill-session-convention.md`):
+
+```bash
+"{{PLUGIN_ROOT}}/scripts/skill-session.sh" close-children scope "{{TOPIC}}" done
+```
+
+It closes only a live child whose `chain/parent` names this parent on this
+branch, so a direct run's session or another worktree's is never touched, and
+closing is idempotent: a run that crashed between the exit and the closes
+finishes them on its next pass.
+
 Evidence schema:
 - `exit_artifacts`: the path/status pairs the state file records
 - `plan_execution_mode`: `single-pr`, `multi-pr`, or `coordinated`
@@ -2725,6 +2740,17 @@ the gate passes and the run advances to cleanup; without it, the run returns
 here with the gate reported. `retry_or_abandon: abandon` leaves for the
 abandonment exit, so an agent that cannot produce the record is not stuck here.
 
+Once the state file records `exit: re-evaluation`, close the children this
+chain dispatched (`references/skill-session-convention.md`):
+
+```bash
+"{{PLUGIN_ROOT}}/scripts/skill-session.sh" close-children scope "{{TOPIC}}" abandoned
+```
+
+The chain stopped at a boundary, so the children close as `abandoned`. Only a
+live child whose `chain/parent` names this parent on this branch is touched,
+and closing is idempotent.
+
 Evidence schema:
 - `boundary`: `brief`, `prd` or `design`
 - `decision_record_sub_shape`: `re-evaluation` or `rejection`
@@ -2784,6 +2810,18 @@ ends the run at the cancelled terminal, so an agent that cannot materialize the
 artifact is not stuck here. Advance with `--no-cleanup` on that tick as well:
 the route to the cancelled terminal retains the per-hop record for the same
 reason the cleanup states do.
+
+Once the state file records `exit: abandonment-forced`, close the children
+this chain dispatched (`references/skill-session-convention.md`):
+
+```bash
+"{{PLUGIN_ROOT}}/scripts/skill-session.sh" close-children scope "{{TOPIC}}" abandoned
+```
+
+The run stopped with a child mid-flight, so the children close as `abandoned`;
+their keys stay readable in the closed sessions. Only a live child whose
+`chain/parent` names this parent on this branch is touched, and closing is
+idempotent.
 
 Evidence schema:
 - `triggering_child`: `brief`, `prd`, `design`, or `plan`
