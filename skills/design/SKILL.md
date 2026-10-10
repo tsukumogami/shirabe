@@ -145,13 +145,63 @@ From `$ARGUMENTS`:
 2. **Path to accepted PRD** (matches `docs/prds/PRD-*.md` with status "Accepted") -- PRD mode
 3. **Anything else** -- freeform topic
 
+### Session and Keys
+
+`/design` keeps its working state as keys in its own koto session,
+`design-<topic>`, following
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It writes no
+file to the staging folder, chained or direct. Its first act, once the topic
+is known (from the argument, or the `<topic>` in a PRD path's file name) and
+before Context Resolution or the resume rows below, opens the session and
+records whether it runs under a parent:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open design <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt design <topic>
+```
+
+`open` attaches to a live `design-<topic>` (an interrupted run, whose keys the
+resume rows read), replaces a finished one (a fresh run), or creates it. Any
+non-zero exit from either command stops the run with the script's message:
+127 or 69 means koto is missing or too old, and the skill never falls back to
+files. `adopt` exiting 3 is the two-parents case below.
+
+| Key | Written at | Holds |
+|-----|-----------|-------|
+| `work/decisions.md` | Context Resolution, under `--auto` | the autonomous-decision ledger |
+| `work/summary.md` | Phase 0, updated through Phase 5 | the design summary and current phase |
+| `work/coordination.json` | Phase 1, updated in Phase 2 | the decision coordination manifest |
+| `work/decision_<N>_report.md` | Phase 2 | each decision's report, from `/decision` or resolved inline |
+| `work/decision-<N>/<file>` | Phase 2, by `/decision` | a decider's intermediates (`context.md`, `research.md`, `alternatives.md`, `bakeoff_<k>.md`, `examination.md`) |
+| `research/phase5_security.md` | Phase 5 | the security researcher's report, ingested |
+| `research/phase6_<role>-review.md` | Phase 6 | the final-review jury's reports, ingested |
+
+Keys are read and written with koto against `design-<topic>`: `koto context
+exists design-<topic> <key>` tests one (exit 0 present, 1 absent), `koto
+context get design-<topic> <key>` prints it, `koto context add design-<topic>
+<key>` stores the content given on stdin (the whole content: to change part
+of it, get the key, edit it, and add it back), `koto context list
+design-<topic> --prefix <prefix>` lists keys, and `koto context remove
+design-<topic> <key>` removes one. Research and reviewer agents never write
+keys: each phase that spawns them pins every output to a file in a
+`skill-session.sh scratch` directory and ingests it. A decider agent in Phase
+2 runs the `/decision` skill inside this session, writing the keys its
+`decision_context` names.
+
+**Closing.** A direct run closes its session when it finishes:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close design-<topic> done`
+at Phase 6's end, or `close design-<topic> abandoned` after a Reject's discard
+commit. Under a parent `/design` never closes its own session: the parent
+closes it at its own exit (`skill-session.sh close-children`), and the keys
+stay readable until then.
+
 ### Context Resolution
 
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
 then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Also
 parse `--max-rounds=N` (default: 1 for design's corrective loop). In --auto
-mode, follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at all decision points. Create
-`wip/design_<topic>_decisions.md` to track decisions.
+mode, follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at all decision points, and
+track decisions in key `work/decisions.md` in `design-<topic>`.
 
 Detect visibility and scope as described in Context-Aware Sections above.
 For cross-repo source issues, use `gh` commands to read content.
@@ -163,12 +213,12 @@ dispatch read design <topic> prints parent=<session>
                                                           → run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 Design doc status "Accepted"                              → Offer to revise or start fresh
 Design doc status "Proposed"                              → Offer to continue
-wip/research/design_<topic>_phase5_security.md            → Resume at Phase 6
+key research/phase5_security.md in design-<topic>         → Resume at Phase 6
 Design doc has Solution Architecture                      → Resume at Phase 5
 Design doc has Considered Options                         → Resume at Phase 4
-wip/design_<topic>_coordination.json (all complete)       → Resume at Phase 3
-wip/design_<topic>_coordination.json (some pending)       → Resume at Phase 2
-wip/design_<topic>_summary.md exists, no coordination     → Resume at Phase 1
+key work/coordination.json (all complete)                 → Resume at Phase 3
+key work/coordination.json (some pending)                 → Resume at Phase 2
+key work/summary.md exists, no work/coordination.json     → Resume at Phase 1
 On topic branch, no artifacts                             → Resume at Phase 0
 ```
 
@@ -184,17 +234,17 @@ direct one with the rows below unchanged: no parent session, a finished parent
 session, and a parent whose `chain/dispatch` key names another child. The
 fourth, two parent sessions that both name `/design`, exits 3: don't pick one
 and don't run directly; stop and report both sessions, which the script names
-on stderr, so the author can clear the stale key. Exit 127 (koto not
-installed) means no parent can be running, so the run is direct; any other
-non-zero exit stops the run with the script's message. `/design` opens no
-session of its own here.
+on stderr, so the author can clear the stale key. Any other non-zero exit
+stops the run with the script's message (`open` has already checked koto).
+`adopt` has recorded the same match as `chain/parent` in `design-<topic>`, or
+removed a `chain/parent` an earlier chained run left.
 
 ### Critical Requirements
 
 - **Decision decomposition before execution**: identify all decision questions in Phase 1 before spawning any decision agents in Phase 2
 - **Equal-depth investigation**: every decision question gets the same framework treatment at its assigned tier
 - **Cross-validation is mandatory**: Phase 3 always runs after Phase 2, even with one decision
-- **Topic-scoped artifacts**: all wip/ files include `<topic>` in their path
+- **Topic-scoped state**: every working, research and decision file is a key in `design-<topic>`, never a file in the staging folder
 
 ### Output
 

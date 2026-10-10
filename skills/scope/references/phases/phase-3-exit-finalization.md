@@ -19,6 +19,7 @@ declared in `skills/scope/SKILL.md` (Security Considerations).
   - [Full-Run Exit](#full-run-exit)
   - [Re-Evaluation Exit](#re-evaluation-exit)
   - [Abandonment-Forced Exit](#abandonment-forced-exit)
+- [Closing the Children](#closing-the-children)
 - [R8 Bail Route](#r8-bail-route)
   - [R8 Tie-Break for `triggering_child:`](#r8-tie-break-for-triggering_child)
   - [Clean Cancel](#clean-cancel)
@@ -238,6 +239,25 @@ publish step opens one at exit, once the PLAN's mode is known, and an
 abandoned run has not reached it. So before exit there is no coordination
 PR to close. Only a run with `intent: none` whose coordination intent
 resolved on, which did create one up front, closes it here.
+
+## Closing the Children
+
+On every exit path, once the state file records its `exit:` value, the
+run closes the children this chain dispatched
+(`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close-children scope <topic> <done|abandoned>
+```
+
+`done` on a full-run exit; `abandoned` on the re-evaluation and
+abandonment-forced exits, where the chain stopped before its children's
+work became a surviving document. The script closes only a live
+`<child>-<topic>` whose `chain/parent` names this parent and whose
+`session/branch` matches the current branch, so a direct run's session
+or another worktree's chain is never touched. Closing is idempotent: a
+run that crashed between writing `exit:` and the closes finishes them on
+its next pass, and a closed session's keys stay readable.
 
 ## R8 Bail Route
 

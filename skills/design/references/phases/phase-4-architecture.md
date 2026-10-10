@@ -21,7 +21,8 @@ If the design doc has a "Solution Architecture" section, skip to Phase 5.
 ### 4.1 Read Investigation Findings
 
 Read the Considered Options and Decision Outcome sections already in the design doc
-(written during Phase 3 cross-validation). Read the wip/ summary for additional context.
+(written during Phase 3 cross-validation). Read the summary key (`koto context get
+design-<topic> work/summary.md`) for additional context.
 
 ### 4.2 Write Solution Architecture
 
@@ -42,8 +43,8 @@ Read the Considered Options and Decision Outcome sections already in the design 
 
 ### Data Flow
 
-<How data moves through the system. Include wip/ artifacts if the design
-produces workflow state.>
+<How data moves through the system. Include the workflow state the design
+produces, if any.>
 ```
 
 Be concrete. Name files, functions, and paths where possible. A reader should be

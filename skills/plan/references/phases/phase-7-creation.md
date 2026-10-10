@@ -37,15 +37,15 @@ subcommand's default.
 
 ## Prerequisites
 
-Read all topic-scoped wip/ artifacts:
-- `wip/plan_<topic>_analysis.md` -- design doc path and scope
-- `wip/plan_<topic>_milestones.md` -- milestone definitions
-- `wip/plan_<topic>_decomposition.md` -- issue outlines and strategy (includes `execution_mode` in YAML frontmatter)
-- `wip/plan_<topic>_manifest.json` -- generated issue bodies and file references
-- `wip/plan_<topic>_dependencies.md` -- dependency graph
-- `wip/plan_<topic>_review.md` -- review approval
+Read the keys in `plan-<topic>` (`koto context get plan-<topic> <key>`):
+- `work/analysis.md` -- design doc path and scope
+- `work/milestones.md` -- milestone definitions
+- `work/decomposition.md` -- issue outlines and strategy (includes `execution_mode` in YAML frontmatter)
+- `work/manifest.json` -- generated issue bodies (keys `work/issue_<id>_body.md`) and their names
+- `work/dependencies.md` -- dependency graph
+- `work/review.md` -- review approval
 
-**STOP** if `wip/plan_<topic>_manifest.json` does not exist. Phase 4 (Agent Generation) must run first.
+**STOP** if key `work/manifest.json` does not exist. Phase 4 (Agent Generation) must run first.
 
 Read the `execution_mode` from the decomposition artifact's YAML frontmatter, then branch to the appropriate section below. Carry its `split_mode_source` (and, on a split, `split_rationale`) into the PLAN's frontmatter next to `execution_mode`: they are the record that lets a caller re-run `scripts/resolve-split-mode.sh` over the PLAN's split and compare.
 
@@ -150,16 +150,27 @@ Use the batch script to create all issues in dependency order.
 
 **Script**: `${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh`
 
-Read `wip/plan_<topic>_milestones.md` for the milestone name and description, then run the batch script. The invocation varies by input type.
+Materialize the manifest and every issue body it lists into one private
+directory outside the work tree, since the scripts take files; keep the path
+`scratch` prints, `<issues-dir>`. The manifest's bare `file` names resolve
+against the directory the manifest sits in, so the bodies land beside it:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <issues-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" get plan-<topic> work/manifest.json <issues-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" get plan-<topic> work/issue_<id>_body.md <issues-dir>   # each body the manifest lists
+```
+
+Read key `work/milestones.md` for the milestone name and description, then run the batch script. The invocation varies by input type.
 
 **For design/prd input types:**
 
 ```bash
 ${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh \
-  --manifest wip/plan_<topic>_manifest.json \
+  --manifest <issues-dir>/manifest.json \
   --milestone "<Milestone Name>" \
   --milestone-description "Design: \`<design-doc-path>\`" \
-  --output-map wip/plan_<topic>_mapping.json
+  --output-map <issues-dir>/mapping.json
 ```
 
 **For roadmap input type:**
@@ -168,10 +179,10 @@ The milestone description references the roadmap (not a design doc). Per-issue `
 
 ```bash
 ${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh \
-  --manifest wip/plan_<topic>_manifest.json \
+  --manifest <issues-dir>/manifest.json \
   --milestone "<Milestone Name>" \
   --milestone-description "Roadmap: \`<roadmap-path>\`" \
-  --output-map wip/plan_<topic>_mapping.json
+  --output-map <issues-dir>/mapping.json
 ```
 
 The manifest must include `needs_label` for each issue (populated during Phase 3 roadmap decomposition). The batch script applies these per-issue labels alongside any global `--labels`.
@@ -186,27 +197,40 @@ Options:
 **Strategic scope:** Add strategic labels:
 ```bash
 ${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh \
-  --manifest wip/plan_<topic>_manifest.json \
+  --manifest <issues-dir>/manifest.json \
   --milestone "<Milestone Name>" \
   --milestone-description "Design: \`<design-doc-path>\`" \
   --labels "needs-design,repo:<target-repo>" \
-  --output-map wip/plan_<topic>_mapping.json
+  --output-map <issues-dir>/mapping.json
 ```
 
 #### Handle Failures
 
 If the script reports failures:
 1. Check error output for details
-2. Fix the body file and re-run, or create individually:
+2. Fix the body in `<issues-dir>`, write it back to its key
+   (`skill-session.sh put plan-<topic> work/issue_<id>_body.md
+   <issues-dir>/issue_<id>_body.md`), and re-run, or create individually:
 
 ```bash
 ${CLAUDE_SKILL_DIR}/scripts/create-issue.sh \
-  --file wip/plan_<topic>_issue_<id>_body.md \
+  --file <issues-dir>/issue_<id>_body.md \
   --title "<title>" \
   --complexity <complexity> \
-  --map wip/plan_<topic>_mapping.json \
+  --map <issues-dir>/mapping.json \
   --milestone "<Milestone Name>"
 ```
+
+#### Store the Mapping
+
+Once every issue is created, keep the mapping as a key and remove the directory:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" put plan-<topic> work/mapping.json <issues-dir>/mapping.json
+rm -rf -- <issues-dir>
+```
+
+The Implementation Issues table (7.2b) is built from key `work/mapping.json`.
 
 #### Placeholder Substitution
 
@@ -267,8 +291,8 @@ decomposition the right one.
 **Required sections** (in order):
 
 1. **Status** -- `Active`
-2. **Scope Summary** -- from `wip/plan_<topic>_analysis.md`
-3. **Decomposition Strategy** -- from `wip/plan_<topic>_decomposition.md`:
+2. **Scope Summary** -- from key `work/analysis.md`
+3. **Decomposition Strategy** -- from key `work/decomposition.md`:
    - design/prd: "Walking skeleton" or "Horizontal decomposition" with rationale
    - roadmap: "Feature-by-feature planning" with rationale
 4. **Implementation Issues** -- table with GitHub issue links, dependencies, complexity. Include description rows below each issue. Follow the format in `../quality/plan-doc-structure.md`.
@@ -370,9 +394,9 @@ multi-pr branch's 7.2b.
 **Required sections** (in order):
 
 1. **Status** -- `Active`
-2. **Scope Summary** -- from `wip/plan_<topic>_analysis.md`
-3. **Decomposition Strategy** -- from `wip/plan_<topic>_decomposition.md` (walking skeleton, horizontal, or feature-by-feature planning, with rationale)
-4. **Issue Outlines** -- read from body files (`wip/plan_<topic>_issue_<id>_body.md`), format as structured outlines with these subsections per issue:
+2. **Scope Summary** -- from key `work/analysis.md`
+3. **Decomposition Strategy** -- from key `work/decomposition.md` (walking skeleton, horizontal, or feature-by-feature planning, with rationale)
+4. **Issue Outlines** -- read from the body keys (`work/issue_<id>_body.md`), format as structured outlines with these subsections per issue:
    - **Goal** -- what the issue delivers
    - **Acceptance Criteria** -- how to verify completion
    - **Dependencies** -- which internal IDs this blocks on
@@ -413,14 +437,16 @@ outline-shaped branch.
 
 ### 7.C2 Create GitHub Issues (tracking level `issues` or `issues-and-milestone` only)
 
-Reuse the batch script exactly as the multi-pr branch's 7.1 does:
+Reuse the batch script exactly as the multi-pr branch's 7.1 does, materializing
+the manifest and bodies into `<issues-dir>` first and storing the mapping as key
+`work/mapping.json` after:
 
 ```bash
 ${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh \
-  --manifest wip/plan_<topic>_manifest.json \
+  --manifest <issues-dir>/manifest.json \
   --milestone "<Milestone Name>" \
   --milestone-description "Design: \`<design-doc-path>\`" \
-  --output-map wip/plan_<topic>_mapping.json
+  --output-map <issues-dir>/mapping.json
 ```
 
 At `issues`, pass no `--milestone` or `--milestone-description`, so no
@@ -457,10 +483,10 @@ other branches.
 sections, in order:
 
 1. **Status** -- `Active`
-2. **Scope Summary** -- from `wip/plan_<topic>_analysis.md`
+2. **Scope Summary** -- from key `work/analysis.md`
 3. **Decomposition Strategy** -- as in the other branches
 4. **Issue Outlines** -- one `### Issue <N>: <title>` outline per work item,
-   read from the body files, each with:
+   read from the body keys, each with:
    - **Goal**
    - **Acceptance Criteria**
    - **Dependencies** -- internal IDs only; never a gate
@@ -480,7 +506,7 @@ and an issue table are populated.
 
 **At `issues` or `issues-and-milestone` -- the issue-carrying coordinated PLAN.**
 Required sections as in the multi-pr branch's 7.2b, with the Implementation
-Issues table built from `wip/plan_<topic>_mapping.json` and, under each issue's
+Issues table built from key `work/mapping.json` and, under each issue's
 row, a `_Repo: <owner/repo> \| Group: <slug>_` annotation row, plus one
 `_Gate: <name> \| After: ... \| Before: ..._` row per declared gate. No Issue
 Outlines section. Follow `../quality/plan-doc-structure.md` for the exact row
@@ -590,25 +616,24 @@ PLAN over a DESIGN still at `Accepted` fails `L01`, so a failure here usually
 means the transition above did not run. **STOP if it fails**, fix the cause,
 and re-run before cleanup.
 
-### 7.6 Cleanup
+### 7.6 Close the Session
 
-Under `/scope`'s dispatch key, skip this step: `/scope`'s cleanup phase removes the
-files below at its own exit, as it does every child's working files.
+`/plan` kept its working state as keys in `plan-<topic>` and wrote no file to
+the staging folder, so there are no working files to delete and no cleanup
+commit.
 
-Delete topic-scoped wip/ artifacts on success:
+Under `/scope`'s dispatch key, skip this step: `/plan` never closes its own
+session under a parent, and `/scope` closes `plan-<topic>` at its own exit.
+
+On a direct run, close the session on success:
 
 ```bash
-rm -f wip/plan_<topic>_analysis.md
-rm -f wip/plan_<topic>_milestones.md
-rm -f wip/plan_<topic>_decomposition.md
-rm -f wip/plan_<topic>_dependencies.md
-rm -f wip/plan_<topic>_review.md
-rm -f wip/plan_<topic>_issue_*.md
-rm -f wip/plan_<topic>_manifest.json
-rm -f wip/plan_<topic>_mapping.json
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close plan-<topic> done
 ```
 
-Do NOT delete on failure -- artifacts are needed for resume.
+It prints `closed=done` (or `closed=noop` when the session was already
+finished), and the keys stay readable after the close. Do NOT close on
+failure -- a live session is what the next run resumes from.
 
 ### 7.7 Report Summary
 

@@ -7,12 +7,14 @@ Extract problem context from an accepted PRD and establish the design doc skelet
 Translate the PRD's "what/why" into implementation-oriented framing:
 - Synthesize (not copy-paste) the problem statement into technical terms
 - Derive decision drivers from requirements and constraints
-- Create the design doc skeleton and wip/ summary
+- Create the design doc skeleton and the summary key
 - Transition the PRD status to "In Progress"
 
 ## Resume Check
 
-If `wip/design_<topic>_summary.md` exists, skip to Phase 1.
+If key `work/summary.md` exists in `design-<topic>` (`koto context exists
+design-<topic> work/summary.md`, after the open and adopt in SKILL.md's Session
+and Keys), skip to Phase 1.
 
 ## Steps
 
@@ -196,9 +198,10 @@ Proposed
 Update the PRD's status from "Accepted" to "In Progress" (both frontmatter and body).
 Commit: `docs(prd): mark <prd-name> in progress`
 
-### 0.7 Create wip/ Summary
+### 0.7 Write the Summary Key
 
-Write `wip/design_<topic>_summary.md`:
+Write key `work/summary.md` in `design-<topic>` (`koto context add
+design-<topic> work/summary.md`, the content on stdin):
 
 ```markdown
 # Design Summary: <topic>
@@ -229,7 +232,7 @@ Before proceeding:
 After this phase:
 - Design doc exists with: Status, Context and Problem Statement, Decision Drivers
 - PRD is marked "In Progress"
-- `wip/design_<topic>_summary.md` exists
+- Key `work/summary.md` in `design-<topic>`
 
 ## Next Phase
 

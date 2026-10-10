@@ -23,7 +23,7 @@ part. Re-read it and continue from the first still-stubbed section.
 Read all available context:
 
 - The current draft at `docs/briefs/BRIEF-<topic>.md`
-- `wip/brief_<topic>_discover.md` (the journey sketch lives here)
+- Key `work/discover.md` in `brief-<topic>` (the journey sketch lives here)
 - `skills/brief/references/brief-format.md` (especially the per-section quality
   guidance for User Journeys and Scope Boundary)
 
@@ -148,7 +148,7 @@ Commit the structural fill:
 docs(brief): fill BRIEF structural sections for <topic>
 ```
 
-Update `wip/brief_<topic>_context.md`'s `## Phase` line to `3`.
+Update key `work/context.md`'s `## Phase` line to `3`.
 
 ## Quality Checklist
 

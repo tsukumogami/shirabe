@@ -13,7 +13,7 @@ If `cross_validation: "in_progress"`, resume where left off.
 ### 3.1 Read All Decision Reports
 
 For each completed decision in the coordination manifest, read the report
-at the stored file path. Extract the `assumptions` list from each.
+at the stored key (`koto context get design-<topic> work/decision_<N>_report.md`). Extract the `assumptions` list from each.
 
 ### 3.2 Check for Conflicts
 
@@ -43,8 +43,12 @@ volume.
      question Phase 2 resolved inline is re-resolved inline instead):
      "Decision 3 chose event-driven invalidation. Your assumption of low
      write volume is invalidated. Re-evaluate with this constraint."
-   - The decision skill runs a fresh evaluation (intermediate artifacts
-     were cleaned after Phase 6), not a partial resume
+   - Remove the decision's old report key first (`koto context remove
+     design-<topic> work/decision_<N>_report.md`), so the decider's resume
+     check doesn't read the decision as complete
+   - The decision skill runs a fresh evaluation (its intermediate keys
+     under `work/decision-<N>/` were removed at its Phase 6), not a partial
+     resume
 
 3. After all restarts complete, set `cross_validation: "passed"`. Do NOT
    run a second validation round. Any remaining conflicts are recorded as
@@ -70,14 +74,15 @@ decisions work together.
 
 ### 3.5 Preserve Artifacts
 
-Do NOT delete decision reports or the coordination manifest at this point.
-They remain in wip/ for resumability -- if the session is interrupted after
-Phase 3 but before the workflow completes, the resume logic needs the
-coordination manifest to detect that cross-validation passed and the
-decision reports for context recovery.
+Do NOT remove the decision report keys or the coordination manifest key at
+this point. They remain in `design-<topic>` for resumability -- if the run is
+interrupted after Phase 3 but before the workflow completes, the resume logic
+needs the coordination manifest to detect that cross-validation passed and
+the decision reports for context recovery.
 
-All wip/ artifacts are cleaned during the final cleanup step (Phase 6 or
-the `/cleanup` command), not here.
+Nothing is ever deleted from the staging folder: `/design` writes nothing
+there. The session's keys stay until the session is closed (Phase 6 on a
+direct run, the parent's exit under a parent), and stay readable after.
 
 ## Quality Checklist
 

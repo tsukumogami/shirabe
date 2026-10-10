@@ -17,8 +17,8 @@ Establish the runtime context for the rest of the workflow:
 - Constrain the `<topic>` slug to a safe character set.
 - Canonicalize any `<path>` argument and reject paths resolving outside the repo
   working tree.
-- Initialize the `wip/` working directory with placeholder context for resume
-  detection.
+- Open the `brief-<topic>` session and write key `work/context.md`, the
+  placeholder context resume detection reads.
 
 By the end of this phase, downstream phases can assume `<topic>` is safe to splice
 into paths, that any upstream path argument refers to a file inside the repo, and
@@ -30,11 +30,15 @@ from the strategy skill's Phase 0.
 
 ## Resume Check
 
-If `wip/brief_<topic>_context.md` exists, Phase 0 has already run for this topic.
-Re-read the context file, verify the recorded visibility still matches the current
+The session is opened once, by step 0.6's `open` and `adopt`, as soon as the
+slug has passed step 0.2; on a re-entry those same calls attach to the live
+session, so run them before this check. If key `work/context.md` then exists
+in `brief-<topic>` (`koto context exists brief-<topic> work/context.md`),
+Phase 0 has already run for this topic.
+Re-read it with `koto context get`, verify the recorded visibility still matches the current
 CLAUDE.md, and skip ahead to whichever phase the recorded state indicates.
 
-If the context file exists but its recorded visibility no longer matches CLAUDE.md
+If the context key exists but its recorded visibility no longer matches CLAUDE.md
 (the repo's visibility line changed), warn the user and ask whether to restart
 Phase 0 or keep the recorded value. Visibility drift mid-workflow is a red flag
 worth surfacing.
@@ -106,17 +110,21 @@ does not exist, do not fall through to freeform-topic mode silently. Ask the use
 whether the path was a typo or whether they meant to start a freeform topic with
 the same name.
 
-Record the detected mode in `wip/brief_<topic>_context.md` (created in step 0.5)
+Record the detected mode in key `work/context.md` (written in step 0.6)
 so resume logic can route back to the same Phase 1 branch.
 
 ## 0.2 Constrain the `<topic>` Slug
 
-The `<topic>` slug appears in `wip/` path templates, in verdict filenames at
-Phase 4, and in the final artifact filename. Without constraint, a slug containing
-`../` or shell metacharacters could redirect file writes outside the intended
-`wip/research/` directory.
+The `<topic>` slug appears in the session name `brief-<topic>`, on the koto and
+script command lines that name it, and in the final artifact filename. Without
+constraint, a slug containing `../` or shell metacharacters could redirect a
+file write or a command. `skill-session.sh` refuses a topic outside
+`^[a-z0-9][a-z0-9-]*$` before any koto call, which already rules out a
+leading hyphen; the rule below adds the trailing-hyphen rejection the
+post-derivation test applies.
 
-**Rule:** the slug MUST match `^[a-z0-9-]+$`.
+**Rule:** the slug MUST match `^[a-z0-9-]+$` and MUST NOT start or end
+with `-`.
 
 Derive the slug as follows. In every case the derivation reads the POSITIONAL
 argument only; the `--upstream` value is never an input to it.
@@ -284,21 +292,29 @@ checks this; Phase 0 just records the value.
 `/brief` always produces a standalone BRIEF. There is no branch here that
 declines to write one.
 
-Phase 0 records `## Artifact Decision` as `produce` in the context file (step 0.6)
+Phase 0 records `## Artifact Decision` as `produce` in the context key (step 0.6)
 and continues. The key is kept because downstream phases and the resume ladder read
 it; it no longer has a second value.
 
-## 0.6 Initialize wip/
+## 0.6 Open the Session and Write the Context Key
 
-Create the working directory structure for this invocation:
+Once the slug has passed step 0.2, open the session and record the parent
+match, as SKILL.md's Session and Keys says (on a resumed run they already ran
+and attached to the live session):
 
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open brief <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt brief <topic>
 ```
-wip/
-├── brief_<topic>_context.md          (created here in Phase 0)
-└── research/                         (Phase 4 will write into this)
-```
 
-Write `wip/brief_<topic>_context.md` with the following keys:
+Then write key `work/context.md` with the following fields, the content on
+stdin:
+
+```bash
+koto context add brief-<topic> work/context.md <<'EOF'
+<the context below>
+EOF
+```
 
 ```markdown
 # /brief Context: <topic>
@@ -322,8 +338,9 @@ produce
 0
 ```
 
-This file is the resume-detection anchor for Phase 1 onward. Subsequent phases
-update the `## Phase` line as they begin.
+This key is the resume-detection anchor for Phase 1 onward. Subsequent phases
+update the `## Phase` line as they begin, by getting the key, changing that
+line, and adding it back.
 
 `## Entry Mode` classifies the positional argument, so a `--upstream` run
 records whichever mode the remainder produced — usually `freeform`. The
@@ -332,9 +349,8 @@ the problem/outcome candidate in it the same way it would for a positional
 ROADMAP. The key is named for what it is: a path the run reads, not a value the
 produced BRIEF records.
 
-Do NOT commit the context file at this stage. The wip-hygiene rule treats `wip/`
-artifacts as non-durable; the final cleanup at Phase 5 removes them before the PR
-can merge.
+Nothing is committed at this stage, and nothing is written to the work tree:
+the context lives only in the session.
 
 ## 0.7 Confirm Setup with User
 
@@ -384,12 +400,12 @@ Before proceeding:
       whenever a grounding path was supplied
 - [ ] Visibility is recorded (Public or Private, never empty)
 - [ ] The artifact decision is recorded as `produce`
-- [ ] `wip/brief_<topic>_context.md` exists with the keys above
+- [ ] `brief-<topic>` is open and its key `work/context.md` holds the fields above
 
 ## Artifact State
 
 After this phase:
-- Context file at `wip/brief_<topic>_context.md`
+- Key `work/context.md` in `brief-<topic>`
 - No BRIEF draft yet
 - No research files yet
 

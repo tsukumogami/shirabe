@@ -55,7 +55,9 @@ only Question, Choice, and Assumptions are mandatory):
 ```yaml
 decision_context:
   question: "Which cache invalidation strategy?"
-  prefix: "design_foo_decision_1"
+  session: "design-foo"                     # the parent's koto session
+  key_dir: "work/decision-1"                # where the decider keeps its intermediates
+  report_key: "work/decision_1_report.md"   # where it writes this report
   options:
     - name: "TTL-based"
       description: "..."
@@ -79,8 +81,13 @@ decision_result:
   rejected:
     - name: "Event-driven"
       reason: "Adds infrastructure dependency for marginal gain"
-  report_file: "wip/design_foo_decision_1_report.md"
+  report_key: "work/decision_1_report.md"
 ```
+
+The report and every intermediate are keys in the named koto session, per
+`references/skill-session-convention.md`: a parent reads the report with
+`koto context get <session> <report_key>`. A direct `/decision` run keeps them
+in its own session, `decision-<topic>`, with the report at `work/report.md`.
 
 ## How to Render as Considered Options
 
