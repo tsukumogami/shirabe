@@ -2,7 +2,7 @@
 
 Detect the entry mode, repo visibility, and scope; canonicalize inputs; initialize
 working artifacts. Phase 0 is a guard rail: it normalizes `$ARGUMENTS`, rejects
-unsafe inputs before any file write, and records the bootstrap context for later
+unsafe inputs before any write, and records the bootstrap context for later
 phases.
 
 ## Goal
@@ -19,20 +19,21 @@ Establish the runtime context for the rest of the workflow:
 - Constrain the `<topic>` slug to a safe character set.
 - Canonicalize any `<path>` argument and reject paths resolving outside the repo
   working tree.
-- Initialize the `wip/` working directory with placeholder context for resume
-  detection.
+- Open the `strategy-<topic>` session and write the `work/context.md` key for
+  resume detection.
 
 By the end of this phase, downstream phases can assume `<topic>` is safe to splice
-into paths and that any path argument refers to a file inside the repo.
+into session names and paths and that any path argument refers to a file inside the repo.
 
 ## Resume Check
 
-If `wip/strategy_<topic>_context.md` exists, Phase 0 has already run for this
-topic. Re-read the context file, verify the recorded visibility and scope still
+If key `work/context.md` exists in `strategy-<topic>` (`koto context exists
+strategy-<topic> work/context.md`), Phase 0 has already run for this topic.
+Re-read it with `koto context get`, verify the recorded visibility and scope still
 match the current CLAUDE.md, and skip ahead to whichever phase the recorded state
 indicates.
 
-If the context file exists but its recorded visibility no longer matches
+If the context key exists but its recorded visibility no longer matches
 CLAUDE.md (the repo's visibility line changed), warn the user and ask whether to
 restart Phase 0 or keep the recorded value. Visibility drift mid-workflow is a
 red flag worth surfacing.
@@ -104,7 +105,7 @@ does not exist, do not fall through to freeform-topic mode silently. Ask the use
 whether the path was a typo or whether they meant to start a freeform topic with
 the same name.
 
-Record the detected mode in `wip/strategy_<topic>_context.md` (created in step
+Record the detected mode in the `work/context.md` key (written in step
 0.5) so resume logic can route back to the same Phase 1 branch.
 
 ### Reading a document vs. recording it as `upstream`
@@ -134,10 +135,12 @@ reader anyway.
 
 ## 0.2 Constrain the `<topic>` Slug
 
-The `<topic>` slug appears in `wip/` path templates, in verdict filenames at
-Phase 4, and in the final artifact filename. Without constraint, a slug
-containing `../` or shell metacharacters could redirect file writes outside the
-intended `wip/research/` directory.
+The `<topic>` slug appears in the session name `strategy-<topic>`, in the
+verdict names at Phase 4, and in the final artifact filename. Without
+constraint, a slug containing `../` or shell metacharacters could redirect a
+file write or a command. `skill-session.sh` refuses a topic outside
+`^[a-z0-9][a-z0-9-]*$` before any koto call, which already rules out a
+`../`-shaped one.
 
 **Rule:** the slug MUST match `^[a-z0-9-]+$`.
 
@@ -246,17 +249,19 @@ Org-scope strategies that have no upstream VISION are explicitly supported.
 Phase 1 grounds Strategic Context in the org's other strategic artifacts or in
 first-principles framing for that case.
 
-## 0.5 Initialize wip/
+## 0.5 Open the Session and Write the Context Key
 
-Create the working directory structure for this invocation:
+Open the session as soon as the slug passes 0.2, and record whether the run is
+under a parent (see "Session and Keys" in `SKILL.md`):
 
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open strategy <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt strategy <topic>
 ```
-wip/
-├── strategy_<topic>_context.md          (created here in Phase 0)
-└── research/                            (Phase 1 may write into this; Phase 4 will)
-```
 
-Write `wip/strategy_<topic>_context.md` with the following keys:
+Then write key `work/context.md`, content on stdin
+(`koto context add strategy-<topic> work/context.md <<'EOF'`), with the
+following sections:
 
 ```markdown
 # /strategy Context: <topic>
@@ -284,8 +289,10 @@ or "none" -- always "none" in grounding-prd mode>
 0
 ```
 
-This file is the resume-detection anchor for Phase 1 onward. Subsequent phases
-update the `## Phase` line as they begin.
+This key is the resume-detection anchor for Phase 1 onward. Subsequent phases
+update the `## Phase` line as they begin (get the key, edit the line, add it
+back). An `--auto` run appends its decisions to a `## Decisions` section of the
+same key.
 
 `## Entry Mode` classifies the positional argument, so a `--upstream` run
 records whichever mode the remainder produced — usually `freeform`. The flag
@@ -295,9 +302,8 @@ same way a positional one does. The two keys differing is what distinguishes
 a grounding PRD (grounding set, upstream `none`) from a flag-supplied VISION
 (both set to the same path).
 
-Do NOT commit the context file at this stage. The wip-hygiene rule treats
-`wip/` artifacts as non-durable; the final cleanup at Phase 5 removes them
-before the PR can merge.
+The key lives in the koto session, not in the working tree, so there is
+nothing to commit or clean up.
 
 ## 0.6 Confirm Setup with User
 
@@ -333,14 +339,14 @@ Before proceeding:
       grounding-PRD included
 - [ ] Visibility is recorded (Public or Private, never empty)
 - [ ] Scope is recorded as `project`, `org`, or `undetermined`
-- [ ] `wip/strategy_<topic>_context.md` exists with the keys above
+- [ ] Key `work/context.md` exists in `strategy-<topic>` with the sections above
 
 ## Artifact State
 
 After this phase:
-- Context file at `wip/strategy_<topic>_context.md`
+- Session `strategy-<topic>` open, holding key `work/context.md`
 - No STRATEGY draft yet
-- No research files yet
+- No `research/` keys yet
 
 ## Next Phase
 

@@ -27,14 +27,16 @@ By the end of Phase 1 the workflow should have:
 
 ## Resume Check
 
-If `wip/strategy_<topic>_discover.md` exists, Phase 1 already ran. Re-read it
-and skip to Phase 2.
+If key `work/discover.md` exists in `strategy-<topic>` (`koto context exists
+strategy-<topic> work/discover.md`), Phase 1 already ran. Re-read it
+(`koto context get strategy-<topic> work/discover.md`) and skip to Phase 2.
 
-If the file does not exist, proceed with the entry-mode router below.
+If the key does not exist, proceed with the entry-mode router below.
 
 ## 1.1 Route on Entry Mode
 
-Read `wip/strategy_<topic>_context.md` and dispatch on the recorded entry mode.
+Read key `work/context.md` (`koto context get strategy-<topic> work/context.md`)
+and dispatch on the recorded entry mode.
 
 ### Mode: Upstream VISION
 
@@ -177,7 +179,8 @@ Phase 4's altitude reviewer applies the granularity rubric formally.
 
 ## 1.4 Persist Discovery
 
-Write `wip/strategy_<topic>_discover.md` with the following:
+Write key `work/discover.md` in `strategy-<topic>` (`koto context add
+strategy-<topic> work/discover.md`, content on stdin) with the following:
 
 ```markdown
 # /strategy Discovery: <topic>
@@ -203,7 +206,8 @@ read-vs-record rule.>
 <things to flag to the user during Phase 2 drafting>
 ```
 
-Update `wip/strategy_<topic>_context.md`'s `## Phase` line to `1`.
+Update the `## Phase` line of key `work/context.md` to `1` (get it, edit the
+line, add it back).
 
 ## Quality Checklist
 
@@ -218,8 +222,8 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Context file at `wip/strategy_<topic>_context.md` (Phase 0)
-- Discovery file at `wip/strategy_<topic>_discover.md` (this phase)
+- Key `work/context.md` in `strategy-<topic>` (Phase 0)
+- Key `work/discover.md` in `strategy-<topic>` (this phase)
 - No STRATEGY draft yet
 
 ## Next Phase

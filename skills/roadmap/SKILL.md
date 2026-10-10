@@ -139,22 +139,72 @@ From `$ARGUMENTS`:
    [Populating the Issues Table](#populating-the-issues-table) below.
 4. **Anything else** -- use as the starting topic for Phase 1 scoping
 
+### Session and Keys
+
+`/roadmap` keeps its working state as keys in its own koto session,
+`roadmap-<topic>`, following
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It writes no
+file to the staging folder, chained or direct. Its first act, once the topic
+is known (from the argument) and before Context Resolution or the resume rows
+below, opens the session and records whether it runs under a parent:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open roadmap <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt roadmap <topic>
+```
+
+`open` attaches to a live `roadmap-<topic>` (an interrupted run, whose keys
+the resume rows read), replaces a finished one (a fresh run), or creates it.
+Any non-zero exit from either command stops the run with the script's
+message: 127 or 69 means koto is missing or too old, and the skill never
+falls back to files. `adopt` exiting 3 is the two-parents case below.
+
+| Key | Written at | Holds |
+|-----|-----------|-------|
+| `work/decisions.md` | Context Resolution, under `--auto` | the autonomous-decision ledger |
+| `work/scope.md` | Phase 1 | the scoping output |
+| `research/phase2_<role>.md` | Phase 2 | the discovery agents' findings, ingested from a scratch directory |
+| `research/phase4_<role>.md` | Phase 4 | the jury's verdicts, ingested from a scratch directory |
+
+Keys are read and written with koto against `roadmap-<topic>`: `koto context
+exists roadmap-<topic> <key>` tests one (exit 0 present, 1 absent), `koto
+context get roadmap-<topic> <key>` prints it, `koto context add
+roadmap-<topic> <key>` stores the content given on stdin (the whole content:
+to change part of it, get the key, edit it, and add it back), `koto context
+list roadmap-<topic> --prefix <prefix>` lists keys, and `koto context remove
+roadmap-<topic> <key>` removes one. Research and reviewer agents never write
+keys: each phase that spawns them pins every output to a file in a
+`skill-session.sh scratch` directory and ingests it.
+
+**Closing.** A direct run closes its session when it finishes:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close roadmap-<topic> done`
+at the end of Phase 4, or `close roadmap-<topic> abandoned` after a discard.
+Under a parent `/roadmap` never closes its own session: the parent closes it
+at its own exit (`skill-session.sh close-children`), and the keys stay
+readable until then.
+
 ### Standalone Entry and Handoff Detection
 
 /roadmap works both standalone and as a handoff target from /charter.
 
-On startup, check for `wip/roadmap_<topic>_scope.md`. If it exists, /charter
-pre-populated it before invoking this skill, and it carries the seven fields
-/charter derives from the STRATEGY the chain just produced (theme statement,
-initial scope, candidate features, dependency sketch, sequencing constraints,
-downstream artifact state, coverage notes). Skip Phase 1 (scoping) and proceed
-directly to Phase 2 (discover) -- the scope file provides the theme and
-candidate features as investigation targets.
+Under /charter (the first resume row below matches `parent=charter-<topic>`),
+/charter has written the scope it derived from the STRATEGY the chain just
+produced to key `chain/roadmap-scope` in its own session. /roadmap reads it
+with `koto context get charter-<topic> chain/roadmap-scope`, uses it as its
+scope input, and records its own `work/scope.md` in `roadmap-<topic>` from it.
+It carries the seven fields /charter derives (theme statement, initial scope,
+candidate features, dependency sketch, sequencing constraints, downstream
+artifact state, coverage notes). Skip Phase 1 (scoping) and proceed directly
+to Phase 2 (discover) -- the scope provides the theme and candidate features
+as investigation targets. Nothing pre-populates a roadmap scope file on disk.
 
-/charter is the only skill that pre-populates that file. The other way it can
-be on disk is that /roadmap's own Phase 1 wrote it and the run was interrupted
-before Phase 2 finished, which lands in the same place: Phase 1 is done either
-way, so the run continues at Phase 2.
+/roadmap ignores `chain/roadmap-scope` when `dispatch read` names another
+child or matches no parent: it never reads that key on the strength of a
+`charter-<topic>` session merely existing. It then derives scope as a direct
+run does. The other way `work/scope.md` can already exist is that /roadmap's
+own Phase 1 wrote it and the run was interrupted before Phase 2 finished,
+which lands in the same place: Phase 1 is done either way, so the run
+continues at Phase 2.
 
 If neither exists, start from Phase 1.
 
@@ -164,8 +214,8 @@ If neither exists, start from Phase 1.
 flags, then CLAUDE.md `## Execution Mode:` header (default: `interactive`).
 Also parse `--max-rounds=N` (default: 2 for roadmap's discover loop). In
 --auto mode, follow decision-protocol conventions -- make decisions based on
-evidence rather than blocking on user input. Create
-`wip/roadmap_<topic>_decisions.md` to track decisions.
+evidence rather than blocking on user input. Track
+decisions in key `work/decisions.md` in `roadmap-<topic>`.
 
 **Roadmap issues preference:** read CLAUDE.md's `## Roadmap Issues:`
 header the same way `## Execution Mode:` is read -- grep the header,
@@ -211,7 +261,7 @@ Phase 0: SETUP --> Phase 1: SCOPE --> Phase 2: DISCOVER --> Phase 3: DRAFT --> P
 |-------|---------|----------|
 | 0. Setup | Create feature branch, detect context | On topic branch |
 | 1. Scope | Conversational scoping (or skip if handoff exists) | Theme + candidate features + coverage dimensions |
-| 2. Discover | Parallel research agents investigate features | Research findings in wip/ |
+| 2. Discover | Parallel research agents investigate features | Research findings in `research/phase2_*` keys |
 | 3. Draft | Produce ROADMAP draft | Complete ROADMAP draft |
 | 4. Validate | Jury review (theme coherence, sequencing, annotations) | Validated ROADMAP |
 
@@ -247,8 +297,8 @@ ROADMAP exists, "Active", schema roadmap/v2                -> Offer: sharpen one
 ROADMAP exists, "Active", schema roadmap/v1                -> Offer: start a new roadmap
 ROADMAP exists with status "Done"                          -> Offer to revise or start fresh
 ROADMAP exists with status "Draft"                         -> Offer to continue from Phase 3
-wip/research/roadmap_<topic>_phase2_*.md files exist       -> Resume at Phase 3
-wip/roadmap_<topic>_scope.md exists                        -> Resume at Phase 2
+keys research/phase2_* exist in roadmap-<topic>            -> Resume at Phase 3
+key work/scope.md exists in roadmap-<topic>                -> Resume at Phase 2
 On a branch related to the topic                           -> Resume at Phase 1
 On main or unrelated branch                                -> Start at Phase 0
 ```
@@ -265,10 +315,10 @@ direct one with the rows below unchanged: no parent session, a finished parent
 session, and a parent whose `chain/dispatch` key names another child. The
 fourth, two parent sessions that both name `/roadmap`, exits 3: don't pick one
 and don't run directly; stop and report both sessions, which the script names
-on stderr, so the author can clear the stale key. Exit 127 (koto not
-installed) means no parent can be running, so the run is direct; any other
-non-zero exit stops the run with the script's message. `/roadmap` opens no
-session of its own here.
+on stderr, so the author can clear the stale key. Any other non-zero exit
+stops the run with the script's message (`open` has already checked koto).
+`adopt` has recorded the same match as `chain/parent` in `roadmap-<topic>`,
+or removed a `chain/parent` an earlier chained run left.
 
 ### Critical Requirements
 
@@ -294,7 +344,7 @@ Execute phases sequentially by reading the corresponding phase file:
 
 1. **Scope**: Conversational scoping
    - Instructions: `references/phases/phase-1-scope.md`
-   - Skipped when handoff artifact (`wip/roadmap_<topic>_scope.md`) exists
+   - Skipped when `/charter`'s `chain/roadmap-scope` was read, or key `work/scope.md` exists
 
 2. **Discover**: Parallel research agents investigate features
    - Instructions: `references/phases/phase-2-discover.md`

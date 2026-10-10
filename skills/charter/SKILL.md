@@ -167,8 +167,8 @@ and 0.4.
 
 The topic slug appears in the state-file path
 (`wip/charter_<topic>_state.md`), the terminal artifact filename
-(`docs/strategies/STRATEGY-<topic>.md`), and downstream child wip/
-paths. The slug MUST match the regex `^[a-z0-9-]+$` — the
+(`docs/strategies/STRATEGY-<topic>.md`), and the children's session
+names. The slug MUST match the regex `^[a-z0-9-]+$` — the
 pattern-level constraint canonical in
 [`${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md`](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-state-schema.md)
 (Topic-Slug Regex section), including the validation discipline
@@ -233,9 +233,10 @@ way.
 Because `/roadmap` runs on every full-run chain, an interrupted
 chain commonly leaves a Draft STRATEGY on disk with `/roadmap`
 still in flight. Row 6 carries the mid-roadmap disambiguation:
-"Continue draft" resumes into `/roadmap` when the handoff file
-`wip/roadmap_<topic>_scope.md` exists and no published ROADMAP
-does, and into `/strategy` otherwise.
+"Continue draft" resumes into `/roadmap` when `/roadmap`'s session
+holds work (`skill-session.sh has-work`) or key
+`chain/roadmap-scope` exists in `charter-<topic>` with no
+published ROADMAP, and into `/strategy` otherwise.
 
 Every invocation whose slug validates opens `charter-<topic>` and
 clears a stale `chain/dispatch` key in it before the ladder routes
@@ -285,9 +286,12 @@ Execute phases sequentially by reading the corresponding phase file:
 N. **Finalization** — set the `exit:` field to one of `full-run`,
    `re-evaluation`, or `abandonment-forced`; write the
    `exit_artifacts:` list; run the R9 hard-finalization check; close
-   the session with `skill-session.sh close charter-<topic>
+   the children this chain dispatched with `skill-session.sh
+   close-children charter <topic> <done|abandoned>` (`done` on
+   full-run, `abandoned` on the other exits) and then the session
+   itself with `skill-session.sh close charter-<topic>
    <done|abandoned>` (`done` for a completed run, `abandoned` for a
-   bail or abandonment) on every exit path.
+   bail or abandonment), in that order, on every exit path.
    - Instructions: `skills/charter/references/phases/phase-finalization.md`
 
 ## Reference Files
@@ -357,13 +361,16 @@ repo the chain runs in.
 
 **Closed write-target set.** `/charter` writes to exactly six
 places: the state file at `wip/charter_<topic>_state.md`, the
-`/roadmap` handoff at `wip/roadmap_<topic>_scope.md`, Decision
+`/roadmap` scope handoff as key `chain/roadmap-scope` in its own
+session `charter-<topic>`, Decision
 Records under `docs/decisions/`, the force-materialized partial
 artifact its abandonment path produces under `docs/strategies/`
 (plus the `git rm` of a rejected Draft at the same path), the
 removal of the `/explore` handoff at
 `wip/charter_<topic>_handoff.md` once a run has consumed it, and the
-`wip/` cleanup its finalization performs. Every one of those paths
+closes its finalization performs — `close-children` over the chain's
+own children, then its own session — along with the `wip/` cleanup
+of its state file. Every one of those paths
 is composed from the validated topic slug, never from
 author-supplied text. The `/explore` handoff is a read target that
 becomes a delete target, and it is named here for the same reason

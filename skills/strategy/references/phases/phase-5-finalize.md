@@ -13,16 +13,18 @@ By the end of Phase 5:
   enough — human ratification is required).
 - The STRATEGY's status is `Accepted` in both frontmatter and the body
   Status section, transitioned via the per-skill script.
-- Working artifacts in `wip/` are removed (no committed references to
-  `wip/...` paths remain in the artifact or anywhere else).
+- No working state sits in the work tree (it lives in the `strategy-<topic>`
+  session), and no committed content references `wip/...` paths.
+- A direct run has closed its session; under a parent it is left open for
+  the parent to close.
 - A PR is created (or an existing PR on the topic branch is updated).
 
 ## Resume Check
 
 If the STRATEGY at `docs/strategies/STRATEGY-<topic>.md` already has
-`status: Accepted`, Phase 5 already ran. Verify the wip/ cleanup completed
-(no `wip/strategy_<topic>_*` files remain) and exit the workflow. If
-cleanup is incomplete, resume from step 5.4.
+`status: Accepted`, Phase 5 already ran. Verify the hygiene grep of step 5.4
+came back clean and the session is closed (direct run), then exit the
+workflow. If either is incomplete, resume from step 5.4.
 
 If the file is still in Draft status but the workflow is in Phase 5, start
 at step 5.1.
@@ -89,8 +91,9 @@ Options:
    ROADMAP to reference it as a stable upstream.
 2. **Request changes** — name what needs to change; the workflow loops
    back to Phase 2, Phase 3, or Phase 4 as appropriate.
-3. **Reject** — discard the draft. The wip/ cleanup runs and the file is
-   deleted via `git rm`; no STRATEGY ships.
+3. **Reject** — discard the draft. On a direct run the session is closed
+   `abandoned` (under a parent, the parent closes it) and the
+   file is deleted via `git rm`; no STRATEGY ships.
 
 Description field grounds the recommendation in the jury verdicts (e.g.,
 "All three reviewers passed; bet quality reviewer flagged Claim 3 as
@@ -133,7 +136,7 @@ Proceed to step 5.4 (Cleanup).
 
 1. Capture the specific feedback in the response (which sections, what
    to change).
-2. Update `wip/strategy_<topic>_context.md`'s `## Phase` line to the
+2. Update the `## Phase` line of key `work/context.md` to the
    target phase (`2`, `3`, or `4`).
 3. Loop back to the chosen phase. Phase 4's resume check will re-spawn
    the jury on the next pass if the changes were structural; the
@@ -144,7 +147,8 @@ Proceed to step 5.4 (Cleanup).
 1. Confirm the rejection with the user one more time — accepting that
    the STRATEGY draft will be deleted.
 2. Run `git rm docs/strategies/STRATEGY-<topic>.md`.
-3. Run the cleanup at step 5.4 to remove wip/ artifacts.
+3. Run step 5.4 (hygiene check, then close the session `abandoned` on a
+   direct run).
 4. Commit:
 
    ```
@@ -153,36 +157,23 @@ Proceed to step 5.4 (Cleanup).
 
 Then exit the workflow.
 
-## 5.4 Cleanup
+## 5.4 Close the Session and Check Hygiene
 
-Remove all working artifacts for this invocation:
+The working state is keys in `strategy-<topic>`, so there are no files to
+delete and no cleanup commit. Two things remain:
 
-```bash
-rm -f wip/strategy_<topic>_context.md
-rm -f wip/strategy_<topic>_discover.md
-rm -f wip/research/strategy_<topic>_phase4_*.md
-```
-
-Two-part cleanup contract per the workspace's wip-hygiene rule:
-
-1. Delete the physical files (the commands above).
-2. Grep the committed STRATEGY, any other docs in the branch, code
-   comments, and frontmatter for any `wip/` path references. Remove
-   every reference. The STRATEGY itself should never reference
-   `wip/...` paths (Downstream Artifacts durability checks in Phase 3
-   and Phase 4 enforce this), but the grep catches any reference that
-   slipped in elsewhere.
-
-If the grep surfaces a `wip/` reference in the committed content, do not
-proceed to the cleanup commit until the reference is removed or
-documented. References to `wip/` are dangling pointers the moment the
-cleanup commit lands.
-
-Commit the cleanup:
-
-```
-chore(strategy): clean up working artifacts for <topic>
-```
+1. Grep the committed STRATEGY, any other docs in the branch, code comments,
+   and frontmatter for any `wip/` path references, and remove every one. The
+   STRATEGY itself should never reference `wip/...` paths (Downstream
+   Artifacts durability checks in Phase 3 and Phase 4 enforce this), but the
+   grep catches any reference that slipped in elsewhere. A `wip/` reference
+   in committed content is a dangling pointer; do not open or update the PR
+   until it is removed.
+2. Close the session. A direct run closes it after the last step of this
+   phase: `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close strategy-<topic> done`,
+   or `close strategy-<topic> abandoned` after a Reject. Under a parent,
+   `/strategy` never closes its own session: the parent closes it at its
+   exit, and the keys stay readable until then.
 
 ## 5.5 Create the PR
 
@@ -225,7 +216,7 @@ ledger that records how far along its execution is.
 - [ ] User explicitly approved the STRATEGY (not just jury PASS)
 - [ ] Transition script ran successfully and updated both frontmatter and body Status
 - [ ] Open Questions section is empty or removed (no Draft-only content remains)
-- [ ] All `wip/strategy_<topic>_*` files are deleted
+- [ ] The session is closed (direct run) or left for the parent to close
 - [ ] No `wip/...` references remain in the committed STRATEGY or in other branch content
 - [ ] PR is created or updated with the STRATEGY summary
 - [ ] Verdict bodies were fenced in code blocks when surfaced to the user
@@ -234,7 +225,7 @@ ledger that records how far along its execution is.
 
 After this phase:
 - Final STRATEGY at `docs/strategies/STRATEGY-<topic>.md` with `status: Accepted`
-- All `wip/` artifacts removed
+- Session `strategy-<topic>` closed (direct run) or left to the parent
 - PR open with the STRATEGY as the headlining change
 - Workflow complete; ready for downstream consumption
 

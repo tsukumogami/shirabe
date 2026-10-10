@@ -1,6 +1,11 @@
 #schema	skill-requires/v1
 # Split rule: references/tool-declaration-policy.md
 #
+# /charter writes and removes the roadmap scope handoff as key chain/roadmap-scope
+# in its own session (koto context add and remove), and resume row 6 checks the
+# key with koto context exists; the other session operations go through
+# scripts/skill-session.sh.
+#
 # The finalization pass-through invokes `shirabe validate --format json
 # --visibility=<repo-visibility>` against the Draft STRATEGY and parses the
 # versioned validator envelope. Both flags are load-bearing: `--format json`
@@ -13,3 +18,6 @@
 # /charter opens no PR itself -- its children do -- so no gh record appears.
 shirabe	validate	--format,--visibility	always
 git	-	-	always
+koto	context add	-	always
+koto	context exists	-	always
+koto	context remove	-	always

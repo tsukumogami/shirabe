@@ -25,7 +25,7 @@ still-stubbed section.
 Read all available context:
 
 - The current draft at `docs/strategies/STRATEGY-<topic>.md`
-- `wip/strategy_<topic>_discover.md` (the Building Blocks sketch lives here)
+- key `work/discover.md` in `strategy-<topic>` (the Building Blocks sketch lives here)
 - `skills/strategy/references/strategy-format.md` (especially the Building
   Blocks granularity rubric and the per-section quality guidance)
 
@@ -239,7 +239,7 @@ Commit the structural fill:
 docs(strategy): fill STRATEGY structural sections for <topic>
 ```
 
-Update `wip/strategy_<topic>_context.md`'s `## Phase` line to `3`.
+Update the `## Phase` line of key `work/context.md` to `3`.
 
 ## Quality Checklist
 

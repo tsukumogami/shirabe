@@ -9,8 +9,8 @@ any issues found, then finalize the VISION with the user.
 
 ## Resume Check
 
-If `wip/research/vision_<topic>_phase4_*.md` files exist, skip to step 4.3
-(Process Feedback).
+If keys `research/phase4_*` exist in `vision-<topic>` (`koto context list
+vision-<topic> --prefix research/phase4_`), skip to step 4.3 (Process Feedback).
 
 ## Approach: 3-Agent Jury
 
@@ -19,17 +19,29 @@ dimension, all specific to what makes a VISION document effective.
 
 ### 4.1 Launch Jury Agents
 
+Before launching, allocate two private directories outside the work tree, one
+for the verdicts and one for the inputs the seats read, and materialize the
+scope key into the second:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <verdicts-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <inputs-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" get vision-<topic> work/scope.md <inputs-dir>
+                                                                  # prints <scope-file>
+```
+
 Load `skills/vision/references/vision-format.md` and pass the relevant quality
 guidance to each agent.
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Thesis Quality, Content Boundary and Section Guidance run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/visions/VISION-<topic>.md --format skills/vision/references/vision-format.md --extra <scope-file>`. `<scope-file>` is the scope document listed below.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Thesis Quality, Content Boundary and Section Guidance run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/visions/VISION-<topic>.md --format skills/vision/references/vision-format.md --extra <scope-file>`. `<scope-file>` is the path `get` printed.
 
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
 - The VISION draft (read from `docs/visions/VISION-<topic>.md`)
 - Their role and evaluation criteria
-- The scope document (`wip/vision_<topic>_scope.md`) for reference
+- The scope (the contents of key `work/scope.md`) for reference
+- A pinned output file in `<verdicts-dir>`; reviewers never call koto
 
 #### Thesis Quality Reviewer
 
@@ -42,7 +54,7 @@ rest of the document supports it.
 [Contents of docs/visions/VISION-<topic>.md]
 
 ## Original Scope
-[Contents of wip/vision_<topic>_scope.md]
+[Contents of key work/scope.md]
 
 ## Quality Guidance
 [Relevant sections from vision-format.md]
@@ -65,7 +77,7 @@ rest of the document supports it.
    it's too generic)?
 
 ## Output Format
-Write your full review to `wip/research/vision_<topic>_phase4_thesis-quality.md`:
+Write your full review to `<verdicts-dir>/phase4_thesis-quality.md`:
 
 # Thesis Quality Review
 
@@ -119,7 +131,7 @@ VISION does NOT contain:
    explain WHY, tying back to the thesis.
 
 ## Output Format
-Write your full review to `wip/research/vision_<topic>_phase4_content-boundary.md`:
+Write your full review to `<verdicts-dir>/phase4_content-boundary.md`:
 
 # Content Boundary Review
 
@@ -171,7 +183,7 @@ guidance. Your job is to check each section against its specific quality criteri
 - Open Questions section is allowed only in Draft status
 
 ## Output Format
-Write your full review to `wip/research/vision_<topic>_phase4_section-guidance.md`:
+Write your full review to `<verdicts-dir>/phase4_section-guidance.md`:
 
 # Section Guidance Review
 
@@ -192,11 +204,22 @@ Return only the verdict, issue count, and summary to this conversation.
 
 ### 4.2 Collect Results
 
-Wait for all 3 agents to complete. Read their summaries.
+Wait for all 3 agents to complete. Read their summaries. Then turn the verdict
+files into keys (`ingest` removes the verdicts directory) and remove the inputs
+directory:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest vision-<topic> research <verdicts-dir>
+rm -rf -- <inputs-dir>
+```
+
+`ingest` prints `added=research/phase4_<role>.md` per verdict and reports on
+stderr anything it skipped. A verdict that did not become a key counts as a
+FAIL with reason "verdict missing".
 
 ### 4.3 Process Feedback
 
-**Reference**: Full review details available in `wip/research/vision_<topic>_phase4_*.md`.
+**Reference**: Full review details are in keys `research/phase4_*` in `vision-<topic>` (`koto context get`).
 
 Determine consensus:
 
@@ -275,15 +298,21 @@ the entire doc -- focus on the areas the user identified.
 
 ### 4.7 Cleanup
 
-After the PR is created, clean up temporary artifacts:
+`/vision` kept its working state as keys in `vision-<topic>` and wrote no file to
+the staging folder, so there are no working files to delete and no cleanup commit.
+
+Under a parent's dispatch key, skip this step: `/vision` never closes its own
+session under a parent, and the parent closes `vision-<topic>` at its own exit.
+
+On a direct run, after the PR is created, close the session (use `abandoned`
+instead of `done` if the VISION is discarded):
 
 ```bash
-rm -f wip/vision_<topic>_scope.md
-rm -f wip/research/vision_<topic>_phase2_*.md
-rm -f wip/research/vision_<topic>_phase4_*.md
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close vision-<topic> done
 ```
 
-Commit: `chore(vision): clean up working artifacts`
+It prints `closed=done` (or `closed=noop` when the session was already
+finished). The keys stay readable after the close.
 
 ## Quality Checklist
 
@@ -296,4 +325,4 @@ Commit: `chore(vision): clean up working artifacts`
 Final VISION at `docs/visions/VISION-<topic>.md` with:
 - YAML frontmatter with status "Accepted"
 - All required sections complete and validated
-- Working artifacts cleaned up (scope doc, research files removed)
+- Working state left as keys in `vision-<topic>`, closed on a direct run
