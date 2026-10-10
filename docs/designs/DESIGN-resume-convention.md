@@ -444,6 +444,23 @@ none of it, as it reaches none of it through koto today. And no chain may rest
 on koto parent-child lineage, since an import neither carries children nor
 accepts a child as its source.
 
+**The staging-folder allowlist.** The plan's per-group grep criteria
+(`git grep -n 'wip/'` over a moved skill) pass only lines of these kinds,
+which is the allowlist those criteria cite:
+
+- prose stating the folder is not used, or describing this move away from it;
+- hygiene-rule statements over committed documents: an `--upstream` value
+  rejected under the folder, the no-staging-paths checks a reviewer or a
+  finalize step runs over a durable artifact, and the rule text those checks
+  cite;
+- `/scope`'s publish untrack step and its tests, untouched until the
+  enforcement layer goes with later work;
+- the `/explore` handoff and `/charter`'s own state file, wherever a moved
+  skill's prose or evals describe them, until their own groups move them.
+
+Everything else — a path a skill reads or writes for its working, research
+or verdict state — is gone from the moved skills.
+
 ### Per-skill keys
 
 Each moved skill's current files and the keys they become. `<N>`, `<role>`
@@ -548,7 +565,10 @@ it when it finishes, since it opened it.
   transition reads `dispatch read`. `/review-plan` names its files with
   `/plan`'s prefix today, so by the mapping it reads and writes `/plan`'s
   session, `plan-<topic>`, and on loop-back removes `/plan`'s keys there;
-  run directly, it opens nothing of its own. `/plan` materializes
+  run directly on a topic with no `plan-<topic>` session, it reviews the
+  PLAN alone, opens `plan-<topic>` to write its verdict, and closes it
+  when it finishes, since it opened it (the Per-skill keys table above
+  says the same). `/plan` materializes
   issue bodies into a scratch directory for `create-issue.sh` and
   `create-issues-batch.sh`, whose interfaces are unchanged.
 - **`/explore`.** Its handoff step opens `explore-<topic>` and writes
