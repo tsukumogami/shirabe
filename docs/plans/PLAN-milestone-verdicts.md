@@ -290,22 +290,57 @@ roadmap (step 1), so this closes the remaining merge-driven path.
 
 **Goal**: Landing a pull request for a milestone shows goal fit the
 milestone's numbered Evidence and posts a checked goal-fit entry naming the
-clauses it advances or `advances none`.
+pull request and the clauses it advances or `advances none`; and the branch's
+CI failures in the template-freshness and public-content checks are fixed.
+
+Steps 1 to 3 landed (build on them): `milestone.sh` (`schema`, `evidence`,
+`check-verdict`, `progress-has`), the `ROADMAP_FORM` koto variable, the
+`milestone-` Action prefix and the `verdict-owed` and `rework` Work kinds in
+the codec, `record-append.sh`'s `milestone-verdict` kind, and the cascade's
+v2 skip. CI at the step 3 head fails on these checks, which this step fixes:
+- Template Freshness: `coordinate.mermaid.md` is stale. Regenerate it with
+  `koto template export skills/coordinate/koto-templates/coordinate.md
+  --format mermaid --output skills/coordinate/koto-templates/coordinate.mermaid.md`.
+- public-content and shipped-paths: test fixtures carry literal
+  forbidden-shaped strings. They are `roadmap-status_test.sh` near line 560
+  (a home-directory path), `milestone_test.sh` near line 150 (a `wip/`
+  value) and `dispatch-worker_test.sh` near lines 265 and 275 (a
+  session-shaped name). Build each at run time the way
+  `record-append_test.sh` does (`"/ho""me/..."`, with its comment), or use
+  a neutral value where the test doesn't need the shape; never allowlist
+  them.
 
 **Acceptance Criteria**:
-- [ ] `land-check.sh` adds `milestone: {tag, evidence}` to `coord/land.json`
-  for a pull request whose holding's unit is on a v2 roadmap, and nothing
-  for a v1 roadmap.
-- [ ] `milestone.sh check-goal-fit` accepts an entry naming existing clause
-  numbers or `advances none`, and refuses clause 3 on a two-clause
-  milestone and a malformed entry; `record-append.sh` accepts `goal-fit`.
-- [ ] `goal_fit` accepts an optional `clauses` field and its directive
-  posts the checked entry on a milestone roadmap; `advances none` still
-  lands when the fit allows.
-- [ ] The acceptance suite posts a goal-fit entry for the PR-bearing
-  milestone's pull request that names that pull request and a clause that
-  exists, and a second pull request judged `advances none` still reaches
-  `land_merge`.
+- [ ] `land-check.sh` adds `milestone: {tag, evidence: [...]}` (numbered
+  clauses from `milestone.sh evidence` at the default branch) to
+  `coord/land.json` when the pull request's holding names a unit on a v2
+  roadmap. It adds nothing on a v1 roadmap or when no holding names the
+  pull request, and a failed roadmap read doesn't change the land verdict.
+  `land-check_test.sh` covers all three.
+- [ ] `milestone.sh check-goal-fit ROADMAP TAG ENTRY` accepts an entry
+  (`Goal fit: <owner/repo#n> -- <tag>`, `Fit: <fits|fits with
+  follow-ups|gap>`, `Clauses: <n, n|advances none>`, `Rationale: <text>`)
+  naming existing clause numbers or `advances none`. It refuses, naming the
+  line: clause 3 on a two-clause milestone, a tag other than TAG, a pull
+  request not shaped `owner/repo#n`, a malformed or reordered entry, and a
+  file over 16 KiB. `record-append.sh` accepts the kind `goal-fit` and still
+  refuses an unknown kind.
+- [ ] `goal_fit` accepts an optional `clauses` field. On a milestone roadmap
+  (`ROADMAP_FORM` milestone) its directive reads `milestone.evidence` from
+  `coord/land.json` and posts the checked entry with `record-append.sh
+  --kind goal-fit` before submitting. `advances none` with a `fits` outcome
+  still reaches `land_merge`. The v1 rendering is unchanged, and
+  `rule-coverage.tsv` pins the new phrase.
+- [ ] `milestone-verdicts_test.sh` posts a goal-fit entry for the PR-bearing
+  milestone's pull request, naming that pull request and a clause that
+  exists. The engine suite shows a second pull request judged `advances
+  none` reaching `land_merge`.
+- [ ] Template Freshness passes locally for `coordinate.md` (the export
+  matches the committed diagram), and `scripts/ablation/check-public-content.sh
+  --diff origin/main --head HEAD -- docs skills references .claude
+  .claude-plugin ':(glob)*.md'` reports nothing.
+- [ ] Every new or changed script and test is in
+  `scripts/check-bash-floor.sh`'s coordinate list, and `run-tests.sh` passes.
 
 **Dependencies**: Issue 1
 
@@ -381,6 +416,10 @@ covers every criterion of the feature's requirements.
   `--follow-ups` and its file format, the rework row and the brief heading
   that quotes it, the entry-to-comment binding, and that close-out reuses
   the `verdict-owed` word and code 49.
+- [ ] The completion cascade's design and the roadmap format say the cascade
+  skips a `roadmap/v2` roadmap (one `update_roadmap_feature` step at
+  `skipped`, the run still `completed`), and that when a PLAN's chain points
+  straight at a v2 roadmap the `--push` after-commit check reads `skipped`.
 
 **Dependencies**: Issue 3, Issue 4, Issue 5
 
