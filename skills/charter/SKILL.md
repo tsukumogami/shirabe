@@ -296,8 +296,10 @@ N. **Finalization** — set the `exit:` field to one of `full-run`,
    close-children charter <topic> <done|abandoned>` (`done` on
    full-run, `abandoned` on the other exits) and then the session
    itself with `skill-session.sh close charter-<topic>
-   <done|abandoned>` (`done` for a completed run, `abandoned` for a
-   bail or abandonment), in that order, on every exit path.
+   <done|abandoned>` (`done` on full-run and re-evaluation,
+   `abandoned` on abandonment-forced), in that order, on the three
+   exits that record an `exit:` value. A clean cancel records none
+   and closes nothing: it removes key `work/state.md` and stops.
    - Instructions: `skills/charter/references/phases/phase-finalization.md`
 
 ## Reference Files
