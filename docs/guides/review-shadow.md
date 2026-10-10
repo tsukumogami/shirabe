@@ -73,6 +73,13 @@ The arguments:
 The Jev key is read from `JEV_API_KEY`, or `KOTO_DECIDER_API_KEY` when that is
 unset.
 
+Certificates are checked against Python's own trust roots, or against
+`SSL_CERT_FILE` or `SSL_CERT_DIR` when either is set. A Python that ships with
+none, like the python.org installer on macOS before its "Install
+Certificates" step runs, uses the operating system's bundle at
+`/etc/ssl/cert.pem` (or `/etc/ssl/certs/ca-certificates.crt`) instead. Without either, every request
+fails its certificate check and is recorded as `transport`.
+
 ### When grade fails or records not-graded
 
 `grade` exits 2 without writing a record when an argument is wrong or `gh`
@@ -89,6 +96,7 @@ answer. Its reason says why:
 | `transport`, `provider` | Jev couldn't be reached, or answered with an error, twice | grade again later |
 | `over-bound` | every slice Jev would grade was still over 2,560 bytes after the body was cut (the file list leaves under 512 bytes for the body) | nothing; it's left out of the agreement rates |
 | `no-changed-paths` | the head changes nothing | nothing; this head can't be graded |
+| `no-slices` | no criterion the run grades had anything of its kind to look at, such as a site seat that grades code comments on a change that touched only Markdown | nothing; it's left out of the agreement rates |
 | `outcome-without-grade` | an outcome was recorded for a head nobody graded | nothing; it's counted as not graded |
 
 Grading again is safe: each run writes a new record, and the report reads

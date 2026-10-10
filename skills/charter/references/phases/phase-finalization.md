@@ -36,6 +36,7 @@ below produces the writes; the R9 check validates them.
 - [Exit 3 — abandonment-forced](#exit-3--abandonment-forced)
 - [R8 Tie-Break — Most-Recently-Running Resolution](#r8-tie-break--most-recently-running-resolution)
 - [Reject vs Bail — The Load-Bearing Distinction](#reject-vs-bail--the-load-bearing-distinction)
+- [Closing the Session](#closing-the-session)
 - [State-Field References](#state-field-references)
 - [Routing-Source Citations](#routing-source-citations)
 - [Exit-Artifact Template References](#exit-artifact-template-references)
@@ -637,6 +638,32 @@ state-field combination — the R9 conditional-field gating in
 `<<ISSUE:5>>`'s schema spec makes Reject's `decision_record_sub_shape:
 rejection` mutually exclusive with Bail's `triggering_child:` and
 `partial_phase_reached:`.
+
+## Closing the Session
+
+Every exit path ends by closing the session Phase 0 opened,
+`charter-<topic>`, as the last thing finalization does:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close charter-<topic> <done|abandoned>
+```
+
+| How the run ended | Close with |
+|---|---|
+| Exit 1, full-run | `done` |
+| Exit 2, re-evaluation (either sub-shape) | `done` |
+| Exit 3, abandonment-forced (a bail mid-chain or inside a child) | `abandoned` |
+| Clean-cancel (a bail with no chain progress) | `abandoned` |
+
+On the three exits the close follows the R9 hard finalization check
+accepting the state; when the check surfaces an error, the session
+stays live so the next invocation resumes against it. Clean-cancel
+has no R9 check and closes right after the state file is removed.
+No `chain/dispatch` key survives to this point, since Phase 2 clears
+it after every child, but a close keeps the session's keys readable
+either way: `close` submits the evidence with `--no-cleanup`. It is
+idempotent, so a run that crashes after writing its exit closes the
+session on the next invocation's finalization.
 
 ## State-Field References
 

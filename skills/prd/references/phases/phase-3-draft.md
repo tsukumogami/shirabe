@@ -24,8 +24,8 @@ efficient than co-authoring section by section because:
 ### 3.1 Gather Inputs
 
 Read all available context:
-- `wip/prd_<topic>_scope.md` (from Phase 1)
-- `wip/research/prd_<topic>_phase2_*.md` files (from Phase 2, if they exist)
+- Key `work/scope.md` in `prd-<topic>` (from Phase 1)
+- Keys `research/phase2_*.md` in `prd-<topic>` (from Phase 2, if they exist)
 - Any notes from Phase 2 synthesis
 
 **Detect upstream:** A PRD's upstream is normally the BRIEF its requirements
@@ -210,8 +210,8 @@ If the user is satisfied, proceed to Phase 4.
 
 ### 3.7 Decision Review Checkpoint
 
-Before finalizing, scan `wip/` artifacts (scope document, Phase 2 research files,
-conversation history) for decisions that were made but not captured in the PRD's
+Before finalizing, scan the session's keys (`work/scope.md`, the Phase 2
+`research/phase2_*.md` keys) and the conversation history for decisions that were made but not captured in the PRD's
 Decisions and Trade-offs section. Common gaps:
 
 - Scope narrowing choices from Phase 1 that shaped requirements
@@ -241,8 +241,8 @@ Before proceeding:
 
 After this phase:
 - PRD draft at `docs/prds/PRD-<topic>.md` with status "Draft"
-- Scope document still at `wip/prd_<topic>_scope.md`
-- Phase 2 research files still at `wip/research/prd_<topic>_phase2_*.md` (if created)
+- Key `work/scope.md` still in `prd-<topic>`
+- Phase 2 research keys `research/phase2_*.md` still in `prd-<topic>` (if created)
 
 ## Next Phase
 

@@ -99,25 +99,86 @@ normally sequences several features, so they usually do not.
 Log: `Drafting brief with [Private|Public] visibility...`
 
 `/brief` takes no mode flag and runs interactively, except under a parent's
-sentinel, where it follows the parent's execution mode (see "Under `/scope`"
+dispatch key, where it follows the parent's execution mode (see "Under `/scope`"
 below).
+
+### Session and Keys
+
+`/brief` keeps its working state as keys in its own koto session,
+`brief-<topic>`, following
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It writes no
+file to the staging folder, chained or direct. As soon as the topic is known
+(from the argument, or from Phase 0's slug step on a cold start), and before
+the resume rows below are read, it opens the session and records whether it
+runs under a parent:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open brief <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt brief <topic>
+```
+
+`open` attaches to a live `brief-<topic>` (an interrupted run, whose keys the
+resume rows read), replaces a finished one (a fresh run), or creates it. Any
+non-zero exit from either command stops the run with the script's message:
+127 or 69 means koto is missing or too old, and the skill never falls back to
+files. `adopt` exiting 3 is the two-parents case below.
+
+| Key | Written at | Holds |
+|-----|-----------|-------|
+| `work/context.md` | Phase 0 | entry mode, grounding path, visibility, artifact decision, phase |
+| `work/discover.md` | Phase 1 | the scoping conversation's output |
+| `research/phase4_content-quality.md`, `research/phase4_structural-format.md` | Phase 4 | the jury's verdicts, ingested from a scratch directory |
+
+Keys are read and written with koto against `brief-<topic>`: `koto context
+exists brief-<topic> <key>` tests one (exit 0 present, 1 absent), `koto
+context get brief-<topic> <key>` prints it, `koto context add brief-<topic>
+<key>` stores the content given on stdin (the whole content: to change one
+line, get the key, edit it, and add it back), `koto context list
+brief-<topic> --prefix <prefix>` lists keys, and `koto context remove
+brief-<topic> <key>` removes one. Reviewer agents never write keys: Phase 4
+pins each verdict to a file in a `skill-session.sh scratch` directory and
+ingests it.
+
+**Closing.** A direct run closes its session when it finishes:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close brief-<topic> done`
+after Phase 5's last step, or `close brief-<topic> abandoned` after a Reject's
+discard commit. Under a parent `/brief` never closes its own session: the
+parent closes it at its own exit (`skill-session.sh close-children`), and the
+keys stay readable until then.
 
 ### Resume Logic
 
 ```
-parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                         -> see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
+dispatch read brief <topic> prints parent=<session>
+                                                         -> run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 BRIEF exists with status "Accepted" or "Done"            -> Offer to revise or start fresh
 BRIEF exists with status "Draft"                         -> Offer to continue from Phase 2 or 3
-wip/research/brief_<topic>_phase4_*.md files exist       -> Resume at Phase 4 (aggregate)
+keys research/phase4_* exist in brief-<topic>            -> Resume at Phase 4 (aggregate)
 BRIEF has User Journeys section with real content        -> Resume at Phase 4
 BRIEF has Problem Statement section                      -> Resume at Phase 3
-wip/brief_<topic>_discover.md exists                     -> Resume at Phase 2
-wip/brief_<topic>_context.md exists                      -> Resume at Phase 1
+key work/discover.md exists in brief-<topic>             -> Resume at Phase 2
+key work/context.md exists in brief-<topic>              -> Resume at Phase 1
 None of the above                                        -> Start at Phase 0
 ```
 
-**Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names
+**Running under a parent.** The first row runs
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read brief <topic>`
+with the topic this run works on. A printed `parent=<session>`
+line means `/brief` runs under that parent (`scope-<topic>` or
+`charter-<topic>`), with the parent's upfront decision in the `rationale=` and
+`suppress_status_aware_prompt=` lines; what changes under a parent is in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
+Four cases are no match. Three print nothing and exit 0, and the run is a
+direct one with the rows below unchanged: no parent session, a finished parent
+session, and a parent whose `chain/dispatch` key names another child. The
+fourth, two parent sessions that both name `/brief`, exits 3: don't pick one
+and don't run directly; stop and report both sessions, which the script names
+on stderr, so the author can clear the stale key. Any other non-zero exit
+stops the run with the script's message (`open` has already checked koto).
+`adopt` has recorded the same match as `chain/parent` in `brief-<topic>`, or
+removed a `chain/parent` an earlier chained run left.
+
+**Under `/scope`.** When `/scope`'s dispatch key names
 `brief` (the first row above), `/brief` still reaches its own Phase 5 verdict
 and makes its own status transition, and skips everything that publishes or
 routes, which `/scope` owns: no push, no pull request, no branch creation, no
@@ -128,7 +189,7 @@ execution mode) takes the recommended verdict and names it in its output.
 Phase 5 marks each step this changes. This is the Parent-owned-publishing
 shape in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`, per
 `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
-Without the sentinel, nothing here applies.
+Without a dispatch key naming this skill, nothing here applies.
 
 ### Critical Requirements
 

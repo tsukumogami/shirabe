@@ -117,7 +117,7 @@ Do NOT include code-level AC like "tests pass" or "CI green" -- planning issues 
 
 ### File/Chat Separation
 
-Write the complete issue body to: `wip/plan_{{TOPIC}}_issue_{{ISSUE_ID}}_body.md`
+Write the complete issue body to: `{{OUTPUT_DIR}}/issue_{{ISSUE_ID}}_body.md`, and nowhere else
 
 After writing the file, return ONLY the structured summary below. Do NOT include any part of the issue body in your response. The orchestrator reads the file directly -- repeating the body in chat wastes context and risks truncation.
 
@@ -125,7 +125,7 @@ After writing the file, return ONLY the structured summary below. Do NOT include
 ```
 Status: PASS | VALIDATION_FAILED | ERROR
 Complexity: simple
-File: wip/plan_{{TOPIC}}_issue_{{ISSUE_ID}}_body.md
+File: {{OUTPUT_DIR}}/issue_{{ISSUE_ID}}_body.md
 Sections: <comma-separated list of sections present>
 Dependencies: <issue IDs or "none">
 ```

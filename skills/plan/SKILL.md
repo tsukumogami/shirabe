@@ -206,7 +206,8 @@ appear in any order after the document path.
 
 **Execution mode flags:**
 - `--auto` -- non-interactive execution; follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md`
-  at all decision points; create `wip/plan_<topic>_decisions.md`
+  at all decision points; track decisions in key `work/decisions.md` in
+  `plan-<topic>` (written once the session is open; see Session and Keys)
 - `--interactive` -- force interactive (default)
 
 If no mode flag, read CLAUDE.md `## Execution Mode:` header.
@@ -239,8 +240,8 @@ forwards them verbatim when its caller passed them):
   the `CLAUDE.md` header.
 
 A run with none of the three behaves exactly as before they existed. Validate
-them before anything else runs, and before any `wip/plan_<topic>_*` file is
-written. Each of these is a rejection with an error naming the offending flag,
+them before anything else runs, and before the `plan-<topic>` session is
+opened or any key is written. Each of these is a rejection with an error naming the offending flag,
 and the run stops without writing anything:
 
 - an `--intent` value other than `continue` or `stop` (`--intent=bogus`, a bare
@@ -360,20 +361,79 @@ Only plan documents with the right status: Accepted designs/PRDs, Active roadmap
 Phase 1 (`references/phases/phase-1-analysis.md`) has the full validation table
 with error messages per status. Direct topics skip status validation.
 
+### Session and Keys
+
+`/plan` keeps its working state as keys in its own koto session,
+`plan-<topic>`, following
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It writes no
+file to the staging folder, chained or direct. Topic is derived from the
+source document filename: `DESIGN-foo-bar.md` produces topic `foo-bar`,
+`ROADMAP-foo-bar.md` produces topic `foo-bar`; a direct topic is its own slug.
+Once the flags above have validated and the topic is known, and before the
+resume rows below, `/plan` opens the session and records whether it runs
+under a parent:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open plan <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt plan <topic>
+```
+
+`open` attaches to a live `plan-<topic>` (an interrupted run, whose keys the
+resume rows read), replaces a finished one (a fresh run), or creates it. Any
+non-zero exit from either command stops the run with the script's message:
+127 or 69 means koto is missing or too old, and the skill never falls back to
+files. `adopt` exiting 3 is the two-parents case below.
+
+| Key | Written at | Holds |
+|-----|-----------|-------|
+| `work/decisions.md` | Context Resolution, under `--auto` | the autonomous-decision ledger |
+| `work/analysis.md` | Phase 1 | source path, input type, scope, `review_rounds` |
+| `work/milestones.md` | Phase 2 | the milestone grouping |
+| `work/decomposition.md` | Phase 3 | the strategy, execution mode and issue outlines |
+| `work/issue_<id>_body.md` | Phase 4 | each generated issue body or outline, ingested from a scratch directory |
+| `work/manifest.json` | Phase 4 | the issue manifest; each entry's `file` names its body key's last component (`issue_<id>_body.md`) |
+| `work/dependencies.md` | Phase 5 | the dependency graph |
+| `work/review.md`, `work/review_loopback.md` | Phase 6, by `/review-plan` | the review verdict (proceed or loop-back) |
+| `work/mapping.json` | Phase 7 | internal IDs to GitHub issue numbers, once issues are filed |
+
+Keys are read and written with koto against `plan-<topic>`: `koto context
+exists plan-<topic> <key>` tests one (exit 0 present, 1 absent), `koto context
+get plan-<topic> <key>` prints it, `koto context add plan-<topic> <key>` stores
+the content given on stdin (the whole content: to change part of it, get the
+key, edit it, and add it back), `koto context list plan-<topic> --prefix
+<prefix>` lists keys, and `koto context remove plan-<topic> <key>` removes one.
+Generation agents never write keys: Phase 4 pins each body to a file in a
+`skill-session.sh scratch` directory and ingests it, and Phase 7 materializes
+the manifest and bodies into a scratch directory (`skill-session.sh get`) for
+`create-issue.sh` and `create-issues-batch.sh`, whose interfaces take files.
+
+`/review-plan`, which Phase 6 runs inline, names its files with `/plan`'s
+prefix, so it reads and writes this same session: its verdict lands as
+`work/review.md` or `work/review_loopback.md` here, and a loop-back removes
+`/plan`'s keys back to the loop target.
+
+**Closing.** A direct run closes its session when it finishes:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close plan-<topic> done`
+at Phase 7's end (`abandoned` when the author abandons the plan). Under a
+parent `/plan` never closes its own session: the parent closes it at its own
+exit (`skill-session.sh close-children`), and the keys stay readable until
+then.
+
 ### Resume Logic
 
-Resume is based on topic-scoped wip/ artifacts. Topic is derived from the source
-document filename: `DESIGN-foo-bar.md` produces topic `foo-bar`, `ROADMAP-foo-bar.md`
-produces topic `foo-bar`.
+Resume is based on the keys in `plan-<topic>` (Session and Keys above).
 
 ```
+dispatch read plan <topic> prints parent=<session>
+                                              -> run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md,
+                                                 then continue down this ladder
 if GitHub issues exist for this design        -> Resume at Phase 7 (verify/complete)
-if wip/plan_<topic>_review.md exists          -> Resume at Phase 7
-if wip/plan_<topic>_dependencies.md exists    -> Resume at Phase 6
-if wip/plan_<topic>_manifest.json exists      -> Resume at Phase 5
-if wip/plan_<topic>_decomposition.md exists   -> Resume at Phase 4
-if wip/plan_<topic>_milestones.md exists      -> Resume at Phase 3
-if wip/plan_<topic>_analysis.md exists        -> Resume at Phase 2
+if key work/review.md exists                  -> Resume at Phase 7
+if key work/dependencies.md exists            -> Resume at Phase 6
+if key work/manifest.json exists              -> Resume at Phase 5
+if key work/decomposition.md exists           -> Resume at Phase 4
+if key work/milestones.md exists              -> Resume at Phase 3
+if key work/analysis.md exists                -> Resume at Phase 2
 else                                          -> Start at Phase 1
 ```
 
@@ -382,18 +442,37 @@ To check for existing GitHub issues:
 gh issue list --search "Design: <design-doc-path>" --json number,title,state
 ```
 
-When resuming, read the existing artifact to restore context before continuing.
+Each key row is `koto context exists plan-<topic> <key>`. When resuming, read
+the existing key (`koto context get`) to restore context before continuing.
 
-A `parent_orchestration` sentinel in `/scope`'s state file is not a rung
-of that ladder: the ladder applies the same way under it, and the sentinel only
-changes which steps the run skips, as the next paragraph says.
+**Running under a parent.** The first row runs
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read plan <topic>`
+with the topic this run works on (derived from the source document's file
+name, as above). A printed `parent=<session>` line means `/plan` runs under that parent (`scope-<topic>` or
+`charter-<topic>`), with the parent's upfront decision in the `rationale=` and
+`suppress_status_aware_prompt=` lines; what changes under a parent is in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
+Four cases are no match. Three print nothing and exit 0, and the run is a
+direct one with the rows below unchanged: no parent session, a finished parent
+session, and a parent whose `chain/dispatch` key names another child. The
+fourth, two parent sessions that both name `/plan`, exits 3: don't pick one
+and don't run directly; stop and report both sessions, which the script names
+on stderr, so the author can clear the stale key. Any other non-zero exit
+stops the run with the script's message (`open` has already checked koto).
+`adopt` has recorded the same match as `chain/parent` in `plan-<topic>`, or
+removed a `chain/parent` an earlier chained run left.
 
-**Under `/scope`'s sentinel** `/plan` still reaches its own verdict (the Phase 6
+The first row is not a resume point: the rest of the ladder applies the same
+way under a parent, and the dispatch key only changes which steps the run
+skips, as the next paragraph says.
+
+**Under `/scope`'s dispatch key** `/plan` still reaches its own verdict (the Phase 6
 review) and makes its own status transition (Phase 7's step 7.5), but skips
 everything that publishes or routes: it pushes nothing, opens no pull request,
 creates no branch, makes no cleanup commit, and asks no routing question, so
-step 7.6's cleanup is left to `/scope` and step 7.8's upstream-issue question
-and its `gh issue edit` are skipped. This is
+step 7.6 closes nothing (`/plan` never closes its own session under a parent;
+`/scope` closes `plan-<topic>` at its exit) and step 7.8's upstream-issue
+question and its `gh issue edit` are skipped. This is
 shape 6, Parent-owned-publishing, in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`,
 recorded in `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
 Under `--auto` it takes the recommended verdict and names it in its output.
@@ -423,27 +502,27 @@ scope from Context Resolution throughout.
 
 1. **Analysis**: Understand source document scope and components/features
    - Read: `references/phases/phase-1-analysis.md`
-   - Artifact: `wip/plan_<topic>_analysis.md`
+   - Artifact: key `work/analysis.md`
 
 2. **Milestone**: Derive milestone from source document
    - Read: `references/phases/phase-2-milestone.md`
-   - Artifact: `wip/plan_<topic>_milestones.md`
+   - Artifact: key `work/milestones.md`
 
 3. **Decomposition**: Break into atomic issues, then value confirmation (3.5a) + execution mode selection (3.6)
    - Read: `references/phases/phase-3-decomposition.md`
-   - Artifact: `wip/plan_<topic>_decomposition.md` (includes value-guard result and execution mode decision)
+   - Artifact: key `work/decomposition.md` (includes value-guard result and execution mode decision)
 
 4. **Generation**: Generate rich issue bodies via parallel agents
    - Read: `references/phases/phase-4-agent-generation.md`
-   - Artifact: `wip/plan_<topic>_issue_*.md` + `wip/plan_<topic>_manifest.json`
+   - Artifact: keys `work/issue_<id>_body.md` + `work/manifest.json`
 
 5. **Dependencies**: Map issue dependencies and sequencing
    - Read: `references/phases/phase-5-dependencies.md`
-   - Artifact: `wip/plan_<topic>_dependencies.md`
+   - Artifact: key `work/dependencies.md`
 
 6. **Review**: AI validates completeness, sequencing, and complexity assignments
    - Read: `references/phases/phase-6-review.md`
-   - Artifact: `wip/plan_<topic>_review.md`
+   - Artifact: key `work/review.md` (or `work/review_loopback.md`)
 
 7. **Creation**: Create PLAN doc and optional GitHub artifacts
    - Read: `references/phases/phase-7-creation.md`
@@ -457,7 +536,7 @@ scope from Context Resolution throughout.
 ### Critical Requirements
 
 - **Atomic Issues**: each issue should be independent and completable in one session
-- **Topic Scoping**: all wip/ artifacts include `<topic>` in the filename
+- **Topic Scoping**: all working state is keys in `plan-<topic>`, never files in the staging folder
 
 ### Output
 

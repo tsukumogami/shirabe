@@ -8,7 +8,7 @@ names for the same purpose, producing issues with mutually exclusive behaviors.
 
 Read the following from Phase 0 context:
 
-- Upstream design doc path (from `wip/plan_<topic>_analysis.md`)
+- Upstream design doc path (from key `work/analysis.md`, or the PLAN document's `upstream:`)
 - All issue body files (already read in Phase 0)
 - Input type (gates behavior below)
 

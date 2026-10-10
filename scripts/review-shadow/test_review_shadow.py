@@ -880,6 +880,20 @@ class TestGrade(unittest.TestCase):
         self.assertEqual((b["status"], b["not_graded_reason"]), ("not-graded", "no-changed-paths"))
         self.assertEqual(sent, [])
 
+    def test_no_slice_for_any_criterion_is_not_graded(self):
+        rows = [{"rule_id": "rs-016", "verdict": "pass", "slices": 0}, {"rule_id": "rs-017", "verdict": "pass", "slices": 0}]
+        for crit_rows in (rows, []):
+            self.assertEqual(rs.run_status(crit_rows, [], 0, False, []), ("not-graded", "no-slices"))
+        # A docs-only pull request still has its script criteria over pr-text, so it
+        # is graded; its code-hunks criterion, turned on here, stays a zero-slice pass.
+        self.crit["_enabled"] = ["rs-010"]
+        self.pr["files"] = [{"path": "docs/a.md", "status": "modified", "additions": 1, "deletions": 1,
+                             "patch": "@@ -1 +1 @@\n-Says one.\n+Says two.\n"}]
+        b = self.graded(stub_send())
+        self.assertNotEqual(b["status"], "not-graded")
+        slices = {c["rule_id"]: c["slices"] for c in b["criteria"]}
+        self.assertEqual((slices["rs-001"], slices["rs-010"]), (1, 0))
+
     def test_a_bad_key_never_reaches_an_error_message(self):
         with self.assertRaises(rs.ConfigError) as cm:
             rs.https_transport("https://example.invalid", "SECRETKEY\nX", 1)
@@ -907,6 +921,97 @@ class TestGrade(unittest.TestCase):
     def test_https_only(self):
         with self.assertRaises(rs.ConfigError):
             rs.https_transport("http://example.com", "k", 1)
+
+
+# A self-signed root that signs nothing; only its loading is tested.
+TEST_ROOT_PEM = """-----BEGIN CERTIFICATE-----
+MIIBnDCCAUGgAwIBAgIUC1Utx0rh7mlWbvTdtAaPbRteOBowCgYIKoZIzj0EAwIw
+IjEgMB4GA1UEAwwXcmV2aWV3LXNoYWRvdyB0ZXN0IHJvb3QwIBcNMjYxMDA5MTUy
+NTU4WhgPMjEyNjA5MTUxNTI1NThaMCIxIDAeBgNVBAMMF3Jldmlldy1zaGFkb3cg
+dGVzdCByb290MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEscUlMbAHlAhG5OTo
+B6hQxv3NIonKkajgaQsMeLAe47ZhP9VfRNK3aMFk22cObaDH5Iedy44+Agab2xW1
+5sC+xKNTMFEwHQYDVR0OBBYEFB2qL9VrxGO94wJ7QiwjmAR4pTUdMB8GA1UdIwQY
+MBaAFB2qL9VrxGO94wJ7QiwjmAR4pTUdMA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZI
+zj0EAwIDSQAwRgIhAMLcrPYh/DkgdeC6PxyfbCZptSlqhEt3qdV6pMKfwRjiAiEA
+iJvItrTR691DkycbvktpKVjMEGQNCpoL/XugF1ZHwfI=
+-----END CERTIFICATE-----
+"""
+
+
+class TestTrustRoots(unittest.TestCase):
+    """A Python with no trust roots of its own borrows the operating system's,
+    so a send isn't refused by every certificate check."""
+
+    def setUp(self):
+        import ssl
+        self.ssl = ssl
+        self.tmp = Path(tempfile.mkdtemp())
+        self.root = _write(self.tmp, "root.pem", TEST_ROOT_PEM)
+        self.not_pem = _write(self.tmp, "not.pem", "not a certificate")
+        self.loaded = []
+        for var in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+            if var in os.environ:
+                self.addCleanup(os.environ.__setitem__, var, os.environ.pop(var))
+
+    def empty(self):
+        loaded = self.loaded
+
+        class Recording(self.ssl.SSLContext):
+            def load_verify_locations(self, *a, **k):
+                loaded.append(k.get("cafile"))
+                return super().load_verify_locations(*a, **k)
+        return Recording(self.ssl.PROTOCOL_TLS_CLIENT)
+
+    def test_no_roots_of_its_own_loads_the_first_bundle_present(self):
+        ctx = rs.tls_context(self.empty, (str(self.tmp / "missing.pem"), str(self.root), str(self.not_pem)))
+        self.assertEqual(len(ctx.get_ca_certs()), 1)
+        self.assertEqual(self.loaded, [str(self.root)])
+
+    def test_an_unreadable_bundle_falls_through_to_the_next(self):
+        ctx = rs.tls_context(self.empty, (str(self.not_pem), str(self.root)))
+        self.assertEqual(len(ctx.get_ca_certs()), 1)
+        self.assertEqual(self.loaded, [str(self.not_pem), str(self.root)])
+
+    def test_no_bundle_present_leaves_it_empty(self):
+        ctx = rs.tls_context(self.empty, (str(self.tmp / "missing.pem"),))
+        self.assertEqual(ctx.get_ca_certs(), [])
+
+    def test_roots_of_its_own_are_kept_alone(self):
+        def with_roots():
+            ctx = self.empty()
+            ctx.load_verify_locations(cafile=str(self.root))
+            return ctx
+        rs.tls_context(with_roots, (str(self.root),))
+        self.assertEqual(self.loaded, [str(self.root)])  # the base's own load, nothing after
+
+    def test_roots_named_in_the_environment_are_kept_alone(self):
+        for var in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+            os.environ[var] = str(self.tmp)
+            try:
+                ctx = rs.tls_context(self.empty, (str(self.root),))
+            finally:
+                del os.environ[var]
+            self.assertEqual((var, ctx.get_ca_certs(), self.loaded), (var, [], []))
+
+    def test_the_default_context_still_verifies(self):
+        ctx = rs.tls_context(bundles=())
+        self.assertEqual(ctx.verify_mode, self.ssl.CERT_REQUIRED)
+        self.assertTrue(ctx.check_hostname)
+
+    def test_the_opener_uses_the_context_and_refuses_redirects(self):
+        made = []
+        real = rs.tls_context
+        rs.tls_context = lambda: made.append(self.empty()) or made[-1]
+        self.addCleanup(setattr, rs, "tls_context", real)
+        prev = rs.urllib.request.build_opener
+        rs.urllib.request.build_opener = _REAL_BUILD_OPENER
+        self.addCleanup(setattr, rs.urllib.request, "build_opener", prev)
+        opener = rs.https_opener()
+        https = [h for h in opener.handlers if isinstance(h, rs.urllib.request.HTTPSHandler)]
+        self.assertEqual([h._context for h in https], made)
+        redirects = [h for h in opener.handlers if isinstance(h, rs.urllib.request.HTTPRedirectHandler)]
+        self.assertTrue(redirects)
+        self.assertTrue(all(isinstance(h, rs._NoRedirect) for h in redirects))
 
 
 class TestStore(unittest.TestCase):
@@ -1724,10 +1829,12 @@ class TestSiteGrading(unittest.TestCase):
         self.assertEqual(recs[-1]["seats"][0]["verdict"], "pass")
 
     def work_on_repo(self, ledger_for, decisions=("full",), panel="scrutiny", seat="completeness",
-                     criteria="## Acceptance Criteria\n\n- [ ] `scripts/a.sh` prints two.\n- [ ] It is fast.\n"):
-        root = site_repo({"scripts/a.sh": "#!/bin/sh\n# says one\necho one\n", "CLAUDE.md": PUBLIC_CLAUDE_MD})
+                     criteria="## Acceptance Criteria\n\n- [ ] `scripts/a.sh` prints two.\n- [ ] It is fast.\n",
+                     path="scripts/a.sh", before="#!/bin/sh\n# says one\necho one\n",
+                     after="#!/bin/sh\n# says two\necho two\n"):
+        root = site_repo({path: before, "CLAUDE.md": PUBLIC_CLAUDE_MD})
         base = git(root, "rev-parse", "HEAD")
-        (root / "scripts" / "a.sh").write_text("#!/bin/sh\n# says two\necho two\n")
+        (root / path).write_text(after)
         git(root, "commit", "-q", "-am", "change")
         head = git(root, "rev-parse", "HEAD")
         ctx = {"impl_base": base, "context.md": criteria, "plan.md": "plan\n"}
@@ -1756,6 +1863,24 @@ class TestSiteGrading(unittest.TestCase):
         self.assertEqual(rec["criteria"], [{"rule_id": "rs-015", "verdict": "unanswered", "slices": 2}])
         self.assertEqual(rec["subject"]["site"], "work-on")
         self.assertEqual(rec["panel"], "scrutiny")
+
+    def test_a_round_with_no_slice_for_its_criteria_is_not_graded(self):
+        # The review seat grades code-hunks only; a Markdown-only change has none.
+        root, head = self.work_on_repo(lambda head, ac: {"verdict": "passed", "judged_at": head, "ac_sha": ac},
+                                       panel="review", seat="maintainer", path="docs/a.md",
+                                       before="# A\n\nSays one.\n", after="# A\n\nSays two.\n")
+        out, recs, _ = self.run_site("work-on", root, session="wf.child", panel="review", head=head)
+        rec = recs[-1]
+        self.assertEqual((rec["status"], rec["not_graded_reason"]), ("not-graded", "no-slices"))
+        self.assertEqual(rec["criteria"], [{"rule_id": "rs-016", "verdict": "pass", "slices": 0},
+                                           {"rule_id": "rs-017", "verdict": "pass", "slices": 0}])
+        self.assertEqual((rec["rounds"], rec["models"]), ([], []))
+        self.assertIn("reason=no-slices", out)
+        self.assertEqual(self.log, [])
+        crit = rs.load_criteria()
+        sites = rs.report_data(self.home, crit, rs.load_categories(crit))["sites"]["out-of-sample"]
+        self.assertEqual(sites["not_graded"], {"work-on:review": 1})
+        self.assertEqual((sites["seats"], sites["criteria"]), ({}, {}))
 
     def test_work_on_stale_and_kept_seats(self):
         root, head = self.work_on_repo(lambda head, ac: {"verdict": "passed", "judged_at": "0" * 40, "ac_sha": ac})
@@ -2030,6 +2155,8 @@ def _refuse_real_opener(*a, **k):
     raise AssertionError("a test tried to open a real HTTP transport to Jev")
 
 
+# Building an opener reaches nothing; TestTrustRoots builds one to inspect it.
+_REAL_BUILD_OPENER = rs.urllib.request.build_opener
 rs.urllib.request.build_opener = _refuse_real_opener
 
 

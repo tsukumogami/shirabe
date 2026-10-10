@@ -4,7 +4,8 @@ Understand the source document's scope and identify implementation components or
 
 ## Resume Check
 
-If `wip/plan_<topic>_analysis.md` exists, read it and skip to Phase 2.
+If key `work/analysis.md` exists in `plan-<topic>`, read it (`koto context get
+plan-<topic> work/analysis.md`) and skip to Phase 2.
 
 ## Goal
 
@@ -39,7 +40,7 @@ Read the source document at the path provided in $ARGUMENTS and check the Status
 - All required sections must be present
 
 This phase does not transition the DESIGN, with or without a parent's
-`parent_orchestration:` sentinel: a DESIGN `/scope`'s design hop leaves at
+dispatch key: a DESIGN `/scope`'s design hop leaves at
 `Accepted` passes the check below as it is, and Phase 7's step 7.5 is the one
 place `/plan` moves it to `Planned`.
 
@@ -118,7 +119,8 @@ Identify and document:
 
 ### 1.4 Write Artifact
 
-Create `wip/plan_<topic>_analysis.md` (Write tool).
+Write key `work/analysis.md` in `plan-<topic>` (`koto context add plan-<topic> work/analysis.md`,
+the content on stdin).
 
 **For design docs and PRDs** (input_type: design or prd):
 

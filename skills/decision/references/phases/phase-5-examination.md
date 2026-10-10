@@ -5,7 +5,7 @@ Full path (Tier 4) only.
 
 ## Resume Check
 
-If `wip/<prefix>_examination.md` exists, skip to Phase 6.
+If key `<key_dir>/examination.md` exists in `<session>`, skip to Phase 6.
 
 ## Steps
 
@@ -44,7 +44,9 @@ SendMessage to validator-<N>:
 
 ### 5.3 Compile Cross-Examination Record
 
-Write `wip/<prefix>_examination.md` with a summary of the exchange:
+Write key `<key_dir>/examination.md` (`koto context add <session>
+<key_dir>/examination.md`, the content on stdin) with a summary of the
+exchange:
 
 ```markdown
 # Cross-Examination: <question>
@@ -73,7 +75,7 @@ position as its final word.
 
 - [ ] Key disagreements identified and challenged
 - [ ] Final positions collected from all validators
-- [ ] Cross-examination record written to wip/
+- [ ] Cross-examination record stored as key `<key_dir>/examination.md`
 
 ## Next Phase
 

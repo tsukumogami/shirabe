@@ -274,11 +274,6 @@ and each is written at the site it was already written at.
   observed_status, observed_content_hash, acknowledged_at}` so a
   future reviewer can audit every intentional divergence. Absent
   when no drift has been acknowledged via `Proceed-without`.
-- **`parent_orchestration`** — ephemeral. Present ONLY during in-
-  flight child invocation; cleared immediately after the child
-  returns. Names the invoking child, the suppress-status-aware-
-  prompt boolean, and the rationale (`fresh-chain | revise`) per
-  the L13 amendment in `parent-skill-pattern.md`.
 
 `exit:` is written at the exit state and outlives the session
 whatever becomes of it. That is what keeps a finished run
@@ -293,9 +288,10 @@ removes the state file. The `wip/` copy is scratch; the PR body
 is where a reviewer can tell "not produced" from "absorbed into
 this other document" after the scratch is gone.
 
-The state file is the externally-visible parent surface children
-read at child Phase 0 to consult the `parent_orchestration:`
-sentinel; the L13 amendment defines the sentinel as the sole
+Children do not read this file. The signal a child reads is the
+`chain/dispatch` key in `scope-<topic>`, which Phase 2 writes
+immediately before each child and clears immediately after it
+returns; the L13 amendment defines that key as the sole
 pattern-level parent-orchestration primitive, so children read it
 identically regardless of which parent invoked them.
 
@@ -305,7 +301,7 @@ identically regardless of which parent invoked them.
   5-field minimum, conditional-field gating discipline, R9 hard-
   finalization check spec (Parts 1, 2, 3).
 - `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md` — L13
-  amendment defining the `parent_orchestration:` sentinel as the
+  amendment defining the `chain/dispatch` key as the
   pattern-level parent-orchestration primitive.
 - `skills/scope/references/phases/phase-resume.md` — the drift-
   detection contract that writes `drift_acknowledged:` and the

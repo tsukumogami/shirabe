@@ -34,8 +34,12 @@
 #   2 - Invalid arguments
 #
 # Example:
-#   create-issue.sh --file wip/plan_issue_1_body.md --title "feat: add X" --complexity testable
-#   create-issue.sh --file wip/plan_issue_2_body.md --title "feat: add Y" --map mapping.json
+#   create-issue.sh --file "$DIR/issue_1_body.md" --title "feat: add X" --complexity testable
+#   create-issue.sh --file "$DIR/issue_2_body.md" --title "feat: add Y" --map "$DIR/mapping.json"
+#
+# /plan keeps issue bodies as keys in its koto session (plan-<topic>) and
+# materializes them into a scratch directory ($DIR above, from
+# `scripts/skill-session.sh scratch` and `get`) before calling this script.
 
 set -euo pipefail
 

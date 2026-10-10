@@ -6,7 +6,7 @@ which treated the entire design as one big decision.
 
 ## Resume Check
 
-If `wip/design_<topic>_coordination.json` exists, skip to Phase 2.
+If key `work/coordination.json` exists in `design-<topic>`, skip to Phase 2.
 
 ## Steps
 
@@ -54,7 +54,8 @@ classifications for user confirmation. User can merge, split, or reclassify.
 
 ### 1.6 Write Coordination Manifest
 
-Create `wip/design_<topic>_coordination.json`:
+Write key `work/coordination.json` in `design-<topic>` (`koto context add
+design-<topic> work/coordination.json`, the content on stdin):
 
 ```json
 {

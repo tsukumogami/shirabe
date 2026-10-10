@@ -84,15 +84,59 @@ VISION the PRD is written from; Phase 3 validates it before writing it to
 frontmatter. In Mode 2 the positional BRIEF is the upstream, and a different
 `--upstream` is ignored with a note to the author saying so.
 
+### Session and Keys
+
+`/prd` keeps its working state as keys in its own koto session, `prd-<topic>`,
+following `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It
+writes no file to the staging folder, chained or direct. Its first act, once
+the topic is known (from the argument, or the `<topic>` in a path argument's
+file name) and before Context Resolution or the resume rows below, opens the
+session and records whether it runs under a parent:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open prd <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt prd <topic>
+```
+
+`open` attaches to a live `prd-<topic>` (an interrupted run, whose keys the
+resume rows read), replaces a finished one (a fresh run), or creates it. Any
+non-zero exit from either command stops the run with the script's message:
+127 or 69 means koto is missing or too old, and the skill never falls back to
+files. `adopt` exiting 3 is the two-parents case below.
+
+| Key | Written at | Holds |
+|-----|-----------|-------|
+| `work/decisions.md` | Context Resolution, under `--auto` | the autonomous-decision ledger |
+| `work/scope.md` | Phase 1 | the scoping output |
+| `research/phase2_<role>.md` | Phase 2 | the discovery agents' findings, ingested from a scratch directory |
+| `research/phase4_<role>.md` | Phase 4 | the jury's verdicts, ingested from a scratch directory |
+
+Keys are read and written with koto against `prd-<topic>`: `koto context
+exists prd-<topic> <key>` tests one (exit 0 present, 1 absent), `koto context
+get prd-<topic> <key>` prints it, `koto context add prd-<topic> <key>` stores
+the content given on stdin (the whole content: to change part of it, get the
+key, edit it, and add it back), `koto context list prd-<topic> --prefix
+<prefix>` lists keys, and `koto context remove prd-<topic> <key>` removes one.
+Research and reviewer agents never write keys: each phase that spawns them
+pins every output to a file in a `skill-session.sh scratch` directory and
+ingests it.
+
+**Closing.** A direct run closes its session when it finishes:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close prd-<topic> done`
+at the end of Phase 4, or `close prd-<topic> abandoned` after a Reject's
+discard commit. Under a parent `/prd` never closes its own session: the
+parent closes it at its own exit (`skill-session.sh close-children`), and the
+keys stay readable until then.
+
 ### Context Resolution
 
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive` flags,
 then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Under
-`/scope`'s sentinel the parent's execution mode wins, since `/scope` passes no
+`/scope`'s dispatch key the parent's execution mode wins, since `/scope` passes no
 mode flag (see "Under `/scope`" below). Also
 parse `--max-rounds=N` (default: 2 for prd's discover loop). In --auto mode,
-follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at all decision points. Create
-`wip/prd_<topic>_decisions.md` to track decisions.
+follow `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` at all decision points, and
+track decisions in key `work/decisions.md` in `prd-<topic>`.
 
 When the positional argument is itself a BRIEF path (Input Mode 2), that
 path is used as the upstream and `--upstream` is not required.
@@ -102,17 +146,34 @@ Log: `Specifying requirements with [Private|Public] visibility...`
 ### Resume Logic
 
 ```
-parent_orchestration sentinel in wip/scope_<topic>_state.md or wip/charter_<topic>_state.md
-                                                   -> see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
+dispatch read prd <topic> prints parent=<session>
+                                                   -> run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 PRD exists with status "Accepted"                  -> Offer to revise or start fresh
 PRD exists with status "Draft"                     -> Offer to continue from Phase 3
-wip/research/prd_<topic>_phase2_*.md files exist   -> Resume at Phase 3
-wip/prd_<topic>_scope.md exists                    -> Resume at Phase 2
+keys research/phase2_* exist in prd-<topic>        -> Resume at Phase 3
+key work/scope.md exists in prd-<topic>            -> Resume at Phase 2
 On a branch related to the topic                   -> Resume at Phase 1
 On main or unrelated branch                        -> Start at Phase 0
 ```
 
-**Under `/scope`.** When `/scope`'s `parent_orchestration` sentinel names
+**Running under a parent.** The first row runs
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" dispatch read prd <topic>`
+with the topic this run works on (for a path argument, the `<topic>` in its file name). A printed `parent=<session>`
+line means `/prd` runs under that parent (`scope-<topic>` or
+`charter-<topic>`), with the parent's upfront decision in the `rationale=` and
+`suppress_status_aware_prompt=` lines; what changes under a parent is in
+`${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`.
+Four cases are no match. Three print nothing and exit 0, and the run is a
+direct one with the rows below unchanged: no parent session, a finished parent
+session, and a parent whose `chain/dispatch` key names another child. The
+fourth, two parent sessions that both name `/prd`, exits 3: don't pick one
+and don't run directly; stop and report both sessions, which the script names
+on stderr, so the author can clear the stale key. Any other non-zero exit
+stops the run with the script's message (`open` has already checked koto).
+`adopt` has recorded the same match as `chain/parent` in `prd-<topic>`, or
+removed a `chain/parent` an earlier chained run left.
+
+**Under `/scope`.** When `/scope`'s dispatch key names
 `prd` (the first row above), `/prd` still reaches its own Phase 4 verdict
 and makes its own status transition, and skips everything that publishes or
 routes, which `/scope` owns: no push, no pull request, no branch creation, no
@@ -124,7 +185,7 @@ Setup below and Phase 4 mark each step this changes. This is the
 Parent-owned-publishing shape in
 `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`, per
 `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
-Without the sentinel, nothing here applies.
+Without a dispatch key naming this skill, nothing here applies.
 
 ### Critical Requirements
 
@@ -142,7 +203,7 @@ Execute phases sequentially by reading the corresponding phase file:
    - If already on a branch that matches the topic, skip branch creation
    - If on `main` or an unrelated branch, create `docs/<topic>` (kebab-case) -- keeps drafts off main so abandoned PRDs don't need cleanup
    - If unsure whether the current branch is related, ask the user
-   - Under `/scope`'s sentinel, skip all three: work on the branch `/scope`
+   - Under `/scope`'s dispatch key, skip all three: work on the branch `/scope`
      invoked this skill on, whatever its name, and neither create nor switch
      branches nor ask about it
    - **Upstream brief transition (brief input mode only):** if the input
@@ -164,7 +225,7 @@ Execute phases sequentially by reading the corresponding phase file:
      frontmatter and body in one operation. Commit:
      `docs(brief): mark <brief-name> accepted`
 
-     Under `/scope`'s sentinel this step still runs, since it is a status
+     Under `/scope`'s dispatch key this step still runs, since it is a status
      transition rather than publishing. `/brief` already accepted the brief in
      its own hop, so it is normally a no-op there.
 

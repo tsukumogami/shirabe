@@ -386,7 +386,7 @@ forced, plus two closing notes — one correction the test spec must carry, and 
 premises that were tested and withdrawn.
 
 **One state store or two.** Two, with disjoint content and one deliberate
-overlap. koto absorbing the state file is foreclosed: `parent_orchestration:` is
+overlap. koto absorbing the state file is foreclosed: the orchestration block is
 a parent-to-child interface at a literal path in four children's SKILL.md files,
 and a session disposes of itself at the end of a run, before Phase 4. Having koto
 hold nothing is today plus a template, and forfeits the one mechanically strong

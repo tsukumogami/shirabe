@@ -5,8 +5,8 @@ Full path (Tier 4) only.
 
 ## Resume Check
 
-If validator bakeoff files show revision markers (`## Revised Position`),
-skip to Phase 5.
+If the bakeoff keys `<key_dir>/bakeoff_*` in `<session>` show revision markers
+(`## Revised Position`), skip to Phase 5.
 
 ## Steps
 
@@ -17,6 +17,15 @@ For each validator, compile a summary of ALL OTHER validators' positions
 in its peer summary.
 
 ### 4.2 Send Peer Context to Each Validator
+
+Validators revise their reports in place, so materialize each report into a
+private directory first and keep the path `get` prints for each, `<report-N>`:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <edit-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" get <session> <key_dir>/bakeoff_<N>.md <edit-dir>
+                                                                  # prints <report-N>
+```
 
 Use SendMessage to continue each validator agent with the peer context:
 
@@ -35,14 +44,20 @@ SendMessage to validator-<N>:
   - Acknowledge strengths in competing alternatives
   - Revise your overall assessment
 
-  Update your report at wip/<prefix>_bakeoff_<N>.md with a
-  "## Revised Position" section.
+  Update your report at <report-N> with a "## Revised Position"
+  section. Do not write anywhere else.
   Return your revised summary (3-5 lines).
 ```
 
 ### 4.3 Collect Revised Positions
 
 Read each validator's revised summary. Note changes from their Phase 3 position.
+Write each revised report back to its key, then remove the directory:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" put <session> <key_dir>/bakeoff_<N>.md <report-N>
+rm -rf -- <edit-dir>
+```
 
 **Timeout fallback:** if a validator doesn't respond to SendMessage (agent was
 garbage collected or timed out), use its Phase 3 position as its final word.

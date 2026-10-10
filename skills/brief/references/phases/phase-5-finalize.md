@@ -1,7 +1,7 @@
 # Phase 5: Finalize
 
 Surface the jury verdicts to the user for explicit approval, transition the BRIEF
-from Draft to Accepted, clean up working artifacts, and create the PR. Phase 5 is
+from Draft to Accepted, close the session, and create the PR. Phase 5 is
 the point where the artifact becomes locked for downstream reference.
 
 ## Goal
@@ -12,16 +12,17 @@ By the end of Phase 5:
   ratification is required).
 - The BRIEF's status is `Accepted` in both frontmatter and the body Status section,
   transitioned via the per-skill script.
-- Working artifacts in `wip/` are removed (no committed references to `wip/...`
-  paths remain in the artifact or anywhere else). Under `/scope`, `/scope`'s
-  cleanup removes them at its own exit, and they are still on disk when this
-  phase ends.
+- A direct run has closed its `brief-<topic>` session (its keys stay readable),
+  and no committed content references a staging-folder path. `/brief` wrote no
+  file there, so there is nothing to delete. Under `/scope` the session stays
+  open: `/brief` never closes its own session under a parent, and `/scope`
+  closes it at its own exit.
 - A PR is created (or an existing PR on the topic branch is updated), except
   under `/scope`, which publishes at its own exit (see "Under /scope" below).
 
 ## Under /scope
 
-When `/scope`'s `parent_orchestration` sentinel names `brief`, Phase 5 keeps the
+When `/scope`'s dispatch key names `brief`, Phase 5 keeps the
 verdict (5.1 to 5.3), the status transition and the acceptance commit, and skips
 what publishes or routes, which `/scope` owns
 (`docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`,
@@ -30,9 +31,10 @@ the Parent-owned-publishing shape in
 
 - 5.2 is asked in an interactive run; an unattended run (`--auto`, from the
   parent's execution mode) takes the recommended option and names it.
-- 5.4 makes no cleanup commit; `/scope`'s cleanup phase and publish untrack
-  remove the topic's `brief_<topic>_*` working files and the jury's verdict
-  files in the research directory.
+- 5.4 closes nothing: `/brief` never closes its own session under a parent.
+  `/scope` closes `brief-<topic>` at its exit (`skill-session.sh
+  close-children`), and its keys, the jury's verdicts included, stay readable
+  until then.
 - A Reject still makes its discard commit, the signal `/scope` reads, and an
   unattended run takes it without the confirmation prompt (5.3).
 - 5.5 pushes nothing and creates or edits no pull request.
@@ -41,10 +43,10 @@ the Parent-owned-publishing shape in
 ## Resume Check
 
 If the BRIEF at `docs/briefs/BRIEF-<topic>.md` already has `status: Accepted`,
-Phase 5 already ran. Verify the wip/ cleanup completed (no `wip/brief_<topic>_*`
-files remain) and exit the workflow. If cleanup is incomplete, resume from step
-5.4. Under `/scope`'s sentinel the working files are still there by design,
-since `/scope` removes them at its own exit: return control to `/scope`.
+Phase 5 already ran. On a direct run, finish step 5.4 (closing is idempotent: a
+finished session is left alone) and exit the workflow. Under `/scope`'s dispatch
+key the session stays open by design, since `/scope` closes it at its own exit:
+return control to `/scope`.
 
 If the file is still in Draft status but the workflow is in Phase 5, start at step
 5.1.
@@ -99,8 +101,8 @@ Options:
    reference it as a stable upstream.
 2. **Request changes** — name what needs to change; the workflow loops back to
    Phase 2, Phase 3, or Phase 4 as appropriate.
-3. **Reject** — discard the draft. The wip/ cleanup runs and the file is deleted
-   via `git rm`; no BRIEF ships.
+3. **Reject** — discard the draft. The file is deleted via `git rm` and the
+   session is closed as abandoned; no BRIEF ships.
 
 Description field grounds the recommendation in the jury verdicts (e.g., "Both
 reviewers passed; content-quality flagged Journey 3 as borderline-distinct but not
@@ -110,7 +112,7 @@ Do not skip the approval step even when both reviewers pass. Jury PASS de-risks 
 approval but does not eliminate human judgment — the user may add caveats, request
 narrowing, or block on a concern the jury did not catch.
 
-The one run that does not ask is an unattended run under `/scope`'s sentinel: it
+The one run that does not ask is an unattended run under `/scope`'s dispatch key: it
 takes the recommended option and says so in its output, as "Took the recommended
 verdict: <verdict>", then handles that outcome below.
 
@@ -135,13 +137,13 @@ verdict: <verdict>", then handles that outcome below.
    docs(brief): accept BRIEF for <topic>
    ```
 
-Proceed to step 5.4 (Cleanup), or, under `/scope`'s sentinel, return control to
-`/scope`.
+Proceed to step 5.4 (Close the Session), or, under `/scope`'s dispatch key, return
+control to `/scope`.
 
 ### If Request Changes
 
 1. Capture the specific feedback in the response (which sections, what to change).
-2. Update `wip/brief_<topic>_context.md`'s `## Phase` line to the target phase
+2. Update key `work/context.md`'s `## Phase` line to the target phase
    (`2`, `3`, or `4`).
 3. Loop back to the chosen phase. Phase 4's resume check will re-spawn the jury on
    the next pass if the changes were structural; the resume mechanics in each phase
@@ -150,56 +152,55 @@ Proceed to step 5.4 (Cleanup), or, under `/scope`'s sentinel, return control to
 ### If Reject
 
 1. Confirm the rejection with the user one more time — accepting that the BRIEF
-   draft will be deleted. An unattended run under `/scope`'s sentinel asks
+   draft will be deleted. An unattended run under `/scope`'s dispatch key asks
    nothing: it already named the verdict it took (5.2).
 2. Run `git rm docs/briefs/BRIEF-<topic>.md`.
-3. Run the cleanup at step 5.4 to remove wip/ artifacts. Under `/scope`'s
-   sentinel, skip it: `/scope` removes them.
-4. Commit (under `/scope`'s sentinel too: this discard commit is how `/scope`
+3. Commit (under `/scope`'s dispatch key too: this discard commit is how `/scope`
    reads the rejection):
 
    ```
    docs(brief): discard BRIEF draft for <topic>
    ```
 
+4. On a direct run, close the session as abandoned:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close brief-<topic> abandoned
+   ```
+
+   Under `/scope`'s dispatch key, don't: `/brief` never closes its own session
+   under a parent, and `/scope` closes it.
+
 Then exit the workflow.
 
-## 5.4 Cleanup
+## 5.4 Close the Session
 
-Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase and publish
-untrack remove the working files, the jury's verdict files included, and `/brief`
-makes no cleanup commit.
+`/brief` kept its working state as keys in `brief-<topic>` and wrote no file to
+the staging folder, so there are no working files to delete and no cleanup
+commit.
 
-Remove all working artifacts for this invocation:
+Under `/scope`'s dispatch key, skip this step: `/brief` never closes its own
+session under a parent. `/scope` closes `brief-<topic>` at its own exit.
 
-```bash
-rm -f wip/brief_<topic>_context.md
-rm -f wip/brief_<topic>_discover.md
-rm -f wip/research/brief_<topic>_phase4_*.md
-```
+On a direct run:
 
-Two-part cleanup contract per the workspace's wip-hygiene rule:
+1. Grep the committed BRIEF, any other docs in the branch, code comments, and
+   frontmatter for a staging-folder path reference (`git grep -n 'wip/'`), and
+   remove any you find. The BRIEF itself should never reference one (the
+   Downstream Artifacts and References durability checks in Phase 3 and Phase 4
+   enforce this), but the grep catches any reference that slipped in elsewhere.
+2. Close the session:
 
-1. Delete the physical files (the commands above).
-2. Grep the committed BRIEF, any other docs in the branch, code comments, and
-   frontmatter for any `wip/` path references. Remove every reference. The BRIEF
-   itself should never reference `wip/...` paths (the Downstream Artifacts and
-   References durability checks in Phase 3 and Phase 4 enforce this), but the grep
-   catches any reference that slipped in elsewhere.
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close brief-<topic> done
+   ```
 
-If the grep surfaces a `wip/` reference in the committed content, do not proceed to
-the cleanup commit until the reference is removed or documented. References to
-`wip/` are dangling pointers the moment the cleanup commit lands.
-
-Commit the cleanup:
-
-```
-chore(brief): clean up working artifacts for <topic>
-```
+   It prints `closed=done` (or `closed=noop` when the session was already
+   finished). The keys stay readable after the close.
 
 ## 5.5 Create the PR
 
-Under `/scope`'s sentinel, skip this step: `/scope` pushes and opens the pull
+Under `/scope`'s dispatch key, skip this step: `/scope` pushes and opens the pull
 request at its own exit.
 
 If a PR already exists for the topic branch (the workflow may have been running on
@@ -222,7 +223,7 @@ Formats-map entry drives them; BRIEF has no custom check).
 
 ## 5.6 Suggest Next Steps
 
-Under `/scope`'s sentinel, skip this step and return control to `/scope`, which
+Under `/scope`'s dispatch key, skip this step and return control to `/scope`, which
 decides the next hop.
 
 After the PR is open, suggest follow-up routes:
@@ -244,9 +245,10 @@ PRD; the user routes when ready.
 - [ ] Transition script ran successfully and updated both frontmatter and body Status
 - [ ] Body `## Status` first line is the bare word `Accepted` on its own line (FC03)
 - [ ] Open Questions section is empty or removed (no Draft-only content remains)
-- [ ] All the topic's `brief_<topic>_*` working files and verdict files are
-      deleted (under `/scope`, `/scope` removes them)
-- [ ] No `wip/...` references remain in the committed BRIEF or in other branch content
+- [ ] A direct run closed `brief-<topic>` (under `/scope`, the session is still
+      open and `/scope` closes it)
+- [ ] No staging-folder path references remain in the committed BRIEF or in other
+      branch content
 - [ ] PR is created or updated with the BRIEF summary (not under `/scope`)
 - [ ] Verdict bodies were fenced in code blocks when surfaced to the user
 
@@ -254,8 +256,8 @@ PRD; the user routes when ready.
 
 After this phase:
 - Final BRIEF at `docs/briefs/BRIEF-<topic>.md` with `status: Accepted`
-- All `wip/` artifacts removed (under `/scope`, still on disk for `/scope`'s
-  cleanup)
+- `brief-<topic>` closed with its keys readable (under `/scope`, still open for
+  `/scope` to close)
 - PR open with the BRIEF as the headlining change (under `/scope`, no PR: control
   is back with `/scope`)
 - Workflow complete; ready for downstream consumption

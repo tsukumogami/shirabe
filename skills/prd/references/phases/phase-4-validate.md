@@ -13,7 +13,7 @@ Three-agent jury review followed by finalization and user approval.
   - [4.4 Finalize PRD](#44-finalize-prd)
   - [4.5 Present to User](#45-present-to-user)
   - [4.6 Handle Approval](#46-handle-approval)
-  - [4.7 Cleanup](#47-cleanup)
+  - [4.7 Close the Session](#47-close-the-session)
 - [Quality Checklist](#quality-checklist)
 - [Artifact State](#artifact-state)
 
@@ -24,7 +24,8 @@ issues found, then finalize the PRD with the user.
 
 ## Resume Check
 
-If `wip/research/prd_<topic>_phase4_*.md` files exist, skip to step 4.3 (Process Feedback).
+If keys `research/phase4_*` exist in `prd-<topic>` (`koto context list prd-<topic>
+--prefix research/phase4_`), skip to step 4.3 (Process Feedback).
 
 ## Approach: 3-Agent Jury
 
@@ -33,14 +34,26 @@ dimension.
 
 ### 4.1 Launch Jury Agents
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Clarity and Testability run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/prds/PRD-<topic>.md --format skills/prd/references/prd-format.md --extra <scope-file>`. `<scope-file>` is the scope document listed below.
+Before launching, allocate two private directories outside the work tree, one
+for the verdicts and one for the inputs the seats read, and materialize the
+scope key into the second:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <verdicts-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <inputs-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" get prd-<topic> work/scope.md <inputs-dir>
+                                                                  # prints <scope-file>
+```
+
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Clarity and Testability run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/prds/PRD-<topic>.md --format skills/prd/references/prd-format.md --extra <scope-file>`. `<scope-file>` is the path `get` printed.
 
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
 - The PRD draft (read from `docs/prds/PRD-<topic>.md`)
 - Their role and evaluation criteria
-- The scope document (`wip/prd_<topic>_scope.md`) for reference
+- The scope (the contents of key `work/scope.md`) for reference
+- A pinned output file in `<verdicts-dir>`; reviewers never call koto
 
 #### Completeness Reviewer
 
@@ -53,7 +66,7 @@ the requirements.
 [Contents of docs/prds/PRD-<topic>.md]
 
 ## Original Scope
-[Contents of wip/prd_<topic>_scope.md]
+[Contents of key work/scope.md in prd-<topic>]
 
 ## Evaluate
 1. Are requirements sufficient? Could an implementer build this without guessing?
@@ -64,7 +77,7 @@ the requirements.
 5. Is Out of Scope clear enough to prevent scope creep?
 
 ## Output Format
-Write your full review to `wip/research/prd_<topic>_phase4_completeness.md`:
+Write your full review to `<verdicts-dir>/phase4_completeness.md`, and nowhere else:
 
 # Completeness Review
 
@@ -103,7 +116,7 @@ that are vague.
 5. Is the problem statement specific enough to evaluate solutions against?
 
 ## Output Format
-Write your full review to `wip/research/prd_<topic>_phase4_clarity.md`:
+Write your full review to `<verdicts-dir>/phase4_clarity.md`, and nowhere else:
 
 # Clarity Review
 
@@ -143,7 +156,7 @@ or talking to the author.
 5. Do the criteria cover edge cases and error conditions, or only the happy path?
 
 ## Output Format
-Write your full review to `wip/research/prd_<topic>_phase4_testability.md`:
+Write your full review to `<verdicts-dir>/phase4_testability.md`, and nowhere else:
 
 # Testability Review
 
@@ -164,7 +177,18 @@ Return only the verdict, issue count, and summary to this conversation.
 
 ### 4.2 Collect Results
 
-Wait for all 3 agents to complete. Read their summaries.
+Wait for all 3 agents to complete. Read their summaries. Then turn the verdict
+files into keys (`ingest` removes the verdicts directory) and remove the inputs
+directory:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest prd-<topic> research <verdicts-dir>
+rm -rf -- <inputs-dir>
+```
+
+`ingest` prints `added=research/phase4_<role>.md` per verdict and reports on
+stderr anything it skipped. A verdict that did not become a key counts as a
+FAIL with reason "verdict missing".
 
 Then, before processing any feedback, run the decider shadow once:
 
@@ -172,7 +196,7 @@ Then, before processing any feedback, run the decider shadow once:
 "${CLAUDE_PLUGIN_ROOT}/scripts/review-shadow/review-shadow.py" site prd --topic <topic> >/dev/null 2>&1 || true
 ```
 
-It reads the PRD and the clarity and testability verdict files itself, asks the
+It reads the PRD and the clarity and testability verdict keys itself, asks the
 decider whether each acceptance criterion answers yes or no when the user has
 opted in, and records both verdicts side by side outside the repository.
 Nothing reads its result: it changes no verdict, step or file here, and a
@@ -180,7 +204,7 @@ failure or a missing key changes nothing either.
 
 ### 4.3 Process Feedback
 
-**Reference**: Full review details available in `wip/research/prd_<topic>_phase4_*.md`.
+**Reference**: Full review details are in keys `research/phase4_*.md` in `prd-<topic>`.
 
 Determine consensus:
 
@@ -237,7 +261,7 @@ Options:
   discard commit lands on the current branch (step 4.6). The author exits the
   workflow; no PRD ships.
 
-Under `/scope`'s `parent_orchestration` sentinel (see "Under `/scope`" in the
+Under `/scope`'s dispatch key (see "Under `/scope`" in the
 `prd` SKILL.md), an interactive run asks as above, and an unattended run
 (`--auto`) takes the recommended verdict and names it in its output, as "Took
 the recommended verdict: <verdict>".
@@ -254,18 +278,18 @@ the recommended verdict: <verdict>".
    If no vocabulary is defined, skip label removal -- the project hasn't
    configured which labels map to PRD completion.
    Skip this step if `source_issue` is not set in the frontmatter.
-   Under `/scope`'s sentinel, skip this step too: the label edit is a `gh`
+   Under `/scope`'s dispatch key, skip this step too: the label edit is a `gh`
    write, and `/scope`'s SKILL.md, which lists the only `gh` writes a run
-   makes, says a child's upstream-issue edit is skipped under the sentinel, per
+   makes, says a child's upstream-issue edit is skipped under the dispatch key, per
    `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`.
    The label stays on the issue for the author to remove, so say so in your
    output, naming the issue and the label; who should remove it under `/scope`
    is an open question, tracked as #666.
 5. Create PR (or update existing PR if on a shared branch). Under `/scope`'s
-   sentinel, skip this step: `/scope` pushes and opens the pull request at its
+   dispatch key, skip this step: `/scope` pushes and opens the pull request at its
    own exit.
 
-Then present routing options (under `/scope`'s sentinel, skip them and return
+Then present routing options (under `/scope`'s dispatch key, skip them and return
 control to `/scope`, which decides the next hop):
 
 "The PRD is accepted. Based on the complexity, here are the recommended next steps:"
@@ -328,18 +352,7 @@ the workflow. Run the following ordered actions; do not skip steps.
    git rm docs/prds/PRD-<topic>.md
    ```
 
-5. **Remove the wip working artifacts** for this invocation:
-
-   ```bash
-   rm -f wip/prd_<topic>_*.md
-   rm -f wip/research/prd_<topic>_phase2_*.md
-   rm -f wip/research/prd_<topic>_phase4_*.md
-   ```
-
-   Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
-   these files, and the discard commit carries only the PRD's removal.
-
-6. **Commit the discard via `git commit -F`** (file path), never `-m`:
+5. **Commit the discard via `git commit -F`** (file path), never `-m`:
 
    ```bash
    git commit -F "$RATIONALE_FILE"
@@ -351,27 +364,39 @@ the workflow. Run the following ordered actions; do not skip steps.
    transits a `-m "..."` shell argument. The discard commit lands on the
    current branch.
 
-7. **Exit the workflow.** Do not run step 4.7 cleanup (the Reject branch
-   handled its own wip cleanup inline in step 5, or, under `/scope`'s
-   sentinel, left it to `/scope`). No PRD ships; the discard
-   commit is the only artifact. If on a shared branch with an open PR,
+6. **Close the session as abandoned**, on a direct run:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close prd-<topic> abandoned
+   ```
+
+   Under `/scope`'s dispatch key, skip this step: `/prd` never closes its own
+   session under a parent, and `/scope` closes it at its exit. There are no
+   working files to remove either way: the working state is keys, and the
+   discard commit carries only the PRD's removal.
+
+7. **Exit the workflow.** Do not run step 4.7 (the Reject branch closed the
+   session in step 6, or, under `/scope`'s dispatch key, left it to
+   `/scope`). No PRD ships; the discard commit is the only artifact. If on a shared branch with an open PR,
    surface the discard commit SHA in your final response so the caller can
    route accordingly.
 
-### 4.7 Cleanup
+### 4.7 Close the Session
 
-Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
-every file the commands below name, and `/prd` makes no cleanup commit.
+`/prd` kept its working state as keys in `prd-<topic>` and wrote no file to the
+staging folder, so there are no working files to delete and no cleanup commit.
 
-After the PR is created, clean up temporary artifacts:
+Under `/scope`'s dispatch key, skip this step: `/prd` never closes its own
+session under a parent, and `/scope` closes `prd-<topic>` at its own exit.
+
+On a direct run, after the PR is created, close the session:
 
 ```bash
-rm -f wip/prd_<topic>_scope.md
-rm -f wip/research/prd_<topic>_phase2_*.md
-rm -f wip/research/prd_<topic>_phase4_*.md
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close prd-<topic> done
 ```
 
-Commit: `chore(prd): clean up working artifacts`
+It prints `closed=done` (or `closed=noop` when the session was already
+finished). The keys stay readable after the close.
 
 ## Quality Checklist
 
@@ -385,5 +410,5 @@ Commit: `chore(prd): clean up working artifacts`
 Final PRD at `docs/prds/PRD-<topic>.md` with:
 - YAML frontmatter with status "Accepted"
 - All required sections complete and validated
-- Working artifacts cleaned up (scope doc, research files removed); under
-  `/scope`'s sentinel they are still on disk for `/scope`'s cleanup
+- `prd-<topic>` closed with its keys readable; under `/scope`'s dispatch key it
+  is still open for `/scope` to close

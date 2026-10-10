@@ -1,127 +1,131 @@
 # Phase 6: Loop-back
 
-This phase executes only when the verdict artifact is `wip/plan_<topic>_review_loopback.md`.
-It reads the loop-back findings, extracts correction hints, deletes wip/ artifacts back
-to the loop target, increments the review round counter, and signals `/plan` to
-re-enter at the target phase.
+This phase executes only when the verdict is key `work/review_loopback.md` in
+`plan-<topic>` and `/plan`'s keys are there to loop back to (a run on the PLAN
+document alone stops at Phase 5). It reads the loop-back findings, extracts
+correction hints, removes `/plan`'s keys back to the loop target, increments the
+review round counter, and signals `/plan` to re-enter at the target phase.
 
 **Steps:**
 
-1. Read `wip/plan_<topic>_review_loopback.md` and extract `loop_target` and all
+1. Read key `work/review_loopback.md` and extract `loop_target` and all
    Category C `correction_hint` values from `critical_findings`
-2. Delete wip/ artifacts from `loop_target` forward — see artifact deletion sequences
-   below; do not delete the loopback file itself
-3. Increment `review_rounds` in `wip/plan_<topic>_analysis.md`
+2. Remove `/plan`'s keys from `loop_target` forward (`koto context remove
+   plan-<topic> <key>` for each) — see the key removal sequences below; do not
+   remove the loopback key itself
+3. Increment `review_rounds` in key `work/analysis.md` (get it, edit, add it back)
 4. Signal `/plan` to re-enter at `loop_target` (the existing resume logic handles
-   re-entry naturally once artifacts back to that phase are deleted)
+   re-entry naturally once the keys back to that phase are removed)
 
-**Loopback file lifecycle — important:**
+**Loopback key lifecycle — important:**
 
-The loopback file is NOT deleted during Phase 6 execution. It persists through
+The loopback key is NOT removed during Phase 6 execution. It persists through
 Phase 4 regeneration so agents can read correction hints directly from it.
 
 The `/plan` resume logic distinguishes "loop-back needs to run" from "loop-back
 already ran" by checking whether the manifest still exists:
 
 ```
-if loopback file exists AND manifest exists   → execute loop-back (Phase 6 has not run yet)
-if loopback file exists AND manifest is gone  → loop-back already ran; resume from
-                                                 the earliest artifact that still exists
+if loopback key exists AND manifest key exists   → execute loop-back (Phase 6 has not run yet)
+if loopback key exists AND manifest key is gone  → loop-back already ran; resume from
+                                                   the earliest key that still exists
 ```
 
-After Phase 6 runs, it deletes the manifest (and other artifacts per `loop_target`).
-The loopback file remains. When `/plan` re-enters at `loop_target`, it does not
+After Phase 6 runs, it has removed the manifest key (and other keys per `loop_target`).
+The loopback key remains. When `/plan` re-enters at `loop_target`, it does not
 re-trigger Phase 6 because the manifest is absent.
 
-The loopback file is eventually overwritten (not explicitly deleted) when the next
-review run writes its verdict — either a new `_review.md` (proceed) or a new
-`_review_loopback.md` (another loop-back round).
+The loopback key is eventually overwritten (not explicitly removed) when the next
+review run writes its verdict — either a new `work/review.md` (proceed) or a new
+`work/review_loopback.md` (another loop-back round).
 
 ---
 
-## Artifact Deletion Sequences per loop_target
+## Key Removal Sequences per loop_target
 
-Delete all listed artifacts for the given `loop_target`. Always preserve the
-loopback file. Delete in the order listed to avoid leaving partial state.
+Remove every listed key from `plan-<topic>` for the given `loop_target`. Always
+preserve the loopback key. Remove in the order listed to avoid leaving partial
+state. The issue body keys are the ones `koto context list plan-<topic> --prefix
+work/issue_` prints.
 
 ### loop_target: 1 (re-enter at Phase 1 — Analysis)
 
-Delete all wip/ artifacts for this topic:
+Remove all of `/plan`'s working keys:
 
 ```
-wip/plan_<topic>_dependencies.md
-wip/plan_<topic>_manifest.json
-wip/plan_<topic>_issue_*.md         (all issue body files)
-wip/plan_<topic>_decomposition.md
-wip/plan_<topic>_milestones.md
-wip/plan_<topic>_analysis.md
+work/dependencies.md
+work/manifest.json
+work/issue_<id>_body.md        (every issue body key)
+work/decomposition.md
+work/milestones.md
+work/analysis.md
 ```
 
-Do NOT delete: `wip/plan_<topic>_review_loopback.md`
+Do NOT remove: `work/review_loopback.md`
 
-Phase 1 will produce a new `_analysis.md`, which becomes the new resume anchor.
+Phase 1 will produce a new `work/analysis.md`, which becomes the new resume anchor.
+Read `review_rounds` from the old key before removing it; step 3 has no key to
+write here, so Phase 1 writes the new key with that value plus one.
 
 ### loop_target: 3 (re-enter at Phase 3 — Decomposition)
 
-Delete from Phase 3 forward:
+Remove from Phase 3 forward:
 
 ```
-wip/plan_<topic>_dependencies.md
-wip/plan_<topic>_manifest.json
-wip/plan_<topic>_issue_*.md         (all issue body files)
-wip/plan_<topic>_decomposition.md
+work/dependencies.md
+work/manifest.json
+work/issue_<id>_body.md        (every issue body key)
+work/decomposition.md
 ```
 
-Preserve: `wip/plan_<topic>_analysis.md`, `wip/plan_<topic>_milestones.md`,
-`wip/plan_<topic>_review_loopback.md`
+Preserve: `work/analysis.md`, `work/milestones.md`, `work/review_loopback.md`
 
-Phase 3 reads the existing `_analysis.md` and `_milestones.md`. Re-entering at
+Phase 3 reads the existing `work/analysis.md` and `work/milestones.md`. Re-entering at
 Phase 3 does not re-run Phase 1 (Analysis) or Phase 2 (Milestones).
 
 ### loop_target: 4 (re-enter at Phase 4 — Agent Generation)
 
-Delete from Phase 4 forward:
+Remove from Phase 4 forward:
 
 ```
-wip/plan_<topic>_dependencies.md
-wip/plan_<topic>_manifest.json
-wip/plan_<topic>_issue_*.md         (all issue body files)
+work/dependencies.md
+work/manifest.json
+work/issue_<id>_body.md        (every issue body key)
 ```
 
-Preserve: `wip/plan_<topic>_analysis.md`, `wip/plan_<topic>_milestones.md`,
-`wip/plan_<topic>_decomposition.md`, `wip/plan_<topic>_review_loopback.md`
+Preserve: `work/analysis.md`, `work/milestones.md`, `work/decomposition.md`,
+`work/review_loopback.md`
 
-Phase 4 reads the existing `_decomposition.md` and re-generates issue bodies.
-The loopback file is present at this point — Phase 4 agents should read it to
+Phase 4 reads the existing `work/decomposition.md` and re-generates issue bodies.
+The loopback key is present at this point — Phase 4 agents should read it to
 retrieve `correction_hint` values for affected issues.
 
 ### loop_target: 5 (re-enter at Phase 5 — Dependencies)
 
-Delete Phase 5 and review artifacts forward:
+Remove Phase 5 and review keys forward:
 
 ```
-wip/plan_<topic>_dependencies.md
-wip/plan_<topic>_manifest.json      (regenerated by Phase 5 from existing issue files)
+work/dependencies.md
+work/manifest.json             (regenerated by Phase 5 from the existing issue body keys)
 ```
 
-Preserve: `wip/plan_<topic>_analysis.md`, `wip/plan_<topic>_milestones.md`,
-`wip/plan_<topic>_decomposition.md`, all `wip/plan_<topic>_issue_*.md` files,
-`wip/plan_<topic>_review_loopback.md`
+Preserve: `work/analysis.md`, `work/milestones.md`, `work/decomposition.md`, every
+`work/issue_<id>_body.md`, `work/review_loopback.md`
 
 Phase 5 re-runs dependency mapping against the existing issue bodies (which are
-unchanged) and produces a new `_dependencies.md`.
+unchanged) and produces a new `work/dependencies.md`.
 
 ---
 
 ## Correction Hints and Phase 4 Injection
 
-When the loopback file contains Category C findings with non-empty `correction_hint`
+When the loopback key contains Category C findings with non-empty `correction_hint`
 values, and `loop_target` is 3 or 4 (both re-enter Phase 4), the hints must reach
 Phase 4 regeneration agents.
 
 Phase 4's step 4.4 reads the `{{REVIEW_CORRECTION_HINTS}}` placeholder from the
 agent prompt template. On a loop-back round, this placeholder is populated from the
-loopback file:
+loopback key:
 
 1. Read all `correction_hint` values from `critical_findings` where `category: "C"`
 2. For each hint, format it with its `affected_issue_ids`:

@@ -8,7 +8,7 @@ unimplemented; a plan with too many may fragment work beyond what the design war
 
 Read the following from Phase 0 context:
 
-- Issue count (from `wip/plan_<topic>_decomposition.md`)
+- Issue count (from key `work/decomposition.md`, or the PLAN document)
 - Complexity breakdown — simple / testable / critical counts
 - Decomposition strategy (`walking-skeleton` or `horizontal`)
 - Input type (gates behavior below)

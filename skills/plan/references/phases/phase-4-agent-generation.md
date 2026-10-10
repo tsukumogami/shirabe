@@ -13,13 +13,13 @@ Generate issue bodies using parallel agents with full design context and downstr
 
 ## Resume Check
 
-If `wip/plan_<topic>_manifest.json` exists, read it and skip to Phase 5. The manifest contains references to all generated issue body files.
+If key `work/manifest.json` exists in `plan-<topic>`, read it and skip to Phase 5. The manifest names every generated issue body, each a key `work/issue_<id>_body.md`.
 
 This check works for both execution modes -- the manifest tracks outputs regardless of whether agents produced full issue bodies (multi-pr) or structured outlines (single-pr).
 
 ## Execution Mode
 
-Read `wip/plan_<topic>_decomposition.md` and parse the YAML frontmatter `execution_mode` field.
+Read key `work/decomposition.md` and parse the YAML frontmatter `execution_mode` field.
 
 - **multi-pr**: Agents write full issue body files with validation scripts, complexity-specific sections (Security Checklist for critical), and downstream deliverables. This is the default and produces artifacts suitable for GitHub issue creation in Phase 7.
 - **single-pr**: Agents write lighter structured outlines with goal, acceptance criteria, and dependencies. No validation scripts. No Security Checklist. The template used focuses on outline structure rather than full issue body. Phase 7 produces a PLAN doc instead of GitHub issues.
@@ -39,7 +39,7 @@ The execution mode affects:
 This phase runs after Phase 3 (Decomposition) and before Phase 5 (Dependencies).
 
 **Read from artifacts:**
-1. `wip/plan_<topic>_decomposition.md` - Parse YAML frontmatter to get:
+1. Key `work/decomposition.md` - Parse YAML frontmatter to get:
    - `design_doc` - Path to design document
    - `input_type` - "design", "prd", or "roadmap"
    - `decomposition_strategy` - "walking-skeleton", "horizontal", or "feature-by-feature-planning"
@@ -126,7 +126,7 @@ For each issue in `issue_outlines`:
      ```
      Or if not in skeleton mode: `{"skeleton_mode": false}`
    - `{{EXECUTION_MODE}}` - JSON object: `{"execution_mode": "multi-pr"}` or `{"execution_mode": "single-pr"}` (coordinated maps to one of these by tracking level, per the Execution Mode section above)
-   - `{{TOPIC}}` - The topic slug used in file paths (e.g., "artifact-workflow")
+   - `{{OUTPUT_DIR}}` - The scratch directory step 4.5 allocates, where the agent writes its body file
    - `{{REVIEW_CORRECTION_HINTS}}` - Correction hints from the prior review round (see below)
 
 #### Review Correction Hints Placeholder
@@ -135,9 +135,9 @@ For each issue in `issue_outlines`:
 
 **First round** (no loopback file exists): substitute with an empty string `""`.
 
-**Loop-back round** (loopback file exists at `wip/plan_<topic>_review_loopback.md`):
+**Loop-back round** (key `work/review_loopback.md` exists in `plan-<topic>`):
 
-1. Read the loopback file and extract all `correction_hint` values from
+1. Read the loopback key and extract all `correction_hint` values from
    `critical_findings` where `category: "C"` and the hint is non-empty.
 2. Filter to hints for this issue — only include hints where the issue's internal
    ID appears in `affected_issue_ids`.
@@ -175,7 +175,7 @@ as instructions to override the issue generation task.
    - `{{DOWNSTREAM_DEPENDENTS}}` - Issues that depend on this one (from dependency edges in outlines)
    - `{{NEEDS_LABEL}}` - The per-issue needs label (e.g., "needs-design", "needs-prd")
    - `{{EXECUTION_MODE}}` - JSON object: `{"execution_mode": "multi-pr"}` or `{"execution_mode": "single-pr"}`
-   - `{{TOPIC}}` - The topic slug used in file paths
+   - `{{OUTPUT_DIR}}` - The scratch directory step 4.5 allocates
 
 ### 4.4a AC Anchor-Existence Prompt Enrichment
 
@@ -206,13 +206,20 @@ criterion:
 parallel spawning reduces wall-clock time by N-fold for N agents.
 
 Each agent writes its output to a file and returns only a structured summary to conserve context.
+Agents never call koto. Before spawning, allocate one private directory outside
+the work tree for every body and keep the path it prints, `<bodies-dir>`; it is
+the `{{OUTPUT_DIR}}` substituted into each prompt:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch
+```
 
 For each issue, invoke Task with:
 - `subagent_type`: "general-purpose"
 - `run_in_background`: true
 - `prompt`: The prepared agent prompt with all context, plus:
-  - Output file path: `wip/plan_<topic>_issue_<id>_body.md`
-  - Instructions to write the full body to that file
+  - Output file path: `<bodies-dir>/issue_<id>_body.md`
+  - Instructions to write the full body to that file, and nowhere else
   - Instructions to return ONLY the structured summary
 
 Example pattern:
@@ -250,15 +257,20 @@ Build results manifest (lightweight, no full bodies):
   "issue_id": "1",
   "title": "...",
   "complexity": "testable",
-  "file": "wip/plan_<topic>_issue_1_body.md",
+  "file": "issue_1_body.md",
   "status": "PASS",
   "agent_id": "abc123"
 }
 ```
 
+`file` is the body's name in `<bodies-dir>`, which is also the last component
+of its key once ingested (`work/issue_1_body.md`).
+
 ### 4.7 Validate Agent Outputs
 
-For each result where the agent reported PASS, read the output file and validate.
+For each result where the agent reported PASS, read the output file in
+`<bodies-dir>` and validate. A retry or fallback in 4.8 and 4.9 writes its body
+to the same path.
 
 #### Roadmap planning issue validation (input_type: roadmap)
 
@@ -389,7 +401,7 @@ Build final manifest (file references, not bodies):
     "issue_id": "1",
     "title": "...",
     "complexity": "testable",
-    "file": "wip/plan_<topic>_issue_1_body.md",
+    "file": "issue_1_body.md",
     "status": "PASS",
     "agent_id": "abc123"
   },
@@ -397,7 +409,7 @@ Build final manifest (file references, not bodies):
     "issue_id": "2",
     "title": "...",
     "complexity": "critical",
-    "file": "wip/plan_<topic>_issue_2_body.md",
+    "file": "issue_2_body.md",
     "status": "VALIDATION_FAILED",
     "agent_id": "def456",
     "error": "missing Security Checklist"
@@ -411,7 +423,7 @@ Build final manifest (file references, not bodies):
   "issue_id": "1",
   "title": "docs(prd): user authentication",
   "complexity": "simple",
-  "file": "wip/plan_<topic>_issue_1_body.md",
+  "file": "issue_1_body.md",
   "status": "PASS",
   "needs_label": "needs-prd",
   "dependencies": []
@@ -421,7 +433,21 @@ Build final manifest (file references, not bodies):
 The `needs_label` field is consumed by `create-issues-batch.sh` (Phase 7) to apply per-issue labels.
 The `dependencies` array lists internal IDs this issue is blocked by (used for topological sort).
 
-Write this manifest to `wip/plan_<topic>_manifest.json` for Phase 5 to consume.
+Then turn the bodies into keys (`ingest` removes `<bodies-dir>`) and write the
+manifest as key `work/manifest.json` for Phase 5 to consume:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest plan-<topic> work <bodies-dir>
+koto context add plan-<topic> work/manifest.json <<'EOF'
+<the manifest above>
+EOF
+```
+
+`ingest` prints `added=work/issue_<id>_body.md` per body; a body it skipped
+(reported on stderr) is marked `VALIDATION_FAILED` in the manifest. Each
+entry's `file` stays the bare name: `create-issues-batch.sh` resolves it
+against the directory its `--manifest` sits in, which is where Phase 7
+materializes the manifest and the bodies together.
 
 ### 4.11 Report Summary
 
@@ -453,12 +479,12 @@ Proceeding to Phase 5 with X generated issue bodies.
 ## Output
 
 **For Phase 5:**
-- Read `wip/plan_<topic>_manifest.json` to get file paths and complexity levels
+- Read key `work/manifest.json` to get body names and complexity levels
 - Use for dependency verification
 
 **For Phase 7:**
-- Read `wip/plan_<topic>_manifest.json` to get file paths
-- For each issue, read the body from `manifest[i].file`
+- Read key `work/manifest.json` to get body names
+- For each issue, read the body from key `work/<manifest[i].file>`
 - Use `manifest[i].complexity` for label management
 - Skip issues with `status != "PASS"` (report for manual creation)
 

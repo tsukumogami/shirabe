@@ -4,8 +4,8 @@ Identify all viable alternatives and present them for comparison.
 
 ## Resume Check
 
-If `wip/<prefix>_alternatives.md` exists, skip to Phase 3 (full path) or
-Phase 6 (fast path).
+If key `<key_dir>/alternatives.md` exists in `<session>`, skip to Phase 3 (full
+path) or Phase 6 (fast path).
 
 ## Steps
 
@@ -24,7 +24,10 @@ Cap at 5 alternatives. If more are identified, cluster related ones.
 
 ### 2.2 Document Each Alternative
 
-Write one section per alternative in `wip/<prefix>_alternatives.md`:
+Write one section per alternative in key `<key_dir>/alternatives.md`
+(`koto context add <session> <key_dir>/alternatives.md`, the content on
+stdin). Alternative agents return what they found to this conversation; they
+write no file and no key.
 
 ```markdown
 # Alternatives: <question>
@@ -59,7 +62,7 @@ chosen alternative and the alternatives document.
 
 - [ ] All viable alternatives identified (2-5)
 - [ ] Each alternative described with enough context for evaluation
-- [ ] Alternatives artifact written to wip/
+- [ ] Alternatives stored as key `<key_dir>/alternatives.md`
 
 ## Next Phase
 

@@ -4,11 +4,11 @@ Derive the single milestone for this source document.
 
 ## Resume Check
 
-If `wip/plan_<topic>_milestones.md` exists, read it and skip to Phase 3.
+If key `work/milestones.md` exists in `plan-<topic>`, read it and skip to Phase 3.
 
 ## Prerequisites
 
-Read `wip/plan_<topic>_analysis.md` to get the source document path, input type, and component/feature list.
+Read key `work/analysis.md` to get the source document path, input type, and component/feature list.
 
 ## Goal
 
@@ -93,7 +93,8 @@ This is guidance, not a hard rule. Some large documents are cohesive and shouldn
 
 ### 2.4 Write Artifact
 
-Create `wip/plan_<topic>_milestones.md` (Write tool).
+Write key `work/milestones.md` in `plan-<topic>` (`koto context add plan-<topic> work/milestones.md`,
+the content on stdin).
 
 **For design, prd, and roadmap input types:**
 

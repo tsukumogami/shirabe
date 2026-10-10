@@ -22,7 +22,16 @@ If the design doc has YAML frontmatter with status "Proposed", skip to step 6.7
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Architecture and Security run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/designs/DESIGN-<topic>.md --format skills/design/references/design-format.md`.
 
+Allocate a private directory outside the work tree for the reviews and keep
+the path it prints, `<reviews-dir>`:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch
+```
+
 Launch three review agents in parallel using the Agent tool with `run_in_background: true`.
+Reviewers never call koto: each writes one file in `<reviews-dir>`, which the
+orchestrator ingests.
 
 **Architecture reviewer:**
 ```
@@ -36,7 +45,7 @@ Questions:
 
 [Include Solution Architecture and Implementation Approach sections]
 
-Write full analysis to wip/research/design_<topic>_phase6_architecture-review.md.
+Write full analysis to <reviews-dir>/phase6_architecture-review.md, and nowhere else.
 Return only key findings and recommendations.
 ```
 
@@ -52,7 +61,7 @@ Questions:
 
 [Include Security Considerations section]
 
-Write full analysis to wip/research/design_<topic>_phase6_security-review.md.
+Write full analysis to <reviews-dir>/phase6_security-review.md, and nowhere else.
 Return only key findings and recommendations.
 ```
 
@@ -84,13 +93,13 @@ Questions covering the four named items:
    flagging healthy detail and surfaces only meaningful overshoot.
 
 The reviewer dereferences references/fixes/sub-agent-dispatch.md
-when the parent_orchestration sentinel is present in
-wip/scope_<topic>_state.md (serial-self-jury fallback applies when
-parallel spawn is not available).
+when this run is under a parent (the Resume Logic's first row found a
+`chain/dispatch` key naming `design` in `scope-<topic>`), and the
+serial-self-jury fallback applies when parallel spawn is not available.
 
 [Include all nine required sections plus the frontmatter]
 
-Write full analysis to wip/research/design_<topic>_phase6_structural-format-review.md.
+Write full analysis to <reviews-dir>/phase6_structural-format-review.md, and nowhere else.
 Return only key findings and recommendations.
 ```
 
@@ -102,7 +111,14 @@ reviewers do not catch.
 
 ### 6.2 Process Review Feedback
 
-After all three agents complete, consolidate feedback:
+After all three agents complete, turn the reviews into keys (`ingest` removes
+the directory):
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest design-<topic> research <reviews-dir>
+```
+
+Then consolidate feedback:
 
 | Source | Feedback | Action | Applied |
 |--------|----------|--------|---------|
@@ -122,7 +138,7 @@ Read the "Considered Options" section. For each rejected alternative, verify:
 
 If any rejected alternative reads like a strawman (vague description, superficial
 rejection, no evidence of investigation), flag it and strengthen using the decision
-reports from Phase 2 (`wip/design_<topic>_decision_<N>_report.md`) and the
+reports from Phase 2 (keys `work/decision_<N>_report.md` in `design-<topic>`) and the
 Considered Options already written in Phase 3.
 
 ### 6.4 Validate Document Structure
@@ -155,14 +171,15 @@ git grep -nE 'wip/' -- docs/designs/DESIGN-<topic>.md || true
   valid public `owner/repo:path` cross-repo reference, OR is omitted (per
   Phase 0 step 0.4a). See
   `${CLAUDE_PLUGIN_ROOT}/references/cross-repo-references.md`.
-- [ ] No references in the design body to staging artifacts that will be
-  deleted by Phase 6.9 cleanup (search for `wip/design_`, `wip/research/`).
+- [ ] No references in the design body to working state: a session key
+  name (`work/...`, `research/...`) or a staging-folder path is not a
+  durable reference.
 
 **STOP if any check fails.** Fix before proceeding.
 
 ### 6.5 Write Frontmatter
 
-Add YAML frontmatter using the wip/ summary. Each field is 1 paragraph, using
+Add YAML frontmatter using the summary key (`work/summary.md`). Each field is 1 paragraph, using
 YAML literal block scalars (`|`):
 
 ```markdown
@@ -183,7 +200,7 @@ The frontmatter must be the first content in the file, before the `# DESIGN:` he
 
 ### 6.6 Commit and PR
 
-Under `/scope`'s `parent_orchestration` sentinel (SKILL.md, Output, "Under `/scope`"),
+Under `/scope`'s dispatch key (SKILL.md, Output, "Under `/scope`"),
 run step 1 only: commit, with no push and no pull request.
 
 1. Commit: `docs(design): add design for <topic>`
@@ -236,7 +253,7 @@ Options (mark the recommended one "(Recommended)"):
   when changes are complete. (This is the existing "Needs iteration"
   behavior, renamed.)
 
-Under `/scope`'s `parent_orchestration` sentinel, the verdict is still this step's: an
+Under `/scope`'s dispatch key, the verdict is still this step's: an
 interactive run asks the author as above, and an unattended run (`--auto`)
 takes the recommended verdict and names it in its output, as "Took the
 recommended verdict: <verdict>".
@@ -252,7 +269,7 @@ recommended verdict: <verdict>".
    which labels to remove on design acceptance. If no vocabulary is defined, look
    for any `needs-*` label and remove it. The tracking label is applied later by
    /plan, not here.
-   Under `/scope`'s `parent_orchestration` sentinel, skip this step. The label
+   Under `/scope`'s dispatch key, skip this step. The label
    edit is a `gh` write that is not among the `gh` writes `/scope`'s SKILL.md
    lists for a run (its pull request, `/plan`'s gated issue filing and the
    coordination PR), and that list skips a child's own upstream-issue edit;
@@ -269,22 +286,29 @@ recommended verdict: <verdict>".
    parent doc updates (Mermaid diagram class changes, child reference rows,
    spawned_from metadata). If no extension defines this, skip parent doc updates.
    This is an edit to a file on the branch, not a `gh` write, so it runs
-   under `/scope`'s sentinel too.
+   under `/scope`'s dispatch key too.
 5. **PR body convention.** If spawned from an issue, use `Ref #<N>` in the PR
    body, NOT `Fixes #<N>`. The issue stays open until implementation completes.
-6. Under `/scope`'s `parent_orchestration` sentinel, skip this step and return control to
+6. Under `/scope`'s dispatch key, skip this step and return control to
    `/scope`. Otherwise, run the complexity assessment and routing from the design SKILL.md "Output" section (the table comparing Simple vs Complex criteria, followed by the AskUserQuestion presenting Plan vs Approve options). Use `${CLAUDE_PLUGIN_ROOT}/references/decision-presentation.md` for the AskUserQuestion formatting pattern.
 
-### 6.9 Clean Up wip/ Artifacts
+### 6.9 Close the Session
 
-Under `/scope`'s `parent_orchestration` sentinel, skip this step: `/scope`'s cleanup phase
-removes these files, and `/design` makes no cleanup commit.
+`/design` kept its working state as keys in `design-<topic>` and wrote no file
+to the staging folder, so there are no working files to delete and no cleanup
+commit.
 
-After approval and routing, remove temporary artifacts:
-- `wip/design_<topic>_summary.md`
-- `wip/research/design_<topic>_*.md` (all phase research files)
+Under `/scope`'s dispatch key, skip this step: `/design` never closes its own
+session under a parent, and `/scope` closes `design-<topic>` at its own exit.
 
-Commit: `chore: clean up wip/ artifacts for <topic>`
+On a direct run, after approval and routing, close the session:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close design-<topic> done
+```
+
+It prints `closed=done` (or `closed=noop` when the session was already
+finished). The keys stay readable after the close.
 
 **If continue-revising:**
 - Discuss what needs changes with user
@@ -335,22 +359,9 @@ Run the following ordered actions; do not skip steps.
    git rm docs/designs/DESIGN-<topic>.md
    ```
 
-4. **Remove the wip working artifacts** for this invocation. `/design`
-   writes intermediate artifacts to BOTH the top-level `wip/design_<topic>_*`
-   set AND the per-phase research set under `wip/research/design_<topic>_*`,
-   so the Reject branch must clean both:
-
-   ```bash
-   rm -f wip/design_<topic>_*.md
-   rm -f wip/research/design_<topic>_*.md
-   ```
-
-   Under `/scope`'s sentinel, skip this step: `/scope`'s cleanup phase removes
-   these files.
-
-5. **Commit the discard via `git commit -F`** (file path), never `-m`. This
-   commit still happens under `/scope`'s sentinel: it is the rejection signal
-   `/scope` reads from `git log`, not the cleanup commit the sentinel skips.
+4. **Commit the discard via `git commit -F`** (file path), never `-m`. This
+   commit still happens under `/scope`'s dispatch key: it is the rejection signal
+   `/scope` reads from `git log`, not the cleanup commit the dispatch key skips.
 
    ```bash
    git commit -F "$RATIONALE_FILE"
@@ -361,10 +372,20 @@ Run the following ordered actions; do not skip steps.
    is acceptable when scripting inline; the invariant is that the rationale
    never transits a `-m "..."` shell argument.
 
+5. **Close the session as abandoned**, on a direct run:
+
+   ```bash
+   "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close design-<topic> abandoned
+   ```
+
+   Under `/scope`'s dispatch key, skip this step: `/design` never closes its
+   own session under a parent, and `/scope` closes it at its exit. There are
+   no working files to remove either way: the working state is keys.
+
 6. **Exit the phase.** Do not flip status from Proposed to Accepted; do not
    run the Approved-path complexity assessment or routing; do not run step
-   6.9 (the Reject branch handled its own wip cleanup inline in step 4, or
-   left it to `/scope` under the sentinel).
+   6.9 (the Reject branch closed the session in step 5, or left it to
+   `/scope` under the dispatch key).
    No DESIGN ships; the discard commit is the only artifact. The gate
    behaves identically in-chain and out-of-chain — `/design`'s
    responsibility stops at the discard commit. (Any `/scope`-side handling

@@ -167,7 +167,7 @@ mktempdir() {
 # provisioned host), so `all` on Linux reports it red; its floor run is the
 # macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry skill-session"
 
 suite_scripts() {
     case "$1" in
@@ -378,6 +378,14 @@ suite_scripts() {
             # loudly without it.
             echo "scripts/check-koto-release_test.sh"
             ;;
+        skill-session)
+            # The skill-session convention's shared script. Its stand-in cases
+            # need only jq and git, so they execute on the floor wherever it
+            # runs; its engine cases skip without koto, which the macOS runner
+            # lacks, and a developer running this locally with koto gets them
+            # on 3.2 as well.
+            echo "scripts/skill-session_test.sh"
+            ;;
         coordinate)
             # /coordinate's script tests. They drive test-local gh and koto
             # stand-ins and need only jq and git, so every case runs on 3.2.
@@ -532,6 +540,7 @@ suite_workflow() {
         review-packet)        echo ".github/workflows/check-review-packet.yml" ;;
         check-skill)          echo ".github/workflows/check-skill-gate.yml" ;;
         rule-registry)        echo ".github/workflows/check-rule-registry.yml" ;;
+        skill-session)        echo ".github/workflows/check-skill-session.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }

@@ -11,14 +11,17 @@ topics worth investigating in Phase 2.
 
 ## Resume Check
 
-If `wip/prd_<topic>_scope.md` exists and this is NOT a loop-back from Phase 2, skip to Phase 2.
+If key `work/scope.md` exists in `prd-<topic>` (`koto context exists prd-<topic>
+work/scope.md`) and this is NOT a loop-back from Phase 2, skip to Phase 2.
 
-If this IS a loop-back (Phase 2 determined the scope was fundamentally wrong), delete
-`wip/prd_<topic>_scope.md` first, then re-scope from scratch.
+If this IS a loop-back (Phase 2 determined the scope was fundamentally wrong), remove
+the key first (`koto context remove prd-<topic> work/scope.md`), then re-scope from
+scratch.
 
-Either way the file came from this phase on an earlier run. Nothing hands /prd
-a pre-populated scope file: /scope invokes /prd and lets this phase do the
-scoping, so a file on disk means an interrupted run, never a handoff.
+Either way the key came from this phase on an earlier run. Nothing hands /prd
+a pre-populated scope: /scope invokes /prd and lets this phase do the scoping,
+and only `/prd` writes `work/` keys in `prd-<topic>`, so the key means an
+interrupted run, never a handoff.
 
 ## Approach: Conversational with Coverage Tracking
 
@@ -75,7 +78,8 @@ Proceed to persist scope and move to Phase 2.
 
 ## 1.2 Persist Scope
 
-Write the scoping output to `wip/prd_<topic>_scope.md`:
+Write the scoping output to key `work/scope.md` in `prd-<topic>` (`koto context
+add prd-<topic> work/scope.md`, the content on stdin):
 
 ```markdown
 # /prd Scope: <topic>
@@ -99,7 +103,7 @@ Write the scoping output to `wip/prd_<topic>_scope.md`:
 <Any gaps or uncertainties to resolve in Phase 2>
 ```
 
-Commit: `docs(prd): capture scope for <topic>`
+Nothing is committed: the scope lives only in the session.
 
 ## Quality Checklist
 
@@ -111,9 +115,9 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Scope document at `wip/prd_<topic>_scope.md`
+- Key `work/scope.md` in `prd-<topic>`
 - No PRD draft yet
-- No research files yet
+- No research keys yet
 
 ## Next Phase
 

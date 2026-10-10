@@ -284,27 +284,36 @@ a parent-resume (continue the parent's chain) or a fresh chain (signal
 the child to suppress its status-aware re-entry). The parent's flow MUST
 NOT be hijacked by a child's status-aware re-entry prompt.
 
-The signaling mechanism between parent and child is parent-specific; the
-invariant is that the parent decides, not the child.
+The signaling mechanism between parent and child is the pattern-level
+dispatch key below; the invariant is that the parent decides, not the
+child.
 
-#### `parent_orchestration:` block
+#### The `chain/dispatch` key
 
-The `parent_orchestration:` block is the pattern-level convention every
-parent writes and every child reads identically; the block is the
-**pre-dispatch state element of the dispatch contract** named in
+The dispatch key is the pattern-level convention every parent writes
+and every child reads identically; it is the **pre-dispatch state
+element of the dispatch contract** named in
 [`parent-skill-pattern.md`](parent-skill-pattern.md) under
-`## Dispatch Contract`'s Pre-Dispatch State sub-section. The parent
-writes the block to its state file immediately before invoking the
-child via the Skill tool; the child reads it at its own Phase 0 to
-route Slot 2 behavior (suppress its status-aware re-entry prompt) and
-the parent clears it on hand-back per the Dispatch Contract's
-`parent_orchestration:` cleanup step. The block's fields are fixed at
-the pattern layer (no parent extends or omits any field):
-`invoking_child:` names the child the parent is about to invoke;
+`## Dispatch Contract`'s Pre-Dispatch State sub-section. It is not a
+state-file field: it lives as key `chain/dispatch` in the parent's
+own koto session, `<parent>-<topic>`. The parent writes it
+(`skill-session.sh dispatch write`) immediately before invoking the
+child via the Skill tool, clears it (`dispatch clear`) immediately
+after the child returns whatever the outcome, per the Dispatch
+Contract's hand-back steps, and clears any it finds at its own start.
+The child reads it (`dispatch read <child> <topic>`) by recomputing
+the session name from the closed set of parents (`scope`, `charter`)
+and its own topic, to route Slot 2 behavior (suppress its
+status-aware re-entry prompt). The value's three lines are fixed at
+the pattern layer (no parent extends or omits any field): `child:`
+names the child the parent is about to invoke;
 `suppress_status_aware_prompt:` carries the upfront decision to
 silence the child's status-aware re-entry; `rationale:` carries the
 `fresh-chain | revise` framing the child reads to route its own Slot 2
-behavior.
+behavior. A parent session that is absent or finished, a key naming
+another child, or a key that fails re-validation is no match for the
+child; two matching parents stop it. The full rules are in
+[`skill-session-convention.md`](skill-session-convention.md).
 
 ## Extension Discipline
 

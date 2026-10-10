@@ -8,7 +8,7 @@ design doc skeleton.
 Quickly establish enough context to start investigating approaches:
 - Understand the technical problem through 2-4 targeted questions
 - Establish scope boundaries (what's in, what's out)
-- Create the design doc skeleton and wip/ summary
+- Create the design doc skeleton and the summary key
 
 This is NOT a full /prd scoping session. Keep it brief -- the user already knows
 what they want to design. You're getting just enough context for decision
@@ -16,13 +16,15 @@ decomposition in Phase 1.
 
 ## Resume Check
 
-If `wip/design_<topic>_summary.md` exists, skip to Phase 1.
+If key `work/summary.md` exists in `design-<topic>` (`koto context exists
+design-<topic> work/summary.md`, after the open and adopt in SKILL.md's Session
+and Keys), skip to Phase 1.
 
 ## Steps
 
 ### 0.1 Branch Setup
 
-Under `/scope`'s `parent_orchestration` sentinel (SKILL.md, Output, "Under `/scope`"),
+Under `/scope`'s dispatch key (SKILL.md, Output, "Under `/scope`"),
 skip this step: work on the branch `/scope` invoked `/design` on, and
 create or switch no branch.
 
@@ -76,9 +78,10 @@ Proposed
 <From scoping conversation>
 ```
 
-### 0.5 Create wip/ Summary
+### 0.5 Write the Summary Key
 
-Write `wip/design_<topic>_summary.md`:
+Write key `work/summary.md` in `design-<topic>` (`koto context add
+design-<topic> work/summary.md`, the content on stdin):
 
 ```markdown
 # Design Summary: <topic>
@@ -106,7 +109,7 @@ Before proceeding:
 
 After this phase:
 - Design doc exists with: Status, Context and Problem Statement, Decision Drivers
-- `wip/design_<topic>_summary.md` exists
+- Key `work/summary.md` in `design-<topic>`
 
 ## Next Phase
 

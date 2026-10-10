@@ -28,14 +28,15 @@ no hypothesis to articulate here.
 
 ## Resume Check
 
-If `wip/brief_<topic>_discover.md` exists, Phase 1 already ran. Re-read it and skip
-to Phase 2.
+If key `work/discover.md` exists in `brief-<topic>`, Phase 1 already ran. Re-read
+it (`koto context get brief-<topic> work/discover.md`) and skip to Phase 2.
 
-If the file does not exist, proceed with the entry-mode router below.
+If the key does not exist, proceed with the entry-mode router below.
 
 ## 1.1 Route on Entry Mode
 
-Read `wip/brief_<topic>_context.md` and dispatch on the recorded entry mode.
+Read key `work/context.md` (`koto context get brief-<topic> work/context.md`)
+and dispatch on the recorded entry mode.
 
 ### Mode: Upstream ROADMAP
 
@@ -125,7 +126,8 @@ brief failure; Phase 4's content-quality reviewer checks it.
 
 ## 1.4 Persist Discovery
 
-Write `wip/brief_<topic>_discover.md` with the following:
+Write key `work/discover.md` in `brief-<topic>` (`koto context add
+brief-<topic> work/discover.md`, the content on stdin) with the following:
 
 ```markdown
 # /brief Discovery: <topic>
@@ -148,7 +150,7 @@ Write `wip/brief_<topic>_discover.md` with the following:
 <things to flag to the user during Phase 2 drafting>
 ```
 
-Update `wip/brief_<topic>_context.md`'s `## Phase` line to `1`.
+Update key `work/context.md`'s `## Phase` line to `1`.
 
 ## Quality Checklist
 
@@ -162,8 +164,8 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Context file at `wip/brief_<topic>_context.md` (Phase 0)
-- Discovery file at `wip/brief_<topic>_discover.md` (this phase)
+- Key `work/context.md` in `brief-<topic>` (Phase 0)
+- Key `work/discover.md` in `brief-<topic>` (this phase)
 - No BRIEF draft yet
 
 ## Next Phase

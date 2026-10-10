@@ -1350,13 +1350,19 @@ states:
   bail:
     # phase: 3
     gates:
-      # Child-intermediate prefixes only. The parent's own prefix, the state
-      # file included, is not a child's output and is deliberately not part of
-      # this test, which is why the patterns name the children rather than
-      # excluding one file.
+      # The four children's sessions only. The parent's own session is not a
+      # child's output and is deliberately not part of this test, which is why
+      # the chain names the children rather than excluding the parent.
+      # has-work exits 0 for a live session holding a work/ key and 1 for
+      # none; anything else (4 cannot-tell, 127 koto absent) maps to exit 2 so
+      # the force_materialize arms below can route on it -- unlike the resume
+      # probe, which reads 127 as "no session can exist", this gate decides a
+      # destructive choice and fails toward the arm that only informs.
+      # The first child with work short-circuits to exit 0; otherwise each
+      # `test $? -eq 1` requires a clean "no work" before the next child runs.
       child_intermediate_present:
         type: command
-        command: 'find wip -maxdepth 2 \( -name "brief_{{TOPIC}}_*" -o -name "prd_{{TOPIC}}_*" -o -name "design_{{TOPIC}}_*" -o -name "plan_{{TOPIC}}_*" \) -print 2>/dev/null | grep -q .'
+        command: '"{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work brief "{{TOPIC}}" && exit 0; test $? -eq 1 || exit 2; "{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work prd "{{TOPIC}}" && exit 0; test $? -eq 1 || exit 2; "{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work design "{{TOPIC}}" && exit 0; test $? -eq 1 || exit 2; "{{PLUGIN_ROOT}}/scripts/skill-session.sh" has-work plan "{{TOPIC}}" && exit 0; test $? -eq 1 || exit 2; exit 1'
     accepts:
       bail_ack:
         type: enum
@@ -1382,12 +1388,13 @@ states:
         when:
           bail_ack: force_materialize
           gates.child_intermediate_present.exit_code: 1
-      # `find | grep -q` can exit non-zero for a reason that is neither "found"
-      # nor "not found" -- an unreadable directory, say. Without this arm that
-      # status matches nothing, and the run stalls in a state whose details are
-      # never redelivered. force_materialize routes to abandonment on ANY gate
-      # outcome by design: the author already chose it, and the gate only
-      # informs how much there is to materialize.
+      # has-work can exit for a reason that is neither "work" nor "no work" --
+      # a session whose state it cannot tell, say -- which the gate maps to
+      # exit 2. Without this arm that status matches nothing, and the run
+      # stalls in a state whose details are never redelivered.
+      # force_materialize routes to abandonment on ANY gate outcome by design:
+      # the author already chose it, and the gate only informs how much there
+      # is to materialize.
       - target: exit_abandonment
         when:
           bail_ack: force_materialize
@@ -2237,6 +2244,11 @@ The value is `continue`, `stop`, or `none`, always present, never empty:
 `intake` resolved it from the invocation's `--intent`, else the intent the
 state file already recorded, else `none`.
 
+**Remove a stale dispatch key.** Run
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope {{TOPIC}}`
+unconditionally and silently: a `chain/dispatch` key present now was left by a
+run that is no longer in flight. No prompt, no warning.
+
 `blocked` here covers neither the branch nor the arguments. It covers a state
 file that cannot be written. Anything else, fix and submit `ready`.
 
@@ -2299,11 +2311,17 @@ path with `git add --` and naming the hop.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order:
-the worktree-staleness check, the `parent_orchestration:` sentinel write, the
-child invocation, the R20 structural file-existence check, the sentinel
-cleanup, the child-snapshot capture, and the validator pass-through. The eighth
-step, the consolidation judgment, does not run at this hop: it compares two
-documents and only one exists.
+the worktree-staleness check, the dispatch key write, the child invocation,
+the dispatch key clear, the R20 structural file-existence check, the
+child-snapshot capture, and the validator pass-through. The eighth step, the
+consolidation judgment, does not run at this hop: it compares two documents
+and only one exists.
+
+Immediately before invoking the child, write the dispatch key:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch write scope {{TOPIC}} brief
+<fresh-chain|revise>`. Immediately after it returns, whatever its outcome
+(landed, rejected, or an error it stopped on), clear it:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope {{TOPIC}}`.
 
 Invoke `/brief` inline via the Skill tool with the topic slug — and, when the
 state file carries `consumed_upstream:`, with `--upstream <that path>` as well.
@@ -2351,6 +2369,11 @@ and name the hop.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.
+Immediately before invoking the child, write the dispatch key:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch write scope {{TOPIC}} prd
+<fresh-chain|revise>`. Immediately after it returns, whatever its outcome,
+clear it: `"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope
+{{TOPIC}}`.
 Invoke `/prd` inline via the Skill tool, passing the nearest produced upstream
 artifact's path as the invocation argument. Keep that path: the fold state asks
 about the pair, and the upstream half of the pair is the argument you passed
@@ -2383,6 +2406,11 @@ and name the hop.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.
+Immediately before invoking the child, write the dispatch key:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch write scope {{TOPIC}} design
+<fresh-chain|revise>`. Immediately after it returns, whatever its outcome,
+clear it: `"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope
+{{TOPIC}}`.
 Invoke `/design` inline via the Skill tool, passing the nearest produced
 upstream artifact's path. Keep that path for the fold state.
 
@@ -2437,6 +2465,11 @@ is the one to follow.
 
 Run the eight-step per-child loop from
 `skills/scope/references/phases/phase-2-chain-orchestration.md` in order.
+Immediately before invoking the child, write the dispatch key:
+`"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch write scope {{TOPIC}} plan
+<fresh-chain|revise>`. Immediately after it returns, whatever its outcome,
+clear it: `"{{PLUGIN_ROOT}}/scripts/skill-session.sh" dispatch clear scope
+{{TOPIC}}`.
 Invoke `/plan` inline via the Skill tool, passing the nearest produced upstream
 artifact's path — and, when the state file carries `consumed_upstream:`, also
 `--upstream <that path>`. `/plan` is the child that records the roadmap itself,
@@ -2605,6 +2638,18 @@ a verdict, because the validator is missing or a validation returned no verdict.
 Nothing about the chain was established in that case, and the two must not be
 recorded as the same thing.
 
+Once the state file records `exit: full-run`, close the children this chain
+dispatched (`references/skill-session-convention.md`):
+
+```bash
+"{{PLUGIN_ROOT}}/scripts/skill-session.sh" close-children scope "{{TOPIC}}" done
+```
+
+It closes only a live child whose `chain/parent` names this parent on this
+branch, so a direct run's session or another worktree's is never touched, and
+closing is idempotent: a run that crashed between the exit and the closes
+finishes them on its next pass.
+
 Evidence schema:
 - `exit_artifacts`: the path/status pairs the state file records
 - `plan_execution_mode`: `single-pr`, `multi-pr`, or `coordinated`
@@ -2699,6 +2744,17 @@ the gate passes and the run advances to cleanup; without it, the run returns
 here with the gate reported. `retry_or_abandon: abandon` leaves for the
 abandonment exit, so an agent that cannot produce the record is not stuck here.
 
+Once the state file records `exit: re-evaluation`, close the children this
+chain dispatched (`references/skill-session-convention.md`):
+
+```bash
+"{{PLUGIN_ROOT}}/scripts/skill-session.sh" close-children scope "{{TOPIC}}" abandoned
+```
+
+The chain stopped at a boundary, so the children close as `abandoned`. Only a
+live child whose `chain/parent` names this parent on this branch is touched,
+and closing is idempotent.
+
 Evidence schema:
 - `boundary`: `brief`, `prd` or `design`
 - `decision_record_sub_shape`: `re-evaluation` or `rejection`
@@ -2759,6 +2815,18 @@ artifact is not stuck here. Advance with `--no-cleanup` on that tick as well:
 the route to the cancelled terminal retains the per-hop record for the same
 reason the cleanup states do.
 
+Once the state file records `exit: abandonment-forced`, close the children
+this chain dispatched (`references/skill-session-convention.md`):
+
+```bash
+"{{PLUGIN_ROOT}}/scripts/skill-session.sh" close-children scope "{{TOPIC}}" abandoned
+```
+
+The run stopped with a child mid-flight, so the children close as `abandoned`;
+their keys stay readable in the closed sessions. Only a live child whose
+`chain/parent` names this parent on this branch is touched, and closing is
+idempotent.
+
 Evidence schema:
 - `triggering_child`: `brief`, `prd`, `design`, or `plan`
 - `exit_artifacts`: the force-materialized artifact's path and status
@@ -2775,11 +2843,10 @@ on the tick that reaches the terminal.
 Read the R8 Bail Route section of
 `skills/scope/references/phases/phase-3-exit-finalization.md`.
 
-The `child_intermediate_present` gate looks for a child's intermediate under
-`wip/{brief,prd,design,plan}_<topic>_*` or research scratch under
-`wip/research/{prd,design}_<topic>_*`. Nothing under the parent's own
-`wip/scope_<topic>_*` prefix counts toward it: nothing under that prefix is a
-child's output.
+The `child_intermediate_present` gate asks the four children's sessions with
+`skill-session.sh has-work`: a live `<child>-<topic>` on this branch holding a
+`work/` key is a child mid-flight. The parent's own session counts for
+nothing here: it is not a child's output.
 
 `bail_ack: force_materialize` routes to the abandonment exit whatever the gate
 found. That is deliberate -- the resume ladder offers Force-materialize as an

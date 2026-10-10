@@ -926,6 +926,38 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
 
 
+# Where an operating system keeps its own trust roots. A Python that ships
+# without any (the python.org installer on macOS, until its "Install
+# Certificates" step is run) fails every certificate check, and each send
+# would be recorded as a transport failure with nothing saying why.
+OS_TRUST_BUNDLES = ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt")
+
+
+def tls_context(base=None, bundles=OS_TRUST_BUNDLES):
+    """The default TLS context, given the operating system's trust roots when
+    Python loaded none of its own. A user who names their own roots with
+    SSL_CERT_FILE or SSL_CERT_DIR gets exactly those: certificates in a
+    directory load only during a handshake, so an empty list can't tell that
+    case apart, and the environment is checked instead."""
+    import ssl
+    ctx = (base or ssl.create_default_context)()
+    if ctx.get_ca_certs() or os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR"):
+        return ctx
+    for path in bundles:
+        if not os.path.isfile(path):
+            continue
+        try:
+            ctx.load_verify_locations(cafile=path)
+            break
+        except (ssl.SSLError, OSError):
+            continue  # an unreadable bundle leaves the next one to try
+    return ctx
+
+
+def https_opener():
+    return urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=tls_context()))
+
+
 def https_transport(endpoint, key, timeout):
     """POST a JSON body; return (status, raw body). The key goes in an
     unredirected Authorization header and nowhere else."""
@@ -940,7 +972,7 @@ def https_transport(endpoint, key, timeout):
 
     def send(body):
         if not opener:
-            opener.append(urllib.request.build_opener(_NoRedirect))
+            opener.append(https_opener())
         req = urllib.request.Request(endpoint, data=json.dumps(body).encode("utf-8"), method="POST",
                                      headers={"Content-Type": "application/json"})
         req.add_unredirected_header("Authorization", "Bearer " + key)
@@ -1064,7 +1096,13 @@ def run_status(criterion_verdicts, rounds, jev_slices, no_key, jev_verdicts):
     """unanimous-pass, dissent, inconclusive, or not-graded when Jev had slices to
     grade and never answered, so an outage is never counted as agreement. A
     head whose every Jev slice was over the bound is not-graded too: nothing
-    was ever sent, so it has no verdict to count as open."""
+    was ever sent, so it has no verdict to count as open. A run where no
+    criterion had a single slice of its kind (a code-hunks seat on a docs-only
+    change) is not-graded as well: worst([]) is pass, and a pass over nothing
+    isn't agreement. A pull-request run never gets here while a script
+    criterion grades pr-text."""
+    if not any(c["slices"] for c in criterion_verdicts):
+        return "not-graded", "no-slices"
     if jev_slices and not any(r["answered"] for r in rounds):
         if no_key:
             return "not-graded", "no-key"
@@ -1081,7 +1119,7 @@ def run_status(criterion_verdicts, rounds, jev_slices, no_key, jev_verdicts):
     return "unanimous-pass", None
 
 
-TOOL_VERSION = 3  # bump when grading behaviour changes; the hashes below catch the rest
+TOOL_VERSION = 4  # bump when grading behaviour changes; the hashes below catch the rest
 
 
 def tool_version():
