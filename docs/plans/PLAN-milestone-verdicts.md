@@ -428,41 +428,75 @@ changing what a verdict does.
 **Type**: docs
 **Complexity**: simple
 
-**Goal**: The roadmap format reference and the coordinate skill's
-documentation describe what the tools now do, and the acceptance suite
-covers every criterion of the feature's requirements.
+**Goal**: The roadmap format reference, the coordinate skill's documentation
+and the completion cascade's design describe what steps 1 to 5 shipped, and
+the acceptance suite names the feature criterion each case covers.
+
+Steps 1 to 5 shipped, all to be described accurately (read the scripts'
+headers and the template, not only the design):
+- `milestone.sh` and its subcommands: `schema`, `evidence`,
+  `check-verdict`, `progress-has`, `check-goal-fit`, `check-failure`.
+- The record entries `milestone-verdict`, `goal-fit` and
+  `milestone-failure`; the Work kinds `verdict-owed` and `rework`; the
+  Actions `milestone-done`, `milestone-verdict` and `milestone-reopen`.
+- `roadmap-status.sh` modes: schema-gated `--unit`, `--verdict` (with
+  `--follow-ups` and its file format), `--reopen` (with its
+  `held-dependent <tag> <worker>` lines), and per-Action `--confirm` and
+  `--list`. How the reopen confirm finds the failure through the last
+  Progress line about the milestone. The entry-to-comment binding.
+- The template states `milestone_verdict` (`recorded|deferred`) and
+  `milestone_reopen`. The `failure` wait event, which is not the existing
+  `failure` state. The `ROADMAP_FORM` variable and the two
+  `landing-*-roadmap.md` references.
+- The picker's `verdict_owed` and `rework` facts; dispatch_check code 49.
+- Close-out's `verdict-owed` reason (code 49) and its `reopen-pending
+  <tag>` reason.
+- The rework row: Who `verdict <id>` or `failure <id>`, the 600-byte cut,
+  and the brief heading "The last verdict's report".
+- `coord/land.json`'s `milestone` and `milestone_error` fields.
+- The cascade's v2 skip.
 
 **Acceptance Criteria**:
-- [ ] `skills/roadmap/references/roadmap-format.md` no longer says the Done
-  rule is unenforced or that the cascade updates status as plans land on a
-  milestone roadmap, and says a post-Done failure returns a milestone to In
-  progress through the coordinator; a grep for "unenforced" and "updates it
-  as downstream plans land" finds nothing, and the Done rule's section names
-  the coordinator's verdict step and `roadmap-status.sh --verdict` as what
-  sets Done.
-- [ ] `skills/coordinate/SKILL.md` and
-  `skills/coordinate/references/record-template.md` have a section on
-  verdicts covering the verdict step, the three entries, reopening, and
-  that milestone roadmap edits need a person's review before merge.
-- [ ] `shirabe validate` passes on every changed document, and every suite
-  this feature added runs in a CI workflow.
+- [ ] `skills/roadmap/references/roadmap-format.md`'s "When a milestone is
+  Done" section names the coordinator's verdict step and `roadmap-status.sh
+  --verdict` as what sets Done, and says a recorded post-Done failure
+  returns a milestone to In progress through the coordinator. The
+  one-feature-roadmap paragraph no longer says the cascade updates status
+  for a milestone roadmap. `grep -n 'unenforced\|updates it as downstream
+  plans land\|can decline to run the merge-driven'` on the file finds
+  nothing.
+- [ ] `skills/coordinate/SKILL.md` gains a Verdicts section, and
+  `skills/coordinate/references/record-template.md` gains the matching
+  record shapes. Together they cover:
+  - the verdict step, deferral and the pick reminder;
+  - the three entries with their exact line shapes and checks;
+  - the verdict-owed and rework rows, follow-ups, and the
+    entry-to-comment binding;
+  - goal fit against Evidence and the `land.json` fields;
+  - reopening, held dependents, and close-out's two reasons;
+  - that a milestone roadmap's edit pull requests must not be auto-merged
+    without a person's review;
+  - the two points where the shipped behaviour follows the PRD over the
+    design (a changes-needed edit leaves Delivered unchanged; Who `none`
+    skips the checker check).
+  The SKILL.md Glossary defines verdict, verdict owed, rework and reopen,
+  and its "What This Version Leaves for Later" and "Known Limitations" say
+  what this feature leaves open (verdict consumption by a reviewing
+  session; retiring a fully verified milestone roadmap).
+- [ ] `land-check.sh`'s header and the template comment beside `goal_fit`
+  name `coord/land.json`'s `milestone` and `milestone_error` fields.
+- [ ] `docs/designs/current/DESIGN-completion-cascade.md` gains a short
+  dated note that the cascade skips a `roadmap/v2` roadmap: one
+  `update_roadmap_feature` step at `skipped`, the run still `completed`,
+  and the `--push` after-commit check reading `skipped` when a PLAN's
+  chain points straight at a v2 roadmap.
 - [ ] `milestone-verdicts_test.sh` names, in a comment beside each case, the
-  feature acceptance criterion it covers, and every criterion has one.
-- [ ] The documentation states the two points where the shipped behaviour
-  follows the PRD over the design: a changes-needed edit leaves Delivered
-  unchanged, and a verdict-owed row's Who is `none` when no holding names the
-  milestone, in which case the checker check is skipped.
-- [ ] The coordinate documentation also covers what step 2 landed:
-  `--follow-ups` and its file format, the rework row and the brief heading
-  that quotes it, the entry-to-comment binding, and that close-out reuses
-  the `verdict-owed` word and code 49.
-- [ ] The completion cascade's design and the roadmap format say the cascade
-  skips a `roadmap/v2` roadmap (one `update_roadmap_feature` step at
-  `skipped`, the run still `completed`), and that when a PLAN's chain points
-  straight at a v2 roadmap the `--push` after-commit check reads `skipped`.
-- [ ] The coordinate documentation describes the goal-fit entry, and both
-  `land-check.sh`'s `coord/land.json` header and the template's comment name
-  the `milestone` and `milestone_error` fields it carries.
+  PRD acceptance criterion it covers. Every PRD criterion that a coordinate
+  script suite covers is named, and the ones covered elsewhere point to
+  their suite (`run-cascade_test.sh`, the engine suite, the
+  `crates/shirabe-validate` test).
+- [ ] `shirabe validate` passes on every changed document, the
+  public-content scan reports nothing, and `run-tests.sh` still passes.
 
 **Dependencies**: Issue 3, Issue 4, Issue 5
 
