@@ -151,8 +151,8 @@ the child writes `work/` keys in its own session, so a match always
 means the child itself ran. A feeder document — a pre-supplied Phase 1
 output that lets the child skip Phase 1 — lands on disk, not in the
 child's session, so no feeder can imitate a mid-flight child the way
-a `wip/prd_<topic>_scope.md` on disk once imitated an interrupted
-`/prd` run. The old rows' narrowed globs were defense in depth
+`/prd`'s on-disk scoping file once imitated an interrupted `/prd`
+run. The old rows' narrowed globs were defense in depth
 against exactly that collision; the session check removes the
 surface they defended.
 
@@ -164,8 +164,9 @@ probe's cannot-tell [2]; koto absent from `PATH` means no child
 session can exist, so Slot 6 matches nothing and the ladder falls
 through.
 
-The slug recovered during the Slot 7 feeder-doc match against
-`wip/scope_<topic>_handoff.md` follows the slug re-validation rule
+The slug recovered during the Slot 7 feeder-doc match against the
+`/explore` handoff file (its path is in Slot 7 below) follows the
+slug re-validation rule
 documented in
 `${CLAUDE_PLUGIN_ROOT}/references/parent-skill-security.md`
 (Slug Re-Validation on Resume section): re-validate against

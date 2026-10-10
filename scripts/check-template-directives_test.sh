@@ -631,7 +631,7 @@ states:
     gates:
       child_intermediate_present:
         type: command
-        command: "ls wip/prd_*_state.md"
+        command: "ls wip/*_state.md"
     accepts:
       bail_mode:
         type: string
@@ -735,7 +735,7 @@ states:
     gates:
       child_intermediate_present:
         type: command
-        command: "ls wip/prd_*_state.md"
+        command: "ls wip/*_state.md"
     accepts:
       bail_mode:
         type: string
