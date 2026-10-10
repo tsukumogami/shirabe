@@ -5,7 +5,7 @@
       "id": 1,
       "name": "standalone-creation",
       "prompt": "/strategy adopting-plugin-x",
-      "expected_output": "Detects no upstream VISION or existing STRATEGY. Validates the topic slug 'adopting-plugin-x' matches [a-z0-9-]+ at Phase 0. Starts Phase 1 (discover) to ground the bet conversationally. Produces a STRATEGY doc with all 8 required sections at docs/strategies/STRATEGY-adopting-plugin-x.md. Phase 4 spawns three reviewer agents in parallel (bet quality, altitude, structural format).",
+      "expected_output": "Detects no upstream VISION or existing STRATEGY. Validates the topic slug 'adopting-plugin-x' matches [a-z0-9-]+ at Phase 0. Opens koto session strategy-adopting-plugin-x through skill-session.sh before reading resume rows, and keeps its working state as session keys rather than files in the wip/ staging folder. Starts Phase 1 (discover) to ground the bet conversationally. Produces a STRATEGY doc with all 8 required sections at docs/strategies/STRATEGY-adopting-plugin-x.md. Phase 4 spawns three reviewer agents in parallel (bet quality, altitude, structural format).",
       "files": [],
       "expectations": [
         "Plan validates the topic slug 'adopting-plugin-x' matches [a-z0-9-]+ at Phase 0",
@@ -15,6 +15,8 @@
         "Plan includes Phase 3 (structural fill) producing Building Blocks, Coordination Dependencies, Non-Goals, and Downstream Artifacts",
         "Plan includes Phase 4 (validate) with three parallel reviewer agents (bet quality, altitude, structural format)",
         "Plan includes Phase 5 (finalize) with explicit human approval before status transition",
+        "Plan opens the koto session strategy-adopting-plugin-x with skill-session.sh open and adopt before the resume rows are read",
+        "Plan keeps the context and discovery output as keys work/context.md and work/discover.md in that session, not as files in a staging folder",
         "Plan mentions reading phase reference files (e.g. references/phases/phase-0-setup.md)",
         "Plan mentions detecting repo visibility from CLAUDE.md or repo path",
         "Plan produces the STRATEGY at docs/strategies/STRATEGY-adopting-plugin-x.md"
@@ -81,14 +83,15 @@
       "id": 6,
       "name": "jury-three-reviewers",
       "prompt": "/strategy plugin-x-migration",
-      "expected_output": "Phase 4 spawns three reviewer agents in parallel via the Agent tool with run_in_background: true. Each reviewer prompt opens with a fixed preamble framing the STRATEGY as data-under-review. Each prompt pins the verdict file path. Each prompt requires a literal **Verdict:** PASS | FAIL marker. The orchestrator aggregates by all-PASS rule.",
+      "expected_output": "Phase 4 spawns three reviewer agents in parallel via the Agent tool with run_in_background: true. Each reviewer prompt opens with a fixed preamble framing the STRATEGY as data-under-review. Each prompt pins a verdict file name inside a scratch directory the orchestrator allocated with skill-session.sh scratch; reviewers never write keys, and the orchestrator ingests the directory as research/phase4_* keys. Each prompt requires a literal **Verdict:** PASS | FAIL marker. The orchestrator aggregates by all-PASS rule.",
       "files": [],
       "expectations": [
         "Plan describes Phase 4 spawning three reviewer agents in parallel",
         "Plan mentions the Agent tool with run_in_background: true for jury parallelism",
         "Plan names three distinct reviewer roles (bet quality, altitude, structural format)",
         "Plan mentions each reviewer prompt opens with a fixed preamble framing STRATEGY content as data-under-review",
-        "Plan mentions each verdict file path is pinned (subagent does not choose its output location)",
+        "Plan mentions each verdict file path is pinned inside an orchestrator-allocated scratch directory (subagent does not choose its output location)",
+        "Plan has the orchestrator, not the reviewers, store the verdicts as research/phase4_* keys through skill-session.sh ingest",
         "Plan mentions verdicts use a structured **Verdict:** PASS | FAIL marker",
         "Plan aggregates verdicts by an all-PASS rule before proceeding to Phase 5"
       ]
@@ -172,14 +175,28 @@
       "id": 12,
       "name": "upstream-flag",
       "prompt": "/strategy payment-retries --upstream docs/visions/VISION-platform.md",
-      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before classifying the remainder, so the entry mode is freeform and the topic slug is 'payment-retries' derived from the positional argument alone -- never from the VISION's filename. The value is canonicalized, bounds-checked, confirmed to have a VISION- basename, confirmed not to be under wip/, and confirmed tracked by git; a PRD- basename is rejected on the flag because the flag records and a PRD is never recorded. The path is stored as the context file's ## Recorded Upstream, and Phase 2 writes upstream: docs/visions/VISION-platform.md into docs/strategies/STRATEGY-payment-retries.md. A bare --upstream with no value would be rejected at Phase 0 naming the missing argument.",
+      "expected_output": "Phase 0 parses --upstream and its value out of $ARGUMENTS before classifying the remainder, so the entry mode is freeform and the topic slug is 'payment-retries' derived from the positional argument alone -- never from the VISION's filename. The value is canonicalized, bounds-checked, confirmed to have a VISION- basename, confirmed not to be under wip/, and confirmed tracked by git; a PRD- basename is rejected on the flag because the flag records and a PRD is never recorded. The path is stored in the work/context.md key's ## Recorded Upstream, and Phase 2 writes upstream: docs/visions/VISION-platform.md into docs/strategies/STRATEGY-payment-retries.md. A bare --upstream with no value would be rejected at Phase 0 naming the missing argument.",
       "files": ["docs/visions/VISION-platform.md"],
       "expectations": [
         "Plan detects and parses the --upstream flag from $ARGUMENTS",
         "Plan derives the topic slug 'payment-retries' from the positional argument, NOT from the VISION basename",
         "Plan validates the --upstream value: canonicalized, inside the working tree, VISION- basename, not under wip/, tracked by git",
-        "Plan records the path as ## Recorded Upstream and writes it into the STRATEGY frontmatter's upstream: field",
+        "Plan records the path under ## Recorded Upstream in the work/context.md session key and writes it into the STRATEGY frontmatter's upstream: field",
         "Plan produces docs/strategies/STRATEGY-payment-retries.md rather than STRATEGY-platform.md"
+      ]
+    },
+    {
+      "id": 13,
+      "name": "session-closing",
+      "prompt": "/strategy plugin-x-migration (run directly, then the same run dispatched by /charter)",
+      "expected_output": "A direct run closes its own session at the end of Phase 5 with skill-session.sh close strategy-plugin-x-migration done, or abandoned after a Reject. Under a parent /charter, /strategy never closes its own session: the parent closes it at its exit via close-children, and the keys stay readable. Resume rows test for keys in strategy-plugin-x-migration, and the chain-dispatch row comes first.",
+      "files": [],
+      "expectations": [
+        "Plan closes strategy-plugin-x-migration with close ... done after Phase 5 on a direct run, and abandoned after a Reject",
+        "Plan does not close the session when dispatch read reports a parent; the parent closes it through close-children",
+        "Plan describes the resume rows as key-exists tests on strategy-plugin-x-migration (research/phase4_*, work/discover.md, work/context.md)",
+        "Plan checks dispatch read before the other resume rows",
+        "Plan does not create wip/ files or use koto init --parent"
       ]
     }
   ]

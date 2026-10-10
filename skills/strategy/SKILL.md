@@ -146,19 +146,19 @@ route.
 **Execution mode:** check `$ARGUMENTS` for `--auto` or `--interactive`
 flags, then CLAUDE.md `## Execution Mode:` header (default:
 `interactive`). In `--auto` mode, make decisions based on evidence
-rather than blocking on user input. Create
-`wip/strategy_<topic>_decisions.md` to track decisions.
+rather than blocking on user input. Record decisions in the
+`## Decisions` section of the `work/context.md` key.
 
-**Topic slug constraint.** The `<topic>` slug used in wip/ paths and
-the STRATEGY filename must match `[a-z0-9-]+` (kebab-case lowercase
+**Topic slug constraint.** The `<topic>` slug used in the session name
+and the STRATEGY filename must match `[a-z0-9-]+` (kebab-case lowercase
 alphanumeric, hyphens only). Phase 0 enforces this constraint by
 rejecting any topic that contains other characters, including `.`,
 `/`, `_`, or whitespace. Without the constraint, `../`-shaped topics
-could redirect verdict writes outside `wip/research/`.
+could redirect verdict writes outside the scratch directory.
 
 **Upstream:** check `$ARGUMENTS` for `--upstream <path>`. If
 present, the path is validated at Phase 0 and stored as the
-context file's `## Recorded Upstream`; Phase 2 writes it into the
+`work/context.md` key's `## Recorded Upstream`; Phase 2 writes it into the
 STRATEGY's frontmatter. It points to the VISION this strategy
 operationalizes — the strategy's immediate neighbour one level up
 the strategic chain. `/charter` passes it on every chain where a
@@ -195,10 +195,10 @@ Phase 0: SETUP --> Phase 1: DISCOVER --> Phase 2: DRAFT --> Phase 3: STRUCTURAL 
 | Phase | Purpose | Artifact |
 |-------|---------|----------|
 | 0. Setup | Branch, visibility/scope detection, slug + path validation | On topic branch |
-| 1. Discover | Scoping conversation; ground bet in upstream VISION if any | `wip/strategy_<topic>_scope.md` |
+| 1. Discover | Scoping conversation; ground bet in upstream VISION if any | key `work/discover.md` |
 | 2. Draft | Strategic Context, Defensibility Thesis, Bet-Specific Falsifiability | Partial STRATEGY draft |
 | 3. Structural Fill | Building Blocks, Coordination Dependencies, Non-Goals, Downstream Artifacts | Complete STRATEGY draft |
-| 4. Validate | Three parallel reviewers (bet quality, altitude, structural format) | Verdict files + aggregated decision |
+| 4. Validate | Three parallel reviewers (bet quality, altitude, structural format) | Verdict keys `research/phase4_*` + aggregated decision |
 | 5. Finalize | Explicit human approval, Draft -> Accepted transition, PR | Accepted STRATEGY |
 
 Phase 4 jury runs three reviewers in parallel:
@@ -216,6 +216,50 @@ Phase 4 jury runs three reviewers in parallel:
 
 All three must PASS before Phase 5 begins.
 
+### Session and Keys
+
+`/strategy` keeps its working state as keys in its own koto session,
+`strategy-<topic>`, following
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It writes no
+file to the staging folder, chained or direct. As soon as the topic is known
+(from the argument, or from Phase 0's slug step on a cold start), and before
+the resume rows below are read, it opens the session and records whether it
+runs under a parent:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open strategy <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt strategy <topic>
+```
+
+`open` attaches to a live `strategy-<topic>` (an interrupted run, whose keys
+the resume rows read), replaces a finished one (a fresh run), or creates it.
+Any non-zero exit from either command stops the run with the script's
+message: 127 or 69 means koto is missing or too old, and the skill never falls
+back to files. `adopt` exiting 3 is the two-parents case below.
+
+| Key | Written at | Holds |
+|-----|-----------|-------|
+| `work/context.md` | Phase 0 | entry mode, recorded upstream, visibility, phase |
+| `work/discover.md` | Phase 1 | the scoping conversation's output |
+| `research/phase4_bet-quality.md`, `research/phase4_altitude.md`, `research/phase4_structural-format.md` | Phase 4 | the jury's verdicts, ingested from a scratch directory |
+
+Keys are read and written with koto against `strategy-<topic>`: `koto context
+exists strategy-<topic> <key>` tests one (exit 0 present, 1 absent), `koto
+context get strategy-<topic> <key>` prints it, `koto context add
+strategy-<topic> <key>` stores the content given on stdin (the whole content:
+to change one line, get the key, edit it, and add it back), `koto context list
+strategy-<topic> --prefix <prefix>` lists keys, and `koto context remove
+strategy-<topic> <key>` removes one. Reviewer agents never write keys: Phase 4
+pins each verdict to a file in a `skill-session.sh scratch` directory and
+ingests it.
+
+**Closing.** A direct run closes its session when it finishes:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close strategy-<topic> done`
+after Phase 5's last step, or `close strategy-<topic> abandoned` after a
+Reject's discard. Under a parent `/strategy` never closes its own session: the
+parent closes it at its own exit (`skill-session.sh close-children`), and the
+keys stay readable until then.
+
 ### Resume Logic
 
 ```
@@ -223,12 +267,12 @@ dispatch read strategy <topic> prints parent=<session>
                                                          -> run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 STRATEGY exists with status "Accepted" or "Active"       -> Offer to revise or start fresh
 STRATEGY exists with status "Draft"                      -> Offer to continue from Phase 2 or 3
-wip/research/strategy_<topic>_phase4_*.md files exist    -> Resume at Phase 4 (aggregate)
+keys research/phase4_* exist in strategy-<topic>         -> Resume at Phase 4 (aggregate)
 STRATEGY has Building Blocks section                     -> Resume at Phase 4
 STRATEGY has Defensibility Thesis section                -> Resume at Phase 3
-wip/strategy_<topic>_scope.md exists                     -> Resume at Phase 2
-On a branch related to the topic                         -> Resume at Phase 1
-On main or unrelated branch                              -> Start at Phase 0
+key work/discover.md exists in strategy-<topic>       -> Resume at Phase 2
+key work/context.md exists in strategy-<topic>        -> Resume at Phase 1
+None of the above                                        -> Start at Phase 0
 ```
 
 **Running under a parent.** The first row runs
@@ -243,10 +287,10 @@ direct one with the rows below unchanged: no parent session, a finished parent
 session, and a parent whose `chain/dispatch` key names another child. The
 fourth, two parent sessions that both name `/strategy`, exits 3: don't pick one
 and don't run directly; stop and report both sessions, which the script names
-on stderr, so the author can clear the stale key. Exit 127 (koto not
-installed) means no parent can be running, so the run is direct; any other
-non-zero exit stops the run with the script's message. `/strategy` opens no
-session of its own here.
+on stderr, so the author can clear the stale key. Any other non-zero exit
+stops the run with the script's message (`open` has already checked koto).
+`adopt` has recorded the same match as `chain/parent` in `strategy-<topic>`,
+or removed a `chain/parent` an earlier chained run left.
 
 ### Critical Requirements
 

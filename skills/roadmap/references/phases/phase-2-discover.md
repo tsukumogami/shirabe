@@ -11,21 +11,25 @@ the ROADMAP draft in Phase 3.
 
 ## Resume Check
 
-If `wip/research/roadmap_<topic>_phase2_*.md` files exist, summarize their findings
+If keys `research/phase2_*` exist in `roadmap-<topic>` (`koto context list roadmap-<topic> --prefix research/phase2_`), summarize their findings
 and skip to Phase 3.
 
 ## Approach: Three Fixed Agent Roles
 
 Launch all 3 agents to investigate candidate features from
-`wip/roadmap_<topic>_scope.md`. All three roles always run -- no selection heuristic.
+key `work/scope.md` in `roadmap-<topic>`. All three roles always run -- no selection heuristic.
 
 ### 2.1 Launch Agents
 
-Read `wip/roadmap_<topic>_scope.md` and launch all 3 agents in parallel using the
-Agent tool with `run_in_background: true`.
+Read key `work/scope.md` in `roadmap-<topic>` and allocate a scratch directory with
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch`. Launch all 3 agents in parallel
+using the Agent tool with `run_in_background: true`, each told to write only into that
+directory. Agents never write keys. When all three finish, ingest their files:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest roadmap-<topic> research <dir>`
+(each file becomes `research/<name>` and the directory is removed).
 
 Each agent receives:
-- The scope document (`wip/roadmap_<topic>_scope.md`)
+- The scope document (key `work/scope.md`)
 - Their role description and investigation focus
 - Output instructions
 
@@ -38,7 +42,7 @@ You are investigating a roadmap's feature list for completeness and granularity 
 the perspective of a feature completeness analyst.
 
 ## Context
-[Contents of wip/roadmap_<topic>_scope.md]
+[Contents of key work/scope.md in roadmap-<topic>]
 
 ## Instructions
 1. Read relevant code, docs, existing artifacts, and any available evidence
@@ -59,7 +63,7 @@ the perspective of a feature completeness analyst.
    open questions
 
 ## Output
-Write your full findings to `wip/research/roadmap_<topic>_phase2_feature-completeness.md`
+Write your full findings to `<scratch-dir>/phase2_feature-completeness.md`
 using the Write tool.
 
 Format:
@@ -94,7 +98,7 @@ You are investigating a roadmap's dependency claims from the perspective of a
 dependency validator.
 
 ## Context
-[Contents of wip/roadmap_<topic>_scope.md]
+[Contents of key work/scope.md in roadmap-<topic>]
 
 ## Instructions
 1. Read relevant code, docs, existing artifacts, and any available evidence
@@ -108,7 +112,7 @@ dependency validator.
    open questions
 
 ## Output
-Write your full findings to `wip/research/roadmap_<topic>_phase2_dependency-validator.md`
+Write your full findings to `<scratch-dir>/phase2_dependency-validator.md`
 using the Write tool.
 
 Format:
@@ -145,7 +149,7 @@ You are investigating a roadmap's sequencing and annotation accuracy from the
 perspective of a sequencing analyst.
 
 ## Context
-[Contents of wip/roadmap_<topic>_scope.md]
+[Contents of key work/scope.md in roadmap-<topic>]
 
 ## Instructions
 1. Read relevant code, docs, existing artifacts, and any available evidence
@@ -162,7 +166,7 @@ perspective of a sequencing analyst.
    open questions
 
 ## Output
-Write your full findings to `wip/research/roadmap_<topic>_phase2_sequencing-analyst.md`
+Write your full findings to `<scratch-dir>/phase2_sequencing-analyst.md`
 using the Write tool.
 
 Format:
@@ -238,7 +242,7 @@ findings support the feature list or which gaps suggest more investigation.
 If the user picks "Investigate further," launch another round of agents for the
 new findings only.
 
-If the user picks "Restart scoping," delete `wip/roadmap_<topic>_scope.md` before
+If the user picks "Restart scoping," remove key `work/scope.md` from `roadmap-<topic>` before
 returning to Phase 1 so the resume check doesn't skip re-scoping.
 
 ## Quality Checklist
@@ -252,10 +256,10 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Scope document still at `wip/roadmap_<topic>_scope.md`
-- Research findings at `wip/research/roadmap_<topic>_phase2_feature-completeness.md`
-- Research findings at `wip/research/roadmap_<topic>_phase2_dependency-validator.md`
-- Research findings at `wip/research/roadmap_<topic>_phase2_sequencing-analyst.md`
+- Scope document still at key `work/scope.md` in `roadmap-<topic>`
+- Research findings at key `research/phase2_feature-completeness.md`
+- Research findings at key `research/phase2_dependency-validator.md`
+- Research findings at key `research/phase2_sequencing-analyst.md`
 - No ROADMAP draft yet
 
 ## Next Phase

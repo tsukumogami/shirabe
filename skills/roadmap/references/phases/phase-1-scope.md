@@ -23,15 +23,21 @@ validator never reads this header; it's a skill-only preference.
 
 ## Resume Check
 
-If `wip/roadmap_<topic>_scope.md` exists and this is NOT a loop-back from Phase 2,
-skip to Phase 2.
+If key `work/scope.md` exists in `roadmap-<topic>` and this is NOT a loop-back from
+Phase 2, skip to Phase 2.
 
 If this IS a loop-back (Phase 2 determined the theme or feature list was fundamentally
-wrong), delete `wip/roadmap_<topic>_scope.md` first, then re-scope from scratch.
+wrong), remove it first (`koto context remove roadmap-<topic> work/scope.md`), then re-scope
+from scratch.
 
-The file has two producers and the check treats them alike: /charter pre-populates it
-before invoking /roadmap, and this phase writes it on a run of its own. Either way
-scoping is settled, so the run continues at Phase 2.
+Under /charter (`dispatch read` printed `parent=charter-<topic>`), read the scope
+/charter left with `koto context get charter-<topic> chain/roadmap-scope`, record it as
+`work/scope.md` in `roadmap-<topic>` (`koto context add roadmap-<topic> work/scope.md`,
+content on stdin), and continue at Phase 2. On a loop-back, do not re-read it: the
+theme or feature list was found wrong, so re-scope from scratch. When `dispatch read`
+names another child or matches no parent, ignore `chain/roadmap-scope` entirely and
+scope as a direct run does. Nothing pre-populates a scope file on disk; scoping is
+settled once `work/scope.md` exists, so the run continues at Phase 2.
 
 ## Approach: Conversational with Coverage Tracking
 
@@ -100,7 +106,7 @@ Proceed to persist scope and move to Phase 2.
 
 ## 1.2 Persist Scope
 
-Write the scoping output to `wip/roadmap_<topic>_scope.md`:
+Write the scoping output to key `work/scope.md` in `roadmap-<topic>` (`koto context add`, content on stdin):
 
 ```markdown
 # /roadmap Scope: <topic>
@@ -151,7 +157,7 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Scope document at `wip/roadmap_<topic>_scope.md`
+- Scope document at key `work/scope.md` in `roadmap-<topic>`
 - No ROADMAP draft yet
 - No research files yet
 

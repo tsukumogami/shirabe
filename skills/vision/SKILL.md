@@ -101,14 +101,59 @@ From `$ARGUMENTS`:
 this skill's own Phase 1 do the scoping, and the router routes to /charter
 rather than here. There is no handoff to detect.
 
-On startup, check for `wip/vision_<topic>_scope.md` anyway. It is what this
-skill's own Phase 1 writes, so finding one means an earlier run got through
-scoping and stopped before Phase 2 finished. Skip Phase 1 and resume at Phase 2
-against it -- the scope file already holds the problem statement and research
-leads. /charter's resume ladder reads the same file for the same reason, to
+On startup, check for key `work/scope.md` in `vision-<topic>` anyway. It is
+what this skill's own Phase 1 writes, so finding one means an earlier run got
+through scoping and stopped before Phase 2 finished. Skip Phase 1 and resume at Phase 2
+against it -- the scope key already holds the problem statement and research
+leads. /charter's resume ladder reads the same key for the same reason, to
 route a partial run back into /vision.
 
 If it does not exist, start from Phase 1.
+
+### Session and Keys
+
+`/vision` keeps its working state as keys in its own koto session,
+`vision-<topic>`, following
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It writes no
+file to the staging folder, chained or direct. Its first act, once the topic is
+known (from the argument, or the `<topic>` in a path argument's file name) and
+before Context Resolution or the resume rows below, opens the session and
+records whether it runs under a parent:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open vision <topic>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" adopt vision <topic>
+```
+
+`open` attaches to a live `vision-<topic>` (an interrupted run, whose keys the
+resume rows read), replaces a finished one (a fresh run), or creates it. Any
+non-zero exit from either command stops the run with the script's message: 127
+or 69 means koto is missing or too old, and the skill never falls back to
+files. `adopt` exiting 3 is the two-parents case below.
+
+| Key | Written at | Holds |
+|-----|-----------|-------|
+| `work/decisions.md` | Context Resolution, under `--auto` | the autonomous-decision ledger |
+| `work/scope.md` | Phase 1 | the scoping output |
+| `research/phase2_<role>.md` | Phase 2 | the discovery agents' findings, ingested from a scratch directory |
+| `research/phase4_<role>.md` | Phase 4 | the jury's verdicts, ingested from a scratch directory |
+
+Keys are read and written with koto against `vision-<topic>`: `koto context
+exists vision-<topic> <key>` tests one (exit 0 present, 1 absent), `koto
+context get vision-<topic> <key>` prints it, `koto context add vision-<topic>
+<key>` stores the content given on stdin (the whole content: to change part of
+it, get the key, edit it, and add it back), `koto context list vision-<topic>
+--prefix <prefix>` lists keys, and `koto context remove vision-<topic> <key>`
+removes one. Research and reviewer agents never write keys: each phase that
+spawns them pins every output to a file in a `skill-session.sh scratch`
+directory and ingests it.
+
+**Closing.** A direct run closes its session when it finishes:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close vision-<topic> done`
+at the end of Phase 4, or `close vision-<topic> abandoned` after a discard.
+Under a parent `/vision` never closes its own session: the parent closes it at
+its own exit (`skill-session.sh close-children`), and the keys stay readable
+until then.
 
 ### Context Resolution
 
@@ -116,8 +161,8 @@ If it does not exist, start from Phase 1.
 then CLAUDE.md `## Execution Mode:` header (default: `interactive`). Also
 parse `--max-rounds=N` (default: 2 for vision's discover loop). In --auto mode,
 follow decision-protocol conventions -- make decisions based on evidence rather
-than blocking on user input. Create `wip/vision_<topic>_decisions.md` to track
-decisions.
+than blocking on user input. Track decisions in key `work/decisions.md` in
+`vision-<topic>`.
 
 Detect visibility (Private/Public) from CLAUDE.md or repo path. Infer from
 `private/` or `public/` in path if not explicit. Default to Private if
@@ -138,8 +183,8 @@ Phase 0: SETUP --> Phase 1: SCOPE --> Phase 2: DISCOVER --> Phase 3: DRAFT --> P
 | Phase | Purpose | Artifact |
 |-------|---------|----------|
 | 0. Setup | Create feature branch, detect visibility | On topic branch |
-| 1. Scope | Conversational scoping (or skip if an earlier run's scope file exists) | Problem statement + research leads |
-| 2. Discover | Parallel research agents investigate leads | Research findings in wip/ |
+| 1. Scope | Conversational scoping (or skip if an earlier run's scope key exists) | Problem statement + research leads |
+| 2. Discover | Parallel research agents investigate leads | Research findings as `research/` keys |
 | 3. Draft | Produce VISION draft | Complete VISION draft |
 | 4. Validate | Jury review (thesis quality, boundaries) | Validated VISION |
 
@@ -159,13 +204,13 @@ dispatch read vision <topic> prints parent=<session>
                                                         -> run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
 VISION exists with status "Accepted" or "Active"        -> Offer to revise or start fresh
 VISION exists with status "Draft"                       -> Offer to continue from Phase 3
-wip/research/vision_<topic>_phase2_*.md files exist     -> Resume at Phase 3
-wip/vision_<topic>_scope.md exists                      -> Resume at Phase 2
+research/phase2_* keys exist in vision-<topic>          -> Resume at Phase 3
+work/scope.md key exists in vision-<topic>              -> Resume at Phase 2
 On a branch related to the topic                        -> Resume at Phase 1
 On main or unrelated branch                             -> Start at Phase 0
 ```
 
-The `wip/vision_<topic>_scope.md` row is a partial-run row, not a handoff row.
+The `work/scope.md` row is a partial-run row, not a handoff row.
 Its only producer is this skill's own Phase 1, and /charter's ladder relies on
 that: its row 8 hands a topic back to /vision precisely so this row fires.
 
@@ -181,10 +226,9 @@ direct one with the rows below unchanged: no parent session, a finished parent
 session, and a parent whose `chain/dispatch` key names another child. The
 fourth, two parent sessions that both name `/vision`, exits 3: don't pick one
 and don't run directly; stop and report both sessions, which the script names
-on stderr, so the author can clear the stale key. Exit 127 (koto not
-installed) means no parent can be running, so the run is direct; any other
-non-zero exit stops the run with the script's message. `/vision` opens no
-session of its own here.
+on stderr, so the author can clear the stale key. Any non-zero exit
+stops the run with the script's message; `open` has already stopped a run
+without koto.
 
 ### Critical Requirements
 
@@ -206,8 +250,8 @@ Execute phases sequentially by reading the corresponding phase file:
 
 1. **Scope**: Conversational scoping
    - Instructions: `references/phases/phase-1-scope.md`
-   - Skipped when an earlier run's scope file (`wip/vision_<topic>_scope.md`)
-     exists
+   - Skipped when an earlier run's scope key (`work/scope.md` in
+     `vision-<topic>`) exists
 
 2. **Discover**: Parallel research agents investigate leads
    - Instructions: `references/phases/phase-2-discover.md`

@@ -233,9 +233,10 @@ way.
 Because `/roadmap` runs on every full-run chain, an interrupted
 chain commonly leaves a Draft STRATEGY on disk with `/roadmap`
 still in flight. Row 6 carries the mid-roadmap disambiguation:
-"Continue draft" resumes into `/roadmap` when the handoff file
-`wip/roadmap_<topic>_scope.md` exists and no published ROADMAP
-does, and into `/strategy` otherwise.
+"Continue draft" resumes into `/roadmap` when `/roadmap`'s session
+holds work (`skill-session.sh has-work`) or key
+`chain/roadmap-scope` exists in `charter-<topic>` with no
+published ROADMAP, and into `/strategy` otherwise.
 
 Every invocation whose slug validates opens `charter-<topic>` and
 clears a stale `chain/dispatch` key in it before the ladder routes
@@ -357,7 +358,8 @@ repo the chain runs in.
 
 **Closed write-target set.** `/charter` writes to exactly six
 places: the state file at `wip/charter_<topic>_state.md`, the
-`/roadmap` handoff at `wip/roadmap_<topic>_scope.md`, Decision
+`/roadmap` scope handoff as key `chain/roadmap-scope` in its own
+session `charter-<topic>`, Decision
 Records under `docs/decisions/`, the force-materialized partial
 artifact its abandonment path produces under `docs/strategies/`
 (plus the `git rm` of a rejected Draft at the same path), the

@@ -319,11 +319,10 @@ The rejection sub-shape's full flow:
 4. `/strategy` runs the discard procedure:
    - `git rm docs/strategies/STRATEGY-<topic>.md` — the Draft is
      removed from the worktree.
-   - Cleans up `wip/strategy_<topic>_*.md` — `/strategy`'s
-     intermediate files are removed.
    - Commits `docs(strategy): discard STRATEGY draft for <topic>` —
      the discard commit captures the removal as durable git
-     history.
+     history. Its working keys stay in `strategy-<topic>`, which
+     the parent closes as `abandoned` at finalization.
 5. Control returns to `/charter`.
 6. `/charter` captures the discard commit SHA via read-only
    `git log` — no git writes from `/charter`.
@@ -512,18 +511,16 @@ child name. Proceed to artifact materialization.
 If `chain_ran` is empty (no child has completed within the chain),
 proceed to step 2.
 
-### Step 2 — First `planned_chain` Entry with Non-Empty wip/
+### Step 2 — First `planned_chain` Entry with Work in Its Session
 
-Take the first entry in `planned_chain` that has a non-empty wip/
-intermediate on disk. The check inspects each child's own wip/
-intermediates (e.g., `wip/strategy_<topic>_discover.md` for
-`/strategy`, `wip/vision_<topic>_scope.md` for `/vision`, the
-analogous filenames for `/roadmap` and the gated feeder if any).
-This is a wider surface than row 8's match condition, and
-deliberately so: the tie-break runs inside a chain whose state file
-records that the child was invoked, so a scoping artifact is
-evidence of which child was in flight. Row 8 fires with no state
-file at all, where the same artifact proves nothing.
+Take the first entry in `planned_chain` whose session holds work:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" has-work <child>
+<topic>` exits 0 for a live `<child>-<topic>` on this branch with a
+key under `work/`. The tie-break runs inside a chain whose state
+file records that the child was invoked, so a `work/` key is
+evidence of which child was in flight; the same check in ladder
+rows 7-8 fires with no state file at all, which is why those rows
+sit below the artifact rows.
 
 If such a child is found, the tie-break resolves to it and
 `triggering_child` is set to the child name. Proceed to artifact
@@ -641,12 +638,22 @@ rejection` mutually exclusive with Bail's `triggering_child:` and
 
 ## Closing the Session
 
-Every exit path ends by closing the session Phase 0 opened,
-`charter-<topic>`, as the last thing finalization does:
+Every exit path ends by closing the children this chain dispatched
+and then the session Phase 0 opened, in that order, as the last
+thing finalization does
+(`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`):
 
 ```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close-children charter <topic> <done|abandoned>
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close charter-<topic> <done|abandoned>
 ```
+
+`close-children` closes only a live `<child>-<topic>` whose
+`chain/parent` names this parent and whose `session/branch` matches
+the current branch, so a direct run's session or another worktree's
+chain is never touched. It takes the same value as the parent's own
+close below, and like it is idempotent, with the children's keys
+staying readable after the close.
 
 | How the run ended | Close with |
 |---|---|

@@ -16,6 +16,9 @@
 # prerequisite check (issue-creating mode)" section verifies them with
 # `skill-preflight.sh roadmap --mode issues`, once the mode is settled and
 # before the R14 gate.
+# Session keys: SKILL.md "Session and Keys" and the phase files list a
+# session's keys by prefix.
+koto	context list	--prefix	always
 shirabe	roadmap populate	--no-issues	always
 shirabe	transition	-	always
 git	-	-	always

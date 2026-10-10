@@ -32,15 +32,15 @@ If the file does not exist, proceed to step 2.1.
 
 Read all available context:
 
-- `wip/strategy_<topic>_context.md` (Phase 0)
-- `wip/strategy_<topic>_discover.md` (Phase 1)
+- key `work/context.md` in `strategy-<topic>` (Phase 0)
+- key `work/discover.md` in `strategy-<topic>` (Phase 1)
 - The grounding document (VISION or PRD) if Phase 0 recorded one, at the
   `## Grounding Path` key
 - `skills/strategy/references/strategy-format.md` (format specification —
   load this in full at Phase 2 since the section-by-section guidance lives
   there)
 
-Detect repo visibility from `wip/strategy_<topic>_context.md`. Load the
+Detect repo visibility from key `work/context.md`. Load the
 appropriate content governance skill:
 
 - **Private repos:** Read `skills/private-content/SKILL.md`
@@ -82,7 +82,7 @@ upstream: <path to the upstream VISION, omit field if none or if private>
 `upstream:` takes a VISION and nothing else. The field names the strategy's
 immediate neighbour one level up the strategic chain (VISION -> STRATEGY ->
 ROADMAP), so a reader who follows it lands on the altitude above this one.
-Read `## Recorded Upstream` from `wip/strategy_<topic>_context.md` and write
+Read `## Recorded Upstream` from key `work/context.md` and write
 that value: Phase 0 already resolved it, and it is `none` in every mode but
 upstream-VISION.
 
@@ -287,7 +287,7 @@ Commit the partial draft:
 docs(strategy): draft STRATEGY for <topic>
 ```
 
-Update `wip/strategy_<topic>_context.md`'s `## Phase` line to `2`.
+Update the `## Phase` line of key `work/context.md` to `2`.
 
 ## Quality Checklist
 
@@ -303,7 +303,7 @@ Before proceeding:
 
 After this phase:
 - Partial STRATEGY draft at `docs/strategies/STRATEGY-<topic>.md` with `status: Draft`
-- Context and discovery files still in `wip/`
+- Context and discovery keys still in `strategy-<topic>`
 - Phase 3 will extend the same file
 
 ## Next Phase

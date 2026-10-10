@@ -9,7 +9,7 @@ any issues found, then finalize the ROADMAP with the user.
 
 ## Resume Check
 
-If `wip/research/roadmap_<topic>_phase4_*.md` files exist, skip to step 4.3
+If keys `research/phase4_*` exist in `roadmap-<topic>`, skip to step 4.3
 (Process Feedback).
 
 ## Approach: 3-Agent Jury
@@ -19,17 +19,29 @@ dimension, all specific to what makes a roadmap effective.
 
 ### 4.1 Launch Jury Agents
 
+Before launching, allocate two private directories outside the work tree, one for the
+verdicts and one for the inputs the seats read, and materialize the scope key into the
+second:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <verdicts-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <inputs-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" get roadmap-<topic> work/scope.md <inputs-dir>
+                                                                  # prints <scope-file>
+```
+
 Load `skills/roadmap/references/roadmap-format.md` and pass the relevant quality
 guidance to each agent.
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Theme Coherence, Sequencing and Dependency, and Annotation and Boundary run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/roadmaps/ROADMAP-<topic>.md --format skills/roadmap/references/roadmap-format.md --extra <scope-file>`. `<scope-file>` is the scope document listed below.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Theme Coherence, Sequencing and Dependency, and Annotation and Boundary run on `model: "sonnet"` with an 8-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/roadmaps/ROADMAP-<topic>.md --format skills/roadmap/references/roadmap-format.md --extra <scope-file>`. `<scope-file>` is the path `get` printed.
 
 Launch all 3 agents in parallel using the Agent tool with `run_in_background: true`.
 
 Each agent receives:
 - The ROADMAP draft (read from `docs/roadmaps/ROADMAP-<topic>.md`)
 - Their role and evaluation criteria
-- The scope document (`wip/roadmap_<topic>_scope.md`) for reference
+- The scope (the contents of key `work/scope.md`) for reference
+- A pinned output file in `<verdicts-dir>`; reviewers never call koto
 
 #### Theme Coherence Reviewer
 
@@ -42,7 +54,7 @@ right level of granularity.
 [Contents of docs/roadmaps/ROADMAP-<topic>.md]
 
 ## Original Scope
-[Contents of wip/roadmap_<topic>_scope.md]
+[Contents of key work/scope.md in roadmap-<topic>]
 
 ## Evaluate
 1. Do all features belong under the stated theme? Could any feature be removed
@@ -61,7 +73,7 @@ right level of granularity.
    project? Generic rationales suggest weak theme coherence.
 
 ## Output Format
-Write your full review to `wip/research/roadmap_<topic>_phase4_theme-coherence.md`:
+Write your full review to `<verdicts-dir>/phase4_theme-coherence.md`:
 
 # Theme Coherence Review
 
@@ -91,7 +103,7 @@ are explicit and acyclic.
 [Contents of docs/roadmaps/ROADMAP-<topic>.md]
 
 ## Original Scope
-[Contents of wip/roadmap_<topic>_scope.md]
+[Contents of key work/scope.md in roadmap-<topic>]
 
 ## Evaluate
 1. Are all dependencies explicit? Check for implied ordering that isn't captured
@@ -109,7 +121,7 @@ are explicit and acyclic.
    creates artificial bottlenecks.
 
 ## Output Format
-Write your full review to `wip/research/roadmap_<topic>_phase4_sequencing-dependency.md`:
+Write your full review to `<verdicts-dir>/phase4_sequencing-dependency.md`:
 
 # Sequencing and Dependency Review
 
@@ -139,7 +151,7 @@ doesn't contain downstream content.
 [Contents of docs/roadmaps/ROADMAP-<topic>.md]
 
 ## Original Scope
-[Contents of wip/roadmap_<topic>_scope.md]
+[Contents of key work/scope.md in roadmap-<topic>]
 
 ## Evaluate
 1. Do needs-* labels match feature descriptions? If a feature says "needs-design"
@@ -173,7 +185,7 @@ doesn't contain downstream content.
    ambiguity about what work falls inside this roadmap.
 
 ## Output Format
-Write your full review to `wip/research/roadmap_<topic>_phase4_annotation-boundary.md`:
+Write your full review to `<verdicts-dir>/phase4_annotation-boundary.md`:
 
 # Annotation and Boundary Review
 
@@ -194,11 +206,21 @@ Return only the verdict, issue count, and summary to this conversation.
 
 ### 4.2 Collect Results
 
-Wait for all 3 agents to complete. Read their summaries.
+Wait for all 3 agents to complete. Read their summaries. Then turn the verdict files
+into keys (`ingest` removes the verdicts directory) and remove the inputs directory:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest roadmap-<topic> research <verdicts-dir>
+rm -rf -- <inputs-dir>
+```
+
+`ingest` prints `added=research/phase4_<role>.md` per verdict and reports on stderr
+anything it skipped. A verdict that did not become a key counts as a FAIL with reason
+"verdict missing".
 
 ### 4.3 Process Feedback
 
-**Reference**: Full review details available in `wip/research/roadmap_<topic>_phase4_*.md`.
+**Reference**: Full review details available in keys `research/phase4_*` in `roadmap-<topic>`.
 
 Determine consensus:
 
@@ -328,17 +350,24 @@ effect on shared remote state. It goes through the R14 approval gate.
 Return to Phase 3 step 3.5 to incorporate the specific feedback. Don't re-walk
 the entire doc -- focus on the areas the user identified.
 
-### 4.7 Cleanup
+### 4.7 Close the Session
 
-After the PR is created, clean up temporary artifacts:
+`/roadmap` kept its working state as keys in `roadmap-<topic>` and wrote no file to the
+staging folder, so there are no working files to delete and no cleanup commit.
+
+Under a parent (`dispatch read` printed `parent=`), skip this step: `/roadmap` never
+closes its own session under a parent, and the parent closes `roadmap-<topic>` at its
+own exit.
+
+On a direct run, after the PR is created, close the session:
 
 ```bash
-rm -f wip/roadmap_<topic>_scope.md
-rm -f wip/research/roadmap_<topic>_phase2_*.md
-rm -f wip/research/roadmap_<topic>_phase4_*.md
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close roadmap-<topic> done
 ```
 
-Commit: `chore(roadmap): clean up working artifacts`
+It prints `closed=done` (or `closed=noop` when the session was already finished). The
+keys stay readable after the close. A run that discards the draft closes with
+`abandoned` instead.
 
 ## Quality Checklist
 
@@ -351,4 +380,4 @@ Commit: `chore(roadmap): clean up working artifacts`
 Final ROADMAP at `docs/roadmaps/ROADMAP-<topic>.md` with:
 - Status "Active" (after user approval)
 - All features with correct needs-* annotations and `Not started` status
-- Working artifacts cleaned up (scope doc, research files removed)
+- `roadmap-<topic>` closed with its keys readable; under a parent it is still open for the parent to close

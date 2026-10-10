@@ -24,8 +24,8 @@ the whole picture before giving feedback, and cross-references between sections
 ### 3.1 Gather Inputs
 
 Read all available context:
-- `wip/vision_<topic>_scope.md` (from Phase 1)
-- `wip/research/vision_<topic>_phase2_*.md` files (from Phase 2, if they exist)
+- Key `work/scope.md` in `vision-<topic>` (from Phase 1; `koto context get`)
+- Keys `research/phase2_*` in `vision-<topic>` (from Phase 2, if they exist; `koto context list vision-<topic> --prefix research/phase2_`)
 - Any notes from Phase 2 synthesis
 - `skills/vision/references/vision-format.md` (format specification)
 
@@ -154,8 +154,8 @@ Before proceeding:
 
 After this phase:
 - VISION draft at `docs/visions/VISION-<topic>.md` with status "Draft"
-- Scope document still at `wip/vision_<topic>_scope.md`
-- Phase 2 research files still at `wip/research/vision_<topic>_phase2_*.md` (if created)
+- Key `work/scope.md` still in `vision-<topic>`
+- Phase 2 research as keys `research/phase2_*.md` in `vision-<topic>` (if created)
 
 ## Next Phase
 

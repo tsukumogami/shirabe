@@ -56,8 +56,8 @@ child-internals isolation rule is cited from
 4.   state file exists, last_updated >= 7d                -> Resume / Force-materialize / Discard prompt
 5.   STRATEGY-<topic>.md Accepted/Active                  -> Re-evaluate / Revise / Bail prompt
 6.   STRATEGY-<topic>.md Draft                            -> continue-or-start-fresh prompt
-7.   wip/strategy_<topic>_discover.md exists              -> Resume into /strategy
-8.   wip/vision_<topic>_decisions.md exists               -> Resume into /vision
+7.   skill-session.sh has-work strategy <topic> exits 0   -> Resume into /strategy
+8.   skill-session.sh has-work vision <topic> exits 0     -> Resume into /vision
 8.5  wip/charter_<topic>_handoff.md exists                -> Phase 0 setup, then Phase 1 with the handoff pre-loaded
 9.   On branch related to topic                           -> Resume at Phase 1
 10.  On main or unrelated branch                          -> Start at Phase 0
@@ -268,13 +268,15 @@ file survives, so there is no `phase_pointer` and no `chain_ran` to
 consult and the on-disk artifacts are the only evidence.
 "Continue draft" resolves the target this way:
 
-1. If `wip/roadmap_<topic>_scope.md` exists on disk AND no ROADMAP
-   exists at `docs/roadmaps/ROADMAP-<topic>.md`, the chain got as
-   far as `/charter`'s handoff pre-population and `/roadmap` was
+1. If `has-work roadmap <topic>` exits 0, or key
+   `chain/roadmap-scope` exists in `charter-<topic>` (`koto context
+   exists charter-<topic> chain/roadmap-scope`) with no ROADMAP at
+   `docs/roadmaps/ROADMAP-<topic>.md`, the chain got at least as
+   far as `/charter`'s roadmap-scope write and `/roadmap` was
    mid-run. Resume into `/roadmap`, passing
-   `--upstream docs/strategies/STRATEGY-<topic>.md` and the
-   existing handoff file; `/roadmap`'s own resume logic continues
-   from the phase its partial-run artifacts indicate.
+   `--upstream docs/strategies/STRATEGY-<topic>.md`; `/roadmap`'s
+   own resume logic reads its keys, and the dispatch key it
+   matches points it back at `chain/roadmap-scope`.
 2. Otherwise, resume into `/strategy`'s phase ladder against the
    existing Draft STRATEGY, as before.
 
@@ -290,76 +292,46 @@ that renumbering would disturb for `/scope` as well as `/charter`.
 
 **Match condition.** No state file exists at
 `wip/charter_<topic>_state.md`, no STRATEGY exists at the
-published path, AND `wip/strategy_<topic>_discover.md` exists on
-disk.
+published path, AND
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" has-work
+strategy <topic>` exits 0: `strategy-<topic>` is live, belongs to
+this branch, and holds a key under `work/`
+(`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`).
 
 **Action.** Resume into `/strategy`, passing the topic slug and
-letting `/strategy`'s own resume logic detect the partial-run
-artifact and continue from the appropriate phase.
-
-**Known `/strategy` asymmetry — the filename `_discover.md`, NOT
-`_scope.md`.** `/charter` reads `wip/strategy_<topic>_discover.md`
-because that is the filename `/strategy`'s phase files actually
-write when the discover phase runs. `/strategy`'s SKILL.md
-documents `_scope.md` as the Phase 1 scoping artifact name, but
-the phase files write `_discover.md`. The ladder accommodates the
-asymmetry by reading the artifact that exists on disk, not the
-artifact the documentation claims exists. Fixing `/strategy`'s
-documentation versus its phase-file behavior is out of scope; the
-PRD explicitly accommodates the asymmetry here.
+letting `/strategy`'s own resume logic read its keys and continue
+from the appropriate phase.
 
 ## Row 8 — `/vision` Partial Run
 
 **Match condition.** No state file exists at
 `wip/charter_<topic>_state.md`, no STRATEGY exists at the
-published path, no `/strategy` partial-run artifact exists, AND
-`wip/vision_<topic>_decisions.md` exists on disk.
+published path, row 7 did not match, AND `has-work vision <topic>`
+exits 0.
+
+**Why a session key can carry the row a staging file could not.**
+Only `/vision` writes `work/` keys in its own session, so a match
+always means `/vision` itself ran. A feeder document — a
+pre-supplied Phase 1 output that lets the child skip Phase 1 —
+lands on disk, not in the child's session, so no feeder can
+imitate a mid-flight child the way `/vision`'s on-disk scoping
+file once imitated an interrupted `/vision` run. The old rows'
+narrowed filenames (the decisions ledger for `/vision`, the
+discover output for `/strategy`) were defense in depth against
+exactly that collision; the session check removes the surface they
+defended, and the `_discover.md`-versus-`_scope.md` naming
+asymmetry the old row 7 had to accommodate is gone with the files.
+
+**A finished session is not a partial.** `has-work` matches only a
+live session on this branch, so a child whose direct run finished
+and closed its session falls through to rows 9 and 10. A session
+koto cannot report is a cannot-tell, surfaced to the author rather
+than read either way; koto absent from `PATH` means no child
+session can exist, so rows 7 and 8 match nothing and the ladder
+falls through.
 
 **Action.** Resume into `/vision`, passing the topic slug and
-letting `/vision`'s own resume logic detect the partial-run
-artifact and continue.
-
-**Why the row reads the decisions ledger and not
-`wip/vision_<topic>_scope.md`.** The scoping artifact is the one
-file in `/vision`'s namespace that a feeder doc imitates by
-construction. `/vision` treats `wip/vision_<topic>_scope.md` as
-either its own Phase 1 output or a pre-supplied handoff, skipping
-Phase 1 and resuming at Phase 2 in both cases, so the file's
-presence says nothing about whether a `/vision` run ever started.
-A row whose action is to jump straight into `/vision` cannot rest
-on it. `wip/vision_<topic>_decisions.md` is `/vision`'s
-autonomous-decision ledger, written at context resolution under
-`--auto` and by nothing else, so it exists only because `/vision`
-itself ran.
-
-Row 7 keeps its single filename for the same reason it always had
-one: `wip/strategy_<topic>_discover.md` is `/strategy`'s own
-discover output and no feeder convention writes there. Row 6 reads
-the convention the other way round already, treating
-`wip/roadmap_<topic>_scope.md` as the pre-populated handoff it is
-rather than as proof that `/roadmap` ran.
-
-**The narrowing is defense in depth, not the live fix.** The
-collision was real: row 8's old condition named
-`wip/vision_<topic>_scope.md`, the exact filename the pre-router
-`/explore` wrote for `/vision`, so a handoff resumed straight into
-the child and the chain got no state file, no proposal, and no
-`/strategy` or `/roadmap` behind it. What closed that is the move of
-the handoff to `wip/charter_<topic>_handoff.md`, which row 8.5
-matches and no row above it can. The narrowing covers what the move
-does not reach: a handoff left on disk by an older `/explore`, a
-hand-written feeder doc, or a future producer that reaches for the
-child-namespaced convention `/charter` still uses for its own
-pre-populated `/roadmap` handoff.
-
-**What it costs is one hop, in the safe direction.** An interactive
-`/vision` interrupted after its Phase 1 leaves only
-`wip/vision_<topic>_scope.md`, so row 8 does not fire and the
-ladder falls through to row 9 or row 10. The scoping work is not
-lost. `/vision` resumes at its own Phase 2 off that same file when
-the chain reaches it, and the run now gets the state file, the
-chain proposal, and `/strategy` and `/roadmap` scheduled behind
-`/vision`, all of which the direct jump skipped.
+letting `/vision`'s own resume logic read its keys and continue.
 
 ## Row 8.5 — `/explore` Handoff Detected
 
@@ -664,19 +636,14 @@ written.
   `/roadmap`, and any other child each have their own state file
   or phase-pointer mechanism for their own resume logic. `/charter`
   does NOT read these.
-- **Child research artifacts** — `wip/research/<child>_<topic>_
-  phase<N>_*.md` files and any other child-internal research
-  notes. These are the child's scratch surface; `/charter` does
-  not consult them.
-- **Any other child `wip/` intermediate** beyond the partial-run
-  detection patterns explicitly listed in rows 7-8 of the ladder
-  (`wip/strategy_<topic>_discover.md` and
-  `wip/vision_<topic>_decisions.md`). The two filenames in rows 7-8
-  are the minimum surface needed for partial-run detection and are
-  the only `/charter`-side knowledge of child `wip/` paths.
-  `wip/vision_<topic>_scope.md` left this list when row 8 stopped
-  reading it, and it is now an intermediate `/charter` does not
-  touch.
+- **Child research artifacts** — the `research/` keys in a child's
+  session and any other child-internal research notes. These are
+  the child's scratch surface; `/charter` does not consult them.
+- **Any other child session key** beyond the partial-run detection
+  in rows 7-8 of the ladder, which asks only `skill-session.sh
+  has-work <child> <topic>` — a read-only liveness-and-work check
+  that opens nothing and reads no key content. That check is the
+  only `/charter`-side knowledge of a child's state surface.
 - **Any other child-private state** — log files, comment threads,
   CI output, any other internal-only surface the child might
   produce.

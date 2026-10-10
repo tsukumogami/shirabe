@@ -5,11 +5,11 @@
       "id": 1,
       "name": "standalone-creation",
       "prompt": "/vision new-developer-portal",
-      "expected_output": "Detects no handoff artifact (wip/vision_new-developer-portal_scope.md absent). Starts from Phase 1 (scope). Asks scoping questions about the project thesis, audience, and org fit. Produces a VISION doc at docs/visions/VISION-new-developer-portal.md with all 7 required sections in correct order. Thesis section is phrased as a hypothesis, not a problem statement.",
+      "expected_output": "Opens the session vision-new-developer-portal and detects no work/scope.md key in it. Starts from Phase 1 (scope). Asks scoping questions about the project thesis, audience, and org fit. Produces a VISION doc at docs/visions/VISION-new-developer-portal.md with all 7 required sections in correct order. Thesis section is phrased as a hypothesis, not a problem statement.",
       "files": [],
       "expectations": [
-        "Plan checks for wip/vision_new-developer-portal_scope.md handoff artifact before deciding which phase to start from",
-        "Plan starts from Phase 0 (setup/branch creation) or Phase 1 (scope) since no handoff artifact exists",
+        "Plan opens session vision-new-developer-portal and checks whether key work/scope.md exists in it before deciding which phase to start from",
+        "Plan starts from Phase 0 (setup/branch creation) or Phase 1 (scope) since no scope key exists",
         "Plan includes a conversational scoping step (Phase 1) before any research or drafting",
         "Plan includes Phase 2 (discover) with parallel research agents",
         "Plan includes Phase 3 (draft) producing a VISION document at docs/visions/VISION-new-developer-portal.md",
@@ -21,17 +21,16 @@
     {
       "id": 2,
       "name": "partial-run-detection",
-      "prompt": "/vision workflow-engine",
-      "expected_output": "Detects wip/vision_workflow-engine_scope.md and reads it as an interrupted /vision run rather than a handoff. /charter invokes /vision directly and pre-populates nothing for it, so a file at this path can only mean this skill's own prior run. Resumes that run at Phase 2 (discover) using the artifact's problem statement, research leads, and decisions, and does not re-ask what it already answered.",
-      "files": [
-        "wip/vision_workflow-engine_scope.md"
-      ],
+      "prompt": "/vision workflow-engine (session vision-workflow-engine is live and holds key work/scope.md from an earlier run)",
+      "expected_output": "Attaches to the live session vision-workflow-engine, finds key work/scope.md in it, and reads it as an interrupted /vision run rather than a handoff. /charter invokes /vision directly and pre-populates nothing for it, so that key can only mean this skill's own prior run. Resumes that run at Phase 2 (discover) using the key's problem statement, research leads, and decisions, and does not re-ask what it already answered.",
+      "files": [],
       "expectations": [
-        "Plan checks for wip/vision_workflow-engine_scope.md handoff artifact",
-        "Plan detects the existing handoff artifact and skips Phase 1 (scope)",
-        "Plan resumes at Phase 2 (discover) using the handoff artifact content",
-        "Plan does NOT include conversational scoping questions since handoff provides them",
-        "Plan mentions reading the handoff artifact for problem statement and research leads"
+        "Plan opens (attaches to) session vision-workflow-engine and checks key work/scope.md with koto context exists",
+        "Plan detects the existing scope key and skips Phase 1 (scope)",
+        "Plan resumes at Phase 2 (discover) using the content of the work/scope.md key",
+        "Plan does NOT include conversational scoping questions since the scope key already holds them",
+        "Plan reads the scope key for problem statement and research leads",
+        "Plan does NOT read or write any file under the staging folder"
       ]
     },
     {
@@ -112,7 +111,7 @@
       "id": 8,
       "name": "crystallize-discrimination",
       "prompt": "/explore --auto --strategic should we build a developer analytics dashboard",
-      "expected_output": "Exploration in strategic scope. The crystallize framework's two stages still make the discrimination this scenario exists for: stage 1 scores 'a chain', and stage 2 prefers `/charter` over `/scope` on the existence question -- the project doesn't exist yet, the exploration centered on 'should we build this', and org fit is the core question. Those are exactly the signals that used to score VISION, and they still decide; what moved is the invocation. Phase 5 writes wip/charter_developer-analytics-dashboard_handoff.md, carries the thesis-shift answer in it, and names `/charter` as the command to run. A VISION is written inside that chain, by /charter's /vision child, not by the router.",
+      "expected_output": "Exploration in strategic scope. The crystallize framework's two stages still make the discrimination this scenario exists for: stage 1 scores 'a chain', and stage 2 prefers `/charter` over `/scope` on the existence question -- the project doesn't exist yet, the exploration centered on 'should we build this', and org fit is the core question. Those are exactly the signals that used to score VISION, and they still decide; what moved is the invocation. Phase 5 writes key handoff/charter.md in session explore-developer-analytics-dashboard, carries the thesis-shift answer in it, and names `/charter` as the command to run. A VISION is written inside that chain, by /charter's /vision child, not by the router.",
       "files": [],
       "expectations": [
         "Plan involves an exploration workflow, not a direct /vision invocation",

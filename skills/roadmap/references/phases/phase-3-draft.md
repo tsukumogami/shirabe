@@ -24,8 +24,8 @@ the whole picture before giving feedback, and cross-references between sections
 ### 3.1 Gather Inputs
 
 Read all available context:
-- `wip/roadmap_<topic>_scope.md` (from Phase 1)
-- `wip/research/roadmap_<topic>_phase2_*.md` files (from Phase 2)
+- key `work/scope.md` in `roadmap-<topic>` (from Phase 1)
+- keys `research/phase2_*` in `roadmap-<topic>` (from Phase 2; `koto context list roadmap-<topic> --prefix research/phase2_`, then `koto context get`)
 - Any notes from Phase 2 synthesis
 - `skills/roadmap/references/roadmap-format.md` (format specification)
 
@@ -212,8 +212,8 @@ Before proceeding:
 
 After this phase:
 - ROADMAP draft at `docs/roadmaps/ROADMAP-<topic>.md` with status "Draft"
-- Scope document still at `wip/roadmap_<topic>_scope.md`
-- Phase 2 research files still at `wip/research/roadmap_<topic>_phase2_*.md`
+- Scope document still at key `work/scope.md` in `roadmap-<topic>`
+- Phase 2 research still at keys `research/phase2_*` in `roadmap-<topic>`
 
 ## Next Phase
 

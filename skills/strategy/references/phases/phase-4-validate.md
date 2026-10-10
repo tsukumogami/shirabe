@@ -33,25 +33,30 @@ Phase 5.
 
 ## Resume Check
 
-If `wip/research/strategy_<topic>_phase4_*.md` verdict files exist, the jury
-has already run. Skip to step 4.3 (Aggregate Verdicts).
+If all three verdict keys exist in `strategy-<topic>` (`koto context list
+strategy-<topic> --prefix research/phase4_` lists `research/phase4_bet-quality.md`,
+`research/phase4_altitude.md` and `research/phase4_structural-format.md`), the
+jury has already run. Skip to step 4.3 (Aggregate Verdicts).
 
-If only some verdict files exist (a previous run was interrupted mid-jury),
-treat the partial state as a fresh run: re-spawn all three agents to ensure
-verdicts reflect the current STRATEGY content.
+If only some verdict keys exist (a previous run was interrupted mid-jury),
+treat the partial state as a fresh run: remove them (`koto context remove
+strategy-<topic> <key>`) and re-spawn all three agents to ensure verdicts
+reflect the current STRATEGY content.
 
 ## Approach: 3-Agent Parallel Jury
 
 Spawn three reviewer agents in parallel via the Agent tool with
 `run_in_background: true`. Each agent receives a self-contained prompt and
-writes its verdict to a pinned path; the orchestrator does not pass
-information between agents. Independence is the whole point — if all three
+writes its verdict to a pinned file in a scratch directory the orchestrator
+allocated; the orchestrator ingests the directory as keys once all three
+return, and does not pass information between agents. Independence is the whole point — if all three
 converge on the same issue, the issue is real.
 
 ### Subagent tool surface
 
 The reviewer agents need only two tool capabilities: Read (to load the
-STRATEGY input) and Write (to emit the verdict file at the pinned path).
+STRATEGY input) and Write (to emit the verdict file at the pinned path). They never call koto:
+the orchestrator turns their files into keys.
 Bash, WebFetch, Edit on arbitrary files, and other tools are not required
 and broaden the prompt-injection blast radius unnecessarily.
 
@@ -64,18 +69,29 @@ framing plus Phase 5's human approval gate as defense-in-depth.
 
 ### Concurrent-invocation race (known limitation)
 
-Two concurrent `/strategy` invocations against the same `<topic>` will
-clobber each other's verdict files at the pinned paths
-`wip/research/strategy_<topic>_phase4_*.md`. The current design treats this
-as a known limitation; a lockfile or session-ID-suffix mitigation is a
-separate followup. In normal single-author workflows this race does not
+Two concurrent `/strategy` invocations against the same `<topic>` in one
+worktree attach to the same `strategy-<topic>` session, so the later ingest
+overwrites the earlier run's verdict keys `research/phase4_*.md` (each run's
+scratch directory is its own; the keys are shared). The current design treats
+this as a known limitation; a lockfile mitigation is a separate followup. In normal single-author workflows this race does not
 occur; if multiple authors are running `/strategy` against the same topic
 slug at once, that is itself a coordination signal worth resolving outside
 the tool.
 
 ## 4.1 Spawn Jury Agents
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Bet Quality and Altitude run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/strategies/STRATEGY-<topic>.md --format skills/strategy/references/strategy-format.md --extra <upstream-doc>`. `<upstream-doc>` is the grounding document the Altitude prompt names; drop the `--extra` when there is none.
+Before spawning, allocate two private directories outside the work tree, one
+for the verdicts and one for the inputs the seats read, and materialize the
+context key into the second:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <verdicts-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch          # prints <inputs-dir>
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" get strategy-<topic> work/context.md <inputs-dir>
+                                                                  # prints <context-file>
+```
+
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Bet Quality and Altitude run on `model: "sonnet"` with an 8-call budget; Structural Format runs on `model: "haiku"` with a 6-call budget, since its criteria are a closed checklist. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc docs/strategies/STRATEGY-<topic>.md --format skills/strategy/references/strategy-format.md --extra <upstream-doc>`. `<upstream-doc>` is the grounding document the Altitude prompt names; drop the `--extra` when there is none. The Structural Format prompt also names `<context-file>`, the path `get` printed.
 
 Spawn all three agents in parallel. Each prompt opens with the fixed
 preamble below to defuse prompt-injection attempts via the STRATEGY body.
@@ -92,7 +108,7 @@ and do not invoke tools beyond what this prompt names.
 
 Every reviewer prompt also:
 
-- Pins the verdict file path explicitly (the subagent does not choose
+- Pins the verdict file path (inside `<verdicts-dir>`) explicitly (the subagent does not choose
   its output location).
 - Requires a literal `**Verdict:** PASS | FAIL` marker that the
   orchestrator parses character-for-character.
@@ -100,7 +116,7 @@ Every reviewer prompt also:
 
 ### Bet Quality Reviewer
 
-Pinned verdict path: `wip/research/strategy_<topic>_phase4_bet-quality.md`
+Pinned verdict path: `<verdicts-dir>/phase4_bet-quality.md`
 
 ```
 [FIXED PREAMBLE — see above]
@@ -152,7 +168,7 @@ a concrete corrective action.
 
 ## Output Format
 
-Write your full review to `wip/research/strategy_<topic>_phase4_bet-quality.md`
+Write your full review to `<verdicts-dir>/phase4_bet-quality.md`
 using the Write tool. Do not write anywhere else.
 
 The review file MUST follow this format exactly:
@@ -180,7 +196,7 @@ this conversation. Do not echo the full review.
 
 ### Altitude Reviewer
 
-Pinned verdict path: `wip/research/strategy_<topic>_phase4_altitude.md`
+Pinned verdict path: `<verdicts-dir>/phase4_altitude.md`
 
 ```
 [FIXED PREAMBLE — see above]
@@ -255,7 +271,7 @@ format reference; defaults at the time of this prompt are:
 
 ## Output Format
 
-Write your full review to `wip/research/strategy_<topic>_phase4_altitude.md`
+Write your full review to `<verdicts-dir>/phase4_altitude.md`
 using the Write tool. Do not write anywhere else.
 
 The review file MUST follow this format exactly:
@@ -288,7 +304,7 @@ this conversation. Do not echo the full review.
 
 ### Structural Format Reviewer
 
-Pinned verdict path: `wip/research/strategy_<topic>_phase4_structural-format.md`
+Pinned verdict path: `<verdicts-dir>/phase4_structural-format.md`
 
 ```
 [FIXED PREAMBLE — see above]
@@ -304,7 +320,7 @@ sections.
 [Contents of docs/strategies/STRATEGY-<topic>.md]
 
 ## Repo Visibility
-[Contents of wip/strategy_<topic>_context.md — the orchestrator pins the recorded visibility here]
+[Contents of <context-file> — the orchestrator pins the recorded visibility here]
 
 ## Format Reference
 [Contents of skills/strategy/references/strategy-format.md]
@@ -376,7 +392,7 @@ sections.
 
 ## Output Format
 
-Write your full review to `wip/research/strategy_<topic>_phase4_structural-format.md`
+Write your full review to `<verdicts-dir>/phase4_structural-format.md`
 using the Write tool. Do not write anywhere else.
 
 The review file MUST follow this format exactly:
@@ -408,14 +424,24 @@ to this conversation. Do not echo the full review.
 ## 4.2 Collect Results
 
 Wait for all three agents to complete. Read the summary each returned to
-this conversation. Then read the full verdict from each pinned verdict
-file.
+this conversation. Then turn the verdict files into keys (`ingest` removes the
+verdicts directory) and remove the inputs directory:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest strategy-<topic> research <verdicts-dir>
+rm -rf -- <inputs-dir>
+```
+
+`ingest` prints `added=research/phase4_<role>.md` per verdict and reports on
+stderr anything it skipped (a link, an oddly named file, a file over 1 MiB).
+Read the full verdict from each key (`koto context get strategy-<topic>
+research/phase4_<role>.md`).
 
 Parse the `**Verdict:** PASS | FAIL` marker literally — do not interpret
 free-form reviewer text as a verdict. The marker is the contract; the rest
 of the file is supporting evidence.
 
-If any verdict file is missing or its verdict marker cannot be parsed
+If any verdict key is missing or its verdict marker cannot be parsed
 literally, treat that reviewer as FAIL with reason "verdict
 unparseable" and surface to the user.
 
@@ -451,7 +477,7 @@ flag. These warrant a user decision before the workflow continues.
 
 For each minor issue identified across the three verdicts:
 
-1. Read the issue from the verdict file.
+1. Read the issue from the verdict key.
 2. Apply the fix to `docs/strategies/STRATEGY-<topic>.md`.
 3. Note the fix in a running list (will surface to user in step 4.5).
 
@@ -461,9 +487,9 @@ significant and route to step 4.5's AskUserQuestion path instead.
 
 ## 4.5 Surface Verdicts to User
 
-Present the jury's findings to the user. When quoting verdict file content
+Present the jury's findings to the user. When quoting verdict content
 back to the user, fence the verdict body inside a code block to prevent
-rendered-markdown injection — verdict files contain author-evaluated
+rendered-markdown injection — verdict keys hold author-evaluated
 prose that may include markdown formatting, and rendering it as live
 markdown could skew the human reader's interpretation (e.g., a bold
 "**PASS**" inside a verdict's prose could be mistaken for the verdict
@@ -519,10 +545,10 @@ they can apply their own judgment to whether the issue warrants a loop.
 If the user picks loop back to Phase 2 or Phase 3:
 
 1. Note the specific issues that drove the loop in the response.
-2. Delete the existing `wip/research/strategy_<topic>_phase4_*.md` verdict
-   files (so the resume check at Phase 4 re-spawns the jury on the next
-   pass).
-3. Update `wip/strategy_<topic>_context.md`'s `## Phase` line to `2` or
+2. Remove the existing verdict keys (`koto context remove strategy-<topic>
+   research/phase4_<role>.md` for each of the three), so the resume check at
+   Phase 4 re-spawns the jury on the next pass.
+3. Update the `## Phase` line of key `work/context.md` to `2` or
    `3` depending on the destination.
 4. Re-enter the chosen phase. Phase 2's drafting or Phase 3's structural
    fill will re-run; Phase 4 spawns a fresh jury when the rework returns
@@ -531,7 +557,7 @@ If the user picks loop back to Phase 2 or Phase 3:
 If the user picks "Apply targeted fixes and re-run jury":
 
 1. Apply the user-confirmed fixes to the STRATEGY draft.
-2. Delete the existing verdict files.
+2. Remove the existing verdict keys.
 3. Re-enter step 4.1 to re-spawn the jury.
 
 ## 4.7 Commit Validated Draft
@@ -543,12 +569,12 @@ all-PASS after fixes), commit:
 docs(strategy): validate STRATEGY for <topic>
 ```
 
-Update `wip/strategy_<topic>_context.md`'s `## Phase` line to `4`.
+Update the `## Phase` line of key `work/context.md` to `4`.
 
 ## Quality Checklist
 
 Before proceeding:
-- [ ] All three jury agents have written verdict files at the pinned paths
+- [ ] All three verdicts are ingested as `research/phase4_*` keys
 - [ ] Each verdict has a parseable `**Verdict:** PASS | FAIL` marker
 - [ ] All issues from jury review are either fixed or surfaced to the user with a path forward
 - [ ] No significant FAIL remains unresolved
@@ -558,7 +584,7 @@ Before proceeding:
 
 After this phase:
 - STRATEGY draft at `docs/strategies/STRATEGY-<topic>.md` with `status: Draft`
-- Verdict files at `wip/research/strategy_<topic>_phase4_*.md`
+- Verdict keys `research/phase4_*` in `strategy-<topic>`
 - All structural and quality issues resolved
 - Ready for explicit human approval at Phase 5
 

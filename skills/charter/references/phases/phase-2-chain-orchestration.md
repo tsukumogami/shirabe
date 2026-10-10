@@ -466,14 +466,20 @@ When `/roadmap` fires, `/charter` passes BOTH of the following:
   STRATEGY. `/roadmap`'s Phase 3 writes the path into the
   ROADMAP's frontmatter verbatim; the contract accepts the path
   with no basename enforcement.
-- A pre-populated `wip/roadmap_<topic>_scope.md` file matching the
-  schema `/roadmap` Phase 1 expects. The handoff causes `/roadmap`
-  to skip its Phase 1. `/charter` is the only skill that
-  pre-populates that file — the router hands its findings to
-  `/charter` at `wip/charter_<topic>_handoff.md` and never writes
-  into a child's namespace.
+- Key `chain/roadmap-scope` in `/charter`'s own session, written
+  immediately before the `chain/dispatch` write for `/roadmap`
+  (`koto context add charter-<topic> chain/roadmap-scope`, content
+  on stdin), matching the scope schema `/roadmap` Phase 1 expects.
+  The key causes `/roadmap` to skip its Phase 1: its dispatch
+  match points it back at the parent session, and it reads the key
+  from there (`references/skill-session-convention.md`). Nothing
+  pre-populates a file in a child's namespace — `/charter` writes
+  only its own session, and `/roadmap` ignores the key whenever
+  `chain/dispatch` names another child or no parent matches.
+  `/charter` removes the key when it clears the dispatch key after
+  `/roadmap` returns.
 
-The pre-populated `wip/roadmap_<topic>_scope.md` schema has seven
+The `chain/roadmap-scope` schema has seven
 named fields. `/charter` populates each based on the discovery and
 STRATEGY content the chain has already produced.
 
