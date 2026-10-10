@@ -186,6 +186,13 @@ finishes them on its next run, and a closed parent never leaves live children
 behind. A direct run closes its own session when it finishes. Every tick
 carries `--no-cleanup`, so a close keeps the session.
 
+"At its exit" binds the paths that record an `exit:` value — full-run,
+re-evaluation and abandonment-forced. A clean cancel, a refusal and an error
+terminal record none, and deliberately close nothing: the children's live
+sessions are what the next run's resume rows detect a mid-flight chain by, so
+closing them there would erase exactly the state a cancelled run exists to
+leave behind.
+
 A session is reclaimable when it is finished and either has no `chain/parent`,
 or its `chain/parent` string-equals `scope-<topic>` or `charter-<topic>` for its
 own topic and that session is absent or finished. A malformed `chain/parent`
