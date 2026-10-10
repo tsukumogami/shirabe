@@ -17,7 +17,7 @@ that:
   marker in any force-materialized artifact).
 - Carries the four metadata fields needed to reconstruct the
   abandonment context from the artifact alone (without needing
-  the `wip/charter_<topic>_state.md` state file).
+  key `work/state.md` in `charter-<topic>`).
 
 ## The Snippet
 
@@ -47,7 +47,7 @@ for the state-schema):
   records the abandonment time separately).
 
 The marker is emitted whenever `exit: abandonment-forced` is
-recorded in the state file — once per chain abandonment, in the
+recorded in the state — once per chain abandonment, in the
 force-materialized artifact's body.
 
 ## Placement

@@ -22,8 +22,8 @@ The `DECISION-` prefix matches shirabe's `<TYPE>-<name>.md`
 convention (alongside BRIEF-, DESIGN-, PLAN-, PRD-, ROADMAP-,
 STRATEGY-, VISION-).
 
-Runtime population reads from `/charter`'s state file at
-`wip/charter_<topic>_state.md` per the schema documented in
+Runtime population reads from `/charter`'s state at key
+`work/state.md` in `charter-<topic>` per the schema documented in
 `skills/charter/references/phases/phase-state-management.md`.
 Fields consumed when populating this template:
 
@@ -123,7 +123,7 @@ guidance for the human reader (or a future agent) to recognize
 when re-opening would be warranted.
 
 The Consequences section also explicitly cites the existing
-STRATEGY by path (substituted from the state file's
+STRATEGY by path (substituted from the state's
 `referenced_strategy:` field at runtime) so the reader can
 navigate from the Decision Record back to the STRATEGY it
 references.

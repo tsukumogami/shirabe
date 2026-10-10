@@ -181,7 +181,7 @@ When none of the three categories fits the author's response, the
 default is no-signal. What no-signal costs depends on what is
 already on disk or was supplied at invocation: it drops `/vision`
 from the chain proposal when an Accepted or Active VISION exists at
-the published path or the state file carries `consumed_upstream:`,
+the published path or `work/state.md` carries `consumed_upstream:`,
 and changes nothing on a cold start with no supplied upstream,
 where `/vision` runs either way (see the `/vision` Invocation Rule
 in `skills/charter/references/phases/phase-2-chain-orchestration.md`).
@@ -206,7 +206,7 @@ and records the classification for the chain-shape gate to read.
 ### On a Handoff-Fed Run
 
 When the resume ladder's row 8.5 fired, the handoff at
-`wip/charter_<topic>_handoff.md` carries the author's thesis-shift
+key `handoff/charter.md` in `explore-<topic>` carries the author's thesis-shift
 answer from the exploration. The question is still surfaced
 verbatim, as a confirmation of that answer rather than as a fresh
 ask, and the response the author gives here is what gets classified
@@ -312,7 +312,7 @@ rule and the reasoning behind it are documented under Stated-Skip
 Rule in
 `skills/charter/references/phases/phase-2-chain-orchestration.md`.
 The reason lands in the conversation only; the chain's committed
-output (the state file and everything under `docs/`) carries no
+output (everything under `docs/`) and its recorded state carry no
 trace of the skipped child.
 
 ### The Pre-Authoring Upstream Notice
