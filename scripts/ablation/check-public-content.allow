@@ -1,0 +1,15 @@
+# Allow records for scripts/ablation/check-public-content.sh, one deferral
+# per record rather than a silence. The format, the closed set of
+# allowlistable classes, and the self-scan that keeps a record from carrying
+# what the check refuses are documented in that script's header.
+#
+# Format, tab-separated, four fields:
+#
+#   <class-id>  <file>  <issue>  <reason>
+#
+# A record covers one file for one class. It is a deliberate, dated decision:
+# the file legitimately holds the literal because it tests the rule itself,
+# and the issue tracks why.
+
+wip-path	scripts/check-template-directives_test.sh	tsukumogami/shirabe#738	The lint's own fixtures: one gate script names the parent state path to test the publish carve-out, one invoked script reads a child staging file to test that the staging-folder limb binds gate commands only. The literals are the subject under test.
+wip-path	skills/scope/scripts/resume-probe_test.sh	tsukumogami/shirabe#738	The probe's seeds: the suite writes the old state and handoff files to prove the session-era probe no longer reads them. An assembled or hidden form would defeat the workspace's audit greps, so the literals stay visible.
