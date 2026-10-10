@@ -67,6 +67,17 @@
 #                   whose Target names the evidence's unit (a feature's tag)
 #                   and its roadmap pull request: roadmap-status.sh writes it
 #                   before the evidence, so it is compared with the step's start
+#   milestone_verdict  (`recorded`) a Side effects row with Action
+#                   milestone-done or milestone-verdict whose Target names the
+#                   evidence's unit (a milestone's tag) and the verdict's
+#                   roadmap pull request: roadmap-status.sh --verdict writes it
+#                   before the evidence, compared with the step's start
+#                   (docs/designs/DESIGN-milestone-verdicts.md)
+#   milestone_reopen  (`opened`) a Side effects row with Action
+#                   milestone-reopen whose Target names the evidence's unit
+#                   and the reopen's roadmap pull request: roadmap-status.sh
+#                   --reopen writes it before the evidence, compared with the
+#                   step's start
 #
 # With --verified (state verified_confirm): the VERIFIED capture
 # (`verified <pr> <sha>`, sealed at a real visit of verify_board) must equal
@@ -292,7 +303,7 @@ SOURCE=$ENT_FROM
 [ "$SOURCE" = teardown_confirm ] && SOURCE=destroy
 
 case "$SOURCE" in
-dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent|roadmap_status)
+dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent|roadmap_status|milestone_verdict|milestone_reopen)
     evidence "$SOURCE" "$ESEQ"; EV=$EVJ
     [ -n "$EV" ] || { VERDICT=conflict; REASON="no evidence from $SOURCE before record"; finish; }
     EVT=$(printf '%s' "$EV" | jq -r .timestamp)
@@ -302,7 +313,7 @@ dispatch|surface|teardown|destroy|decision_apply|posture_ask|leg_spent|roadmap_s
     # this case pattern is the list. dispatch keeps its DISPATCH_CHECK
     # capture (below), and teardown and destroy, which write after it, keep
     # the evidence's own time.
-    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent|roadmap_status) step_start "$SOURCE" "$EVSEQ" ;; esac
+    case "$SOURCE" in surface|decision_apply|posture_ask|leg_spent|roadmap_status|milestone_verdict|milestone_reopen) step_start "$SOURCE" "$EVSEQ" ;; esac
     MIN=${EVT:0:16}
     ;;
 merge_confirm|merged_facts)
@@ -455,6 +466,22 @@ roadmap_status)
     [ -n "$RS_UNIT" ] || { VERDICT=conflict; REASON="roadmap_status's evidence names no unit"; finish; }
     EXPECT="a Side effects row, Action roadmap-status, whose Target names $RS_UNIT and its roadmap pull request"
     holds "any(.side_effects[]; .action == \"roadmap-status\" and (.target | startswith(\$u + \" [#\")))" --arg u "$RS_UNIT" || OKX=0
+    ;;
+milestone_verdict)
+    # roadmap-status.sh --verdict opened the verdict's roadmap pull request
+    # and wrote its row before `recorded` was submitted.
+    MV_UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // ""')
+    [ -n "$MV_UNIT" ] || { VERDICT=conflict; REASON="milestone_verdict's evidence names no unit"; finish; }
+    EXPECT="a Side effects row, Action milestone-done or milestone-verdict, whose Target names $MV_UNIT and its roadmap pull request"
+    holds "any(.side_effects[]; (.action == \"milestone-done\" or .action == \"milestone-verdict\") and (.target | startswith(\$u + \" [#\")))" --arg u "$MV_UNIT" || OKX=0
+    ;;
+milestone_reopen)
+    # roadmap-status.sh --reopen opened the reopen's roadmap pull request
+    # and wrote its row before `opened` was submitted.
+    MR_UNIT=$(printf '%s' "$EV" | jq -r '.fields.unit // ""')
+    [ -n "$MR_UNIT" ] || { VERDICT=conflict; REASON="milestone_reopen's evidence names no unit"; finish; }
+    EXPECT="a Side effects row, Action milestone-reopen, whose Target names $MR_UNIT and its roadmap pull request"
+    holds "any(.side_effects[]; .action == \"milestone-reopen\" and (.target | startswith(\$u + \" [#\")))" --arg u "$MR_UNIT" || OKX=0
     ;;
 posture_ask)
     EXPECT="a Reversals row from the human about the posture, at or after $MIN"

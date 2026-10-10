@@ -2975,6 +2975,346 @@ EOF
 }
 
 
+# ── Milestone roadmaps (roadmap/v2): the cascade leaves them alone ────────────
+#
+# A milestone on a roadmap/v2 roadmap is Done only on a recorded, checked
+# verdict (the roadmap format's "When a milestone is Done"), never on a PLAN
+# merging, so handle_roadmap reads the frontmatter's schema before its
+# Downstream lookup and records one `skipped` step instead of touching the file.
+# Scenarios 32 and 33 pin that on the two v2 shapes that would otherwise go
+# wrong: no Downstream line (the not-found arm, `partial`) and every milestone
+# Done with a Downstream line naming the plan (the Done write, then the
+# transition and `git rm`). Scenario 34 pins the other side: a frontmatter that
+# can't be read is a feature roadmap, as before the check.
+
+# The one step a v2 roadmap gets, as add_step builds it. found_in is a JSON
+# null: nothing was searched.
+V2_ROADMAP_STEP_DETAIL="milestone roadmap: status follows a recorded verdict (roadmap format, When a milestone is Done)"
+
+# Write a roadmap/v2 fixture with two milestones at <status>. A non-empty
+# <downstream> adds a `**Downstream:**` line naming it under MV1. No GitHub
+# issue URLs: a v2 roadmap that reached handle_roadmap_deletion must get there
+# without gh, so a build missing the v2 check fails these scenarios on the
+# deletion itself rather than on a missing stub.
+# Usage: write_roadmap_v2 <path> <status> [<downstream>]
+write_roadmap_v2() {
+    local path="$1"
+    local status="$2"
+    local downstream="${3:-}"
+    local downstream_line=""
+    if [[ -n "$downstream" ]]; then
+        downstream_line="**Downstream:** $downstream"
+    fi
+    mkdir -p "$(dirname "$path")"
+    cat > "$path" <<EOF
+---
+schema: roadmap/v2
+status: Active
+theme: |
+  Milestone roadmap fixture for cascade validation.
+scope: |
+  Cascade tests only.
+---
+
+# ROADMAP: Cascade Milestones
+
+## Status
+
+Active
+
+## Theme
+
+Milestone roadmap fixture for cascade validation.
+
+## Features
+
+### MV1: the cascade leaves this alone
+
+**Outcome:** A maintainer finishes a PLAN under a milestone roadmap.
+
+**Evidence:**
+- A reviewer runs the cascade and sees the roadmap unchanged.
+
+**Left open:** None
+
+**Dependencies:** None
+**Status:** $status
+$downstream_line
+
+### MV2: a second milestone
+
+**Outcome:** A second milestone exists.
+
+**Evidence:**
+- A reviewer reads two milestones.
+
+**Left open:** None
+
+**Dependencies:** None
+**Status:** $status
+EOF
+}
+
+# Assert the v2 run's verdict and its one roadmap step, verbatim.
+# Usage: assert_v2_roadmap_skipped <scenario> <json> <roadmap-path>
+assert_v2_roadmap_skipped() {
+    local scenario="$1"
+    local output="$2"
+    local roadmap="$3"
+    local ok=true
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "cascade_status is completed" || ok=false
+    assert_json "$scenario" "$output" \
+        "[.steps[] | select(.action == \"update_roadmap_feature\")] == [{\"action\":\"update_roadmap_feature\",\"target\":\"$roadmap\",\"found_in\":null,\"status\":\"skipped\",\"detail\":\"$V2_ROADMAP_STEP_DETAIL\"}]" \
+        "exactly one update_roadmap_feature step, skipped, with the milestone detail" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.status == "failed")] | length == 0' \
+        "no step failed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_roadmap")] | length == 0' \
+        "no delete_roadmap step" || ok=false
+    [[ "$ok" == "true" ]]
+}
+
+scenario_roadmap_v2_skipped() {
+    local scenario="Scenario 32: --push leaves a milestone (roadmap/v2) ROADMAP unchanged and reports completed"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    local roadmap="docs/roadmaps/ROADMAP-cascade-milestones.md"
+    write_roadmap_v2 "$repo/$roadmap" "In progress"
+    write_plan "$repo/docs/plans/PLAN-milestone-work.md" "$roadmap"
+
+    commit_and_push_all
+
+    local blob_before head_before
+    blob_before=$(git hash-object "$roadmap")
+    head_before=$(git rev-parse HEAD)
+
+    local rc_file="$tmpdir/rc"
+    local output
+    output=$(run_cascade_rc "$rc_file" "docs/plans/PLAN-milestone-work.md" --push)
+    local rc
+    rc=$(cat "$rc_file")
+
+    local ok=true
+
+    assert_shell "$scenario" "$([[ "$rc" == "0" ]] && echo true || echo false)" \
+        "the script exits 0" "rc=$rc" || ok=false
+
+    # A build without the v2 check takes the not-found arm here: `failed`,
+    # partial, and no commit.
+    assert_v2_roadmap_skipped "$scenario" "$output" "$roadmap" || ok=false
+
+    # The finalization commit landed (it carries the PLAN deletion only).
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "commit" and .status == "ok")] | length == 1' \
+        "the finalization commit landed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "push" and .status == "ok")] | length == 1' \
+        "the push landed" || ok=false
+    # The roadmap is not appended to STAGED_FILES, so in this direct
+    # PLAN-to-ROADMAP shape no chain document is left to anchor on.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_post_verify")][0].status == "skipped"' \
+        "the post-cascade verification has no anchor and is skipped" || ok=false
+
+    local blob_after
+    blob_after=$(git hash-object "$roadmap")
+    assert_shell "$scenario" "$([[ "$blob_after" == "$blob_before" ]] && echo true || echo false)" \
+        "the ROADMAP is byte-for-byte unchanged" "$blob_before -> $blob_after" || ok=false
+
+    local blob_head
+    blob_head=$(git rev-parse "HEAD:$roadmap" 2>/dev/null) || blob_head=""
+    assert_shell "$scenario" "$([[ "$blob_head" == "$blob_before" ]] && echo true || echo false)" \
+        "the ROADMAP is unchanged in the finalization commit" "HEAD:$roadmap=$blob_head" || ok=false
+
+    local tracked=false
+    git ls-files --error-unmatch "$roadmap" > /dev/null 2>&1 && tracked=true
+    assert_shell "$scenario" "$tracked" "the ROADMAP is still tracked" || ok=false
+
+    local porcelain
+    porcelain=$(git status --porcelain -- "$roadmap")
+    assert_shell "$scenario" "$([[ -z "$porcelain" ]] && echo true || echo false)" \
+        "nothing is staged or modified for the ROADMAP" "status: '$porcelain'" || ok=false
+
+    local in_commit
+    in_commit=$(git diff --name-only "$head_before" HEAD -- "$roadmap" 2>&1) || in_commit="git diff failed"
+    assert_shell "$scenario" "$([[ -z "$in_commit" ]] && echo true || echo false)" \
+        "the finalization commit does not touch the ROADMAP" "$in_commit" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+scenario_roadmap_v2_all_done_not_deleted() {
+    local scenario="Scenario 33: --push neither transitions nor deletes a milestone ROADMAP whose milestones all read Done"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    # Every milestone Done and a Downstream line naming the plan: on a feature
+    # roadmap this is the Done write followed by handle_roadmap_deletion's
+    # transition and `git rm`.
+    local roadmap="docs/roadmaps/ROADMAP-cascade-milestones.md"
+    write_roadmap_v2 "$repo/$roadmap" "Done" "PLAN-milestone-done.md"
+    write_plan "$repo/docs/plans/PLAN-milestone-done.md" "$roadmap"
+
+    commit_and_push_all
+
+    local blob_before statuses_before downstream_before
+    blob_before=$(git hash-object "$roadmap")
+    statuses_before=$(grep '^\*\*Status:\*\*' "$roadmap")
+    downstream_before=$(grep '^\*\*Downstream:\*\*' "$roadmap")
+
+    local rc_file="$tmpdir/rc"
+    local output
+    output=$(run_cascade_rc "$rc_file" "docs/plans/PLAN-milestone-done.md" --push)
+    local rc
+    rc=$(cat "$rc_file")
+
+    local ok=true
+
+    assert_shell "$scenario" "$([[ "$rc" == "0" ]] && echo true || echo false)" \
+        "the script exits 0" "rc=$rc" || ok=false
+
+    assert_v2_roadmap_skipped "$scenario" "$output" "$roadmap" || ok=false
+
+    assert_shell "$scenario" "$([[ -f "$roadmap" ]] && echo true || echo false)" \
+        "the ROADMAP file still exists" || ok=false
+
+    local tracked=false
+    git ls-files --error-unmatch "$roadmap" > /dev/null 2>&1 && tracked=true
+    assert_shell "$scenario" "$tracked" "the ROADMAP is still tracked" || ok=false
+
+    local in_head=false
+    git cat-file -e "HEAD:$roadmap" 2>/dev/null && in_head=true
+    assert_shell "$scenario" "$in_head" "the ROADMAP is in the finalization commit's tree" || ok=false
+
+    local porcelain
+    porcelain=$(git status --porcelain -- "$roadmap")
+    assert_shell "$scenario" "$([[ -z "$porcelain" ]] && echo true || echo false)" \
+        "no deletion or edit is staged for the ROADMAP" "status: '$porcelain'" || ok=false
+
+    if [[ -f "$roadmap" ]]; then
+        local statuses_after downstream_after frontmatter_status
+        statuses_after=$(grep '^\*\*Status:\*\*' "$roadmap") || statuses_after=""
+        downstream_after=$(grep '^\*\*Downstream:\*\*' "$roadmap") || downstream_after=""
+        frontmatter_status=$(sed -n '2,8p' "$roadmap" | grep '^status:') || frontmatter_status=""
+        assert_shell "$scenario" "$([[ "$statuses_after" == "$statuses_before" ]] && echo true || echo false)" \
+            "no milestone's Status line changed" || ok=false
+        assert_shell "$scenario" "$([[ "$downstream_after" == "$downstream_before" ]] && echo true || echo false)" \
+            "the Downstream line was not rewritten" "$downstream_after" || ok=false
+        assert_shell "$scenario" "$([[ "$frontmatter_status" == "status: Active" ]] && echo true || echo false)" \
+            "the ROADMAP was not transitioned" "$frontmatter_status" || ok=false
+        local blob_after
+        blob_after=$(git hash-object "$roadmap")
+        assert_shell "$scenario" "$([[ "$blob_after" == "$blob_before" ]] && echo true || echo false)" \
+            "the ROADMAP is byte-for-byte unchanged" || ok=false
+    fi
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# A frontmatter the reader can't use is a feature roadmap. Two fixtures, each
+# in its own repo, both carrying `schema: roadmap/v2` somewhere a careless
+# reader would find it: an opening `---` that never closes, and a closed
+# frontmatter with no schema line followed by a column-0 `schema:` line in the
+# body. Both must take the feature path (the Done write). A dry run, so the
+# post-cascade verification doesn't run on a deliberately malformed file.
+scenario_roadmap_unreadable_frontmatter_is_feature() {
+    local scenario="Scenario 34: a ROADMAP whose frontmatter can't be read is a feature roadmap"
+    echo "Running $scenario..."
+
+    local ok=true
+    local shape
+    for shape in unclosed body-schema; do
+        local tmpdir
+        tmpdir=$(mktemp -d)
+        local repo="$tmpdir/repo"
+        setup_test_repo "$repo"
+
+        local roadmap="docs/roadmaps/ROADMAP-cascade-test.md"
+        mkdir -p "$repo/docs/roadmaps"
+        if [[ "$shape" == "unclosed" ]]; then
+            cat > "$repo/$roadmap" <<'EOF'
+---
+schema: roadmap/v2
+status: Active
+
+# ROADMAP: Cascade Test
+
+## Features
+
+### Feature 1: Planned Against
+
+**Status:** Planned
+**Downstream:** PLAN-unreadable.md
+
+### Feature 2: Still Planned
+
+**Status:** Planned
+EOF
+        else
+            cat > "$repo/$roadmap" <<'EOF'
+---
+status: Active
+---
+
+# ROADMAP: Cascade Test
+
+schema: roadmap/v2
+
+## Features
+
+### Feature 1: Planned Against
+
+**Status:** Planned
+**Downstream:** PLAN-unreadable.md
+
+### Feature 2: Still Planned
+
+**Status:** Planned
+EOF
+        fi
+        write_plan "$repo/docs/plans/PLAN-unreadable.md" "$roadmap"
+        commit_all
+
+        local output
+        output=$(run_cascade "docs/plans/PLAN-unreadable.md")
+
+        assert_json "$scenario [$shape]" "$output" \
+            '[.steps[] | select(.action == "update_roadmap_feature")] | length == 1 and .[0].status == "ok" and .[0].detail == null' \
+            "the feature path ran: one update_roadmap_feature step, ok" || ok=false
+        local feature_status
+        feature_status=$(awk '/^### Feature 1:/ { f = 1; next } f && /^\*\*Status:\*\*/ { print; exit }' "$roadmap")
+        assert_shell "$scenario [$shape]" "$([[ "$feature_status" == "**Status:** Done" ]] && echo true || echo false)" \
+            "Feature 1's Status was written Done" "$feature_status" || ok=false
+        local staged
+        staged=$(git diff --cached --name-only -- "$roadmap")
+        assert_shell "$scenario [$shape]" "$([[ "$staged" == "$roadmap" ]] && echo true || echo false)" \
+            "the feature edit is staged" "staged: '$staged'" || ok=false
+
+        rm -rf "$tmpdir"
+        cd "$SCRIPT_DIR"
+    done
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+}
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -3100,6 +3440,15 @@ scenario_roadmap_feature_not_found
 cd "$ORIG_DIR"
 
 scenario_roadmap_feature_no_heading
+cd "$ORIG_DIR"
+
+scenario_roadmap_v2_skipped
+cd "$ORIG_DIR"
+
+scenario_roadmap_v2_all_done_not_deleted
+cd "$ORIG_DIR"
+
+scenario_roadmap_unreadable_frontmatter_is_feature
 cd "$ORIG_DIR"
 
 scenario_push_session_records_expected_head

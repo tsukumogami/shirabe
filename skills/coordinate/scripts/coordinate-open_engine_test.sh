@@ -10,7 +10,8 @@
 # length of 0, a cap of 0, -1 or abc, a parked bound of abc, a host that isn't
 # owner/repo, a --reports-to topic that isn't a topic) are refused with no new
 # session and the live run left alone; --reports-to sets REPORTS_TO, empty
-# without it; a
+# without it; ROADMAP_FORM is feature for a roadmap not in the working tree
+# and milestone for a roadmap/v2 one there; a
 # second valid invocation cancels the first run without deleting its log.
 #
 # Needs koto and jq; SKIPs (exit 0) without koto, which run-tests.sh --engine
@@ -40,6 +41,7 @@ eq "the host is the roadmap's repository" acme/widgets "$(var "$S1" HOST_REPO)"
 eq "the cap given before -- is set" 4 "$(var "$S1" CAP)"
 eq "the rotation length defaults to seven days" 7 "$(var "$S1" ROTATION_DAYS)"
 eq "--reports-to sets the run's escalation target" ws-lead "$(var "$S1" REPORTS_TO)"
+eq "a roadmap not in the working tree is read as a feature roadmap" feature "$(var "$S1" ROADMAP_FORM)"
 
 BEFORE=$(sessions)
 open_ '["--discipline","ci-health"]' >/dev/null; eq "a discipline without --host asks" 10 $?
@@ -60,4 +62,10 @@ printf '%s\n' "$OUT" | grep -qx "cancelled=$S1" && pass "the earlier run is canc
 [ -r "$(koto session dir "$S1")/koto-$S1.state.jsonl" ] && pass "the cancelled run's log is kept" || fail "the cancelled run's log is kept"
 eq "the new run keeps the default cap" 5 "$(var "$S2" CAP)"
 eq "without --reports-to the target is a person (REPORTS_TO empty)" "" "$(var "$S2" REPORTS_TO)"
+# A roadmap/v2 roadmap in the working tree opens a milestone run.
+mkdir -p docs/roadmaps
+printf -- '---\nschema: roadmap/v2\nstatus: Active\n---\n\n# ROADMAP: milestones\n' > docs/roadmaps/ROADMAP-milestones.md
+OUT=$(open_ '["docs/roadmaps/ROADMAP-milestones.md"]'); eq "a milestone roadmap's run opens" 0 $?
+S3=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+eq "  ... with ROADMAP_FORM milestone" milestone "$(var "$S3" ROADMAP_FORM)"
 echo; echo "coordinate-open engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]

@@ -41,6 +41,12 @@
 #                         decisions first; the redispatch's unit is resolved
 #                         before it (docs/designs/current/DESIGN-coordinate-paused-state.md,
 #                         Decision 1)
+#   verdict-owed <tag>    the topic's unit is a milestone whose verdict is
+#                         owed (a verdict-owed Work row): its holding covers
+#                         <tag>, or the row's Who is the topic. Nothing is
+#                         written and pick is asked again
+#                         (docs/designs/DESIGN-milestone-verdicts.md,
+#                         Decision 1)
 #   decision-owed <rule>  decision-next.sh --owed dispatch names a rule that
 #                         blocks this dispatch (the DESIGN's blocking table):
 #                         before the run's first dispatch any owed rule, after
@@ -326,6 +332,25 @@ fi
 if [ -n "$PAUSED" ]; then
     REASON="held by pause $PAUSED: $(jq -r --arg s "$PAUSED" '.pauses[] | select(.standing == $s) | "on \(.on), until \(.until), set \(.set) by \(.owner)"' "$T/pauses.json")"
     finish "paused $PAUSED"
+fi
+
+# A milestone whose verdict is owed (a verdict-owed Work row, which only
+# roadmap-status.sh writes and clears) gets no worker until its verdict's
+# roadmap edit is confirmed. The topic's unit is the one its holding covers
+# (Unit the tag or `<tag>: <title>`), or the one a verdict-owed row names
+# with the topic as its Who, the worker that held it. A brand-new topic for
+# such a unit names no unit here; dispatch-worker.sh refuses that one, since
+# pick marks the unit verdict_owed.
+OWED_TAG=
+if [ "$TOPIC" != - ]; then
+    OWED_TAG=$(jq -r --arg t "$TOPIC" '
+        ([.holdings[] | select(.worker == $t) | .unit | split(": ")[0]]) as $units
+        | [(.work // [])[] | select(.kind == "verdict-owed" and (.who == $t or (.item as $i | $units | index($i))))
+           | .item][0] // empty' "$T/parsed.json") || lib_die2 "jq failed"
+fi
+if [ -n "$OWED_TAG" ]; then
+    REASON="a verdict is owed on $OWED_TAG, which $TOPIC's work is for: no worker is dispatched to it until its verdict's roadmap edit is confirmed (roadmap-status.sh --confirm)"
+    finish "verdict-owed $OWED_TAG"
 fi
 
 # Deferrals raised before the run start.

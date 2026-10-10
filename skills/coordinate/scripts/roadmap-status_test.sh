@@ -6,9 +6,9 @@
 # Covers: --unit opens a pull request from a new branch whose only change to
 # the roadmap is the feature's Status (Done), its Delivered line (added after
 # it, or replacing one) and its Needs line (gone), with the populate run on
-# it, every Outcome line in the file left as it was; on a roadmap/v2 item, a
-# two-line Outcome kept byte for byte while a wrapped Needs and an earlier
-# Delivered go with their wrapped lines; the Side effects row it writes and
+# it, every Outcome line in the file left as it was; on an item with
+# milestone fields, a two-line Outcome kept byte for byte while a wrapped
+# Needs and an earlier Delivered go with their wrapped lines; the Side effects row it writes and
 # the entry that tells it; --list; a second --unit refused while one is
 # pending; --confirm refused (1) while the roadmap on the default branch
 # doesn't read Done, then removing the row once it reads an annotated
@@ -19,6 +19,51 @@
 # tag with a letter suffix reaching that check), one already Done, one
 # reading `Done -- shipped` or Dropped, a discipline scope, a malformed tag,
 # a text over two lines or with a carriage return; nothing is ever merged.
+#
+# On a roadmap/v2 (milestone) roadmap (docs/designs/DESIGN-milestone-verdicts.md):
+# --unit opens nothing, writes a verdict-owed row whose Who is the holding's
+# topic or none, prints `verdict-owed TAG`, and run again writes nothing; it
+# refuses a tag that isn't a milestone and a milestone already Done, and a
+# pending feature-style row doesn't hold it back. --verdict for a verified
+# verdict opens one pull request whose diff sets Done, drops Needs, adds the
+# new work to Delivered and appends the Progress line with the entry's URL and
+# hash, carries the entry in its body, writes a milestone-done row and is never
+# merged; for changes needed the diff is the Progress line alone and the row
+# milestone-verdict; --list names each row's Action; a second edit while one
+# is pending is refused; --confirm checks per Action (Done, or the entry URL
+# in Progress), exits 1 until main shows it, then clears the row and the
+# verdict-owed row; confirming a changes-needed row writes a rework row
+# (Who `verdict <id>`, the not-held clauses and the Changes needed line) and
+# is refused when the comment changed since its Progress line hashed it;
+# --drop keeps the verdict owed, and the same entry's --verdict opens a new
+# edit after it. Refused with nothing opened: no verdict-owed row, an entry
+# check-verdict refuses, verified with follow-ups and no --follow-ups,
+# --follow-ups on another verdict, a checker naming the holding worker, a
+# checker or Work checked value outside its shape, an entry file over 16
+# KiB, an entry URL that isn't on the record, a comment that is no posted
+# entry, of another kind, or whose text differs from the entry file, a
+# Source naming another roadmap, a Source commit main doesn't contain,
+# Evidence on main that differs from the Evidence at Source, a Changes
+# needed line the rework row couldn't hold, and a TAG outside the
+# heading-tag grammar. --follow-ups: a verified-with-follow-ups verdict adds
+# each new section after the last milestone, Not started, and replaces an
+# amended milestone's Outcome, Evidence and Left open with a Progress line
+# naming the amendment, in the one pull request that sets Done; refused: a
+# new tag already used, a new follow-up with no section, an amend of a tag
+# the roadmap lacks, a section missing a field, a section the verdict
+# doesn't name, a home path or a control character in the file, and a file
+# over 32 KiB. --reopen: a failure against a Done milestone opens one pull
+# request whose diff is MV1's Status back to In progress and the reopen
+# Progress line with the entry's URL and hash, carries the entry in its body,
+# writes a milestone-reopen row, prints the held dependent and is never
+# merged; refused with nothing opened: a milestone not Done, a clause out of
+# range, a comment of another kind, an entry file unlike its comment, an
+# entry URL off the record, a bad TAG, a feature roadmap, and a second failure
+# while the edit is pending. --confirm on it exits 1 while main reads Done or
+# reads In progress with no reopen line, refuses a comment changed since its
+# line hashed it, then writes a rework row (Who `failure <id>`, `Evidence
+# clause <n> failed: ...`, a 600-byte report cut to 600 bytes); --drop clears
+# it and the same entry reopens again.
 #
 # Usage: bash skills/coordinate/scripts/roadmap-status_test.sh
 set -uo pipefail
@@ -105,9 +150,9 @@ PRB=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
 eq "one Delivered line, the new one" "**Delivered:** acme/widgets#12" "$(on_branch "$PRB" | sed -n '/^### Feature 2/,/^### Feature 3/p' | grep '^\*\*Delivered')"
 eq "  ... and the Outcome line as it was" "**Outcome:** the promise" "$(on_branch "$PRB" | sed -n '/^### Feature 2/,/^### Feature 3/p' | grep '^\*\*Outcome')"
 
-echo "== a roadmap/v2 milestone =="
+echo "== wrapped fields on a feature roadmap =="
 db_init
-V2=$(printf -- '---\nschema: roadmap/v2\nstatus: Active\n---\n\n# ROADMAP: plugins\n\n## Features\n\n### PS1: the loader\n**Outcome:** A plugin author installs a plugin by name\nand it loads on the next start.\n**Evidence:**\n- an author outside the team installs one\n**Needs:** `needs-design` -- the loader shape,\n  and where it reads from\n**Dependencies:** None\n**Status:** In progress\n**Delivered:** acme/widgets#3, a first cut\n  behind a flag\n**Left open:** remote plugins\n\nThe loader.\n\n### PS2: the registry\n**Outcome:** A plugin is found by name.\n**Dependencies:** PS1\n**Status:** Not started\n')
+V2=$(printf -- '---\nschema: roadmap/v1\nstatus: Active\n---\n\n# ROADMAP: plugins\n\n## Features\n\n### PS1: the loader\n**Outcome:** A plugin author installs a plugin by name\nand it loads on the next start.\n**Evidence:**\n- an author outside the team installs one\n**Needs:** `needs-design` -- the loader shape,\n  and where it reads from\n**Dependencies:** None\n**Status:** In progress\n**Delivered:** acme/widgets#3, a first cut\n  behind a flag\n**Left open:** remote plugins\n\nThe loader.\n\n### PS2: the registry\n**Outcome:** A plugin is found by name.\n**Dependencies:** PS1\n**Status:** Not started\n')
 db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-plugin-system", body: $b, state: "open", author: "alice", editor: null}]
     | .files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' \
     --arg b "$(render "$(record_json roadmap plugin-system)" issue 2026-09-26T08:00:00Z)" --arg r "$V2"
@@ -163,5 +208,480 @@ bash "$RS" "${W[@]}" --unit "Feature 2" --outcome "$(printf 'one\rtwo')" >/dev/n
 bash "$RS" --scope discipline --name ci --repo "$REPO" --ref 9 --skip-session-checks --unit "Feature 2" --outcome x >/dev/null 2>"$T/err"; eq "a discipline scope is a usage error" 64 $?
 bash "$RS" "${W[@]}" --unit "Feature 2" >/dev/null 2>&1; eq "--unit without --outcome is a usage error" 64 $?
 eq "no refusal opened a pull request" 0 "$(jq '.prs | length' "$GH_DB")"
+
+# ---- a milestone roadmap (docs/designs/DESIGN-milestone-verdicts.md) -------
+# Written to a file first: bash 3.2 misreads a quote inside a here-document
+# inside $( ).
+cat > "$T/mv.md" <<'EOF'
+---
+schema: roadmap/v2
+status: Active
+---
+
+# ROADMAP: plugins
+
+## Features
+
+### MV1: the plugin list
+
+**Outcome:** A maintainer lists the plugins they installed.
+
+**Evidence:**
+- A reviewer, from a clean install with three sample plugins, runs
+  `widgets list` and sees exactly those three names.
+- The same reviewer removes one manifest and sees it named as skipped.
+
+**Left open:** the output layout.
+
+**Needs:** `needs-design` -- the list layout
+**Dependencies:** None
+**Status:** In progress
+**Delivered:** acme/widgets#3
+
+### MV2: the host serves
+
+**Outcome:** The host answers on its public name.
+
+**Evidence:**
+- An operator curls the host's public name and gets a 200.
+
+**Left open:** None
+
+**Dependencies:** MV1
+**Status:** In progress
+
+### MV3: done already
+
+**Outcome:** Shipped.
+
+**Evidence:**
+- A reviewer saw it.
+
+**Left open:** None
+
+**Dependencies:** None
+**Status:** Done
+
+## Progress
+
+- 2026-10-01: MV1 and MV2 started
+EOF
+MV=$(cat "$T/mv.md")
+mv_seed() { # mv_seed [record-json]
+    db_init
+    db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-plugin-system", body: $b, state: "open", author: "alice", editor: null}]
+        | .files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' \
+        --arg b "$(render "${1:-$(record_json roadmap plugin-system | jq -c --argjson h "$(holding plugin-list '{"unit": "MV1: the plugin list", "pull_request": ""}')" '.holdings = [$h]')}" issue 2026-09-26T08:00:00Z)" \
+        --arg r "$MV"
+}
+writes() { grep -cE 'POST repos/[^ ]*/git/refs|PUT repos|pr create|issue edit|PATCH' "$GH_DB.calls"; }
+owed() { live | jq -r --arg t "$1" '[(.work // [])[] | select(.kind == "verdict-owed" and .item == $t) | "\(.who)|\(.next)"][0] // "none"'; }
+TODAY=$(date -u +%Y-%m-%d)
+
+echo "== a milestone roadmap: --unit marks the verdict owed =="
+mv_seed
+OUT=$(bash "$RS" "${W[@]}" --unit MV1 2>"$T/err"); rc=$?
+eq "--unit on a roadmap/v2 milestone prints verdict-owed" "0 verdict-owed MV1" "$rc $OUT"
+grep -qE 'git/refs|PUT repos|pr create' "$GH_DB.calls" && bad "  ... with no branch, commit or pull request" "$(calls)" || ok "  ... with no branch, commit or pull request"
+eq "  ... a verdict-owed row, Who its holding's topic" "plugin-list|verdict owed since $TODAY" "$(owed MV1)"
+eq "  ... and no Side effects row" 0 "$(live | jq '.side_effects | length')"
+bash "$RA" "${RM[@]}" --list | jq -e '.[-1].kind == "roadmap-status" and (.[-1].text | test("MV1.s work is finished \\(plugin-list held it\\); its verdict is owed"))' >/dev/null \
+    && ok "  ... an entry tells it" || bad "  ... an entry tells it" "$(bash "$RA" "${RM[@]}" --list | jq -c '.[-1]')"
+BODY1=$(jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB")
+reset_calls
+OUT=$(bash "$RS" "${W[@]}" --unit MV1 --outcome "acme/widgets#12" 2>"$T/err"); rc=$?
+eq "run again it prints the same" "0 verdict-owed MV1" "$rc $OUT"
+eq "  ... and writes nothing" "$BODY1 0" "$(jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB") $(grep -c 'comments' "$GH_DB.calls" | sed 's/^[1-9].*/posted/')"
+OUT=$(bash "$RS" "${W[@]}" --unit MV2 2>"$T/err"); rc=$?
+eq "a milestone no holding names" "0 verdict-owed MV2" "$rc $OUT"
+eq "  ... has Who none" "none|verdict owed since $TODAY" "$(owed MV2)"
+bash "$RS" "${W[@]}" --unit MV9 >/dev/null 2>"$T/err"; eq "a tag that isn't a milestone is refused" 65 $?
+bash "$RS" "${W[@]}" --unit MV3 >/dev/null 2>"$T/err"; eq "a milestone already Done is refused" 65 $?
+eq "--list holds nothing pending" "[]" "$(bash "$RS" "${RM[@]}" --list)"
+# The schema is read before any other refusal: a feature-roadmap rule (one
+# roadmap pull request at a time) doesn't hold the mark back.
+mv_seed "$(record_json roadmap plugin-system | jq -c '.side_effects = [{action: "roadmap-status", target: "MV3 [#5](https://github.com/acme/widgets/pull/5)", verified_head: "", attempted: "2026-09-26T07:00Z", how_to_confirm: "the roadmap on main reads MV3 Done"}]')"
+OUT=$(bash "$RS" "${W[@]}" --unit MV2 2>"$T/err"); rc=$?
+eq "a pending roadmap pull request doesn't hold back the mark" "0 verdict-owed MV2" "$rc $OUT"
+
+echo "== --verdict: verified =="
+mv_seed
+bash "$RS" "${W[@]}" --unit MV1 >/dev/null 2>&1
+bash "$RS" "${W[@]}" --unit MV2 >/dev/null 2>&1
+SRC="Source: docs/roadmaps/ROADMAP-plugin-system.md at $SHA_MAIN"
+ventry() { # ventry <file> <tag> <verdict> <checked-by> <work> <fit> <follow-ups> <changes> <clause>...
+    local f=$1 tag=$2 v=$3 by=$4 work=$5 fit=$6 fu=$7 ch=$8 i=1; shift 8
+    { printf 'Verdict: %s -- %s\nChecked by: %s\nChecked on: %s\n%s\nWork checked: %s\n\nEvidence:\n' "$tag" "$v" "$by" "$TODAY" "$SRC" "$work"
+      for c in "$@"; do printf '%s. %s -- checked on a clean install\n' "$i" "$c"; i=$((i + 1)); done
+      printf '\nStrategy fit: %s -- it serves the plugin bet\nFollow-ups: %s\nChanges needed: %s\n' "$fit" "$fu" "$ch"; } > "$f"
+}
+post() { bash "$RA" "${RM[@]}" --kind milestone-verdict --text-file "$1"; }
+ventry "$T/v1.txt" MV1 verified coordinate-plugins "acme/widgets#12, acme/widgets#3" fits none none held held
+URL1=$(post "$T/v1.txt")
+reset_calls
+OUT=$(bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/v1.txt" --entry-url "$URL1" 2>"$T/err"); rc=$?
+eq "a verified verdict opens the roadmap pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $OUT"
+PRB=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+case "$PRB" in coordinate/roadmap-verdict-mv1-[0-9]*) ok "  ... from a new coordinate/roadmap-verdict branch" ;; *) bad "  ... from a new coordinate/roadmap-verdict branch" "$PRB" ;; esac
+HASH=$( (sha256sum < "$T/v1.txt" 2>/dev/null || shasum -a 256 < "$T/v1.txt") | cut -c1-8)
+diff <(printf '%s\n' "$MV") <(on_branch "$PRB") > "$T/d"
+eq "  ... setting Done, dropping Needs, adding the new work to Delivered and a Progress line, and nothing else" \
+    "$(printf '%s\n' '21d20' '< **Needs:** `needs-design` -- the list layout' '23,24c22,23' '< **Status:** In progress' '< **Delivered:** acme/widgets#3' '---' '> **Status:** Done' '> **Delivered:** acme/widgets#3, acme/widgets#12' '52a52' "> - $TODAY: MV1 -- verified, checked by coordinate-plugins ($URL1, $HASH)")" "$(cat "$T/d")"
+jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB" | grep -qxF '> Verdict: MV1 -- verified' && ok "  ... its body carries the entry" || bad "  ... its body carries the entry" "$(jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB")"
+eq "  ... titled for the milestone" "docs(roadmap): record MV1, the plugin list, as done on its verdict" "$(jq -r '.prs[] | select(.number == 8) | .title' "$GH_DB")"
+grep -qE 'pr merge|/merges|pulls/[0-9]+/merge' "$GH_DB.calls" && bad "  ... never merged" "$(calls)" || ok "  ... never merged"
+eq "  ... a milestone-done row" "milestone-done|MV1 [#8](https://github.com/acme/widgets/pull/8)|the roadmap on main reads MV1 Done" \
+    "$(live | jq -r '.side_effects[0] | "\(.action)|\(.target)|\(.how_to_confirm)"')"
+eq "--list names its Action" '[{"unit":"MV1","action":"milestone-done"}]' "$(bash "$RS" "${RM[@]}" --list | jq -c 'map({unit, action})')"
+eq "  ... and the verdict stays owed" "plugin-list|verdict owed since $TODAY" "$(owed MV1)"
+ventry "$T/v2.txt" MV2 "changes needed" coordinate-plugins none fits none "answer on the public name" "not held"
+URL2=$(post "$T/v2.txt")
+bash "$RS" "${W[@]}" --verdict MV2 --entry-file "$T/v2.txt" --entry-url "$URL2" >/dev/null 2>"$T/err"; eq "a second edit while one is pending is refused" 65 $?
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm while main doesn't read Done is 1" 1 $?
+eq "  ... and keeps the mark" "plugin-list|verdict owed since $TODAY" "$(owed MV1)"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$PRB")"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm once main reads Done" 0 $?
+eq "  ... removes the row and the verdict-owed mark" "0 none" "$(live | jq '.side_effects | length') $(owed MV1)"
+
+echo "== --verdict: changes needed =="
+reset_calls
+OUT=$(bash "$RS" "${W[@]}" --verdict MV2 --entry-file "$T/v2.txt" --entry-url "$URL2" 2>"$T/err"); rc=$?
+eq "a changes-needed verdict opens the roadmap pull request" "0 https://github.com/acme/widgets/pull/9" "$rc $OUT"
+PRB2=$(jq -r '.prs[] | select(.number == 9) | .headRefName' "$GH_DB")
+HASH2=$( (sha256sum < "$T/v2.txt" 2>/dev/null || shasum -a 256 < "$T/v2.txt") | cut -c1-8)
+diff <(jq -r '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"]' "$GH_DB") <(on_branch "$PRB2") > "$T/d"
+eq "  ... adding only the Progress line: Status and Delivered unchanged" \
+    "$(printf '%s\n' '52a53' "> - $TODAY: MV2 -- changes needed, checked by coordinate-plugins ($URL2, $HASH2)")" "$(cat "$T/d")"
+eq "  ... a milestone-verdict row" "milestone-verdict|the roadmap on main carries $URL2 in Progress" \
+    "$(live | jq -r '.side_effects[0] | "\(.action)|\(.how_to_confirm)"')"
+grep -qE 'pr merge|/merges|pulls/[0-9]+/merge' "$GH_DB.calls" && bad "  ... never merged" "$(calls)" || ok "  ... never merged"
+bash "$RS" "${W[@]}" --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm before main carries the line is 1" 1 $?
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$PRB2")"
+bash "$RS" "${W[@]}" --confirm MV2 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm once main carries the entry in Progress" 0 $rc; [ $rc = 0 ] || cat "$T/err"
+jq -r '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"]' "$GH_DB" > "$T/main.md"
+eq "  ... removes the row and the mark; MV2 still reads In progress" "0 none In progress" \
+    "$(live | jq '.side_effects | length') $(owed MV2) $(bash "$HERE/milestone.sh" evidence "$T/main.md" MV2 | jq -r .status)"
+eq "  ... and writes a rework row from the entry: the not-held clauses and the Changes needed line" \
+    "verdict ${URL2##*#issuecomment-}|Evidence clauses not held: 1. Changes needed: answer on the public name" \
+    "$(live | jq -r '[.work[] | select(.kind == "rework" and .item == "MV2")][0] | "\(.who)|\(.next)"')"
+bash "$RA" "${RM[@]}" --list | jq -e '.[-1].kind == "roadmap-status" and (.[-1].text | test("goes back to pick with a rework row"))' >/dev/null \
+    && ok "  ... told as an entry" || bad "  ... told as an entry" "$(bash "$RA" "${RM[@]}" --list | jq -r '.[-1].text')"
+
+echo "== --verdict: refusals =="
+mv_seed
+bash "$RS" "${W[@]}" --unit MV1 >/dev/null 2>&1
+vrefuse() { # vrefuse <label> <tag> <entry-file> [url]
+    local u=${4-}
+    [ -n "$u" ] || u=$(post "$3")
+    reset_calls
+    bash "$RS" "${W[@]}" --verdict "$2" --entry-file "$3" --entry-url "$u" >/dev/null 2>"$T/err"; local rc=$?
+    if [ $rc = 65 ] && [ "$(writes)" = 0 ]; then ok "$1"; else bad "$1" "rc $rc, writes $(writes): $(cat "$T/err")"; fi
+}
+ventry "$T/r.txt" MV2 verified coordinate-plugins none fits none none held
+vrefuse "a milestone with no verdict-owed row" MV2 "$T/r.txt"
+grep -q 'MV2 has no verdict-owed row' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+ventry "$T/r.txt" MV1 verified coordinate-plugins none fits none none held
+vrefuse "an entry check-verdict refuses (a clause count other than the milestone's)" MV1 "$T/r.txt"
+grep -q 'line 8: the entry judges 1 clause' "$T/err" && ok "  ... naming the line" || bad "  ... naming the line" "$(cat "$T/err")"
+ventry "$T/r.txt" MV1 "verified with follow-ups" coordinate-plugins none fits "new: a plugin search" none held held
+vrefuse "a verified-with-follow-ups verdict with no --follow-ups" MV1 "$T/r.txt"
+grep -q "give each one's section with --follow-ups FILE" "$T/err" && ok "  ... saying to give the sections" || bad "  ... saying to give the sections" "$(cat "$T/err")"
+ventry "$T/r.txt" MV1 verified "Plugin-List relayed" none fits none none held held
+vrefuse "a checker naming the holding worker's topic" MV1 "$T/r.txt"
+ventry "$T/r.txt" MV1 verified "a/b" none fits none none held held
+vrefuse "a checker outside its closed shape" MV1 "$T/r.txt"
+ventry "$T/r.txt" MV1 verified coordinate-plugins "acme/widgets 12" fits none none held held
+vrefuse "a Work checked value outside its closed shape" MV1 "$T/r.txt"
+ventry "$T/r.txt" MV1 verified coordinate-plugins none fits none none held held
+{ cat "$T/r.txt"; head -c 17000 /dev/zero | tr '\0' 'x'; } > "$T/big.txt"
+vrefuse "an entry file over 16 KiB" MV1 "$T/big.txt" "https://github.com/acme/widgets/issues/7#issuecomment-1001"
+vrefuse "an entry URL that isn't a comment on the record" MV1 "$T/r.txt" "https://github.com/acme/widgets/issues/8#issuecomment-1001"
+sed "s|^Source: .*|Source: docs/roadmaps/ROADMAP-other.md at $SHA_MAIN|" "$T/r.txt" > "$T/r2.txt"
+vrefuse "a Source naming another roadmap" MV1 "$T/r2.txt"
+# Evidence sharpened on main since the entry's Source: the clauses it judged
+# are not the ones main carries now.
+db '.files["acme/widgets"][$k] = $t' --arg k "$SHA_OTHER:docs/roadmaps/ROADMAP-plugin-system.md" --arg t "$MV"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] |= sub("named as skipped"; "named as skipped, with the reason")'
+sed "s|^Source: .*|Source: docs/roadmaps/ROADMAP-plugin-system.md at $SHA_OTHER|" "$T/r.txt" > "$T/r3.txt"
+vrefuse "a Source commit main doesn't contain" MV1 "$T/r3.txt"
+grep -q "main doesn't contain the entry's Source commit, $SHA_OTHER" "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+grep -q "compare/$SHA_OTHER...$SHA_MAIN" "$GH_DB.calls" && ok "  ... read through the compare API against main's head" || bad "  ... read through the compare API against main's head" "$(calls)"
+db '.history["acme/widgets"] = [$s]' --arg s "$SHA_OTHER"
+vrefuse "Evidence on main that differs from the Evidence at Source" MV1 "$T/r3.txt"
+grep -q "differs from its Evidence at the entry's Source" "$T/err" && ok "  ... saying to check the clauses again" || bad "  ... saying to check the clauses again" "$(cat "$T/err")"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $t' --arg t "$MV"
+# The entry bound to its comment.
+URLB=$(post "$T/r.txt")
+sed 's/^1\. held -- .*/1. held -- read it on the record/' "$T/r.txt" > "$T/r4.txt"
+vrefuse "an entry file that differs from the comment at its URL" MV1 "$T/r4.txt" "$URLB"
+grep -q "the entry file differs from the comment" "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+URLE=$(bash "$RA" "${RM[@]}" --kind entry --text-file "$T/r.txt")
+vrefuse "a comment that is another kind of entry" MV1 "$T/r.txt" "$URLE"
+grep -q "is not a milestone-verdict entry" "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+vrefuse "a comment id the record has no comment for" MV1 "$T/r.txt" "https://github.com/acme/widgets/issues/7#issuecomment-99999"
+db '.issues += [{repo: "acme/widgets", number: 8, title: "another issue", body: "x", state: "open", author: "alice", editor: null}]
+    | .comments += [{repo: "acme/widgets", number: 8, id: 5001, body: $b, user: "alice", created_at: "2026-10-09T10:00:00Z", updated_at: "2026-10-09T10:00:00Z"}]' \
+    --arg b "$(jq -r --arg u "${URLB##*#issuecomment-}" '.comments[] | select((.id | tostring) == $u) | .body' "$GH_DB")"
+vrefuse "a comment on another issue, though the URL names the record" MV1 "$T/r.txt" "https://github.com/acme/widgets/issues/7#issuecomment-5001"
+grep -q "is not on this run's record" "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+ventry "$T/r5.txt" MV1 verified coordinate-plugins none fits none none held held
+URL5=$(post "$T/r5.txt")
+printf '### MV9: x\n' > "$T/fu0.md"
+reset_calls
+bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/r5.txt" --entry-url "$URL5" --follow-ups "$T/fu0.md" >/dev/null 2>"$T/err"
+eq "--follow-ups with a verified verdict is refused, nothing written" "65 0" "$? $(writes)"
+ventry "$T/r6.txt" MV1 "changes needed" coordinate-plugins none fits none "see https://example.com/notes for the list" "not held" held
+vrefuse "a changes-needed verdict whose Changes needed line holds a URL" MV1 "$T/r6.txt"
+grep -q "becomes the milestone's rework text" "$T/err" && ok "  ... saying the rework text couldn't hold it" || bad "  ... saying the rework text couldn't hold it" "$(cat "$T/err")"
+bash "$RS" "${W[@]}" --verdict "not a tag" --entry-file "$T/r.txt" --entry-url "https://github.com/acme/widgets/issues/7#issuecomment-1001" >/dev/null 2>"$T/err"
+eq "a TAG outside the heading-tag grammar is refused" 65 $?
+eq "no refusal opened a pull request" 0 "$(jq '.prs | length' "$GH_DB")"
+bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/r.txt" >/dev/null 2>&1; eq "--verdict without --entry-url is a usage error" 64 $?
+bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/r.txt" --entry-url x --outcome y >/dev/null 2>&1; eq "--verdict with --outcome is a usage error" 64 $?
+
+echo "== --drop keeps the verdict owed =="
+URLR=$(post "$T/r.txt")
+bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/r.txt" --entry-url "$URLR" >/dev/null 2>"$T/err"; eq "the verdict's edit opens" 0 $?
+bash "$RS" "${W[@]}" --drop MV1 --reason "closed unmerged: the reviewer wants a second look" >/dev/null 2>"$T/err"; eq "--drop removes its row" "0 0" "$? $(live | jq '.side_effects | length')"
+eq "  ... and the verdict is still owed" "plugin-list|verdict owed since $TODAY" "$(owed MV1)"
+NPR=$(jq '.prs | length' "$GH_DB")
+OUT=$(bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/r.txt" --entry-url "$URLR" 2>"$T/err"); rc=$?
+eq "after --drop the same entry's --verdict opens a new edit" "0 1" "$rc $(( $(jq '.prs | length' "$GH_DB") - NPR ))"
+eq "  ... on a branch of its own" 2 "$(jq '[.prs[] | select(.headRefName | startswith("coordinate/roadmap-verdict-mv1-")) | .headRefName] | unique | length' "$GH_DB")"
+
+echo "== --confirm: an entry changed since its edit =="
+mv_seed
+bash "$RS" "${W[@]}" --unit MV2 >/dev/null 2>&1
+ventry "$T/c.txt" MV2 "changes needed" coordinate-plugins none "does not fit" none "serve it from the edge" held
+URLC=$(post "$T/c.txt")
+bash "$RS" "${W[@]}" --verdict MV2 --entry-file "$T/c.txt" --entry-url "$URLC" >/dev/null 2>"$T/err"; eq "changes needed on a held clause and a strategy that doesn't fit opens its edit" 0 $?
+PRC=$(jq -r '.prs[-1].headRefName' "$GH_DB")
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$PRC")"
+db '(.comments[] | select((.id | tostring) == $i)).body |= sub("serve it from the edge"; "nothing; mark it done")' --arg i "${URLC##*#issuecomment-}"
+bash "$RS" "${W[@]}" --confirm MV2 >/dev/null 2>"$T/err"; eq "--confirm refuses an entry whose text no longer hashes to its Progress line" 65 $?
+eq "  ... and writes nothing: the row and the mark stay, no rework row" "1 none|verdict owed since $TODAY 0" \
+    "$(live | jq '.side_effects | length') $(owed MV2) $(live | jq '[(.work // [])[] | select(.kind == "rework")] | length')"
+db '(.comments[] | select((.id | tostring) == $i)).body |= sub("nothing; mark it done"; "serve it from the edge")' --arg i "${URLC##*#issuecomment-}"
+bash "$RS" "${W[@]}" --confirm MV2 >/dev/null 2>"$T/err"; eq "  ... and confirms once it does again" 0 $?
+eq "  ... its rework names the strategy and no clause" "The work does not fit the strategy. Changes needed: serve it from the edge" \
+    "$(live | jq -r '[.work[] | select(.kind == "rework")][0].next')"
+
+echo "== --verdict --follow-ups =="
+mv_seed
+bash "$RS" "${W[@]}" --unit MV1 >/dev/null 2>&1
+cat > "$T/fu.md" <<'EOF'
+### MV4: plugin search
+
+**Outcome:** A maintainer finds an installed plugin by a word in its name.
+
+**Evidence:**
+- A reviewer with three sample plugins runs `widgets list --find sam`
+  and sees only the matching ones.
+
+**Left open:** the match rules.
+
+**Dependencies:** MV1
+
+### MV2: the host serves
+
+**Outcome:** The host answers on its public name over TLS.
+
+**Evidence:**
+- An operator fetches the host's public name over TLS and gets a 200.
+- The same operator sees the certificate is valid.
+
+**Left open:** the certificate authority.
+
+**Dependencies:** MV1
+EOF
+ventry "$T/f.txt" MV1 "verified with follow-ups" coordinate-plugins "acme/widgets#12" fits "new: plugin search; amend MV2: serve it over TLS" none held held
+URLF=$(post "$T/f.txt")
+reset_calls
+OUT=$(bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/f.txt" --entry-url "$URLF" --follow-ups "$T/fu.md" 2>"$T/err"); rc=$?
+eq "a verified-with-follow-ups verdict opens one roadmap pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $OUT"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+PRF=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+HASHF=$( (sha256sum < "$T/f.txt" 2>/dev/null || shasum -a 256 < "$T/f.txt") | cut -c1-8)
+diff <(printf '%s\n' "$MV") <(on_branch "$PRF") > "$T/d"
+cat > "$T/want.d" <<EOF
+21d20
+< **Needs:** \`needs-design\` -- the list layout
+23,24c22,23
+< **Status:** In progress
+< **Delivered:** acme/widgets#3
+---
+> **Status:** Done
+> **Delivered:** acme/widgets#3, acme/widgets#12
+28c27
+< **Outcome:** The host answers on its public name.
+---
+> **Outcome:** The host answers on its public name over TLS.
+31c30,31
+< - An operator curls the host's public name and gets a 200.
+---
+> - An operator fetches the host's public name over TLS and gets a 200.
+> - The same operator sees the certificate is valid.
+33c33
+< **Left open:** None
+---
+> **Left open:** the certificate authority.
+49a50,62
+> ### MV4: plugin search
+> 
+> **Outcome:** A maintainer finds an installed plugin by a word in its name.
+> 
+> **Evidence:**
+> - A reviewer with three sample plugins runs \`widgets list --find sam\`
+>   and sees only the matching ones.
+> 
+> **Left open:** the match rules.
+> 
+> **Dependencies:** MV1
+> **Status:** Not started
+> 
+52a66,67
+> - $TODAY: MV1 -- verified with follow-ups, checked by coordinate-plugins ($URLF, $HASHF)
+> - $TODAY: MV2 amended -- a follow-up of the verified verdict on MV1 ($URLF)
+EOF
+eq "  ... setting Done, amending MV2 in place, adding MV4 after the last milestone, with both Progress lines" "$(cat "$T/want.d")" "$(cat "$T/d")"
+eq "  ... a milestone-done row" "milestone-done" "$(live | jq -r '.side_effects[0].action')"
+jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB" | grep -q '^- adds MV4: plugin search' && ok "  ... its body names the follow-ups" \
+    || bad "  ... its body names the follow-ups" "$(jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB")"
+grep -qE 'pr merge|/merges|pulls/[0-9]+/merge' "$GH_DB.calls" && bad "  ... never merged" "$(calls)" || ok "  ... never merged"
+# Refusals, each from a fresh record with MV1's verdict owed.
+furefuse() { # furefuse <label> <follow-ups line> <follow-ups file> <stderr text>
+    mv_seed
+    bash "$RS" "${W[@]}" --unit MV1 >/dev/null 2>&1
+    ventry "$T/fr.txt" MV1 "verified with follow-ups" coordinate-plugins none fits "$2" none held held
+    local u
+    u=$(post "$T/fr.txt")
+    reset_calls
+    bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/fr.txt" --entry-url "$u" --follow-ups "$3" >/dev/null 2>"$T/err"; local rc=$?
+    if [ $rc = 65 ] && [ "$(writes)" = 0 ] && grep -qF -- "$4" "$T/err"; then ok "$1"; else bad "$1" "rc $rc, writes $(writes): $(cat "$T/err")"; fi
+}
+FU2="new: plugin search; amend MV2: serve it over TLS"
+sed 's/^### MV4:/### MV3:/' "$T/fu.md" > "$T/fu1.md"
+furefuse "a new follow-up under a tag already used" "$FU2" "$T/fu1.md" "takes the tag MV3, which the roadmap already uses"
+furefuse "a new follow-up with no section" "new: plugin ratings; amend MV2: serve it over TLS" "$T/fu.md" "new: plugin ratings\` has no section"
+sed 's/^### MV2: the host serves/### MV7: the host serves/' "$T/fu.md" > "$T/fu2.md"
+furefuse "an amend of a tag the roadmap lacks" "new: plugin search; amend MV7: serve it over TLS" "$T/fu2.md" "amend MV7\` names a tag the roadmap has no milestone for"
+grep -v '^\*\*Left open:\*\* the match rules\.' "$T/fu.md" > "$T/fu3.md"
+furefuse "a section missing a required field" "$FU2" "$T/fu3.md" "follow-up section MV4: no Left open"
+furefuse "a section the verdict doesn't name" "new: plugin search" "$T/fu.md" "section MV2 is no follow-up the verdict names"
+# The path is built at run time, so the repository never carries a
+# home-directory path itself.
+HOME_PATH="/Us""ers/someone/notes"
+sed "s|the match rules\\.|the match rules, in $HOME_PATH.|" "$T/fu.md" > "$T/fu4.md"
+furefuse "follow-up text that fails the redaction check" "$FU2" "$T/fu4.md" "home-directory path"
+{ cat "$T/fu.md"; printf 'x\001y\n'; } > "$T/fu5.md"
+furefuse "a control character in the follow-ups file" "$FU2" "$T/fu5.md" "control character"
+{ cat "$T/fu.md"; head -c 33000 /dev/zero | tr '\0' 'x'; } > "$T/fu6.md"
+furefuse "a follow-ups file over 32 KiB" "$FU2" "$T/fu6.md" "over 32768"
+sed 's/^### MV2: the host serves/### MV2: the host answers/' "$T/fu.md" > "$T/fu7.md"
+furefuse "an amend that retitles its milestone" "$FU2" "$T/fu7.md" "retitles it"
+
+# ---- --reopen: a failure against a Done milestone ---------------------------
+# The roadmap with MV1 Done (the first In progress Status) and MV2, which
+# depends on MV1, still In progress and held by a worker.
+printf '%s\n' "$MV" | awk '!d && /^\*\*Status:\*\* In progress$/ { print "**Status:** Done"; d = 1; next } { print }' > "$T/mvd.md"
+MVD=$(cat "$T/mvd.md")
+rs_seed() { # rs_seed: the record with MV2's holding, main reading MV1 Done
+    mv_seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding mv2-host '{"unit": "MV2: the host serves", "pull_request": ""}')" '.holdings = [$h]')"
+    db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$MVD"
+}
+fentry() { # fentry <file> <tag> <clause> <what>
+    printf 'Failure: %s\nReported by: an operator\nSeen on: %s\nClause: %s\nWhat was seen: %s\n' "$2" "$TODAY" "$3" "$4" > "$1"
+}
+fpost() { bash "$RA" "${RM[@]}" --kind milestone-failure --text-file "$1"; }
+rrefuse() { # rrefuse <label> <tag> <entry-file> [url]
+    local u=${4-}
+    [ -n "$u" ] || u=$(fpost "$3")
+    reset_calls
+    bash "$RS" "${W[@]}" --reopen "$2" --entry-file "$3" --entry-url "$u" >/dev/null 2>"$T/err"; local rc=$?
+    if [ $rc = 65 ] && [ "$(writes)" = 0 ]; then ok "$1"; else bad "$1" "rc $rc, writes $(writes): $(cat "$T/err")"; fi
+}
+main_md() { jq -r '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"]' "$GH_DB"; }
+
+echo "== --reopen: refusals =="
+rs_seed
+fentry "$T/f2.txt" MV2 1 "the public name timed out"
+rrefuse "a failure against a milestone not Done" MV2 "$T/f2.txt"
+grep -q 'line 1: MV2 reads In progress, not Done' "$T/err" && ok "  ... naming the line" || bad "  ... naming the line" "$(cat "$T/err")"
+fentry "$T/f3.txt" MV1 3 "a third check failed"
+rrefuse "a clause out of range" MV1 "$T/f3.txt"
+grep -q "line 4: clause 3 is not one of MV1's Evidence clauses" "$T/err" && ok "  ... naming the line" || bad "  ... naming the line" "$(cat "$T/err")"
+fentry "$T/f.txt" MV1 2 "the removed manifest was listed as installed"
+rrefuse "a comment of another entry kind" MV1 "$T/f.txt" "$(bash "$RA" "${RM[@]}" --kind milestone-verdict --text-file "$T/f.txt")"
+grep -q 'is not a milestone-failure entry' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+URLF=$(fpost "$T/f.txt")
+sed 's/listed as installed/listed twice/' "$T/f.txt" > "$T/f4.txt"
+rrefuse "an entry file that differs from the comment at its URL" MV1 "$T/f4.txt" "$URLF"
+rrefuse "an entry URL that isn't on the record" MV1 "$T/f.txt" "https://github.com/acme/widgets/issues/8#issuecomment-1001"
+bash "$RS" "${W[@]}" --reopen "not a tag" --entry-file "$T/f.txt" --entry-url "$URLF" >/dev/null 2>&1; eq "a TAG outside the heading-tag grammar is refused" 65 $?
+bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f.txt" --entry-url "$URLF" --follow-ups "$T/f.txt" >/dev/null 2>&1; eq "--reopen with --follow-ups is a usage error" 64 $?
+bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f.txt" >/dev/null 2>&1; eq "--reopen without --entry-url is a usage error" 64 $?
+eq "no refusal opened a pull request" 0 "$(jq '.prs | length' "$GH_DB")"
+
+echo "== --reopen: the edit =="
+reset_calls
+OUT=$(bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f.txt" --entry-url "$URLF" 2>"$T/err"); rc=$?
+eq "a failure against Done MV1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(printf '%s\n' "$OUT" | head -1)"
+[ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
+eq "  ... and names MV2, which depends on MV1 and holds a worker" "held-dependent MV2 mv2-host" "$(printf '%s\n' "$OUT" | sed -n '2,$p')"
+PRR=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")
+case "$PRR" in coordinate/roadmap-reopen-mv1-[0-9]*) ok "  ... from a new coordinate/roadmap-reopen branch" ;; *) bad "  ... from a new coordinate/roadmap-reopen branch" "$PRR" ;; esac
+HASHF=$( (sha256sum < "$T/f.txt" 2>/dev/null || shasum -a 256 < "$T/f.txt") | cut -c1-8)
+diff "$T/mvd.md" <(on_branch "$PRR") > "$T/d"
+eq "  ... setting MV1 In progress and adding the reopen Progress line, and nothing else" \
+    "$(printf '%s\n' '23c23' '< **Status:** Done' '---' '> **Status:** In progress' '52a53' "> - $TODAY: MV1 -- reopened: clause 2 failed, reported by an operator ($URLF, $HASHF)")" "$(cat "$T/d")"
+jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB" | grep -qxF '> What was seen: the removed manifest was listed as installed' \
+    && ok "  ... its body carries the entry" || bad "  ... its body carries the entry" "$(jq -r '.prs[] | select(.number == 8) | .body' "$GH_DB")"
+eq "  ... titled for the reopen" "docs(roadmap): reopen MV1, the plugin list, on a reported failure" "$(jq -r '.prs[] | select(.number == 8) | .title' "$GH_DB")"
+grep -qE 'pr merge|/merges|pulls/[0-9]+/merge' "$GH_DB.calls" && bad "  ... never merged" "$(calls)" || ok "  ... never merged"
+eq "  ... a milestone-reopen row" "milestone-reopen|MV1 [#8](https://github.com/acme/widgets/pull/8)|the roadmap on main reads MV1 In progress" \
+    "$(live | jq -r '.side_effects[0] | "\(.action)|\(.target)|\(.how_to_confirm)"')"
+eq "--list names its Action" '[{"unit":"MV1","action":"milestone-reopen"}]' "$(bash "$RS" "${RM[@]}" --list | jq -c 'map({unit, action})')"
+bash "$RA" "${RM[@]}" --list | jq -e '.[-1].kind == "roadmap-status" and (.[-1].text | test("A failure of Evidence clause 2 of MV1"))' >/dev/null \
+    && ok "  ... told as an entry" || bad "  ... told as an entry" "$(bash "$RA" "${RM[@]}" --list | jq -r '.[-1].text')"
+fentry "$T/f5.txt" MV1 1 "the list printed nothing"
+rrefuse "a second failure while the reopen edit is pending opens nothing" MV1 "$T/f5.txt"
+grep -q 'already pending' "$T/err" && ok "  ... saying an edit is pending" || bad "  ... saying an edit is pending" "$(cat "$T/err")"
+
+echo "== --reopen: --confirm =="
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm while main still reads Done is 1" 1 $?
+eq "  ... and leaves the row" 1 "$(live | jq '.side_effects | length')"
+# In progress on main by some other hand, with no reopen line: not this edit.
+sed 's/^\*\*Status:\*\* Done$/**Status:** In progress/' "$T/mvd.md" | awk '/^### MV3/ { m = 1 } m && /^\*\*Status:\*\*/ { print "**Status:** Done"; m = 0; next } { print }' > "$T/hand.md"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(cat "$T/hand.md")"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm with MV1 In progress but no reopen line on main is 1" 1 $?
+grep -q 'is no reopen on this run' "$T/err" && ok "  ... saying so" || bad "  ... saying so" "$(cat "$T/err")"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$PRR")"
+db '(.comments[] | select((.id | tostring) == $i)).body |= sub("listed as installed"; "fine after all")' --arg i "${URLF##*#issuecomment-}"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "--confirm refuses a failure entry whose text no longer hashes to its Progress line" 65 $?
+eq "  ... and writes nothing" "1 0" "$(live | jq '.side_effects | length') $(live | jq '[(.work // [])[] | select(.kind == "rework")] | length')"
+db '(.comments[] | select((.id | tostring) == $i)).body |= sub("fine after all"; "listed as installed")' --arg i "${URLF##*#issuecomment-}"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; rc=$?; eq "--confirm once main reads MV1 In progress with the reopen line" 0 $rc; [ $rc = 0 ] || cat "$T/err"
+eq "  ... removes the row and writes a rework row from the failure" \
+    "0|failure ${URLF##*#issuecomment-}|Evidence clause 2 failed: the removed manifest was listed as installed" \
+    "$(live | jq '.side_effects | length')|$(live | jq -r '[.work[] | select(.kind == "rework" and .item == "MV1")][0] | "\(.who)|\(.next)"')"
+bash "$RA" "${RM[@]}" --list | jq -e '.[-1].kind == "roadmap-status" and (.[-1].text | test("goes back to pick with a rework row"))' >/dev/null \
+    && ok "  ... told as an entry" || bad "  ... told as an entry" "$(bash "$RA" "${RM[@]}" --list | jq -r '.[-1].text')"
+
+echo "== --reopen: --drop, and a long report =="
+rs_seed
+fentry "$T/f6.txt" MV1 1 "$(head -c 600 /dev/zero | tr '\0' 'x')"
+URL6=$(fpost "$T/f6.txt")
+bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f6.txt" --entry-url "$URL6" >/dev/null 2>"$T/err"; eq "a 600-byte What was seen opens its edit" 0 $?
+bash "$RS" "${W[@]}" --drop MV1 --reason "closed unmerged: the report was a misread" >/dev/null 2>"$T/err"; eq "--drop removes the reopen row" "0 0" "$? $(live | jq '.side_effects | length')"
+NPR=$(jq '.prs | length' "$GH_DB")
+bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f6.txt" --entry-url "$URL6" >/dev/null 2>"$T/err"; eq "after --drop the same entry's --reopen opens a new edit" "0 1" "$? $(( $(jq '.prs | length' "$GH_DB") - NPR ))"
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-plugin-system.md"] = $r' --arg r "$(on_branch "$(jq -r '.prs[-1].headRefName' "$GH_DB")")"
+bash "$RS" "${W[@]}" --confirm MV1 >/dev/null 2>"$T/err"; eq "  ... which confirms" 0 $?
+live | jq -r '[.work[] | select(.kind == "rework")][0].next' > "$T/next.txt"
+eq "  ... into a rework text cut to 600 bytes, ending ..." "600 true" \
+    "$(tr -d '\n' < "$T/next.txt" | LC_ALL=C wc -c | tr -d ' ') $(grep -q '^Evidence clause 1 failed: x*\.\.\.$' "$T/next.txt" && echo true)"
+seed
+bash "$RS" "${W[@]}" --reopen "Feature 1" --entry-file "$T/f.txt" --entry-url "https://github.com/acme/widgets/issues/7#issuecomment-1001" >/dev/null 2>"$T/err"
+eq "--reopen on a feature roadmap is refused" 65 $?
 
 done_tests roadmap-status_test

@@ -82,7 +82,7 @@ supplied upstream is therefore always a `/vision` run — there is no
 upstream thesis to build on, and nothing the author says about the
 thesis changes that.
 
-**A supplied upstream is an upstream thesis.** When the state file
+**A supplied upstream is an upstream thesis.** When `work/state.md`
 carries `consumed_upstream:` — the author invoked
 `/charter <topic> --upstream <vision-path>` and the value passed
 Phase 0 step 0.4 — the auto-skip half of the gate fires on that
@@ -179,13 +179,15 @@ question at all.
 The skip statement lives in the conversation and nowhere else.
 Nothing that gets committed carries it:
 
-- `wip/charter_<topic>_state.md` — no `chain_skipped:` entry for
+- Key `work/state.md` in `charter-<topic>` — no `chain_skipped:` entry for
   `comp`, and `comp` is absent from `planned_chain`. The state
-  file is durably public from feature-branch push time (see the
-  security discussion in
+  outlives the run — a close keeps the session — and its content is
+  readable by anything that can read the session (see the security
+  discussion in
   `skills/charter/references/phases/phase-state-management.md`),
   so an entry naming `comp` would put a private-only artifact type
-  into a public record whatever the `reason` field said. A child
+  into a record with readers whatever the `reason` field said, which
+  is why the skip stays out of state. A child
   whose gate never opened was never planned, so there is nothing to
   record; `chain_skipped:` is for children that were planned and
   then held back, like a declined `/roadmap`.
@@ -262,7 +264,7 @@ orchestration).
 
 `/charter` passes `/strategy` one of three valid upstream shapes.
 The three shapes are mutually exclusive — `/charter` picks the one
-that matches the chain's discovery outputs and the state file's
+that matches the chain's discovery outputs and the state's
 `consumed_upstream:` field.
 
 1. **Freeform topic.** No upstream artifact path is available;
@@ -307,7 +309,7 @@ names the produced document after the VISION: a bet on
 `payment-retries` grounded in `docs/visions/VISION-platform.md`
 would land at `docs/strategies/STRATEGY-platform.md`, under a slug
 `/charter` never validated and never recorded, while `/charter`'s
-own state file, its `exit_artifacts:` list, and its R20
+own state, its `exit_artifacts:` list, and its R20
 file-existence check all still name `STRATEGY-payment-retries.md`.
 
 That has worked until now only because the two slugs coincided by
@@ -428,7 +430,7 @@ here. In `--auto` mode the prompt does not fire at all and
 special case, and no observation the walk can produce creates one.
 The declination is an interactive choice, never an inference.
 
-A declination is recorded in the state file's `chain_skipped:`
+A declination is recorded in the state's `chain_skipped:`
 list as a `{child, reason}` entry. `roadmap` stays in
 `planned_chain` — the plan was to run it; the author declined —
 and is absent from `chain_ran`:

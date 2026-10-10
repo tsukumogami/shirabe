@@ -53,7 +53,7 @@ Read `wip/explore_<topic>_crystallize.md` and extract the chosen outcome.
 | Entry Point | Reference File | Arm |
 |-------------|----------------|-----|
 | File an issue | `phase-5-produce-file-an-issue.md` | No document; next step `/work-on <issue-number>` |
-| `/charter` | `phase-5-produce-handoff.md` (`/charter` binding) | Writes `wip/charter_<topic>_handoff.md`; author runs `/charter` |
+| `/charter` | `phase-5-produce-handoff.md` (`/charter` binding) | Writes key `handoff/charter.md` in `explore-<topic>`; author runs `/charter` |
 | `/scope` | `phase-5-produce-handoff.md` (`/scope` binding) | Writes key `handoff/scope.md` in `explore-<topic>`; author runs `/scope` |
 | `/execute` | `phase-5-produce-execute.md` | Only when a qualifying PLAN exists: no document, author runs `/execute <plan-path>` |
 
@@ -106,10 +106,10 @@ terminal destinations may reference them. Cleanup happens when the next workflow
 completes or when the user runs `/cleanup`.
 
 The handoff artifact is not `/explore`'s to clean either. It belongs to the
-parent's run. `/charter`'s Phase 4 sweep removes its file on exit; `/scope`
-removes the `handoff/scope.md` key once consumed and closes `explore-<topic>`
-when it holds nothing else. A parent that bails at Phase 1 leaves the handoff
-in place so a later invocation reaches it.
+parent's run. Each parent removes its handoff key once consumed — `/scope`
+removes `handoff/scope.md` and `/charter` removes `handoff/charter.md` — and
+closes `explore-<topic>` when it then holds nothing else. A parent that bails
+at Phase 1 leaves the handoff in place so a later invocation reaches it.
 
 ## Quality Checklist
 

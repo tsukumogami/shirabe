@@ -197,13 +197,14 @@ dc_valid_topic() {
 # `<host>#<n>`, with the host pick_facts recorded; a unit a person assigned
 # (its `assigned` set) by its id as the record names it, and `<host><id>` for
 # an id that is `#<n>`. A landed unit (its roadmap
-# pull request pending, `landed` set) has no form, so no brief for it renders.
+# pull request pending, `landed` set) has no form, so no brief for it renders,
+# and neither has a milestone whose verdict is owed (`verdict_owed` true).
 # Returns 2 when the file isn't pick_facts' JSON. pick-facts_test.sh holds the
 # two rules together.
 dc_unit_forms() {
     jq -r '
         if (.units | type) != "array" then error("no units") else . end
-        | .scope as $s | (.host // "") as $h | .units[] | select((.landed // null) == null)
+        | .scope as $s | (.host // "") as $h | .units[] | select((.landed // null) == null and (.verdict_owed // false) != true)
         | if (.assigned // null) != null then .unit, (if $h != "" and (.unit | startswith("#")) then $h + .unit else empty end)
           elif $s == "roadmap" then .unit, (if (.title // "") == "" then empty else "\(.unit): \(.title)" end)
           else .unit, (if $h != "" then $h + .unit else empty end) end' "$1" 2>/dev/null || return 2
