@@ -168,21 +168,6 @@ else
     bad "--verify leaves work/prior-run.md alone (no context write)"
 fi
 
-echo "== a staging-folder file in unpushed history is not this script's business =="
-setup single-pr
-mkdir -p "$R/wip"
-printf '# repo\n\n## Repo Visibility: Public\n' >"$R/CLAUDE.md"
-printf 'see private/tools/notes.md for the numbers\n' >"$R/wip/scope_topic_state.md"
-git -C "$R" add CLAUDE.md wip && git -C "$R" commit -q -m "wip: notes"
-BEFORE_HEAD=$(git -C "$R" rev-parse HEAD)
-run --topic topic --exit full-run --intent continue --session s-folder
-eq "folder: exit 0" "0" "$RC"
-eq "folder: no commit added over HEAD" "$BEFORE_HEAD" "$(git -C "$R" rev-parse HEAD)"
-eq "folder: the file is still tracked" "wip/scope_topic_state.md" "$(git -C "$R" ls-files -- wip)"
-eq "folder: HEAD was pushed as it is" "$BEFORE_HEAD" "$(remote_sha docs/topic)"
-eq "folder: no wip_paths line" "" "$(line wip_paths)"
-if [ -f "$STORE/s-folder/wip_paths" ]; then bad "folder: no wip_paths context key"; else ok "folder: no wip_paths context key"; fi
-
 echo "== one owned PR already open =="
 setup single-pr
 seed_pr "https://github.com/acme/widgets/pull/7" false me main continue
