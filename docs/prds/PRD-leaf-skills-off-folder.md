@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   The resume convention moved the two chains onto koto session keys, but four
   shirabe skills still write the staging folder on main: /explore's own working
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-leaf-skills-off-folder](docs/briefs/BRIEF-leaf-skills-off-folder.md); carried in Absorbed Brief.
 
@@ -178,10 +178,10 @@ file is used.
   file is removed: /comp is in no parent's list of children and always runs
   directly. /comp's topic check is the topic grammar.
 - **R5. /release's state is keys, rewritten on every run.** /release opens
-  `release-<topic>`. The topic is the repository's name as `gh repo view --json
-  name` prints it, lowercased, with each run of characters outside `[a-z0-9]`
-  replaced by one `-` and leading or trailing `-` removed (`shirabe` for this
-  repository). Phase 1 writes the range, the membership list and the
+  `release-<topic>`. The topic is the repository's owner and name as `gh repo
+  view --json owner,name` prints them, joined as `<owner>-<name>`, lowercased,
+  with each run of characters outside `[a-z0-9]` replaced by one `-` and
+  leading or trailing `-` removed (`tsukumogami-shirabe` for this repository). Phase 1 writes the range, the membership list and the
   unattributed commits as `work/` keys on every run, replacing any value an
   earlier run left, so a later release never reads an earlier one's membership;
   /release has no resume. Phases 2 and 3 read those keys; an empty membership is
@@ -418,7 +418,7 @@ Every pull request:
   consumer rule to close regardless of other keys (rejected: it changes the
   settled convention), or keep the keys and never close (rejected: the next
   /explore of the topic would attach to stale resume keys).
-- **/release's topic and its lack of resume.** Decided: the repository's name,
+- **/release's topic and its lack of resume.** Decided: the repository's owner and name,
   normalized, with Phase 1 rewriting its keys on every run, since a version
   carries dots the topic grammar refuses and the version isn't known until
   Phase 3. Alternative: the last tag rewritten to a slug (rejected: a first
