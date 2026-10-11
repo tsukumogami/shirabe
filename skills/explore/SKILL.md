@@ -332,7 +332,7 @@ Read: `references/phases/phase-5-produce.md`
 `/explore` keeps its working state as keys in its own koto session,
 `explore-<topic>`, with a kebab-case topic, following
 `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It writes no
-file to the staging folder. Phase 0 opens the session once the branch exists
+file to the `wip/` staging folder. Phase 0 opens the session once the branch exists
 (Step 0.1a) and before the first key is written:
 
 ```bash

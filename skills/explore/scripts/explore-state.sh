@@ -57,6 +57,8 @@
 #               refused=no_handoff     (and removes nothing)
 #               refused=session_not_live
 #               failed=<key>           (a removal failed; the rest still run)
+#               failed=unexpected-key  (koto listed a name outside the key
+#                                      grammar; it is left in place)
 #
 # Exit codes:
 #   0    success (resume-phase: a phase or none was printed)
@@ -275,14 +277,14 @@ cmd_finish_handoff() {
         keys=$(list_keys "$s" "$k") || exit 1
         while IFS= read -r key; do
             [ -n "$key" ] || continue
-            if ! [[ "$key" =~ $RE_KEY ]]; then
-                say "skipped a key that is not under work/ or research/ with a plain name"
+            # koto listed these names, so neither guard should fire; a name that
+            # trips one is left in place and reported, never removed.
+            if ! [[ "$key" =~ $RE_KEY ]] || [[ "$key" == *..* ]]; then
+                say "left a key that is not under work/ or research/ with a plain name"
+                printf 'failed=unexpected-key\n'
                 failed=1
                 continue
             fi
-            case "$key" in
-                *..*) say "skipped a key containing '..'"; failed=1; continue ;;
-            esac
             if "$KOTO" context remove "$s" "$key" >/dev/null 2>&1; then
                 printf 'removed=%s\n' "$key"
             else

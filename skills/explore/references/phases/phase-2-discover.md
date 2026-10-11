@@ -19,10 +19,9 @@ On a resumed invocation, ask the session where the run stands:
 ```
 
 `3`, `4` or `5` means discovery is done or the run is further on: go to that
-phase and don't re-run discovery. On `2`, check the current round. If keys
-`research/r<N>_lead-*` already exist for it (`koto context list
-explore-<topic> --prefix research/r<N>_lead-`), skip to Phase 3 (Converge) to
-present those findings.
+phase and don't re-run discovery. `2` means the scope exists and no lead of
+any round has landed (any lead key makes the answer `3`), so run this round's
+discovery.
 
 ## Inputs
 
@@ -170,8 +169,9 @@ Then ingest the round's directory. The call deletes any file whose name is not
 
 Each `added=research/<name>` line is a lead that landed. Treat a
 `rejected=<name>` line like a failed agent: note which lead it was and surface
-the gap in Phase 3. A non-zero exit means at least one add failed; stop and
-report it.
+the gap in Phase 3. A non-zero exit stops the run: report the exit code and the
+script's message (1 is a failed add, 2 a directory that fails the scratch
+checks, 127 or 69 a missing or too-old koto).
 
 If an agent fails (tool error, timeout, empty output):
 - Note the failure and which lead it was investigating
