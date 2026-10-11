@@ -26,7 +26,7 @@ are:
 
 Quoted statements of this rule (and of wip/'s purpose) are allowed. A line
 that says "a staging file is not a durable reference" is rule-statement
-prose. A line that says "see `wip/PR-foo.md` for the draft" is a path-shaped
+prose. A line that says "see `wip/<draft>.md` for the draft" is a path-shaped
 reference and a hard fail.
 
 ## Why
