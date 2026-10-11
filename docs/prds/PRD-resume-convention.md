@@ -258,6 +258,18 @@ is the repository's `wip/` directory.
   sweep, the `wip_paths=` field `skills/deliver/scripts/deliver-report.sh`
   validates, the repository's CI check for a leftover staging folder, and
   `/scope`'s publish untrack step are not modified by this feature.
+
+  Correction, 2026-10-11: this requirement, "The enforcement layer stays.",
+  held for this feature only. The layer existed because some skills still
+  wrote the staging folder. Once the later feature
+  (`docs/prds/PRD-leaf-skills-off-folder.md`) moved the last writers onto
+  sessions, nothing was left for it to guard, and #759 removed it:
+  - `node-push.sh` no longer sweeps the folder.
+  - `deliver-report.sh` relays no `wip_paths=` field.
+  - `/scope`'s publish step no longer untracks staging files.
+  - The leftover-files rule `branch/no-wip-files` is retired, with its check
+    and gates removed. That rule was the check for a leftover staging folder
+    this requirement names: shirabe's CI has no separate one.
 - **R22. The design is the reference.** One design document settles R1 to R10
   and lists which skills this feature moved and which later work moves
   (`/comp`, `/release`, `/explore`'s own files, `/work-on`'s fallback file),
@@ -361,7 +373,7 @@ Records and limits:
 - Moving `/comp`, `/release`, `/explore`'s own working files, and `/work-on`'s
   fallback file when koto is unreachable; later work does each on this
   convention.
-- Removing the enforcement layer listed in R21.
+- Removing the enforcement layer listed in R21 (later done; see the correction under R21).
 - The coordinate skill's state handling and record; this feature only reserves
   its key areas.
 - Any koto change. Where the convention needs something koto lacks, it is
