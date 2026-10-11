@@ -15,9 +15,27 @@ before it.
 
 ## Resume Check
 
-If already on a `docs/<topic>` branch and `wip/explore_<topic>_scope.md` exists,
-skip to Phase 1. If the scope file doesn't exist but you're on the topic branch,
-proceed from Step 0.2.
+On a `docs/<topic>` branch, ask the session where the run stands:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/explore/scripts/explore-state.sh" resume-phase <topic>
+```
+
+Any answer but `none` means Phase 0 already ran (the session holds the scope
+key): skip to Phase 1, whose own check takes the run on from there. On `none`,
+first check for a handoff no parent has consumed yet, before anything is
+written:
+
+```bash
+koto context exists explore-<topic> handoff/scope.md
+koto context exists explore-<topic> handoff/charter.md
+```
+
+Either key means the exploration already ended in a handoff and its working
+keys were cleared: stop, and give the author the command that handoff names
+(`/scope <topic>` or `/charter <topic>`) rather than starting a new scope beside
+it. With neither, proceed from Step 0.1; its first line skips the branch work
+when the branch exists.
 
 ## Steps
 
@@ -31,6 +49,22 @@ Otherwise:
 - Create from latest main and switch to it
 - Confirm you're on the correct branch
 
+### 0.1a Open the Session
+
+Open the session now, after the branch exists and before anything is written:
+`open` records the current branch as the session's `session/branch`, so opening
+on `main` before Step 0.1 would make every later attach refuse.
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open explore <topic>
+```
+
+`open` attaches to a live `explore-<topic>` (an interrupted run, whose keys the
+resume rows read), replaces a finished one (a fresh run), or creates it. A
+non-zero exit stops the run with the script's message: 127 or 69 means koto is
+missing or too old, 6 means HEAD is detached, and the skill never falls back to
+files. See "Session and Keys" in SKILL.md.
+
 ### 0.2 Context Resolution
 
 Resolve visibility and scope per the Context Resolution section in SKILL.md.
@@ -40,14 +74,15 @@ Log the effective context before continuing:
 Exploring with [Private|Public] visibility in [Strategic|Tactical] scope...
 ```
 
-### 0.2a Persist Visibility to Scope File
+### 0.2a Persist Visibility to Scope Key
 
-Write the resolved visibility value to `wip/explore_<topic>_scope.md` now,
-before Phase 1. This makes the value available during Phase 1 lead construction
-and survives context resets.
+Write the resolved visibility value to key `work/scope.md` in `explore-<topic>`
+now, before Phase 1 (write or edit it as "Session and Keys" in SKILL.md
+describes). This makes the value available during Phase 1 lead construction and
+survives context resets.
 
-Create or update the file with a `## Visibility` section containing exactly
-the resolved value:
+Create or update the key with a `## Visibility` section containing exactly the
+resolved value:
 
 ```markdown
 ## Visibility
@@ -139,8 +174,9 @@ After agents respond, synthesize:
 1. If unanimous: that category is the result
 2. If split: the majority category is the result, note dissent
 
-Write the result to `wip/explore_<topic>_scope.md` under an `## Entry
-Assessment` heading, next to the `## Visibility` value Step 0.2a wrote:
+Write the result to key `work/scope.md` under an `## Entry Assessment`
+heading, next to the `## Visibility` value Step 0.2a wrote (edit the key: get,
+edit in the scratch directory, put back):
 
 ```markdown
 ## Entry Assessment
@@ -176,8 +212,9 @@ it does, the findings win: the assessment saw the issue body and nothing else.
 
 Before proceeding:
 - [ ] On branch `docs/<topic>`
+- [ ] Session `explore-<topic>` open, before any key was written
 - [ ] Visibility and scope resolved and logged
-- [ ] Visibility value written to `wip/explore_<topic>_scope.md` under `## Visibility`
+- [ ] Visibility value written to key `work/scope.md` under `## Visibility`
 - [ ] If from needs-triage: entry assessment run and written under
       `## Entry Assessment`
 - [ ] No label added or removed, and no routing decision taken
@@ -186,9 +223,10 @@ Before proceeding:
 
 After this phase:
 - On the `docs/<topic>` branch
+- Session `explore-<topic>` live, with `session/branch` recorded
 - Context resolved (visibility + scope)
 - If from an issue: entry assessment recorded, upstream context gathered
-- `wip/explore_<topic>_scope.md` exists with a `## Visibility` section, plus an
+- Key `work/scope.md` exists with a `## Visibility` section, plus an
   `## Entry Assessment` section when the topic came from a `needs-triage` issue
 
 ## Next Phase

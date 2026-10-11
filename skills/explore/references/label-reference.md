@@ -41,7 +41,7 @@ chain, which entry point receives it: file an issue, `/scope`, `/charter`, or
 
 Phase 0 no longer routes. When the topic came from a `needs-triage` issue, it
 runs an entry assessment (investigation, breakdown, or ready) and writes the
-result into the scope file as evidence for crystallize. It assigns no label and
+result into the scope key as evidence for crystallize. It assigns no label and
 sends the author nowhere.
 
 ## Detailed Lifecycle Rules

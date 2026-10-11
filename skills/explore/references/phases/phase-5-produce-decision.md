@@ -5,7 +5,17 @@ off to the decision skill. This replaces the former inline ADR production.
 
 ## Decision Brief
 
-Write `wip/explore_<topic>_decision-brief.md`:
+Write the brief as key `work/decision-brief.md` in `explore-<topic>`: assemble
+it in a scratch directory, put it, and remove the directory.
+
+```bash
+dir=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch)
+# write the brief to "$dir/decision-brief.md", then:
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" put explore-<topic> work/decision-brief.md "$dir/decision-brief.md"
+rm -rf "$dir"
+```
+
+The brief's content:
 
 ```markdown
 # Decision Brief: <topic>
@@ -24,7 +34,8 @@ Each with a brief description and evidence for/against from research.>
 <From findings: non-negotiable requirements, compatibility needs, timebox.>
 
 ## Relevant Research
-<Paths to wip/research/ files the decision skill should read for detail.>
+<The research keys the decision skill should read for detail, each as a
+`koto context get explore-<topic> research/<name>` read.>
 
 ## Complexity Signal
 <Simple (2 clear options, evidence strongly favors one) or
@@ -33,7 +44,7 @@ Complex (3+ options, trade-offs genuinely contested, stakeholders disagree)>
 
 ## Handoff
 
-After writing the brief:
+After putting the brief:
 
 1. Read the decision skill: `skills/decision/SKILL.md`
 2. Invoke the decision skill as a direct run on `<topic>`, with the brief as
@@ -48,6 +59,12 @@ After writing the brief:
    `work/report.md` in `decision-<topic>` (`koto context get decision-<topic>
    work/report.md` reads it)
 4. The report serves as the Decision Record (ADR)
+5. When the decision skill returns, close the session. It reads the research
+   keys while it runs, so the close comes only after it returns:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close explore-<topic> done
+```
 
 ## Escalation from Lightweight
 
@@ -55,13 +72,10 @@ If explore was running the lightweight protocol and escalated (status="escalated
 the partial decision block's Question and Evidence become the brief's Decision
 Question and Context sections. No information is lost.
 
-## Commit
-
-Commit the brief before handoff: `docs(explore): hand off <topic> to /decision`
-
 ## Artifact State
 
 After this step:
-- All explore artifacts in `wip/` (untouched)
-- `wip/explore_<topic>_decision-brief.md` (new)
-- Session continues in the decision skill
+- Key `work/decision-brief.md` in `explore-<topic>` (new)
+- The decision skill's report at `work/report.md` in `decision-<topic>`
+- Session `explore-<topic>` closed after the decision skill returned; its keys
+  stay readable

@@ -167,7 +167,7 @@ mktempdir() {
 # provisioned host), so `all` on Linux reports it red; its floor run is the
 # macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry skill-session"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry skill-session explore"
 
 suite_scripts() {
     case "$1" in
@@ -511,6 +511,14 @@ suite_scripts() {
             echo "scripts/rule-registry_test.sh"
             echo "scripts/check-rule-registry_test.sh"
             ;;
+        explore)
+            # /explore's state script. Its suite builds a throwaway repository
+            # and a koto stand-in and needs only bash and jq (and the repository
+            # tool); the cases that need real koto skip where it is absent (the
+            # macOS floor leg) and run on the Linux job. It also reads SKILL.md
+            # and the phase files, so the prose cases run on 3.2.
+            echo "skills/explore/scripts/explore-state_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -551,6 +559,7 @@ suite_workflow() {
         check-skill)          echo ".github/workflows/check-skill-gate.yml" ;;
         rule-registry)        echo ".github/workflows/check-rule-registry.yml" ;;
         skill-session)        echo ".github/workflows/check-skill-session.yml" ;;
+        explore)              echo ".github/workflows/check-explore-scripts.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }

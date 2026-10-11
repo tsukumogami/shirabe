@@ -107,7 +107,8 @@ named with a leading `_` carry the skill's own `<skill>_<t>` prefix.
 | `/vision` | `_scope.md`, `_decisions.md`; research `_phase2_*`, `_phase4_*` | `work/scope.md`, `work/decisions.md`; `research/phase2_*`, `research/phase4_*` |
 | `/strategy` | `_context.md`, `_discover.md`; research `_phase4_*` | `work/context.md`, `work/discover.md`; `research/phase4_*` |
 | `/roadmap` | `_scope.md`; research `_phase2_*`, `_phase4_*` | `work/scope.md`; `research/phase2_*`, `research/phase4_*` |
-| `/explore` (handoff only) | `scope_<t>_handoff.md`, `charter_<t>_handoff.md` | `handoff/scope.md`, `handoff/charter.md` in `explore-<topic>` |
+| `/explore` | `explore_<t>_scope.md`, `_findings.md`, `_decisions.md`, `_crystallize.md`, `_decision-brief.md`; research `_r<N>_lead-<name>.md` | `work/scope.md`, `work/findings.md`, `work/decisions.md`, `work/crystallize.md`, `work/decision-brief.md`; `research/r<N>_lead-<name>.md` |
+| `/explore` (handoff) | `scope_<t>_handoff.md`, `charter_<t>_handoff.md` | `handoff/scope.md`, `handoff/charter.md` in `explore-<topic>`; the handoff arm removes every `work/` and `research/` key after writing it |
 
 `/review-plan` names its files with `/plan`'s prefix, so by the mapping it
 reads and writes `/plan`'s session, `plan-<topic>`. Run directly on a topic
