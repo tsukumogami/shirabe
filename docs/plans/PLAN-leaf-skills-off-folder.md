@@ -9,8 +9,8 @@ split_rationale: |
   that writes the staging folder has stopped, so its removal has to merge after
   the moves as a separate pull request: a merge gate between steps. The moves
   themselves split along the design's phases so each lands one skill's writer
-  and readers together and leaves main consistent, with the shared import step
-  and reference corrections first because the moves edit the same reference.
+  and readers together and leaves main consistent; the shared import step and
+  reference corrections are a third independent group.
 tracking_level: none
 upstream: docs/designs/DESIGN-leaf-skills-off-folder.md
 milestone: "Leaf skills off the staging folder"
@@ -127,6 +127,10 @@ as the design says (PRD R1 to R3, R6).
       nothing; with `handoff/scope.md` present it leaves exactly that key and
       `session/branch`; after the test removes the handoff and closes the
       session as /scope does, `skill-session.sh status` prints `finished`.
+- [ ] The handoff body carries everything /scope and /charter read from it,
+      with no pointer to a `work/` or `research/` key; the PR body records a
+      search of main for any reader of /explore's `work/` or `research/` keys
+      after a handoff, the command run and its result.
 - [ ] A test of a non-handoff arm closes the session and reads a `work/` key
       from the finished session.
 - [ ] The /decision arm writes `work/decision-brief.md` with `put` before it
@@ -158,7 +162,7 @@ as the design says (PRD R1 to R3, R6).
       the ones the change bears on run, once, and the PR body names them.
 - [ ] `scripts/ablation/check-public-content.sh --diff origin/main` exits 0.
 
-**Dependencies**: Blocked by <<ISSUE:1>>
+**Dependencies**: None
 
 **Type**: code
 
@@ -221,7 +225,7 @@ commits and notes in `release-<topic>`; `extract-context.sh` writes no file
       names them.
 - [ ] `scripts/ablation/check-public-content.sh --diff origin/main` exits 0.
 
-**Dependencies**: Blocked by <<ISSUE:1>>
+**Dependencies**: None
 
 **Type**: code
 
@@ -294,15 +298,14 @@ graph TD
     I3["#3: /comp, /release, /work-on"]
     I4["#4: remove the enforcement layer"]
 
-    I1 --> I2
-    I1 --> I3
+    I1 --> I4
     I2 --> I4
     I3 --> I4
 ```
 
 ## Implementation Sequence
 
-Critical path: 1, then 2 and 3 in parallel, then 4. Issues 2 and 3 both edit
-the convention reference's per-skill table, so whichever lands second merges
-main in once. Issue 4 is built after 2 and 3 are pushed, since its entry gate
+Critical path: 1, 2 and 3 in parallel, then 4. Issues 1, 2 and 3 all edit
+the convention reference, in different sections, so whichever lands later
+merges main in once; none needs another's code. Issue 4 is built after 2 and 3 are pushed, since its entry gate
 reads their heads merged together, and it merges last.

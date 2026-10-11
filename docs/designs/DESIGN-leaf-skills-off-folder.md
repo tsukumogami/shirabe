@@ -146,8 +146,9 @@ Resolved inline.
 4. The enforcement layer's removal, depending on 2 and 3 (and on 1, so it is
    the last to land).
 
-Moves 2 and 3 depend on 1 so the convention reference's edits land in order;
-they are independent of each other. Each move updates its own rows in the
+Groups 1, 2 and 3 are independent: none needs another's code, and their
+edits to the convention reference touch different sections, so whichever lands
+later merges main in once. Each move updates its own rows in the
 convention's per-skill table, its `requires.tsv`, its CI workflow and the eval
 scenarios that name its files.
 
@@ -435,13 +436,13 @@ changes behavior.
 `explore-state.sh` and its test, the SKILL.md and phase-file rewrite, the lead
 and adversarial-lead prompts, the handoff provenance and /decision brief, the
 convention's /explore rows, `requires.tsv`, a CI workflow for the skill's
-scripts, and evals 1, 4, 5, 6 and 7. Depends on Phase 1.
+scripts, and evals 1, 4, 5, 6 and 7. Independent of Phase 1.
 
 ### Phase 3: /comp, /release and /work-on
 
 `comp-state.sh` and `release-state.sh` with tests, the prose rewrites, the
 convention rows, `requires.tsv` entries, CI workflows, comp eval 8, and the
-`extract-context.sh` change with a test. Depends on Phase 1; independent of
+`extract-context.sh` change with a test. Independent of Phase 1 and of
 Phase 2.
 
 ### Phase 4: The enforcement layer
@@ -481,7 +482,9 @@ them.
   has nothing of shirabe's to scan. `check-public-content.sh` doesn't replace
   it: it refuses committed text naming a staging file, home paths, session
   identifiers and secret shapes, but has no private-marker class, and its
-  denylist runs only when one is supplied. The residual risk is a staging file
+  denylist runs only when one is supplied. Once this scan goes, the
+  private-marker class is checked nowhere before a push. The residual risk is a
+  staging file
   that another tool committed to the branch, carrying private content, being
   pushed to a public repository by /scope's publish step. It is accepted here
   because nothing in shirabe produces such a file, and it is raised with the
