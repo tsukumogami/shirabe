@@ -23,8 +23,19 @@ On a `docs/<topic>` branch, ask the session where the run stands:
 
 Any answer but `none` means Phase 0 already ran (the session holds the scope
 key): skip to Phase 1, whose own check takes the run on from there. On `none`,
-proceed from Step 0.1; its first line skips the branch work when the branch
-exists.
+first check for a handoff no parent has consumed yet, before anything is
+written:
+
+```bash
+koto context exists explore-<topic> handoff/scope.md
+koto context exists explore-<topic> handoff/charter.md
+```
+
+Either key means the exploration already ended in a handoff and its working
+keys were cleared: stop, and give the author the command that handoff names
+(`/scope <topic>` or `/charter <topic>`) rather than starting a new scope beside
+it. With neither, proceed from Step 0.1; its first line skips the branch work
+when the branch exists.
 
 ## Steps
 
