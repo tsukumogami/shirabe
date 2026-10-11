@@ -10,7 +10,7 @@
 #   verification     verification_verdict   a poll: gate over the runner
 #   finalization, deferral_approval, pre_pr_evidence
 #                    commit_convention      every commit, not only the tip
-#   pr_precheck      branch_wip_clean, branch_docs_visibility
+#   pr_precheck      branch_docs_visibility
 #   pr_creation      pr_body_conformant
 #   scrutiny, review, qa_validation, light_review
 #                    <panel>_verdict        the panel's pass, from the ledger
@@ -484,7 +484,7 @@ expect "commit_convention exit 0 at pre_pr_evidence" pr_precheck
 SEED_SUMMARY=
 
 # pr_precheck: the branch checks hold unless SHARED_BRANCH is set.
-for key in check-branch-output.sh--wip:branch_wip_clean check-branch-output.sh--docs-visibility:branch_docs_visibility; do
+for key in check-branch-output.sh--docs-visibility:branch_docs_visibility; do
     for rc in 1 2; do
         reset_rc; set_rc "${key%%:*}" "$rc"
         drive pr_precheck "" "" on_feature_branch_pr=0
@@ -495,7 +495,7 @@ for key in check-branch-output.sh--wip:branch_wip_clean check-branch-output.sh--
 done
 reset_rc
 drive pr_precheck "" "" on_feature_branch_pr=0
-expect "both branch checks pass" pr_creation
+expect "the branch check passes" pr_creation
 
 # pr_creation: the body check holds the created edge.
 for rc in 1 2; do

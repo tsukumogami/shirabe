@@ -207,7 +207,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       - target: scoped_check
         when:
@@ -222,7 +221,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       - target: executed_check
         when:
@@ -237,7 +235,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       # /scope stopped before a PLAN: scope-ended-early, naming which.
       - target: done_stopped
@@ -255,7 +252,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       - target: done_stopped
         when:
@@ -272,7 +268,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       - target: done_stopped
         when:
@@ -289,7 +284,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       # /scope's own error, carrying its step (deliver-report.sh checks it).
       - target: done_error
@@ -308,7 +302,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       # /scope's own refusal (its done_refused terminal).
       - target: done_error
@@ -329,7 +322,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       - target: done_error
         when:
@@ -349,7 +341,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       # A promoted result /deliver does not recognise.
       - target: done_error
@@ -367,7 +358,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       # koto refused /scope's arguments or its attach and recorded it on the
       # leg: var-mismatch:INTENT_FLAG is a live run with another intent.
@@ -387,7 +377,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       - target: done_error
         when:
@@ -405,7 +394,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       # Explicit: resolved by hand or by scope_absent. Only an error, and the
       # payload is not copied.
@@ -423,7 +411,6 @@ states:
           pr: ""
           pr_state: ""
           startable: ""
-          wip_paths: ""
           next: ""
       # This run's own request was abandoned (or closed) under it.
       - target: done_error
@@ -439,7 +426,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       - target: done_error
         when:
@@ -454,7 +440,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
       # The Skill returned and nothing ever bound or answered the leg.
       - target: scope_absent
@@ -469,7 +454,6 @@ states:
           pr: "${gates.scope_leg.payload.pr}"
           pr_state: "${gates.scope_leg.payload.pr_state}"
           startable: "${gates.scope_leg.payload.startable}"
-          wip_paths: "${gates.scope_leg.payload.wip_paths}"
           next: "${gates.scope_leg.payload.next}"
 
   scope_absent:
@@ -925,7 +909,6 @@ states:
       waiting: "${context.waiting}"
       next: "${context.next}"
       startable: "${context.startable}"
-      wip_paths: "${context.wip_paths}"
 
   done_stopped:
     terminal: true
@@ -940,7 +923,6 @@ states:
       waiting: "${context.waiting}"
       next: "${context.next}"
       startable: "${context.startable}"
-      wip_paths: "${context.wip_paths}"
 
   done_error:
     terminal: true
@@ -956,7 +938,6 @@ states:
       waiting: "${context.waiting}"
       next: "${context.next}"
       startable: "${context.startable}"
-      wip_paths: "${context.wip_paths}"
 ---
 
 ## open_request

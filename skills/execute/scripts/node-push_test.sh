@@ -25,8 +25,6 @@
 #     stub, and the real validator when one is on PATH); a node changing only
 #     docs/ and root Markdown is docs(<slug>), one changing a skill's
 #     Markdown is feat; a refused body exits 74 with no pr create or edit
-#   a wip/ file committed on the node branch     swept: the pushed head carries
-#                                                no wip/ file
 #   a second push                                the owned PR is adopted (no
 #     second pr create) and the node's line is replaced, not duplicated
 #   an indexed node with no owned PR to adopt    exit 73, no pr create
@@ -193,7 +191,6 @@ if ct_calls | grep -Eq '^pr (create|edit)'; then fail "a refusal wrote to GitHub
 ct_case fresh
 ct_write_db
 fresh_repo fresh
-(cd "$WT" && mkdir -p wip && echo scratch > wip/notes.md && git add wip && git commit -q -m "wip: notes")
 push_node
 SHA=$(git -C "$WT" rev-parse HEAD)
 REMOTE_SHA=$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE" | cut -f1)
@@ -202,11 +199,6 @@ if [ "$RC" -eq 0 ] && [ "$REMOTE_SHA" = "$SHA" ]; then
 else
     fail "a fresh push: rc=$RC remote=[$REMOTE_SHA] head=[$SHA]"
     tail -5 "$CASE/stderr"
-fi
-if [ -z "$(git -C "$REPO" ls-tree -r --name-only "$REMOTE_SHA" -- wip/)" ]; then
-    pass "the wip/ sweep ran: git ls-files wip/ on the pushed head is empty"
-else
-    fail "the pushed head still carries wip/"
 fi
 CREATES=$(ct_calls | grep -c '^pr create')
 CREATE=$(ct_calls | grep '^pr create')

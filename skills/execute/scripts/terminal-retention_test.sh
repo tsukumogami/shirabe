@@ -627,12 +627,12 @@ expect_control() {
 # paused_for_review, by pr_finalization's pause edge. koto routes that edge on
 # its gates and PAUSE_BEFORE_FINALIZE once the agent submits
 # finalization_status: updated. The owned-PR lookup runs for real against the
-# gh stub; the four output checks need a real PR body, a validator and an
+# gh stub; the three output checks need a real PR body, a validator and an
 # origin, so a recorded override passes each, as a person's override would,
 # and the deciding tick submits `updated`.
 pass_output_gates() {
     local g
-    for g in owned_pr_body_conformant settled_commits settled_wip_clean settled_docs_visibility; do
+    for g in owned_pr_body_conformant settled_commits settled_docs_visibility; do
         k overrides record "$1" --gate "$g" --rationale "terminal-retention probe" >/dev/null 2>&1
     done
 }

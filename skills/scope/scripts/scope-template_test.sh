@@ -146,7 +146,7 @@ eq "done_refused's result carries the coordinator's keys" \
     '["intent","next","outcome","plan_execution_mode","plan_path","reason","recorded","requested","step"]' \
     "$(q '.states.done_refused.result | keys')"
 eq "done_error's result carries the coordinator's keys" \
-    '["exit","intent","outcome","reason","recorded","requested","step","wip_paths"]' \
+    '["exit","intent","outcome","reason","recorded","requested","step"]' \
     "$(q '.states.done_error.result | keys')"
 
 # --- terminals and their results -----------------------------------------------------
@@ -157,7 +157,7 @@ eq "every terminal declares a result with outcome" '[]' \
     "$(q '[.states | to_entries[] | select(.value.terminal == true) | select((.value.result.outcome // "") == "") | .key]')"
 eq "every result key is drawn from the documented set" '[]' \
     "$(q '[.states[] | select(.terminal == true) | .result | keys[]] | unique
-          - ["outcome","exit","intent","next","pr","pr_state","plan_path","plan_execution_mode","wip_paths","startable","boundary","via","reason","recorded","requested","step"]')"
+          - ["outcome","exit","intent","next","pr","pr_state","plan_path","plan_execution_mode","startable","boundary","via","reason","recorded","requested","step"]')"
 
 # Walk every edge into every terminal. A terminal whose result reads
 # ${context.outcome} needs every edge landing there to assign outcome, from the

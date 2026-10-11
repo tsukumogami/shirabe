@@ -337,12 +337,8 @@ short-cuts is the canonical contract in `coordination-strategy.md` (R20).
 ## Report-upstream durability convention (D5)
 
 A friction log or any other report-upstream note captured during a run goes to a
-**durable home**, never to `wip/`. The `wip/execute_<topic>_*` scratch is
-non-durable. On a coordinated node, `node-push.sh` removes `wip/` from the branch
-before every push, so an artifact left there is erased. A single-pr run has no such
-sweep (#668): nothing removes `wip/` for you, and the branch must carry no `wip/`
-file before it merges, so a note left there is either deleted by hand or wrongly
-lands on main. The durable home is a **GitHub issue on the relevant skill repo** (filed with
+**durable home**. A koto session key is non-durable: it is closed with the run,
+so a note left only there is lost. The durable home is a **GitHub issue on the relevant skill repo** (filed with
 `gh issue create`, the same surface `/plan` and `/roadmap` use), or — when no issue
 is the right target — a **committed note under `docs/`**. Prefer the issue; fall
 back to `docs/` only when there is no appropriate upstream issue target.

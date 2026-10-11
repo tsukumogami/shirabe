@@ -17,19 +17,9 @@
 #   2. refuse a detached HEAD, a branch failing `git check-ref-format --branch`,
 #      a missing `origin`, and the remote's default branch (or main/master)
 #                                                            -> scope:push
-#   3. untrack the topic's own wip/ prefixes: `git rm --cached` of the tracked
-#      wip/{scope,brief,prd,design,plan}_<topic>_* and
-#      wip/research/{prd,design}_<topic>_* paths, committed as exactly that
-#      removal (built from HEAD's tree through a private index, so nothing
-#      else staged rides along). /brief's jury verdict files, which sit in
-#      the research directory beside /prd's and /design's scratch, are
-#      untracked with them. The files stay on disk for cleanup.
-#   4. list every wip/ path in commits not yet on origin, run the
-#      public-content visibility check over those files, and stop on a hit
-#                                                            -> scope:push
-#   5. push with `git push origin HEAD:refs/heads/<branch>` -- never a force
+#   3. push with `git push origin HEAD:refs/heads/<branch>` -- never a force
 #      option, never a `+` refspec                           -> scope:push
-#   6. look the PR up through skills/execute/scripts/owned-pr.sh, unchanged,
+#   4. look the PR up through skills/execute/scripts/owned-pr.sh, unchanged,
 #      with --state open, --base <default>, and this run's identity:
 #        one survivor   reused; its body is rewritten with
 #                       `gh pr edit --body-file` only when its intent= field
@@ -66,28 +56,20 @@
 # GitHub or git write, and no koto context write: given --session, it only
 # reads the session's run identity (run-id.sh get).
 #
-# The public-content visibility check. In a repository whose CLAUDE.md (or
-# CLAUDE.local.md) declares `## Repo Visibility: Public`, a wip/ file in
-# unpushed history is a hit when a line names a `private/` path component or
-# declares `Repo Visibility: Private` -- the workspace's markers for content
-# from a private repository. The paths are reported either way, as wip_paths=.
-#
 # Usage:
 #   publish-scoping-pr.sh --topic <slug> --exit <full-run|re-evaluation|abandonment-forced>
 #                         --intent <continue|stop> [--session <name>]
 #   publish-scoping-pr.sh --topic <slug> --verify [--expect-intent <continue|stop>]
 #                         [--session <name> | --run-id <id>]
 #
-# With --session in publish mode, the script clears the context keys
-# publish_step and wip_paths when it starts, writes wip_paths when unpushed
-# history holds any, and writes publish_step (scope:push or scope:pr-create)
+# With --session in publish mode, the script clears the context key
+# publish_step when it starts and writes it (scope:push or scope:pr-create)
 # with `koto context add` when it fails. The publish states route on
 # publish_step through non-overridable context-matches gates. In either mode,
 # --session is also where the run identity comes from (run_id, above).
 #
 # Output (stdout, key=value lines):
-#   publish:  mode=<mode>, wip_paths=<comma-joined> when any, pr=<url> on
-#             success; step=<scope:push|scope:pr-create> on failure
+#   publish:  mode=<mode>, pr=<url> on success; step=<scope:push|scope:pr-create> on failure
 #   verify:   pr=<url> on success
 #
 # Exit codes:
@@ -288,7 +270,6 @@ fail() { # fail <step> <message>
 }
 
 ctx remove publish_step
-ctx remove wip_paths
 resolve_run_id
 
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/publish-scoping-pr.XXXXXX") || fail scope:push "could not make a scratch directory"
@@ -319,92 +300,7 @@ case "$BRANCH" in
     "$DEFAULT"|main|master) fail scope:push "[$BRANCH] is the default branch; /scope never pushes to it" ;;
 esac
 
-# 3. untrack the topic's own wip/
-UNTRACK=$(git ls-files -- \
-    "wip/scope_${TOPIC}_*" "wip/brief_${TOPIC}_*" "wip/prd_${TOPIC}_*" \
-    "wip/design_${TOPIC}_*" "wip/plan_${TOPIC}_*" \
-    "wip/*/brief_${TOPIC}_*" \
-    "wip/research/prd_${TOPIC}_*" "wip/research/design_${TOPIC}_*" 2>/dev/null)
-if [ -n "$UNTRACK" ]; then
-    IDX="$SCRATCH/index"
-    OLD=$(git rev-parse HEAD) || fail scope:push "git rev-parse HEAD failed"
-    GIT_INDEX_FILE="$IDX" git read-tree HEAD || fail scope:push "could not read HEAD's tree"
-    printf '%s\n' "$UNTRACK" | while IFS= read -r p; do
-        GIT_INDEX_FILE="$IDX" git rm --cached -q -- "$p" || exit 1
-    done || fail scope:push "could not untrack the topic's wip/ paths"
-    TREE=$(GIT_INDEX_FILE="$IDX" git write-tree) || fail scope:push "could not write the untrack tree"
-    MSG="chore(scope): untrack ${TOPIC} wip/ artifacts"
-    NEW=$(git commit-tree "$TREE" -p "$OLD" -m "$MSG") || fail scope:push "could not commit the untrack"
-    git update-ref -m "$MSG" "refs/heads/$BRANCH" "$NEW" "$OLD" || fail scope:push "could not move $BRANCH"
-    # The real index still lists the paths the new HEAD dropped; untrack them
-    # there too, or the next commit would add them back.
-    printf '%s\n' "$UNTRACK" | while IFS= read -r p; do
-        git rm --cached -q -- "$p" || exit 1
-    done || fail scope:push "the untrack commit landed, but the index still tracks the topic's wip/"
-fi
-
-# 4. wip/ in unpushed history, and the visibility check
-COMMITS=$(git rev-list HEAD --not --remotes=origin) || fail scope:push "cannot list unpushed commits"
-WIP_PATHS=""
-if [ -n "$COMMITS" ]; then
-    WIP_PATHS=$(git log --format= --name-only HEAD --not --remotes=origin -- wip/ | sed '/^$/d' | sort -u)
-fi
-
-PUBLIC=0
-for f in CLAUDE.md CLAUDE.local.md; do
-    [ -f "$f" ] && grep -Eqi '^##[[:space:]]+Repo Visibility:[[:space:]]*Public' "$f" && PUBLIC=1
-done
-
-if [ -n "$WIP_PATHS" ]; then
-    JOINED=$(printf '%s\n' "$WIP_PATHS" | paste -sd, -)
-    printf 'wip_paths=%s\n' "$JOINED"
-    ctx add wip_paths "$JOINED"
-    if [ "$PUBLIC" -eq 1 ]; then
-        HIT=""
-        # The path list and each blob go to files, and grep's own status on
-        # the file decides. Piped into `grep -q`, an early match ends grep
-        # while the writer is still going, the writer dies of SIGPIPE, and
-        # under pipefail the pipeline's 141 read as "no match": a listed path
-        # was skipped unscanned, or a blob with a hit passed, and the push went
-        # through. Here 0 is a match, 1 is none, and anything else refuses.
-        # tsukumogami/shirabe#436 tracks the same shape elsewhere.
-        printf '%s\n' "$WIP_PATHS" >"$SCRATCH/wip_paths" \
-            || fail scope:push "cannot stage the wip/ path list for the visibility check; nothing was pushed"
-        # Every version of every listed path that an unpushed commit holds:
-        # each commit's own wip/ tree, filtered to the listed paths, so no
-        # path is asked of a commit that does not have it.
-        for c in $COMMITS; do
-            TREE_PATHS=$(git ls-tree -r --name-only "$c" -- wip/) || fail scope:push "cannot read the tree of $c"
-            while IFS= read -r p; do
-                [ -n "$p" ] || continue
-                LISTED=0
-                grep -qxF -- "$p" "$SCRATCH/wip_paths" || LISTED=$?
-                case "$LISTED" in
-                    0) ;;
-                    1) continue ;;
-                    *) fail scope:push "the visibility check could not match $p against the wip/ list (grep exit $LISTED); nothing was pushed" ;;
-                esac
-                # A path git prints quoted (unusual characters) can't be read
-                # back by that name, and refuses here rather than going unscanned.
-                git cat-file -p "$c:$p" >"$SCRATCH/blob" \
-                    || fail scope:push "cannot read $p at $c for the visibility check (a quoted or unreadable path); nothing was pushed"
-                SCAN=0
-                grep -Eq '(^|[^A-Za-z0-9_.-])private/[A-Za-z0-9._-]|Repo Visibility:[[:space:]]*Private' "$SCRATCH/blob" || SCAN=$?
-                case "$SCAN" in
-                    0) HIT="$p"; break ;;
-                    1) ;;
-                    *) fail scope:push "the visibility check could not scan $p at $c (grep exit $SCAN); nothing was pushed" ;;
-                esac
-            done <<EOF
-$TREE_PATHS
-EOF
-            [ -z "$HIT" ] || break
-        done
-        [ -z "$HIT" ] || fail scope:push "the public-content visibility check found private-repository content in $HIT; nothing was pushed"
-    fi
-fi
-
-# 5. the push, skipped when origin already holds HEAD (a re-run after success)
+# 3. the push, skipped when origin already holds HEAD (a re-run after success)
 HEAD_SHA=$(git rev-parse HEAD) || fail scope:push "git rev-parse HEAD failed"
 REMOTE_SHA=$(git ls-remote origin "refs/heads/$BRANCH" | awk 'NR == 1 { print $1 }')
 if [ "$REMOTE_SHA" != "$HEAD_SHA" ]; then
@@ -412,7 +308,7 @@ if [ "$REMOTE_SHA" != "$HEAD_SHA" ]; then
         || fail scope:push "the push of HEAD to origin's $BRANCH failed"
 fi
 
-# 6. the PR
+# 4. the PR
 REPO=$(repo_name) || fail scope:pr-create "the repository name cannot be read"
 
 OUTCOME=""

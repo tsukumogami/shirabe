@@ -138,16 +138,15 @@ plan single-pr; fixture "[$(pr "$URL" false me)]"
 run x-none none exit
 eq "no intent: exit_record ok" "ok" "$(key x-none exit_record)"
 eq "no intent: pr empty" "yes|" "$(has x-none pr && echo yes)|$(key x-none pr)"
-eq "no intent: wip_paths written empty" "yes|" "$(has x-none wip_paths && echo yes)|$(key x-none wip_paths)"
+eq "no intent: no wip_paths key written" "no" "$(has x-none wip_paths && echo yes || echo no)"
 eq "no intent: no gh call" "" "$(cat "$GHF/calls")"
 
 echo "== exit stage, intent =="
 fixture "[$(pr "$URL" false me)]"
-mkdir -p "$STORE/x-one"; printf 'wip/scope_topic_state.md' >"$STORE/x-one/wip_paths"
 run x-one continue exit
 eq "one owned PR: pr" "$URL" "$(key x-one pr)"
 eq "one owned PR: exit_record ok" "ok" "$(key x-one exit_record)"
-eq "a publish's wip_paths is kept" "wip/scope_topic_state.md" "$(key x-one wip_paths)"
+eq "one owned PR: no wip_paths key written" "no" "$(has x-one wip_paths && echo yes || echo no)"
 if grep -q -- '--state open' "$GHF/calls"; then ok "the lookup is owned-pr.sh --state open"; else bad "the lookup is owned-pr.sh --state open" "$(cat "$GHF/calls")"; fi
 if grep -E '^pr (create|edit|merge)' "$GHF/calls" >/dev/null; then bad "no GitHub write"; else ok "no GitHub write"; fi
 

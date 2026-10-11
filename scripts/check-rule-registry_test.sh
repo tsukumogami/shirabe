@@ -52,7 +52,7 @@ git -C "$S" add -A
 git $GIT_ID -C "$S" commit -qm scratch
 
 REG="$S/references/rule-registry.json"
-MUTABLE="references/rule-registry.json references/rule-registry.md references/wip-hygiene.md
+MUTABLE="references/rule-registry.json references/rule-registry.md references/pr-body-conformance.md
 docs/measurement/offload-baseline/template-pin.json .github/workflows/check-rule-registry.yml
 docs/designs/current/DESIGN-output-gates.md skills/execute/koto-templates/execute.md
 skills/work-on/scripts/check-pr-output.sh skills/execute/scripts/adopt-or-create-pr.sh"
@@ -105,7 +105,7 @@ expect_problem() {
     reset_copy
 }
 
-G=branch/no-wip-files
+G=pr-body/no-heading-in-part1
 RS=rs-004
 TK=execute/pr-takeover-needs-signal
 sel() { printf '(.rules[] | select(.id == "%s"))' "$1"; }
@@ -183,17 +183,17 @@ expect_problem "an unsafe path" "$G: text path [../outside.md] is unsafe"
 
 # ---------------------------------------------------------------- pointers
 
-reg "$(sel $G).text.first = \"wip/\""
+reg "$(sel $G).text.first = \"PB4\""
 expect_problem "an anchor found twice" "first anchor is not on exactly one line"
 
 reg "$(sel $G).text.first = \"no line says this 7f3a\""
 expect_problem "an anchor found zero times" "first anchor is not on exactly one line"
 
-reg "$(sel $G).text.last = \"# wip/ Hygiene\""
+reg "$(sel $G).text.last = \"# PR-body conformance: the mechanical rule\""
 expect_problem "a last anchor before the first" "last anchor is not at or after its first"
 
-awk '{ print } index($0, "`wip/` is committed to feature branches") { print "::shirabe-rule-end::" }' \
-    "$WORK/orig/references/wip-hygiene.md" > "$S/references/wip-hygiene.md"
+awk '{ print } index($0, "**PB4 — no markdown section heading in Part 1.**") { print "::shirabe-rule-end::" }' \
+    "$WORK/orig/references/pr-body-conformance.md" > "$S/references/pr-body-conformance.md"
 expect_problem "a marker line in a range" "$G: its range holds a ::shirabe-rule marker line"
 
 reg "$(sel $RS).status = \"retired\" | $(sel $RS).text.first = \"no line says this 7f3a\""
@@ -245,14 +245,14 @@ jq '.pinned_commit = "abc123"' "$WORK/orig/docs/measurement/offload-baseline/tem
     > "$S/docs/measurement/offload-baseline/template-pin.json"
 expect_problem "a pinned commit that isn't 40 hex" "pinned_commit [abc123] is not 40 lowercase hex characters"
 
-reg "$(sel $G).baseline_keys = [\"references/wip-hygiene.md:14\"]"
-expect_problem "a malformed baseline key" "$G: baseline key [references/wip-hygiene.md:14] is not"
+reg "$(sel $G).baseline_keys = [\"references/pr-body-conformance.md:61\"]"
+expect_problem "a malformed baseline key" "$G: baseline key [references/pr-body-conformance.md:61] is not"
 
-reg "$(sel $G).baseline_keys = [\"references/wip-hygiene.md#L14-L99999\"]"
-expect_problem "a baseline key past its file's end" "$G: baseline key references/wip-hygiene.md#L14-L99999 runs past"
+reg "$(sel $G).baseline_keys = [\"references/pr-body-conformance.md#L61-L99999\"]"
+expect_problem "a baseline key past its file's end" "$G: baseline key references/pr-body-conformance.md#L61-L99999 runs past"
 
-reg "$(sel $TK).baseline_keys = [\"references/wip-hygiene.md#L14-L16\"]"
-expect_problem "an unexplained shared key" "$TK: shares baseline key references/wip-hygiene.md#L14-L16 with $G"
+reg "$(sel $TK).baseline_keys = [\"references/pr-body-conformance.md#L61-L75\"]"
+expect_problem "an unexplained shared key" "$TK: shares baseline key references/pr-body-conformance.md#L61-L75 with $G"
 
 reg "$(sel $G).baseline_keys = [] | $(sel $G).notes = \"\""
 expect_problem "an unexplained empty key list" "$G: an empty baseline_keys needs a reason in notes"

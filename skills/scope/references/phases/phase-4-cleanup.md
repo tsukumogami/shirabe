@@ -45,10 +45,7 @@ durable document stays on disk, and Phase 4 does not touch it:
 
 On `abandonment-forced` the children's sessions are closed `abandoned`
 and their keys stay readable, so a later session that resumes the
-abandoned chain can read the child's last intermediate state back. The
-publish step's untrack (see `skills/scope/SKILL.md`, Publish) keeps its
-own `wip/` pathspecs: it guards history against staging-folder files and
-is not part of this phase.
+abandoned chain can read the child's last intermediate state back.
 
 ## Success Summary
 
@@ -74,7 +71,6 @@ step=<scope:push|scope:pr-create|scope:intake|scope:resume-probe|scope:refused>
 next=<command>                                full-run only
 pr=<url>                                      intent runs only
 pr_state=<merged|open>                        executed only
-wip_paths=<comma-separated paths>             when set
 #<N> <title>                                  multi-pr startable items,
 <closing line>                                then one closing line
 ```

@@ -16,7 +16,6 @@
 #                                                 names where to go instead)
 #   pr=<url>                                      intent runs only
 #   pr_state=<merged|open>                        executed only
-#   wip_paths=<comma-separated paths>             when set
 #   #<N> <title>                                  multi-pr startable items,
 #   <one closing line>                            then one closing line
 #
@@ -110,13 +109,6 @@ RECORDED=$(get recorded '^(continue|stop|none)$')
 REQUESTED=$(get requested '^(continue|stop)$')
 BOUNDARY=$(get boundary '^(brief|prd|design)$')
 
-# wip_paths: each comma-separated entry a plain wip/ path, else dropped whole.
-WIP=$(printf '%s' "$PAYLOAD" | jq -r '.wip_paths // "" | strings') || WIP=""
-if [ -n "$WIP" ]; then
-    printf '%s\n' "$WIP" | tr ',' '\n' | grep -Evq '^wip/[A-Za-z0-9._/-]+$' && WIP=""
-    case "$WIP" in *..*|*[[:cntrl:]]*) WIP="" ;; esac
-fi
-
 # startable: `#<N> <title>` lines, each dropped when it holds anything else.
 STARTABLE=$(printf '%s' "$PAYLOAD" | jq -r '.startable // "" | strings' \
     | LC_ALL=C grep -E '^#[1-9][0-9]* [^[:cntrl:]]+$' || true)
@@ -192,7 +184,6 @@ case "$STATE" in
         line outcome "$OUTCOME"
         line next "$NEXT"
         pr_line
-        line wip_paths "$WIP"
         if [ "$OUTCOME" = handed-off-multi-pr ] || [ "$MODE" = multi-pr ]; then
             if [ -n "$STARTABLE" ]; then
                 printf '%s\n' "$STARTABLE"
@@ -211,13 +202,11 @@ case "$STATE" in
         finished re-evaluation "$(decision_record)"
         intent_line
         pr_line
-        line wip_paths "$WIP"
         ;;
     done_abandonment)
         finished abandonment-forced "$(forced_artifact)"
         intent_line
         pr_line
-        line wip_paths "$WIP"
         ;;
     done_cancelled)
         printf '/scope cancelled: no exit was recorded and nothing was force-materialized\n'
@@ -243,7 +232,6 @@ case "$STATE" in
         intent_line
         printf 'outcome=error\n'
         line step "$STEP"
-        line wip_paths "$WIP"
         ;;
 esac
 exit 0

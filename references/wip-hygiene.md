@@ -5,15 +5,12 @@ counts as a durable reference.
 
 ## What `wip/` is
 
-`wip/` (Work In Progress) is a per-branch scratch space for intermediate
-artifacts produced during multi-phase workflows. Phase scripts in
-`skills/design`, `skills/plan`, `skills/prd`, and `skills/explore` write
-summaries, research notes, manifests, and coordination state into
-`wip/<skill>_<topic>_*.md` and `wip/research/<skill>_<topic>_*.md`.
-
-`wip/` is committed to feature branches so that workflows survive resume.
-It is NOT included in merged history: workflows clean it up before the PR
-opens, and squash-merge keeps the cleanup out of the main branch trail.
+`wip/` (Work In Progress) was a per-branch scratch space for intermediate
+artifacts from multi-phase workflows. shirabe's skills no longer write there:
+they keep intermediate state in koto sessions, under
+[`skill-session-convention.md`](skill-session-convention.md). A file that does
+sit under `wip/` on a branch is non-durable, and no workflow step writes,
+sweeps or gates on it.
 
 ## The rule
 
@@ -28,16 +25,15 @@ are:
 - PR descriptions and issue bodies
 
 Quoted statements of this rule (and of wip/'s purpose) are allowed. A line
-that says "wip/ artifacts are tolerated on the branch but must be cleaned
-before the PR opens" is rule-statement prose. A line that says "see
-`wip/PR-foo.md` for the draft" is a path-shaped reference and a hard fail.
+that says "a staging file is not a durable reference" is rule-statement
+prose. A line that says "see `wip/PR-foo.md` for the draft" is a path-shaped
+reference and a hard fail.
 
 ## Why
 
-`wip/` is deleted before merge. A reference to a `wip/...` path resolves
-to nothing the moment the cleanup commit lands. The reader of the merged
-artifact is left with a broken link to a file the workspace's own cleanup
-removed.
+`wip/` content is not part of merged history. A reference to a `wip/...`
+path resolves to nothing once the branch merges. The reader of the merged
+artifact is left with a broken link to a file that never reached main.
 
 When a `wip/...` path also crosses a visibility boundary -- for example, a
 coordinator stages a private-repo PRD into a public repo's `wip/` as a
@@ -45,20 +41,6 @@ handoff, and a design agent then writes `upstream: wip/PRD-<topic>.md` into
 public frontmatter -- the failure compounds. The reference is simultaneously
 non-durable AND a public->private link (forbidden per
 [`cross-repo-references.md`](cross-repo-references.md)).
-
-## Cleanup is two operations
-
-Cleaning up `wip/` before merge means BOTH:
-
-1. **Delete the wip/ files** (mechanical -- usually a single `rm` or
-   `git rm` command per phase script).
-2. **Remove every reference to wip/ paths from committed prose** (semantic
-   -- requires `git grep -nE 'wip/'` from the repo root, with a manual
-   review of each match to distinguish rule-statement prose from
-   path-shaped references).
-
-Doing only (1) leaves the references as orphans. Doing only (2) leaves the
-files committed.
 
 ## Where this rule is enforced
 

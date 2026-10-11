@@ -37,8 +37,7 @@
 #     no /execute leg bound, the interactive confirmation (stop and proceed),
 #     /execute's pauses and errors, an abandoned request
 #   - a private repository runs to its PR, the scope step's real publish
-#     pushing past the public-content visibility check, which still stops
-#     the same push in a public repository
+#     pushing the branch
 #   - the stale-run fence: a new run abandons the old request, and the old
 #     run's child finishing later does not answer the new run's leg
 #   - the review-level bound: execute_run's rendered directive tells the agent
@@ -144,8 +143,6 @@ states:
         type: string
       startable:
         type: string
-      wip_paths:
-        type: string
       next:
         type: string
       repos:
@@ -167,7 +164,6 @@ states:
           plan_path: "\${evidence.plan_path}"
           plan_execution_mode: "\${evidence.plan_execution_mode}"
           startable: "\${evidence.startable}"
-          wip_paths: "\${evidence.wip_paths}"
           next: "\${evidence.next}"
           repos: "\${evidence.repos}"
           resume: "\${evidence.resume}"
@@ -183,7 +179,6 @@ states:
       plan_path: "\${context.plan_path}"
       plan_execution_mode: "\${context.plan_execution_mode}"
       startable: "\${context.startable}"
-      wip_paths: "\${context.wip_paths}"
       next: "\${context.next}"
       repos: "\${context.repos}"
       resume: "\${context.resume}"
@@ -573,30 +568,15 @@ tick
 expect "an abandoned request" done_error outcome=error step=deliver:request-abandoned
 
 # A private repository runs the whole chain. The scope step publishes for real
-# through publish-scoping-pr.sh, over an unpushed wip/ file that names a
-# private path: the public-content visibility check reads the repository's
-# own header at the push, so it passes the push here and stops it below.
-# wip_commit -- commit a wip/ file carrying a private-path marker, unpushed.
-wip_commit() {
-    mkdir -p "$R/wip"
-    printf 'notes kept beside private/planning-notes.md\n' >"$R/wip/notes.md"
-    g add wip/notes.md
-    g commit -q -m "wip: notes"
-}
+# through publish-scoping-pr.sh.
 publish() { # publish -- /scope's publish step, run as /scope runs it
     (cd "$R" && bash "$REPO_ROOT/skills/scope/scripts/publish-scoping-pr.sh" \
         --topic "$TOPIC" --exit full-run --intent continue) >"$T/publish.out" 2>"$T/publish.err"
 }
 fixture private private
-wip_commit
 start auto
 publish
 eq "private: the publish step pushes (exit 0)" 0 "$?"
-if grep -q '^wip_paths=wip/notes.md$' "$T/publish.out"; then
-    pass "private: the push step read the wip/ paths"
-else
-    fail "private: the push step read the wip/ paths" "$(cat "$T/publish.out" "$T/publish.err")"
-fi
 eq "private: origin holds the pushed head" "$(g rev-parse HEAD)" "$(g ls-remote origin "refs/heads/docs/$TOPIC" | cut -f1)"
 to_execute_run
 eq "private: at execute_run" execute_run "$(state)"
@@ -604,18 +584,6 @@ db_set '(.prs[] | select(.number == 42) | .state) = "MERGED"'
 child execute "{\"outcome\":\"merged\",\"pr\":\"$URL\",\"repos\":\"acme/widgets\"}"
 tick
 expect "a private repository reaches its PR" done outcome=merged "pr=$URL"
-
-fixture public-scan single-pr
-wip_commit
-BEFORE=$(g ls-remote origin "refs/heads/docs/$TOPIC" | cut -f1)
-publish
-eq "public: the visibility check stops the push (exit 10)" 10 "$?"
-if grep -q '^step=scope:push$' "$T/publish.out" && grep -q 'visibility check found private-repository content in wip/notes.md' "$T/publish.err"; then
-    pass "public: the refusal names scope:push and the file"
-else
-    fail "public: the refusal names scope:push and the file" "$(cat "$T/publish.out" "$T/publish.err")"
-fi
-eq "public: nothing was pushed" "$BEFORE" "$(g ls-remote origin "refs/heads/docs/$TOPIC" | cut -f1)"
 
 echo "== the stale-run fence =="
 fixture fence single-pr

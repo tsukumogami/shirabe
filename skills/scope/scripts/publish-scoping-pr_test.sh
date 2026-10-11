@@ -4,8 +4,7 @@
 #
 # Usage: bash skills/scope/scripts/publish-scoping-pr_test.sh
 #
-# Every case clones a fresh bare `origin`, commits a PLAN and the topic's wip/
-# on a topic branch, and runs the script with testdata/gh-stateful-stub.sh as
+# Every case clones a fresh bare `origin`, commits a PLAN on a topic branch, and runs the script with testdata/gh-stateful-stub.sh as
 # `gh`. The stub logs every call, so each case asserts the exact GitHub writes
 # (`pr create`, `pr edit`) and, through `git ls-remote`, whether anything was
 # pushed. A koto stand-in records the context keys the script writes with
@@ -62,7 +61,7 @@ chmod +x "$SHIM/gh" "$SHIM/koto"
 N=0
 R=""; O=""; GHF=""
 # setup [mode] [branch] -- a bare origin with main, a clone on the topic branch
-# holding a PLAN of that mode and tracked wip/. Sets R, O, GHF.
+# holding a PLAN of that mode. Sets R, O, GHF.
 setup() {
     local mode="${1:-single-pr}" branch="${2:-docs/topic}"
     N=$((N + 1))
@@ -75,7 +74,7 @@ setup() {
     git -C "$R" remote add origin "$O"
     git -C "$R" push -q -u origin main
     [ "$branch" = main ] || git -C "$R" checkout -q -b "$branch"
-    mkdir -p "$R/docs/plans" "$R/wip/research"
+    mkdir -p "$R/docs/plans"
     cat >"$R/docs/plans/PLAN-topic.md" <<EOF
 ---
 schema: plan/v1
@@ -92,10 +91,7 @@ execution_mode: $mode
 | [#31: feat: one](#issue-31) | None | simple |
 | [#32: feat: two](#issue-32) | [#31](#issue-31) | simple |
 EOF
-    printf 'topic: topic\n' >"$R/wip/scope_topic_state.md"
-    printf 'notes\n' >"$R/wip/research/design_topic_notes.md"
-    printf 'other\n' >"$R/wip/other_file.md"
-    git -C "$R" add docs wip && git -C "$R" commit -q -m "docs: scope topic"
+    git -C "$R" add docs && git -C "$R" commit -q -m "docs: scope topic"
 }
 
 seed_pr() { # seed_pr <url> <cross> <author> <base> <intent>
@@ -138,16 +134,6 @@ else
 fi
 eq "pr= names the created PR" "https://github.com/acme/widgets/pull/100" "$(line pr)"
 eq "the branch was pushed: origin equals HEAD" "$(git -C "$R" rev-parse HEAD)" "$(remote_sha docs/topic)"
-eq "the topic's wip/ is untracked" "" "$(git -C "$R" ls-files -- 'wip/scope_topic_*' 'wip/research/design_topic_*')"
-eq "another skill's wip/ is left tracked" "wip/other_file.md" "$(git -C "$R" ls-files -- wip/other_file.md)"
-if [ -f "$R/wip/scope_topic_state.md" ]; then ok "the untracked files stay on disk"; else bad "the untracked files stay on disk"; fi
-eq "the untrack commit holds exactly the removal" "D	wip/research/design_topic_notes.md
-D	wip/scope_topic_state.md" "$(git -C "$R" show --format= --name-status HEAD)"
-case "$(line wip_paths)" in
-    *wip/scope_topic_state.md*) ok "wip_paths names the wip/ in unpushed history" ;;
-    *) bad "wip_paths names the wip/ in unpushed history" "$OUT" ;;
-esac
-eq "--session: wip_paths recorded" "$(line wip_paths)" "$(cat "$STORE/s-new/wip_paths" 2>/dev/null)"
 if [ -f "$STORE/s-new/publish_step" ]; then bad "--session: no publish_step on success"; else ok "--session: no publish_step on success"; fi
 BODY=$(jq -r '.[0].body' "$GHF/prs.json")
 case "$BODY" in *"intent=continue"*) ok "the body records intent=continue" ;; *) bad "the body records intent=continue" "$BODY" ;; esac
@@ -182,19 +168,20 @@ else
     bad "--verify leaves work/prior-run.md alone (no context write)"
 fi
 
-echo "== /brief's jury verdict files are untracked too =="
+echo "== a staging-folder file in unpushed history is not this script's business =="
 setup single-pr
-VERDICT="research/brief_topic_phase4_content-quality.md"
-printf 'verdict\n' >"$R/wip/$VERDICT"
-git -C "$R" add -- "wip/$VERDICT" && git -C "$R" commit -q -m "wip: verdict"
-run --topic topic --exit full-run --intent continue --session s-verdict
-eq "verdict: exit 0" "0" "$RC"
-eq "verdict: the verdict file is untracked" "" "$(git -C "$R" ls-files -- "wip/$VERDICT")"
-case "$(git -C "$R" show --format= --name-status HEAD)" in
-    *"D	wip/$VERDICT"*) ok "verdict: the untrack commit removes it" ;;
-    *) bad "verdict: the untrack commit removes it" "$(git -C "$R" show --format= --name-status HEAD)" ;;
-esac
-if [ -f "$R/wip/$VERDICT" ]; then ok "verdict: the file stays on disk"; else bad "verdict: the file stays on disk"; fi
+mkdir -p "$R/wip"
+printf '# repo\n\n## Repo Visibility: Public\n' >"$R/CLAUDE.md"
+printf 'see private/tools/notes.md for the numbers\n' >"$R/wip/scope_topic_state.md"
+git -C "$R" add CLAUDE.md wip && git -C "$R" commit -q -m "wip: notes"
+BEFORE_HEAD=$(git -C "$R" rev-parse HEAD)
+run --topic topic --exit full-run --intent continue --session s-folder
+eq "folder: exit 0" "0" "$RC"
+eq "folder: no commit added over HEAD" "$BEFORE_HEAD" "$(git -C "$R" rev-parse HEAD)"
+eq "folder: the file is still tracked" "wip/scope_topic_state.md" "$(git -C "$R" ls-files -- wip)"
+eq "folder: HEAD was pushed as it is" "$BEFORE_HEAD" "$(remote_sha docs/topic)"
+eq "folder: no wip_paths line" "" "$(line wip_paths)"
+if [ -f "$STORE/s-folder/wip_paths" ]; then bad "folder: no wip_paths context key"; else ok "folder: no wip_paths context key"; fi
 
 echo "== one owned PR already open =="
 setup single-pr
@@ -295,44 +282,6 @@ git -C "$R" remote remove origin
 run --topic topic --exit full-run --intent continue
 eq "no origin: scope:push" "scope:push" "$(line step)"
 eq "no origin: no gh write" "0" "$(( $(calls create) + $(calls edit) ))"
-
-setup single-pr
-printf '# repo\n\n## Repo Visibility: Public\n' >"$R/CLAUDE.md"
-printf 'see private/tools/notes.md for the numbers\n' >"$R/wip/research/design_topic_notes.md"
-git -C "$R" add CLAUDE.md wip && git -C "$R" commit -q -m "wip: research"
-run --topic topic --exit full-run --intent continue
-eq "a visibility-check hit in unpushed wip/: scope:push" "scope:push" "$(line step)"
-eq "a visibility-check hit: nothing pushed" "" "$(remote_sha docs/topic)"
-eq "a visibility-check hit: no gh write" "0" "$(( $(calls create) + $(calls edit) ))"
-
-# The same hit on the first line of a blob far larger than a pipe buffer. Piped
-# into `grep -q`, grep exits on that line while git is still writing, git dies of
-# SIGPIPE, and under pipefail the `if` read the 141 as "no match" and pushed.
-setup single-pr
-printf '# repo\n\n## Repo Visibility: Public\n' >"$R/CLAUDE.md"
-{
-    printf 'see private/tools/notes.md for the numbers\n'
-    awk 'BEGIN { for (i = 0; i < 20000; i++) print "filler line to outgrow the pipe buffer" }'
-} >"$R/wip/research/design_topic_notes.md"
-git -C "$R" add CLAUDE.md wip && git -C "$R" commit -q -m "wip: research"
-run --topic topic --exit full-run --intent continue
-eq "a hit on line 1 of a large blob: scope:push" "scope:push" "$(line step)"
-eq "a hit on line 1 of a large blob: nothing pushed" "" "$(remote_sha docs/topic)"
-eq "a hit on line 1 of a large blob: no gh write" "0" "$(( $(calls create) + $(calls edit) ))"
-
-# The same failure one step earlier: a wip/ path list larger than a pipe buffer,
-# with the offending path sorted first. Piped into `grep -qxF`, the listing
-# check died of SIGPIPE on the match and `|| continue` skipped the path unscanned.
-setup single-pr
-printf '# repo\n\n## Repo Visibility: Public\n' >"$R/CLAUDE.md"
-printf 'see private/tools/notes.md for the numbers\n' >"$R/wip/aaa_first_notes.md"
-mkdir -p "$R/wip/zz"
-awk -v d="$R/wip/zz" 'BEGIN { for (i = 0; i < 2000; i++) { f = sprintf("%s/filler_note_with_a_long_name_to_grow_the_list_%05d.md", d, i); print "x" > f; close(f) } }'
-git -C "$R" add CLAUDE.md wip && git -C "$R" commit -q -m "wip: research"
-run --topic topic --exit full-run --intent continue
-eq "a hit first in a large wip/ list: scope:push" "scope:push" "$(line step)"
-eq "a hit first in a large wip/ list: nothing pushed" "" "$(remote_sha docs/topic)"
-eq "a hit first in a large wip/ list: no gh write" "0" "$(( $(calls create) + $(calls edit) ))"
 
 setup single-pr
 rm "$R/docs/plans/PLAN-topic.md"; git -C "$R" commit -q -am "drop plan"

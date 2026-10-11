@@ -1724,19 +1724,14 @@ states:
         type: command
         command: "test \"$(git rev-parse --abbrev-ref HEAD)\" != \"main\""
       # What the branch carries, checked before a pull request shows it to
-      # anyone. Both run check-branch-output.sh (0 pass, 1 a violation with a
-      # ::koto-finding:: line each, 2 could not decide), and both hold on 1 or
-      # 2: neither pull request edge below fires until they pass.
+      # anyone. It runs check-branch-output.sh (0 pass, 1 a violation with a
+      # ::koto-finding:: line each, 2 could not decide), and holds on 1 or 2:
+      # neither pull request edge below fires until it passes.
       #
       # On /execute's shared branch the child opens no pull request of its
-      # own (pr_status: shared), so both pass at once; /execute checks the
+      # own (pr_status: shared), so it passes at once; /execute checks the
       # shared branch once, before it finalizes the pull request it owns.
       #
-      # branch_wip_clean: no path under wip/ in HEAD's tree
-      # (rule branch/no-wip-files).
-      branch_wip_clean:
-        type: command
-        command: 'test -n "{{SHARED_BRANCH}}" || { test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --wip; }'
       # branch_docs_visibility: the docs this run changed, through shirabe
       # validate at the repository's declared visibility, counting only the
       # visibility rules (docs/private-only-type, docs/visibility-vision-sections,
@@ -1758,13 +1753,11 @@ states:
       - target: pr_creation
         when:
           gates.on_feature_branch_pr.exit_code: 0
-          gates.branch_wip_clean.exit_code: 0
           gates.branch_docs_visibility.exit_code: 0
       - target: pr_creation
         when:
           gates.on_feature_branch_pr.exit_code: 1
           precheck_status: override
-          gates.branch_wip_clean.exit_code: 0
           gates.branch_docs_visibility.exit_code: 0
       - target: done_blocked
         when:
@@ -2779,16 +2772,15 @@ Reading the branch this work is on, before the pull request is opened. koto runs
 
 The gate beside it refuses the default branch. It is the last check before a pull request exists, and the only one at that point.
 
-Two more gates check what the branch carries, and both hold the state until they pass, naming the failing gate with a `::koto-finding::` per violation:
+One more gate checks what the branch carries, and holds the state until it passes, naming itself with a `::koto-finding::` per violation:
 
-- `branch_wip_clean` runs `check-branch-output.sh --wip`: no path under `wip/` in `HEAD`'s tree (`branch/no-wip-files`). Remove the files, commit, and tick again.
 - `branch_docs_visibility` runs `check-branch-output.sh --docs-visibility --session {{SESSION_NAME}}`: every `docs/` document this run changed passes `shirabe validate` at the repository's declared visibility (`docs/private-only-type`, `docs/visibility-vision-sections`, `docs/visibility-strategy-sections`). Fix the document, commit, and tick again.
 
-An exit 2 from either means the check could not decide (a missing `shirabe` or `jq`, an unreadable range); run the command by hand, through `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh`, for the reason. On `SHARED_BRANCH` both pass at once: this child opens no pull request, and `/execute` checks the shared branch before it finalizes its own.
+An exit 2 means the check could not decide (a missing `shirabe` or `jq`, an unreadable range); run the command by hand, through `{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh`, for the reason. On `SHARED_BRANCH` it passes at once: this child opens no pull request, and `/execute` checks the shared branch before it finalizes its own.
 
 The branch name is delivered to `pr_creation` and `ci_monitor` as `BRANCH`, so neither recovers it again.
 
-Submit `precheck_status: override` to proceed from the default branch anyway, or `blocked` with `detail` to stop. `override` still needs `branch_wip_clean` and `branch_docs_visibility` to pass. On the passing path submit nothing -- the run advances on its own.
+Submit `precheck_status: override` to proceed from the default branch anyway, or `blocked` with `detail` to stop. `override` still needs `branch_docs_visibility` to pass. On the passing path submit nothing -- the run advances on its own.
 
 ## pr_creation
 

@@ -217,19 +217,17 @@ the body; it was removed for exactly this reason.
 
 ## Intermediate Storage
 
-shirabe historically uses `wip/` as the standard location for
-intermediate workflow artifacts because `wip/` is committed to git and
-visible to the user during review. koto context replaces `wip/` for
-koto-driven workflows: koto provides cloud-backed storage for workflow
-context with the same review and traceability properties, removing
-the need to pollute git history with intermediates.
+Every shirabe skill keeps its intermediate state in koto sessions, under the
+convention in `references/skill-session-convention.md`. koto context stores the
+workflow's artifacts with the review and traceability they need, and nothing
+intermediate lands in git history. No rule tells a workflow to use the
+`wip/` staging folder. A committed document still cites no staging path;
+`references/wip-hygiene.md` keeps that rule.
 
 The rule:
 
-- **Non-koto workflows** use `wip/` for intermediate artifacts.
-- **koto-driven workflows** use koto context (`koto context add`) for
-  every artifact that should be reviewable or traceable downstream.
-  `wip/` is not a koto-driven-workflow location.
+- **Every workflow** uses koto context (`koto context add`) for every
+  artifact that should be reviewable or traceable downstream.
 - **Agent-side scratch when assembling content for koto context** can
   use any on-disk location, but the file must either be explicitly
   deleted after `koto context add` succeeds, or live in an auto-wiped
