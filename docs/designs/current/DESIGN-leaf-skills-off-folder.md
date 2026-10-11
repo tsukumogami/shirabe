@@ -498,8 +498,9 @@ them.
   staging file
   that another tool committed to the branch, carrying private content, being
   pushed to a public repository by /scope's publish step. It is accepted here
-  because nothing in shirabe produces such a file, and it is raised with the
-  coordinator rather than kept as a guard for a folder no skill uses.
+  because nothing in shirabe produces such a file. It is recorded as a known
+  gap, with a separate proposal that the public-content check gain the class,
+  rather than kept as a guard for a folder no skill uses.
 - **Scratch directories are trusted by their caller.** `ingest` and `get`
   accept any private directory outside the work tree, not only one `scratch`
   made. The new callers always pass the path `scratch` just printed in the same
@@ -544,4 +545,5 @@ them.
 - The stand-in returns koto's documented codes, and the subcommand's mapping is
   a table small enough to read whole.
 - `check-public-content.sh` still refuses committed text naming a staging
-  file, and the workspace rule stays until the coordinator retires it.
+  file. The workspace rule stays unless its owner retires it; that retirement
+  is proposed separately.
