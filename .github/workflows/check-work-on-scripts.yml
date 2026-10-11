@@ -330,6 +330,14 @@ jobs:
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/output-gates-routing_test.sh
 
+      # extract-context.sh stores context in a koto session and writes no file.
+      # The suite runs it with no session and with no koto on PATH and asserts
+      # the failed JSON and that nothing was created. Needs only bash and jq;
+      # the macOS leg runs it on the floor through the work-on suite.
+      - name: Run extract-context tests (Linux)
+        if: runner.os == 'Linux'
+        run: skills/work-on/scripts/extract-context_test.sh
+
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
       # it is the same command a developer runs locally.

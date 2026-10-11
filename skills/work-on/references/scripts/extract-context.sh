@@ -2,19 +2,22 @@
 # extract-context.sh - Extract and inject design context for a GitHub issue
 # Part of /work-on Phase 0: Context Injection
 #
-# Usage: ./extract-context.sh <issue-number> [--session <name>]
+# Usage: ./extract-context.sh <issue-number> --session <name>
 #
 # This script performs the complete context injection:
 # 1. Searches for design docs containing this issue
 # 2. Parses the Implementation Issues table
 # 3. Extracts relevant design sections
 # 4. Displays context summary to stdout
-# 5. Stores content via koto context add (if --session), or writes wip/ (fallback)
+# 5. Stores content via koto context add under key "context.md"
 # 6. Outputs final JSON summary for Claude
 #
 # Options:
-#   --session <name>  Store content in koto context under key "context.md"
-#                     instead of writing to wip/IMPLEMENTATION_CONTEXT.md
+#   --session <name>  The koto session to store the content in, under key
+#                     "context.md". Required: the script writes no file. Without
+#                     it, or with it and no koto on PATH, the script prints a
+#                     failed JSON summary (context_available false) whose
+#                     warning names koto, and stores nothing.
 #
 # Exit codes:
 #   0 - Always (script never fails for expected issues)
@@ -23,8 +26,8 @@
 #   {
 #     "status": "success|degraded|failed",
 #     "context_available": true|false,
-#     "context_key": "context.md" (if --session),
-#     "context_file": "wip/IMPLEMENTATION_CONTEXT.md" (if no --session),
+#     "context_key": "context.md" (on success),
+#     "session": "<name>" (on success),
 #     "tier": "simple|testable|critical",
 #     "warnings": ["warning1", "warning2"]
 #   }
@@ -32,7 +35,7 @@
 # Functions:
 #   display_context()       - Print section header to stdout
 #   display_warnings()      - Print accumulated warnings
-#   store_context()         - Store content via koto context or wip/ fallback
+#   store_context()         - Store content via koto context
 #   json_success()          - Emit success JSON summary
 #   json_failed()           - Emit failure JSON summary
 #   check_prerequisites()   - Verify gh and jq are available
@@ -63,15 +66,9 @@ display_context() {
   echo ""
   echo "$context"
   echo ""
-  if [ -n "$SESSION" ]; then
-    echo "---------------------------------------------------"
-    echo "Context stored in koto session: ${SESSION} (key: context.md)"
-    echo "---------------------------------------------------"
-  else
-    echo "---------------------------------------------------"
-    echo "Full context saved to wip/IMPLEMENTATION_CONTEXT.md"
-    echo "---------------------------------------------------"
-  fi
+  echo "---------------------------------------------------"
+  echo "Context stored in koto session: ${SESSION} (key: context.md)"
+  echo "---------------------------------------------------"
   echo ""
 }
 
@@ -85,15 +82,10 @@ display_warnings() {
   fi
 }
 
-# Store context content via koto context (if --session) or wip/ fallback
+# Store context content via koto context. The script writes no file.
 store_context() {
   local context="$1"
-  if [ -n "$SESSION" ]; then
-    echo "$context" | koto context add "$SESSION" context.md
-  else
-    mkdir -p wip
-    echo "$context" > wip/IMPLEMENTATION_CONTEXT.md
-  fi
+  echo "$context" | koto context add "$SESSION" context.md
 }
 
 # JSON output helpers (printed at end for Claude to parse)
@@ -101,27 +93,24 @@ json_success() {
   local tier="${1:-simple}"
   local warnings_json
   warnings_json=$(printf '%s\n' "${WARNINGS[@]}" | jq -R . | jq -s .)
-  if [ -n "$SESSION" ]; then
-    jq -n \
-      --arg status "$STATUS" \
-      --arg tier "$tier" \
-      --arg session "$SESSION" \
-      --argjson warnings "$warnings_json" \
-      '{status: $status, context_available: true, context_key: "context.md", session: $session, tier: $tier, warnings: $warnings}'
-  else
-    jq -n \
-      --arg status "$STATUS" \
-      --arg tier "$tier" \
-      --arg context_file "wip/IMPLEMENTATION_CONTEXT.md" \
-      --argjson warnings "$warnings_json" \
-      '{status: $status, context_available: true, context_file: $context_file, tier: $tier, warnings: $warnings}'
-  fi
+  jq -n \
+    --arg status "$STATUS" \
+    --arg tier "$tier" \
+    --arg session "$SESSION" \
+    --argjson warnings "$warnings_json" \
+    '{status: $status, context_available: true, context_key: "context.md", session: $session, tier: $tier, warnings: $warnings}'
 }
 
 json_failed() {
   local error="$1"
-  jq -n --arg error "$error" \
-    '{status: "failed", context_available: false, error: $error, warnings: []}'
+  local warning="${2:-}"
+  if [ -n "$warning" ]; then
+    jq -n --arg error "$error" --arg warning "$warning" \
+      '{status: "failed", context_available: false, error: $error, warnings: [$warning]}'
+  else
+    jq -n --arg error "$error" \
+      '{status: "failed", context_available: false, error: $error, warnings: []}'
+  fi
 }
 
 # Check prerequisites
@@ -271,7 +260,7 @@ summarize_with_agent() {
   return 1
 }
 
-# Build IMPLEMENTATION_CONTEXT.md content
+# Build the content stored under key context.md
 # Args: $1 = context excerpt, $2 = issue number, $3 = design doc path, $4 = section
 build_context_file() {
   local excerpt="$1"
@@ -404,11 +393,15 @@ if [ -z "$ISSUE" ]; then
   exit 0
 fi
 
-# Verify koto is available when --session is used
-if [ -n "$SESSION" ] && ! command -v koto &>/dev/null; then
-  WARNINGS+=("koto not found, falling back to wip/ storage")
-  STATUS="degraded"
-  SESSION=""
+# The context is stored in a koto session and nowhere else. No session, or no
+# koto to reach it with, is a failure the caller reads from the JSON.
+if [ -z "$SESSION" ]; then
+  json_failed "No session given (--session <name>)" "koto session required: this script stores context in koto and writes no file, and no session name was given"
+  exit 0
+fi
+if ! command -v koto &>/dev/null; then
+  json_failed "koto not found" "koto not found on PATH; install it with 'tsuku install koto'. This script stores context in koto and writes no file"
+  exit 0
 fi
 
 main "$ISSUE"

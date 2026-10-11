@@ -28,12 +28,23 @@ the Comparative Matrix are. Note it for Phase 2.
 
 ## 1.4 Upstream Injection
 
-If Phase 0 recorded an upstream path (from `--upstream` or the parent
-sentinel), read it now and let it sharpen the competitive question and
+If Phase 0 recorded an upstream path (from `--upstream`), read it now and let it sharpen the competitive question and
 the slice. Do not copy upstream content into the COMP; use it to frame.
 
 ## Output
 
-Write `wip/comp_<topic>_scope.md` with: the competitive question, the
-market slice and its boundary, the market-vs-tool decision, and any
-upstream framing. This file feeds Phase 2.
+Write the scoping notes to key `work/scope.md` in `comp-<topic>`: the
+competitive question, the market slice and its boundary, the market-vs-tool
+decision, and any upstream framing. Assemble the text in a scratch
+directory, put it, and remove the directory:
+
+```bash
+dir=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch)
+# write the notes to "$dir/scope.md", then:
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" put comp-<topic> work/scope.md "$dir/scope.md"
+rm -rf "$dir"
+```
+
+Re-running the `put` replaces the key, so a revision during the
+conversation is one more `put`. The key feeds Phase 2; read it back with
+`koto context get comp-<topic> work/scope.md`.

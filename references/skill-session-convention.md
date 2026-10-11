@@ -109,6 +109,8 @@ named with a leading `_` carry the skill's own `<skill>_<t>` prefix.
 | `/roadmap` | `_scope.md`; research `_phase2_*`, `_phase4_*` | `work/scope.md`; `research/phase2_*`, `research/phase4_*` |
 | `/explore` | `explore_<t>_scope.md`, `_findings.md`, `_decisions.md`, `_crystallize.md`, `_decision-brief.md`; research `_r<N>_lead-<name>.md` | `work/scope.md`, `work/findings.md`, `work/decisions.md`, `work/crystallize.md`, `work/decision-brief.md`; `research/r<N>_lead-<name>.md` |
 | `/explore` (handoff) | `scope_<t>_handoff.md`, `charter_<t>_handoff.md` | `handoff/scope.md`, `handoff/charter.md` in `explore-<topic>`; the handoff arm removes every `work/` and `research/` key after writing it |
+| `/comp` | `comp_<t>_scope.md`; research `comp_<t>_phase4_<role>.md` | `work/scope.md`; `research/phase4_<role>.md` |
+| `/release` | `release-range.txt`, `release-prs.txt`, `release-unattributed.txt`; the notes file passed to `gh release create` | `work/range`, `work/prs`, `work/unattributed`; `work/notes.md` in `release-<topic>`, where `<topic>` is `<owner>-<name>` of the repository |
 
 `/review-plan` names its files with `/plan`'s prefix, so by the mapping it
 reads and writes `/plan`'s session, `plan-<topic>`. Run directly on a topic
