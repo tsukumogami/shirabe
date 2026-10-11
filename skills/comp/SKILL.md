@@ -167,8 +167,12 @@ something, whether the jury has already run, is the `jury-resume` subcommand of
 `comp-state.sh`.
 
 **Closing.** Phase 5 ends the session with `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh"
-close comp-<topic> done`, which keeps the keys readable. A run that stops
-before Phase 5 closes nothing, so its keys stay for the next run.
+close comp-<topic> done`, which keeps the keys readable. Two decided stops
+close it `abandoned` instead: the author rejecting the draft in Phase 4, and
+the Phase 5 refusal to finalize a COMP in a public repository. A finished
+session's keys stay readable, but the next `open` replaces it, so neither stop
+resumes. A run interrupted before either point closes nothing, and its keys
+stay for the next run to resume from.
 
 ## Stdout Signals
 
