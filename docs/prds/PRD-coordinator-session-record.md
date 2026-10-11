@@ -15,7 +15,8 @@ goals: |
   leg ends watched, on the message path, or recovered through the loop. Every
   existing record stays on GitHub and works exactly as today until its owner
   moves it, and the entries read outside the loop stay on GitHub.
-upstream: docs/briefs/BRIEF-coordinator-session-record.md
+absorbed:
+  - docs/briefs/BRIEF-coordinator-session-record.md
 ---
 
 # PRD: The coordinator's session as its record
@@ -23,6 +24,35 @@ upstream: docs/briefs/BRIEF-coordinator-session-record.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-coordinator-session-record](docs/briefs/BRIEF-coordinator-session-record.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature frames one gap: a coordinator keeps its state in two places, and the
+one it throws away at every start is the one it runs in. A restart rebuilds the
+run from the GitHub record, which it can trust only as a snapshot dated by its
+`Written:` line; a move to another host loses what the record can't carry: each
+worker's request leg and the result that came through it, the recovery of a
+worker that vanished with the old host, and what a replacement needs after a
+crash rather than a planned handoff.
+
+The outcome it asks for belongs to whoever runs a coordinator. Starting a crashed
+coordinator again resumes its own session; moving it imports that session on the
+new host, and the replacement passes the handover gate and carries on with no
+handoff file, tools directory or old session's memory, every worker watched,
+reporting by message, or redispatched through the loop. A lane mid-run on a
+GitHub record sees nothing change until its owner moves the record on purpose,
+and the readers outside the loop (the cost join, the verdict readers, a
+reviewer before a merge) keep finding what they read.
+
+The journeys it traced are the four the User Stories carry: a crash restart on
+one host, a replacement on another host with workers imported, left behind or
+gone, a lane that stays on its record, and a reader outside a moved coordinator.
+Its boundary is the one Requirements and Out of Scope draw: the state, the
+resume and import path, the legs, the crash set, the seam and the write
+guarantees are in; removing the GitHub record, moving any record by shipping,
+koto changes, pause delivery and the split loop issues are out.
 
 ## Problem Statement
 
