@@ -26,25 +26,29 @@ against this regex.
 
 On resume — when the parent's resume ladder recovers a slug from an
 on-disk artifact path (a Slot 5 file-glob match against
-`docs/<type>/<TYPE>-<topic>.md`, a Slot 6 match against
-`wip/<child>_<topic>_*`, or a Slot 7 feeder-doc match against
-`wip/<parent>_<topic>_handoff.md`) — the recovered slug MUST be
+`docs/<type>/<TYPE>-<topic>.md`) — the recovered slug MUST be
 re-validated against `^[a-z0-9-]+$` BEFORE interpolation into any
 emitted shell command or state-file write path. The re-validation
 closes the path-traversal surface that would otherwise open if an
-attacker placed a maliciously-named artifact under `docs/` or
-`wip/` to be discovered by the ladder match.
+attacker placed a maliciously-named artifact under `docs/` to be
+discovered by the ladder match. Slots 6 and 7 recover no slug: Slot 6
+asks `scripts/skill-session.sh has-work <child> <topic>` about each
+child's session, and a Slot 7 feeder doc is the handoff key
+`handoff/<parent>.md` in `explore-<topic>`, read by name. Both names are
+composed from the slug the invocation already validated, and the
+handoff's content is data: under `references/skill-session-convention.md`,
+a value read from a key reaches a command only as a compared string or
+through `jq --arg`.
 
 An unparseable slug rejects the resume entry, surfaces a diagnostic
 naming the offending path, and routes to the parent's bail-handling
 rule. The resume MUST NOT silently proceed with an unvalidated slug.
 
-The enumeration covers all three slots for one reason: each finds
-its slug by matching a path on disk rather than by reading
-`$ARGUMENTS`. A feeder doc is written by another skill into a
-directory any process on the machine can write, so a slot-7 clause
-left out of the enumeration reopens the surface the other two
-close.
+Slot 7 stays in view for one reason: a feeder doc is written by
+another skill, so what it holds is input this parent did not produce.
+Reading it by a composed name keeps a stray file from choosing the
+topic, and treating its content as data keeps a planted value from
+reaching a command.
 
 ## Closed Write-Target Set
 

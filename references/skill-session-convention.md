@@ -145,6 +145,15 @@ its own name therefore gives the second host a resumable chain with no
 rewrite. An import under another name breaks the lookup and is outside the
 convention.
 
+`skill-session.sh import <set> <topic> --from <workspace-path>` does that in
+one call: it runs `koto session import` once per name in the set, in the
+table's order and under its own name, skips a name koto reports as not at the
+source, stops at any other refusal with the name and koto's code, and fails
+when nothing in the set exists there. A re-run after a stop finishes the set.
+It needs koto's cloud backend, a stopped source, and each session's template
+compiled on the importing host first; it never passes `--as` or
+`--trust-template`. The script's header lists its output lines and exit codes.
+
 ### The dispatch key
 
 A parent tells a child it runs under a chain through key `chain/dispatch` in
@@ -210,7 +219,8 @@ close evidence to a live store-template session, prints koto's `retention`
 object, and leaves a finished or absent session alone.
 
 - A chain child never closes its own session.
-- At its exit the parent writes `exit` to its own state, then runs
+- At an exit that records an `exit:` value (full-run, re-evaluation,
+  abandonment-forced) the parent writes `exit` to its own state, then runs
   `skill-session.sh close-children <parent> <topic> <done|abandoned>`, then
   closes itself last. `close-children` closes each child in the parent's fixed
   list whose session is live, whose `chain/parent` equals the parent's
@@ -218,6 +228,11 @@ object, and leaves a finished or absent session alone.
   re-reading all three immediately before the close. Closing is idempotent, so
   a parent that crashes between writing `exit` and the closes finishes them on
   its next run, and a closed parent never leaves live children behind.
+- A clean cancel, a refusal and an error terminal record no `exit:` value and
+  close nothing, neither the parent nor its children: the children's live
+  sessions are what the next run's resume rows detect a mid-flight chain by,
+  so closing them there would erase the state a cancelled run exists to leave
+  behind.
 - A direct run closes its own session when it finishes.
 - A consumer of a handoff closes the `explore-<topic>` session once it has
   removed the handoff key and the session holds no other key.
@@ -264,6 +279,9 @@ The session names a chain uses, which are also the set an import moves:
 |-------|--------|------------------------------|---------|
 | tactical | `scope-<topic>` | `brief-`, `prd-`, `design-`, `plan-<topic>`; `/decision` inside `design-<topic>`, `/review-plan` inside `plan-<topic>` | `explore-<topic>` |
 | strategic | `charter-<topic>` | `vision-`, `strategy-`, `roadmap-<topic>` | `explore-<topic>` |
+
+The leaf skills keep one session each, which is the whole set an import moves
+for them: `explore-<topic>`, `comp-<topic>` and `release-<topic>`.
 
 ### The reserved coordinator areas
 
