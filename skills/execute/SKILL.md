@@ -206,7 +206,7 @@ status` shows where it landed.
 those answers through gates and routes on them itself: which PR the run owns
 (`orchestrator_setup`, `pr_finalization`, `plan_completion` and `ci_monitor`
 each look it up through `check-pr-output.sh --owned-pr`), whether the PR body,
-the shared branch's commits, its `wip/` tree and its `docs/` visibility pass
+the shared branch's commits and its `docs/` visibility pass
 (`pr_finalization`), the cascade's verdict (`plan_completion`, from the
 `cascade_result.json` that `run-cascade.sh --session` records), the CI and merge
 state (`ci_monitor`), and the pause (`PAUSE_BEFORE_FINALIZE`). A failing output
