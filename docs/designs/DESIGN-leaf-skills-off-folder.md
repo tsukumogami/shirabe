@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   /explore, /comp and /release keep their working state as staging-folder files
   whose existence and content their prose instructions branch on, /work-on's
@@ -32,7 +32,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
@@ -447,7 +447,7 @@ Phase 2.
 ### Phase 4: The enforcement layer
 
 Everything under "Removing the enforcement layer". Depends on Phases 1, 2 and
-3, and merges last. Its entry gate: on the merged result of Phases 1 to 3, a
+3, and merges last. Its entry gate: on the combined heads of Phases 1 to 3, a
 search of `skills`, `scripts` and `koto-templates` for staging-file paths
 shows no line any skill or script follows to write or read a file, every
 remaining hit being a guard, prose or a fixture; the pull request body lists

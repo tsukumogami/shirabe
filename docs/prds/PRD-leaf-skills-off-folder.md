@@ -261,8 +261,9 @@ file is used.
   that no committed document cites a staging path, without the enforcement
   table rows R11 to R13 remove.
 - **R15. The enforcement layer comes out last.** The pull request carrying R11
-  to R14 declares a dependency on every pull request carrying R1 to R7, and is
-  opened and merged after them. R8 to R10 carry no ordering constraint.
+  to R14 declares a dependency on every pull request carrying R1 to R7, is
+  built only once they are all pushed, and merges after them. R8 to R10 carry
+  no ordering constraint.
 - **R16. The workspace rule's retirement is proposed, not made.** The rule that
   governs the folder lives in workspace configuration outside this repository.
   This feature doesn't edit it; the final report quotes the rule's text as the
