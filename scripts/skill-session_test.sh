@@ -70,6 +70,9 @@ trap cleanup EXIT
 
 # A private HOME (koto's template cache lands there) and a private session
 # store: nothing here reaches the developer's own sessions.
+# The caller's HOME, kept only for the opt-in real-bucket import case, which
+# needs the caller's koto cloud configuration.
+ORIG_HOME="${HOME:-}"
 export HOME="$T/home"
 export KOTO_SESSIONS_BASE="$T/sessions"
 mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
@@ -323,6 +326,142 @@ else
     pass "a koto below the floor is asked only for its version"
 fi
 assert_no_staging "koto below the floor (stand-in): no file is created under the staging folder"
+
+# --- import, against a stand-in koto -----------------------------------------------
+#
+# The stand-in answers `koto session import <name> --from <path>` from one file
+# per name in $IMPORT_ANSWERS: its first line is the exit code, the rest is
+# stdout. A name with no file answers as koto does for a source that isn't in
+# the bucket. The answers copy the shapes koto documents for the verb in
+# tsukumogami/koto, docs/designs/current/DESIGN-session-migration.md ("The
+# verb"): one JSON object on success, {"error": {"code", "message"}} with exit
+# 2 for the caller-actionable refusals and 1 for the rest.
+IMPORT_STUB_DIR="$T/importbin"
+mkdir -p "$IMPORT_STUB_DIR"
+IMPORT_ANSWERS="$T/import-answers"
+cat >"$IMPORT_STUB_DIR/koto" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >>"$STUB_LOG"
+case "$1 ${2:-} ${3:-}" in
+    "version "*) printf 'koto 0.16.0 (stub)\n'; exit 0 ;;
+    "session import --help")
+        [ -n "${IMPORT_NO_VERB:-}" ] && { printf 'error: unrecognized subcommand\n' >&2; exit 2; }
+        exit 0 ;;
+esac
+if [ "$1 ${2:-}" = "session import" ]; then
+    f="$IMPORT_ANSWERS/$3"
+    if [ -f "$f" ]; then
+        rc=$(sed -n 1p "$f")
+        sed -n '2,$p' "$f"
+        exit "$rc"
+    fi
+    printf '{"error":{"code":"import_source_not_found","message":"no such session at the source"}}\n'
+    exit 2
+fi
+printf '{"error":"stub"}\n'
+exit 1
+STUB
+chmod +x "$IMPORT_STUB_DIR/koto"
+export IMPORT_ANSWERS
+
+# answer <name> <rc> <stdout> -- script the stand-in's answer for one name.
+answer() { mkdir -p "$IMPORT_ANSWERS"; printf '%s\n%s\n' "$2" "$3" >"$IMPORT_ANSWERS/$1"; }
+imported_json() { printf '{"name":"%s","imported":true,"from":{"workspace":"/src/ws","session":"%s"},"keys":3,"template":"local-cache","marked":true}' "$1" "$1"; }
+run_import() {
+    rm -f "$STUB_LOG"
+    RC=0
+    (cd "$REPO" && KOTO_BIN="$IMPORT_STUB_DIR/koto" PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" import "$@") \
+        >"$T/stdout" 2>"$T/stderr" || RC=$?
+    STDOUT=$(cat "$T/stdout")
+    STDERR=$(cat "$T/stderr")
+}
+import_calls() {
+    if [ -f "$STUB_LOG" ]; then grep -c '^session import [a-z]' "$STUB_LOG" | tr -d ' '; else echo 0; fi
+}
+
+rm -rf "$IMPORT_ANSWERS"
+answer scope-imp 0 "$(imported_json scope-imp)"
+answer plan-imp 0 "$(imported_json plan-imp)"
+run_import tactical imp --from /src/ws
+assert_eq "import: two of six tactical names present exits 0" "0" "$RC"
+assert_eq "import: it prints one line per name, in the set's order" \
+"imported=scope-imp
+skipped=brief-imp reason=not-found
+skipped=prd-imp reason=not-found
+skipped=design-imp reason=not-found
+imported=plan-imp
+skipped=explore-imp reason=not-found" "$STDOUT"
+if grep -qE -- '--as|--trust-template' "$STUB_LOG"; then
+    fail "import passed --as or --trust-template: $(grep -E -- '--as|--trust-template' "$STUB_LOG")"
+else
+    pass "import never passes --as or --trust-template"
+fi
+assert_contains "import passes --from with the path as given" "session import scope-imp --from /src/ws" "$(cat "$STUB_LOG")"
+
+rm -rf "$IMPORT_ANSWERS"
+run_import strategic none --from /src/ws
+assert_eq "import: nothing of the set at the source exits 3" "3" "$RC"
+assert_eq "import: every strategic name is reported skipped" "5" "$(printf '%s\n' "$STDOUT" | grep -c '^skipped=')"
+assert_contains "import: the message names the source" "/src/ws" "$STDERR"
+
+rm -rf "$IMPORT_ANSWERS"
+answer scope-taken 0 "$(imported_json scope-taken)"
+answer brief-taken 0 "$(imported_json brief-taken)"
+answer prd-taken 2 '{"error":{"code":"import_name_taken","message":"a session named prd-taken already exists here"}}'
+run_import tactical taken --from /src/ws
+assert_eq "import: a refusal other than not-found exits 1" "1" "$RC"
+assert_eq "import: it prints the failed line last, after the names it imported" \
+"imported=scope-taken
+imported=brief-taken
+failed=prd-taken code=import_name_taken" "$STDOUT"
+assert_eq "import: no koto call follows the refusal" "3" "$(import_calls)"
+
+rm -rf "$IMPORT_ANSWERS"
+answer comp-garbled 0 'not json at all'
+run_import comp garbled --from /src/ws
+assert_eq "import: output it can't parse exits 1" "1" "$RC"
+assert_eq "import: and reads as code=unparseable" "failed=comp-garbled code=unparseable" "$STDOUT"
+answer comp-garbled 1 '{"error":{"code":"import_push_failed; rm -rf /","message":"x"}}'
+run_import comp garbled --from /src/ws
+assert_eq "import: a code outside koto's shape is printed as unparseable" "failed=comp-garbled code=unparseable" "$STDOUT"
+
+# A re-run after a stop: koto treats the names it already imported as a retry.
+rm -rf "$IMPORT_ANSWERS"
+answer scope-again 0 "$(imported_json scope-again)"
+answer brief-again 2 '{"error":{"code":"import_template_unavailable","message":"compile the template first"}}'
+run_import tactical again --from /src/ws
+assert_eq "import: a first run stops at the refusal" "1" "$RC"
+answer brief-again 0 "$(imported_json brief-again)"
+run_import tactical again --from /src/ws
+assert_eq "import: the re-run exits 0" "0" "$RC"
+assert_eq "import: and reports the earlier name imported again" "imported=scope-again" "$(printf '%s\n' "$STDOUT" | sed -n 1p)"
+assert_eq "import: and the rest of the set" "imported=brief-again" "$(printf '%s\n' "$STDOUT" | sed -n 2p)"
+
+rm -rf "$IMPORT_ANSWERS"
+answer release-one 0 "$(imported_json release-one)"
+run_import release one --from /src/ws
+assert_eq "import: a leaf set imports its one session" "imported=release-one" "$STDOUT"
+answer explore-one 0 "$(imported_json explore-one)"
+run_import explore one --from /src/ws
+assert_eq "import: the explore set is the one explore session" "imported=explore-one" "$STDOUT"
+
+for bad in "tactical imp --from ws/relative" "nosuch imp --from /src/ws" "tactical -x --from /src/ws" "tactical imp /src/ws" "tactical imp --to /src/ws"; do
+    # shellcheck disable=SC2086
+    run_import $bad
+    if [ "$RC" -eq 64 ] && ! [ -s "$STUB_LOG" ]; then
+        pass "import refuses [$bad] with 64 before any koto call"
+    else
+        fail "import [$bad]: expected 64 and no koto call, got $RC and calls [$(cat "$STUB_LOG" 2>/dev/null)]"
+    fi
+done
+
+rm -f "$STUB_LOG"
+RC=0
+(cd "$REPO" && IMPORT_NO_VERB=1 KOTO_BIN="$IMPORT_STUB_DIR/koto" PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" import tactical imp --from /src/ws) \
+    >"$T/stdout" 2>"$T/stderr" || RC=$?
+assert_eq "import: a koto without session import exits 69" "69" "$RC"
+assert_contains "it prints failed=koto_no_import" "failed=koto_no_import" "$(cat "$T/stdout")"
+assert_eq "it imports nothing" "0" "$(import_calls)"
 
 # --- engine-backed -------------------------------------------------------------------
 
@@ -894,6 +1033,44 @@ run close plan-t11 done
 assert_eq "close refuses a live session from another template (exit 2)" "2" "$RC"
 assert_contains "it prints refused=not_store_session" "refused=not_store_session" "$STDOUT"
 assert_eq "that session is left where it was" "work" "$(k status plan-t11 | jq -r '.current_state')"
+
+# --- import against real koto ---
+#
+# The local backend has no bucket, so koto refuses every import with its own
+# import_requires_cloud; the subcommand reports that as a failed name and stops.
+run import tactical real --from /src/ws
+assert_eq "import against real koto on the local backend exits 1" "1" "$RC"
+assert_eq "it reports koto's own refusal" "failed=scope-real code=import_requires_cloud" "$STDOUT"
+
+# The opt-in case against a real bucket: set SKILL_SESSION_IMPORT_FROM to a
+# source workspace path, and SKILL_SESSION_IMPORT_SET and
+# SKILL_SESSION_IMPORT_TOPIC to a set and topic with sessions there, with
+# koto's cloud backend configured in your own HOME. It imports into this
+# suite's private store and marks the source sessions migrated, which can't be
+# undone: point it at a source made for the purpose.
+if [ -n "${SKILL_SESSION_IMPORT_FROM:-}" ]; then
+    RC=0
+    (cd "$REPO" && HOME="$ORIG_HOME" PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" import \
+        "${SKILL_SESSION_IMPORT_SET:-tactical}" "${SKILL_SESSION_IMPORT_TOPIC:-}" --from "$SKILL_SESSION_IMPORT_FROM") \
+        >"$T/stdout" 2>"$T/stderr" || RC=$?
+    assert_eq "import from a real bucket exits 0" "0" "$RC"
+    assert_contains "and imports at least one session" "imported=" "$(cat "$T/stdout")"
+else
+    echo "SKIP: SKILL_SESSION_IMPORT_FROM not set -- the real-bucket import case did not run"
+fi
+
+# --- reclaimable: the leaf skills ---
+
+run open comp r6
+run close comp-r6 done
+run reclaimable comp-r6
+assert_eq "a finished comp session with no chain/parent is reclaimable" "yes" "$STDOUT"
+run open release r6
+run reclaimable release-r6
+assert_eq "a live release session is not reclaimable" "no" "$STDOUT"
+run close release-r6 done
+run reclaimable release-r6
+assert_eq "a finished release session with no chain/parent is reclaimable" "yes" "$STDOUT"
 
 assert_no_staging "the whole engine run wrote nothing under the staging folder"
 

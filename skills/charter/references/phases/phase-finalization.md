@@ -14,8 +14,8 @@ trigger, which sub-shape applies (when relevant), the R8 three-step
 tie-break for "most-recently-running" with its clean-cancel
 fallthrough, and the load-bearing distinction between `/strategy`
 Phase 5 Reject and mid-chain Bail. The **state-field semantics** are
-defined in `skills/charter/references/phases/phase-state-management.md`
-(see `<<ISSUE:5>>`); this file cites them rather than re-deriving. The
+defined in `skills/charter/references/phases/phase-state-management.md`;
+this file cites them rather than re-deriving. The
 **artifact authoring** (Decision Record bodies, the HTML-comment
 abandonment marker) is owned by a companion outline.
 
@@ -130,7 +130,7 @@ the state (not set to null, empty string, or placeholder):
 `decision_record_sub_shape`, `referenced_strategy`,
 `discard_commit_sha`, `rejection_rationale`, `triggering_child`,
 `partial_phase_reached`. R9 conditional-field gating (defined in
-`<<ISSUE:5>>`'s state schema and enforced by the R9 hard finalization
+the `/charter` state schema in `skills/charter/references/phases/phase-state-management.md` and enforced by the R9 hard finalization
 check) makes any of these fields' presence a contract violation under
 `exit: full-run`.
 
@@ -453,7 +453,7 @@ The state is written with:
 For Exit 3, the following fields MUST be absent:
 `decision_record_sub_shape`, `referenced_strategy`,
 `discard_commit_sha`, `rejection_rationale`. The R9 hard finalization
-check (in `<<ISSUE:5>>`'s schema spec) enforces this. Notably,
+check (in the `/charter` state-schema spec, `skills/charter/references/phases/phase-state-management.md`) enforces this. Notably,
 `decision_record_sub_shape: null` under `exit: abandonment-forced` is
 a contract violation, not a "field present but unset" — the field is
 omitted from the YAML body entirely.
@@ -640,7 +640,7 @@ reader cannot conflate them. The tie-break (above) resolves Bail's
 triggering child; the rejection-sub-shape flow (Exit 2 section
 above) resolves Reject's discard SHA capture. They never share a
 state-field combination — the R9 conditional-field gating in
-`<<ISSUE:5>>`'s schema spec makes Reject's `decision_record_sub_shape:
+the `/charter` state-schema spec (`skills/charter/references/phases/phase-state-management.md`) makes Reject's `decision_record_sub_shape:
 rejection` mutually exclusive with Bail's `triggering_child:` and
 `partial_phase_reached:`.
 
@@ -699,7 +699,7 @@ session on the next invocation's finalization.
 
 Every state field this orchestration writes is defined in
 `skills/charter/references/phases/phase-state-management.md` (the
-`/charter` state-schema spec from `<<ISSUE:5>>`). Field semantics are
+`/charter` state-schema spec). Field semantics are
 not re-derived here:
 
 - `exit` — see Full Field Schema § exit
@@ -766,7 +766,7 @@ the abandonment-forced marker) the placement rules.
   VISION, or ROADMAP) is determined by the R8 tie-break above.
 
 Each template names the state fields it consumes at runtime
-population (see `<<ISSUE:5>>`'s state schema for the field
+population (see the `/charter` state schema in `skills/charter/references/phases/phase-state-management.md` for the field
 semantics).
 
 ## Security Considerations
@@ -860,7 +860,7 @@ introduced; the orchestration uses only filesystem reads and
 read-only `git log`. No executable code is added in this issue; the
 runtime that implements the orchestration logic is part of the
 `/charter` skill's main flow, and the validation that enforces R9
-lives in the state-schema spec from `<<ISSUE:5>>`.
+lives in the `/charter` state-schema spec, `skills/charter/references/phases/phase-state-management.md`.
 
 ### Durable-Evidence Surface
 

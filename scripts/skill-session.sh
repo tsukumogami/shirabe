@@ -27,6 +27,7 @@
 #   skill-session.sh get <session> <key> <dir>
 #   skill-session.sh put <session> <key> <file>
 #   skill-session.sh reclaimable <session>
+#   skill-session.sh import <set> <topic> --from <workspace-path>
 #
 # Arguments:
 #   <skill>     ^[a-z][a-z-]*$ (a skill's directory name).
@@ -165,23 +166,46 @@
 #             malformed chain/parent, or a name whose skill is not one the
 #             convention knows is no. The topic is the session name with the
 #             skill prefix removed, matched longest first against: review-plan
-#             decision strategy charter explore roadmap design vision brief
-#             scope plan prd.
+#             decision strategy charter explore release roadmap design vision
+#             brief scope comp plan prd.
+#
+#   import    moves a topic's sessions from another workspace's copy in the
+#             bucket: `koto session import <name> --from <workspace-path>` once
+#             per name in <set>, in this order, each under its own name and
+#             anchored in the directory the script runs in:
+#               tactical    scope- brief- prd- design- plan- explore-<topic>
+#               strategic   charter- vision- strategy- roadmap- explore-<topic>
+#               explore, comp, release   <set>-<topic>
+#             <workspace-path> must be absolute. Never passes --as or
+#             --trust-template, and rests on no parent-child lineage. koto
+#             needs its cloud backend, a stopped source, and each session's
+#             template compiled on this host first (`koto template compile`).
+#             One line per name it reaches:
+#               imported=<name>
+#               skipped=<name> reason=not-found   (koto's import_source_not_found)
+#               failed=<name> code=<koto's error code, or unparseable>
+#             It stops at the first failed line. A re-run after a stop imports
+#             the rest; names already imported report imported. An import koto
+#             has marked at the source can't be undone.
 #
 # Exit codes:
 #   0    success; has-work: there is work
 #   1    has-work: no work; otherwise a koto operation failed (ingest: at
-#        least one add failed; close-children: at least one close failed)
+#        least one add failed; close-children: at least one close failed;
+#        import: a name koto did not import)
 #   2    refused: koto-open.sh's refusal (its exit code passes through),
 #        a session not in the state the subcommand needs, a path that fails
 #        the scratch checks, a key outside work/ and research/
-#   3    dispatch read / adopt: two parent sessions match
+#   3    dispatch read / adopt: two parent sessions match; import: no
+#        session of the set exists at the source
 #   4    cannot tell: koto answered something other than a session's state
 #        (status, has-work, dispatch read, adopt, reclaimable, close-children)
 #   5    refused=branch_mismatch: the session belongs to another branch
 #   6    refused=no_branch: HEAD is not on a branch, or not in a git work tree
 #   64   usage error; no koto call was made
-#   69   failed=koto_below_floor: koto is older than shirabe's floor
+#   69   failed=koto_below_floor: koto is older than shirabe's floor;
+#        import: failed=koto_no_import, the installed koto has no
+#        `session import`
 #   127  koto or jq is not on PATH
 #   130/143  interrupted by SIGINT/SIGTERM
 #
@@ -214,7 +238,10 @@ RE_COMPONENT='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 PARENTS="scope charter"
 ALL_CHILDREN="brief prd design plan vision strategy roadmap"
 # Longest first, so review-plan-x is review-plan's and not plan's.
-KNOWN_SKILLS="review-plan decision strategy charter explore roadmap design vision brief scope plan prd"
+KNOWN_SKILLS="review-plan decision strategy charter explore release roadmap design vision brief scope comp plan prd"
+# The sets `import` walks; their names are in import_names.
+IMPORT_SETS="tactical strategic explore comp release"
+RE_IMPORT_CODE='^[a-z][a-z0-9_]*$'
 
 MAX_BYTES=1048576
 
@@ -249,7 +276,7 @@ say() { printf '%s: %s\n' "$PROG" "$*" >&2; }
 usage() {
     printf 'error=usage\n'
     say "$1"
-    say "usage: skill-session.sh name|open|status|has-work|close|dispatch|adopt|close-children|scratch|ingest|get|put|reclaimable ... (see the header of this script)"
+    say "usage: skill-session.sh name|open|status|has-work|close|dispatch|adopt|close-children|scratch|ingest|get|put|reclaimable|import ... (see the header of this script)"
     exit 64
 }
 
@@ -1178,6 +1205,66 @@ cmd_reclaimable() {
     exit 0
 }
 
+# --- import ------------------------------------------------------------------------------
+
+# import_names <set> <topic> -- the session names <set> holds for <topic>, in
+# the order the import walks them.
+import_names() {
+    case "$1" in
+        tactical) printf '%s' "scope-$2 brief-$2 prd-$2 design-$2 plan-$2 explore-$2" ;;
+        strategic) printf '%s' "charter-$2 vision-$2 strategy-$2 roadmap-$2 explore-$2" ;;
+        explore|comp|release) printf '%s' "$1-$2" ;;
+    esac
+}
+
+cmd_import() {
+    local set topic from name out rc code imported=0
+    [ "$#" -eq 4 ] && [ "$3" = "--from" ] || usage "import takes <set> <topic> --from <workspace-path>"
+    set="$1"
+    topic="$2"
+    from="$4"
+    in_list "$set" "$IMPORT_SETS" || usage "set must be one of: $IMPORT_SETS"
+    check_topic "$topic"
+    case "$from" in
+        /*) ;;
+        *) usage "--from must be the source workspace's absolute path" ;;
+    esac
+    need_tools
+    if ! "$KOTO" session import --help >/dev/null 2>&1; then
+        printf 'failed=koto_no_import\n'
+        say "this koto has no \`session import\`; koto 0.16.0 and later have it"
+        exit 69
+    fi
+    for name in $(import_names "$set" "$topic"); do
+        rc=0
+        out=$("$KOTO" session import "$name" --from "$from" 2>/dev/null) || rc=$?
+        if [ "$rc" -eq 0 ] \
+            && [ "$(printf '%s' "$out" | jq -r 'if type == "object" and .imported == true then "yes" else "no" end' 2>/dev/null)" = "yes" ]; then
+            printf 'imported=%s\n' "$name"
+            imported=$((imported + 1))
+            continue
+        fi
+        code=$(printf '%s' "$out" \
+            | jq -r 'if type == "object" and (.error | type) == "object" and (.error.code | type) == "string" then .error.code else empty end' \
+            2>/dev/null) || code=""
+        if [ "$rc" -eq 2 ] && [ "$code" = "import_source_not_found" ]; then
+            printf 'skipped=%s reason=not-found\n' "$name"
+            continue
+        fi
+        # koto's code is printed, never run; anything outside its shape reads
+        # as output this script could not parse.
+        [[ "$code" =~ $RE_IMPORT_CODE ]] || code="unparseable"
+        printf 'failed=%s code=%s\n' "$name" "$code"
+        say "koto did not import $name ($code); fix the cause and run the same command again: names already imported report imported"
+        exit 1
+    done
+    if [ "$imported" -eq 0 ]; then
+        say "no session of the $set set for $topic exists at $from; check the path and the bucket"
+        exit 3
+    fi
+    exit 0
+}
+
 # --- dispatch ------------------------------------------------------------------------------
 
 [ "$#" -ge 1 ] || usage "no subcommand"
@@ -1197,5 +1284,6 @@ case "$SUB" in
     get) cmd_get "$@" ;;
     put) cmd_put "$@" ;;
     reclaimable) cmd_reclaimable "$@" ;;
+    import) cmd_import "$@" ;;
     *) usage "unknown subcommand: $SUB" ;;
 esac
