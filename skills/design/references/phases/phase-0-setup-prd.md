@@ -122,8 +122,8 @@ with step 0.5 until the path is resolved or the field is omitted.
 value.** Run these checks in order:
 
 1. **Is the candidate path under `wip/`?** If yes, STOP. The PRD on disk is a
-   staging copy, not its canonical home. wip/ paths are non-durable: they are
-   deleted before merge and would leave the design's `upstream:` orphaned.
+   staging copy, not its canonical home. wip/ paths are non-durable: no
+   workflow keeps a file there, so the design's `upstream:` would orphan.
    Resolution:
    - Find the PRD's canonical location (likely in a different repo). If the
      current repo's visibility allows referencing it, use `owner/repo:path`

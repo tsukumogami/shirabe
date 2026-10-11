@@ -550,8 +550,8 @@ The chain's status check runs after 7.5's transition, not here: it holds an
 **Match handling:**
 
 - **Any `wip/...` hit in the body or frontmatter is a hard fail.** wip/ paths
-  are non-durable: they are deleted before merge and would leave the PLAN
-  doc's references orphaned the moment cleanup runs. The trigger violation
+  are non-durable: no workflow keeps a file there, so the PLAN doc's
+  references would orphan once it is gone. The trigger violation
   this check exists to catch is acceptance-criteria prose that names a
   specific `wip/PR-<topic>.md` or `wip/<artifact>.md` path -- replace with
   a generic phrase that describes the artifact's purpose without naming a
