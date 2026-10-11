@@ -8,19 +8,26 @@
 # 1. Searches for design docs containing this issue
 # 2. Parses the Implementation Issues table
 # 3. Extracts relevant design sections
-# 4. Displays context summary to stdout
-# 5. Stores content via koto context add under key "context.md"
+# 4. Stores content via koto context add under key "context.md"
+# 5. Displays context summary to stdout
 # 6. Outputs final JSON summary for Claude
 #
 # Options:
 #   --session <name>  The koto session to store the content in, under key
 #                     "context.md". Required: the script writes no file. Without
-#                     it, or with it and no koto on PATH, the script prints a
-#                     failed JSON summary (context_available false) whose
-#                     warning names koto, and stores nothing.
+#                     it (or with the flag and no value), or with it and no koto
+#                     on PATH, the script prints a failed JSON summary
+#                     (context_available false) whose warning names koto, and
+#                     stores nothing.
+#
+# Environment:
+#   KOTO_BIN          The koto binary to run (default: koto on PATH).
 #
 # Exit codes:
-#   0 - Always (script never fails for expected issues)
+#   0 - Every outcome the JSON summary reports: success, degraded, and failed,
+#       including a missing issue number or session, no koto, and a failed
+#       koto context add
+#   non-zero - an unexpected error under set -e, with no JSON summary
 #
 # Output: Human-readable display followed by JSON summary
 #   {
@@ -53,6 +60,8 @@ set -euo pipefail
 declare -a WARNINGS
 STATUS="success"
 SESSION=""
+# The koto binary, overridable for tests the way the sibling state scripts allow.
+KOTO="${KOTO_BIN:-koto}"
 
 # Display and file writing helpers
 display_context() {
@@ -82,10 +91,15 @@ display_warnings() {
   fi
 }
 
-# Store context content via koto context. The script writes no file.
+# Store context content via koto context. The script writes no file. A failed
+# add is reported in the JSON summary rather than as a non-zero exit, so the
+# header's exit contract holds on the one storage path there is.
 store_context() {
   local context="$1"
-  echo "$context" | koto context add "$SESSION" context.md
+  if ! printf '%s\n' "$context" | "$KOTO" context add "$SESSION" context.md; then
+    json_failed "koto context add failed" "could not store context.md in koto session ${SESSION}; nothing was stored"
+    exit 0
+  fi
 }
 
 # JSON output helpers (printed at end for Claude to parse)
@@ -312,8 +326,8 @@ main() {
     }
 
     # Display, write file, show warnings, output JSON
-    display_context "$issue_body" "$issue"
     store_context "$issue_body"
+    display_context "$issue_body" "$issue"
     display_warnings
     json_success "simple"
     exit 0
@@ -365,8 +379,8 @@ main() {
   context_md=$(build_context_file "$context" "$issue" "$design_doc" "$section")
 
   # 5. Display context, write file, show warnings
-  display_context "$context_md" "$issue"
   store_context "$context_md"
+  display_context "$context_md" "$issue"
   display_warnings
 
   # 6. Output JSON summary for Claude
@@ -378,8 +392,12 @@ ISSUE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --session)
+      # A trailing --session has no value; shift past the flag alone so set -e
+      # doesn't end the script on a failed `shift 2`, and let the empty
+      # SESSION check below report it.
       SESSION="${2:-}"
-      shift 2
+      shift
+      [ $# -gt 0 ] && shift
       ;;
     *)
       ISSUE="$1"
@@ -399,7 +417,7 @@ if [ -z "$SESSION" ]; then
   json_failed "No session given (--session <name>)" "koto session required: this script stores context in koto and writes no file, and no session name was given"
   exit 0
 fi
-if ! command -v koto &>/dev/null; then
+if ! command -v "$KOTO" &>/dev/null; then
   json_failed "koto not found" "koto not found on PATH; install it with 'tsuku install koto'. This script stores context in koto and writes no file"
   exit 0
 fi
