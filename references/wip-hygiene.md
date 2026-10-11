@@ -35,10 +35,10 @@ reference and a hard fail.
 path resolves to nothing once the branch merges. The reader of the merged
 artifact is left with a broken link to a file that never reached main.
 
-When a `wip/...` path also crosses a visibility boundary -- for example, a
-coordinator stages a private-repo PRD into a public repo's `wip/` as a
-handoff, and a design agent then writes `upstream: wip/PRD-<topic>.md` into
-public frontmatter -- the failure compounds. The reference is simultaneously
+When a `wip/...` path also crosses a visibility boundary, the failure
+compounds. Take a private-repo PRD placed by hand in a public repo's `wip/`
+as a handoff, with a design agent then writing `upstream: wip/PRD-<topic>.md`
+into public frontmatter. The reference is simultaneously
 non-durable AND a public->private link (forbidden per
 [`cross-repo-references.md`](cross-repo-references.md)).
 

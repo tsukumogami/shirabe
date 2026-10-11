@@ -150,9 +150,10 @@ The list below names artifacts the parent SHALL NOT read. The list is
 not exhaustive — anything not on the per-parent surface table is
 internals — but the examples cover the common temptations.
 
-- **`wip/research/<child>_*.md`** — research notes and scratch files the
-  child writes during its own execution. Off-limits whether or not they
-  exist on the branch; the parent's resume ladder NEVER consults them.
+- **The child's `research/` and `work/` session keys** — research notes
+  and scratch the child writes during its own execution. Off-limits
+  whether or not they exist; the parent's resume ladder NEVER consults
+  them.
 - **CI logs** — the body of CI check logs (the output of each individual
   job, error messages, stack traces). The CI check rollup (green / red /
   pending) is on the surface for issue/PR children; the per-log body is

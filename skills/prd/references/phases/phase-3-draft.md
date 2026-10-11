@@ -46,7 +46,7 @@ before storing it. These are hard-stops -- do not write a failing value into
 frontmatter:
 
 1. **Is the path under `wip/`?** STOP. wip/ paths are non-durable and would
-   leave the PRD's `upstream:` orphaned after wip-hygiene cleanup. Resolve
+   leave the PRD's `upstream:` orphaned: no workflow keeps a file there. Resolve
    the canonical location and use that path instead, or OMIT the field.
 2. **Is it a legal type?** If the file is not a BRIEF, STRATEGY or VISION
    (`docs/briefs/BRIEF-*.md`, `docs/strategies/STRATEGY-*.md`,

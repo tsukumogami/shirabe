@@ -193,9 +193,9 @@ path and the expected prefix.
 Two further checks apply to a `--upstream` value, in this order, before it is
 recorded:
 
-- **Not under `wip/`.** Reject. `wip/` artifacts are non-durable — the
-  wip-hygiene cleanup deletes them before the PR can merge — so the recorded
-  `upstream:` would point at a file that disappears. Name the canonical
+- **Not under `wip/`.** Reject. `wip/` artifacts are non-durable — a file
+  there is scratch that no workflow keeps — so the recorded
+  `upstream:` would point at a file no reader can count on. Name the canonical
   location in the rejection.
 - **Tracked by git.** Run `git ls-files -- <path>`. An empty result on a path
   inside the working tree means the file is not committed; reject, naming the

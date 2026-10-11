@@ -399,7 +399,6 @@ if [ "$MODE" != order ]; then
             exit 79
         fi
     fi
-
 fi
 
 # 3a. The node against its own target, before any other read can name its

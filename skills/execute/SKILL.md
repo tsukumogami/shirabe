@@ -337,8 +337,9 @@ short-cuts is the canonical contract in `coordination-strategy.md` (R20).
 ## Report-upstream durability convention (D5)
 
 A friction log or any other report-upstream note captured during a run goes to a
-**durable home**. A koto session key is non-durable: it is closed with the run,
-so a note left only there is lost. The durable home is a **GitHub issue on the relevant skill repo** (filed with
+**durable home**. A koto session key is not: it is never committed, and it goes
+when the session is cleaned up, so a note left only there is lost. The durable
+home is a **GitHub issue on the relevant skill repo** (filed with
 `gh issue create`, the same surface `/plan` and `/roadmap` use), or — when no issue
 is the right target — a **committed note under `docs/`**. Prefer the issue; fall
 back to `docs/` only when there is no appropriate upstream issue target.
