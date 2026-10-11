@@ -341,7 +341,7 @@ SHIRABE_FINDINGS_LOG="$T/tmpdir/link.log" TMPDIR="$T/tmpdir" "$I/scripts/rule-re
 REG="$REPO_ROOT/references/rule-registry.json"
 n=$(jq '.rules | length' "$REG"); gates=$(jq '[.rules[] | select(.level == "gate")] | length' "$REG")
 rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
-[ "$n" = 38 ] && [ "$gates" = 20 ] && [ "$rsn" = 17 ] && pass "the registry has 38 rules: 20 gates and 17 criteria" \
+[ "$n" = 39 ] && [ "$gates" = 21 ] && [ "$rsn" = 17 ] && pass "the registry has 39 rules: 21 gates and 17 criteria" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \
@@ -353,7 +353,7 @@ bad=$(jq -r '.rules[] | select(.withhold != "never" and ((.guards != ["none"]) o
 
 never=$(jq -r '[.rules[] | select(.level == "gate" or .id == "rs-001" or .id == "rs-002" or .id == "rs-003" or .id == "execute/pr-takeover-needs-signal") | select(.withhold == "never")] | length' "$REG")
 eligible=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[4-9]|1[0-7])$")) | select(.withhold == "eligible" and .guards == ["none"])] | length' "$REG")
-[ "$never" = 24 ] && [ "$eligible" = 14 ] && pass "gates, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-017 are eligible" \
+[ "$never" = 25 ] && [ "$eligible" = 14 ] && pass "gates, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-017 are eligible" \
     || fail "withhold marking" "never=$never eligible=$eligible"
 
 unexplained=$(jq -r '

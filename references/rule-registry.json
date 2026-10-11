@@ -32,6 +32,39 @@
       "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
     },
     {
+      "id": "branch/no-wip-files",
+      "status": "retired",
+      "summary": "The branch carries files under wip/",
+      "text": {
+        "path": "references/wip-hygiene.md",
+        "first": "`wip/` is committed to feature branches so that workflows survive resume.",
+        "last": "squash-merge keeps the cleanup out of the main branch trail."
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-branch-output.sh",
+        "mode": "--wip"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-branch-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_precheck",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "references/wip-hygiene.md#L14-L16"
+      ],
+      "aliases": [],
+      "notes": "Retired when the staging-folder enforcement was removed: no skill writes the folder, and check-branch-output.sh no longer has a --wip mode."
+    },
+    {
       "id": "commit/conventional-subject",
       "status": "active",
       "summary": "A commit subject is not a Conventional Commits subject",
