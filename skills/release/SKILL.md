@@ -218,15 +218,14 @@ All must pass before proceeding:
    a. **Show the code the checks will run.** From the repository root:
 
       ```bash
-      git diff --stat "$LAST_TAG..HEAD" -- scripts/ skills/ .claude/shirabe-extensions/
+      git diff --stat "$RANGE" -- scripts/ skills/ .claude/shirabe-extensions/
       ```
 
-      `LAST_TAG` is the last release tag; recompute it, since this is a new
-      shell: `LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*'
-      2>/dev/null || echo "")`. On a first release
-      (no tag) drop the range and print `git diff --stat
-      "$(git hash-object -t tree /dev/null)" HEAD -- scripts/ skills/
-      .claude/shirabe-extensions/` instead.
+      `RANGE` is the release range Phase 1 recorded; read it back, since this
+      is a new shell: `RANGE=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh"
+      read <topic> range) || exit`. When it reads `HEAD` (a first release, no
+      tag) print `git diff --stat "$(git hash-object -t tree /dev/null)" HEAD --
+      scripts/ skills/ .claude/shirabe-extensions/` instead.
 
    b. **For each check, in order** (`release.md`'s first, then
       `release.local.md`'s), print the command and the file it came from. A
@@ -240,7 +239,7 @@ All must pass before proceeding:
       | Variable | Value |
       |----------|-------|
       | `RELEASE_VERSION` | the version Phase 1 recommends, or the one given, as bare `X.Y.Z` (strip a leading `v`). Phase 3 may still change it; the `## Release assets` step in Phase 4 gets the confirmed one |
-      | `RELEASE_LAST_TAG` | the last release tag (`LAST_TAG` above), empty on a first release |
+      | `RELEASE_LAST_TAG` | the last release tag: `RANGE` above without its `..HEAD`, empty when `RANGE` is `HEAD` (a first release) |
       | `RELEASE_DRY_RUN` | `1` under `--dry-run`, `0` otherwise |
       | `RELEASE_CONFIRMED_DROPS` | the empty string, so a value inherited from the environment can't pre-confirm anything |
 
@@ -367,8 +366,8 @@ run, run each bullet under `## Release assets` in the release extension
 step 7). No heading means nothing to attach. Print each command and its file,
 then run it from the repository root with `RELEASE_VERSION` set to the
 version confirmed in Phase 3 (bare `X.Y.Z`), `RELEASE_LAST_TAG` set as in
-Phase 2 (recompute it with the `git describe` line in Phase 2 step 7a, since
-this is a new shell),
+Phase 2 (read the range back with `release-state.sh read <topic> range`, as
+Phase 2 step 7a does, since this is a new shell),
 `RELEASE_DRY_RUN=0`, and `RELEASE_CONFIRMED_DROPS` set to the empty
 string, as in Phase 2.
 
