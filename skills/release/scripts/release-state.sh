@@ -122,7 +122,7 @@ session_live() {
 # any other answer.
 key_exists() {
     local rc=0
-    "$KOTO" context exists "$1" "$2" >/dev/null 2>&1 || rc=$?
+    "$KOTO" context exists "$1" "$2" >/dev/null || rc=$?
     case "$rc" in
         0) return 0 ;;
         1) return 1 ;;
@@ -137,9 +137,9 @@ cmd_topic() {
     [ "$#" -eq 0 ] || usage "topic takes no arguments"
     need_tool gh "/release reads the repository's owner and name with gh"
     need_tool jq "install jq"
-    json=$(gh repo view --json owner,name 2>/dev/null) || { say "gh repo view failed"; exit 1; }
-    owner=$(printf '%s' "$json" | jq -r '(.owner | if type == "object" then (.login // "") else (. // "") end)' 2>/dev/null) || { say "gh repo view answered something that is not the repository's owner and name"; exit 1; }
-    name=$(printf '%s' "$json" | jq -r '(.name // "")' 2>/dev/null) || { say "gh repo view answered something that is not the repository's owner and name"; exit 1; }
+    json=$(gh repo view --json owner,name) || { say "gh repo view failed"; exit 1; }
+    owner=$(printf '%s' "$json" | jq -r '(.owner | if type == "object" then (.login // "") else (. // "") end)') || { say "gh repo view answered something that is not the repository's owner and name"; exit 1; }
+    name=$(printf '%s' "$json" | jq -r '(.name // "")') || { say "gh repo view answered something that is not the repository's owner and name"; exit 1; }
     joined="${owner}-${name}"
     topic=$(printf '%s' "$joined" | LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C sed -E 's/[^a-z0-9]+/-/g; s/^-+//; s/-+$//')
     if [ -z "$owner" ] || [ -z "$name" ] || [ -z "$topic" ]; then
@@ -158,7 +158,7 @@ cleanup() { [ -n "$TMPD" ] && rm -rf "$TMPD"; return 0; }
 # put_file <session> <key> <file> -- store the file's bytes under the key,
 # replacing a value an earlier run left; exits the script on failure.
 put_file() {
-    if ! "$KOTO" context add "$1" "$2" --from-file "$3" >/dev/null 2>&1; then
+    if ! "$KOTO" context add "$1" "$2" --from-file "$3" >/dev/null; then
         say "koto context add $2 failed"
         printf 'failed=%s\n' "$2"
         exit 1
@@ -173,7 +173,7 @@ cmd_membership() {
     need_koto
     need_tool git "install git"
     s="release-$topic"
-    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    if ! git rev-parse --is-inside-work-tree >/dev/null; then
         printf 'refused=not_a_repository\n'
         say "the current directory is not in a git work tree"
         exit 2
@@ -201,12 +201,12 @@ cmd_membership() {
     # The pull requests the release contains: GitHub's squash merge appends
     # "(#N)" to the commit subject. grep exits 1 when nothing matches, which is
     # a legal outcome (an empty list), so it is guarded.
-    git log --format='%s' "$range" >"$TMPD/subjects" 2>/dev/null || { say "git log $range failed"; exit 1; }
+    git log --format='%s' "$range" >"$TMPD/subjects" || { say "git log $range failed"; exit 1; }
     { grep -oE '\(#[0-9]+\)$' "$TMPD/subjects" || true; } | tr -d '(#)' | sort -n -u >"$TMPD/prs"
 
     # Commits in the range that name no pull request: the release chore
     # commits, and anything pushed straight to the base branch.
-    git log --format='%h %s' "$range" >"$TMPD/log" 2>/dev/null || { say "git log $range failed"; exit 1; }
+    git log --format='%h %s' "$range" >"$TMPD/log" || { say "git log $range failed"; exit 1; }
     { grep -vE '\(#[0-9]+\)$' "$TMPD/log" || true; } >"$TMPD/unattributed"
 
     # Nothing an earlier run wrote survives into this one: its notes, and its
@@ -215,7 +215,7 @@ cmd_membership() {
     # of this run's and the last one's.
     for k in work/notes.md work/range work/prs work/unattributed; do
         key_exists "$s" "$k" || continue
-        if ! "$KOTO" context remove "$s" "$k" >/dev/null 2>&1; then
+        if ! "$KOTO" context remove "$s" "$k" >/dev/null; then
             printf 'failed=%s\n' "$k"
             say "could not remove $k"
             exit 1
@@ -254,7 +254,7 @@ cmd_read() {
         say "Phase 1 did not run: $key is absent from $s (run Phase 1 first; its membership step writes it)"
         exit 1
     fi
-    "$KOTO" context get "$s" "$key" 2>/dev/null || { say "cannot read $key"; exit 1; }
+    "$KOTO" context get "$s" "$key" || { say "cannot read $key"; exit 1; }
 }
 
 # --- dispatch ---------------------------------------------------------------------------

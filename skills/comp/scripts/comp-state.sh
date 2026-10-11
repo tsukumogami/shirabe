@@ -101,7 +101,7 @@ session_live() {
 # any other answer.
 key_exists() {
     local rc=0
-    "$KOTO" context exists "$1" "$2" >/dev/null 2>&1 || rc=$?
+    "$KOTO" context exists "$1" "$2" >/dev/null || rc=$?
     case "$rc" in
         0) return 0 ;;
         1) return 1 ;;
@@ -135,7 +135,7 @@ cmd_jury_resume() {
         return 0
     fi
     for key in $present; do
-        if "$KOTO" context remove "$s" "$key" >/dev/null 2>&1; then
+        if "$KOTO" context remove "$s" "$key" >/dev/null; then
             say "removed $key"
         else
             printf 'failed=%s\n' "$key"
