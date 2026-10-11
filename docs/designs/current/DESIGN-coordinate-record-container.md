@@ -52,6 +52,18 @@ rationale: |
 
 Current
 
+> **Note (2026-10-11).** `docs/designs/DESIGN-coordinator-session-record.md`
+> amends Decisions 1, 3 and 5. For a record whose owner wrote a `store session` Run
+> row, the body is no longer where the state lives: the same sections, in the
+> codec's JSON form and with the same one writer each, are keys under `record/` in
+> the coordinator's koto session, and the account is keys under `record/entries/`.
+> The container stays for that record, holding the entries read outside the loop
+> (`cost`, `milestone-verdict`, `goal-fit`, `milestone-failure`) under the same
+> marker, and a body with no state tables. Decision 3's stored set gains, on that
+> source, the rules, briefs, friction and reports-to Run rows and each holding's
+> last pushed head. Decision 5's two places become one for a moved record. Every
+> record without the row keeps this design unchanged.
+
 Implemented in three pull requests: the append, the stored set with the
 handover gate, and the write-back of a landed feature's status.
 
