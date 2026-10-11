@@ -6,38 +6,47 @@ Present findings from the current discovery round and help the user narrow focus
 
 Synthesize what the research agents found, surface what matters, and give the
 user enough information to decide: explore further or move to artifact type
-selection. Update the accumulated findings file so that all rounds' knowledge
+selection. Update the accumulated findings key so that all rounds' knowledge
 lives in one place.
 
 ## Resume Check
 
-If `wip/explore_<topic>_findings.md` exists but has no `## Decision: Crystallize`
-marker, resume here. Read the findings file plus any research files from rounds
-not yet covered in the findings, and present the accumulated results.
+On a resumed invocation, ask the session where the run stands:
 
-If research files exist for the current round but no findings file exists yet,
-this is a normal entry from Phase 2. Proceed with synthesis.
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/explore/scripts/explore-state.sh" resume-phase <topic>
+```
+
+On `3`, resume here. Read key `work/findings.md` (if it exists) plus the
+`research/` keys from rounds not yet covered in the findings (`koto context
+list explore-<topic> --prefix research/`, then `koto context get` on each), and
+present the accumulated results. On `4` or `5`, the run is further on: go to
+that phase. On `2` or `none`, discovery has not run: go back.
+
+If `research/` keys exist for the current round but no `work/findings.md` key
+exists yet, this is a normal entry from Phase 2. Proceed with synthesis.
 
 ## Inputs
 
-- **Current round's research files**: `wip/research/explore_<topic>_r<N>_lead-*.md`
-- **Accumulated findings** (if rounds 2+): `wip/explore_<topic>_findings.md`
-- **Scope file**: `wip/explore_<topic>_scope.md` (for original context)
+- **Current round's research keys**: `research/r<N>_lead-*` (list with `koto
+  context list explore-<topic> --prefix research/r<N>_lead-`, read each with
+  `koto context get explore-<topic> <key>`)
+- **Accumulated findings** (if rounds 2+): key `work/findings.md`
+- **Scope key**: `work/scope.md` (for original context)
 - **Round number** (`N`): passed from the orchestrator
 
 ## Steps
 
 ### 3.1 Read Current Round
 
-Read all research files from the current round:
-`wip/research/explore_<topic>_r<N>_lead-*.md`
+Read all research keys from the current round: `research/r<N>_lead-*`.
 
-For each file, extract the key sections (Findings, Implications, Surprises,
+For each key, extract the key sections (Findings, Implications, Surprises,
 Open Questions). If any agents failed during Phase 2, note the missing leads.
 
 ### 3.2 Read Prior Context
 
-If this is round 2 or later, read `wip/explore_<topic>_findings.md` to
+If this is round 2 or later, read key `work/findings.md` to
 understand what previous rounds already established. Don't re-present old
 findings as new -- build on them.
 
@@ -98,8 +107,10 @@ were made during this round. Decisions include:
 - **Priority choices** -- what the user said matters most, what to focus on next
 - **Constraints accepted** -- trade-offs the user agreed to or constraints acknowledged
 
-Write or append these to `wip/explore_<topic>_decisions.md`. If the file
-doesn't exist yet, create it with this structure:
+Write or append these to key `work/decisions.md`. The key is edited across
+rounds: get it into a scratch directory, edit it there and put it back, as
+"Session and Keys" in SKILL.md describes. If the key doesn't exist yet, create
+it with this structure:
 
 ```markdown
 # Exploration Decisions: <topic>
@@ -117,27 +128,28 @@ accumulate across rounds and feed into Phase 4 (Crystallize) and Phase 5
 
 ### 3.5 Decision Review Checkpoint
 
-Before updating the findings file, scan the conversation and research outputs
+Before updating the findings key, scan the conversation and research outputs
 for decisions that were made but not explicitly recorded in step 3.4. Look for:
 
 - Directions the user dismissed or deprioritized during discussion
 - Options that agents' findings effectively ruled out (and the user agreed)
 - Implicit choices embedded in the user's narrowing answers
 
-Add any missed decisions to `wip/explore_<topic>_decisions.md`.
+Add any missed decisions to key `work/decisions.md`.
 
 ### 3.6 Update Findings File
 
-After the user responds to the narrowing questions, update
-`wip/explore_<topic>_findings.md` with the accumulated knowledge.
+After the user responds to the narrowing questions, update key
+`work/findings.md` with the accumulated knowledge (get it into a scratch
+directory, edit, put it back; on the first round, create it).
 
-This file grows across rounds. Use this structure:
+This key grows across rounds. Use this structure:
 
 ```markdown
 # Exploration Findings: <topic>
 
 ## Core Question
-<From scope file, carried forward>
+<From scope key, carried forward>
 
 ## Round 1
 ### Key Insights
@@ -169,22 +181,20 @@ The `## Accumulated Understanding` section is the running synthesis. Rewrite
 it each round to reflect everything learned so far. This is what Phase 4
 (Crystallize) will read to evaluate artifact type fit.
 
-Commit after updating: `docs(explore): capture round <N> findings for <topic>`
-
 ## Quality Checklist
 
 Before handing back to the orchestrator:
-- [ ] All current-round research files have been read
+- [ ] All current-round `research/` keys have been read
 - [ ] Prior rounds' findings incorporated (not re-presented as new)
 - [ ] Synthesis covers: key insights, tensions, gaps, open questions
 
 ## Artifact State
 
 After this phase:
-- Scope file at `wip/explore_<topic>_scope.md`
-- Research files from all rounds at `wip/research/explore_<topic>_r*_lead-*.md`
-- Findings file at `wip/explore_<topic>_findings.md` (created or updated)
-- Decisions file at `wip/explore_<topic>_decisions.md` (created or updated; may not exist if no decisions were made)
+- Key `work/scope.md` in `explore-<topic>`
+- Keys `research/r*_lead-*` from all rounds
+- Key `work/findings.md` (created or updated)
+- Key `work/decisions.md` (created or updated; may not exist if no decisions were made)
 - No `## Decision: Crystallize` marker yet (the orchestrator adds this)
 
 ## What Happens Next
@@ -194,11 +204,11 @@ The orchestrator asks the user whether to explore further or decide what to
 build. The loop decision is not part of this phase.
 
 If the user chooses "explore further," the orchestrator captures new leads,
-updates the scope file, increments the round number, and routes back to
+updates the scope key, increments the round number, and routes back to
 Phase 2.
 
 If the user chooses "ready to decide," the orchestrator adds the
-`## Decision: Crystallize` marker to the findings file and routes to Phase 4.
+`## Decision: Crystallize` marker to the findings key and routes to Phase 4.
 
 ## Next Phase
 

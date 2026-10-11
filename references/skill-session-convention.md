@@ -107,7 +107,8 @@ named with a leading `_` carry the skill's own `<skill>_<t>` prefix.
 | `/vision` | `_scope.md`, `_decisions.md`; research `_phase2_*`, `_phase4_*` | `work/scope.md`, `work/decisions.md`; `research/phase2_*`, `research/phase4_*` |
 | `/strategy` | `_context.md`, `_discover.md`; research `_phase4_*` | `work/context.md`, `work/discover.md`; `research/phase4_*` |
 | `/roadmap` | `_scope.md`; research `_phase2_*`, `_phase4_*` | `work/scope.md`; `research/phase2_*`, `research/phase4_*` |
-| `/explore` (handoff only) | `scope_<t>_handoff.md`, `charter_<t>_handoff.md` | `handoff/scope.md`, `handoff/charter.md` in `explore-<topic>` |
+| `/explore` | `explore_<t>_scope.md`, `_findings.md`, `_decisions.md`, `_crystallize.md`, `_decision-brief.md`; research `_r<N>_lead-<name>.md` | `work/scope.md`, `work/findings.md`, `work/decisions.md`, `work/crystallize.md`, `work/decision-brief.md`; `research/r<N>_lead-<name>.md` |
+| `/explore` (handoff) | `scope_<t>_handoff.md`, `charter_<t>_handoff.md` | `handoff/scope.md`, `handoff/charter.md` in `explore-<topic>`; the handoff arm removes every `work/` and `research/` key after writing it |
 | `/comp` | `comp_<t>_scope.md`; research `comp_<t>_phase4_<role>.md` | `work/scope.md`; `research/phase4_<role>.md` |
 | `/release` | `release-range.txt`, `release-prs.txt`, `release-unattributed.txt`; the notes file passed to `gh release create` | `work/range`, `work/prs`, `work/unattributed`; `work/notes.md` in `release-<topic>`, where `<topic>` is `<owner>-<name>` of the repository |
 

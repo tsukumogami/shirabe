@@ -13,8 +13,9 @@ scoreboard.
 
 Artifacts capture decisions already made, not only decisions yet to be made.
 
-`wip/` is cleaned before every PR merges. Any decision recorded only in research
-files or findings will be permanently lost when the branch closes. If exploration
+The `explore-<topic>` keys are working state and never reach the repository. Any
+decision recorded only in research keys or findings is lost to future
+contributors when the branch closes. If exploration
 produced architectural choices, dependency selections, structural decisions, or
 design rationale that future contributors need to understand, those must be written
 to a permanent document before the branch closes.
@@ -39,7 +40,7 @@ No PLAN, or only a `multi-pr` one, and the `/execute` arm does not exist for thi
 run.
 
 **Competitive analysis is a candidate only in a private repo.** Read the
-`## Visibility` section of `wip/explore_<topic>_scope.md`, which Phase 0 wrote.
+`## Visibility` section of key `work/scope.md`, which Phase 0 wrote.
 `Public` removes the category from stage 1 entirely. This is a precondition and
 not an anti-signal because a demoted category is still offered as a selectable
 alternative, and choosing it reaches a handler that refuses it. Removing it from

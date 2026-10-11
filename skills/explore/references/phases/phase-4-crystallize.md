@@ -12,19 +12,26 @@ The user confirms, rejects all options (loop back), or picks an alternative.
 
 ## Resume Check
 
-If `wip/explore_<topic>_findings.md` has a `## Decision: Crystallize` marker
-but `wip/explore_<topic>_crystallize.md` doesn't exist, the user already chose
-to crystallize but the evaluation wasn't written. Run the full evaluation.
+On a resumed invocation, ask the session where the run stands:
 
-If `wip/explore_<topic>_crystallize.md` already exists, skip to Phase 5.
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/explore/scripts/explore-state.sh" resume-phase <topic>
+```
+
+On `4`, key `work/findings.md` has a `## Decision: Crystallize` marker but key
+`work/crystallize.md` doesn't exist: the user already chose to crystallize but
+the evaluation wasn't written. Run the full evaluation.
+
+On `5`, key `work/crystallize.md` already exists: skip to Phase 5. On `3` or
+earlier, the run is not ready to crystallize: go back to that phase.
 
 ## Inputs
 
-- **Findings file**: `wip/explore_<topic>_findings.md` (especially the
+- **Findings key**: `work/findings.md` (especially the
   `## Accumulated Understanding` section)
-- **Research files**: `wip/research/explore_<topic>_r*_lead-*.md` (for detail
-  when the findings summary is insufficient)
-- **Scope file**: `wip/explore_<topic>_scope.md` (for the `## Visibility` value
+- **Research keys**: `research/r*_lead-*` (for detail when the findings summary
+  is insufficient)
+- **Scope key**: `work/scope.md` (for the `## Visibility` value
   the competitive-analysis precondition reads, and for the `## Entry Assessment`
   section when Phase 0 wrote one)
 - **Crystallize framework**: loaded in Step 4.1
@@ -43,7 +50,8 @@ summary in SKILL.md -- load the full reference.
 
 ### 4.2 Read Accumulated Findings
 
-Read `wip/explore_<topic>_findings.md`. Focus on:
+Read key `work/findings.md` (`koto context get explore-<topic>
+work/findings.md`). Focus on:
 
 - **Accumulated Understanding** -- the synthesized view of everything learned
 - **User Focus** sections from each round -- what the user said matters most
@@ -51,18 +59,18 @@ Read `wip/explore_<topic>_findings.md`. Focus on:
   the next step has to absorb
 - **Decisions** sections from each round -- what was already decided
 
-Also read `wip/explore_<topic>_decisions.md` if it exists. The decisions file
-tracks scope narrowing, option elimination, and priority choices made during
+Also read key `work/decisions.md` if it exists (`koto context exists
+explore-<topic> work/decisions.md`). The decisions key tracks scope narrowing, option elimination, and priority choices made during
 convergence rounds. These decisions directly inform the evaluation -- if
 decisions were made, they need to live somewhere permanent, which weighs against
 filing an issue and walking away.
 
-If the decisions file doesn't exist, that's fine -- it means no explicit
+If the decisions key doesn't exist, that's fine -- it means no explicit
 decisions were captured (common in first rounds or purely informational
 explorations).
 
 If the Accumulated Understanding section is thin, also read the individual
-research files from the latest round for detail.
+research keys from the latest round for detail.
 
 ### 4.3 Establish Candidacy
 
@@ -82,17 +90,17 @@ ls docs/plans/PLAN-*.md 2>/dev/null
 Read the frontmatter of any match before treating it as qualifying.
 
 **Competitive analysis:** read the `## Visibility` section of
-`wip/explore_<topic>_scope.md`, written by Phase 0. `Public` removes the
+key `work/scope.md`, written by Phase 0. `Public` removes the
 category from stage 1.
 
-Record both outcomes. They go into the crystallize decision file.
+Record both outcomes. They go into the crystallize decision key.
 
 ### 4.4 Score Stage 1
 
 **Before scoring, remember:** artifacts capture decisions already made, not just
-decisions yet to be made. `wip/` is cleaned before every PR merges. If exploration
-produced architectural choices, dependency selections, or design rationale, those must
-live in a permanent document. The question is not "is anything still undecided?" —
+decisions yet to be made. The session's keys are working state and never reach
+the repository. If exploration produced architectural choices, dependency
+selections, or design rationale, those must live in a permanent document. The question is not "is anything still undecided?" —
 it's "did we decide something a future contributor needs to know?"
 
 For each candidate stage-1 category (Rejection Record, Spike Report, Decision
@@ -148,7 +156,7 @@ For each candidate entry point (File an Issue, `/charter`, `/scope`, and
 anti-signal tables the same way and score. Rank, then apply the same demotion
 rule.
 
-If the scope file carries an `## Entry Assessment` section, read it as one more
+If the scope key carries an `## Entry Assessment` section, read it as one more
 piece of evidence here: it says what the issue looked like before any research
 ran. It is evidence, not a verdict, and the findings win where the two
 disagree -- the assessment saw only the issue body.
@@ -237,7 +245,7 @@ back -- the orchestrator will re-add it when the user is ready again.
 
 ### 4.11 Write Crystallize Decision
 
-Write `wip/explore_<topic>_crystallize.md`:
+Write key `work/crystallize.md` (as "Session and Keys" in SKILL.md describes):
 
 ```markdown
 # Crystallize Decision: <topic>
@@ -285,8 +293,6 @@ the within-one-point margin rather than a chain outcome.>
 - **Prototype**: <why it was noted, what alternative was chosen>
 ```
 
-Commit: `docs(explore): crystallize outcome for <topic>`
-
 ## Quality Checklist
 
 Before proceeding:
@@ -300,10 +306,10 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Scope file at `wip/explore_<topic>_scope.md`
-- Research files from all rounds at `wip/research/explore_<topic>_r*_lead-*.md`
-- Findings file at `wip/explore_<topic>_findings.md` (with `## Decision: Crystallize` marker)
-- Crystallize decision at `wip/explore_<topic>_crystallize.md`
+- Key `work/scope.md` in `explore-<topic>`
+- Keys `research/r*_lead-*` from all rounds
+- Key `work/findings.md` (with `## Decision: Crystallize` marker)
+- Key `work/crystallize.md`: the crystallize decision
 
 ## Next Phase
 

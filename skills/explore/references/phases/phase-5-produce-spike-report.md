@@ -68,9 +68,17 @@ Tell the user:
 > Complete the investigation within the timebox, then update Findings and
 > Recommendation to transition to Complete.
 
+## Close the Session
+
+The arm is done. Close the session; its keys stay readable:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close explore-<topic> done
+```
+
 ## Artifact State
 
 After this step:
-- All explore artifacts in `wip/` (untouched)
+- Session `explore-<topic>` closed; its keys stay readable
 - `docs/spikes/SPIKE-<topic>.md` (new)
 - No handoff to another skill — this is the final produce step
