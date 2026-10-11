@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   The resume convention moved the two chains onto koto session keys, but four
   shirabe skills still write the staging folder on main: /explore's own working
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-leaf-skills-off-folder](docs/briefs/BRIEF-leaf-skills-off-folder.md); carried in Absorbed Brief.
 
@@ -444,4 +444,4 @@ Every pull request:
 
 ## Downstream Artifacts
 
-- `docs/designs/DESIGN-leaf-skills-off-folder.md` (to be written): the design.
+- `docs/designs/current/DESIGN-leaf-skills-off-folder.md` (to be written): the design.

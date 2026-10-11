@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   /explore, /comp and /release keep their working state as staging-folder files
   whose existence and content their prose instructions branch on, /work-on's
@@ -32,7 +32,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
