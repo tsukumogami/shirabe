@@ -250,6 +250,12 @@ file is used.
   and the coordinated-node instruction in `execute-coordinated.md` to check the
   pushed head for the folder are removed, with the tests and registry entries
   that name them.
+
+  Correction, 2026-10-11: this requirement said the registry entries are
+  removed. `references/rule-registry.json` keeps every id it has held, so
+  `branch/no-wip-files` was retired: its entry stays with `status: retired`,
+  `scripts/rule-registry.sh` refuses the id at lookup, and nothing names it
+  in a `RULE_IDS` line or a release call. Don't delete the entry.
 - **R13. The publish step and the reports stop handling the folder.** /scope's
   publish step stops untracking staging files, listing them as `wip_paths=` and
   scanning them for private markers; `print-scope-exit.sh` prints no
@@ -291,6 +297,10 @@ file is used.
   and why.
 
 ## Acceptance Criteria
+
+These were verified in the pull requests that delivered them, #754, #755,
+#756 and #759. Each pull request's body records its checks. The boxes stay
+unticked, as in this repository's other finished PRDs.
 
 Moves:
 
@@ -359,6 +369,12 @@ Enforcement:
       ':!*/evals/*'` prints nothing, and the koto templates under
       `skills/work-on/koto-templates` and `skills/execute/koto-templates` have no
       gate or instruction checking the folder.
+
+      Correction, 2026-10-11: the grep can't print nothing, because the
+      `upstream-wip` refusal the design keeps (in `print-scope-exit.sh` and
+      `deliver-report.sh`), a negative test for a recorded `wip_paths` key,
+      and the retired registry entry all match it. It prints only those named
+      exceptions, which #759 lists by file:line.
 - [ ] `node-push_test.sh`, `check-branch-output_test.sh`,
       `check-rule-registry_test.sh`, `publish-scoping-pr_test.sh`,
       `print-scope-exit_test.sh`, `deliver-report_test.sh` and
@@ -444,4 +460,4 @@ Every pull request:
 
 ## Downstream Artifacts
 
-- `docs/designs/current/DESIGN-leaf-skills-off-folder.md` (to be written): the design.
+- `docs/designs/current/DESIGN-leaf-skills-off-folder.md`: the design.

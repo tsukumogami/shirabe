@@ -34,6 +34,15 @@ decision_provenance: inline-resolved
 
 Current
 
+Built as described in four pull requests, in the grouping Decision 2 chose:
+#754 (the shared import step and the convention fixes), #755 (/explore),
+#756 (/comp, /release and /work-on's context script) and #759 (the
+enforcement layer's removal, merged last). Two outcomes differ from the
+text below. Rule `branch/no-wip-files` is retired rather than deleted from
+the registry. And `references/parent-skill-pattern.md`'s `storage_substrate`
+v1 value is now `koto-session`, with the parent's state at the `work/state.md`
+session key.
+
 ## Context and Problem Statement
 
 The requirements are in `docs/prds/PRD-leaf-skills-off-folder.md` (R1 to R19).
@@ -396,7 +405,9 @@ otherwise.
 - `skills/execute/scripts/node-push.sh`: step 3 and the post-push `ls-tree`
   check go; the header's step list and exit 69's causes lose them;
   `node-push_test.sh` drops its folder case and keeps its push cases.
-- `references/rule-registry.json` loses `branch/no-wip-files`;
+- `references/rule-registry.json` retires `branch/no-wip-files` (corrected
+  2026-10-11 from "loses": the registry keeps every id it has held, so the
+  entry stays with `status: retired` and must not be deleted);
   `check-branch-output.sh` loses `--wip` and `check_wip`; the
   `branch_wip_clean` gate in `work-on.md` and `settled_wip_clean` in
   `execute.md` go with their routing and directive prose; the instruction in
