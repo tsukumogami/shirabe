@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A coordinator's state lives in a GitHub record and its koto session is thrown
   away at every start, so a restart rebuilds the run from a body it can only
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-coordinator-session-record](docs/briefs/BRIEF-coordinator-session-record.md); carried in Absorbed Brief.
 
@@ -219,16 +219,16 @@ adds or pins:
   | Key | Holds | Writer |
   |---|---|---|
   | `record/meta` | the scope, the store, the written time | the write core, on every write |
-  | `record/holdings` | Holdings | `record-holding.sh` |
+  | `record/holdings` | Holdings | `record-write.sh`, directly or through `record-holding.sh`, as today |
   | `record/deferrals` | Deferrals | `record-write.sh` |
-  | `record/side-effects` | Side effects in flight | `record-write.sh`, `roadmap-status.sh` (its four roadmap-edit actions) |
+  | `record/side-effects` | Side effects in flight | `record-write.sh`, and `roadmap-status.sh` for its four roadmap-edit actions |
   | `record/reversals` | Reversals | `record-write.sh` |
   | `record/holds` | Holds | `record-hold.sh` |
   | `record/run`, `record/standing` | Run, Standing | `record-state.sh` |
   | `record/work` | Work | `record-state.sh`; `verdict-owed` and `rework` rows only `roadmap-status.sh`, as today |
   | `record/decisions` | Decisions | `record-decision.sh` |
   | `record/host` | host facts that never go to GitHub (R14, R17) | `record-state.sh` (`coordinate-open.sh` calls it after an import) |
-  | `record/entries/<n>` | one entry of the account | `record-append.sh` |
+  | `record/entries/<n>`, `record/posted/<n>` | one entry of the account; the GitHub comment an outward entry became | `record-append.sh` |
   | `legs/<request-id>/<leg>` | one worker leg (R13) | `dispatch-worker.sh`, `wait-target.sh` |
 
   A write by any other script to a key is refused (`not-owner`, exit 65, the
@@ -265,10 +265,12 @@ adds or pins:
   an import because the keys travel. Listing returns the GitHub reader's JSON
   shape, with author the coordinator's address and the edited flag always false.
 - **R10. Outward entries stay on GitHub.** An outward entry is written to the
-  session first and then posted to the GitHub record exactly as today. Before
-  posting, the writer lists the record's entries and skips the post when one
-  already carries the same entry number in its marker, so a retry never
-  duplicates it. A failed post leaves the session entry and exits 14, as a
+  session first and then posted to the GitHub record exactly as today, and the
+  comment's URL is kept in `record/posted/<n>`. A retry posts nothing when that
+  key exists, or when an entry of the same kind and text, by an author with write
+  access, was created on the record at or after the session entry's stamp, so a
+  retry never duplicates it and an earlier identical entry never stands in for
+  it. A failed post leaves the session entry and exits 14, as a
   written-but-not-told change does today, and the post is retried once, later.
   The roadmap edits that tie a verdict or failure entry to its comment keep
   working unchanged.
