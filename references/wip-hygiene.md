@@ -37,15 +37,16 @@ artifact is left with a broken link to a file that never reached main.
 
 When a `wip/...` path also crosses a visibility boundary, the failure
 compounds. Take a private-repo PRD placed by hand in a public repo's `wip/`
-as a handoff, with a design agent then writing `upstream: wip/PRD-<topic>.md`
-into public frontmatter. The reference is simultaneously
+as a handoff, with a design agent then writing an `upstream:` value that
+points at that file into public frontmatter. The reference is simultaneously
 non-durable AND a public->private link (forbidden per
 [`cross-repo-references.md`](cross-repo-references.md)).
 
 ## Where this rule is enforced
 
-Phase scripts hard-stop on violations. Workflows that produce a durable
-artifact include an explicit grep step before the artifact lands:
+Each workflow that produces a durable artifact has a phase step that
+hard-stops on a violation before the artifact lands: an upstream check on
+the `--upstream` value, or a grep of the finished document.
 
 | Skill | Phase step | Surface checked |
 |-------|-----------|-----------------|
@@ -58,6 +59,10 @@ artifact include an explicit grep step before the artifact lands:
 | `skills/scope`  | [Phase 0 Upstream Validation](../skills/scope/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/brief` |
 | `skills/strategy` | [Phase 0 step 0.3](../skills/strategy/references/phases/phase-0-setup.md) | The `--upstream` value before the STRATEGY draft is written |
 | `skills/brief`  | [Phase 0 step 0.3](../skills/brief/references/phases/phase-0-setup.md) | The `--upstream` value before the BRIEF draft is written |
+
+In this repository, CI's public-content check
+(`scripts/ablation/check-public-content.sh`) also refuses a staging file path
+in a pull request's added lines under the shipped paths, and in its body.
 
 ## Verification commands
 
