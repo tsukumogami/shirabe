@@ -6,6 +6,17 @@
 # `gh issue edit --remove-label` on the spike-report path. Independent cadence,
 # so one tool-only record.
 #
+# Working state is koto context keys in the `explore-<topic>` session: `koto context add`,
+# `get`, `exists` and `remove` on single keys, and `koto context list --prefix` over
+# a key directory. The session is opened and closed through scripts/skill-session.sh,
+# whose own koto floor is declared where that script lives; skills/explore/scripts/explore-state.sh
+# makes the same koto context calls.
+#
 # The skill produces artifacts by invoking other skills, never by calling a
 # shirabe subcommand itself.
 gh	-	-	always
+koto	context add	-	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always
+koto	context list	--prefix	always

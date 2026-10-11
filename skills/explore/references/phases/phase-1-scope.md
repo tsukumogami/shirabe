@@ -10,13 +10,21 @@ not approaches or solutions.
 
 ## Resume Check
 
-If `wip/explore_<topic>_scope.md` exists **and contains a `## Core Question` section**,
-Phase 1 is already complete. Skip to Phase 2.
+Ask the session where the run stands:
 
-If the file exists but lacks `## Core Question`, Phase 0 has run but Phase 1 has not.
-Check that the file contains a `## Visibility` section. If the section is absent,
-resolve visibility from CLAUDE.md (or infer from repo path) and append it to the
-scope file now. Then proceed with Phase 1 normally.
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/explore/scripts/explore-state.sh" resume-phase <topic>
+```
+
+- `3`, `4` or `5`: the run is past Phase 1. Go to that phase.
+- `none`: Phase 0 has not run. Run it first.
+- `2`: key `work/scope.md` exists. Read it (`koto context get explore-<topic>
+  work/scope.md`). If it **contains a `## Core Question` section**, Phase 1 is
+  already complete: skip to Phase 2. If it lacks `## Core Question`, Phase 0 has
+  run but Phase 1 has not. Check that the key contains a `## Visibility`
+  section. If the section is absent, resolve visibility from CLAUDE.md (or
+  infer from repo path) and append it to the key now. Then proceed with Phase 1
+  normally.
 
 ## Label Pre-Gate
 
@@ -141,28 +149,31 @@ The adversarial lead fires only on directional classifications.
 
 **If classified as directional** (by the label pre-gate or post-conversation gate),
 append the adversarial lead to the `## Research Leads` list before writing the
-scope file. The lead is named exactly:
+scope key. The lead is named exactly:
 
 > Is there evidence of real demand for this, and what do users do today instead?
 
 Use the agent prompt template below for this lead. Read the `## Visibility` section
-from `wip/explore_<topic>_scope.md` (written by Phase 0) and substitute its value
+from key `work/scope.md` (written by Phase 0) and substitute its value
 into `{{VISIBILITY_FROM_SCOPE_FILE}}` in the template.
 
-**Hard stop:** If `## Visibility` is absent from the scope file at this point, stop
+**Hard stop:** If `## Visibility` is absent from the scope key at this point, stop
 immediately. Phase 0 did not complete. Re-run Phase 0 to write the visibility value
-before continuing. Do not write a scope file containing the literal placeholder
-`{{VISIBILITY_FROM_SCOPE_FILE}}`.
+before continuing. Do not write a scope key containing the literal placeholder
+`{{VISIBILITY_FROM_SCOPE_FILE}}`. The output placeholder `{{LEAD_OUTPUT_FILE}}`
+stays as written: Phase 2 fills it in each round.
 
-Name the lead entry `lead-adversarial-demand` in the scope file so Phase 2 can
+Name the lead entry `lead-adversarial-demand` in the scope key so Phase 2 can
 identify it when dispatching. Mention it in the checkpoint summary as a research
 lead, phrased as written above — no adversarial framing in the summary.
 
-**If not classified as directional**, write the scope file normally. Do not add
+**If not classified as directional**, write the scope key normally. Do not add
 the adversarial lead and do not add a `## Topic Type:` field.
 
-Write the scoping output to `wip/explore_<topic>_scope.md`. The `## Visibility`
-section written by Phase 0 is already present; do not overwrite it.
+Write the scoping output to key `work/scope.md` in `explore-<topic>`: get the
+key into a scratch directory, edit it there and put it back, as "Session and
+Keys" in SKILL.md describes. The `## Visibility` section written by Phase 0 is
+already present; do not overwrite it.
 
 ```markdown
 # Explore Scope: <topic>
@@ -200,8 +211,6 @@ N. **Is there evidence of real demand for this, and what do users do today inste
    <adversarial lead agent prompt — see template below>
 ```
 
-Commit: `docs(explore): capture scope for <topic>`
-
 ### Adversarial Lead Agent Prompt Template
 
 When the topic is classified as directional, embed this prompt as the body of
@@ -213,6 +222,9 @@ substitute the two placeholders:
 - `{{ISSUE_BODY_IF_PRESENT}}`: the full body text of the source issue, if the
   exploration started from an issue. If starting from a plain topic (no issue),
   omit the `## Issue Content` block and its delimiters entirely.
+
+`{{LEAD_OUTPUT_FILE}}` is not substituted here. Phase 2 sets it to the lead's
+file in that round's scratch directory, so the same prompt serves every round.
 
 ```
 You are a demand-validation researcher. Investigate whether evidence supports
@@ -275,6 +287,13 @@ Produce a Calibration section that explicitly distinguishes:
 
 Do not conflate these two states. "I found no evidence" is not the same as
 "I found evidence it was rejected."
+
+## Output
+
+Write your full findings, including the Calibration section, to this file and
+to no other path: {{LEAD_OUTPUT_FILE}}
+
+Return ONLY a 3-line summary to this conversation.
 ```
 
 ## Quality Checklist
@@ -287,9 +306,9 @@ Before proceeding:
 ## Artifact State
 
 After this phase:
-- Scope file at `wip/explore_<topic>_scope.md`
-- No research files yet
-- No findings file yet
+- Key `work/scope.md` in `explore-<topic>`
+- No `research/` keys yet
+- No `work/findings.md` key yet
 
 ## Next Phase
 
