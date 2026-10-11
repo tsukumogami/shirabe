@@ -9,3 +9,13 @@
 # /comp deliberately opens no PR, which is why no `gh` record appears here.
 shirabe	transition	-	always
 shirabe	validate	--visibility	always
+#
+# Working state is koto context keys in the `comp-<topic>` session: `koto
+# context get` and `exists` on single keys in the prose, and `exists` and
+# `remove` in skills/comp/scripts/comp-state.sh, which decides whether the jury
+# has run. The session is opened, written and closed through
+# scripts/skill-session.sh, whose own koto floor is declared where that script
+# lives.
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always

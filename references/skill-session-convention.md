@@ -108,6 +108,8 @@ named with a leading `_` carry the skill's own `<skill>_<t>` prefix.
 | `/strategy` | `_context.md`, `_discover.md`; research `_phase4_*` | `work/context.md`, `work/discover.md`; `research/phase4_*` |
 | `/roadmap` | `_scope.md`; research `_phase2_*`, `_phase4_*` | `work/scope.md`; `research/phase2_*`, `research/phase4_*` |
 | `/explore` (handoff only) | `scope_<t>_handoff.md`, `charter_<t>_handoff.md` | `handoff/scope.md`, `handoff/charter.md` in `explore-<topic>` |
+| `/comp` | `comp_<t>_scope.md`; research `comp_<t>_phase4_<role>.md` | `work/scope.md`; `research/phase4_<role>.md` |
+| `/release` | `release-range.txt`, `release-prs.txt`, `release-unattributed.txt`; the notes file passed to `gh release create` | `work/range`, `work/prs`, `work/unattributed`; `work/notes.md` in `release-<topic>`, where `<topic>` is `<owner>-<name>` of the repository |
 
 `/review-plan` names its files with `/plan`'s prefix, so by the mapping it
 reads and writes `/plan`'s session, `plan-<topic>`. Run directly on a topic

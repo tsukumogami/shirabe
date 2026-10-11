@@ -1,8 +1,8 @@
 # Phase 5: Finalize
 
 Ratify the jury-cleared COMP through explicit human approval, transition
-its status, clean up `wip/`, create the PR, and emit the `[/comp]
-FINALIZED` stdout contract for parent capture.
+its status, close the session, create the PR, and emit the `[/comp]
+FINALIZED` stdout contract.
 
 ## 5.1 Human Approval Gate
 
@@ -22,17 +22,19 @@ The subcommand updates frontmatter and body together and emits JSON on
 stdout (`{success, doc_path, old_status, new_status, moved: false}`).
 Capture `new_status` for the FINALIZED block.
 
-## 5.3 Clean Up wip/
+## 5.3 Close the Session
 
-Remove the non-durable working files for this invocation:
+The working keys have done their job. Close the session; its keys stay
+readable:
 
-- `wip/comp_<topic>_scope.md`
-- `wip/research/comp_<topic>_phase4_*.md`
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close comp-<topic> done
+```
 
-Then grep the committed COMP document (frontmatter and prose) for any
-`wip/...` reference and remove it. Both steps are required: the files
-must be deleted **and** no committed artifact may point at a `wip/` path,
-or the cleanup commit leaves a dangling reference.
+Then grep the committed COMP document (frontmatter and prose) for any staging
+path (`wip/...`) or session key reference and remove it. Both steps are
+required: the session closed **and** no committed artifact pointing at a
+staging path, or the document leaves a dangling reference.
 
 ## 5.4 Create the PR
 
@@ -41,19 +43,19 @@ private repo, so the PR may reference the competitive content directly.
 
 ## 5.5 Emit the FINALIZED Stdout Contract
 
-Emit this exact block to stdout so a parent skill (today, `/charter`) can
-capture the outcome by shell parsing:
+Emit this exact block to stdout so a caller can capture the outcome by
+shell parsing:
 
 ```
 [/comp] FINALIZED <topic>
   path: docs/competitive/COMP-<topic>.md
   status: Accepted
   summary: |
-    <one paragraph synthesizing the analysis for parent injection>
+    <one paragraph synthesizing the analysis for the caller>
 ```
 
 The `summary` paragraph synthesizes the survey's finding and its leading
-implication — enough for the parent to inject downstream without
+implication — enough for a caller to carry it downstream without
 re-reading the whole document.
 
 ### Public-visibility case
@@ -80,9 +82,11 @@ than it does at Phase 0; what stops a COMP from landing in a public repo
 is the validator and CI, and both are still in force. Do not run
 `shirabe transition` and do not open a PR — not as a skill-level
 refusal, but because the transition's own validation will reject the
-document and the PR could not merge.
+document and the PR could not merge. Close the session with
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close comp-<topic> abandoned`
+instead of `done`, since nothing was finalized.
 
 ## Output
 
-An Accepted COMP at `docs/competitive/COMP-<topic>.md`, a clean `wip/`,
-a PR, and the `[/comp] FINALIZED` block on stdout.
+An Accepted COMP at `docs/competitive/COMP-<topic>.md`, a closed
+`comp-<topic>` session, a PR, and the `[/comp] FINALIZED` block on stdout.

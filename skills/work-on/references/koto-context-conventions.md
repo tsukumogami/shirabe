@@ -32,9 +32,6 @@ koto-managed content. Either rely on an auto-wiped location (`/tmp/`,
 
 ## What not to do
 
-- **Do not stage artifacts in `wip/`.** `wip/` is git-tracked and
-  reserved for non-koto workflows. koto-driven workflows store
-  reviewable artifacts in koto context (cloud-backed) instead.
 - **Do not write to a persistent path under `/tmp/` without cleanup**
   (e.g., `/tmp/koto-<WF>/baseline.md`). Even though `/tmp/` is
   auto-wiped on reboot, persistent per-session subdirectories create
