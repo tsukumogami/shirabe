@@ -39,11 +39,11 @@ Hold the survey factual. No marketing language, no dismissive adjectives.
 Strengths and weaknesses are stated against dimensions, not vibes. Save
 the "so what" for Implications.
 
-## 3.4 wip-hygiene
+## 3.4 Keep Working State Out of the Document
 
-Do not reference any `wip/...` path from the COMP document — not in
-frontmatter, not in prose. The `wip/` files are non-durable and are
-cleaned in Phase 5.
+Do not reference a session key or a staging path from the COMP document —
+not in frontmatter, not in prose. The session's keys are non-durable and
+Phase 5 closes the session.
 
 ## Output
 

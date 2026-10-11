@@ -167,7 +167,7 @@ mktempdir() {
 # provisioned host), so `all` on Linux reports it red; its floor run is the
 # macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry skill-session"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry skill-session comp release explore"
 
 suite_scripts() {
     case "$1" in
@@ -309,6 +309,9 @@ suite_scripts() {
             # removed-value counts, the routing gates' stdout and the kept
             # directive lines run on the floor.
             echo "skills/work-on/scripts/output-gates-routing_test.sh"
+            # extract-context.sh with no session and with no koto: needs only
+            # bash and jq, so every case runs on the floor.
+            echo "skills/work-on/scripts/extract-context_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It
@@ -511,6 +514,30 @@ suite_scripts() {
             echo "scripts/rule-registry_test.sh"
             echo "scripts/check-rule-registry_test.sh"
             ;;
+        comp)
+            # /comp's state script. Its suite builds a throwaway repository and
+            # a koto stand-in and needs only bash and jq (and the repository
+            # tool); the cases that need real koto skip where it is absent (the
+            # macOS floor leg) and run on the Linux job. It also reads SKILL.md
+            # and the phase files, so the prose cases run on 3.2.
+            echo "skills/comp/scripts/comp-state_test.sh"
+            ;;
+        release)
+            # /release's state script. Its suite builds a throwaway repository
+            # with tagged history, a stubbed gh and a koto stand-in and needs
+            # only bash, jq and the repository tool; the cases that need real
+            # koto skip where it is absent and run on the Linux job. It
+            # extracts the Phase 4 blocks from SKILL.md at run time.
+            echo "skills/release/scripts/release-state_test.sh"
+            ;;
+        explore)
+            # /explore's state script. Its suite builds a throwaway repository
+            # and a koto stand-in and needs only bash and jq (and the repository
+            # tool); the cases that need real koto skip where it is absent (the
+            # macOS floor leg) and run on the Linux job. It also reads SKILL.md
+            # and the phase files, so the prose cases run on 3.2.
+            echo "skills/explore/scripts/explore-state_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -551,6 +578,9 @@ suite_workflow() {
         check-skill)          echo ".github/workflows/check-skill-gate.yml" ;;
         rule-registry)        echo ".github/workflows/check-rule-registry.yml" ;;
         skill-session)        echo ".github/workflows/check-skill-session.yml" ;;
+        comp)                 echo ".github/workflows/check-comp-scripts.yml" ;;
+        release)              echo ".github/workflows/check-release-scripts.yml" ;;
+        explore)              echo ".github/workflows/check-explore-scripts.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }

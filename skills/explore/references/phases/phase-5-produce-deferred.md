@@ -22,13 +22,18 @@ building.
 1. "File an issue and start building (Recommended)" or "Create a spike report
    (Recommended)"
 2. The other option, with the reason it ranks lower
-3. "Stop here -- research is saved in wip/"
+3. "Stop here -- the research stays readable in `explore-<topic>`"
 
 If the user picks the spike report, follow `phase-5-produce-spike-report.md`.
 If the user picks filing an issue, follow `phase-5-produce-file-an-issue.md`.
+Both of those files close the session. On "Stop here", close it here:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close explore-<topic> done
+```
 
 ## Artifact State
 
 After this step:
-- All explore artifacts in `wip/` (untouched)
+- Session `explore-<topic>` closed by whichever arm ran; its keys stay readable
 - Whatever the chosen option produces, which is nothing on option 3

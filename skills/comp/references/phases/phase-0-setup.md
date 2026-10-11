@@ -1,9 +1,9 @@
 # Phase 0: Setup
 
 Detect the input mode, run the private-only visibility check, validate
-the topic slug, read the optional parent-orchestration sentinel, and
-initialize `wip/`. Phase 0 runs before any content work, so a visibility
-warning reaches the author before anything is written.
+the topic slug, and open the `comp-<topic>` session. Phase 0 runs before
+any content work, and the session is opened last, so a visibility warning
+reaches the author before anything is created.
 
 ## 0.1 Detect Input Mode
 
@@ -24,9 +24,9 @@ Public|Private`). If the header is absent, infer from the repo path
 (`private/` -> Private, `public/` -> Public; default to Private).
 
 COMP is private-only. If visibility is anything other than `private`,
-**warn before doing anything else** — before creating any file,
-initializing `wip/`, or starting the scoping conversation. Emit this
-exact line to stdout so a parent skill can detect the condition by shell
+**warn before doing anything else** — before opening the session,
+creating anything, or starting the scoping conversation. Emit this
+exact line to stdout so the condition can be detected by shell
 parsing:
 
 ```
@@ -80,41 +80,41 @@ stops at the validator rather than landing a COMP in a public repo.
 
 ## 0.3 Validate Topic Slug
 
-The `<topic>` slug must match `^[a-z0-9-]+$` (lowercase alphanumeric and
-hyphens only). Reject any topic containing `.`, `/`, `_`, whitespace, or
-other characters and ask the user for a conforming slug. This constraint
-is load-bearing: `<topic>` is interpolated into `wip/` paths and the
-verdict-file paths in Phase 4, so a `../`-shaped slug could redirect
-writes outside `wip/research/`.
+The `<topic>` slug must match `^[a-z0-9][a-z0-9-]*$` (lowercase alphanumeric
+and hyphens only, starting with a letter or digit). Reject any topic
+containing `.`, `/`, `_`, whitespace or other characters, or starting with
+`-`, and ask the user for a conforming slug. This constraint is
+load-bearing: `<topic>` is placed in the session name `comp-<topic>` and on
+`skill-session.sh` command lines, so a topic like `-x` must never get as far
+as being read as a flag.
 
-## 0.4 Read Parent-Orchestration Sentinel (Optional)
+## 0.4 Open the Session
 
-If a sentinel file exists at `wip/<parent>_<topic>_state.md`, a parent
-skill (today, `/charter`) is orchestrating this invocation. Read it for:
+With the visibility decision made and the topic valid, open the session:
 
-- an upstream artifact path to record in the COMP frontmatter's context,
-- any resume context (which phase to resume from),
-- a `suppress_status_aware_prompt` flag.
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open comp <topic>
+```
 
-The sentinel read is **optional**. When no sentinel exists, `/comp` runs
-standalone with identical behavior. Never fail because a sentinel is
-absent.
+`open` attaches to a live `comp-<topic>` (an interrupted run), replaces a
+finished one (a fresh run), or creates it. A non-zero exit stops the run
+with the script's message: 127 or 69 means koto is missing or too old, 6
+means HEAD is detached, and the skill never falls back to files. See
+"Session and Keys" in SKILL.md.
 
-## 0.5 Initialize wip/
+`/comp` keeps two kinds of working key in this session, neither written
+yet:
 
-Create the `wip/` working area for this invocation:
+- `work/scope.md` — Phase 1 scoping notes.
+- `research/phase4_<role>.md` — Phase 4 verdicts (written later, by the
+  jury through a scratch directory).
 
-- `wip/comp_<topic>_scope.md` — Phase 1 scoping notes.
-- `wip/research/comp_<topic>_phase4_<role>.md` — Phase 4 verdict files
-  (written later, by the jury).
-
-These are non-durable intermediates. They must be cleaned in Phase 5
-before the PR can merge, and no committed COMP artifact may reference a
-`wip/...` path.
+These are non-durable intermediates. Phase 5 closes the session, and no
+committed COMP artifact may reference a staging path.
 
 ## Output
 
 Phase 0 produces: the validated topic slug, the resolved visibility, the
-optional upstream path, and an initialized `wip/` area. On a non-private
-repo it also produces the `[/comp] WARNING` stdout signal and the
-author's decision about whether to continue.
+optional upstream path, and an open `comp-<topic>` session. On a
+non-private repo it also produces the `[/comp] WARNING` stdout signal and
+the author's decision about whether to continue.

@@ -41,58 +41,69 @@ identification, release notes, draft creation, workflow dispatch, and monitoring
 
 ### Phase 1: Version Analysis and Release Contents
 
-Establish what the release contains, once. Phase 2's security check and Phase
-3's notes are both consumers of the pull request set derived here; neither
-re-derives it.
+Establish what the release contains, once, and keep it in the release's koto
+session, `release-<topic>`. Phase 2's security check and Phase 3's notes are
+both consumers of the pull request set derived here; neither re-derives it.
+Later phases run as separate shell invocations, so a shell variable set here
+is gone by Phase 2 and an empty list there would pass the security check by
+finding nothing. The session keys are the release's membership, and `/release`
+writes no file to the `wip/` staging folder.
 
 ```bash
-LAST_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
-
-# The commit range the release covers. An empty LAST_TAG is the first release.
-# The guard is load-bearing: "..HEAD" is a range git ACCEPTS, and it resolves to
-# zero commits, so without it a first release derives an empty set silently
-# rather than failing.
-if [ -n "$LAST_TAG" ]; then
-  RELEASE_RANGE="$LAST_TAG..HEAD"
-else
-  RELEASE_RANGE="HEAD"
-fi
-
-# Later phases run as separate shell invocations, so the derivation is written
-# to files rather than left in variables: a shell variable set here is gone by
-# the time Phase 2 runs, and an empty list there would pass the security check
-# by finding nothing. These three files ARE the release's membership.
-mkdir -p wip
-printf '%s\n' "$RELEASE_RANGE" > wip/release-range.txt
-
-# The pull requests the release contains: GitHub's squash merge appends "(#N)"
-# to the commit subject. grep exits 1 when nothing matches, which is a legal
-# outcome here rather than a failure, so it is guarded.
-git log --format='%s' "$RELEASE_RANGE" \
-  | { grep -oE '\(#[0-9]+\)$' || true; } \
-  | tr -d '(#)' \
-  | sort -n -u > wip/release-prs.txt
-
-# Commits in the range that name no pull request: the release chore commits,
-# and anything pushed straight to the base branch.
-git log --format='%h %s' "$RELEASE_RANGE" \
-  | { grep -vE '\(#[0-9]+\)$' || true; } > wip/release-unattributed.txt
-
-echo "Release range: $RELEASE_RANGE"
-echo "Pull requests in the release: $(wc -l < wip/release-prs.txt)"
+topic=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" topic) || exit
+echo "Release session: release-$topic"
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open release "$topic" || exit
+"${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" membership "$topic" || exit
 echo "In the release, not in a pull request:"
-cat wip/release-unattributed.txt
+"${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" read "$topic" unattributed
 ```
 
-`wip/release-prs.txt` is the release's membership, computed here and nowhere
-else; Phase 2 and Phase 3 read it. **Do not re-derive it from a `gh pr list
---search "merged:>..."` query**, for two reasons that compound. GitHub reads a
-bare `merged:>YYYY-MM-DD` as "after the *end* of that day", so a date-shaped
-bound silently drops every pull request merged on the previous tag's own
-calendar day. And `merged:>` has no upper bound at all, so it also credits
-anything merged *after* the release point -- against `v0.16.0` with a release
-point of `v0.17.0` it returns 18 pull requests where the range holds 13. The
-commit range has both bounds and no date semantics to get wrong.
+`<topic>` below is what `release-state.sh topic` prints: the repository's
+owner and name from `gh repo view`, joined and lowercased (`tsukumogami-shirabe`
+for this repository). A later phase recomputes it with the same command.
+
+- **`open`** attaches to a live `release-<topic>`, replaces a finished one, or
+  creates it. A non-zero exit stops the run with the script's message: 127 or 69
+  means koto is missing or too old, 6 means HEAD is detached, and the skill
+  never falls back to files.
+- **`refused=branch_mismatch`** (exit 5) means a `release-<topic>` is still live
+  from an interrupted run on another branch. Every run closes its session, so a
+  live one is a run that never finished. Stop and tell the author to close it
+  and run `/release` again:
+
+  ```bash
+  "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic> abandoned
+  ```
+
+- **`membership`** computes the range (`<last v* tag>..HEAD`, or `HEAD` when no
+  tag exists), the pull requests in it and the commits that name none, and
+  writes them as `work/range`, `work/prs` and `work/unattributed`, replacing
+  whatever an earlier run left. It also removes a `work/notes.md` an earlier
+  run left, so a crashed run's notes can't be published. A release with no
+  `(#N)` subjects gets an empty `work/prs`, which reads back as an empty list.
+- **`read <topic> <range|prs|unattributed|notes>`** prints one key. A key that
+  is absent exits 1 saying Phase 1 did not run; stop there.
+
+The membership step's rules, for the record:
+
+- The range's guard is load-bearing: `..HEAD` is a range git ACCEPTS, and it
+  resolves to zero commits, so without the guard a first release derives an
+  empty set silently rather than failing.
+- The pull requests are the numbers in `(#N)` suffixes, GitHub's squash-merge
+  title, sorted and unique. `grep` exiting 1 on no match is a legal outcome, not
+  a failure.
+- The unattributed commits are the release chore commits and anything pushed
+  straight to the base branch.
+
+`work/prs` is the release's membership, computed here and nowhere else; Phase
+2 and Phase 3 read it. **Do not re-derive it from a `gh pr list --search
+"merged:>..."` query**, for two reasons that compound. GitHub reads a bare
+`merged:>YYYY-MM-DD` as "after the *end* of that day", so a date-shaped bound
+silently drops every pull request merged on the previous tag's own calendar
+day. And `merged:>` has no upper bound at all, so it also credits anything
+merged *after* the release point -- against `v0.16.0` with a release point of
+`v0.17.0` it returns 18 pull requests where the range holds 13. The commit
+range has both bounds and no date semantics to get wrong.
 
 The parse assumes GitHub wrote the `(#N)` suffix. That holds while the
 repository squash-merges (`allow_merge_commit` and `allow_rebase_merge` both
@@ -106,13 +117,15 @@ rather than assumed. A handful of entries is normal: every release carries the
 version-bump chore commit. A list that is suddenly most of the range means the
 suffix is no longer being written -- the merge strategy changed, or work is
 landing by direct push -- and the pull request set is incomplete. Stop and
-reconcile by hand before releasing when that happens; it is the one signal that
-the derivation has gone quiet rather than empty. Printing it here, before the
-notes are drafted, is also what makes it useful rather than a footnote.
+reconcile by hand before releasing when that happens (close the session
+`abandoned` first); it is the one signal that the derivation has gone quiet
+rather than empty. Printing it here, before the notes are drafted, is also what
+makes it useful rather than a footnote.
 
 If no tag exists, this is the first release -- ask for version.
 
-Count commits by prefix over `$RELEASE_RANGE`:
+Count commits by prefix over the range in `work/range`
+(`release-state.sh read <topic> range`):
 
 | Prefix | Bump signal |
 |--------|------------|
@@ -142,12 +155,18 @@ All must pass before proceeding:
    derived and keep the ones carrying `security`:
 
    ```bash
-   while read -r pr; do
+   topic=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" topic) || exit
+   prs=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" read "$topic" prs) || exit
+   printf '%s\n' "$prs" | while read -r pr; do
+     [ -n "$pr" ] || continue
      gh pr view "$pr" --json number,title,labels \
        --jq 'select([.labels[].name] | index("security")) | "\(.number) \(.title)"' \
        || echo "UNRESOLVED #$pr: in the release range but not a pull request in this repo"
-   done < wip/release-prs.txt
+   done
    ```
+
+   The `read` runs first, outside the loop, so an absent key stops the run
+   ("Phase 1 did not run") instead of passing the check on an empty list.
 
    The set is the one Phase 1 derived and Phase 3 writes the notes from, so a
    pull request cannot reach the notes without also reaching this check. That is
@@ -199,14 +218,14 @@ All must pass before proceeding:
    a. **Show the code the checks will run.** From the repository root:
 
       ```bash
-      git diff --stat "$LAST_TAG..HEAD" -- scripts/ skills/ .claude/shirabe-extensions/
+      git diff --stat "$RANGE" -- scripts/ skills/ .claude/shirabe-extensions/
       ```
 
-      `LAST_TAG` is Phase 1's value; recompute it with Phase 1's
-      `git describe` line, since this is a new shell. On a first release
-      (no tag) drop the range and print `git diff --stat
-      "$(git hash-object -t tree /dev/null)" HEAD -- scripts/ skills/
-      .claude/shirabe-extensions/` instead.
+      `RANGE` is the release range Phase 1 recorded; read it back, since this
+      is a new shell: `RANGE=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh"
+      read <topic> range) || exit`. When it reads `HEAD` (a first release, no
+      tag) print `git diff --stat "$(git hash-object -t tree /dev/null)" HEAD --
+      scripts/ skills/ .claude/shirabe-extensions/` instead.
 
    b. **For each check, in order** (`release.md`'s first, then
       `release.local.md`'s), print the command and the file it came from. A
@@ -220,7 +239,7 @@ All must pass before proceeding:
       | Variable | Value |
       |----------|-------|
       | `RELEASE_VERSION` | the version Phase 1 recommends, or the one given, as bare `X.Y.Z` (strip a leading `v`). Phase 3 may still change it; the `## Release assets` step in Phase 4 gets the confirmed one |
-      | `RELEASE_LAST_TAG` | Phase 1's `LAST_TAG`, empty on a first release |
+      | `RELEASE_LAST_TAG` | the last release tag: `RANGE` above without its `..HEAD`, empty when `RANGE` is `HEAD` (a first release) |
       | `RELEASE_DRY_RUN` | `1` under `--dry-run`, `0` otherwise |
       | `RELEASE_CONFIRMED_DROPS` | the empty string, so a value inherited from the environment can't pre-confirm anything |
 
@@ -255,21 +274,29 @@ All must pass before proceeding:
       onto a command line, so it is never passed through when it could be
       read as shell.
 
-Report the specific failure and stop on any check.
+Report the specific failure and stop on any check, closing the session first:
+`"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic> abandoned`.
 
 ### Phase 3: Release Notes and Version Confirmation
 
 Generate notes, present them, and confirm the version with the user.
 
-1. Gather commits: `git log --oneline "$(cat wip/release-range.txt)"`. Each
-   subject carries the conventional-commit type, the description, and the `(#N)`
-   suffix, so this one read has everything the notes are written from.
-2. Cross-check against `wip/release-prs.txt` from Phase 1 -- the release's
-   membership. Every number in that file must appear in a subject step 1
-   gathered, and no other pull request may be credited. It is a check, not a
-   second gather: the file was derived from this same range, so a disagreement
-   means one of the two reads went wrong and the notes should not be written
-   until you know which.
+1. Gather commits over the range Phase 1 stored:
+
+   ```bash
+   topic=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" topic) || exit
+   range=$("${CLAUDE_PLUGIN_ROOT}/skills/release/scripts/release-state.sh" read "$topic" range) || exit
+   git log --oneline "$range"
+   ```
+
+   Each subject carries the conventional-commit type, the description, and the
+   `(#N)` suffix, so this one read has everything the notes are written from.
+2. Cross-check against `work/prs` from Phase 1 (`release-state.sh read <topic>
+   prs`) -- the release's membership. Every number in it must appear in a
+   subject step 1 gathered, and no other pull request may be credited. It is a
+   check, not a second gather: the key was derived from this same range, so a
+   disagreement means one of the two reads went wrong and the notes should not
+   be written until you know which.
 3. Group by type (features, fixes, other)
 4. Draft user-facing notes:
    - Focus on user impact
@@ -277,9 +304,10 @@ Generate notes, present them, and confirm the version with the user.
    - Highlight breaking changes prominently
    - Handle security-labeled PRs per user's Phase 2 decision
 
-5. **Print the notes in chat** so the user can read them, followed by
-   `cat wip/release-unattributed.txt` under a short heading such as "In the
-   release, not in a pull request". Phase 1 already printed this list; repeating
+5. **Print the notes in chat** so the user can read them,
+   followed by the output of `release-state.sh read <topic> unattributed`
+   under a short heading such as "In the release, not in a pull request".
+   Phase 1 already printed this list; repeating
    it here puts it in front of the author at the moment they are deciding
    whether the notes are complete.
 
@@ -297,20 +325,36 @@ Generate notes, present them, and confirm the version with the user.
    notes, update the notes title to reflect the chosen version.
 
 7. Allow the user to request edits to the notes before proceeding. Only
-   move to Phase 4 after the user confirms both version and notes.
+   move to Phase 4 after the user confirms both version and notes. If the
+   author declines the version, stop and close the session
+   `abandoned`.
 
 ### Phase 4: Draft Release
 
-Phase 3 produces the notes in chat. Before invoking `gh release
-create`, persist them to `wip/release-notes-<version>.md` (per
-shirabe's `CLAUDE.md` § "Intermediate Storage"; `/release` is not a
-koto-driven skill, so intermediates belong in `wip/`):
+Phase 3 produces the notes in chat. Store the confirmed notes in the session,
+then hand `gh release create` a copy of them in a scratch directory that is
+removed when the command returns. Write the notes to `$dir/notes.md` with the
+Write tool, then:
 
 ```bash
+dir=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch) || exit
+# write the confirmed notes to "$dir/notes.md", then:
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" put release-<topic> work/notes.md "$dir/notes.md"
+rm -rf "$dir"
+```
+
+Then create the draft:
+
+```bash
+notes_dir=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch) || exit
+notes_file=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" get release-<topic> work/notes.md "$notes_dir") || { rm -rf "$notes_dir"; exit 1; }
+rc=0
 gh release create "v<version>" \
   --draft \
   --title "v<version>" \
-  --notes-file wip/release-notes-<version>.md
+  --notes-file "$notes_file" || rc=$?
+rm -rf "$notes_dir"
+exit "$rc"
 ```
 
 The draft survives workflow failures and is editable in the GitHub
@@ -322,7 +366,8 @@ run, run each bullet under `## Release assets` in the release extension
 step 7). No heading means nothing to attach. Print each command and its file,
 then run it from the repository root with `RELEASE_VERSION` set to the
 version confirmed in Phase 3 (bare `X.Y.Z`), `RELEASE_LAST_TAG` set as in
-Phase 2 (recompute it with Phase 1's `git describe` line in this new shell),
+Phase 2 (read the range back with `release-state.sh read <topic> range`, as
+Phase 2 step 7a does, since this is a new shell),
 `RELEASE_DRY_RUN=0`, and `RELEASE_CONFIRMED_DROPS` set to the empty
 string, as in Phase 2.
 
@@ -340,10 +385,16 @@ string, as in Phase 2.
   the `gh release upload` line above), and quote the extension's note on what
   that item's failure costs, if it gives one.
 
-This file and Phase 1's three release-contents files
-(`wip/release-range.txt`, `wip/release-prs.txt`,
-`wip/release-unattributed.txt`) are cleaned per the standard
-pre-merge wip/ cleanup convention.
+With the draft created and the assets handled (or none declared), the run's
+state is no longer needed. Close the session; its keys stay readable:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close release-<topic> done
+```
+
+If draft creation fails, check `gh auth status`, close the session `abandoned`
+and stop; the stored notes stay readable (`release-state.sh read <topic>
+notes`). Phases 5 and 6 read nothing from the session.
 
 ### Phase 5: Workflow Dispatch
 
@@ -393,15 +444,19 @@ When `--dry-run` is passed:
   `RELEASE_DRY_RUN=1`, and stop the dry run the same way they would stop a
   release.
 - Phase 4-6 are skipped (no draft, no dispatch), so no `## Release assets`
-  command runs and nothing is attached
+  command runs and nothing is attached. The session is closed `done` at the
+  end of the dry run: `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close
+  release-<topic> done`.
 - Print what would happen: which files change, what tag, what dev version
 
 ## Error Recovery
 
 | Phase | Failure | Recovery |
 |-------|---------|---------|
-| 1 | `wip/release-prs.txt` is empty but the range has commits | Read `wip/release-unattributed.txt`: if every commit is listed there, the repository is not writing `(#N)` suffixes (the merge strategy changed) and the derivation's assumption no longer holds |
-| 1 | `wip/release-range.txt` holds `HEAD` on a repo that has tags | `git describe` found no `v*` tag from this commit -- check you are on the release branch and that tags are fetched (`git fetch --tags`) |
+| 1 | `open` prints `refused=branch_mismatch` | A `release-<topic>` is live from an interrupted run on another branch. Run `skill-session.sh close release-<topic> abandoned`, then `/release` again |
+| 1 | `work/prs` is empty but the range has commits | Read `work/unattributed` (`release-state.sh read <topic> unattributed`): if every commit is listed there, the repository is not writing `(#N)` suffixes (the merge strategy changed) and the derivation's assumption no longer holds |
+| 1 | `work/range` holds `HEAD` on a repo that has tags | `git describe` found no `v*` tag from this commit -- check you are on the release branch and that tags are fetched (`git fetch --tags`) |
+| 2, 3 | `read` exits 1 saying Phase 1 did not run | The key is absent: Phase 1's `membership` step did not complete in this session. Run Phase 1 again |
 | 2 | `UNRESOLVED #N` from the security check | The `(#N)` names something that is not a pull request here (a revert, a hand-written subject, a cherry-pick). Check it by hand before releasing |
 | 2 | Dirty tree | `git stash` or commit |
 | 2 | CI failing | Fix and push |
@@ -411,7 +466,7 @@ When `--dry-run` is passed:
 | 2 | A declared release check exits non-zero (other than 5) | The step repeated the last lines of the check's output; fix what they report, and run the release again; the check is named with the file that declared it |
 | 2 | A declared check exits 5 and the answer is no, or nobody can answer | The release stopped on purpose. Look into what the check reported; run the release again, interactively, to confirm it |
 | 4 | A `## Release assets` command fails or its upload fails | The draft stands. Re-run the command from the repository root with the same `RELEASE_*` values, then `gh release upload v<version> <path> --clobber` |
-| 4 | Draft creation fails | Check `gh auth status` |
+| 4 | Draft creation fails | Check `gh auth status`; the notes are still in `work/notes.md`. Close the session `abandoned` and run again |
 | 5 | Dispatch fails | Check workflow exists and permissions |
 | 6 | Workflow fails | `gh run view <id> --log-failed` |
 | 6 | Timeout | Check URL printed at timeout |

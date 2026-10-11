@@ -5,7 +5,7 @@ checked that before scoring — a file at `docs/plans/PLAN-*.md`, or any `.md`
 whose frontmatter carries `schema: plan/v1`, whose `execution_mode` reads
 `single-pr` or `coordinated`. If you reached this file without that path in
 hand, the arm was not a candidate and something upstream misrouted; go back to
-`wip/explore_<topic>_crystallize.md` and read the Candidacy section.
+key `work/crystallize.md` and read the Candidacy section.
 
 `/execute` accepts a PLAN path and nothing else. It has no topic mode, so the
 arm is named only alongside the path it hands over.
@@ -21,14 +21,24 @@ Tell the author:
 > `docs/plans/PLAN-<name>.md` already assumes, and what remains is execution.
 > Run `/execute docs/plans/PLAN-<name>.md`.
 >
-> Your exploration research is saved in `wip/` if you need to reference it.
+> Your exploration research stays readable in the finished session
+> `explore-<topic>` (`koto context get explore-<topic> <key>`) if you need to
+> reference it.
 
 If the exploration changed the scope the PLAN assumes, `/execute` is the wrong
 arm even with the file present — say so and route back to crystallize, where
 that is a stage-2 anti-signal rather than a judgment made here.
 
+## Close the Session
+
+The arm is done. Close the session; its keys stay readable:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close explore-<topic> done
+```
+
 ## Artifact State
 
 After this step:
-- All explore artifacts in `wip/` (untouched)
+- Session `explore-<topic>` closed; its keys stay readable
 - No new artifacts; the author runs `/execute <plan-path>` separately

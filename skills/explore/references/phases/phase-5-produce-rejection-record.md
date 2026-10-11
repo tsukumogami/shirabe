@@ -76,9 +76,17 @@ After writing and committing the artifact:
    the rejection as an architectural decision record. This is optional — the rejection
    record alone is sufficient for most cases.
 
+## Close the Session
+
+The arm is done. Close the session; its keys stay readable:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close explore-<topic> done
+```
+
 ## Artifact State
 
 After this step:
-- All explore artifacts in `wip/` (untouched)
+- Session `explore-<topic>` closed; its keys stay readable
 - `docs/decisions/REJECTED-<topic>.md` (new)
 - No handoff to another skill — this is the final produce step

@@ -165,7 +165,7 @@ Check `$ARGUMENTS` for `--auto` or `--interactive` flags. Also check for
 In `--auto` mode, the agent never blocks on user input. At decision points,
 follow the research-first protocol in `references/decision-protocol.md`:
 gather evidence, form recommendation, follow it, document as a decision
-block. Create `wip/explore_<topic>_decisions.md` to track all decisions.
+block. Track all decisions in key `work/decisions.md`.
 
 Default max rounds in --auto: 3. Override with `--max-rounds=N`.
 
@@ -221,29 +221,39 @@ When starting from an issue in a different repo than the working directory:
 1. Read the issue via `gh issue view <N> --repo <owner/repo>`
 2. Resolve visibility from the WORKING repo (where artifacts land), not the issue's repo
 3. Visibility rule: public repos must not reference private issues in produced artifacts
-4. Research agents may read the issue's repo for context, but wip/ artifacts live in
-   the working repo
+4. Research agents may read the issue's repo for context, but the exploration's
+   session `explore-<topic>` belongs to the working repo
 
 ### Resume Logic
 
-Resume is based on topic-scoped wip/ artifacts. Evaluate the conditions top-to-bottom
-and resume at the first match.
+Resume is based on the keys of the topic's session, `explore-<topic>`. One call
+evaluates the rows top-to-bottom and prints the phase of the first match:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/explore/scripts/explore-state.sh" resume-phase <topic>
+```
 
 ```
-wip/explore_<topic>_crystallize.md exists                          -> Phase 5 (Produce)
-wip/explore_<topic>_findings.md has "## Decision: Crystallize"     -> Phase 4 (Crystallize)
-wip/explore_<topic>_findings.md exists (no crystallize marker)     -> Phase 3 (Converge)
-wip/research/explore_<topic>_r*_lead-*.md exist, no findings file  -> Phase 3 (Converge)
-wip/explore_<topic>_scope.md exists                                -> Phase 2 (Discover)
-On topic branch, no explore artifacts                              -> Phase 1 (Scope)
-Not on topic branch                                                -> Phase 0 (Setup)
+key work/crystallize.md exists                                     -> 5 (Produce)
+key work/findings.md has "## Decision: Crystallize"                -> 4 (Crystallize)
+key work/findings.md exists (no crystallize marker)                -> 3 (Converge)
+keys research/r*_lead-* exist, no findings key                     -> 3 (Converge)
+key work/scope.md exists                                           -> 2 (Discover)
+none of these, on the topic branch                                 -> Phase 1 (Scope)
+none of these, not on the topic branch                             -> Phase 0 (Setup)
 ```
+
+The script prints `none` for the last two rows and for an absent or finished
+session; the branch decides between them. Before starting over on `none`, check
+for a key `handoff/scope.md` or `handoff/charter.md` in `explore-<topic>` (`koto
+context exists`): one means the exploration already ended in a handoff, and the
+author only needs the command that handoff names.
 
 When resuming:
-- **Phase 3:** Read all research files and the findings file. Present accumulated
+- **Phase 3:** Read all research keys and the findings key. Present accumulated
   results and ask whether to explore further or crystallize.
-- **Phase 4:** The user decided to crystallize (marker in findings file) but the
-  crystallize artifact wasn't written. Re-run crystallize.
+- **Phase 4:** The user decided to crystallize (marker in the findings key) but
+  the crystallize key wasn't written. Re-run crystallize.
 - **Phase 5:** Read the crystallize decision and proceed with handoff.
 
 ### Workflow Phases
@@ -263,10 +273,10 @@ Phase 0: SETUP -> Phase 1: SCOPE -> Phase 2: DISCOVER -> Phase 3: CONVERGE --+
 | Phase | Purpose | Artifact |
 |-------|---------|----------|
 | 0. Setup | Branch, context, entry assessment (if from an issue) | On topic branch |
-| 1. Scope | Conversational scoping, produce leads | `wip/explore_<topic>_scope.md` |
-| 2. Discover | Fan out lead agents (round N) | `wip/research/explore_<topic>_r<N>_lead-<name>.md` |
-| 3. Converge | Present findings, user narrows or exits loop | `wip/explore_<topic>_findings.md` |
-| 4. Crystallize | Evaluate artifact type, user confirms | `wip/explore_<topic>_crystallize.md` |
+| 1. Scope | Conversational scoping, produce leads | key `work/scope.md` |
+| 2. Discover | Fan out lead agents (round N) | keys `research/r<N>_lead-<name>.md` |
+| 3. Converge | Present findings, user narrows or exits loop | key `work/findings.md` |
+| 4. Crystallize | Evaluate artifact type, user confirms | key `work/crystallize.md` |
 | 5. Produce | Author the outcome, or hand off to the command that owns it | Terminal document, issue, or parent handoff |
 
 ### Phase Execution with Loop Management
@@ -304,11 +314,11 @@ cite the gaps that remain or explain why coverage is sufficient.
 
 If **Explore further:**
 - Capture new leads from the user (informed by gaps and open questions from convergence)
-- Update the scope file with the new leads for this round
+- Update the scope key with the new leads for this round
 - Return to Phase 2 with N incremented
 
 If **Ready to decide:**
-- Add `## Decision: Crystallize` marker to the findings file
+- Add `## Decision: Crystallize` marker to the findings key
 - Proceed to Phase 4
 
 **Phase 4: Crystallize**
@@ -317,21 +327,75 @@ Read: `references/phases/phase-4-crystallize.md`
 **Phase 5: Produce**
 Read: `references/phases/phase-5-produce.md`
 
-### wip/ Artifact Naming
+### Session and Keys
 
-All artifacts use topic-scoped naming with kebab-case topics:
+`/explore` keeps its working state as keys in its own koto session,
+`explore-<topic>`, with a kebab-case topic, following
+`${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`. It writes no
+file to the `wip/` staging folder. Phase 0 opens the session once the branch exists
+(Step 0.1a) and before the first key is written:
 
-| Artifact | Path |
-|----------|------|
-| Scope | `wip/explore_<topic>_scope.md` |
-| Accumulated findings | `wip/explore_<topic>_findings.md` |
-| Accumulated decisions | `wip/explore_<topic>_decisions.md` |
-| Crystallize decision | `wip/explore_<topic>_crystallize.md` |
-| Research (round N, lead L) | `wip/research/explore_<topic>_r<N>_lead-<name>.md` |
+```bash
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open explore <topic>
+```
 
-#### Decisions File Format
+`open` attaches to a live `explore-<topic>` (an interrupted run, whose keys the
+resume rows read), replaces a finished one (a fresh run), or creates it. Any
+non-zero exit stops the run with the script's message: 127 or 69 means koto is
+missing or too old, and the skill never falls back to files.
 
-The decisions file (`wip/explore_<topic>_decisions.md`) tracks choices made
+| Key | Written at | Holds |
+|-----|-----------|-------|
+| `work/scope.md` | Phase 0, Phase 1, each round's new leads | visibility, entry assessment, scoping output |
+| `research/r<N>_lead-<name>.md` | Phase 2, round N | one lead's findings, ingested from a scratch directory |
+| `work/findings.md` | Phase 3 | accumulated findings; the `## Decision: Crystallize` marker |
+| `work/decisions.md` | Phase 3 (and `--auto`) | accumulated decisions |
+| `work/crystallize.md` | Phase 4 | the crystallize decision |
+| `work/decision-brief.md` | Phase 5, `/decision` arm | the brief handed to `/decision` |
+| `handoff/scope.md`, `handoff/charter.md` | Phase 5, parent arms | the handoff the parent consumes |
+
+Read a key with `koto context get explore-<topic> <key>`, test one with `koto
+context exists explore-<topic> <key>` (exit 0 present, 1 absent) and list a
+prefix with `koto context list explore-<topic> --prefix <prefix>`.
+
+**Writing a key.** Assemble the content in a scratch directory, put it, and
+remove the directory:
+
+```bash
+dir=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch)
+# write the content to "$dir/<name>", then:
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" put explore-<topic> work/<name> "$dir/<name>"
+rm -rf "$dir"
+```
+
+**Editing a key** the skill revises across rounds (scope, findings, decisions):
+get it into a fresh scratch directory (the command prints the file's path),
+edit that file, then put it back and remove the directory.
+
+```bash
+dir=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch)
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" get explore-<topic> work/<name> "$dir"
+# edit "$dir/<name>", then:
+"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" put explore-<topic> work/<name> "$dir/<name>"
+rm -rf "$dir"
+```
+
+Research agents never write keys: Phase 2 pins every lead's output to a file in
+a scratch directory and ingests it with the `ingest-leads` subcommand of
+`explore-state.sh`.
+
+**Closing.** Phase 5 ends the session. The parent arms (`/scope`, `/charter`)
+run the `finish-handoff` subcommand of `explore-state.sh`, which clears the
+`work/` and `research/` keys and leaves the handoff for the parent to consume
+and close. Every other arm
+runs `"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" close explore-<topic>
+done` (after the inline child returns, for `/decision` and `/comp`), which keeps
+the keys readable. A run that stops before Phase 5 closes nothing, so its keys
+stay for the resume.
+
+#### Decisions Key Format
+
+The decisions key (`work/decisions.md`) tracks choices made
 during convergence rounds. It's created in Phase 3 on the first round that
 produces decisions, and appended to in subsequent rounds.
 

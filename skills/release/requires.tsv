@@ -12,3 +12,15 @@
 # subcommands the skill calls.
 gh	-	-	always
 git	-	-	always
+#
+# The release's contents and notes are koto context keys in the
+# `release-<topic>` session. skills/release/scripts/release-state.sh writes the
+# range, membership and unattributed list with `koto context add --from-file`
+# (replacing an earlier run's value), tests for and removes a leftover notes key
+# with `exists` and `remove`, and reads a key back with `get`. The session is
+# opened, written and closed through scripts/skill-session.sh, whose own koto
+# floor is declared where that script lives.
+koto	context add	--from-file	always
+koto	context get	-	always
+koto	context exists	-	always
+koto	context remove	-	always

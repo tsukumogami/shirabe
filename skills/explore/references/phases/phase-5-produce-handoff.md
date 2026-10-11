@@ -42,12 +42,10 @@ Six sections, in this order, in both bindings:
 # /<parent> Handoff: <topic>
 
 ## Provenance
-Written by `/explore` on <date> from `wip/explore_<topic>_crystallize.md`.
-Research files: `wip/explore_<topic>_findings.md`,
-`wip/explore_<topic>_decisions.md` (if it exists), and
-`wip/research/explore_<topic>_r*_lead-*.md`.
-<One sentence on how the exploration ran: how many discover-converge rounds,
-what the author narrowed along the way.>
+Written by `/explore` on <date>, after <N> discover-converge rounds that
+investigated <the leads, each named by its question>.
+<One sentence on how the exploration ran: what the author narrowed along the
+way.>
 
 ## <Problem Statement | Theme Statement>
 <2-4 sentences synthesized from the findings. Not raw research output.>
@@ -60,10 +58,10 @@ what the author narrowed along the way.>
 - <item, with the reason it was excluded>
 
 ## Decisions Already Settled
-<From wip/explore_<topic>_decisions.md: scope narrowings, option
-eliminations, and priority choices the exploration made. The parent's chain
+<The scope narrowings, option eliminations, and priority choices the
+exploration made, taken from the decisions it recorded. The parent's chain
 treats these as settled inputs to a conversation, not as recorded verdicts.
-Omit the section when the decisions file does not exist.>
+Omit the section when no decisions were recorded.>
 
 ## Coverage Notes
 <What the exploration did NOT answer that the chain should. Name the gaps
@@ -82,21 +80,25 @@ Then exactly one parent-specific block, per the binding below.
 
 Write the handoff as key `handoff/scope.md` in session `explore-<topic>`,
 following `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`: the six
-shared sections, then both blocks below. This is the only step where `/explore`
-opens that session. Open it, then assemble the content in a private directory
-and ingest it, so the key is the file name:
+shared sections, then both blocks below. Phase 0 already opened the session.
+Assemble the content in a private directory and ingest it, so the key is the
+file name, then clear the working keys:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" open explore <topic>
 dir=$("${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" scratch)
 # write the handoff to "$dir/scope.md", then:
 "${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh" ingest explore-<topic> handoff "$dir"
+"${CLAUDE_PLUGIN_ROOT}/skills/explore/scripts/explore-state.sh" finish-handoff <topic>
 ```
 
-A non-zero exit from any of these stops the run with the script's message
-(127 or 69 means koto is missing or too old); there is no fallback to a file in
-`wip/`. `/explore` does not close the session: `/scope` reads the key, removes
-it once consumed, and closes `explore-<topic>` when it holds nothing else.
+`finish-handoff` requires a non-empty handoff key, then removes every `work/`
+and `research/` key, so the handoff is the only record of the exploration. Write
+it complete before the call. A non-zero exit from any of these stops the run
+with the script's message (127 or 69 means koto is missing or too old; a
+`refused=no_handoff` from `finish-handoff` removed nothing); there is no
+fallback to a file. `/explore` does not close the session: `/scope` reads the
+key, removes it once consumed, and closes `explore-<topic>` when it holds
+nothing else.
 
 ```markdown
 ## Framing-Shift Answer
@@ -133,7 +135,8 @@ Tell the author:
 
 > Wrote the handoff to session `explore-<topic>`. Run `/scope <topic>` to walk the
 > tactical chain (BRIEF, PRD, DESIGN, PLAN) with the exploration pre-loaded
-> into discovery. Your research stays in `wip/`.
+> into discovery. The handoff carries what the exploration found; the working
+> notes behind it are cleared.
 
 With a ROADMAP: `/scope <topic> --upstream docs/roadmaps/ROADMAP-<name>.md`.
 
@@ -142,12 +145,12 @@ With a ROADMAP: `/scope <topic> --upstream docs/roadmaps/ROADMAP-<name>.md`.
 Write the handoff as key `handoff/charter.md` in session `explore-<topic>`,
 following `${CLAUDE_PLUGIN_ROOT}/references/skill-session-convention.md`: the
 six shared sections, then the one block below. The write runs exactly as the
-`/scope` arm's does — `open explore <topic>`, assemble the content as
-`charter.md` in a `scratch` directory, `ingest explore-<topic> handoff` — and
-carries the same no-fallback rule: a non-zero exit stops the run with the
-script's message, and nothing falls back to a file in `wip/`. `/explore` does
-not close the session: `/charter` reads the key, removes it once consumed, and
-closes `explore-<topic>` when it holds nothing else.
+`/scope` arm's does — assemble the content as `charter.md` in a `scratch`
+directory, `ingest explore-<topic> handoff`, then `finish-handoff <topic>` —
+and carries the same no-fallback rule: a non-zero exit stops the run with the
+script's message, and nothing falls back to a file. `/explore` does not close
+the session: `/charter` reads the key, removes it once consumed, and closes
+`explore-<topic>` when it holds nothing else.
 
 ```markdown
 ## Thesis-Shift Answer
@@ -181,7 +184,8 @@ Tell the author:
 
 > Wrote the handoff to session `explore-<topic>`. Run `/charter <topic>` to walk the
 > strategic chain (VISION, STRATEGY, ROADMAP) with the exploration pre-loaded
-> into discovery. Your research stays in `wip/`.
+> into discovery. The handoff carries what the exploration found; the working
+> notes behind it are cleared.
 
 With a VISION: `/charter <topic> --upstream docs/visions/VISION-<name>.md`.
 
@@ -197,14 +201,10 @@ Each parent removes its handoff key once it has consumed it; a handoff never
 consumed — the parent bailed at Phase 1, or was never run — stays in
 `explore-<topic>` for the next run of that parent to reach.
 
-## Commit
-
-Commit before naming the command: `docs(explore): hand off <topic> to /<parent>`
-
 ## Artifact State
 
 After this step:
-- All explore artifacts in `wip/` (untouched)
 - Key `handoff/scope.md` (`/scope` arm) or `handoff/charter.md`
   (`/charter` arm) in `explore-<topic>` (new)
+- Every `work/` and `research/` key removed; `session/branch` kept
 - No durable document written; the session stops and the author runs the parent
