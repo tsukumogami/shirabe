@@ -258,6 +258,13 @@ is the repository's `wip/` directory.
   sweep, the `wip_paths=` field `skills/deliver/scripts/deliver-report.sh`
   validates, the repository's CI check for a leftover staging folder, and
   `/scope`'s publish untrack step are not modified by this feature.
+
+  Correction, 2026-10-11: this requirement, "The enforcement layer stays.",
+  held for this feature only. The later leaf-skills-off-folder feature
+  removed the layer in #759. `node-push.sh` no longer sweeps the folder,
+  `deliver-report.sh` relays no `wip_paths=` field, the leftover-files rule
+  `branch/no-wip-files` is retired along with its check, and `/scope`'s
+  publish step no longer untracks staging files.
 - **R22. The design is the reference.** One design document settles R1 to R10
   and lists which skills this feature moved and which later work moves
   (`/comp`, `/release`, `/explore`'s own files, `/work-on`'s fallback file),
