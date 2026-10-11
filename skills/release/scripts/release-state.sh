@@ -209,16 +209,18 @@ cmd_membership() {
     git log --format='%h %s' "$range" >"$TMPD/log" 2>/dev/null || { say "git log $range failed"; exit 1; }
     { grep -vE '\(#[0-9]+\)$' "$TMPD/log" || true; } >"$TMPD/unattributed"
 
-    # An earlier run's notes must not survive into this one.
-    if key_exists "$s" work/notes.md; then
-        if "$KOTO" context remove "$s" work/notes.md >/dev/null 2>&1; then
-            say "removed work/notes.md left by an earlier run"
-        else
-            printf 'failed=work/notes.md\n'
-            say "could not remove work/notes.md"
+    # Nothing an earlier run wrote survives into this one: its notes, and its
+    # membership keys, which go before any new one is written so a write that
+    # fails part-way leaves keys missing (read stops on them) rather than a mix
+    # of this run's and the last one's.
+    for k in work/notes.md work/range work/prs work/unattributed; do
+        key_exists "$s" "$k" || continue
+        if ! "$KOTO" context remove "$s" "$k" >/dev/null 2>&1; then
+            printf 'failed=%s\n' "$k"
+            say "could not remove $k"
             exit 1
         fi
-    fi
+    done
 
     put_file "$s" work/range "$TMPD/range"
     put_file "$s" work/prs "$TMPD/prs"
