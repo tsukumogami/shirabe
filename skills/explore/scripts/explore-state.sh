@@ -131,7 +131,7 @@ session_live() {
 # any other answer.
 key_exists() {
     local rc=0
-    "$KOTO" context exists "$1" "$2" >/dev/null 2>&1 || rc=$?
+    "$KOTO" context exists "$1" "$2" >/dev/null || rc=$?
     case "$rc" in
         0) return 0 ;;
         1) return 1 ;;
@@ -143,8 +143,8 @@ key_exists() {
 # line; exits the script when the listing fails.
 list_keys() {
     local json
-    json=$("$KOTO" context list "$1" --prefix "$2" 2>/dev/null) || { say "koto context list $2 failed"; exit 1; }
-    printf '%s' "$json" | jq -r '.[]' 2>/dev/null || { say "koto context list answered something that is not a key list"; exit 1; }
+    json=$("$KOTO" context list "$1" --prefix "$2") || { say "koto context list $2 failed"; exit 1; }
+    printf '%s' "$json" | jq -r '.[]' || { say "koto context list answered something that is not a key list"; exit 1; }
 }
 
 # --- resume-phase -----------------------------------------------------------------------
@@ -165,7 +165,7 @@ cmd_resume_phase() {
         return 0
     fi
     if key_exists "$s" work/findings.md; then
-        findings=$("$KOTO" context get "$s" work/findings.md 2>/dev/null) || { say "cannot read work/findings.md"; exit 1; }
+        findings=$("$KOTO" context get "$s" work/findings.md) || { say "cannot read work/findings.md"; exit 1; }
         if printf '%s\n' "$findings" | grep -qxF '## Decision: Crystallize'; then
             printf '4\n'
         else
@@ -208,7 +208,9 @@ lead_dir_ok() {
         say "$d is not a scratch directory"
         return 1
     fi
-    top=$(git rev-parse --show-toplevel 2>/dev/null) && top=$(cd -P -- "$top" 2>/dev/null && pwd -P)
+    if top=$(git rev-parse --show-toplevel); then
+        top=$(cd -P -- "$top" 2>/dev/null && pwd -P)
+    fi
     if [ -n "$top" ]; then
         case "$phys" in
             "$top"|"$top"/*) say "$d lies inside the work tree; scratch content lives outside it"; return 1 ;;
@@ -262,7 +264,7 @@ cmd_finish_handoff() {
     fi
     for k in handoff/scope.md handoff/charter.md; do
         key_exists "$s" "$k" || continue
-        content=$("$KOTO" context get "$s" "$k" 2>/dev/null) || { say "cannot read $k"; exit 1; }
+        content=$("$KOTO" context get "$s" "$k") || { say "cannot read $k"; exit 1; }
         if printf '%s' "$content" | grep -q '[^[:space:]]'; then
             printf 'handoff=%s\n' "$k"
             found=1
@@ -285,7 +287,7 @@ cmd_finish_handoff() {
                 failed=1
                 continue
             fi
-            if "$KOTO" context remove "$s" "$key" >/dev/null 2>&1; then
+            if "$KOTO" context remove "$s" "$key" >/dev/null; then
                 printf 'removed=%s\n' "$key"
             else
                 printf 'failed=%s\n' "$key"
