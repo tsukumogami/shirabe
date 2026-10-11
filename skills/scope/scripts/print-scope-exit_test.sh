@@ -46,21 +46,20 @@ $OUT"
 URL=https://github.com/acme/widgets/pull/12
 
 echo "== full-run =="
-render done_full_run '{"outcome":"scoped","exit":"full-run","intent":"none","next":"/execute docs/plans/PLAN-t.md","pr":"","plan_path":"docs/plans/PLAN-t.md","plan_execution_mode":"single-pr","wip_paths":"","startable":""}'
+render done_full_run '{"outcome":"scoped","exit":"full-run","intent":"none","next":"/execute docs/plans/PLAN-t.md","pr":"","plan_path":"docs/plans/PLAN-t.md","plan_execution_mode":"single-pr","startable":""}'
 eq "single-pr, no intent" "/scope finished: exit=full-run; artifact=docs/plans/PLAN-t.md
 intent=none
 outcome=scoped
 next=/execute docs/plans/PLAN-t.md" "$OUT"
 
-render done_full_run "{\"outcome\":\"scoped\",\"exit\":\"full-run\",\"intent\":\"continue\",\"next\":\"/execute docs/plans/PLAN-t.md\",\"pr\":\"$URL\",\"plan_path\":\"docs/plans/PLAN-t.md\",\"plan_execution_mode\":\"coordinated\",\"wip_paths\":\"wip/scope_t_state.md,wip/research/design_t_notes.md\",\"startable\":\"\"}"
+render done_full_run "{\"outcome\":\"scoped\",\"exit\":\"full-run\",\"intent\":\"continue\",\"next\":\"/execute docs/plans/PLAN-t.md\",\"pr\":\"$URL\",\"plan_path\":\"docs/plans/PLAN-t.md\",\"plan_execution_mode\":\"coordinated\",\"startable\":\"\"}"
 eq "coordinated, intent continue" "/scope finished: exit=full-run; artifact=docs/plans/PLAN-t.md
 intent=continue
 outcome=scoped
 next=/execute docs/plans/PLAN-t.md
-pr=$URL
-wip_paths=wip/scope_t_state.md,wip/research/design_t_notes.md" "$OUT"
+pr=$URL" "$OUT"
 
-render done_full_run "{\"outcome\":\"handed-off-multi-pr\",\"exit\":\"full-run\",\"intent\":\"stop\",\"next\":\"/work-on #7\",\"pr\":\"$URL\",\"plan_path\":\"docs/plans/PLAN-t.md\",\"plan_execution_mode\":\"multi-pr\",\"wip_paths\":\"\",\"startable\":\"#7 feat: first\\n#2 feat: second\"}"
+render done_full_run "{\"outcome\":\"handed-off-multi-pr\",\"exit\":\"full-run\",\"intent\":\"stop\",\"next\":\"/work-on #7\",\"pr\":\"$URL\",\"plan_path\":\"docs/plans/PLAN-t.md\",\"plan_execution_mode\":\"multi-pr\",\"startable\":\"#7 feat: first\\n#2 feat: second\"}"
 eq "multi-pr, intent stop: the roots, then the closing line naming the PR" "/scope finished: exit=full-run; artifact=docs/plans/PLAN-t.md
 intent=stop
 outcome=handed-off-multi-pr
@@ -70,7 +69,7 @@ pr=$URL
 #2 feat: second
 These items can start once the scoping PR $URL merges." "$OUT"
 
-render done_full_run '{"outcome":"handed-off-multi-pr","exit":"full-run","intent":"none","next":"/work-on #7","pr":"","plan_path":"docs/plans/PLAN-t.md","plan_execution_mode":"multi-pr","wip_paths":"","startable":"#7 feat: first\n#2 feat: second"}'
+render done_full_run '{"outcome":"handed-off-multi-pr","exit":"full-run","intent":"none","next":"/work-on #7","pr":"","plan_path":"docs/plans/PLAN-t.md","plan_execution_mode":"multi-pr","startable":"#7 feat: first\n#2 feat: second"}'
 eq "multi-pr, no intent: the closing line names no PR" "/scope finished: exit=full-run; artifact=docs/plans/PLAN-t.md
 intent=none
 outcome=handed-off-multi-pr
@@ -83,7 +82,7 @@ render done_full_run "{\"outcome\":\"scoped\",\"exit\":\"full-run\",\"intent\":\
 case "$OUT" in *pr=*) bad "no pr= line without intent" "$OUT" ;; *) ok "no pr= line without intent" ;; esac
 
 echo "== republished and executed =="
-render done_republished "{\"outcome\":\"scoped\",\"exit\":\"full-run\",\"intent\":\"continue\",\"next\":\"/execute docs/plans/PLAN-t.md\",\"pr\":\"$URL\",\"plan_path\":\"docs/plans/PLAN-t.md\",\"plan_execution_mode\":\"single-pr\",\"wip_paths\":\"\",\"startable\":\"\"}"
+render done_republished "{\"outcome\":\"scoped\",\"exit\":\"full-run\",\"intent\":\"continue\",\"next\":\"/execute docs/plans/PLAN-t.md\",\"pr\":\"$URL\",\"plan_path\":\"docs/plans/PLAN-t.md\",\"plan_execution_mode\":\"single-pr\",\"startable\":\"\"}"
 eq "republished" "/scope finished: exit=full-run; artifact=docs/plans/PLAN-t.md
 intent=continue
 outcome=scoped
@@ -100,17 +99,16 @@ render done_executed "{\"outcome\":\"executed\",\"intent\":\"stop\",\"pr\":\"$UR
 case "$OUT" in *"pr_state=open"*) ok "executed, open" ;; *) bad "executed, open" "$OUT" ;; esac
 
 echo "== stops =="
-render done_re_evaluation '{"outcome":"re-evaluation","exit":"re-evaluation","intent":"none","boundary":"design","pr":"","wip_paths":""}'
+render done_re_evaluation '{"outcome":"re-evaluation","exit":"re-evaluation","intent":"none","boundary":"design","pr":""}'
 eq "re-evaluation: today's record, no outcome=" "/scope finished: exit=re-evaluation; artifact=docs/decisions/DECISION-design-t-rejection-2026-06-01.md
 intent=none" "$OUT"
-render done_re_evaluation '{"outcome":"re-evaluation","exit":"re-evaluation","intent":"none","boundary":"brief","pr":"","wip_paths":""}'
+render done_re_evaluation '{"outcome":"re-evaluation","exit":"re-evaluation","intent":"none","boundary":"brief","pr":""}'
 eq "re-evaluation at the brief boundary names the BRIEF rejection record" "/scope finished: exit=re-evaluation; artifact=docs/decisions/DECISION-brief-t-rejection-2026-06-01.md
 intent=none" "$OUT"
-render done_abandonment "{\"outcome\":\"abandonment\",\"exit\":\"abandonment-forced\",\"intent\":\"continue\",\"pr\":\"$URL\",\"wip_paths\":\"wip/scope_t_state.md\"}"
+render done_abandonment "{\"outcome\":\"abandonment\",\"exit\":\"abandonment-forced\",\"intent\":\"continue\",\"pr\":\"$URL\"}"
 eq "abandonment with intent: no outcome=, the draft PR" "/scope finished: exit=abandonment-forced; artifact=docs/prds/PRD-t.md
 intent=continue
-pr=$URL
-wip_paths=wip/scope_t_state.md" "$OUT"
+pr=$URL" "$OUT"
 render done_cancelled '{"outcome":"cancelled","intent":"none","via":"bail"}'
 eq "cancelled" "/scope cancelled: no exit was recorded and nothing was force-materialized
 intent=none" "$OUT"
@@ -156,7 +154,7 @@ render done_executed '{"outcome":"executed","intent":"continue","pr":"https://ev
 case "$OUT" in *pr=*|*pr_state=*) bad "a non-GitHub URL and pr_state=closed are dropped" "$OUT" ;; *) ok "a non-GitHub URL and pr_state=closed are dropped" ;; esac
 render done_full_run '{"outcome":"handed-off-multi-pr","exit":"full-run","intent":"none","next":"/work-on #7; rm -rf /","plan_execution_mode":"multi-pr","startable":"#7 ok\noutcome=merged\n#8 fine","wip_paths":"wip/a,../etc"}'
 case "$OUT" in *"rm -rf"*) bad "a next outside the pattern is dropped" "$OUT" ;; *) ok "a next outside the pattern is dropped" ;; esac
-case "$OUT" in *"wip_paths="*) bad "wip_paths with a .. entry is dropped" "$OUT" ;; *) ok "wip_paths with a .. entry is dropped" ;; esac
+case "$OUT" in *"wip_paths="*) bad "a leftover wip_paths in a payload is never printed" "$OUT" ;; *) ok "a leftover wip_paths in a payload is never printed" ;; esac
 if printf '%s\n' "$OUT" | grep -q '^outcome=merged'; then bad "a startable line that is not #<N> <title> is dropped" "$OUT"; else ok "a startable line that is not #<N> <title> is dropped"; fi
 
 render hop_plan '{}'

@@ -33,7 +33,7 @@
     },
     {
       "id": "branch/no-wip-files",
-      "status": "active",
+      "status": "retired",
       "summary": "The branch carries files under wip/",
       "text": {
         "path": "references/wip-hygiene.md",
@@ -62,7 +62,7 @@
         "references/wip-hygiene.md#L14-L16"
       ],
       "aliases": [],
-      "notes": ""
+      "notes": "Retired when the staging-folder enforcement was removed: no skill writes the folder, and check-branch-output.sh no longer has a --wip mode."
     },
     {
       "id": "commit/conventional-subject",

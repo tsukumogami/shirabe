@@ -730,7 +730,7 @@
         "GH_CALL_LOG": "gh-calls.log"
       },
       "prompt": "In an empty directory run `skills/scope/evals/fixtures/setup-topic.sh nosplit-topic --docs all --mode single-pr --pointer 3 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Run `/scope nosplit-topic --intent=continue --auto` to its end. Print gh-calls.log, `git ls-remote origin`, the printed exit block, and `koto status scope-nosplit-topic`.",
-      "expected_output": "The no-split PLAN is single-pr. After the full-run exit the run passes publish_full_run: publish-scoping-pr.sh untracks the topic's wip/, pushes docs/nosplit-topic with HEAD:refs/heads/docs/nosplit-topic, and opens exactly one draft PR whose title contains the slug. The published gate verifies it and the run ends at done_full_run with outcome=scoped, next=/execute docs/plans/PLAN-nosplit-topic.md and pr= the new PR.",
+      "expected_output": "The no-split PLAN is single-pr. After the full-run exit the run passes publish_full_run: publish-scoping-pr.sh pushes docs/nosplit-topic with HEAD:refs/heads/docs/nosplit-topic, and opens exactly one draft PR whose title contains the slug. The published gate verifies it and the run ends at done_full_run with outcome=scoped, next=/execute docs/plans/PLAN-nosplit-topic.md and pr= the new PR.",
       "files": [],
       "notes": "Covers the single-pr limb of R9.",
       "expectations": [
@@ -1103,7 +1103,7 @@
         "GH_CALL_LOG": "gh-calls.log"
       },
       "prompt": "In an empty directory run `skills/scope/evals/fixtures/setup-topic.sh leg-topic --docs all --mode mixed --pointer 3 --intent continue`, cd into the path it prints, and put skills/scope/evals/fixtures/bin first on PATH. Create a koto request with one leg named scope (`koto request create --with-data '{\"legs\":[{\"name\":\"scope\",\"role\":\"scope\",\"template\":\"scope.md\",\"inputs\":{}}]}' --requested-by eval --coordinator-of-record eval`), then run `/scope leg-topic --intent=continue --auto --koto-leg=<request-id>:scope` to its end. Print `koto request get <request-id>`.",
-      "expected_output": "The run's terminal result is promoted to the scope leg. The leg's payload carries outcome handed-off-multi-pr and the keys /deliver routes on and copies: plan_path, plan_execution_mode, pr, startable, wip_paths, next, and an empty step and reason.",
+      "expected_output": "The run's terminal result is promoted to the scope leg. The leg's payload carries outcome handed-off-multi-pr and the keys /deliver routes on and copies: plan_path, plan_execution_mode, pr, startable, next, and an empty step and reason.",
       "files": [],
       "notes": "Covers the must-deliver result keys Issue 19 reads from the leg (R31).",
       "expectations": [

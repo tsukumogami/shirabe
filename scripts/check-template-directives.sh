@@ -55,9 +55,10 @@ set -euo pipefail
 # child's files in the staging folder decides on files nothing writes any more.
 # The bail state asks `scripts/skill-session.sh has-work` over the four
 # children instead. The limb reads the gate's command, not the scripts it
-# invokes: an invoked script is still held only to the parent state-file prefix limb above,
-# because the enforcement layer (publish-scoping-pr.sh's untrack pathspec) and
-# the state file's readers still name the folder until later work moves them.
+# invokes: an invoked script is still held only to the parent state-file prefix
+# limb above. That limit dates from when publish-scoping-pr.sh untracked staging
+# paths by pathspec; the untrack step is gone and no invoked script names the
+# folder now, so the limit costs nothing.
 #
 # Three boundaries are deliberate:
 #
@@ -432,8 +433,10 @@ resolve_script() {
 #
 #   skills/scope/scripts/publish-scoping-pr.sh
 #       the publish states' `published` gate runs its --verify mode, which
-#       reads git and the owned PR only. The prefix appears in its publish
-#       mode as a pathspec of paths to untrack, never read.
+#       reads git and the owned PR only. Its publish mode once named the prefix
+#       as a pathspec of paths to untrack; that step is gone and the script
+#       names no folder path, so the entry is inert and kept only for the
+#       carve-out case check-template-directives_test.sh pins.
 #
 # resume-probe.sh left this list when /scope's state moved into its session:
 # the ladder's meta rows read key work/state.md and Slot 7 reads the handoff

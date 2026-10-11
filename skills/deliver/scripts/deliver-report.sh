@@ -3,7 +3,7 @@
 #
 # The agent never composes /deliver's report. deliver.md's four terminals
 # declare a `result:` map (outcome, step, reason, pr, pr_state, repos, resume,
-# waiting, next, startable, wip_paths), koto resolves it on the tick that lands
+# waiting, next, startable), koto resolves it on the tick that lands
 # in the terminal, and this script prints the human-facing lines from it.
 #
 # Much of that result came from a child's leg: /scope's and /execute's payload
@@ -45,7 +45,6 @@
 #   resume=<command>     on paused-awaiting-merges and paused-for-review
 #   next=<command>       on scoped and handed-off-multi-pr
 #   #<N> <title>         on handed-off-multi-pr, each startable item
-#   wip_paths=<comma-separated wip/ paths>
 #
 # What each outcome means:
 #
@@ -92,7 +91,6 @@ RE_ROLE='^(human|predecessor)$'
 RE_PR_STATE='^(merged|open)$'
 RE_RESUME='^/execute [A-Za-z0-9._/-]+\.md( --[a-z][a-z-]*)*$'
 RE_NEXT='^(/deliver [a-z0-9][a-z0-9-]*|/execute docs/plans/PLAN-[a-z0-9][a-z0-9-]*\.md|/work-on( #[1-9][0-9]*)?|/release [a-z0-9][a-z0-9-]*)$'
-RE_WIP='^wip/[A-Za-z0-9._/-]+(,wip/[A-Za-z0-9._/-]+)*$'
 
 if [ $# -gt 1 ]; then
     echo "usage: deliver-report.sh [--refused | <file>]" >&2
@@ -138,9 +136,6 @@ REPOS=$(pattern "$(field repos)" "$RE_REPO_LIST")
 RESUME=$(pattern "$(field resume)" "$RE_RESUME")
 NEXT=$(pattern "$(field next)" "$RE_NEXT")
 WAITING=$(field waiting)
-WIP=$(field wip_paths)
-case "$WIP" in *..*) WIP="" ;; esac
-WIP=$(pattern "$WIP" "$RE_WIP")
 
 # startable is several lines by design; each `#<N> <title>` line is kept on its
 # own, and a line holding anything else is dropped.
@@ -217,5 +212,4 @@ if [ "$OUTCOME" = "handed-off-multi-pr" ] && [ -n "$STARTABLE" ]; then
     printf '%s\n' "$STARTABLE"
 fi
 
-[ -n "$WIP" ] && printf 'wip_paths=%s\n' "$WIP"
 exit 0

@@ -5,15 +5,12 @@ counts as a durable reference.
 
 ## What `wip/` is
 
-`wip/` (Work In Progress) is a per-branch scratch space for intermediate
-artifacts produced during multi-phase workflows. Phase scripts in
-`skills/design`, `skills/plan`, `skills/prd`, and `skills/explore` write
-summaries, research notes, manifests, and coordination state into
-`wip/<skill>_<topic>_*.md` and `wip/research/<skill>_<topic>_*.md`.
-
-`wip/` is committed to feature branches so that workflows survive resume.
-It is NOT included in merged history: workflows clean it up before the PR
-opens, and squash-merge keeps the cleanup out of the main branch trail.
+`wip/` (Work In Progress) was a per-branch scratch space for intermediate
+artifacts from multi-phase workflows. shirabe's skills no longer write there:
+they keep intermediate state in koto sessions, under
+[`skill-session-convention.md`](skill-session-convention.md). A file that does
+sit under `wip/` on a branch is non-durable, and no workflow step writes,
+sweeps or gates on it.
 
 ## The rule
 
@@ -28,42 +25,28 @@ are:
 - PR descriptions and issue bodies
 
 Quoted statements of this rule (and of wip/'s purpose) are allowed. A line
-that says "wip/ artifacts are tolerated on the branch but must be cleaned
-before the PR opens" is rule-statement prose. A line that says "see
-`wip/PR-foo.md` for the draft" is a path-shaped reference and a hard fail.
+that says "a staging file is not a durable reference" is rule-statement
+prose. A line that says "see `wip/<draft>.md` for the draft" is a path-shaped
+reference and a hard fail.
 
 ## Why
 
-`wip/` is deleted before merge. A reference to a `wip/...` path resolves
-to nothing the moment the cleanup commit lands. The reader of the merged
-artifact is left with a broken link to a file the workspace's own cleanup
-removed.
+`wip/` content is not part of merged history. A reference to a `wip/...`
+path resolves to nothing once the branch merges. The reader of the merged
+artifact is left with a broken link to a file that never reached main.
 
-When a `wip/...` path also crosses a visibility boundary -- for example, a
-coordinator stages a private-repo PRD into a public repo's `wip/` as a
-handoff, and a design agent then writes `upstream: wip/PRD-<topic>.md` into
-public frontmatter -- the failure compounds. The reference is simultaneously
+When a `wip/...` path also crosses a visibility boundary, the failure
+compounds. Take a private-repo PRD placed by hand in a public repo's `wip/`
+as a handoff, with a design agent then writing an `upstream:` value that
+points at that file into public frontmatter. The reference is simultaneously
 non-durable AND a public->private link (forbidden per
 [`cross-repo-references.md`](cross-repo-references.md)).
 
-## Cleanup is two operations
-
-Cleaning up `wip/` before merge means BOTH:
-
-1. **Delete the wip/ files** (mechanical -- usually a single `rm` or
-   `git rm` command per phase script).
-2. **Remove every reference to wip/ paths from committed prose** (semantic
-   -- requires `git grep -nE 'wip/'` from the repo root, with a manual
-   review of each match to distinguish rule-statement prose from
-   path-shaped references).
-
-Doing only (1) leaves the references as orphans. Doing only (2) leaves the
-files committed.
-
 ## Where this rule is enforced
 
-Phase scripts hard-stop on violations. Workflows that produce a durable
-artifact include an explicit grep step before the artifact lands:
+Each workflow that produces a durable artifact has a phase step that
+hard-stops on a violation before the artifact lands: an upstream check on
+the `--upstream` value, or a grep of the finished document.
 
 | Skill | Phase step | Surface checked |
 |-------|-----------|-----------------|
@@ -76,6 +59,10 @@ artifact include an explicit grep step before the artifact lands:
 | `skills/scope`  | [Phase 0 Upstream Validation](../skills/scope/references/phases/phase-0-setup.md) | The `--upstream` value before it is recorded in `consumed_upstream:` and handed to `/brief` |
 | `skills/strategy` | [Phase 0 step 0.3](../skills/strategy/references/phases/phase-0-setup.md) | The `--upstream` value before the STRATEGY draft is written |
 | `skills/brief`  | [Phase 0 step 0.3](../skills/brief/references/phases/phase-0-setup.md) | The `--upstream` value before the BRIEF draft is written |
+
+In this repository, CI's public-content check
+(`scripts/ablation/check-public-content.sh`) also refuses a staging file path
+in a pull request's added lines under the shipped paths, and in its body.
 
 ## Verification commands
 

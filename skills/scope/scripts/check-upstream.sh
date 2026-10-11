@@ -10,7 +10,7 @@
 #   upstream-outside    the path, symlinks followed, leaves the repository,
 #                       or does not land under <repo-root>/docs/roadmaps/
 #   upstream-wip        the path, symlinks followed, lands under
-#                       <repo-root>/wip/, which the wip-hygiene cleanup deletes
+#                       <repo-root>/wip/, scratch no workflow keeps
 #   upstream-basename   the resolved file's basename does not start with
 #                       ROADMAP-
 #   upstream-untracked  the file does not exist or git does not track it

@@ -37,8 +37,7 @@
 #                        scope:pr-create.
 #
 # Keys are written even when empty, so a terminal result lists in `missing`
-# only a value that genuinely failed to resolve. `wip_paths` belongs to
-# publish-scoping-pr.sh; this script writes it empty only when no publish ran.
+# only a value that genuinely failed to resolve.
 #
 # The lookup carries this run's identity (`run-id.sh get <session>`, minted by
 # scope-open.sh), so a PR another run marked is never recorded as this topic's;
@@ -154,8 +153,6 @@ ctx_add startable "$START"
 [ "$STAGE" = exit ] || { printf 'recorded=resume\n'; exit 0; }
 
 # --- the scoping PR ---------------------------------------------------------------
-
-koto context exists "$SESSION" wip_paths >/dev/null || ctx_add wip_paths ""
 
 if [ "$INTENT" = none ]; then
     ctx_add pr ""

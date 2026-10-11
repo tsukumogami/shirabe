@@ -373,8 +373,8 @@ leg, since one leg answers one session.
 - `scripts/check-branch-output.sh`, `scripts/check-pr-output.sh`,
   `scripts/run-verification.sh` and `scripts/check-verification.sh` — the
   output gates, run by koto, never by the agent: `commit_convention` at
-  `finalization`, `deferral_approval` and `pre_pr_evidence`, `branch_wip_clean`
-  and `branch_docs_visibility` at `pr_precheck`, `pr_body_conformant` at
+  `finalization`, `deferral_approval` and `pre_pr_evidence`,
+  `branch_docs_visibility` at `pr_precheck`, `pr_body_conformant` at
   `pr_creation`, and the launcher and `verification_verdict` at `verification`.
   Exit 0 passes, 1 is a violation with a `::koto-finding::` line naming its rule,
   2 could not decide. Run one by hand for the reason a gate holds; each header

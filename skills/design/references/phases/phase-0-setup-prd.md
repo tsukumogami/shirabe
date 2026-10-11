@@ -122,8 +122,8 @@ with step 0.5 until the path is resolved or the field is omitted.
 value.** Run these checks in order:
 
 1. **Is the candidate path under `wip/`?** If yes, STOP. The PRD on disk is a
-   staging copy, not its canonical home. wip/ paths are non-durable: they are
-   deleted before merge and would leave the design's `upstream:` orphaned.
+   staging copy, not its canonical home. wip/ paths are non-durable: no
+   workflow keeps a file there, so the design's `upstream:` would orphan.
    Resolution:
    - Find the PRD's canonical location (likely in a different repo). If the
      current repo's visibility allows referencing it, use `owner/repo:path`
@@ -156,13 +156,13 @@ value.** Run these checks in order:
    paths fail check (1) above. The same rule applies to any other prose or
    frontmatter field that survives the merge.
 
-**Worked example (the failure mode this step prevents).** During a
-multi-repo coordination run, a coordinator stages a private-repo PRD into the
-current (public) repo's `wip/` directory as a handoff. An agent runs `/design`
-against that staging file. Without this validation, the agent writes
-`upstream: wip/PRD-<topic>.md` into the design frontmatter. Later, a cleanup
-commit deletes the wip/ file (per wip-hygiene), leaving the `upstream:` value
-pointing at nothing. The frontmatter is now a public reference to a private
+**Worked example (the failure mode this step prevents).** Someone places a
+private-repo PRD in the current (public) repo's `wip/` directory as a
+handoff, by hand or with a tool outside shirabe. An agent runs `/design`
+against that file. Without this validation, the agent writes an `upstream:`
+value pointing at that file into the design frontmatter. The file is
+scratch nothing keeps, so once it's gone the `upstream:` value points at
+nothing. The frontmatter is now a public reference to a private
 resource AND an orphaned path. With this validation, the agent detects the
 `wip/` prefix at check (1), recognises the cross-visibility boundary at check
 (3), and omits the `upstream:` field instead.

@@ -9,7 +9,7 @@
 #   orchestrator_setup  setup_owned_pr          which PR the run owns (routing)
 #   pr_finalization     final_owned_pr          the same lookup (routing)
 #                       owned_pr_body_conformant, settled_commits,
-#                       settled_wip_clean, settled_docs_visibility
+#                       settled_docs_visibility
 #                                               the output the state presents
 #                       finalization_status: updated, vars.PAUSE_BEFORE_FINALIZE
 #                                               the pause, routed by koto once
@@ -366,7 +366,7 @@ reset_rc
 drive orchestrator_setup '{"status":"blocked","detail":"the create failed"}'
 expect_step "status: blocked" execute:orchestrator_setup
 
-# pr_finalization: the lookup, the four output gates, then the pause, which
+# pr_finalization: the lookup, the three output gates, then the pause, which
 # also needs finalization_status: updated -- the agent's record that it wrote
 # the body. A PR adopted from /scope already has a conformant body, so the
 # gates passing alone must not move the run.
@@ -387,7 +387,7 @@ expect "updated, every gate passing, PAUSE_BEFORE_FINALIZE true" paused_for_revi
 PAUSE=false drive pr_finalization "$UPDATED"
 expect "updated, every gate passing, PAUSE_BEFORE_FINALIZE false" plan_completion
 for key in check-pr-output.sh--pr-body:owned_pr_body_conformant check-branch-output.sh--commits:settled_commits \
-           check-branch-output.sh--wip:settled_wip_clean check-branch-output.sh--docs-visibility:settled_docs_visibility; do
+           check-branch-output.sh--docs-visibility:settled_docs_visibility; do
     for rc in 1 2; do
         for p in true false; do
             reset_rc; set_rc "${key%%:*}" "$rc"
@@ -401,7 +401,7 @@ for rc in 1 2; do
     drive pr_finalization '{"finalization_status":"update_failed"}'
     expect_step "finalization_status: update_failed with the body check at $rc" execute:pr_finalization
 done
-reset_rc; set_rc check-branch-output.sh--wip 1
+reset_rc; set_rc check-branch-output.sh--docs-visibility 1
 drive pr_finalization '{"finalization_status":"update_failed"}'
 holds "finalization_status: update_failed with the body check passing" pr_finalization
 

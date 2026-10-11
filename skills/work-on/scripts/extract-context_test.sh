@@ -10,7 +10,10 @@
 #   without --session                       status failed, context_available
 #                                           false, a warning naming koto
 #   with --session and no koto on PATH      the same
-#   in both                                 exit 0, no file created in the
+#   with a trailing --session, no value     the same
+#   with a koto (KOTO_BIN) whose context    the same, and no "Context stored"
+#     add fails                             banner
+#   in all                                  exit 0, no file created in the
 #                                           working directory, and no
 #                                           context_file field
 #
@@ -22,7 +25,8 @@
 #   0 -- all cases pass (or jq is absent and the run skipped)
 #   1 -- one or more cases failed
 #
-# Needs only bash and jq; no koto, so every case runs on the bash 3.2 floor.
+# Needs only bash and jq; koto and gh are absent or stubbed, so every case runs
+# on the bash 3.2 floor.
 
 set -uo pipefail
 
@@ -91,6 +95,43 @@ check_failed_json "without --session"
 
 run_script 123 --session some-session
 check_failed_json "with --session and no koto on PATH"
+
+# A trailing --session with no value: the flag is consumed alone, set -e does
+# not end the script on a short `shift 2`, and the missing session is reported.
+run_script 123 --session
+check_failed_json "with a trailing --session and no value"
+
+# A koto that refuses the add, reached through KOTO_BIN, with a gh stub that
+# answers auth and returns an issue body (no design doc in the empty directory,
+# so the run takes the issue-body path to the store). The failed add is
+# reported in the JSON with exit 0, and the "stored" banner never prints.
+STUBS="$WORKDIR/stubs"
+mkdir -p "$STUBS"
+cat >"$STUBS/gh" <<'EOF'
+#!/usr/bin/env bash
+case "$1 $2" in
+    "auth status") exit 0 ;;
+    "issue view") echo "the issue body" ;;
+    *) exit 1 ;;
+esac
+EOF
+cat >"$STUBS/koto" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+echo "koto stub: context add refused" >&2
+exit 1
+EOF
+chmod +x "$STUBS/gh" "$STUBS/koto"
+RC=0
+OUT=$(cd "$RUN" && KOTO_BIN="$STUBS/koto" PATH="$BIN:$STUBS:/usr/bin:/bin" "$BASH" "$SCRIPT" 123 --session some-session 2>/dev/null) || RC=$?
+JSON=$(printf '%s\n' "$OUT" | sed -n '/^{/,$p')
+OUT="$JSON"
+check_failed_json "a koto context add that fails"
+if printf '%s' "$(cd "$RUN" && KOTO_BIN="$STUBS/koto" PATH="$BIN:$STUBS:/usr/bin:/bin" "$BASH" "$SCRIPT" 123 --session some-session 2>/dev/null)" | grep -q 'Context stored'; then
+    fail "a koto context add that fails: the 'Context stored' banner printed anyway"
+else
+    pass "a koto context add that fails: no 'Context stored' banner"
+fi
 
 # The header, usage line and JSON contract carry no fallback. The old file's
 # name is built from two pieces so this file doesn't name it either.

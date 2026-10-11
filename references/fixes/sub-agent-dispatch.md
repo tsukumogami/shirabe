@@ -87,8 +87,8 @@ parent owns those:
 - **branch creation** -- the child works on the branch it was invoked on
   and never creates or switches branches;
 - **cleanup commit** -- no commit removing the child's intermediate
-  files, its research scratch included; the parent's cleanup
-  phase and publish untrack own that;
+  files, its research scratch included; the parent closes the
+  child's session instead;
 - **upstream-issue edits** -- no `gh issue edit` on a source or upstream
   issue, its labels included, since `/scope`'s list of writes has none;
   a `needs-*` label the child would have removed stays for the author

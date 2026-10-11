@@ -253,10 +253,10 @@ are reused rather than reinvented, so an author sees one behavior
 from the flag whichever skill they hand it to.
 
 1. **Is the path under `wip/`?** STOP and reject. `wip/` artifacts
-   are non-durable — the wip-hygiene cleanup deletes them before
-   the PR can merge — so a `wip/` upstream would leave the produced
-   document's `upstream:` pointing at a file that no longer exists
-   the moment cleanup lands. Name the canonical location in the
+   are non-durable — a file there is scratch that no workflow
+   keeps — so a `wip/` upstream would leave the produced
+   document's `upstream:` pointing at a file no reader can count
+   on. Name the canonical location in the
    rejection so the author can re-invoke against it.
 2. **Is the path tracked by git?** Run `git ls-files -- <path>`.
    An empty result on a value that resolved inside the working tree

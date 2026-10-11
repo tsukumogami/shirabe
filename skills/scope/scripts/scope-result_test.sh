@@ -96,7 +96,7 @@ repo() {
     git -C "$R" remote add origin "$T/origin$N.git"
     git -C "$R" push -q -u origin main
     git -C "$R" checkout -q -b "docs/$1"
-    mkdir -p "$R/docs" "$R/wip"
+    mkdir -p "$R/docs"
 }
 
 seed_pr() { # seed_pr <url> <state> <cross> <head> <intent>

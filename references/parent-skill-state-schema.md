@@ -9,9 +9,9 @@ catches state drift at termination time.
 The schema sits at Layer 2 of the two-layer contract (see
 [`parent-skill-pattern.md`](parent-skill-pattern.md)). Field names and
 serialization details are substrate-bound — the v1 core layer materializes
-them as a YAML document with the `.md` extension at
-`wip/<parent>_<topic>_state.md`. Amplifier-layer substrates supply their
-own serialization that satisfies the same field semantics and invariants.
+them as a YAML document at the key `work/state.md` in the parent's own koto
+session. Amplifier-layer substrates supply their own serialization that
+satisfies the same field semantics and invariants.
 
 ## Minimum Required Fields
 
@@ -46,8 +46,8 @@ exit-path bindings — see Extension Discipline below.
 
 The `topic` field is the file's identifying handle. Two parent runs against
 different topic slugs MUST never write to the same state file; the topic
-slug appears in the substrate's storage key (under `wip-yaml-md`, the file
-path is `wip/<parent>_<topic>_state.md`).
+slug appears in the substrate's storage key (under `koto-session`, in the
+session name, as `<parent>-<topic>`).
 
 The `last_updated` field is a monotonic write-time signal. Resume-ladder
 stale-session checks compare the field against a parent-defined threshold;
@@ -333,7 +333,7 @@ constrain extensions.
 
 Parent-specific fields land in the same state file as the pattern-level
 fields; the substrate's serialization mechanically accommodates them. Under
-`wip-yaml-md`, parent-specific fields are additional top-level YAML keys.
+`koto-session`, parent-specific fields are additional top-level YAML keys.
 
 ## R9 Hard-Finalization Check Spec
 

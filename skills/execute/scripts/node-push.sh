@@ -11,7 +11,7 @@
 #                     [--run-id <id>]
 #
 #     Run inside the node's worktree (node-cut.sh), on impl/<slug>-<node-id>,
-#     after the node's work items committed there. It sweeps wip/, pushes,
+#     after the node's work items committed there. It pushes,
 #     finds the node's owned PR or opens a draft one, writes the node's index
 #     line with `head=<sha>`, and renders the merge order into the body's
 #     `## Merge Order` section. --plan is the PLAN in the coordination
@@ -22,7 +22,7 @@
 #                             [--run-id <id>]
 #
 #     Run in the coordination checkout after the finalization cascade. It
-#     sweeps wip/, pushes the coordination branch, and writes the coordination
+#     pushes the coordination branch, and writes the coordination
 #     PR's own index line (`- coordination | ... | head=<sha>`), the expected
 #     head its merge is checked against. The cascade has deleted the PLAN by
 #     then, so this mode leaves the merge-order block as it was.
@@ -74,16 +74,13 @@
 #      also refuses a PLAN that has no node named --node, and reads each
 #      --issues work item's goal from the PLAN into the node's description),
 #      all before anything is pushed or edited;
-#   (the order mode skips steps 2, 3, 5, 6, the node-branch check in 4, and
-#   the index half of 7)
+#   (the order mode skips steps 2, 4, 5, the node-branch check in 3, and
+#   the index half of 6)
 #   2. refuse a detached HEAD, a checked-out branch other than the expected
 #      one, and the remote's default branch; in node mode, for a node whose
 #      repository is not the coordination PR's, refuse a worktree that
 #      shares the coordination checkout's git directory or origin URL;
-#   3. sweep wip/: when `git ls-files wip/` lists anything, `git rm -r` it and
-#      commit, so the pushed head carries no wip/ file (a node PR is
-#      finalized on its own; the single-pr path has no such sweep);
-#   4. before any push, find the coordination PR (owned-pr.sh on home repo
+#   3. before any push, find the coordination PR (owned-pr.sh on home repo
 #      and coordination branch, carrying the `This is a **coordination PR**`
 #      marker) and, in node mode, check the node branch's PR: another run's
 #      PR there, or several, stops with 73 and nothing pushed. Before those
@@ -94,9 +91,9 @@
 #      lines and messages) and the node's description scanned for the
 #      public-content markers, a hit or a failed scan refused with 78;
 #      nothing pushed either way;
-#   5. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
+#   4. push with exactly `git push <remote> HEAD:refs/heads/<branch>`, never a
 #      force option;
-#   6. node mode: find the node's owned PR on impl/<slug>-<node-id>. One
+#   5. node mode: find the node's owned PR on impl/<slug>-<node-id>. One
 #      survivor is adopted. Zero survivors open a draft PR against the default
 #      branch, titled `<type>(<slug>): <node-id>`, with a two-part body passed
 #      with --body-file: the node's description (each work item's goal from
@@ -110,7 +107,7 @@
 #      --pr-title checks the body and title first, and a refusal creates
 #      nothing. Unless the index already names a PR for this node, which must
 #      then be adopted, and zero survivors refuse;
-#   7. rewrite the body's `## PR Index` line for the node (replacing it, or
+#   6. rewrite the body's `## PR Index` line for the node (replacing it, or
 #      adding it) and keep every other line, the run marker included; in the
 #      node and order modes replace the `## Merge Order` section with the
 #      rendered block (adding the section when absent); run
@@ -128,7 +125,7 @@
 #   66  the checked-out branch is not the expected one, or its name is refused
 #   67  the branch is the remote's default branch
 #   68  the push failed
-#   69  the wip/ sweep failed, or the pushed head still carries wip/
+#   69  HEAD, read back after the push, is not a commit id
 #   72  a GitHub read failed (the caller's execute:status-read)
 #   73  no single owned PR where one must be adopted: the coordination PR, or
 #       an indexed node PR; or the node branch's PR is another run's, or one of
@@ -346,7 +343,7 @@ if [ "$MODE" = node ]; then
     [ -n "$NODE_DESC" ] || NODE_DESC="Implements node $NODE of the $SLUG coordinated effort, work items $ISSUES."
 fi
 
-# Steps 2 and 3 prepare a branch to push; the order mode pushes nothing.
+# Step 2 prepares a branch to push; the order mode pushes nothing.
 if [ "$MODE" != order ]; then
     # 2. The branch.
     CUR=$(git symbolic-ref --quiet --short HEAD) || {
@@ -402,16 +399,9 @@ if [ "$MODE" != order ]; then
             exit 79
         fi
     fi
-
-    # 3. The wip/ sweep.
-    if [ -n "$(git ls-files -- wip/)" ]; then
-        git rm -r -q -- wip/ >&2 || { echo "$PROG: git rm of wip/ failed" >&2; exit 69; }
-        git commit -q -m "chore($SLUG): remove wip/ artifacts before push" >&2 \
-            || { echo "$PROG: committing the wip/ sweep failed" >&2; exit 69; }
-    fi
 fi
 
-# 4a. The node against its own target, before any other read can name its
+# 3a. The node against its own target, before any other read can name its
 # repository in a diagnostic: a public coordination PR never indexes a
 # private node, so that pair is refused here, before the push and before the
 # index line that would name the repository in a public body. The call sets
@@ -459,7 +449,7 @@ if [ "$MODE" = node ]; then
     fi
 fi
 
-# 4b. Ownership, before anything is pushed: the coordination PR, and in node
+# 3b. Ownership, before anything is pushed: the coordination PR, and in node
 # mode whose PR (if any) is already on the node branch. A branch whose PR
 # another run opened is never pushed to, so a run can't move another run's
 # PR head.
@@ -481,7 +471,7 @@ if [ "$MODE" = node ]; then
     esac
 fi
 
-# 5. The push: the explicit refspec, never a force option. The order mode
+# 4. The push: the explicit refspec, never a force option. The order mode
 # pushes nothing.
 if [ "$MODE" != order ]; then
     if ! git push "$REMOTE" "HEAD:refs/heads/$BRANCH" </dev/null >&2; then
@@ -490,10 +480,6 @@ if [ "$MODE" != order ]; then
     fi
     SHA=$(git rev-parse HEAD)
     [[ $SHA =~ $RE_COORD_SHA ]] || { echo "$PROG: HEAD read back as [$SHA]" >&2; exit 69; }
-    if [ -n "$(git ls-tree -r --name-only "$SHA" -- wip/)" ]; then
-        echo "$PROG: the pushed head $SHA still carries wip/ files" >&2
-        exit 69
-    fi
 fi
 
 # node_type <base-branch> -- the Conventional Commits type of a new node PR:
@@ -554,8 +540,8 @@ post_body() {
     fi
 }
 
-# The order mode records no index line: it skips step 6 and the index half of
-# step 7, and post_body does the rest.
+# The order mode records no index line: it skips step 5 and the index half of
+# step 6, and post_body does the rest.
 if [ "$MODE" = order ]; then
     printf '%s\n' "$BODY" > "$WORK/body.md"
     post_body
@@ -570,7 +556,7 @@ case $? in
     *) echo "$PROG: the index lists $ENTRY_NODE more than once" >&2; exit 73 ;;
 esac
 
-# 6. The PR this line indexes.
+# 5. The PR this line indexes.
 if [ "$MODE" = node ]; then
     OUT=$(coord_owned "$REPO" "$BRANCH" open)
     case $? in
@@ -598,7 +584,7 @@ if [ "$MODE" = node ]; then
             printf 'Coordinated node `%s` of `%s`.\n\n' "$NODE" "$SLUG"
             printf 'Work items: %s\n' "$ISSUES"
             # Omitted exactly when the home is private and the node public
-            # (step 4a has already refused a public home over a private node).
+            # (step 3a has already refused a public home over a private node).
             if ! { [ "$COORD_HOME_VIS" = private ] && [ "$COORD_NODE_VIS" = public ]; }; then
                 printf '\nCoordination PR: %s\n' "$C_URL"
             fi
@@ -640,7 +626,7 @@ else
 fi
 PR_NUM="${PR_URL##*/}"
 
-# 7. The new index line, validated before it is posted.
+# 6. The new index line, validated before it is posted.
 NEW_LINE="- $ENTRY_NODE | $ENTRY_REPO:docs/plans/PLAN-$SLUG.md#$PR_NUM | open | head=$SHA"
 coord_parse_entry "$NEW_LINE" || { echo "$PROG: built an index line outside the grammar" >&2; exit 64; }
 printf '%s\n' "$BODY" | awk -v node="$ENTRY_NODE" -v line="$NEW_LINE" '

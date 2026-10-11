@@ -947,8 +947,8 @@ EOF
 }
 
 # The limb reads the gate's own command string only: a script the gate invokes
-# may still name the folder (the publish untrack step does), and only the
-# parent state-file prefix limb applies inside it.
+# may name the folder, as the fixture below does, and only the parent
+# state-file prefix limb applies inside it.
 test_invoked_script_staging_not_flagged() {
     local name="an invoked script's own wip/ read is not a staging-folder finding"
     setup
@@ -963,7 +963,7 @@ states:
     gates:
       child_intermediate_present:
         type: command
-        command: "skills/scope/scripts/fixture-untrack.sh demo"
+        command: "skills/scope/scripts/fixture-staging-read.sh demo"
     accepts:
       bail_mode:
         type: string
@@ -978,14 +978,14 @@ states:
 ---
 EOF
     mkdir -p "$TEST_DIR/skills/scope/scripts"
-    cat > "$TEST_DIR/skills/scope/scripts/fixture-untrack.sh" <<'EOF'
+    cat > "$TEST_DIR/skills/scope/scripts/fixture-staging-read.sh" <<'EOF'
 #!/usr/bin/env bash
 # The gate command is clean; this script's own folder read stays legal.
 set -euo pipefail
 slug="$1"
 ls "wip/brief_${slug}_notes.md"
 EOF
-    chmod +x "$TEST_DIR/skills/scope/scripts/fixture-untrack.sh"
+    chmod +x "$TEST_DIR/skills/scope/scripts/fixture-staging-read.sh"
     assert_passes "$name" "$TEST_DIR/skills/scope/koto-templates/scope.md"
     teardown
 }

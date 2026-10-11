@@ -98,11 +98,10 @@ case_ "the executed shortcut prints pr_state" \
 pr=$URL
 pr_state=merged"
 
-case_ "wip_paths is relayed" \
+case_ "a leftover wip_paths in a result is never printed" \
     "{outcome: \"merged\", pr: \"$URL\", wip_paths: \"wip/scope_t_state.md,wip/plan_t_x.md\"}" \
     "outcome=merged
-pr=$URL
-wip_paths=wip/scope_t_state.md,wip/plan_t_x.md"
+pr=$URL"
 
 echo "== errors and refusals =="
 case_ "an error prints its step" \
@@ -195,10 +194,6 @@ case_ "a startable line with a control character is dropped, the others kept" \
     '{outcome: "handed-off-multi-pr", startable: "#1 Good\n#2 Bad\u001b[31m\nnot an item"}' \
     "outcome=handed-off-multi-pr
 #1 Good"
-
-case_ "wip_paths with a .. segment is dropped" \
-    '{outcome: "merged", wip_paths: "wip/../etc/passwd"}' \
-    "outcome=merged"
 
 case_ "a non-string value is dropped" \
     '{outcome: "merged", pr: 42}' \

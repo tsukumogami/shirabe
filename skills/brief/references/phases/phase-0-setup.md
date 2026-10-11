@@ -190,8 +190,8 @@ to get there.
 
 One further check applies to a `--upstream` value:
 
-- **Not under `wip/`.** Reject. `wip/` artifacts are non-durable — the
-  wip-hygiene cleanup deletes them before the PR can merge — so a brief whose
+- **Not under `wip/`.** Reject. `wip/` artifacts are non-durable — a file
+  there is scratch that no workflow keeps — so a brief whose
   framing was derived from one has a provenance no reader can reproduce. Name
   the canonical location in the rejection.
 

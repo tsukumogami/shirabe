@@ -1917,7 +1917,7 @@ states:
   # reads on a koto request leg and what print-scope-exit.sh renders. The
   # pattern is the one done_refused and done_error set: `outcome`, `step`,
   # `exit`, `reason`, `boundary` and `via` are written by the edge that lands
-  # here, as literals or a variable; the PLAN facts, `pr`, `wip_paths` and the
+  # here, as literals or a variable; the PLAN facts, `pr` and the
   # executed PR are written by a script with `koto context add` and read here
   # as ${context.<key>}, because an assignment cannot read context. No agent
   # evidence supplies any of them. `intent` is the effective intent intake
@@ -1933,7 +1933,6 @@ states:
       pr: "${context.pr}"
       plan_path: "${context.plan_path}"
       plan_execution_mode: "${context.plan_execution_mode}"
-      wip_paths: "${context.wip_paths}"
       startable: "${context.startable}"
 
   done_republished:
@@ -1947,7 +1946,6 @@ states:
       pr: "${context.pr}"
       plan_path: "${context.plan_path}"
       plan_execution_mode: "${context.plan_execution_mode}"
-      wip_paths: "${context.wip_paths}"
       startable: "${context.startable}"
 
   done_executed:
@@ -1968,7 +1966,6 @@ states:
       intent: "{{RUN_INTENT}}"
       boundary: "${context.boundary}"
       pr: "${context.pr}"
-      wip_paths: "${context.wip_paths}"
 
   done_abandonment:
     # phase: 4
@@ -1978,7 +1975,6 @@ states:
       exit: "${context.exit}"
       intent: "{{RUN_INTENT}}"
       pr: "${context.pr}"
-      wip_paths: "${context.wip_paths}"
 
   done_cancelled:
     # phase: 4
@@ -2021,7 +2017,6 @@ states:
       recorded: "${context.recorded}"
       requested: "${context.requested}"
       exit: "${context.exit}"
-      wip_paths: "${context.wip_paths}"
 ---
 
 ## intake
@@ -2890,9 +2885,7 @@ its one pull request. Run the publish script, then submit
 
 The script reads the PLAN's mode from its frontmatter and opens a draft for a
 `single-pr` or `coordinated` PLAN and a ready PR for a `multi-pr` one. It
-untracks this topic's own `wip/` (the files stay on disk for cleanup), reports
-any `wip/` in unpushed history as `wip_paths=`, runs the public-content check
-over those files, pushes with a plain `HEAD:refs/heads/<branch>` refspec, and
+pushes with a plain `HEAD:refs/heads/<branch>` refspec, and
 finds the PR through the shared ownership filter: it reuses the one owned PR,
 opens one when there is none, and stops on several. Do not push, create, or
 edit a PR any other way.

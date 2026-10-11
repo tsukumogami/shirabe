@@ -294,7 +294,7 @@ ${CLAUDE_PLUGIN_ROOT}/skills/scope/scripts/print-scope-exit.sh --topic <topic> -
 
 It prints `/scope finished: exit=<exit>; artifact=<path>`, then `intent=`,
 and, as the run calls for them, `outcome=`, `step=`, `next=`, `pr=`,
-`pr_state=`, `wip_paths=`, and a multi-pr run's startable items; the Success
+`pr_state=`, and a multi-pr run's startable items; the Success
 Summary in `skills/scope/references/phases/phase-4-cleanup.md` lists which line
 appears when.
 
@@ -491,13 +491,6 @@ The preconditions and branch checks are in the Per-Hop Commit section of
 publish-step `gh` call), by `skills/scope/scripts/publish-scoping-pr.sh`, which the agent
 runs in the publish states and in `republish` and never as a default action:
 
-- **untrack** — `git rm --cached` of the topic's own
-  `wip/{scope,brief,prd,design,plan}_<topic>_*` and
-  `wip/research/{prd,design}_<topic>_*`, committed as exactly that removal and
-  nothing else staged; the step is the enforcement layer's guard against
-  staging-folder files in history, which no moved skill now writes. `/brief`'s jury
-  verdict files (`research/brief_<topic>_phase4_*.md`, beside `/prd`'s and
-  `/design`'s research scratch) are untracked with them
 - **push** — `git push origin HEAD:refs/heads/<branch>`, with no force option
   and no `+` refspec, refused for a detached HEAD, for a branch failing
   `git check-ref-format --branch`, and for the remote's default branch
@@ -528,11 +521,7 @@ goes through the ownership filter in `skills/execute/scripts/owned-pr.sh`
 branch), so a fork's or another author's PR on the same branch name is never
 edited or reported. The body is a fixed template over the slug, exit, outcome,
 `intent=`, mode, `docs/` artifact paths and work-item IDs, with no free-text
-field. Every `wip/` path in unpushed history is reported as `wip_paths=`, and
-the public-content visibility check runs over those files: a line naming a
-`private/` path component, or declaring `Repo Visibility: Private`, in a
-repository whose CLAUDE.md declares `## Repo Visibility: Public` stops the push
-with `scope:push`. A failed publish writes `publish_error:` into key
+field. A failed publish writes `publish_error:` into key
 `work/state.md`, which is already in this set.
 
 **Out-of-repo ephemera**, by the workflow session: the koto session store
@@ -542,8 +531,8 @@ is in the repository and neither is cleaned by this skill. The entry adds one
 more: the args file of raw tokens and the vars file `scope-open.sh` derives
 from it, both in a private `mktemp -d` directory (or the koto session
 directory) outside the work tree, and both removed on every exit path. The
-publish step adds another: the private index its untrack commit is built in and
-the rendered PR body, in a `mktemp -d` directory removed on every exit path.
+publish step adds another: the rendered PR body, in a `mktemp -d` directory
+removed on every exit path.
 
 **No argument reaches a shell.** The invocation's tokens travel as JSON data
 from the args file to koto's `--vars-file`, mapped by `jq`; nothing evaluates

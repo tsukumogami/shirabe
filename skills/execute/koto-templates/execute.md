@@ -603,13 +603,12 @@ states:
     #
     # final_owned_pr is a routing gate (Decision 9): check-pr-output.sh
     # --owned-pr answers 0 for exactly one owned PR, 3 for none or several, 2
-    # for a failed read, and prints no finding. The four output gates check
+    # for a failed read, and prints no finding. The three output gates check
     # what this state presents for review, and hold the run (no edge matches)
     # on 1 (a violation, with findings) or 2 (could not decide):
     #   owned_pr_body_conformant  the owned PR's title and body, through
     #                             shirabe validate --pr-body (PB1 to PB4)
     #   settled_commits           every non-merge commit on the shared branch
-    #   settled_wip_clean         no path under wip/ in HEAD's tree
     #   settled_docs_visibility   the branch's docs/ changes at the declared
     #                             visibility (R7, R8, R9)
     # These are the checks /work-on's children skip on SHARED_BRANCH, run once
@@ -645,9 +644,6 @@ states:
       settled_commits:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --commits --base-ref "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)"'
-      settled_wip_clean:
-        type: command
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --wip'
       settled_docs_visibility:
         type: command
         command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-branch-output.sh" --docs-visibility --base-ref "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || echo origin/main)"'
@@ -677,7 +673,6 @@ states:
           gates.final_owned_pr.exit_code: 0
           gates.owned_pr_body_conformant.exit_code: 0
           gates.settled_commits.exit_code: 0
-          gates.settled_wip_clean.exit_code: 0
           gates.settled_docs_visibility.exit_code: 0
           finalization_status: updated
           vars.PAUSE_BEFORE_FINALIZE: "true"
@@ -689,7 +684,6 @@ states:
           gates.final_owned_pr.exit_code: 0
           gates.owned_pr_body_conformant.exit_code: 0
           gates.settled_commits.exit_code: 0
-          gates.settled_wip_clean.exit_code: 0
           gates.settled_docs_visibility.exit_code: 0
           finalization_status: updated
           vars.PAUSE_BEFORE_FINALIZE: "false"
@@ -1587,12 +1581,11 @@ Run this title+body edit **unconditionally** on every finalization (clean and at
 - `final_owned_pr` looks up the owned PR the same way, through `check-pr-output.sh --owned-pr`. None or several ends the run at `execute:pr-adopt`, and a failed read at `execute:status-read`, whatever the edit did.
 - `owned_pr_body_conformant` runs `shirabe validate --pr-body` on that PR's title and body (`pr-body/conventional-title`, `pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1`).
 - `settled_commits` checks every non-merge commit on the shared branch, against origin's default branch: a Conventional Commits subject and no AI-attribution trailer (`commit/conventional-subject`, `commit/no-ai-trailer`).
-- `settled_wip_clean` checks that no path under `wip/` is in `HEAD`'s tree (`branch/no-wip-files`).
 - `settled_docs_visibility` checks every `docs/` document the branch changed against the repository's declared visibility (`docs/private-only-type`, `docs/visibility-vision-sections`, `docs/visibility-strategy-sections`).
 
-The /work-on children skip the wip and docs checks on the shared branch, because they open no PR of their own; this is where the branch is checked, once, before the PR is finalized.
+The /work-on children skip the docs check on the shared branch, because they open no PR of their own; this is where the branch is checked, once, before the PR is finalized.
 
-A failing check holds the run here with its findings in the response, each naming the rule and the file. Fix the PR or the branch: re-run the edit above for a body or title finding; for a commit, wip or docs finding, commit the fix and push it through `{{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}`, never a rebase or a force push. Then submit `finalization_status: updated` again. A pushed commit's subject or trailer can't be fixed without rewriting the shared branch, which this run never does: leave the run held, say which commit, and let a person decide. An exit 2 from a check means it could not decide (a missing `shirabe` or `jq`, a ref that doesn't resolve); run the command from the response by hand for the reason.
+A failing check holds the run here with its findings in the response, each naming the rule and the file. Fix the PR or the branch: re-run the edit above for a body or title finding; for a commit or docs finding, commit the fix and push it through `{{PLUGIN_ROOT}}/skills/execute/scripts/push-and-record.sh {{SESSION_NAME}}`, never a rebase or a force push. Then submit `finalization_status: updated` again. A pushed commit's subject or trailer can't be fixed without rewriting the shared branch, which this run never does: leave the run held, say which commit, and let a person decide. An exit 2 from a check means it could not decide (a missing `shirabe` or `jq`, a ref that doesn't resolve); run the command from the response by hand for the reason.
 
 When `updated` is submitted and every check passes, koto routes the run on the `{{PAUSE_BEFORE_FINALIZE}}` variable, which `/execute` resolves from the execution mode at `koto init` time (interactive → `true`; `--auto` → `false`). It is NOT a separate user flag, and you don't report it.
 

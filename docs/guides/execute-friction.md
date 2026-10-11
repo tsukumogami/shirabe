@@ -201,7 +201,7 @@ The report starts with `outcome=<token>`:
 | `error` | A step failed; `step=` names it, for example `scope:push`, `execute:ci`, `deliver:intent-mismatch`, `deliver:child-absent`, or `deliver:refused`. |
 
 Where the run produced them, the report also carries `repos=`, `pr=`,
-`pr_state=`, and `wip_paths=` lines.
+and `pr_state=` lines.
 
 ## `--koto-leg`: how a child reports to /deliver
 

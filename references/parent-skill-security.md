@@ -65,12 +65,15 @@ The pattern-level shape of every parent's write-target enumeration:
 - Decision Record paths under
   `docs/decisions/DECISION-<sub-shape>-<topic>-<YYYY-MM-DD>.md` on
   `re-evaluation` exits.
-- State-file path `wip/<parent>_<topic>_state.md` and ancillary
-  scratch under the same `wip/<parent>_<topic>_*` prefix.
-- Removals of `wip/<child>_<topic>_*` and any matching
-  `wip/research/<child>_<topic>_*` during chain cleanup (preserved
-  on `abandonment-forced` exits per each parent's cleanup carve-
-  out).
+- The parent's state, as key `work/state.md` in the parent's own koto
+  session (`scope-<topic>`, `charter-<topic>`), and its ancillary
+  scratch as further keys in that session. Nothing is written under
+  the `wip/` staging folder.
+- Children are closed, not file-removed: at exit the parent runs
+  `skill-session.sh close-children <parent> <topic> <done|abandoned>`,
+  which closes each child's session with the exit's verdict. On an
+  `abandonment-forced` exit the children close `abandoned` and their
+  keys stay readable, per each parent's cleanup carve-out.
 
 The per-parent SKILL.md names the concrete paths against the parent's
 chain shape; the pattern-level rule is that the set SHALL be

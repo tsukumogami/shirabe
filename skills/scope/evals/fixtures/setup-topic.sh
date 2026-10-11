@@ -73,7 +73,7 @@ fi
 git checkout -q -b "docs/$TOPIC"
 
 sub() { sed "s/scope-koto-adoption/$TOPIC/g" "$1"; }
-mkdir -p docs/briefs docs/prds docs/designs docs/plans wip
+mkdir -p docs/briefs docs/prds docs/designs docs/plans
 
 case "$DOCS" in
     all|upstreams)

@@ -399,28 +399,21 @@ itself is the freeze line, not the v1 value.
 
 **`storage_substrate`.** How a parent persists state between invocations.
 
-- **v1 value:** `wip-yaml-md` — state lives at
-  `wip/<parent>_<topic>_state.md` as a YAML document with the `.md`
-  extension (the extension matches shirabe's wip/ convention; the body has
-  no markdown). This substrate does NOT satisfy invariant I-6; resume on a
-  different branch starts fresh.
+- **v1 value:** `koto-session` — state lives at the key `work/state.md` in
+  the parent's own koto session, as
+  [`skill-session-convention.md`](skill-session-convention.md) lays out.
+  The key name keeps a `.md` extension; the body is a YAML document. This
+  substrate does NOT satisfy invariant I-6: a session belongs to one
+  worktree, so resume from another starts fresh.
 - **Alternate values** (amplifier-layer): substrate identifiers such as a
-  context-store-backed persistence layer, a session-scoped store, or a
-  multi-leader coordination primitive. The amplifier-layer implementation
-  SHALL satisfy I-6.
+  context-store-backed persistence layer, a multi-leader coordination
+  primitive, or a store shared across worktrees. The amplifier-layer
+  implementation SHALL satisfy I-6.
 
-A parent MAY drive its phases from a workflow session while declaring
-`storage_substrate: wip-yaml-md`. A session holds position within a single
-run and is disposed of at its terminal state; this substitution surface
-names how a parent persists state between invocations. The two axes are
-independent, so a parent that runs its phases as a workflow session still
-declares the v1 value and still writes its state file at
-`wip/<parent>_<topic>_state.md`.
-
-This is a widening rather than a variance: it names a second thing a parent
-may do, and `/charter` is not required to do it. The precedent is the
-Dispatch Mechanism below, whose Layer-1 statement carries two Layer-2
-bindings rather than admitting the second as a named exception.
+The v1 value was once `wip-yaml-md`, a file at
+`wip/<parent>_<topic>_state.md` that a parent kept beside a workflow
+session driving its phases. Both parents now keep that state in the session
+itself, so no parent writes the file.
 
 **`team_primitive`.** How a parent's team is spawned and how nested teams
 are handled.
@@ -525,7 +518,7 @@ and a child team-shape declaration. The four Layer-1 elements
 are substrate-agnostic — every future substrate names them. The
 specific bindings (the two dispatch bindings named below, the
 dedicated `team.yaml` file path, the YAML schema, the
-`wip/<parent>_<topic>_state.md` path) are Layer 2 (substrate-bound,
+`work/state.md` session key) are Layer 2 (substrate-bound,
 replaceable when the amplifier layer ships via the `team_primitive`
 substitution surface above).
 
@@ -563,7 +556,7 @@ under whichever binding the parent uses.
 
 R14 child-isolation is preserved by construction under both. The
 parent reads only the child's durable artifact (per the hand-back
-contract below) and never inspects the child's wip/ state, the
+contract below) and never inspects the child's session state, the
 child's inbox, or any sub-team the child spawns. The Skill tool gives
 the parent no privileged view into the child's internals, and a
 materialized child is reached through the same durable surfaces plus
@@ -656,13 +649,13 @@ is **strictly** limited to:
 - **`git log` since `pre_invocation_sha`** — the parent inspects
   commits added during the child's run on its own worktree, for the
   hand-back contract's Phase-N Reject discard-commit detection.
-- **The parent's own `wip/` filesystem** — the parent reads its own
-  state file, its own intermediate artifacts, and its own
-  `wip/<parent>_<topic>_state.md`. The parent does NOT read the
-  child's wip/ state.
+- **The parent's own session keys** — the parent reads its own state
+  at `work/state.md` and its own intermediate artifacts, all keys in
+  its own koto session. The parent does NOT read the child's session
+  state.
 
 The parent SHALL NOT inspect the child's internal team coordination,
-the child's inbox, the child's `wip/` state, or any sub-team the
+the child's inbox, the child's session state, or any sub-team the
 child constructs. R14 child-isolation is the binding constraint:
 the parent's observability surface is the durable artifact path
 plus the parent's own worktree state, and nothing else.
@@ -676,7 +669,7 @@ ended. Both are the parent observing its own session. The
 enumeration above governs a parent's view of an in-flight child and
 is unchanged by this item, as is the child-isolation limb that
 closes it: a parent still inspects no child's internal team
-coordination, inbox, `wip/` state, or sub-team, and reading one's
+coordination, inbox, session state, or sub-team, and reading one's
 own session confers no view into a child's. Whether a child is ever
 materialized as a session of its own is a separate question this
 item neither settles nor forecloses.
@@ -866,9 +859,8 @@ values per task class are in the table below.
    sleep is not unbounded; it has a fixed window before the next
    evidence check.
 3. **Filesystem evidence check (priority 1)** — inspect the worktree
-   for terminal-artifact presence, partial-artifact growth, `git log`
-   for new commits since dispatch, and `wip/` artifact growth. Terminal
-   artifact present plus passing validation maps to PASS; partial
+   for terminal-artifact presence, partial-artifact growth, and `git log`
+   for new commits since dispatch. Terminal artifact present plus passing validation maps to PASS; partial
    evidence resets the patience budget; no change decrements the
    patience budget by one.
 4. **Inbox processing (priority 2)** — read structured PASS / FAIL /

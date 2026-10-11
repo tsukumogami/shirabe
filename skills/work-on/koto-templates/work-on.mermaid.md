@@ -76,8 +76,8 @@ stateDiagram-v2
     pr_creation --> done : pr_status: shared, vars.SHARED_BRANCH: {"is_set":true}
     pr_creation --> pr_creation : pr_status: creation_failed_retry
     pr_creation --> done_blocked : pr_status: creation_failed_escalate
-    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.branch_wip_clean.exit_code: 0, gates.on_feature_branch_pr.exit_code: 0
-    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.branch_wip_clean.exit_code: 0, gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
+    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 0
+    pr_precheck --> pr_creation : gates.branch_docs_visibility.exit_code: 0, gates.on_feature_branch_pr.exit_code: 1, precheck_status: override
     pr_precheck --> done_blocked : gates.on_feature_branch_pr.exit_code: 1, precheck_status: blocked
     pre_pr_evidence --> pr_precheck : gates.cleanup_referent.exit_code: 0, gates.commit_convention.exit_code: 0, gates.diagram_referent.exit_code: 0, gates.summary_shape.matches: true, pre_pr_status: recorded
     pre_pr_evidence --> done_blocked : gates.summary_shape.matches: false, pre_pr_status: recorded
@@ -231,9 +231,6 @@ stateDiagram-v2
     end note
     note left of pr_precheck
         gate: branch_docs_visibility
-    end note
-    note left of pr_precheck
-        gate: branch_wip_clean
     end note
     note left of pr_precheck
         gate: on_feature_branch_pr

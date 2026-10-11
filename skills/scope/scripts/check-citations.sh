@@ -100,7 +100,7 @@ basename_of="${target##*/}"
 # acts. `-F` keeps the path's dots literal; `-I` skips binary files.
 #
 # Exclusions, each load-bearing:
-#   :!wip/       non-durable staging, swept before merge
+#   :!wip/       non-durable staging scratch, never a citation
 #   :!$survivor  the absorbing document -- see the header
 #   fixtures     test corpora are not real citations
 path_hits=$(

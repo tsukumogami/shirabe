@@ -73,10 +73,10 @@ The directional rule:
 - **Public referencing private** (`tsukumogami/vision:docs/...` in a
   public repo): violates visibility rules. Omit the field instead.
 - **`wip/...` paths as `upstream:` values**: wip/ artifacts are non-durable.
-  They are deleted before merge per the wip-hygiene rule (see
-  [`wip-hygiene.md`](wip-hygiene.md)). An `upstream: wip/...` value points
-  at a file that disappears on cleanup -- the reference orphans the moment
-  the cleanup commit lands. If the only PRD on disk is a wip/ staging copy,
+  They are scratch no workflow keeps (see
+  [`wip-hygiene.md`](wip-hygiene.md)), so an `upstream: wip/...` value
+  points at a file no reader can count on, and orphans once the file is
+  gone. If the only PRD on disk is a wip/ staging copy,
   the canonical PRD lives elsewhere. Resolve the canonical location and
   apply the visibility-direction rules above; if the canonical home is a
   private repo and your repo is public, OMIT the field entirely.

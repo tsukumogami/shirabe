@@ -52,7 +52,7 @@ so the flag behaves identically whichever skill an author hands it to. These
 are hard-stops -- do not write a failing value into frontmatter:
 
 1. **Is the path under `wip/`?** STOP. wip/ paths are non-durable and would
-   leave the ROADMAP's `upstream:` orphaned after wip-hygiene cleanup. Resolve
+   leave the ROADMAP's `upstream:` orphaned: no workflow keeps a file there. Resolve
    the canonical location and use that path instead, or OMIT the field.
 2. **Does the path resolve in this repo?** Run `git ls-files <path>`. If
    non-empty, the upstream is durable -- continue.

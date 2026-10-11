@@ -248,10 +248,9 @@ repository root with symlinks followed, and refuses, in order:
    upstream, and unlike most path arguments this one ends up in a
    committed field.
 2. `upstream-wip` — the resolved path lies under `wip/`. `wip/`
-   artifacts are non-durable — the wip-hygiene cleanup deletes them
-   before the PR can merge — so a `wip/` upstream would leave the
-   produced document's `upstream:` pointing at a file that no longer
-   exists the moment cleanup lands.
+   artifacts are non-durable — a file there is scratch that no
+   workflow keeps — so a `wip/` upstream would leave the produced
+   document's `upstream:` pointing at a file no reader can count on.
 3. `upstream-basename` — the resolved file's basename does not start
    with `ROADMAP-`. Inbound validation enforces the basename even
    though an outbound hand-off does not, and the asymmetry is

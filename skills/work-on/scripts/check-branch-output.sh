@@ -15,9 +15,6 @@
 #       `Co-Authored-By:` line naming Claude or Anthropic, or a "Generated with
 #       Claude Code" line. Merge commits are skipped: a branch catches up with
 #       main by merging it in, and a merge commit's subject is git's.
-#   --wip
-#       `git ls-tree -r --name-only HEAD -- wip/`: no path under wip/ in the
-#       committed tree.
 #   --docs-visibility (--session <s> | --base-ref <ref>)
 #       The `docs/**/*.md` files the range changed, through
 #       `shirabe validate --visibility=<declared> --format json`. Only the
@@ -58,12 +55,11 @@
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-RULE_IDS="commit/conventional-subject commit/no-ai-trailer branch/no-wip-files docs/visibility-vision-sections docs/visibility-strategy-sections docs/private-only-type branch/current-with-main"
+RULE_IDS="commit/conventional-subject commit/no-ai-trailer docs/visibility-vision-sections docs/visibility-strategy-sections docs/private-only-type branch/current-with-main"
 
 usage() {
     cat >&2 <<'EOF'
 Usage: check-branch-output.sh --commits (--session <s> | --base-ref <ref>)
-       check-branch-output.sh --wip
        check-branch-output.sh --docs-visibility (--session <s> | --base-ref <ref>)
        check-branch-output.sh --synced [--base-ref <ref>]
 
@@ -99,7 +95,7 @@ finding() {
 MODE=$1
 shift
 case "$MODE" in
-    --commits|--wip|--docs-visibility|--synced) ;;
+    --commits|--docs-visibility|--synced) ;;
     -h|--help) usage; exit 0 ;;
     *) usage; exit 2 ;;
 esac
@@ -132,9 +128,6 @@ case "$MODE" in
     --commits|--docs-visibility)
         if [ -n "$SESSION" ] && [ -n "$BASE_REF" ]; then usage; exit 2; fi
         if [ -z "$SESSION" ] && [ -z "$BASE_REF" ]; then usage; exit 2; fi
-        ;;
-    --wip)
-        if [ -n "$SESSION" ] || [ -n "$BASE_REF" ]; then usage; exit 2; fi
         ;;
     --synced)
         [ -z "$SESSION" ] || { usage; exit 2; }
@@ -223,27 +216,6 @@ check_commits() {
     fi
     echo "check-branch-output: $count commit(s) in $RANGE pass" >&2
     exit 0
-}
-
-# --- --wip --------------------------------------------------------------------
-
-check_wip() {
-    require_rules branch/no-wip-files
-    paths=$(git ls-tree -r --name-only HEAD -- wip/) \
-        || undecided "cannot list HEAD's tree"
-    if [ -z "$paths" ]; then
-        echo "check-branch-output: no wip/ path in HEAD's tree" >&2
-        exit 0
-    fi
-    while IFS= read -r p; do
-        [ -n "$p" ] || continue
-        finding branch/no-wip-files \
-            "$p is under wip/ in HEAD's tree; wip/ files must be removed from the branch before a pull request" "$p"
-    done <<EOF
-$paths
-EOF
-    echo "check-branch-output: $VIOLATIONS wip/ path(s) in HEAD's tree" >&2
-    exit 1
 }
 
 # --- --docs-visibility --------------------------------------------------------
@@ -366,7 +338,6 @@ check_synced() {
 
 case "$MODE" in
     --commits) check_commits ;;
-    --wip) check_wip ;;
     --docs-visibility) check_docs_visibility ;;
     --synced) check_synced ;;
 esac

@@ -87,17 +87,17 @@ what the lightweight protocol already gathered.
 
 ## Recording decisions
 
-All decision blocks are inline in their source artifacts (the wip/ file where
-the decision was made). The consolidated decisions file
-(`wip/<workflow>_<topic>_decisions.md`) indexes all blocks.
+All decision blocks are inline in their source artifacts (the session key
+or document where the decision was made). The consolidated decisions key
+(`work/decisions.md` in the skill's koto session) indexes all blocks.
 
-After writing a decision block, append an entry to the consolidated file:
+After writing a decision block, append an entry to the consolidated key:
 
 ```markdown
 | <id> | <artifact-path> | <tier> | <status> | <question-abbreviated> |
 ```
 
-The consolidated file is the source of truth for review. Inline blocks are
+The consolidated key is the source of truth for review. Inline blocks are
 write-time snapshots.
 
 A koto-driven skill (one whose run is a koto session, such as `/work-on`)

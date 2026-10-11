@@ -102,8 +102,8 @@ run() { # run <root> <args...>: the copied script, stdout and stderr kept apart
 
 # --- the real registry, read from shirabe's own checkout ---------------------
 
-out=$("$SUT" ref branch/no-wip-files) && rc=0 || rc=$?
-if [ $rc -eq 0 ] && printf '%s' "$out" | grep -Eq '^references/wip-hygiene\.md#L[0-9]+-L[0-9]+@([0-9a-f]{12}|worktree)$'; then
+out=$("$SUT" ref commit/conventional-subject) && rc=0 || rc=$?
+if [ $rc -eq 0 ] && printf '%s' "$out" | grep -Eq '^references/pr-body-conformance\.md#L[0-9]+-L[0-9]+@([0-9a-f]{12}|worktree)$'; then
     pass "ref on the real registry prints path#La-Lb@revision"
 else
     fail "ref on the real registry" "rc=$rc out=[$out]"
@@ -111,11 +111,11 @@ fi
 
 # The printed range is checked against the file independently of the resolver:
 # its first line holds the first anchor and its last line the last anchor.
-first=$(jq -r '.rules[] | select(.id == "branch/no-wip-files") | .text.first' "$REPO_ROOT/references/rule-registry.json")
-last=$(jq -r '.rules[] | select(.id == "branch/no-wip-files") | .text.last' "$REPO_ROOT/references/rule-registry.json")
+first=$(jq -r '.rules[] | select(.id == "commit/conventional-subject") | .text.first' "$REPO_ROOT/references/rule-registry.json")
+last=$(jq -r '.rules[] | select(.id == "commit/conventional-subject") | .text.last' "$REPO_ROOT/references/rule-registry.json")
 range=${out#*#L}; range=${range%@*}; a=${range%-L*}; b=${range#*-L}
-if sed -n "${a}p" "$REPO_ROOT/references/wip-hygiene.md" | grep -qF -- "$first" \
-   && sed -n "${b}p" "$REPO_ROOT/references/wip-hygiene.md" | grep -qF -- "$last"; then
+if sed -n "${a}p" "$REPO_ROOT/references/pr-body-conformance.md" | grep -qF -- "$first" \
+   && sed -n "${b}p" "$REPO_ROOT/references/pr-body-conformance.md" | grep -qF -- "$last"; then
     pass "ref's range starts at the first anchor and ends at the last"
 else
     fail "ref's range" "[$range] does not frame the anchors"

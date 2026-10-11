@@ -246,34 +246,14 @@ set_impl_base s-merge "$BASE"
 run --commits --session s-merge
 expect "--commits --session: a merge commit with git's default subject" 0
 
-# --- --wip ----------------------------------------------------------------------
+# --- the refusals ---------------------------------------------------------------
 
-fixture wip
-# Split with "" so this file's own text never trips the public-content check,
-# which refuses a committed wip/ file path.
-WIP_FILE="wi""p/notes.md"
-commit_file "$WIP_FILE" notes -m "chore: stage notes"
-run --wip
-expect "--wip: a staged file in HEAD's tree" 1 "branch/no-wip-files"
-case "$OUT" in
-    *"\"path\":\"$WIP_FILE\""*) pass "--wip: the finding names the path" ;;
-    *) fail "--wip: the finding does not name $WIP_FILE: $OUT" ;;
-esac
-REF=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '.rule_ref' | head -n 1)
-WANT_RANGE=$(rf_test_expected_range branch/no-wip-files)
-[ "${REF%@*}" = "$WANT_RANGE" ] && pass "--wip: branch/no-wip-files's range is $WANT_RANGE, found from its anchors with grep" \
-    || fail "--wip: branch/no-wip-files range [${REF%@*}], want [$WANT_RANGE]"
-SUMMARY=$("$SCRIPT_DIR/../../../scripts/rule-registry.sh" summary branch/no-wip-files)
-case "$OUT" in
-    *"\"message\":\"$SUMMARY: "*) pass "--wip: the message starts with the rule's summary" ;;
-    *) fail "--wip: the message does not start with [$SUMMARY: ]: $OUT" ;;
-esac
-# A branch with nothing under wip/: the refusals hold the gate before any check.
+# A clean branch: the refusals hold the gate before any check.
 fixture refusals
-run --wip
-expect "--wip: a clean branch" 0
+run --synced
+expect "--synced: a clean branch" 0
 cd "$REPO" || exit 2
-rf_test_refusals "--wip on a clean branch" skills/work-on/scripts/check-branch-output.sh branch/no-wip-files --wip
+rf_test_refusals "--synced on a current branch" skills/work-on/scripts/check-branch-output.sh branch/current-with-main --synced
 cd "$WORKDIR" || exit 2
 
 # --- --synced -------------------------------------------------------------------
@@ -306,8 +286,6 @@ run --commits --session s-clean
 expect "clean: --commits --session" 0
 run --commits --base-ref origin/main
 expect "clean: --commits --base-ref" 0
-run --wip
-expect "clean: --wip" 0
 run --synced
 expect "clean: --synced" 0
 run --docs-visibility --session s-clean
@@ -330,8 +308,8 @@ run --commits
 expect "usage: --commits with no range" 2
 run --commits --session s-clean --base-ref origin/main
 expect "usage: --commits with both ranges" 2
-run --wip --session s-clean
-expect "usage: --wip with a range" 2
+run --wip
+expect "usage: --wip is refused as an unknown mode" 2
 run --nonsense
 expect "usage: an unknown mode" 2
 
