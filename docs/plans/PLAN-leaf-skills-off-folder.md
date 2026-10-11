@@ -248,13 +248,21 @@ line (PRD R11 to R15).
 - [ ] `node-push.sh` has no `git rm` of the folder and no post-push `ls-tree`
       check; its header and exit-69 causes no longer mention them;
       `node-push_test.sh` passes and still pushes a node branch.
-- [ ] `references/rule-registry.json` has no `branch/no-wip-files`;
+- [ ] `references/rule-registry.json` keeps `branch/no-wip-files` with
+      `status: retired`, and `scripts/check-rule-registry.sh --base` passes
+      against main; `scripts/rule-registry.sh` refuses the retired id at
+      lookup, and no `RULE_IDS` line, release call or template names it;
       `check-branch-output.sh --wip` is refused as an unknown option; no gate
       in `skills/work-on/koto-templates/work-on.md`,
       `skills/execute/koto-templates/execute.md` or
       `execute-coordinated.md` checks the folder; `check-branch-output_test.sh`,
       `check-rule-registry_test.sh` and the template routing and structure
       tests pass.
+
+      Corrected 2026-10-11. This criterion read: "`references/rule-registry.json`
+      has no `branch/no-wip-files`". The registry keeps every id it has held
+      (`check-rule-registry.sh --base` refuses a removed id and asks for
+      retirement), so the rule is retired rather than deleted.
 - [ ] `publish-scoping-pr.sh` makes no untrack commit, prints no `wip_paths=`,
       writes no `wip_paths` context key and runs no private-marker scan over
       staging files; `print-scope-exit.sh` and `record-scope-exit.sh` carry no
@@ -273,7 +281,15 @@ line (PRD R11 to R15).
       references/rule-registry.json skills/work-on/scripts/check-branch-output.sh
       skills/scope/scripts/publish-scoping-pr.sh
       skills/scope/scripts/print-scope-exit.sh skills/deliver ':!*/evals/*'`
-      prints nothing.
+      prints only named exceptions, each listed in the pull request's body by
+      file:line with its reason: the `upstream-wip` refusal the design keeps
+      (in `print-scope-exit.sh` and `deliver-report.sh`), the negative test
+      that a recorded `wip_paths` key is never printed, and the retired
+      registry entry's own lines.
+
+      Corrected 2026-10-11. This criterion ended: "prints nothing". The kept
+      upstream guard and the retired registry entry both match the pattern,
+      so the criterion names its exceptions instead.
 - [ ] The PR body names Issues 1 to 3's pull requests as dependencies that
       must merge first, and the branch is cut from main and carries none of
       their commits. If the entry gate finds another writer, that writer's move
