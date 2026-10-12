@@ -430,11 +430,11 @@ eq "a session record for another scope is refused" rc=65 "$(seam_read "$T/x" ses
 SW=coordinate-roadmap-plugin-system-20260926T110400Z
 found_session "$SW" "$(roadmap_vars plugin-system)" "7 session"
 session_keys "$SW" "$T/rec.json"
-koto context add "$SW" record/host < <(jq -nc '{source_workspace: "/home/alice/ws", session: "x"}')
+koto context add "$SW" record/host < <(jq -nc '{source_workspace: "/srv/ws/host-only-marker", session: "x"}')
 eq "a run sealed found 7 session reads the session store" session "$(bash "$RS" --session "$SW" --source 2>"$T/err")"
 bash "$RS" --session "$SW" --show > "$T/show.md" 2>"$T/err"; eq "--show prints the record" 0 $?
 eq "  ... a body that parses back to the session's state (R11)" "$(jq -cS . "$T/rec.json")" \
     "$(bash "$HERE/record-parse.sh" --container issue "$T/show.md" | jq -cS .)"
-grep -q '/home/alice' "$T/show.md" && bad "  ... and holds nothing from record/host" "$(cat "$T/show.md")" || ok "  ... and holds nothing from record/host"
+grep -q 'host-only-marker' "$T/show.md" && bad "  ... and holds nothing from record/host" "$(cat "$T/show.md")" || ok "  ... and holds nothing from record/host"
 
 done_tests record-source
