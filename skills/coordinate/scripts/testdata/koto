@@ -14,7 +14,10 @@
 # the directory holds a .parent file), `status S` ({name, is_terminal}; the
 # session is terminal when its directory holds a .terminal file; exit 1 for a
 # session that doesn't exist), `context add S K [--from-file F]` (stdin
-# without --from-file), `context get S K`, and `template compile P`, which
+# without --from-file), `context get S K`, `context exists S K` (exit 1 when
+# absent), `context remove S K`, `context list [--prefix P] S` (a JSON array of
+# keys; with KOTO_NO_LIST_PREFIX set, --prefix is refused as an older koto would),
+# and `template compile P`, which
 # prints $KOTO_STORE/cache/<$KOTO_COMPILED_HASH>.json so coord-log.sh
 # provenance can be passed or failed by the header's template_hash, or fails
 # when KOTO_COMPILE_FAIL is set. Anything
@@ -50,6 +53,30 @@ case "${1:-} ${2:-}" in
         ;;
     "context get")
         cat "$KOTO_STORE/context/${3:-none}/$4" 2>/dev/null || exit 1
+        ;;
+    "context exists")
+        [ -f "$KOTO_STORE/context/${3:-none}/$4" ] || exit 1
+        ;;
+    "context remove")
+        rm -f "$KOTO_STORE/context/${3:-none}/$4"
+        ;;
+    "context list")
+        # `context list [--prefix P] S`, the option before or after the session,
+        # printed as real koto prints it: a JSON array of keys, sorted.
+        [ -z "${KOTO_NO_LIST_PREFIX:-}" ] || { [ "${3:-}" != --prefix ] && [ "${4:-}" != --prefix ]; } \
+            || { echo "koto stub: unexpected argument '--prefix'" >&2; exit 2; }
+        s= p=
+        shift 2
+        while [ $# -gt 0 ]; do
+            case "$1" in --prefix) p=$2; shift 2 ;; *) s=$1; shift ;; esac
+        done
+        d="$KOTO_STORE/context/$s"
+        if [ -d "$d" ]; then
+            (cd "$d" && find . -type f | sed 's|^\./||') | LC_ALL=C sort \
+                | jq -R -s -c --arg p "$p" 'split("\n") | map(select(. != "" and startswith($p)))'
+        else
+            echo '[]'
+        fi
         ;;
     "request get")
         cat "$KOTO_STORE/requests/${3:-none}.json" 2>/dev/null || { echo "koto stub: no request ${3:-}" >&2; exit 1; }

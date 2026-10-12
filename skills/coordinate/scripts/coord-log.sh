@@ -317,13 +317,13 @@ run-facts)
     ;;
 run-store)
     # The run's store, from the same sealed RECORD_FIND token run-facts reads.
-    # Only a `found <n> session` token names the session store, and the find
-    # emits none in this release; `found <n>`, a run with no found record and a
-    # token whose seal doesn't check all read as the GitHub store.
+    # Only a `found <n> session` token names the session store; `found <n>`, a
+    # run with no found record and a token whose seal doesn't check all read as
+    # the GitHub store. The token is matched without its seal.
     need SESSION
     FOUND=$(bash "$0" capture --session "$SESSION" --name RECORD_FIND 2>/dev/null) || { echo github; exit 0; }
     bash "$0" check --session "$SESSION" --state record_find --sealed "$FOUND" --any-visit >/dev/null 2>&1 || { echo github; exit 0; }
-    case "$FOUND" in "found "*" session") echo session ;; *) echo github ;; esac
+    case "${FOUND% sealed:*}" in "found "*" session") echo session ;; *) echo github ;; esac
     ;;
 provenance)
     need SESSION

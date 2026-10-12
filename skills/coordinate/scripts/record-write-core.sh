@@ -92,6 +92,7 @@ core_write() {
         [ $live_rc -eq 2 ] && lib_die2 "cannot read pull request #$REF"
     fi
     [ $live_rc -eq 4 ] && { lib_scrub < "$T/live.json.err" >&2; exit 10; }
+    [ $live_rc -eq 12 ] && { lib_scrub < "$T/live.json.err" >&2; exit 12; }
     cp "$T/live.json.raw" "$T/target.json"
     cp "$T/live.json.md" "$T/live.md"
     STATE=$(jq -r '.state' "$T/target.json")

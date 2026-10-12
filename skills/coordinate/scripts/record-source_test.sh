@@ -317,4 +317,75 @@ L=$(bash "$HERE/record-append.sh" --session "$S2" --list 2>"$T/err"); eq "record
 eq "  ... the entry, with its kind and text" "cost|$(cat "$T/cost.txt")" "$(printf '%s' "$L" | jq -r '.[0] | "\(.kind)|\(.text)"')"
 eq "  ... in the list's shape" '["author","created","edited","id","kind","stamp","text"]' "$(printf '%s' "$L" | jq -c '.[0] | keys')"
 
+# ---- 6. the session store's read ----------------------------------------------------
+
+echo "== 6. the session store's read =="
+# session_keys <session> <parsed-record-file> [pending]: the record's state as the
+# session store holds it, record/meta and one key per section the record has.
+# (The writers' own suites write these keys through the write core.)
+session_keys() {
+    local s=$1 f=$2 p=${3:-false} pair field key
+    jq -c --argjson p "$p" '{scope, store: "session", written, pending: $p}' "$f" | koto context add "$s" record/meta
+    for pair in holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work; do
+        field=${pair%%:*} key=${pair#*:}
+        jq -e --arg f "$field" 'has($f)' "$f" > /dev/null || continue
+        jq -c --arg f "$field" '.[$f]' "$f" | koto context add "$s" "record/$key"
+    done
+}
+# seam_read <out> [<source> <session>]: rs_record on record #7 of plugin-system,
+# in a subshell, from the GitHub store, or from <session> when <source> is
+# `session`. It names every variable it sets and exports none, so nothing it
+# runs can print the environment; with no arguments it does nothing.
+seam_read() {
+    [ $# -ge 1 ] || return 64
+    local out=$1 src=${2:-github} ses=${3:-}
+    ( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO REF=7; . "$HERE/record-common.sh"; lib_facts
+      RS_SOURCE=$src RS_SESSION=$ses RS_RETRY_PAUSE=0 rs_record "$out" body --json body --jq .body; echo "rc=$?" )
+}
+db_init
+db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/rec.md")"
+bash "$HERE/record-parse.sh" --container issue "$T/rec.md" > "$T/rec.json"
+eq "the read helper with no arguments prints nothing" "" "$(seam_read 2>&1)"
+SS=coordinate-roadmap-plugin-system-20260926T110000Z
+session_keys "$SS" "$T/rec.json"
+eq "rs_record reads the GitHub record" rc=0 "$(seam_read "$T/g")"
+eq "rs_record reads the same state from the session" rc=0 "$(seam_read "$T/s" session "$SS")"
+eq "  ... as the same JSON (R19)" "$(jq -cS . "$T/g")" "$(jq -cS . "$T/s")"
+eq "  ... and the same body" "$(cat "$T/g.md")" "$(cat "$T/s.md")"
+W1=$(jq -r '.holdings[0].worker' "$T/rec.json")
+eq "rs_facts gives the same holding facts from both" \
+    "$( ( PROG=t; . "$HERE/record-common.sh"; rs_facts "$T/g" "$W1" ) | jq -cS .)" \
+    "$( ( PROG=t; . "$HERE/record-common.sh"; rs_facts "$T/s" "$W1" ) | jq -cS .)"
+grep -q '^issue view' "$GH_DB.calls" && reset_calls
+seam_read "$T/s2" session "$SS" > /dev/null
+grep -q 'issue view' "$GH_DB.calls" && bad "  ... and the session read asks GitHub for nothing" "$(calls)" || ok "  ... and the session read asks GitHub for nothing"
+
+# A write part way through: record/meta marked pending.
+SP=coordinate-roadmap-plugin-system-20260926T110100Z
+session_keys "$SP" "$T/rec.json" true
+: > "$KOTO_STORE/calls"
+eq "a record marked pending is re-read and then refused record-changed" rc=12 "$(seam_read "$T/p" session "$SP")"
+eq "  ... after three re-reads" 4 "$(grep -c "^context get $SP record/meta" "$KOTO_STORE/calls")"
+grep -q record-changed "$T/p.err" && ok "  ... naming record-changed" || bad "  ... naming record-changed" "$(cat "$T/p.err")"
+# No record/meta in the run's session.
+SA=coordinate-roadmap-plugin-system-20260926T110200Z
+eq "a session holding no record/meta is session-absent" rc=4 "$(seam_read "$T/a" session "$SA")"
+grep -q '^t: session-absent' "$T/a.err" && ok "  ... with the reason" || bad "  ... with the reason" "$(cat "$T/a.err")"
+# record/meta for another scope.
+SX=coordinate-roadmap-plugin-system-20260926T110300Z
+jq '.scope.name = "other"' "$T/rec.json" > "$T/other.json"
+session_keys "$SX" "$T/other.json"
+eq "a session record for another scope is refused" rc=65 "$(seam_read "$T/x" session "$SX")"
+
+# --show on a run whose find sealed the session store.
+SW=coordinate-roadmap-plugin-system-20260926T110400Z
+found_session "$SW" "$(roadmap_vars plugin-system)" "7 session"
+session_keys "$SW" "$T/rec.json"
+koto context add "$SW" record/host < <(jq -nc '{source_workspace: "/home/alice/ws", session: "x"}')
+eq "a run sealed found 7 session reads the session store" session "$(bash "$RS" --session "$SW" --source 2>"$T/err")"
+bash "$RS" --session "$SW" --show > "$T/show.md" 2>"$T/err"; eq "--show prints the record" 0 $?
+eq "  ... a body that parses back to the session's state (R11)" "$(jq -cS . "$T/rec.json")" \
+    "$(bash "$HERE/record-parse.sh" --container issue "$T/show.md" | jq -cS .)"
+grep -q '/home/alice' "$T/show.md" && bad "  ... and holds nothing from record/host" "$(cat "$T/show.md")" || ok "  ... and holds nothing from record/host"
+
 done_tests record-source

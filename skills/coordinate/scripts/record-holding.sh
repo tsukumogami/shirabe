@@ -94,6 +94,7 @@ case $? in
     2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 10 ;;
     4) lib_scrub < "$T/parsed.json.err" >&2; exit 10 ;;
+    12) lib_scrub < "$T/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
 cp "$T/parsed.json.md" "$T/live.md"

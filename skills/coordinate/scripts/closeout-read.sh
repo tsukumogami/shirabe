@@ -143,7 +143,7 @@ if [ "$SCOPE" = roadmap ]; then
     lib_roadmap_path
     rs_record "$T/parsed.json" json --json state,body; RS_RC=$?
     [ $RS_RC -eq 2 ] && lib_die2 "cannot read issue #$REF: $(lib_scrub < "$T/parsed.json.err")"
-    [ $RS_RC -eq 4 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+    [ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
     cp "$T/parsed.json.raw" "$T/issue.json"
     PRSTATE=$(jq -r '.state // ""' "$T/issue.json")
     if [ "$PRSTATE" = CLOSED ]; then REASON="the record issue is closed"; finish "closed $REF"; fi

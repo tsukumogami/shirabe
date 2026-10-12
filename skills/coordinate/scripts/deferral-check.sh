@@ -288,13 +288,13 @@ changed_or_die() { # changed_or_die <err-file> <what>
 if [ "$SCOPE" = roadmap ]; then
     rs_record "$T/parsed.json" json --json state,body; RS_RC=$?
     [ $RS_RC -eq 2 ] && changed_or_die "$T/parsed.json.err" "issue #$REF"
-    [ $RS_RC -eq 4 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+    { [ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ]; } && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
     cp "$T/parsed.json.raw" "$T/rec.json"
     [ "$(jq -r .state "$T/rec.json")" = OPEN ] || { REASON="issue #$REF is closed"; finish record-changed; }
 else
     rs_record "$T/parsed.json" json --json state,body,headRefName,isCrossRepository; RS_RC=$?
     [ $RS_RC -eq 2 ] && changed_or_die "$T/parsed.json.err" "pull request #$REF"
-    [ $RS_RC -eq 4 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+    { [ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ]; } && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
     cp "$T/parsed.json.raw" "$T/rec.json"
     [ "$(jq -r .state "$T/rec.json")" = OPEN ] || { REASON="pull request #$REF is not open"; finish record-changed; }
     [ "$(jq -r .headRefName "$T/rec.json")" = "$BRANCH" ] && [ "$(jq -r .isCrossRepository "$T/rec.json")" = false ] \
