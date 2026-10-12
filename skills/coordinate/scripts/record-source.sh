@@ -37,7 +37,8 @@
 #       <args>` prints them, the body among them, for the one reader that keeps
 #       its own deadline and its row-by-row salvage of a body the codec refuses
 #       (reconcile-read.sh, under rd_deadline). Needs nothing else of this
-#       library. Returns gh's status.
+#       library. GitHub store only in this release: reconcile runs after the
+#       find, which stops a session-store record. Returns gh's status.
 #   rs_facts <parsed-record> <topic>
 #       Prints one holding's facts, from a record rs_record or rs_record_api
 #       parsed: {topic, unit, repo, pull_request, number, branch, verified_head,

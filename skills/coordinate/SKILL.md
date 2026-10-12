@@ -202,8 +202,9 @@ A record's store is where its state lives: `github`, the body above, or
 its Run section is on GitHub; only its owner moves it, by writing that row with
 `scripts/record-state.sh --run store <github|session> --by <person>`, and
 nothing else (no flag, no default, no upgrade) changes it. The find reads the
-row at every start and seals the run's store in `coord/source.json`, which the
-reconcile report names, so a successor never guesses. This release reads only
+row at every start, seals the run's store in its verdict, and writes it, with
+what its probe read of koto, to `coord/source.json`, so a successor never
+guesses. This release reads only
 the GitHub store: a `session` row stops the run at the find.
 
 Every script reads the record's state through one reader,

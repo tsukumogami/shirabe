@@ -167,11 +167,15 @@ db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "o
 S=coordinate-roadmap-plugin-system-20260926T080000Z
 log_new "$S" "$(roadmap_vars plugin-system | jq -c '. + {STORE: "github"}')"
 log_to "$S" start_posture record_find 2026-09-26T08:01:00.000Z
+# The koto stand-in offers neither `context list --prefix` nor `session import`:
+# the probe reads both missing, and a run on the GitHub store goes on anyway,
+# its find adopting the record, which routes the run to reconcile.
 OUT=$(bash "$HERE/record-find.sh" --session "$S" 2>"$T/err"); eq "a session find exits 0" 0 $?
+eq "  ... and adopts the record, so the run goes on to reconcile" "found 7" "$(printf '%s' "$OUT" | cut -d' ' -f1-2)"
 SRC=$(cat "$KOTO_STORE/context/$S/coord/source.json" 2>/dev/null)
 eq "coord/source.json holds the record's store" github "$(printf '%s' "$SRC" | jq -r .source)"
-printf '%s' "$SRC" | jq -e '.probe | has("context_list_prefix") and has("session_import")' >/dev/null \
-    && ok "  ... and the probe's reading" || bad "  ... and the probe's reading" "$SRC"
+eq "  ... and the probe's reading of a koto with neither feature" '{"context_list_prefix":false,"session_import":false}' \
+    "$(printf '%s' "$SRC" | jq -c .probe)"
 printf '%s' "$SRC" | jq -r .reason | grep -q 'is ignored: the record decides' \
     && ok "  ... and reports the invocation's --store ignored" || bad "  ... and reports the invocation's --store ignored" "$SRC"
 eq "rs_source reads it" github "$(bash "$RS" --session "$S" --source 2>/dev/null)"
