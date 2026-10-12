@@ -7,9 +7,10 @@
 #
 # Three steps, each skipped when a re-run finds it done, so a crash between
 # them resumes at the first step not done:
-#   1. copy: when this run's session holds no record/meta, the GitHub record's
-#      state is written into it, every section through the write core with the
-#      move's own flags (SESSION_SEED, MOVE_WRITER). When another session of
+#   1. copy: when this run's session holds no record/meta, or only the pending
+#      one a copy that stopped part way leaves, the GitHub record's state is
+#      written into it, every section through the write core with the move's
+#      own flags (SESSION_SEED, MOVE_WRITER). When another session of
 #      this scope on this host holds record/meta instead, or the GitHub body is
 #      already in the moved shape with no state in this run's session, the move
 #      can't go on: `move-refused`, a stop for the person.
@@ -106,8 +107,17 @@ ghread
 jq -e 'any((.run // [])[]; .key == "store" and .value == "session")' "$W/gh" > /dev/null \
     || verdict move-refused "#$REF's Run section doesn't read store session; only the owner's row moves a record"
 
-# 1. copy.
-if "$KOTO" context exists "$MS" record/meta < /dev/null > /dev/null 2> "$W/k.err"; then
+# 1. copy. A copy that stopped part way left record/meta pending with no
+# written time (the seed's own mark, which no finished write leaves); it isn't
+# done, and copying again finishes it.
+COPIED=0
+rs_key "$MS" record/meta "$W/meta"
+case $? in
+    0) jq -e '.pending == true and .written == ""' "$W/meta" > /dev/null || COPIED=1 ;;
+    1) ;;
+    *) lib_die2 "cannot read $MS's record/meta: $(lib_scrub < "$W/meta.err")" ;;
+esac
+if [ "$COPIED" = 1 ]; then
     step copy done-before
 else
     HOLDERS=$(rs_scope_sessions "$SCOPE" "$NAME") || lib_die2 "cannot list this host's sessions"

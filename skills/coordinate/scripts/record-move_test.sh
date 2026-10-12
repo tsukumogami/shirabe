@@ -7,7 +7,7 @@
 #   1. a move: the GitHub state lands in the run's session, one `moved` entry is
 #      posted naming the run's stamp, and the GitHub body becomes the moved shape;
 #      a re-run finds every step done and changes nothing;
-#   2. a move killed after its first step finishes on the next run with one
+#   2. a move killed after its first step, or inside it, finishes on the next run with one
 #      `moved` entry;
 #   3. afterwards a GitHub write to the record is store-moved, and so is
 #      `record-state.sh --run store github`, on either store;
@@ -73,6 +73,22 @@ db '.fail = []'
 OUT=$(env RS_SESSION="$SK" bash "$MV" "${W_RM[@]}" 2>"$T/err"); rc=$?
 eq "restarted, it finishes" "0 move=done" "$rc $(printf '%s' "$OUT" | tail -1)"
 eq "  ... with one moved entry" 1 "$(moved_entries)"
+
+# Killed inside the copy: record/meta is pending and a section key never came.
+SC=coordinate-roadmap-plugin-system-20261012T103000Z
+seed
+env KOTO_FAIL_ADD=record/holds RS_SESSION="$SC" bash "$MV" "${W_RM[@]}" >/dev/null 2>"$T/err"; rc=$?
+eq "a copy that fails part way exits 11" 11 "$rc"
+eq "  ... leaving record/meta pending, record/holds missing, nothing posted and the body unmoved" "true false 0 yes" \
+    "$(koto context get "$SC" record/meta | jq -r .pending) $(koto context exists "$SC" record/holds && echo true || echo false) $(moved_entries) $([ "$(body7)" = "$(cat "$T/before.md")" ] && echo yes || echo no)"
+koto context add "$SC" record/standing --from-file <(printf '[]') # a key the GitHub state doesn't hold
+OUT=$(env RS_SESSION="$SC" bash "$MV" "${W_RM[@]}" 2>"$T/err"); rc=$?
+eq "restarted, the copy runs again and the move finishes" "0 step=copy written move=done" \
+    "$rc $(printf '%s' "$OUT" | grep '^step=copy') $(printf '%s' "$OUT" | tail -1)"
+eq "  ... with every section of the GitHub state in the session" "$(jq -cS 'del(.written)' "$T/before.json")" \
+    "$(env RS_SOURCE=session RS_SESSION="$SC" bash "$HERE/record-source.sh" "${RM[@]}" --show | bash "$HERE/record-parse.sh" | jq -cS 'del(.written)')"
+koto context exists "$SC" record/standing && bad "  ... and no key it doesn't hold" "" || ok "  ... and no key it doesn't hold"
+eq "  ... and one moved entry" 1 "$(moved_entries)"
 
 echo "== 3. after the move =="
 render "$(record_json roadmap plugin-system | jq -c '.run = [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:00Z"}]')" issue \

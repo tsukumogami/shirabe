@@ -49,7 +49,8 @@ case "${1:-} ${2:-}" in
         jq -nc --arg n "$2" --argjson t "$t" '{name: $n, is_terminal: $t}'
         ;;
     "context add")
-        [ -z "${KOTO_FAIL_ADD:-}" ] || exit 1
+        # KOTO_FAIL_ADD=1 fails every add; set to a key's name, only that key's.
+        case "${KOTO_FAIL_ADD:-}" in "") ;; 1|"${4:-}") exit 1 ;; esac
         d="$KOTO_STORE/context/${3:-none}"
         mkdir -p "$(dirname "$d/$4")"
         if [ "${5:-}" = --from-file ]; then cat "$6" > "$d/$4" || exit 1; else cat > "$d/$4"; fi

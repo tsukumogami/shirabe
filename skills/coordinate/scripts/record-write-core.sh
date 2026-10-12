@@ -203,12 +203,16 @@ core_live() {
 # last with the new time. A failure after the first key changed exits 11; the
 # pending mark tells a reader not to trust the sections until a write clears it.
 core_write_session() {
-    local body=$1 s=${RS_SESSION:-$SESSION} pair field key rc
+    local body=$1 s=${RS_SESSION:-$SESSION} pair field key rc RESEED=
     [ -n "$s" ] || lib_die2 "the session store needs the run's session"
     lib_parse "$body" "$T/next-state.json" || lib_die2 "the rendered body doesn't parse back"
     rs_key "$s" record/meta "$T/meta.now"; rc=$?
     if [ "$SESSION_SEED" = 1 ]; then
-        [ $rc -eq 1 ] || { echo "$PROG: refused: session $s already holds a record" >&2; exit 65; }
+        # A seed that stopped part way left record/meta pending with no written
+        # time, which no finished write leaves: seeding again finishes it.
+        [ $rc -eq 1 ] || { [ $rc -eq 0 ] && jq -e '.pending == true and .written == ""' "$T/meta.now" > /dev/null; } \
+            || { echo "$PROG: refused: session $s already holds a record" >&2; exit 65; }
+        RESEED=$([ $rc -eq 0 ] && echo 1)
         jq -nc --argjson sc "$(jq -c .scope "$T/next-state.json")" '{scope: $sc, store: "session", written: "", pending: false}' > "$T/meta.now"
         : > "$T/live.json"
     else
@@ -231,7 +235,8 @@ core_write_session() {
             fi
             "$KOTO" context add "$s" "record/$key" --from-file "$T/sec.new" < /dev/null > /dev/null 2> "$T/k.err" \
                 || { echo "$PROG: the session write failed part way, at record/$key: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
-        elif [ -s "$T/live.json" ] && jq -e --arg f "$field" 'has($f)' "$T/live.json" > /dev/null; then
+        elif { [ -s "$T/live.json" ] && jq -e --arg f "$field" 'has($f)' "$T/live.json" > /dev/null; } \
+            || { [ -n "${RESEED:-}" ] && "$KOTO" context exists "$s" "record/$key" < /dev/null > /dev/null 2>&1; }; then
             "$KOTO" context remove "$s" "record/$key" < /dev/null > /dev/null 2> "$T/k.err" \
                 || { echo "$PROG: the session write failed part way, removing record/$key: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
         fi
