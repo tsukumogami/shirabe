@@ -32,7 +32,12 @@
 #                  [--today YYYY-MM-DD] [--no-seal]          (tests)
 #
 # The detail goes to context key coord/record_find.json as data:
-#   {verdict, ref, url, reason, candidates, default_branch, rotation:{start,end}}
+#   {verdict, ref, url, reason, candidates, default_branch, rotation:{start,end}, store}
+# and the run's store to coord/source.json: {source, reason, probe}. A found
+# record's store is its `store` Run row (`github` without one); a record whose
+# store is `session` is reported `malformed` with the reason
+# `store-unavailable`, since this release reads only the GitHub store, and a
+# malformed or doubled `store` row is `malformed` with `store-malformed`.
 # The token, sealed to this visit of record_find, is the only stdout line;
 # under --no-seal it is printed bare and no context is written.
 #
@@ -72,7 +77,7 @@ if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u 
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-find.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END=
+VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE=
 
 finish() {
     local token=$VERDICT
@@ -89,7 +94,46 @@ finish() {
         printf '%s' "$URL" > "$T/record_url"
         "$KOTO" context add "$SESSION" record_url --from-file "$T/record_url" >/dev/null || lib_die2 "koto context add record_url failed"
     fi
+    write_source
     lib_emit record_find "$token" coord/record_find.json "$T/detail.json"
+}
+
+# write_source: the run's store, decided here and nowhere else
+# (docs/designs/DESIGN-coordinator-session-record.md, Decision 2), with the
+# probe's reading of koto, into coord/source.json, which record-source.sh's
+# rs_source reads for the rest of the run. A found record's store is its own
+# `store` Run row, `github` without one; the invocation's --store (the STORE
+# variable) decides only for a scope with no record, and is reported ignored
+# otherwise.
+write_source() {
+    [ "$NO_SEAL" = 1 ] && return 0
+    local flag store reason probe
+    flag=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" 2>/dev/null | jq -r '.STORE // ""' 2>/dev/null)
+    if [ "$VERDICT" = found ]; then
+        store=${RECORD_STORE:-github}
+        reason="the record's store"
+        [ -n "$RECORD_STORE" ] || reason="the record has no store row"
+        [ -z "$flag" ] || reason="$reason; the invocation's --store $flag is ignored: the record decides"
+    else
+        store=${flag:-github}
+        reason="no record found: the invocation's store"
+        [ -n "$flag" ] || reason="no record found and no --store"
+    fi
+    probe=$(rs_probe)
+    jq -n --arg s "$store" --arg r "$reason" --argjson p "$probe" '{source: $s, reason: $r, probe: $p}' > "$T/source.json"
+    "$KOTO" context add "$SESSION" coord/source.json --from-file "$T/source.json" >/dev/null || lib_die2 "koto context add coord/source.json failed"
+    jq --arg s "$store" '. + {store: $s}' "$T/detail.json" > "$T/detail.json.t" && mv "$T/detail.json.t" "$T/detail.json"
+}
+
+# record_store: the found record's `store` Run row, into RECORD_STORE. On the
+# session store this release stops: the store ships in the next change.
+record_store() {
+    RECORD_STORE=$(jq -r '[(.run // [])[] | select(.key == "store") | .value][0] // ""' "$T/parsed.json")
+    if [ "$RECORD_STORE" = session ]; then
+        VERDICT=malformed; REASON="store-unavailable: the record's store is session, which this release can't read"
+        return 1
+    fi
+    return 0
 }
 
 # judge <kind> <number> <body-file>: declaration, authority, canonical body.
@@ -129,6 +173,7 @@ if [ "$SCOPE" = roadmap ]; then
     [[ $NUM =~ $RE_NUM ]] || lib_die2 "the listing returned an unusable issue number"
     jq -r '.[0].body' "$T/issues.json" > "$T/body.md"
     judge issue "$NUM" "$T/body.md" || finish
+    record_store || finish
     VERDICT=found; REASON="one open record"; finish
 fi
 
@@ -157,6 +202,7 @@ URL=$(jq -r '.[0].url' "$T/open.json")
 [[ $NUM =~ $RE_NUM ]] || lib_die2 "the listing returned an unusable pull request number"
 jq -r '.[0].body // ""' "$T/open.json" > "$T/body.md"
 judge pullRequest "$NUM" "$T/body.md" || finish
+record_store || finish
 TITLE=$(jq -r '.[0].title' "$T/open.json")
 if ! lib_rotation_dates "$TITLE"; then
     VERDICT=ambiguous; REASON="the record's title is not a rotation title with real dates"; finish

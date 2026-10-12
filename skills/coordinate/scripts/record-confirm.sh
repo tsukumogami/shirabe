@@ -163,12 +163,14 @@ lib_log_readable || lib_die2 "cannot read the session log"
 if ! lib_run_ref; then VERDICT=conflict; REASON="the run has no found record"; finish; fi
 
 # The live body.
-if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json state,body --jq '.body // ""' > "$T/live.md" 2> /dev/null < /dev/null || lib_die2 "cannot read issue #$REF"
-else
-    gh pr view "$REF" --repo "$REPO" --json state,body --jq '.body // ""' > "$T/live.md" 2> /dev/null < /dev/null || lib_die2 "cannot read pull request #$REF"
-fi
-if ! [ -s "$T/live.md" ] || ! lib_parse "$T/live.md" "$T/rec.json"; then
+rs_record "$T/rec.json" body --json state,body --jq '.body // ""'
+case $? in
+    0) ;;
+    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
+    4) lib_die2 "$(lib_scrub < "$T/rec.json.err")" ;;
+    *) VERDICT=conflict; REASON="the record body is missing or not canonical"; finish ;;
+esac
+if ! [ -s "$T/rec.json.md" ]; then
     VERDICT=conflict; REASON="the record body is missing or not canonical"; finish
 fi
 WRITTEN=$(jq -r '.written' "$T/rec.json")

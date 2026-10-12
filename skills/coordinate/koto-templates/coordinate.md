@@ -188,6 +188,14 @@ variables:
       Fixed for the run: every escalation goes there.
     pattern: '^([A-Za-z0-9][A-Za-z0-9._-]*)?$'
     default: ""
+  STORE:
+    description: >-
+      Where a new scope's record keeps its state, from coordinate-open.sh
+      --store: github or session, empty when not given. It decides only when
+      record_find finds no record; a found record's own `store` Run row decides
+      otherwise, and record-find.sh seals the run's store in coord/source.json.
+    pattern: '^(github|session)?$'
+    default: ""
   PLUGIN_ROOT:
     description: >-
       Absolute path to the shirabe plugin root, with no `..` segment. Every

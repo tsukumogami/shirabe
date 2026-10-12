@@ -88,17 +88,15 @@ fi
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-holding.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$T/live.md" 2> /dev/null < /dev/null || lib_die2 "cannot read issue #$REF"
-else
-    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$T/live.md" 2> /dev/null < /dev/null || lib_die2 "cannot read pull request #$REF"
-fi
-lib_parse "$T/live.md" "$T/parsed.json"
+rs_record "$T/parsed.json" body --json body --jq .body
 case $? in
     0) ;;
+    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$T/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    4) lib_scrub < "$T/parsed.json.err" >&2; exit 10 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+cp "$T/parsed.json.md" "$T/live.md"
 
 case "$MODE" in
 read)

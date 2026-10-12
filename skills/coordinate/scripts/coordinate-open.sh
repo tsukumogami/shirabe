@@ -19,6 +19,12 @@
 #                                reports to; without it the run reports to a
 #                                person. Fixed for the run: every escalation goes
 #                                there (REPORTS_TO)
+#   --store github|session       where a new scope's record keeps its state
+#                                (STORE); a found record's own store row decides
+#                                for an existing one, and this flag is then
+#                                reported ignored. Roadmap scope only, and
+#                                `session` is refused (store-unavailable) until
+#                                the session store ships
 #   --                           everything after it is the human's decisions:
 #                                shown to the coordinator, never a setting
 # At roadmap scope it also sets ROADMAP_FORM, milestone when the roadmap file
@@ -66,11 +72,12 @@ if (type != "array") or (map(type == "string") | all | not) then error("not a JS
 | .[:$cut] as $s
 | reduce range(0; $s | length) as $i ({pairs: [], skip: false, positional: [], bad: null};
     if .skip then .skip = false
-    elif ($s[$i] | IN("--discipline", "--host", "--cap", "--parked-bound", "--rotation-days", "--reports-to")) then
+    elif ($s[$i] | IN("--discipline", "--host", "--cap", "--parked-bound", "--rotation-days", "--reports-to", "--store")) then
       if $i + 1 >= ($s | length) then .bad = "\($s[$i]) needs a value"
       else .skip = true
         | .pairs += [[({"--discipline": "DISCIPLINE", "--host": "HOST_REPO", "--cap": "CAP",
-                        "--parked-bound": "PARKED_BOUND", "--rotation-days": "ROTATION_DAYS", "--reports-to": "REPORTS_TO"})[$s[$i]], $s[$i + 1]]]
+                        "--parked-bound": "PARKED_BOUND", "--rotation-days": "ROTATION_DAYS", "--reports-to": "REPORTS_TO",
+                        "--store": "STORE"})[$s[$i]], $s[$i + 1]]]
       end
     elif ($s[$i] | startswith("--")) then .bad = "unknown option \($s[$i])"
     else .positional += [$s[$i]] end)
@@ -79,6 +86,23 @@ MAPPED=$(jq -c "$MAP" < "$ARGS_FILE") || usage "the args file is not a JSON arra
 rm -f -- "$ARGS_FILE"
 BAD=$(printf '%s' "$MAPPED" | jq -r '.bad // empty')
 [ -z "$BAD" ] || usage "$BAD"
+
+# The store (docs/designs/DESIGN-coordinator-session-record.md, Decision 2):
+# roadmap scope only, and the session store isn't in this release. koto checks
+# the value's shape; these two refusals come first so nothing opens.
+STORE_FLAG=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "STORE") | .[1]] | last // ""')
+if [ -n "$STORE_FLAG" ]; then
+    if [ "$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')" -gt 0 ]; then
+        echo "refused=store-discipline"
+        echo "coordinate-open: --store is for roadmap scope; a discipline rotation's record stays on GitHub" >&2
+        exit 2
+    fi
+    if [ "$STORE_FLAG" = session ]; then
+        echo "refused=store-unavailable"
+        echo "coordinate-open: store-unavailable: this release keeps the record on GitHub; the session store ships in the next change" >&2
+        exit 2
+    fi
+fi
 
 NPOS=$(printf '%s' "$MAPPED" | jq '.positional | length')
 DISC=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')

@@ -644,3 +644,7 @@ lib_epoch() {
     local doe=$(( yoe * 365 + yoe / 4 - yoe / 100 + doy ))
     echo $(( (era * 146097 + doe - 719468) * 86400 + H * 3600 + M * 60 + S ))
 }
+
+# The one reader of the record's state, whichever store the run is on
+# (record-source.sh); every script that sources this file gets it.
+[ -n "${RS_LOADED:-}" ] || . "$HERE/record-source.sh"

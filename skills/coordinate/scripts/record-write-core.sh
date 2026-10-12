@@ -81,13 +81,19 @@ core_write() {
         *) lib_die2 "record-parse.sh failed" ;;
     esac
 
-    # The target, re-read now.
+    # The target, re-read now through the seam (record-source.sh), with the
+    # container's state, URL and head from the same read.
+    local live_rc
     if [ "$SCOPE" = roadmap ]; then
-        gh issue view "$REF" --repo "$REPO" --json state,body,url > "$T/target.json" 2> "$T/r.err" < /dev/null || lib_die2 "cannot read issue #$REF"
+        rs_record "$T/live.json" json --json state,body,url; live_rc=$?
+        [ $live_rc -eq 2 ] && lib_die2 "cannot read issue #$REF"
     else
-        gh pr view "$REF" --repo "$REPO" --json state,body,url,title,headRefName,isCrossRepository > "$T/target.json" 2> "$T/r.err" < /dev/null || lib_die2 "cannot read pull request #$REF"
+        rs_record "$T/live.json" json --json state,body,url,title,headRefName,isCrossRepository; live_rc=$?
+        [ $live_rc -eq 2 ] && lib_die2 "cannot read pull request #$REF"
     fi
-    jq -r '.body // ""' "$T/target.json" | tr -d '\r' > "$T/live.md" || lib_die2 "the target read is not JSON"
+    [ $live_rc -eq 4 ] && { lib_scrub < "$T/live.json.err" >&2; exit 10; }
+    cp "$T/live.json.raw" "$T/target.json"
+    cp "$T/live.json.md" "$T/live.md"
     STATE=$(jq -r '.state' "$T/target.json")
     URL=$(jq -r '.url' "$T/target.json")
     [ "$STATE" = OPEN ] || { echo "$PROG: refused: #$REF is $STATE, not an open record" >&2; exit 10; }
@@ -98,7 +104,7 @@ core_write() {
     # change. A live body that no longer parses as a canonical record has changed
     # too.
     BASE=$(jq -r '.written // ""' "$T/parsed.json")
-    if lib_parse "$T/live.md" "$T/live.json" 2> /dev/null; then
+    if [ $live_rc -eq 0 ]; then
         LIVE_W=$(jq -r '.written // ""' "$T/live.json")
     else
         LIVE_W="(not a canonical record)"

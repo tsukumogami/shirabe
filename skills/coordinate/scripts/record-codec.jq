@@ -316,7 +316,10 @@ def state_secs: [
     ["until", "Until"], ["what", "What"], ["owner", "Owner"], ["relayed_by", "Relayed by"], ["set", "Set"]]},
   {key: "work", title: "Work", cols: [["item", "Item"], ["kind", "Kind"], ["who", "Who"], ["next", "Next step"],
     ["wakes", "Wakes"], ["updated", "Updated"]]}];
-def run_keys: ["arguments", "cap", "coordinator", "told"];
+# store: the record's store, `github` or `session`, written by its owner
+# (docs/designs/DESIGN-coordinator-session-record.md, Decision 2). A record
+# without the row is on GitHub.
+def run_keys: ["arguments", "cap", "coordinator", "told", "store"];
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment"];
 # A unit a person assigns outside the scope: an issue, or a release.
 def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
@@ -388,6 +391,7 @@ def check_srow($sec; $private):
   | if $sec.key == "run" then
       (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
        elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
+       elif .key == "store" then (if .value == "github" or .value == "session" then . else refuse("run.value: store-malformed: a store is github or session") end)
        else . end)
     elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
     elif $sec.key == "work" and (.kind == "decision" or .kind == "follow-up") then
@@ -426,7 +430,8 @@ def check_state($sec; $rows; $private):
     | if $sec.key == "run" then
         ($r | map(select(.key != "told") | .key)) as $once
         | ($r | map(select(.key == "told") | .value)) as $told
-        | if ($once | unique | length) != ($once | length) then refuse("run: a key other than told is used twice")
+        | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: store-malformed: the store row is used twice")
+          elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told is used twice")
           elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
           else $r end
       elif $sec.key == "standing" then

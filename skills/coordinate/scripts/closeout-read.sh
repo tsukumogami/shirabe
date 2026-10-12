@@ -141,8 +141,10 @@ finish() { # finish <token>
 # ---- roadmap ----------------------------------------------------------------
 if [ "$SCOPE" = roadmap ]; then
     lib_roadmap_path
-    gh issue view "$REF" --repo "$REPO" --json state,body > "$T/issue.json" 2> "$T/issue.err" < /dev/null \
-        || lib_die2 "cannot read issue #$REF: $(lib_scrub < "$T/issue.err")"
+    rs_record "$T/parsed.json" json --json state,body; RS_RC=$?
+    [ $RS_RC -eq 2 ] && lib_die2 "cannot read issue #$REF: $(lib_scrub < "$T/parsed.json.err")"
+    [ $RS_RC -eq 4 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+    cp "$T/parsed.json.raw" "$T/issue.json"
     PRSTATE=$(jq -r '.state // ""' "$T/issue.json")
     if [ "$PRSTATE" = CLOSED ]; then REASON="the record issue is closed"; finish "closed $REF"; fi
     lib_default_branch || lib_die2 "cannot read $REPO's default branch"
@@ -156,9 +158,7 @@ if [ "$SCOPE" = roadmap ]; then
     # it may already read Done on the default branch (its verdict's edit
     # merged, not yet confirmed) or still In progress, and either way the
     # roadmap isn't closed until its verdict-owed row is confirmed away.
-    jq -r '.body // ""' "$T/issue.json" > "$T/body.md"
-    lib_parse "$T/body.md" "$T/parsed.json"
-    case $? in
+    case $RS_RC in
         0) ;;
         3|65) lib_die2 "#$REF is not a canonical roadmap record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
         *) lib_die2 "record-parse.sh failed" ;;

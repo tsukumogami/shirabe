@@ -19,10 +19,12 @@
 # vars and run-facts); the override flags exist for tests only.
 #
 # --run sets one Run key: arguments (the run's arguments as given), cap (a
-# number) or coordinator (the address messages to this coordinator reach: a
+# number), coordinator (the address messages to this coordinator reach: a
 # session name a worker can message, `_` allowed, or a dispatch topic; never
-# an id or a path). A new coordinator clears every `told` row, since nobody
-# has been told the new address yet. --told records that WHO (a worker's
+# an id or a path) or store (the record's store, `github` or `session`,
+# written with --by naming the person who decided it; roadmap scope only, and
+# `session` is refused until the session store ships). A new coordinator
+# clears every `told` row, since nobody has been told the new address yet. --told records that WHO (a worker's
 # dispatch topic, or another party's session name) was sent the current
 # address; it needs a coordinator row.
 #
@@ -144,7 +146,7 @@ while [ $# -gt 0 ]; do
 done
 case "$MODE" in
     run) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage
-         case "$KEY" in arguments|cap|coordinator) ;; *) echo "$PROG: --run takes arguments, cap or coordinator" >&2; exit 64 ;; esac ;;
+         case "$KEY" in arguments|cap|coordinator|store) ;; *) echo "$PROG: --run takes arguments, cap, coordinator or store" >&2; exit 64 ;; esac ;;
     told) [ -n "$BY" ] && [ -z "$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
     standing) [ -n "$WHAT" ] && [ -n "$OWNER" ] && [ -z "$BY$WHO$NEXT" ] || usage ;;
     end) [ -n "$BY" ] && [ -z "$WHO$WHAT$OWNER$RELAYED$NEXT$KIND$ON$UNTIL" ] || usage ;;
@@ -155,6 +157,17 @@ case "$MODE" in
 esac
 . "$HERE/record-common.sh"
 lib_facts
+# The record's store (docs/designs/DESIGN-coordinator-session-record.md,
+# Decision 2): only a roadmap record has one, its value is github or session,
+# and this release can't move a record to the session store yet.
+if [ "$MODE" = run ] && [ "$KEY" = store ]; then
+    [ "$SCOPE" = roadmap ] || { echo "$PROG: refused: a discipline record has no store row; the session store is for roadmap scope" >&2; exit 65; }
+    case "$VALUE" in
+        github) ;;
+        session) echo "$PROG: refused: $RS_STORE_UNAVAILABLE" >&2; exit 65 ;;
+        *) echo "$PROG: refused: store-malformed: a store is github or session" >&2; exit 65 ;;
+    esac
+fi
 if [ "$OVERRIDE" = 1 ]; then
     [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
 else
@@ -171,18 +184,15 @@ fi
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-state.XXXXXX")
 trap 'rm -rf "$WD"' EXIT
 
-if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read issue #$REF"
-else
-    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read pull request #$REF"
-fi
-tr -d '\r' < "$WD/live.raw" > "$WD/live.md"
-lib_parse "$WD/live.md" "$WD/parsed.json"
+rs_record "$WD/parsed.json" body --json body --jq .body
 case $? in
     0) ;;
+    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+cp "$WD/parsed.json.md" "$WD/live.md"
 
 if [ "$MODE" = list ]; then
     jq -c '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$WD/parsed.json"
