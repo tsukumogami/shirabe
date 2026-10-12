@@ -1271,8 +1271,10 @@ fn reject_outside_root(path: &str, root: &Path) -> Result<(), String> {
 /// `abs` as the filesystem resolves it: its nearest existing ancestor
 /// canonicalized (symlinks and `..` resolved, as an open of the path would),
 /// then the components that don't exist yet appended and resolved lexically,
-/// which is exact for them since a missing component can't be a symlink. Falls
-/// back to the lexical form when no ancestor can be canonicalized.
+/// since there is nothing on disk to follow for them. A dangling symlink also
+/// fails to canonicalize, so it is taken as a name the way a missing component
+/// is, as the lexical check before this took it. Falls back to the lexical form
+/// when no ancestor can be canonicalized.
 fn resolve_symlinks(abs: &Path) -> PathBuf {
     let mut existing = abs;
     let mut missing: Vec<&std::ffi::OsStr> = Vec::new();
@@ -1908,6 +1910,18 @@ mod tests {
         assert!(
             reject_outside_root(&escape, &repo_root).is_err(),
             "a `..` escape spelled through the link is refused"
+        );
+
+        // The other direction: a symlink inside the repo that points outside it.
+        // The path is lexically inside, but the file it opens is not.
+        std::os::unix::fs::symlink(&outside_dir, root.join("docs/ext")).expect("symlink out");
+        let through_ext = root
+            .join("docs/ext/PRD-outside.md")
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            reject_outside_root(&through_ext, &repo_root).is_err(),
+            "a path through an in-repo symlink to outside the repo is refused"
         );
     }
 

@@ -1242,8 +1242,10 @@ fn parent_dir(abs: &Path) -> &Path {
 /// `abs` as the filesystem resolves it: its nearest existing ancestor
 /// canonicalized (symlinks and `..` resolved, as an open of the path would),
 /// then the components that don't exist yet appended and resolved lexically,
-/// which is exact for them since a missing component can't be a symlink. Falls
-/// back to the lexical form when no ancestor can be canonicalized. A pointer
+/// since there is nothing on disk to follow for them. A dangling symlink also
+/// fails to canonicalize, so it is taken as a name the way a missing component
+/// is, as the lexical check before this took it. Falls back to the lexical form
+/// when no ancestor can be canonicalized. A pointer
 /// such as `--superseded-by` need not exist yet, which is why the walk stops at
 /// the nearest existing ancestor rather than requiring the whole path.
 fn resolve_symlinks(abs: &Path) -> std::path::PathBuf {
@@ -2470,6 +2472,30 @@ mod tests {
         assert_eq!(
             err.code, 1,
             "an outside pointer is refused: {}",
+            err.message
+        );
+        assert!(
+            err.message.contains("outside the repository work tree"),
+            "by the confinement guard: {}",
+            err.message
+        );
+
+        // The other direction: a pointer through a symlink inside the repo that
+        // points outside it is lexically inside, but names a file outside.
+        std::os::unix::fs::symlink(&outside_dir, root.join("docs/ext")).expect("symlink out");
+        let flags = Flags {
+            superseded_by: Some(
+                root.join("docs/ext/DESIGN-new.md")
+                    .to_string_lossy()
+                    .into_owned(),
+            ),
+            ..Flags::default()
+        };
+        let err = run_transition(&via_link, "Superseded", &flags)
+            .expect_err("a pointer through an in-repo symlink to outside");
+        assert!(
+            err.message.contains("outside the repository work tree"),
+            "refused by the confinement guard: {}",
             err.message
         );
 
