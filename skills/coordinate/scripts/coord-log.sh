@@ -39,9 +39,11 @@
 #       Prints {"scope","name","repo","ref"}. Exit 0; 1 no found record in the
 #       run; 2 read failure.
 #   coord-log.sh run-store --session S
-#       Prints the run's store, `session` when the sealed RECORD_FIND token
-#       reads `found <n> session`, else `github` (a run with no found record
-#       included). Exit 0.
+#       Prints the run's store from the sealed RECORD_FIND token: `session`
+#       only for a token reading `found <n> session`, else `github` (a run with
+#       no found record, or a token that doesn't check, included). record-find.sh
+#       emits no such token in this release, where it stops a session-store
+#       record before reconcile, so every run reads `github` here. Exit 0.
 #   coord-log.sh run-start --session S       Prints the header's created_at.
 #   coord-log.sh chain-start --session S
 #       Prints the created_at of the earliest run in the unbroken chain of
@@ -314,9 +316,10 @@ run-facts)
         repo: .HOST_REPO, ref: $ref}'
     ;;
 run-store)
-    # The run's store, from the same sealed RECORD_FIND token run-facts reads:
-    # `found <n> session` is a record on the session store, `found <n>` (and a
-    # run with no found record) the GitHub store.
+    # The run's store, from the same sealed RECORD_FIND token run-facts reads.
+    # Only a `found <n> session` token names the session store, and the find
+    # emits none in this release; `found <n>`, a run with no found record and a
+    # token whose seal doesn't check all read as the GitHub store.
     need SESSION
     FOUND=$(bash "$0" capture --session "$SESSION" --name RECORD_FIND 2>/dev/null) || { echo github; exit 0; }
     bash "$0" check --session "$SESSION" --state record_find --sealed "$FOUND" --any-visit >/dev/null 2>&1 || { echo github; exit 0; }

@@ -30,8 +30,10 @@
 #       read with board-lib.sh's bl_gh (its retry and deadline) when the caller
 #       sourced board-lib.sh. The repository, number and scope come from the
 #       run's facts (coord-log.sh run-facts) of <session>, $SESSION when not
-#       given. Writes <out> and <out>.md. Returns 0 parsed; 2 the read or the
-#       parse failed, or the store is session.
+#       given. Writes <out>, <out>.md and the raw response <out>.rec (with
+#       bl_gh's <out>.rec.err and <out>.rec.fail, or gh's <out>.rec.err), all
+#       beside <out>, for the caller's own scratch directory to clean up.
+#       Returns 0 parsed; 2 the read or the parse failed, or the store is session.
 #   rs_view <container> <ref> <repo> <gh view args...>
 #       Prints the container's fields as `gh <issue|pr> view <ref> --repo <repo>
 #       <args>` prints them, the body among them, for the one reader that keeps
@@ -47,10 +49,13 @@
 #       go-ahead rows pause-read.sh reads. Returns 0 printed; 1 no holding has
 #       that topic; 2 the record couldn't be read.
 #   rs_source
-#       Prints the run's store, `github` or `session`: the one record-find.sh
-#       sealed in its RECORD_FIND token (coord-log.sh run-store), else `github`
-#       (nothing reads the record before the find). Under the test override
-#       flags it is `github` unless RS_SOURCE names another.
+#       Prints the run's store, `github` or `session`, as coord-log.sh run-store
+#       reads it from the run's sealed RECORD_FIND token, and caches it in
+#       RS_SOURCE_READ for the session in RS_SOURCE_FOR, which rs_record and
+#       rs_record_api read. In this release the token carries the verdict and
+#       the record's number only, because the find stops a session-store record,
+#       so run-store prints `github` for every run that reaches a reader. Under
+#       the test override flags it is `github` unless RS_SOURCE names another.
 #   rs_probe
 #       Prints what this koto offers the session store, by feature:
 #       {"context_list_prefix": bool, "session_import": bool}.

@@ -133,6 +133,8 @@ log_to "$SF" start_posture record_find 2026-09-26T07:01:00.000Z
 bash "$HERE/record-find.sh" --session "$SF" >/dev/null 2>&1
 jq -r .reason "$KOTO_STORE/context/$SF/coord/record_find.json" 2>/dev/null | grep -q '^store-unavailable' \
     && ok "  ... with the reason store-unavailable" || bad "  ... with the reason store-unavailable" "$(cat "$KOTO_STORE/context/$SF/coord/record_find.json" 2>/dev/null)"
+eq "  ... and coord/source.json names the record's own refusal, on the GitHub store" "github|store-unavailable: the record's store is session" \
+    "$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$SF/coord/source.json" | cut -d, -f1)"
 grep -Eq '^(issue|pr) (edit|close|create)|api --method (POST|PATCH|PUT)' "$GH_DB.calls" && bad "  ... and writes nothing" "$(calls)" || ok "  ... and writes nothing"
 
 # rs_record on the session store, under the test override.
@@ -179,6 +181,11 @@ eq "  ... and the probe's reading of a koto with neither feature" '{"context_lis
 printf '%s' "$SRC" | jq -r .reason | grep -q 'is ignored: the record decides' \
     && ok "  ... and reports the invocation's --store ignored" || bad "  ... and reports the invocation's --store ignored" "$SRC"
 eq "rs_source reads it" github "$(bash "$RS" --session "$S" --source 2>/dev/null)"
+# What the sealed token carries in this release: the verdict and the record's
+# number, never the store; run-store reads the GitHub store from it.
+log_capture "$S" RECORD_FIND "$OUT" 2026-09-26T08:01:00.000Z
+eq "the sealed token is the verdict and the number only" "found 7" "$(bash "$HERE/coord-log.sh" capture --session "$S" --name RECORD_FIND | sed 's/ sealed:.*//')"
+eq "  ... and coord-log.sh run-store reads github from it" github "$(bash "$HERE/coord-log.sh" run-store --session "$S")"
 
 # A session opened outside coordinate-open.sh with STORE=session, on a scope
 # with no record: the find stops it rather than open a record for it.

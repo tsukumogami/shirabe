@@ -133,12 +133,13 @@ finish() {
 
 # write_source: the run's store, decided here and nowhere else
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 2), with the
-# probe's reading of koto, into coord/source.json for a person to read. The
-# run's readers take the store from the sealed token instead (coord-log.sh
-# run-store, through record-source.sh's rs_source). A found record's store is
-# its own `store` Run row, `github` without one; the invocation's --store (the
-# STORE variable) decides only for a scope with no record, and is reported
-# ignored otherwise.
+# probe's reading of koto, into coord/source.json for a person to read. A found
+# record's store is its own `store` Run row, `github` without one; the
+# invocation's --store (the STORE variable) decides only for a scope with no
+# record, and is reported ignored otherwise. A refusal (a session-store record,
+# or a store the invocation can't have) records the GitHub store and the
+# refusal's own reason. The run's readers take the store from coord-log.sh
+# run-store, which reads `github` for every run that gets past this find.
 write_source() {
     [ "$NO_SEAL" = 1 ] && return 0
     local flag=$FLAG store reason probe
@@ -165,7 +166,8 @@ write_source() {
 record_store() {
     RECORD_STORE=$(jq -r '[(.run // [])[] | select(.key == "store") | .value][0] // ""' "$T/parsed.json")
     if [ "$RECORD_STORE" = session ]; then
-        VERDICT=malformed; REASON="store-unavailable: the record's store is session, which this release can't read"
+        VERDICT=malformed; FLAG_REFUSED=1
+        REASON="store-unavailable: the record's store is session, which this release can't read"
         return 1
     fi
     return 0

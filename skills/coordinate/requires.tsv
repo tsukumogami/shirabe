@@ -80,8 +80,9 @@ koto	context exists	-	always
 # record-find.sh at every start): it reads by feature, from each subcommand's
 # own help, whether this koto lists keys by prefix and imports a session. The
 # records are mode:session-store, never checked at load, so a run on the GitHub
-# store keeps shirabe's koto minimum; a run on the session store stops at the
-# find when the probe reads a feature missing
+# store keeps shirabe's koto minimum. In this release the probe only records
+# what it read, in coord/source.json; the session store, and a stop on a
+# missing feature, arrive with the change that ships it
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 2).
 koto	context list	--prefix	mode:session-store
 koto	session import	--from,--trust-template	mode:session-store

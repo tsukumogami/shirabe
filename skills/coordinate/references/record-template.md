@@ -381,7 +381,7 @@ Every script reads the record's state through `scripts/record-source.sh`: its
 and parses the body; `rs_record_api` is the land check's and the merge's read
 under their deadline; `rs_facts` gives one holding's repository, pull request,
 branch, verified head, holds and pauses. A run's store comes from the record's
-`store` row, sealed by the find in `coord/source.json`.
+`store` row, which the find writes to `coord/source.json` with why.
 
 A coordinator's state lives outside its session and outside any directory the
 workspace manager converges, and what must outlive the host lives on GitHub.
