@@ -85,10 +85,12 @@ VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD
 # The invocation's --store (the STORE variable), read once. coordinate-open.sh
 # refuses `session` and any store at discipline scope before a session exists;
 # the find refuses them too, since a session opened some other way reaches here
-# with whatever the variable's pattern admits.
+# with whatever the variable's pattern admits. A session whose variables can't
+# be read stops here, rather than being taken as one with no --store.
 FLAG=
 if [ -n "$SESSION" ]; then
-    FLAG=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" 2>/dev/null | jq -r '.STORE // ""' 2>/dev/null)
+    FLAG=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" | jq -r '.STORE // ""') \
+        || lib_die2 "the session's variables couldn't be read"
 fi
 
 # store_flag_guard: the invocation's store, where it decides: a discipline
@@ -138,8 +140,12 @@ finish() {
 # invocation's --store (the STORE variable) decides only for a scope with no
 # record, and is reported ignored otherwise. A refusal (a session-store record,
 # or a store the invocation can't have) records the GitHub store and the
-# refusal's own reason. The run's readers take the store from coord-log.sh
-# run-store, which reads `github` for every run that gets past this find.
+# refusal's own reason, and so does a candidate the find rejected (malformed,
+# store-malformed among them, ambiguous, foreign, unauthorized, stale-branch,
+# predecessor): there is a record, it just wasn't adopted. The file records the
+# store the run reads, not the one asked for. The run's readers take the store
+# from coord-log.sh run-store, which reads `github` for every run that gets past
+# this find.
 write_source() {
     [ "$NO_SEAL" = 1 ] && return 0
     local flag=$FLAG store reason probe
@@ -150,10 +156,13 @@ write_source() {
         reason="the record's store"
         [ -n "$RECORD_STORE" ] || reason="the record has no store row"
         [ -z "$flag" ] || reason="$reason; the invocation's --store $flag is ignored: the record decides"
-    else
+    elif [ "$VERDICT" = none ] || [ "$VERDICT" = unopened ]; then
         store=${flag:-github}
         reason="no record found: the invocation's store"
         [ -n "$flag" ] || reason="no record found and no --store"
+    else
+        store=github
+        reason="no record adopted: $VERDICT: $REASON"
     fi
     probe=$(rs_probe)
     jq -n --arg s "$store" --arg r "$reason" --argjson p "$probe" '{source: $s, reason: $r, probe: $p}' > "$T/source.json"

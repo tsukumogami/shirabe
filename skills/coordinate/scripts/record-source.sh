@@ -156,7 +156,11 @@ rs_record_api() {
     ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
     scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
     name=$(printf '%s' "$facts" | jq -r '.name // ""')
-    [[ $rrepo =~ $RE_REPO ]] && [[ $ref =~ $RE_NUM ]] || return 2
+    # The checks board-lib.sh's bl_repo_ok and bl_pr_ok made on this read before
+    # the seam: no `.` or `..` segment in the repository, a number of at most nine
+    # digits.
+    [[ $rrepo =~ $RE_REPO ]] && [[ $ref =~ $RE_NUM ]] && [ ${#ref} -le 9 ] || return 2
+    case "/$rrepo/" in */./*|*/../*) return 2 ;; esac
     case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
     if declare -F bl_gh > /dev/null; then
         bl_gh "$out.rec" api --method GET "repos/$rrepo/issues/$ref" || return 2

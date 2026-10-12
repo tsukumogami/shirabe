@@ -239,7 +239,8 @@ fi
 case "$WORD" in
     clear|clear-report) ;;
     *)
-        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref)
+        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
+            || lib_die2 "cannot read the record's number"
         rs_record "$T/live" body --json body --jq .body
         case $? in 2|4|5) lib_die2 "cannot read the record" ;; esac
         SIZE=$(wc -c < "$T/live.md" | tr -d ' ')

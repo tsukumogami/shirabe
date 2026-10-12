@@ -207,8 +207,10 @@ koto, to `coord/source.json`, so a successor never guesses. This release reads o
 the GitHub store: a `session` row stops the run at the find.
 
 Every script reads the record's state through one reader,
-`scripts/record-source.sh`, whichever store the run is on; no other script
-parses a record body, and a test holds every script to it.
+`scripts/record-source.sh`, whichever store the run is on. The only other
+scripts that parse a record body are the finder, the opener and the write core,
+which parse what they are about to adopt or write, and reconcile's reader, which
+salvages a body the seam handed it; a test holds every script to that list.
 
 The body is the record's state. Its account, what happened and why, goes in
 entries: each one comment on the same issue or pull request, written with

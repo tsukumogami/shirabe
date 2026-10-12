@@ -208,6 +208,65 @@ eq "a discipline run with a store is stopped at the find" malformed "$(printf '%
 jq -r .reason "$KOTO_STORE/context/$SD/coord/record_find.json" | grep -q '^store-discipline' \
     && ok "  ... as store-discipline" || bad "  ... as store-discipline" "$(cat "$KOTO_STORE/context/$SD/coord/record_find.json")"
 
+# A candidate the find rejects is a record it didn't adopt, not a missing one:
+# coord/source.json says so, with the find's own verdict and reason.
+# The renderer refuses a bogus store, so the bogus row is edited into a rendered one.
+sed '/^| store |/s/| github |/| bogus |/' "$T/gh.md" > "$T/bogus.md"
+grep -q '^| store | bogus |' "$T/bogus.md" && [ "$(diff "$T/gh.md" "$T/bogus.md" | grep -c '^>')" = 1 ] \
+    && ok "the fixture carries a store row reading bogus" || bad "the fixture carries a store row reading bogus" "$(grep -n store "$T/gh.md")"
+db_init
+db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/bogus.md")"
+SB=coordinate-roadmap-plugin-system-20260926T050000Z
+log_new "$SB" "$(roadmap_vars plugin-system)"
+log_to "$SB" start_posture record_find 2026-09-26T05:01:00.000Z
+OUT=$(bash "$HERE/record-find.sh" --session "$SB" 2>"$T/err")
+eq "a record whose store row reads bogus is malformed at the find" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
+SRC=$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$SB/coord/source.json")
+case "$SRC" in
+    "github|no record adopted: malformed: "*store-malformed*) ok "  ... and coord/source.json names the malformed record, not a missing one" ;;
+    *) bad "  ... and coord/source.json names the malformed record, not a missing one" "$SRC" ;;
+esac
+# Two open candidates: ambiguous, again a record that wasn't adopted.
+db_init
+db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null},
+                {repo: "acme/widgets", number: 8, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/gh.md")"
+SA=coordinate-roadmap-plugin-system-20260926T040000Z
+log_new "$SA" "$(roadmap_vars plugin-system)"
+log_to "$SA" start_posture record_find 2026-09-26T04:01:00.000Z
+OUT=$(bash "$HERE/record-find.sh" --session "$SA" 2>"$T/err")
+eq "two open candidates are ambiguous at the find" ambiguous "$(printf '%s' "$OUT" | cut -d' ' -f1)"
+SRC=$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$SA/coord/source.json")
+case "$SRC" in
+    "github|no record adopted: ambiguous: "*) ok "  ... and coord/source.json says no record was adopted" ;;
+    *) bad "  ... and coord/source.json says no record was adopted" "$SRC" ;;
+esac
+# rs_record_api keeps the checks board-lib made on this read before the seam: a
+# record number of ten digits is refused before any read, nine digits is read.
+api_on() { # api_on <number> <session>: find the record numbered <number>, then read it through rs_record_api
+    db_init
+    db '.issues += [{repo: "acme/widgets", number: ($n | tonumber), title: $t, body: $b, state: "open", author: "alice", editor: null}]' \
+        --arg n "$1" --arg t "$TITLE" --arg b "$(cat "$T/gh.md")"
+    log_new "$2" "$(roadmap_vars plugin-system)"
+    log_to "$2" start_posture record_find 2026-09-26T02:01:00.000Z
+    log_capture "$2" RECORD_FIND "$(bash "$HERE/record-find.sh" --session "$2" 2>/dev/null)" 2026-09-26T02:01:00.000Z
+    reset_calls
+    ( PROG=t; . "$HERE/record-common.sh"; rs_record_api "$T/api" "$2" 2>/dev/null; echo "rc=$?" )
+}
+eq "a ten-digit record number is refused by rs_record_api" rc=2 "$(api_on 1234567890 coordinate-roadmap-plugin-system-20260926T020000Z)"
+grep -q 'api' "$GH_DB.calls" && bad "  ... before any read" "$(calls)" || ok "  ... before any read"
+eq "a nine-digit record number is read" rc=0 "$(api_on 123456789 coordinate-roadmap-plugin-system-20260926T021000Z)"
+grep -q 'api' "$GH_DB.calls" && ok "  ... through the API" || bad "  ... through the API" "$(calls)"
+
+# No candidate at all: the one case that is "no record found".
+db_init
+S0=coordinate-roadmap-plugin-system-20260926T030000Z
+log_new "$S0" "$(roadmap_vars plugin-system)"
+log_to "$S0" start_posture record_find 2026-09-26T03:01:00.000Z
+OUT=$(bash "$HERE/record-find.sh" --session "$S0" 2>"$T/err")
+eq "no candidate is none at the find" none "$(printf '%s' "$OUT" | cut -d' ' -f1)"
+eq "  ... and coord/source.json says no record was found" "github|no record found and no --store" \
+    "$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$S0/coord/source.json")"
+
 # ---- 5. the pinned interface outside readers use ----------------------------------
 
 echo "== 5. cost entries on a record on the GitHub store =="
