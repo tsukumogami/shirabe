@@ -37,7 +37,11 @@
 # record's store is its `store` Run row (`github` without one); a record whose
 # store is `session` is reported `malformed` with the reason
 # `store-unavailable`, since this release reads only the GitHub store, and a
-# malformed or doubled `store` row is `malformed` with `store-malformed`.
+# malformed or doubled `store` row is `malformed` with `store-malformed`. The
+# invocation's store (the STORE variable) is refused here as well as at the
+# opener: any value at discipline scope is `malformed` with `store-discipline`,
+# and `session` on a scope with no record is `malformed` with
+# `store-unavailable`, so no record is opened for it.
 # The token, sealed to this visit of record_find, is the only stdout line;
 # under --no-seal it is printed bare and no context is written.
 #
@@ -77,9 +81,38 @@ if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u 
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-find.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE=
+VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE= FLAG_REFUSED=
+# The invocation's --store (the STORE variable), read once. coordinate-open.sh
+# refuses `session` and any store at discipline scope before a session exists;
+# the find refuses them too, since a session opened some other way reaches here
+# with whatever the variable's pattern admits.
+FLAG=
+if [ -n "$SESSION" ]; then
+    FLAG=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" 2>/dev/null | jq -r '.STORE // ""' 2>/dev/null)
+fi
+
+# store_flag_guard: the invocation's store, where it decides: a discipline
+# record has no store, and a new roadmap scope can't start on the session store
+# in this release. Either stops the run at record_conflict, before any record is
+# opened, as malformed with the reason named.
+store_flag_guard() {
+    [ -n "$FLAG" ] || return 0
+    if [ "$SCOPE" = discipline ]; then
+        VERDICT=malformed; NUM=; FLAG_REFUSED=1
+        REASON="store-discipline: a discipline rotation has no store; the invocation's --store $FLAG is refused"
+        return 0
+    fi
+    case "$VERDICT" in
+        none|stale-branch|unopened)
+            if [ "$FLAG" = session ]; then
+                VERDICT=malformed; NUM=; FLAG_REFUSED=1
+                REASON="store-unavailable: a new scope can't start on the session store in this release"
+            fi ;;
+    esac
+}
 
 finish() {
+    store_flag_guard
     local token=$VERDICT
     [ -n "$NUM" ] && token="$VERDICT $NUM"
     jq -n --arg v "$VERDICT" --arg ref "$NUM" --arg url "$URL" --arg reason "$REASON" \
@@ -108,9 +141,10 @@ finish() {
 # otherwise.
 write_source() {
     [ "$NO_SEAL" = 1 ] && return 0
-    local flag store reason probe
-    flag=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" 2>/dev/null | jq -r '.STORE // ""' 2>/dev/null)
-    if [ "$VERDICT" = found ]; then
+    local flag=$FLAG store reason probe
+    if [ -n "$FLAG_REFUSED" ]; then
+        store=github; reason=$REASON
+    elif [ "$VERDICT" = found ]; then
         store=${RECORD_STORE:-github}
         reason="the record's store"
         [ -n "$RECORD_STORE" ] || reason="the record has no store row"

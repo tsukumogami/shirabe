@@ -180,6 +180,26 @@ printf '%s' "$SRC" | jq -r .reason | grep -q 'is ignored: the record decides' \
     && ok "  ... and reports the invocation's --store ignored" || bad "  ... and reports the invocation's --store ignored" "$SRC"
 eq "rs_source reads it" github "$(bash "$RS" --session "$S" --source 2>/dev/null)"
 
+# A session opened outside coordinate-open.sh with STORE=session, on a scope
+# with no record: the find stops it rather than open a record for it.
+db_init
+SN=coordinate-roadmap-plugin-system-20260926T060000Z
+log_new "$SN" "$(roadmap_vars plugin-system | jq -c '. + {STORE: "session"}')"
+log_to "$SN" start_posture record_find 2026-09-26T06:01:00.000Z
+OUT=$(bash "$HERE/record-find.sh" --session "$SN" 2>"$T/err")
+eq "a new scope with STORE=session is stopped at the find" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
+jq -r .reason "$KOTO_STORE/context/$SN/coord/record_find.json" | grep -q '^store-unavailable' \
+    && ok "  ... as store-unavailable" || bad "  ... as store-unavailable" "$(cat "$KOTO_STORE/context/$SN/coord/record_find.json")"
+eq "  ... and the store it seals is github, not session" github "$(jq -r .source "$KOTO_STORE/context/$SN/coord/source.json")"
+# The same at discipline scope, with any store.
+SD=coordinate-discipline-ci-health-20260926T060000Z
+log_new "$SD" "$(discipline_vars ci-health | jq -c '. + {STORE: "github"}')"
+log_to "$SD" start_posture record_find 2026-09-26T06:01:00.000Z
+OUT=$(bash "$HERE/record-find.sh" --session "$SD" --today 2026-09-26 2>"$T/err")
+eq "a discipline run with a store is stopped at the find" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
+jq -r .reason "$KOTO_STORE/context/$SD/coord/record_find.json" | grep -q '^store-discipline' \
+    && ok "  ... as store-discipline" || bad "  ... as store-discipline" "$(cat "$KOTO_STORE/context/$SD/coord/record_find.json")"
+
 # ---- 5. the pinned interface outside readers use ----------------------------------
 
 echo "== 5. cost entries on a record on the GitHub store =="
