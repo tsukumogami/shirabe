@@ -1244,6 +1244,10 @@ fn current_status_of(doc_path: &str) -> Option<String> {
 
 /// Reject `path` if it resolves outside `root`. Mirrors the transition module's
 /// confinement guard so the chain walk cannot read outside the repo work tree.
+/// Both sides are compared with their symlinks resolved, the way the filesystem
+/// will resolve them: `git rev-parse --show-toplevel` reports the root's physical
+/// path, so a path spelled through a symlink (macOS's `/var` is one) must be
+/// resolved too, or a file inside the repo reads as outside it.
 fn reject_outside_root(path: &str, root: &Path) -> Result<(), String> {
     let p = Path::new(path);
     let abs = if p.is_absolute() {
@@ -1252,8 +1256,8 @@ fn reject_outside_root(path: &str, root: &Path) -> Result<(), String> {
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         cwd.join(p)
     };
-    let normalized = lexical_normalize(&abs);
-    let root_norm = lexical_normalize(root);
+    let normalized = resolve_symlinks(&abs);
+    let root_norm = resolve_symlinks(root);
     if normalized.starts_with(&root_norm) {
         Ok(())
     } else {
@@ -1261,6 +1265,32 @@ fn reject_outside_root(path: &str, root: &Path) -> Result<(), String> {
             "path resolves outside the repository work tree: {}",
             path
         ))
+    }
+}
+
+/// `abs` as the filesystem resolves it: its nearest existing ancestor
+/// canonicalized (symlinks and `..` resolved, as an open of the path would),
+/// then the components that don't exist yet appended and resolved lexically,
+/// which is exact for them since a missing component can't be a symlink. Falls
+/// back to the lexical form when no ancestor can be canonicalized.
+fn resolve_symlinks(abs: &Path) -> PathBuf {
+    let mut existing = abs;
+    let mut missing: Vec<&std::ffi::OsStr> = Vec::new();
+    loop {
+        if let Ok(real) = std::fs::canonicalize(existing) {
+            let mut out = real;
+            for c in missing.iter().rev() {
+                out.push(c);
+            }
+            return lexical_normalize(&out);
+        }
+        match (existing.parent(), existing.components().next_back()) {
+            (Some(parent), Some(last)) => {
+                missing.push(last.as_os_str());
+                existing = parent;
+            }
+            _ => return lexical_normalize(abs),
+        }
     }
 }
 
@@ -1827,6 +1857,57 @@ mod tests {
             err.message.contains("symlink"),
             "explains the symlink rejection: {}",
             err.message
+        );
+    }
+
+    /// A repository reached through a symlinked directory (macOS's `/var` is
+    /// one): `git rev-parse --show-toplevel` reports the physical root, so a
+    /// PLAN spelled through the link must still read as inside the repo, and
+    /// its chain walks. The guard still refuses a file that really lives
+    /// outside the repo, including one reached by `..` through the link.
+    #[test]
+    fn a_repo_behind_a_symlinked_directory_walks_and_an_outside_path_is_refused() {
+        let root = fresh_git_repo();
+        let name = root.file_name().unwrap().to_string_lossy().into_owned();
+        let prd = write_repo_doc(&root, "docs/prds/PRD-ok.md", "Draft", None, "");
+        write_repo_doc(&root, "docs/plans/PLAN-ok.md", "Draft", Some(&prd), "");
+        let link = root.with_file_name(format!("{name}-link"));
+        std::os::unix::fs::symlink(&root, &link).expect("symlink the repo directory");
+
+        let via_link = link
+            .join("docs/plans/PLAN-ok.md")
+            .to_string_lossy()
+            .into_owned();
+        let report = walk_chain_mode(&via_link, Mode::DryRun)
+            .expect("a PLAN spelled through the link is inside the repo");
+        assert_eq!(report.nodes.len(), 2, "the PLAN and its PRD are walked");
+
+        let repo_root = repo_root_for(Path::new(&via_link));
+        let via_link_prd = link
+            .join("docs/prds/PRD-ok.md")
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            reject_outside_root(&via_link_prd, &repo_root).is_ok(),
+            "a file spelled through the link is inside the repo"
+        );
+
+        // A file that really lives outside the repo, beside it.
+        let outside_dir = root.with_file_name(format!("{name}-outside"));
+        fs::create_dir_all(&outside_dir).expect("mkdir outside");
+        let outside = outside_dir.join("PRD-outside.md");
+        fs::write(&outside, "outside").expect("write outside");
+        let err = reject_outside_root(&outside.to_string_lossy(), &repo_root)
+            .expect_err("a file outside the repo is refused");
+        assert!(err.contains("outside the repository work tree"), "{err}");
+        let escape = link
+            .join("docs/../..")
+            .join(format!("{name}-outside/PRD-outside.md"))
+            .to_string_lossy()
+            .into_owned();
+        assert!(
+            reject_outside_root(&escape, &repo_root).is_err(),
+            "a `..` escape spelled through the link is refused"
         );
     }
 

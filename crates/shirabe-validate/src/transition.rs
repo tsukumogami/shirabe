@@ -1218,10 +1218,12 @@ fn reject_outside_root(path: &str, root: &Path) -> Result<(), TransitionError> {
     } else {
         root.join(p)
     };
-    // Lexically resolve `..`/`.` so an escaping path is judged by where it
-    // actually points, not its literal spelling.
-    let normalized = lexical_normalize(&abs);
-    let root_norm = lexical_normalize(root);
+    // Resolve `..`/`.` and symlinks on both sides so an escaping path is judged
+    // by where it actually points, not its literal spelling: the root comes from
+    // `git rev-parse --show-toplevel`, which reports the physical path, so a path
+    // spelled through a symlink (macOS's `/var` is one) must be resolved too.
+    let normalized = resolve_symlinks(&abs);
+    let root_norm = resolve_symlinks(root);
     if normalized.starts_with(&root_norm) {
         Ok(())
     } else {
@@ -1235,6 +1237,34 @@ fn reject_outside_root(path: &str, root: &Path) -> Result<(), TransitionError> {
 /// The parent directory of an absolute path, or the path itself if it has none.
 fn parent_dir(abs: &Path) -> &Path {
     abs.parent().unwrap_or(abs)
+}
+
+/// `abs` as the filesystem resolves it: its nearest existing ancestor
+/// canonicalized (symlinks and `..` resolved, as an open of the path would),
+/// then the components that don't exist yet appended and resolved lexically,
+/// which is exact for them since a missing component can't be a symlink. Falls
+/// back to the lexical form when no ancestor can be canonicalized. A pointer
+/// such as `--superseded-by` need not exist yet, which is why the walk stops at
+/// the nearest existing ancestor rather than requiring the whole path.
+fn resolve_symlinks(abs: &Path) -> std::path::PathBuf {
+    let mut existing = abs;
+    let mut missing: Vec<&std::ffi::OsStr> = Vec::new();
+    loop {
+        if let Ok(real) = std::fs::canonicalize(existing) {
+            let mut out = real;
+            for c in missing.iter().rev() {
+                out.push(c);
+            }
+            return lexical_normalize(&out);
+        }
+        match (existing.parent(), existing.components().next_back()) {
+            (Some(parent), Some(last)) => {
+                missing.push(last.as_os_str());
+                existing = parent;
+            }
+            _ => return lexical_normalize(abs),
+        }
+    }
 }
 
 /// Lexically resolve `.` and `..` segments in an absolute path without touching
@@ -2407,5 +2437,54 @@ mod tests {
         };
         let err = run_transition(&path, "Superseded", &flags).expect_err("err");
         assert_eq!(err.code, 1);
+    }
+
+    /// A repository reached through a symlinked directory (macOS's `/var` is
+    /// one): `git rev-parse --show-toplevel` reports the physical root, so a doc
+    /// and a `--superseded-by` pointer spelled through the link are inside the
+    /// repo, the pointer even though it doesn't exist yet. A pointer to a file
+    /// that really lives outside the repo is still refused.
+    #[test]
+    fn a_repo_behind_a_symlinked_directory_is_inside_and_an_outside_pointer_is_not() {
+        let doc =
+            "---\nschema: design/v1\nstatus: Current\n---\n\n# Title\n\n## Status\n\nCurrent\n";
+        let (root, _) = write_doc_in_git_repo("docs/designs/current/DESIGN-old.md", doc);
+        let name = root.file_name().unwrap().to_string_lossy().into_owned();
+        let link = root.with_file_name(format!("{name}-link"));
+        std::os::unix::fs::symlink(&root, &link).expect("symlink the repo directory");
+        let via_link = link
+            .join("docs/designs/current/DESIGN-old.md")
+            .to_string_lossy()
+            .into_owned();
+
+        // A real file outside the repo, beside it.
+        let outside_dir = root.with_file_name(format!("{name}-outside"));
+        fs::create_dir_all(&outside_dir).expect("mkdir outside");
+        let outside = outside_dir.join("DESIGN-new.md");
+        fs::write(&outside, "outside").expect("write outside");
+        let flags = Flags {
+            superseded_by: Some(outside.to_string_lossy().into_owned()),
+            ..Flags::default()
+        };
+        let err = run_transition(&via_link, "Superseded", &flags).expect_err("an outside pointer");
+        assert_eq!(
+            err.code, 1,
+            "an outside pointer is refused: {}",
+            err.message
+        );
+
+        let pointer = link
+            .join("docs/designs/DESIGN-new.md")
+            .to_string_lossy()
+            .into_owned();
+        let flags = Flags {
+            superseded_by: Some(pointer.clone()),
+            ..Flags::default()
+        };
+        let outcome = run_transition(&via_link, "Superseded", &flags)
+            .expect("a doc and a not-yet-written pointer through the link are inside the repo");
+        assert_eq!(outcome.new_status, "Superseded");
+        assert_eq!(outcome.extra_field, ExtraField::SupersededBy(pointer));
+        assert!(root.join("docs/designs/archive/DESIGN-old.md").is_file());
     }
 }
