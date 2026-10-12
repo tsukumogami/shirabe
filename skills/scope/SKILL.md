@@ -296,7 +296,9 @@ It prints `/scope finished: exit=<exit>; artifact=<path>`, then `intent=`,
 and, as the run calls for them, `outcome=`, `step=`, `next=`, `pr=`,
 `pr_state=`, and a multi-pr run's startable items; the Success
 Summary in `skills/scope/references/phases/phase-4-cleanup.md` lists which line
-appears when.
+appears when. A scope session koto removed at its terminal still prints its
+exit block, read from koto's answer for the removed session; a name with no
+session and no record exits 1.
 
 Two things about what you receive. Each state's `directive` arrives on every
 tick and is short. Longer procedure arrives once, as `details`, when you first
