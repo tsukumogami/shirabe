@@ -463,6 +463,102 @@ assert_eq "import: a koto without session import exits 69" "69" "$RC"
 assert_contains "it prints failed=koto_no_import" "failed=koto_no_import" "$(cat "$T/stdout")"
 assert_eq "it imports nothing" "0" "$(import_calls)"
 
+# --- a session koto removed, against a stand-in koto --------------------------------
+#
+# A koto that keeps finished records (tsukumogami/koto#355) answers `koto status`
+# for a session it removed at its terminal: exit 0, "removed": true, and the
+# final state and result a kept terminal session reports. An older koto, and the
+# new one for a name that never existed, answer "not found" with exit 2. The
+# stand-in answers `koto status <name>` from one file per name in
+# $STATUS_ANSWERS (first line the exit code, the rest stdout), and a name with
+# no file as koto does for one that never existed. A real koto is never asked:
+# the one on PATH may predate the record.
+STATUS_STUB_DIR="$T/statusbin"
+mkdir -p "$STATUS_STUB_DIR"
+STATUS_ANSWERS="$T/status-answers"
+cat >"$STATUS_STUB_DIR/koto" <<'STUB'
+#!/bin/bash
+printf '%s\n' "$*" >>"$STUB_LOG"
+case "${1:-}" in
+    version) printf 'koto 0.16.0 (stub)\n'; exit 0 ;;
+    status)
+        f="$STATUS_ANSWERS/${2:-}"
+        if [ -f "$f" ]; then
+            rc=$(sed -n 1p "$f")
+            sed -n '2,$p' "$f"
+            exit "$rc"
+        fi
+        printf '{"command":"status","error":"workflow '"'"'%s'"'"' not found"}\n' "${2:-}"
+        exit 2 ;;
+esac
+printf '{"error":"stub"}\n'
+exit 1
+STUB
+chmod +x "$STATUS_STUB_DIR/koto"
+export STATUS_ANSWERS
+
+# status_answer <name> <rc> <stdout> -- script the stand-in's answer for one name.
+status_answer() { mkdir -p "$STATUS_ANSWERS"; printf '%s\n%s\n' "$2" "$3" >"$STATUS_ANSWERS/$1"; }
+# removed_json <name> -- the answer koto documents for a session it removed.
+removed_json() {
+    printf '{"name":"%s","current_state":"done","is_terminal":true,"result":{"status":"success","payload":{}},"removed":true,"finished_at":"2026-10-12T14:00:00Z","session_id":"0123456789abcdef","execution_dir":"/work/repo"}' "$1"
+}
+run_status_stub() {
+    rm -f "$STUB_LOG"
+    RC=0
+    (cd "$REPO" && KOTO_BIN="$STATUS_STUB_DIR/koto" PATH="$TOOLS:$SYS_PATH" "$BASH_BIN" "$SS" "$@") \
+        >"$T/stdout" 2>"$T/stderr" || RC=$?
+    STDOUT=$(cat "$T/stdout")
+    STDERR=$(cat "$T/stderr")
+}
+# past_status -- the stand-in's calls other than version and status, one per line.
+past_status() { [ -f "$STUB_LOG" ] && grep -vE '^(version|status)( |$)' "$STUB_LOG"; return 0; }
+
+rm -rf "$STATUS_ANSWERS"
+status_answer scope-gone 0 "$(removed_json scope-gone)"
+status_answer brief-gone 0 "$(removed_json brief-gone)"
+status_answer brief-kept 0 '{"name":"brief-kept","current_state":"done","is_terminal":true,"result":{"status":"success","payload":{}}}'
+status_answer brief-unremoved 0 '{"name":"brief-unremoved","current_state":"done","is_terminal":true,"removed":false}'
+
+for case in "scope-gone|removed" "scope-never|never-existed"; do
+    name="${case%%|*}"
+    label="${case#*|}"
+
+    run_status_stub status "$name"
+    assert_eq "status of a $label session: exit 0" "0" "$RC"
+    assert_eq "status of a $label session prints absent" "absent" "$STDOUT"
+
+    run_status_stub dispatch clear scope "${name#scope-}"
+    assert_eq "dispatch clear of a $label parent: exit 0" "0" "$RC"
+    assert_eq "dispatch clear of a $label parent prints cleared=absent" "cleared=absent" "$STDOUT"
+    assert_eq "dispatch clear of a $label parent asks koto nothing past status" "" "$(past_status)"
+done
+
+for case in "brief-gone|removed" "brief-never|never-existed"; do
+    name="${case%%|*}"
+    label="${case#*|}"
+
+    run_status_stub get "$name" work/a.md "$SCR"
+    assert_eq "get from a $label session: exit 2" "2" "$RC"
+    assert_eq "get from a $label session prints refused=session_absent" "refused=session_absent" "$STDOUT"
+    assert_contains "get from a $label session says it does not exist" "$name does not exist" "$STDERR"
+    assert_eq "get from a $label session reads no key" "" "$(past_status)"
+    assert_gone "get from a $label session writes no file" "$SCR/a.md"
+
+    run_status_stub close "$name" done
+    assert_eq "close of a $label session: exit 0" "0" "$RC"
+    assert_eq "close of a $label session is a noop on an absent session" "closed=noop
+status=absent" "$STDOUT"
+    assert_eq "close of a $label session ticks nothing" "" "$(past_status)"
+done
+
+# The removed check reads only a boolean true: a kept terminal session, with or
+# without "removed": false, still reads finished.
+run_status_stub status brief-kept
+assert_eq "status of a kept terminal session still prints finished" "finished" "$STDOUT"
+run_status_stub status brief-unremoved
+assert_eq "status of a terminal session with removed: false prints finished" "finished" "$STDOUT"
+
 # --- engine-backed -------------------------------------------------------------------
 
 if [ -z "$REAL_KOTO" ]; then
