@@ -141,6 +141,17 @@ rs_view() {
     gh "$c" view "$r" --repo "$repo" "$@" < /dev/null
 }
 
+# rs_target_ok <repo> <ref>: the repository and record number rs_record_api will
+# read, held to exactly the checks board-lib.sh's bl_repo_ok and bl_pr_ok made on
+# this read before the seam, so land-check.sh and land-merge.sh take the same
+# inputs they did: owner/name with no `.` or `..` segment, a number of one to nine
+# digits with no leading zero. record-source_test.sh compares the two.
+rs_target_ok() {
+    [[ $1 =~ $RE_REPO ]] && [[ $2 =~ $RE_NUM ]] && [ ${#2} -le 9 ] || return 1
+    case "/$1/" in */./*|*/../*) return 1 ;; esac
+    return 0
+}
+
 # rs_record_api <out>: the run's record through the issues API, under
 # board-lib.sh's bl_gh when it is loaded.
 rs_record_api() {
@@ -156,11 +167,7 @@ rs_record_api() {
     ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
     scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
     name=$(printf '%s' "$facts" | jq -r '.name // ""')
-    # The checks board-lib.sh's bl_repo_ok and bl_pr_ok made on this read before
-    # the seam: no `.` or `..` segment in the repository, a number of at most nine
-    # digits.
-    [[ $rrepo =~ $RE_REPO ]] && [[ $ref =~ $RE_NUM ]] && [ ${#ref} -le 9 ] || return 2
-    case "/$rrepo/" in */./*|*/../*) return 2 ;; esac
+    rs_target_ok "$rrepo" "$ref" || return 2
     case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
     if declare -F bl_gh > /dev/null; then
         bl_gh "$out.rec" api --method GET "repos/$rrepo/issues/$ref" || return 2

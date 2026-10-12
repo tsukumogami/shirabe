@@ -257,6 +257,39 @@ grep -q 'api' "$GH_DB.calls" && bad "  ... before any read" "$(calls)" || ok "  
 eq "a nine-digit record number is read" rc=0 "$(api_on 123456789 coordinate-roadmap-plugin-system-20260926T021000Z)"
 grep -q 'api' "$GH_DB.calls" && ok "  ... through the API" || bad "  ... through the API" "$(calls)"
 
+# Parity with the checks the seam replaced: every repository and number
+# board-lib.sh's bl_repo_ok and bl_pr_ok refused, rs_target_ok refuses, and
+# every one they took, it takes. land-check.sh and land-merge.sh read the record
+# through rs_record_api, so this is what keeps their inputs unchanged.
+parity_row() { # parity_row <repo> <ref> <want: ok|refused>
+    ( PROG=t; . "$HERE/record-common.sh"; . "$HERE/board-lib.sh"
+      if bl_repo_ok "$1" && bl_pr_ok "$2"; then old=ok; else old=refused; fi
+      if rs_target_ok "$1" "$2"; then new=ok; else new=refused; fi
+      echo "$old $new" )
+}
+while IFS='|' read -r prepo pref pwant; do
+    [ -n "$prepo$pref" ] || continue
+    eq "parity: repo [$prepo] number [$pref] is $pwant before and after the seam" "$pwant $pwant" "$(parity_row "$prepo" "$pref")"
+done <<'ROWS'
+acme/widgets|7|ok
+acme/widgets|123456789|ok
+acme/widgets|1234567890|refused
+acme/widgets|0|refused
+acme/widgets|07|refused
+acme/widgets|-7|refused
+acme/widgets|7a|refused
+acme/widgets||refused
+acme/..|7|refused
+acme/.|7|refused
+../widgets|7|refused
+./widgets|7|refused
+acme|7|refused
+acme/widgets/extra|7|refused
+acme/wid gets|7|refused
+|7|refused
+a.b/c-d_e|7|ok
+ROWS
+
 # No candidate at all: the one case that is "no record found".
 db_init
 S0=coordinate-roadmap-plugin-system-20260926T030000Z
