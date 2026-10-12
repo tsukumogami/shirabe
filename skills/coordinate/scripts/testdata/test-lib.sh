@@ -53,6 +53,27 @@ holding() { # holding <worker> [jq object to merge]
         repo: "acme/widgets", branch: "feat/x", verified_head: "", dispatched: "2026-09-26",
         pull_request: "[#12](https://github.com/acme/widgets/pull/12)"} + $x'
 }
+# session_keys <session> <parsed-record-file> [pending]: a record's state as the
+# session store holds it, record/meta and one key per section the record has,
+# written straight into the koto stand-in for a reader's test. A writer's test
+# seeds the store this way and then writes through the write core.
+session_keys() {
+    local s=$1 f=$2 p=${3:-false} pair field key
+    jq -c --argjson p "$p" '{scope, store: "session", written, pending: $p}' "$f" | koto context add "$s" record/meta
+    for pair in holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work; do
+        field=${pair%%:*} key=${pair#*:}
+        jq -e --arg f "$field" 'has($f)' "$f" > /dev/null || continue
+        jq -c --arg f "$field" '.[$f]' "$f" | koto context add "$s" "record/$key"
+    done
+}
+# session_snapshot <session>: one line per record/ key, its name and content
+# digest, so a test can show a refused write changed no key.
+session_snapshot() {
+    local d="$KOTO_STORE/context/$1/record"
+    [ -d "$d" ] || { echo none; return; }
+    (cd "$d" && find . -type f | LC_ALL=C sort | while read -r f; do printf '%s %s\n' "$f" "$(cksum < "$f")"; done)
+}
+
 record_json() { # record_json <roadmap|discipline> <name>: an empty record
     jq -nc --arg k "$1" --arg n "$2" '{scope: {kind: $k, name: $n}, holdings: [], deferrals: [], side_effects: [], reversals: []}'
 }

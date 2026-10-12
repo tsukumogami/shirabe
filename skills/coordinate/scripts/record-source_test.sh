@@ -320,18 +320,6 @@ eq "  ... in the list's shape" '["author","created","edited","id","kind","stamp"
 # ---- 6. the session store's read ----------------------------------------------------
 
 echo "== 6. the session store's read =="
-# session_keys <session> <parsed-record-file> [pending]: the record's state as the
-# session store holds it, record/meta and one key per section the record has.
-# (The writers' own suites write these keys through the write core.)
-session_keys() {
-    local s=$1 f=$2 p=${3:-false} pair field key
-    jq -c --argjson p "$p" '{scope, store: "session", written, pending: $p}' "$f" | koto context add "$s" record/meta
-    for pair in holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work; do
-        field=${pair%%:*} key=${pair#*:}
-        jq -e --arg f "$field" 'has($f)' "$f" > /dev/null || continue
-        jq -c --arg f "$field" '.[$f]' "$f" | koto context add "$s" "record/$key"
-    done
-}
 # seam_read <out> [<source> <session>]: rs_record on record #7 of plugin-system,
 # in a subshell, from the GitHub store, or from <session> when <source> is
 # `session`. It names every variable it sets and exports none, so nothing it
