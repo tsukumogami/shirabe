@@ -15,6 +15,7 @@ case "${1-} ${2-}" in
         mkdir -p "$D/sessions/$3/ctx"
         cp "$6" "$D/sessions/$3/ctx/$(printf '%s' "$4" | sed 's#/#__#g')" ;;
     "context get") cat "$D/sessions/$3/ctx/$(printf '%s' "$4" | sed 's#/#__#g')" 2>/dev/null || exit 1 ;;
+    "context exists") [ -f "$D/sessions/$3/ctx/$(printf '%s' "$4" | sed 's#/#__#g')" ] || exit 1 ;;
     "template compile") printf '%s\n' "$D/cache/${KOTO_BOARD_HASH:-none}.json" ;;
     *) echo "koto stand-in: unexpected: $*" >&2; exit 9 ;;
 esac

@@ -123,6 +123,19 @@ bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor does an a
 at_land; bt_record_paused "[$(bt_pause s1 pause all "time 2000-01-01T00:00Z")]"
 bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "nor a pause whose minute has passed" 0 $?
 
+echo "== the session store =="
+# A record on the session store (PRD R18, R20): the merge re-reads the hold and
+# the pause from the run's session keys, with the GitHub body in the moved shape.
+export BT_FIND_TOKEN="found 7 session"
+at_land; bt_record_body '[]' "[$HOLD_GO]"; bt_session_record "$S"
+never "a hold on the session store stops the merge" 10
+grep -q 'a hold stands on #12 now: go (lifted, unmet)' "$T/err" && ok "  ... naming the hold" || bad "  ... naming the hold" "$(cat "$T/err")"
+at_land; bt_record_paused "[$(bt_pause s1 pause all lifted)]"; bt_session_record "$S"
+never "a pause on the session store stops it with its own code" 12
+at_land; bt_record_paused '[]'; bt_session_record "$S"
+bash "$LM" --session "$S" --repo acme/widgets >/dev/null 2>&1; eq "  ... and with neither, it merges" 0 $?
+unset BT_FIND_TOKEN
+
 echo "== merge-exec's own answers =="
 at_land; printf 'merge-refused:unmergeable:blocked\n' > "$BT_STATE/merge-exec.out"; echo 0 > "$BT_STATE/merge-exec.rc"
 OUT=$(bash "$LM" --session "$S" --repo acme/widgets 2>/dev/null); rc=$?
