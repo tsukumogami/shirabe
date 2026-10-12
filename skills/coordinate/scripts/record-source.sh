@@ -32,6 +32,12 @@
 #       run's facts (coord-log.sh run-facts) of <session>, $SESSION when not
 #       given. Writes <out> and <out>.md. Returns 0 parsed; 2 the read or the
 #       parse failed, or the store is session.
+#   rs_view <container> <ref> <repo> <gh view args...>
+#       Prints the container's fields as `gh <issue|pr> view <ref> --repo <repo>
+#       <args>` prints them, the body among them, for the one reader that keeps
+#       its own deadline and its row-by-row salvage of a body the codec refuses
+#       (reconcile-read.sh, under rd_deadline). Needs nothing else of this
+#       library. Returns gh's status.
 #   rs_facts <parsed-record> <topic>
 #       Prints one holding's facts, from a record rs_record or rs_record_api
 #       parsed: {topic, unit, repo, pull_request, number, branch, verified_head,
@@ -70,10 +76,11 @@ rs_source() {
         printf '%s\n' "$RS_SOURCE_READ"
         return 0
     fi
-    if [ -z "${RS_SOURCE_READ:-}" ]; then
+    if [ -z "${RS_SOURCE_READ:-}" ] || [ "${RS_SOURCE_FOR:-}" != "$SESSION" ]; then
         local s
         s=$(bash "$HERE/coord-log.sh" run-store --session "$SESSION" 2>/dev/null)
         case "$s" in session) RS_SOURCE_READ=session ;; *) RS_SOURCE_READ=github ;; esac
+        RS_SOURCE_FOR=$SESSION
     fi
     printf '%s\n' "$RS_SOURCE_READ"
 }
@@ -118,6 +125,14 @@ rs_record() {
         0|3|65) return $rc ;;
         *) return 5 ;;
     esac
+}
+
+# rs_view <container> <ref> <repo> <gh view args...>
+rs_view() {
+    local c=$1 r=$2 repo=$3
+    shift 3
+    case "$c" in issue|pr) ;; *) echo "${PROG:-record-source}: rs_view: the container is issue or pr" >&2; return 64 ;; esac
+    gh "$c" view "$r" --repo "$repo" "$@" < /dev/null
 }
 
 # rs_record_api <out>: the run's record through the issues API, under

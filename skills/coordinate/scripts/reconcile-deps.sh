@@ -55,6 +55,10 @@ RD_GITHUB_REFS=$RD_HERE/github-refs.sh
 # handoff) and coord-log.sh (the run's facts: scope, name, host, record).
 RD_RECORD_PARSE=$RD_HERE/record-parse.sh
 RD_COORD_LOG=$RD_HERE/coord-log.sh
+# The one reader of the record (record-source.sh): reconcile-read.sh reads the
+# body through its rs_view.
+# shellcheck source=/dev/null
+. "$RD_HERE/record-source.sh"
 
 rd_valid_repo()   { coord_valid_repo "$1" && [[ $1 != -* ]]; }
 rd_valid_branch() { coord_valid_branch "$1"; }

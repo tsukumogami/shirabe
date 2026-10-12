@@ -35,23 +35,32 @@ TITLE="Coordinator record: ROADMAP-plugin-system"
 
 # ---- 1. the structure rule ------------------------------------------------------
 
-# body_readers <dir>: every line of a non-test script in <dir> that parses a
-# record body (record-parse.sh or lib_parse without --format handoff, or
-# bl_record_parsed), reads an issue's or pull request's body with gh, or reads a
-# `record/` key, outside the scripts allowed to: the seam itself, the codec's own
-# scripts, the find (which judges candidate bodies), the opener of a record, the
-# write core (which parses the body it writes), the entry writer (which reads a
-# target's declaration line) and reconcile's reader, which salvages a GitHub
-# body row by row.
-ALLOWED='^(record-source|record-common|record-parse|record-render|record-find|record-open|record-write-core|record-append|reconcile-read|reconcile-deps)\.sh$'
+# body_readers <dir>: every line of a non-test script in <dir> that reads a
+# record's body or keys, or parses a body, outside the scripts allowed to.
+#   Reading: a gh issue/pr view (any spelling of the container) that asks for
+#   the body, or a `record/` key. Allowed: the seam; the find, which judges the
+#   candidate bodies the open-issue listing returns; the entry writer, which
+#   reads a target's declaration line.
+#   Parsing: record-parse.sh or lib_parse (a handoff file aside), or
+#   bl_record_parsed. Allowed: the seam and the codec's scripts; the find; the
+#   opener of a new record and the write core, which parse the body they are
+#   about to write; and reconcile's reader, which salvages row by row a body the
+#   seam handed it, with the parser reconcile-deps.sh names.
+READ_ALLOWED='^(record-source|record-find|record-append)\.sh$'
+PARSE_ALLOWED='^(record-source|record-common|record-parse|record-render|record-find|record-open|record-write-core|reconcile-read|reconcile-deps)\.sh$'
 body_readers() {
     local f base
     for f in "$1"/*.sh; do
         base=$(basename "$f")
         case "$base" in *_test.sh) continue ;; esac
-        [[ $base =~ $ALLOWED ]] && continue
-        grep -nE 'record-parse\.sh|lib_parse |bl_record_parsed|gh (issue|pr) view.*body|context get [^|]*record/' "$f" \
-            | grep -vE '^[0-9]+:[[:space:]]*#' | grep -v -- '--format handoff' | grep -v 'record-parse.sh failed' | sed "s|^|$base:|"
+        if ! [[ $base =~ $READ_ALLOWED ]]; then
+            grep -nE 'gh ("?\$[A-Za-z_{}]+"?|issue|pr) view.*body|context get [^|]*record/' "$f" \
+                | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$base:|"
+        fi
+        if ! [[ $base =~ $PARSE_ALLOWED ]]; then
+            grep -nE 'record-parse\.sh|lib_parse |bl_record_parsed' "$f" \
+                | grep -vE '^[0-9]+:[[:space:]]*#' | grep -v -- '--format handoff' | grep -v 'record-parse.sh failed' | sed "s|^|$base:|"
+        fi
     done
 }
 echo "== 1. one reader =="
@@ -63,7 +72,8 @@ printf '#!/usr/bin/env bash\ngh issue view 7 --repo o/r --json body > x\n' > "$F
 printf '#!/usr/bin/env bash\nbl_record_parsed "$S" out\n' > "$FX/c.sh"
 printf '#!/usr/bin/env bash\nkoto context get "$S" record/holdings > x\n' > "$FX/d.sh"
 printf '#!/usr/bin/env bash\nbash "$HERE/record-parse.sh" --format handoff f.md\n' > "$FX/e.sh"
-eq "  ... and the rule refuses each way of reading one, not a handoff file" "a.sh b.sh c.sh d.sh" \
+printf '#!/usr/bin/env bash\ngh "$CONTAINER" view "$REF" --repo "$REPO" --json state,body > x\n' > "$FX/f.sh"
+eq "  ... and the rule refuses each way of reading one, not a handoff file" "a.sh b.sh c.sh d.sh f.sh" \
     "$(body_readers "$FX" | cut -d: -f1 | sort -u | tr '\n' ' ' | sed 's/ $//')"
 
 # ---- 2. rs_facts --------------------------------------------------------------------
@@ -117,6 +127,12 @@ printf '%s' "$(with_store session)" | bash "$HERE/record-render.sh" --container 
 db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/sess.md")"
 OUT=$(bash "$HERE/record-find.sh" --scope roadmap --name plugin-system --repo "$REPO" --no-seal 2>"$T/err")
 eq "the find reads a session-store record as malformed" "malformed 7" "$OUT"
+SF=coordinate-roadmap-plugin-system-20260926T070000Z
+log_new "$SF" "$(roadmap_vars plugin-system)"
+log_to "$SF" start_posture record_find 2026-09-26T07:01:00.000Z
+bash "$HERE/record-find.sh" --session "$SF" >/dev/null 2>&1
+jq -r .reason "$KOTO_STORE/context/$SF/coord/record_find.json" 2>/dev/null | grep -q '^store-unavailable' \
+    && ok "  ... with the reason store-unavailable" || bad "  ... with the reason store-unavailable" "$(cat "$KOTO_STORE/context/$SF/coord/record_find.json" 2>/dev/null)"
 grep -Eq '^(issue|pr) (edit|close|create)|api --method (POST|PATCH|PUT)' "$GH_DB.calls" && bad "  ... and writes nothing" "$(calls)" || ok "  ... and writes nothing"
 
 # rs_record on the session store, under the test override.

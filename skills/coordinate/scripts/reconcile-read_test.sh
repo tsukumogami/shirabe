@@ -31,7 +31,7 @@ T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-read-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
 mkdir -p "$T/tree/skills/coordinate/scripts" "$T/tree/skills/execute/scripts" "$T/bin"
-cp "$HERE"/reconcile-read.sh "$HERE"/reconcile-deps.sh "$HERE"/reconcile-salvage.jq "$T/tree/skills/coordinate/scripts/"
+cp "$HERE"/reconcile-read.sh "$HERE"/reconcile-deps.sh "$HERE"/record-source.sh "$HERE"/reconcile-salvage.jq "$T/tree/skills/coordinate/scripts/"
 cp "$HERE/../../execute/scripts/coord-common.sh" "$T/tree/skills/execute/scripts/"
 S="$T/tree/skills/coordinate/scripts/reconcile-read.sh"
 # A stand-in codec with the one definition the stubbed cases reach: the

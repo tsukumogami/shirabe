@@ -100,8 +100,9 @@ finish() {
 
 # write_source: the run's store, decided here and nowhere else
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 2), with the
-# probe's reading of koto, into coord/source.json, which record-source.sh's
-# rs_source reads for the rest of the run. A found record's store is its own
+# probe's reading of koto, into coord/source.json for the reconcile report and
+# a person. The run's readers take the store from the sealed token instead
+# (coord-log.sh run-store, through record-source.sh's rs_source). A found record's store is its own
 # `store` Run row, `github` without one; the invocation's --store (the STORE
 # variable) decides only for a scope with no record, and is reported ignored
 # otherwise.
