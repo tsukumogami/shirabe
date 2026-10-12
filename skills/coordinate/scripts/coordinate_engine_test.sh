@@ -168,12 +168,14 @@ ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
 
 # A clock the quiet case can move forward: with $T/clock holding a number of
 # seconds, `date` without -d/-r reads that much later. Every other case runs
-# on the real clock.
+# on the real clock. GNU date reads an epoch as `-d @N`, BSD date (macOS) as
+# `-r N`, so the stub is written with whichever this host's date takes.
+if "$REAL_DATE" -d @0 +%s >/dev/null 2>&1; then AT_FLAG=-d AT_PREFIX=@; else AT_FLAG=-r AT_PREFIX=; fi
 cat > "$T/bin/date" <<EOF
 #!/usr/bin/env bash
 off=\$(cat "$T/clock" 2>/dev/null) || exec "$REAL_DATE" "\$@"
 for a in "\$@"; do case "\$a" in -d*|--date*|-r*|--reference*) exec "$REAL_DATE" "\$@" ;; esac; done
-exec "$REAL_DATE" -d "@\$(( \$("$REAL_DATE" +%s) + off ))" "\$@"
+exec "$REAL_DATE" $AT_FLAG "$AT_PREFIX\$(( \$("$REAL_DATE" +%s) + off ))" "\$@"
 EOF
 chmod +x "$T/bin/date"
 PATH="$T/bin:$ORIG_PATH"
