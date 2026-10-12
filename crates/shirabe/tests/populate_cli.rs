@@ -11,6 +11,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use assert_cmd::Command;
 use predicates::str::contains;
@@ -92,11 +93,17 @@ In progress.\n\
     path
 }
 
+/// Each test's own scratch directory. The tests run as threads of one process,
+/// and the clock alone doesn't separate them: on macOS it moves in whole
+/// microseconds, so two tests starting together got the same directory and one
+/// removed the other's files. The per-process counter makes every name unique.
 fn tempdir() -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
     let base = std::env::temp_dir();
     let dir = base.join(format!(
-        "shirabe-populate-it-{}-{}",
+        "shirabe-populate-it-{}-{}-{}",
         std::process::id(),
+        COUNTER.fetch_add(1, Ordering::SeqCst),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
