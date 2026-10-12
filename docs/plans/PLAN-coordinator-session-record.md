@@ -56,25 +56,34 @@ sealed, and the session source is refused wherever it would be chosen.
       api` read under `board-lib.sh`'s deadline) and `rs_facts <topic>`, GitHub
       backend only; `bl_record_parsed` is removed and `board-lib.sh`,
       `land-check.sh` and `land-merge.sh` call `rs_record_api` (design Decision 1).
-- [ ] The ten whole-body readers, `reconcile-deps.sh`, the five section readers and
+- [ ] The ten whole-body readers, reconcile's reader, the five section readers and
       the write core's live read call the seam. A structure test in
-      `record-source_test.sh` fails when a script other than `record-source.sh`,
-      `record-find.sh`, `record-open.sh`, `record-write-core.sh`,
-      `record-parse.sh`, `record-render.sh` and `record-append.sh` calls
-      `record-parse.sh`, `lib_parse` or `bl_record_parsed`, or reads an issue or
-      pull request body with `gh`, or when any script but `record-source.sh` and the
-      writers reads a `record/` key; the test includes a fixture script that does each and is
-      refused (PRD R19).
+      `record-source_test.sh` fails when a script reads an issue's or pull
+      request's body with `gh` (any spelling of the container) or reads a
+      `record/` key, other than `record-source.sh`, `record-find.sh` (which judges
+      the candidates the listing returns) and `record-append.sh` (which reads a
+      target's declaration line); and when a script calls `record-parse.sh`,
+      `lib_parse` or `bl_record_parsed` on a record body, other than the seam and
+      its parser wrapper (`record-source.sh`, `record-common.sh`), the codec's own
+      scripts, `record-find.sh`, `record-open.sh` and `record-write-core.sh`
+      (which parse a body they are about to write), and `reconcile-read.sh` with
+      `reconcile-deps.sh`, for the row-by-row salvage of a body the seam handed it
+      (a handoff file is not a record body). The test includes a fixture script
+      that does each and is refused (PRD R19).
 - [ ] `rs_facts` on a fixture record with two holdings, a hold on one's pull
       request and a pause on the other's unit returns the exact JSON the test
       fixes, including the go-ahead rows pause-read consumes.
 - [ ] `record-find.sh` reads a `store` Run row; `store` reading `bogus`, or two
-      `store` rows, stops with `store-malformed`; it seals the source in
-      `RECORD_FIND` and writes `coord/source.json` `{source, reason, probe}` on
-      every start (R1, R2).
+      `store` rows, stops with `store-malformed`; it writes the run's store to
+      `coord/source.json` `{source, reason, probe}` on every start, and its
+      sealed `RECORD_FIND` token, which carries only the verdict and the
+      record's number in this release, is what `coord-log.sh run-store` reads,
+      so every run past the find reads `github` (R1, R2). Sealing a session
+      store in the token comes with the session store, in Issue 2.
 - [ ] `rs_probe` reports `context list --prefix` and `session import` by feature; a
-      `github` start on a koto stand-in lacking both reaches reconcile, and the
-      probe result is in `coord/source.json` (R2).
+      `github` start on a koto stand-in lacking both is adopted by the find (which
+      routes it to reconcile), and `coord/source.json` records both as missing
+      (R2).
 - [ ] The codec accepts a `store` Run row reading `github` or `session` and still
       refuses any other unknown Run key; the template gains `STORE`;
       `coordinate-open.sh --store` is refused at discipline scope and reported
