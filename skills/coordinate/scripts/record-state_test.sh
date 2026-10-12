@@ -319,5 +319,9 @@ eq "the session store's handover read lists the keys' gaps" "no-arguments no-cap
 "${SEN[@]}" bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
 "${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "  ... and closes them as record-state.sh writes the keys" 0 $?
 bash "$RH" "${RM[@]}" | jq -e '.gaps | length > 0' >/dev/null && ok "  ... which the GitHub body never saw" || bad "  ... which the GitHub body never saw" ""
+"${SEN[@]}" bash "$RS" "${W[@]}" --standing answer --what "panels at the head" --owner "the human" --relayed-by lane-v2 >/dev/null 2>"$T/err"
+eq "a Standing row is written on the session store" 0 $?
+eq "  ... into record/standing" "answer|the human" "$(koto context get "$SD" record/standing | jq -r '.[0] | "\(.kind)|\(.owner)"')"
+eq "  ... and read back through the seam" "panels at the head" "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '.standing[0].what')"
 
 done_tests record-state_test

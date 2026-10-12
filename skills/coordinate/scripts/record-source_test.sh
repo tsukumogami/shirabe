@@ -204,6 +204,9 @@ bash "$HERE/record-state.sh" --scope roadmap --name plugin-system --repo "$REPO"
 eq "a store that is neither is refused" 65 $?
 bash "$HERE/record-state.sh" --scope discipline --name ci-health --repo "$REPO" --ref 7 --skip-session-checks --run store github --by alice >/dev/null 2>"$T/err"
 eq "a store row at discipline scope is refused" 65 $?
+bash "$HERE/record-state.sh" --scope discipline --name ci-health --repo "$REPO" --ref 7 --skip-session-checks --run store session --by alice >/dev/null 2>"$T/err"
+eq "  ... store session too" 65 $?
+grep -q 'store-discipline' "$T/err" && ok "  ... as store-discipline" || bad "  ... as store-discipline" "$(cat "$T/err")"
 
 # The opener: a discipline --store is refused before any koto call; --store
 # session reaches koto.

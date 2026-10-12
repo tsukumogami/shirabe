@@ -448,6 +448,24 @@ log_capture "$S" REPLY_MESSAGE "$(bash "$CL" seal --session "$S" --state decisio
 to decision_reply_send
 refused "--sent: a render of another kind than the send state's is refused" --sent
 
+echo "== the session store =="
+# A run whose find sealed `found 7 session`: the section lives in record/decisions,
+# --open writes it there, and --list reads it back through the seam.
+setup '[]' 1
+rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
+found_session "$S" "$(roadmap_vars feat)" "7 session"
+LAST=reconcile
+jq -r '.issues[0].body' "$GH_DB" | bash "$HERE/record-parse.sh" > "$T/sess.json"
+session_keys "$S" "$T/sess.json"
+BODY=$(jq -r '.issues[0].body' "$GH_DB")
+to decision_raise
+rd --open --question "Pin the plugin?" --option "pin -- freezes a version" --option "don't pin -- lets a break through"
+wrote "--open writes on the session store"
+eq "  ... into record/decisions" "1|proposed|2" \
+    "$(koto context get "$S" record/decisions | jq -r '"\(.entries[0].decision)|\(.entries[0].state)|\(.next)"')"
+eq "  ... read back through the seam" "Pin the plugin?" "$(f 1 question)"
+eq "  ... and the GitHub body untouched" "$BODY" "$(jq -r '.issues[0].body' "$GH_DB")"
+
 echo "== usage =="
 setup '[]' 1
 bash "$RD" --session "$S" >/dev/null 2>&1; eq "no mode is a usage error" 64 $?

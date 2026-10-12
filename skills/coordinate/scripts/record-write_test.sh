@@ -348,6 +348,25 @@ jq -c 'del(.written) | .run = [{key: "arguments", value: "docs/roadmaps/ROADMAP-
 eq "the hold writer changing record/run is refused (R5)" 65 "$rc"
 grep -q 'Run, Standing and Work sections change only through record-state.sh' "$T/err" && ok "  ... by the Run owner check" || bad "  ... by the Run owner check" "$(cat "$T/err")"
 eq "  ... and changes no key" "$SNAP" "$(session_snapshot "$SW")"
+# Reversals and Side effects have no writer of their own: record-write.sh writes
+# them with the body, and each lands in its key and reads back through the seam.
+jq -c 'del(.written)
+    | .reversals = [{date: "2026-09-26T10:00Z", reversed: "merge on green", now: "hold", reason: "freeze", from: "the human"}]
+    | .side_effects = [{action: "merge", target: "acme/widgets#12", verified_head: "0123456789abcdef0123456789abcdef01234567",
+                        attempted: "2026-09-26T11:02Z", how_to_confirm: "read the pull request"}]' "$T/cur.json" \
+    | bash "$HERE/record-render.sh" --container issue --written "$CURW" > "$T/revse.md"
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/revse.md" >/dev/null 2>"$T/err"; rc=$?
+eq "record-write.sh writes Reversals and Side effects on the session store" 0 "$rc"
+eq "  ... into record/reversals and record/side-effects" "freeze|acme/widgets#12" \
+    "$(koto context get "$SW" record/reversals | jq -r '.[0].reason')|$(koto context get "$SW" record/side-effects | jq -r '.[0].target')"
+eq "  ... and read back through the seam" "merge on green|merge" \
+    "$("${SEN[@]}" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show \
+        | bash "$HERE/record-parse.sh" | jq -r '"\(.reversals[0].reversed)|\(.side_effects[0].action)"')"
+"${SEN[@]}" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show > "$T/cur.md" 2>"$T/err"
+bash "$HERE/record-parse.sh" --container issue "$T/cur.md" > "$T/cur.json"
+CURW=$(jq -r .written "$T/cur.json")
+jq -c 'del(.written) | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" \
+    | bash "$HERE/record-render.sh" --container issue --written "$CURW" > "$T/hold.md"
 # A write part way through, left by a crash: the reader re-reads, then refuses.
 jq -c '.pending = true' < <(koto context get "$SW" record/meta) | koto context add "$SW" record/meta
 RS_RETRY_PAUSE=0 "${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/hold.md" >/dev/null 2>"$T/err"; rc=$?
