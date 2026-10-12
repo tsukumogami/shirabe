@@ -43,7 +43,8 @@
 # K is entry (the default), or one of the kinds the record's other writers
 # append for what they change (the design's Decisions 3 and 4): run, told,
 # pause, go-ahead, approval, answer, assignment, end, work, roadmap-status,
-# hold (a hold added or lifted on the session store, record-hold.sh),
+# hold (a hold added or lifted on the session store, record-hold.sh), moved
+# (the record moved onto the session store, posted on GitHub by record-move.sh),
 # milestone-verdict (a checked verdict on a milestone, milestone.sh
 # check-verdict; docs/designs/DESIGN-milestone-verdicts.md), goal-fit (a
 # landed pull request judged against its milestone's Evidence, milestone.sh
@@ -114,7 +115,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status hold cost milestone-verdict milestone-failure goal-fit "
+ENTRY_KINDS=" entry run told pause go-ahead approval answer assignment end work roadmap-status hold moved cost milestone-verdict milestone-failure goal-fit "
 # The kinds a reader outside the coordinator reads from GitHub.
 OUTWARD_KINDS=" cost milestone-verdict goal-fit milestone-failure "
 case "$MODE" in

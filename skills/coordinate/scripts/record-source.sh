@@ -221,13 +221,48 @@ rs_probe() {
     jq -nc --argjson p "$prefix" --argjson i "$import" '{context_list_prefix: $p, session_import: $i}'
 }
 
+# rs_probe_missing: the session-store features this koto lacks, comma-separated,
+# empty when it has both (PRD R2).
+rs_probe_missing() {
+    rs_probe | jq -r '[if .context_list_prefix then empty else "context list --prefix" end,
+        if .session_import then empty else "session import" end] | join(", ")'
+}
+
+# rs_scope_sessions <scope> <name>: this host's coordinator sessions of the
+# scope, coordinate-<slug>-<stamp> (the slug coord-log.sh slug derives, as
+# coordinate-open.sh names them), that hold record/meta, one name per line,
+# oldest stamp first. Returns 2 when the session list can't be read.
+rs_scope_sessions() {
+    local k=${KOTO:-${KOTO_BIN:-koto}} d s slug
+    slug=$(bash "$HERE/coord-log.sh" slug --scope "$1" --name "$2") || return 2
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
+    "$k" session list < /dev/null > "$d/list" 2> "$d/err" || { rm -rf "$d"; return 2; }
+    jq -r --arg p "coordinate-$slug-" '.[] | .id | select(startswith($p) and (ltrimstr($p) | test("^[0-9]{8}T[0-9]{6}Z$")))' "$d/list" \
+        2> "$d/err" | LC_ALL=C sort > "$d/names" || { rm -rf "$d"; return 2; }
+    while IFS= read -r s; do
+        "$k" context exists "$s" record/meta < /dev/null > /dev/null 2>> "$d/err" && printf '%s\n' "$s"
+    done < "$d/names"
+    rm -rf "$d"
+}
+
+# rs_moved <parsed-record>: 0 when the record is in the moved shape (PRD R8):
+# every section empty and a Run section holding only the `store session` row.
+rs_moved() {
+    jq -e '([.holdings, .deferrals, .side_effects, .reversals, .holds, .standing, .work] | all(. == null or . == []))
+        and (has("decisions") | not)
+        and ([(.run // [])[] | "\(.key)=\(.value)"] == ["store=session"])' "$1" > /dev/null
+}
+
 # rs_record <out> <body|json> <gh view args...>
 rs_record() {
     local out=$1 mode=$2 rc
     shift 2
     case "$mode" in body|json) ;; *) echo "$PROG: rs_record: mode is body or json" >&2; return 2 ;; esac
     rs_source > /dev/null
-    if [ "$RS_SOURCE_READ" = session ]; then
+    # RS_READ_STORE names the store to read when it isn't the run's: the write
+    # core sets it to the store it is writing, so the move reads the GitHub body
+    # it rewrites while the run itself is on the session store.
+    if [ "${RS_READ_STORE:-$RS_SOURCE_READ}" = session ]; then
         rs_session_read "$out" "$mode" "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME" "$REPO" "$REF"
         return $?
     fi

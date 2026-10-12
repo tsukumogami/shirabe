@@ -73,11 +73,9 @@ MOVE_WRITER=0
 # the container open and this scope's, the compare on the Written: time, the
 # rotation's branch, store-moved, and the section owners. Sets BASE, URL and
 # the live files in $T. A seeding write (SESSION_SEED) has no live record and
-# skips it; the move (MOVE_WRITER) skips the section-owner checks.
+# skips it; the move (MOVE_WRITER) skips the section-owner checks, each of which
+# names it, and opens no owner flag.
 core_live() {
-    if [ "$MOVE_WRITER" = 1 ]; then
-        DECISIONS_WRITER=1 STATE_WRITER=1 VERDICT_WRITER=1
-    fi
     # The target, re-read now through the seam (record-source.sh), with the
     # container's state, URL and head from the same read.
     local live_rc
@@ -96,6 +94,15 @@ core_live() {
     URL=$(jq -r '.url' "$T/target.json")
     [ "$STATE" = OPEN ] || { echo "$PROG: refused: #$REF is $STATE, not an open record" >&2; exit 10; }
     grep -qxF -- "$DECL" "$T/live.md" || { echo "$PROG: refused: #$REF does not carry this scope's declaration line" >&2; exit 10; }
+    # A record moved to the session store keeps its GitHub body in the moved
+    # shape, a Run section holding only `store session`: every writer but the
+    # move refuses to change it, however its body was read (PRD R3, R8). Until
+    # the move's last step, the state is still the GitHub body's, written as
+    # before.
+    if [ "$CORE_STORE_READ" = github ] && [ "$MOVE_WRITER" != 1 ] && [ $live_rc -eq 0 ] && rs_moved "$T/live.json"; then
+        echo "$PROG: refused: store-moved: #$REF's state lives in the coordinator's session store; write through the run on that store" >&2
+        exit 65
+    fi
     # Compare and swap on the Written: line. The body carries the Written: time of
     # the version it was edited from; the live body must still carry that time, or
     # someone wrote the record since it was read and this write would lose their
@@ -115,18 +122,10 @@ core_live() {
         [ "$(jq -r '.headRefName' "$T/target.json")" = "$BRANCH" ] && [ "$(jq -r '.isCrossRepository' "$T/target.json")" = false ] \
             || { echo "$PROG: refused: #$REF is not on $BRANCH in $REPO" >&2; exit 10; }
     fi
-    # A record moved to the session store keeps its GitHub body in the moved
-    # shape, a Run section holding only `store session`: every writer but the
-    # move refuses to change it (PRD R3, R8).
-    if [ "$CORE_STORE_READ" = github ] && [ "$MOVE_WRITER" != 1 ] \
-        && jq -e 'any((.run // [])[]; .key == "store" and .value == "session")' "$T/live.json" > /dev/null; then
-        echo "$PROG: refused: store-moved: #$REF's state lives in the coordinator's session store; write through the run on that store" >&2
-        exit 65
-    fi
     # The Decisions section changes only through the decision writer, which
     # checks each transition; any other write must carry it as the live record
     # has it.
-    if [ "$DECISIONS_WRITER" != 1 ]; then
+    if [ "$DECISIONS_WRITER" != 1 ] && [ "$MOVE_WRITER" != 1 ]; then
         NEW_D=$(jq -cS '.decisions // null' "$T/parsed.json") && LIVE_D=$(jq -cS '.decisions // null' "$T/live.json") \
             || lib_die2 "cannot compare the Decisions sections"
         if [ "$NEW_D" != "$LIVE_D" ]; then
@@ -158,7 +157,7 @@ core_live() {
     # A milestone's verdict-owed Work row changes only through
     # roadmap-status.sh, which writes it at the landed tick and clears it
     # when the verdict's roadmap edit is confirmed.
-    if [ "$VERDICT_WRITER" != 1 ]; then
+    if [ "$VERDICT_WRITER" != 1 ] && [ "$MOVE_WRITER" != 1 ]; then
         NEW_V=$(jq -cS '[(.work // [])[] | select(.kind == "verdict-owed")]' "$T/parsed.json") \
             && LIVE_V=$(jq -cS '[(.work // [])[] | select(.kind == "verdict-owed")]' "$T/live.json") \
             || lib_die2 "cannot compare the verdict-owed rows"
@@ -179,7 +178,7 @@ core_live() {
     fi
     # The stored set's other rows change only through record-state.sh, and a
     # rework row leaves through it or roadmap-status.sh.
-    if [ "$STATE_WRITER" != 1 ]; then
+    if [ "$STATE_WRITER" != 1 ] && [ "$MOVE_WRITER" != 1 ]; then
         NEW_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/parsed.json") \
             && LIVE_S=$(jq -cS '{run: (.run // []), standing: (.standing // []), work: [(.work // [])[] | select(.kind != "verdict-owed" and .kind != "rework")]}' "$T/live.json") \
             || lib_die2 "cannot compare the stored set's sections"
@@ -280,7 +279,10 @@ core_write() {
         BASE=$(jq -r '.written // ""' "$T/parsed.json")
         URL="https://github.com/$REPO/issues/$REF"
     else
+        # The live record is read from the store this write goes to.
+        RS_READ_STORE=$CORE_STORE_READ
         core_live
+        RS_READ_STORE=
     fi
 
     # A public host never names a private repository: not in a Holdings Repo,

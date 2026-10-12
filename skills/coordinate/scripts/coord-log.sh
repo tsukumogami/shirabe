@@ -37,13 +37,13 @@
 #       1 some; 2 read failure.
 #   coord-log.sh run-facts --session S
 #       Prints {"scope","name","repo","ref"}. Exit 0; 1 no found record in the
-#       run; 2 read failure.
+#       run (the find's token is `found <n>`, `found <n> session` or, for a
+#       record the run is moving onto the session store, `move <n>`); 2 read
+#       failure.
 #   coord-log.sh run-store --session S
-#       Prints the run's store from the sealed RECORD_FIND token: `session`
-#       only for a token reading `found <n> session`, else `github` (a run with
-#       no found record, or a token that doesn't check, included). record-find.sh
-#       emits no such token in this release, where it stops a session-store
-#       record before reconcile, so every run reads `github` here. Exit 0.
+#       Prints the run's store from the sealed RECORD_FIND token: `session` for
+#       a token reading `found <n> session` or `move <n>`, else `github` (a run
+#       with no found record, or a token that doesn't check, included). Exit 0.
 #   coord-log.sh run-start --session S       Prints the header's created_at.
 #   coord-log.sh chain-start --session S
 #       Prints the created_at of the earliest run in the unbroken chain of
@@ -306,7 +306,7 @@ run-facts)
     VARS=$(jq -c 'select(.type == "workflow_initialized") | .payload.variables' "$LOG" | head -1)
     [ -n "$VARS" ] || die "no workflow_initialized event"
     FOUND=$(bash "$0" capture --session "$SESSION" --name RECORD_FIND) || exit 1
-    case "$FOUND" in found\ *) ;; *) exit 1 ;; esac
+    case "$FOUND" in found\ *|move\ *) ;; *) exit 1 ;; esac
     bash "$0" check --session "$SESSION" --state record_find --sealed "$FOUND" --any-visit >/dev/null 2>&1 || exit 1
     REF=$(printf '%s' "$FOUND" | cut -d' ' -f2)
     case "$REF" in ''|*[!0-9]*) exit 1 ;; esac
@@ -317,13 +317,14 @@ run-facts)
     ;;
 run-store)
     # The run's store, from the same sealed RECORD_FIND token run-facts reads.
-    # Only a `found <n> session` token names the session store; `found <n>`, a
+    # A `found <n> session` token, and a `move <n>` token (a record this run
+    # is moving onto the session store), name the session store; `found <n>`, a
     # run with no found record and a token whose seal doesn't check all read as
     # the GitHub store. The token is matched without its seal.
     need SESSION
     FOUND=$(bash "$0" capture --session "$SESSION" --name RECORD_FIND 2>/dev/null) || { echo github; exit 0; }
     bash "$0" check --session "$SESSION" --state record_find --sealed "$FOUND" --any-visit >/dev/null 2>&1 || { echo github; exit 0; }
-    case "${FOUND% sealed:*}" in "found "*" session") echo session ;; *) echo github ;; esac
+    case "${FOUND% sealed:*}" in "found "*" session"|"move "*) echo session ;; *) echo github ;; esac
     ;;
 provenance)
     need SESSION

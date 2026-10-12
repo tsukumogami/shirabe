@@ -43,7 +43,7 @@ case "$WORD" in
     # record_find
     found) exit 10 ;; none) exit 11 ;; stale-branch) exit 12 ;; unopened) exit 13 ;;
     foreign) exit 14 ;; ambiguous) exit 15 ;; malformed) exit 16 ;; unauthorized) exit 17 ;;
-    predecessor) exit 18 ;;
+    predecessor) exit 18 ;; move) exit 19 ;;
     # start, start_posture
     active) exit 20 ;; discipline) exit 21 ;; not-active) exit 22 ;;
     readable) exit 25 ;; unread) exit 26 ;;

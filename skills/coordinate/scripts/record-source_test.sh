@@ -11,10 +11,14 @@
 #      request and a pause on the other's unit, against a fixed JSON, both as a
 #      library call and through `--facts`;
 #   3. the store: a `store` Run row reading `github` is read; `bogus` and a
-#      doubled row are store-malformed; a `session` row, `--store session`,
-#      `record-state.sh --run store session` and the session store reached
-#      through rs_record each stop with store-unavailable and write nothing;
-#      `--store` and a store row are refused at discipline scope;
+#      doubled row are store-malformed; on a `session` row the find stops on a
+#      koto without the session store's features (store-unsupported), without
+#      the owner's run entry (store-unverified), and on a moved record this
+#      run's session doesn't hold (session-absent); with the entry it is a
+#      move, and a moved record the session holds is found on the session
+#      store; a GitHub record while a session here holds the scope's state is
+#      store-conflict; record-state.sh writes the owner's row with its run
+#      entry; `--store` and a store row are refused at discipline scope;
 #   4. coord/source.json: record-find.sh writes the run's store with the probe's
 #      reading, and an invocation's --store is reported ignored when a record
 #      exists;
@@ -76,6 +80,26 @@ printf '#!/usr/bin/env bash\ngh "$CONTAINER" view "$REF" --repo "$REPO" --json s
 eq "  ... and the rule refuses each way of reading one, not a handoff file" "a.sh b.sh c.sh d.sh f.sh" \
     "$(body_readers "$FX" | cut -d: -f1 | sort -u | tr '\n' ' ' | sed 's/ $//')"
 
+# The move's write paths (docs/designs/DESIGN-coordinator-session-record.md,
+# Decision 11): MOVE_WRITER, which lifts the section-owner checks and the
+# store-moved refusal, is set only by the move; SESSION_SEED, the first write
+# into an empty session, only by the move and the opener of a session-store
+# record.
+flag_setters() { # flag_setters <dir> <flag> <allowed-regex>: scripts that set flag=1 outside the allowed ones
+    local f base
+    for f in "$1"/*.sh; do
+        base=$(basename "$f")
+        case "$base" in *_test.sh|record-write-core.sh) continue ;; esac
+        [[ $base =~ $3 ]] && continue
+        grep -nE "(^|[^A-Za-z_])$2=1" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$base:|"
+    done
+}
+eq "only record-move.sh sets MOVE_WRITER" "" "$(flag_setters "$HERE" MOVE_WRITER '^record-move\.sh$')"
+eq "only record-move.sh and record-open.sh set SESSION_SEED" "" "$(flag_setters "$HERE" SESSION_SEED '^(record-move|record-open)\.sh$')"
+printf '#!/usr/bin/env bash\n. "$HERE/record-write-core.sh"\nMOVE_WRITER=1 SESSION_SEED=1\ncore_write\n' > "$FX/g.sh"
+eq "  ... and the rule refuses a script that sets either" "g.sh g.sh" \
+    "$( { flag_setters "$FX" MOVE_WRITER '^record-move\.sh$'; flag_setters "$FX" SESSION_SEED '^(record-move|record-open)\.sh$'; } | cut -d: -f1 | tr '\n' ' ' | sed 's/ $//')"
+
 # ---- 2. rs_facts --------------------------------------------------------------------
 
 F1=$(holding worker-f1 '{"unit": "Feature 1", "branch": "feat/first", "pull_request": "[#12](https://github.com/acme/widgets/pull/12)", "verified_head": "1111111111111111111111111111111111111111"}')
@@ -121,46 +145,75 @@ grep -q 'store-malformed' "$T/err" && ok "two store rows are store-malformed" ||
 printf '%s' "$REC" | jq -c '.run += [{key: "colour", value: "x", set_by: "alice", set: "2026-10-11T10:00Z"}]' \
     | bash "$HERE/record-render.sh" --container issue >/dev/null 2>&1; eq "any other unknown Run key is still refused" 65 $?
 
-# A record whose store row reads session: the find stops it before reconcile.
+# A record whose store row reads session and that still holds its state tables.
+# FIND <session> <vars-json> [env...]: the find as the template's action runs it.
+FIND() { local s=$1 v=$2; shift 2; log_new "$s" "$v"; log_to "$s" start_posture record_find 2026-09-26T07:01:00.000Z
+    env "$@" bash "$HERE/record-find.sh" --session "$s" 2>"$T/err" | sed 's/ sealed:.*//'; }
+SRCOF() { jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$1/coord/source.json"; }
 db_init
 printf '%s' "$(with_store session)" | bash "$HERE/record-render.sh" --container issue --written 2026-09-26T09:00:00Z > "$T/sess.md"
 db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/sess.md")"
-OUT=$(bash "$HERE/record-find.sh" --scope roadmap --name plugin-system --repo "$REPO" --no-seal 2>"$T/err")
-eq "the find reads a session-store record as malformed" "malformed 7" "$OUT"
-SF=coordinate-roadmap-plugin-system-20260926T070000Z
-log_new "$SF" "$(roadmap_vars plugin-system)"
-log_to "$SF" start_posture record_find 2026-09-26T07:01:00.000Z
-bash "$HERE/record-find.sh" --session "$SF" >/dev/null 2>&1
-jq -r .reason "$KOTO_STORE/context/$SF/coord/record_find.json" 2>/dev/null | grep -q '^store-unavailable' \
-    && ok "  ... with the reason store-unavailable" || bad "  ... with the reason store-unavailable" "$(cat "$KOTO_STORE/context/$SF/coord/record_find.json" 2>/dev/null)"
-eq "  ... and coord/source.json names the record's own refusal, on the GitHub store" \
-    "github|store-unavailable: the record's store is session, which this release can't read" \
-    "$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$SF/coord/source.json")"
-grep -Eq '^(issue|pr) (edit|close|create)|api --method (POST|PATCH|PUT)' "$GH_DB.calls" && bad "  ... and writes nothing" "$(calls)" || ok "  ... and writes nothing"
+SU=coordinate-roadmap-plugin-system-20260926T070000Z
+eq "on a koto without the session store's features the find stops" "malformed 7" "$(FIND "$SU" "$(roadmap_vars plugin-system)")"
+case "$(SRCOF "$SU")" in "session|store-unsupported: this koto lacks context list --prefix, session import"*) ok "  ... naming what is missing, its store still session (R2)" ;;
+    *) bad "  ... naming what is missing, its store still session (R2)" "$(SRCOF "$SU")" ;; esac
+koto context exists "$SU" record/meta && bad "  ... with no key written" "" || ok "  ... with no key written"
+grep -Eq '^(issue|pr) (edit|close|create)|api --method (POST|PATCH|PUT)' "$GH_DB.calls" && bad "  ... and no GitHub change" "$(calls)" || ok "  ... and no GitHub change"
+SV=coordinate-roadmap-plugin-system-20260926T070100Z
+eq "with no run entry recording the row, the find stops" "malformed 7" "$(FIND "$SV" "$(roadmap_vars plugin-system)" KOTO_FEATURES=1)"
+jq -r .reason "$KOTO_STORE/context/$SV/coord/record_find.json" | grep -q '^store-unverified' \
+    && ok "  ... as store-unverified" || bad "  ... as store-unverified" "$(cat "$KOTO_STORE/context/$SV/coord/record_find.json")"
+db '.comments = [{repo: "acme/widgets", number: 7, id: 900, user: "coord", created_at: "2026-10-11T10:00:05Z", updated_at: "2026-10-11T10:00:05Z",
+    body: "<!-- coordinator-record-entry v1 kind=run -->\n**2026-10-11T10:00:05Z** (host clock) run\n\nRun store set to session by alice."}]'
+SM=coordinate-roadmap-plugin-system-20260926T070200Z
+eq "with the owner's run entry, it is a move (R3)" "move 7" "$(FIND "$SM" "$(roadmap_vars plugin-system)" KOTO_FEATURES=1)"
+case "$(SRCOF "$SM")" in "session|the record's store row reads session"*) ok "  ... on the session store" ;; *) bad "  ... on the session store" "$(SRCOF "$SM")" ;; esac
+log_capture "$SM" RECORD_FIND "$(KOTO_FEATURES=1 bash "$HERE/record-find.sh" --session "$SM" 2>/dev/null)" 2026-09-26T07:01:00.000Z
+eq "  ... and the run's facts and store read it" "7|session" \
+    "$(bash "$HERE/coord-log.sh" run-facts --session "$SM" 2>/dev/null | jq -r .ref)|$(bash "$HERE/coord-log.sh" run-store --session "$SM")"
+# A record in the moved shape.
+jq -nc '{scope: {kind: "roadmap", name: "plugin-system"}, holdings: [], deferrals: [], side_effects: [], reversals: [],
+    run: [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:00Z"}]}' \
+    | bash "$HERE/record-render.sh" --container issue --written 2026-10-11T10:05:00Z > "$T/moved.md"
+db '.issues[0].body = $b | .comments = []' --arg b "$(cat "$T/moved.md")"
+SA=coordinate-roadmap-plugin-system-20260926T070300Z
+eq "a moved record this run's session doesn't hold stops the find" "malformed 7" "$(FIND "$SA" "$(roadmap_vars plugin-system)" KOTO_FEATURES=1)"
+case "$(SRCOF "$SA")" in "session|session-absent: "*) ok "  ... as session-absent, on the session store" ;; *) bad "  ... as session-absent, on the session store" "$(SRCOF "$SA")" ;; esac
+SH=coordinate-roadmap-plugin-system-20260926T070400Z
+bash "$HERE/record-parse.sh" --container issue "$T/rec.md" > "$T/held.json"
+session_keys "$SH" "$T/held.json"
+eq "a moved record this run's session holds is found on the session store" "found 7 session" "$(FIND "$SH" "$(roadmap_vars plugin-system)" KOTO_FEATURES=1)"
+eq "  ... which coord/source.json names" "session|the record's store" "$(SRCOF "$SH")"
+# A GitHub record while a session of this scope here holds the state.
+db '.issues[0].body = $b' --arg b "$(cat "$T/gh.md")"
+SC=coordinate-roadmap-plugin-system-20260926T070500Z
+eq "a GitHub record while a session here holds the scope's state stops the find" "malformed 7" "$(FIND "$SC" "$(roadmap_vars plugin-system)" KOTO_FEATURES=1)"
+case "$(SRCOF "$SC")" in "github|store-conflict: #7 reads store github, but session $SH"*) ok "  ... as store-conflict, naming the session" ;; *) bad "  ... as store-conflict, naming the session" "$(SRCOF "$SC")" ;; esac
+rm -rf "${KOTO_STORE:?}/context/$SH/record"
 
-# rs_record on the session store, under the test override.
-( PROG=t; SCOPE=roadmap NAME=plugin-system REPO=$REPO REF=7; . "$HERE/record-common.sh"; lib_facts
-  RS_SOURCE=session rs_record "$T/r" body --json body --jq .body; echo "rc=$?"; grep -q store-unavailable "$T/r.err" && echo named ) > "$T/out"
-eq "rs_record on the session store stops with store-unavailable" "rc=4 named" "$(tr '\n' ' ' < "$T/out" | sed 's/ $//')"
-
-# record-state.sh refuses to move a record now, and refuses a store at discipline scope.
+# record-state.sh writes the owner's row, telling it as a run entry, and refuses
+# a store at discipline scope.
 db_init
 db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/rec.md")"
 bash "$HERE/record-state.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --skip-session-checks --run store session --by alice >/dev/null 2>"$T/err"
-eq "record-state.sh --run store session is refused" 65 $?
-grep -q store-unavailable "$T/err" && ok "  ... as store-unavailable" || bad "  ... as store-unavailable" "$(cat "$T/err")"
-grep -q '^issue edit' "$GH_DB.calls" && bad "  ... with no write" "$(calls)" || ok "  ... with no write"
+eq "record-state.sh --run store session writes the owner's row" "0 session" \
+    "$? $(jq -r '.issues[0].body' "$GH_DB" | bash "$HERE/record-parse.sh" | jq -r '[.run[] | select(.key == "store") | .value][0]')"
+jq -r '.comments[-1].body' "$GH_DB" | grep -qxF 'Run store set to session by alice.' \
+    && ok "  ... and posts the run entry the find looks for" || bad "  ... and posts the run entry the find looks for" "$(jq -c '.comments' "$GH_DB")"
+bash "$HERE/record-state.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --skip-session-checks --run store bogus --by alice >/dev/null 2>"$T/err"
+eq "a store that is neither is refused" 65 $?
 bash "$HERE/record-state.sh" --scope discipline --name ci-health --repo "$REPO" --ref 7 --skip-session-checks --run store github --by alice >/dev/null 2>"$T/err"
 eq "a store row at discipline scope is refused" 65 $?
 
-# The opener: --store session and a discipline --store are refused before any koto call.
+# The opener: a discipline --store is refused before any koto call; --store
+# session reaches koto.
 open_with() { printf '%s' "$1" > "$T/args.json"; ( cd "$T" && bash "$HERE/coordinate-open.sh" --plugin-root "$PLUGIN_ROOT_REAL" "$T/args.json" ); }
 : > "$KOTO_STORE/calls"
-OUT=$(open_with '["docs/roadmaps/ROADMAP-plugin-system.md", "--store", "session"]' 2>"$T/err"); rc=$?
-eq "--store session is refused" "2 refused=store-unavailable" "$rc $OUT"
 OUT=$(open_with '["--discipline", "ci-health", "--host", "acme/widgets", "--store", "github"]' 2>"$T/err"); rc=$?
 eq "--store at discipline scope is refused" "2 refused=store-discipline" "$rc $OUT"
 grep -q '^init' "$KOTO_STORE/calls" && bad "  ... and no session is opened" "$(cat "$KOTO_STORE/calls")" || ok "  ... and no session is opened"
+OUT=$(open_with '["docs/roadmaps/ROADMAP-plugin-system.md", "--store", "session"]' 2>"$T/err")
+case "$OUT" in *refused=store*) bad "--store session at roadmap scope isn't refused by the opener" "$OUT" ;; *) ok "--store session at roadmap scope isn't refused by the opener" ;; esac
 
 # ---- 4. coord/source.json -----------------------------------------------------------
 
@@ -188,17 +241,22 @@ log_capture "$S" RECORD_FIND "$OUT" 2026-09-26T08:01:00.000Z
 eq "the sealed token is the verdict and the number only" "found 7" "$(bash "$HERE/coord-log.sh" capture --session "$S" --name RECORD_FIND | sed 's/ sealed:.*//')"
 eq "  ... and coord-log.sh run-store reads github from it" github "$(bash "$HERE/coord-log.sh" run-store --session "$S")"
 
-# A session opened outside coordinate-open.sh with STORE=session, on a scope
-# with no record: the find stops it rather than open a record for it.
+# A new scope with STORE=session: on a koto with the session store's features the
+# find routes it to record_open on the session store; without them it stops.
 db_init
 SN=coordinate-roadmap-plugin-system-20260926T060000Z
 log_new "$SN" "$(roadmap_vars plugin-system | jq -c '. + {STORE: "session"}')"
 log_to "$SN" start_posture record_find 2026-09-26T06:01:00.000Z
-OUT=$(bash "$HERE/record-find.sh" --session "$SN" 2>"$T/err")
-eq "a new scope with STORE=session is stopped at the find" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
-jq -r .reason "$KOTO_STORE/context/$SN/coord/record_find.json" | grep -q '^store-unavailable' \
-    && ok "  ... as store-unavailable" || bad "  ... as store-unavailable" "$(cat "$KOTO_STORE/context/$SN/coord/record_find.json")"
-eq "  ... and the store it writes is github, not session" github "$(jq -r .source "$KOTO_STORE/context/$SN/coord/source.json")"
+OUT=$(KOTO_FEATURES=1 bash "$HERE/record-find.sh" --session "$SN" 2>"$T/err")
+eq "a new scope with STORE=session goes on to record_open" none "$(printf '%s' "$OUT" | cut -d' ' -f1)"
+eq "  ... on the session store" "session|no record found: the invocation's store" "$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$SN/coord/source.json")"
+SN2=coordinate-roadmap-plugin-system-20260926T060100Z
+log_new "$SN2" "$(roadmap_vars plugin-system | jq -c '. + {STORE: "session"}')"
+log_to "$SN2" start_posture record_find 2026-09-26T06:01:00.000Z
+OUT=$(bash "$HERE/record-find.sh" --session "$SN2" 2>"$T/err")
+eq "  ... and without the features it stops" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
+jq -r .reason "$KOTO_STORE/context/$SN2/coord/record_find.json" | grep -q '^store-unsupported' \
+    && ok "  ... as store-unsupported" || bad "  ... as store-unsupported" "$(cat "$KOTO_STORE/context/$SN2/coord/record_find.json")"
 # The same at discipline scope, with any store.
 SD=coordinate-discipline-ci-health-20260926T060000Z
 log_new "$SD" "$(discipline_vars ci-health | jq -c '. + {STORE: "github"}')"

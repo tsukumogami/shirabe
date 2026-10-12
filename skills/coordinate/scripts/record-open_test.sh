@@ -122,4 +122,23 @@ db_init
 bash "$O" --session "$S5" --body-file "$T/rm.md" >/dev/null 2>"$T/err"; eq "a session that isn't its scope's one live session is refused" 10 $?
 eq "and writes nothing" "" "$(calls)"
 
+echo "== the session store =="
+# --store session (docs/designs/DESIGN-coordinator-session-record.md,
+# Decision 10): the issue opens in the moved shape, and the record's state goes
+# into the run's session.
+SO=coordinate-roadmap-plugin-system-20261012T130000Z
+db_init
+OUT=$(env RS_SESSION="$SO" bash "$O" "${RM[@]}" --store session --body-file "$T/rm.md" 2>"$T/err"); rc=$?
+eq "a session-store record opens" "0 record=https://github.com/acme/widgets/issues/1" "$rc $OUT"
+jq -r '.issues[0].body' "$GH_DB" | bash "$HERE/record-parse.sh" > "$T/opened.json"
+eq "  ... its GitHub body the moved shape (R8)" '{"deferrals":[],"holdings":[],"reversals":[],"run":["store=session"],"side_effects":[]}' \
+    "$(jq -cS '{holdings, deferrals, side_effects, reversals, run: [.run[] | "\(.key)=\(.value)"]}' "$T/opened.json")"
+koto context exists "$SO" record/meta && ok "  ... and the session holds record/meta" || bad "  ... and the session holds record/meta" "$(cat "$T/err")"
+eq "  ... with the record's state, the store row among it" "[]|store=session" \
+    "$(koto context get "$SO" record/holdings | jq -c .)|$(koto context get "$SO" record/run | jq -r '.[] | "\(.key)=\(.value)"')"
+eq "  ... record/meta for this scope, on the session store, not pending" "roadmap:plugin-system|session|false" \
+    "$(koto context get "$SO" record/meta | jq -r '"\(.scope.kind):\(.scope.name)|\(.store)|\(.pending)"')"
+bash "$O" "${DS[@]}" --store session --body-file "$T/ds.md" >/dev/null 2>"$T/err"; rc=$?
+eq "--store session at discipline scope is refused" 65 "$rc"
+
 done_tests record-open

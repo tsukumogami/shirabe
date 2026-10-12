@@ -22,9 +22,8 @@
 #   --store github|session       where a new scope's record keeps its state
 #                                (STORE); a found record's own store row decides
 #                                for an existing one, and this flag is then
-#                                reported ignored. Roadmap scope only; this
-#                                release reads the record only from GitHub and
-#                                refuses `session` (store-unavailable)
+#                                reported ignored. Roadmap scope only; without
+#                                it a new record is on GitHub
 #   --                           everything after it is the human's decisions:
 #                                shown to the coordinator, never a setting
 # At roadmap scope it also sets ROADMAP_FORM, milestone when the roadmap file
@@ -88,18 +87,14 @@ BAD=$(printf '%s' "$MAPPED" | jq -r '.bad // empty')
 [ -z "$BAD" ] || usage "$BAD"
 
 # The store (docs/designs/DESIGN-coordinator-session-record.md, Decision 2):
-# roadmap scope only, and the session store isn't in this release. koto checks
-# the value's shape; these two refusals come first so nothing opens.
+# roadmap scope only. koto checks the value's shape; this refusal comes first so
+# nothing opens. GitHub stays the default: only `--store session` opens a new
+# scope's record on the session store.
 STORE_FLAG=$(printf '%s' "$MAPPED" | jq -r '[.pairs[] | select(.[0] == "STORE") | .[1]] | last // ""')
 if [ -n "$STORE_FLAG" ]; then
     if [ "$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')" -gt 0 ]; then
         echo "refused=store-discipline"
         echo "coordinate-open: --store is for roadmap scope; a discipline rotation's record stays on GitHub" >&2
-        exit 2
-    fi
-    if [ "$STORE_FLAG" = session ]; then
-        echo "refused=store-unavailable"
-        echo "coordinate-open: store-unavailable: this release reads the record only from GitHub" >&2
         exit 2
     fi
 fi
