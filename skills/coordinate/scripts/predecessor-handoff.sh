@@ -83,9 +83,12 @@ fi
 T=$(mktemp -d "${TMPDIR:-/tmp}/predecessor-handoff.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-gh pr view "$REF" --repo "$REPO" --json title,body,headRefOid > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
-    || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/pr.err")"
-jq -r '.body // ""' "$T/pr.json" > "$T/body.md" || lib_die2 "jq failed"
+# The predecessor's record, through the seam (record-source.sh), with its
+# title and head from the same read.
+rs_record "$T/parsed.json" json --json title,body,headRefOid; RS_RC=$?
+[ $RS_RC -eq 2 ] && lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/parsed.json.err")"
+[ $RS_RC -eq 4 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+cp "$T/parsed.json.raw" "$T/pr.json"
 TITLE=$(jq -r '.title // ""' "$T/pr.json")
 
 unparseable() {
@@ -93,8 +96,7 @@ unparseable() {
     lib_emit predecessor_handoff "unparseable $REF" "" ""
 }
 
-lib_parse "$T/body.md" "$T/parsed.json"
-case $? in
+case $RS_RC in
     0) ;;
     3|65) unparseable "not a canonical record for $NAME: $(lib_scrub < "$T/parsed.json.err" | head -1)" ;;
     *) lib_die2 "record-parse.sh failed" ;;

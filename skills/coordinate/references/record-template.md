@@ -192,7 +192,10 @@ each rendered only once it has a row:
 | <a holding's Unit, a parked or follow-up unit, a milestone's tag, or what the work is> | <holding, local-agent, decision, follow-up, verdict-owed or rework> | <its Worker, who does it, decision <n>, owner/repo#n, none, verdict <id> or failure <id>> | <what happens next> | <the holding's wakes so far; 0 otherwise> | <YYYY-MM-DDTHH:MMZ> |
 ```
 
-**Run** holds the run's arguments, the cap in force (the readers of the cap
+**Run** holds the run's arguments, the record's store (a `store` row,
+`github` or `session`, written once by its owner with `record-state.sh --run
+store <value> --by <person>`; a record without one is on GitHub, and a
+discipline record never has one), the cap in force (the readers of the cap
 take it over the `--cap` the session was opened with), this coordinator's
 address (its messaging address: the session name a worker can message, which
 may hold `_`, or a dispatch topic; never a session id, a path or an instance
@@ -372,6 +375,13 @@ inside it, and a refused post (exit 11) is retried once, later, never in a
 loop.
 
 ## Where State Lives
+
+Every script reads the record's state through `scripts/record-source.sh`: its
+`rs_record` makes the read a script made before, with the same `gh` arguments,
+and parses the body; `rs_record_api` is the land check's and the merge's read
+under their deadline; `rs_facts` gives one holding's repository, pull request,
+branch, verified head, holds and pauses. A run's store comes from the record's
+`store` row, which the find writes to `coord/source.json` with why.
 
 A coordinator's state lives outside its session and outside any directory the
 workspace manager converges, and what must outlive the host lives on GitHub.

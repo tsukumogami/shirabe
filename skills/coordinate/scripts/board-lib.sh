@@ -184,31 +184,22 @@ bl_posture_merge() {
 # record-confirm.sh applies after posture_ask. 1 no permitted answer, or no such
 # row; 2 read failure.
 bl_human_holds_merge() {
-    local s=$1 ev facts repo ref scope name min body
+    local s=$1 ev min
     ev=$(bash "$HERE/coord-log.sh" evidence --session "$s" --state posture_ask 2>/dev/null)
     case $? in 0) ;; 1) return 1 ;; *) return 2 ;; esac
     [ "$(printf '%s' "$ev" | jq -r '.fields.merge // ""')" = permitted ] || return 1
     min=$(printf '%s' "$ev" | jq -r '.timestamp' | cut -c1-16)
     [[ $min =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}$ ]] || return 1
-    facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s" 2>/dev/null) || return 2
-    repo=$(printf '%s' "$facts" | jq -r '.repo // ""')
-    ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
-    scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
-    name=$(printf '%s' "$facts" | jq -r '.name // ""')
-    bl_repo_ok "$repo" && bl_pr_ok "$ref" || return 2
-    case "$scope" in roadmap|discipline) ;; *) return 2 ;; esac
-    local t
-    t=$(mktemp "${TMPDIR:-/tmp}/board-lib.XXXXXX") || return 2
-    if ! bl_gh "$t" api --method GET "repos/$repo/issues/$ref"; then rm -f "$t" "$t.err" "$t.fail"; return 2; fi
-    body=$(jq -r '.body // ""' "$t")
-    rm -f "$t" "$t.err" "$t.fail"
-    local cont=issue
-    [ "$scope" = discipline ] && cont=pr
-    printf '%s' "$body" | bash "$HERE/record-parse.sh" --container "$cont" --expect-scope "$scope:$name" - 2>/dev/null \
-        | jq -e --arg min "$min" '
+    local d
+    d=$(mktemp -d "${TMPDIR:-/tmp}/board-posture.XXXXXX") || return 2
+    rs_record_api "$d/parsed" "$s" 2>/dev/null || { rm -rf "$d"; return 2; }
+    jq -e --arg min "$min" '
             [.reversals[]? | select(.from == "the human"
                 and (((.reversed // "") + " " + (.now // "")) | ascii_downcase | contains("posture"))
-                and ((.date // "")[0:16] >= $min))] | length > 0' >/dev/null
+                and ((.date // "")[0:16] >= $min))] | length > 0' "$d/parsed" >/dev/null
+    local rc=$?
+    rm -rf "$d"
+    return $rc
 }
 
 # bl_merge_posture <session>: the merge step's effective posture, printed as
@@ -355,28 +346,11 @@ bl_reviewed_fresh() {
 bl_holds_on() {
     local s=$1 repo=$2 pr=$3 d
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-holds.XXXXXX") || return 2
-    bl_record_parsed "$s" "$d/parsed" || { rm -rf "$d"; return 2; }
+    rs_record_api "$d/parsed" "$s" || { rm -rf "$d"; return 2; }
     bl_holds_eval "$d/parsed" "$repo" "$pr"
     local rc=$?
     rm -rf "$d"
     return $rc
-}
-
-# bl_record_parsed <session> <out>: the run's record, read live and parsed
-# (record-parse.sh's JSON) into <out>, for the holds and the pauses. Returns 0
-# written; 2 the record couldn't be read or parsed.
-bl_record_parsed() {
-    local s=$1 out=$2 facts rrepo ref scope name c
-    facts=$(bash "$HERE/coord-log.sh" run-facts --session "$s") || return 2
-    rrepo=$(printf '%s' "$facts" | jq -r '.repo // ""')
-    ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
-    scope=$(printf '%s' "$facts" | jq -r '.scope // ""')
-    name=$(printf '%s' "$facts" | jq -r '.name // ""')
-    bl_repo_ok "$rrepo" && bl_pr_ok "$ref" || return 2
-    case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
-    bl_gh "$out.rec" api --method GET "repos/$rrepo/issues/$ref" || return 2
-    jq -r '.body // ""' "$out.rec" | bash "$HERE/record-parse.sh" --container "$c" --expect-scope "$scope:$name" - > "$out" \
-        || { echo "$PROG: the record couldn't be parsed" >&2; return 2; }
 }
 
 # bl_pauses_on <parsed-record-file> <repo> <pr>: the record's pauses as

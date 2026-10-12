@@ -267,14 +267,16 @@ case "$OUTCOME$REASON$ENTRY_URL" in *$'\n'*|*$'\r'*) echo "$PROG: --outcome, --r
 WD=$(mktemp -d "${TMPDIR:-/tmp}/roadmap-status.XXXXXX")
 trap 'rm -rf "$WD"' EXIT
 
-gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" 2> "$WD/r.err" < /dev/null || lib_die2 "cannot read issue #$REF: $(lib_scrub < "$WD/r.err")"
-tr -d '\r' < "$WD/live.raw" > "$WD/live.md"
-lib_parse "$WD/live.md" "$WD/parsed.json"
+rs_record "$WD/parsed.json" body --json body --jq .body
 case $? in
     0) ;;
+    2) lib_die2 "cannot read issue #$REF: $(lib_scrub < "$WD/parsed.json.err")" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical roadmap record for $NAME" >&2; exit 10 ;;
+    4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+cp "$WD/parsed.json.md" "$WD/live.md"
+
 # The pending rows, {unit, pull_request, attempted, action, how_to_confirm}:
 # the Target is `<TAG> [#n](URL)`. Four Actions are roadmap edits: a
 # feature's Done (roadmap-status), a milestone verdict's (milestone-done,

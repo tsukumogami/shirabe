@@ -53,6 +53,7 @@ to advance it, what it never does, and how it ends.
 | `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
+| `--store github\|session` | Where a new roadmap scope's record keeps its state, default `github`. A record that already exists decides for itself, and the flag is then reported ignored. This release reads the record only from GitHub, and refuses `session` (`store-unavailable`). |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
 
 When the human's decisions state one of these settings in words ("host repo:
@@ -195,6 +196,21 @@ replacement continues from (Run, Standing and Work, written only by
 `scripts/record-state.sh`), then Decisions once it holds a decision; a
 candidate without the declaration line is never adopted.
 `references/record-template.md` has the shape.
+
+A record's store is where its state lives: `github`, the body above, or
+`session`, the coordinator's own koto session. A record with no `store` row in
+its Run section is on GitHub; only its owner moves it, by writing that row with
+`scripts/record-state.sh --run store <github|session> --by <person>`, and
+nothing else (no flag, no default, no upgrade) changes it. The find reads the
+row at every start and writes the run's store, why, and what its probe read of
+koto, to `coord/source.json`, so a successor never guesses. This release reads only
+the GitHub store: a `session` row stops the run at the find.
+
+Every script reads the record's state through one reader,
+`scripts/record-source.sh`, whichever store the run is on. The only other
+scripts that parse a record body are the finder, the opener and the write core,
+which parse what they are about to adopt or write, and reconcile's reader, which
+salvages a body the seam handed it; a test holds every script to that list.
 
 The body is the record's state. Its account, what happened and why, goes in
 entries: each one comment on the same issue or pull request, written with

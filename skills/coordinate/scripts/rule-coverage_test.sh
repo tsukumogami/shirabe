@@ -25,6 +25,9 @@ TOTAL=190
 DTOTAL=16
 # The milestone verdict rules (docs/designs/DESIGN-milestone-verdicts.md): M1..M$MTOTAL.
 MTOTAL=20
+# The record's store and its one reader
+# (docs/designs/DESIGN-coordinator-session-record.md): S1..S$STOTAL.
+STOTAL=3
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }
@@ -47,7 +50,7 @@ while IFS=$'\t' read -r id file state phrase note; do
     case "$id" in ''|'#'*) continue ;; esac
     echo "$id" >> "$T/ids"
     label="$id $file${state:+ [$state]}"
-    case "$id" in C[0-9]*|D[0-9]*|M[0-9]*) ;; *) bad "$label" "malformed ID"; continue ;; esac
+    case "$id" in C[0-9]*|D[0-9]*|M[0-9]*|S[0-9]*) ;; *) bad "$label" "malformed ID"; continue ;; esac
     if [ -z "${phrase-}" ]; then bad "$label" "no key phrase"; continue; fi
     len=${#phrase}
     if [ "$len" -lt 8 ] || [ "$len" -gt 60 ]; then
@@ -73,7 +76,7 @@ done < "$TSV"
 # Completeness: rows plus the lost list name C1..C$TOTAL, each once.
 sed -n 's/^# lost://p' "$TSV" | tr ' ' '\n' | grep . > "$T/lost"
 LOST=$(wc -l < "$T/lost" | tr -d ' ')
-grep -v '^[DM]' "$T/ids" | cat - "$T/lost" | sort > "$T/named"
+grep -v '^[DMS]' "$T/ids" | cat - "$T/lost" | sort > "$T/named"
 i=1
 : > "$T/want"
 while [ "$i" -le "$TOTAL" ]; do echo "C$i" >> "$T/want"; i=$((i + 1)); done
@@ -102,6 +105,15 @@ while [ "$i" -le "$MTOTAL" ]; do echo "M$i" >> "$T/mwant"; i=$((i + 1)); done
 sort "$T/mwant" > "$T/mwant.s"
 [ "$(cat "$T/mnamed")" = "$(cat "$T/mwant.s")" ] && ok "every milestone verdict rule M1..M$MTOTAL is named once" \
     || bad "every milestone verdict rule M1..M$MTOTAL is named once" "named: $(tr '\n' ' ' < "$T/mnamed")"
+
+# The store rules, S1..S$STOTAL, each named once by a row.
+grep '^S' "$T/ids" | sort > "$T/snamed"
+i=1
+: > "$T/swant"
+while [ "$i" -le "$STOTAL" ]; do echo "S$i" >> "$T/swant"; i=$((i + 1)); done
+sort "$T/swant" > "$T/swant.s"
+[ "$(cat "$T/snamed")" = "$(cat "$T/swant.s")" ] && ok "every store rule S1..S$STOTAL is named once" \
+    || bad "every store rule S1..S$STOTAL is named once" "named: $(tr '\n' ' ' < "$T/snamed")"
 
 # Each reference file is named in at least one state section of the template.
 awk '/^## / { on = 1 } on' "$T/body" > "$T/sections"

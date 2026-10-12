@@ -32,7 +32,16 @@
 #                  [--today YYYY-MM-DD] [--no-seal]          (tests)
 #
 # The detail goes to context key coord/record_find.json as data:
-#   {verdict, ref, url, reason, candidates, default_branch, rotation:{start,end}}
+#   {verdict, ref, url, reason, candidates, default_branch, rotation:{start,end}, store}
+# and the run's store to coord/source.json: {source, reason, probe}. A found
+# record's store is its `store` Run row (`github` without one); a record whose
+# store is `session` is reported `malformed` with the reason
+# `store-unavailable`, since this release reads only the GitHub store, and a
+# malformed or doubled `store` row is `malformed` with `store-malformed`. The
+# invocation's store (the STORE variable) is refused here as well as at the
+# opener: any value at discipline scope is `malformed` with `store-discipline`,
+# and `session` on a scope with no record is `malformed` with
+# `store-unavailable`, so no record is opened for it.
 # The token, sealed to this visit of record_find, is the only stdout line;
 # under --no-seal it is printed bare and no context is written.
 #
@@ -72,9 +81,40 @@ if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u 
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-find.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END=
+VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE= FLAG_REFUSED=
+# The invocation's --store (the STORE variable), read once. coordinate-open.sh
+# refuses `session` and any store at discipline scope before a session exists;
+# the find refuses them too, since a session opened some other way reaches here
+# with whatever the variable's pattern admits. A session whose variables can't
+# be read stops here, rather than being taken as one with no --store.
+FLAG=
+if [ -n "$SESSION" ]; then
+    FLAG=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" | jq -r '.STORE // ""') \
+        || lib_die2 "the session's variables couldn't be read"
+fi
+
+# store_flag_guard: the invocation's store, where it decides: a discipline
+# record has no store, and a new roadmap scope can't start on the session store
+# in this release. Either stops the run at record_conflict, before any record is
+# opened, as malformed with the reason named.
+store_flag_guard() {
+    [ -n "$FLAG" ] || return 0
+    if [ "$SCOPE" = discipline ]; then
+        VERDICT=malformed; NUM=; FLAG_REFUSED=1
+        REASON="store-discipline: a discipline rotation has no store; the invocation's --store $FLAG is refused"
+        return 0
+    fi
+    case "$VERDICT" in
+        none|stale-branch|unopened)
+            if [ "$FLAG" = session ]; then
+                VERDICT=malformed; NUM=; FLAG_REFUSED=1
+                REASON="store-unavailable: a new scope can't start on the session store in this release"
+            fi ;;
+    esac
+}
 
 finish() {
+    store_flag_guard
     local token=$VERDICT
     [ -n "$NUM" ] && token="$VERDICT $NUM"
     jq -n --arg v "$VERDICT" --arg ref "$NUM" --arg url "$URL" --arg reason "$REASON" \
@@ -89,7 +129,58 @@ finish() {
         printf '%s' "$URL" > "$T/record_url"
         "$KOTO" context add "$SESSION" record_url --from-file "$T/record_url" >/dev/null || lib_die2 "koto context add record_url failed"
     fi
+    write_source
     lib_emit record_find "$token" coord/record_find.json "$T/detail.json"
+}
+
+# write_source: the run's store, decided here and nowhere else
+# (docs/designs/DESIGN-coordinator-session-record.md, Decision 2), with the
+# probe's reading of koto, into coord/source.json for a person to read. A found
+# record's store is its own `store` Run row, `github` without one; the
+# invocation's --store (the STORE variable) decides only for a scope with no
+# record, and is reported ignored otherwise. A refusal (a session-store record,
+# or a store the invocation can't have) records the GitHub store and the
+# refusal's own reason, and so does a candidate the find rejected (malformed,
+# store-malformed among them, ambiguous, foreign, unauthorized, stale-branch,
+# predecessor): there is a record, it just wasn't adopted. The file records the
+# store the run reads, not the one asked for. The run's readers take the store
+# from coord-log.sh run-store, which reads `github` for every run that gets past
+# this find.
+write_source() {
+    [ "$NO_SEAL" = 1 ] && return 0
+    local flag=$FLAG store reason probe
+    if [ -n "$FLAG_REFUSED" ]; then
+        store=github; reason=$REASON
+    elif [ "$VERDICT" = found ]; then
+        store=${RECORD_STORE:-github}
+        reason="the record's store"
+        [ -n "$RECORD_STORE" ] || reason="the record has no store row"
+        [ -z "$flag" ] || reason="$reason; the invocation's --store $flag is ignored: the record decides"
+    elif [ "$VERDICT" = none ] || [ "$VERDICT" = unopened ]; then
+        store=${flag:-github}
+        reason="no record found: the invocation's store"
+        [ -n "$flag" ] || reason="no record found and no --store"
+    else
+        store=github
+        reason="no record adopted: $VERDICT: $REASON"
+    fi
+    probe=$(rs_probe)
+    jq -n --arg s "$store" --arg r "$reason" --argjson p "$probe" '{source: $s, reason: $r, probe: $p}' > "$T/source.json"
+    "$KOTO" context add "$SESSION" coord/source.json --from-file "$T/source.json" >/dev/null || lib_die2 "koto context add coord/source.json failed"
+    jq --arg s "$store" '. + {store: $s}' "$T/detail.json" > "$T/detail.json.t" && mv "$T/detail.json.t" "$T/detail.json"
+}
+
+# record_store: the found record's `store` Run row, into RECORD_STORE. A record
+# on the session store stops the run here: this release reads the record only
+# from GitHub.
+record_store() {
+    RECORD_STORE=$(jq -r '[(.run // [])[] | select(.key == "store") | .value][0] // ""' "$T/parsed.json")
+    if [ "$RECORD_STORE" = session ]; then
+        VERDICT=malformed; FLAG_REFUSED=1
+        REASON="store-unavailable: the record's store is session, which this release can't read"
+        return 1
+    fi
+    return 0
 }
 
 # judge <kind> <number> <body-file>: declaration, authority, canonical body.
@@ -129,6 +220,7 @@ if [ "$SCOPE" = roadmap ]; then
     [[ $NUM =~ $RE_NUM ]] || lib_die2 "the listing returned an unusable issue number"
     jq -r '.[0].body' "$T/issues.json" > "$T/body.md"
     judge issue "$NUM" "$T/body.md" || finish
+    record_store || finish
     VERDICT=found; REASON="one open record"; finish
 fi
 
@@ -157,6 +249,7 @@ URL=$(jq -r '.[0].url' "$T/open.json")
 [[ $NUM =~ $RE_NUM ]] || lib_die2 "the listing returned an unusable pull request number"
 jq -r '.[0].body // ""' "$T/open.json" > "$T/body.md"
 judge pullRequest "$NUM" "$T/body.md" || finish
+record_store || finish
 TITLE=$(jq -r '.[0].title' "$T/open.json")
 if ! lib_rotation_dates "$TITLE"; then
     VERDICT=ambiguous; REASON="the record's title is not a rotation title with real dates"; finish

@@ -157,7 +157,7 @@ unready() {
 }
 
 # The record, read once for the pauses and the holds.
-bl_record_parsed "$SESSION" "$MS.rec" || { echo "$PROG: the record couldn't be read for its pauses and holds" >&2; exit 2; }
+rs_record_api "$MS.rec" "$SESSION" || { echo "$PROG: the record couldn't be read for its pauses and holds" >&2; exit 2; }
 PAUSES=$(bl_pauses_on "$MS.rec" "$REPO" "$PR") || { echo "$PROG: the record's pauses couldn't be read" >&2; exit 2; }
 detail '.pauses = $p' --argjson p "$PAUSES"
 PAUSED=$(printf '%s' "$PAUSES" | jq -r '.paused // empty')

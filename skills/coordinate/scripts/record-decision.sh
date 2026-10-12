@@ -181,13 +181,15 @@ trap 'rm -rf "$WD"' EXIT
 
 # read_live: the live body, parsed canonically into $WD/parsed.json.
 read_live() {
-    if [ "$SCOPE" = roadmap ]; then
-        gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.md" 2> "$WD/gh.err" < /dev/null \
-            || { lib_scrub < "$WD/gh.err" >&2; echo >&2; lib_die2 "cannot read issue #$REF"; }
-    else
-        gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.md" 2> "$WD/gh.err" < /dev/null \
-            || { lib_scrub < "$WD/gh.err" >&2; echo >&2; lib_die2 "cannot read pull request #$REF"; }
-    fi
+    local rc
+    rs_record "$WD/parsed.json" body --json body --jq .body
+    rc=$?
+    case $rc in
+        2) lib_scrub < "$WD/parsed.json.err" >&2; echo >&2
+           [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
+        4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
+    esac
+    cp "$WD/parsed.json.md" "$WD/live.md"
     # A write to a record past the write core's budget is record-full before
     # anything else, even past the parser's own limit, as the core says.
     case "$MODE" in
@@ -195,8 +197,7 @@ read_live() {
         *) SIZE=$(wc -c < "$WD/live.md" | tr -d ' ')
            [ "$SIZE" -le 60000 ] || { echo "$PROG: refused: record-full: the record is $SIZE bytes, over the 60000-byte budget; compact settled decisions or prune the record" >&2; exit 13; } ;;
     esac
-    lib_parse "$WD/live.md" "$WD/parsed.json"
-    case $? in
+    case $rc in
         0) ;;
         3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
         *) lib_die2 "record-parse.sh failed" ;;

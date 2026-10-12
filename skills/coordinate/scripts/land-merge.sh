@@ -130,7 +130,7 @@ if [ "$CLOSEOUT" = 0 ]; then
     [ -z "$STANDING" ] || refuse "a hold stands on #$PR now: $STANDING; go back through verify"
     # The pauses, re-read the same way; a merge can't be undone.
     PD=$(mktemp -d "${TMPDIR:-/tmp}/land-merge-pauses.XXXXXX") || refuse "no temporary directory"
-    bl_record_parsed "$SESSION" "$PD/rec" || { rm -rf "$PD"; refuse "the record's pauses couldn't be re-read"; }
+    rs_record_api "$PD/rec" "$SESSION" || { rm -rf "$PD"; refuse "the record's pauses couldn't be re-read"; }
     PAUSES=$(bl_pauses_on "$PD/rec" "$REPO" "$PR") || { rm -rf "$PD"; refuse "the record's pauses couldn't be re-read"; }
     rm -rf "$PD"
     PAUSED=$(printf '%s' "$PAUSES" | jq -r '.paused // empty')

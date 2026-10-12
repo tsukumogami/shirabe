@@ -87,20 +87,17 @@ fi
 WD=$(mktemp -d "${TMPDIR:-/tmp}/record-hold.XXXXXX")
 trap 'rm -rf "$WD"' EXIT
 
-if [ "$SCOPE" = roadmap ]; then
-    gh issue view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read issue #$REF"
-else
-    gh pr view "$REF" --repo "$REPO" --json body --jq .body > "$WD/live.raw" < /dev/null || lib_die2 "cannot read pull request #$REF"
-fi
-# Line endings as the write core reads them, so a body GitHub serves with
-# CRLF parses the same here as there.
-tr -d '\r' < "$WD/live.raw" > "$WD/live.md"
-lib_parse "$WD/live.md" "$WD/parsed.json"
+# The live record, through the seam (record-source.sh), which reads it with
+# the line endings the write core reads.
+rs_record "$WD/parsed.json" body --json body --jq .body
 case $? in
     0) ;;
+    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
+    4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+cp "$WD/parsed.json.md" "$WD/live.md"
 
 case "$MODE" in
 list)

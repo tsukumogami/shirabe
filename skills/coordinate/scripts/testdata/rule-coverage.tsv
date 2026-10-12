@@ -2,7 +2,8 @@
 #
 # One row per rule of the pre-koto rule inventory (IDs C1..C190), then the
 # decision flow's rules (D1 onward) and the milestone verdict rules (M1
-# onward, docs/designs/DESIGN-milestone-verdicts.md). Columns,
+# onward, docs/designs/DESIGN-milestone-verdicts.md) and the store rules (S1
+# onward, docs/designs/DESIGN-coordinator-session-record.md). Columns,
 # tab-separated:
 #   <ID>  <carrier, repo-relative>  <state in coordinate.md, or ->  <key phrase>  [changed: <why>]
 # The key phrase is a verbatim substring of the carrier; when a state is named
@@ -238,3 +239,6 @@ M17	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reads blocke
 M18	skills/coordinate/koto-templates/coordinate.md	milestone_reopen	reopens nothing by itself
 M19	skills/coordinate/koto-templates/coordinate.md	wait	a failed dispatch is never this
 M20	skills/coordinate/koto-templates/coordinate.md	roadmap_close	reopen edit blocks as a side effect in flight
+S1	skills/coordinate/SKILL.md	-	only its owner moves it, by writing that row
+S2	skills/coordinate/SKILL.md	-	Every script reads the record's state through one reader
+S3	skills/coordinate/references/record-template.md	-	a record without one is on GitHub, and a

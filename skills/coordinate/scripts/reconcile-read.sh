@@ -114,8 +114,11 @@ case "$SCOPE" in roadmap) CONTAINER=issue ;; discipline) CONTAINER=pr ;; *) refu
 rd_valid_repo "$REPO" || refuse 5 failed "the run's host is unreadable"
 rd_valid_number "$REF" || refuse 5 failed "the run's record number is unreadable"
 
-# The body, live. A record that is no longer open isn't this run's record.
-rd_deadline "$DEADLINE" gh "$CONTAINER" view "$REF" --repo "$REPO" --json state,body > "$T/view.json" 2>/dev/null
+# The body, live, through the seam (record-source.sh's rs_view), under this
+# reader's own deadline; this reader keeps its row-by-row salvage of a body the
+# codec refuses, which only a GitHub body a person can edit by hand ever needs.
+# A record that is no longer open isn't this run's record.
+rd_deadline "$DEADLINE" rs_view "$CONTAINER" "$REF" "$REPO" --json state,body > "$T/view.json" 2>/dev/null
 case $? in
     0) ;;
     124) refuse 5 failed "reading the record timed out" ;;

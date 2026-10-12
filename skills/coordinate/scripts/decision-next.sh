@@ -239,13 +239,10 @@ fi
 case "$WORD" in
     clear|clear-report) ;;
     *)
-        if [ "$SCOPE" = roadmap ]; then
-            gh issue view "$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref)" --repo "$REPO" --json body --jq .body > "$T/live.md" < /dev/null \
-                || lib_die2 "cannot read the record"
-        else
-            gh pr view "$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref)" --repo "$REPO" --json body --jq .body > "$T/live.md" < /dev/null \
-                || lib_die2 "cannot read the record"
-        fi
+        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
+            || lib_die2 "cannot read the record's number"
+        rs_record "$T/live" body --json body --jq .body
+        case $? in 2|4|5) lib_die2 "cannot read the record" ;; esac
         SIZE=$(wc -c < "$T/live.md" | tr -d ' ')
         if [ "$SIZE" -gt $((60000 - 4096)) ]; then
             echo "$PROG: record-full: the record is $SIZE bytes, too close to the 60,000-byte budget for the owed $WORD; compact settled decisions or prune the record" >&2
