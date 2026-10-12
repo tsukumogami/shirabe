@@ -241,4 +241,8 @@ M19	skills/coordinate/koto-templates/coordinate.md	wait	a failed dispatch is nev
 M20	skills/coordinate/koto-templates/coordinate.md	roadmap_close	reopen edit blocks as a side effect in flight
 S1	skills/coordinate/SKILL.md	-	only its owner moves it, by writing that row
 S2	skills/coordinate/SKILL.md	-	Every script reads the record's state through one reader
-S3	skills/coordinate/references/record-template.md	-	a record without one is on GitHub, and a
+S3	skills/coordinate/references/record-template.md	-	a record without one is on GitHub, a
+S4	skills/coordinate/references/record-template.md	-	a write is refused, changing no key, from a run that isn
+S5	skills/coordinate/koto-templates/coordinate.md	record_move	the find acts
+S6	skills/coordinate/koto-templates/coordinate.md	record_move	a write to the GitHub body
+S7	skills/coordinate/SKILL.md	-	(`store-conflict`), and a koto without the session store

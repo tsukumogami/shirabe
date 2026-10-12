@@ -76,12 +76,16 @@ koto	context exists	-	always
 # to use `koto next --to` (koto#251: koto 0.14.0 and later refuse it past a failing check).
 #not-a-call-site	skills/coordinate/SKILL.md	koto	--to	named only to forbid it
 #not-a-call-site	skills/coordinate/koto-templates/coordinate.md	koto	--to	named only to forbid it and to explain the seal
-# The session store's capability probe (record-source.sh rs_probe, run by
-# record-find.sh at every start): it reads by feature, from each subcommand's
-# own help, whether this koto lists keys by prefix and imports a session. The
-# records are mode:session-store, never checked at load, so a run on the GitHub
-# store keeps shirabe's koto minimum. In this release the probe only records
-# what it read, in coord/source.json, and stops nothing
-# (docs/designs/DESIGN-coordinator-session-record.md, Decision 2).
+# The session store (docs/designs/DESIGN-coordinator-session-record.md,
+# Decisions 2 and 4). Its capability probe (record-source.sh rs_probe, run by
+# record-find.sh at every start) reads by feature, from each subcommand's own
+# `--help`, whether this koto lists keys by prefix and imports a session, and
+# records what it read in coord/source.json. A record on the session store
+# assembles its state and its account from `context list --prefix`, so a start
+# on a koto lacking either feature stops at record_find as store-unsupported,
+# naming it, before any key is written. The records are mode:session-store,
+# never checked at load, so a run on the GitHub store keeps shirabe's koto
+# minimum; the probe is the check that runs. The session store's other calls
+# (`context exists`, `context remove`, `session list`) are declared above.
 koto	context list	--prefix	mode:session-store
 koto	session import	--from,--trust-template	mode:session-store
