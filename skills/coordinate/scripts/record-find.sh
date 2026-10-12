@@ -161,8 +161,9 @@ write_source() {
     jq --arg s "$store" '. + {store: $s}' "$T/detail.json" > "$T/detail.json.t" && mv "$T/detail.json.t" "$T/detail.json"
 }
 
-# record_store: the found record's `store` Run row, into RECORD_STORE. On the
-# session store this release stops: the store ships in the next change.
+# record_store: the found record's `store` Run row, into RECORD_STORE. A record
+# on the session store stops the run here: this release reads the record only
+# from GitHub.
 record_store() {
     RECORD_STORE=$(jq -r '[(.run // [])[] | select(.key == "store") | .value][0] // ""' "$T/parsed.json")
     if [ "$RECORD_STORE" = session ]; then

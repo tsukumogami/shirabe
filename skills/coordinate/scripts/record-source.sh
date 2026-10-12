@@ -8,7 +8,7 @@
 # record's store is `github` (the issue or pull request body, as before) or
 # `session` (keys in the coordinator's own koto session). This release reads the
 # GitHub store only: a run whose store reads `session` stops with
-# `store-unavailable` before anything is written, until the session store ships.
+# `store-unavailable` before anything is written.
 #
 # The GitHub reads keep each caller's own call shape, because what a caller
 # reads beside the body (the container's state, its title, its head branch) is
@@ -73,7 +73,7 @@
 # coord-log.sh and pause-read.sh beside this file.
 
 RS_LOADED=1
-RS_STORE_UNAVAILABLE="store-unavailable: this release reads the record only from GitHub; the session store ships in the next change"
+RS_STORE_UNAVAILABLE="store-unavailable: this release reads the record only from GitHub"
 
 # rs_source: the run's store.
 rs_source() {

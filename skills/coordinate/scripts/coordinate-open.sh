@@ -22,9 +22,9 @@
 #   --store github|session       where a new scope's record keeps its state
 #                                (STORE); a found record's own store row decides
 #                                for an existing one, and this flag is then
-#                                reported ignored. Roadmap scope only, and
-#                                `session` is refused (store-unavailable) until
-#                                the session store ships
+#                                reported ignored. Roadmap scope only; this
+#                                release reads the record only from GitHub and
+#                                refuses `session` (store-unavailable)
 #   --                           everything after it is the human's decisions:
 #                                shown to the coordinator, never a setting
 # At roadmap scope it also sets ROADMAP_FORM, milestone when the roadmap file
@@ -99,7 +99,7 @@ if [ -n "$STORE_FLAG" ]; then
     fi
     if [ "$STORE_FLAG" = session ]; then
         echo "refused=store-unavailable"
-        echo "coordinate-open: store-unavailable: this release keeps the record on GitHub; the session store ships in the next change" >&2
+        echo "coordinate-open: store-unavailable: this release reads the record only from GitHub" >&2
         exit 2
     fi
 fi

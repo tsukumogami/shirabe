@@ -15,7 +15,7 @@
 #      `record-state.sh --run store session` and the session store reached
 #      through rs_record each stop with store-unavailable and write nothing;
 #      `--store` and a store row are refused at discipline scope;
-#   4. coord/source.json: record-find.sh seals the run's store with the probe's
+#   4. coord/source.json: record-find.sh writes the run's store with the probe's
 #      reading, and an invocation's --store is reported ignored when a record
 #      exists;
 #   5. the pinned interface outside readers use: on a record on the GitHub
@@ -133,8 +133,9 @@ log_to "$SF" start_posture record_find 2026-09-26T07:01:00.000Z
 bash "$HERE/record-find.sh" --session "$SF" >/dev/null 2>&1
 jq -r .reason "$KOTO_STORE/context/$SF/coord/record_find.json" 2>/dev/null | grep -q '^store-unavailable' \
     && ok "  ... with the reason store-unavailable" || bad "  ... with the reason store-unavailable" "$(cat "$KOTO_STORE/context/$SF/coord/record_find.json" 2>/dev/null)"
-eq "  ... and coord/source.json names the record's own refusal, on the GitHub store" "github|store-unavailable: the record's store is session" \
-    "$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$SF/coord/source.json" | cut -d, -f1)"
+eq "  ... and coord/source.json names the record's own refusal, on the GitHub store" \
+    "github|store-unavailable: the record's store is session, which this release can't read" \
+    "$(jq -r '"\(.source)|\(.reason)"' "$KOTO_STORE/context/$SF/coord/source.json")"
 grep -Eq '^(issue|pr) (edit|close|create)|api --method (POST|PATCH|PUT)' "$GH_DB.calls" && bad "  ... and writes nothing" "$(calls)" || ok "  ... and writes nothing"
 
 # rs_record on the session store, under the test override.
@@ -163,7 +164,7 @@ grep -q '^init' "$KOTO_STORE/calls" && bad "  ... and no session is opened" "$(c
 
 # ---- 4. coord/source.json -----------------------------------------------------------
 
-echo "== 4. the sealed store =="
+echo "== 4. the store the find writes =="
 db_init
 db '.issues += [{repo: "acme/widgets", number: 7, title: $t, body: $b, state: "open", author: "alice", editor: null}]' --arg t "$TITLE" --arg b "$(cat "$T/gh.md")"
 S=coordinate-roadmap-plugin-system-20260926T080000Z
@@ -197,7 +198,7 @@ OUT=$(bash "$HERE/record-find.sh" --session "$SN" 2>"$T/err")
 eq "a new scope with STORE=session is stopped at the find" malformed "$(printf '%s' "$OUT" | cut -d' ' -f1)"
 jq -r .reason "$KOTO_STORE/context/$SN/coord/record_find.json" | grep -q '^store-unavailable' \
     && ok "  ... as store-unavailable" || bad "  ... as store-unavailable" "$(cat "$KOTO_STORE/context/$SN/coord/record_find.json")"
-eq "  ... and the store it seals is github, not session" github "$(jq -r .source "$KOTO_STORE/context/$SN/coord/source.json")"
+eq "  ... and the store it writes is github, not session" github "$(jq -r .source "$KOTO_STORE/context/$SN/coord/source.json")"
 # The same at discipline scope, with any store.
 SD=coordinate-discipline-ci-health-20260926T060000Z
 log_new "$SD" "$(discipline_vars ci-health | jq -c '. + {STORE: "github"}')"

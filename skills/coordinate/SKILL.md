@@ -53,7 +53,7 @@ to advance it, what it never does, and how it ends.
 | `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
-| `--store github\|session` | Where a new roadmap scope's record keeps its state, default `github`. A record that already exists decides for itself, and the flag is then reported ignored. This release refuses `session` (`store-unavailable`) until the session store ships. |
+| `--store github\|session` | Where a new roadmap scope's record keeps its state, default `github`. A record that already exists decides for itself, and the flag is then reported ignored. This release reads the record only from GitHub, and refuses `session` (`store-unavailable`). |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
 
 When the human's decisions state one of these settings in words ("host repo:

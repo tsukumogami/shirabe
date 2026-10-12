@@ -23,10 +23,11 @@
 # session name a worker can message, `_` allowed, or a dispatch topic; never
 # an id or a path) or store (the record's store, `github` or `session`,
 # written with --by naming the person who decided it; roadmap scope only, and
-# `session` is refused until the session store ships). A new coordinator
-# clears every `told` row, since nobody has been told the new address yet. --told records that WHO (a worker's
-# dispatch topic, or another party's session name) was sent the current
-# address; it needs a coordinator row.
+# `session` is refused: this release reads the record only from GitHub). A new
+# coordinator clears every `told` row, since nobody has been told the new
+# address yet. --told records that WHO (a worker's dispatch topic, or another
+# party's session name) was sent the current address; it needs a coordinator
+# row.
 #
 # --standing records an event only a person owns that still binds the run:
 # KIND is pause, go-ahead, approval, answer or assignment, OWNER is the person who decided
@@ -159,7 +160,7 @@ esac
 lib_facts
 # The record's store (docs/designs/DESIGN-coordinator-session-record.md,
 # Decision 2): only a roadmap record has one, its value is github or session,
-# and this release can't move a record to the session store yet.
+# and this release, which reads the record only from GitHub, refuses session.
 if [ "$MODE" = run ] && [ "$KEY" = store ]; then
     [ "$SCOPE" = roadmap ] || { echo "$PROG: refused: a discipline record has no store row; the session store is for roadmap scope" >&2; exit 65; }
     case "$VALUE" in
