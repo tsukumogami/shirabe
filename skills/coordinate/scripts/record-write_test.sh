@@ -21,6 +21,10 @@
 # the environment, one that carries the live section is written, and a
 # Decisions text cell naming a private repository from a public host is
 # refused; a render over the 60,000-byte budget is refused as record-full (13).
+# A session-store record: the write lands in its keys, each refusal leaves them
+# as they were, and a worker shaped like a session id, a path or a job id, a
+# status column, a private repository and a cell holding a pipe, a newline and
+# backticks each fare the same on either store (PRD R6).
 #
 # Usage: bash skills/coordinate/scripts/record-write_test.sh
 set -uo pipefail
@@ -357,5 +361,36 @@ seed_rm; db '.issues[0].body = $b' --arg b "$(cat "$T/moved.md")"
 bash "$WR" "${RM[@]}" --body-file "$T/moved.md" >/dev/null 2>"$T/err"; rc=$?
 eq "a GitHub write to a moved record is refused" 65 "$rc"
 grep -q 'store-moved' "$T/err" && ok "  ... as store-moved" || bad "  ... as store-moved" "$(cat "$T/err")"
+
+echo "== the same checks on either store (PRD R6) =="
+# Each body goes once to a GitHub record and once to a fresh session-store
+# record; BOTH holds the two exit codes, R6S the session written, and
+# $T/r6-gh.md the GitHub body as the write left it.
+R6N=0
+both() { # both <body-file>
+    local g
+    R6N=$((R6N + 1)); R6S=coordinate-roadmap-plugin-system-20260926T15$(printf '%02d' "$R6N")00Z
+    seed_rm; bash "$WR" "${RM[@]}" --body-file "$1" >/dev/null 2>&1; g=$?; body7 > "$T/r6-gh.md"
+    seed_rm; session_keys "$R6S" "$T/old.json"
+    env RS_SOURCE=session RS_SESSION="$R6S" bash "$WR" "${RM[@]}" --body-file "$1" >/dev/null 2>&1
+    BOTH="$g $?"
+}
+for w in coordinate-roadmap-x-0123456789abcdef0123456789abcdef session_feature-2 workers/feature-2 48213; do
+    sed "s/| feature-2 |/| $(printf '%s' "$w" | sed 's#/#\\/#g') |/" "$T/new.md" > "$T/r6.md"
+    both "$T/r6.md"; eq "a worker named $w is refused on both stores" "65 65" "$BOTH"
+done
+sed -e 's/| Pull request |$/| Pull request | Status |/' -e 's/^|---|---|---|---|---|---|---|---|---|---|---|---|$/&---|/' \
+    -e 's/pull\/12) |$/pull\/12) | merged |/' "$T/new.md" > "$T/r6.md"
+grep -q '| Status |' "$T/r6.md" && ok "the status-column body carries the column" || bad "the status-column body carries the column" ""
+both "$T/r6.md"; eq "a status column is refused on both stores" "65 65" "$BOTH"
+render "$(printf '%s' "$NEWJ" | jq -c '.holdings[0].repo = "acme/secret"')" issue > "$T/r6.md"
+both "$T/r6.md"; eq "a private repository from a public host is refused on both stores" "65 65" "$BOTH"
+render "$(printf '%s' "$NEWJ" | jq -c '.deferrals[3].reason = "x `code | pipe` y\nline two ``` z"')" issue > "$T/r6.md"
+both "$T/r6.md"; eq "a cell with a pipe, a newline and backticks is written on both stores" "0 0" "$BOTH"
+eq "  ... and reads back the same from either" "$(bash "$HERE/record-parse.sh" "$T/r6-gh.md" | jq -cS 'del(.written)')" \
+    "$(env RS_SOURCE=session RS_SESSION="$R6S" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show \
+        | bash "$HERE/record-parse.sh" | jq -cS 'del(.written)')"
+eq "  ... the cell unchanged" "x \`code | pipe\` y
+line two \`\`\` z" "$(koto context get "$R6S" record/deferrals | jq -r '.[3].reason')"
 
 done_tests record-write
