@@ -128,7 +128,7 @@ else
     core_in session "$W/state.md" seed; rc=$?
     case $rc in
         0) step copy written ;;
-        11) echo "$PROG: the copy into $MS failed part way; tick again to finish the move" >&2; exit 11 ;;
+        11) echo "$PROG: the copy into $MS failed part way; run record-move.sh again to finish the move" >&2; exit 11 ;;
         *) verdict move-refused "the copy into $MS was refused (exit $rc)" ;;
     esac
 fi
@@ -142,7 +142,7 @@ else
     printf 'Moved to the session store by run %s: the record'"'"'s state now lives in that run'"'"'s session, and this body keeps only its store row.\n' "$STAMP" > "$W/moved.txt"
     RS_SOURCE=github bash "$HERE/record-append.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF" \
         --kind moved --text-file "$W/moved.txt" > /dev/null 2> "$W/a.err" \
-        || { echo "$PROG: the moved entry wasn't posted: $(lib_scrub < "$W/a.err"); tick again to finish the move" >&2; exit 11; }
+        || { echo "$PROG: the moved entry wasn't posted: $(lib_scrub < "$W/a.err"); run record-move.sh again to finish the move" >&2; exit 11; }
     step post written
 fi
 
@@ -158,8 +158,8 @@ else
     core_in github "$W/moved.md"; rc=$?
     case $rc in
         0) step rewrite written ;;
-        12) echo "$PROG: #$REF changed while the move rewrote it; tick again to finish the move" >&2; exit 11 ;;
-        11) echo "$PROG: the rewrite of #$REF failed; tick again to finish the move" >&2; exit 11 ;;
+        12) echo "$PROG: #$REF changed while the move rewrote it; run record-move.sh again to finish the move" >&2; exit 11 ;;
+        11) echo "$PROG: the rewrite of #$REF failed; run record-move.sh again to finish the move" >&2; exit 11 ;;
         *) verdict move-refused "the rewrite of #$REF was refused (exit $rc)" ;;
     esac
 fi

@@ -81,8 +81,10 @@
 #
 # Exit codes: 0 posted (prints the comment's URL), written or listed; 2 a read
 # failed; 10 refused (not an open record of this scope, or no found record); 11
-# the post failed; 14 the session entry was written but its post failed; 64
-# usage; 65 the entry was refused (the reason on stderr).
+# a write failed (the post on GitHub; on the session store, the entry's key, or
+# record/posted/<n> after its comment was posted); 14 the session entry was
+# written but its post failed (`--repost <n>` finishes it); 64 usage; 65 the
+# entry was refused (the reason on stderr).
 #
 # GitHub calls:
 #   reads:  gh issue view N --repo R --json state,body,url
@@ -91,8 +93,9 @@
 #           gh api --method GET repos/R/issues/N/comments?per_page=100 --paginate
 #           gh api --method GET repos/R/collaborators/<login>/permission --jq .permission
 #   writes: gh api --method POST repos/R/issues/N/comments --input <json>
-# koto calls (session store): context list --prefix record/entries/, context
-#   exists, context get, context add.
+# koto calls (session store): context list --prefix record/entries/ and
+#   record/posted/, context exists and context get (directly, and through the
+#   seam's rs_key), context add (record/entries/<n>, record/posted/<n>).
 set -uo pipefail
 
 PROG=record-append

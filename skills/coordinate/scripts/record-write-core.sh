@@ -1,6 +1,7 @@
 # record-write-core.sh -- the coordinator record's one write path. Sourced, never
 # run, and only by the agent-run write scripts (record-write.sh, which
-# record-holding.sh calls, the decision writer and the hold writer); no check
+# record-holding.sh calls, the decision writer, the hold writer, and the move and
+# the opener for their session-store writes); no check
 # script sources it, which keeps record-common.sh's promise that everything a check sources
 # only reads.
 #
@@ -48,9 +49,14 @@
 #     CORE_CLEANUP, and the trap removes that too; any other EXIT trap the
 #     caller set is replaced;
 #   - core_write exits on every refusal and failure (10, 11, 12, 13, 2, 64,
-#     65) and returns only after a write, having printed the record's URL.
-# record-open.sh writes a new record's first body itself and refuses one
-# carrying a Decisions section.
+#     65) and returns only after a write, having printed the record's URL;
+#   - a caller may set CORE_STORE (github or session) to write to that store
+#     instead of the run's; core_write sets CORE_STORE_READ to the store it
+#     wrote, which a caller that tells the write afterwards (the hold writer's
+#     entry) reads.
+# record-open.sh writes a new GitHub record's first body itself and refuses one
+# carrying a Decisions section; on the session store it seeds the run's keys
+# through core_write.
 
 # RECORD_BUDGET: the largest body core_write sends, in bytes.
 RECORD_BUDGET=60000
