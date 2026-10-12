@@ -684,4 +684,24 @@ seed
 bash "$RS" "${W[@]}" --reopen "Feature 1" --entry-file "$T/f.txt" --entry-url "https://github.com/acme/widgets/issues/7#issuecomment-1001" >/dev/null 2>"$T/err"
 eq "--reopen on a feature roadmap is refused" 65 $?
 
+echo "== the session store: a verdict posted from the session =="
+# The record on the session store; the verdict entry is written to the session
+# and posted, and --verdict takes the posted comment's URL (R9, R10).
+SV=coordinate-roadmap-plugin-system-20260926T170000Z
+SEN=(env RS_SOURCE=session RS_SESSION="$SV")
+slive() { "${SEN[@]}" bash "$HERE/record-source.sh" "${RM[@]}" --show | bash "$HERE/record-parse.sh"; }
+mv_seed
+live > "$T/sv.json"
+session_keys "$SV" "$T/sv.json"
+"${SEN[@]}" bash "$RS" "${W[@]}" --unit MV1 >/dev/null 2>"$T/err"; eq "--unit marks the verdict owed on the session store" 0 $?
+eq "  ... in record/work" "plugin-list" "$(slive | jq -r '[(.work // [])[] | select(.kind == "verdict-owed" and .item == "MV1") | .who][0]')"
+ventry "$T/sv1.txt" MV1 verified coordinate-plugins "acme/widgets#12, acme/widgets#3" fits none none held held
+SURL=$("${SEN[@]}" bash "$RA" "${RM[@]}" --kind milestone-verdict --text-file "$T/sv1.txt" 2>"$T/err")
+case "$SURL" in https://github.com/acme/widgets/issues/7\#issuecomment-*) ok "the verdict entry is posted from the session" ;; *) bad "the verdict entry is posted from the session" "$SURL $(cat "$T/err")" ;; esac
+OUT=$("${SEN[@]}" bash "$RS" "${W[@]}" --verdict MV1 --entry-file "$T/sv1.txt" --entry-url "$SURL" 2>"$T/err"); rc=$?
+eq "--verdict accepts the URL of a verdict posted from the session" "0 https://github.com/acme/widgets/pull/8" "$rc $OUT"
+eq "  ... its milestone-done row in record/side-effects" "milestone-done|MV1 [#8](https://github.com/acme/widgets/pull/8)" \
+    "$(slive | jq -r '.side_effects[0] | "\(.action)|\(.target)"')"
+grep -q '^issue edit' "$GH_DB.calls" && bad "  ... and the GitHub body never written" "$(calls)" || ok "  ... and the GitHub body never written"
+
 done_tests roadmap-status_test

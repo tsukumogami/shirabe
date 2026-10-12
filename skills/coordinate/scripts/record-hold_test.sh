@@ -94,6 +94,26 @@ bash "$RH" "${RM[@]}" --lift --hold go-signal >/dev/null 2>&1; eq "--lift withou
 bash "$RH" "${RM[@]}" --add >/dev/null 2>&1; eq "--add without a row file" 64 $?
 bash "$RH" "${RM[@]}" --list --add >/dev/null 2>&1; eq "two modes" 64 $?
 
+echo "== the session store =="
+# A roadmap record on the session store: the hold lands in record/holds, and
+# each add and lift is told as a `hold` entry.
+SH=coordinate-roadmap-plugin-system-20260926T160000Z
+SEN=(env RS_SOURCE=session RS_SESSION="$SH")
+seed "$(record_json roadmap plugin-system)"
+render "$(record_json roadmap plugin-system)" issue 2026-09-26T08:00:00Z > "$T/s.md"
+bash "$HERE/record-parse.sh" --container issue "$T/s.md" > "$T/s.json"
+session_keys "$SH" "$T/s.json"
+hold by-hand acme/widgets#12 lifted > "$T/h3.json"
+OUT=$("${SEN[@]}" bash "$RH" "${W_RM[@]}" --add --row-file "$T/h3.json" 2>"$T/err"); rc=$?
+eq "a hold is added on the session store" "0 https://github.com/acme/widgets/issues/7" "$rc $OUT"
+eq "  ... into record/holds" by-hand "$(koto context get "$SH" record/holds | jq -r '.[0].hold')"
+eq "  ... and told as a hold entry" "hold|Hold by-hand added on acme/widgets#12, until lifted, set by the workspace coordinator." \
+    "$(koto context get "$SH" record/entries/000001 | jq -r '"\(.kind)|\(.text)"')"
+"${SEN[@]}" bash "$RH" "${W_RM[@]}" --lift --hold by-hand --by alice > /dev/null 2>"$T/err"; rc=$?
+eq "  ... lifted" 0 "$rc"
+eq "  ... and the lift told too" "hold|Hold by-hand lifted by alice." "$(koto context get "$SH" record/entries/000002 | jq -r '"\(.kind)|\(.text)"')"
+grep -q '^issue edit' "$GH_DB.calls" && bad "  ... with no GitHub body written" "$(calls)" || ok "  ... with no GitHub body written"
+
 echo
 echo "record-hold: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
