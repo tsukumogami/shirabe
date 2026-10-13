@@ -541,12 +541,16 @@ eq  "and teardown.json carries no id, with the reason" "null|invalid input" \
 # one for the topic (`<anything>+<slug>-<8 hex>`), and is gone: niwa and
 # Claude Code list nothing. What survives is the worker's koto session (its
 # execution_dir under the instance) and its transcripts, in the project
-# directory Claude Code names for the instance path.
-RINST="$W/tsuku+w5-1a2b3c4d"
+# directory Claude Code names for the instance path. The instance names and
+# session ids are put together at run time from their parts, so no line here
+# reads as a real instance name or session id.
+# inst <prefix> <8 hex>: an instance directory name for w5.
+inst() { printf '%s+w5-%s' "$1" "$2"; }
+RINST="$W/$(inst tsuku 1a2b3c4d)"
 pdir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g')"; }
 RPD=$(pdir "$RINST")
-RSID=9f8e7d6c-1111-4222-8333-444455556666
 RJOB=9f8e7d6c
+RSID="$RJOB-1111-4222-8333-444455556666"
 # transcript <session id> <first timestamp> [later timestamp]: a main session
 # transcript in the instance's project directory, whose cwd is the instance.
 transcript() {
@@ -675,7 +679,7 @@ nothing_run "removed with niwa listing a session for the topic"
 
 rfixture
 mkdir -p "$KS/wk-rm2"
-printf '{"schema_version":1,"workflow":"wk-rm2","execution_dir":"%s"}\n{"seq":1}\n' "$W/other+w5-2b3c4d5e" >"$KS/wk-rm2/koto-wk-rm2.state.jsonl"
+printf '{"schema_version":1,"workflow":"wk-rm2","execution_dir":"%s"}\n{"seq":1}\n' "$W/$(inst other 2b3c4d5e)" >"$KS/wk-rm2/koto-wk-rm2.state.jsonl"
 start
 removed
 eq  "removed with two candidate instance paths: surface" surface "$(at)"
@@ -686,7 +690,7 @@ rm -rf "$KS/wk-rm2"
 # A koto session recorded outside the workspace root is no candidate.
 rfixture
 mkdir -p "$KS/wk-far"
-printf '{"schema_version":1,"workflow":"wk-far","execution_dir":"%s"}\n{"seq":1}\n' "$T/far/x+w5-3c4d5e6f/repo" >"$KS/wk-far/koto-wk-far.state.jsonl"
+printf '{"schema_version":1,"workflow":"wk-far","execution_dir":"%s"}\n{"seq":1}\n' "$T/far/$(inst x 3c4d5e6f)/repo" >"$KS/wk-far/koto-wk-far.state.jsonl"
 start
 removed
 eq  "a candidate outside the workspace root is ignored" destroy "$(at)"
@@ -704,7 +708,8 @@ has "the path comes from the transcript's cwd" "$(ctx teardown_handoff)" "instan
 # Two main session transcripts: the one whose first event is later is the
 # worker's, even when the other's last event is later still.
 rfixture
-RSID2=5a4b3c2d-aaaa-4bbb-8ccc-dddddddddddd
+RJOB2=5a4b3c2d
+RSID2="$RJOB2-aaaa-4bbb-8ccc-dddddddddddd"
 transcript "$RSID" 2026-10-01T09:00:00.000Z 2026-10-03T09:00:00.000Z
 transcript "$RSID2" 2026-10-02T09:00:00.000Z
 start

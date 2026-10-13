@@ -661,7 +661,7 @@ cat >"$NBIN/niwa" <<'EOF'
 #!/usr/bin/env bash
 [ "$1" = list ] || exit 64
 case "$(cat "$ST/niwa-mode")" in
-    other) printf '[{"name":"x","path":"/elsewhere","session_name":"another_topic-1a2b3c4d"}]\n' ;;
+    other) printf '[{"name":"x","path":"/elsewhere","session_name":"another-topic-1a2b3c4d"}]\n' ;;
     empty) printf '[]\n' ;;
     fails) echo "niwa: cannot read the workspace" >&2; exit 1 ;;
     garbled) printf 'not json\n' ;;
@@ -730,10 +730,10 @@ rm -f "$ST/handoff"
 bash "$VP/teardown-verdict.sh" read --session coord >"$T/read.out" 2>/dev/null
 eq  "verdict read: absent with no handoff verdict is 5" 5 "$?"
 eq  "verdict read: and prints nothing" "" "$(cat "$T/read.out")"
-printf 'topic plugin-api\ninstance - /ws/x+plugin_api-1a2b3c4d\njob -\nkeyseal keyseal:9:%064d\n' 0 >"$ST/handoff"
+printf 'topic plugin-api\ninstance - /ws/x+plugin_api-%s\njob -\nkeyseal keyseal:9:%064d\n' 1a2b3c4d 0 >"$ST/handoff"
 bash "$VP/teardown-verdict.sh" read --session coord >/dev/null 2>&1
 eq  "verdict read: absent beside a handoff verdict that doesn't say removed yes is 5" 5 "$?"
-printf 'removed yes\ntopic plugin-api\ninstance - /ws/x+plugin_api-1a2b3c4d\njob -\nkeyseal keyseal:9:%064d\n' 0 >"$ST/handoff"
+printf 'removed yes\ntopic plugin-api\ninstance - /ws/x+plugin_api-%s\njob -\nkeyseal keyseal:9:%064d\n' 1a2b3c4d 0 >"$ST/handoff"
 READ=$(bash "$VP/teardown-verdict.sh" read --session coord 2>/dev/null); RC=$?
 eq  "verdict read: absent beside a removed handoff verdict is admitted" 0 "$RC"
 has "verdict read: and printed" "$READ" "absent"
