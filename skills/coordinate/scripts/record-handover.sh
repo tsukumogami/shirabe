@@ -13,7 +13,8 @@
 # workers (one per live holding: unit, worker, phase, told, next), work (every
 # Work row, local agents included), standing (every Standing row), holds (the
 # Holds section as it stands) and gaps. On the session store it also prints
-# the crash set (PRD R17): reports_to (the row, or null), rules and briefs
+# the crash set (PRD R17): each worker's pushed_head when kept, reports_to (the
+# row, or null), rules and briefs
 # (their rows' values), friction, and host (record/host). A gap is {gap, fix}:
 #   no-arguments | no-cap | no-coordinator   a Run row is missing
 #   no-reports-to                            the session store's reports-to
@@ -91,8 +92,9 @@ if [ "$STORE" = session ]; then
 else
     echo '{}' > "$WD/host.json"
 fi
+[ -s "$WD/parsed.json.pushed" ] || echo '{}' > "$WD/parsed.json.pushed"
 
-jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" '
+jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" '
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
     (.run // []) as $run
     | ([$run[] | select(.key == "told") | .value]) as $told
@@ -104,7 +106,8 @@ jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" '
                             next: ($work[.unit].next // null)}],
        work: (.work // []), standing: (.standing // []), holds: (.holds // [])}
     | if $store == "session" then
-        . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
+        .workers |= map(.worker as $w | if $pushed[0][$w] then . + {pushed_head: $pushed[0][$w]} else . end)
+        | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
              briefs: [$run[] | select(.key == "briefs") | .value], friction: ([$run[] | select(.key == "friction") | .value][0]),
              host: $host[0]}
       else . end

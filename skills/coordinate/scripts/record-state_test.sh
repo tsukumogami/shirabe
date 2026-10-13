@@ -360,6 +360,9 @@ eq "  ... which --show never does" "" "$("${SEN[@]}" bash "$HERE/record-source.s
 "${SEN[@]}" bash "$RS" "${W[@]}" --host friction "/srv/gh""p_aaaaaaaaaaaaaaaaaaaaaaaa" >/dev/null 2>"$T/err"; eq "--host refuses a token-shaped string" 65 $?
 grep -q 'token-shaped' "$T/err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/err")"
 "${SEN[@]}" bash "$RS" "${W[@]}" --host colour blue >/dev/null 2>"$T/err"; eq "--host refuses a key it doesn't know" 64 $?
+"${SEN[@]}" bash "$HERE/record-holding.sh" "${W[@]}" --topic worker-f2 --pushed-head "${SHA:0:40}" >/dev/null 2>"$T/err"
+eq "the handover read carries a worker's pushed head" "${SHA:0:40}|null" \
+    "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '[.workers[] | .pushed_head | tostring] | join("|")')"
 # On GitHub each is refused, and the body is unchanged.
 seed "$TWO"; BODY=$(jq -r '.issues[0].body' "$GH_DB")
 for k in rules briefs friction reports-to; do

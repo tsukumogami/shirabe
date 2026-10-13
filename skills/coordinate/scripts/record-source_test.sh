@@ -111,6 +111,8 @@ fn_callers() { # fn_callers <dir> <function> <allowed-regex>: scripts that call 
     done
 }
 eq "only record-state.sh calls core_write_host" "" "$(fn_callers "$HERE" core_write_host '^record-state\.sh$')"
+# A holding's pushed head is set only through record-write.sh --pushed-head.
+eq "only record-write.sh sets CORE_PUSHED_SET" "" "$(flag_setters "$HERE" CORE_PUSHED_SET '^record-write\.sh$')"
 printf '#!/usr/bin/env bash\n. "$HERE/record-write-core.sh"\ncore_write_host "$f"\n' > "$FX/h.sh"
 eq "  ... and the rule refuses a script that calls it" "h.sh" "$(fn_callers "$FX" core_write_host '^record-state\.sh$' | cut -d: -f1)"
 

@@ -55,8 +55,9 @@
 #       parsed: {topic, unit, repo, pull_request, number, branch, verified_head,
 #       phase, dispatch_status, return_path, holds, pauses}. holds are the Holds
 #       rows on the holding's pull request; pauses the Standing pause and
-#       go-ahead rows pause-read.sh reads. Returns 0 printed; 1 no holding has
-#       that topic; 2 the record couldn't be read.
+#       go-ahead rows pause-read.sh reads. On the session store it adds
+#       pushed_head when the holding keeps one. Returns 0 printed; 1 no holding
+#       has that topic; 2 the record couldn't be read.
 #   rs_source
 #       Prints the run's store, `github` or `session`, as coord-log.sh run-store
 #       reads it from the run's sealed RECORD_FIND token: `session` for
@@ -216,8 +217,17 @@ rs_session_read() {
         echo "${PROG:-record-source}: session $s's record/meta is for another scope than $scope:$name" >> "$out.err"
         return 65
     fi
+    # A holding's last pushed head (PRD R17) is kept beside its row on the
+    # session store only: 40 hex or empty, never rendered, so a GitHub body
+    # never carries it. It is read into <out>.pushed, {worker topic: sha}.
+    if ! jq -e '[(.holdings // [])[] | (.pushed_head // "")] | all(type == "string" and test("^([0-9a-f]{40})?$"))' "$out.state" > /dev/null 2>> "$out.err"; then
+        echo "${PROG:-record-source}: session $s's record/holdings holds a pushed_head that isn't 40 hex" >> "$out.err"
+        return 65
+    fi
+    jq '[(.holdings // [])[] | select((.pushed_head // "") != "") | {(.worker): .pushed_head}] | add // {}' "$out.state" > "$out.pushed" || return 5
     w=$(jq -r '.written' "$out.state")
-    jq 'del(.written)' "$out.state" | bash "$HERE/record-render.sh" --container issue --written "$w" > "$out.md" 2>> "$out.err" || return 5
+    jq 'del(.written) | if has("holdings") then .holdings |= map(del(.pushed_head)) else . end' "$out.state" \
+        | bash "$HERE/record-render.sh" --container issue --written "$w" > "$out.md" 2>> "$out.err" || return 5
     if [ "$mode" = body ]; then
         cp "$out.md" "$out.raw"
     else
@@ -398,7 +408,11 @@ rs_facts() {
     if ! bash "$HERE/pause-read.sh" --standing "$d/standing" --units "$d/units" > "$d/pauses" 2> /dev/null; then
         rm -rf "$d"; return 2
     fi
-    jq -c --argjson row "$row" --slurpfile p "$d/pauses" '
+    # The holding's pushed head, kept beside the row on the session store only
+    # (rs_session_read's <parsed>.pushed): present only when one is kept, so the
+    # same state reads the same on either store (PRD R19).
+    if [ -s "$f.pushed" ]; then cp "$f.pushed" "$d/pushed"; else echo '{}' > "$d/pushed"; fi
+    jq -c --argjson row "$row" --slurpfile p "$d/pauses" --slurpfile h "$d/pushed" '
         ($row.pull_request | capture("^\\[#(?<n>[0-9]+)\\]\\(https://github\\.com/(?<r>[^/]+/[^/]+)/pull/[0-9]+\\)$") // {n: "", r: ""}) as $pr
         | (if $pr.r == "" then "" else ($pr.r + "#" + $pr.n) end) as $on
         | {topic: $row.worker, unit: $row.unit, repo: $row.repo, pull_request: $row.pull_request,
@@ -406,7 +420,8 @@ rs_facts() {
            dispatch_status: $row.dispatch_status, return_path: $row.return_path,
            holds: (if $on == "" then [] else [(.holds // [])[] | select((.on | ascii_downcase) == ($on | ascii_downcase))] end),
            pauses: {rows: [(.standing // [])[] | select(.kind == "pause" or .kind == "go-ahead")],
-                    read: $p[0], paused: ($p[0].covers[$row.unit] // $p[0].all // null)}}' "$f"
+                    read: $p[0], paused: ($p[0].covers[$row.unit] // $p[0].all // null)}}
+        | if $h[0][$row.worker] then . + {pushed_head: $h[0][$row.worker]} else . end' "$f"
     local rc=$?
     rm -rf "$d"
     [ $rc -eq 0 ] || return 2

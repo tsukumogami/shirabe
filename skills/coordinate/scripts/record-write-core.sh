@@ -78,6 +78,12 @@ VERDICT_WRITER=0
 # those scripts.
 SESSION_SEED=0
 MOVE_WRITER=0
+# A holding's last pushed head (Decision 9; PRD R17) lives beside its row in
+# record/holdings on the session store and never in a body: every Holdings write
+# carries each row's value forward by Worker, and only record-write.sh
+# --pushed-head, which record-holding.sh alone passes, sets one (CORE_PUSHED_SET=1
+# with CORE_PUSHED_TOPIC and CORE_PUSHED_HEAD, 40 hex or empty to clear it).
+CORE_PUSHED_SET=0 CORE_PUSHED_TOPIC= CORE_PUSHED_HEAD=
 
 # core_live: the live record, read through the seam, and every check against it:
 # the container open and this scope's, the compare on the Written: time, the
@@ -213,7 +219,7 @@ core_live() {
 # last with the new time. A failure after the first key changed exits 11; the
 # pending mark tells a reader not to trust the sections until a write clears it.
 core_write_session() {
-    local body=$1 s=${RS_SESSION:-$SESSION} pair field key rc RESEED=
+    local body=$1 s=${RS_SESSION:-$SESSION} pair field key rc RESEED= LIVE_SEC
     [ -n "$s" ] || lib_die2 "the session store needs the run's session"
     lib_parse "$body" "$T/next-state.json" || lib_die2 "the rendered body doesn't parse back"
     rs_key "$s" record/meta "$T/meta.now"; rc=$?
@@ -240,12 +246,29 @@ core_write_session() {
     if [ -n "${RESEED:-}" ]; then
         rs_list "$s" record/ "$T/reseed-keys" || lib_die2 "cannot list session $s's record keys: $(lib_scrub < "$T/reseed-keys.err")"
     fi
+    # The live holdings as the session keeps them, pushed heads included (the
+    # parsed live record has them stripped): each row's head is carried forward
+    # by Worker, and CORE_PUSHED_* sets one.
+    if [ -s "$T/live.json" ] && [ -s "$T/live.json.state" ]; then
+        jq -c '.holdings // []' "$T/live.json.state" > "$T/live-holdings.json" || lib_die2 "jq failed"
+    else
+        echo '[]' > "$T/live-holdings.json"
+    fi
     for pair in $RS_SECTIONS; do
         field=${pair%%:*} key=${pair#*:}
         if jq -e --arg f "$field" 'has($f)' "$T/next-state.json" > /dev/null; then
             jq -c --arg f "$field" '.[$f]' "$T/next-state.json" > "$T/sec.new"
-            if [ -s "$T/live.json" ] && jq -e --arg f "$field" 'has($f)' "$T/live.json" > /dev/null \
-                && [ "$(jq -cS --arg f "$field" '.[$f]' "$T/live.json")" = "$(jq -cS . "$T/sec.new")" ]; then
+            LIVE_SEC=$( [ -s "$T/live.json" ] && jq -cS --arg f "$field" 'if has($f) then .[$f] else empty end' "$T/live.json")
+            if [ "$field" = holdings ]; then
+                jq -c --slurpfile live "$T/live-holdings.json" --arg set "$CORE_PUSHED_SET" --arg t "$CORE_PUSHED_TOPIC" --arg h "$CORE_PUSHED_HEAD" '
+                    ($live[0] | map(select((.pushed_head // "") != "") | {(.worker): .pushed_head}) | add // {}) as $p
+                    | map(. as $r | (if $set == "1" and $r.worker == $t then $h else ($p[$r.worker] // "") end) as $v
+                          | if $v == "" then del(.pushed_head) else . + {pushed_head: $v} end)' "$T/sec.new" > "$T/sec.merged" \
+                    || lib_die2 "jq failed"
+                mv "$T/sec.merged" "$T/sec.new"
+                LIVE_SEC=$( [ -s "$T/live.json" ] && jq -cS '.' "$T/live-holdings.json")
+            fi
+            if [ -n "$LIVE_SEC" ] && [ "$LIVE_SEC" = "$(jq -cS . "$T/sec.new")" ]; then
                 continue
             fi
             "$KOTO" context add "$s" "record/$key" --from-file "$T/sec.new" < /dev/null > /dev/null 2> "$T/k.err" \
@@ -314,6 +337,14 @@ core_write() {
     # The store this write goes to: the run's, or CORE_STORE for a seeding
     # write, which goes to the session store before any find has sealed it.
     CORE_STORE_READ=${CORE_STORE:-$(rs_source)}
+    # A pushed head (record-write.sh --pushed-head) is kept on the session store
+    # only, beside a holding the record has.
+    if [ "$CORE_PUSHED_SET" = 1 ]; then
+        [ "$CORE_STORE_READ" = session ] || { echo "$PROG: refused: a pushed head is kept only by a record on the session store" >&2; exit 65; }
+        [[ $CORE_PUSHED_HEAD =~ ^([0-9a-f]{40})?$ ]] || { echo "$PROG: refused: a pushed head is 40 hex, or empty to clear it" >&2; exit 65; }
+        jq -e --arg t "$CORE_PUSHED_TOPIC" 'any(.holdings[]; .worker == $t)' "$T/parsed.json" > /dev/null \
+            || { echo "$PROG: refused: no holding's Worker is $CORE_PUSHED_TOPIC" >&2; exit 65; }
+    fi
     if [ "$SESSION_SEED" = 1 ]; then
         [ "$CORE_STORE_READ" = session ] && [ "$SCOPE" = roadmap ] \
             || lib_die2 "a seeding write goes only to the session store, at roadmap scope"
