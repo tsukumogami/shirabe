@@ -215,6 +215,13 @@ init_or_die() {
     fi
 }
 
+# kept <session>: koto still holds the session. From koto 0.17.0 (koto#355)
+# `koto status` also answers for a session koto removed at its terminal, with
+# "removed": true and its final state and result, so an answer alone no longer
+# means kept; before 0.17.0 a removed session's status fails, and both read as
+# not kept here, as scripts/skill-session.sh reads them.
+kept() { koto status "$1" 2>/dev/null | jq -e '.removed != true' >/dev/null 2>&1; }
+
 # --- a minimal parent/child pair, for the convergence cases -------------------
 #
 # These assert koto's behaviour at a child's terminal. work-on.md is not used:
@@ -473,7 +480,7 @@ if [ "$ASSIGNED" = "context_injection blocked: issue body could not be read" ]; 
 else
     fail "failure_reason after the blocked edge was [$ASSIGNED], expected the interpolated context_injection wording -- the assignments did not execute"
 fi
-if [ "$(koto status assign_probe 2>/dev/null | jq -r '.current_state')" = "done_blocked" ]; then
+if kept assign_probe && [ "$(koto status assign_probe 2>/dev/null | jq -r '.current_state')" = "done_blocked" ]; then
     pass "the edge that wrote failure_reason is the one that reached done_blocked"
 else
     fail "the assignment probe did not reach done_blocked"
@@ -515,7 +522,7 @@ fi
 
 drive_work_on_to_blocked resume_probe --no-cleanup
 
-if [ "$(koto status resume_probe 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
+if kept resume_probe && [ "$(koto status resume_probe 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
     pass "a retained finished session reports is_terminal: true, the signal the Resume guard reads"
 else
     fail "koto status no longer reports is_terminal: true for a retained finished session -- the Resume guard's signal is gone and the guard cannot work"
@@ -556,7 +563,7 @@ koto init flagged --template "$WORKDIR/parent_hold.md" >/dev/null 2>&1
 init_or_die flagged
 koto next flagged --with-data "$TASKS" >/dev/null 2>&1
 koto next flagged.leaf --with-data '{"status":"ok"}' --no-cleanup >/dev/null 2>&1
-if [ "$(koto status flagged.leaf 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
+if kept flagged.leaf && [ "$(koto status flagged.leaf 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
     pass "a child whose terminal tick carries the flag is kept at its success terminal"
 else
     fail "a flagged child was not kept at its success terminal"
@@ -579,7 +586,7 @@ koto next unflagged --with-data "$TASKS" >/dev/null 2>&1
 koto next unflagged.leaf --with-data '{"status":"ok"}' >/dev/null 2>&1
 RESP=$(parent_tick unflagged)
 if printf '%s' "$RESP" | jq -e '.error == null and ([.blocking_conditions[]? | select(.name == "batch_done")] | length == 0)' >/dev/null 2>&1 \
-    && ! koto status unflagged.leaf >/dev/null 2>&1; then
+    && ! kept unflagged.leaf; then
     pass "an unflagged child delivers its result and is not kept at a success terminal (control)"
 else
     fail "the unflagged control did not deliver, or was kept: $(printf '%s' "$RESP" | head -c 300)"
@@ -607,7 +614,7 @@ init_or_die failed_child
 koto next failed_child --with-data "$TASKS" >/dev/null 2>&1
 RESP=$(koto next failed_child.leaf --with-data '{"status":"blocked"}' 2>/dev/null)
 if printf '%s' "$RESP" | jq -e '.retention.retained == true and .retention.reason == "failure_terminal"' >/dev/null 2>&1 \
-    && [ "$(koto status failed_child.leaf 2>/dev/null | jq -r '.current_state')" = "blocked" ]; then
+    && kept failed_child.leaf && [ "$(koto status failed_child.leaf 2>/dev/null | jq -r '.current_state')" = "blocked" ]; then
     pass "an unflagged child reaching a failure terminal is kept (retention.reason failure_terminal), and koto status reports where it stopped"
 else
     fail "an unflagged failed child was not kept: $(printf '%s' "$RESP" | head -c 300)"
