@@ -75,11 +75,17 @@ jq -e '.schema == "coordinate-reconcile-report/v1"' "$T/report.json" >/dev/null 
 # so a difference sends the run back to reconcile_pass for a new visit here.
 if [ "$(rs_source)" = session ]; then
     rs_host "$SESSION" "$T/host" || fail 2 "record/host can't be read"
+    # jq -e exits 1 only for a false comparison; any other code is a jq
+    # failure, which must not read as an import and loop the run to the pass.
     jq -e --slurpfile r "$T/report.json" '
         (if (.source_session // "") == "" then null
          else {source_session, source_workspace: (.source_workspace // ""), template_hash: (.template_hash // "")} end)
-        == ($r[0].header.import // null)' "$T/host" >/dev/null 2>&1 \
-        || fail 3 "the sealed report was read before this run was imported here; it is reconciled again on this host"
+        == ($r[0].header.import // null)' "$T/host" >/dev/null 2>&1
+    case $? in
+        0) ;;
+        1) fail 3 "the sealed report was read before this run was imported here; it is reconciled again on this host" ;;
+        *) fail 2 "record/host or the report couldn't be compared" ;;
+    esac
 fi
 
 case "$MODE" in

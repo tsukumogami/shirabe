@@ -50,6 +50,7 @@ if [ -n "$SESSION" ]; then
     N=$(bash "$HERE/coord-log.sh" count --session "$SESSION" 2>/dev/null) && printf 'events=%s\n' "$N"
     # An imported run names where its state came from (PRD R14), so the next
     # import, or a person reading the close, can find the source.
+    # emit reads PAYLOAD, so the host facts take its place from here on.
     PAYLOAD=$(bash "$HERE/record-source.sh" --session "$SESSION" --host 2>/dev/null) || PAYLOAD='{}'
     if [ -n "$(printf '%s' "$PAYLOAD" | jq -r '.source_session // empty' 2>/dev/null)" ]; then
         emit source_workspace '^/[^[:cntrl:]]*$'

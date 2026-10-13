@@ -75,8 +75,10 @@
 # failed after the new run opened (`failed=carry`); koto-open.sh's own codes
 # otherwise (2 refused, 64 usage, 127 koto or jq missing). An import exits 0
 # imported; 2 refused, by this script or by koto; 1 koto couldn't read or push
-# the run or mark its source (koto's own exit 1), this host's runs couldn't be
-# listed, or record/host wasn't written (`failed=host_facts`).
+# the run or mark its source (koto's own exit 1), the shipped template didn't
+# compile (`failed=template_compile`), this host's runs couldn't be listed
+# (`failed=live_sessions`), the imported run's log couldn't be read
+# (`failed=directed_read`), or record/host wasn't written (`failed=host_facts`).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
