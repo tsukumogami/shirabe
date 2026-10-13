@@ -794,6 +794,13 @@ milestone roadmap ends is left to the roadmap's own lifecycle.
   imported on another host, keeps publishing to the location of the session that
   opened it. The opener writes none of koto's keys and sets no koto variable to
   move it.
+- **An import resumes only onto the same plugin path.** A run records the
+  plugin root it was opened with, every check it runs is a script under that
+  root, and provenance accepts only a run whose root is this host's. Where the
+  plugin sits at another absolute path on the new host (another `HOME`, say),
+  the import still brings every key, then stops at `refused=session-provenance`
+  with the imported run left here; the next plain start carries its record into
+  a new run on this host's plugin, and that run reconciles here.
 - **One topic per worker.** A unit dispatched again after a failure takes a new
   topic: the dispatch script refuses a topic whose session is still live.
 - **A worker launched outside the dispatch script can't be adopted.** The
