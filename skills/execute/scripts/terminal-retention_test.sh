@@ -286,6 +286,12 @@ mkdir -p "$FIXREPO"
     git remote add origin https://github.com/o/r.git
 ) >/dev/null 2>&1
 k() { (cd "$FIXREPO" && koto "$@"); }
+# kept <session>: koto still holds the session. From koto 0.17.0 (koto#355)
+# `koto status` also answers for a session koto removed at its terminal, with
+# "removed": true and its final state and result, so an answer alone no longer
+# means kept; before 0.17.0 a removed session's status fails, and both read as
+# not kept here, as scripts/skill-session.sh reads them.
+kept() { k status "$1" 2>/dev/null | jq -e '.removed != true' >/dev/null 2>&1; }
 
 # --- the plugin root ------------------------------------------------------------
 #
@@ -428,7 +434,7 @@ walk() {
     done
 }
 
-state_of() { k status "$1" 2>/dev/null | jq -r '.current_state // "gone"'; }
+state_of() { kept "$1" || { echo gone; return; }; k status "$1" 2>/dev/null | jq -r '.current_state // "gone"'; }
 
 # --- the blocked terminal keeps its context ----------------------------------
 
@@ -504,7 +510,7 @@ fi
 # These pin the signal, the refusal a plain init would still hit, and the
 # replacement.
 
-if [ "$(k status execute-pause-keep 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
+if kept execute-pause-keep && [ "$(k status execute-pause-keep 2>/dev/null | jq -r '.is_terminal')" = "true" ]; then
     pass "the retained pause session reports is_terminal: true"
 else
     fail "koto status no longer reports is_terminal: true for the retained pause session"
@@ -610,17 +616,17 @@ expect_control() {
     local s="$2" got
     got=$(printf '%s' "$RESP" | jq -r '.result.payload.outcome // "none"' 2>/dev/null)
     if [ "${4:-}" = failure ]; then
-        if [ "$got" = "$3" ] && k status "$s" >/dev/null 2>&1; then
+        if [ "$got" = "$3" ] && kept "$s"; then
             pass "$1 without the flag: the tick's response carries outcome=$3 and the failure terminal is kept"
         else
-            fail "$1 without the flag: response outcome [$got], session still present: $(k status "$s" >/dev/null 2>&1 && echo yes || echo no), want outcome=$3 and the session kept"
+            fail "$1 without the flag: response outcome [$got], session still present: $(kept "$s" && echo yes || echo no), want outcome=$3 and the session kept"
         fi
         return
     fi
-    if [ "$got" = "$3" ] && ! k status "$s" >/dev/null 2>&1; then
+    if [ "$got" = "$3" ] && ! kept "$s"; then
         pass "$1 without the flag: the tick's response carries outcome=$3 and the session is gone (control)"
     else
-        fail "$1 without the flag: response outcome [$got], session still present: $(k status "$s" >/dev/null 2>&1 && echo yes || echo no)"
+        fail "$1 without the flag: response outcome [$got], session still present: $(kept "$s" && echo yes || echo no)"
     fi
 }
 
