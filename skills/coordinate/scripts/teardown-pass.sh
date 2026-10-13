@@ -26,8 +26,9 @@
 #            whose header's execution_dir is at or under the instance path or
 #            the job's tmp/, and teardown.json (`{topic, instance: {name,
 #            path}, job: {id, session}, removed, niwa: {dispatch_id,
-#            reason}}`, reason `no source` or `invalid input` when there is
-#            no id); each copy checked against its source's hash, a
+#            reason}}`, written from the verdict, the dispatch id from its
+#            `dispatch` line, reason `no source` or `invalid input` when
+#            there is no id); each copy checked against its source's hash, a
 #            MANIFEST (`<sha256> <bytes> <path>` per file) and a README;
 #         4a. the unit's cost capture (unit-cost.sh capture): one `cost`
 #            entry on the record and unit-cost.json in the archive, under its
@@ -331,10 +332,11 @@ for d in "$KOTO_SESSIONS"/*/; do
     done
 done
 say "copied $(wc -l <"$T/copies" | tr -d ' ') files, $NK koto sessions"
-# teardown.json: what the pass acted on, for the cost capture and any later
-# reader, written by the pass and checked into the MANIFEST like the copies.
-# niwa's dispatch id is kept only in the shape the handoff admitted;
-# otherwise the reason it is missing is one of the capture's closed words.
+# teardown.json: what the pass acted on, written by the pass and checked
+# into the MANIFEST like the copies. The pass only writes it; nothing here
+# reads it back. niwa's dispatch id comes from the sealed verdict's
+# `dispatch` line, kept only in the shape the handoff admitted; otherwise the
+# reason it is missing is one of the cost capture's closed words.
 jq -n -c --arg topic "$TOPIC" --arg name "$INAME" --arg path "$IPATH" --arg job "$JOB" --arg sid "$SID" \
     --argjson removed "$([ "$REMOVED" = 1 ] && echo true || echo false)" --arg d "$DISPATCH" '
     {topic: $topic,

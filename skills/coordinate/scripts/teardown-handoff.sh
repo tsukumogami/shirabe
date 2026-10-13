@@ -284,10 +284,22 @@ candidate() {
     printf '%s\n' "$c"
 }
 
+# sort_key <timestamp>: a UTC `YYYY-MM-DDTHH:MM:SS[.f]Z` timestamp as a key
+# that compares as a string in time order: the seconds, then the fraction
+# padded or cut to nine digits. Compared raw, `...:05.1Z` would sort before
+# `...:05Z`, since `.` sorts before `Z`. Returns 1 for any other shape.
+sort_key() {
+    local base frac
+    printf '%s' "$1" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$' || return 1
+    base=${1%Z} frac=""
+    case "$base" in *.*) frac=${base#*.} base=${base%%.*} ;; esac
+    printf '%s.%s\n' "$base" "$(printf '%-9.9s' "$frac" | tr ' ' 0)"
+}
+
 # removed_mode: the unit was torn down outside the pass. Read what is left of
 # it, refusing on any sign that it isn't gone.
 removed_mode() {
-    local slug enc re_dir f ed c n d name ts best_ts="" best="" sid
+    local slug enc re_dir f ed c n d name ts key best_ts="" best="" sid
     line "removed yes"
     niwa_list
     # niwa lists nothing for the topic: no session named for it.
@@ -304,7 +316,9 @@ removed_mode() {
     : >"$T/cands"
     for f in "$KOTO_SESSIONS"/*/koto-*.state.jsonl; do
         [ -f "$f" ] && [ ! -L "$f" ] || continue
-        ed=$(head -n 1 "$f" | jq -r '.execution_dir // "" | strings' 2>/dev/null) || continue
+        # A header that isn't JSON names no candidate; jq's complaint about it
+        # is kept in the run's scratch directory, not shown.
+        ed=$(head -n 1 "$f" | jq -r '.execution_dir // "" | strings' 2>>"$T/jq.err") || continue
         candidate "$ed" >>"$T/cands"
     done
     sort -u "$T/cands" >"$T/cands.u"
@@ -349,10 +363,10 @@ removed_mode() {
         [ -f "$f" ] && [ ! -L "$f" ] || continue
         sid=$(basename "$f" .jsonl)
         printf '%s' "$sid" | grep -Eq '^[0-9a-f]{8}[0-9a-f-]{0,56}$' || continue
-        ts=$(jq -R -r 'fromjson? | objects | .timestamp | strings' "$f" 2>/dev/null | head -n 1)
-        printf '%s' "$ts" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$' || continue
-        if [ -z "$best" ] || [[ $ts > $best_ts ]]; then
-            best=$f best_ts=$ts
+        ts=$(jq -R -r 'fromjson? | objects | .timestamp | strings' "$f" 2>>"$T/jq.err" | head -n 1)
+        key=$(sort_key "$ts") || continue
+        if [ -z "$best" ] || [[ $key > $best_ts ]]; then
+            best=$f best_ts=$key
         fi
     done
     if [ -n "$best" ]; then

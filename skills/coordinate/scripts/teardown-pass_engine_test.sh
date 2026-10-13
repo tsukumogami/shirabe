@@ -721,6 +721,16 @@ eq  "the pass is done" 0 "$(agent_pass "$KSEAL")"
 [ -n "$(rarchive 5a4b3c2d)" ] && pass "the archive is keyed by the later session" || fail "the archive is keyed by the later session" "$(ls "$HOME/.local/share/teardown-archive" 2>&1)"
 eq  "and only by it" "" "$(rarchive "$RJOB")"
 
+# Two first events in the same second, one with a fraction: the fractional
+# one is later, though compared as raw text `.1Z` sorts before `Z`.
+rfixture
+transcript "$RSID" 2026-10-02T09:00:05Z
+transcript "$RSID2" 2026-10-02T09:00:05.1Z
+start
+removed
+eq  "same second: the run reaches destroy" destroy "$(at)"
+has "the fractional first event is the later one" "$(ctx teardown_handoff)" "job $RJOB2 $RSID2"
+
 # The pass re-checks absence: a job that appears at the path after the
 # verdict refuses, and nothing is archived as done.
 rfixture
