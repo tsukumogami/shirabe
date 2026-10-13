@@ -59,10 +59,11 @@
 #       that topic; 2 the record couldn't be read.
 #   rs_source
 #       Prints the run's store, `github` or `session`, as coord-log.sh run-store
-#       reads it from the run's sealed RECORD_FIND token (`found <n> session`
-#       or `move <n>` on the session store), and caches it in RS_SOURCE_READ for the session in
-#       RS_SOURCE_FOR, which the reads above use. Under the test override flags
-#       it is `github` unless RS_SOURCE names another.
+#       reads it from the run's sealed RECORD_FIND token: `session` for
+#       `found <n> session` or `move <n>`, `github` otherwise. It caches the
+#       answer in RS_SOURCE_READ, for the session named in RS_SOURCE_FOR, and
+#       the reads above use it. Under the test override flags it is `github`
+#       unless RS_SOURCE names another.
 #   rs_probe
 #       Prints what this koto offers the session store, by feature:
 #       {"context_list_prefix": bool, "session_import": bool}.

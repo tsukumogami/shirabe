@@ -2444,7 +2444,8 @@ is posted to the GitHub record, and the GitHub body is rewritten to the moved
 shape (every section empty, the Run section only the `store session` row). From
 then on every writer writes the session's keys, and a write to the GitHub body
 is refused as `store-moved`. A refusal (another session of this scope on this
-host holds its state, or the record no longer reads `store session`) is a stop
+host holds its state, the record no longer reads `store session`, or it is
+already in the moved shape with no session here holding its state) is a stop
 for the human: submit `refused` with its reason as the detail.
 
 ## record_open

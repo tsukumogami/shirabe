@@ -22,7 +22,12 @@
 # issue opens in the moved shape, every section empty and a Run section holding
 # only the `store session` row, and the body's state, with that row, is written
 # into the run's session (record/meta and one key per section) through the
-# write core.
+# write core. The issue comes first because the seed writes through the core
+# against that record's number, so a seed that fails leaves the issue open in
+# the moved shape with no state behind it (record= already printed, then the
+# core's own exit). Running this again is refused (exit 10: the issue exists),
+# and the next start's find stops at `session-absent`; a person closes the empty
+# issue, and the start after that opens the record afresh.
 #
 # Usage:
 #   record-open.sh --session S --body-file F [--start YYYY-MM-DD --end YYYY-MM-DD] [--recut]
@@ -37,7 +42,10 @@
 # Exit codes: 0 opened (prints record=<url>); 10 refused (a record exists, the
 # branch exists without --recut, provenance, or a directed transition); 11 a
 # write failed partway (prints step=<ref-delete|commit|ref-create|pr-create|
-# issue-create>); 2 a read failed; 64 usage; 65 the body was refused.
+# issue-create|moved-render|seed-render>); 2 a read failed; 64 usage; 65 the
+# body was refused. On the session store, once record=<url> is printed, a
+# failed seed exits with the write core's code (10, 11, 12, 13 or 65), the
+# issue left as the paragraph above describes.
 #
 # GitHub calls:
 #   reads:  those record-common.sh's lib_open_issues and lib_discipline_read make;

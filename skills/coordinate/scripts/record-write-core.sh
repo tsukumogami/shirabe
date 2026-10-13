@@ -7,7 +7,7 @@
 #
 # core_write re-reads the target and writes the whole body, after the checks
 # record-write.sh's header lists; every check from the parse on lives here.
-# Three of them, in brief:
+# Four of them, in brief:
 #   - the Decisions section may be changed only by a script that sets
 #     DECISIONS_WRITER=1 after sourcing this file, which resets it to 0, so a
 #     value in the environment never counts (exit 65). Only
@@ -68,10 +68,12 @@ STATE_WRITER=0
 VERDICT_WRITER=0
 # The session store (docs/designs/DESIGN-coordinator-session-record.md,
 # Decisions 4, 10 and 11). SESSION_SEED=1 makes the write the first one into a
-# session holding no record/meta, with CORE_STORE=session; only record-open.sh
-# and record-move.sh set it. MOVE_WRITER=1 lifts the section-owner checks and the
-# store-moved refusal for the move's own writes; only record-move.sh sets it. A
-# structure test holds both to those scripts.
+# session holding no record/meta, or only the pending one an unfinished seed
+# left, with CORE_STORE=session; only record-open.sh and record-move.sh set it.
+# MOVE_WRITER=1 lifts the section-owner checks and the store-moved refusal for
+# the move's own writes, its copy into the session and its rewrite of the
+# GitHub body; only record-move.sh sets it. A structure test holds both to
+# those scripts.
 SESSION_SEED=0
 MOVE_WRITER=0
 

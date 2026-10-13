@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # record-move.sh -- move a roadmap coordinator record from GitHub onto the
-# session store. Agent-run, from the directive of state record_move; never a
-# default action. The owner having
-# written its `store session` Run row with record-state.sh
-# (docs/designs/DESIGN-coordinator-session-record.md, Decision 11; PRD R3).
+# session store, once its owner has written the `store session` Run row with
+# record-state.sh. Agent-run, from the directive of state record_move; never a
+# default action (docs/designs/DESIGN-coordinator-session-record.md, Decision
+# 11; PRD R3).
 #
 # Three steps, each skipped when a re-run finds it done, so a crash between
 # them resumes at the first step not done:
