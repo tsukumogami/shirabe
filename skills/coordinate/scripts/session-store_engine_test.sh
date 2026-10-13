@@ -16,6 +16,10 @@
 #      with `koto next --to` (10), and a write from a run that is no longer the
 #      scope's live one (10).
 #
+# On a koto without the session store's features (`context list --prefix`,
+# `session import`), as at shirabe's minimum koto, it proves only that the start
+# stops at the find as store-unsupported, opening no record and writing no key.
+#
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
 # Usage: bash skills/coordinate/scripts/session-store_engine_test.sh
@@ -91,6 +95,21 @@ db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-store.md"] = $t' --arg t 
 echo "== 1. a run opened with --store session =="
 open_run || { bad "the session opens" "$(cat "$T/open.err")"; done_tests session-store-engine; exit 1; }
 ok "the session opens"
+# A koto older than the session store's features (shirabe's minimum koto runs
+# this suite too) stops the start at the find, naming what it lacks, and writes
+# nothing (PRD R2). The branch is on what koto offers, never on the outcome.
+PROBE=$(cd "$WD" && bash "$PS/record-source.sh" --session "$S" --probe)
+if [ "$(printf '%s' "$PROBE" | jq -r '.context_list_prefix and .session_import')" != true ]; then
+    eq "a koto without the session store's features stops at the find" record_conflict "$(at)"
+    (cd "$WD" && koto context get "$S" coord/record_find.json) | jq -r .reason | grep -q '^store-unsupported' \
+        && ok "  ... as store-unsupported" || bad "  ... as store-unsupported" "$(cd "$WD" && koto context get "$S" coord/record_find.json)"
+    eq "  ... opening no record" 0 "$(jq '[.issues[] | select(.title == "Coordinator record: ROADMAP-store")] | length' "$GH_DB")"
+    # The plain listing: this koto's `context list` takes no --prefix.
+    eq "  ... and writing no record/ key" 0 "$(cd "$WD" && koto context list "$S" | jq '[.[] | select(startswith("record/"))] | length')"
+    echo "koto lacks the session store's features ($PROBE); the store's own cases need a newer koto"
+    done_tests session-store-engine
+    exit $?
+fi
 eq "with no record it stops at record_open" record_open "$(at)"
 render "$(record_json roadmap store)" issue > "$T/open.md"
 write record-open.sh --body-file "$T/open.md"; eq "record-open.sh opens the record" 0 $?
