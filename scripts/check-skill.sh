@@ -43,6 +43,8 @@
 #   0 - every check passed
 #   1 - at least one check failed; each is listed
 #   2 - usage error, an unknown skill, or a required tool is missing
+#   130, 143 - stopped by INT or TERM; the suites it had started are stopped
+#              too
 
 set -uo pipefail
 
@@ -152,10 +154,13 @@ for t in "$SKILL_DIR"/koto-templates/*.md; do
 done
 
 # 4. The skill's own script suites, from the repository root. Up to $JOBS run
-# at once, each into its own log; a suite builds everything it writes in its
-# own temporary directory, so suites don't meet. Results print in the glob's
-# order, each as soon as it and every suite before it are done, so the output
-# reads as it did when the suites ran one after another.
+# at once, each into its own log. A suite keeps what it writes in its own
+# temporary directory (and points HOME or TMPDIR there when a tool it runs
+# writes under them), so suites don't meet; the one exception, a build of
+# target/release/ in the checkout, is made by at most one suite per skill.
+# Results print in the glob's order, each as soon as it and every suite before
+# it are done, so the output reads as it did when the suites ran one after
+# another.
 suites=()
 for t in "$SKILL_DIR"/scripts/*_test.sh; do
     [ -f "$t" ] && suites+=("$t")
@@ -194,6 +199,14 @@ while [ "$i" -lt "${#suites[@]}" ]; do
 done
 wait
 report_ready
+# A suite with no status after every job has ended (its wrapper killed before
+# it could write one) is a failure, never a silent gap in the report.
+while [ "$NEXT" -lt "${#suites[@]}" ]; do
+    [ -f "$RUNS/$NEXT.log" ] && show_log "$RUNS/$NEXT.log"
+    fail "bash ${suites[$NEXT]} (no exit status recorded)"
+    NEXT=$((NEXT + 1))
+    report_ready
+done
 
 # 5. The shape of the eval scenarios.
 evals_json="$SKILL_DIR/evals/evals.json"

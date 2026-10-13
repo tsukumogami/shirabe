@@ -287,9 +287,19 @@ expect "an unknown skill exits 2" 2 "no such skill: skills/nope"
 # any suite saw at once is how many ran together.
 MARKS="$WORK/marks"
 export MARKS
-marked_suite() { # marked_suite <file> <seconds> [exit]
-    printf 'm="$MARKS/run.$$"; : > "$m"\nn=$(ls "$MARKS" | grep -c "^run\\\\.")\nprintf "%%s\\\\n" "$n" >> "$MARKS/seen"\nsleep %s\nrm -f "$m"\necho "%s output"\nexit %s\n' \
-        "$2" "$(basename "$1")" "${3:-0}" > "$1"
+# marked_suite <file> <seconds> [exit]: a suite that leaves run.<pid> in
+# $MARKS while it sleeps, appends how many run.* marks it saw to $MARKS/seen,
+# prints "<name> output" and exits with <exit> (default 0).
+marked_suite() {
+    cat > "$1" <<'SUITE'
+m="$MARKS/run.$$"; : > "$m"
+ls "$MARKS" | grep -c '^run\.' >> "$MARKS/seen"
+sleep @SECONDS@
+rm -f "$m"
+echo "@NAME@ output"
+exit @EXIT@
+SUITE
+    sed -i.bak -e "s/@SECONDS@/$2/" -e "s/@NAME@/$(basename "$1")/" -e "s/@EXIT@/${3:-0}/" "$1" && rm -f "$1.bak"
 }
 max_seen() { sort -n "$MARKS/seen" 2>/dev/null | tail -1; }
 
@@ -345,6 +355,16 @@ for bad in 0 abc 100 "2 3" -1; do
     expect "CHECK_SKILL_JOBS=$bad is a usage error" 2 "CHECK_SKILL_JOBS must be a whole number from 1 to 99"
 done
 
+# A suite whose wrapper dies before writing its status (here the suite kills
+# its own parent) fails the check by name; the suites after it still report.
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+printf 'kill -KILL $PPID\nexit 0\n' > "$ROOT/skills/demo/scripts/a_test.sh"
+printf 'exit 0\n' > "$ROOT/skills/demo/scripts/b_test.sh"
+run_check
+expect "a suite with no exit status recorded fails the check" 1 \
+    "bash skills/demo/scripts/a_test.sh (no exit status recorded)" "ok: bash skills/demo/scripts/b_test.sh"
+
 # A check stopped with TERM stops the suites it started: each suite records
 # its pid and sleeps; after the stop, none of them may still be alive.
 new_tree
@@ -353,12 +373,14 @@ rm -rf "$MARKS"; mkdir -p "$MARKS"
 for s in a b; do
     printf 'echo $$ > "$MARKS/pid.%s"\nsleep 30\n' "$s" > "$ROOT/skills/demo/scripts/${s}_test.sh"
 done
-(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" demo >/dev/null 2>&1) &
+# The check itself runs in the background, so $CHECKER is its own pid.
+cd "$WORK" || exit 1
+CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" demo >/dev/null 2>&1 &
 CHECKER=$!
+cd - >/dev/null || exit 1
 n=0
 while [ "$(ls "$MARKS" | grep -c '^pid\.')" -lt 2 ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
-# The subshell above is the job; the check is its only child.
-pkill -TERM -P "$CHECKER" -f check-skill.sh 2>/dev/null || kill -TERM "$CHECKER"
+kill -TERM "$CHECKER"
 wait "$CHECKER" 2>/dev/null
 sleep 0.5
 alive=""
