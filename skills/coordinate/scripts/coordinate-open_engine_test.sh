@@ -13,13 +13,16 @@
 # without it; ROADMAP_FORM is feature for a roadmap not in the working tree
 # and milestone for a roadmap/v2 one there; a
 # second valid invocation cancels the first run without deleting its log.
+# On two simulated hosts sharing koto's cloud backend (testdata/cloud-hosts.sh
+# over testdata/fake-s3.py): a plain session imported on host B arrives with
+# every key, and host A's copy then refuses as session_migrated.
 #
-# Needs koto and jq; SKIPs (exit 0) without koto, which run-tests.sh --engine
-# turns into a failure.
+# Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
+# run-tests.sh --engine turns into a failure.
 set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
-for b in koto jq git; do command -v "$b" >/dev/null 2>&1 || { echo "SKIP: $b not on PATH"; exit 0; }; done
+for b in koto jq git python3; do command -v "$b" >/dev/null 2>&1 || { echo "SKIP: $b not on PATH"; exit 0; }; done
 T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open-engine.XXXXXX"); T=$(cd -P "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
 export HOME="$T/home"; mkdir -p "$HOME"; export GIT_CEILING_DIRECTORIES="$T"
@@ -68,4 +71,28 @@ printf -- '---\nschema: roadmap/v2\nstatus: Active\n---\n\n# ROADMAP: milestones
 OUT=$(open_ '["docs/roadmaps/ROADMAP-milestones.md"]'); eq "a milestone roadmap's run opens" 0 $?
 S3=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
 eq "  ... with ROADMAP_FORM milestone" milestone "$(var "$S3" ROADMAP_FORM)"
+
+# --- two hosts on koto's cloud backend -----------------------------------------
+# Hosts A and B share a bucket served by testdata/fake-s3.py; each has its own
+# HOME, cache and workspace (testdata/cloud-hosts.sh).
+echo "== two hosts =="
+. "$HERE/testdata/cloud-hosts.sh"
+trap 's3_stop; rm -rf "$T"' EXIT
+s3_start || { fail "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; echo; echo "coordinate-open engine: $PASS passed, $FAIL failed"; exit 1; }
+host_make a; host_make b
+for h in a b; do
+    (cd "$T/hosts/$h/work" && git init -q && git remote add origin https://github.com/acme/widgets.git \
+        && printf '.koto/\n' >> .git/info/exclude)
+    printf -- '---\nname: plain\nversion: "1.0"\ndescription: One state, then done.\ninitial_state: work\nstates:\n  work:\n    accepts:\n      status:\n        type: enum\n        values: [ok]\n        required: true\n    transitions:\n      - target: done\n        when:\n          status: ok\n  done:\n    terminal: true\n---\n\n## work\n\nSubmit `status: ok`.\n\n## done\n\nTerminal.\n' \
+        > "$T/hosts/$h/work/plain.md"
+done
+host_on a koto init plain-run --template plain.md > /dev/null 2>"$T/err"; eq "a plain session opens on host A" 0 $?
+printf '{"a":1}' | host_on a koto context add plain-run record/meta > /dev/null 2>"$T/err"
+printf '{"b":2}' | host_on a koto context add plain-run legs/r1/deliver > /dev/null 2>"$T/err"
+host_on b koto template compile plain.md > /dev/null 2>"$T/err"
+OUT=$(host_on b koto session import plain-run --from "$(host_ws a)" 2>"$T/err"); eq "host B imports it" 0 $?
+eq "  ... with every key" 2 "$(printf '%s' "$OUT" | jq -r .keys)"
+eq "  ... readable on B" '{"b":2}' "$(host_on b koto context get plain-run legs/r1/deliver 2>&1)"
+host_on a koto context get plain-run record/meta > "$T/out" 2>"$T/err"; eq "host A's copy then refuses" 2 $?
+grep -q session_migrated "$T/out" && pass "  ... as session_migrated" || fail "  ... as session_migrated" "$(cat "$T/out" "$T/err")"
 echo; echo "coordinate-open engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
