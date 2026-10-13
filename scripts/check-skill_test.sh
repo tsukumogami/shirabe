@@ -282,6 +282,97 @@ new_tree
 SKILL_ARG="nope" run_check
 expect "an unknown skill exits 2" 2 "no such skill: skills/nope"
 
+# -- Suites in parallel ----------------------------------------------------------
+# A suite that marks itself running in $MARKS while it sleeps: the most marks
+# any suite saw at once is how many ran together.
+MARKS="$WORK/marks"
+export MARKS
+marked_suite() { # marked_suite <file> <seconds> [exit]
+    printf 'm="$MARKS/run.$$"; : > "$m"\nn=$(ls "$MARKS" | grep -c "^run\\\\.")\nprintf "%%s\\\\n" "$n" >> "$MARKS/seen"\nsleep %s\nrm -f "$m"\necho "%s output"\nexit %s\n' \
+        "$2" "$(basename "$1")" "${3:-0}" > "$1"
+}
+max_seen() { sort -n "$MARKS/seen" 2>/dev/null | tail -1; }
+
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+rm -rf "$MARKS"; mkdir -p "$MARKS"
+marked_suite "$ROOT/skills/demo/scripts/a_test.sh" 2
+marked_suite "$ROOT/skills/demo/scripts/b_test.sh" 0
+marked_suite "$ROOT/skills/demo/scripts/c_test.sh" 0 1
+marked_suite "$ROOT/skills/demo/scripts/d_test.sh" 1
+run_check
+expect "a failing suite among parallel ones fails the check, showing its output" 1 \
+    "bash skills/demo/scripts/c_test.sh" "c_test.sh output"
+order=$(printf '%s\n' "$OUT" | grep -E '^(ok|FAIL): bash ' | sed 's/.*scripts\///' | tr '\n' ' ')
+if [ "$order" = "a_test.sh b_test.sh c_test.sh d_test.sh " ]; then
+    pass "results print in the glob's order, whichever suite finishes first"
+else
+    fail "results print in the glob's order: got [$order]"
+fi
+if [ "$(max_seen)" -ge 2 ]; then
+    pass "suites run at the same time by default"
+else
+    fail "suites run at the same time by default: at most $(max_seen) together"
+fi
+
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+rm -rf "$MARKS"; mkdir -p "$MARKS"
+for s in a b c d e; do marked_suite "$ROOT/skills/demo/scripts/${s}_test.sh" 1; done
+CHECK_SKILL_JOBS=2 run_check
+expect "five suites pass two at a time" 0 "ok: bash skills/demo/scripts/e_test.sh"
+if [ "$(max_seen)" = 2 ]; then
+    pass "CHECK_SKILL_JOBS bounds how many suites run at once"
+else
+    fail "CHECK_SKILL_JOBS=2: at most $(max_seen) together"
+fi
+
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+rm -rf "$MARKS"; mkdir -p "$MARKS"
+for s in a b c; do marked_suite "$ROOT/skills/demo/scripts/${s}_test.sh" 0; done
+CHECK_SKILL_JOBS=1 run_check
+expect "CHECK_SKILL_JOBS=1 runs the suites" 0 "ok: bash skills/demo/scripts/c_test.sh"
+if [ "$(max_seen)" = 1 ]; then
+    pass "CHECK_SKILL_JOBS=1 runs one suite at a time"
+else
+    fail "CHECK_SKILL_JOBS=1: at most $(max_seen) together"
+fi
+
+for bad in 0 abc 100 "2 3" -1; do
+    new_tree
+    CHECK_SKILL_JOBS="$bad" run_check
+    expect "CHECK_SKILL_JOBS=$bad is a usage error" 2 "CHECK_SKILL_JOBS must be a whole number from 1 to 99"
+done
+
+# A check stopped with TERM stops the suites it started: each suite records
+# its pid and sleeps; after the stop, none of them may still be alive.
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+rm -rf "$MARKS"; mkdir -p "$MARKS"
+for s in a b; do
+    printf 'echo $$ > "$MARKS/pid.%s"\nsleep 30\n' "$s" > "$ROOT/skills/demo/scripts/${s}_test.sh"
+done
+(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" demo >/dev/null 2>&1) &
+CHECKER=$!
+n=0
+while [ "$(ls "$MARKS" | grep -c '^pid\.')" -lt 2 ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+# The subshell above is the job; the check is its only child.
+pkill -TERM -P "$CHECKER" -f check-skill.sh 2>/dev/null || kill -TERM "$CHECKER"
+wait "$CHECKER" 2>/dev/null
+sleep 0.5
+alive=""
+for f in "$MARKS"/pid.*; do
+    [ -f "$f" ] || continue
+    kill -0 "$(cat "$f")" 2>/dev/null && alive="$alive $(cat "$f")"
+done
+if [ "$(ls "$MARKS" | grep -c '^pid\.')" = 2 ] && [ -z "$alive" ]; then
+    pass "a stopped check stops the suites it started"
+else
+    fail "a stopped check stops the suites it started: still alive:${alive:- none}, started $(ls "$MARKS" | grep -c '^pid\.')"
+    for p in $alive; do kill "$p" 2>/dev/null; done
+fi
+
 echo ""
 echo "check-skill_test: $PASS_COUNT passed, $FAIL_COUNT failed"
 [ "$FAIL_COUNT" -eq 0 ]
