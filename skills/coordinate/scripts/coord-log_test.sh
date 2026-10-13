@@ -64,6 +64,8 @@ run_suite() { # run_suite <label>: every case, under the current PATH
     log_ev "$S" directed_transition '{"from":"record_find","to":"dispatch"}'
     OUT=$(bash "$CL" directed-since --session "$S" --from 0); eq "$L: a directed transition is reported" 1 $?
     case "$OUT" in *"record_find->dispatch"*) ok "$L: the report names the edge" ;; *) bad "$L: the report names the edge" "$OUT" ;; esac
+    # template-hash: the header's hash, which a resume compares itself.
+    eq "$L: template-hash prints the header's hash" feedface "$(bash "$CL" template-hash --session "$S")"
     # provenance: the stand-in compiles to $KOTO_COMPILED_HASH.
     bash "$CL" provenance --session "$S"; eq "$L: provenance passes for the matching template hash" 0 $?
     KOTO_COMPILED_HASH=deadbeef bash "$CL" provenance --session "$S" 2>/dev/null; eq "$L: provenance fails for another template" 1 $?

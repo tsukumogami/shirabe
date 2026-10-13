@@ -2,12 +2,27 @@
 # coordinate-open.sh -- /coordinate's entry: the invocation's tokens to the
 # session's variables, and a fresh per-run session.
 #
-# Every invocation is a new run. A restart after a crash gets its own session,
-# its own start time (the session header's created_at), and a full start,
-# find and reconcile; continuity lives on GitHub, where the new run's find
-# adopts the record the previous run opened. So this script cancels (never
-# cleans up) any live coordinate session for the same scope, keeping its log
-# readable, and opens `coordinate-<scope-slug>-<UTC stamp>`.
+# For a record on GitHub every invocation is a new run. A restart after a crash
+# gets its own session, its own start time (the session header's created_at),
+# and a full start, find and reconcile; continuity lives on GitHub, where the
+# new run's find adopts the record the previous run opened. So this script
+# cancels (never cleans up) any live coordinate session for the same scope,
+# keeping its log readable, and opens `coordinate-<scope-slug>-<UTC stamp>`.
+#
+# A record on the session store lives in a run's session on this host
+# (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12), so
+# at roadmap scope a start first asks record-source.sh --candidate about this
+# host's runs of the scope that hold a record, against the shipped template's
+# hash. The newest, live, the scope's only live run, compiled from that hash,
+# passing provenance, sealed to the session store and with no directed
+# transition, is resumed: no session opens and none is cancelled, the run keeps
+# its stamp, and the output is `resumed=1` then `session=<it>` (settings given
+# with the invocation aren't applied to it). One that fails any of those is
+# carried: a new run opens and the live runs are cancelled as above, and then
+# every record/ and legs/ key of the old run is copied into the new one through
+# the write core (core_carry), printing `carried=<old>`. The old run's log
+# stays readable. A carry cut short exits 1 (`failed=carry`) with the new run
+# holding no record, and the next start carries again.
 #
 # Tokens, in order, from a JSON array of strings in <args-file>:
 #   <roadmap-path>               roadmap scope (docs/roadmaps/.../ROADMAP-<name>.md)
@@ -39,8 +54,11 @@
 # `ask=host`: ask the human once, with a recommendation, and re-invoke with
 # --host. It never defaults to the repository it runs in there.
 #
-# Exit codes: 0 opened; 10 the human must name the host first; koto-open.sh's
-# own codes otherwise (2 refused, 64 usage, 127 koto or jq missing).
+# Exit codes: 0 opened or resumed; 10 the human must name the host first; 1
+# the shipped template didn't compile (`failed=template_compile`), this host's
+# runs couldn't be read (`failed=resume_candidate`), a cancel failed, or a carry
+# failed after the new run opened (`failed=carry`); koto-open.sh's own codes
+# otherwise (2 refused, 64 usage, 127 koto or jq missing).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -134,6 +152,33 @@ SLUG=$(bash "$HERE/coord-log.sh" slug --scope "$SCOPE" --name "$NAME") || usage 
 SESSION="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"
 TEMPLATE="$PLUGIN_ROOT/skills/coordinate/koto-templates/coordinate.md"
 
+# A record on the session store lives in a run's session on this host, so a
+# start first looks here for the scope's run that holds it
+# (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12).
+# record-source.sh --candidate decides, against the shipped template's hash:
+# resume keeps that run (no new session, no cancel, and the run keeps its
+# stamp); carry opens a new run below and copies its record/ and legs/ keys in;
+# none opens a new run as on GitHub. Roadmap scope only: a discipline record is
+# on GitHub.
+CARRY_FROM=
+if [ "$SCOPE" = roadmap ]; then
+    COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
+    SHIPPED=$(basename -- "$COMPILED" .json)
+    [[ $SHIPPED =~ ^[0-9a-f]{64}$ ]] || { echo "failed=template_compile"; echo "coordinate-open: the shipped template didn't compile; nothing was opened" >&2; exit 1; }
+    CAND=$(bash "$HERE/record-source.sh" --candidate --scope roadmap --name "$NAME" --hash "$SHIPPED" 2>/dev/null) \
+        || { echo "failed=resume_candidate"; echo "coordinate-open: could not read this host's runs of $SLUG; nothing was opened" >&2; exit 1; }
+    case "$(printf '%s' "$CAND" | jq -r '.action')" in
+        resume)
+            OLD=$(printf '%s' "$CAND" | jq -r '.session')
+            [ "$(printf '%s' "$MAPPED" | jq '.pairs | length')" -eq 0 ] \
+                || echo "coordinate-open: $OLD is resumed with the settings it opened with; the ones given here are not applied" >&2
+            printf 'resumed=1\nsession=%s\n' "$OLD"
+            exit 0 ;;
+        carry) CARRY_FROM=$(printf '%s' "$CAND" | jq -r '.session')
+               echo "coordinate-open: carrying $CARRY_FROM into a new run: $(printf '%s' "$CAND" | jq -r '.reason')" >&2 ;;
+    esac
+fi
+
 DIR=$(bash "$KOTO_OPEN" --alloc-dir) || usage "could not allocate a vars directory"
 printf '%s' "$MAPPED" | jq -c --arg scope "$SCOPE" --arg root "$PLUGIN_ROOT" --argjson extra "$EXTRA" \
     '[["SCOPE", $scope]] + .pairs + $extra + [["PLUGIN_ROOT", $root]]' > "$DIR/coordinate-vars.json"
@@ -153,5 +198,20 @@ for id in $LIVE; do
     "$KOTO" cancel "$id" </dev/null >/dev/null || { echo "failed=cancel"; echo "coordinate-open: could not cancel the live run $id" >&2; exit 1; }
     echo "cancelled=$id"
 done
+
+# The carry: the previous run's record into this one, through the write core's
+# checks (core_carry), as the run that now holds it writes it. The previous
+# run's log stays readable; a carry cut short leaves this run holding no record,
+# and the next start carries again.
+if [ -n "$CARRY_FROM" ]; then
+    PROG=coordinate-open SKIP_CHECKS=0 REPO=$HOST
+    . "$HERE/record-common.sh"
+    lib_write_guard
+    T=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-open.XXXXXX") || { echo "failed=carry"; exit 1; }
+    trap 'rm -rf "$T"' EXIT
+    . "$HERE/record-write-core.sh"
+    ( core_carry "$CARRY_FROM" "$SESSION" ) || { RC=$?; echo "failed=carry"; echo "coordinate-open: $SESSION is open, but $CARRY_FROM's record wasn't carried into it (exit $RC); start again to carry it" >&2; exit 1; }
+    echo "carried=$CARRY_FROM"
+fi
 printf 'session=%s\n' "$SESSION"
 exit 0

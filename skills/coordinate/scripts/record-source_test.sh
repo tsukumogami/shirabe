@@ -453,4 +453,40 @@ eq "  ... a body that parses back to the session's state (R11)" "$(jq -cS . "$T/
     "$(bash "$HERE/record-parse.sh" --container issue "$T/show.md" | jq -cS .)"
 grep -q 'host-only-marker' "$T/show.md" && bad "  ... and holds nothing from record/host" "$(cat "$T/show.md")" || ok "  ... and holds nothing from record/host"
 
+echo "== the resume decision (PRD R12) =="
+# rs_resume_candidate over this host's runs of one scope, on the koto stand-in:
+# resume the newest holder of a session-store record when it is the scope's
+# only live run, compiled from the shipped hash, passing provenance, sealed to
+# the session store and without a directed transition; carry it otherwise; none
+# without one.
+HS=abababababababababababababababababababababababababababababababab
+HO=cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd
+jq -c '.scope.name = "resume-probe"' "$T/rec.json" > "$T/rp.json"
+clear_rp() { rm -rf "$KOTO_STORE"/sessions/coordinate-roadmap-resume-probe-* "$KOTO_STORE"/context/coordinate-roadmap-resume-probe-*; }
+mk() { # mk <name> [template-hash] [vars-jq]: a run of resume-probe holding a session-store record
+    found_session "$1" "$(roadmap_vars resume-probe | jq -c "${3:-.}")" "7 session" "${2:-$HS}"
+    session_keys "$1" "$T/rp.json"
+    printf '{"source":"session","reason":"found"}' | koto context add "$1" coord/source.json
+}
+cand() { KOTO_COMPILED_HASH=$HS bash "$RS" --candidate --scope roadmap --name resume-probe --hash "$HS" 2>"$T/c.err" | jq -r '"\(.action) \(.session)"'; }
+R1=coordinate-roadmap-resume-probe-20261013T100000Z R2=coordinate-roadmap-resume-probe-20261013T110000Z
+clear_rp; eq "no run here holds a record: none" "none null" "$(cand)"
+clear_rp; mk "$R1"; eq "the scope's one live run, as shipped: resume" "resume $R1" "$(cand)"
+clear_rp; mk "$R1"; mk "$R2"; log_end "$R1"; eq "the newest holder is the one decided on" "resume $R2" "$(cand)"
+clear_rp; mk "$R1" "$HO"
+eq "a run koto compiled from another template is carried" "carry $R1" "$(cand)"
+clear_rp; mk "$R1"; log_end "$R1"; eq "a cancelled run is carried" "carry $R1" "$(cand)"
+clear_rp; mk "$R1"; log_ev "$R1" directed_transition '{"from":"reconcile","to":"pick"}'; eq "a run with a directed transition is carried" "carry $R1" "$(cand)"
+clear_rp; mk "$R1" "$HS" '.PLUGIN_ROOT = "/elsewhere"'; eq "a run failing provenance is carried, not resumed" "carry $R1" "$(cand)"
+clear_rp; mk "$R1"; mk "$R2"; eq "two live runs: the newest is carried" "carry $R2" "$(cand)"
+clear_rp; mk "$R1"; printf '{"source":"github","reason":"found"}' | koto context add "$R1" coord/source.json
+eq "a run whose store isn't session: none" "none $R1" "$(cand)"
+clear_rp; mk coordinate-roadmap-resume-probe-copy; eq "a name off the pattern is never a candidate" "none null" "$(cand)"
+clear_rp; mk "$R1"; printf '%s' coordinate-roadmap-other-20261013T090000Z > "$KOTO_STORE/sessions/$R1/.parent"
+eq "a child session is never a candidate" "none null" "$(cand)"
+clear_rp
+bash "$RS" --candidate --scope roadmap --name resume-probe --hash abc >/dev/null 2>&1; eq "--candidate refuses a hash that isn't 64 hex" 64 $?
+# The carry's write path: core_carry is called only by the opener.
+eq "only coordinate-open.sh calls core_carry" "" "$(fn_callers "$HERE" core_carry '^coordinate-open\.sh$')"
+
 done_tests record-source

@@ -75,6 +75,8 @@
 #   record-source.sh --session S --facts <topic>
 #   record-source.sh --session S --show
 #   record-source.sh --session S --host
+#   record-source.sh --candidate --scope roadmap|discipline --name N --hash H
+#                    (the opener, before any session of its own: rs_resume_candidate)
 #   record-source.sh --scope roadmap|discipline --name N --repo O/R --ref N --facts <topic>   (tests)
 #
 # --show prints the record as its body would read, from either store, so a
@@ -276,6 +278,58 @@ rs_scope_sessions() {
     rm -rf "$d"
 }
 
+# rs_resume_candidate <scope> <name> <shipped-hash>: what a start on this host
+# does with the scope's sessions that hold a record (PRD R12; Decision 6). It
+# looks at the newest by stamp of rs_scope_sessions (named
+# coordinate-<slug>-<stamp>, a root session, holding record/meta) and prints
+# {session, action, live, reason}:
+#   resume  it is live and the scope's only live run, koto compiled it from the
+#           shipped template's hash, it passes provenance, its find recorded the
+#           session store (coord/source.json), and it has no directed
+#           transition: the start keeps it, opening and cancelling nothing
+#   carry   it holds a session-store record but fails one of the run checks
+#           (finished, cancelled, another template hash, provenance, a directed
+#           transition, another live run): the start opens a new run and copies
+#           its record/ and legs/ keys into it through the write core
+#   none    no session here holds a record, or the newest's store isn't
+#           session: the start opens a new run as on GitHub
+# live is whether that session is a live run, which the opener cancels on a
+# carry. Returns 0 printed; 2 a read failed.
+rs_resume_candidate() {
+    local scope=$1 name=$2 hash=$3 holders s slug live d src reason=
+    holders=$(rs_scope_sessions "$scope" "$name") || return 2
+    s=$(printf '%s\n' "$holders" | grep -v '^$' | tail -1)
+    if [ -z "$s" ]; then
+        jq -nc '{session: null, action: "none", live: false, reason: "no session here holds a record"}'
+        return 0
+    fi
+    slug=$(bash "$HERE/coord-log.sh" slug --scope "$scope" --name "$name") || return 2
+    live=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$slug" --all 2>/dev/null)
+    case $? in 0|1) ;; *) return 2 ;; esac
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
+    rs_key "$s" coord/source.json "$d/src"
+    case $? in
+        0) src=$(jq -r '.source // ""' "$d/src" 2>/dev/null) ;;
+        1) src= ;;
+        *) rm -rf "$d"; return 2 ;;
+    esac
+    rm -rf "$d"
+    if [ "$src" != session ]; then
+        jq -nc --arg s "$s" '{session: $s, action: "none", live: false, reason: "its store isn'"'"'t session"}'
+        return 0
+    fi
+    if ! printf '%s\n' "$live" | grep -qxF -- "$s"; then reason="it is finished or cancelled"
+    elif [ "$(printf '%s\n' "$live" | grep -c .)" -gt 1 ]; then reason="another run of the scope is live"
+    elif [ "$(bash "$HERE/coord-log.sh" template-hash --session "$s" 2>/dev/null)" != "$hash" ]; then reason="koto compiled it from another template"
+    elif ! bash "$HERE/coord-log.sh" provenance --session "$s" > /dev/null 2>&1; then reason="it fails provenance"
+    else
+        bash "$HERE/coord-log.sh" directed-since --session "$s" --from 0 > /dev/null 2>&1
+        case $? in 0) ;; 1) reason="it has a directed transition" ;; *) return 2 ;; esac
+    fi
+    jq -nc --arg s "$s" --arg r "$reason" --argjson l "$(printf '%s\n' "$live" | grep -qxF -- "$s" && echo true || echo false)" \
+        '{session: $s, action: (if $r == "" then "resume" else "carry" end), live: $l, reason: (if $r == "" then "the live run" else $r end)}'
+}
+
 # rs_host <session> <out>: the host facts a session-store record keeps in
 # record/host, as a JSON object into <out>: where its state came from on an
 # import (source_workspace, source_session, template_hash) and where its crash
@@ -433,7 +487,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     set -uo pipefail
     PROG=record-source
     HERE=$(cd "$(dirname "$0")" && pwd)
-    SESSION= SCOPE= NAME= REPO= REF= ACTION= TOPIC=
+    SESSION= SCOPE= NAME= REPO= REF= ACTION= TOPIC= HASH=
     rs_usage() { sed -n '/^# Usage (as a script):/,/^# Exit codes/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -446,6 +500,8 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --probe) ACTION=probe; shift ;;
             --show) ACTION=show; shift ;;
             --host) ACTION=host; shift ;;
+            --candidate) ACTION=candidate; shift ;;
+            --hash) [ $# -ge 2 ] || rs_usage; HASH=$2; shift 2 ;;
             --facts) [ $# -ge 2 ] || rs_usage; ACTION=facts; TOPIC=$2; shift 2 ;;
             *) rs_usage ;;
         esac
@@ -454,6 +510,11 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     . "$HERE/record-common.sh"
     case "$ACTION" in
         probe) rs_probe; exit 0 ;;
+        candidate)
+            # Before any session exists: the scope and name, and the shipped
+            # template's hash, come from the opener.
+            [[ $SCOPE =~ ^(roadmap|discipline)$ ]] && [[ $NAME =~ $RE_NAME ]] && [[ $HASH =~ ^[0-9a-f]{64}$ ]] || rs_usage
+            rs_resume_candidate "$SCOPE" "$NAME" "$HASH"; exit $? ;;
     esac
     lib_facts
     case "$ACTION" in

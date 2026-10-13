@@ -215,7 +215,7 @@ record_store() {
             # The state is in the session store; this run's session must hold it.
             if [ -n "$SESSION" ] && ! { rs_list "$SESSION" record/meta "$T/meta-keys" && jq -e 'index("record/meta") != null' "$T/meta-keys" > /dev/null; }; then
                 VERDICT=malformed; SESSION_STOP=1
-                REASON="session-absent: #$NUM's state is on the session store, and this run's session $SESSION doesn't hold it"
+                REASON="session-absent: #$NUM's state is on the session store, and this run's session $SESSION doesn't hold it; bring it to this host with coordinate-open.sh --import <session> --from <workspace>, both named in the last host's reports"
                 return 1
             fi
             return 0

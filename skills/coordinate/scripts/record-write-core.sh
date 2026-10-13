@@ -305,6 +305,66 @@ core_write_host() {
     rm -rf "$d"
 }
 
+# core_carry <from> <to>: copy a session-store record, its state and its
+# account, from run <from> into the new run <to> on this host: every record/ and
+# legs/ key (PRD R12; Decision 6). The source is read through the seam, so it
+# passes every check a write makes: it assembles, renders and parses back as
+# this scope's record (SCOPE, NAME), fits RECORD_BUDGET, and holds only
+# well-formed pushed heads. The target must hold no record. Each key's name is
+# checked against the session store's names and its value checked (JSON, or for
+# record/posted/<n> a comment URL on REPO's issues), then copied, and
+# record/meta goes last, with the source's written time: until it lands the new
+# run holds no record, so a carry cut short leaves nothing a start would resume,
+# and the next start carries again. Only coordinate-open.sh calls it, which a
+# structure test holds. Exits 10 the source holds no record; 12 it was being
+# written; 13 it is over the budget; 65 refused (the reason on stderr); 11 a
+# write failed; 2 a read failed.
+core_carry() {
+    local from=$1 to=$2 d k rc size secs
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-carry.XXXXXX") || lib_die2 "mktemp failed"
+    rs_session_read "$d/rec" body "$from" "$SCOPE" "$NAME" "$REPO" 0; rc=$?
+    case $rc in
+        0) ;;
+        4) lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 10 ;;
+        12) lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 12 ;;
+        3|65) echo "$PROG: refused: session $from's record doesn't read back as this scope's:" >&2; lib_scrub < "$d/rec.err" >&2; rm -rf "$d"; exit 65 ;;
+        *) rm -rf "$d"; lib_die2 "cannot read session $from's record" ;;
+    esac
+    size=$(wc -c < "$d/rec.md" | tr -d ' ')
+    [ "$size" -le "$RECORD_BUDGET" ] || { rm -rf "$d"; echo "$PROG: refused: record-full: session $from's record renders to $size bytes" >&2; exit 13; }
+    rs_key "$to" record/meta "$d/to-meta"
+    case $? in
+        1) ;;
+        0) rm -rf "$d"; echo "$PROG: refused: session $to already holds a record" >&2; exit 65 ;;
+        *) rm -rf "$d"; lib_die2 "cannot read session $to's record/meta" ;;
+    esac
+    rs_list "$from" record/ "$d/rk" && rs_list "$from" legs/ "$d/lk" || { rm -rf "$d"; lib_die2 "cannot list session $from's keys"; }
+    secs=" $(for p in $RS_SECTIONS; do printf 'record/%s ' "${p#*:}"; done)"
+    jq -r '.[]' "$d/rk" "$d/lk" > "$d/keys" || { rm -rf "$d"; lib_die2 "jq failed"; }
+    while IFS= read -r k; do
+        case "$k" in
+            record/meta) continue ;;
+            record/host) ;;
+            record/entries/*|record/posted/*) [[ $k =~ ^record/(entries|posted)/[0-9]{6}$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
+            record/*) case "$secs" in *" $k "*) ;; *) rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k, not one of the session store's" >&2; exit 65 ;; esac ;;
+            legs/*) [[ $k =~ ^legs/[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$ ]] || { rm -rf "$d"; echo "$PROG: refused: session $from holds a key named $k" >&2; exit 65; } ;;
+        esac
+        "$KOTO" context get "$from" "$k" < /dev/null > "$d/v" 2> "$d/k.err" || { rm -rf "$d"; lib_die2 "cannot read $k: $(lib_scrub < "$d/k.err")"; }
+        case "$k" in
+            record/posted/*)
+                [[ $(cat "$d/v") =~ ^https://github\.com/${REPO}/issues/[1-9][0-9]*#issuecomment-[0-9]+$ ]] \
+                    || { rm -rf "$d"; echo "$PROG: refused: $k isn't a comment URL on $REPO's issues" >&2; exit 65; } ;;
+            *) jq -e . "$d/v" > /dev/null 2>&1 || { rm -rf "$d"; echo "$PROG: refused: $k isn't JSON" >&2; exit 65; } ;;
+        esac
+        "$KOTO" context add "$to" "$k" --from-file "$d/v" < /dev/null > /dev/null 2> "$d/k.err" \
+            || { echo "$PROG: the carry into $to failed at $k: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    done < "$d/keys"
+    jq -c '{scope, store: "session", written, pending: false}' "$d/rec.state" > "$d/meta" || { rm -rf "$d"; lib_die2 "jq failed"; }
+    "$KOTO" context add "$to" record/meta --from-file "$d/meta" < /dev/null > /dev/null 2> "$d/k.err" \
+        || { echo "$PROG: the carry into $to failed at record/meta: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    rm -rf "$d"
+}
+
 core_write() {
     if [ -z "$REF" ]; then
         FACTS=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" 2>/dev/null)
