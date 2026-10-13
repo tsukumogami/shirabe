@@ -250,13 +250,17 @@ def parse_holds($p):
 # has a row, so a record written before them keeps its bytes. Only
 # record-state.sh changes them.
 #
-# Run, one row per key from a closed set; `told` is the one key that repeats:
-#   Key      arguments | cap | coordinator | told
+# Run, one row per key from a closed set; `told` repeats, and `rules` and
+# `briefs` once per label:
+#   Key      arguments | cap | coordinator | told | store | rules | briefs |
+#            friction | reports-to
 #   Value    arguments: the run's arguments as given; cap: a number;
 #            coordinator: the address messages to the coordinator reach;
 #            told: a party that has been sent that address. Both of the last
 #            two are messaging addresses (check_worker): a dispatch topic or
 #            a session name, which may hold `_`, never an id or a path.
+#            store: github or session. The last four are the crash set, kept
+#            only beside a `store session` row (see run_keys below).
 #   Set by   who set it, in words
 #   Set      when, YYYY-MM-DDTHH:MMZ
 # Standing, the events only a person owns that still bind the run:
@@ -319,7 +323,18 @@ def state_secs: [
 # store: the record's store, `github` or `session`, written by its owner
 # (docs/designs/DESIGN-coordinator-session-record.md, Decision 2). A record
 # without the row is on GitHub.
-def run_keys: ["arguments", "cap", "coordinator", "told", "store"];
+# The crash set (Decision 9; PRD R17), kept only by a record on the session
+# store, so only in a Run section that also holds the `store session` row: a
+# GitHub record refuses them as it refuses any Run key it doesn't know.
+#   rules, briefs  `<label> sha256:<64 hex>`, the digest of a file the
+#                  coordinator ran with, one row per label; its location is in
+#                  record/host, never here
+#   friction       a label, one row; its location is in record/host
+#   reports-to     `<role>` or `<role> at <address>`: words naming who the
+#                  coordinator reports up to, and their messaging address
+def run_keys: ["arguments", "cap", "coordinator", "told", "store", "rules", "briefs", "friction", "reports-to"];
+def crash_keys: ["rules", "briefs", "friction", "reports-to"];
+def re_label: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$";
 def standing_kinds: ["pause", "go-ahead", "approval", "answer", "assignment"];
 # A unit a person assigns outside the scope: an issue, or a release.
 def re_assigned: "^(#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*|release [A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+ [A-Za-z0-9][A-Za-z0-9._+-]*)$";
@@ -392,6 +407,17 @@ def check_srow($sec; $private):
       (if .key == "cap" then (if .value | test("^[1-9][0-9]?$") then . else refuse("run.value: a cap is a number from 1 to 99") end)
        elif .key == "coordinator" or .key == "told" then (.value | check_worker) as $_ | .
        elif .key == "store" then (if .value == "github" or .value == "session" then . else refuse("run.value: store-malformed: a store is github or session") end)
+       elif .key == "rules" or .key == "briefs" then
+         (if (.value | test("^[A-Za-z0-9][A-Za-z0-9._-]{0,63} sha256:[0-9a-f]{64}$")) then .
+          else refuse("run.value: a \(.key) row is `<label> sha256:<64 hex>`, the label letters, digits, `.`, `_` and `-`") end)
+       elif .key == "friction" then
+         (if (.value | test(re_label)) then . else refuse("run.value: a friction row is a label: letters, digits, `.`, `_` and `-`") end)
+       elif .key == "reports-to" then
+         (if (.value | test(" at ")) then
+            (.value | sub("^.* at "; "")) as $addr | (.value | sub(" at [^ ]*$"; "")) as $role
+            | if ($addr | test(" ")) or $role == "" then refuse("run.value: a reports-to row is `<role>` or `<role> at <address>`")
+              else ($addr | check_worker) as $_ | . end
+          else . end)
        else . end)
     elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
     elif $sec.key == "work" and (.kind == "decision" or .kind == "follow-up") then
@@ -428,11 +454,16 @@ def check_state($sec; $rows; $private):
   elif ($rows | type) != "array" then refuse("\($sec.key): not a list")
   else ($rows | map(check_srow($sec; $private))) as $r
     | if $sec.key == "run" then
-        ($r | map(select(.key != "told") | .key)) as $once
+        ($r | map(select(.key != "told" and .key != "rules" and .key != "briefs") | .key)) as $once
         | ($r | map(select(.key == "told") | .value)) as $told
+        | ($r | map(select(.key == "rules" or .key == "briefs") | "\(.key) \(.value | split(" ")[0])")) as $labels
+        | ([$r[] | select(.key as $k | crash_keys | index($k)) | .key] | first) as $crash
         | if ($once | map(select(. == "store")) | length) > 1 then refuse("run: store-malformed: the store row is used twice")
-          elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told is used twice")
+          elif $crash != null and (any($r[]; .key == "store" and .value == "session") | not) then
+            refuse("run.key: \($crash) is kept only by a record on the session store")
+          elif ($once | unique | length) != ($once | length) then refuse("run: a key other than told, rules and briefs is used twice")
           elif ($told | unique | length) != ($told | length) then refuse("run: a party is told twice")
+          elif ($labels | unique | length) != ($labels | length) then refuse("run: a rules or briefs label is used twice")
           else $r end
       elif $sec.key == "standing" then
         (if ($r | map(.standing) | unique | length) != ($r | length) then refuse("standing: an id is used twice") else $r end)

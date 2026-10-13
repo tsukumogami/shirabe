@@ -99,6 +99,20 @@ eq "only record-move.sh and record-open.sh set SESSION_SEED" "" "$(flag_setters 
 printf '#!/usr/bin/env bash\n. "$HERE/record-write-core.sh"\nMOVE_WRITER=1 SESSION_SEED=1\ncore_write\n' > "$FX/g.sh"
 eq "  ... and the rule refuses a script that sets either" "g.sh g.sh" \
     "$( { flag_setters "$FX" MOVE_WRITER '^record-move\.sh$'; flag_setters "$FX" SESSION_SEED '^(record-move|record-open)\.sh$'; } | cut -d: -f1 | tr '\n' ' ' | sed 's/ $//')"
+# record/host (Decision 9; PRD R14, R17) is written only by record-state.sh
+# --host, through core_write_host.
+fn_callers() { # fn_callers <dir> <function> <allowed-regex>: scripts that call it outside the allowed ones
+    local f base
+    for f in "$1"/*.sh; do
+        base=$(basename "$f")
+        case "$base" in *_test.sh|record-write-core.sh) continue ;; esac
+        [[ $base =~ $3 ]] && continue
+        grep -nE "(^|[^A-Za-z_])$2([^A-Za-z_]|$)" "$f" | grep -vE '^[0-9]+:[[:space:]]*#' | sed "s|^|$base:|"
+    done
+}
+eq "only record-state.sh calls core_write_host" "" "$(fn_callers "$HERE" core_write_host '^record-state\.sh$')"
+printf '#!/usr/bin/env bash\n. "$HERE/record-write-core.sh"\ncore_write_host "$f"\n' > "$FX/h.sh"
+eq "  ... and the rule refuses a script that calls it" "h.sh" "$(fn_callers "$FX" core_write_host '^record-state\.sh$' | cut -d: -f1)"
 
 # ---- 2. rs_facts --------------------------------------------------------------------
 

@@ -7,7 +7,9 @@
 #
 # core_write re-reads the target and writes the whole body, after the checks
 # record-write.sh's header lists; every check from the parse on lives here.
-# Four of them, in brief:
+# core_write_host writes a session-store record's record/host, the one key
+# outside its tables and account; only record-state.sh --host calls it.
+# Four of core_write's checks, in brief:
 #   - the Decisions section may be changed only by a script that sets
 #     DECISIONS_WRITER=1 after sourcing this file, which resets it to 0, so a
 #     value in the environment never counts (exit 65). Only
@@ -257,6 +259,27 @@ core_write_session() {
     jq -c --arg w "$(jq -r '.written' "$T/next-state.json")" '.written = $w | .pending = false' "$T/meta.now" > "$T/meta.next"
     "$KOTO" context add "$s" record/meta --from-file "$T/meta.next" < /dev/null > /dev/null 2> "$T/k.err" \
         || { echo "$PROG: the session write failed part way, at record/meta: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
+}
+
+# core_write_host <json-file>: replace the run's record/host with the object in
+# <json-file>, the host facts record-state.sh --host merged and checked (PRD R14,
+# R17). Only record-state.sh calls it, which a structure test holds; it writes
+# no section and no entry, since host facts never go to GitHub. Exits 10 when
+# the session holds no record (no record/meta), 11 when the write fails, 2 when
+# a read fails.
+core_write_host() {
+    local s=${RS_SESSION:-$SESSION} d
+    [ -n "$s" ] || lib_die2 "record/host needs the run's session"
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-host.XXXXXX") || lib_die2 "mktemp failed"
+    rs_key "$s" record/meta "$d/meta"
+    case $? in
+        0) ;;
+        1) rm -rf "$d"; echo "$PROG: refused: session $s holds no record" >&2; exit 10 ;;
+        *) rm -rf "$d"; lib_die2 "cannot read session $s's record/meta" ;;
+    esac
+    "$KOTO" context add "$s" record/host --from-file "$1" < /dev/null > /dev/null 2> "$d/k.err" \
+        || { echo "$PROG: the record/host write failed: $(lib_scrub < "$d/k.err")" >&2; rm -rf "$d"; exit 11; }
+    rm -rf "$d"
 }
 
 core_write() {

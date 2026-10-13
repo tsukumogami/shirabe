@@ -307,21 +307,67 @@ eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-
 SD=coordinate-roadmap-plugin-system-20260926T170000Z
 SEN=(env RS_SOURCE=session RS_SESSION="$SD")
 seed "$(record_json roadmap plugin-system)"
-render "$TWO" issue 2026-09-26T08:00:00Z | bash "$HERE/record-parse.sh" --container issue > "$T/sd.json"
+# A session-store record's Run section always holds its store row, as the
+# opener and the move seed it.
+render "$(printf '%s' "$TWO" | jq -c '.run = [{key: "store", value: "session", set_by: "alice", set: "2026-09-26T08:00Z"}]')" issue 2026-09-26T08:00:00Z \
+    | bash "$HERE/record-parse.sh" --container issue > "$T/sd.json"
 session_keys "$SD" "$T/sd.json"
-eq "the session store's handover read lists the keys' gaps" "no-arguments no-cap no-coordinator no-next-step Feature 2 no-next-step Feature 3" \
+eq "the session store's handover read lists the keys' gaps" "no-arguments no-cap no-coordinator no-reports-to no-next-step Feature 2 no-next-step Feature 3" \
     "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
 "${SEN[@]}" bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
+"${SEN[@]}" bash "$RS" "${W[@]}" --run reports-to "the lane's dispatcher at ws-lead" --by "the human" >/dev/null 2>"$T/err"
+eq "a reports-to row is written on the session store" 0 $?
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
 "${SEN[@]}" bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
-"${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "  ... and closes them as record-state.sh writes the keys" 0 $?
+"${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err" && ok "  ... and closes them as record-state.sh writes the keys" \
+    || bad "  ... and closes them as record-state.sh writes the keys" "$(cat "$T/err")"
 bash "$RH" "${RM[@]}" | jq -e '.gaps | length > 0' >/dev/null && ok "  ... which the GitHub body never saw" || bad "  ... which the GitHub body never saw" ""
 "${SEN[@]}" bash "$RS" "${W[@]}" --standing answer --what "panels at the head" --owner "the human" --relayed-by lane-v2 >/dev/null 2>"$T/err"
 eq "a Standing row is written on the session store" 0 $?
 eq "  ... into record/standing" "answer|the human" "$(koto context get "$SD" record/standing | jq -r '.[0] | "\(.kind)|\(.owner)"')"
 eq "  ... and read back through the seam" "panels at the head" "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '.standing[0].what')"
+
+echo "== the crash set (PRD R17) =="
+SHA=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+SHB=fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210
+"${SEN[@]}" bash "$RS" "${W[@]}" --run rules "skill-rules sha256:$SHA" --by coord >/dev/null 2>"$T/err"; eq "a rules row is written" 0 $?
+"${SEN[@]}" bash "$RS" "${W[@]}" --run rules "lane-rules sha256:$SHA" --by coord >/dev/null 2>"$T/err"
+"${SEN[@]}" bash "$RS" "${W[@]}" --run rules "skill-rules sha256:$SHB" --by coord >/dev/null 2>"$T/err"
+eq "  ... one row per label, a new digest replacing its label's" "lane-rules sha256:$SHA|skill-rules sha256:$SHB" \
+    "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '.rules | sort | join("|")')"
+"${SEN[@]}" bash "$RS" "${W[@]}" --run briefs "brief-1 sha256:$SHA" --by coord >/dev/null 2>"$T/err"; eq "a briefs row is written" 0 $?
+"${SEN[@]}" bash "$RS" "${W[@]}" --run friction friction-log --by coord >/dev/null 2>"$T/err"; eq "a friction row is written" 0 $?
+eq "  ... and the handover read names them" "lane's dispatcher at ws-lead|brief-1 sha256:$SHA|friction-log" \
+    "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '"\(.reports_to | sub("^the "; ""))|\(.briefs[0])|\(.friction)"')"
+"${SEN[@]}" bash "$RS" "${W[@]}" --run rules "skill-rules sha256:abc" --by coord >/dev/null 2>"$T/err"; eq "a malformed digest is refused" 65 $?
+SNAP=$(session_snapshot "$SD")
+"${SEN[@]}" bash "$RS" "${W[@]}" --host source_workspace /srv/ws/a --host template_hash "$SHA" --host rules:skill-rules /srv/ws/a/RULES.md > "$T/out" 2>"$T/err"
+eq "--host merges into record/host" "0 /srv/ws/a|$SHA|/srv/ws/a/RULES.md" \
+    "$? $(koto context get "$SD" record/host | jq -r '"\(.source_workspace)|\(.template_hash)|\(.["rules:skill-rules"])"')"
+"${SEN[@]}" bash "$RS" "${W[@]}" --host source_session coordinate-roadmap-plugin-system-20260926T170000Z > /dev/null 2>"$T/err"
+eq "  ... keeping what was there" "/srv/ws/a coordinate-roadmap-plugin-system-20260926T170000Z" \
+    "$(koto context get "$SD" record/host | jq -r '"\(.source_workspace) \(.source_session)"')"
+eq "  ... changing no other key" "$(printf '%s' "$SNAP" | grep -v '^\./host ')" "$(session_snapshot "$SD" | grep -v '^\./host ')"
+eq "  ... and the handover read carries it" "/srv/ws/a" "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '.host.source_workspace')"
+eq "  ... and record-source.sh --host prints it" "/srv/ws/a/RULES.md" \
+    "$("${SEN[@]}" bash "$HERE/record-source.sh" "${RM[@]}" --host | jq -r '.["rules:skill-rules"]')"
+eq "  ... which --show never does" "" "$("${SEN[@]}" bash "$HERE/record-source.sh" "${RM[@]}" --show | grep -F /srv/ws/a)"
+"${SEN[@]}" bash "$RS" "${W[@]}" --host source_workspace relative/path >/dev/null 2>"$T/err"; eq "--host refuses a relative path" 65 $?
+"${SEN[@]}" bash "$RS" "${W[@]}" --host template_hash abc >/dev/null 2>"$T/err"; eq "--host refuses a template hash that isn't 64 hex" 65 $?
+"${SEN[@]}" bash "$RS" "${W[@]}" --host friction "/srv/gh""p_aaaaaaaaaaaaaaaaaaaaaaaa" >/dev/null 2>"$T/err"; eq "--host refuses a token-shaped string" 65 $?
+grep -q 'token-shaped' "$T/err" && ok "  ... naming it" || bad "  ... naming it" "$(cat "$T/err")"
+"${SEN[@]}" bash "$RS" "${W[@]}" --host colour blue >/dev/null 2>"$T/err"; eq "--host refuses a key it doesn't know" 64 $?
+# On GitHub each is refused, and the body is unchanged.
+seed "$TWO"; BODY=$(jq -r '.issues[0].body' "$GH_DB")
+for k in rules briefs friction reports-to; do
+    v="a sha256:$SHA"; [ "$k" = friction ] && v=a; [ "$k" = reports-to ] && v="the human"
+    bash "$RS" "${W[@]}" --run "$k" "$v" --by coord >/dev/null 2>"$T/err"; eq "--run $k on a GitHub record is refused" 65 $?
+done
+bash "$RS" "${W[@]}" --host source_workspace /srv/ws/a >/dev/null 2>"$T/err"; eq "--host on a GitHub record is refused" 65 $?
+eq "  ... and the GitHub body is unchanged" "$BODY" "$(jq -r '.issues[0].body' "$GH_DB")"
+eq "a GitHub record's handover read has no no-reports-to gap" "" "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap | select(. == "no-reports-to")] | join(" ")')"
 
 done_tests record-state_test

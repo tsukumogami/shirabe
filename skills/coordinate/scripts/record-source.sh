@@ -73,11 +73,13 @@
 #   record-source.sh --session S --probe
 #   record-source.sh --session S --facts <topic>
 #   record-source.sh --session S --show
+#   record-source.sh --session S --host
 #   record-source.sh --scope roadmap|discipline --name N --repo O/R --ref N --facts <topic>   (tests)
 #
 # --show prints the record as its body would read, from either store, so a
 # reviewer on the coordinator's host reads a session-store record without
-# knowing key names (PRD R11). record/host is never part of it.
+# knowing key names (PRD R11). record/host is never part of it; --host prints
+# it, the object rs_host reads, and `{}` for a record on GitHub.
 #
 # Exit codes (as a script): 0 printed; 1 no holding has that topic; 2 a read
 # failed; 4 the session holds no record/meta; 12 the session record was still
@@ -264,6 +266,22 @@ rs_scope_sessions() {
     rm -rf "$d"
 }
 
+# rs_host <session> <out>: the host facts a session-store record keeps in
+# record/host, as a JSON object into <out>: where its state came from on an
+# import (source_workspace, source_session, template_hash) and where its crash
+# set's files live (rules:<label>, briefs:<label>, friction). They describe
+# this host, so they never go to GitHub and --show never prints them. {} when
+# the session holds none. Returns 0; 2 a read failed or the key isn't an
+# object.
+rs_host() {
+    rs_key "$1" record/host "$2"
+    case $? in
+        0) jq -e 'type == "object"' "$2" > /dev/null 2>> "$2.err" || return 2 ;;
+        1) echo '{}' > "$2" ;;
+        *) return 2 ;;
+    esac
+}
+
 # rs_moved <parsed-record>: 0 when the record is in the moved shape (PRD R8):
 # every section empty and a Run section holding only the `store session` row.
 rs_moved() {
@@ -412,6 +430,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --source) ACTION=source; shift ;;
             --probe) ACTION=probe; shift ;;
             --show) ACTION=show; shift ;;
+            --host) ACTION=host; shift ;;
             --facts) [ $# -ge 2 ] || rs_usage; ACTION=facts; TOPIC=$2; shift 2 ;;
             *) rs_usage ;;
         esac
@@ -424,6 +443,14 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     lib_facts
     case "$ACTION" in
         source) rs_source; exit 0 ;;
+        host)
+            [ "$(rs_source)" = session ] || { echo '{}'; exit 0; }
+            RS_T=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX")
+            trap 'rm -rf "$RS_T"' EXIT
+            rs_host "${RS_SESSION:-$SESSION}" "$RS_T/host" \
+                || { echo "$PROG: record/host couldn't be read: $(lib_scrub < "$RS_T/host.err" | head -3)" >&2; exit 2; }
+            jq -c . "$RS_T/host"
+            exit 0 ;;
     esac
     [ "$ACTION" != facts ] || [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the topic is not a dispatch topic" >&2; exit 64; }
     lib_run_ref || { echo "$PROG: the run has no record yet" >&2; exit 2; }
