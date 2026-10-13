@@ -160,11 +160,17 @@ OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" bas
     || fail "missing tokens file"
 
 # The pairs the tokens become, read from a stub that keeps a copy of the vars
-# file koto would have been handed (koto-open.sh removes the original).
+# file koto would have been handed (koto-open.sh removes the original). With
+# KOTO_STUB_STATUS set, the stub answers `koto status` with it, as koto would
+# for the session the invocation names.
 PAIRS_BIN="$WORK/pairs-bin"
 mkdir -p "$PAIRS_BIN"
 cat > "$PAIRS_BIN/koto" <<'STUB'
 #!/usr/bin/env bash
+if [ "${1-}" = status ] && [ -n "${KOTO_STUB_STATUS-}" ]; then
+    printf '%s\n' "$KOTO_STUB_STATUS"
+    exit 0
+fi
 prev=""
 for a in "$@"; do
     [ "$prev" = "--vars-file" ] && cp -- "$a" "${KOTO_STUB_VARS:?}"
@@ -173,10 +179,11 @@ done
 exit 1
 STUB
 chmod +x "$PAIRS_BIN/koto"
-pairs_of() { # pairs_of <json tokens>
+pairs_of() { # pairs_of <json tokens> [koto status answer]
     rm -f "$WORK/vars.json"
     tokens "$1"
-    (cd "$FIXREPO" && KOTO_STUB_VARS="$WORK/vars.json" PATH="$PAIRS_BIN:$PATH" bash "$OPEN" "$TOKENS" >/dev/null 2>&1)
+    (cd "$FIXREPO" && KOTO_STUB_VARS="$WORK/vars.json" KOTO_STUB_STATUS="${2-}" PATH="$PAIRS_BIN:$PATH" \
+        bash "$OPEN" "$TOKENS" >/dev/null 2>&1)
 }
 pairs_eq() { # pairs_eq <label> <want> <jq filter>
     local got
@@ -193,6 +200,19 @@ pairs_of '["docs/plans/PLAN-t.md","--review-ceiling=light","--review-ceiling=ful
 pairs_eq "a repeat is two pairs and a bare flag its literal token, both left to koto" \
     '[["REVIEW_FLOOR","--review-floor"],["REVIEW_CEILING","light"],["REVIEW_CEILING","full"]]' \
     'map(select(.[0] | startswith("REVIEW_")))'
+
+# A retained paused_for_review session makes the invocation the finalize
+# resume, which passes PAUSE_BEFORE_FINALIZE=false. From koto 0.17.0 `koto
+# status` also answers for a session koto removed at that terminal, with
+# "removed": true and the same state; a removed pause has nothing to resume, so
+# the invocation keeps the interactive default.
+PAUSED='{"name":"execute-t","current_state":"paused_for_review","is_terminal":true}'
+pairs_of '["docs/plans/PLAN-t.md"]' "$PAUSED"
+pairs_eq "a kept paused_for_review session: the resume passes PAUSE_BEFORE_FINALIZE=false" \
+    '"false"' 'map(select(.[0] == "PAUSE_BEFORE_FINALIZE"))[0][1]'
+pairs_of '["docs/plans/PLAN-t.md"]' "$(printf '%s' "$PAUSED" | jq -c '. + {removed: true}')"
+pairs_eq "a paused_for_review session koto removed (removed: true) is no resume: PAUSE_BEFORE_FINALIZE stays true" \
+    '"true"' 'map(select(.[0] == "PAUSE_BEFORE_FINALIZE"))[0][1]'
 
 # --- engine-backed ------------------------------------------------------------
 
