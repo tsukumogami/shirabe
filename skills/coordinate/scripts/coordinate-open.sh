@@ -24,6 +24,17 @@
 # stays readable. A carry cut short exits 1 (`failed=carry`) with the new run
 # holding no record, and the next start carries again.
 #
+# An import (PRD R14) moves a run another host started here: `--import
+# <session> --from <workspace path>` with the roadmap path, and no setting.
+# The name must be a run of this scope, and no other run of it may be live
+# here. koto's `session import` brings the run from the bucket (taking the
+# template from the bucket only under `--trust-template`) and marks the source
+# migrated; its refusals print `refused=<koto code>`. The imported run must
+# then pass what a resume needs (the shipped template's hash, provenance, the
+# session store); one that doesn't stays here, refused, and a plain start
+# carries it. record/host takes the source's workspace, session and template
+# hash, and the output is `imported=<session>`, `resumed=1`, `session=<it>`.
+#
 # Tokens, in order, from a JSON array of strings in <args-file>:
 #   <roadmap-path>               roadmap scope (docs/roadmaps/.../ROADMAP-<name>.md)
 #   --discipline <name>          discipline scope
@@ -39,6 +50,9 @@
 #                                for an existing one, and this flag is then
 #                                reported ignored. Roadmap scope only; without
 #                                it a new record is on GitHub
+#   --import <session>, --from <workspace path>, [--trust-template]
+#                                import that run from the bucket (roadmap scope,
+#                                no other setting)
 #   --                           everything after it is the human's decisions:
 #                                shown to the coordinator, never a setting
 # At roadmap scope it also sets ROADMAP_FORM, milestone when the roadmap file
@@ -58,7 +72,10 @@
 # the shipped template didn't compile (`failed=template_compile`), this host's
 # runs couldn't be read (`failed=resume_candidate`), a cancel failed, or a carry
 # failed after the new run opened (`failed=carry`); koto-open.sh's own codes
-# otherwise (2 refused, 64 usage, 127 koto or jq missing).
+# otherwise (2 refused, 64 usage, 127 koto or jq missing). An import exits 0
+# imported; 2 refused, by this script or by koto; 1 koto couldn't read or push
+# the run or mark its source (koto's own exit 1), this host's runs couldn't be
+# listed, or record/host wasn't written (`failed=host_facts`).
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
@@ -87,8 +104,12 @@ MAP='
 if (type != "array") or (map(type == "string") | all | not) then error("not a JSON array of strings") else . end
 | (index("--") // length) as $cut
 | .[:$cut] as $s
-| reduce range(0; $s | length) as $i ({pairs: [], skip: false, positional: [], bad: null};
+| reduce range(0; $s | length) as $i ({pairs: [], skip: false, positional: [], bad: null, import: {}};
     if .skip then .skip = false
+    elif ($s[$i] | IN("--import", "--from")) then
+      if $i + 1 >= ($s | length) then .bad = "\($s[$i]) needs a value"
+      else .skip = true | .import[$s[$i] | ltrimstr("--")] += [$s[$i + 1]] end
+    elif $s[$i] == "--trust-template" then .import.trust += [true]
     elif ($s[$i] | IN("--discipline", "--host", "--cap", "--parked-bound", "--rotation-days", "--reports-to", "--store")) then
       if $i + 1 >= ($s | length) then .bad = "\($s[$i]) needs a value"
       else .skip = true
@@ -103,6 +124,26 @@ MAPPED=$(jq -c "$MAP" < "$ARGS_FILE") || usage "the args file is not a JSON arra
 rm -f -- "$ARGS_FILE"
 BAD=$(printf '%s' "$MAPPED" | jq -r '.bad // empty')
 [ -z "$BAD" ] || usage "$BAD"
+
+# An import (PRD R14): --import <session> --from <workspace path>, and
+# --trust-template only when the operator passes it. It resumes an existing run,
+# so it takes no setting, and it is for a roadmap's session-store record only.
+IMPORT= FROM= TRUST=
+if [ "$(printf '%s' "$MAPPED" | jq '.import | length')" -gt 0 ]; then
+    [ "$(printf '%s' "$MAPPED" | jq '[.import.import // [], .import.from // [], .import.trust // []] | map(length) | max')" -le 1 ] \
+        || usage "--import, --from and --trust-template each go once"
+    IMPORT=$(printf '%s' "$MAPPED" | jq -r '.import.import[0] // ""')
+    FROM=$(printf '%s' "$MAPPED" | jq -r '.import.from[0] // ""')
+    [ "$(printf '%s' "$MAPPED" | jq '.import.trust // [] | length')" -eq 0 ] || TRUST=1
+    [ -n "$IMPORT" ] && [ -n "$FROM" ] || usage "--import <session> takes --from <workspace path>, and --from and --trust-template go only with --import"
+    case "$FROM" in /*) ;; *) usage "--from takes the source workspace's absolute path" ;; esac
+    if [ "$(printf '%s' "$MAPPED" | jq '[.pairs[] | select(.[0] == "DISCIPLINE")] | length')" -gt 0 ]; then
+        echo "refused=store-discipline"
+        echo "coordinate-open: --import is for a roadmap's session-store record; a discipline rotation's record stays on GitHub" >&2
+        exit 2
+    fi
+    [ "$(printf '%s' "$MAPPED" | jq '.pairs | length')" -eq 0 ] || usage "--import resumes the imported run with its own settings; give none with it"
+fi
 
 # The store (docs/designs/DESIGN-coordinator-session-record.md, Decision 2):
 # roadmap scope only. koto checks the value's shape; this refusal comes first so
@@ -161,6 +202,63 @@ TEMPLATE="$PLUGIN_ROOT/skills/coordinate/koto-templates/coordinate.md"
 # none opens a new run as on GitHub. Roadmap scope only: a discipline record is
 # on GitHub.
 CARRY_FROM=
+refuse_import() { # refuse_import <code> <why>
+    echo "refused=$1"; echo "coordinate-open: $2" >&2; exit 2
+}
+# The import: the session another host ran, from the bucket, then resumed here
+# (PRD R14). The name and a live run of the scope are refused before koto runs;
+# koto's own refusals are printed with its code and leave no session; then the
+# imported run must be one a start here would resume, and record/host takes the
+# source's facts, so every report up names them for the next import.
+if [ -n "$IMPORT" ]; then
+    [[ $IMPORT =~ ^coordinate-$SLUG-[0-9]{8}T[0-9]{6}Z$ ]] \
+        || refuse_import session-name "$IMPORT is not a run of $SLUG (coordinate-$SLUG-<YYYYMMDDTHHMMSSZ>)"
+    # The import's own target is the one live run it may find: koto keeps it
+    # after `import_unmarked`, and the same import run again only marks the
+    # source.
+    LIVE=$(bash "$HERE/coord-log.sh" live-session --scope-slug "$SLUG" --all 2>/dev/null)
+    case $? in
+        0) [ "$LIVE" = "$IMPORT" ] || refuse_import session-live "a run of $SLUG is live on this host ($(printf '%s' "$LIVE" | tr '\n' ' ')); an import would make two" ;;
+        1) ;;
+        *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;;
+    esac
+    [ "$(bash "$HERE/record-source.sh" --probe 2>/dev/null | jq -r '.session_import // false')" = true ] \
+        || refuse_import store-unsupported "this koto has no \`session import\`; install a koto that has it"
+    COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
+    SHIPPED=$(basename -- "$COMPILED" .json)
+    [[ $SHIPPED =~ ^[0-9a-f]{64}$ ]] || { echo "failed=template_compile"; echo "coordinate-open: the shipped template didn't compile; nothing was imported" >&2; exit 1; }
+    DIR=$(mktemp -d "${TMPDIR:-/tmp}/coordinate-import.XXXXXX") || usage "could not make a scratch directory"
+    set -- session import "$IMPORT" --from "$FROM"
+    [ -z "$TRUST" ] || set -- "$@" --trust-template
+    "$KOTO" "$@" </dev/null > "$DIR/out" 2> "$DIR/err"
+    RC=$?
+    if [ $RC -ne 0 ]; then
+        CODE=$(jq -r '.error.code // empty' "$DIR/out" 2>/dev/null)
+        [[ $CODE =~ ^[a-z_]+$ ]] || CODE=import_failed
+        TEXT=$(awk -F'\t' -v c="$CODE" '$1 == c { print $2; exit }' "$WORDING")
+        [ -n "$TEXT" ] || TEXT=$(jq -r '.error.message // empty' "$DIR/out" 2>/dev/null | head -c 400)
+        echo "refused=$CODE"; echo "coordinate-open: koto refused the import: ${TEXT:-exit $RC}" >&2
+        rm -rf "$DIR"
+        [ $RC -eq 1 ] && exit 1
+        exit 2
+    fi
+    rm -rf "$DIR"
+    # koto has imported it by now: a refusal below leaves it on this host, the
+    # only copy (the source is marked migrated), and a plain start here carries
+    # its record into a new run on this host's template and plugin.
+    HASH=$(bash "$HERE/coord-log.sh" template-hash --session "$IMPORT" 2>/dev/null)
+    [ "$HASH" = "$SHIPPED" ] || refuse_import template-mismatch \
+        "$IMPORT was compiled from another template than the one shipped here; it stays on this host, and a plain start carries its record into a new run"
+    bash "$HERE/coord-log.sh" provenance --session "$IMPORT" >/dev/null 2>&1 || refuse_import session-provenance \
+        "$IMPORT wasn't opened from this host's plugin (its plugin root differs); it stays on this host, and a plain start carries its record into a new run"
+    [ "$(bash "$HERE/coord-log.sh" run-store --session "$IMPORT" 2>/dev/null)" = session ] \
+        || refuse_import session-source "$IMPORT's find didn't record the session store; it holds no session-store record to continue"
+    bash "$HERE/record-state.sh" --session "$IMPORT" --host source_workspace "$FROM" --host source_session "$IMPORT" \
+        --host template_hash "$HASH" > /dev/null 2>&1 \
+        || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run record-state.sh --host for it" >&2; exit 1; }
+    printf 'imported=%s\nresumed=1\nsession=%s\n' "$IMPORT" "$IMPORT"
+    exit 0
+fi
 if [ "$SCOPE" = roadmap ]; then
     COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
     SHIPPED=$(basename -- "$COMPILED" .json)

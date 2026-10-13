@@ -15,7 +15,15 @@
 # second valid invocation cancels the first run without deleting its log.
 # On two simulated hosts sharing koto's cloud backend (testdata/cloud-hosts.sh
 # over testdata/fake-s3.py): a plain session imported on host B arrives with
-# every key, and host A's copy then refuses as session_migrated.
+# every key, and host A's copy then refuses as session_migrated. The opener's
+# --import, run on host B: a malformed or settings-bearing import is usage,
+# a discipline one refused store-discipline, and a name that isn't a run of
+# the scope refused session-name, none of them calling `session import`; a
+# child source is refused with koto's import_source_is_child and leaves no
+# session; a run from a template B lacks is refused import_template_unavailable,
+# and with --trust-template imported but refused template-mismatch, staying on
+# B; with that run live, another import of the scope is refused session-live
+# before koto runs.
 #
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure.
@@ -95,4 +103,61 @@ eq "  ... with every key" 2 "$(printf '%s' "$OUT" | jq -r .keys)"
 eq "  ... readable on B" '{"b":2}' "$(host_on b koto context get plain-run legs/r1/deliver 2>&1)"
 host_on a koto context get plain-run record/meta > "$T/out" 2>"$T/err"; eq "host A's copy then refuses" 2 $?
 grep -q session_migrated "$T/out" && pass "  ... as session_migrated" || fail "  ... as session_migrated" "$(cat "$T/out" "$T/err")"
+
+# --- the opener's --import -----------------------------------------------------
+# Host B runs the opener with koto behind a shim that logs every call, so a
+# refusal made before koto runs is seen to make no `session import`.
+echo "== --import =="
+REAL_KOTO=$(command -v koto)
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s"\nexec "%s" "$@"\n' "$T/koto-calls" "$REAL_KOTO" > "$T/koto-shim"
+chmod +x "$T/koto-shim"
+import_b() { # import_b <args json>: the opener on host B; output in $T/out, stderr in $T/err
+    : > "$T/koto-calls"
+    printf '%s' "$1" > "$T/args.json"
+    host_on b env KOTO_BIN="$T/koto-shim" bash "$OPEN" --plugin-root "$T/plugin" "$T/args.json" > "$T/out" 2>"$T/err"
+}
+imported() { grep -c '^session import' "$T/koto-calls"; }
+RM='docs/roadmaps/ROADMAP-plugin-system.md'
+WS_A=$(host_ws a)
+
+for bad in "[\"$RM\",\"--import\",\"coordinate-roadmap-plugin-system-20260101T000000Z\"]" \
+           "[\"$RM\",\"--from\",\"$WS_A\"]" \
+           "[\"$RM\",\"--import\",\"coordinate-roadmap-plugin-system-20260101T000000Z\",\"--from\",\"work\"]" \
+           "[\"$RM\",\"--import\",\"coordinate-roadmap-plugin-system-20260101T000000Z\",\"--from\",\"$WS_A\",\"--cap\",\"4\"]" \
+           "[\"$RM\",\"--import\",\"a\",\"--import\",\"b\",\"--from\",\"$WS_A\"]"; do
+    import_b "$bad"; rc=$?
+    if [ $rc -eq 64 ] && [ "$(imported)" = 0 ]; then pass "usage, nothing imported: $bad"; else fail "usage, nothing imported: $bad" "rc=$rc $(cat "$T/out" "$T/err")"; fi
+done
+import_b "[\"--discipline\",\"ci\",\"--host\",\"acme/widgets\",\"--import\",\"coordinate-discipline-ci-20260101T000000Z\",\"--from\",\"$WS_A\"]"
+eq "--import at discipline scope is refused" "2 refused=store-discipline" "$? $(cat "$T/out")"
+import_b "[\"$RM\",\"--import\",\"plain-run\",\"--from\",\"$WS_A\"]"
+eq "a name that isn't a run of the scope is refused" "2 refused=session-name" "$? $(cat "$T/out")"
+eq "  ... before any import" 0 "$(imported)"
+
+# A child session on host A: koto refuses to import it alone.
+CHILD=coordinate-roadmap-plugin-system-20260101T000000Z
+host_on a koto init parent-run --template plain.md > /dev/null 2>"$T/err"
+host_on a koto init "$CHILD" --template plain.md --parent parent-run > /dev/null 2>"$T/err"; eq "a child session opens on host A" 0 $?
+import_b "[\"$RM\",\"--import\",\"$CHILD\",\"--from\",\"$WS_A\"]"
+eq "a child source is refused with koto's code" "2 refused=import_source_is_child" "$? $(head -1 "$T/out")"
+eq "  ... no session on B" "" "$(host_on b koto session list 2>/dev/null | jq -r --arg s "$CHILD" '.[] | select(.id == $s) | .id')"
+
+# A run compiled from a template host B doesn't have: koto refuses it without
+# --trust-template; with it the run is imported, then refused as another
+# template than the shipped one, and stays on B.
+OTHER=coordinate-roadmap-plugin-system-20260102T000000Z
+sed 's/One state, then done./Another template./' "$T/hosts/a/work/plain.md" > "$T/hosts/a/work/other.md"
+host_on a koto init "$OTHER" --template other.md > /dev/null 2>"$T/err"; eq "a run from another template opens on host A" 0 $?
+import_b "[\"$RM\",\"--import\",\"$OTHER\",\"--from\",\"$WS_A\"]"
+eq "without --trust-template koto refuses the unknown template" "2 refused=import_template_unavailable" "$? $(head -1 "$T/out")"
+grep -q -- '--trust-template' "$T/err" && pass "  ... and the refusal names --trust-template" || fail "  ... and the refusal names --trust-template" "$(cat "$T/err")"
+import_b "[\"$RM\",\"--import\",\"$OTHER\",\"--from\",\"$WS_A\",\"--trust-template\"]"
+eq "with --trust-template it is imported, then refused as another template" "2 refused=template-mismatch" "$? $(cat "$T/out")"
+eq "  ... koto was asked with --trust-template" 1 "$(grep -c -- "^session import $OTHER --from $WS_A --trust-template\$" "$T/koto-calls")"
+eq "  ... and the run stays on B" false "$(host_on b koto status "$OTHER" 2>/dev/null | jq -r .is_terminal)"
+
+# That run is live on B now, so importing another run of the scope would make two.
+import_b "[\"$RM\",\"--import\",\"coordinate-roadmap-plugin-system-20260103T000000Z\",\"--from\",\"$WS_A\"]"
+eq "another live run of the scope refuses the import" "2 refused=session-live" "$? $(cat "$T/out")"
+eq "  ... before any import" 0 "$(imported)"
 echo; echo "coordinate-open engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]
