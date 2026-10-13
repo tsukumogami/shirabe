@@ -1,41 +1,52 @@
 #!/usr/bin/env bash
-# handover_engine_test.sh -- a replacement coordinator started from the record
-# alone, the shipped coordinate.md driven through real koto against the
-# testdata/gh stand-in (docs/designs/current/DESIGN-coordinate-record-container.md,
-# Decision 3).
+# handover_engine_test.sh -- a coordinator moved to another host by importing
+# its session, the shipped coordinate.md driven through real koto against the
+# testdata/gh stand-in, on two simulated hosts sharing koto's cloud backend
+# (testdata/cloud-hosts.sh over testdata/fake-s3.py)
+# (docs/designs/current/DESIGN-coordinate-record-container.md, Decision 3;
+# docs/designs/DESIGN-coordinator-session-record.md; PRD R14, R17, R9, R22).
 #
 # The fixture is the shape of a real handover, on 2026-09-29, in which a
 # replacement coordinator took over a run from a second session to cut its
-# context cost: two workers in flight, one with a pull
-# request; a fix a local agent was building that no holding covers; a standing
-# answer the human gave through the process owner; a hold on a merge; the cap
-# the human lowered to one; and the old coordinator's address, which both
-# workers were told. The replacement is opened with no cap argument and no
+# context cost: two workers in flight, one with a pull request; a fix a local
+# agent was building that no holding covers; a standing answer the human gave
+# through the process owner; a hold on a merge; the cap the human lowered to
+# one; and the old coordinator's address, which both workers were told. Host A
+# opens the run with its record on the session store and writes all of that
+# through the record's writers, with the crash set (rules, briefs, friction,
+# reports-to and where their files live) and a holding's pushed head. Host B
+# imports the session through coordinate-open.sh --import, given no cap and no
 # other file.
 #
 # Proves, one line per case:
-#   1. the record alone carries every property the roadmap's acceptance test
-#      names: the run's arguments and the cap, the worker ids, a next step per
-#      holding, a row for the local agent's work, the standing answer with who
-#      and when, the hold with who and when, and the coordinator's address
-#      with who has been told it;
-#   2. the replacement reaches reconcile, writes its own address, and the
-#      handover gate then holds it there, naming each worker, until it has
-#      told both (the third loss: reports going to the old session);
+#   0. the import: B prints imported=, resumed=1 and A's session name, which
+#      keeps A's stamp; every record/ and legs/ key on B is the same as on A,
+#      record/host keeps A's host facts and adds the source workspace, session
+#      and template hash; A's copy then refuses as session_migrated; B's next
+#      entry is numbered after A's last (R9); B's reconcile report and closing
+#      lines name the source;
+#   1. the imported session alone carries every property the roadmap's
+#      acceptance test names: the run's arguments and the cap, the worker ids,
+#      a next step per holding, a row for the local agent's work, the standing
+#      answer with who and when, the hold with who and when, the coordinator's
+#      address with who has been told it, and the crash set and pushed head;
+#   2. the replacement writes its own address, and the handover gate then
+#      holds it at reconcile, naming each worker, until it has told both (the
+#      third loss: reports going to the old session);
 #   3. a person's unmarked comment on the record isn't an entry, and the
 #      replacement relays it with the person as owner and itself as relayer;
 #   4. past the gate the run reaches pick with the cap of one from the
 #      record, not the default the session was opened with;
 #   5. a holding with no next step holds the gate too, and a Work row clears it.
 #
-# Needs koto, jq and git; SKIPs (exit 0) without koto, which
+# Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure.
 # Usage: bash skills/coordinate/scripts/handover_engine_test.sh
 set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
-for bin in koto jq git; do
+for bin in koto jq git python3; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
 done
 . "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
@@ -49,7 +60,11 @@ ORIG_PATH=$PATH
 T=$(cd -P "$T" && pwd -P)
 unset KOTO_STORE KOTO_COMPILED_HASH
 mkdir -p "$T/bin"
-ln -sf "$HERE/testdata/gh" "$T/bin/gh"
+# The gh stand-in finds its DB through GH_DB. koto's import gives the session
+# the importing host's fixed command environment, which doesn't pass GH_DB (the
+# source's legacy environment isn't carried), so gh on PATH names the DB itself.
+printf '#!/bin/sh\nGH_DB=${GH_DB:-%s} exec "%s" "$@"\n' "$GH_DB" "$HERE/testdata/gh" > "$T/bin/gh"
+chmod +x "$T/bin/gh"
 ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
 PATH="$T/bin:$ORIG_PATH"
 export PATH
@@ -59,19 +74,41 @@ ln -s "$REPO_ROOT" "$T/plugin"
 PR="$T/plugin"
 PS="$PR/skills/coordinate/scripts"
 
-# A clone-shaped working directory in a niwa instance that permits every
-# finishing step, so the posture reads `readable`.
-WD="$T/work"
-mkdir -p "$WD/.niwa" "$WD/.claude"
-(cd "$WD" && git init -q && git remote add origin https://github.com/acme/widgets.git)
-echo '{}' > "$WD/.niwa/instance.json"
-jq -n '{permissions: {defaultMode: "bypassPermissions"}}' > "$WD/.claude/settings.json"
+# Two hosts on one bucket. Each workspace is a clone-shaped directory in a niwa
+# instance that permits every finishing step, so the posture reads `readable`.
+. "$HERE/testdata/cloud-hosts.sh"
+trap 's3_stop; rm -rf "$T"' EXIT
+s3_start || { bad "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; done_tests handover-engine; exit 1; }
+host_make a; host_make b
+for h in a b; do
+    W="$T/hosts/$h/work"
+    mkdir -p "$W/.niwa" "$W/.claude"
+    (cd "$W" && git init -q && git remote add origin https://github.com/acme/widgets.git && printf '.koto/\n' >> .git/info/exclude)
+    echo '{}' > "$W/.niwa/instance.json"
+    jq -n '{permissions: {defaultMode: "bypassPermissions"}}' > "$W/.claude/settings.json"
+done
+WS_A=$(host_ws a)
 
-tick() { (cd "$WD" && koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"); }
+ON=a
+tick() { host_on "$ON" koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"; }
 at() { tick "$@" | jq -r '.state // empty'; }
-state() { (cd "$WD" && bash "$PS/record-state.sh" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err"); }
-handover() { (cd "$WD" && bash "$PS/record-handover.sh" --session "$S" "$@"); }
-entries() { (cd "$WD" && bash "$PS/record-append.sh" --session "$S" --list); }
+run() { # run <script> <args...>: a coordinate script on session $S, on host $ON
+    local s=$1; shift
+    host_on "$ON" bash "$PS/$s" --session "$S" "$@"
+}
+state() { run record-state.sh "$@" >"$T/w.out" 2>"$T/w.err"; }
+handover() { run record-handover.sh "$@"; }
+entries() { run record-append.sh --list; }
+# keys <host>: every record/ and legs/ key of $S on the host but record/host,
+# with a digest of its content.
+keys() {
+    local k
+    for p in record/ legs/; do host_on "$1" koto context list "$S" --prefix "$p" 2>/dev/null | jq -r '.[]'; done \
+        | grep -vx record/host | LC_ALL=C sort | while IFS= read -r k; do
+        printf '%s %s\n' "$k" "$(host_on "$1" koto context get "$S" "$k" | cksum)"
+    done
+}
+last_entry() { host_on "$1" koto context list "$S" --prefix record/entries/ | jq -r 'map(ltrimstr("record/entries/")) | sort | last // ""'; }
 
 # ---- the fixture ---------------------------------------------------------------
 
@@ -79,37 +116,82 @@ db_init
 db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-handover.md"] = $t' --arg t "$(printf -- '---\nstatus: Active\n---\n\n# Roadmap\n\n## Features\n\n### Feature 1: first\n\n**Dependencies:** None\n**Status:** In progress\n\n### Feature 2: second\n\n**Dependencies:** None\n**Status:** In progress\n\n### Feature 3: third\n\n**Dependencies:** None\n**Status:** Planned\n')"
 db '.prs += [{repo: "acme/widgets", number: 12, title: "feat: first", body: "", state: "OPEN", isDraft: false, isCrossRepository: false,
     baseRefName: "main", headRefName: "feat/first", headRefOid: $h, author: "alice", editor: null}]' --arg h "$SHA_HEAD"
+
+# ---- host A: the run, its record on the session store, written by the writers --
+
+echo "== host A writes the run =="
+printf '["docs/roadmaps/ROADMAP-handover.md", "--store", "session"]' > "$T/args.json"
+S=$(host_on a bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
+[ -n "$S" ] || { bad "host A's run opens" "$(cat "$T/open.err")"; done_tests handover-engine; exit 1; }
+ok "host A's run opens"
+PROBE=$(run record-source.sh --probe)
+if [ "$(printf '%s' "$PROBE" | jq -r '.context_list_prefix and .session_import')" != true ]; then
+    echo "koto lacks the session store's features ($PROBE); the handover needs a newer koto"
+    done_tests handover-engine
+    exit $?
+fi
+eq "with no record it stops at record_open" record_open "$(at)"
+render "$(record_json roadmap handover)" issue > "$T/open.md"
+run record-open.sh --body-file "$T/open.md" >/dev/null 2>"$T/w.err"; eq "record-open.sh opens the record on the session store" 0 $?
+N=$(jq -r '[.issues[] | select(.title == "Coordinator record: ROADMAP-handover") | .number] | if length == 1 then .[0] else empty end' "$GH_DB")
+[ -n "$N" ] && ok "  ... one record issue" || bad "  ... one record issue" "$(jq -c '[.issues[].title]' "$GH_DB")"
+eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+
 F1=$(holding worker-f1 '{"unit": "Feature 1", "dispatch_status": "dispatched", "branch": "feat/first"}')
 F2=$(holding worker-f2 '{"unit": "Feature 2", "dispatch_status": "dispatched", "branch": "", "pull_request": ""}')
-RECORD=$(record_json roadmap handover | jq -c --argjson a "$F1" --argjson b "$F2" '
-    .holdings = [$a, $b]
-    | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]
-    | .run = [{key: "arguments", value: "--roadmap docs/roadmaps/ROADMAP-handover.md --cap 3", set_by: "the human", set: "2026-09-28T11:27Z"},
-              {key: "cap", value: "1", set_by: "the human, via the process owner", set: "2026-09-29T22:53Z"},
-              {key: "coordinator", value: "lane-v1", set_by: "lane-v1", set: "2026-09-28T11:27Z"},
-              {key: "told", value: "worker-f1", set_by: "lane-v1", set: "2026-09-29T10:00Z"},
-              {key: "told", value: "worker-f2", set_by: "lane-v1", set: "2026-09-29T11:00Z"}]
-    | .standing = [{standing: "s1", kind: "answer", what: "panels at the head are the cost to cut, not instruction length",
-                    owner: "the human", relayed_by: "the process owner", set: "2026-09-29T17:40Z"}]
-    | .work = [{item: "Feature 1", kind: "holding", who: "worker-f1", next: "waiting on the panel at the head", updated: "2026-09-29T21:40Z"},
-               {item: "Feature 2", kind: "holding", who: "worker-f2", next: "fix round on the evals, then a ready report", updated: "2026-09-29T21:41Z"},
-               {item: "fix for the ablation check", kind: "local-agent", who: "local agent", next: "ready report, then the merge", updated: "2026-09-29T21:42Z"}]')
-db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-handover", body: $b, state: "open", author: "coord", editor: null}]' \
-    --arg b "$(render "$RECORD" issue 2026-09-29T21:45:00Z)"
+printf '%s' "$F1" > "$T/f1.json"; printf '%s' "$F2" > "$T/f2.json"
+jq -n '{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}' > "$T/hold.json"
+RULES=$(printf 'r%.0s' $(seq 64) | tr r a)
+BRIEFS=$(printf 'b%.0s' $(seq 64))
+{ run record-holding.sh --topic worker-f1 --row-file "$T/f1.json" \
+  && run record-holding.sh --topic worker-f2 --row-file "$T/f2.json" \
+  && run record-holding.sh --topic worker-f1 --pushed-head "$SHA_HEAD" \
+  && run record-hold.sh --add --row-file "$T/hold.json"; } >/dev/null 2>"$T/w.err"
+eq "the holdings, a pushed head and the hold are written" 0 $?
+state --run arguments "--roadmap docs/roadmaps/ROADMAP-handover.md --cap 3" --by "the human" \
+    && state --run cap 1 --by "the human, via the process owner" \
+    && state --run coordinator lane-v1 --by lane-v1 \
+    && state --told worker-f1 --by lane-v1 \
+    && state --told worker-f2 --by lane-v1 \
+    && state --standing answer --what "panels at the head are the cost to cut, not instruction length" --owner "the human" --relayed-by "the process owner" \
+    && state --work "Feature 1" --kind holding --who worker-f1 --next "waiting on the panel at the head" \
+    && state --work "Feature 2" --kind holding --who worker-f2 --next "fix round on the evals, then a ready report" \
+    && state --work "fix for the ablation check" --kind local-agent --who "local agent" --next "ready report, then the merge"
+eq "the stored set is written" 0 $?
+state --run rules "coordinate sha256:$RULES" --by lane-v1 \
+    && state --run briefs "lane sha256:$BRIEFS" --by lane-v1 \
+    && state --run friction lane-friction --by lane-v1 \
+    && state --run reports-to "the human" --by "the human" \
+    && state --host rules:coordinate "$WS_A/rules.md" --host briefs:lane "$WS_A/brief.md" --host friction "$WS_A/friction.md"
+eq "the crash set and where its files live are written" 0 $?
 # A person's own comment on the record, carrying no entry marker.
-db '.comments = [{repo: "acme/widgets", number: 7, id: 3001, body: "Go ahead with the shirabe v0.25.0 release once Feature 1 lands.",
-    user: "alice", created_at: "2026-09-29T21:50:00Z", updated_at: "2026-09-29T21:50:00Z"}]'
+db '.comments += [{repo: "acme/widgets", number: ($n | tonumber), id: 3001, body: "Go ahead with the shirabe v0.25.0 release once Feature 1 lands.",
+    user: "alice", created_at: "2026-09-29T21:50:00Z", updated_at: "2026-09-29T21:50:00Z"}]' --arg n "$N"
+SNAP=$(keys a)
+HOST_A=$(host_on a koto context get "$S" record/host)
+LAST_A=$(last_entry a)
+[ -n "$SNAP" ] && [ -n "$LAST_A" ] && ok "host A holds the record's keys and entries" || bad "host A holds the record's keys and entries" "$SNAP / $LAST_A"
 
-# ---- the replacement, opened from the record alone -------------------------------
+# ---- host B: the import ----------------------------------------------------------
 
-echo "== the replacement opens =="
-printf '["docs/roadmaps/ROADMAP-handover.md"]' > "$T/args.json"
-S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
-[ -n "$S" ] || { bad "the replacement session opens" "$(cat "$T/open.err")"; done_tests handover-engine; exit 1; }
-ok "the replacement session opens with no cap argument"
-eq "it reaches reconcile" reconcile "$(at)"
+echo "== 0. host B imports the run =="
+ON=b
+printf '["docs/roadmaps/ROADMAP-handover.md", "--import", "%s", "--from", "%s"]' "$S" "$WS_A" > "$T/args.json"
+OUT=$(host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+eq "the import succeeds" 0 $?
+eq "  ... printing imported, resumed and the session" "imported=$S resumed=1 session=$S" "$(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
+[ -s "$T/open.err" ] && bad "  ... with nothing on stderr" "$(cat "$T/open.err")" || ok "  ... with nothing on stderr"
+eq "the run keeps A's stamp" "$S" "$(host_on b koto session list | jq -r --arg s "$S" '.[] | select(.id == $s) | .id')"
+eq "every record/ and legs/ key is the same on B" "$SNAP" "$(keys b)"
+HASH=$(host_on b bash "$PS/coord-log.sh" template-hash --session "$S")
+eq "record/host keeps A's facts and adds the source" \
+    "$(printf '%s' "$HOST_A" | jq -cS --arg w "$WS_A" --arg s "$S" --arg h "$HASH" '. + {source_workspace: $w, source_session: $s, template_hash: $h}')" \
+    "$(host_on b koto context get "$S" record/host | jq -cS .)"
+host_on a koto context get "$S" record/meta > "$T/out" 2>"$T/err"; eq "A's copy then refuses" 2 $?
+grep -q session_migrated "$T/out" && ok "  ... as session_migrated" || bad "  ... as session_migrated" "$(cat "$T/out" "$T/err")"
 
-echo "== 1. the record alone carries the stored set =="
+echo "== 1. the imported session alone carries the stored set =="
+eq "it is at reconcile" reconcile "$(at)"
 H=$(handover); eq "the handover read prints" 0 $?
 eq "the run's arguments" "--roadmap docs/roadmaps/ROADMAP-handover.md --cap 3" "$(printf '%s' "$H" | jq -r .arguments)"
 eq "the cap, as the human lowered it" "1" "$(printf '%s' "$H" | jq -r .cap)"
@@ -118,17 +200,24 @@ eq "a next step per holding" "waiting on the panel at the head|fix round on the 
     "$(printf '%s' "$H" | jq -r '[.workers[].next] | join("|")')"
 eq "the local agent's work, which no holding covers" "fix for the ablation check: ready report, then the merge" \
     "$(printf '%s' "$H" | jq -r '.work[] | select(.kind == "local-agent") | "\(.item): \(.next)"')"
-eq "the standing answer, with who and when" "the human the process owner 2026-09-29T17:40Z" \
-    "$(printf '%s' "$H" | jq -r '.standing[0] | "\(.owner) \(.relayed_by) \(.set)"')"
+printf '%s' "$H" | jq -e '.standing[0] | .owner == "the human" and .relayed_by == "the process owner" and (.set | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$"))' >/dev/null \
+    && ok "the standing answer, with who and when" || bad "the standing answer, with who and when" "$(printf '%s' "$H" | jq -c .standing)"
 eq "the hold, with who and when" "after-release acme/widgets#12 the human 2026-09-29T20:30Z" \
     "$(printf '%s' "$H" | jq -r '.holds[0] | "\(.hold) \(.on) \(.set_by) \(.set)"')"
 eq "the coordinator's address and who has been told it" "lane-v1: worker-f1 worker-f2" \
     "$(printf '%s' "$H" | jq -r '"\(.coordinator): \(.told | join(" "))"')"
+eq "the crash set: rules, briefs, friction and reports-to" "coordinate sha256:$RULES|lane sha256:$BRIEFS|lane-friction|the human" \
+    "$(printf '%s' "$H" | jq -r '[(.rules[0] // ""), (.briefs[0] // ""), .friction, .reports_to] | join("|")')"
+eq "  ... and where the files live" "$WS_A/rules.md $WS_A/friction.md" "$(printf '%s' "$H" | jq -r '"\(.host["rules:coordinate"]) \(.host.friction)"')"
+eq "worker-f1's pushed head" "$SHA_HEAD" "$(run record-holding.sh --topic worker-f1 --read | jq -r .pushed_head)"
 eq "and, for the old coordinator, no gaps" "0" "$(printf '%s' "$H" | jq '.gaps | length')"
 
 echo "== 2. a new address holds the gate until each worker is told =="
 state --run coordinator lane-v2 --by lane-v2; eq "the replacement writes its own address" 0 $?
+eq "  ... as the entry after A's last (R9)" "$(printf '%06d' $((10#$LAST_A + 1)))" "$(last_entry b)"
 eq "the gate holds at reconcile" reconcile "$(at --with-data '{"reconciled":"reported"}')"
+host_on b koto context get "$S" reconcile/report.md 2>/dev/null | grep -qF "This run was imported from session \`$S\` in workspace \`$WS_A\`, compiled from template \`$HASH\`." \
+    && ok "the reconcile report names the source" || bad "the reconcile report names the source" "$(host_on b koto context get "$S" reconcile/report.md 2>&1 | head -5)"
 handover --check >/dev/null 2>"$T/gaps"; eq "the check fails" 1 $?
 grep -q 'not-told worker-f1' "$T/gaps" && grep -q 'not-told worker-f2' "$T/gaps" \
     && ok "  ... naming each worker still reporting to the old address" || bad "  ... naming each worker still reporting to the old address" "$(cat "$T/gaps")"
@@ -141,18 +230,22 @@ state --standing go-ahead --what "release shirabe v0.25.0 once Feature 1 lands" 
 eq "the replacement relays it" 0 $?
 eq "  ... the person as owner and itself as relayer" "go-ahead alice lane-v2" \
     "$(handover | jq -r '.standing[] | select(.kind == "go-ahead") | "\(.kind) \(.owner) \(.relayed_by)"')"
-entries | jq -e 'any(.[]; .kind == "go-ahead" and .author == "coord" and (.text | test("Owner: alice\\. Relayed by lane-v2\\.")))' >/dev/null \
+entries | jq -e 'any(.[]; .kind == "go-ahead" and (.text | test("Owner: alice\\. Relayed by lane-v2\\.")))' >/dev/null \
     && ok "  ... and the entry tells it" || bad "  ... and the entry tells it" "$(entries | jq -c 'map({kind, text})')"
 
 echo "== 4. past the gate, the cap is the record's =="
 state --told worker-f2 --by lane-v2; eq "worker-f2 is told" 0 $?
 eq "the gate passes and the run reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
 eq "pick's facts carry the cap of one from the record, not the default" 1 \
-    "$(cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null | jq -r .cap)"
+    "$(host_on b koto context get "$S" coord/pick.json 2>/dev/null | jq -r .cap)"
 
 echo "== 5. a holding with no next step holds the gate =="
 state --done "Feature 2"; eq "Feature 2's next step is removed" 0 $?
 eq "  ... and the gaps name it" "no-next-step Feature 2" "$(handover | jq -r '[.gaps[].gap] | join(" ")')"
 state --work "Feature 2" --kind holding --who worker-f2 --next "a ready report"; eq "a Work row clears it" "" "$(handover | jq -r '[.gaps[].gap] | join(" ")')"
+
+echo "== the closing lines name the source =="
+eq "coordinate-report.sh prints the import facts" "outcome=stopped|source_workspace=$WS_A|source_session=$S|template_hash=$HASH" \
+    "$(printf '{"is_terminal":true,"result":{"payload":{"outcome":"stopped"}}}' | host_on b bash "$PS/coordinate-report.sh" --session "$S" | grep -v '^events=' | tr '\n' '|' | sed 's/|$//')"
 
 done_tests handover-engine
