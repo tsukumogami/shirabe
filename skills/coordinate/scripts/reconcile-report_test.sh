@@ -6,8 +6,10 @@
 # rendering: the section order, the change entries, the seven next-line cases
 # and the waiting list, the grades, the phase mark and its flag, the line
 # bound, and that no raw read output, absolute path, session id or instance
-# name reaches the report. One case runs the script with a PATH holding only
-# jq. Needs bash and jq only.
+# name reaches the report; an imported run's facts (record.import) reach the
+# header and one sentence naming the source session, workspace and template
+# hash (PRD R14 names them in every report up), and a malformed one is dropped.
+# One case runs the script with a PATH holding only jq. Needs bash and jq only.
 #
 # Usage: bash skills/coordinate/scripts/reconcile-report_test.sh
 # Exit codes: 0 all pass; 1 a failure.
@@ -415,6 +417,27 @@ printf '%s' "$out" | report | jq -e '.not_verified | any(.what == "t7: inventory
 facts '[]' '[{"row":{"action":"merge","target":"acme/widgets#3"}}]' | report | jq -e '.side_effects[0].code == "not_rechecked" and .side_effects[0].grade == "inferred"' >/dev/null \
   && ok "a side effect with no fact is not re-checked" || bad "a side effect with no fact is not re-checked"
 check_next "a lowercase merged state still drops" "$(holding a "[$(pr merged "$VH")]")" "merged; tear down its worker, which removes the row"
+
+echo "== an imported run =="
+IH=$(printf 'ab%.0s' $(seq 32))
+IMP=$(facts '[]' | jq -c --arg h "$IH" '.record.import = {source_workspace: "/srv/ws-a", source_session: "coordinate-roadmap-demo-20260901T000000Z", template_hash: $h}')
+printf '%s' "$IMP" | report | jq -e --arg h "$IH" '.header.import == {source_session: "coordinate-roadmap-demo-20260901T000000Z", source_workspace: "/srv/ws-a", template_hash: $h}' >/dev/null \
+  && ok "the header carries an imported run's facts" || bad "the header carries an imported run's facts" "$(printf '%s' "$IMP" | report | jq -c .header)"
+out=$(printf '%s' "$IMP" | render)
+printf '%s\n' "$out" | grep -qF "This run was imported from session \`coordinate-roadmap-demo-20260901T000000Z\` in workspace \`/srv/ws-a\`, compiled from template \`$IH\`." \
+  && ok "the text names the source session, workspace and template hash in one sentence" || bad "the import sentence" "$out"
+[ "$(printf '%s\n' "$out" | grep -c 'imported from')" = 1 ] && ok "  ... once" || bad "  ... once" "$out"
+facts '[]' | render | grep -q 'imported from' && bad "a run never imported has no import sentence" || ok "a run never imported has no import sentence"
+facts '[]' | report | jq -e '.header.import == null' >/dev/null && ok "  ... and a null import in the header" || bad "  ... and a null import in the header"
+for odd in '7' '{"source_session":""}' '{"source_session":3}' '"coordinate-roadmap-demo-20260901T000000Z"'; do
+    o=$(facts '[]' | jq -c --argjson i "$odd" '.record.import = $i')
+    if printf '%s' "$o" | report | jq -e '.header.import == null' >/dev/null && ! printf '%s' "$o" | render | grep -q 'imported from'; then
+        ok "an import fact that isn't one is dropped: $odd"
+    else bad "an import fact that isn't one is dropped: $odd" "$(printf '%s' "$o" | report | jq -c .header)"; fi
+done
+o=$(facts '[]' | report | jq -c '.header.import = {source_session: 5}')
+printf '%s' "$o" | render > /dev/null 2>&1 && ! printf '%s' "$o" | render | grep -q 'imported from' \
+  && ok "md renders a report whose import isn't well formed without the sentence" || bad "md and a malformed import" "$(printf '%s' "$o" | render 2>&1 | head -3)"
 
 echo "== purity =="
 EMPTYBIN=$(mktemp -d)

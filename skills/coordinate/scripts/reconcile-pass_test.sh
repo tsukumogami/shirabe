@@ -2,7 +2,8 @@
 # reconcile-pass_test.sh -- reconcile-pass.sh advances a visit's work file in
 # bounded passes, prints exactly one capturable line, writes only reconcile/
 # context keys, and seals a report only when every re-check is done;
-# reconcile-report-get.sh accepts only the report the seal names.
+# reconcile-report-get.sh accepts only the report the seal names, and on the
+# session store refuses with 3 one sealed before the run was imported here.
 #
 # The scripts run from a copy of the tree. reconcile-read.sh,
 # reconcile-check.sh and the record feature's coord-log.sh are stand-ins
@@ -160,6 +161,7 @@ case "$cmd" in
     chain-start) cat "$STUB_DIR/chain-start" 2>/dev/null || echo 2026-09-27T00:00:00Z ;;
     directed-since)
         if [ -s "$STUB_DIR/directed" ]; then cat "$STUB_DIR/directed"; exit 1; fi; exit 0 ;;
+    run-store) cat "$STUB_DIR/store" 2>/dev/null || echo github ;;
     *) exit 64 ;;
 esac
 STUB
@@ -170,6 +172,10 @@ cat > "$T/bin/koto" <<'STUB'
 echo "koto $*" >> "$STUB_DIR/log"
 [ "$1" = context ] || exit 2
 mkdir -p "$STUB_DIR/ctx"
+if [ "$2" = list ]; then
+    ls "$STUB_DIR/ctx" | sed 's#%#/#g' | awk -v p="${5-}" 'index($0, p) == 1' | jq -R . | jq -sc .
+    exit 0
+fi
 k=$(printf '%s' "$4" | sed 's#/#%#g')
 case "$2" in
     add) if [ "${5-}" = --from-file ]; then cp "$6" "$STUB_DIR/ctx/$k"; else cat > "$STUB_DIR/ctx/$k"; fi ;;
@@ -524,6 +530,24 @@ echo 7 > "$CASE/visit"; rm -f "$CASE/ctx/reconcile%report.json"
 get --check; [ $? = 2 ]; check "an absent report can't be read" $?
 echo "pending:7:1:$(printf x | sha)" > "$CASE/capture"
 get --check; [ $? = 1 ]; check "a pending capture is no report" $?
+echo "== a report sealed before an import =="
+new_case imported
+record "[]"
+pass
+echo session > "$CASE/store"
+get --check; check "on the session store, a run never imported reads its report" $?
+IH=$(printf 'ab%.0s' $(seq 32))
+jq -nc --arg h "$IH" '{source_workspace: "/srv/ws-a", source_session: "coordinate-roadmap-plugin-system-20260927T000000Z", template_hash: $h, friction: "/srv/ws-a/f.md"}' \
+    > "$CASE/ctx/record%host"
+get --check; [ $? = 3 ]; check "a report sealed before the run was imported here is refused with 3" $?
+get --md > /dev/null; [ $? = 3 ]; check "  ... in every mode" $?
+echo 8 > "$CASE/visit"
+jq -c --slurpfile h "$CASE/ctx/record%host" '.record.import = ($h[0] | {source_workspace, source_session, template_hash})' "$CASE/read.out" > "$CASE/read.x" && mv "$CASE/read.x" "$CASE/read.out"
+pass
+get --check; check "the next visit's report, read under the import, reads" $?
+ctx reconcile/report.md | grep -q 'This run was imported from session'; check "  ... and names the source" $?
+echo github > "$CASE/store"; echo 9 > "$CASE/visit"; record "[]"; pass
+get --check; check "a GitHub record has no import facts to compare" $?
 if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
     ok "the reader takes no sealed token and reads the capture from the log itself"
 else bad "the reader takes no sealed token and reads the capture from the log itself"; fi

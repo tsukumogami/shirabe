@@ -452,7 +452,8 @@ states:
         overridable: false
       # The handover gate: the record holds the run's arguments, its cap and
       # this coordinator's address, a next step for every live holding, and
-      # every live worker has been told the current address.
+      # every live worker has been told the current address; on the session
+      # store, also who this coordinator reports to (no-reports-to).
       reconcile_handover:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-handover.sh" --session "{{SESSION_NAME}}" --check'
@@ -464,6 +465,11 @@ states:
         required: true
         description: Submit after the full reconcile and its report up.
     transitions:
+      # A report sealed on another host, before this run was imported here
+      # (reconcile-report-get.sh exit 3): a new visit reads this host.
+      - target: reconcile_pass
+        when:
+          gates.reconcile_report.exit_code: 3
       - target: pick_facts
         when:
           reconciled: reported
@@ -2598,7 +2604,9 @@ requests as links, sessions as code, no commit hash) when you report it up;
 its "Blocked on you" rows are what waits on the human, derived at this
 report and never stored. Pass the report's own words on for its header and
 its section names: its opening lines as written, including where the reconcile
-scripts ran, and each section under the name the report gives it, such as
+scripts ran and, for a run imported from another host, the sentence naming
+the session, workspace and template it came from, which the next import needs,
+and each section under the name the report gives it, such as
 "Changed since then". The report is the reads: don't re-run them. Never average the
 report with the record, and never keep a row "until it's confirmed". Where it
 says a worker was not found on this read, say that, never "gone" or "dead".
@@ -2613,9 +2621,13 @@ workflow here. Its handover gate re-reads the record's stored set (Run, Standing
 Work, `references/record-template.md`) and holds the workflow while the record
 lacks the run's arguments, the cap or the coordinator's address, while a live
 holding has no Work row, or while a live worker hasn't been told the current
-address; a holding merged and waiting for its teardown is exempt. This full
-reconcile runs at every start and restart, and again whenever the record is
-found anew after a conflict. Later turns re-check only the holdings they are
+address; a holding merged and waiting for its teardown is exempt. On the
+session store it also holds while the record names nobody this coordinator
+reports to (`no-reports-to`). This full
+reconcile runs at every start and restart, again whenever the record is
+found anew after a conflict, and again
+on the first tick after an import: a report sealed on the old host read that
+host's workers, so the gate sends the run back to the pass to read this one. Later turns re-check only the holdings they are
 about to act on, which each spoke's read already does.
 
 ## posture_ask
