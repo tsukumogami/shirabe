@@ -185,11 +185,13 @@ case "$SLUG" in
 esac
 
 # A retained paused_for_review session means this invocation resumes a paused
-# run: the finalize invocation.
+# run: the finalize invocation. From koto 0.17.0 (koto#355) `koto status` also
+# answers for a session koto removed at its terminal, with "removed": true and
+# the same state, so a removed pause has nothing to resume and is read as none.
 RESUMING_PAUSE=0
 if [ "$SESSION" != "execute-unnamed" ] && command -v koto >/dev/null; then
     if koto status "$SESSION" \
-        | jq -e '.is_terminal == true and .current_state == "paused_for_review"' >/dev/null; then
+        | jq -e '.removed != true and .is_terminal == true and .current_state == "paused_for_review"' >/dev/null; then
         RESUMING_PAUSE=1
     fi
 fi
