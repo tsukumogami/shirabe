@@ -17,6 +17,10 @@
 #     PLAN_DOC, PLAN_SLUG, PLUGIN_ROOT, MERGE and PAUSE_BEFORE_FINALIZE, as
 #     before the flags existed; --review-floor= and --review-ceiling= add one
 #     REVIEW_FLOOR or REVIEW_CEILING pair per occurrence
+#     with the stub answering `koto status`: a kept paused_for_review session
+#     is the finalize resume (PAUSE_BEFORE_FINALIZE=false), and the same
+#     answer with "removed": true, as koto 0.17.0 gives for a session it
+#     removed, is not (PAUSE_BEFORE_FINALIZE stays true)
 #
 #   engine-backed (the real koto; skipped, loudly, when koto is absent):
 #     a fresh run: MERGE=false, PAUSE_BEFORE_FINALIZE=true (interactive)
