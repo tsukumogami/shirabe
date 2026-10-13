@@ -307,6 +307,27 @@ bash "$LC" --session "$S" --no-seal >/dev/null 2>&1; eq "two holdings linking #1
 bash "$LC" --session "$S" --bogus >/dev/null 2>&1; eq "usage: exit 64" 64 $?
 bash "$LC" >/dev/null 2>&1; eq "no session: exit 64" 64 $?
 
+echo "== the session store =="
+# A record on the session store (docs/designs/DESIGN-coordinator-session-record.md,
+# PRD R18, R20): the hold and the pause are read from the run's session keys,
+# with the GitHub body in the moved shape.
+export BT_FIND_TOKEN="found 7 session"
+scenario "$PERMIT" "$PERMIT"
+bt_record_paused "[$(bt_pause s1 pause "Feature 2" lifted)]" "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
+bt_session_record "$S"
+prstate 346 OPEN
+eq "a pause on the session store holds the merge" "paused 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_paused '[]' "[$(hold after-346 acme/widgets#12 'merged acme/gadgets#346')]"
+bt_session_record "$S"
+prstate 346 OPEN
+eq "a hold on the session store holds it too" "held 12 $H" "$(token)"
+scenario "$PERMIT" "$PERMIT"
+bt_record_paused '[]'
+bt_session_record "$S"
+eq "  ... and with neither, it is permit" "permit 12 $H" "$(token)"
+unset BT_FIND_TOKEN
+
 echo "== pauses =="
 paused_record() { bt_record_paused "$@"; }
 prow() { bt_pause "$@"; }

@@ -128,7 +128,7 @@ handoff)
         case $? in
             0) ;;
             2) lib_die2 "cannot read #$REF's body: $(lib_scrub < "$T/live.json.err")" ;;
-            4) lib_die2 "$(lib_scrub < "$T/live.json.err")" ;;
+            4|12) lib_die2 "$(lib_scrub < "$T/live.json.err")" ;;
             *) refuse "#$REF's body is not a canonical record: $(lib_scrub < "$T/live.json.err" | head -1)" ;;
         esac
         [ "$(jq -cS '.holds // []' "$T/file.json")" = "$(jq -cS '.holds // []' "$T/live.json")" ] \

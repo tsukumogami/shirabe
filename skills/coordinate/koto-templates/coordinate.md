@@ -289,6 +289,26 @@ states:
       - target: predecessor_handoff
         when:
           gates.record_find_verdict.exit_code: 18  # predecessor
+      - target: record_move
+        when:
+          gates.record_find_verdict.exit_code: 19  # move
+
+  record_move:
+    accepts:
+      move:
+        type: enum
+        values: [done, refused]
+        required: true
+        description: Submit done after record-move.sh printed move=done, or refused after it printed move=refused.
+      detail:
+        type: string
+    transitions:
+      - target: record_find
+        when:
+          move: done
+      - target: record_conflict
+        when:
+          move: refused
 
   record_open:
     accepts:
@@ -2399,6 +2419,34 @@ Where this goes next:
   human.
 - the previous rotation's record still open past its end date: its close-out
   first (`predecessor_handoff`).
+- a record whose owner moved it onto the session store (its `store session`
+  row) and whose body still holds its state: the move (`record_move`).
+
+## record_move
+
+This scope's record moves from GitHub onto the session store ({{RECORD_FIND}}).
+Run the move, then submit `move: done` when it prints `move=done`, or `move:
+refused` when it prints `move=refused`; the find then runs again.
+
+```bash
+"{{PLUGIN_ROOT}}/skills/coordinate/scripts/record-move.sh" --session "{{SESSION_NAME}}"
+```
+
+<!-- details -->
+
+The record's owner decided the move when they had the `store session` Run row
+written with `record-state.sh --run store session --by <person>`; the find acts
+on it only once the record's entries hold the `run` entry posted with the row.
+The move has three steps, and a re-run skips each one it finds done, so a stop
+part way (exit 11, or a failed read) is finished by running it again: the GitHub
+state is copied into this run's session, a `moved` entry naming this run's stamp
+is posted to the GitHub record, and the GitHub body is rewritten to the moved
+shape (every section empty, the Run section only the `store session` row). From
+then on every writer writes the session's keys, and a write to the GitHub body
+is refused as `store-moved`. A refusal (another session of this scope on this
+host holds its state, the record no longer reads `store session`, or it is
+already in the moved shape with no session here holding its state) is a stop
+for the human: submit `refused` with its reason as the detail.
 
 ## record_open
 

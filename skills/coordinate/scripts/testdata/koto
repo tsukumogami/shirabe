@@ -14,7 +14,13 @@
 # the directory holds a .parent file), `status S` ({name, is_terminal}; the
 # session is terminal when its directory holds a .terminal file; exit 1 for a
 # session that doesn't exist), `context add S K [--from-file F]` (stdin
-# without --from-file), `context get S K`, and `template compile P`, which
+# without --from-file), `context get S K`, `context exists S K` (exit 1 when
+# absent), `context remove S K`, `context list [--prefix P] S` (a JSON array of
+# keys; with KOTO_NO_LIST_PREFIX set, --prefix is refused as an older koto would,
+# and KOTO_LIST_HIDE=<k> leaves out the k highest keys, a list another writer
+# has since added to), `context list --help` and `session import --help` (the
+# session store's feature probe: both features only with KOTO_FEATURES=1),
+# and `template compile P`, which
 # prints $KOTO_STORE/cache/<$KOTO_COMPILED_HASH>.json so coord-log.sh
 # provenance can be passed or failed by the header's template_hash, or fails
 # when KOTO_COMPILE_FAIL is set. Anything
@@ -43,13 +49,54 @@ case "${1:-} ${2:-}" in
         jq -nc --arg n "$2" --argjson t "$t" '{name: $n, is_terminal: $t}'
         ;;
     "context add")
-        [ -z "${KOTO_FAIL_ADD:-}" ] || exit 1
+        # KOTO_FAIL_ADD=1 fails every add; set to a key's name, only that key's.
+        case "${KOTO_FAIL_ADD:-}" in "") ;; 1|"${4:-}") exit 1 ;; esac
         d="$KOTO_STORE/context/${3:-none}"
         mkdir -p "$(dirname "$d/$4")"
         if [ "${5:-}" = --from-file ]; then cat "$6" > "$d/$4" || exit 1; else cat > "$d/$4"; fi
         ;;
     "context get")
         cat "$KOTO_STORE/context/${3:-none}/$4" 2>/dev/null || exit 1
+        ;;
+    "context exists")
+        [ -f "$KOTO_STORE/context/${3:-none}/$4" ] || exit 1
+        ;;
+    "context remove")
+        rm -f "$KOTO_STORE/context/${3:-none}/$4"
+        ;;
+    "session import")
+        # Probed with --help; KOTO_FEATURES=1 makes this a koto that has it.
+        [ -n "${KOTO_FEATURES:-}" ] && [ "${3:-}" = --help ] && { echo "Usage: koto session import [OPTIONS] --from <WORKSPACE_PATH> <NAME>"; exit 0; }
+        echo "koto stub: unexpected: $*" >&2; exit 9
+        ;;
+    "context list")
+        if [ "${3:-}" = --help ]; then
+            if [ -n "${KOTO_FEATURES:-}" ]; then
+                printf 'Usage: koto context list [OPTIONS] <SESSION>\n\nOptions:\n      --prefix <PREFIX>  Filter keys by prefix\n'
+            else
+                printf 'Usage: koto context list <SESSION>\n'
+            fi
+            exit 0
+        fi
+        # `context list [--prefix P] S`, the option before or after the session,
+        # printed as real koto prints it: a JSON array of keys, sorted.
+        [ -z "${KOTO_NO_LIST_PREFIX:-}" ] || { [ "${3:-}" != --prefix ] && [ "${4:-}" != --prefix ]; } \
+            || { echo "koto stub: unexpected argument '--prefix'" >&2; exit 2; }
+        s= p=
+        shift 2
+        while [ $# -gt 0 ]; do
+            case "$1" in --prefix) p=$2; shift 2 ;; *) s=$1; shift ;; esac
+        done
+        d="$KOTO_STORE/context/$s"
+        if [ -d "$d" ]; then
+            # KOTO_LIST_HIDE=<k> leaves the k highest matching keys out, as a list
+            # read just before another writer added them would.
+            (cd "$d" && find . -type f | sed 's|^\./||') | LC_ALL=C sort \
+                | jq -R -s -c --arg p "$p" --argjson h "${KOTO_LIST_HIDE:-0}" \
+                    'split("\n") | map(select(. != "" and startswith($p))) | .[0:(length - $h | if . < 0 then 0 else . end)]'
+        else
+            echo '[]'
+        fi
         ;;
     "request get")
         cat "$KOTO_STORE/requests/${3:-none}.json" 2>/dev/null || { echo "koto stub: no request ${3:-}" >&2; exit 1; }

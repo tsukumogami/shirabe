@@ -22,8 +22,10 @@
 # number), coordinator (the address messages to this coordinator reach: a
 # session name a worker can message, `_` allowed, or a dispatch topic; never
 # an id or a path) or store (the record's store, `github` or `session`,
-# written with --by naming the person who decided it; roadmap scope only, and
-# `session` is refused: this release reads the record only from GitHub). A new
+# written with --by naming the person who decided it; roadmap scope only;
+# `session` moves the record onto the session store at the next start, and a
+# record on the session store, or already moving there, is refused any further
+# store change, `store-moved`). A new
 # coordinator clears every `told` row, since nobody has been told the new
 # address yet. --told records that WHO (a worker's dispatch topic, or another
 # party's session name) was sent the current address; it needs a coordinator
@@ -159,15 +161,17 @@ esac
 . "$HERE/record-common.sh"
 lib_facts
 # The record's store (docs/designs/DESIGN-coordinator-session-record.md,
-# Decision 2): only a roadmap record has one, its value is github or session,
-# and this release, which reads the record only from GitHub, refuses session.
+# Decisions 2 and 11): only a roadmap record has one, and its value is github or
+# session. `session` is the owner's decision to move the record; the next start
+# moves it. A record on the session store, or one whose row already reads
+# session, never moves back to GitHub (PRD R3).
 if [ "$MODE" = run ] && [ "$KEY" = store ]; then
-    [ "$SCOPE" = roadmap ] || { echo "$PROG: refused: a discipline record has no store row; the session store is for roadmap scope" >&2; exit 65; }
+    [ "$SCOPE" = roadmap ] || { echo "$PROG: refused: store-discipline: a discipline record has no store row; the session store is for roadmap scope" >&2; exit 65; }
     case "$VALUE" in
-        github) ;;
-        session) echo "$PROG: refused: $RS_STORE_UNAVAILABLE" >&2; exit 65 ;;
+        github|session) ;;
         *) echo "$PROG: refused: store-malformed: a store is github or session" >&2; exit 65 ;;
     esac
+    [ "$(rs_source)" = github ] || { echo "$PROG: refused: store-moved: the record is on the session store and doesn't move back" >&2; exit 65; }
 fi
 if [ "$OVERRIDE" = 1 ]; then
     [ -n "$REF" ] || { echo "$PROG: --ref goes with the override flags" >&2; exit 64; }
@@ -191,9 +195,15 @@ case $? in
     2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
     3|65) echo "$PROG: refused: #$REF is not a canonical $SCOPE record for $NAME:" >&2; lib_scrub < "$WD/parsed.json.err" >&2; echo >&2; exit 10 ;;
     4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
+    12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
 cp "$WD/parsed.json.md" "$WD/live.md"
+if [ "$MODE" = run ] && [ "$KEY" = store ] && [ "$VALUE" = github ] \
+    && jq -e 'any((.run // [])[]; .key == "store" and .value == "session")' "$WD/parsed.json" > /dev/null; then
+    echo "$PROG: refused: store-moved: #$REF's store already reads session and is moving; it doesn't move back to GitHub" >&2
+    exit 65
+fi
 
 if [ "$MODE" = list ]; then
     jq -c '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$WD/parsed.json"

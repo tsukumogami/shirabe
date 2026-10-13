@@ -147,6 +147,9 @@ stateDiagram-v2
     record_find --> record_conflict : gates.record_find_verdict.exit_code: 16
     record_find --> record_conflict : gates.record_find_verdict.exit_code: 17
     record_find --> predecessor_handoff : gates.record_find_verdict.exit_code: 18
+    record_find --> record_move : gates.record_find_verdict.exit_code: 19
+    record_move --> record_find : move: done
+    record_move --> record_conflict : move: refused
     record_open --> record_find : opened: opened
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 60, gates.report_input.exists: true
     report_facts --> report_questions : gates.report_facts_verdict.exit_code: 61

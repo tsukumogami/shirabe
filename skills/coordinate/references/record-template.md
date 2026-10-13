@@ -194,8 +194,9 @@ each rendered only once it has a row:
 
 **Run** holds the run's arguments, the record's store (a `store` row,
 `github` or `session`, written once by its owner with `record-state.sh --run
-store <value> --by <person>`; a record without one is on GitHub, and a
-discipline record never has one), the cap in force (the readers of the cap
+store <value> --by <person>`; a record without one is on GitHub, a
+discipline record never has one, and once a record is on the session store, or
+moving there, no write changes the row), the cap in force (the readers of the cap
 take it over the `--cap` the session was opened with), this coordinator's
 address (its messaging address: the session name a worker can message, which
 may hold `_`, or a dispatch topic; never a session id, a path or an instance
@@ -233,7 +234,7 @@ belong to a milestone roadmap, `verdict-owed` and `rework`, and only
 written to the body and then told as an entry:
 
 ```
-record-state.sh --session S --run arguments|cap|coordinator <value> --by <who>
+record-state.sh --session S --run arguments|cap|coordinator|store <value> --by <who>
 record-state.sh --session S --told <topic> --by <who>
 record-state.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 record-state.sh --session S --end <s<n>> --by <who>
@@ -383,8 +384,29 @@ under their deadline; `rs_facts` gives one holding's repository, pull request,
 branch, verified head, holds and pauses. A run's store comes from the record's
 `store` row, which the find writes to `coord/source.json` with why.
 
+A roadmap record on the session store keeps the same sections in the run's own
+session, under `record/`: `record/meta` (the scope, the store, the written time,
+and a pending mark a write sets while it is part way through), one key per
+section (`record/holdings`, `record/deferrals`, `record/side-effects`,
+`record/reversals`, `record/holds`, `record/run`, `record/standing`,
+`record/work`, `record/decisions`), each in the JSON form `record-parse.sh`
+produces, one `record/entries/<n>` per entry and, for an entry also posted to
+GitHub, the comment's URL in `record/posted/<n>`. The writers are the same and
+so are their checks: a write is refused, changing no key, from a run that isn't
+the scope's live one or after a `koto next --to` (10), when the state changed
+since it was read (12), past 60,000 bytes rendered (13), or when it changes a
+section its writer doesn't own (65). The GitHub record stays open in the moved
+shape, every section empty and the Run section only the `store session` row; no
+write but the move's changes it (`store-moved`), and the outward entries are
+still posted to it. A new record starts there with `--store session`
+(`record-open.sh` writes both halves); an existing one moves when its owner
+writes the row, at the next start (`record_move`, `scripts/record-move.sh`).
+`scripts/record-source.sh --show` prints the session's state as the body would
+read.
+
 A coordinator's state lives outside its session and outside any directory the
-workspace manager converges, and what must outlive the host lives on GitHub.
+workspace manager converges, and what must outlive the host lives on GitHub,
+except a session-store record's state, which stays in its session on this host.
 Here that is two places: the koto session (its journal on the host between
 checkpoints) and this record, for everything else. Keep no tools directory beside
 it. A local script for record entries, a snapshot copy of the body, archive

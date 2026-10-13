@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# session-store_engine_test.sh -- a roadmap record on the session store, the
+# shipped coordinate.md driven through real koto against the testdata/gh
+# stand-in (docs/designs/DESIGN-coordinator-session-record.md, Decision 4;
+# PRD R7).
+#
+# Proves, one line per case:
+#   1. a run opened with --store session opens its record there: the GitHub
+#      body is the moved shape, the state is in the run's record/ keys, and
+#      the next find reaches reconcile;
+#   2. writes through record-write.sh and record-state.sh land in the keys and
+#      not on GitHub, and the run passes reconcile on them;
+#   3. each refusal the write guarantees name leaves every record/ key
+#      byte-identical: a non-owner's change (65), a body edited from an older
+#      written time (12), a state rendering past 60,000 bytes (13), a run moved
+#      with `koto next --to` (10), and a write from a run that is no longer the
+#      scope's live one (10).
+#
+# On a koto without the session store's features (`context list --prefix`,
+# `session import`), as at shirabe's minimum koto, it proves only that the start
+# stops at the find as store-unsupported, opening no record and writing no key.
+#
+# Needs koto, jq and git; SKIPs (exit 0) without koto, which
+# run-tests.sh --engine turns into a failure.
+# Usage: bash skills/coordinate/scripts/session-store_engine_test.sh
+set -uo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
+for bin in koto jq git; do
+    command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine cases did not run"; exit 0; }
+done
+. "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
+koto_legacy_env_enable
+ORIG_PATH=$PATH
+
+# test-lib.sh: the GitHub DB helpers, the record renderer and the counters. It
+# puts testdata/ first on PATH, the koto stand-in included; this suite needs
+# the real koto, so PATH is rebuilt with only the gh stand-in in front.
+. "$HERE/testdata/test-lib.sh"
+T=$(cd -P "$T" && pwd -P)
+unset KOTO_STORE KOTO_COMPILED_HASH
+mkdir -p "$T/bin"
+ln -sf "$HERE/testdata/gh" "$T/bin/gh"
+ln -sf "$HERE/testdata/board/stand-in-shirabe" "$T/bin/shirabe"
+PATH="$T/bin:$ORIG_PATH"
+export PATH
+export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
+mkdir -p "$HOME"
+ln -s "$REPO_ROOT" "$T/plugin"
+PR="$T/plugin"
+PS="$PR/skills/coordinate/scripts"
+
+# A clone-shaped working directory in a niwa instance that permits every
+# finishing step, so the posture reads `readable`.
+WD="$T/work"
+mkdir -p "$WD/.niwa" "$WD/.claude"
+(cd "$WD" && git init -q && git remote add origin https://github.com/acme/widgets.git)
+echo '{}' > "$WD/.niwa/instance.json"
+jq -n '{permissions: {defaultMode: "bypassPermissions"}}' > "$WD/.claude/settings.json"
+
+tick() { (cd "$WD" && koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"); }
+at() { tick "$@" | jq -r '.state // empty'; }
+# open_run: a fresh session of the scope from coordinate-open.sh, which takes
+# its args file away; sets S.
+open_run() {
+    printf '["docs/roadmaps/ROADMAP-store.md", "--store", "session"]' > "$T/args.json"
+    S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
+    [ -n "$S" ]
+}
+write() { # write <script> <args...>: a write script, run from $WD as the agent runs it, on session $S
+    local s=$1; shift
+    (cd "$WD" && bash "$PS/$s" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err")
+}
+show() { (cd "$WD" && bash "$PS/record-source.sh" --session "$S" --show); }
+# keys <session>: every record/ key of the session, its name and a digest of
+# its content, read through real koto.
+keys() {
+    local k
+    (cd "$WD" && koto context list "$1" --prefix record/) | jq -r '.[]' | LC_ALL=C sort | while IFS= read -r k; do
+        printf '%s %s\n' "$k" "$(cd "$WD" && koto context get "$1" "$k" | cksum)"
+    done
+}
+body_n() { jq -r --argjson n "$N" '.issues[] | select(.number == $n) | .body' "$GH_DB"; }
+# current: the state as the session holds it, parsed into $T/cur.json, and its
+# written time in CURW, for a body edited from it.
+current() { show > "$T/cur.md"; bash "$PS/record-parse.sh" "$T/cur.md" > "$T/cur.json"; CURW=$(jq -r .written "$T/cur.json"); }
+edited() { # edited <jq program> <out>: the current state changed by the program, rendered at CURW
+    jq -c "del(.written) | $1" "$T/cur.json" | bash "$PS/record-render.sh" --container issue --written "$CURW" > "$2"
+}
+
+db_init
+db '.files["acme/widgets"]["main:docs/roadmaps/ROADMAP-store.md"] = $t' --arg t "$(printf -- '---\nstatus: Active\n---\n\n# Roadmap\n\n## Features\n\n### Feature 1: first\n\n**Dependencies:** None\n**Status:** Planned\n')"
+
+echo "== 1. a run opened with --store session =="
+open_run || { bad "the session opens" "$(cat "$T/open.err")"; done_tests session-store-engine; exit 1; }
+ok "the session opens"
+# A koto older than the session store's features (shirabe's minimum koto runs
+# this suite too) stops the start at the find, naming what it lacks, and writes
+# nothing (PRD R2). The branch is on what koto offers, never on the outcome.
+PROBE=$(cd "$WD" && bash "$PS/record-source.sh" --session "$S" --probe)
+if [ "$(printf '%s' "$PROBE" | jq -r '.context_list_prefix and .session_import')" != true ]; then
+    eq "a koto without the session store's features stops at the find" record_conflict "$(at)"
+    (cd "$WD" && koto context get "$S" coord/record_find.json) | jq -r .reason | grep -q '^store-unsupported' \
+        && ok "  ... as store-unsupported" || bad "  ... as store-unsupported" "$(cd "$WD" && koto context get "$S" coord/record_find.json)"
+    eq "  ... opening no record" 0 "$(jq '[.issues[] | select(.title == "Coordinator record: ROADMAP-store")] | length' "$GH_DB")"
+    # The plain listing: this koto's `context list` takes no --prefix.
+    eq "  ... and writing no record/ key" 0 "$(cd "$WD" && koto context list "$S" | jq '[.[] | select(startswith("record/"))] | length')"
+    echo "koto lacks the session store's features ($PROBE); the store's own cases need a newer koto"
+    done_tests session-store-engine
+    exit $?
+fi
+eq "with no record it stops at record_open" record_open "$(at)"
+render "$(record_json roadmap store)" issue > "$T/open.md"
+write record-open.sh --body-file "$T/open.md"; eq "record-open.sh opens the record" 0 $?
+N=$(jq -r '[.issues[] | select(.title == "Coordinator record: ROADMAP-store") | .number] | if length == 1 then .[0] else empty end' "$GH_DB")
+[ -n "$N" ] && ok "  ... one record issue" || bad "  ... one record issue" "$(jq -c '[.issues[].title]' "$GH_DB")"
+eq "  ... whose body is the moved shape" '{"deferrals":[],"holdings":[],"reversals":[],"run":["store=session"],"side_effects":[]}' \
+    "$(body_n | bash "$PS/record-parse.sh" | jq -cS '{holdings, deferrals, side_effects, reversals, run: [.run[] | "\(.key)=\(.value)"]}')"
+(cd "$WD" && koto context exists "$S" record/meta) && ok "  ... and the state is in the run's record/meta" || bad "  ... and the state is in the run's record/meta" ""
+eq "the next find reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+eq "  ... having found the record on the session store" session \
+    "$(cd "$WD" && bash "$PS/coord-log.sh" run-store --session "$S" 2>/dev/null)"
+
+echo "== 2. writes land in the keys =="
+current
+edited '.deferrals = [{deferral: "a", reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]' "$T/w1.md"
+BODY=$(body_n)
+write record-write.sh --body-file "$T/w1.md"; eq "record-write.sh writes the record" 0 $?
+eq "  ... into record/deferrals" a "$(cd "$WD" && koto context get "$S" record/deferrals | jq -r '.[0].deferral')"
+write record-state.sh --run arguments "docs/roadmaps/ROADMAP-store.md --store session" --by "the human" \
+    && write record-state.sh --run cap 2 --by "the human" \
+    && write record-state.sh --run coordinator coord-test --by coord-test
+eq "record-state.sh writes the stored set" 0 $?
+eq "  ... neither touching GitHub" "$BODY" "$(body_n)"
+eq "the run passes reconcile on the keys" pick "$(at --with-data '{"reconciled":"reported"}')"
+
+echo "== 3. each refusal leaves every key as it was =="
+current
+SNAP=$(keys "$S")
+[ -n "$SNAP" ] && ok "the snapshot reads the keys" || bad "the snapshot reads the keys" ""
+edited '.run |= map(if .key == "cap" then .value = "3" else . end)' "$T/nonowner.md"
+grep -q '^| cap | 3 |' "$T/nonowner.md" && ok "the non-owner's body changes the cap" || bad "the non-owner's body changes the cap" "$(grep -n cap "$T/nonowner.md")"
+write record-write.sh --body-file "$T/nonowner.md"; eq "a non-owner changing record/run is refused" 65 $?
+eq "  ... and changes no key" "$SNAP" "$(keys "$S")"
+write record-write.sh --body-file "$T/w1.md"; eq "a body edited from an older written time is refused" 12 $?
+eq "  ... and changes no key" "$SNAP" "$(keys "$S")"
+jq -c --arg r "$(head -c 61000 /dev/zero | tr '\0' 'x')" 'del(.written) | .deferrals[0].reason = $r' "$T/cur.json" \
+    | bash "$PS/record-render.sh" --container issue --written "$CURW" > "$T/big.md"
+write record-write.sh --body-file "$T/big.md"; eq "a state rendering past 60,000 bytes is refused" 13 $?
+eq "  ... and changes no key" "$SNAP" "$(keys "$S")"
+edited '.deferrals += [{deferral: "b", reason: "r", raised: "2026-09-25T10:00Z", disposition: ""}]' "$T/w2.md"
+eq "koto next --to moves the run" ask_up "$(at --to ask_up)"
+write record-write.sh --body-file "$T/w2.md"; eq "a write after koto next --to is refused" 10 $?
+grep -q 'directed transition' "$T/w.err" && ok "  ... as a directed transition" || bad "  ... as a directed transition" "$(cat "$T/w.err")"
+eq "  ... and changes no key" "$SNAP" "$(keys "$S")"
+OLD=$S
+sleep 1
+open_run && [ "$S" != "$OLD" ] && ok "a later run of the scope opens" || bad "a later run of the scope opens" "$(cat "$T/open.err")"
+SNAP=$(keys "$OLD")
+S=$OLD
+write record-write.sh --body-file "$T/w2.md"; eq "a write from the run that is no longer live is refused" 10 $?
+grep -q 'is not the live' "$T/w.err" && ok "  ... as not the live run" || bad "  ... as not the live run" "$(cat "$T/w.err")"
+eq "  ... and changes no key" "$SNAP" "$(keys "$OLD")"
+
+done_tests session-store-engine

@@ -21,6 +21,10 @@
 # the environment, one that carries the live section is written, and a
 # Decisions text cell naming a private repository from a public host is
 # refused; a render over the 60,000-byte budget is refused as record-full (13).
+# A session-store record: the write lands in its keys, each refusal leaves them
+# as they were, and a worker shaped like a session id, a path or a job id, a
+# status column, a private repository and a cell holding a pipe, a newline and
+# backticks each fare the same on either store (PRD R6).
 #
 # Usage: bash skills/coordinate/scripts/record-write_test.sh
 set -uo pipefail
@@ -300,5 +304,115 @@ eq "and nothing is written" "$OLD" "$(body7)"
 { cat "$T/big.md"; head -c 70000 /dev/zero | tr '\0' 'y'; } > "$T/huge.md"
 bash "$WR" "${RM[@]}" --body-file "$T/huge.md" >/dev/null 2>"$T/err"; rc=$?
 eq "a body past the parser's own limit is record-full too, not a parse refusal" 13 "$rc"
+
+echo "== the session store =="
+# A roadmap record on the session store (docs/designs/DESIGN-coordinator-session-record.md,
+# Decision 4): the same core, the same body input, the keys written at the end.
+SW=coordinate-roadmap-plugin-system-20260926T140000Z
+SEN=(env RS_SOURCE=session RS_SESSION="$SW")
+printf '%s\n' "$OLD" > "$T/old.md"
+bash "$HERE/record-parse.sh" --container issue "$T/old.md" > "$T/old.json"
+seed_rm; session_keys "$SW" "$T/old.json"; reset_calls
+OUT=$("${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/new.md" 2>"$T/err"); rc=$?
+eq "a write to a session-store record succeeds" "0 https://github.com/acme/widgets/issues/7" "$rc $OUT"
+eq "  ... its Holdings land in record/holdings" "$(printf '%s' "$NEWJ" | jq -cS .holdings)" "$(koto context get "$SW" record/holdings | jq -cS .)"
+eq "  ... record/meta carries a new time and no pending mark" "false|new" \
+    "$(koto context get "$SW" record/meta | jq -r '"\(.pending)|\(if .written == "2026-09-26T09:00:00Z" then "old" else "new" end)"')"
+eq "  ... the GitHub body is untouched" "$OLD" "$(body7)"
+grep -qE '^(issue|pr) edit' "$GH_DB.calls" && bad "  ... and GitHub is never edited" "$(calls)" || ok "  ... and GitHub is never edited"
+# Each refusal of PRD R7 leaves every key as it was.
+SNAP=$(session_snapshot "$SW")
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/new.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a body edited from an older written time is record-changed" 12 "$rc"
+eq "  ... and changes no key" "$SNAP" "$(session_snapshot "$SW")"
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/big.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a state past the 60,000-byte budget is record-full" 13 "$rc"
+eq "  ... and changes no key" "$SNAP" "$(session_snapshot "$SW")"
+# The current state, as the session holds it, for writes edited from it.
+"${SEN[@]}" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show > "$T/cur.md" 2>"$T/err"
+bash "$HERE/record-parse.sh" --container issue "$T/cur.md" > "$T/cur.json"
+CURW=$(jq -r .written "$T/cur.json")
+jq -c 'del(.written) | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" \
+    | bash "$HERE/record-render.sh" --container issue --written "$CURW" > "$T/hold.md"
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/hold.md" >/dev/null 2>"$T/err"; rc=$?
+eq "record-write.sh changing record/holds is refused (not its key)" 65 "$rc"
+grep -q 'Holds section changes only through record-hold.sh' "$T/err" && ok "  ... by the Holds owner check" || bad "  ... by the Holds owner check" "$(cat "$T/err")"
+eq "  ... and changes no key" "$SNAP" "$(session_snapshot "$SW")"
+# The hold writer's own flags (HOLDS_WRITER, as record-hold.sh sets them), on a
+# body that also changes the Run section: record/run isn't the hold writer's key.
+sed -e 's|^\. "\$HERE/record-write-core.sh"$|. "$HERE/record-write-core.sh"; HOLDS_WRITER=1|' -e "s|^HERE=.*|HERE=$HERE|" "$WR" > "$T/hold-writer.sh"
+grep -q 'HOLDS_WRITER=1' "$T/hold-writer.sh" && ok "the hold-writer harness opens only the Holds section" || bad "the hold-writer harness opens only the Holds section" ""
+jq -c 'del(.written) | .run = [{key: "arguments", value: "docs/roadmaps/ROADMAP-plugin-system.md", set_by: "the human", set: "2026-09-28T11:27Z"}]' "$T/cur.json" \
+    | bash "$HERE/record-render.sh" --container issue --written "$CURW" > "$T/run.md"
+"${SEN[@]}" bash "$T/hold-writer.sh" "${RM[@]}" --body-file "$T/run.md" >/dev/null 2>"$T/err"; rc=$?
+eq "the hold writer changing record/run is refused (R5)" 65 "$rc"
+grep -q 'Run, Standing and Work sections change only through record-state.sh' "$T/err" && ok "  ... by the Run owner check" || bad "  ... by the Run owner check" "$(cat "$T/err")"
+eq "  ... and changes no key" "$SNAP" "$(session_snapshot "$SW")"
+# Reversals and Side effects have no writer of their own: record-write.sh writes
+# them with the body, and each lands in its key and reads back through the seam.
+jq -c 'del(.written)
+    | .reversals = [{date: "2026-09-26T10:00Z", reversed: "merge on green", now: "hold", reason: "freeze", from: "the human"}]
+    | .side_effects = [{action: "merge", target: "acme/widgets#12", verified_head: "0123456789abcdef0123456789abcdef01234567",
+                        attempted: "2026-09-26T11:02Z", how_to_confirm: "read the pull request"}]' "$T/cur.json" \
+    | bash "$HERE/record-render.sh" --container issue --written "$CURW" > "$T/revse.md"
+"${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/revse.md" >/dev/null 2>"$T/err"; rc=$?
+eq "record-write.sh writes Reversals and Side effects on the session store" 0 "$rc"
+eq "  ... into record/reversals and record/side-effects" "freeze|acme/widgets#12" \
+    "$(koto context get "$SW" record/reversals | jq -r '.[0].reason')|$(koto context get "$SW" record/side-effects | jq -r '.[0].target')"
+eq "  ... and read back through the seam" "merge on green|merge" \
+    "$("${SEN[@]}" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show \
+        | bash "$HERE/record-parse.sh" | jq -r '"\(.reversals[0].reversed)|\(.side_effects[0].action)"')"
+"${SEN[@]}" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show > "$T/cur.md" 2>"$T/err"
+bash "$HERE/record-parse.sh" --container issue "$T/cur.md" > "$T/cur.json"
+CURW=$(jq -r .written "$T/cur.json")
+jq -c 'del(.written) | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" \
+    | bash "$HERE/record-render.sh" --container issue --written "$CURW" > "$T/hold.md"
+# A write part way through, left by a crash: the reader re-reads, then refuses.
+# The mark is read into a file before it is written back: in one pipeline the
+# write could truncate the key before the read had it.
+koto context get "$SW" record/meta > "$T/meta.json"
+jq -c '.pending = true' "$T/meta.json" | koto context add "$SW" record/meta
+RS_RETRY_PAUSE=0 "${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/hold.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a record left marked pending is record-changed to a writer" 12 "$rc"
+jq -c '.pending = false' "$T/meta.json" | koto context add "$SW" record/meta
+# On GitHub, a moved record's body is the moved shape and no writer but the move
+# changes it.
+jq -c 'del(.written) | .run = [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:00Z"}]' "$T/old.json" \
+    | bash "$HERE/record-render.sh" --container issue --written 2026-09-26T09:00:00Z > "$T/moved.md"
+seed_rm; db '.issues[0].body = $b' --arg b "$(cat "$T/moved.md")"
+bash "$WR" "${RM[@]}" --body-file "$T/moved.md" >/dev/null 2>"$T/err"; rc=$?
+eq "a GitHub write to a moved record is refused" 65 "$rc"
+grep -q 'store-moved' "$T/err" && ok "  ... as store-moved" || bad "  ... as store-moved" "$(cat "$T/err")"
+
+echo "== the same checks on either store (PRD R6) =="
+# Each body goes once to a GitHub record and once to a fresh session-store
+# record; BOTH holds the two exit codes, R6S the session written, and
+# $T/r6-gh.md the GitHub body as the write left it.
+R6N=0
+both() { # both <body-file>
+    local g
+    R6N=$((R6N + 1)); R6S=coordinate-roadmap-plugin-system-20260926T15$(printf '%02d' "$R6N")00Z
+    seed_rm; bash "$WR" "${RM[@]}" --body-file "$1" >/dev/null 2>&1; g=$?; body7 > "$T/r6-gh.md"
+    seed_rm; session_keys "$R6S" "$T/old.json"
+    env RS_SOURCE=session RS_SESSION="$R6S" bash "$WR" "${RM[@]}" --body-file "$1" >/dev/null 2>&1
+    BOTH="$g $?"
+}
+for w in coordinate-roadmap-x-0123456789abcdef0123456789abcdef session_feature-2 workers/feature-2 48213; do
+    sed "s/| feature-2 |/| $(printf '%s' "$w" | sed 's#/#\\/#g') |/" "$T/new.md" > "$T/r6.md"
+    both "$T/r6.md"; eq "a worker named $w is refused on both stores" "65 65" "$BOTH"
+done
+sed -e 's/| Pull request |$/| Pull request | Status |/' -e 's/^|---|---|---|---|---|---|---|---|---|---|---|---|$/&---|/' \
+    -e 's/pull\/12) |$/pull\/12) | merged |/' "$T/new.md" > "$T/r6.md"
+grep -q '| Status |' "$T/r6.md" && ok "the status-column body carries the column" || bad "the status-column body carries the column" ""
+both "$T/r6.md"; eq "a status column is refused on both stores" "65 65" "$BOTH"
+render "$(printf '%s' "$NEWJ" | jq -c '.holdings[0].repo = "acme/secret"')" issue > "$T/r6.md"
+both "$T/r6.md"; eq "a private repository from a public host is refused on both stores" "65 65" "$BOTH"
+render "$(printf '%s' "$NEWJ" | jq -c '.deferrals[3].reason = "x `code | pipe` y\nline two ``` z"')" issue > "$T/r6.md"
+both "$T/r6.md"; eq "a cell with a pipe, a newline and backticks is written on both stores" "0 0" "$BOTH"
+eq "  ... and reads back the same from either" "$(bash "$HERE/record-parse.sh" "$T/r6-gh.md" | jq -cS 'del(.written)')" \
+    "$(env RS_SOURCE=session RS_SESSION="$R6S" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show \
+        | bash "$HERE/record-parse.sh" | jq -cS 'del(.written)')"
+eq "  ... the cell unchanged" "x \`code | pipe\` y
+line two \`\`\` z" "$(koto context get "$R6S" record/deferrals | jq -r '.[3].reason')"
 
 done_tests record-write

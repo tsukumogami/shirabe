@@ -21,8 +21,8 @@
 # terminal results name as `record`.
 #
 # Verdict tokens (the first word is what coord-verdict.sh routes on):
-#   roadmap:    found <n> | none | ambiguous <n> <m> [...] | foreign <n>
-#               | malformed <n> | unauthorized <n>
+#   roadmap:    found <n> | found <n> session | move <n> | none
+#               | ambiguous <n> <m> [...] | foreign <n> | malformed <n> | unauthorized <n>
 #   discipline: found <n> | predecessor <n> | foreign <n> | ambiguous <n> [...]
 #               | malformed <n> | unauthorized <n> | stale-branch | unopened | none
 #
@@ -34,14 +34,27 @@
 # The detail goes to context key coord/record_find.json as data:
 #   {verdict, ref, url, reason, candidates, default_branch, rotation:{start,end}, store}
 # and the run's store to coord/source.json: {source, reason, probe}. A found
-# record's store is its `store` Run row (`github` without one); a record whose
-# store is `session` is reported `malformed` with the reason
-# `store-unavailable`, since this release reads only the GitHub store, and a
-# malformed or doubled `store` row is `malformed` with `store-malformed`. The
-# invocation's store (the STORE variable) is refused here as well as at the
-# opener: any value at discipline scope is `malformed` with `store-discipline`,
-# and `session` on a scope with no record is `malformed` with
-# `store-unavailable`, so no record is opened for it.
+# record's store is its `store` Run row (`github` without one;
+# docs/designs/DESIGN-coordinator-session-record.md, Decisions 2, 10 and 11):
+#   - `session` on a record in the moved shape (every section empty, the Run
+#     section only that row): `found <n> session`, the run reads the session
+#     store, which this run's session must hold (record/meta), else `malformed`
+#     with `session-absent`;
+#   - `session` on a record still holding its state tables: a move, `move <n>`,
+#     once the record's entries (through the author filter) hold the `run`
+#     entry record-state.sh posted with the row, else `malformed` with
+#     `store-unverified`;
+#   - `github`, or no row, while a session of this scope on this host holds
+#     record/meta: `malformed` with `store-conflict`, a stop for the person,
+#     never a switch back to the GitHub state.
+# A run on the session store needs koto's `context list --prefix` and `session
+# import`; without them it is `malformed` with `store-unsupported`, naming what
+# is missing, before anything is written (PRD R2). A malformed or doubled
+# `store` row is `malformed` with `store-malformed`. At discipline scope a
+# rotation has no store: a `store` row, or any value of the invocation's store
+# (the STORE variable), is `malformed` with `store-discipline`. The invocation's
+# `session` on a roadmap scope with no record makes the record that
+# record-open.sh opens a session-store one.
 # The token, sealed to this visit of record_find, is the only stdout line;
 # under --no-seal it is printed bare and no context is written.
 #
@@ -81,12 +94,12 @@ if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u 
 T=$(mktemp -d "${TMPDIR:-/tmp}/record-find.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE= FLAG_REFUSED=
+VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE= FLAG_REFUSED= SESSION_STOP=
 # The invocation's --store (the STORE variable), read once. coordinate-open.sh
-# refuses `session` and any store at discipline scope before a session exists;
-# the find refuses them too, since a session opened some other way reaches here
-# with whatever the variable's pattern admits. A session whose variables can't
-# be read stops here, rather than being taken as one with no --store.
+# refuses any store at discipline scope before a session exists; the find
+# refuses it too, since a session opened some other way reaches here with
+# whatever the variable's pattern admits. A session whose variables can't be
+# read stops here, rather than being taken as one with no --store.
 FLAG=
 if [ -n "$SESSION" ]; then
     FLAG=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" | jq -r '.STORE // ""') \
@@ -94,9 +107,9 @@ if [ -n "$SESSION" ]; then
 fi
 
 # store_flag_guard: the invocation's store, where it decides: a discipline
-# record has no store, and a new roadmap scope can't start on the session store
-# in this release. Either stops the run at record_conflict, before any record is
-# opened, as malformed with the reason named.
+# record has no store, and a new roadmap scope opened on the session store needs
+# koto's session-store features. Either stops the run at record_conflict, before
+# any record is opened, as malformed with the reason named.
 store_flag_guard() {
     [ -n "$FLAG" ] || return 0
     if [ "$SCOPE" = discipline ]; then
@@ -106,17 +119,26 @@ store_flag_guard() {
     fi
     case "$VERDICT" in
         none|stale-branch|unopened)
-            if [ "$FLAG" = session ]; then
-                VERDICT=malformed; NUM=; FLAG_REFUSED=1
-                REASON="store-unavailable: a new scope can't start on the session store in this release"
-            fi ;;
+            [ "$FLAG" = session ] && ! store_probe && NUM= ;;
     esac
+}
+
+# store_probe: the session store's koto features; without them the run stops,
+# naming what is missing, and never falls back to GitHub (PRD R2).
+store_probe() {
+    local missing
+    missing=$(rs_probe_missing) || lib_die2 "the koto feature probe failed"
+    [ -z "$missing" ] && return 0
+    VERDICT=malformed; SESSION_STOP=1
+    REASON="store-unsupported: this koto lacks $missing, which the session store needs; install a koto that has it"
+    return 1
 }
 
 finish() {
     store_flag_guard
     local token=$VERDICT
     [ -n "$NUM" ] && token="$VERDICT $NUM"
+    [ "$VERDICT" = found ] && [ "$RECORD_STORE" = session ] && token="$token session"
     jq -n --arg v "$VERDICT" --arg ref "$NUM" --arg url "$URL" --arg reason "$REASON" \
         --argjson c "$CANDS" --arg db "$DEFAULT_BRANCH" --arg s "$ROT_START" --arg e "$ROT_END" \
         '{verdict: $v, ref: $ref, url: $url, reason: $reason, candidates: $c, default_branch: $db,
@@ -124,7 +146,7 @@ finish() {
     # The found record's URL, for the terminal results' `record` field
     # (${context.record_url}): written here, by the engine's own read, so the
     # closing report names the record the run actually found.
-    if [ "$NO_SEAL" != 1 ] && [ "$VERDICT" = found ] \
+    if [ "$NO_SEAL" != 1 ] && { [ "$VERDICT" = found ] || [ "$VERDICT" = move ]; } \
         && [[ $URL =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-9]+$ ]]; then
         printf '%s' "$URL" > "$T/record_url"
         "$KOTO" context add "$SESSION" record_url --from-file "$T/record_url" >/dev/null || lib_die2 "koto context add record_url failed"
@@ -138,19 +160,24 @@ finish() {
 # probe's reading of koto, into coord/source.json for a person to read. A found
 # record's store is its own `store` Run row, `github` without one; the
 # invocation's --store (the STORE variable) decides only for a scope with no
-# record, and is reported ignored otherwise. A refusal (a session-store record,
-# or a store the invocation can't have) records the GitHub store and the
-# refusal's own reason, and so does a candidate the find rejected (malformed,
-# store-malformed among them, ambiguous, foreign, unauthorized, stale-branch,
-# predecessor): there is a record, it just wasn't adopted. The file records the
-# store the run reads, not the one asked for. The run's readers take the store
-# from coord-log.sh run-store, which reads `github` for every run that gets past
-# this find.
+# record, and is reported ignored otherwise. A stop on the session store's own
+# account (store-unsupported, session-absent) records the session store and its
+# reason; any other refusal records the GitHub store and its own reason, and so
+# does a candidate the find rejected (malformed, store-malformed among them,
+# ambiguous, foreign, unauthorized, stale-branch, predecessor): there is a
+# record, it just wasn't adopted. The file records the store the run reads, not
+# the one asked for. The run's readers take the store from coord-log.sh
+# run-store, which reads it from this find's token.
 write_source() {
     [ "$NO_SEAL" = 1 ] && return 0
     local flag=$FLAG store reason probe
-    if [ -n "$FLAG_REFUSED" ]; then
+    if [ -n "$SESSION_STOP" ]; then
+        store=session; reason=$REASON
+    elif [ -n "$FLAG_REFUSED" ]; then
         store=github; reason=$REASON
+    elif [ "$VERDICT" = move ]; then
+        store=session
+        reason="the record's store row reads session and it still holds its state tables: this run moves it from GitHub to the session store"
     elif [ "$VERDICT" = found ]; then
         store=${RECORD_STORE:-github}
         reason="the record's store"
@@ -170,17 +197,59 @@ write_source() {
     jq --arg s "$store" '. + {store: $s}' "$T/detail.json" > "$T/detail.json.t" && mv "$T/detail.json.t" "$T/detail.json"
 }
 
-# record_store: the found record's `store` Run row, into RECORD_STORE. A record
-# on the session store stops the run here: this release reads the record only
-# from GitHub.
+# record_store: the found record's `store` Run row, into RECORD_STORE, and what
+# it means for this run (the header's list). Returns 1 with VERDICT and REASON
+# set when the run doesn't go on to reconcile from here.
 record_store() {
+    local sessions holders
     RECORD_STORE=$(jq -r '[(.run // [])[] | select(.key == "store") | .value][0] // ""' "$T/parsed.json")
-    if [ "$RECORD_STORE" = session ]; then
+    if [ "$SCOPE" = discipline ]; then
+        [ -z "$RECORD_STORE" ] && return 0
         VERDICT=malformed; FLAG_REFUSED=1
-        REASON="store-unavailable: the record's store is session, which this release can't read"
+        REASON="store-discipline: a discipline rotation's record has no store row; this one reads $RECORD_STORE"
+        return 1
+    fi
+    if [ "$RECORD_STORE" = session ]; then
+        store_probe || return 1
+        if rs_moved "$T/parsed.json"; then
+            # The state is in the session store; this run's session must hold it.
+            if [ -n "$SESSION" ] && ! "$KOTO" context exists "$SESSION" record/meta < /dev/null > /dev/null 2> "$T/k.err"; then
+                VERDICT=malformed; SESSION_STOP=1
+                REASON="session-absent: #$NUM's state is on the session store, and this run's session $SESSION doesn't hold it"
+                return 1
+            fi
+            return 0
+        fi
+        # Still holding its tables: a move, once the row is shown to be the
+        # owner's, by the `run` entry record-state.sh posts with it.
+        if ! store_row_entry; then
+            VERDICT=malformed; FLAG_REFUSED=1
+            REASON="store-unverified: #$NUM's Run section reads store session, but its entries hold no run entry recording it; set it with record-state.sh --run store session --by <who>"
+            return 1
+        fi
+        VERDICT=move; REASON="moving the record onto the session store"
+        return 1
+    fi
+    # GitHub: never while a session of this scope here holds the record's state.
+    holders=$(rs_scope_sessions "$SCOPE" "$NAME") || lib_die2 "cannot list this host's sessions"
+    if [ -n "$holders" ]; then
+        sessions=$(printf '%s' "$holders" | tr '\n' ' ' | sed 's/ $//')
+        local reads="no store row"
+        [ -n "$RECORD_STORE" ] && reads="store $RECORD_STORE"
+        VERDICT=malformed; FLAG_REFUSED=1
+        REASON="store-conflict: #$NUM reads $reads, but session $sessions on this host holds this scope's state; the person decides which is the record"
         return 1
     fi
     return 0
+}
+
+# store_row_entry: 0 when the record's entries, through record-append.sh's
+# author filter, hold the `run` entry record-state.sh posts with a store session
+# row.
+store_row_entry() {
+    RS_SOURCE=github bash "$HERE/record-append.sh" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$NUM" --list \
+        > "$T/entries.json" 2> "$T/entries.err" || lib_die2 "cannot read #$NUM's entries: $(lib_scrub < "$T/entries.err")"
+    jq -e 'any(.[]; .kind == "run" and (.text | test("^Run store set to session by .+\\.$")))' "$T/entries.json" > /dev/null
 }
 
 # judge <kind> <number> <body-file>: declaration, authority, canonical body.
@@ -221,7 +290,9 @@ if [ "$SCOPE" = roadmap ]; then
     jq -r '.[0].body' "$T/issues.json" > "$T/body.md"
     judge issue "$NUM" "$T/body.md" || finish
     record_store || finish
-    VERDICT=found; REASON="one open record"; finish
+    VERDICT=found; REASON="one open record"
+    [ "$RECORD_STORE" = session ] && REASON="one open record, on the session store"
+    finish
 fi
 
 # Discipline scope.

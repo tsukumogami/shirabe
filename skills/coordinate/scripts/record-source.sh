@@ -1,46 +1,55 @@
-# record-source.sh -- the one reader of a coordinator record's state. Sourced,
-# never run as a library: `. "$HERE/record-source.sh"` after record-common.sh
-# (it needs lib_parse and the facts lib_facts sets). Run as a script, it prints
-# one read (see Usage).
+# record-source.sh -- the one reader of a coordinator record's state. A library:
+# `. "$HERE/record-source.sh"` after record-common.sh (it needs lib_parse and the
+# facts lib_facts sets). Run as a script, it also prints one read (see Usage).
 #
 # Every script that needs the record's state reads it here, whichever store the
 # run is on (docs/designs/DESIGN-coordinator-session-record.md, Decision 1). A
-# record's store is `github` (the issue or pull request body, as before) or
-# `session` (keys in the coordinator's own koto session). This release reads the
-# GitHub store only: a run whose store reads `session` stops with
-# `store-unavailable` before anything is written.
+# record's store is `github` (the issue or pull request body) or `session` (one
+# key per section in the coordinator's own koto session, roadmap scope only).
 #
-# The GitHub reads keep each caller's own call shape, because what a caller
-# reads beside the body (the container's state, its title, its head branch) is
-# GitHub's and stays its own:
+# On the GitHub store each read keeps its caller's own call shape, because what
+# a caller reads beside the body (the container's state, its title, its head
+# branch) is GitHub's and stays its own. On the session store the record is
+# assembled from record/meta and one key per section (record/holdings,
+# record/deferrals, record/side-effects, record/reversals, record/decisions,
+# record/holds, record/run, record/standing, record/work; a section the record
+# doesn't hold has no key), rendered at record/meta's written time and parsed
+# back, so a caller gets the same files, and the same JSON, as from a GitHub
+# record holding the same state. record/meta is read before and after the
+# sections, and the read is taken again, up to three times, while a write is
+# part way through (meta marked pending, or the two meta reads differing).
 #
 #   rs_record <out> <mode> <gh view args...>
-#       Runs `gh issue view <REF> --repo <REPO> <args>` at roadmap scope and
-#       `gh pr view <REF> --repo <REPO> <args>` at discipline scope, exactly as
-#       given, with stdin from /dev/null. <mode> says what the args print:
+#       GitHub: runs `gh issue view <REF> --repo <REPO> <args>` at roadmap scope
+#       and `gh pr view <REF> --repo <REPO> <args>` at discipline scope, exactly
+#       as given, with stdin from /dev/null. <mode> says what the args print:
 #       `body` (the body text, e.g. `--json body --jq .body`) or `json` (a JSON
-#       object with .body, e.g. `--json state,body`). Writes <out> (the parsed
-#       record, record-parse.sh's JSON), <out>.raw (what gh printed), <out>.md
-#       (the body) and <out>.err (gh's stderr, or the parser's refusal).
+#       object with .body, e.g. `--json state,body`). Session: <out>.raw is what
+#       the same `gh issue view` would print, the body for `body` and {state:
+#       "OPEN", body, url} for `json`. Writes <out> (the parsed record,
+#       record-parse.sh's JSON), <out>.raw, <out>.md (the body) and <out>.err
+#       (the read's stderr, or the parser's refusal).
 #       Returns 0 parsed; 2 the read failed; 3 or 65 the body isn't a canonical
-#       record of this scope (record-parse.sh's codes); 4 the store is session;
-#       5 the parser itself failed.
+#       record of this scope (record-parse.sh's codes); 4 the session holds no
+#       record/meta (session-absent, the reason in <out>.err); 5 the parser or
+#       the renderer itself failed; 12 the session record was still being
+#       written after three re-reads (record-changed).
 #   rs_record_api <out> [<session>]
-#       The same record through `gh api --method GET repos/<repo>/issues/<ref>`,
-#       read with board-lib.sh's bl_gh (its retry and deadline) when the caller
-#       sourced board-lib.sh. The repository, number and scope come from the
-#       run's facts (coord-log.sh run-facts) of <session>, $SESSION when not
-#       given. Writes <out>, <out>.md and the raw response <out>.rec (with
-#       bl_gh's <out>.rec.err and <out>.rec.fail, or gh's <out>.rec.err), all
-#       beside <out>, for the caller's own scratch directory to clean up.
-#       Returns 0 parsed; 2 the read or the parse failed, or the store is session.
+#       GitHub: the same record through `gh api --method GET
+#       repos/<repo>/issues/<ref>`, read with board-lib.sh's bl_gh (its retry and
+#       deadline) when the caller sourced board-lib.sh; session: the session
+#       read. The repository, number and scope come from the run's facts
+#       (coord-log.sh run-facts) of <session>, $SESSION when not given. Writes
+#       <out>, <out>.md and, on GitHub, the raw response <out>.rec (with bl_gh's
+#       <out>.rec.err and <out>.rec.fail, or gh's <out>.rec.err), all beside
+#       <out>, for the caller's own scratch directory to clean up.
+#       Returns 0 parsed; 2 the read or the parse failed.
 #   rs_view <container> <ref> <repo> <gh view args...>
 #       Prints the container's fields as `gh <issue|pr> view <ref> --repo <repo>
 #       <args>` prints them, the body among them, for the one reader that keeps
 #       its own deadline and its row-by-row salvage of a body the codec refuses
-#       (reconcile-read.sh, under rd_deadline). Needs nothing else of this
-#       library. GitHub store only in this release: reconcile runs after the
-#       find, which stops a session-store record. Returns gh's status.
+#       (reconcile-read.sh, under rd_deadline). On the session store it prints
+#       {state: "OPEN", body, url}. Returns gh's status, or the session read's.
 #   rs_facts <parsed-record> <topic>
 #       Prints one holding's facts, from a record rs_record or rs_record_api
 #       parsed: {topic, unit, repo, pull_request, number, branch, verified_head,
@@ -50,12 +59,11 @@
 #       that topic; 2 the record couldn't be read.
 #   rs_source
 #       Prints the run's store, `github` or `session`, as coord-log.sh run-store
-#       reads it from the run's sealed RECORD_FIND token, and caches it in
-#       RS_SOURCE_READ for the session in RS_SOURCE_FOR, which rs_record and
-#       rs_record_api read. In this release the token carries the verdict and
-#       the record's number only, because the find stops a session-store record,
-#       so run-store prints `github` for every run that reaches a reader. Under
-#       the test override flags it is `github` unless RS_SOURCE names another.
+#       reads it from the run's sealed RECORD_FIND token: `session` for
+#       `found <n> session` or `move <n>`, `github` otherwise. It caches the
+#       answer in RS_SOURCE_READ, for the session named in RS_SOURCE_FOR, and
+#       the reads above use it. Under the test override flags it is `github`
+#       unless RS_SOURCE names another.
 #   rs_probe
 #       Prints what this koto offers the session store, by feature:
 #       {"context_list_prefix": bool, "session_import": bool}.
@@ -64,16 +72,95 @@
 #   record-source.sh --session S --source
 #   record-source.sh --session S --probe
 #   record-source.sh --session S --facts <topic>
+#   record-source.sh --session S --show
 #   record-source.sh --scope roadmap|discipline --name N --repo O/R --ref N --facts <topic>   (tests)
 #
+# --show prints the record as its body would read, from either store, so a
+# reviewer on the coordinator's host reads a session-store record without
+# knowing key names (PRD R11). record/host is never part of it.
+#
 # Exit codes (as a script): 0 printed; 1 no holding has that topic; 2 a read
-# failed; 4 the store is session; 64 usage.
+# failed; 4 the session holds no record/meta; 12 the session record was still
+# being written; 64 usage.
 #
 # Requires: bash 3.2+, jq, gh, koto, and record-common.sh, record-parse.sh,
-# coord-log.sh and pause-read.sh beside this file.
+# record-render.sh, coord-log.sh and pause-read.sh beside this file.
 
 RS_LOADED=1
-RS_STORE_UNAVAILABLE="store-unavailable: this release reads the record only from GitHub"
+# The session store's section keys, as `<record-parse.sh field>:<key under
+# record/>` pairs (docs/designs/DESIGN-coordinator-session-record.md, Decision 3).
+# A section the record doesn't hold has no key.
+RS_SECTIONS="holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work"
+# How long a reader waits before re-reading a session record a write is part way
+# through, in seconds; tests set 0.
+RS_RETRY_PAUSE=${RS_RETRY_PAUSE:-1}
+
+# rs_key <session> <key> <file>: a key's content into <file>. Returns 0 read; 1
+# the key is absent; 2 a read failed (koto's reason appended to <file>.err).
+rs_key() {
+    local k=${KOTO:-${KOTO_BIN:-koto}}
+    "$k" context exists "$1" "$2" < /dev/null > /dev/null 2>> "$3.err"
+    case $? in
+        0) ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
+    "$k" context get "$1" "$2" < /dev/null > "$3" 2>> "$3.err" || return 2
+}
+
+# rs_assemble <meta-file> <section-dir>: the record as record-parse.sh's JSON,
+# the scope and written time from meta and one field per section file present.
+rs_assemble() {
+    local m=$1 d=$2 pair field
+    jq '{scope: .scope, written: .written}' "$m" > "$d/.acc" || return 1
+    for pair in $RS_SECTIONS; do
+        field=${pair%%:*}
+        [ -f "$d/$field" ] || continue
+        jq --arg f "$field" --slurpfile v "$d/$field" '. + {($f): $v[0]}' "$d/.acc" > "$d/.next" || return 1
+        mv "$d/.next" "$d/.acc"
+    done
+    cat "$d/.acc"
+}
+
+# rs_session_state <session> <out>: the session's record, assembled from its
+# keys into <out> as record-parse.sh's JSON, with `written` from record/meta.
+# record/meta is read before and after the section keys, and the whole read is
+# taken again, up to three times, while meta is marked pending or the two meta
+# reads differ: a write changes its sections between two meta writes. Returns 0
+# assembled; 2 a read failed or a key isn't JSON; 4 the session holds no
+# record/meta (session-absent), the reason in <out>.err; 12 the record was still
+# being written after three re-reads.
+rs_session_state() {
+    local s=$1 out=$2 try pair field key
+    : > "$out.err"
+    for try in 0 1 2 3; do
+        [ "$try" -eq 0 ] || sleep "$RS_RETRY_PAUSE"
+        rs_key "$s" record/meta "$out.m1"
+        case $? in
+            0) ;;
+            1) echo "${PROG:-record-source}: session-absent: session $s holds no record/meta; the record's state isn't on this host" >> "$out.err"; return 4 ;;
+            *) return 2 ;;
+        esac
+        jq -e 'type == "object" and (.written | type) == "string"' "$out.m1" > /dev/null 2>> "$out.err" || return 2
+        [ "$(jq -r '.pending // false' "$out.m1")" = true ] && continue
+        rm -rf "$out.sec"; mkdir -p "$out.sec" || return 2
+        for pair in $RS_SECTIONS; do
+            field=${pair%%:*} key=${pair#*:}
+            rs_key "$s" "record/$key" "$out.sec/$field"
+            case $? in
+                0) jq -e . "$out.sec/$field" > /dev/null 2>> "$out.err" || return 2 ;;
+                1) rm -f "$out.sec/$field" ;;
+                *) return 2 ;;
+            esac
+        done
+        rs_key "$s" record/meta "$out.m2" || return 2
+        [ "$(jq -cS . "$out.m1")" = "$(jq -cS . "$out.m2")" ] || continue
+        rs_assemble "$out.m1" "$out.sec" > "$out" 2>> "$out.err" || return 2
+        return 0
+    done
+    echo "${PROG:-record-source}: record-changed: session $s's record was still being written after three re-reads" >> "$out.err"
+    return 12
+}
 
 # rs_source: the run's store.
 rs_source() {
@@ -91,6 +178,42 @@ rs_source() {
     printf '%s\n' "$RS_SOURCE_READ"
 }
 
+# rs_session_read <out> <body|json> <session> <scope> <name> <repo> <ref>: the
+# files rs_record writes, from the session store: <out> the record as
+# record-parse.sh parses it, <out>.md the body rendered at record/meta's written
+# time, exactly as a GitHub record holding the same state reads, and <out>.raw
+# what `gh issue view` would print for <mode> (body: the body; json: {state:
+# "OPEN", body, url}, the url the GitHub record's). Parsing the rendered body
+# back is what makes a session read and a GitHub read of the same state give the
+# same JSON (PRD R19). Returns rs_session_state's codes; 65 record/meta names
+# another scope; 3 or 65 the body doesn't parse back canonical; 5 the renderer
+# or the parser failed.
+rs_session_read() {
+    local out=$1 mode=$2 s=$3 scope=$4 name=$5 repo=$6 ref=$7 rc w
+    : > "$out.err"
+    [ -n "$s" ] || { echo "${PROG:-record-source}: the session store needs the run's session" >> "$out.err"; return 2; }
+    rs_session_state "$s" "$out.state"; rc=$?
+    cat "$out.state.err" >> "$out.err"
+    [ $rc -eq 0 ] || return $rc
+    if [ "$(jq -c '.scope' "$out.state")" != "$(jq -nc --arg k "$scope" --arg n "$name" '{kind: $k, name: $n}')" ]; then
+        echo "${PROG:-record-source}: session $s's record/meta is for another scope than $scope:$name" >> "$out.err"
+        return 65
+    fi
+    w=$(jq -r '.written' "$out.state")
+    jq 'del(.written)' "$out.state" | bash "$HERE/record-render.sh" --container issue --written "$w" > "$out.md" 2>> "$out.err" || return 5
+    if [ "$mode" = body ]; then
+        cp "$out.md" "$out.raw"
+    else
+        jq -n --rawfile b "$out.md" --arg u "https://github.com/$repo/issues/$ref" '{state: "OPEN", body: $b, url: $u}' > "$out.raw" || return 5
+    fi
+    bash "$HERE/record-parse.sh" --container issue --expect-scope "$scope:$name" "$out.md" > "$out" 2> "$out.err"
+    rc=$?
+    case $rc in
+        0|3|65) return $rc ;;
+        *) return 5 ;;
+    esac
+}
+
 # rs_probe: the koto features the session store needs, read by feature.
 rs_probe() {
     local prefix=false import=false
@@ -99,15 +222,50 @@ rs_probe() {
     jq -nc --argjson p "$prefix" --argjson i "$import" '{context_list_prefix: $p, session_import: $i}'
 }
 
+# rs_probe_missing: the session-store features this koto lacks, comma-separated,
+# empty when it has both (PRD R2).
+rs_probe_missing() {
+    rs_probe | jq -r '[if .context_list_prefix then empty else "context list --prefix" end,
+        if .session_import then empty else "session import" end] | join(", ")'
+}
+
+# rs_scope_sessions <scope> <name>: this host's coordinator sessions of the
+# scope, coordinate-<slug>-<stamp> (the slug coord-log.sh slug derives, as
+# coordinate-open.sh names them), that hold record/meta, one name per line,
+# oldest stamp first. Returns 2 when the session list can't be read.
+rs_scope_sessions() {
+    local k=${KOTO:-${KOTO_BIN:-koto}} d s slug
+    slug=$(bash "$HERE/coord-log.sh" slug --scope "$1" --name "$2") || return 2
+    d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
+    "$k" session list < /dev/null > "$d/list" 2> "$d/err" || { rm -rf "$d"; return 2; }
+    jq -r --arg p "coordinate-$slug-" '.[] | .id | select(startswith($p) and (ltrimstr($p) | test("^[0-9]{8}T[0-9]{6}Z$")))' "$d/list" \
+        2> "$d/err" | LC_ALL=C sort > "$d/names" || { rm -rf "$d"; return 2; }
+    while IFS= read -r s; do
+        "$k" context exists "$s" record/meta < /dev/null > /dev/null 2>> "$d/err" && printf '%s\n' "$s"
+    done < "$d/names"
+    rm -rf "$d"
+}
+
+# rs_moved <parsed-record>: 0 when the record is in the moved shape (PRD R8):
+# every section empty and a Run section holding only the `store session` row.
+rs_moved() {
+    jq -e '([.holdings, .deferrals, .side_effects, .reversals, .holds, .standing, .work] | all(. == null or . == []))
+        and (has("decisions") | not)
+        and ([(.run // [])[] | "\(.key)=\(.value)"] == ["store=session"])' "$1" > /dev/null
+}
+
 # rs_record <out> <body|json> <gh view args...>
 rs_record() {
     local out=$1 mode=$2 rc
     shift 2
     case "$mode" in body|json) ;; *) echo "$PROG: rs_record: mode is body or json" >&2; return 2 ;; esac
     rs_source > /dev/null
-    if [ "$RS_SOURCE_READ" = session ]; then
-        echo "$PROG: $RS_STORE_UNAVAILABLE" > "$out.err"
-        return 4
+    # RS_READ_STORE names the store to read when it isn't the run's: the write
+    # core sets it to the store it is writing, so the move reads the GitHub body
+    # it rewrites while the run itself is on the session store.
+    if [ "${RS_READ_STORE:-$RS_SOURCE_READ}" = session ]; then
+        rs_session_read "$out" "$mode" "${RS_SESSION:-${SESSION:-}}" "$SCOPE" "$NAME" "$REPO" "$REF"
+        return $?
     fi
     if [ "$CONTAINER" = issue ]; then
         gh issue view "$REF" --repo "$REPO" "$@" > "$out.raw" 2> "$out.err" < /dev/null
@@ -135,9 +293,17 @@ rs_record() {
 
 # rs_view <container> <ref> <repo> <gh view args...>
 rs_view() {
-    local c=$1 r=$2 repo=$3
+    local c=$1 r=$2 repo=$3 d rc
     shift 3
     case "$c" in issue|pr) ;; *) echo "${PROG:-record-source}: rs_view: the container is issue or pr" >&2; return 64 ;; esac
+    if [ -n "${SESSION:-}" ] && [ "$c" = issue ] && [ "$(rs_source)" = session ]; then
+        d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
+        rs_session_read "$d/rec" json "$SESSION" "$SCOPE" "$NAME" "$repo" "$r"; rc=$?
+        [ $rc -eq 0 ] && cat "$d/rec.raw"
+        [ $rc -eq 0 ] || cat "$d/rec.err" >&2
+        rm -rf "$d"
+        return $rc
+    fi
     gh "$c" view "$r" --repo "$repo" "$@" < /dev/null
 }
 
@@ -155,13 +321,8 @@ rs_target_ok() {
 # rs_record_api <out>: the run's record through the issues API, under
 # board-lib.sh's bl_gh when it is loaded.
 rs_record_api() {
-    local out=$1 facts rrepo ref scope name c
+    local out=$1 facts rrepo ref scope name c rc
     local SESSION=${2:-${SESSION:-}}
-    rs_source > /dev/null
-    if [ "$RS_SOURCE_READ" = session ]; then
-        echo "$PROG: $RS_STORE_UNAVAILABLE" >&2
-        return 2
-    fi
     facts=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION") || return 2
     rrepo=$(printf '%s' "$facts" | jq -r '.repo // ""')
     ref=$(printf '%s' "$facts" | jq -r '.ref // ""')
@@ -169,6 +330,13 @@ rs_record_api() {
     name=$(printf '%s' "$facts" | jq -r '.name // ""')
     rs_target_ok "$rrepo" "$ref" || return 2
     case "$scope" in roadmap) c=issue ;; discipline) c=pr ;; *) return 2 ;; esac
+    rs_source > /dev/null
+    if [ "$RS_SOURCE_READ" = session ]; then
+        rs_session_read "$out" json "$SESSION" "$scope" "$name" "$rrepo" "$ref"; rc=$?
+        cat "$out.err" >&2
+        [ $rc -eq 0 ] || return 2
+        return 0
+    fi
     if declare -F bl_gh > /dev/null; then
         bl_gh "$out.rec" api --method GET "repos/$rrepo/issues/$ref" || return 2
     else
@@ -225,6 +393,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
             --ref) [ $# -ge 2 ] || rs_usage; REF=$2; shift 2 ;;
             --source) ACTION=source; shift ;;
             --probe) ACTION=probe; shift ;;
+            --show) ACTION=show; shift ;;
             --facts) [ $# -ge 2 ] || rs_usage; ACTION=facts; TOPIC=$2; shift 2 ;;
             *) rs_usage ;;
         esac
@@ -238,16 +407,21 @@ if [ "${BASH_SOURCE[0]}" = "$0" ]; then
     case "$ACTION" in
         source) rs_source; exit 0 ;;
     esac
-    [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the topic is not a dispatch topic" >&2; exit 64; }
+    [ "$ACTION" != facts ] || [[ $TOPIC =~ $RE_TOPIC ]] || { echo "$PROG: the topic is not a dispatch topic" >&2; exit 64; }
     lib_run_ref || { echo "$PROG: the run has no record yet" >&2; exit 2; }
     RS_T=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX")
     trap 'rm -rf "$RS_T"' EXIT
     rs_record "$RS_T/rec" body --json body --jq .body
     case $? in
         0) ;;
-        4) cat "$RS_T/rec.err" >&2; exit 4 ;;
+        4) lib_scrub < "$RS_T/rec.err" >&2; exit 4 ;;
+        12) lib_scrub < "$RS_T/rec.err" >&2; exit 12 ;;
         *) echo "$PROG: the record couldn't be read: $(lib_scrub < "$RS_T/rec.err" | head -3)" >&2; exit 2 ;;
     esac
+    if [ "$ACTION" = show ]; then
+        cat "$RS_T/rec.md"
+        exit 0
+    fi
     rs_facts "$RS_T/rec" "$TOPIC"
     exit $?
 fi

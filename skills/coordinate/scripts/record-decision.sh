@@ -188,6 +188,7 @@ read_live() {
         2) lib_scrub < "$WD/parsed.json.err" >&2; echo >&2
            [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
         4) lib_scrub < "$WD/parsed.json.err" >&2; exit 10 ;;
+        12) lib_scrub < "$WD/parsed.json.err" >&2; exit 12 ;;
     esac
     cp "$WD/parsed.json.md" "$WD/live.md"
     # A write to a record past the write core's budget is record-full before

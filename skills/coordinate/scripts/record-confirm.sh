@@ -167,7 +167,7 @@ rs_record "$T/rec.json" body --json state,body --jq '.body // ""'
 case $? in
     0) ;;
     2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF"; lib_die2 "cannot read pull request #$REF" ;;
-    4) lib_die2 "$(lib_scrub < "$T/rec.json.err")" ;;
+    4|12) lib_die2 "$(lib_scrub < "$T/rec.json.err")" ;;
     *) VERDICT=conflict; REASON="the record body is missing or not canonical"; finish ;;
 esac
 if ! [ -s "$T/rec.json.md" ]; then

@@ -53,7 +53,7 @@ to advance it, what it never does, and how it ends.
 | `--cap <n>` | The cap on active workers, default 5. Parked workers, merged ones waiting for teardown and local agents don't count. |
 | `--parked-bound <n>` | Parked workers waiting on a person's merge before nothing new is dispatched, default 3. |
 | `--rotation-days <n>` | A rotation's length, the human's decision, default 7. |
-| `--store github\|session` | Where a new roadmap scope's record keeps its state, default `github`. A record that already exists decides for itself, and the flag is then reported ignored. This release reads the record only from GitHub, and refuses `session` (`store-unavailable`). |
+| `--store github\|session` | Where a new roadmap scope's record keeps its state, default `github`. A record that already exists decides for itself, and the flag is then reported ignored. `session` keeps the new record's state in the coordinator's session; roadmap scope only. |
 | `-- <text>` | Everything after `--` is the human's decisions and the effort's constraints. It is never an instruction for how to coordinate, and it changes no setting. |
 
 When the human's decisions state one of these settings in words ("host repo:
@@ -203,8 +203,21 @@ its Run section is on GitHub; only its owner moves it, by writing that row with
 `scripts/record-state.sh --run store <github|session> --by <person>`, and
 nothing else (no flag, no default, no upgrade) changes it. The find reads the
 row at every start and writes the run's store, why, and what its probe read of
-koto, to `coord/source.json`, so a successor never guesses. This release reads only
-the GitHub store: a `session` row stops the run at the find.
+koto, to `coord/source.json`, so a successor never guesses.
+
+On the session store (roadmap scope) the state is one key per section in the
+run's own session, written by the same writers through the same write core and
+read through the same reader; the GitHub record stays open in the moved shape
+(a Run section holding only the `store session` row), and its outward entries
+(cost, verdicts, goal fit, failures) are still posted to it. A `session` row on
+a record that still holds its tables is moved at the next start
+(`record_move`): its state copied into the run's session, a `moved` entry
+posted, and the body rewritten to the moved shape. A run whose session doesn't
+hold a session-store record's state stops at the find (`session-absent`), as
+does a GitHub record while a session of its scope here holds that state
+(`store-conflict`), and a koto without the session store's features
+(`store-unsupported`). `scripts/record-source.sh --show` prints the session's
+state as the record body would read.
 
 Every script reads the record's state through one reader,
 `scripts/record-source.sh`, whichever store the run is on. The only other

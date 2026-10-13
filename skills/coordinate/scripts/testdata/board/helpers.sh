@@ -117,7 +117,7 @@ bt_run() {
     bt_enter "$1" start_posture
     bt_sealed "$1" start_posture POSTURE "$2"
     bt_enter "$1" record_find
-    bt_sealed "$1" record_find RECORD_FIND "found 7"
+    bt_sealed "$1" record_find RECORD_FIND "${BT_FIND_TOKEN:-found 7}"
     bt_enter "$1" verify
     bt_evidence "$1" verify '{"prediction":"every job green"}'
 }
@@ -146,6 +146,25 @@ bt_record_paused() {
         deferrals: [], side_effects: [], reversals: [], holds: $h, standing: $s}' > "$T/rec.json"
     bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/rec.json" > "$T/rec.md" || return 1
     jq -Rsc '{number: 7, body: .}' "$T/rec.md" > "$GH_BOARD_DIR/issue-7.out"
+}
+# bt_session_record <S>: the record bt_record_body or bt_record_paused last
+# built ($T/rec.json), as the session store holds it in S's keys (record/meta and
+# one key per section), and issue #7's body emptied, so a reader that finds the
+# record's holds or pauses read them from the session.
+bt_session_record() {
+    local f pair field key
+    jq -c '{scope, store: "session", written: "2026-09-26T11:00:00Z", pending: false}' "$T/rec.json" > "$T/meta.json"
+    "$KOTO_BIN" context add "$1" record/meta --from-file "$T/meta.json" || return 1
+    for pair in holdings:holdings deferrals:deferrals side_effects:side-effects reversals:reversals decisions:decisions holds:holds run:run standing:standing work:work; do
+        field=${pair%%:*} key=${pair#*:}
+        jq -e --arg f "$field" 'has($f)' "$T/rec.json" > /dev/null || continue
+        jq -c --arg f "$field" '.[$f]' "$T/rec.json" > "$T/sec.json"
+        "$KOTO_BIN" context add "$1" "record/$key" --from-file "$T/sec.json" || return 1
+    done
+    jq -nc '{scope: {kind: "roadmap", name: "demo"}, holdings: [], deferrals: [], side_effects: [], reversals: [],
+        run: [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:00Z"}]}' > "$T/moved.json"
+    bash "$PS/record-render.sh" --written 2026-09-26T11:00:00Z "$T/moved.json" > "$T/moved.md" || return 1
+    jq -Rsc '{number: 7, body: .}' "$T/moved.md" > "$GH_BOARD_DIR/issue-7.out"
 }
 bt_pause() {
     jq -nc --arg s "$1" --arg k "$2" --arg o "$3" --arg u "$4" \

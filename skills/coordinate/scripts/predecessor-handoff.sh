@@ -87,7 +87,7 @@ trap 'rm -rf "$T"' EXIT
 # title and head from the same read.
 rs_record "$T/parsed.json" json --json title,body,headRefOid; RS_RC=$?
 [ $RS_RC -eq 2 ] && lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/parsed.json.err")"
-[ $RS_RC -eq 4 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
+[ $RS_RC -eq 4 ] || [ $RS_RC -eq 12 ] && lib_die2 "$(lib_scrub < "$T/parsed.json.err")"
 cp "$T/parsed.json.raw" "$T/pr.json"
 TITLE=$(jq -r '.title // ""' "$T/pr.json")
 

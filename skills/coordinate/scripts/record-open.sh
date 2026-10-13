@@ -17,8 +17,21 @@
 # first (the find's stale-branch and unopened cases), so a squash-merged
 # history never comes back.
 #
+# On the session store (roadmap scope, --store session or the run's STORE
+# variable; docs/designs/DESIGN-coordinator-session-record.md, Decision 10) the
+# issue opens in the moved shape, every section empty and a Run section holding
+# only the `store session` row, and the body's state, with that row, is written
+# into the run's session (record/meta and one key per section) through the
+# write core. The issue comes first because the seed writes through the core
+# against that record's number, so a seed that fails leaves the issue open in
+# the moved shape with no state behind it (record= already printed, then the
+# core's own exit). Running this again is refused (exit 10: the issue exists),
+# and the next start's find stops at `session-absent`; a person closes the empty
+# issue, and the start after that opens the record afresh.
+#
 # Usage:
 #   record-open.sh --session S --body-file F [--start YYYY-MM-DD --end YYYY-MM-DD] [--recut]
+#                  [--store github|session]
 #   record-open.sh --scope roadmap|discipline --name N --repo O/R
 #                  --skip-session-checks --body-file F [...]         (tests)
 #
@@ -29,7 +42,10 @@
 # Exit codes: 0 opened (prints record=<url>); 10 refused (a record exists, the
 # branch exists without --recut, provenance, or a directed transition); 11 a
 # write failed partway (prints step=<ref-delete|commit|ref-create|pr-create|
-# issue-create>); 2 a read failed; 64 usage; 65 the body was refused.
+# issue-create|moved-render|seed-render>); 2 a read failed; 64 usage; 65 the
+# body was refused. On the session store, once record=<url> is printed, a
+# failed seed exits with the write core's code (10, 11, 12, 13 or 65), the
+# issue left as the paragraph above describes.
 #
 # GitHub calls:
 #   reads:  those record-common.sh's lib_open_issues and lib_discipline_read make;
@@ -44,7 +60,7 @@ set -uo pipefail
 
 PROG=record-open
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= BODY= START= END=
+SESSION= SCOPE= NAME= REPO= REF= BODY= START= END= STORE=
 RECUT=0 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -58,6 +74,7 @@ while [ $# -gt 0 ]; do
         --start) [ $# -ge 2 ] || usage; START=$2; shift 2 ;;
         --end) [ $# -ge 2 ] || usage; END=$2; shift 2 ;;
         --recut) RECUT=1; shift ;;
+        --store) [ $# -ge 2 ] || usage; STORE=$2; shift 2 ;;
         --skip-session-checks) SKIP_CHECKS=1; shift ;;
         *) usage ;;
     esac
@@ -65,6 +82,16 @@ done
 [ -n "$BODY" ] && [ -r "$BODY" ] || usage
 . "$HERE/record-common.sh"
 lib_facts
+# The new record's store: --store, else the run's STORE variable
+# (coordinate-open.sh --store), else GitHub.
+if [ -z "$STORE" ] && [ -n "$SESSION" ]; then
+    STORE=$(bash "$HERE/coord-log.sh" vars --session "$SESSION" | jq -r '.STORE // ""') \
+        || lib_die2 "the session's variables couldn't be read"
+fi
+case "${STORE:-github}" in github|session) ;; *) usage ;; esac
+if [ "$STORE" = session ] && [ "$SCOPE" != roadmap ]; then
+    echo "$PROG: refused: store-discipline: the session store is for roadmap scope" >&2; exit 65
+fi
 if [ "$SCOPE" = discipline ]; then
     lib_valid_date "$START" && lib_valid_date "$END" || usage
     if [ "$END" \< "$START" ]; then echo "$PROG: refused: the end date $END is before the start $START" >&2; exit 65; fi
@@ -100,8 +127,32 @@ if [ "$SCOPE" = roadmap ]; then
         echo "$PROG: refused: an open issue titled \"$ISSUE_TITLE\" exists (#$(jq -r 'map(.number | tostring) | join(", #")' "$T/issues.json"))" >&2
         exit 10
     fi
-    URL=$(gh issue create --repo "$REPO" --title "$ISSUE_TITLE" --body-file "$BODY" 2> "$T/w.err" < /dev/null) || step_failed issue-create
-    echo "record=$(printf '%s' "$URL" | tail -1)"
+    if [ "$STORE" != session ]; then
+        URL=$(gh issue create --repo "$REPO" --title "$ISSUE_TITLE" --body-file "$BODY" 2> "$T/w.err" < /dev/null) || step_failed issue-create
+        echo "record=$(printf '%s' "$URL" | tail -1)"
+        exit 0
+    fi
+    # On the session store (docs/designs/DESIGN-coordinator-session-record.md,
+    # Decision 10) the issue opens in the moved shape, a Run section holding
+    # only the `store session` row, and the record's state, that row included,
+    # goes into this run's session through the write core's seeding write.
+    NOWM=$(date -u +%Y-%m-%dT%H:%MZ)
+    jq -c --arg t "$NOWM" '{scope, holdings: [], deferrals: [], side_effects: [], reversals: [],
+        run: [{key: "store", value: "session", set_by: "the invocation (--store session)", set: $t}]}' "$T/parsed.json" \
+        | bash "$HERE/record-render.sh" --container issue --written "$(lib_now)" > "$T/moved.md" 2> "$T/w.err" || step_failed moved-render
+    jq -c --arg t "$NOWM" 'del(.written) | .run = ((.run // []) + [{key: "store", value: "session", set_by: "the invocation (--store session)", set: $t}])' "$T/parsed.json" \
+        | bash "$HERE/record-render.sh" --container issue --written "$(lib_now)" > "$T/seed.md" 2> "$T/w.err" || step_failed seed-render
+    URL=$(gh issue create --repo "$REPO" --title "$ISSUE_TITLE" --body-file "$T/moved.md" 2> "$T/w.err" < /dev/null) || step_failed issue-create
+    URL=$(printf '%s' "$URL" | tail -1)
+    REF=${URL##*/issues/}
+    [[ $REF =~ $RE_NUM ]] || lib_die2 "the new issue's URL names no number: $URL"
+    echo "record=$URL"
+    # The core takes over T and its EXIT trap; it removes this script's own
+    # scratch directory, which holds the seed body, as CORE_CLEANUP.
+    BODY="$T/seed.md" END= CLOSE=0 CORE_CLEANUP=$T
+    . "$HERE/record-write-core.sh"
+    SESSION_SEED=1 CORE_STORE=session
+    core_write > /dev/null || exit $?
     exit 0
 fi
 

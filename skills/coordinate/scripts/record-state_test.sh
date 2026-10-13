@@ -24,7 +24,7 @@
 # --done --kind verdict-owed and --work --kind verdict-owed refused; a rework
 # row kept by other writes, --work --kind rework refused, record-write.sh
 # changing or removing it refused, --done --kind rework removing it; and
-# record-handover.sh's report and gaps.
+# record-handover.sh's report and gaps, on either store.
 #
 # Usage: bash skills/coordinate/scripts/record-state_test.sh
 set -uo pipefail
@@ -301,5 +301,27 @@ bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "no gaps once each is to
 seed "$(printf '%s' "$TWO" | jq -c --arg s "$SHA_HEAD" '.holdings[1].verified_head = $s')"
 eq "a merged holding needs no next step" "no-arguments no-cap no-coordinator no-next-step Feature 2" \
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
+
+# On the session store the stored set is read from the run's record/ keys, and
+# the GitHub body, in the moved shape, plays no part (PRD R18).
+SD=coordinate-roadmap-plugin-system-20260926T170000Z
+SEN=(env RS_SOURCE=session RS_SESSION="$SD")
+seed "$(record_json roadmap plugin-system)"
+render "$TWO" issue 2026-09-26T08:00:00Z | bash "$HERE/record-parse.sh" --container issue > "$T/sd.json"
+session_keys "$SD" "$T/sd.json"
+eq "the session store's handover read lists the keys' gaps" "no-arguments no-cap no-coordinator no-next-step Feature 2 no-next-step Feature 3" \
+    "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap] | join(" ")')"
+"${SEN[@]}" bash "$RS" "${W[@]}" --run arguments "--roadmap x --cap 2" --by "the human" >/dev/null 2>&1
+"${SEN[@]}" bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>&1
+"${SEN[@]}" bash "$RS" "${W[@]}" --run coordinator lane-v2 --by lane-v2 >/dev/null 2>&1
+"${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 2" --kind holding --who worker-f2 --next x >/dev/null 2>&1
+"${SEN[@]}" bash "$RS" "${W[@]}" --work "Feature 3" --kind holding --who worker-f3 --next y >/dev/null 2>&1
+"${SEN[@]}" bash "$RS" "${W[@]}" --told worker-f2 --by lane-v2 >/dev/null 2>&1
+"${SEN[@]}" bash "$RH" "${RM[@]}" --check >/dev/null 2>"$T/err"; eq "  ... and closes them as record-state.sh writes the keys" 0 $?
+bash "$RH" "${RM[@]}" | jq -e '.gaps | length > 0' >/dev/null && ok "  ... which the GitHub body never saw" || bad "  ... which the GitHub body never saw" ""
+"${SEN[@]}" bash "$RS" "${W[@]}" --standing answer --what "panels at the head" --owner "the human" --relayed-by lane-v2 >/dev/null 2>"$T/err"
+eq "a Standing row is written on the session store" 0 $?
+eq "  ... into record/standing" "answer|the human" "$(koto context get "$SD" record/standing | jq -r '.[0] | "\(.kind)|\(.owner)"')"
+eq "  ... and read back through the seam" "panels at the head" "$("${SEN[@]}" bash "$RH" "${RM[@]}" | jq -r '.standing[0].what')"
 
 done_tests record-state_test
