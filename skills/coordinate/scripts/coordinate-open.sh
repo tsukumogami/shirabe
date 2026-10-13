@@ -27,12 +27,13 @@
 # An import (PRD R14) moves a run another host started here: `--import
 # <session> --from <workspace path>` with the roadmap path, and no setting.
 # The name must be a run of this scope, and no other run of it may be live
-# here. koto's `session import` brings the run from the bucket (taking the
+# here (the import's own target may be, after koto's import_unmarked: the same
+# import run again only marks the source). koto's `session import` brings the run from the bucket (taking the
 # template from the bucket only under `--trust-template`) and marks the source
 # migrated; its refusals print `refused=<koto code>`. The imported run must
 # then pass what a resume needs (the shipped template's hash, provenance, the
-# session store); one that doesn't stays here, refused, and a plain start
-# carries it. record/host takes the source's workspace, session and template
+# session store, no directed transition); one that doesn't stays here, refused,
+# and a plain start carries it. record/host takes the source's workspace, session and template
 # hash, and the output is `imported=<session>`, `resumed=1`, `session=<it>`.
 #
 # Tokens, in order, from a JSON array of strings in <args-file>:
@@ -193,15 +194,6 @@ SLUG=$(bash "$HERE/coord-log.sh" slug --scope "$SCOPE" --name "$NAME") || usage 
 SESSION="coordinate-$SLUG-$(date -u +%Y%m%dT%H%M%SZ)"
 TEMPLATE="$PLUGIN_ROOT/skills/coordinate/koto-templates/coordinate.md"
 
-# A record on the session store lives in a run's session on this host, so a
-# start first looks here for the scope's run that holds it
-# (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12).
-# record-source.sh --candidate decides, against the shipped template's hash:
-# resume keeps that run (no new session, no cancel, and the run keeps its
-# stamp); carry opens a new run below and copies its record/ and legs/ keys in;
-# none opens a new run as on GitHub. Roadmap scope only: a discipline record is
-# on GitHub.
-CARRY_FROM=
 refuse_import() { # refuse_import <code> <why>
     echo "refused=$1"; echo "coordinate-open: $2" >&2; exit 2
 }
@@ -239,6 +231,8 @@ if [ -n "$IMPORT" ]; then
         [ -n "$TEXT" ] || TEXT=$(jq -r '.error.message // empty' "$DIR/out" 2>/dev/null | head -c 400)
         echo "refused=$CODE"; echo "coordinate-open: koto refused the import: ${TEXT:-exit $RC}" >&2
         rm -rf "$DIR"
+        # koto's exit 1 is a read, push or marker failure worth retrying;
+        # everything else it refuses is exit 2, as this script's own refusals.
         [ $RC -eq 1 ] && exit 1
         exit 2
     fi
@@ -253,12 +247,30 @@ if [ -n "$IMPORT" ]; then
         "$IMPORT wasn't opened from this host's plugin (its plugin root differs); it stays on this host, and a plain start carries its record into a new run"
     [ "$(bash "$HERE/coord-log.sh" run-store --session "$IMPORT" 2>/dev/null)" = session ] \
         || refuse_import session-source "$IMPORT's find didn't record the session store; it holds no session-store record to continue"
+    # A run moved with `koto next --to` refuses every write, so it isn't one to
+    # continue either (the resume candidate's own last check).
+    bash "$HERE/coord-log.sh" directed-since --session "$IMPORT" --from 0 > /dev/null 2>&1
+    case $? in
+        0) ;;
+        1) refuse_import session-directed "$IMPORT has a directed transition in its log; it stays on this host, and a plain start carries its record into a new run" ;;
+        *) echo "failed=directed_read"; echo "coordinate-open: $IMPORT's log couldn't be read for directed transitions" >&2; exit 1 ;;
+    esac
     bash "$HERE/record-state.sh" --session "$IMPORT" --host source_workspace "$FROM" --host source_session "$IMPORT" \
         --host template_hash "$HASH" > /dev/null 2>&1 \
         || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run record-state.sh --host for it" >&2; exit 1; }
     printf 'imported=%s\nresumed=1\nsession=%s\n' "$IMPORT" "$IMPORT"
     exit 0
 fi
+
+# A record on the session store lives in a run's session on this host, so a
+# start first looks here for the scope's run that holds it
+# (docs/designs/DESIGN-coordinator-session-record.md, Decision 6; PRD R12).
+# record-source.sh --candidate decides, against the shipped template's hash:
+# resume keeps that run (no new session, no cancel, and the run keeps its
+# stamp); carry opens a new run below and copies its record/ and legs/ keys in;
+# none opens a new run as on GitHub. Roadmap scope only: a discipline record is
+# on GitHub.
+CARRY_FROM=
 if [ "$SCOPE" = roadmap ]; then
     COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
     SHIPPED=$(basename -- "$COMPILED" .json)
