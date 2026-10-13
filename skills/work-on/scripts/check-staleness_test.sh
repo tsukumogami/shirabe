@@ -56,6 +56,9 @@ trap cleanup EXIT
 
 WORK=$(mktemp -d); TMPS+=("$WORK")
 SESSIONS_FILE="$WORK/sessions"
+# koto's session store lives under HOME: a HOME of the suite's own keeps its
+# sessions out of the user's store and away from suites running beside it.
+mkdir -p "$WORK/home" && export HOME="$WORK/home"
 
 # iso_days_ago <n> -- an ISO-8601 UTC timestamp n days before now.
 iso_days_ago() { jq -nr --argjson n "$1" '(now - ($n * 86400)) | floor | todate'; }
