@@ -30,7 +30,11 @@
 # and each clone's index file unchanged), and --seal (sealed through a coord-log.sh stand-in,
 # exit 0 whatever the verdict) with teardown-verdict.sh reading it back: a
 # durable verdict passes, an edited one fails its seal, a directed transition
-# since the teardown entry refuses the destroy.
+# since the teardown entry refuses the destroy. An instance niwa doesn't list
+# seals `absent` only when the listing read and parsed (a failed or garbled
+# listing is exit 2, nothing sealed); the gate answers 2 for it without
+# --absent-route, and with it 5 after `teardown: removed`, 6 after `stopped`;
+# read admits it only beside a handoff verdict saying `removed yes`.
 #
 # Usage: bash skills/coordinate/scripts/teardown-inventory_test.sh
 # Exit codes: 0 all pass; 1 a failure. Needs git and jq. bash 3.2.
@@ -102,7 +106,7 @@ sha() { if command -v sha256sum >/dev/null; then sha256sum | cut -d' ' -f1; else
 cmd="$1"; shift
 while [ $# -gt 0 ]; do
     case "$1" in
-        --session|--state|--file|--key|--sealed|--from|--name) eval "A_${1#--}=\"\$2\""; shift 2 ;;
+        --session|--state|--file|--key|--sealed|--from|--name|--after|--where) eval "A_${1#--}=\"\$2\""; shift 2 ;;
         *) exit 64 ;;
     esac
 done
@@ -118,6 +122,13 @@ case "$cmd" in
         ;;
     capture) cat "$ST/capture" ;;
     directed-since) [ -f "$ST/directed" ] && { cat "$ST/directed"; exit 1; }; exit 0 ;;
+    # The latest entry into teardown, and the evidence submitted there: the
+    # case writes the evidence's fields to $ST/teardown-ev, or none.
+    entry) [ "$A_state" = teardown ] || exit 1; echo "4 wait" ;;
+    evidence)
+        [ "$A_state" = teardown ] && [ "${A_after-}" = 4 ] || exit 64
+        [ -f "$ST/teardown-ev" ] || exit 1
+        printf '{"seq":5,"timestamp":"t","fields":%s}\n' "$(cat "$ST/teardown-ev")" ;;
 esac
 EOF
 # koto: the session's context, as files under $ST/ctx.
@@ -639,6 +650,99 @@ eq  "verdict gate: no seal in the capture is 3" 3 "$(bash "$V" gate --session co
 
 DC_COORD_LOG="$T/absent.sh" bash "$S" --seal --session coord --instance "$I2" >/dev/null 2>&1
 eq  "seal: no coord-log.sh is exit 2" 2 "$?"
+
+# --- an instance niwa doesn't list: absent, and its routes ---------------------------------
+#
+# A niwa stand-in whose listing the case picks: a listing with no instance for
+# the topic (read and parsed), one that fails, one that isn't JSON.
+NBIN="$T/niwabin"
+mkdir -p "$NBIN"
+cat >"$NBIN/niwa" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" = list ] || exit 64
+case "$(cat "$ST/niwa-mode")" in
+    other) printf '[{"name":"x","path":"/elsewhere","session_name":"another_topic-1a2b3c4d"}]\n' ;;
+    empty) printf '[]\n' ;;
+    fails) echo "niwa: cannot read the workspace" >&2; exit 1 ;;
+    garbled) printf 'not json\n' ;;
+esac
+EOF
+chmod +x "$NBIN/niwa"
+seal_in_ws() { (cd "$WS" && PATH="$NBIN:$PATH" bash "$S" --seal --session coord 2>"$T/seal.err"); }
+printf 'plugin-api' >"$ST/ctx/teardown_topic"
+for mode in other empty; do
+    rm -f "$ST/ctx/teardown_verdict"
+    printf '%s' "$mode" >"$ST/niwa-mode"
+    TOK=$(seal_in_ws); RC=$?
+    eq  "absent ($mode listing): the seal exits 0" 0 "$RC"
+    case "$TOK" in sealed:7:*) ok "absent ($mode listing): prints the bare token" ;; *) bad "absent ($mode listing): prints the bare token" "$TOK" ;; esac
+    eq  "absent ($mode listing): the sealed verdict is the word, no instance and the topic" \
+        "absent|instance -|topic plugin-api" "$(tr '\n' '|' <"$ST/ctx/teardown_verdict" | sed 's/|$//')"
+    has "absent ($mode listing): the word goes to stderr" "$(cat "$T/seal.err")" "absent"
+done
+for mode in fails garbled; do
+    rm -f "$ST/ctx/teardown_verdict"
+    printf '%s' "$mode" >"$ST/niwa-mode"
+    TOK=$(seal_in_ws); RC=$?
+    eq  "a listing that $mode: exit 2" 2 "$RC"
+    eq  "a listing that $mode: prints no token" "" "$TOK"
+    [ -e "$ST/ctx/teardown_verdict" ] && bad "a listing that $mode: nothing is sealed" "$(cat "$ST/ctx/teardown_verdict")" \
+        || ok "a listing that $mode: nothing is sealed"
+done
+printf 'empty' >"$ST/niwa-mode"
+(cd "$WS" && PATH="$NBIN:$PATH" bash "$S" --topic plugin-api >/dev/null 2>&1)
+eq  "unsealed: no instance is still exit 2 (no verdict to route)" 2 "$?"
+
+# The gate: absent is 2 without --absent-route (a template compiled before
+# the route), and with it 5 after removed, 6 after stopped, 2 otherwise.
+seal_in_ws >"$ST/capture"
+gate() { bash "$V" gate --session coord "$@" >/dev/null 2>&1; echo $?; }
+rm -f "$ST/teardown-ev"
+printf '{"teardown":"removed","handoff":"https://github.com/acme/widgets/pull/1#issuecomment-2"}' >"$ST/teardown-ev"
+eq  "verdict gate: absent without --absent-route is 2, even after removed" 2 "$(gate)"
+eq  "verdict gate --absent-route: absent after removed is 5" 5 "$(gate --absent-route)"
+printf '{"teardown":"stopped","handoff":"https://github.com/acme/widgets/pull/1#issuecomment-2"}' >"$ST/teardown-ev"
+eq  "verdict gate --absent-route: absent after stopped is 6" 6 "$(gate --absent-route)"
+eq  "verdict gate: absent after stopped without the flag is 2" 2 "$(gate)"
+printf '{"teardown":"kept"}' >"$ST/teardown-ev"
+eq  "verdict gate --absent-route: absent after any other word is 2" 2 "$(gate --absent-route)"
+rm -f "$ST/teardown-ev"
+eq  "verdict gate --absent-route: absent with no teardown evidence is 2" 2 "$(gate --absent-route)"
+printf '{"teardown":"removed"}' >"$ST/teardown-ev"
+printf 'another-worker' >"$ST/ctx/teardown_topic"
+eq  "verdict gate --absent-route: an absent verdict for another topic is still 3" 3 "$(gate --absent-route)"
+printf 'plugin-api' >"$ST/ctx/teardown_topic"
+bash "$S" --seal --session coord --instance "$I2" >"$ST/capture" 2>/dev/null
+eq  "verdict gate --absent-route: durable is still 0" 0 "$(gate --absent-route)"
+bash "$V" read --session coord --absent-route >/dev/null 2>&1
+eq  "verdict read: --absent-route is the gate's alone" 2 "$?"
+
+# read: an absent verdict stands only beside the handoff's sealed `removed
+# yes`. A plugin tree whose handoff reader is a stand-in printing what the
+# case put in $ST/handoff (exit 1 when there is none).
+VP="$T/vplug"
+mkdir -p "$VP"
+cp "$V" "$HERE/dispatch-common.sh" "$VP/"
+printf '#!/usr/bin/env bash\n[ "$1" = read ] || exit 64\n[ -f "$ST/handoff" ] || exit 1\ncat "$ST/handoff"\n' >"$VP/teardown-handoff.sh"
+chmod +x "$VP"/*.sh
+seal_in_ws >"$ST/capture"
+rm -f "$ST/handoff"
+bash "$VP/teardown-verdict.sh" read --session coord >"$T/read.out" 2>/dev/null
+eq  "verdict read: absent with no handoff verdict is 5" 5 "$?"
+eq  "verdict read: and prints nothing" "" "$(cat "$T/read.out")"
+printf 'topic plugin-api\ninstance - /ws/x+plugin_api-1a2b3c4d\njob -\nkeyseal keyseal:9:%064d\n' 0 >"$ST/handoff"
+bash "$VP/teardown-verdict.sh" read --session coord >/dev/null 2>&1
+eq  "verdict read: absent beside a handoff verdict that doesn't say removed yes is 5" 5 "$?"
+printf 'removed yes\ntopic plugin-api\ninstance - /ws/x+plugin_api-1a2b3c4d\njob -\nkeyseal keyseal:9:%064d\n' 0 >"$ST/handoff"
+READ=$(bash "$VP/teardown-verdict.sh" read --session coord 2>/dev/null); RC=$?
+eq  "verdict read: absent beside a removed handoff verdict is admitted" 0 "$RC"
+has "verdict read: and printed" "$READ" "absent"
+printf 'directed_transition teardown -> destroy\n' >"$ST/directed"
+bash "$VP/teardown-verdict.sh" read --session coord >/dev/null 2>&1
+eq  "verdict read: a directed transition still refuses an absent verdict" 4 "$?"
+rm -f "$ST/directed" "$ST/handoff"
+bash "$V" read --session coord >/dev/null 2>&1
+eq  "verdict read: the shipped handoff reader, with no handoff sealed, leaves absent at 5" 5 "$?"
 
 printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

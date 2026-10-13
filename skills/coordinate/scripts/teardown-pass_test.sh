@@ -81,6 +81,23 @@ refused "a job id that isn't one" "job id is not a job id"
 verdict tsuku+w5 /i/w5 4b3597d2 'x y'
 refused "a session id that isn't one" "session id is not a session id"
 
+# Removed mode's two forms, `instance - <path>` and `job -`, stand only beside
+# `removed yes`, and beside it the instance name must be `-`.
+verdict - /i/w5 4b3597d2 4b3597d2-6184-4a48
+refused "instance - without removed yes" "instance name is not a plain name"
+verdict tsuku+w5 /i/w5 4b3597d2 4b3597d2-6184-4a48
+sed -i.bak 's/^job .*/job -/' "$VERDICT_FILE"
+refused "job - without removed yes" "job id is not a job id"
+verdict tsuku+w5 /i/w5 4b3597d2 4b3597d2-6184-4a48
+printf 'removed yes\n' >>"$VERDICT_FILE"
+refused "removed yes beside a named instance" "must be -"
+verdict - relative/w5 4b3597d2 4b3597d2-6184-4a48
+printf 'removed yes\n' >>"$VERDICT_FILE"
+refused "removed yes with a relative path" "instance path is not absolute"
+verdict - /i/w5 ';rm' 4b3597d2-6184-4a48
+printf 'removed yes\n' >>"$VERDICT_FILE"
+refused "removed yes with a job id that isn't one" "job id is not a job id"
+
 # ---------------------------------------------------------------------------
 # Whole passes, and the cost capture inside them.
 #
