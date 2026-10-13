@@ -795,7 +795,8 @@ milestone roadmap ends is left to the roadmap's own lifecycle.
   imported on another host, keeps publishing to the location of the session that
   opened it. The opener writes none of koto's keys and sets no koto variable to
   move it.
-- **An import resumes only onto the same plugin path.** A run records the
+- **An import resumes only onto the same plugin path
+  (tsukumogami/shirabe#806).** A run records the
   plugin root it was opened with, every check it runs is a script under that
   root, and provenance accepts only a run whose root is this host's. Where the
   plugin sits at another absolute path on the new host (another `HOME`, say),
