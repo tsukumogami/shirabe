@@ -368,10 +368,13 @@ CURW=$(jq -r .written "$T/cur.json")
 jq -c 'del(.written) | .holds = [{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}]' "$T/cur.json" \
     | bash "$HERE/record-render.sh" --container issue --written "$CURW" > "$T/hold.md"
 # A write part way through, left by a crash: the reader re-reads, then refuses.
-jq -c '.pending = true' < <(koto context get "$SW" record/meta) | koto context add "$SW" record/meta
+# The mark is read into a file before it is written back: in one pipeline the
+# write could truncate the key before the read had it.
+koto context get "$SW" record/meta > "$T/meta.json"
+jq -c '.pending = true' "$T/meta.json" | koto context add "$SW" record/meta
 RS_RETRY_PAUSE=0 "${SEN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/hold.md" >/dev/null 2>"$T/err"; rc=$?
 eq "a record left marked pending is record-changed to a writer" 12 "$rc"
-jq -c '.pending = false' < <(koto context get "$SW" record/meta) | koto context add "$SW" record/meta
+jq -c '.pending = false' "$T/meta.json" | koto context add "$SW" record/meta
 # On GitHub, a moved record's body is the moved shape and no writer but the move
 # changes it.
 jq -c 'del(.written) | .run = [{key: "store", value: "session", set_by: "alice", set: "2026-10-11T10:00Z"}]' "$T/old.json" \
