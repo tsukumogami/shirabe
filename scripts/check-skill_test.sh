@@ -120,6 +120,24 @@ run_check() {
     RC=$?
 }
 
+# run_check_bounded <seconds>: run_check, but a check still running after
+# <seconds> is killed and reported as hung (exit 124).
+run_check_bounded() {
+    local lim="$1" out="$WORK/bounded.out" pid n=0
+    (cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" \
+        "$BASH_BIN" "$CHECK_SH" "${SKILL_ARG:-demo}" >"$out" 2>&1) &
+    pid=$!
+    while kill -0 "$pid" 2>/dev/null && [ "$n" -lt $((lim * 10)) ]; do sleep 0.1; n=$((n + 1)); done
+    if kill -0 "$pid" 2>/dev/null; then
+        pkill -KILL -P "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null
+        wait "$pid" 2>/dev/null
+        OUT="hung past ${lim}s"; RC=124
+        return
+    fi
+    wait "$pid"; RC=$?
+    OUT=$(cat "$out")
+}
+
 claude_untouched() {
     [ ! -s "$CLAUDE_LOG" ]
 }
@@ -283,13 +301,12 @@ SKILL_ARG="nope" run_check
 expect "an unknown skill exits 2" 2 "no such skill: skills/nope"
 
 # -- Suites in parallel ----------------------------------------------------------
-# A suite that marks itself running in $MARKS while it sleeps: the most marks
-# any suite saw at once is how many ran together.
 MARKS="$WORK/marks"
 export MARKS
 # marked_suite <file> <seconds> [exit]: a suite that leaves run.<pid> in
 # $MARKS while it sleeps, appends how many run.* marks it saw to $MARKS/seen,
-# prints "<name> output" and exits with <exit> (default 0).
+# prints "<name> output" and exits with <exit> (default 0). The most marks any
+# suite saw at once is how many ran together.
 marked_suite() {
     cat > "$1" <<'SUITE'
 m="$MARKS/run.$$"; : > "$m"
@@ -340,7 +357,7 @@ fi
 new_tree
 mkdir -p "$ROOT/skills/demo/scripts"
 rm -rf "$MARKS"; mkdir -p "$MARKS"
-for s in a b c; do marked_suite "$ROOT/skills/demo/scripts/${s}_test.sh" 0; done
+for s in a b c; do marked_suite "$ROOT/skills/demo/scripts/${s}_test.sh" 1; done
 CHECK_SKILL_JOBS=1 run_check
 expect "CHECK_SKILL_JOBS=1 runs the suites" 0 "ok: bash skills/demo/scripts/c_test.sh"
 if [ "$(max_seen)" = 1 ]; then
@@ -365,13 +382,24 @@ run_check
 expect "a suite with no exit status recorded fails the check" 1 \
     "bash skills/demo/scripts/a_test.sh (no exit status recorded)" "ok: bash skills/demo/scripts/b_test.sh"
 
+# With one job at a time, that dead wrapper still frees its slot: the check
+# goes on to the next suite instead of waiting for a status that never comes.
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+printf 'kill -KILL $PPID\nexit 0\n' > "$ROOT/skills/demo/scripts/a_test.sh"
+printf 'exit 0\n' > "$ROOT/skills/demo/scripts/b_test.sh"
+CHECK_SKILL_JOBS=1 run_check_bounded 30
+expect "CHECK_SKILL_JOBS=1 goes past a suite with no exit status" 1 \
+    "bash skills/demo/scripts/a_test.sh (no exit status recorded)" "ok: bash skills/demo/scripts/b_test.sh"
+
 # A check stopped with TERM stops the suites it started: each suite records
 # its pid and sleeps; after the stop, none of them may still be alive.
 new_tree
 mkdir -p "$ROOT/skills/demo/scripts"
 rm -rf "$MARKS"; mkdir -p "$MARKS"
 for s in a b; do
-    printf 'echo $$ > "$MARKS/pid.%s"\nsleep 30\n' "$s" > "$ROOT/skills/demo/scripts/${s}_test.sh"
+    printf 'echo $$ > "$MARKS/pid.%s"\nsleep 30 &\necho $! > "$MARKS/pid.%s.child"\nwait\n' "$s" "$s" \
+        > "$ROOT/skills/demo/scripts/${s}_test.sh"
 done
 # The check itself runs in the background, so $CHECKER is its own pid.
 cd "$WORK" || exit 1
@@ -379,7 +407,7 @@ CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" demo >/dev/
 CHECKER=$!
 cd - >/dev/null || exit 1
 n=0
-while [ "$(ls "$MARKS" | grep -c '^pid\.')" -lt 2 ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
+while [ "$(ls "$MARKS" | grep -c '^pid\.')" -lt 4 ] && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n + 1)); done
 kill -TERM "$CHECKER"
 wait "$CHECKER" 2>/dev/null
 sleep 0.5
@@ -388,10 +416,10 @@ for f in "$MARKS"/pid.*; do
     [ -f "$f" ] || continue
     kill -0 "$(cat "$f")" 2>/dev/null && alive="$alive $(cat "$f")"
 done
-if [ "$(ls "$MARKS" | grep -c '^pid\.')" = 2 ] && [ -z "$alive" ]; then
-    pass "a stopped check stops the suites it started"
+if [ "$(ls "$MARKS" | grep -c '^pid\.')" = 4 ] && [ -z "$alive" ]; then
+    pass "a stopped check stops the suites it started, and what they started"
 else
-    fail "a stopped check stops the suites it started: still alive:${alive:- none}, started $(ls "$MARKS" | grep -c '^pid\.')"
+    fail "a stopped check stops the suites it started: still alive:${alive:- none}, pid files $(ls "$MARKS" | grep -c '^pid\.')"
     for p in $alive; do kill "$p" 2>/dev/null; done
 fi
 

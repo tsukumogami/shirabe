@@ -42,7 +42,8 @@
 # Exit codes:
 #   0 - every check passed
 #   1 - at least one check failed; each is listed
-#   2 - usage error, an unknown skill, or a required tool is missing
+#   2 - usage error, an unknown skill, a required tool is missing, or the
+#       repository root or a temporary file can't be set up
 #   130, 143 - stopped by INT or TERM; the suites it had started are stopped
 #              too
 
@@ -95,11 +96,15 @@ trap 'rm -rf "$LOG" "$RUNS"' EXIT
 # A stopped check stops the suites it started too: verification's timeout
 # signals the whole process group, but a person's ^C or a plain kill of this
 # script must not leave them running. Each job is a subshell waiting on its
-# suite, so the suite is signalled first, then the subshell.
+# suite, so the suite's own children are signalled first (a suite waiting on
+# them would otherwise leave them behind), then the suite, then the subshell.
 stop_suites() {
-    local p
+    local p k
     for p in $(jobs -p); do
-        pkill -TERM -P "$p" 2>/dev/null
+        for k in $(pgrep -P "$p"); do
+            pkill -TERM -P "$k" 2>/dev/null
+            kill -TERM "$k" 2>/dev/null
+        done
         kill -TERM "$p" 2>/dev/null
     done
 }
@@ -165,10 +170,6 @@ suites=()
 for t in "$SKILL_DIR"/scripts/*_test.sh; do
     [ -f "$t" ] && suites+=("$t")
 done
-# done_count: suites finished so far (each leaves <i>.rc when it ends).
-done_count() {
-    find "$RUNS" -name '*.rc' | wc -l | tr -d ' '
-}
 NEXT=0
 # report_ready: print, in order, every result whose suite and predecessors
 # are done.
@@ -187,7 +188,9 @@ report_ready() {
 }
 i=0
 while [ "$i" -lt "${#suites[@]}" ]; do
-    while [ $((i - $(done_count))) -ge "$JOBS" ]; do
+    # Slots are counted from live jobs, not from .rc files: a job whose wrapper
+    # died writes none, and counting files would wait for it forever.
+    while [ "$(jobs -r | wc -l | tr -d ' ')" -ge "$JOBS" ]; do
         report_ready
         sleep 0.2
     done
