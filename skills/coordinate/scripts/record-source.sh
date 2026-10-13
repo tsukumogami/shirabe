@@ -95,16 +95,24 @@ RS_SECTIONS="holdings:holdings deferrals:deferrals side_effects:side-effects rev
 # through, in seconds; tests set 0.
 RS_RETRY_PAUSE=${RS_RETRY_PAUSE:-1}
 
+# rs_list <session> <prefix> <file>: the session's keys under <prefix>, koto's
+# JSON array, into <file>. Returns 0 listed; 2 the listing failed or isn't an
+# array (koto's reason appended to <file>.err). Presence is read from a listing,
+# never from `context exists`: on koto's cloud backend an exists of a missing key
+# retries its 404 for about a second, and a record has several absent sections.
+rs_list() {
+    local k=${KOTO:-${KOTO_BIN:-koto}}
+    "$k" context list "$1" --prefix "$2" < /dev/null > "$3" 2>> "$3.err" || return 2
+    jq -e 'type == "array"' "$3" > /dev/null 2>> "$3.err" || return 2
+}
+
 # rs_key <session> <key> <file>: a key's content into <file>. Returns 0 read; 1
 # the key is absent; 2 a read failed (koto's reason appended to <file>.err).
 rs_key() {
     local k=${KOTO:-${KOTO_BIN:-koto}}
-    "$k" context exists "$1" "$2" < /dev/null > /dev/null 2>> "$3.err"
-    case $? in
-        0) ;;
-        1) return 1 ;;
-        *) return 2 ;;
-    esac
+    : > "$3.keys.err"
+    rs_list "$1" "$2" "$3.keys" || { cat "$3.keys.err" >> "$3.err"; return 2; }
+    jq -e --arg key "$2" 'index($key) != null' "$3.keys" > /dev/null || return 1
     "$k" context get "$1" "$2" < /dev/null > "$3" 2>> "$3.err" || return 2
 }
 
@@ -131,7 +139,7 @@ rs_assemble() {
 # record/meta (session-absent), the reason in <out>.err; 12 the record was still
 # being written after three re-reads.
 rs_session_state() {
-    local s=$1 out=$2 try pair field key
+    local s=$1 out=$2 try pair field key changed k=${KOTO:-${KOTO_BIN:-koto}}
     : > "$out.err"
     for try in 0 1 2 3; do
         [ "$try" -eq 0 ] || sleep "$RS_RETRY_PAUSE"
@@ -143,17 +151,24 @@ rs_session_state() {
         esac
         jq -e 'type == "object" and (.written | type) == "string"' "$out.m1" > /dev/null 2>> "$out.err" || return 2
         [ "$(jq -r '.pending // false' "$out.m1")" = true ] && continue
+        # One listing names the sections present; only those are read.
+        rs_list "$s" record/ "$out.keys" || { cat "$out.keys.err" >> "$out.err"; return 2; }
         rm -rf "$out.sec"; mkdir -p "$out.sec" || return 2
+        changed=0
         for pair in $RS_SECTIONS; do
             field=${pair%%:*} key=${pair#*:}
-            rs_key "$s" "record/$key" "$out.sec/$field"
-            case $? in
-                0) jq -e . "$out.sec/$field" > /dev/null 2>> "$out.err" || return 2 ;;
-                1) rm -f "$out.sec/$field" ;;
-                *) return 2 ;;
-            esac
+            jq -e --arg key "record/$key" 'index($key) != null' "$out.keys" > /dev/null || continue
+            if ! "$k" context get "$s" "record/$key" < /dev/null > "$out.sec/$field" 2>> "$out.err"; then
+                # Listed but gone: a write removed it since the listing, which
+                # moves record/meta; that is a re-read, not a failed read.
+                "$k" context get "$s" record/meta < /dev/null > "$out.m2" 2>> "$out.err" || return 2
+                [ "$(jq -cS . "$out.m1")" = "$(jq -cS . "$out.m2")" ] && return 2
+                changed=1; break
+            fi
+            jq -e . "$out.sec/$field" > /dev/null 2>> "$out.err" || return 2
         done
-        rs_key "$s" record/meta "$out.m2" || return 2
+        [ "$changed" = 1 ] && continue
+        "$k" context get "$s" record/meta < /dev/null > "$out.m2" 2>> "$out.err" || return 2
         [ "$(jq -cS . "$out.m1")" = "$(jq -cS . "$out.m2")" ] || continue
         rs_assemble "$out.m1" "$out.sec" > "$out" 2>> "$out.err" || return 2
         return 0
@@ -232,16 +247,19 @@ rs_probe_missing() {
 # rs_scope_sessions <scope> <name>: this host's coordinator sessions of the
 # scope, coordinate-<slug>-<stamp> (the slug coord-log.sh slug derives, as
 # coordinate-open.sh names them), that hold record/meta, one name per line,
-# oldest stamp first. Returns 2 when the session list can't be read.
+# oldest stamp first. A child session is never one: a coordinator run is a root.
+# Returns 2 when the session list can't be read.
 rs_scope_sessions() {
-    local k=${KOTO:-${KOTO_BIN:-koto}} d s slug
+    local d s slug
     slug=$(bash "$HERE/coord-log.sh" slug --scope "$1" --name "$2") || return 2
     d=$(mktemp -d "${TMPDIR:-/tmp}/record-source.XXXXXX") || return 2
-    "$k" session list < /dev/null > "$d/list" 2> "$d/err" || { rm -rf "$d"; return 2; }
-    jq -r --arg p "coordinate-$slug-" '.[] | .id | select(startswith($p) and (ltrimstr($p) | test("^[0-9]{8}T[0-9]{6}Z$")))' "$d/list" \
+    "${KOTO:-${KOTO_BIN:-koto}}" session list < /dev/null > "$d/list" 2> "$d/err" || { rm -rf "$d"; return 2; }
+    jq -r --arg p "coordinate-$slug-" '.[] | select(.parent_workflow == null) | .id
+        | select(startswith($p) and (ltrimstr($p) | test("^[0-9]{8}T[0-9]{6}Z$")))' "$d/list" \
         2> "$d/err" | LC_ALL=C sort > "$d/names" || { rm -rf "$d"; return 2; }
     while IFS= read -r s; do
-        "$k" context exists "$s" record/meta < /dev/null > /dev/null 2>> "$d/err" && printf '%s\n' "$s"
+        rs_list "$s" record/meta "$d/keys" || continue
+        jq -e 'index("record/meta") != null' "$d/keys" > /dev/null && printf '%s\n' "$s"
     done < "$d/names"
     rm -rf "$d"
 }

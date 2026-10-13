@@ -94,8 +94,8 @@
 #           gh api --method GET repos/R/collaborators/<login>/permission --jq .permission
 #   writes: gh api --method POST repos/R/issues/N/comments --input <json>
 # koto calls (session store): context list --prefix record/entries/ and
-#   record/posted/, context exists and context get (directly, and through the
-#   seam's rs_key), context add (record/entries/<n>, record/posted/<n>).
+#   record/posted/ (and, through the seam's rs_key, of the one key it reads),
+#   context get, context add (record/entries/<n>, record/posted/<n>).
 set -uo pipefail
 
 PROG=record-append

@@ -233,6 +233,11 @@ core_write_session() {
     jq -c '.pending = true' "$T/meta.now" > "$T/meta.pending"
     "$KOTO" context add "$s" record/meta --from-file "$T/meta.pending" < /dev/null > /dev/null 2> "$T/k.err" \
         || { echo "$PROG: the session write failed: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
+    # A re-seed removes the section keys the unfinished seed left that this state
+    # doesn't hold; one listing names them.
+    if [ -n "${RESEED:-}" ]; then
+        rs_list "$s" record/ "$T/reseed-keys" || lib_die2 "cannot list session $s's record keys: $(lib_scrub < "$T/reseed-keys.err")"
+    fi
     for pair in $RS_SECTIONS; do
         field=${pair%%:*} key=${pair#*:}
         if jq -e --arg f "$field" 'has($f)' "$T/next-state.json" > /dev/null; then
@@ -244,7 +249,7 @@ core_write_session() {
             "$KOTO" context add "$s" "record/$key" --from-file "$T/sec.new" < /dev/null > /dev/null 2> "$T/k.err" \
                 || { echo "$PROG: the session write failed part way, at record/$key: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
         elif { [ -s "$T/live.json" ] && jq -e --arg f "$field" 'has($f)' "$T/live.json" > /dev/null; } \
-            || { [ -n "${RESEED:-}" ] && "$KOTO" context exists "$s" "record/$key" < /dev/null > /dev/null 2>&1; }; then
+            || { [ -n "${RESEED:-}" ] && jq -e --arg key "record/$key" 'index($key) != null' "$T/reseed-keys" > /dev/null; }; then
             "$KOTO" context remove "$s" "record/$key" < /dev/null > /dev/null 2> "$T/k.err" \
                 || { echo "$PROG: the session write failed part way, removing record/$key: $(lib_scrub < "$T/k.err")" >&2; exit 11; }
         fi
