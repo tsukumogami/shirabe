@@ -21,7 +21,8 @@
 # the scope refused session-name, none of them calling `session import`; a
 # child source is refused with koto's import_source_is_child and leaves no
 # session; a run from a template B lacks is refused import_template_unavailable,
-# and with --trust-template imported but refused template-mismatch, staying on
+# leaving no session either, and with --trust-template imported but refused
+# template-mismatch, staying on
 # B; with that run live, another import of the scope is refused session-live
 # before koto runs.
 #
@@ -151,6 +152,7 @@ host_on a koto init "$OTHER" --template other.md > /dev/null 2>"$T/err"; eq "a r
 import_b "[\"$RM\",\"--import\",\"$OTHER\",\"--from\",\"$WS_A\"]"
 eq "without --trust-template koto refuses the unknown template" "2 refused=import_template_unavailable" "$? $(head -1 "$T/out")"
 grep -q -- '--trust-template' "$T/err" && pass "  ... and the refusal names --trust-template" || fail "  ... and the refusal names --trust-template" "$(cat "$T/err")"
+eq "  ... leaving no session on B" "" "$(host_on b koto session list 2>/dev/null | jq -r --arg s "$OTHER" '.[] | select(.id == $s) | .id')"
 import_b "[\"$RM\",\"--import\",\"$OTHER\",\"--from\",\"$WS_A\",\"--trust-template\"]"
 eq "with --trust-template it is imported, then refused as another template" "2 refused=template-mismatch" "$? $(cat "$T/out")"
 eq "  ... koto was asked with --trust-template" 1 "$(grep -c -- "^session import $OTHER --from $WS_A --trust-template\$" "$T/koto-calls")"
