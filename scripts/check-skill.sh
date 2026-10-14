@@ -38,6 +38,10 @@
 #                      throwaway skills/ tree. The shape helper always comes
 #                      from this script's own checkout. No extension file or
 #                      workflow sets it.
+#   KOTO_SESSIONS_BASE, KOTO_TICK_SESSION, KOTO_SESSION_*
+#                      Cleared before any check runs: a koto session running
+#                      this script passes its own store and session to it, and
+#                      no suite may reach the caller's store.
 #
 # Exit codes:
 #   0 - every check passed
@@ -75,6 +79,17 @@ if [ -n "$missing" ]; then
     echo "check-skill: required tool(s) not on PATH:$missing" >&2
     exit 2
 fi
+
+# koto hands the commands it runs its own session context: KOTO_SESSIONS_BASE
+# names the session store, and KOTO_TICK_SESSION the session ticking. A
+# check run from a koto session (the verification gate is one) would pass
+# them to every suite, which then reads and writes that real store whatever
+# HOME it gives itself. The KOTO_SESSION_* settings (a backend, a bucket) are
+# cleared too, so a suite never reaches an owner's cloud store either.
+unset KOTO_SESSIONS_BASE KOTO_TICK_SESSION
+for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
+    unset "$v"
+done
 
 cd "$ROOT" || { echo "check-skill: cannot enter $ROOT" >&2; exit 2; }
 SKILL_DIR="skills/$SKILL"
