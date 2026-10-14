@@ -147,9 +147,11 @@
 #
 #   dc_with_deadline <seconds> <command...>
 #       Runs the command and kills it once the deadline passes. Returns the
-#       command's status, or 124 when the deadline stopped it (a command that
-#       exits 0 on its own just as the deadline passes keeps its 0). `timeout`
-#       isn't on macOS, whose /bin/bash is the floor these scripts target.
+#       command's status, or 124 once the deadline has passed and the command
+#       didn't exit 0: a command that exits 0 as the deadline's TERM lands, or
+#       from its own TERM trap, keeps its 0, and one that fails just as the
+#       deadline passes reads as 124. `timeout` isn't on macOS, whose /bin/bash
+#       is the floor these scripts target.
 
 #   Exit codes across the dispatch scripts. A condition keeps its meaning
 #   everywhere; the number a gate script uses is the one its state routes on:
@@ -517,8 +519,8 @@ dc_with_deadline() {
     rc=$?
     kill -TERM "$watcher" >/dev/null 2>&1
     wait "$watcher" >/dev/null 2>&1
-    # The deadline answers only for a command it had to stop: one that exited
-    # 0 on its own as the mark went down keeps its 0.
+    # Past the deadline, a command that still exited 0 (as the TERM landed, or
+    # from its own TERM trap) keeps its 0; any other status is the deadline's.
     if [ -e "$mark" ]; then
         rm -f "$mark"
         [ "$rc" -eq 0 ] || return 124
