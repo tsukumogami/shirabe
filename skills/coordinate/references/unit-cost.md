@@ -11,16 +11,34 @@ each figure is defined, and how to read entries back.
 The capture reads four things and writes two:
 
 - the teardown archive the pass just made: the unit's koto sessions
-  (`koto/<session>/`), their verdict ledgers, the worker's transcripts
-  (`transcript/`) and the job's `state.json`;
+  (`koto/<session>/`), their verdict ledgers, the job's `state.json`, the
+  pass's `teardown.json`, and `claude-projects/`, every Claude Code project
+  directory of the instance (below);
 - the unit's koto request, which stays on the host after teardown (koto's
   request directory, `KOTO_REQUESTS`; found through a session's
   `request-leg.toml`), for dispatch;
-- GitHub, read only: each pull request's merge time and head branch, its
-  commits, the workflow runs on that branch and every earlier attempt of
-  each run, and repository visibility;
+- GitHub, read only: each of the holding's pull requests' merge time and
+  head branch, its commits, the workflow runs on that branch and every
+  earlier attempt of each; each linked pull request's state, times, merge
+  commit, branches and head owner, for credit; and repository visibility;
 - the record's run facts and the Holdings row for the unit's topic, for the
   milestone.
+
+**The archive's layout.** The pass copies each Claude Code project
+directory of the instance whole into `claude-projects/<directory name>/`:
+the one named for the instance path (every character outside `[A-Za-z0-9]`
+made `-`) always, and one named for it followed by `-` (a worktree or a
+clone under the instance) only when at least one line of a `.jsonl` file in
+it carries a `cwd` at or under the instance path and none carries one
+outside it, so a sibling instance whose name extends this one's is never
+taken. It never follows a symbolic link, and the archive's README lists
+each directory taken, each skipped with its reason (`cwd outside the
+instance`), and each link skipped. A **main session transcript** is a
+`<session id>.jsonl` directly in one of those directories. The worker's
+session is the torn-down job's: `job/state.json`'s `sessionId`, else
+`teardown.json`'s `job.session`. An archive made before this layout holds
+`transcript/` instead (the worker's transcript and its subagents); the
+capture still reads its worker row from there.
 
 It writes `unit-cost.json` into the archive (to a temporary name, then
 renamed; it is not in the MANIFEST, and the archive's README says so) and
@@ -41,12 +59,18 @@ by the definition below. **bound**: a lower bound, never the figure itself.
 entry's `missing` list says which and why. **not applicable**: the figure
 means nothing for this unit. Nothing is estimated.
 
-- **Dispatch**: the `created_at` of the unit's koto request. Requests a
-  session inside the unit made (a `/deliver` asking its `/scope`, say) are
-  not the dispatch; the earliest of the rest is. With no request, the job's
-  `createdAt`; with neither, not recoverable. A request id outside koto's
-  grammar makes it not recoverable, since the request it names can't be
-  read.
+- **Dispatch**: the earliest of three: the `created_at` of the unit's
+  koto request (requests a session inside the unit made, a `/deliver`
+  asking its `/scope` say, are not the dispatch; the earliest of the rest
+  is), the job's `createdAt`, and the first event (the earliest `timestamp`)
+  of every main session transcript in `claude-projects/`, since a unit can
+  run as several jobs and the torn-down one need not be the first. The
+  request wins a tie. `source` is `koto-request` when the request is the
+  earliest, else `job-state`, which covers a job's start read from its
+  record or from its transcript. `dispatch.jobs` counts the main session
+  transcripts read, relocated copies included. With none of the three, not
+  recoverable. A request id outside koto's grammar makes it not
+  recoverable, since the request it names can't be read.
 - **Green**: among a pull request's heads, in commit order, the first where
   every workflow run on that head (each run's final attempt) concluded
   `success` or `skipped`; green is the latest finish time among those runs.
@@ -88,8 +112,39 @@ means nothing for this unit. Nothing is estimated.
   (a line without either isn't counted), each message once by its id, each of the
   four classes (input, output, cache creation, cache read) at the largest
   value written for that id, since a streamed message is written several
-  times with growing usage. `worker` is the job's own transcript and its
-  `subagents/`; `nested` is every other transcript in the archive.
+  times with growing usage. `worker` is the worker's session: its main
+  session transcript and every `.jsonl` under `<session id>/subagents/`, in
+  every directory of `claude-projects/`. `nested` is every other `.jsonl`
+  there: other jobs' transcripts and their subagents, workflows, and
+  relocated copies (the transcript Claude Code writes under a new session
+  id when a session moves into a worktree, repeating its earlier messages).
+  Each message id counts once across the whole archive: the worker's files
+  are read first, and an id the worker row holds is never counted in
+  `nested`. An archive made before `claude-projects/` has no whole nested
+  row to read: `nested` is not recoverable, `no source`.
+- **Credit**: `pulls` holds the holding's merged pull requests (the sealed
+  verdict's) and every other pull request the unit made. A `pr-link` record
+  in `claude-projects/` (`prRepository`, `prNumber`, `timestamp`) names a
+  candidate; one is credited when GitHub reads it, at capture, as meeting
+  all four of:
+  1. its base repository's owner is the holding repository's owner,
+     case-insensitively;
+  2. its head repository's owner is the same: not a fork;
+  3. it was created at or after dispatch, and it is merged;
+  4. its head branch, which isn't its base branch, is the `gitBranch` of
+     some line in `claude-projects/`, or some `pr-link` record for it is
+     within 120 seconds of its creation, inclusive, either way.
+
+  A link alone credits nothing, since sessions also link pull requests they
+  only viewed or merged: one linked more than 120 seconds after its creation
+  on a branch the unit never worked on is not credited. A pull request the
+  unit opened on another branch (a coordinated plan's node branch, say) is
+  credited by the 120-second link. A link's repository and number, and each
+  `gitBranch`, are matched to their patterns before any use, and only the
+  repository and number ever reach a command. Candidates are read in order
+  of their earliest link, at most 200, one `gh pr view` each out of the
+  capture's read budget. Credit changes `pulls` only: green, merge and
+  failing heads read the holding's pull requests alone.
 - **Precision**: minutes to 0.1 and shares to 0.1 percentage point, rounded
   half up once from the unrounded value; counts and tokens exact. A figure
   can differ by 0.1 from one computed out of the rounded figures beside it.
@@ -147,13 +202,42 @@ Cost of <topic> (<capture key>): <n> sessions, <worker output> output tokens, di
 | `unit` | the Unit's tag, `"not public"`, or `null` |
 | `milestone` | `{value, state, source: "record"}` |
 | `plan_shape` | `{value, state, source: "koto-state"}` |
-| `pulls` | `[{repo, number, merge_commit, merged_at}]`, or `{repo: "not public"}` for one the host may not name |
-| `dispatch` | `{value, state, source}`, source `koto-request` or `job-state` |
+| `pulls` | `[{repo, number, merge_commit, merged_at, via}]`, `via` `holding` or `session`; or `{repo: "not public"}` alone for one the host may not name |
+| `dispatch` | `{value, state, source, jobs}`, source `koto-request` or `job-state`, `jobs` the main session transcripts read |
+| `"niwa.dispatch.id"` | niwa's dispatch id for the instance, from the archive's `teardown.json`, or `null` |
 | `figures` | `dispatch_to_green_min`, `dispatch_to_merge_min`, `writing_code_min`, `review_min`, `outside_share_pct`, `review_share_pct`, `panel_rounds`, `failing_heads`, `sessions_without_done`, `summed_session_span_min`, `minutes_per_unit`, each `{value, raw, state, source}` |
 | `sessions` | per archived session, in byte order of the names: `{index, template, unit_session, done, span_s, states, figures}`; `figures` holds `span_min`, `impl_share_pct` and `review_share_pct`, the shares not applicable outside unit sessions |
 | `tokens` | `{worker, nested}`, each `{messages, input, output, cache_creation, cache_read, state, source: "transcripts"}` |
 | `complete` | `true` when `missing` is empty |
 | `missing` | `[{figure, reason}]`, reason one of `no source`, `read failed`, `time limit`, `entry size`, `invalid input` |
+
+`pulls` lists the holding's pull requests first, in the verdict's order
+(`via: holding`), then the credited ones by merge time, then number (`via:
+session`), at most 100. When a pull request is left out, `missing` holds
+one `pulls` entry with the reason of the first one left out: `no source`
+(dispatch is not recoverable, so condition 3 can't be judged and nothing is
+credited), `read failed` (its read failed or was cut at its bound), `time
+limit` (the budget ran out before its read; what was read is kept) or
+`entry size` (past 100 objects, or 200 candidates).
+
+`"niwa.dispatch.id"` is a top-level key whose name holds dots. It is the
+`dispatch_id` niwa listed for the instance at teardown, which the handoff
+sealed and the pass wrote into `teardown.json` (`niwa.dispatch_id`),
+unchanged. When there is none, it is `null` and `missing` names
+`niwa.dispatch.id`: `no source` when niwa listed none, the unit was removed
+before teardown, or the archive has no `teardown.json`; `invalid input`
+when the value isn't `^[A-Za-z0-9._:-]{1,128}$` or the file can't be read
+as JSON.
+
+The version stays `unit-cost/1`. Every field above that came before keeps
+its name, type and meaning; the additions (`via`, `dispatch.jobs`,
+`"niwa.dispatch.id"`, the credited pull requests, and `missing` naming
+`pulls`, `tokens.nested` or `niwa.dispatch.id`) are new keys or new entries
+under the existing shapes, with no new state, source or reason. A reader
+treats any schema but `unit-cost/1` as unreadable, so bumping the version
+for additive fields would drop every new entry from every existing reader;
+keeping it lets a reader that knows the additions use them and one that
+doesn't ignore them.
 
 A figure's `value` is a number (`null` unless the state is measured or bound),
 rounded as above; `raw` keeps what it was rounded from: seconds for the time
@@ -170,14 +254,16 @@ An entry over 50,000 bytes is posted without the `states` maps (each set to
 archive's `unit-cost.json` keeps them.
 
 On a public host (the record's repository is public, or its visibility
-can't be read), a pull request whose repository isn't read as public is
-written as `{repo: "not public"}`, and an `owner/repo#n` Unit naming one as
-`"not public"`. A failed lookup counts as not public. The figures are kept.
+can't be read), a pull request whose repository isn't read as public,
+credited ones included, is written as `{repo: "not public"}` and nothing
+else, and an `owner/repo#n` Unit naming one as `"not public"`. A failed
+lookup counts as not public. The figures are kept.
 
 ## Evidence, not proof
 
 Every figure comes from files the worker itself could write: its koto state,
-its ledgers, its transcripts. The capture reads them as untrusted input (it
+its ledgers, its transcripts, and the `pr-link` records and `gitBranch`
+values credit reads. The capture reads them as untrusted input (it
 keeps only numbers, ids, timestamps and closed-set words, each matched to
 its shape) but it can't tell an honest record from a shaped one. A second
 derivation from the same archive agreeing with the entry shows the capture
