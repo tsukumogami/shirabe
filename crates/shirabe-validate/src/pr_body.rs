@@ -43,6 +43,22 @@ pub struct PrBodyFinding {
     pub message: String,
 }
 
+/// PB4's message. Named so [`is_no_heading_finding`] matches exactly the
+/// finding PB4 produces, not any message that happens to mention a heading.
+const PB4_MESSAGE: &str = "Part 1 (the squash commit body, above the `---` separator) \
+    contains a markdown section heading. Part 1 lands permanently on `main` as the commit \
+    message and must be plain prose, not a heading-structured document; rewrite Part 1 as \
+    prose and move any `## Section` headings below the `---` into Part 2 (see \
+    references/pr-body-conformance.md).";
+
+/// True when `f` is PB4's finding (no markdown heading in Part 1), the rule
+/// the live offload canary may leave out of a run's instructions. The
+/// pr-body hook drops it on a host that opted into the canary, leaving PB4 to
+/// the /work-on gate and CI.
+pub fn is_no_heading_finding(f: &PrBodyFinding) -> bool {
+    f.message == PB4_MESSAGE
+}
+
 /// The Conventional Commits types accepted in a PR title (PB1). Mirrors the
 /// set the PR-creation guidance lists.
 const CONVENTIONAL_TYPES: &[&str] = &[
@@ -110,13 +126,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
                 {
                     findings.push(PrBodyFinding {
                         line: *n,
-                        message: "Part 1 (the squash commit body, above the `---` separator) \
-                                  contains a markdown section heading. Part 1 lands permanently \
-                                  on `main` as the commit message and must be plain prose, not a \
-                                  heading-structured document; rewrite Part 1 as prose and move \
-                                  any `## Section` headings below the `---` into Part 2 (see \
-                                  references/pr-body-conformance.md)."
-                            .to_string(),
+                        message: PB4_MESSAGE.to_string(),
                     });
                 }
             }

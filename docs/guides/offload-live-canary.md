@@ -29,12 +29,21 @@ through one of two marker states:
 | neither | none | `references/pr-body-conformance.md` |
 
 A run that can't be assigned, for any reason, is in neither group and goes on
-as if the canary were off. A run keeps its group for its whole life: a rewind
-reads the recorded group back, and `OFFLOAD_CANARY` can't be rebound.
+as if the canary were off. Once a run has a group it keeps it: a rewind reads
+the recorded group back, and `OFFLOAD_CANARY` can't be rebound. A run that was
+in neither group has nothing recorded, so a rewind into the assignment state
+draws again; that run then counts in the group it drew.
 
 In every group, when the `pr_body_conformant` gate fails on PB4, its output
 carries the finding and PB4's full text, so a withheld agent learns the rule
 the first time it breaks it.
+
+On an opted-in host, `shirabe pr-body-hook`, the PreToolUse hook that checks a
+`gh pr create` or `gh pr edit` before it runs, no longer denies one for PB4,
+in either group: otherwise it would stop a PB4 violation before the pull
+request exists and the koto gate would never count it. It still denies PB1 to
+PB3 there, and it denies PB4 on every other host. The gate and CI's
+`shirabe validate --pr-body` still enforce PB4 before anything merges.
 
 ## Turning it on for a host
 
@@ -47,7 +56,8 @@ echo on > "${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary"
 
 Only hosts whose koto events reach this project's Datadog should opt in: a
 run on any other host would withhold the rule without being measured. The
-host also needs a shirabe release that carries the canary.
+host also needs a shirabe release that carries the canary, for both the
+plugin's files and the `shirabe` binary the hook runs.
 
 To turn one host off, delete the file or change its first line.
 
@@ -110,15 +120,17 @@ the canary) is left out by the join.
 ### Why the denominator is runs
 
 A passing check records no rule: `check_rule` is written only when a gate
-fails. In the events sent before the Datadog sender's fix for gate names, a
-passing `check_evaluated` doesn't even carry its gate's name, because its
-`koto.check` string collided with the `koto.check.*` fields. So the
-denominator is sessions that reached `pr_creation`, where the gate runs.
-Once the fix is installed, `check_evaluated` carries the gate name as
-`koto.check.name`, and a per-check denominator can be read for the windows
-after it, counting `check_evaluated` events with `@koto.state:pr_creation`
-and `@koto.check.name:pr_body_conformant`. Keep the per-run denominator for
-any window that reaches back before the fix.
+fails. Before 2026-10-14T20:12Z a passing `check_evaluated` didn't even carry
+its gate's name in Datadog, because its `koto.check` string collided with the
+`koto.check.*` fields. So the query's denominator is sessions that reached
+`pr_creation`, where the gate runs, which works for any window.
+
+From 2026-10-14T20:12Z, `check_evaluated` carries the gate name as
+`koto.check.name` (`check_rule` keeps `koto.check`). For windows that start
+after that, per-check counts are also available: `check_evaluated` events with
+`@koto.state:pr_creation @koto.check.name:pr_body_conformant`, split by
+`@koto.check.outcome`. Use the per-run count for any window that reaches back
+before it.
 
 ## Reading it honestly
 

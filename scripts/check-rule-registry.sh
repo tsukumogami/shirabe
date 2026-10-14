@@ -12,9 +12,14 @@
 #      that skill's koto templates, a one-line summary with no control
 #      character and no `::`
 #   2  withhold safety: a guard other than `none`, or check.kind `none`,
-#      needs withhold `never`; a gate needs a guard; prose needs check `none`
-#   3  paths: text, check and fixture paths have a safe shape and stay in the
-#      repository; an active entry's check path and fixtures exist; a
+#      needs withhold `never`; a gate needs a guard, or a backstop: the
+#      deterministic check that still blocks a protected action after the
+#      gate (backstop.before), for a rule whose harm a later edit undoes; a
+#      backstop needs level gate, guards ["none"], withhold `eligible` and
+#      notes; prose needs check `none`
+#   3  paths: text, check, backstop and fixture paths have a safe shape and
+#      stay in the repository; an active entry's check path, backstop check
+#      and fixtures exist; a
 #      review-shadow check names a criterion in criteria.json
 #   4  pointers: every active entry's anchors resolve, through
 #      rule-registry.sh's own lookup, to a range with no marker line and no
@@ -188,8 +193,18 @@ jqf "$TMP/shape" -r '
           | "\($n): a protected guard requires withhold never"),
         (select(($e.check | type) == "object" and $e.check.kind == "none" and $e.withhold == "eligible")
           | "\($n): check.kind none requires withhold never"),
-        (select($e.level == "gate" and ($e.guards | strs) and all($e.guards[]; . == "none"))
-          | "\($n): a gate entry needs a guard other than none"),
+        (select($e.level == "gate" and ($e.guards | strs) and all($e.guards[]; . == "none")
+                and ($e | has("backstop") | not))
+          | "\($n): a gate entry needs a guard other than none, or a backstop"),
+        (select($e | has("backstop")) | $e.backstop as $b
+          | if ($b | type) != "object" then "\($n): backstop is not an object"
+            elif ($protected | index($b.before)) == null then "\($n): backstop.before \($b.before | tojson) is not a protected action"
+            elif ($b.check | type) != "string" or $b.check == "" then "\($n): backstop.check is not a path"
+            elif $e.level != "gate" then "\($n): a backstop needs level gate"
+            elif ($e.guards != ["none"]) then "\($n): a backstop needs guards [\"none\"]"
+            elif $e.withhold != "eligible" then "\($n): a backstop needs withhold eligible"
+            elif ($e.notes | type) != "string" or $e.notes == "" then "\($n): a backstop needs notes saying why"
+            else empty end),
         (select($e.level == "prose" and ($e.check | type) == "object" and $e.check.kind != "none")
           | "\($n): a prose entry must have check.kind none")
     end
@@ -243,6 +258,7 @@ safe_rel() {
 jqf "$TMP/paths" -r '.rules[] | objects | .id as $id | (.status // "") as $s
        | ((.text | objects | .path | strings | "\($id)\t\($s)\ttext\t\(.)"),
           (.check | objects | select(.kind == "script") | .path | strings | "\($id)\t\($s)\tcheck\t\(.)"),
+          (.backstop | objects | .check | strings | "\($id)\t\($s)\tbackstop\t\(.)"),
           (.fixtures | arrays | .[] | strings | "\($id)\t\($s)\tfixture\t\(.)"))' "$REG"
 while IFS='	' read -r id status what p; do
     [ -n "$p" ] || continue

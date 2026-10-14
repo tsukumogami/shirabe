@@ -253,6 +253,20 @@ can fix before merge, guard `none`, and are `eligible`. The takeover rule is `le
 `check.kind: none`, `timing: ["execute:orchestrator_setup"]`, guards `push` and `publish`
 (taking over rewrites another run's pull request), and is `never` on both counts.
 
+**Amendment (2026-10-14): the backstop.** The rule above made every gate rule `never`,
+which left the live offload canary (`DESIGN-offload-live-canary.md`) nothing an output gate
+checks to withhold. The owner allowed one narrow case, written here as a rule the check
+enforces rather than an exception: a gate rule may be `eligible` when its gate runs after the
+action it would otherwise guard, a later edit undoes its harm, and a deterministic check still
+blocks the irreversible step. Such an entry carries `backstop: {"before": <protected action>,
+"check": <path>}` naming that check, `guards: ["none"]`, `withhold: eligible` and notes saying
+why; a gate rule with `guards: ["none"]` and no backstop still fails, and a backstop on
+anything but an eligible gate rule fails. The one entry today is `pr-body/no-heading-in-part1`
+(PB4): its gate reads the pull request after `gh pr create`, `gh pr edit` fixes it, and
+`.github/workflows/pr-body.yml` blocks the merge, so a heading in Part 1 never reaches `main`.
+The rule's protected guards are untouched: no rule guarding a push, a merge or a pull
+request's creation becomes eligible.
+
 *Alternative: let `withhold` stand alone, reviewed per entry.* Simpler, and a mismarked rule is
 the mistake a reviewer misses. Rejected; the PRD settled this.
 

@@ -369,8 +369,16 @@ bad=$(jq -r '.rules[] | select(.withhold != "never" and ((.guards != ["none"]) o
 
 never=$(jq -r '[.rules[] | select(.level == "gate" or .id == "rs-001" or .id == "rs-002" or .id == "rs-003" or .id == "execute/pr-takeover-needs-signal") | select(.withhold == "never")] | length' "$REG")
 eligible=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[4-9]|1[0-7])$")) | select(.withhold == "eligible" and .guards == ["none"])] | length' "$REG")
-[ "$never" = 25 ] && [ "$eligible" = 14 ] && pass "gates, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-017 are eligible" \
+[ "$never" = 24 ] && [ "$eligible" = 14 ] && pass "gates but PB4, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-017 are eligible" \
     || fail "withhold marking" "never=$never eligible=$eligible"
+
+# The one gate rule eligible to withhold, through its backstop (the live
+# offload canary); every other gate rule stays never.
+gate_eligible=$(jq -r '[.rules[] | select(.level == "gate" and .withhold == "eligible") | .id] | join(",")' "$REG")
+backstop=$(jq -r '.rules[] | select(.id == "pr-body/no-heading-in-part1") | "\(.guards | join(","))|\(.backstop.before)|\(.backstop.check)"' "$REG")
+[ "$gate_eligible" = pr-body/no-heading-in-part1 ] && [ "$backstop" = "none|merge|.github/workflows/pr-body.yml" ] \
+    && pass "PB4 is the one eligible gate rule, guarding none with the PR-body CI gate as its backstop" \
+    || fail "eligible gate rules" "eligible=[$gate_eligible] backstop=[$backstop]"
 
 unexplained=$(jq -r '
     (.rules | map(.baseline_keys[]) | group_by(.) | map(select(length > 1) | .[0])) as $shared

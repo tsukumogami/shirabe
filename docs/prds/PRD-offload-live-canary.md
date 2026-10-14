@@ -135,11 +135,15 @@ run started with the canary turned off by the switch in R10.
   independently. The DESIGN records why this rule was picked over the other
   gate rules.
 - **R2. Eligibility.** The rule's registry entry has `guards: ["none"]`,
-  `withhold: eligible` and a non-empty `notes` stating why. The registry check
+  `withhold: eligible`, a `backstop` naming the deterministic check that still
+  blocks the merge, and a non-empty `notes` stating why. The registry check
   passes on the real registry and admits no other change: it fails when any
-  other `level: gate` entry is marked `eligible`, when any entry whose
-  `guards` include `push`, `merge` or `pr-create` is marked `eligible`, and
-  when an eligible gate entry has empty `notes`.
+  other `level: gate` entry is marked `eligible` without a backstop, when any
+  entry whose `guards` include `push`, `merge` or `pr-create` is marked
+  `eligible`, and when an eligible gate entry has empty `notes`. On a host that
+  opted in, the PR-body PreToolUse hook stops denying the rule (and only this
+  rule), so its violations reach the gate that counts them (owner ruling,
+  2026-10-14).
 - **R3. Assignment.** A standalone `/work-on` run is assigned to the withheld
   or the preloaded group once its analysis plan is ready, on the edge out of
   `analysis`, before implementation begins and well before `pr_creation`. The

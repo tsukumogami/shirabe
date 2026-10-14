@@ -89,6 +89,12 @@ render() {
     a=${range% *}
     b=${range#* }
     case "$a$b" in *[!0-9]*|'') return 1 ;; esac
+    # The range must be the rule's own lines in this file: its first line here
+    # is the first line of the text the registry resolves. A registry pointing
+    # at another file, or a copy of the file that has drifted, would otherwise
+    # cut the wrong lines.
+    [ "$(LC_ALL=C sed -n "${a}p" "$conf")" = \
+      "$("$root/scripts/rule-registry.sh" text "$RULE" 2>/dev/null | head -n 1)" ] || return 1
     out=$(LC_ALL=C awk -v a="$a" -v b="$b" 'NR < a || NR > b' "$conf") || return 1
     # The rendering must not name the rule it leaves out, or it would hand the
     # withheld run what the canary is withholding.

@@ -34,11 +34,17 @@
 //!
 //! Env seam: `PR_BODY_HOOK_DISABLE=1` short-circuits to allow (an operator kill
 //! switch that does not require unwiring the hook), mirroring the `WS_*` seams.
+//!
+//! Offload canary: on a host that opted into the live offload canary
+//! (`${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary` reads `on`), PB4
+//! is not denied, so a PB4 violation reaches the /work-on gate that counts it
+//! and CI still blocks its merge. PB1 to PB3 are denied as everywhere else.
+//! docs/guides/offload-live-canary.md says why.
 
 use std::io::Read;
 use std::process::ExitCode;
 
-use shirabe_validate::{check_pr_body, check_pr_title, PrBodyFinding};
+use shirabe_validate::{check_pr_body, check_pr_title, is_no_heading_finding, PrBodyFinding};
 
 /// Entry point for `shirabe pr-body-hook`. Always returns
 /// `ExitCode::SUCCESS`: the adapter is fail-safe and must never abort the
@@ -49,10 +55,39 @@ pub fn run() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let input = read_stdin();
-    if let Some(reason) = evaluate(&input) {
+    if let Some(reason) = evaluate_with(&input, canary_opted_in()) {
         emit_deny(&reason);
     }
     ExitCode::SUCCESS
+}
+
+/// Whether this host opted into the live offload canary:
+/// `${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary`, read the way
+/// /work-on's offload-canary.sh reads it. With neither variable set, the host
+/// has not opted in.
+fn canary_opted_in() -> bool {
+    let base = match std::env::var_os("XDG_CONFIG_HOME") {
+        Some(v) if !v.is_empty() => std::path::PathBuf::from(v),
+        _ => match std::env::var_os("HOME") {
+            Some(h) if !h.is_empty() => std::path::PathBuf::from(h).join(".config"),
+            _ => return false,
+        },
+    };
+    opted_in_at(&base.join("shirabe").join("offload-canary"))
+}
+
+/// True when `path` is a regular file, not a symlink, whose first line is
+/// exactly `on`. Any error reads as not opted in, so a broken file keeps the
+/// hook denying PB4.
+fn opted_in_at(path: &std::path::Path) -> bool {
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_file() => {}
+        _ => return false,
+    }
+    match std::fs::read_to_string(path) {
+        Ok(s) => s.lines().next() == Some("on"),
+        Err(_) => false,
+    }
 }
 
 /// The kill switch: `PR_BODY_HOOK_DISABLE=1` (any non-empty value other than
@@ -75,7 +110,14 @@ fn read_stdin() -> String {
 /// lists the PB findings) or `None` when it should be **allowed**.
 ///
 /// Every failure path returns `None` (fail-open, DESIGN D9).
+#[cfg(test)]
 fn evaluate(input: &str) -> Option<String> {
+    evaluate_with(input, false)
+}
+
+/// [`evaluate`], with PB4's finding dropped when `skip_pb4` is set: the
+/// offload canary's opted-in hosts, where PB4 is left to the /work-on gate.
+fn evaluate_with(input: &str, skip_pb4: bool) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(input).ok()?;
     let command = v
         .get("tool_input")
@@ -97,6 +139,14 @@ fn evaluate(input: &str) -> Option<String> {
         // Nothing extractable to check (e.g. `gh pr edit 12 --add-label x`,
         // or `--fill`): allow.
         (None, None) => return None,
+    };
+    let findings: Vec<PrBodyFinding> = if skip_pb4 {
+        findings
+            .into_iter()
+            .filter(|f| !is_no_heading_finding(f))
+            .collect()
+    } else {
+        findings
     };
 
     if findings.is_empty() {
@@ -577,5 +627,63 @@ Co-Authored-By: Claude <noreply@anthropic.com>'";
         assert!(!disabled());
         std::env::remove_var("PR_BODY_HOOK_DISABLE");
         assert!(!disabled());
+    }
+
+    // --- the offload canary's opt-in --------------------------------------
+
+    const HEADED: &str = "gh pr create --title 'feat: add mode' --body '## Summary
+
+Adds the mode.
+
+---
+
+Fixes #1'";
+
+    #[test]
+    fn heading_in_part1_is_denied_without_the_opt_in() {
+        let reason = evaluate_with(&hook(HEADED), false).expect("should deny");
+        assert!(reason.contains("markdown section heading"), "got: {reason}");
+    }
+
+    #[test]
+    fn heading_in_part1_is_allowed_on_an_opted_in_host() {
+        assert_eq!(evaluate_with(&hook(HEADED), true), None);
+    }
+
+    #[test]
+    fn the_opt_in_keeps_pb1_to_pb3() {
+        let cmd = "gh pr create --title 'Add the mode' --body '## Summary
+
+Adds the mode.'";
+        let reason = evaluate_with(&hook(cmd), true).expect("should still deny");
+        assert!(reason.contains("not Conventional Commits"), "got: {reason}");
+        assert!(reason.contains("no `---` separator"), "got: {reason}");
+        assert!(
+            !reason.contains("markdown section heading"),
+            "got: {reason}"
+        );
+    }
+
+    #[test]
+    fn opted_in_at_reads_only_a_regular_file_whose_first_line_is_on() {
+        let dir = std::env::temp_dir().join(format!("pr-body-hook-optin-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("offload-canary");
+        assert!(!opted_in_at(&f), "a missing file is not an opt-in");
+        std::fs::write(&f, "on\n").unwrap();
+        assert!(opted_in_at(&f), "a file reading on is an opt-in");
+        std::fs::write(&f, "off\n").unwrap();
+        assert!(!opted_in_at(&f), "a file reading off is not");
+        std::fs::write(&f, "").unwrap();
+        assert!(!opted_in_at(&f), "an empty file is not");
+        std::fs::write(&f, "on\n").unwrap();
+        let link = dir.join("link");
+        let _ = std::fs::remove_file(&link);
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&f, &link).unwrap();
+            assert!(!opted_in_at(&link), "a symlink is not an opt-in");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

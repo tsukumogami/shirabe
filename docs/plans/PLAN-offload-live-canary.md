@@ -160,13 +160,17 @@ off everywhere, and run the readout query from a session using one guide.
 its check admits that one gate rule by name and no other.
 
 **Acceptance Criteria**:
-- [ ] `scripts/check-rule-registry.sh` carries
-      `WITHHOLD_GATE_RULES="pr-body/no-heading-in-part1"`; an entry on it may
-      be `level: gate` with `guards: ["none"]` and must be
-      `withhold: eligible` with non-empty `notes`.
+- [ ] `scripts/check-rule-registry.sh` enforces the `backstop` rule: a
+      `level: gate` entry may have `guards: ["none"]` only with a backstop,
+      whose `before` is a protected action and whose `check` exists, on an
+      entry that is `withhold: eligible` with non-empty `notes`.
 - [ ] `references/rule-registry.json` gives PB4 `guards: ["none"]`,
-      `withhold: eligible` and `notes` giving the reason, and the check
-      passes on it.
+      `withhold: eligible`, `backstop` (before `merge`, check
+      `.github/workflows/pr-body.yml`) and `notes` giving the reason, and the
+      check passes on it.
+- [ ] `shirabe pr-body-hook` allows a PB4-only violation on a host whose
+      opt-in file reads `on`, still denies PB1 to PB3 there, and denies PB4
+      everywhere else, with unit tests for each case.
 - [ ] `scripts/check-rule-registry_test.sh` fails for: another gate entry
       marked `eligible`, an eligible entry guarding `push`, `merge` or
       `pr-create`, and an eligible gate entry with empty `notes`.

@@ -129,28 +129,31 @@ each one's gate stands before a push or before the pull request opens.
 
 Resolved inline.
 
-**Chosen: an explicit list in `scripts/check-rule-registry.sh`.** A constant,
-`WITHHOLD_GATE_RULES="pr-body/no-heading-in-part1"`, names the gate rules the
-owner has approved for withholding. For an entry on the list, and only for
-one, the check accepts `level: gate` with `guards: ["none"]`, and requires
-`withhold: eligible` and non-empty `notes`. Every other gate entry keeps the
-current rule: a guard other than `none`, hence `withhold: never`. Any
-`eligible` entry whose guards include a protected action still fails. The
-entry itself changes to `guards: ["none"]`, `withhold: eligible`, with
-`notes` giving the reason from Decision 1.
+**Chosen: a `backstop` field the registry check enforces.** The owner ruled
+on 2026-10-14 that a gate rule may be eligible when its harm is undone by a
+later edit and a deterministic check blocks the irreversible step, and asked
+for that to be a rule, not a one-off. An eligible gate rule names that check:
+`backstop: {"before": "merge", "check": ".github/workflows/pr-body.yml"}` for
+PB4. `scripts/check-rule-registry.sh` accepts `level: gate` with
+`guards: ["none"]` only beside a backstop, requires a backstop to sit on an
+eligible gate rule with notes, requires `before` to be a protected action and
+`check` to exist, and still fails any eligible entry whose guards include a
+protected action. The amendment is recorded in the registry design's
+Decision 6.
+
+*Alternative: an explicit list of approved rule ids in the check script.*
+Narrow, and it would make the safety decision a list of names with no
+statement of what qualifies a rule. Rejected after the owner asked for the
+rule itself to be enforced.
 
 *Alternative: drop the pairing "a gate needs a guard" for all entries.*
 Simpler, and it would let any gate rule be reclassified in a JSON edit nobody
 reviews as a safety decision. Rejected: the list makes the safety decision a
 named, reviewable line that changes only with the owner's ruling.
 
-*Alternative: a new registry field, such as `gate_after: pr-create`.* More
-general, and it would ask the registry's schema, its reader and its design to
-change for one rule. Rejected for now; it's the natural shape once a second
-rule is withheld.
-
-This decision depends on the owner's ruling on narrowing the withhold safety.
-Until it's given, the registry change isn't committed.
+*Alternative: drop the pairing "a gate needs a guard" for every entry.*
+Rejected: it would let any gate rule become eligible in a JSON edit nobody
+reviews as a safety decision.
 
 ### Decision 3: Where and how the group is drawn
 
@@ -212,8 +215,8 @@ that walks the template. `analysis`'s `plan_ready` edge is the one edge every
 run that goes on to implement crosses, it carries no evidence onward, and it
 still comes before any implementation.
 
-*Alternative: draw in the `pr_creation` state itself.* Rejected: the PRD asks
-for the group when the run starts, and a run that never reaches
+*Alternative: draw in the `pr_creation` state itself.* Rejected: the draw
+should come before the rule can matter, and a run that never reaches
 `pr_creation` would then carry no group at all, which hides how many runs
 each group started with.
 
@@ -312,8 +315,9 @@ dependency outside `/work-on` is the registry's admission of PB4.
 | `skills/work-on/koto-templates/work-on.mermaid.md` | The three states and their edges. |
 | `skills/work-on/references/phases/phase-6-pr.md` | The Create PR paragraph defers to the directive for the conformance text. |
 | `skills/work-on/scripts/check-pr-output.sh` | After printing a `pr-body/no-heading-in-part1` finding, calls `rule-registry.sh release pr-body/no-heading-in-part1` once. |
-| `references/rule-registry.json` | PB4: `guards: ["none"]`, `withhold: eligible`, `notes`. |
-| `scripts/check-rule-registry.sh` | `WITHHOLD_GATE_RULES` and the narrowed pairing (Decision 2). |
+| `references/rule-registry.json` | PB4: `guards: ["none"]`, `withhold: eligible`, `backstop`, `notes`. |
+| `scripts/check-rule-registry.sh` | The `backstop` rule (Decision 2). |
+| `crates/shirabe/src/pr_body_hook.rs`, `crates/shirabe-validate/src/pr_body.rs` | On a host with the canary's opt-in file, the PreToolUse hook stops denying PB4 in both groups, so a PB4 violation reaches the `/work-on` gate that counts it; PB1 to PB3 are still denied. |
 | `references/rule-registry.md`, `docs/designs/current/DESIGN-rule-registry.md` | Say that one gate rule is withheld, and where the list lives. |
 | `docs/guides/offload-live-canary.md` | New. The attributes, the query, the off switch, and how to read the result. |
 

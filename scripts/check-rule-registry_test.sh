@@ -37,7 +37,8 @@ for d in references skills scripts docs/guides; do
     cp -R "$REPO_ROOT/$d" "$S/$d"
 done
 for f in CLAUDE.md .claude-plugin/plugin.json docs/designs/current/DESIGN-output-gates.md \
-    docs/measurement/offload-baseline/template-pin.json .github/workflows/check-rule-registry.yml; do
+    docs/measurement/offload-baseline/template-pin.json .github/workflows/check-rule-registry.yml \
+    .github/workflows/pr-body.yml; do
     cp "$REPO_ROOT/$f" "$S/$f"
 done
 
@@ -106,6 +107,7 @@ expect_problem() {
 }
 
 G=pr-body/no-heading-in-part1
+G2=pr-body/one-separator
 RS=rs-004
 TK=execute/pr-takeover-needs-signal
 sel() { printf '(.rules[] | select(.id == "%s"))' "$1"; }
@@ -161,8 +163,38 @@ expect_problem "an eligible entry with a protected guard" "$RS: a protected guar
 reg "$(sel $RS).check = {\"kind\": \"none\"}"
 expect_problem "an eligible entry with check none" "$RS: check.kind none requires withhold never"
 
-reg "$(sel $G).guards = [\"none\"]"
-expect_problem "a gate entry guarding none" "$G: a gate entry needs a guard other than none"
+reg "$(sel $G2).guards = [\"none\"]"
+expect_problem "a gate entry guarding none" "$G2: a gate entry needs a guard other than none, or a backstop"
+
+reg "$(sel $G2).guards = [\"none\"] | $(sel $G2).withhold = \"eligible\""
+expect_problem "an eligible gate entry with no backstop" "$G2: a gate entry needs a guard other than none, or a backstop"
+
+reg "$(sel $G2).withhold = \"eligible\""
+expect_problem "another gate entry marked eligible with its guards" "$G2: a protected guard requires withhold never"
+
+reg "del($(sel $G).backstop)"
+expect_problem "the eligible gate entry without its backstop" "$G: a gate entry needs a guard other than none, or a backstop"
+
+reg "$(sel $G).backstop.before = \"deploy\""
+expect_problem "a backstop before an unprotected action" "$G: backstop.before \"deploy\" is not a protected action"
+
+reg "$(sel $G).backstop.check = \"\""
+expect_problem "a backstop with no check" "$G: backstop.check is not a path"
+
+reg "$(sel $G).backstop.check = \".github/workflows/no-such.yml\""
+expect_problem "a backstop check that does not exist" "$G: backstop path .github/workflows/no-such.yml does not exist"
+
+reg "$(sel $G).guards = [\"merge\"]"
+expect_problem "a backstop beside a protected guard" "$G: a backstop needs guards [\"none\"]"
+
+reg "$(sel $G).withhold = \"never\""
+expect_problem "a backstop on a never-withhold entry" "$G: a backstop needs withhold eligible"
+
+reg "$(sel $G).notes = \"\""
+expect_problem "a backstop with no notes" "$G: a backstop needs notes saying why"
+
+reg "$(sel $RS).backstop = {\"before\": \"merge\", \"check\": \".github/workflows/pr-body.yml\"}"
+expect_problem "a backstop on a review-shadow entry" "$RS: a backstop needs level gate"
 
 reg "$(sel $TK).check = {\"kind\": \"script\", \"path\": \"skills/execute/scripts/adopt-or-create-pr.sh\"}"
 expect_problem "a prose entry with a check" "$TK: a prose entry must have check.kind none"

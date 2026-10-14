@@ -173,6 +173,35 @@ done
 [ $leak_w -eq 0 ] && [ $leak_n -eq 0 ] && pass "a rendering that would still name PB4 is never used, and no run is labeled withheld" \
     || fail "a leaky rendering: $leak_w withheld labels, $leak_n runs read a rendering"
 
+# A registry whose text resolves in another file: the range it gives is that
+# file's, so its first line here isn't PB4's, and the draw refuses to cut.
+MOVED="$T/moved"; make_root "$MOVED" eligible
+{ echo "An extra first line that shifts every line below it."; cat "$MOVED/references/pr-body-conformance.md"; } \
+    > "$MOVED/references/other.md"
+jq --arg id "$RULE" '(.rules[] | select(.id == $id) | .text.path) = "references/other.md"' \
+    "$MOVED/references/rule-registry.json" > "$T/moved.json" && mv "$T/moved.json" "$MOVED/references/rule-registry.json"
+moved_w=0
+i=0
+while [ $i -lt 20 ]; do
+    d=$(fresh); draw "$d" on "" "$MOVED"
+    if [ -e "$d/pr-rules/sample" ] && [ "$(cat "$d/pr-rules/sample")" = withheld ]; then moved_w=$((moved_w + 1)); fi
+    i=$((i + 1))
+done
+[ $moved_w -eq 0 ] && pass "a range whose first line here isn't PB4's first line is never cut" \
+    || fail "a mismatched range was cut in $moved_w draws"
+
+# The real plugin root: the registry marks PB4 eligible, so an opted-in draw
+# takes a group.
+real_group=0
+i=0
+while [ $i -lt 6 ] && [ $real_group -eq 0 ]; do
+    d=$(fresh); draw "$d" on "" "$REAL_ROOT"
+    [ -e "$d/pr-rules/sample" ] && real_group=1
+    i=$((i + 1))
+done
+[ $real_group -eq 1 ] && pass "against the real plugin root an opted-in draw takes a group" \
+    || fail "against the real plugin root no draw took a group (is PB4 eligible?)"
+
 # --- symlinks and unwritable directories ----------------------------------------------
 
 d=$(fresh); ln -s "$T/s" "$T/linked-session"

@@ -20,7 +20,8 @@ only when its `rule_id` is a registered rule, until koto's routing-gate declarat
 
 ## Fields
 
-Every entry has every field below; `fixtures`, `baseline_keys` and `aliases` may be empty lists.
+Every entry has every field below except `backstop`, which only an eligible gate rule carries;
+`fixtures`, `baseline_keys` and `aliases` may be empty lists.
 
 | Field | Meaning |
 |---|---|
@@ -33,7 +34,8 @@ Every entry has every field below; `fixtures`, `baseline_keys` and `aliases` may
 | `level` | `gate` (a koto gate holds or reroutes the run on it), `shadow` (graded and recorded beside a panel, never blocking) or `prose` (stated in a skill or template, checked by nothing). |
 | `timing` | Where it applies: `<skill>:<state>` naming a `## <state>` section of that skill's koto template, or `pre-merge` (the review-shadow trial's point, before a pull request's panel). Never empty. |
 | `guards` | What the rule keeps from doing harm that can't be taken back once it happens: `pr-create`, `push`, `force-push`, `merge`, `close-issue`, `release`, `delete-branch`, `publish`, `destroy-record`, or `none` alone. |
-| `withhold` | `never` or `eligible`, with no default. Any guard other than `none` forces `never`, and so does `check.kind: none`: a rule nothing checks can't be withheld on trust. This feature withholds nothing; the field is for later work. |
+| `withhold` | `never` or `eligible`, with no default. Any guard other than `none` forces `never`, and so does `check.kind: none`: a rule nothing checks can't be withheld on trust. A gate rule can be `eligible` only through `backstop`. |
+| `backstop` | Only on a gate rule eligible to withhold: `{"before": <protected action>, "check": <path>}`, the deterministic check that still blocks `before` after the rule's gate, for a rule whose gate runs after the action it would otherwise guard and whose harm a later edit undoes. A gate rule may carry `guards: ["none"]` only with a backstop, and a backstop needs `withhold: eligible` and notes saying why. `pr-body/no-heading-in-part1` is the one such rule: its gate reads the pull request GitHub already has, `gh pr edit` fixes it, and `.github/workflows/pr-body.yml` blocks the merge. |
 | `baseline_keys` | The offload baseline's source-location keys (`<path>#L<start>-L<end>` at the pinned commit in `docs/measurement/offload-baseline/template-pin.json`) where the rule's text was at that commit. Entries whose texts shared a range there share the key and say so in `notes`. An empty list says why in `notes`. |
 | `aliases` | Other codes the rule is known by, such as the validator's `PB3` or `R7`. Unique across the registry, never an id, never printed as a `rule_id`. |
 | `notes` | Why a key list is empty, which entries share a key, and anything else a reviewer needs. |
