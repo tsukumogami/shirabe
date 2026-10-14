@@ -29,7 +29,9 @@
 # teardown inventories only after the session is stopped, hands only a
 # durable instance on to teardown_handoff (teardown-pass_engine_test.sh runs
 # the pass from there), sends a unique one to promote, and no override record can
-# stand in for the inventory's gate.
+# stand in for the inventory's gate; a stopped worker niwa lists no instance
+# for is sealed absent and comes back to teardown with its topic kept, and a
+# listed instance with no directory is an error that goes to surface.
 #
 # Needs koto, git and jq; SKIPs (exit 0) without koto.
 # Usage: bash skills/coordinate/scripts/dispatch-path_engine_test.sh
@@ -680,13 +682,29 @@ eq  "teardown: kept goes to record with no inventory" record "$(at)"
 eq  "teardown: leaving teardown clears teardown_topic" "" "$(ctx teardown_topic)"
 
 
-# A worker with no instance can't be inventoried: the verdict is sealed as an
-# error and goes to the human, rather than holding the run at the inventory.
+# A worker niwa lists no instance for is sealed absent, not as an error: a
+# stop that found nothing to stop goes back to teardown with the topic kept
+# (the coordinator then says whether it was removed), rather than holding the
+# run at the inventory or sending it to the human.
 start
 tick --with-data '{"go":"wait"}'
 tick --with-data '{"event":"retire","unit":"w9"}'
 tick --with-data '{"teardown":"stopped"}'
-eq  "teardown: no instance for the worker goes to surface" surface "$(at)"
+eq  "teardown: no instance for a stopped worker goes back to teardown" teardown "$(at)"
+eq  "teardown: with teardown_topic kept" w9 "$(ctx teardown_topic)"
+case "$(ctx teardown_verdict)" in
+    absent*) pass "teardown: that verdict is sealed as absent" ;;
+    *) fail "teardown: that verdict is sealed as absent" "$(ctx teardown_verdict)" ;;
+esac
+
+# An instance niwa lists whose directory is gone can't be inventoried: the
+# verdict is sealed as an error and goes to the human.
+jq -c --arg p "$T/inst-gone" '. + [{name: "c", path: $p, session_name: "w8-1a2b3c4d"}]' "$ST/sessions.json" >"$ST/s.tmp" && mv "$ST/s.tmp" "$ST/sessions.json"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"retire","unit":"w8"}'
+tick --with-data '{"teardown":"stopped"}'
+eq  "teardown: a listed instance with no directory goes to surface" surface "$(at)"
 case "$(ctx teardown_verdict)" in
     error*) pass "teardown: that verdict is sealed as an error" ;;
     *) fail "teardown: that verdict is sealed as an error" "$(ctx teardown_verdict)" ;;

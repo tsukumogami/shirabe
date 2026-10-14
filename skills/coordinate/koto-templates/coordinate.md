@@ -1874,19 +1874,27 @@ states:
     # the worker's session is stopped, so nothing writes to its instance
     # between the inventory and the destroy. A gate runs when its state is
     # entered, which is why the stop is its own state, before the inventory's.
+    # removed is for a unit whose instance and job are already gone, torn
+    # down outside the pass: it goes through the same inventory, which seals
+    # `absent`, and the inventory's gate routes it on to the handoff's
+    # removed mode (exit 5). A stopped that finds no instance comes back here
+    # (exit 6) with teardown_topic kept.
     accepts:
       teardown:
         type: enum
-        values: [stopped, kept]
+        values: [stopped, removed, kept]
         required: true
-        description: stopped after the worker's session was stopped by its id; kept when the worker stays.
+        description: stopped after the worker's session was stopped by its id; removed when its instance and job are already gone, torn down outside the teardown pass; kept when the worker stays.
       handoff:
         type: string
-        description: With stopped, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped without one.
+        description: With stopped or removed, the link to the comment on the unit's pull request or issue that holds what existed only in the worker's head (https://github.com/<owner>/<repo>/pull/<n>#issuecomment-<id>); teardown_handoff refuses a stopped or removed without one.
     transitions:
       - target: teardown_inventory
         when:
           teardown: stopped
+      - target: teardown_inventory
+        when:
+          teardown: removed
       - target: record
         when:
           teardown: kept
@@ -1900,7 +1908,11 @@ states:
     # token `sealed:<seq>:<sha256>`. The gate reads the seal
     # from the log and the verdict through the seal check, and refuses a
     # verdict whose topic is no longer teardown_topic: 0 durable, 1 unique,
-    # 2 error, 3 the seal doesn't hold.
+    # 2 error, 3 the seal doesn't hold. --absent-route routes an `absent`
+    # verdict (niwa lists no instance for the topic) by teardown's latest
+    # evidence: 5 after removed, to the handoff's removed mode; 6 after
+    # stopped, back to teardown. A template compiled before this flag gets 2
+    # for absent, its route then.
     default_action:
       command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-inventory.sh" --seal --session "{{SESSION_NAME}}"'
       capture_stdout_as: TEARDOWN_SEAL
@@ -1909,12 +1921,18 @@ states:
     gates:
       inventory_durable:
         type: command
-        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-verdict.sh" gate --session "{{SESSION_NAME}}"'
+        command: '"{{PLUGIN_ROOT}}/skills/coordinate/scripts/teardown-verdict.sh" gate --session "{{SESSION_NAME}}" --absent-route'
         overridable: false
     transitions:
       - target: teardown_handoff
         when:
           gates.inventory_durable.exit_code: 0
+      - target: teardown_handoff
+        when:
+          gates.inventory_durable.exit_code: 5
+      - target: teardown
+        when:
+          gates.inventory_durable.exit_code: 6
       - target: promote
         when:
           gates.inventory_durable.exit_code: 1
@@ -1951,7 +1969,10 @@ states:
     # (the sealed inventory, the instance in niwa's listing, the one Claude
     # Code job in it, its transcript, the holding's merged pull requests, the
     # handoff link from teardown's latest evidence, read back from GitHub) and
-    # seals them as one verdict in the key teardown_handoff. It prints
+    # seals them as one verdict in the key teardown_handoff. After an absent
+    # inventory and `teardown: removed` it runs its removed mode: it checks
+    # niwa and Claude Code list nothing for the unit, recovers the instance
+    # path and the worker's last session, and seals `removed yes`. It prints
     # `handoff-ready keyseal:<seq>:<sha256>` or `handoff-refused`, sealed to
     # this visit.
     default_action:
@@ -3827,7 +3848,8 @@ a verdict.
 Finish with a worker: once its work is finished and you have asked it what
 exists only in its head, stop its session by its id and submit `teardown:
 stopped` with `handoff` set to the link of the comment that holds the
-worker's handoff; submit `kept` when it stays.
+worker's handoff; submit `removed`, with the same `handoff`, when its
+instance and its job are already gone; submit `kept` when it stays.
 
 <!-- details -->
 
@@ -3855,6 +3877,18 @@ inventories the worker's instance and seals the verdict, and the stop comes
 first so nothing writes to the instance in between. Take the teardown only as
 far as the posture allows; where the posture reserves it, hand it to the human.
 
+Submit `removed` only for a unit torn down outside the teardown pass: niwa
+lists no instance for its topic and Claude Code lists no job in it, because
+someone already removed them. Ask for the handoff comment first all the same;
+the removed pass checks it as it would for a stopped worker. The inventory
+then finds no instance, and the removed pass archives what survives (the
+worker's last transcript and its koto sessions), posts the unit's cost entry
+when a session survives, and removes nothing. Never submit `removed` to skip
+the stop or the inventory of a worker that is still there: the inventory
+finds its instance, and the handoff refuses. When you are back here after a
+`stopped` because the inventory found no instance, the worker was already
+gone: check that it was removed and submit `removed`, or `kept`.
+
 ## teardown_inventory
 
 Inventorying the worker's instance. koto runs this itself; tick with no
@@ -3868,7 +3902,12 @@ stash entries, and branches whose content isn't on origin, judged against the
 squash merge commit of the branch's merged pull request (never by ancestry).
 It seals the verdict with the topic and instance. Durable goes on to
 `teardown_handoff`; unique to `promote`; an error, or a seal that doesn't
-hold, to the human.
+hold, to the human. When niwa's listing was read and holds no instance for
+the topic, the verdict is `absent`, routed by your latest `teardown`
+evidence: after `removed` it goes on to `teardown_handoff`, whose removed
+mode reads what is left of the unit; after `stopped` it goes back to
+`teardown`, with `teardown_topic` kept, since there was nothing to stop. A
+listing that can't be read seals nothing; tick again.
 
 ## teardown_handoff
 
@@ -3885,6 +3924,16 @@ merged pull request, no handoff link or one on another unit, no single
 finished job) goes to the human with its reason in the sealed verdict's
 `reason` line (`koto context get "{{SESSION_NAME}}" teardown_handoff`);
 nothing has been removed.
+
+After an absent inventory and `teardown: removed`, it runs its removed mode
+instead: it refuses when niwa lists an instance for the topic or Claude Code
+lists a job in the unit's instance, recovers the instance's path from the
+worker's koto sessions (or, failing those, its transcripts), takes the
+worker's last session from its transcripts, and seals `removed yes` with
+`instance - <path>` and `job <id> <session>`, or `job -` when no session
+survived. A listing that can't be read seals nothing; tick again. A
+`removed` whose instance the inventory found is refused: the unit wasn't
+removed.
 
 ## promote
 
@@ -3918,6 +3967,14 @@ worker's koto sessions into the archive, runs `niwa destroy --force` on the
 one instance and `claude rm` on the one job, and confirms both are gone.
 Where your harness has no subagent tool, run that one command yourself.
 
+A verdict that says `removed yes` is a removed pass: the unit was torn down
+outside the pass. The agent runs the same command; the pass checks the pull
+requests, the handoff and that niwa and Claude Code list nothing for the
+unit, archives the surviving transcript and koto sessions, posts the cost
+entry, and runs no `niwa destroy` and no `claude rm`. With `job -` there is
+nothing to archive and its last line still says done. Either way, on `done`
+remove the holding row and submit `destroyed`, as for any pass.
+
 The reader refuses (exit 4) when the run was moved by a directed transition
 since the verdict (koto#251), and refuses a verdict edited after sealing or
 taken for another worker. The holding row goes only after a `done` pass, and
@@ -3937,7 +3994,8 @@ are shown it.
 
 `teardown-pass.sh confirm` reads, apart from what you submitted, that niwa no
 longer lists the instance, that Claude Code no longer lists the job, and that
-the archive's RESULT says done with every MANIFEST file present. Confirmed
+the archive's RESULT says done with every MANIFEST file present; for a
+removed pass with `job -` there is no archive to read. Confirmed
 goes to `record`, which checks the holding row is gone. Anything else goes to
 the human with the reason in `coord/teardown_confirm.json`; the row is gone
 by then, so the surface need, `reserved-step teardown <link>`, carries the

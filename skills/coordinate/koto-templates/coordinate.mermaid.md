@@ -208,12 +208,15 @@ stateDiagram-v2
     take_report --> wait : gates.report_source_ok.exit_code: 2, withdrawn: withdrawn
     take_report --> surface : gates.report_source_ok.exit_code: 2, withdrawn: unreadable
     teardown --> teardown_inventory : teardown: stopped
+    teardown --> teardown_inventory : teardown: removed
     teardown --> record : teardown: kept
     teardown_confirm --> record : gates.confirm_verdict.exit_code: 202
     teardown_confirm --> surface : gates.confirm_verdict.exit_code: 203
     teardown_handoff --> destroy : gates.handoff_verdict.exit_code: 200
     teardown_handoff --> surface : gates.handoff_verdict.exit_code: 201
     teardown_inventory --> teardown_handoff : gates.inventory_durable.exit_code: 0
+    teardown_inventory --> teardown_handoff : gates.inventory_durable.exit_code: 5
+    teardown_inventory --> teardown : gates.inventory_durable.exit_code: 6
     teardown_inventory --> promote : gates.inventory_durable.exit_code: 1
     teardown_inventory --> surface : gates.inventory_durable.exit_code: 2
     teardown_inventory --> surface : gates.inventory_durable.exit_code: 3

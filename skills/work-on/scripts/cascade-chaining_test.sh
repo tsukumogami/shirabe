@@ -74,6 +74,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# koto's session store lives under HOME: a HOME of the suite's own keeps its
+# sessions out of the user's store and away from suites running beside it.
+KOTO_HOME_DIR=$(mktemp -d); TMPS+=("$KOTO_HOME_DIR")
+export HOME="$KOTO_HOME_DIR"
+
 # Skip cleanly when koto is absent, matching retry-clearing_test.sh. The macOS
 # bash-floor leg has no koto, and this test cannot run without the engine whose
 # chaining it asserts. The Linux CI step is what stops that skip from hiding a

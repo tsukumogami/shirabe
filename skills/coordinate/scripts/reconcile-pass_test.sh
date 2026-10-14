@@ -29,6 +29,10 @@ check() { if [ "$2" = 0 ]; then ok "$1"; else bad "$1" "${3-}"; fi; }
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-pass-test.XXXXXX")
 trap 'rm -rf "$T"' EXIT
+# The pass makes its working directory under TMPDIR, and the planting cases
+# glob TMPDIR for it: a TMPDIR of the suite's own keeps both away from another
+# suite's pass running at the same time (check-skill.sh runs suites in parallel).
+mkdir -p "$T/tmp" && export TMPDIR="$T/tmp"
 
 SC="$T/tree/skills/coordinate/scripts"
 mkdir -p "$SC" "$T/tree/skills/execute/scripts" "$T/bin"
