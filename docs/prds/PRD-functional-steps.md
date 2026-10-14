@@ -144,6 +144,12 @@ entry leaves working.
   `plan/v2` with `execution_mode: coordinated` or with `tracking_level:
   issues` or `issues-and-milestone`, with a message naming `plan/v1` as the
   version for those cases.
+- **R7a.** Under `single-pr`, every step lands in the one pull request, which
+  is not marked ready while any step is an outline or unfinished. Under
+  `multi-pr`, each step lands in its own pull request. A `plan/v2` plan is
+  complete only when no outline step remains and every step's work reached
+  done; the completion cascade refuses to mark a plan with an outline step
+  Done, naming the step.
 
 ### Writing the new version
 
@@ -162,7 +168,8 @@ entry leaves working.
 ### Reading both versions
 
 - **R11.** `shirabe validate` accepts a valid plan of either version and
-  checks R1, R2, R3, R4 and R7 for `plan/v2`. Each violation names the step
+  checks R1, R2, R4 and R7 for `plan/v2`, and of R3 only that step 1 is
+  detailed (the skeleton's content is judged by `/review-plan`, R16). Each violation names the step
   number (where there is one) and the rule broken.
 - **R12.** `/execute` drives a `plan/v2` plan in either supported mode. A
   step's `/work-on` workflow that finds its step is still an outline when it
@@ -189,8 +196,13 @@ entry leaves working.
   definitions above, reports a layer-shaped plan as a finding naming the
   entries and the components they are cut by, and lists each file-shaped
   criterion by entry and text. A plan with no such criteria and a walking
-  skeleton first gets neither finding. At authoring it also flags a
-  `plan/v2` plan with more than two detailed steps.
+  skeleton first gets neither finding. It recognises a walking skeleton by
+  step 1's check: a command or walkthrough whose result is observed end to
+  end, not a build or unit test of one component; a first step cut as a
+  layer is a finding. When it runs inside `/plan` (at authoring, before any
+  step's work has started) it also flags a `plan/v2` plan with more than two
+  detailed steps. A `**Files**:` line is never reported as a file-shaped
+  criterion.
 - **R17.** The plan format's `plan/v2` section and `/work-on`'s instructions
   for a plan-step task say that a step's report names "the behaviour this
   step added" and the check that shows it, with the check's result.
@@ -206,7 +218,10 @@ entry leaves working.
   repository's bash-floor check; no new runtime dependency is added beyond
   the tools the repository's scripts already use.
 - **R20.** No file this feature adds or changes names a private repository,
-  a private issue, or a private document.
+  a private issue, or a private document: every `tsukumogami/<repo>` or
+  `<repo>#<n>` reference in the diff names one of the public repositories
+  (shirabe, koto, niwa, tsuku, dot-niwa, .github), and no path starts with
+  `private/`.
 
 ## Acceptance Criteria
 
@@ -225,13 +240,17 @@ entry leaves working.
   `**Check**:`; a detailed step with no checkbox criterion; an outline step
   of two lines; a detailed step after an outline step; a step depending on a
   later or missing step; `execution_mode: coordinated`; `tracking_level:
-  issues`.
+  issues`; `tracking_level: issues-and-milestone`; a missing `## Steps`
+  section; sections out of order; step numbers with a gap; an `issue_count`
+  field in place of `step_count`; a `**Dependencies**:` value that is neither
+  `None` nor `Step <N>` references. The coordinated and tracking-level
+  messages name `plan/v1`.
 - [ ] `shirabe validate` output on every existing `plan/v1` fixture is
   unchanged, and every existing suite that reads plans passes unchanged.
 - [ ] `/plan` with no flag and no header writes `schema: plan/v1`; with
   `## Plan Version: v2` it writes `plan/v2`; with the header set to `v2` and
-  `--plan-version=v1` it writes `plan/v1`; `--plan-version=v3` is refused
-  before any file is written.
+  `--plan-version=v1` it writes `plan/v1`; `--plan-version=v3`, and a
+  `## Plan Version: v3` header, are each refused before any file is written.
 - [ ] The default version is one named setting; a test that sets it to `v2`
   shows the selection resolving to `v2` with nothing else changed.
 - [ ] Task extraction and `shirabe plan outlines` produce one task per step
@@ -240,23 +259,39 @@ entry leaves working.
   test feeding it a `plan/v2` fixture, and none returns empty output
   silently.
 - [ ] A `/work-on` plan-step task whose step is an outline stops before
-  implementation with a message naming the step and the rule.
+  implementation with a message naming the step and the rule, in both
+  supported modes; after the step is replaced by a detailed step and
+  committed, the same task proceeds past that check and reads the detailed
+  text.
+- [ ] `/execute`'s task setup on a `plan/v2` fixture produces, in `single-pr`
+  and in `multi-pr`, one child per step in step order with the same
+  dependency edges a `plan/v1` plan of the same shape gets.
+- [ ] The completion cascade refuses to mark a `plan/v2` fixture with an
+  outline step Done and names the step.
+- [ ] The plan format's `plan/v2` section and `/plan`'s step guidance each
+  state the detail horizon, that the owner details step N+1 after step N's
+  work reaches its terminal and before step N+1's starts, the one-commit
+  plan-only rule, and that workers never edit steps.
 - [ ] The design lists every place koto handles a plan path or plan content,
   and each is shown to accept a `plan/v2` path.
 - [ ] `/review-plan` on the five-layer fixture reports it as layer-shaped,
   names its components, and lists its file-shaped criteria (for example
   "Add `Transition` struct with `target: String`"); on a `plan/v2` fixture
   with behavioural criteria it reports neither finding; on a `plan/v2`
-  fixture with three detailed steps at authoring it flags the horizon.
+  fixture with three detailed steps at authoring it flags the horizon; on a
+  `plan/v2` fixture whose step 1 adds types only, it reports that step 1 is
+  not a walking skeleton; `**Files**:` lines on the behavioural fixture
+  produce no file-shaped finding.
 - [ ] `git grep -n "the behaviour this step added"` finds the phrase in the
-  plan format reference and in `/work-on`'s plan-step instructions.
+  plan format reference and in `/work-on`'s plan-step instructions, and the
+  same passages require the check and its result in the report.
 - [ ] The design has a section naming the qualifying plans, both checkpoint
   wordings verbatim, what is compared, and the record produced; the brief
   template's checkpoint wording is unchanged in this feature's diff.
 - [ ] New and changed scripts pass their suites under `/bin/bash` 3.2 and
   the bash-floor check.
-- [ ] A search of the feature's diff for private repository names, private
-  issue references and private document paths returns nothing.
+- [ ] Every repository reference in the feature's diff names a public
+  repository, and no path in it starts with `private/` (R20).
 
 ## Out of Scope
 
