@@ -1,0 +1,13 @@
+# corpus path	copied from (repository-relative, at the baseline commit)
+golden-real/ROADMAP-strategic-pipeline.md	crates/shirabe/tests/fixtures/golden/corpus/real/ROADMAP-strategic-pipeline.md
+golden-synthetic/ROADMAP-fc05-divergent-header.md	crates/shirabe/tests/fixtures/golden/corpus/synthetic/ROADMAP-fc05-divergent-header.md
+transition-idempotent-done/ROADMAP-idempotent-done.md	crates/shirabe/tests/fixtures/transition-golden/corpus/roadmap-idempotent-done/docs/roadmaps/ROADMAP-idempotent-done.md
+transition-legal-move/ROADMAP-legal-move.md	crates/shirabe/tests/fixtures/transition-golden/corpus/roadmap-legal-move/docs/roadmaps/ROADMAP-legal-move.md
+transition-precondition-features/ROADMAP-precondition-features.md	crates/shirabe/tests/fixtures/transition-golden/corpus/roadmap-precondition-features/docs/roadmaps/ROADMAP-precondition-features.md
+transition-rejected-skip/ROADMAP-rejected-skip.md	crates/shirabe/tests/fixtures/transition-golden/corpus/roadmap-rejected-skip/docs/roadmaps/ROADMAP-rejected-skip.md
+coordinate-evals/ROADMAP-milestones.md	skills/coordinate/evals/fixtures/files/docs/roadmaps/ROADMAP-milestones.md
+coordinate-evals/ROADMAP-plugin-system.md	skills/coordinate/evals/fixtures/files/docs/roadmaps/ROADMAP-plugin-system.md
+coordinate-evals/ROADMAP-telemetry.md	skills/coordinate/evals/fixtures/files/docs/roadmaps/ROADMAP-telemetry.md
+execute-evals/ROADMAP-cascade-test.md	skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md
+work-on-evals/ROADMAP-cascade-test.md	skills/work-on/evals/fixtures/roadmaps/ROADMAP-cascade-test.md
+v2-milestone-word/ROADMAP-plugin-loader.md	(none: written for this corpus; a roadmap/v2 roadmap carrying a ### Milestone 2: heading and a ## Milestones section)

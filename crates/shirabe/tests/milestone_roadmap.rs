@@ -372,6 +372,12 @@ fn no_roadmap_in_the_repository_gains_a_milestone_finding() {
     let files: Vec<&str> = text.lines().collect();
     assert!(!files.is_empty(), "the repository carries roadmap fixtures");
     for file in files {
+        // The byte-identity corpus carries a v2 roadmap with a
+        // `### Milestone 2:` heading on purpose; its FC21 finding is part of
+        // what roadmap_identity.rs pins.
+        if file.contains("/roadmap-identity/") {
+            continue;
+        }
         let path = root.join(file);
         let (_, out) = validate(&path, &["--check", "FC21"]);
         assert!(

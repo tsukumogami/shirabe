@@ -1,0 +1,28 @@
+{
+  "schema_version": "shirabe-validate/v1",
+  "summary": {
+    "outcome": "clean",
+    "errors": 0,
+    "notices": 2
+  },
+  "findings": [
+    {
+      "code": "FC10",
+      "severity": "notice",
+      "message": "[FC10] writing-style banned word \"narrative\" -- see skills/writing-style/rules.yaml for canonical alternatives",
+      "file": "golden-real/ROADMAP-strategic-pipeline.md",
+      "line": 403
+    },
+    {
+      "code": "FC09",
+      "severity": "notice",
+      "message": "[FC09] Sub-check C skipped: no PR context (set GITHUB_REF=refs/pull/<n>/merge, GITHUB_REPOSITORY, or SHIRABE_PR_NUMBER)",
+      "file": "golden-real/ROADMAP-strategic-pipeline.md",
+      "line": 1
+    }
+  ],
+  "advisory": {
+    "summary": "Draft posture: no draft-tolerable findings to flag.",
+    "notes": []
+  }
+}
