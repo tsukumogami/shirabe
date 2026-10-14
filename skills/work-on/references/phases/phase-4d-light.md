@@ -65,7 +65,7 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 
 Then tick koto with nothing submitted. The `light_verdict` gate reads the ledger (`panel-scope.sh --verdict light`) and decides, as at scrutiny:
 
-- Exit 0, the seat recorded no blocking finding: koto advances to `verification`. Optionally write `light_results.json` first, as the round's summary for a reader; no gate reads it.
+- Exit 0, every run recorded and every blocking finding closed: koto advances to `verification`. Optionally write `light_results.json` first, as the round's summary for a reader; no gate reads it.
 - Exit 1, a blocking finding is unclosed: the gate prints one finding per unclosed blocking finding, under the active rule it cites or under `panel/open-finding`. Submit `light_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the findings; the run then walks forward through the review-level check, which gathers the facts again and may hold the run until the level is raised (a fix that grows the change can take it past a threshold), and re-enters this phase only if the level is still `light`.
 - Exit 2, the round isn't recorded or the ledger can't be read: record the round and tick again.
 

@@ -935,13 +935,13 @@ states:
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan scrutiny "{{SESSION_NAME}}"'
       fallback: >-
-        koto could not decide which seats this round needs. Read the command's
+        koto could not decide what this round runs. Read the command's
         own output above: panel-scope.sh exits 64 when HEAD names no commit,
         65 when the ledger could not be updated, 66 when a context write
         failed, 127 when jq is missing, and 127 or 126 also when PLUGIN_ROOT
         does not reach the plugin. Run every seat of the panel
         as a full round and record it with panel-scope.sh --record as usual;
-        with no scope, scrutiny_verdict reads every seat's recorded verdict,
+        with no scope, scrutiny_verdict reads the ledger's findings and every seat's verdict,
         and the scrutiny_carried gate reads exit 1, so the round routes on
         the verdict as any other.
     gates:
@@ -1026,13 +1026,13 @@ states:
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan review "{{SESSION_NAME}}"'
       fallback: >-
-        koto could not decide which seats this round needs. Read the command's
+        koto could not decide what this round runs. Read the command's
         own output above: panel-scope.sh exits 64 when HEAD names no commit,
         65 when the ledger could not be updated, 66 when a context write
         failed, 127 when jq is missing, and 127 or 126 also when PLUGIN_ROOT
         does not reach the plugin. Run every seat of the panel
         as a full round and record it with panel-scope.sh --record as usual;
-        with no scope, review_verdict reads every seat's recorded verdict,
+        with no scope, review_verdict reads the ledger's findings and every seat's verdict,
         and the review_carried gate reads exit 1, so the round routes on the
         verdict as any other.
     gates:
@@ -1150,13 +1150,13 @@ states:
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan qa "{{SESSION_NAME}}"'
       fallback: >-
-        koto could not decide which seats this round needs. Read the command's
+        koto could not decide what this round runs. Read the command's
         own output above: panel-scope.sh exits 64 when HEAD names no commit,
         65 when the ledger could not be updated, 66 when a context write
         failed, 127 when jq is missing, and 127 or 126 also when PLUGIN_ROOT
         does not reach the plugin. Run every seat of the panel
         as a full round and record it with panel-scope.sh --record as usual;
-        with no scope, qa_verdict reads every seat's recorded verdict, and
+        with no scope, qa_verdict reads the ledger's findings and every seat's verdict, and
         the qa_carried gate reads exit 1, so the round routes on the verdict
         as any other.
     gates:
@@ -1222,9 +1222,9 @@ states:
 
   light_review:
     # The `light` review level's one panel: a single reviewer seat, in place of
-    # scrutiny, review and QA. It is a fourth panel to panel-scope.sh, so the
-    # seat's verdict is sticky across retries exactly like the other panels':
-    # see the comment on scrutiny. light_carried exit 0 advances with no spawn,
+    # scrutiny, review and QA. It is a fourth panel to panel-scope.sh, so its
+    # retries are planned from the findings ledger exactly like the other
+    # panels': see the comment on scrutiny. light_carried exit 0 advances with no spawn,
     # and the verdict gate and decider slot are scrutiny's too.
     #
     # The verdict route also carries scrutiny's has_commits gate: at `light`
@@ -2543,7 +2543,7 @@ Retry cap: the blocking retries in a run are shared by scrutiny, review, qa_vali
 
 Run the QA validation panel. Read `references/phases/phase-4c-qa.md` for detailed steps. The round's record is the verdict ledger, written by `panel-scope.sh --record qa`; `qa_results.json` is optional, the round's summary for a reader, and no gate reads it.
 
-koto decides whether the panel passed, from the ledger, as at scrutiny: the `qa_verdict` gate runs `panel-scope.sh --verdict qa`. Each failed scenario is a finding marked `severity: blocking`. Exit 0 advances to `verification` with nothing submitted, exit 1 (a failed scenario is unclosed) prints one finding per unclosed failed scenario, under `panel/open-finding`, and waits for `qa_outcome`, and exit 2 holds until the round is recorded.
+koto decides whether the panel passed, from the ledger, as at scrutiny: the `qa_verdict` gate runs `panel-scope.sh --verdict qa`. Each failed scenario is a finding marked `severity: blocking`. Exit 0 advances to `verification` with nothing submitted, exit 1 (a failed scenario is unclosed) prints one finding per unclosed failed scenario, under the rule it cites or `panel/open-finding`, and waits for `qa_outcome`, and exit 2 holds until the round is recorded.
 
 Read `qa_scope.json` for what runs: in a full round the tester runs a full validation and answers its own unclosed failures by id; any other round keeps the tester and plans at most one run, the panel's re-verifier, which runs each due failing scenario again and answers it by id with `holds` or `reverified`, reading the `review-packet.sh recheck --seat reverifier` packet the phase file's commissioning line gives. Record every run with `panel-scope.sh --record qa` after the round; `qa_recorded` holds the passing route and `blocking_retry` until you have. A carried panel submits nothing and neither spends nor resets the retry count below.
 

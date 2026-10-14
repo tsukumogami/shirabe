@@ -704,6 +704,20 @@ plan_record scrutiny "$ALL_PASS"
 run --plan scrutiny "$SESSION"
 expect_not_full "a 200-line fix" scrutiny
 
+# The 200-line rule is measured from the panel's own newest record, not from
+# the newest commit any panel recorded: a large fix that scrutiny reviewed in
+# full still makes review's round full, rather than leaving review's seats
+# with an empty diff to carry on.
+fixture tr-crosspanel
+plan_record scrutiny "$ALL_PASS"
+plan_record review "$REVIEW_PASS"
+(cd "$FX/repo" && seq 1 250 > docs/new.txt && git add docs/new.txt && git commit -q -m big) >/dev/null 2>&1
+run --plan scrutiny "$SESSION"
+expect_full "a 250-line fix at the first panel" scrutiny "changes 250 lines"
+record scrutiny "$ALL_PASS"
+run --plan review "$SESSION"
+expect_full "the same fix at the next panel, after the first recorded it in full" review "changes 250 lines"
+
 # A full round hands each seat its own unclosed findings, and the findings no
 # seat raised to a re-verifier.
 fixture tr-handoff
