@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   shirabe has one plan version, plan/v1, whose entries are issues, and every
   tool that reads plans assumes it: the validator, the one outline parser
@@ -34,7 +34,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
@@ -442,10 +442,11 @@ request branch before review. Plan text was already worker input under
 - **`**Check**:` is an instruction a worker runs.** A step's check is a
   command or walkthrough written by the plan's author, and the report rule
   asks the worker to run it. It runs with the worker's ordinary permissions,
-  is vetted by nothing beyond the plan's review, and grants the plan author
-  nothing a worker would not already do from a plan's criteria. This is an
-  accepted residual risk, the same one `plan/v1` criteria carry: plans are
-  reviewed in pull requests like code.
+  is vetted by nothing beyond the plan's review. Under `plan/v1` the same
+  power sat in prose criteria; `plan/v2` makes it an explicit, mandatory
+  command, which is easier to review and also easier to abuse. This is an
+  accepted residual risk, and the plan format reference tells reviewers to
+  read every `**Check**:` the way they read code.
 - **Plan text is model input.** Step titles, goals and checks reach worker
   context and koto evidence, so instructions embedded in plan text are a
   prompt-injection vector, as they are for `plan/v1` outlines. Nothing here
@@ -459,23 +460,25 @@ request branch before review. Plan text was already worker input under
 
 Input handling the implementation keeps:
 
-- Step numbers are parsed as bounded integers (1 to 999) by the parser and
-  by `step-detail-check.sh`, which also requires an existing regular file
-  under the repository as its plan argument; `step_count` above 999 is an
+- Step numbers match `^[1-9][0-9]{0,2}$` (1 to 999, no leading zero) in the
+  parser and in `step-detail-check.sh`; a duplicate number is an FC22 error;
+  `step-detail-check.sh` resolves its plan argument and requires a regular
+  file inside the repository; `step_count` above 999 is an
   FC22 error, so no plan spawns an unbounded task set.
 - Step titles, goals and `**Files**:` paths travel as data: `jq --arg` into
   JSON, `printf '%s'` into files, `--body-file` for pull request bodies,
   never `eval`, unquoted expansion or interpolation into a command. A
   fixture with hostile titles (`$(...)`, backticks, a leading `--`, ANSI
-  escapes, `Fixes #1`) runs through `plan-to-tasks.sh`,
-  `publish-scoping-pr.sh` and `node-push.sh` and comes out inert.
+  escapes, `Fixes #1`, an `@mention`) runs through `plan-to-tasks.sh`,
+  `publish-scoping-pr.sh`, `node-push.sh`, `drift-facts.sh` and
+  `step-detail-check.sh` and comes out inert.
 - FC22 and L10 messages quote a step number and a rule; where a message
   quotes document text (a non-step heading, a malformed dependency value) it
-  strips control characters and truncates to 80 characters.
+  strips control characters and truncates to 80 characters (not bytes).
 - `--plan-version` and `## Plan Version:` are matched against `v1` and `v2`
   exactly. The header is read only from the repository root's `CLAUDE.md`,
-  as a whole line `## Plan Version: <value>`; any other value stops the run
-  before a file is written.
+  as a whole line `## Plan Version: <value>` outside fenced code blocks; two
+  such headers, or any other value, stop the run before a file is written.
 - Check results quoted in step reports can carry environment details; the
   report rule asks for the result line, not full output, and the
   checkpoint-wording record lives in the coordinator's own record, not in a
