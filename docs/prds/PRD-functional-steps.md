@@ -10,9 +10,9 @@ problem: |
 goals: |
   /plan can write a plan of steps, in a new plan version: a walking skeleton
   first, behavioural criteria with a check for every detailed step, and later
-  steps one line each until the session that owns the plan details them.
-  Every tool that reads plans accepts both versions, /review-plan flags a
-  layer-shaped plan, and checkpoint reports name the behaviour a step added.
+  steps one line each until the plan's owner details them. Every tool that
+  reads plans accepts both versions, /review-plan flags a layer-shaped plan,
+  and step reports name the behaviour a step added.
 upstream: docs/briefs/BRIEF-functional-steps.md
 ---
 
@@ -24,195 +24,250 @@ Draft
 
 ## Problem Statement
 
-`/plan` decomposes an accepted design into work items, and in practice it
-cuts them along the layers of the code: the data types, then the engine, then
-the command line, then the documentation. Every entry is written in full
-before the first one is built, and acceptance criteria tend to name files and
-functions ("add `parse_step` to `plan.rs`") rather than behaviour someone can
-observe.
+`/plan` decomposes an accepted design into work items, and the plans it
+produces are mostly cut along the layers of the code. koto's template
+evidence-routing plan is a typical example: five entries, in order "add
+evidence routing types", "update compiler", "adapt CLI", "update tests",
+"update plugin templates", with criteria such as "Add `Transition` struct
+with `target: String`". Nothing in it could be run end to end until the
+fourth entry landed.
 
-Three people pay for that shape. The person executing the plan gets no
-working end-to-end path until the last entry lands, so an integration mistake
-surfaces only after the earlier layers have merged. The session that owns the
-plan carries detail for late entries that was a guess when it was written and
-is stale by the time it is used, and nothing records who rewrote it. The
-reviewer, and whoever dispatched the work, can check that files exist and
-tests pass, but not that a behaviour now works, because nothing in the plan
-says which behaviour each entry adds. Checkpoint reports mirror the plan's
-wording and come back as lists of artifacts.
+That shape costs three roles. The person executing the plan gets no working
+path until the last entries land, so an integration mistake surfaces after
+the earlier layers have merged. The plan's owner carries detail for late
+entries that was a guess when it was written, and nothing records who
+rewrote it once it went stale. The reviewer, and whoever dispatched the work,
+can confirm that files exist and tests pass but not that a behaviour works,
+because nothing says which behaviour each entry adds; reports at checkpoints
+mirror that and come back as lists of artifacts.
 
 `/plan` already offers a walking-skeleton decomposition, but it is one option
-among several, the format still requires every entry to be detailed, and
-nothing checks the result. `/review-plan` does not flag a plan cut into
-layers, and the plan format's unit is the issue, which says nothing about what
-each entry leaves working.
+among several, the format still requires every entry to be written in full,
+and nothing checks the result. `/review-plan` does not flag a plan cut into
+layers, and the format's unit is the issue, which says nothing about what an
+entry leaves working.
 
 ## Goals
 
-- An author can get a plan whose entries are steps: the first step is a
-  walking skeleton that works end to end, each step leaves the work running
-  with criteria that describe behaviour and a check that proves it, and steps
-  beyond the next one or two stay a single line.
-- The plan names its entries steps, in a new plan version, and every existing
-  plan keeps validating and running unchanged.
-- A reviewer learns from `/review-plan` when a plan is cut into layers and
-  which criteria describe files instead of behaviour.
-- A checkpoint report from a worker names the behaviour its step added and
-  the check that shows it.
-- The default plan version does not change until a comparison of checkpoint
-  wording on layered plans has reported, and the people running that
-  comparison have what they need written down.
+- An author can get a plan whose entries are steps: the first is a walking
+  skeleton, each detailed step carries behavioural criteria and a check, and
+  steps beyond the first two are one line until detailed.
+- The plan names its entries steps, in a new plan version, and every plan of
+  the current version keeps validating and running unchanged.
+- `/review-plan` tells a reviewer when a plan is cut into layers and which
+  criteria name files or functions.
+- A worker's report on a step names the behaviour the step added and the
+  check that shows it.
+- The default plan version and the default checkpoint wording stay as they
+  are, and the design records how to compare checkpoint wording on layered
+  plans so that the comparison can run before either default changes.
+
+## Definitions
+
+- **Plan version.** The `schema:` value. The current version is `plan/v1`;
+  the new one is `plan/v2`.
+- **Step.** An entry of a `plan/v2` plan, headed `### Step <N>: <title>`
+  under a `## Steps` section.
+- **Detailed step.** A step whose body carries the fields R2 lists.
+- **Outline step.** A step whose body is exactly one non-blank physical line
+  (of any length) and nothing else.
+- **Detail horizon.** The detailed steps whose work has not started. At
+  authoring, the first two steps (or every step, when there are two or
+  fewer).
+- **Terminal.** The step's `/work-on` workflow reached a terminal state
+  (done, or stopped with a recorded outcome).
+- **File-shaped criterion.** An acceptance criterion whose subject is a file
+  path or a code identifier (a backticked name, or a path containing `/` or a
+  file extension) paired with a construction verb (add, create, implement,
+  define, update, remove, rename) and no observable result (an output, exit
+  code, message or state a person can see by running something).
+- **Layer-shaped plan.** A plan with three or more entries in which every
+  entry before the last has no criterion or check that a person can run to
+  observe a behaviour, and the entries are named or grouped by component
+  (types, model, schema, compiler, engine, core, CLI, command, tests, docs).
 
 ## User Stories
 
 - As an author with an accepted design, I want `/plan` to give me a plan
   whose first step works end to end and whose later steps are one line each,
-  so that I commit only to what I know and can see what will work after each
-  step.
-- As the session that owns a step plan, I want the plan format to say what a
-  detailed step carries and when the next one-line step is detailed, so that
-  I detail each step from what the previous one taught and the plan's history
-  shows that I did.
+  so that I commit only to what I know.
+- As a plan's owner, I want the format to say what a detailed step carries
+  and exactly when I detail the next one, so that each step is written from
+  what the previous one taught and the plan's history shows I did it.
+- As a worker building a step, I want my step's detail to be complete before
+  I start and my report format to be stated, so that I never build from a
+  one-line outline.
 - As a reviewer, I want `/review-plan` to tell me when a plan is cut into
-  layers and which criteria name files, so that I know what to send back
-  before anyone builds it.
-- As a maintainer with plans in flight in the current format, I want
-  `/execute`, the validator and koto to keep reading them as they do today,
-  so that adopting step plans costs me nothing.
-- As the person who dispatched a step, I want the worker's checkpoint report
-  to name the behaviour the step added and the check that shows it, so that I
-  can judge the step by running the check.
-- As the person who decides when the default changes, I want to know which
-  plans and which wording a checkpoint-wording comparison needs, so that I can
-  run it before the default changes.
+  layers and which criteria name files, so that I can send it back before
+  anyone builds it.
+- As a maintainer with `plan/v1` plans in flight, I want every tool to read
+  them as it does today, so that adopting steps costs me nothing.
+- As the person who dispatched a step, I want the worker's report to name
+  the behaviour added and the check that shows it, so that I can judge the
+  step by running the check.
+- As the person who decides when the defaults change, I want the qualifying
+  plans, the exact wording on both sides and the comparison written down,
+  so that I can run the comparison first.
 
 ## Requirements
 
 ### The new plan version
 
-- **R1.** A new plan version exists alongside the current one. A plan of the
-  new version names its entries steps: its entry headings, its count field
-  and its section names say "step", not "issue".
-- **R2.** A step is either detailed or an outline. A detailed step carries a
-  goal, acceptance criteria and a check (a command, test or walkthrough
-  whose observable result shows the step's behaviour works), plus its
-  dependencies. An outline step is its heading and one line saying what
-  behaviour it will add.
-- **R3.** The first step is the walking skeleton: it is always detailed, and
-  its goal is a path through the riskiest integration that works end to end
-  on the simplest input.
-- **R4.** Every detailed step leaves the work running: its criteria describe
-  behaviour someone can observe, not files or functions, and its check can be
-  run after the step lands without any later step.
-- **R5.** At authoring time, only the first one or two steps are detailed;
-  every later step is an outline. The plan format states this horizon and the
-  rule for moving it: the session that owns the plan details the next step
-  after the previous step's work reaches its end and before the next step's
-  work starts, updates the remaining outlines if they changed, and commits
-  that edit to the plan. A worker building a step does not edit any step's
-  outline.
-- **R6.** A file list may appear on a detailed step as an optional hint for
-  conflict detection. It is never an acceptance criterion and never required.
-- **R7.** The new version supports the execution modes the current one does
-  wherever its readers can drive them, and the plan format says, for each
-  execution mode and tracking level, how the detail horizon fits; where a
-  combination is not supported, the validator refuses it with a message
-  naming the supported alternative.
+- **R1.** `plan/v2` is a new plan version accepted alongside `plan/v1`. Its
+  frontmatter carries `schema: plan/v2`, `status`, `execution_mode`,
+  `milestone` and `step_count` (not `issue_count`); its required sections
+  are `Status`, `Scope Summary`, `Decomposition Strategy` and `Steps`, in
+  that order; every `###` heading under `## Steps` is `### Step <N>:
+  <title>`, numbered from 1 with no gap.
+- **R2.** A detailed step carries `**Goal**:`, `**Acceptance Criteria**:`
+  with at least one checkbox item, `**Check**:` (a non-empty command, test
+  or walkthrough whose result shows the step's behaviour), and
+  `**Dependencies**:` (`None`, or `Step <N>` references separated by
+  commas). An outline step is its heading and one line naming the behaviour
+  it will add.
+- **R3.** Step 1 is the walking skeleton and is always detailed. Its goal
+  names the integration it crosses and the input it runs on, and its check
+  runs it end to end.
+- **R4.** Detailed steps form a prefix: no detailed step follows an outline
+  step. A step depends only on earlier steps.
+- **R5.** The plan format states the horizon and the rule that moves it: the
+  plan's owner details step N+1 after step N's work reaches its terminal and
+  before step N+1's work starts, rewrites any outline whose behaviour
+  changed, and commits that edit to the plan file on its own (one commit per
+  detailing, touching only the plan). A worker never edits any step's
+  heading, outline or detail. This rule is guidance, checked by review and by
+  the plan's history, not by the validator.
+- **R6.** A detailed step may carry `**Files**:` as a hint for conflict
+  detection. It is never required and never counts as a criterion.
+- **R7.** `plan/v2` supports `execution_mode: single-pr` and `multi-pr` at
+  `tracking_level: none` (or the field absent). The validator refuses
+  `plan/v2` with `execution_mode: coordinated` or with `tracking_level:
+  issues` or `issues-and-milestone`, with a message naming `plan/v1` as the
+  version for those cases.
 
 ### Writing the new version
 
-- **R8.** `/plan` can write the new version, and its guidance produces the
-  shape R2 to R5 describe: a skeleton first step, behavioural criteria, a
-  check per detailed step, and outlines after the horizon.
-- **R9.** How an author selects the version is explicit (an invocation flag,
-  a repository convention header, or both). Until the default changes, a
-  `/plan` run that selects nothing writes the current version exactly as it
-  does today.
-- **R10.** Changing the default to the new version is a single, separate
-  edit, so it can land after the checkpoint-wording comparison reports
-  without touching anything else this feature delivers.
+- **R8.** `/plan` writes `plan/v2` when it is selected, and its guidance
+  produces the shape in R1 to R5: a skeleton first step, the second step
+  detailed, criteria that are not file-shaped, a check per detailed step,
+  and outline steps from step 3 on.
+- **R9.** The version is selected by `--plan-version=v1|v2` on `/plan`, else
+  by a `## Plan Version: v1|v2` header in the repository's CLAUDE.md, else by
+  the default. The flag wins over the header. Any other value is refused
+  before anything is written, naming the accepted values.
+- **R10.** The default is defined in exactly one place, a named setting in
+  one script, and is `v1`. Changing it to `v2` is a one-line edit to that
+  setting and needs no other change for the suites to pass.
 
 ### Reading both versions
 
 - **R11.** `shirabe validate` accepts a valid plan of either version and
-  checks the new version's rules: entries named steps, the first step
-  detailed, every detailed step carrying criteria and a check, every outline
-  step a single line, and the step count matching the steps present.
-  Violations name the step and the rule.
-- **R12.** `/execute`, and every script it uses to read a plan, drives a plan
-  of either version, and treats an outline step as not yet startable until
-  it is detailed.
-- **R13.** Every koto reader of plans accepts a plan of either version.
-- **R14.** Every other shirabe reader of plans (the lifecycle checks, task
-  extraction, and any skill or script that parses plan content) accepts
-  either version or states that it reads only one and refuses the other with
-  a clear message.
-- **R15.** No plan of the current version changes behaviour: every existing
-  test of plan reading still passes unchanged.
+  checks R1, R2, R3, R4 and R7 for `plan/v2`. Each violation names the step
+  number (where there is one) and the rule broken.
+- **R12.** `/execute` drives a `plan/v2` plan in either supported mode. A
+  step's `/work-on` workflow that finds its step is still an outline when it
+  starts stops before implementing anything, with a message naming the step
+  and saying the plan's owner must detail it first; once the plan is
+  detailed and committed, rerunning that step builds from the detailed text.
+- **R13.** koto's handling of plans accepts both versions. koto passes plan
+  paths through decider and template variables without parsing plan content;
+  the design records each place it does so, and any that parses content
+  accepts both versions.
+- **R14.** Every shirabe reader of plan content accepts `plan/v2`. The
+  design names each reader (the validator, `shirabe plan outlines`, task
+  extraction, the lifecycle checks, the `/scope`, `/execute` and `/work-on`
+  scripts that read plan bodies or the schema), and each one either reads
+  both versions or refuses `plan/v2` with a message naming the reader and
+  the unsupported version, never silently returning nothing.
+- **R15.** No `plan/v1` plan changes behaviour: every existing test of plan
+  reading passes unchanged, and `shirabe validate` gives identical output on
+  the existing plan fixtures.
 
 ### Review and reporting
 
-- **R16.** `/review-plan` flags a plan as layer-shaped when its entries are
-  cut by component (types, engine, CLI, docs) such that no entry before the
-  last leaves anything a user could exercise, and names each acceptance
-  criterion that describes files or functions rather than behaviour. It
-  reviews plans of either version.
-- **R17.** Guidance for a step's checkpoint report says the report names the
-  behaviour the step added and the check that shows it. The guidance is
-  where a worker executing a step plan reads it.
-- **R18.** A written description says how to compare checkpoint reports from
-  layered plans under the current checkpoint wording and under behavioural
-  wording: which plans qualify, the exact wording on each side, and what to
-  compare. The default checkpoint wording and the default plan version stay
-  as they are until that comparison reports.
+- **R16.** `/review-plan` reviews plans of either version and, applying the
+  definitions above, reports a layer-shaped plan as a finding naming the
+  entries and the components they are cut by, and lists each file-shaped
+  criterion by entry and text. A plan with no such criteria and a walking
+  skeleton first gets neither finding. At authoring it also flags a
+  `plan/v2` plan with more than two detailed steps.
+- **R17.** The plan format's `plan/v2` section and `/work-on`'s instructions
+  for a plan-step task say that a step's report names "the behaviour this
+  step added" and the check that shows it, with the check's result.
+- **R18.** The design document has a section describing the
+  checkpoint-wording comparison: which plans qualify, the exact checkpoint
+  wording on each side, what is compared in the reports, and the record it
+  produces. The default plan version (R10) and the default checkpoint
+  wording in shirabe's brief template are unchanged by this feature.
 
 ### Non-functional
 
-- **R19.** Scripts run on bash 3.2 and need no new tool.
-- **R20.** Nothing in the new version's format or guidance names a private
-  repository or document.
+- **R19.** New and changed shell scripts run under bash 3.2 and pass the
+  repository's bash-floor check; no new runtime dependency is added beyond
+  the tools the repository's scripts already use.
+- **R20.** No file this feature adds or changes names a private repository,
+  a private issue, or a private document.
 
 ## Acceptance Criteria
 
-- [ ] Running `/plan` with the new version selected against a design whose
-  earlier plan was cut into five layers produces a plan whose first step
-  works end to end, whose criteria describe behaviour, and whose steps three
-  onward are one line each, and `shirabe validate` on a clean checkout
-  accepts it.
-- [ ] The new version's entry headings, count field and section names use
-  "step"; a plan that uses "issue" headings under the new version fails
-  validation with a message naming the rule.
-- [ ] A new-version plan whose first step is an outline, or whose detailed
-  step lacks criteria or a check, or whose outline step spans more than one
-  line, fails validation naming the step.
-- [ ] `/plan` with nothing selected writes a current-version plan identical
-  in shape to today's.
-- [ ] `shirabe validate`, `/execute`'s plan-reading scripts and every koto
-  reader of plans accept a fixture plan of each version; the existing tests
-  for current-version plans pass unchanged.
-- [ ] `/execute` on a new-version plan starts the first step and does not
-  start an outline step until it is detailed.
-- [ ] `/review-plan` on the five-layer plan flags it as layer-shaped and
-  lists the criteria that name files or functions; on the step plan above it
-  raises no layer-shape finding.
-- [ ] The step-plan guidance tells a worker to report the behaviour its step
-  added and the check that shows it.
-- [ ] A written description of the checkpoint-wording comparison names the
-  qualifying plans, the wording on each side and what to compare, and the
-  default plan version and default checkpoint wording are unchanged.
-- [ ] Every new or changed script passes its suite under bash 3.2.
+- [ ] A committed fixture copies koto's five-layer evidence-routing plan as
+  `plan/v1`, with its source named in the fixture's header comment.
+- [ ] Running `/plan --plan-version=v2` on koto's evidence-routing design
+  yields a plan that `shirabe validate` accepts on a clean checkout, whose
+  step 1 is detailed with a check that runs end to end, whose step 2 is
+  detailed, whose steps from 3 on are outline steps, and in which
+  `/review-plan` finds no file-shaped criterion.
+- [ ] A `plan/v2` fixture with all R1 and R2 fields validates clean, with and
+  without `**Files**:` on its detailed steps.
+- [ ] `shirabe validate` reports an error naming the step and rule for each
+  of these `plan/v2` fixtures: a `### Issue 1:` heading; `step_count` not
+  matching the steps; step 1 an outline; a detailed step missing
+  `**Check**:`; a detailed step with no checkbox criterion; an outline step
+  of two lines; a detailed step after an outline step; a step depending on a
+  later or missing step; `execution_mode: coordinated`; `tracking_level:
+  issues`.
+- [ ] `shirabe validate` output on every existing `plan/v1` fixture is
+  unchanged, and every existing suite that reads plans passes unchanged.
+- [ ] `/plan` with no flag and no header writes `schema: plan/v1`; with
+  `## Plan Version: v2` it writes `plan/v2`; with the header set to `v2` and
+  `--plan-version=v1` it writes `plan/v1`; `--plan-version=v3` is refused
+  before any file is written.
+- [ ] The default version is one named setting; a test that sets it to `v2`
+  shows the selection resolving to `v2` with nothing else changed.
+- [ ] Task extraction and `shirabe plan outlines` produce one task per step
+  for a `plan/v2` fixture in each supported mode, each named for its step and
+  carrying whether it is detailed; each other reader the design names has a
+  test feeding it a `plan/v2` fixture, and none returns empty output
+  silently.
+- [ ] A `/work-on` plan-step task whose step is an outline stops before
+  implementation with a message naming the step and the rule.
+- [ ] The design lists every place koto handles a plan path or plan content,
+  and each is shown to accept a `plan/v2` path.
+- [ ] `/review-plan` on the five-layer fixture reports it as layer-shaped,
+  names its components, and lists its file-shaped criteria (for example
+  "Add `Transition` struct with `target: String`"); on a `plan/v2` fixture
+  with behavioural criteria it reports neither finding; on a `plan/v2`
+  fixture with three detailed steps at authoring it flags the horizon.
+- [ ] `git grep -n "the behaviour this step added"` finds the phrase in the
+  plan format reference and in `/work-on`'s plan-step instructions.
+- [ ] The design has a section naming the qualifying plans, both checkpoint
+  wordings verbatim, what is compared, and the record produced; the brief
+  template's checkpoint wording is unchanged in this feature's diff.
+- [ ] New and changed scripts pass their suites under `/bin/bash` 3.2 and
+  the bash-floor check.
+- [ ] A search of the feature's diff for private repository names, private
+  issue references and private document paths returns nothing.
 
 ## Out of Scope
 
 - Building the step-by-step execution shape into `/deliver` and `/execute`:
-  who hands each step to its own agent, and making the owning session's
-  detailing a workflow state. The format and `/plan`'s guidance describe the
-  rule; the delivery skills adopt it separately.
+  handing each step to its own agent, and making the owner's detailing a
+  workflow state. The format and `/plan`'s guidance state the rule.
+- Enforcing R5 mechanically (detecting a worker that edited an outline).
+- `plan/v2` for coordinated plans and for plans that file an issue per step.
 - The roadmap format and renaming roadmap entries.
-- Converting existing plans to the new version.
-- Running the checkpoint-wording comparison.
-- Changing the default plan version or the default checkpoint wording (R10
-  and R18 make that a later, separate change).
+- Converting existing plans to `plan/v2`.
+- Running the checkpoint-wording comparison, and changing either default.
 - Measured guidance on how large a step should be.
 - Any change to niwa.
 
@@ -220,21 +275,25 @@ each entry leaves working.
 
 - **A new version, not a change to the current one.** Renaming entries in
   place would break every plan in flight and every reader at once. A second
-  version accepted alongside the first lets readers adopt it one at a time
-  and leaves existing plans untouched. Alternative rejected: extending the
-  current version with optional step fields, which would leave "issue" as the
-  name of the unit and let a plan mix both shapes.
-- **The file list survives as an optional hint.** It already serves conflict
-  detection between parallel work items; dropping it would cost that, and
-  keeping it out of the criteria keeps criteria behavioural. (Resolves the
-  brief's question on file lists.)
-- **The detail horizon fits issue-per-step repositories by the plan format's
-  own rule (R7), settled in the design.** The design chooses between filing
-  an issue only when a step is detailed and limiting the new version to
-  outline-shaped plans; either way the validator says which. (Resolves the
-  brief's question on issue-per-step repositories by assigning it.)
-- **The default waits.** The new version ships selectable, and the default
-  flip is a one-line follow-up (R9, R10), because the question of whether
-  artifact-shaped reports come from layered plans or from checkpoint wording
-  has to be answered before the default changes. (Resolves the brief's
-  question on when the default changes.)
+  version lets readers adopt it one at a time and leaves existing plans
+  untouched. Rejected: optional step fields on `plan/v1`, which would keep
+  "issue" as the unit and let a plan mix both shapes.
+- **The file list stays as an optional hint (R6).** It already serves
+  conflict detection; keeping it out of the criteria keeps criteria
+  behavioural. This settles the brief's question about file lists.
+- **`plan/v2` is outline-only (R7).** A plan that files an issue per entry
+  writes every issue body at filing time, which defeats the detail horizon.
+  Repositories that need an issue per entry keep `plan/v1` until filing on
+  detailing exists. Coordinated plans also stay on `plan/v1`, since their
+  per-entry repository and group fields add a second shape to settle. This
+  settles the brief's question about issue-per-step repositories.
+- **The horizon is guidance plus review, not a validator rule.** The
+  validator cannot tell which steps have landed, so it checks the prefix
+  rule (R4) and `/review-plan` checks the horizon at authoring (R16).
+- **The defaults wait (R10, R18).** Whether artifact-shaped reports come
+  from layered plans or from checkpoint wording has to be known before the
+  default changes, so the new version ships selectable and the flip is a
+  one-line follow-up. This settles the brief's question about timing.
+- **koto needs no parser.** koto handles plan paths as opaque variables, so
+  accepting both versions there means confirming that and recording it
+  (R13), not adding code.
