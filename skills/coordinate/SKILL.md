@@ -116,25 +116,29 @@ work.
    this scope (`refused=session-name`) or another run of it is live here
    (`refused=session-live`), and koto's own refusals print its code
    (`refused=import_source_is_child`, `refused=import_template_unavailable`,
-   `refused=import_name_taken` and so on) with no session left. Compile the
-   template here first (the opener does it); `--trust-template` only when the
-   operator passes it. The source is marked migrated, and its copy refuses
-   every later read as `session_migrated`. The imported run must then pass what
-   a resume needs; one that doesn't stays here (`refused=template-mismatch`,
-   `session-provenance`, `session-source` or `session-directed`), and a plain
-   start carries it. A
-   good import prints `imported=<name>`, `resumed=1` and `session=<name>`, and
-   `record/host` takes the source workspace, session and template hash. The
-   run keeps its stamp. It reconciles again on this host, because a report
-   sealed on the old host describes that host's workers. The opener prints
-   `state=<where the run stands>`. At the hub, where a stopped coordinator
-   almost always is, it also prints `tick=moved`: tick the hub with `event:
-   moved` first, and a full reconcile reads this host. A run at reconcile does
-   it by itself on its first tick. A run imported anywhere else finishes the
-   step it was on and reconciles when it reaches the hub, whose directive
-   checks on every visit for a reconcile still owed (`reconcile-report-get.sh
-   --check` exits 3) and has you tick `moved`. The check reads the run's own
-   keys, so it survives a restart.
+   `refused=import_name_taken` and so on) with no session left, except
+   `refused=import_unmarked`: koto kept the imported run here but couldn't mark
+   the source migrated, so its host may still write to it. Run the same import
+   again, which only marks the source and passes the live check because the live
+   run is its own target; a plain start would carry a run whose source may still
+   write. Compile the template here first (the opener does it);
+   `--trust-template` only when the operator passes it. The source is marked
+   migrated, and its copy refuses every later read as `session_migrated`. The
+   imported run must then pass what a resume needs; one that doesn't stays here
+   (`refused=template-mismatch`, `session-provenance`, `session-source` or
+   `session-directed`), and a plain start carries it. A good import prints
+   `imported=<name>`, `resumed=1` and `session=<name>`, and `record/host` takes
+   the source workspace, session and template hash. The run keeps its stamp. It
+   reconciles again on this host, because a report sealed on the old host
+   describes that host's workers. The opener prints `state=<where the run
+   stands>`. At the hub (`state=wait`), where a stopped coordinator almost
+   always is, it also prints `tick=moved`: tick the hub with `event: moved`
+   first, and a full reconcile reads this host. A run at reconcile does it by
+   itself on its first tick. A run imported anywhere else finishes the step it
+   was on and reconciles when it reaches the hub, whose directive checks on
+   every visit for a reconcile still owed (`reconcile-report-get.sh --check`
+   exits 3) and has you tick `moved`. The check reads the run's own keys, so it
+   survives a restart.
 
 3. **Tick.** Call `koto next <session> --no-cleanup`, do what the directive says,
    submit the evidence it asks for, and repeat. **Every `koto next` carries
