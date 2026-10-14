@@ -32,6 +32,7 @@ rationale: |
   rule whose gate runs after the action it would guard and whose harm CI
   still blocks, and the registry admits it by name on an explicit list.
 upstream: docs/prds/PRD-offload-live-canary.md
+user_visible_surface: true
 decision_provenance: inline-resolved
 ---
 
@@ -99,6 +100,8 @@ All five questions were resolved inline under `/scope`, at standard depth.
 
 ### Decision 1: Which rule to withhold
 
+Resolved inline.
+
 **Chosen: `pr-body/no-heading-in-part1` (PB4).** Its gate runs after
 `gh pr create`, on the pull request GitHub already has, so it doesn't stand in
 front of the creation. A violation is a formatting defect fixed by
@@ -123,6 +126,8 @@ public the moment the pull request opens, and no later fix takes it back.
 each one's gate stands before a push or before the pull request opens.
 
 ### Decision 2: How the registry admits the rule
+
+Resolved inline.
 
 **Chosen: an explicit list in `scripts/check-rule-registry.sh`.** A constant,
 `WITHHOLD_GATE_RULES="pr-body/no-heading-in-part1"`, names the gate rules the
@@ -149,6 +154,8 @@ Until it's given, the registry change isn't committed.
 
 ### Decision 3: Where and how the group is drawn
 
+Resolved inline.
+
 **Chosen: a new initial state, `offload_canary`, whose `default_action` runs
 `offload-canary.sh draw` and captures its output as `PR_BODY_RULES`.** The
 script reads `OFFLOAD_CANARY`, `SHARED_BRANCH` and the session directory. It
@@ -162,8 +169,25 @@ file's path. The script also asks the registry before it draws: unless
 `withhold: eligible`, every run takes part in neither group, so the canary
 can't withhold anything the registry hasn't admitted. The arm file is written
 last, after the withheld rendering succeeds, so a failed render can't leave a
-run labeled withheld while it reads the full text. The action is written so it always exits 0, because a failing
-`default_action` holds its state, which a prototype confirmed.
+run labeled withheld while it reads the full text.
+
+The capture has a fixed contract. `draw` prints exactly one line, as its last
+act, and always exits 0, so the action's fallback `echo` never adds to its
+output. The line is an absolute path built from `{{SESSION_DIR}}` or
+`{{PLUGIN_ROOT}}`, which already pass koto's value pattern. A failing
+`default_action` holds its state (a prototype confirmed it), which is why the
+action's command ends in a fallback rather than trusting the script alone.
+
+The unit of randomization is the koto session. A `/work-on` run that
+`/execute` starts on its shared branch takes part in neither group; a
+`/work-on` run per issue of a `multi-pr` plan draws on its own, so runs from
+one plan can land in either group, and the guide notes that runs from one
+plan are correlated. A session started before the canary shipped never enters
+the assignment state and is in neither group.
+
+*Alternative: put the draw in the gate and drop the action.* One command
+instead of two. Rejected: a gate carries nothing forward to a directive, and
+a gate that writes state would be re-run on every evaluation.
 
 *Alternative: a declared variable drawn at each init site.* Value routing
 could then route on it directly. Rejected: `/work-on` is opened three ways
@@ -179,17 +203,35 @@ each group started with.
 
 ### Decision 4: How the rule's text is withheld
 
+Resolved inline.
+
 **Chosen: the `pr_creation` directive names `{{PR_BODY_RULES}}` as the
 conformance text to author against.** The preloaded group, a canary-off run, a
 shared-branch run and a failed assignment all get
 `{{PLUGIN_ROOT}}/references/pr-body-conformance.md`. The withheld group gets
-`<session-dir>/offload-canary/pr-body-conformance.md`, which the script
-renders from the real file with the lines `rule-registry.sh ref
-pr-body/no-heading-in-part1` reports removed. `phase-6-pr.md` stops naming the
-conformance file and defers to the directive. The directive also stops listing
-the five PR-body rule ids, since a finding already names the rule it breaks
-and the list would hand the withheld group PB4's id. Those two edits apply to
-every run, so the preloaded group's text equals a canary-off run's.
+`<session-dir>/pr-rules/pr-body-conformance.md`, a neutral name that doesn't
+tell the agent its group, which the script renders from the real file with
+the line range `rule-registry.sh range pr-body/no-heading-in-part1` reports
+removed. The range is found from the entry's content anchors, not stored line
+numbers, so an edit elsewhere in the file can't shift it onto another rule.
+The script also checks that the first removed line holds the entry's
+`text.first` anchor, and falls back to neither group if it doesn't.
+
+Removing the anchored paragraph only works if it is the only place the rule is
+stated, and today it isn't: `references/pr-body-conformance.md` restates PB4
+in its "What stays advisory" section, names it in the setext residual, and
+uses a `##` example in the fenced-code note. So the conformance file is
+reorganized first, for every run, so that everything about PB4 lives inside
+its anchored paragraph and the rest of the file mentions neither PB4 nor
+headings. That is the registry's own model, one home per rule, and the
+paragraph stays under `release`'s 60-line cap. A test asserts that the
+rendered file contains neither `PB4` nor the word `heading`.
+
+`phase-6-pr.md` stops naming the conformance file and defers to the directive.
+The directive also stops listing the five PR-body rule ids, since a finding
+already names the rule it breaks and the list would hand the withheld group
+PB4's id. Those edits apply to every run, so the preloaded group's text equals
+a canary-off run's.
 
 *Alternative: a checked-in copy of the conformance file without PB4.* No
 runtime rendering. Rejected: a second copy of the PR-body rules is the drift
@@ -200,6 +242,8 @@ the original still has to be kept in step.
 hold markdown.
 
 ### Decision 5: How the group reaches Datadog
+
+Resolved inline.
 
 **Chosen: two pass-through marker states.** A gate on `offload_canary`,
 `offload_arm`, runs `offload-canary.sh arm` against the session directory: exit
@@ -243,7 +287,9 @@ dependency outside `/work-on` is the registry's admission of PB4.
 
 | Component | Change |
 |---|---|
-| `skills/work-on/scripts/offload-canary.sh` | New. `draw <switch> <shared-branch> <session-dir> <plugin-root>` prints the conformance path and records the group; `arm <session-dir>` exits 0, 1 or 3. POSIX `sh`, no dependency beyond `od`, `sed` and the registry reader. |
+| `skills/work-on/scripts/offload-canary.sh` | New. `draw <switch> <shared-branch> <session-dir> <plugin-root>` prints the conformance path and records the group; `arm <session-dir>` exits 0 (withheld, and its rendered file exists), 1 (preloaded) or 3 (neither). Bash 3.2, with `jq` through `rule-registry.sh`, as the other `/work-on` scripts. It reads the registry through the `<plugin-root>` it is given, which is also the test seam: a test points it at a fixture plugin root whose registry marks PB4 eligible. |
+| `scripts/rule-registry.sh` | Two read subcommands: `withhold <id>` prints the entry's `withhold` value, and `range <id>` prints the first and last line numbers `resolve` already computes. The script stays the only reader of the registry. |
+| `references/pr-body-conformance.md` | Reorganized so every statement of PB4 is inside its anchored paragraph, and the anchors move with it. |
 | `skills/work-on/koto-templates/work-on.md` | New variable `OFFLOAD_CANARY` (`values: ["on", "off"]`, default `"on"`, no `rebind`); `initial_state: offload_canary`; three new states; the `pr_creation` directive names `{{PR_BODY_RULES}}` and drops the rule-id list. |
 | `skills/work-on/koto-templates/work-on.mermaid.md` | The three states and their edges. |
 | `skills/work-on/references/phases/phase-6-pr.md` | The Create PR paragraph defers to the directive for the conformance text. |
@@ -286,8 +332,10 @@ fires after the canary states as it does today after init.
 1. `koto init` fixes `OFFLOAD_CANARY` (default `on`) and the other variables.
 2. The first `koto next` runs the draw: `on`, no shared branch, no recorded
    group means one byte from `/dev/urandom`, `withheld` on even parity, else
-   `preloaded`, written to `<session-dir>/offload-canary/arm`. In the withheld
-   group the script writes the rendered conformance text next to it.
+   `preloaded`. In the withheld group the script first writes the rendered
+   conformance text to `<session-dir>/pr-rules/`, then records the group in
+   `<session-dir>/pr-rules/sample`; it creates the directory itself and
+   refuses a session directory, directory or file that is a symlink.
 3. The gate reads `arm` and koto passes through the marker state into
    `entry`. The journal records `state_entered` for each state.
 4. At `pr_creation` the directive renders `{{PR_BODY_RULES}}`.
@@ -326,22 +374,31 @@ for a marker state; it returned 46 runs.
 
 ## Implementation Approach
 
-1. **Delivery on failure.** `check-pr-output.sh` releases PB4's text after a
-   PB4 finding, with tests for PB4 alone, PB4 with PB3, PB2 alone and a
-   conformant body. This is useful on its own and changes no instructions.
-2. **The canary in `/work-on`.** `offload-canary.sh` and its tests (balance
-   over 200 draws, off, shared branch, read-back, rendering equals the file
-   minus the anchored lines); the variable, the three states and the
+1. **One home for PB4, and delivery on failure.** Reorganize
+   `references/pr-body-conformance.md` so PB4 is stated only in its anchored
+   paragraph, moving the anchors with it. `check-pr-output.sh` releases PB4's
+   text after a PB4 finding, with tests for PB4 alone, PB4 with PB3, PB2
+   alone and a conformant body. This is useful on its own and changes no
+   rule.
+2. **The canary in `/work-on`.** `rule-registry.sh withhold` and `range`;
+   `offload-canary.sh` and its tests against a fixture plugin root where PB4
+   is eligible (balance over 200 draws, off, shared branch, PB4 not eligible,
+   read-back, rendering equals the file minus the anchored range, no `PB4` or
+   `heading` in the rendering); the variable, the three states and the
    `pr_creation` directive; `phase-6-pr.md`; the mermaid file; a koto-level
    test that drives sessions through each group, off, shared and a failed
    assignment, and compares the rendered `pr_creation` directives.
 3. **The guide.** `docs/guides/offload-live-canary.md`, and a test that its
-   off-switch line matches the template.
+   off-switch line matches the template. It says the canary withholds
+   nothing until PB4 is eligible, that the readout counts first failures
+   (after one, both groups have the released text), and that runs from one
+   plan are correlated.
 4. **Registry admission.** The list in `check-rule-registry.sh`, the PB4
    entry, the doc updates, and the test cases R2 names. Last, because it
    waits on the owner's ruling. Steps 1 to 3 are safe without it: the draw
    asks the registry first, so until PB4 is eligible every run takes part in
-   neither group and the canary withholds nothing.
+   neither group and the canary withholds nothing. The JSON edit, the list and
+   the narrowed check land in one commit, since either half alone fails CI.
 
 ## Security Considerations
 
