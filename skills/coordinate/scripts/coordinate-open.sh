@@ -26,15 +26,21 @@
 #
 # An import (PRD R14) moves a run another host started here: `--import
 # <session> --from <workspace path>` with the roadmap path, and no setting.
-# The name must be a run of this scope, and no other run of it may be live
-# here (the import's own target may be, after koto's import_unmarked: the same
-# import run again only marks the source). koto's `session import` brings the run from the bucket (taking the
-# template from the bucket only under `--trust-template`) and marks the source
-# migrated; its refusals print `refused=<koto code>`. The imported run must
-# then pass what a resume needs (the shipped template's hash, provenance, the
-# session store, no directed transition); one that doesn't stays here, refused,
-# and a plain start carries it. record/host takes the source's workspace, session and template
-# hash, and the output is `imported=<session>`, `resumed=1`, `session=<it>`.
+# Before koto runs, the opener refuses a name that isn't a run of this scope
+# (`refused=session-name`), another live run of the scope here
+# (`refused=session-live`; the import's own target may be live, after koto's
+# import_unmarked, since the same import run again only marks the source), a
+# koto without `session import` (`refused=store-unsupported`) and discipline
+# scope (`refused=store-discipline`). koto's `session import` then brings the
+# run from the bucket, taking the template from the bucket only under
+# `--trust-template`, and marks the source migrated; its refusals print
+# `refused=<koto code>`. The imported run must pass what a resume needs, or it
+# stays here refused and a plain start carries it: the shipped template's hash
+# (`refused=template-mismatch`), provenance (`refused=session-provenance`), the
+# session store (`refused=session-source`) and no directed transition
+# (`refused=session-directed`). record/host takes the source's workspace,
+# session and template hash, and the output is `imported=<session>`,
+# `resumed=1`, `session=<it>`.
 #
 # Tokens, in order, from a JSON array of strings in <args-file>:
 #   <roadmap-path>               roadmap scope (docs/roadmaps/.../ROADMAP-<name>.md)
