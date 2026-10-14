@@ -410,7 +410,7 @@
       "text": {
         "path": "references/pr-body-conformance.md",
         "first": "**PB4 — no markdown section heading in Part 1.**",
-        "last": "is not matched, so a prose Part 1 that mentions one is never a false positive."
+        "last": "Prose commit bodies essentially never use setext."
       },
       "check": {
         "kind": "script",
