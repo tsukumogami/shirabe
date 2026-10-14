@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   shirabe has one plan version, plan/v1, whose entries are issues, and every
   tool that reads plans assumes it: the validator, the one outline parser
@@ -34,7 +34,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 

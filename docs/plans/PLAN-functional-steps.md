@@ -1,0 +1,241 @@
+---
+schema: plan/v1
+status: Active
+execution_mode: single-pr
+split_mode_source: none
+tracking_level: none
+upstream: docs/designs/DESIGN-functional-steps.md
+milestone: "functional steps"
+issue_count: 7
+---
+
+# PLAN: functional steps
+
+## Status
+
+Active
+
+## Scope Summary
+
+Add `plan/v2`, a plan version whose entries are steps (a walking-skeleton
+first step, behavioural criteria and a check per detailed step, one-line
+outline steps), beside `plan/v1`. The validator, the one outline parser and
+`shirabe plan outlines`, task extraction, the `/scope`, `/execute` and
+`/work-on` readers, `/plan` authoring and `/review-plan` all accept both
+versions, and no `plan/v1` behaviour changes. The default stays `plan/v1`.
+
+## Decomposition Strategy
+
+**Walking skeleton.** The validator, the outline parser and task extraction
+are coupled at runtime, so Issue 1 carries a minimal `plan/v2` document
+through all three and pins the `plan/v1` regression fixtures. Every later
+issue adds one behaviour a person can observe with a command, and leaves
+every `plan/v1` path working. The issues are detailed in full because this
+PLAN is `plan/v1`; the session that owns it still refines each one before
+its work starts, from what the earlier ones taught.
+
+## Issue Outlines
+
+### Issue 1: feat(plan): carry a minimal step plan from validation to tasks
+
+**Complexity**: testable
+
+**Goal**: A minimal plan/v2 document (two detailed steps, one outline step) validates clean with `shirabe validate`, is read by `shirabe plan outlines`, and is turned by `plan-to-tasks.sh` into one `step-<N>` task per step with dependency edges, for single-pr and multi-pr. Validation output for every existing plan/v1 fixture, including a newly added five-layer koto plan, stays byte-identical.
+
+**Acceptance Criteria**:
+
+- [ ] `shirabe validate crates/shirabe-validate/tests/fixtures/plan_v2_minimal.md` (frontmatter `schema: plan/v2`, `step_count: 3`, sections Status, Scope Summary, Decomposition Strategy, Steps; steps 1 and 2 detailed, step 3 a one-line outline) exits 0 with no findings.
+- [ ] A copy of that fixture with `step_count` not matching the number of `### Step N:` headings, and a copy missing the `## Steps` section, each exit non-zero with a message naming the missing or mismatched field.
+- [ ] `shirabe plan outlines` on the minimal fixture exits 0 and prints three entries in step order; steps 1 and 2 carry `detailed: true` and a `check_declared` value taken from their `**Check**:` line, step 3 carries `detailed: false`; `**Dependencies**: Step 1` resolves to an edge from step 2 to step 1.
+- [ ] `shirabe plan outlines` on a plan/v1 fixture still prints the same entries it printed before this change (no new fields change existing keys).
+- [ ] `plan-to-tasks.sh` on the minimal fixture with `execution_mode: single-pr` exits 0 and emits tasks named `step-1`, `step-2`, `step-3` in that order, each with its dependency edges; the same fixture with `execution_mode: multi-pr` and no `tracking_level` (or `none`) emits the same task names and edges.
+- [ ] `plan-to-tasks.sh` on a plan/v2 file with `tracking_level` other than `none` exits non-zero with a message saying plan/v2 supports only `none`.
+- [ ] `plan-to-tasks_test.sh` gains plan/v2 cases for single-pr, multi-pr, and the unsupported tracking level; the script runs under bash 3.2 (no associative arrays, no `mapfile`, no `${var,,}`).
+- [ ] The koto evidence-routing plan is added as `crates/shirabe-validate/tests/fixtures/plan_v1_five_layer.md` (five entries: types, compiler, CLI, tests, plugin templates), with a leading comment naming its source (koto repo, `docs/plans/PLAN-template-evidence-routing.md`) and the commit it was recovered from.
+- [ ] `shirabe validate` on `plan_v1_five_layer.md` and on every existing plan/v1 fixture produces output identical to the recorded pre-change output (a Rust test pins the five-layer result).
+- [ ] Every existing plan/v1 test this issue touches (Rust tests in `crates/shirabe-validate`, `crates/shirabe`, and `skills/plan/scripts/plan-to-tasks_test.sh`) still passes unchanged: `cargo test --workspace` is green and no existing assertion is edited.
+
+**Check**: Run `cargo test --workspace` and `bash skills/plan/scripts/plan-to-tasks_test.sh`; both exit 0. Then run `shirabe validate crates/shirabe-validate/tests/fixtures/plan_v2_minimal.md` (exit 0, no findings), `shirabe plan outlines` on it (three entries, two `detailed`), and `bash skills/plan/scripts/plan-to-tasks.sh crates/shirabe-validate/tests/fixtures/plan_v2_minimal.md` (tasks `step-1`, `step-2`, `step-3`).
+
+**Dependencies**: None
+
+**Files**: `crates/shirabe-validate/src/formats.rs`, `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/table.rs`, `crates/shirabe/src/plan_outlines.rs`, `skills/plan/scripts/plan-to-tasks.sh`, `skills/plan/scripts/plan-to-tasks_test.sh`, `crates/shirabe-validate/tests/fixtures/plan_v2_minimal.md`, `crates/shirabe-validate/tests/fixtures/plan_v1_five_layer.md`
+
+---
+
+### Issue 2: feat(validate): refuse malformed step plans naming the step and rule
+
+**Complexity**: testable
+
+**Goal**: `shirabe validate` accepts a well-formed `plan/v2` step plan and refuses a malformed one with an error that names the step and the rule broken. A new error-level check, FC22, carries the step rules; plan/v1 output is unchanged.
+
+**Acceptance Criteria**:
+
+- [ ] A valid `plan/v2` fixture (`valid-plan-v2.md`: step 1 detailed, later steps detailed then one-line outlines, `step_count` matching) validates with exit 0 and no FC22, FC01, FC04, FC05-FC09, FC11, FC12, FC14 or FC15 finding.
+- [ ] Each invalid fixture below exits non-zero with an FC22 error naming the step and the rule; each is a separate fixture under the Plan fixtures in `crates/shirabe-validate/tests`:
+  - an `### Issue N:` heading (or other non-step heading) under `## Steps`
+  - `step_count` not equal to the steps present
+  - `issue_count` present
+  - step 1 an outline
+  - a detailed step missing `**Goal**:`, missing a checkbox criterion, and missing `**Check**:` (three fixtures)
+  - an outline step with two non-blank lines
+  - a detailed step after an outline step
+  - a dependency on a later step, and on a missing step
+  - a malformed `**Dependencies**:` value
+  - numbering with a gap, a duplicate number, and a number above 999
+- [ ] `execution_mode: coordinated`, `tracking_level: issues` and `tracking_level: issues-and-milestone` each yield an FC22 error whose message names `plan/v1`; `tracking_level: none` or absent passes.
+- [ ] A `plan/v2` fixture with no `## Steps` section, and one with sections out of order, each yield an FC04 error naming the missing or misplaced section; a v2 plan missing `step_count` yields FC01 naming `step_count`, and one with `issue_count` required by nothing.
+- [ ] FC05-FC09, FC11 and FC12 produce no findings on `plan/v2` fixtures, and FC14 does not emit table-versus-outline messages on them; FC14 sub-check F accepts `### Step N:` headings.
+- [ ] Quoted text in an FC22 message has control characters stripped and is truncated to 80 characters (checked on a fixture whose heading or Dependencies value contains control characters and exceeds 80 characters).
+- [ ] FC22 is a known check code (`is_known_check_code("FC22")` is true; selecting it by code works).
+- [ ] Every existing plan/v1 test and fixture touched by this issue still passes unchanged, with identical validator output.
+- [ ] FC17 reports an unresolved `Step <N>` dependency on a plan/v2 fixture the same way it reports an unresolved `Issue <N>` on plan/v1, and the refusals Issue 1 added for `step_count` and a missing `## Steps` are reused, not duplicated.
+
+**Check**: Run `cargo test -p shirabe-validate`, then `cargo run -p shirabe -- validate crates/shirabe-validate/tests/fixtures/<each invalid plan-v2 fixture>`. All tests pass, the valid fixture exits 0, and each invalid fixture exits non-zero printing `FC22` with the step number and rule name.
+
+**Dependencies**: Blocked by <<ISSUE:1>>
+
+**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/formats.rs`, `crates/shirabe-validate/src/table.rs`, `crates/shirabe-validate/src/validate.rs`, `crates/shirabe-validate/tests/`, `docs/prds/PRD-functional-steps.md`
+
+---
+
+### Issue 3: feat(plan): write a step plan when plan/v2 is selected
+
+**Complexity**: testable
+
+**Goal**: `/plan` writes a `plan/v2` step plan when v2 is selected by `--plan-version=v2` or a `## Plan Version: v2` header in the repository's CLAUDE.md, and still writes `plan/v1` by default. The format reference states the horizon, owner and report rules a reader needs to work from a step plan.
+
+**Acceptance Criteria**:
+
+- [ ] `skills/plan/scripts/resolve-plan-version.sh --plan-version=v2` prints `v2` and exits 0; `--plan-version=v1` prints `v1`, even when the CLAUDE.md header says `v2` (flag wins over header).
+- [ ] With no flag, a CLAUDE.md containing the whole line `## Plan Version: v2` resolves to `v2`; the same line inside a fenced code block is ignored and resolution falls through to the default.
+- [ ] With no flag and no header, the script prints the value of `DEFAULT_PLAN_VERSION`, which is `v1` and is assigned on exactly one line of the script.
+- [ ] `--plan-version=v3`, an empty value, and a CLAUDE.md with a header value other than `v1` or `v2` each exit non-zero with a message naming `v1` and `v2`, and write nothing.
+- [ ] A CLAUDE.md with two `## Plan Version:` headers outside fenced code exits non-zero naming the duplicate, before anything is written.
+- [ ] In `resolve-plan-version_test.sh`, a case copies the script to a temp dir, flips `DEFAULT_PLAN_VERSION` to `v2` with a one-line substitution, and shows a no-flag, no-header run now resolves to `v2` with nothing else edited.
+- [ ] `resolve-plan-version_test.sh` runs under bash 3.2 and passes; the fixtures it adds are the CLAUDE.md variants under `skills/plan/scripts/` test data (flag-only, header-only, fenced header, duplicate header, bad value).
+- [ ] `/plan` Phase 1 runs the resolver and records the version; Phases 3, 4 and 7 and the new `references/templates/step.md` write a `plan/v2` document (`schema: plan/v2`, `step_count`, `## Steps` with `### Step N:` headings, a Check per detailed step, outline steps from step 3, no issue filing) and a v1 run is unchanged.
+- [ ] `references/plan-format.md` gains a `plan/v2` section covering the format, the horizon, the owner rule (one plan-only commit per detailing, workers never edit steps), and the report rule, which contains the exact phrase "the behaviour this step added" plus the check and its result, and states that reviewers read every Check like code.
+- [ ] `plan-doc-structure.md` and `plan-doc-examples.md` carry a step example; `evals/evals.json` has scenarios for flag selection, header selection, default v1, and a refused value, and `scripts/check-skill.sh plan` passes.
+- [ ] Every existing plan/v1 test this issue touches (`resolve-split-mode_test.sh`, `plan-to-tasks_test.sh`, `create-issues-batch_test.sh`) passes unchanged.
+
+**Check**: Run `bash skills/plan/scripts/resolve-plan-version_test.sh`: all cases pass, including the flipped-default case. Run `git grep -n "the behaviour this step added" skills/plan/references/plan-format.md` and `git grep -n "DEFAULT_PLAN_VERSION=v1" skills/plan/scripts/`: each matches once. Run `scripts/check-skill.sh plan`: exits 0.
+
+**Dependencies**: Blocked by <<ISSUE:2>>
+
+**Files**: `skills/plan/scripts/resolve-plan-version.sh`, `skills/plan/scripts/resolve-plan-version_test.sh`, `skills/plan/SKILL.md`, `skills/plan/references/plan-format.md`, `skills/plan/references/quality/plan-doc-structure.md`, `skills/plan/references/quality/plan-doc-examples.md`, `skills/plan/references/phases/phase-1-analysis.md`, `skills/plan/references/phases/phase-3-decomposition.md`, `skills/plan/references/phases/phase-4-agent-generation.md`, `skills/plan/references/phases/phase-7-creation.md`, `skills/plan/references/templates/step.md`, `skills/plan/evals/evals.json`
+
+---
+
+### Issue 4: feat(work-on): stop an outline step's work until it is detailed
+
+**Complexity**: testable
+
+**Goal**: `/work-on` stops a plan/v2 step that is still a one-line outline, with a message saying the plan's owner must detail it first. Once the step is detailed, the same run passes the check and works from the detailed text.
+
+**Acceptance Criteria**:
+
+- [ ] `step-detail-check.sh <plan> <step>` on a single-pr plan/v2 fixture with step 2 as an outline exits non-zero and prints `step 2 is an outline; the plan's owner details it before its work starts` (fixture `skills/work-on/scripts/fixtures/step-detail/single-pr-outline.md`).
+- [ ] The same refusal holds on a multi-pr fixture (`multi-pr-outline.md`) for an outline step.
+- [ ] On `single-pr-detailed.md` and `multi-pr-detailed.md`, the same step after detailing exits 0, and the context the template extracts for it contains the detailed text.
+- [ ] A step argument not matching `^[1-9][0-9]{0,2}$` (`0`, `1000`, `01`, `a`, empty, `1;ls`) exits non-zero with a message naming the rule, before the plan is read.
+- [ ] A plan path that is missing, is not a regular file, or resolves outside the repo (absolute path elsewhere, `..` escape, symlink out) exits non-zero with a clear message.
+- [ ] The script reads the plan only through `shirabe plan outlines`; if the binary is absent or the plan is not plan/v1 or plan/v2, it exits non-zero and says so.
+- [ ] `koto template compile skills/work-on/koto-templates/work-on.md` succeeds. `plan_context_injection` extracts a step, and `plan_validation` runs the check and submits `verdict: exit` carrying the refusal message when the step is an outline.
+- [ ] `work-on-open.sh` detects `schema: plan/v2` (a fixture named by a non-`PLAN-` file) as a plan, and still detects plan/v1.
+- [ ] `skills/work-on/SKILL.md` plan-mode detection accepts both versions and its step report phrase is "the behaviour this step added", with the check run and its result. `skills/execute/SKILL.md` names plan/v1 and plan/v2.
+- [ ] Every existing plan/v1 test this issue touches (`work-on-open_test.sh`, the template and cascade suites) still passes unchanged.
+- [ ] All scripts run on bash 3.2 (no associative arrays, `mapfile`, or `${var,,}`).
+- [ ] A hostile-title plan/v2 fixture (`$(touch PWNED)`, backticks, a leading `--`, an ANSI escape) run through `step-detail-check.sh` exits as its step's shape dictates, creates no `PWNED` file, and prints no step text unescaped.
+- [ ] A work-on template case drives `plan_validation` on an outline step and shows it submitting `verdict: exit` with the refusal message, not only that the template compiles.
+
+**Check**: Run `bash skills/work-on/scripts/step-detail-check_test.sh`, `bash skills/work-on/scripts/work-on-open_test.sh` and `koto template compile skills/work-on/koto-templates/work-on.md`. All pass; the suite shows the outline refused in both modes and the detailed step passing.
+
+**Dependencies**: Blocked by <<ISSUE:1>>
+
+**Files**: `skills/work-on/scripts/step-detail-check.sh` `skills/work-on/scripts/step-detail-check_test.sh` `skills/work-on/scripts/fixtures/step-detail/` `skills/work-on/scripts/work-on-open.sh` `skills/work-on/scripts/work-on-open_test.sh` `skills/work-on/koto-templates/work-on.md` `skills/work-on/SKILL.md` `skills/execute/SKILL.md`
+
+---
+
+### Issue 5: feat(scope): report step titles and goals in the scope and execute readers
+
+**Complexity**: testable
+
+**Goal**: The scope and execute shell readers understand a `plan/v2` step plan: the scope hop check accepts it, and the startable list, the scoping PR body, the work-item goal and the drift facts all show step titles, goals and Files instead of coming out empty. Hostile step text passes through the readers as inert data.
+
+**Acceptance Criteria**:
+
+- [ ] `hop-complete.sh` reports the plan hop complete for a `plan/v2` PLAN fixture (`skills/scope/scripts/testdata/plan-v2-steps.md`) and still reports it complete for a `plan/v1` PLAN; an unknown schema value still leaves the hop incomplete.
+- [ ] `startable-issues.sh` fed `plan-v2-steps.md` lists each startable step with its `### Step N:` title; no startable step prints an empty title.
+- [ ] `publish-scoping-pr.sh` fed `plan-v2-steps.md` (using the existing gh shim, `--body-file` capture) writes a PR body that lists every `### Step N: <title>` title, none blank.
+- [ ] `node-push.sh` `work_item_goal` returns a step's `**Goal**:` text for a detailed step and its outline line for an outline step in `plan-v2-steps.md`; the result is never empty for either.
+- [ ] `drift-facts.sh` fed `plan-v2-steps.md` prints each step's goal and its `**Files**:` paths; no step shows a missing goal.
+- [ ] Hostile-title fixture `skills/execute/scripts/testdata/plan-v2-hostile-titles.md` (titles carrying `$(touch PWNED)`, backticks, a leading `--`, an ANSI escape, `Fixes #1`, an `@mention`) is run through `plan-to-tasks.sh`, `publish-scoping-pr.sh`, `node-push.sh` and `drift-facts.sh`: every script exits 0, no `PWNED` file or other side effect appears, and the title text is present verbatim as data in each output (JSON string, body file, goal, or fact line).
+- [ ] Every existing `plan/v1` case in `hop-complete_test.sh`, `startable-issues_test.sh`, `publish-scoping-pr_test.sh`, `node-push_test.sh`, `drift-facts_test.sh` and `plan-to-tasks_test.sh` still passes with its assertions unchanged.
+- [ ] The scripts and new cases run under bash 3.2 (no associative arrays, `mapfile`, or `${var,,}`).
+
+**Check**: Run `bash skills/scope/scripts/hop-complete_test.sh`, `startable-issues_test.sh`, `publish-scoping-pr_test.sh` (same directory), then `bash skills/execute/scripts/node-push_test.sh`, `drift-facts_test.sh` and `bash skills/plan/scripts/plan-to-tasks_test.sh`. Each exits 0 and reports the new plan/v2 and hostile-title cases as passing alongside the unchanged plan/v1 cases.
+
+**Dependencies**: Blocked by <<ISSUE:1>>
+
+**Files**: `skills/scope/scripts/hop-complete.sh`, `skills/scope/scripts/hop-complete_test.sh`, `skills/scope/scripts/startable-issues.sh`, `skills/scope/scripts/startable-issues_test.sh`, `skills/scope/scripts/publish-scoping-pr.sh`, `skills/scope/scripts/publish-scoping-pr_test.sh`, `skills/scope/scripts/testdata/plan-v2-steps.md`, `skills/execute/scripts/node-push.sh`, `skills/execute/scripts/node-push_test.sh`, `skills/execute/scripts/drift-facts.sh`, `skills/execute/scripts/drift-facts_test.sh`, `skills/execute/scripts/testdata/plan-v2-hostile-titles.md`, `skills/plan/scripts/plan-to-tasks_test.sh`
+
+---
+
+### Issue 6: feat(review-plan): flag plans cut into layers and file-shaped criteria
+
+**Complexity**: testable
+
+**Goal**: `/review-plan` gains category E (Functional Shape). It flags a plan cut into layers, a first entry that is not a walking skeleton, each file-shaped criterion, and, at authoring, a `plan/v2` plan with more than two detailed steps. Findings loop back under `plan/v2` and are advisory under `plan/v1`.
+
+**Acceptance Criteria**:
+
+- [ ] A fresh-session `/review-plan` run on the koto five-layer `plan/v1` fixture (added by issue 1) reports it as layer-shaped, names the entries and their components (types, compiler, CLI, tests, plugin templates), and lists each file-shaped criterion by entry and text (for example "Add `Transition` struct with `target: String`"). The findings are advisory and the verdict does not loop back.
+- [ ] A run on the behavioural `plan/v2` fixture `skills/review-plan/evals/fixtures/plan-v2-behavioural.md`, which carries `**Files**:` lines, reports no layer-shaped finding and no file-shaped finding. No `**Files**:` line is ever listed as a file-shaped criterion.
+- [ ] A run on `skills/review-plan/evals/fixtures/plan-v2-types-only-step1.md` (step 1 adds types only) reports that step 1 is not a walking skeleton, because its check is a build or unit test of one component and not observed end to end. The finding is a loop-back finding.
+- [ ] A run on `skills/review-plan/evals/fixtures/plan-v2-three-detailed.md` (three detailed steps) invoked inside `/plan` at authoring flags the horizon. The same fixture run standalone does not.
+- [ ] The category E finding is recorded in the `review_result` schema with category `E`. `references/templates/review-result-schema.md` documents it, and `phase-5-verdict.md` loops back on a layer-shaped plan or non-skeleton first step under `plan/v2` and treats the same findings as advisory under `plan/v1`.
+- [ ] `phase-0-setup.md` reads `step_count` and `## Steps` for `plan/v2`, so a `plan/v2` plan is reviewed without an issue-table error.
+- [ ] `SKILL.md` lists category E in its category table and counts five categories in the adversarial-mode spawn count (15 validator agents, not 12).
+- [ ] `skills/review-plan/evals/evals.json` has a scenario per fixture above, each stating the expected findings, and passes the shape check.
+- [ ] Every existing plan/v1 review-plan eval scenario and test the issue touches still passes unchanged.
+
+**Check**: From a fresh session, run `/review-plan` on each of the four fixtures and compare the findings with the criteria above. Then run `scripts/check-skill.sh review-plan`. Passing shows the expected findings per fixture, no finding on the behavioural fixture, and exit 0 from the check.
+
+**Dependencies**: Blocked by <<ISSUE:1>>
+
+**Files**: `skills/review-plan/SKILL.md`, `skills/review-plan/references/phases/phase-4b-functional-shape.md`, `skills/review-plan/references/phases/phase-0-setup.md`, `skills/review-plan/references/phases/phase-5-verdict.md`, `skills/review-plan/references/templates/review-result-schema.md`, `skills/review-plan/evals/evals.json`, `skills/review-plan/evals/fixtures/`
+
+---
+
+### Issue 7: feat(validate): stop completion while outline steps remain
+
+**Complexity**: testable
+
+**Goal**: Completing a chain that holds a `plan/v2` plan with a one-line outline step stops with a lifecycle error naming that step, and the cascade proceeds once the step is detailed and its criteria are ticked.
+
+**Acceptance Criteria**:
+
+- [ ] `shirabe validate --lifecycle-chain` on the fixture `crates/shirabe-validate/tests/fixtures/plan-v2/lifecycle-outline-step/` (a `plan/v2` single-pr PLAN with steps 1 and 2 detailed and step 3 a one-line outline) exits non-zero and prints exactly one `L10` error naming `Step 3`.
+- [ ] The fixture `lifecycle-two-outline-steps/` (steps 3 and 4 outlines) produces two `L10` errors, one per outline step, each naming its step number.
+- [ ] The fixture `lifecycle-all-detailed/` (every step detailed, every criterion ticked) produces no `L10` and no `L06` finding under `--lifecycle-chain`.
+- [ ] The fixture `lifecycle-unticked-detailed-step/` (a detailed step with an unticked criterion) produces an `L06` error naming that step and no `L10`.
+- [ ] A `plan/v2` PLAN at the expected posture raises no `L01` finding that a `plan/v1` outline-shaped PLAN at the same posture would not; a `plan/v2` Draft single-pr PLAN fails `L01` the way the `plan/v1` one does.
+- [ ] `L10` is emitted only by the `--lifecycle-chain` run: a plain `--lifecycle` run on the outline-step fixture prints no `L10`.
+- [ ] `skills/work-on/scripts/run-cascade_test.sh` gains a `plan/v2` case: with the outline-step fixture the cascade stops, its output names the `L10` finding and the step, and the plan is not deleted; after the step is detailed and its criteria ticked, the same cascade proceeds.
+- [ ] `skills/explore/references/phases/phase-5-produce-execute.md` and `skills/scope/references/phases/phase-3-exit-finalization.md` each mention `plan/v2` where they describe the plan format, and say completion waits until no outline step remains.
+- [ ] Every existing `plan/v1` lifecycle test in `crates/shirabe-validate` and every existing case in `run-cascade_test.sh` still passes unchanged; `run-cascade_test.sh` runs on bash 3.2.
+
+**Check**: Run `cargo test -p shirabe-validate lifecycle`, then `shirabe validate --lifecycle-chain` on each fixture above and confirm `lifecycle-outline-step` exits non-zero with an `L10` naming `Step 3` while `lifecycle-all-detailed` exits 0. Then run `bash skills/work-on/scripts/run-cascade_test.sh` and confirm every case, including the `plan/v2` one, reports a pass.
+
+**Dependencies**: Blocked by <<ISSUE:1>>
+
+**Files**: `crates/shirabe-validate/src/lifecycle.rs`, `crates/shirabe-validate/src/validate.rs`, `crates/shirabe-validate/tests/fixtures/plan-v2/`, `skills/work-on/scripts/run-cascade_test.sh`, `skills/explore/references/phases/phase-5-produce-execute.md`, `skills/scope/references/phases/phase-3-exit-finalization.md`
+
+## Implementation Sequence
+
+Serial, one issue at a time in a single pull request: 1, 2, 3, 4, 5, 6, 7.
+Issue 1 is the skeleton every other issue reads through; Issue 3 waits on
+Issue 2's rules so `/plan` writes plans the validator already checks. Issues
+4 to 7 depend only on Issue 1 and could run in any order; they run in
+number order so each step's detail can use what the previous one taught.
