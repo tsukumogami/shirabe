@@ -13,7 +13,8 @@ goals: |
   steps one line each until the plan's owner details them. Every tool that
   reads plans accepts both versions, /review-plan flags a layer-shaped plan,
   and step reports name the behaviour a step added.
-upstream: docs/briefs/BRIEF-functional-steps.md
+absorbed:
+  - docs/briefs/BRIEF-functional-steps.md
 ---
 
 # PRD: functional steps
@@ -21,6 +22,39 @@ upstream: docs/briefs/BRIEF-functional-steps.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-functional-steps](docs/briefs/BRIEF-functional-steps.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+Why this feature exists. Plans from `/plan` follow the shape of the code (types,
+then engine, then CLI, then docs), are written in full before any entry is
+built, and are judged by criteria that name files. That costs three roles
+something: the person executing the plan, who has nothing working end to end
+until the last entry lands; the plan's owner, whose late detail was a guess
+and goes stale with no record of who rewrote it; and the reviewer or
+dispatcher, who can confirm that files exist but not that a behaviour works,
+so checkpoint reports come back as lists of artifacts. `/review-plan` passes
+a layered plan as readily as a behavioural one, and the format's unit, the
+issue, says nothing about what an entry leaves working.
+
+The outcome a user should experience: an author gets a plan of steps whose
+first step is a walking skeleton that works end to end, whose every step
+leaves the work running with a check that proves its behaviour, and whose
+later steps are one line until the owner details them from what the earlier
+steps taught. Existing plans keep validating and running untouched, a
+reviewer is told when a plan is cut into layers, and a worker's report names
+the behaviour a step added.
+
+The journeys it serves: an author planning a feature in steps; the owner
+detailing the next step after the previous one lands and committing that
+edit; a reviewer catching a layered plan; a maintainer whose old-format plans
+keep running beside new ones; and the person who dispatched a step judging it
+from a report that names the behaviour and its check. The boundary: the
+format, `/plan`, the readers of both versions, `/review-plan` and report
+guidance are in; building the step-by-step execution shape into the delivery
+skills, the roadmap format, converting existing plans, running the
+checkpoint-wording comparison and changing the defaults are out.
 
 ## Problem Statement
 
