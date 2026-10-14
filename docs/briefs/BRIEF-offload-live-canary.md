@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   Nobody can say whether a gate-checked rule still has to sit in the text an
   agent preloads. The offline ablation that was meant to answer it has
@@ -16,7 +16,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
