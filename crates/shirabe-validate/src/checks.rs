@@ -15,7 +15,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::doc::{Config, Doc, FieldEntries, ValidationError};
-use crate::features::{non_milestone_headings, parse_features, ROADMAP_V2_SCHEMA};
+use crate::features::{non_milestone_headings, parse_features, RoadmapVersion};
 use crate::formats::{detect_format, FormatId, FormatSpec, Lifetime};
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
@@ -74,8 +74,8 @@ pub const SCHEMA_SKIP_CODE: &str = "SCHEMA";
 
 /// Returns a SCHEMA `ValidationError` (to be emitted as `::notice`) if the
 /// spec doesn't accept `doc.schema` ([`FormatSpec::accepts_schema`]: its own
-/// `schema_version`, or `roadmap/v2` for the Roadmap spec). Returns `None` if
-/// it does.
+/// `schema_version`, or `roadmap/v2` and `roadmap/v3` for the Roadmap spec).
+/// Returns `None` if it does.
 ///
 /// When `doc.schema` is empty, the notice message uses the SCHEMA-MISSING
 /// shape ("schema field missing, skipping") to distinguish the missing
@@ -405,7 +405,8 @@ fn is_valid_group_slug(value: &str) -> bool {
     chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }
 
-/// The list before any contribution splice.
+/// The list before any contribution splice. A schema variant's own list
+/// (`roadmap/v3`'s `Milestones` section) stands in for the spec's.
 fn base_required_sections(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
     if let Some(map) = &spec.execution_mode_required_sections {
         if let Some(mode_field) = doc.fields.get("execution_mode") {
@@ -422,7 +423,7 @@ fn base_required_sections(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
             }
         }
     }
-    spec.required_sections.clone()
+    spec.required_sections_for(&doc.schema).to_vec()
 }
 
 /// The pinned shape of a `## Status` absorption line, one per declared entry.
@@ -890,16 +891,21 @@ pub fn check_roadmap_reserved_sections(doc: &Doc, spec: &FormatSpec) -> Vec<Vali
     }
     let mut errs = Vec::new();
 
-    // Implementation Issues: prose where the canonical table belongs.
+    // Implementation Issues: prose where the canonical table belongs. The
+    // header the message quotes is the version's (`| Milestone | ...` on v3).
     if let Some(line) = section_line(doc, "Implementation Issues") {
         if parse_issues_table(doc).is_none() && section_has_prose(doc, "## Implementation Issues") {
+            let header = format!(
+                "| {} |",
+                spec.issues_table_columns_for(&doc.schema).join(" | ")
+            );
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line,
                 code: "FC16".to_string(),
-                message:
-                    "[FC16] '## Implementation Issues' holds prose but no canonical issues table; the reserved section must be the empty skeleton (marker comment + '| Feature | Issues | Dependencies | Status |' header) or a tool-populated table -- see skills/roadmap/references/roadmap-format.md"
-                        .to_string(),
+                message: format!(
+                    "[FC16] '## Implementation Issues' holds prose but no canonical issues table; the reserved section must be the empty skeleton (marker comment + '{header}' header) or a tool-populated table -- see skills/roadmap/references/roadmap-format.md"
+                ),
             });
         }
     }
@@ -932,25 +938,34 @@ const MILESTONE_STATUSES: [&str; 4] = ["Not started", "In progress", "Done", "Dr
 static CROSS_REPO_ISSUE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+$").unwrap());
 
-/// FC21 -- the milestone shape on a `roadmap/v2` roadmap.
+/// FC21 -- the milestone shape on a `roadmap/v2` or `roadmap/v3` roadmap.
 ///
-/// A `roadmap/v2` roadmap is a milestone roadmap
-/// (`skills/roadmap/references/roadmap-format.md`, Milestone roadmaps):
-/// every item carries an Outcome, at least one Evidence clause, a Left open,
-/// a one-line Dependencies list of other milestones' tags or cross-repo
-/// issue references, and one of four Status values. FC21 reports each
-/// milestone that breaks that shape, naming it by tag and title, and each
-/// `###` line in the Features section that isn't a milestone heading, so a
-/// mistyped heading can't hide an item from the rest of the check.
+/// A `roadmap/v2` or `roadmap/v3` roadmap is a milestone roadmap
+/// (`skills/roadmap/references/roadmap-format.md`, Milestones): every item
+/// carries an Outcome, at least one Evidence clause, a Left open, a one-line
+/// Dependencies list of other milestones' tags or cross-repo issue
+/// references, and one of four Status values. FC21 reports each milestone
+/// that breaks that shape, naming it by tag and title, and each `###` line in
+/// the items section that isn't a milestone heading, so a mistyped heading
+/// can't hide an item from the rest of the check.
+///
+/// The two versions differ only in their words (`## Features` and
+/// `Feature N` on v2, `## Milestones` and `Milestone N` on v3), so the check
+/// takes them from [`RoadmapVersion`]. On v3 it also names the v2 word where
+/// an author wrote it: a `## Features` section, a `### Feature N:` heading
+/// (pointing at `### Milestone N:`) and a `Feature N` Dependencies entry
+/// (pointing at `Milestone N` when that milestone exists). v2's findings and
+/// messages are the ones it had before v3 existed.
 ///
 /// Gated on the document's schema, not the spec's: the Roadmap format
-/// accepts both `roadmap/v1` and `roadmap/v2`, and a `roadmap/v1` roadmap
-/// gets nothing from this check. Error-level (absent from
-/// `is_intrinsic_notice`).
+/// accepts `roadmap/v1` too, and a `roadmap/v1` roadmap gets nothing from
+/// this check. Error-level (absent from `is_intrinsic_notice`).
 pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.id != FormatId::Roadmap || doc.schema != ROADMAP_V2_SCHEMA {
+    let version = RoadmapVersion::of(&doc.schema);
+    if spec.id != FormatId::Roadmap || !version.is_milestone() {
         return Vec::new();
     }
+    let v3 = version == RoadmapVersion::V3;
     let finding = |line: usize, message: String| ValidationError {
         file: doc.path.clone(),
         line,
@@ -959,14 +974,35 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
     };
     let mut errs = Vec::new();
 
+    if v3 {
+        if let Some(line) = section_line(doc, RoadmapVersion::V2.items_section()) {
+            errs.push(finding(
+                line,
+                "section '## Features' is the roadmap/v2 items section; a roadmap/v3 roadmap lists its milestones under '## Milestones', and nothing under '## Features' is read as a milestone -- see skills/roadmap/references/roadmap-format.md".to_string(),
+            ));
+        }
+    }
+
+    let classic = version.classic_word();
     let bad_headings = non_milestone_headings(doc);
     for (line, text) in &bad_headings {
-        errs.push(finding(
-            *line,
-            format!(
-                "heading '{text}' is not a milestone heading; a milestone heading is '### <tag>: <title>' with a tag like 'Feature 3' or 'AB1' -- see skills/roadmap/references/roadmap-format.md"
+        // A v3 heading written with the v2 word: name the heading to write.
+        let number = v3
+            .then(|| {
+                let rest = text.strip_prefix("### Feature ")?;
+                let digits_end = rest.find(|c: char| !c.is_ascii_digit())?;
+                (digits_end > 0 && rest[digits_end..].starts_with(':')).then(|| &rest[..digits_end])
+            })
+            .flatten();
+        let message = match number {
+            Some(n) => format!(
+                "heading '{text}' uses the roadmap/v2 word; on a roadmap/v3 roadmap '### Feature {n}:' is written '### Milestone {n}:' -- see skills/roadmap/references/roadmap-format.md"
             ),
-        ));
+            None => format!(
+                "heading '{text}' is not a milestone heading; a milestone heading is '### <tag>: <title>' with a tag like '{classic} 3' or 'AB1' -- see skills/roadmap/references/roadmap-format.md"
+            ),
+        };
+        errs.push(finding(*line, message));
     }
 
     let features = parse_features(doc);
@@ -1018,12 +1054,25 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
             if !none_alone {
                 for entry in entries {
                     let names_milestone = features.iter().any(|g| g.id != f.id && g.tag == entry);
-                    if !names_milestone && !CROSS_REPO_ISSUE_RE.is_match(entry) {
-                        errs.push(finding(
-                            at,
-                            format!("{name} names '{entry}' in Dependencies, which is no other milestone"),
-                        ));
+                    if names_milestone || CROSS_REPO_ISSUE_RE.is_match(entry) {
+                        continue;
                     }
+                    // On v3, `Feature N` for an existing `Milestone N`: the
+                    // exact tag is what an entry names, so say which one.
+                    let renamed = v3
+                        .then(|| entry.strip_prefix("Feature "))
+                        .flatten()
+                        .map(|n| format!("Milestone {n}"))
+                        .filter(|want| features.iter().any(|g| g.id != f.id && g.tag == *want));
+                    let message = match renamed {
+                        Some(want) => format!(
+                            "{name} names '{entry}' in Dependencies; on a roadmap/v3 roadmap an entry names the milestone's tag, '{want}'"
+                        ),
+                        None => format!(
+                            "{name} names '{entry}' in Dependencies, which is no other milestone"
+                        ),
+                    };
+                    errs.push(finding(at, message));
                 }
             }
         }
@@ -1078,11 +1127,12 @@ pub fn check_fc05(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         }];
     }
 
-    if table.columns == spec.issues_table_columns {
+    let columns = spec.issues_table_columns_for(&doc.schema);
+    if table.columns == columns {
         return validate_row_shape(doc, &table);
     }
 
-    let want = spec.issues_table_columns.join(" | ");
+    let want = columns.join(" | ");
     let got = table.columns.join(" | ");
     vec![ValidationError {
         file: doc.path.clone(),

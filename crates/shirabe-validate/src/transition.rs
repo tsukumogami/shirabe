@@ -982,11 +982,45 @@ fn validate_open_questions_resolved(doc: &crate::Doc) -> Result<(), TransitionEr
 /// form is recognized with the same grammar the feature parser uses
 /// ([`crate::features::is_feature_heading`]) so a roadmap that activates is
 /// also one `roadmap populate` can parse.
+///
+/// A `roadmap/v3` roadmap is counted the way the parser reads it instead:
+/// only the milestone headings inside its `## Milestones` section, with the
+/// parser's grammar and no lenient match. v3 has no older script whose
+/// leniency the gate has to keep, and counting `### Feature` lines, or any
+/// heading under a `## Features` section, would activate a roadmap whose
+/// items no reader sees. v1 and v2 keep the count and the message they had.
 fn validate_features_count(doc: &crate::Doc, min: usize) -> Result<(), TransitionError> {
+    use crate::features::{is_feature_heading, RoadmapVersion};
+    let version = RoadmapVersion::of(&doc.schema);
+
+    if version == RoadmapVersion::V3 {
+        let section = format!("## {}", version.items_section());
+        let count = doc
+            .body
+            .iter()
+            .skip_while(|l| l.trim_end_matches([' ', '\t']) != section)
+            .skip(1)
+            .take_while(|l| !l.starts_with("## "))
+            .filter(|l| is_feature_heading(l, version))
+            .count();
+        if count < min {
+            let noun = if min == 1 { "heading" } else { "headings" };
+            return Err(TransitionError::new(
+                2,
+                format!(
+                    "Draft -> Active requires at least {} ### Milestone {} in the Milestones \
+                     section. Found {}.",
+                    min, noun, count
+                ),
+            ));
+        }
+        return Ok(());
+    }
+
     let count = doc
         .body
         .iter()
-        .filter(|l| l.starts_with("### Feature") || crate::features::is_feature_heading(l))
+        .filter(|l| l.starts_with("### Feature") || is_feature_heading(l, version))
         .count();
 
     if count < min {
@@ -1984,6 +2018,42 @@ mod tests {
         let doc =
             "---\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Features\n\n### SE1: Only one\n";
         let path = write_doc("ROADMAP-oneprefix.md", doc);
+        let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Active");
+    }
+
+    #[test]
+    fn roadmap_v3_draft_to_active_counts_milestones_in_the_milestones_section() {
+        // No milestone at all: refused, naming the Milestones section.
+        let none = "---\nschema: roadmap/v3\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Milestones\n\nTBD.\n";
+        let path = write_doc("ROADMAP-v3-none.md", none);
+        let err = run_transition(&path, "Active", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert_eq!(
+            err.message,
+            "Draft -> Active requires at least 1 ### Milestone heading in the Milestones \
+             section. Found 0."
+        );
+
+        // Headings under `## Features`, and a v2-word heading, are no milestones.
+        let wrong = "---\nschema: roadmap/v3\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Features\n\n### Milestone 1: Loader\n### AB2: Registry\n\n## Milestones\n\n### Feature 3: Old word\n";
+        let path = write_doc("ROADMAP-v3-wrong.md", wrong);
+        let err = run_transition(&path, "Active", &Flags::default()).expect_err("err");
+        assert_eq!(err.code, 2);
+        assert!(
+            err.message.contains("Milestones section. Found 0."),
+            "{}",
+            err.message
+        );
+
+        // One milestone activates.
+        let one = "---\nschema: roadmap/v3\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Milestones\n\n### Milestone 1: Loader\n\n## Sequencing Rationale\n\nOnly one.\n";
+        let path = write_doc("ROADMAP-v3-one.md", one);
+        let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
+        assert_eq!(outcome.new_status, "Active");
+
+        let prefixed = "---\nschema: roadmap/v3\nstatus: Draft\n---\n\n## Status\n\nDraft\n\n## Milestones\n\n### AB1: Loader\n";
+        let path = write_doc("ROADMAP-v3-prefixed.md", prefixed);
         let outcome = run_transition(&path, "Active", &Flags::default()).expect("ok");
         assert_eq!(outcome.new_status, "Active");
     }

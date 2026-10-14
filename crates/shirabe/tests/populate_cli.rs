@@ -1041,6 +1041,12 @@ fn help_names_both_mode_flags_and_the_default() {
 /// A roadmap under `schema` whose `## Features` section holds `features`,
 /// wrapped in the sections populate and the validator need.
 fn write_roadmap(dir: &Path, schema: &str, features: &str) -> PathBuf {
+    write_roadmap_in(dir, schema, "Features", features)
+}
+
+/// [`write_roadmap`] with the items section named `section` (`Milestones`
+/// on a `roadmap/v3` roadmap).
+fn write_roadmap_in(dir: &Path, schema: &str, section: &str, features: &str) -> PathBuf {
     let path = dir.join("ROADMAP-tagged.md");
     let body = format!(
         "---\n\
@@ -1060,7 +1066,7 @@ Active\n\
 \n\
 Theme.\n\
 \n\
-## Features\n\
+## {section}\n\
 \n\
 {features}\
 ## Sequencing Rationale\n\
@@ -1319,5 +1325,156 @@ fn milestone_issue_bodies_carry_the_outcome_only() {
     for marker in ["EVIDENCE-", "LEFT-OPEN-"] {
         assert!(!generated.contains(marker), "{marker} leaked: {generated}");
     }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// Three milestones in the classic form of `word` (`Feature` or
+/// `Milestone`), each depending on the one before it by tag; the third is
+/// prefix-tagged.
+fn classic_milestones(word: &str) -> String {
+    format!(
+        "### {word} 1: Base layer\n\
+**Outcome:** Operators install the base layer in one step.\n\
+**Evidence:**\n\
+- A reviewer installs on a clean host and sees the base layer listed.\n\
+**Left open:** None\n\
+**Dependencies:** None\n\
+**Status:** Done\n\
+\n\
+### {word} 2: Cache\n\
+**Outcome:** Repeat installs reuse the cache.\n\
+**Evidence:**\n\
+- A reviewer installs twice offline and sees the second install succeed.\n\
+**Left open:** eviction.\n\
+**Dependencies:** {word} 1\n\
+**Status:** In progress\n\
+\n\
+### AB3: Report\n\
+**Outcome:** An operator reads what each install reused.\n\
+**Evidence:**\n\
+- A reviewer runs the report after two installs and sees both listed.\n\
+**Left open:** the report layout.\n\
+**Dependencies:** {word} 2\n\
+**Status:** Not started\n\
+\n"
+    )
+}
+
+fn populate_no_issues(path: &Path) {
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(path)
+        .arg("--no-issues")
+        .assert()
+        .success();
+}
+
+#[test]
+fn a_v3_roadmap_populates_the_v2_output_but_the_key_header() {
+    let v2_dir = tempdir();
+    let v2 = write_roadmap(&v2_dir, "roadmap/v2", &classic_milestones("Feature"));
+    populate_no_issues(&v2);
+    let v2_out = fs::read_to_string(&v2).unwrap();
+
+    let v3_dir = tempdir();
+    let v3 = write_roadmap_in(
+        &v3_dir,
+        "roadmap/v3",
+        "Milestones",
+        &classic_milestones("Milestone"),
+    );
+    populate_no_issues(&v3);
+    let v3_out = fs::read_to_string(&v3).unwrap();
+
+    let v2_generated = generated_sections(&v2_out);
+    let v3_generated = generated_sections(&v3_out);
+    assert!(
+        v3_generated.contains(
+            "| Milestone | Issues | Dependencies | Status |\n|-----------|--------|--------------|--------|\n"
+        ),
+        "{v3_generated}"
+    );
+    let as_v2 = v3_generated.replace(
+        "| Milestone | Issues | Dependencies | Status |\n|-----------|",
+        "| Feature | Issues | Dependencies | Status |\n|---------|",
+    );
+    assert_eq!(as_v2, v2_generated);
+    assert!(v3_generated.contains("    F2 --> F3\n"), "{v3_generated}");
+
+    // Both regenerated roadmaps validate clean, FC21 included.
+    for path in [&v2, &v3] {
+        shirabe()
+            .args(["validate"])
+            .arg(path)
+            .arg("--visibility=public")
+            .assert()
+            .success();
+    }
+    let _ = fs::remove_dir_all(&v2_dir);
+    let _ = fs::remove_dir_all(&v3_dir);
+}
+
+/// Items out of order, so the item a tag names and the item at that
+/// position differ: `<word> 2` is first and `<word> 1` second. The third
+/// item's Dependencies prose names `<other> 1`.
+fn crossed(word: &str, other: &str) -> String {
+    format!(
+        "### {word} 2: Cache\n**Dependencies:** None\n**Status:** Not started\n\n\
+### {word} 1: Base\n**Dependencies:** None\n**Status:** Not started\n\n\
+### AB3: Report\n**Dependencies:** {other} 1\n**Status:** Not started\n\n"
+    )
+}
+
+#[test]
+fn dependency_prose_names_the_item_tagged_with_either_word() {
+    // v3: `Feature 1` prose names the milestone tagged `Milestone 1`, the
+    // second item, not the first.
+    let dir = tempdir();
+    let path = write_roadmap_in(
+        &dir,
+        "roadmap/v3",
+        "Milestones",
+        &crossed("Milestone", "Feature"),
+    );
+    populate_no_issues(&path);
+    let out = fs::read_to_string(&path).unwrap();
+    let generated = generated_sections(&out);
+    assert!(
+        generated.contains("| Report | None | F2 | Not started |\n"),
+        "{generated}"
+    );
+    assert!(generated.contains("    F2 --> F3\n"), "{generated}");
+    let _ = fs::remove_dir_all(&dir);
+
+    // v2: `Milestone 1` prose names the item tagged `Feature 1`.
+    let dir = tempdir();
+    let path = write_roadmap(&dir, "roadmap/v2", &crossed("Feature", "Milestone"));
+    populate_no_issues(&path);
+    let out = fs::read_to_string(&path).unwrap();
+    let generated = generated_sections(&out);
+    assert!(
+        generated.contains("| Report | None | F2 | Not started |\n"),
+        "{generated}"
+    );
+    assert!(generated.contains("    F2 --> F3\n"), "{generated}");
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_v3_roadmap_with_no_milestones_names_its_section() {
+    let dir = tempdir();
+    let path = write_roadmap_in(
+        &dir,
+        "roadmap/v3",
+        "Features",
+        &classic_milestones("Milestone"),
+    );
+    shirabe()
+        .args(["roadmap", "populate"])
+        .arg(&path)
+        .arg("--no-issues")
+        .assert()
+        .failure()
+        .stderr(contains("(Milestones section empty or missing)"));
     let _ = fs::remove_dir_all(&dir);
 }

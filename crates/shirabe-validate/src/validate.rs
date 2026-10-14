@@ -324,8 +324,8 @@ fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Valida
             // Issues / non-mermaid Dependency Graph). The FC11 analog for
             // roadmaps; error-level (absent from is_intrinsic_notice).
             errs.extend(check_roadmap_reserved_sections(doc, spec));
-            // FC21: the milestone shape on a `roadmap/v2` roadmap; a no-op on
-            // `roadmap/v1`. Error-level (absent from is_intrinsic_notice).
+            // FC21: the milestone shape on a `roadmap/v2` or `roadmap/v3`
+            // roadmap; a no-op on `roadmap/v1`. Error-level (absent from is_intrinsic_notice).
             errs.extend(check_fc21_milestones(doc, spec));
         }
         "VISION" => {

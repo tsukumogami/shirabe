@@ -1,6 +1,7 @@
 //! `shirabe roadmap populate` -- roadmap-native populate path.
 //!
-//! Reads a roadmap's `## Features` section, builds a per-feature manifest
+//! Reads a roadmap's items section (`## Features`, or `## Milestones` on a
+//! `roadmap/v3` roadmap), builds a per-feature manifest
 //! in the shape the canonical `create-issues-batch.sh` primitive consumes,
 //! creates one planning issue per feature on GitHub (via discrete `gh
 //! issue create` invocations), then renders the feature-keyed Implementation
@@ -31,7 +32,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
-use shirabe_validate::features::{dependency_positions, ROADMAP_V2_SCHEMA};
+use shirabe_validate::features::{dependency_positions, RoadmapVersion};
 use shirabe_validate::{
     extract_needs_label, is_stable_table_key, parse_doc, parse_features, strip_label_decoration,
     Feature,
@@ -112,10 +113,20 @@ fn run_inner(args: &PopulateArgs) -> Result<(), String> {
     let doc = parse_doc(&args.roadmap_path).map_err(|e| format!("parse roadmap: {}", e))?;
     let features = parse_features(&doc);
     if features.is_empty() {
-        return Err(format!(
-            "no features parsed from {} (Features section empty or missing)",
-            roadmap.display()
-        ));
+        let version = RoadmapVersion::of(&doc.schema);
+        // v1 and v2 keep their message word for word; v3 names its section.
+        let message = if version == RoadmapVersion::V3 {
+            format!(
+                "no milestones parsed from {} (Milestones section empty or missing)",
+                roadmap.display()
+            )
+        } else {
+            format!(
+                "no features parsed from {} (Features section empty or missing)",
+                roadmap.display()
+            )
+        };
+        return Err(message);
     }
 
     // Reserved sections must exist before we attempt to write into them;
@@ -249,8 +260,7 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str, schema: &st
         s.push_str(milestone);
         s.push_str("\n\n");
     }
-    s.push_str("| Feature | Issues | Dependencies | Status |\n");
-    s.push_str("|---------|--------|--------------|--------|\n");
+    push_table_header(&mut s, schema);
     let keys = feature_keys(features);
     let aliases = feature_aliases(features);
     for (i, f) in features.iter().enumerate() {
@@ -397,6 +407,20 @@ fn diagnostic_label(label: &str) -> String {
     format!("{}...", head.trim_end())
 }
 
+/// The Implementation Issues header and its separator. The key column is the
+/// version's classic word: `Feature` on v1 and v2, `Milestone` on v3
+/// (`references/issues-table.md`, Roadmap Profile). The separator's dashes
+/// span the word and its two padding spaces, as the v1 and v2 header always
+/// had them.
+fn push_table_header(s: &mut String, schema: &str) {
+    let word = RoadmapVersion::of(schema).classic_word();
+    s.push_str(&format!("| {word} | Issues | Dependencies | Status |\n"));
+    s.push_str(&format!(
+        "|{}|--------|--------------|--------|\n",
+        "-".repeat(word.len() + 2)
+    ));
+}
+
 /// One `warning:` line per feature whose description cell was cut short.
 ///
 /// The line names the feature and the remedy, because a bare count tells an
@@ -404,7 +428,7 @@ fn diagnostic_label(label: &str) -> String {
 /// is a property of the shared derivation.
 fn truncation_warnings(features: &[Feature], schema: &str) -> Vec<String> {
     // A milestone's cell comes from its Outcome, so that is what to shorten.
-    let remedy = if schema == ROADMAP_V2_SCHEMA {
+    let remedy = if RoadmapVersion::of(schema).is_milestone() {
         "shorten the first sentence of the \"**Outcome:**\" to control the summary"
     } else {
         "add a \"**Functional outcome:**\" line to control the summary"
@@ -770,8 +794,7 @@ pub fn render_table(
         s.push_str(milestone);
         s.push_str("\n\n");
     }
-    s.push_str("| Feature | Issues | Dependencies | Status |\n");
-    s.push_str("|---------|--------|--------------|--------|\n");
+    push_table_header(&mut s, schema);
     // Issue-creating mode keys rows on the plain decoration-stripped label and
     // keeps doing so: the `F<n>` fallback is issueless-mode behaviour under
     // the accepted PRD's R24. Passing the key table explicitly is what makes
@@ -1034,13 +1057,14 @@ fn summarize_description(desc: &str) -> (String, bool) {
     bound_description(&sanitized)
 }
 
-/// The prose populate summarizes for a feature: on a `roadmap/v2` document its
+/// The prose populate summarizes for a feature: on a milestone roadmap
+/// (`roadmap/v2` or `roadmap/v3`) its
 /// Outcome (empty when the item has none, which renders the placeholder),
 /// otherwise its description. The Outcome is the sentence that says what a
 /// milestone delivers; its Evidence and Left open text never belong in a
 /// summary.
 fn summary_text<'a>(f: &'a Feature, schema: &str) -> &'a str {
-    if schema == ROADMAP_V2_SCHEMA {
+    if RoadmapVersion::of(schema).is_milestone() {
         f.outcome.as_deref().unwrap_or("")
     } else {
         &f.description
@@ -1417,6 +1441,7 @@ use io as _io_marker;
 mod tests {
     use super::*;
     use shirabe_validate::doc::Section;
+    use shirabe_validate::features::{ROADMAP_V2_SCHEMA, ROADMAP_V3_SCHEMA};
 
     fn make_feature(
         id: usize,

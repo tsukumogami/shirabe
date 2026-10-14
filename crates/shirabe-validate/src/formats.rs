@@ -110,17 +110,57 @@ pub struct FormatSpec {
     /// lists so the Plan profile's required-sections check branches on
     /// execution mode without affecting any other profile.
     pub execution_mode_required_sections: Option<HashMap<String, Vec<String>>>,
+    /// Further `schema:` values this spec accepts besides `schema_version`,
+    /// each with the required sections and issues-table columns it takes in
+    /// place of the spec's own. Empty for every format but Roadmap, which
+    /// accepts `roadmap/v2` (the spec's own lists) and `roadmap/v3` (its
+    /// `Milestones` section and `Milestone` key column). One spec for every
+    /// version keeps prefix routing and the checks' entry points unchanged;
+    /// a check reads the lists through [`FormatSpec::required_sections_for`]
+    /// and [`FormatSpec::issues_table_columns_for`].
+    pub schema_variants: Vec<SchemaVariant>,
+}
+
+/// A further schema a [`FormatSpec`] accepts, and what it changes. A list
+/// left `None` is the spec's own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SchemaVariant {
+    pub schema: String,
+    pub required_sections: Option<Vec<String>>,
+    pub issues_table_columns: Option<Vec<String>>,
 }
 
 impl FormatSpec {
     /// True when a document whose frontmatter `schema` is `schema` is checked
-    /// against this spec. Every format accepts its own `schema_version`; the
-    /// Roadmap format also accepts `roadmap/v2`, the milestone roadmap, which
-    /// runs every roadmap check plus FC21 (`check_fc21_milestones`). One spec
-    /// for both keeps prefix routing and the `roadmap/v1` gates unchanged.
+    /// against this spec. Every format accepts its own `schema_version`, and
+    /// each of its [`schema_variants`](FormatSpec::schema_variants): the
+    /// Roadmap format also accepts `roadmap/v2` and `roadmap/v3`, the
+    /// milestone roadmaps, which run every roadmap check plus FC21
+    /// (`check_fc21_milestones`). One spec for all three keeps prefix routing
+    /// and the `roadmap/v1` gates unchanged.
     pub fn accepts_schema(&self, schema: &str) -> bool {
-        schema == self.schema_version
-            || (self.id == FormatId::Roadmap && schema == crate::features::ROADMAP_V2_SCHEMA)
+        schema == self.schema_version || self.variant(schema).is_some()
+    }
+
+    fn variant(&self, schema: &str) -> Option<&SchemaVariant> {
+        self.schema_variants.iter().find(|v| v.schema == schema)
+    }
+
+    /// The required sections a document at `schema` must carry, in canonical
+    /// order: the variant's list when its schema names one, else the spec's
+    /// own.
+    pub fn required_sections_for(&self, schema: &str) -> &[String] {
+        self.variant(schema)
+            .and_then(|v| v.required_sections.as_deref())
+            .unwrap_or(&self.required_sections)
+    }
+
+    /// The issues-table columns a document at `schema` must use: the
+    /// variant's list when its schema names one, else the spec's own.
+    pub fn issues_table_columns_for(&self, schema: &str) -> &[String] {
+        self.variant(schema)
+            .and_then(|v| v.issues_table_columns.as_deref())
+            .unwrap_or(&self.issues_table_columns)
     }
 
     /// A spec carrying no structural expectations, for the prose family.
@@ -148,6 +188,7 @@ impl FormatSpec {
             issues_table_columns: Vec::new(),
             private: false,
             execution_mode_required_sections: None,
+            schema_variants: Vec::new(),
         }
     }
 }
@@ -291,6 +332,7 @@ pub fn formats() -> Vec<FormatSpec> {
             issues_table_columns: vec![],
             private: true,
             execution_mode_required_sections: None,
+            schema_variants: Vec::new(),
         },
         FormatSpec {
             name: "Design".to_string(),
@@ -324,6 +366,7 @@ pub fn formats() -> Vec<FormatSpec> {
             issues_table_columns: vec![],
             private: false,
             execution_mode_required_sections: None,
+            schema_variants: Vec::new(),
         },
         FormatSpec {
             name: "PRD".to_string(),
@@ -346,6 +389,7 @@ pub fn formats() -> Vec<FormatSpec> {
             issues_table_columns: vec![],
             private: false,
             execution_mode_required_sections: None,
+            schema_variants: Vec::new(),
         },
         FormatSpec {
             name: "VISION".to_string(),
@@ -368,6 +412,7 @@ pub fn formats() -> Vec<FormatSpec> {
             issues_table_columns: vec![],
             private: false,
             execution_mode_required_sections: None,
+            schema_variants: Vec::new(),
         },
         FormatSpec {
             name: "Roadmap".to_string(),
@@ -397,6 +442,35 @@ pub fn formats() -> Vec<FormatSpec> {
             issues_table_columns: s(&["Feature", "Issues", "Dependencies", "Status"]),
             private: false,
             execution_mode_required_sections: None,
+            schema_variants: vec![
+                // The milestone roadmap that still lists its items under
+                // `## Features`: the spec's own lists.
+                SchemaVariant {
+                    schema: crate::features::ROADMAP_V2_SCHEMA.to_string(),
+                    required_sections: None,
+                    issues_table_columns: None,
+                },
+                // The same with the milestone words: only the items section
+                // and the key column change.
+                SchemaVariant {
+                    schema: crate::features::ROADMAP_V3_SCHEMA.to_string(),
+                    required_sections: Some(s(&[
+                        "Status",
+                        "Theme",
+                        "Milestones",
+                        "Sequencing Rationale",
+                        "Progress",
+                        "Implementation Issues",
+                        "Dependency Graph",
+                    ])),
+                    issues_table_columns: Some(s(&[
+                        "Milestone",
+                        "Issues",
+                        "Dependencies",
+                        "Status",
+                    ])),
+                },
+            ],
         },
         FormatSpec {
             name: "Plan".to_string(),
@@ -425,6 +499,7 @@ pub fn formats() -> Vec<FormatSpec> {
             issues_table_columns: s(&["Issue", "Dependencies", "Complexity"]),
             private: false,
             execution_mode_required_sections: Some(plan_execution_mode_sections()),
+            schema_variants: Vec::new(),
         },
         FormatSpec {
             name: "Strategy".to_string(),
@@ -448,6 +523,7 @@ pub fn formats() -> Vec<FormatSpec> {
             issues_table_columns: vec![],
             private: false,
             execution_mode_required_sections: None,
+            schema_variants: Vec::new(),
         },
         FormatSpec {
             name: "Brief".to_string(),
@@ -474,6 +550,7 @@ pub fn formats() -> Vec<FormatSpec> {
             issues_table_columns: vec![],
             private: false,
             execution_mode_required_sections: None,
+            schema_variants: Vec::new(),
         },
     ]
 }
