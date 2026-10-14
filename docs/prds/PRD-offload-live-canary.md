@@ -14,7 +14,8 @@ goals: |
   its broken rate between the two groups can be read in Datadog with one query
   run from a session. Nothing new runs outside a session, a withheld run still
   gets the rule's text when it breaks the rule, and one change turns it off.
-upstream: docs/briefs/BRIEF-offload-live-canary.md
+absorbed:
+  - docs/briefs/BRIEF-offload-live-canary.md
 ---
 
 # PRD: Live Offload Canary
@@ -22,6 +23,32 @@ upstream: docs/briefs/BRIEF-offload-live-canary.md
 ## Status
 
 Accepted
+
+The completeness, clarity and testability reviewers all passed it, the first
+two on a second round. The downstream DESIGN owns the approach.
+
+Absorbed [BRIEF-offload-live-canary](docs/briefs/BRIEF-offload-live-canary.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists so the question of whether a gate-checked rule still has
+to be preloaded can be answered from real work rather than from paid offline
+runs, which stopped on 2026-10-14. The brief framed the gap as live data that
+can't be split: koto already reports each broken rule to Datadog, but every
+run sees the same instructions, koto exports no variable values, a passing
+check names no rule, and the registry marks every gate rule as never to
+withhold. This document's Problem Statement states all four in full.
+
+The outcome it asked for is a maintainer reading, in Datadog alone, how often
+one gate-checked rule is broken in runs that were told it and in runs that
+weren't, while the agents doing the work notice nothing but the missing text
+and the gate's failure. Its four journeys are the User Stories above: the
+maintainer reading the split after a week, a withheld agent breaking the rule
+and recovering from the gate's output, the maintainer turning the canary off
+with one change, and a preloaded agent breaking the rule anyway and counting
+toward the baseline. Its scope line is this document's Requirements and Out of
+Scope: one rule, `/work-on` only, no exporter or anything else outside a
+session, and no rule that guards pushing, merging or opening a pull request.
 
 ## Problem Statement
 
