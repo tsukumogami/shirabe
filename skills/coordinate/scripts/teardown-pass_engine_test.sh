@@ -13,8 +13,10 @@
 #
 # Proves: a durable, merged, handed-off worker reaches destroy with one sealed
 # verdict naming its instance, job, transcript, pull request and handoff; the
-# pass run with that verdict's key seal archives the transcript, the job's
-# state.json, timeline.jsonl and tmp/, and the worker's koto sessions (by
+# pass run with that verdict's key seal archives the instance's Claude Code
+# project directory (the transcript and its subagents, in claude-projects/,
+# and no transcript/), the job's state.json, timeline.jsonl and tmp/, and the
+# worker's koto sessions (by
 # execution directory, and nothing else), with a manifest whose hashes hold;
 # it runs exactly one `niwa destroy --force <name>`, at the workspace root,
 # and exactly one `claude rm <job>`, confirms both listings, and leaves the
@@ -39,7 +41,8 @@
 # job gone): the inventory seals absent and the run reaches destroy with a
 # `removed yes` verdict whose instance path comes from the worker's koto
 # session, or from a transcript's cwd when there is none; the pass archives
-# the surviving transcript, its subagents and the koto session with
+# the surviving project directory (transcript and subagents) and the koto
+# session with
 # teardown.json (no dispatch id), posts one `cost` entry, runs no destroy and
 # no rm, and teardown_confirm passes it to record, never to surface. With
 # two main session transcripts the later first event is the worker's and
@@ -64,9 +67,11 @@ koto_legacy_env_enable
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass-engine.XXXXXX")
 T=$(cd -P "$T" && pwd -P)
 trap 'rm -rf "$T"' EXIT
-export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
+# Its own HOME and koto home, inside the scratch directory, so suites run
+# side by side share no path.
+export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T" KOTO_SESSIONS_BASE="$T/koto-home"
 unset XDG_DATA_HOME TEARDOWN_ARCHIVE_DIR TEARDOWN_CLAUDE_HOME TEARDOWN_KOTO_SESSIONS
-mkdir -p "$HOME"
+mkdir -p "$HOME" "$KOTO_SESSIONS_BASE"
 cd "$T" || exit 1
 git config --file "$HOME/.gitconfig" user.email t@example.invalid
 git config --file "$HOME/.gitconfig" user.name t
@@ -264,7 +269,9 @@ ctx() { koto context get "$SESS" "$1" 2>/dev/null; }
 INST="$T/instances/tsuku+w5"
 JOB=4b3597d2
 SID=4b3597d2-6184-4a48-ab7f-802b6a29
-SLUG=-instances-tsuku-w5
+# Claude Code's project directory for the instance: its path, every
+# character outside [A-Za-z0-9] made `-`.
+SLUG=$(printf '%s' "$INST" | sed 's/[^A-Za-z0-9]/-/g')
 TR="$HOME/.claude/projects/$SLUG/$SID.jsonl"
 URL="https://github.com/acme/widgets/pull/600#issuecomment-1001"
 KS="$HOME/.koto/sessions"
@@ -330,11 +337,13 @@ eq  "the agent's pass with the handed key seal is done" 0 "$(agent_pass "$KSEAL"
 has "the pass's last line says done" "$(tail -1 "$T/pass.out")" "teardown-pass: done"
 A=$(archive)
 [ -n "$A" ] && pass "the archive is under the data home, named by date, topic and job" || fail "the archive is under the data home" "$(ls -R "$HOME/.local" 2>&1)"
-for f in "transcript/$SID.jsonl" "transcript/$SID/subagents/a.jsonl" job/state.json job/timeline.jsonl job/tmp/draft.md \
+for f in "claude-projects/$SLUG/$SID.jsonl" "claude-projects/$SLUG/$SID/subagents/a.jsonl" job/state.json job/timeline.jsonl job/tmp/draft.md \
     koto/wk-inst/koto-wk-inst.state.jsonl koto/wk-tmp/koto-wk-tmp.state.jsonl teardown.json README.md MANIFEST RESULT; do
     [ -f "$A/$f" ] && pass "archived: $f" || fail "archived: $f" "$(cd "$A" 2>/dev/null && find . -type f)"
 done
 [ -e "$A/koto/wk-other" ] && fail "a koto session run elsewhere is not archived" "" || pass "a koto session run elsewhere is not archived"
+[ -e "$A/transcript" ] && fail "nothing is written to transcript/" "" || pass "nothing is written to transcript/"
+has "the README lists the project directory taken" "$(cat "$A/README.md")" "- Project directory taken: $SLUG"
 [ -e "$A/koto/$SESS" ] && fail "the coordinator's own session is not archived" "" || pass "the coordinator's own session is not archived"
 BADSUM=0
 while read -r h size rel; do
@@ -606,7 +615,7 @@ eq  "the removed pass is done" 0 "$(agent_pass "$KSEAL")"
 has "its last line says done" "$(tail -1 "$T/pass.out")" "teardown-pass: done"
 A=$(rarchive "$RJOB")
 [ -n "$A" ] && pass "the archive is keyed by the session's job id" || fail "the archive is keyed by the session's job id" "$(ls -R "$HOME/.local/share" 2>&1)"
-for f in "transcript/$RSID.jsonl" "transcript/$RSID/subagents/a.jsonl" koto/wk-rm/koto-wk-rm.state.jsonl teardown.json README.md MANIFEST RESULT unit-cost.json; do
+for f in "claude-projects/${RPD##*/}/$RSID.jsonl" "claude-projects/${RPD##*/}/$RSID/subagents/a.jsonl" koto/wk-rm/koto-wk-rm.state.jsonl teardown.json README.md MANIFEST RESULT unit-cost.json; do
     [ -f "$A/$f" ] && pass "removed, archived: $f" || fail "removed, archived: $f" "$(cd "$A" 2>/dev/null && find . -type f)"
 done
 [ -e "$A/job" ] && fail "removed: no job files are archived (the job is gone)" "" || pass "removed: no job files are archived (the job is gone)"
@@ -615,6 +624,8 @@ eq  "removed: teardown.json records the removed unit, with no dispatch id" \
     "w5|null|$RINST|$RJOB|$RSID|true|null|no source" \
     "$(jq -r '[.topic, .instance.name, .instance.path, .job.id, .job.session, .removed, .niwa.dispatch_id, .niwa.reason] | map(tostring) | join("|")' "$A/teardown.json")"
 eq  "removed: the pass posts one cost entry" cost "$(cat "$ST/cost.log")"
+eq  "removed: the entry reads the surviving worker's tokens and niwa's missing dispatch id" "1 5|null|no source" \
+    "$(jq -r '"\(.tokens.worker.messages) \(.tokens.worker.output)|\(."niwa.dispatch.id")|\([.missing[] | select(.figure == "niwa.dispatch.id") | .reason] | join(","))"' "$A/unit-cost.json")"
 nothing_run "removed"
 printf '[]\n' >"$ST/rows.json"
 tick --with-data '{"destroyed":"destroyed"}'

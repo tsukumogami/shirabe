@@ -14,8 +14,10 @@
 #                "author", "editor"}],
 #    "prs": [{"repo", "number", "title", "body", "state": "OPEN|MERGED|CLOSED",
 #             "isDraft", "isCrossRepository", "baseRefName", "headRefName",
-#             "headRefOid", "author", "editor", and optionally "mergedAt" and
-#             "mergeCommit" (a sha, served as {oid})}],
+#             "headRefOid", "author", "editor", and optionally "mergedAt",
+#             "mergeCommit" (a sha, served as {oid}), and "createdAt", which
+#             also serves headRepositoryOwner {login: "headOwner"} (the base
+#             repository's owner when absent, null when null)}],
 #    "branches": {"acme/widgets": {"main": "<sha>"}},
 #    "commits": {"<sha>": {"tree": "<sha>"}},
 #    "permissions": {"acme/widgets": {"alice": "admin"}},
@@ -147,7 +149,10 @@ pr_json() { # pr_json <repo> <n>|all: gh pr view's shape
            url: "https://github.com/\(.repo)/pull/\(.number)", author: {login: .author},
            mergeStateStatus: (.mergeStateStatus // "UNKNOWN")}
           + (if .mergedAt then {mergedAt} else {} end)
-          + (if .mergeCommit then {mergeCommit: {oid: .mergeCommit}} else {} end)]
+          + (if .mergeCommit then {mergeCommit: {oid: .mergeCommit}} else {} end)
+          + (if .createdAt then {createdAt, headRepositoryOwner: (if has("headOwner") then
+                (if .headOwner == null then null else {login: .headOwner} end) else {login: (.repo | split("/")[0])} end)}
+             else {} end)]
         | if $n == "all" then . else .[0] // empty end' "$GH_DB"
 }
 blob_sha() { # blob_sha <text>: a stand-in blob sha for a file's text

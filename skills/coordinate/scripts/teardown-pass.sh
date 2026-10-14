@@ -20,8 +20,9 @@
 #            listing the instance by that name and path;
 #         3. re-inventory the instance (teardown-inventory.sh, unsealed);
 #            anything but durable refuses;
-#         4. preserve, into <archive>/<UTC date>-<topic>-<job id>/: the
-#            transcript and its sibling subagent directory, the job's
+#         4. preserve, into <archive>/<UTC date>-<topic>-<job id>/: every
+#            Claude Code project directory of the instance, whole, into
+#            claude-projects/<directory name>/ (below), the job's
 #            state.json, timeline.jsonl and tmp/, and every koto session
 #            whose header's execution_dir is at or under the instance path or
 #            the job's tmp/, and teardown.json (`{topic, instance: {name,
@@ -48,6 +49,21 @@
 #       Steps 1 to 4 remove nothing, so a failure there is `refused`; a
 #       failure from step 5 on is `incomplete`, naming the step.
 #
+#       Project directories: under <claude home>/projects, the directory
+#       named for the instance path (every character outside [A-Za-z0-9]
+#       made `-`) is always taken; one named for it followed by `-` (a
+#       worktree or clone under the instance) only when at least one line of
+#       a .jsonl file in it carries a `cwd` at or under the instance path and
+#       none carries one outside it, so a sibling instance whose name extends
+#       this one's is never swept in. Each is entered with `cd -P` and its
+#       physical path checked, and its files are listed with `find -type f`,
+#       which never follows a symbolic link: a link is skipped. The README
+#       lists every directory taken, every one skipped with its reason
+#       (`cwd outside the instance`, or a directory that is itself a link)
+#       and every link skipped inside one. The verdict's transcript must be
+#       in a directory taken, so the cost capture reads the worker's own
+#       session from the archive. The pass runs under umask 077.
+#
 #       Removed mode, when the verdict says `removed yes` (the unit was torn
 #       down outside the pass; teardown-handoff.sh): the instance name is
 #       `-` and the job line may be `job -`. Step 2 checks the pull requests
@@ -55,7 +71,7 @@
 #       at the path or for the topic and Claude Code lists no job there (a
 #       listing that can't be read refuses); there is no job or instance to
 #       re-read and step 3 is skipped. Step 4 preserves what survives (the
-#       transcript and its sibling directory, koto sessions by
+#       project directories, as above, and koto sessions by
 #       execution_dir), 4a captures as above, and RESULT says done: steps 5
 #       to 7 never run, so the pass has no path to `niwa destroy` or `claude
 #       rm`. With `job -` no session survived: nothing is archived or
@@ -115,6 +131,9 @@ while [ $# -gt 0 ]; do
 done
 case "$MODE" in run) [ -n "$WANT_KS" ] || usage ;; confirm) [ -z "$WANT_KS" ] || usage ;; *) usage ;; esac
 [ -n "$SESSION" ] || usage
+# Everything the pass writes (the archive, its scratch files) is the user's
+# alone: the archive holds whole project directories, tool results included.
+umask 077
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/teardown-pass.XXXXXX") || exit 2
 trap 'rm -rf "$T"' EXIT
@@ -303,8 +322,74 @@ copy_tree() {
     done <"$T/tree"
 }
 [ -f "$TR" ] || refused "the transcript $TR is missing"
-copy_file "$TR" "transcript/$SID.jsonl"
-[ -d "$(dirname "$TR")/$SID" ] && copy_tree "$(dirname "$TR")/$SID" "transcript/$SID"
+# The project directories of the instance (the header's rule). Names start
+# with `-`, so every command gets one only inside an absolute path.
+PROJ="$CLAUDE_HOME/projects"
+ENC=$(printf '%s' "$IPATH" | sed 's/[^A-Za-z0-9]/-/g')
+: >"$T/taken"
+: >"$T/skipped"
+: >"$T/links"
+PPROJ=""
+[ -d "$PROJ" ] && { PPROJ=$(cd -P -- "$PROJ" 2>"$T/cd.err" && pwd -P) || refused "cannot enter $PROJ"; }
+# cwd_inside <physical dir>: 0 when at least one line of a .jsonl file in it
+# carries a cwd at or under the instance path and none carries one outside
+# it; 1 when not; 2 when the directory can't be read.
+cwd_inside() {
+    local f c inside=1
+    (cd -P -- "$1" && find . -type f -name '*.jsonl') >"$T/jl" 2>"$T/find.err" || return 2
+    : >"$T/cwds"
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        jq -R -r 'fromjson? | objects | .cwd | strings' "$1/${f#./}" >>"$T/cwds" 2>"$T/jq.err" || return 2
+    done <"$T/jl"
+    while IFS= read -r c; do
+        case "$c" in
+            "$IPATH" | "$IPATH"/*) inside=0 ;;
+            *) return 1 ;;
+        esac
+    done <"$T/cwds"
+    return "$inside"
+}
+# copy_project <physical dir> <name>: every regular file in it, no link
+# followed; the links it holds are listed for the README.
+copy_project() {
+    local f
+    (cd -P -- "$1" && [ "$(pwd -P)" = "$1" ] && find . -type f) >"$T/tree" 2>"$T/find.err" || refused "cannot list the project directory $2"
+    (cd -P -- "$1" && find . -type l) >"$T/tree.links" 2>"$T/find.err" || refused "cannot list the project directory $2"
+    while IFS= read -r f; do
+        [ -n "$f" ] && printf 'claude-projects/%s/%s\n' "$2" "${f#./}" >>"$T/links"
+    done <"$T/tree.links"
+    while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        copy_file "$1/${f#./}" "claude-projects/$2/${f#./}"
+    done <"$T/tree"
+}
+if [ -n "$PPROJ" ]; then
+    for d in "$PPROJ/$ENC" "$PPROJ/$ENC"-*; do
+        name=${d##*/}
+        if [ -L "$d" ]; then
+            printf '%s\tsymbolic link\n' "$name" >>"$T/skipped"
+            continue
+        fi
+        [ -d "$d" ] || continue
+        phys=$(cd -P -- "$d" 2>"$T/cd.err" && pwd -P) || refused "cannot enter the project directory $name"
+        [ "$phys" = "$PPROJ/$name" ] || refused "the project directory $name is not where its name says"
+        if [ "$name" != "$ENC" ]; then
+            cwd_inside "$phys"
+            case $? in
+                0) ;;
+                1) printf '%s\tcwd outside the instance\n' "$name" >>"$T/skipped"; continue ;;
+                *) refused "cannot read the project directory $name" ;;
+            esac
+        fi
+        copy_project "$phys" "$name"
+        printf '%s\n' "$name" >>"$T/taken"
+    done
+fi
+# The worker's own transcript is in one of them, or its row couldn't be read.
+TRD=$(cd -P -- "$(dirname "$TR")" 2>"$T/cd.err" && pwd -P) || TRD=""
+[ -n "$TRD" ] && [ -n "$PPROJ" ] && [ "$TRD" = "$PPROJ/${TRD##*/}" ] && grep -qxF -- "${TRD##*/}" "$T/taken" \
+    || refused "the transcript $TR is not in a project directory of the instance"
 J="$CLAUDE_HOME/jobs/$JOB"
 if [ "$REMOVED" = 0 ]; then
     [ -f "$J/state.json" ] || refused "the job's state.json is missing"
@@ -367,6 +452,12 @@ mv "$ARCH/MANIFEST.new" "$ARCH/MANIFEST"
     fi
     printf '%s\n' "$PRS" | sed 's/^/- Merged pull request: /'
     printf -- '- Handoff: %s\n\n' "$HANDOFF"
+    # shellcheck disable=SC2016 # the backticks are Markdown
+    printf '`claude-projects/` holds the Claude Code project directories of the instance, each copied whole without following a symbolic link:\n\n'
+    sed 's/^/- Project directory taken: /' "$T/taken"
+    awk -F'\t' '{ printf "- Project directory skipped (%s): %s\n", $2, $1 }' "$T/skipped"
+    sed 's/^/- Symbolic link skipped: /' "$T/links"
+    printf '\n'
     printf 'MANIFEST lists every copied file as `<sha256> <bytes> <path>`; each was checked against its source.\n'
     # shellcheck disable=SC2016 # the backticks are Markdown
     printf '`teardown.json`, in the MANIFEST, records what the pass acted on: the topic, the instance, the job and session, whether the unit was removed outside the pass, and niwa'"'"'s dispatch id.\n'
