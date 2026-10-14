@@ -1,7 +1,6 @@
 ---
 schema: design/v1
 status: Proposed
-upstream: docs/prds/PRD-functional-steps.md
 problem: |
   shirabe has one plan version, plan/v1, whose entries are issues, and every
   tool that reads plans assumes it: the validator, the one outline parser
@@ -27,6 +26,7 @@ rationale: |
   details it: tasks are spawned up front, but each child reads its step from
   the plan at start. A one-place default lets the flip wait for the
   checkpoint-wording comparison as a one-line change.
+upstream: docs/prds/PRD-functional-steps.md
 decision_provenance: inline-resolved
 ---
 
@@ -65,11 +65,18 @@ places that parse plan content or match the schema:
 | `skills/work-on/scripts/work-on-open.sh` | `schema: plan/v1` for non-`PLAN-` names | not detected as a plan |
 | `skills/work-on/scripts/find-anchor-plan.sh` | `#N` table rows | nothing (correct: `plan/v2` files no issues) |
 | `skills/work-on/koto-templates/work-on.md` (`plan_context_injection`, `plan_validation`) | the outline, by instruction | reads whatever is there |
+| `skills/work-on/SKILL.md` (plan-mode detection) | `schema: plan/v1` | not detected as a plan |
+| `skills/work-on/scripts/run-cascade.sh` (through the lifecycle check) | L01-L06 findings | no outline-step stop |
 
 Frontmatter-only readers (`scripts/plan-mode.sh`, `execute-open.sh`,
 `check-plan-filing.sh`, `check-plan-mode.sh`, `record-scope-exit.sh`) read
 `execution_mode` and `tracking_level`, which `plan/v2` keeps, so they need no
-change. Nothing under `skills/coordinate/` parses a plan body: its scripts
+change. `transition.rs` and `finalize.rs` route on the filename prefix and
+status and read no plan field, so `step_count` in place of `issue_count`
+does not affect them. Prose that describes the plan format to other skills
+(`skills/explore/references/phases/phase-5-produce-execute.md`,
+`skills/scope/references/phases/phase-3-exit-finalization.md`) gains a
+mention of `plan/v2`. Nothing under `skills/coordinate/` parses a plan body: its scripts
 match a `PLAN-*.md` path or read the recorded execution mode.
 
 koto parses no plan content. It handles plans only as paths: decider and
@@ -279,7 +286,9 @@ that shows it, with the check's result.
 
 ### Validator
 
-- `formats.rs`: `accepts_schema` accepts `plan/v2` for the Plan spec. A
+- `formats.rs`: `accepts_schema` accepts `plan/v2` for the Plan spec, and
+  `plan_is_outline_shaped` (`checks.rs`) returns true for every `plan/v2`
+  document, so FC14's table-versus-outline messages never fire on one. A
   helper returns the version's required fields (`step_count` replaces
   `issue_count`) and required sections.
 - `checks.rs`: FC01, FC04 and FC15 use the version's lists. FC05-FC09, FC11
@@ -296,14 +305,22 @@ that shows it, with the check's result.
   malformed `**Dependencies**:` value; `execution_mode: coordinated` or a
   `tracking_level` other than `none` (both messages name `plan/v1`).
 - `lifecycle.rs`: `plan/v2` is outline-shaped for L01's posture; new **L10**
-  reports each outline step when the chain is finalized.
+  is a chain-level finding beside L06, emitted by the same chain-targeted
+  lifecycle run (`--lifecycle-chain`) that `run-cascade.sh` makes as its
+  pre-probe, one error per outline step in a `plan/v2` chain member; the
+  cascade stops on it as it stops on L06.
 - `validate.rs`: FC22 and L10 join the known codes and the Plan dispatch.
 
 ### Parser and `shirabe plan outlines`
 
-`table.rs`: the section locator and heading regex are chosen by schema
-(`## Issue Outlines` / `Issue` for `plan/v1`, `## Steps` / `Step` for
-`plan/v2`); dependency references resolve `Step <N>` under `plan/v2`;
+`table.rs`: the private `locate_section` helper and the heading regex are
+chosen by schema (`## Issue Outlines` / `Issue` for `plan/v1`, `## Steps` /
+`Step` for `plan/v2`); dependency references resolve `Step <N>` (a reference
+regex beside `ISSUE_REF_RE`) under `plan/v2`, and the `<<ISSUE:N>>`
+placeholder form is not accepted there; `### Gate:` blocks are a `plan/v1`
+coordinated form, so under `plan/v2` a gate heading is a non-step heading
+that FC22 reports; step numbers are parsed as bounded integers (1 to 999),
+and a number outside that range is a non-conforming heading;
 `OutlineBlock` gains `entry`, `check_declared`, `body_lines` and a derived
 `detailed`. `plan_outlines.rs` accepts both schemas and emits the new fields.
 
@@ -321,6 +338,7 @@ that shows it, with the check's result.
 | `skills/work-on/scripts/work-on-open.sh` | detect `schema: plan/v2` |
 | `skills/work-on/scripts/step-detail-check.sh` (new) | exit non-zero, naming the step, when it is an outline |
 | `skills/work-on/koto-templates/work-on.md` | `plan_context_injection` extracts a step; `plan_validation` runs the check and exits on an outline; the step report names the behaviour |
+| `skills/work-on/scripts/run-cascade_test.sh` | a `plan/v2` case that stops on L10 |
 
 `find-anchor-plan.sh` is unchanged: it finds the plan that tracks a GitHub
 issue through table rows, and a `plan/v2` plan tracks none.
@@ -341,8 +359,8 @@ issue through table rows, and a `plan/v2` plan tracks none.
   (read `step_count` and `## Steps`), `phase-5-verdict.md` and
   `references/templates/review-result-schema.md` (category E), and
   `evals/evals.json`.
-- `/work-on`: `SKILL.md` (a plan step's report names the behaviour this
-  step added and its check).
+- `/work-on`: `SKILL.md` (plan-mode detection accepts `plan/v2`; a plan
+  step's report names the behaviour this step added and its check).
 - `/execute`: `SKILL.md` (accepts both versions; an outline step's child
   stops until the owner details it).
 
@@ -397,39 +415,71 @@ Build it as functional steps, each leaving the tools working:
 
 1. **Walking skeleton:** a minimal `plan/v2` document validates with
    `shirabe validate`, `shirabe plan outlines` lists its steps with
-   `detailed`, and `plan-to-tasks.sh` turns it into tasks; existing `plan/v1`
-   suites pass.
+   `detailed`, and `plan-to-tasks.sh` turns it into tasks; the koto
+   evidence-routing `plan/v1` fixture lands here as the regression anchor,
+   and existing `plan/v1` suites pass.
 2. **Step rules:** FC22 and the version-aware FC01/FC04/FC15 refuse every
    invalid fixture with a message naming the step and rule.
 3. **Authoring:** `/plan --plan-version=v2` (or the header) writes a step
    plan, the default stays `v1`, and the format reference states the horizon,
    owner rule and report rule.
-4. **Execution:** `/execute` and `/work-on` drive a step plan; an outline
-   step's child stops naming the step; the `/scope` and `/execute` readers
-   report step titles and goals.
-5. **Review:** `/review-plan` category E flags the five-layer fixture and
+4. **Execution:** `/execute` and `/work-on` drive a step plan, and an
+   outline step's child stops naming the step.
+5. **Readers:** the `/scope` and `/execute` shell readers report step titles
+   and goals.
+6. **Review:** `/review-plan` category E flags the five-layer fixture and
    its file-shaped criteria and passes the behavioural fixture.
-6. **Completion:** L10 stops the cascade on a plan with an outline step.
+7. **Completion:** L10 stops the cascade on a plan with an outline step.
 
 ## Security Considerations
 
-The feature parses Markdown documents the repository already trusts and
-adds no network access, credential handling or new process boundary.
-Three points need care:
+The feature reads Markdown the repository already holds and adds no network
+access, credential handling or dependency. Its trust boundary is who can edit
+a plan: anyone who can push to the branch a plan lives on, including a pull
+request branch before review. Plan text was already worker input under
+`plan/v1`; `plan/v2` adds three things worth stating.
 
-- **Parsing untrusted text.** Plan bodies reach the parser and the shell
-  readers. The parser is regex-based on bounded lines, as today. The shell
-  readers pass step titles and goals as data (`jq --arg`, `printf '%s'`),
-  never through `eval` or unquoted expansion, which the new and changed
-  scripts keep.
-- **Version selection input.** `--plan-version` and the CLAUDE.md header are
-  matched against `v1` and `v2` exactly before use; any other value stops the
-  run before a file is written, so the value never reaches a path or a
-  command.
-- **Refusal messages.** The outline-step refusal and FC22 messages quote a
-  step number and rule, not arbitrary step text, so a crafted title cannot
-  inject into a koto evidence field or a PR body beyond what titles already
-  reach today.
+- **`**Check**:` is an instruction a worker runs.** A step's check is a
+  command or walkthrough written by the plan's author, and the report rule
+  asks the worker to run it. It runs with the worker's ordinary permissions,
+  is vetted by nothing beyond the plan's review, and grants the plan author
+  nothing a worker would not already do from a plan's criteria. This is an
+  accepted residual risk, the same one `plan/v1` criteria carry: plans are
+  reviewed in pull requests like code.
+- **Plan text is model input.** Step titles, goals and checks reach worker
+  context and koto evidence, so instructions embedded in plan text are a
+  prompt-injection vector, as they are for `plan/v1` outlines. Nothing here
+  widens it; the mitigation is review of plan changes and the workers' own
+  rule of treating document content as data.
+- **Detailing is guidance, not enforcement.** A worker, or a crafted edit,
+  could turn an outline into a detailed step before `step-detail-check.sh`
+  reads it, and a session that skips the cascade skips L10. Both are accepted
+  residual risks, recorded as such: the plan's history shows every detailing
+  commit and its author, which is what the owner rule asks reviewers to read.
+
+Input handling the implementation keeps:
+
+- Step numbers are parsed as bounded integers (1 to 999) by the parser and
+  by `step-detail-check.sh`, which also requires an existing regular file
+  under the repository as its plan argument; `step_count` above 999 is an
+  FC22 error, so no plan spawns an unbounded task set.
+- Step titles, goals and `**Files**:` paths travel as data: `jq --arg` into
+  JSON, `printf '%s'` into files, `--body-file` for pull request bodies,
+  never `eval`, unquoted expansion or interpolation into a command. A
+  fixture with hostile titles (`$(...)`, backticks, a leading `--`, ANSI
+  escapes, `Fixes #1`) runs through `plan-to-tasks.sh`,
+  `publish-scoping-pr.sh` and `node-push.sh` and comes out inert.
+- FC22 and L10 messages quote a step number and a rule; where a message
+  quotes document text (a non-step heading, a malformed dependency value) it
+  strips control characters and truncates to 80 characters.
+- `--plan-version` and `## Plan Version:` are matched against `v1` and `v2`
+  exactly. The header is read only from the repository root's `CLAUDE.md`,
+  as a whole line `## Plan Version: <value>`; any other value stops the run
+  before a file is written.
+- Check results quoted in step reports can carry environment details; the
+  report rule asks for the result line, not full output, and the
+  checkpoint-wording record lives in the coordinator's own record, not in a
+  public file.
 
 ## Consequences
 
