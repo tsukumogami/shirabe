@@ -157,7 +157,12 @@ draws one byte from `/dev/urandom` and takes its parity, records the group in
 text this run reads. A recorded group is read back rather than redrawn, so a
 rewind into the state gives the same answer. With the canary off, a shared
 branch set, or anything going wrong, it records nothing and prints the real
-file's path. The action is written so it always exits 0, because a failing
+file's path. The script also asks the registry before it draws: unless
+`rule-registry.sh` reports `pr-body/no-heading-in-part1` as
+`withhold: eligible`, every run takes part in neither group, so the canary
+can't withhold anything the registry hasn't admitted. The arm file is written
+last, after the withheld rendering succeeds, so a failed render can't leave a
+run labeled withheld while it reads the full text. The action is written so it always exits 0, because a failing
 `default_action` holds its state, which a prototype confirmed.
 
 *Alternative: a declared variable drawn at each init site.* Value routing
@@ -334,7 +339,9 @@ for a marker state; it returned 46 runs.
    off-switch line matches the template.
 4. **Registry admission.** The list in `check-rule-registry.sh`, the PB4
    entry, the doc updates, and the test cases R2 names. Last, because it
-   waits on the owner's ruling; the canary must not merge without it.
+   waits on the owner's ruling. Steps 1 to 3 are safe without it: the draw
+   asks the registry first, so until PB4 is eligible every run takes part in
+   neither group and the canary withholds nothing.
 
 ## Security Considerations
 
@@ -366,7 +373,23 @@ difference, which the guide states as a limitation.
 **The safety change itself.** Narrowing the withhold safety is the one
 change with a safety dimension. The list admits exactly one rule, the
 protected-guard rule still fails any eligible entry that guards a push, merge
-or pull-request creation, and the change waits on the owner's ruling.
+or pull-request creation, and the change waits on the owner's ruling. Three
+things bound what a wrong call could cost:
+
+- The `/work-on` gate holds `pr_creation` on a PB4 finding in every
+  repository, and on an exit 2 (could not decide) too, since neither has an
+  edge out of the state. So a withheld run can't leave the state with a
+  heading in Part 1 whether or not CI checks it.
+- "CI blocks the merge" holds only where a repository runs
+  `shirabe validate --pr-body` in CI, as shirabe does. Elsewhere the gate
+  above is the only check, which is the same position a preloaded run is in.
+- The draw asks the registry before it withholds, so the canary's reach is
+  exactly what the registry admits, and the list in
+  `check-rule-registry.sh` is the single line a reviewer has to watch. The
+  repository has no CODEOWNERS file, so that review is the pull request's.
+
+The canary is on by default once PB4 is eligible. The guide says so first,
+with the off switch.
 
 ## Consequences
 
