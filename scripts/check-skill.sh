@@ -17,7 +17,8 @@
 #   3. runs `koto template compile` on each koto-templates/*.md that is not a
 #      *.mermaid.md;
 #   4. runs each scripts/*_test.sh with `bash`, from the repository root, the
-#      way the CI workflows invoke them;
+#      way the CI workflows invoke them, up to CHECK_SKILL_JOBS of them at
+#      once, reporting each in the order a serial run would;
 #   5. runs scripts/lib/check-evals-shape.py on evals/evals.json (a skill whose
 #      SKILL.md declares disable-model-invocation: true may have none).
 #
@@ -29,6 +30,9 @@
 #   <skill> is the directory name under skills/, matching ^[a-z0-9][a-z0-9-]*$.
 #
 # Environment:
+#   CHECK_SKILL_JOBS   How many of the skill's suites run at once, 1 to 99,
+#                      default 4. 1 runs them one after another. Anything else
+#                      is a usage error (exit 2).
 #   CHECK_SKILL_ROOT   TEST-ONLY. Replaces the repository root, so
 #                      scripts/check-skill_test.sh can point the checks at a
 #                      throwaway skills/ tree. The shape helper always comes
@@ -38,7 +42,10 @@
 # Exit codes:
 #   0 - every check passed
 #   1 - at least one check failed; each is listed
-#   2 - usage error, an unknown skill, or a required tool is missing
+#   2 - usage error, an unknown skill, a required tool is missing, or the
+#       repository root or a temporary file can't be set up
+#   130, 143 - stopped by INT or TERM; the suites it had started are stopped
+#              too
 
 set -uo pipefail
 
@@ -76,8 +83,33 @@ if [ ! -d "$SKILL_DIR" ]; then
     exit 2
 fi
 
+JOBS="${CHECK_SKILL_JOBS:-4}"
+if ! printf '%s\n' "$JOBS" | grep -Eq '^[1-9][0-9]?$' \
+    || [ "$(printf '%s\n' "$JOBS" | wc -l | tr -d ' ')" != "1" ]; then
+    echo "check-skill: CHECK_SKILL_JOBS must be a whole number from 1 to 99" >&2
+    exit 2
+fi
+
 LOG="$(mktemp)" || { echo "check-skill: cannot create a temporary file" >&2; exit 2; }
-trap 'rm -f "$LOG"' EXIT
+RUNS="$(mktemp -d)" || { rm -f "$LOG"; echo "check-skill: cannot create a temporary directory" >&2; exit 2; }
+trap 'rm -rf "$LOG" "$RUNS"' EXIT
+# A stopped check stops the suites it started too: verification's timeout
+# signals the whole process group, but a person's ^C or a plain kill of this
+# script must not leave them running. Each job is a subshell waiting on its
+# suite, so the suite's own children are signalled first (a suite waiting on
+# them would otherwise leave them behind), then the suite, then the subshell.
+stop_suites() {
+    local p k
+    for p in $(jobs -p); do
+        for k in $(pgrep -P "$p"); do
+            pkill -TERM -P "$k" 2>/dev/null
+            kill -TERM "$k" 2>/dev/null
+        done
+        kill -TERM "$p" 2>/dev/null
+    done
+}
+trap 'stop_suites; exit 143' TERM
+trap 'stop_suites; exit 130' INT
 
 FAILURES=""
 fail() {
@@ -88,7 +120,7 @@ fail() {
 
 # Show the tail of a failed command's output, so the failure reads on its own.
 show_log() {
-    sed -e 's/^/    /' "$LOG" | tail -n 60
+    sed -e 's/^/    /' "${1:-$LOG}" | tail -n 60
 }
 
 echo "check-skill: $SKILL_DIR"
@@ -126,15 +158,57 @@ for t in "$SKILL_DIR"/koto-templates/*.md; do
     fi
 done
 
-# 4. The skill's own script suites, from the repository root.
+# 4. The skill's own script suites, from the repository root. Up to $JOBS run
+# at once, each into its own log. A suite keeps what it writes in its own
+# temporary directory (and points HOME or TMPDIR there when a tool it runs
+# writes under them), so suites don't meet; the one exception, a build of
+# target/release/ in the checkout, is made by at most one suite per skill.
+# Results print in the glob's order, each as soon as it and every suite before
+# it are done, so the output reads as it did when the suites ran one after
+# another.
+suites=()
 for t in "$SKILL_DIR"/scripts/*_test.sh; do
-    [ -f "$t" ] || continue
-    if bash "$t" </dev/null >"$LOG" 2>&1; then
-        echo "ok: bash $t"
-    else
-        show_log
-        fail "bash $t"
-    fi
+    [ -f "$t" ] && suites+=("$t")
+done
+NEXT=0
+# report_ready: print, in order, every result whose suite and predecessors
+# are done.
+report_ready() {
+    local rc
+    while [ "$NEXT" -lt "${#suites[@]}" ] && [ -f "$RUNS/$NEXT.rc" ]; do
+        rc=$(cat "$RUNS/$NEXT.rc")
+        if [ "$rc" = 0 ]; then
+            echo "ok: bash ${suites[$NEXT]}"
+        else
+            show_log "$RUNS/$NEXT.log"
+            fail "bash ${suites[$NEXT]}"
+        fi
+        NEXT=$((NEXT + 1))
+    done
+}
+i=0
+while [ "$i" -lt "${#suites[@]}" ]; do
+    # Slots are counted from live jobs, not from .rc files: a job whose wrapper
+    # died writes none, and counting files would wait for it forever.
+    while [ "$(jobs -r | wc -l | tr -d ' ')" -ge "$JOBS" ]; do
+        report_ready
+        sleep 0.2
+    done
+    # The .rc file appears whole (written, then renamed), so a reader never
+    # sees a suite as finished before its status is there.
+    ( bash "${suites[$i]}" </dev/null >"$RUNS/$i.log" 2>&1
+      echo $? > "$RUNS/$i.rc.tmp" && mv "$RUNS/$i.rc.tmp" "$RUNS/$i.rc" ) &
+    i=$((i + 1))
+done
+wait
+report_ready
+# A suite with no status after every job has ended (its wrapper killed before
+# it could write one) is a failure, never a silent gap in the report.
+while [ "$NEXT" -lt "${#suites[@]}" ]; do
+    [ -f "$RUNS/$NEXT.log" ] && show_log "$RUNS/$NEXT.log"
+    fail "bash ${suites[$NEXT]} (no exit status recorded)"
+    NEXT=$((NEXT + 1))
+    report_ready
 done
 
 # 5. The shape of the eval scenarios.
