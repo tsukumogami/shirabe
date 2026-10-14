@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   shirabe can't tell whether a gate-checked rule still needs preloading,
   because every /work-on run gets the same instructions, koto exports no
@@ -40,7 +40,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
@@ -160,7 +160,7 @@ Resolved inline.
 `offload-canary.sh draw` and captures its output as `PR_BODY_RULES`.** The
 script reads `OFFLOAD_CANARY`, `SHARED_BRANCH` and the session directory. It
 draws one byte from `/dev/urandom` and takes its parity, records the group in
-`<session-dir>/offload-canary/arm`, and prints the path of the conformance
+`<session-dir>/pr-rules/sample`, and prints the path of the conformance
 text this run reads. A recorded group is read back rather than redrawn, so a
 rewind into the state gives the same answer. With the canary off, a shared
 branch set, or anything going wrong, it records nothing and prints the real
