@@ -196,16 +196,28 @@ A feature heading uses one of two forms:
 Both forms are equivalent to the tooling: features are numbered
 positionally in source order regardless of the tag, and the generated
 tables and graph name them `F<n>` by that position, on every version.
-`F<n>` is a position alias, not a tag: it is what the populated tables and
-the Dependency Graph use, and it means the same item whether the headings
-say `Feature`, `Milestone` or a prefix. A Dependencies line may name
-another feature by its tag (`ED1`, `AB10a`), by `Feature <N>` or
-`Milestone <N>`, or by `F<N>`: each of those means the item tagged that
-way when there is one, and the Nth item otherwise (see [Feature N and
-Milestone N](#feature-n-and-milestone-n) for how the two words meet). That
-is what the tools read on every schema; on a milestone roadmap FC21 is
-stricter and takes only another milestone's exact tag, so write the tag
-there. Pick one form per roadmap and use it consistently.
+`F<n>` is the position alias the populated tables and the Dependency Graph
+use, and it means the same item whether the headings say `Feature`,
+`Milestone` or a prefix. Where a Dependencies line is read as prose (by
+populate and the coordinator's roadmap reader), it may name another
+feature three ways:
+
+- by its tag (`ED1`, `AB10a`), a whole word equal to the tag;
+- by `Feature <N>` or `Milestone <N>`, either word in any case, singular
+  or plural, with a list of numbers (`Features 2, 3 and 5`): the item
+  tagged with that word and number (compared as a number, so `feature 02`
+  finds `Feature 2`); else the item tagged with the other word and the
+  number exactly as written, which only the capitalized words reach (see
+  [Feature N and Milestone N](#feature-n-and-milestone-n)); else the Nth
+  item by position. `Milestone <N>` resolves this way on every version, so
+  on a v1 or v2 roadmap it names the Nth item when no item is tagged
+  `Feature <N>`;
+- by `F<N>`: the item tagged `Feature <N>` or `Milestone <N>` when there is
+  one (an item tagged `F<N>` itself is found by its tag), else the Nth item.
+
+On a milestone roadmap FC21 is stricter and takes only another
+milestone's exact tag, so write the tag there. Pick one form per roadmap
+and use it consistently.
 
 ## Milestones
 

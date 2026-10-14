@@ -110,16 +110,6 @@ impl RoadmapVersion {
             RoadmapVersion::V1 | RoadmapVersion::V2 => "Feature",
         }
     }
-
-    /// The other version's classic word: `Feature` on v3, `Milestone` on v1
-    /// and v2. A heading or a Dependencies entry written with it names no
-    /// item of this roadmap; FC21 points the author at the right word.
-    pub fn other_word(self) -> &'static str {
-        match self {
-            RoadmapVersion::V3 => "Feature",
-            RoadmapVersion::V1 | RoadmapVersion::V2 => "Milestone",
-        }
-    }
 }
 
 /// One parsed feature from a roadmap's `## Features` section.
