@@ -52,11 +52,11 @@ s3_stop() {
 
 host_make() {
     local b="$T/hosts/$1"
-    mkdir -p "$b/home/.koto" "$b/cache" "$b/work/.koto"
+    mkdir -p "$b/userhome/.koto" "$b/cache" "$b/work/.koto"
     printf '[session]\nbackend = "cloud"\n\n[session.cloud]\nendpoint = "%s"\nbucket = "%s"\nregion = "us-east-1"\npath_style = true\n' \
         "$S3_ENDPOINT" "$S3_BUCKET" > "$b/work/.koto/config.toml"
     # Test-only credentials the fake server ignores; never a real one.
-    printf '[session.cloud]\naccess_key = "test-access"\nsecret_key = "test-secret"\n' > "$b/home/.koto/config.toml"
+    printf '[session.cloud]\naccess_key = "test-access"\nsecret_key = "test-secret"\n' > "$b/userhome/.koto/config.toml"
 }
 
 host_ws() { (cd "$T/hosts/$1/work" && pwd -P); }
@@ -67,5 +67,5 @@ host_on() {
     shift
     (cd "$b/work" && env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_PROFILE \
         -u CLAUDE_CODE_SESSION_ID -u XDG_CONFIG_HOME -u KOTO_SESSIONS_BASE \
-        HOME="$b/home" XDG_CACHE_HOME="$b/cache" "$@")
+        HOME="$b/userhome" XDG_CACHE_HOME="$b/cache" "$@")
 }
