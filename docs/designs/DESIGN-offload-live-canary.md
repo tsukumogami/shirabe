@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   shirabe can't tell whether a gate-checked rule still needs preloading,
   because every /work-on run gets the same instructions, koto exports no
@@ -40,7 +40,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
