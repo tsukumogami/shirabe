@@ -19,12 +19,14 @@
 # --import, run on host B: a malformed or settings-bearing import is usage,
 # a discipline one refused store-discipline, and a name that isn't a run of
 # the scope refused session-name, none of them calling `session import`; a
-# child source is refused with koto's import_source_is_child and leaves no
-# session; a run from a template B lacks is refused import_template_unavailable,
-# leaving no session either, and with --trust-template imported but refused
-# template-mismatch, staying on
-# B; with that run live, another import of the scope is refused session-live
-# before koto runs.
+# run A opened on GitHub (no session-store find) is imported, then refused
+# session-source, and one A opened from a copy of the plugin at another path
+# is imported, then refused session-provenance, naming the carry; a child
+# source is refused with koto's import_source_is_child and leaves no session; a
+# run from a template B lacks is refused import_template_unavailable, leaving
+# no session either, and with --trust-template imported but refused
+# template-mismatch, staying on B; with that run live, another import of the
+# scope is refused session-live before koto runs.
 #
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure.
@@ -134,6 +136,32 @@ eq "--import at discipline scope is refused" "2 refused=store-discipline" "$? $(
 import_b "[\"$RM\",\"--import\",\"plain-run\",\"--from\",\"$WS_A\"]"
 eq "a name that isn't a run of the scope is refused" "2 refused=session-name" "$? $(cat "$T/out")"
 eq "  ... before any import" 0 "$(imported)"
+
+# Refusals after koto's import, each on a real run host A opened. Each leaves
+# the run live on B (the source is marked migrated), so it is cancelled there
+# before the next case, which needs no live run of the scope on B.
+open_a() { # open_a <plugin root>: the opener on host A with the roadmap alone; the run in $OPENED
+    printf '["%s"]' "$RM" > "$T/args-a.json"
+    OPENED=$(host_on a bash "$1/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$1" "$T/args-a.json" 2>"$T/open-a.err" | sed -n 's/^session=//p')
+}
+# A run whose find never recorded the session store (a plain GitHub start).
+open_a "$T/plugin"
+[ -n "$OPENED" ] && pass "host A opens a plain run of the scope" || fail "host A opens a plain run of the scope" "$(cat "$T/open-a.err")"
+import_b "[\"$RM\",\"--import\",\"$OPENED\",\"--from\",\"$WS_A\"]"
+eq "a run that isn't on the session store is imported, then refused" "2 refused=session-source" "$? $(grep '^refused=' "$T/out")"
+host_on b koto cancel "$OPENED" >/dev/null 2>&1
+sleep 1
+# A run opened from the plugin at another path: the same template, so the same
+# hash, but the run's PLUGIN_ROOT isn't this host's.
+mkdir -p "$T/plugin2"
+cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/plugin2/"
+open_a "$T/plugin2"
+[ -n "$OPENED" ] && pass "host A opens a run from a plugin at another path" || fail "host A opens a run from a plugin at another path" "$(cat "$T/open-a.err")"
+import_b "[\"$RM\",\"--import\",\"$OPENED\",\"--from\",\"$WS_A\"]"
+eq "a run from another plugin path is imported, then refused" "2 refused=session-provenance" "$? $(grep '^refused=' "$T/out")"
+grep -q 'a plain start carries its record' "$T/err" && pass "  ... and the refusal names the carry" || fail "  ... and the refusal names the carry" "$(cat "$T/err")"
+host_on b koto cancel "$OPENED" >/dev/null 2>&1
+eq "  ... and neither refused run is left live on B" "" "$(host_on b bash "$T/plugin/skills/coordinate/scripts/coord-log.sh" live-session --scope-slug roadmap-plugin-system --all 2>/dev/null)"
 
 # A child session on host A: koto refuses to import it alone.
 CHILD=coordinate-roadmap-plugin-system-20260101T000000Z
