@@ -396,7 +396,7 @@ skills/scope/scripts/resume-probe.sh	out=$("$KOTO" context get "$1" "$2" 2>/dev/
 # coordinate_engine_test.sh, out of scope as a test file, until the suite was
 # split into four parts sourcing one testdata file. Test-only reads whose empty
 # result is the value the calling assertion compares.
-skills/coordinate/scripts/testdata/coordinate-engine-lib.sh	now_at() { koto status "$S" 2>/dev/null | jq -r '.current_state // .state // empty'; }	1	non-zero	Test helper: a run koto cannot report reads as an empty state, which the case's own eq names as the state it wanted against the empty one it got, so the failure still surfaces as a failed assertion.	references/tool-diagnostic-discards.md (test files are out of scope; moved from coordinate_engine_test.sh)
+skills/coordinate/scripts/testdata/coordinate-engine-lib.sh	now_at() { koto status "$S" 2>/dev/null | jq -r '.current_state // .state // empty'; }	1	non-zero	Test helper: a run koto cannot report reads as an empty state. Where a case asserts on it, its eq names the state it wanted against the empty one it got; where a tick loop polls it, an empty state never matches the state the loop waits for, so the loop runs to its bound and the eq after it fails.	references/tool-diagnostic-discards.md (test files are out of scope; moved from coordinate_engine_test.sh)
 skills/coordinate/scripts/testdata/coordinate-engine-lib.sh	pickf() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }	1	1	Test helper: an absent pick fact reads as empty, which the case's assertion over it fails on and names, so the discard hides no failure.	references/tool-diagnostic-discards.md (test files are out of scope; moved from coordinate_engine_test.sh)
 ```
 

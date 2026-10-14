@@ -2,9 +2,16 @@
 # (coordinate_1_engine_test.sh to coordinate_4_engine_test.sh): the harness, the
 # gh and date stand-ins, the working directories, and every helper the cases use.
 #
-# Sourced by a suite after `set -uo pipefail` and after it sets HERE to its own
-# directory (skills/coordinate/scripts). Exits 0 with SKIP when koto, jq or git is
-# missing, as each suite did on its own. Not shipped behaviour.
+# Sourced at a suite's top level, after `set -uo pipefail` and after it sets HERE
+# to its own directory (skills/coordinate/scripts). Exits 0 with SKIP when koto,
+# jq or git is missing, as each suite did on its own; that exit ends the suite
+# only because the source is not inside a function or subshell. Not shipped
+# behaviour.
+#
+# Each suite gets its own $T (the scratch tree, removed on exit), with HOME, the
+# gh DB and the koto store under it, so the suites can run side by side. It
+# counts through test-lib.sh's ok/bad/eq into PASS and FAIL, and ends by
+# printing its own PASS/FAIL line and running `[ "$FAIL" -eq 0 ]`.
 
 REPO_ROOT=$(cd "$HERE/../../.." && pwd -P)
 for bin in koto jq git; do
@@ -20,7 +27,7 @@ ORIG_PATH=$PATH
 
 # test-lib.sh gives the GitHub DB helpers, the record renderer and the
 # ok/bad/eq counters. It also puts testdata/ (the koto stand-in included)
-# first on PATH; this suite needs the real koto, so PATH is rebuilt with only
+# first on PATH; these suites need the real koto, so PATH is rebuilt with only
 # the gh stand-in in front, and the stand-in koto's variables are dropped.
 . "$HERE/testdata/test-lib.sh"
 T=$(cd -P "$T" && pwd -P)

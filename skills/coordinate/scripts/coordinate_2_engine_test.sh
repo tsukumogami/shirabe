@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# coordinate_2_engine_test.sh -- part 2 of 4 of the coordinate engine cases: the shipped
-# coordinate.md driven through real koto, from sessions coordinate-open.sh
-# opens, against the testdata/gh stand-in. The four parts share their setup and
-# helpers (testdata/coordinate-engine-lib.sh) and run side by side under
-# scripts/check-skill.sh; the cases are split in file order, so a case that
-# reuses an earlier case's fixtures stays in that case's part.
+# coordinate_2_engine_test.sh -- part 2 of 4 of the coordinate engine cases: the
+# shipped coordinate.md driven through real koto, from sessions
+# coordinate-open.sh opens, against the testdata/gh stand-in. The four parts
+# share their setup and helpers (testdata/coordinate-engine-lib.sh) and run side
+# by side under scripts/check-skill.sh; the cases are split in file order, so a
+# case that reuses an earlier case's fixtures stays in that case's part.
 #
 # Proves, one line per case:
 #  10. two silent quiet checks reach failure and no teardown;

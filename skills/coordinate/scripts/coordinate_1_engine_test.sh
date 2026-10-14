@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# coordinate_1_engine_test.sh -- part 1 of 4 of the coordinate engine cases: the shipped
-# coordinate.md driven through real koto, from sessions coordinate-open.sh
-# opens, against the testdata/gh stand-in. The four parts share their setup and
-# helpers (testdata/coordinate-engine-lib.sh) and run side by side under
-# scripts/check-skill.sh; the cases are split in file order, so a case that
-# reuses an earlier case's fixtures stays in that case's part.
+# coordinate_1_engine_test.sh -- part 1 of 4 of the coordinate engine cases: the
+# shipped coordinate.md driven through real koto, from sessions
+# coordinate-open.sh opens, against the testdata/gh stand-in. The four parts
+# share their setup and helpers (testdata/coordinate-engine-lib.sh) and run side
+# by side under scripts/check-skill.sh; the cases are split in file order, so a
+# case that reuses an earlier case's fixtures stays in that case's part.
 #
 # Proves, one line per case:
 #   1. dispatch is unreachable without exactly one record (none stops at
@@ -25,7 +25,7 @@
 #      gate, with and without data;
 #   8. evidence that contradicts the stand-in doesn't change a check's route;
 #   9. every value of wait's event enum reaches its spoke with no
-#      template_error;
+#      template_error.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -34,10 +34,6 @@ set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/testdata/coordinate-engine-lib.sh"
-
-# ---- helpers -----------------------------------------------------------------
-
-
 
 # ---- 1. exactly one record ---------------------------------------------------
 echo "== 1. dispatch needs exactly one record =="

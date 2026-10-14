@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# coordinate_3_engine_test.sh -- part 3 of 4 of the coordinate engine cases: the shipped
-# coordinate.md driven through real koto, from sessions coordinate-open.sh
-# opens, against the testdata/gh stand-in. The four parts share their setup and
-# helpers (testdata/coordinate-engine-lib.sh) and run side by side under
-# scripts/check-skill.sh; the cases are split in file order, so a case that
-# reuses an earlier case's fixtures stays in that case's part.
+# coordinate_3_engine_test.sh -- part 3 of 4 of the coordinate engine cases: the
+# shipped coordinate.md driven through real koto, from sessions
+# coordinate-open.sh opens, against the testdata/gh stand-in. The four parts
+# share their setup and helpers (testdata/coordinate-engine-lib.sh) and run side
+# by side under scripts/check-skill.sh; the cases are split in file order, so a
+# case that reuses an earlier case's fixtures stays in that case's part.
 #
 # Proves, one line per case:
 #  12. a restart takes over every decision entry before its first dispatch:
@@ -24,10 +24,10 @@
 #      report naming none goes back to wait, never to verify, and the next
 #      report naming one gets through; blocked and needs_fix still route with
 #      no pull request, and a leg-bound worker whose result names none takes
-#      needs_fix to rebrief, the directive's route once its leg is spent. verify_board's no-pr arm is unreachable here by
-#      design (the gate above keeps such a report out of verify), so its
-#      sealed verdict is board-record_test.sh's and its arm the structure
-#      test's.
+#      needs_fix to rebrief, the directive's route once its leg is spent.
+#      verify_board's no-pr arm is unreachable here by design (the gate above
+#      keeps such a report out of verify), so its sealed verdict is
+#      board-record_test.sh's and its arm the structure test's.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -66,7 +66,7 @@ cat > "$T/tpl/deliver.md" <<'EOF'
 ---
 name: deliver
 version: "1.0"
-description: a stand-in worker for coordinate_engine_test.sh
+description: a stand-in worker for coordinate_3_engine_test.sh
 initial_state: work
 states:
   work:
