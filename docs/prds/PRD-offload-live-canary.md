@@ -151,8 +151,12 @@ run started with the canary turned off by the switch in R10.
   the other one.
 - **R4. Who takes part.** A run takes part in neither group when it was
   started on `/execute`'s shared branch (`SHARED_BRANCH` non-empty), when it
-  is a canary-off run, or when the assignment fails (R13). Its instructions
-  are byte-for-byte those of a canary-off run.
+  is a canary-off run, when its host hasn't opted in, when the registry
+  doesn't mark the rule `eligible`, or when the assignment fails (R13). Its
+  instructions are byte-for-byte those of a canary-off run. A host opts in
+  with a file, `${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary`,
+  whose first line is `on`; without it no run on that host takes part, since
+  only this project's own hosts send events to its Datadog.
 - **R5. Withholding.** In the withheld group, none of these carry the rule's
   text or the string `pr-body/no-heading-in-part1`: the rendered
   `pr_creation` directive, `skills/work-on/references/phases/phase-6-pr.md`
@@ -226,8 +230,10 @@ Assignment (script tests, each draw a separate process):
 
 - [ ] Over 200 draws in fresh session directories with the canary on and no
       shared branch, each group is picked at least 70 and at most 130 times.
-- [ ] With `OFFLOAD_CANARY` `off`, or `SHARED_BRANCH` non-empty, a draw picks
-      neither group and the run reads `references/pr-body-conformance.md`.
+- [ ] With `OFFLOAD_CANARY` `off`, `SHARED_BRANCH` non-empty, no opt-in file,
+      an opt-in file reading anything but `on`, or the rule marked
+      `withhold: never`, a draw picks neither group and the run reads
+      `references/pr-body-conformance.md`.
 - [ ] A second draw in a session directory that already holds an assignment
       returns the same group, 20 times out of 20.
 - [ ] With the assignment script missing, or exiting non-zero, the
@@ -344,3 +350,8 @@ Boundaries:
 - **The switch is fixed per run.** `OFFLOAD_CANARY` isn't rebindable, so
   turning the canary off never moves a run that already drew a group, and a
   run's group can't change partway through.
+- **Opt-in per host.** shirabe is public, and a canary on for everyone would
+  withhold the rule from runs whose events never reach this project's
+  Datadog. Only a host with the opt-in file takes part, and turning the file
+  on for this project's hosts is a separate step after the canary merges. The
+  coordinator decided this on 2026-10-14.

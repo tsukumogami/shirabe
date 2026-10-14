@@ -167,7 +167,13 @@ branch set, or anything going wrong, it records nothing and prints the real
 file's path. The script also asks the registry before it draws: unless
 `rule-registry.sh` reports `pr-body/no-heading-in-part1` as
 `withhold: eligible`, every run takes part in neither group, so the canary
-can't withhold anything the registry hasn't admitted. The arm file is written
+can't withhold anything the registry hasn't admitted. It draws only on a host
+that has opted in: `${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary`
+must exist, be a regular file, and read `on` on its first line. shirabe is a
+public plugin, and other people's runs never reach this project's Datadog, so
+withholding from them would be unmeasured risk; the coordinator ruled for a
+per-host opt-in on 2026-10-14. The template default stays the global off
+switch, and deleting the file turns one host off. The arm file is written
 last, after the withheld rendering succeeds, so a failed render can't leave a
 run labeled withheld while it reads the full text.
 
