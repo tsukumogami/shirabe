@@ -56,7 +56,7 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 Then tick koto with nothing submitted. The `qa_verdict` gate reads the ledger (`panel-scope.sh --verdict qa`) and decides, as at scrutiny:
 
 - Exit 0, the tester recorded no failing scenario: koto advances to `verification`. Optionally write `qa_results.json` first, as the round's summary for a reader; no gate reads it.
-- Exit 1, scenarios failed: the gate prints one `panel/blocking-finding` finding per failed scenario. Submit `qa_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' summaries as well as this one's.
+- Exit 1, a failed scenario is unclosed: the gate prints one `panel/open-finding` finding per unclosed failed scenario. Submit `qa_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent fixes the failing scenarios; the run then walks forward through `scrutiny` and `review` before re-entering this phase. It does not self-loop, which is why the retry clears those two panels' summaries as well as this one's.
 - Exit 2, the round isn't recorded or the ledger can't be read: record the round and tick again.
 
 ```bash

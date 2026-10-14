@@ -270,7 +270,7 @@
     },
     {
       "id": "panel/blocking-finding",
-      "status": "active",
+      "status": "retired",
       "summary": "A review seat recorded a blocking finding",
       "text": {
         "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
@@ -298,7 +298,7 @@
       "withhold": "never",
       "baseline_keys": [],
       "aliases": [],
-      "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+      "notes": "Retired when the panel gate moved to the findings ledger: a blocking finding with no closing verdict record now prints under panel/open-finding, or under the active rule it cites."
     },
     {
       "id": "panel/open-finding",

@@ -31,8 +31,8 @@ A panel's pass is koto's, not the agent's. Every finding a seat returns carries
 blocking exactly when one of its findings is `blocking`, and refuses a round with a finding
 that has neither. Each panel state's `<panel>_verdict` gate runs `panel-scope.sh --verdict
 <panel>` over the ledger: exit 0 (every seat recorded, none blocking) advances with no
-evidence, exit 1 (a seat is blocking) prints one `panel/blocking-finding` finding per
-blocking finding and accepts `blocking_retry` or `blocking_escalate`, and exit 2 (the round
+evidence, exit 1 (a blocking finding is unclosed) prints one finding per unclosed
+blocking finding, under the rule it cites or `panel/open-finding`, and accepts `blocking_retry` or `blocking_escalate`, and exit 2 (the round
 isn't fully recorded, or the ledger can't be read) holds the state, accepting only
 `blocking_escalate`. A `blocking_retry` returns to `implementation`; `blocking_escalate`
 routes to `done_blocked` with `failure_reason` written to context. There is no `passed`

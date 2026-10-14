@@ -53,7 +53,7 @@ If `--record` fails, fix it and run it again before submitting anything; if it c
 Then tick koto with nothing submitted. The `review_verdict` gate reads the ledger (`panel-scope.sh --verdict review`) and decides, as at scrutiny:
 
 - Exit 0, every seat recorded and none blocking: koto advances (to `qa_validation`, or to `verification` at `standard`). Optionally write `review_results.json` first, as the round's summary for a reader; no gate reads it.
-- Exit 1, a seat is blocking: the gate prints one `panel/blocking-finding` finding per blocking finding. Collect them and submit `review_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
+- Exit 1, a blocking finding is unclosed: the gate prints one finding per unclosed blocking finding, under the active rule it cites or under `panel/open-finding`. Collect them and submit `review_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
 - Exit 2, the round isn't fully recorded or the ledger can't be read: record the round and tick again.
 
 ```bash
