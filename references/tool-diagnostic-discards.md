@@ -392,6 +392,12 @@ skills/scope/scripts/resolve-intent.sh	"$KOTO" context exists "$SESSION" "$1" >/
 skills/scope/scripts/resolve-intent.sh	out=$("$KOTO" context get "$SESSION" "$1" 2>/dev/null && printf '.') \	1	non-zero	The read follows a passed existence check; the || branch reports a read that fails anyway as the script's own error instead of parsing an empty document.	DESIGN-resume-convention.md#d2 (finished-run facts travel in keys, read as status-tested predicates)
 skills/scope/scripts/resume-probe.sh	"$KOTO" context exists "$1" "$2" >/dev/null 2>&1 || rc=$?	1	1,127	Key-existence predicate behind the ladder rows and Slot 7: exits 1 and 127 are the no-row outcome, 127 because a missing koto means no session can exist; rc is captured and any other status is the probe's cannot-tell [2], never a row.	DESIGN-resume-convention.md#d2 (finished-run facts travel in keys, read as status-tested predicates)
 skills/scope/scripts/resume-probe.sh	out=$("$KOTO" context get "$1" "$2" 2>/dev/null && printf '.') || return 1	1	non-zero	Key read used as a predicate with the trailing dot guarding trailing-newline loss; each caller handles the failure itself: an unreadable work/state.md fires the malformed-state row directly, and an unreadable work/prior-run.md yields the same no-row outcome the absent key takes.	DESIGN-resume-convention.md#d2 (finished-run facts travel in keys, read as status-tested predicates)
+# The coordinate engine suites' shared setup: helpers that sat in
+# coordinate_engine_test.sh, out of scope as a test file, until the suite was
+# split into four parts sourcing one testdata file. Test-only reads whose empty
+# result is the value the calling assertion compares.
+skills/coordinate/scripts/testdata/coordinate-engine-lib.sh	now_at() { koto status "$S" 2>/dev/null | jq -r '.current_state // .state // empty'; }	1	non-zero	Test helper: a run koto cannot report reads as an empty state, which the case's own eq names as the state it wanted against the empty one it got, so the failure still surfaces as a failed assertion.	references/tool-diagnostic-discards.md (test files are out of scope; moved from coordinate_engine_test.sh)
+skills/coordinate/scripts/testdata/coordinate-engine-lib.sh	pickf() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }	1	1	Test helper: an absent pick fact reads as empty, which the case's assertion over it fails on and names, so the discard hides no failure.	references/tool-diagnostic-discards.md (test files are out of scope; moved from coordinate_engine_test.sh)
 ```
 
 ## Running the scan
