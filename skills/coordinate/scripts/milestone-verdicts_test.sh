@@ -76,7 +76,7 @@
 #      holding, then retired).
 #   13 goal fit names the pull request and clauses the milestone has, the
 #      check refuses clause 3, and advances none still lands: here, and
-#      coordinate_engine_test.sh, case 23 (advances none).
+#      coordinate_4_engine_test.sh, case 23 (advances none).
 #   14 a failure against the Done host-state milestone reopens it, the check
 #      refuses the malformed ones, a second failure opens nothing, and the
 #      reopened roadmap validates: here, milestone_test.sh (the refusals),
@@ -237,7 +237,7 @@ echo "== goal fit for the PR-bearing milestone's pull request =="
 # entry naming the pull request and the clauses it advances, each a clause of
 # the milestone's Evidence on the default branch, and the check refuses a
 # clause the milestone lacks. (A second pull request judged advances none
-# reaching land_merge is coordinate_engine_test.sh's case 23.)
+# reaching land_merge is coordinate_4_engine_test.sh's case 23.)
 main_roadmap > "$T/main.md"
 printf 'Goal fit: acme/widgets#12 -- MV1\nFit: fits\nClauses: 1, 2\nRationale: the list reads the installed manifests and names a removed one as skipped\n' > "$T/gf.txt"
 bash "$MS" check-goal-fit "$T/main.md" MV1 "$T/gf.txt" > "$T/gf.json" 2>"$T/err"; eq "MV1's pull request's goal-fit entry passes milestone.sh check-goal-fit" 0 $?
