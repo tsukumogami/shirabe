@@ -738,7 +738,11 @@ states:
 
   wait:
     # The hub. No action, no gate and no details: an idle tick appends nothing,
-    # and every edge lands on a state that starts with a read.
+    # and every edge lands on a state that starts with a read. The check for a
+    # reconcile still owed after an import is the directive's, not a gate's: a
+    # gate-only edge here could match beside an event's edge and take the run
+    # away with the event unhandled. The directive asks it on every visit, and
+    # a skipped check costs only a later reconcile.
     accepts:
       event:
         type: enum
