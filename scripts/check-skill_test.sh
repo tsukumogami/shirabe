@@ -300,6 +300,46 @@ new_tree
 SKILL_ARG="nope" run_check
 expect "an unknown skill exits 2" 2 "no such skill: skills/nope"
 
+# -- koto's session context ------------------------------------------------------
+# A koto session that runs the check hands it KOTO_SESSIONS_BASE and
+# KOTO_TICK_SESSION; no suite may inherit them, nor any KOTO_SESSION_* setting.
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+cat > "$ROOT/skills/demo/scripts/env_test.sh" <<'SUITE'
+seen=$(env | grep -E '^KOTO_(SESSIONS_BASE|TICK_SESSION|SESSION_[A-Za-z0-9_]*)=' | cut -d= -f1)
+[ -z "$seen" ] || { echo "inherited: $seen"; exit 1; }
+SUITE
+KOTO_SESSIONS_BASE="$WORK/caller-store" KOTO_TICK_SESSION=caller-run \
+    KOTO_SESSION_BACKEND=cloud KOTO_SESSION_CLOUD_BUCKET=owner-bucket run_check
+expect "a suite inherits none of koto's session context" 0 "ok: bash skills/demo/scripts/env_test.sh"
+
+# With the real koto, a suite that gives itself a HOME keeps its sessions there,
+# though the check was handed another store.
+REAL_KOTO_BIN=$(command -v koto 2>/dev/null || true)
+if [ -z "$REAL_KOTO_BIN" ]; then
+    pass "a suite's koto session stays in its own store (not checked: koto isn't on PATH)"
+else
+    new_tree
+    mkdir -p "$ROOT/skills/demo/scripts" "$WORK/caller-store"
+    export REAL_KOTO_BIN
+    cat > "$ROOT/skills/demo/scripts/store_test.sh" <<'SUITE'
+T=$(mktemp -d)
+export HOME="$T/home"; mkdir -p "$HOME"
+printf -- '---\nname: probe\nversion: "1.0"\ndescription: One state.\ninitial_state: done\nstates:\n  done:\n    terminal: true\n---\n\n## done\n\nDone.\n' > "$T/probe.md"
+(cd "$T" && "$REAL_KOTO_BIN" init store-probe --template "$T/probe.md" >/dev/null 2>&1) || { echo "koto init failed"; exit 1; }
+[ -d "$HOME/.koto/sessions/store-probe" ] || { echo "the session isn't in the suite's own store"; exit 1; }
+rm -rf "$T"
+SUITE
+    KOTO_SESSIONS_BASE="$WORK/caller-store" run_check
+    expect "a suite's koto session stays in its own store" 0 "ok: bash skills/demo/scripts/store_test.sh"
+    if [ -n "$(ls -A "$WORK/caller-store" 2>/dev/null)" ]; then
+        fail "  ... and nothing reaches the store the check was handed: $(ls "$WORK/caller-store")"
+    else
+        pass "  ... and nothing reaches the store the check was handed"
+    fi
+    unset REAL_KOTO_BIN
+fi
+
 # -- Suites in parallel ----------------------------------------------------------
 MARKS="$WORK/marks"
 export MARKS

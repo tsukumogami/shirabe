@@ -1,11 +1,11 @@
 {
   "figures": {
-    "dispatch_to_green_min": {"value": 50.0, "raw": 3000, "state": "measured", "source": "derived"},
-    "dispatch_to_merge_min": {"value": 60.0, "raw": 3600, "state": "measured", "source": "derived"},
+    "dispatch_to_green_min": {"value": 50.5, "raw": 3030, "state": "measured", "source": "derived"},
+    "dispatch_to_merge_min": {"value": 60.5, "raw": 3630, "state": "measured", "source": "derived"},
     "writing_code_min": {"value": 12.5, "raw": 750, "state": "measured", "source": "koto-state"},
     "review_min": {"value": 15.0, "raw": 900, "state": "measured", "source": "koto-state"},
-    "outside_share_pct": {"value": 75.0, "state": "measured", "source": "derived"},
-    "review_share_pct": {"value": 30.0, "state": "measured", "source": "derived"},
+    "outside_share_pct": {"value": 75.2, "state": "measured", "source": "derived"},
+    "review_share_pct": {"value": 29.7, "state": "measured", "source": "derived"},
     "panel_rounds": {"value": 1, "raw": 1, "state": "measured", "source": "verdict-ledger"},
     "failing_heads": {"value": 0, "raw": 0, "state": "measured", "source": "github-runs"},
     "sessions_without_done": {"value": 0, "raw": 0, "state": "measured", "source": "koto-state"},

@@ -1,0 +1,5 @@
+{"type":"relocated","fromSessionId":"0a1b2c3d-77aa","cwd":"/work/inst/feat-x/widgets","gitBranch":"feat/x-docs","sessionId":"5b6c7d8e-22dd","timestamp":"2026-10-01T10:00:00.000Z"}
+{"type":"assistant","message":{"id":"msg_w1","role":"assistant","usage":{"input_tokens":10,"output_tokens":40,"cache_creation_input_tokens":100,"cache_read_input_tokens":0}},"cwd":"/work/inst/feat-x","gitBranch":"feat/x","timestamp":"2026-10-01T09:00:10.000Z"}
+{"type":"assistant","message":{"id":"msg_w2","role":"assistant","usage":{"input_tokens":3,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":110}},"cwd":"/work/inst/feat-x","gitBranch":"feat/x","timestamp":"2026-10-01T09:00:20.000Z"}
+{"type":"assistant","message":{"id":"msg_r1","role":"assistant","usage":{"input_tokens":2,"output_tokens":6,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"cwd":"/work/inst/feat-x/widgets","gitBranch":"feat/x-docs","timestamp":"2026-10-01T10:30:10.000Z"}
+{"type":"pr-link","sessionId":"5b6c7d8e-22dd","prNumber":23,"prUrl":"https://github.com/acme/widgets/pull/23","prRepository":"acme/widgets","timestamp":"2026-10-01T11:15:00.000Z"}
