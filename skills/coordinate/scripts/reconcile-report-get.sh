@@ -13,10 +13,13 @@
 # the pass sealed it fails one of those. On the session store the report must
 # also have been read under the run's current import facts (record/host): one
 # sealed before the run was imported here, on another host, is refused with 3,
-# and the reconcile gate sends the run back to reconcile_pass on that code.
+# in every mode. The reconcile gate sends the run back to reconcile_pass on
+# that code, and the hub's directive runs --check on every visit and ticks
+# `moved` on it, so a run imported in any state reconciles on this host.
 #
 # Usage:
-#   reconcile-report-get.sh --session S --check   exit status only (the gate)
+#   reconcile-report-get.sh --session S --check   exit status only (the reconcile
+#                                                  gate, and the hub's directive)
 #   reconcile-report-get.sh --session S           {report, directed_transitions}
 #   reconcile-report-get.sh --session S --md      the report rendered as text
 #

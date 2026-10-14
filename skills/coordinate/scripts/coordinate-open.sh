@@ -26,12 +26,13 @@
 #
 # An import (PRD R14) moves a run another host started here: `--import
 # <session> --from <workspace path>` with the roadmap path, and no setting.
-# Before koto runs, the opener refuses a name that isn't a run of this scope
-# (`refused=session-name`), another live run of the scope here
-# (`refused=session-live`; the import's own target may be live, after koto's
-# import_unmarked, since the same import run again only marks the source), a
-# koto without `session import` (`refused=store-unsupported`) and discipline
-# scope (`refused=store-discipline`). koto's `session import` then brings the
+# Before koto runs, the opener refuses, in this order: discipline scope
+# (`refused=store-discipline`, as the arguments are read), a name that isn't a
+# run of this scope (`refused=session-name`), another live run of the scope
+# here (`refused=session-live`; the import's own target may be live, after
+# koto's import_unmarked, since the same import run again only marks the
+# source) and a koto without `session import` (`refused=store-unsupported`).
+# koto's `session import` then brings the
 # run from the bucket, taking the template from the bucket only under
 # `--trust-template`, and marks the source migrated; its refusals print
 # `refused=<koto code>`. The imported run must pass what a resume needs, or it
@@ -45,7 +46,8 @@
 # reconcile on this host. A run at reconcile reconciles again by itself; one
 # anywhere else does when it reaches the hub, whose directive checks for a
 # reconcile still owed (`reconcile-report-get.sh --check` exits 3) on every
-# visit.
+# visit. A state koto doesn't report reads `state=unknown`. A resume or a
+# carry on the same host prints neither line: nothing moved.
 #
 # Tokens, in order, from a JSON array of strings in <args-file>:
 #   <roadmap-path>               roadmap scope (docs/roadmaps/.../ROADMAP-<name>.md)
