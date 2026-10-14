@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   Plans from /plan are cut along component lines, written in full detail up
   front, and judged by criteria that name files. Nothing works end to end until
@@ -24,7 +24,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
