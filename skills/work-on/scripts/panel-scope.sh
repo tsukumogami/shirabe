@@ -43,6 +43,10 @@
 #     measured from this panel's own records, so a large fix one panel
 #     reviewed in full still reaches the next panel's seats. 200 is a
 #     judgment, not a measurement: about one screenful of diff per seat
+#   - nothing the ledger recorded can bound a fix diff: the panel recorded no
+#     commit, or no commit any panel recorded is an ancestor of HEAD, or the
+#     diff from it fails. The safe answer to a diff it can't judge is to
+#     review everything
 #
 # In a full round every seat is `full`, gets a run id, and its decision
 # carries the seat's own unclosed blocking findings, which it answers by id
@@ -61,6 +65,8 @@
 #   unverified    due                due         due
 #   closed        due (regression)   not due     not due
 #
+# Closed means a reverified or dismissed latest record that its writer was
+# allowed to write; one written by any other writer leaves the finding open.
 # A finding's base is the commit of its latest record not written by the
 # agent, the last time something judged it; "touched" is judged on
 # `git diff --no-renames <base> HEAD`. A `lines` location (numbered at the
@@ -467,14 +473,18 @@ fi
 # ---------------------------------------------------------------- --recorded --
 
 # Refuses while a run this round planned is not recorded: that is a round
-# whose --record was skipped, and the seat's old verdict -- a pass, possibly,
-# for a seat that has just blocked -- would be read as current next round. No
-# scope, or no ledger, passes, with nothing to compare.
+# whose --record was skipped, and the findings it would have answered or
+# raised would be missing next round. Runs are minted per round, so a run the
+# ledger holds as recorded was recorded since the scope was planned; that is
+# why a first round with nothing recorded holds here too, where the old
+# seat-by-seat check let a seat with no entry through. Every route this gate
+# holds also needs --verdict, which holds that round anyway. No scope, or no
+# ledger, passes, with nothing to compare.
 #
 # HEAD moving while the panel is open is --record's concern, not this gate's:
 # --record refuses to stamp a round across a moved HEAD (68), and a round
-# recorded before the move keeps its own judged_at, so the next round's fix
-# diff includes the commit no seat saw.
+# recorded before the move keeps its own commits, so the next round's fix
+# diff includes the commit no run saw.
 if [ "$MODE" = "--recorded" ]; then
     scope=$(ctx_get "${PANEL}_scope.json")
     [ -n "$scope" ] || exit 0
@@ -926,7 +936,7 @@ is_commit() {
     [ "${#1}" -eq 40 ] && git rev-parse --verify -q "$1^{commit}" >/dev/null
 }
 
-# newest_commit / oldest_commit: of the commits on stdin (one per line, every
+# pick_commit newest|oldest: of the commits on stdin (one per line, every
 # one a commit), the newest or the oldest by ancestry. Two commits not ordered
 # by ancestry (a merge brought them in on different sides) resolve to the one
 # with fewer ancestors either way, which widens a diff rather than narrowing
@@ -1100,7 +1110,9 @@ if [ -z "$FULL_REASON" ]; then
 fi
 
 # The fix-diff review's base: the newest commit any panel recorded that is an
-# ancestor of HEAD. Planned only outside a full round.
+# ancestor of HEAD. Planned only outside a full round. It is worked out before
+# the due loop below because a failure here (no base at all, or a diff that
+# fails) makes the round full, and a full round reads no due table.
 FIXBASE=""
 FIX_REVIEW=0
 if [ -z "$FULL_REASON" ]; then
@@ -1178,9 +1190,11 @@ DUE_FROM=$(oldest_base 'select(.due)')
 OPEN_FROM=$(oldest_base 'select(.status != "closed")')
 [ -n "$OPEN_FROM" ] || OPEN_FROM="$IMPL_BASE"
 
-# scripts/review-packet.sh recheck reads a recheck decision's `findings` and
-# `fix_diff_from` to build the re-verifier's packet, and relies on
-# fix_diff_from being an ancestor of HEAD (checked above). Renaming either
+# scripts/review-packet.sh recheck reads a recheck decision's `findings`,
+# `fix_diff_from`, `fix_review` and `review_from` to build the re-verifier's
+# packet. fix_diff_from is an ancestor of HEAD whenever oldest_base found one;
+# otherwise it is the fix-diff base or impl_base, and the packet falls back to
+# its own base, saying so, for any value that can't bound a diff. Renaming a
 # field changes what that packet holds; panel-scope_test.sh drives the two
 # scripts together.
 jq -n --argjson l "$LEDGER_JSON" --arg panel "$PANEL" --arg seats "$SEATS" \

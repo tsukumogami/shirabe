@@ -428,9 +428,14 @@ A round is full when any R7 trigger holds: a seat of the panel has no
 recorded verdict (the first round), the ledger has no `findings` key (written
 before this change), a changed criteria-and-plan hash, a recorded commit off
 HEAD's history, `git status --porcelain` non-empty, no commits since
-`impl_base`, or a fix diff over 200 changed lines from the newest recorded
-ancestor commit (added plus deleted per `--numstat`, binary files 1 per
-side). A failing `git diff` also makes the round full. In a full round every
+`impl_base`, a panel whose newest recorded commit has no commits since
+`impl_base` (its seats judged an empty change), or a fix diff over 200 changed
+lines from this panel's newest recorded commit (added plus deleted per
+`--numstat`, binary files 1 per side). A failing `git diff` also makes the
+round full. The 200-line rule is measured per panel, not from the newest
+commit any panel recorded: measured globally, a fix that size which one panel
+reviewed in full would leave the next panel's seats with an empty diff, and
+they would carry without ever seeing it. In a full round every
 seat is `full`, gets a minted run id, and its decision carries the seat's own
 unclosed blocking findings, which `review-packet.sh code` lists for it by id.
 Unclosed blocking findings no seat raised (from the fix-diff review or a
@@ -459,7 +464,8 @@ records, seats' `judged_at` and markers, never counting a record the agent
 wrote) is non-empty. Leaving the agent's `fixed` records out matters: they
 are stamped at HEAD after the fix is committed, and counting them would make
 the fix diff empty and skip both the fix-diff review and the 200-line rule.
-The 200-line rule measures from the same commit. When two candidates
+The 200-line rule leaves the agent's records out the same way, measured from
+the panel's own newest record. When two candidates
 aren't ordered by ancestry (a merge brought them in on different sides), the
 older of them is taken, which widens the diff rather than narrowing it; if
 the ancestry can't be computed, the round is full. Once this panel records

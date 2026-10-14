@@ -200,7 +200,9 @@ ledger has no finding records (one written before this change); the
 acceptance criteria or plan changed (the hash of the `context.md` and
 `plan.md` context keys differs from the one recorded); a recorded commit is
 no longer an ancestor of HEAD; `git status --porcelain` is non-empty; there
-are no commits since `impl_base`; or the fix diff exceeds 200 changed lines.
+are no commits since `impl_base`; the panel last judged no commit since
+`impl_base`; or the fix diff from the panel's own newest record exceeds 200
+changed lines.
 In a full round each seat is also given the panel's unclosed blocking
 findings it raised, and answers each by id, so a full round never drops one.
 A panel with an unclosed blocking finding never carries its verdict without

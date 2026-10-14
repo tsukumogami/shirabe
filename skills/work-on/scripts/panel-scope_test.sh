@@ -1098,6 +1098,17 @@ expect_rc "--verdict with an unknown panel" 2
 run --verdict scrutiny
 expect_rc "--verdict with no session" 2
 
+# The rule the gate used to print is retired: kept joinable, never printed.
+REGISTRY_JSON="$PLUGIN_ROOT/references/rule-registry.json"
+jq -e '[.rules[] | select(.id == "panel/blocking-finding")][0]
+       | .status == "retired" and (.notes | test("panel/open-finding"))' "$REGISTRY_JSON" >/dev/null 2>&1 \
+    && pass "panel/blocking-finding is retired, its notes naming panel/open-finding" \
+    || fail "panel/blocking-finding: $(jq -c '[.rules[] | select(.id == "panel/blocking-finding")][0] | {status, notes}' "$REGISTRY_JSON")"
+HITS=$(grep -rln 'panel/blocking-finding' "$PLUGIN_ROOT/skills" "$PLUGIN_ROOT/scripts" "$PLUGIN_ROOT/references" 2>/dev/null \
+    | grep -v '/rule-registry\.json$' | grep -v '_test\.sh$' | grep -v '/work-on/evals/')
+[ -z "$HITS" ] && pass "no RULE_IDS line, directive or reference names panel/blocking-finding" \
+    || fail "panel/blocking-finding is still named in: $HITS"
+
 # 2 wins over 1: a round planned and not recorded holds the gate even with a
 # blocking finding open.
 fixture verdict2

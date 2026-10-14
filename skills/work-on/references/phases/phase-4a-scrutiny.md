@@ -4,7 +4,7 @@ Run three parallel scrutiny reviewers before code review. Each reviewer checks t
 
 ## Reviewers
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Justification and Intent run on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`, with `--criteria <file>` in place of `--issue <N>` when the run has no GitHub issue: a plan-outline child, whose `<N>` numbers an item in its PLAN, writes its outline's acceptance criteria to the file. A seat the scope marks `recheck` gets its own packet instead, built from its findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel scrutiny --seat <seat>`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Completeness, Justification and Intent run on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`, with `--criteria <file>` in place of `--issue <N>` when the run has no GitHub issue: a plan-outline child, whose `<N>` numbers an item in its PLAN, writes its outline's acceptance criteria to the file. The panel's re-verifier, the one run a retry round plans, gets its own packet instead, built from the due findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel scrutiny --seat reverifier`.
 
 Spawn all three simultaneously using the Task tool:
 
@@ -14,24 +14,23 @@ Spawn all three simultaneously using the Task tool:
 
 ## Which Seats Run
 
-koto decides this before you spawn anything. On entering `scrutiny` it runs `scripts/panel-scope.sh --plan scrutiny`, which writes `scrutiny_scope.json` with one decision per seat:
+koto decides this before you spawn anything. On entering `scrutiny` it runs `scripts/panel-scope.sh --plan scrutiny`, which reads the findings ledger and writes `scrutiny_scope.json`. The panel's findings, not its seats, decide what runs:
 
 | Decision | What you spawn |
 |----------|----------------|
-| `full` | The seat's normal full review. Every seat is `full` on the first round. |
-| `recheck` | The seat that raised a blocking finding last round. Its packet is the `recheck` kind on the commissioning line above, holding only its `findings` and the fix diff (`git diff <fix_diff_from> HEAD`), and it answers whether each finding is fixed, prompted with the re-check prompt in `review-seat-commissioning.md` rather than its role above. It does not re-review the rest of the implementation, but it must read the whole fix diff and block on any defect the fix itself introduces: a passing re-check records the seat as passed at HEAD. A blocking seat is only offered this when the checks that would re-run a passed seat (a dirty tree, changed criteria or plan, a rewritten history, a fix over the size threshold) don't apply; otherwise it gets `rerun`. |
-| `rerun` | A seat that passed, but whose cited scope the fix touched. A fresh full review. |
-| `keep` | Nothing. The seat's earlier pass carries, and the scope says why. At aggregation it counts as passed. |
+| `full` | The seat's normal full review. Every seat is `full` in a full round: the panel's first, or one where the criteria or plan changed, the history was rewritten, the tree is dirty, there are no commits, or the fix is over the size threshold. The decision also hands the seat its own unclosed blocking findings, which it answers by id: `holds`, `reverified`, or `dismissed` with a reason. A full round is the one place a seat may dismiss its own finding. |
+| `recheck` | Only seat `reverifier`, the panel's re-verifier. Any round that isn't full keeps every real seat and plans at most this one run. Its decision lists every due blocking finding by id: one the fix touched, one marked fixed, one a decider couldn't verify, a closed one the fix touched again. It answers each by id with `holds` or `reverified`, giving a reason for each `reverified`. When the decision carries `fix_review`, it also reviews the fix diff from `review_from` against every panel's criteria and returns what it finds as new findings. Its packet is the `recheck` kind on the commissioning line above, and its prompt the re-check prompt in `review-seat-commissioning.md`. A full round plans one too, for unclosed findings no seat raised. |
+| `keep` | Nothing. Outside a full round no real seat re-runs, whatever the fix touched: the fix-diff review is what sees new defects. At aggregation a kept seat counts as recorded. |
 
 ```bash
 koto context get <WF> scrutiny_scope.json
 ```
 
-Commit the fix before the run re-enters a panel. The scope is computed from committed history, so on a working tree with uncommitted changes (untracked files included) the script keeps nothing and every passed seat re-runs; commit and tick again to get the narrow round. This holds for every panel, not only this one.
+Commit the fix before the run re-enters a panel. The scope is computed from committed history, so a working tree with uncommitted changes (untracked files included) makes the round full; commit and tick again to get the narrow round. This holds for every panel, not only this one.
 
-When every seat is `keep` you never see this phase: the script writes a carried `scrutiny_results.json`, the `scrutiny_carried` gate passes, and koto moves on to `review` by itself. The visit is still in koto's log, so the round is counted either way.
+When nothing runs and no blocking finding of the panel is unclosed, you never see this phase: the script writes a carried `scrutiny_results.json`, the `scrutiny_carried` gate passes, and koto moves on to `review` by itself. The visit is still in koto's log, so the round is counted either way. When nothing runs but a blocking finding the fix didn't touch is still unclosed, the `scrutiny_verdict` gate blocks the panel without a run.
 
-Spawn only the seats whose decision isn't `keep`. This holds for every round after a retry, whatever the Reviewers section above and the Retry Loop below say about spawning all three: the seat that raised a finding re-checks it, and the others re-run only if the fix touched what they cited. The decisions are the script's, made from git: don't add a seat because the fix looks risky, and don't drop one because it looks safe. If you think a kept seat should run anyway, that's a finding for whichever seat is running, not a reason to override the scope.
+Spawn only the decisions that aren't `keep`. This holds for every round after a retry, whatever the Reviewers section above and the Retry Loop below say about spawning all three. The decisions are the script's, made from the ledger and git: don't add a seat because the fix looks risky, and don't drop one because it looks safe. If you think a kept seat should run anyway, that's a finding for whichever run is running, not a reason to override the scope.
 
 ## Evidence Format
 
@@ -48,7 +47,7 @@ Each reviewer writes full findings to a `mktemp`-produced file outside the repos
 }
 ```
 
-`cited` is what the verdict rests on: the paths the seat judged and, where it can say, the line ranges in HEAD's numbering. It decides whether a later fix re-runs this seat, so cite precisely: a seat that cites nothing is treated as having judged every path in the diff, and re-runs whenever a fix touches any of them. `findings` lists every finding with its location, and each carries a `severity`: `blocking` for a defect that must be fixed before the panel can pass, `advisory` for anything else worth saying. A re-check round gets the blocking ones back verbatim.
+`cited` is what the verdict rests on: the paths the seat judged and, where it can say, the line ranges in HEAD's numbering. It is kept in the ledger for the readers of seat entries; it no longer decides whether a seat re-runs. `findings` lists every finding with its location, and each carries a `severity`: `blocking` for a defect that must be fixed before the panel can pass, `advisory` for anything else worth saying. A finding's location (path, and lines where it can say) is what decides whether a later fix makes it due for re-verification, so give one wherever there is one.
 
 Delete the detail files once the round is aggregated; anything worth keeping goes into `scrutiny_results.json`.
 
@@ -66,11 +65,11 @@ A seat's verdict is its findings' severity: `--record` records the seat as block
 
 A blocking finding stays open until a verdict record closes it: a `reverified` or `dismissed` record written by a reviewer or a check, or by a decider on a finding that decider raised, naming the run that wrote it. Your own claim that a finding is fixed is a `fixed` record, which asks for re-verification and never closes anything, and the panel passes only when no blocking finding of the panel is open.
 
-`--record` stamps each verdict with the commit it was given at and the acceptance criteria it was judged against; that is what the next round's scope is computed from. A seat that wasn't spawned is left as it was. If `--record` fails, fix the cause its exit code names (65 a malformed round file or a missing severity, 66 a context write, 68 a commit made since the round was planned: tick koto without evidence to re-plan, and run the round again) and run it again before submitting anything. Don't go on without it: the ledger would still hold the seat's previous verdict, and a seat that just blocked could be carried as passed next round. If it can't be fixed, submit `scrutiny_outcome: blocking_escalate`. The `scrutiny_verdict` gate holds the state (exit 2) while any seat this round spawned has no verdict recorded since the round was planned, so a skipped record stops the run here rather than surfacing next round; the `scrutiny_recorded` gate holds the same edges while a spawned seat's verdict is older than the round.
+`--record` stamps each verdict with the commit it was given at and the acceptance criteria it was judged against; that is what the next round's scope is computed from. A seat that wasn't spawned is left as it was. If `--record` fails, fix the cause its exit code names (65 a malformed round file or a missing severity, 66 a context write, 68 a commit made since the round was planned: tick koto without evidence to re-plan, and run the round again) and run it again before submitting anything. Don't go on without it: the ledger would still hold the seat's previous verdict, and a seat that just blocked could be carried as passed next round. If it can't be fixed, submit `scrutiny_outcome: blocking_escalate`. The `scrutiny_verdict` gate holds the state (exit 2) while any run this round planned is not recorded, so a skipped record stops the run here rather than surfacing next round; the `scrutiny_recorded` gate holds the same edges until it is.
 
 Then tick koto with nothing submitted. The `scrutiny_verdict` gate reads the ledger (`panel-scope.sh --verdict scrutiny`) and decides:
 
-- Exit 0, every seat recorded and none blocking: koto advances to `review`. Optionally write `scrutiny_results.json` first, as the round's summary for a reader; no gate reads it.
+- Exit 0, every run recorded and every blocking finding closed: koto advances to `review`. Optionally write `scrutiny_results.json` first, as the round's summary for a reader; no gate reads it.
 - Exit 1, a blocking finding is unclosed: the gate prints one finding per unclosed blocking finding, under the active rule it cites or under `panel/open-finding`. Collect them and submit `scrutiny_outcome: blocking_retry` via the Retry Loop below, once the retry budget in the state's directive grants it (otherwise escalate). That routes to `implementation`, where the coder agent takes the combined feedback; the run then walks forward and re-enters this phase. It does not self-loop.
 - Exit 2, the round isn't fully recorded or the ledger can't be read: record the round and tick again.
 
