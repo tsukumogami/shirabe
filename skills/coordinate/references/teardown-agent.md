@@ -32,6 +32,22 @@ Report back to the coordinator the script's exit code and its last line,
 verbatim: `teardown-pass: done <archive>`, `teardown-pass: refused: <why>` or
 `teardown-pass: incomplete at <step>: <why>`. Then wait for the next pass.
 
+## A removed pass
+
+Some verdicts say `removed yes`: the unit was already torn down outside the
+pass, so its instance line reads `instance - <path>` and its job line is
+`job <id> <session>` or `job -`. You run the same command, and you report the
+same way. The script sees the removed verdict itself: it checks the pull
+requests and the handoff comment, then that niwa and Claude Code list nothing
+for the unit (a listing it can't read refuses), and skips the inventory, since
+there is no instance left to read. It archives what survived, the worker's
+last transcript and its koto sessions, along with `teardown.json`, and posts
+the cost entry. It runs no `niwa destroy` and no `claude rm`: there is nothing
+left to remove. With `job -` no session survived, so it archives and posts
+nothing, and its last line still starts `teardown-pass: done`. A removed pass
+changes nothing about what you may run; it only means the script has less to
+do.
+
 ## What you never do
 
 - Run anything else that removes, stops or changes something: no `niwa
