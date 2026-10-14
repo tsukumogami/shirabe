@@ -39,8 +39,10 @@
 #      record, not the default the session was opened with;
 #   5. a holding with no next step holds the gate too, and a Work row clears it;
 #   6. a run imported while it waits at the hub (on a third host) is printed
-#      as `state=wait` with `tick=moved`, and that tick takes it through a full
-#      reconcile whose report is read on the new host and names its source.
+#      as `state=wait` with `tick=moved`; the check the hub's directive asks
+#      on every visit says a reconcile is owed, and says it again when read
+#      again; the moved tick takes it through a full reconcile whose report is
+#      read on the new host and names its source, and the check is clear.
 #
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure.
@@ -204,6 +206,8 @@ eq "a next step per holding" "waiting on the panel at the head|fix round on the 
     "$(printf '%s' "$H" | jq -r '[.workers[].next] | join("|")')"
 eq "the local agent's work, which no holding covers" "fix for the ablation check: ready report, then the merge" \
     "$(printf '%s' "$H" | jq -r '.work[] | select(.kind == "local-agent") | "\(.item): \(.next)"')"
+# The writer stamps a Standing row with the minute it is written, so the
+# stored set read back carries that minute, not a date the fixture chose.
 printf '%s' "$H" | jq -e '.standing[0] | .owner == "the human" and .relayed_by == "the process owner" and (.set | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$"))' >/dev/null \
     && ok "the standing answer, with who and when" || bad "the standing answer, with who and when" "$(printf '%s' "$H" | jq -c .standing)"
 eq "the hold, with who and when" "after-release acme/widgets#12 the human 2026-09-29T20:30Z" \
@@ -234,8 +238,10 @@ state --standing go-ahead --what "release shirabe v0.25.0 once Feature 1 lands" 
 eq "the replacement relays it" 0 $?
 eq "  ... the person as owner and itself as relayer" "go-ahead alice lane-v2" \
     "$(handover | jq -r '.standing[] | select(.kind == "go-ahead") | "\(.kind) \(.owner) \(.relayed_by)"')"
-entries | jq -e 'any(.[]; .kind == "go-ahead" and (.text | test("Owner: alice\\. Relayed by lane-v2\\.")))' >/dev/null \
-    && ok "  ... and the entry tells it" || bad "  ... and the entry tells it" "$(entries | jq -c 'map({kind, text})')"
+# On the session store an entry's author is the address the record's
+# coordinator row names (a GitHub comment's would be its login).
+entries | jq -e 'any(.[]; .kind == "go-ahead" and .author == "lane-v2" and (.text | test("Owner: alice\\. Relayed by lane-v2\\.")))' >/dev/null \
+    && ok "  ... and the entry tells it, written by the replacement" || bad "  ... and the entry tells it, written by the replacement" "$(entries | jq -c 'map({kind, author, text})')"
 
 echo "== 4. past the gate, the cap is the record's =="
 state --told worker-f2 --by lane-v2; eq "worker-f2 is told" 0 $?
@@ -261,7 +267,13 @@ OUT=$(host_on c bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json"
 eq "host C imports it" 0 $?
 printf '%s\n' "$OUT" | grep -qx 'state=wait' && ok "  ... printing that it waits at the hub" || bad "  ... printing that it waits at the hub" "$OUT"
 printf '%s\n' "$OUT" | grep -qx 'tick=moved' && ok "  ... and the tick that comes first" || bad "  ... and the tick that comes first" "$OUT"
+# The hub's directive asks this check on every visit; it reads the run's own
+# keys, so it still says a reconcile is owed when read again, as after a
+# restart, until the reconcile on this host clears it.
+run reconcile-report-get.sh --check >/dev/null 2>&1; eq "the hub's check says a reconcile is owed on C" 3 $?
+run reconcile-report-get.sh --check >/dev/null 2>&1; eq "  ... and still says so when read again" 3 $?
 eq "the moved tick takes it through a full reconcile on C" reconcile "$(at --with-data '{"event":"moved"}')"
+run reconcile-report-get.sh --check >/dev/null 2>&1; eq "  ... after which the check is clear" 0 $?
 host_on c koto context get "$S" reconcile/report.md 2>/dev/null | grep -qF "This run was imported from session \`$S\` in workspace \`$WS_B\`" \
     && ok "  ... whose report was read on C, naming B as the source" \
     || bad "  ... whose report was read on C, naming B as the source" "$(host_on c koto context get "$S" reconcile/report.md 2>&1 | head -5)"

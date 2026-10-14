@@ -838,9 +838,11 @@ states:
       - target: pick_facts
         when:
           event: resume
-      # The run was imported to this host while it waited here: a new visit
-      # to the pass reads this host's workers, inventory and legs, as a start
-      # does, before anything acts on the record.
+      # The run was imported to this host and hasn't reconciled here (the
+      # directive's check exits 3): a new visit to the pass reads this host's
+      # workers, inventory and legs, as a start does, before anything acts on
+      # the record. A stray moved tick costs one more reconcile and nothing
+      # else.
       - target: reconcile_pass
         when:
           event: moved
@@ -2655,8 +2657,8 @@ reconcile runs at every start and restart, again whenever the record is
 found anew after a conflict, and again
 on the first tick after an import: a report sealed on the old host read that
 host's workers, so the gate sends the run back to the pass to read this one.
-An import that finds the run at the hub gets there through the hub's `moved`
-event instead. Later turns re-check only the holdings they are about to act
+A run imported anywhere else gets there through the hub's `moved` event: the
+hub checks for a reconcile still owed on every visit. Later turns re-check only the holdings they are about to act
 on, which each spoke's read already does.
 
 ## posture_ask
@@ -3000,6 +3002,14 @@ A `koto next --to` anywhere in this run sends it to the human.
 
 ## wait
 
+First, every time you are here, check that this run has reconciled on this
+host: `"{{PLUGIN_ROOT}}/skills/coordinate/scripts/reconcile-report-get.sh" --session {{SESSION_NAME}} --check`.
+Exit 3 means it was imported to this host and hasn't reconciled here since:
+tick `moved` before anything else, and take the event you came with on the
+tick after the reconcile. The check reads what the run holds (its import facts
+against those its sealed report was read under), so it holds after a restart
+and whichever state the import found the run in.
+
 Tick on each message or notification and name the `event`, with the `unit` it is
 about; never poll. `progress` for a worker's checkpoint report that only says
 where it is (its brief asks for one at each checkpoint, and it is never the
@@ -3023,9 +3033,9 @@ reading Done on a milestone roadmap no longer meets a clause of its Evidence
 (a failed dispatch is never this: that is `redispatch`); `retire` to finish with a worker; `resume` when a pause has ended
 or its condition may be met, so pick reads the pauses again; `redispatch`, with
 the unit, to take up again a re-dispatch a pause held; `end` when the
-rotation or the scope ends; `moved` once, first, when this run was just
-imported to this host (`coordinate-open.sh --import` printed `tick=moved`), so
-a full reconcile reads this host before anything acts.
+rotation or the scope ends; `moved` when the check above exits 3 (the opener
+prints `tick=moved` when an import finds the run here), so a full reconcile
+reads this host before anything acts.
 
 Two writes come before acting, whatever event follows. When a person's word
 arrives, on the record's thread or anywhere else (a pause or a resume, a cap, a

@@ -125,13 +125,16 @@ work.
    start carries it. A
    good import prints `imported=<name>`, `resumed=1` and `session=<name>`, and
    `record/host` takes the source workspace, session and template hash. The
-   run keeps its stamp. It reconciles again before it acts, because a report
+   run keeps its stamp. It reconciles again on this host, because a report
    sealed on the old host describes that host's workers. The opener prints
    `state=<where the run stands>`. At the hub, where a stopped coordinator
    almost always is, it also prints `tick=moved`: tick the hub with `event:
    moved` first, and a full reconcile reads this host. A run at reconcile does
-   it by itself on its first tick; one anywhere else ticks `moved` when it next
-   reaches the hub.
+   it by itself on its first tick. A run imported anywhere else finishes the
+   step it was on and reconciles when it reaches the hub, whose directive
+   checks on every visit for a reconcile still owed (`reconcile-report-get.sh
+   --check` exits 3) and has you tick `moved`. The check reads the run's own
+   keys, so it survives a restart.
 
 3. **Tick.** Call `koto next <session> --no-cleanup`, do what the directive says,
    submit the evidence it asks for, and repeat. **Every `koto next` carries

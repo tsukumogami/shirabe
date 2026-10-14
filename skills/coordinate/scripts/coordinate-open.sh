@@ -43,7 +43,9 @@
 # `resumed=1`, `session=<it>`, then `state=<the run's state>` and, when the run
 # waits at the hub, `tick=moved`: the first tick, which sends it through a full
 # reconcile on this host. A run at reconcile reconciles again by itself; one
-# anywhere else ticks `moved` once it reaches the hub.
+# anywhere else does when it reaches the hub, whose directive checks for a
+# reconcile still owed (`reconcile-report-get.sh --check` exits 3) on every
+# visit.
 #
 # Tokens, in order, from a JSON array of strings in <args-file>:
 #   <roadmap-path>               roadmap scope (docs/roadmaps/.../ROADMAP-<name>.md)
@@ -270,16 +272,17 @@ if [ -n "$IMPORT" ]; then
         --host template_hash "$HASH" > /dev/null 2>&1 \
         || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run record-state.sh --host for it" >&2; exit 1; }
     printf 'imported=%s\nresumed=1\nsession=%s\n' "$IMPORT" "$IMPORT"
-    # The run reconciles again on this host before it acts. At reconcile it
-    # does so by itself (its sealed report names another host's import facts);
-    # at the hub it needs the `moved` tick, which only the hub accepts, so a
-    # run elsewhere ticks it when it next reaches the hub.
+    # The run reconciles again on this host. At reconcile it does so by itself
+    # (its sealed report names another host's import facts). The hub takes the
+    # `moved` tick, and its directive checks for a reconcile still owed on
+    # every visit, so a run anywhere else gets the reconcile when it reaches
+    # the hub; that check reads the run's own keys, so a restart keeps it.
     AT=$("$KOTO" status "$IMPORT" 2>/dev/null </dev/null | jq -r '.current_state // empty' 2>/dev/null)
     printf 'state=%s\n' "${AT:-unknown}"
     case "$AT" in
         reconcile|reconcile_pass) ;;
         wait) echo "tick=moved" ;;
-        *) echo "coordinate-open: $IMPORT is at ${AT:-an unreadable state}; once it reaches wait, tick it with event moved so it reconciles on this host" >&2 ;;
+        *) echo "coordinate-open: $IMPORT is at ${AT:-an unreadable state}; it reconciles on this host when it next reaches wait, whose check sends it through moved" >&2 ;;
     esac
     exit 0
 fi
