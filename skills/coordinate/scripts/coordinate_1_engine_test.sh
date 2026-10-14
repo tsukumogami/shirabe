@@ -1,0 +1,280 @@
+#!/usr/bin/env bash
+# coordinate_1_engine_test.sh -- part 1 of 4 of the coordinate engine cases: the shipped
+# coordinate.md driven through real koto, from sessions coordinate-open.sh
+# opens, against the testdata/gh stand-in. The four parts share their setup and
+# helpers (testdata/coordinate-engine-lib.sh) and run side by side under
+# scripts/check-skill.sh; the cases are split in file order, so a case that
+# reuses an earlier case's fixtures stays in that case's part.
+#
+# Proves, one line per case:
+#   1. dispatch is unreachable without exactly one record (none stops at
+#      record_open, two at record_conflict, a record that vanishes routes
+#      dispatch_check back to record_find), and once the stand-in holds the
+#      record the run reaches pick with no evidence naming it, after a new
+#      record's empty stored set held the reconcile handover gate until
+#      record-state.sh filled it;
+#   2. a restart with a record present takes the found arm, never record_open;
+#   3. an undisposed deferral holds dispatch_check at deferral_dispose until
+#      record-write.sh disposes it, then dispatch is reached;
+#   4. `dispatch` holds (the dispatch path's holding_recorded gate) until the
+#      Holdings row shows dispatched, so record and wait are unreachable until
+#      then, and record holds until the holding has its Work row;
+#   5. a Draft roadmap ends at done_not_active;
+#   6. an unread posture reaches posture_ask;
+#   7. `koto overrides record` is refused on a check gate and on the dispatch
+#      gate, with and without data;
+#   8. evidence that contradicts the stand-in doesn't change a check's route;
+#   9. every value of wait's event enum reaches its spoke with no
+#      template_error;
+#
+# Needs koto, jq and git; SKIPs (exit 0) without koto, which
+# run-tests.sh --engine turns into a failure.
+# Usage: bash skills/coordinate/scripts/coordinate_1_engine_test.sh
+set -uo pipefail
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+. "$HERE/testdata/coordinate-engine-lib.sh"
+
+# ---- helpers -----------------------------------------------------------------
+
+
+
+# ---- 1. exactly one record ---------------------------------------------------
+echo "== 1. dispatch needs exactly one record =="
+seed_roadmap one
+if open_run one; then
+    eq "1: no record stops at record_open" record_open "$(at)"
+    tick --with-data '{"choice":"dispatch","unit":"feat-1"}' >/dev/null
+    eq "1: record_open refuses pick's evidence and stays" record_open "$(now_at)"
+    eq "1: dispatch is never entered without a record" 0 "$(entered dispatch)"
+    render "$(record_json roadmap one)" issue > "$T/open.md"
+    write_as_agent record-open.sh --body-file "$T/open.md"; rc=$?
+    eq "1: record-open.sh (agent-run) opens the record" 0 $rc
+    N1=$(record_number one)
+    eq "1: after record_open the run finds the one record and reaches reconcile" reconcile "$(at --with-data '{"opened":"opened"}')"
+    eq "1: a new record's empty stored set holds the handover gate" reconcile "$(at --with-data '{"reconciled":"reported"}')"
+    write_as_agent record-state.sh --run arguments "docs/roadmaps/ROADMAP-one.md" --by "the human" \
+        && write_as_agent record-state.sh --run cap 5 --by "the human" \
+        && write_as_agent record-state.sh --run coordinator coord-test --by coord-test
+    eq "1: record-state.sh (agent-run) writes the arguments, the cap and the address" 0 $?
+    eq "1: the next advance reaches pick" pick "$(at --with-data '{"reconciled":"reported"}')"
+    NAMED=$(jq -r --arg n "$N1" 'select(.type == "evidence_submitted") | .payload.fields | tostring
+        | select(test("(^|[^0-9])" + $n + "([^0-9]|$)") or test("issues/"))' "$(logf)")
+    eq "1: no evidence named the record" "" "$NAMED"
+    # The record goes away between pick and dispatch_check.
+    db '(.issues[] | select(.number == ($n | tonumber))).state = "closed"' --arg n "$N1"
+    eq "1: a record closed under the run routes dispatch_check back to record_open" record_open \
+        "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
+    from_to dispatch_check record_find && ok "1: the route was dispatch_check -> record_find" || bad "1: the route was dispatch_check -> record_find"
+    eq "1: still no dispatch" 0 "$(entered dispatch)"
+else
+    bad "1: open a run" "$(cat "$T/open.err")"
+fi
+seed_roadmap two
+seed_record two 20
+seed_record two 21
+if open_run two; then
+    eq "1: two records stop at record_conflict" record_conflict "$(at)"
+    eq "1: recheck with both still open stays at record_conflict" record_conflict "$(at --with-data '{"resolution":"recheck"}')"
+    eq "1: dispatch is never entered with two records" 0 "$(entered dispatch)"
+else
+    bad "1: open a run with two records" "$(cat "$T/open.err")"
+fi
+
+# ---- 2. restart with a record present ----------------------------------------
+echo "== 2. a restart takes the found arm =="
+seed_roadmap restart
+if open_run restart && [ "$(at)" = record_open ]; then
+    render "$(record_json roadmap restart)" issue > "$T/open.md"
+    write_as_agent record-open.sh --body-file "$T/open.md"
+    at --with-data '{"opened":"opened"}' >/dev/null
+    FIRST=$S
+    sleep 1
+    reset_calls
+    if open_run restart; then
+        [ "$S" != "$FIRST" ] && ok "2: the restart is a new session" || bad "2: the restart is a new session" "$S"
+        eq "2: the restart reaches reconcile" reconcile "$(at)"
+        eq "2: the restart never enters record_open" 0 "$(entered record_open)"
+        from_to record_find reconcile_pass && from_to reconcile_pass reconcile && ok "2: record_find -> reconcile_pass -> reconcile is the found arm" || bad "2: record_find -> reconcile_pass -> reconcile is the found arm"
+        grep -q '^issue create' "$GH_DB.calls" && bad "2: nothing opens a second record" "$(grep '^issue create' "$GH_DB.calls")" \
+            || ok "2: nothing opens a second record"
+        eq "2: one record still" 1 "$(record_number restart | wc -w | tr -d ' ')"
+        N7=$(record_number restart)
+        case "$(cd "$T/work" && koto context get "$S" record_url 2>&1)" in
+            https://github.com/*/issues/"$N7") ok "2: the found record's URL is in context for the terminal results" ;;
+            *) bad "2: the found record's URL is in context for the terminal results" "$(cd "$T/work" && koto context get "$S" record_url 2>&1)" ;;
+        esac
+    else
+        bad "2: reopen the run" "$(cat "$T/open.err")"
+    fi
+else
+    bad "2: first run reaches record_open" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 3. an undisposed deferral ----------------------------------------------
+echo "== 3. an undisposed deferral holds dispatch =="
+REC3=$(record_json roadmap defer | jq -c '.deferrals = [{deferral: "retry flaky job", reason: "out of scope", raised: "2020-01-01T00:00Z", disposition: ""}]')
+if to_pick defer "$REC3" 30; then
+    eq "3: an undisposed deferral routes dispatch_check to deferral_dispose" deferral_dispose \
+        "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
+    eq "3: rewritten without a write returns to deferral_dispose" deferral_dispose "$(at --with-data '{"rewritten":"rewritten"}')"
+    eq "3: dispatch is unreachable while it is open" 0 "$(entered dispatch)"
+    # Edit the live body keeping its Written: line: record-write.sh compares it
+    # with the live record's before writing.
+    live_body 30 | jq -c '.deferrals[0].disposition = "closed: moot"' > "$T/rec.json"
+    jq 'del(.written)' "$T/rec.json" | bash "$PS/record-render.sh" --container issue --written "$(jq -r .written "$T/rec.json")" > "$T/body.md"
+    write_as_agent record-write.sh --body-file "$T/body.md"; rc=$?
+    eq "3: record-write.sh (agent-run) disposes the deferral" 0 $rc
+    eq "3: once disposed, dispatch_check reaches dispatch" dispatch "$(at --with-data '{"rewritten":"rewritten"}')"
+else
+    bad "3: reach pick" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 4. the record step holds until the Holdings row shows -------------------
+echo "== 4. dispatch reaches wait only through a recorded holding =="
+if to_pick hold "$(record_json roadmap hold)" 40 && [ "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')" = dispatch ]; then
+    eq "4: dispatched without a row holds at dispatch" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    eq "4: another tick still holds" dispatch "$(at)"
+    eq "4: record is unreachable before the row" 0 "$(entered record)"
+    eq "4: wait is unreachable before the row" 0 "$(entered wait)"
+    sleep 1
+    dispatched_row feat-1 > "$T/row.json"
+    write_as_agent record-holding.sh --topic feat-1 --row-file "$T/row.json"; rc=$?
+    eq "4: record-holding.sh (agent-run) writes the row" 0 $rc
+    eq "4: with the row on GitHub, dispatch leaves, and record waits for the holding's Work row" record "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    write_as_agent record-state.sh --work "Feature 1" --kind holding --who feat-1 --next "waiting on its first report"; rc=$?
+    eq "4: record-state.sh (agent-run) writes the holding's next step" 0 $rc
+    eq "4: with the Work row on GitHub, record confirms and reaches pick" pick "$(at)"
+    eq "4: and pick can now hold into wait" wait "$(at --with-data '{"choice":"hold"}')"
+else
+    bad "4: reach dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 5. a Draft roadmap ------------------------------------------------------
+echo "== 5. a Draft roadmap =="
+seed_roadmap drafty Draft
+if open_run drafty; then
+    eq "5: a Draft roadmap ends at done_not_active" done_not_active "$(at)"
+    eq "5: nothing past start" 0 "$(entered start_posture)"
+else
+    bad "5: open a run" "$(cat "$T/open.err")"
+fi
+
+# ---- 6. an unread posture ----------------------------------------------------
+echo "== 6. an unread posture =="
+seed_roadmap unread
+seed_record unread 60
+if open_run unread "$T/bare"; then
+    eq "6: the found record still reaches reconcile" reconcile "$(at)"
+    case "$(bash "$PS/coord-log.sh" capture --session "$S" --name POSTURE)" in
+        unread*) ok "6: the posture captured is unread" ;;
+        *) bad "6: the posture captured is unread" ;;
+    esac
+    eq "6: reconcile routes an unread posture to posture_ask" posture_ask "$(at --with-data '{"reconciled":"reported"}')"
+    eq "6: pick_facts is not reached" 0 "$(entered pick_facts)"
+else
+    bad "6: open a run" "$(cat "$T/open.err")"
+fi
+
+# ---- 7. no override on a check gate ------------------------------------------
+echo "== 7. overrides are refused on check gates =="
+seed_roadmap ovr
+seed_record ovr 70
+if open_run ovr && [ "$(at)" = reconcile ]; then
+    try_override() { # try_override <label> <gate> [data]
+        local rc
+        if [ -n "${3-}" ]; then
+            (cd "$WD" && koto overrides record "$S" --gate "$2" --rationale "test" --with-data "$3" >"$T/ovr.out" 2>&1); rc=$?
+        else
+            (cd "$WD" && koto overrides record "$S" --gate "$2" --rationale "test" >"$T/ovr.out" 2>&1); rc=$?
+        fi
+        [ $rc -ne 0 ] && ok "7: $1 is refused" || bad "7: $1 is refused" "$(head -c 300 "$T/ovr.out")"
+    }
+    try_override "an override of reconcile_posture without data" reconcile_posture
+    try_override "an override of reconcile_posture with data" reconcile_posture '{"exit_code":25}'
+    at --with-data '{"reconciled":"reported"}' >/dev/null
+    at --with-data '{"choice":"dispatch","unit":"feat-1"}' >/dev/null
+    if [ "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')" = dispatch ]; then
+        try_override "an override of holding_recorded without data" holding_recorded
+        try_override "an override of holding_recorded with data" holding_recorded '{"exit_code":0}'
+        eq "7: dispatch stays blocked after the attempts" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+    else
+        bad "7: reach a blocked dispatch" "$(cat "$T/tick.err")"
+    fi
+    OV=$(cd "$WD" && koto overrides list "$S" 2>/dev/null | jq -r '[.. | objects | select(has("gate"))] | length' 2>/dev/null)
+    eq "7: no override is on record" 0 "${OV:-0}"
+    eq "7: the log has no override event" 0 "$(jq -s '[.[] | select((.type // "") | test("override"))] | length' "$(logf)")"
+else
+    bad "7: reach reconcile" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 8. evidence can't change a check's route --------------------------------
+echo "== 8. contradicting evidence doesn't move a check =="
+seed_roadmap contra
+if open_run contra && [ "$(at)" = record_open ]; then
+    eq "8: 'opened' with no record on GitHub routes record_find back to record_open" record_open "$(at --with-data '{"opened":"opened"}')"
+    eq "8: record_find read none twice" 2 "$(jq -s '[.[] | select(.type == "variable_captured" and .payload.key == "RECORD_FIND" and (.payload.value | startswith("none ")))] | length' "$(logf)")"
+else
+    bad "8: reach record_open" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+seed_roadmap contra2
+seed_record contra2 80
+if open_run contra2 "$T/bare" && [ "$(at)" = reconcile ]; then
+    R=$(tick --with-data '{"reconciled":"reported","merge":"permitted"}')
+    [ -n "$(printf '%s' "$R" | jq -r '.error.code // empty')" ] && ok "8: reconcile refuses a field it doesn't accept" || bad "8: reconcile refuses a field it doesn't accept" "$R"
+    eq "8: an unread posture routes to posture_ask whatever the evidence says" posture_ask "$(at --with-data '{"reconciled":"reported"}')"
+else
+    bad "8: reach reconcile with an unread posture" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+if to_pick contra3 "$(record_json roadmap contra3)" 81 && [ "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')" = dispatch ] \
+    && [ "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')" = dispatch ]; then
+    R=$(tick --with-data '{"dispatched":"sent","topic":"feat-1","confirmed":"yes"}')
+    [ -n "$(printf '%s' "$R" | jq -r '.error.code // empty')" ] && ok "8: dispatch refuses evidence claiming it is confirmed" || bad "8: dispatch refuses evidence claiming it is confirmed" "$R"
+    eq "8: and stays at dispatch, the row not on GitHub" dispatch "$(at --with-data '{"dispatched":"sent","topic":"feat-1"}')"
+else
+    bad "8: reach a blocked dispatch" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
+fi
+
+# ---- 9. every wait event reaches its spoke -----------------------------------
+echo "== 9. every wait event reaches its spoke =="
+# Each value is submitted from a fresh wait visit: a run of its own, driven to
+# wait the legitimate way (pick -> hold). No `koto next --to` is used: koto
+# 0.13 only directs along a declared edge, and most spokes have none back to
+# wait.
+J=$(koto template compile "$TPL" 2>/dev/null)
+if [ -n "$J" ] && [ -r "$J" ]; then
+    EVENTS=$(jq -r '.states.wait.accepts.event.values[]' "$J")
+    [ -n "$EVENTS" ] || bad "9: wait accepts an event enum" "none in the compiled template"
+    # Record numbers from 901 up, one per event, clear of every other case's
+    # record however many events wait accepts.
+    n=900
+    for ev in $EVENTS; do
+        n=$((n + 1))
+        # The expected spoke: the arm for this value, and for a `vars.` guard
+        # the one that holds at roadmap scope (DISCIPLINE unset).
+        WANT=$(jq -r --arg e "$ev" '[.states.wait.transitions[] | select(.when.event == $e)
+            | select((.when["vars.DISCIPLINE"] // null) == null or .when["vars.DISCIPLINE"].is_set == false) | .target][0] // ""' "$J")
+        if ! to_pick "spoke-$ev" "$(record_json roadmap "spoke-$ev" | jq -c --argjson h "$(unit_row feat-1)" '.holdings = [$h]')" "$n" \
+            || [ "$(at --with-data '{"choice":"hold"}')" != wait ]; then
+            bad "9: reach wait for $ev" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"; continue
+        fi
+        SEQ=$(jq -s 'map(.seq) | max' "$(logf)")
+        # answer and evidence name their decision (and an answer its round):
+        # wait's arms for them need the fields present.
+        R=$(tick --with-data "$(jq -nc --arg e "$ev" '{event: $e, unit: "feat-1"}
+            + (if $e == "answer" then {decision: "1", round: "1"} elif $e == "evidence" then {decision: "1"} else {} end)')")
+        GOT=$(jq -r --argjson q "$SEQ" 'select(.seq > $q and .type == "transitioned" and .payload.from == "wait") | .payload.to' "$(logf)" | head -1)
+        TE=$( { printf '%s\n' "$R"; cat "$T/tick.err"; jq -c --argjson q "$SEQ" 'select(.seq > $q)' "$(logf)"; } | grep -c 'template_error')
+        if [ -n "$WANT" ] && [ "$GOT" = "$WANT" ] && [ "$TE" = 0 ]; then
+            ok "9: event $ev reaches $WANT"
+        else
+            bad "9: event $ev reaches ${WANT:-its spoke}" "got [$GOT], template_error lines $TE, response $(printf '%s' "$R" | head -c 300)"
+        fi
+    done
+else
+    bad "9: compile the template" "koto template compile failed"
+fi
+
+echo
+echo "coordinate_engine part 1: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]
