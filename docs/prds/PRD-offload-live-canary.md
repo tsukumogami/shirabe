@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   Every shirabe rule is preloaded into an agent's instructions, including
   rules a koto gate already checks after the agent acts, and nobody can say
@@ -22,7 +22,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 The completeness, clarity and testability reviewers all passed it, the first
 two on a second round. The downstream DESIGN owns the approach.
