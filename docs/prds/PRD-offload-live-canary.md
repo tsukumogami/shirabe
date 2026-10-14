@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   Every shirabe rule is preloaded into an agent's instructions, including
   rules a koto gate already checks after the agent acts, and nobody can say
@@ -21,7 +21,7 @@ upstream: docs/briefs/BRIEF-offload-live-canary.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
