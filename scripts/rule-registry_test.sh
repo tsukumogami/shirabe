@@ -38,8 +38,8 @@ export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
 
 REGISTRY_JSON='{"schema":"shirabe-rule-registry/v1","rules":[
- {"id":"t/multi","status":"active","summary":"Multi-line rule","text":{"path":"references/r.md","first":"RULE-MULTI starts","last":"RULE-MULTI ends"}},
- {"id":"t/single","status":"active","summary":"Single-line rule","text":{"path":"references/r.md","first":"RULE-SINGLE only line"}},
+ {"id":"t/multi","status":"active","summary":"Multi-line rule","withhold":"eligible","text":{"path":"references/r.md","first":"RULE-MULTI starts","last":"RULE-MULTI ends"}},
+ {"id":"t/single","status":"active","summary":"Single-line rule","withhold":"never","text":{"path":"references/r.md","first":"RULE-SINGLE only line"}},
  {"id":"t/retired","status":"retired","summary":"Gone","text":{"path":"references/gone.md","first":"nothing"}},
  {"id":"t/dup","status":"active","summary":"Dup","text":{"path":"references/r.md","first":"DUP"}},
  {"id":"t/backwards","status":"active","summary":"Backwards","text":{"path":"references/r.md","first":"RULE-MULTI ends","last":"RULE-MULTI starts"}},
@@ -222,6 +222,22 @@ run "$I" text t/multi
 want=$(sed -n '3,5p' "$I/references/r.md")
 [ "$RC" -eq 0 ] && [ "$OUT" = "$want" ] && pass "text prints the lines byte for byte, backslash included" \
     || fail "text" "out=[$OUT]"
+
+run "$I" range t/multi
+[ "$RC" -eq 0 ] && [ "$OUT" = "3 5" ] && pass "range prints the text's first and last line numbers" || fail "range" "out=[$OUT]"
+run "$I" range t/single
+[ "$RC" -eq 0 ] && [ "$OUT" = "7 7" ] && pass "range of a one-line rule is that line twice" || fail "range single" "out=[$OUT]"
+expect_rc 2 "range of a rule whose anchors don't resolve" range t/backwards
+expect_rc 1 "range of a retired id" range t/retired
+
+run "$I" withhold t/multi
+[ "$RC" -eq 0 ] && [ "$OUT" = eligible ] && pass "withhold prints eligible" || fail "withhold eligible" "out=[$OUT]"
+run "$I" withhold t/single
+[ "$RC" -eq 0 ] && [ "$OUT" = never ] && pass "withhold prints never" || fail "withhold never" "out=[$OUT]"
+run "$I" withhold t/dup
+[ "$RC" -eq 2 ] && [ -z "$OUT" ] && pass "withhold of an entry with no withhold value exits 2 and prints nothing" \
+    || fail "withhold missing" "rc=$RC out=[$OUT]"
+expect_rc 1 "withhold of an unknown id" withhold t/none
 
 echo '{"rules": [' > "$T/broken.json"
 OUT=$("$I/scripts/rule-registry.sh" --registry "$T/broken.json" ref t/multi 2>/dev/null); RC=$?

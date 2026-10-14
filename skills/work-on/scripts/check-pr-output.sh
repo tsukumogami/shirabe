@@ -225,10 +225,10 @@ check_pr_body() {
             "shirabe validate --pr-body reported violations it did not list; run it on the PR body for the detail"
     fi
     # PB4 is the rule the offload canary may leave out of a run's preloaded
-    # text (DESIGN-offload-live-canary.md), so when it is broken its full text
-    # is released here, once, whichever group the run is in. release prints on
-    # stderr, which koto returns to the agent with the gate's output, and
-    # always exits 0, so it never changes this gate's result.
+    # text (docs/designs/current/DESIGN-offload-live-canary.md), so when it is
+    # broken its full text is released here, once, in every run. release
+    # prints on stderr, which koto returns to the agent with the gate's output,
+    # and always exits 0, so it never changes this gate's result.
     if [ "$pb4" -eq 1 ]; then
         "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null
     fi

@@ -100,3 +100,14 @@ loads by default.
 The first trigger is `/execute`'s owned-PR lookup: when `adopt-or-create-pr.sh` finds another
 run's pull request on the plan's shared branch (its exit 6), it releases
 `execute/pr-takeover-needs-signal`.
+
+The second is `/work-on`'s PR-body gate: when `check-pr-output.sh` prints a
+`pr-body/no-heading-in-part1` finding, it releases that rule's text once.
+
+## Leaving a rule out of a run
+
+The live offload canary (`docs/designs/current/DESIGN-offload-live-canary.md`) leaves one rule's
+text out of the conformance text half of `/work-on` runs read. It reads the registry through
+two more commands: `rule-registry.sh withhold <id>` prints the entry's `withhold` value, and
+the canary draws a group only when it prints `eligible`; `rule-registry.sh range <id>` prints
+the rule's first and last line numbers, which the canary removes from its copy of the file.

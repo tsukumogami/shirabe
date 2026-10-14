@@ -33,7 +33,7 @@ the squashed commit reads cleanly.
 
 ## The gated checks (mechanical)
 
-These four checks are objective — a machine decides them with no judgment — so
+These checks are objective — a machine decides them with no judgment — so
 they are gated. `shirabe validate --pr-body <file> [--pr-title <string>]`
 enforces them offline (no `gh`, no network).
 
@@ -101,7 +101,7 @@ Everything else is judgment and is **not** gated:
   Part 1 and a Part 2 that is only `Fixes #N` passes.
 
 Gating any of these would fail correct PRs; the check deliberately confines
-itself to the four mechanical rules so it never false-positives on a
+itself to the mechanical rules above so it never false-positives on a
 well-formed minimal PR.
 
 ## Accepted residuals

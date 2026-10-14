@@ -70,7 +70,7 @@ when it fails on PB4.
 **Complexity**: critical
 
 **Goal**: A standalone `/work-on` run on an opted-in host is assigned to the
-withheld or preloaded group in a new initial state, passes through a marker
+withheld or preloaded group once its plan is ready, passes through a marker
 state named for its group, and reads a conformance text without PB4 when
 withheld, with every other run's instructions unchanged.
 
@@ -97,7 +97,8 @@ withheld, with every other run's instructions unchanged.
       anchor, or the session directory, `pr-rules/` or a file in it is a
       symlink, a draw picks neither group and writes no `sample` file.
 - [ ] `work-on.md` declares `OFFLOAD_CANARY` (`values: ["on", "off"]`,
-      default `"on"`, no `rebind`), sets `initial_state: offload_canary`, and
+      default `"on"`, no `rebind`), routes `analysis`'s `plan_ready` edge to
+      `offload_canary`, keeps `initial_state: entry`, and
       adds exactly the states `offload_canary`, `offload_arm_withheld` and
       `offload_arm_preloaded`, none with `accepts`; `koto template compile`
       passes and `work-on.mermaid.md` matches.

@@ -10,8 +10,8 @@ problem: |
   session.
 decision: |
   Withhold PB4 (no markdown heading in Part 1 of a pull request body) from a
-  random half of standalone /work-on runs. A new initial state runs
-  offload-canary.sh, which draws a group from /dev/urandom, records it in the
+  random half of standalone /work-on runs. A new state on analysis's
+  plan_ready edge runs offload-canary.sh, which draws a group from /dev/urandom, records it in the
   session directory and prints the path of the PR-body conformance text the
   run should read, captured as PR_BODY_RULES. A gate on the same state routes
   to one of two pass-through marker states, offload_arm_withheld or
@@ -156,7 +156,8 @@ Until it's given, the registry change isn't committed.
 
 Resolved inline.
 
-**Chosen: a new initial state, `offload_canary`, whose `default_action` runs
+**Chosen: a new state, `offload_canary`, on `analysis`'s `plan_ready` edge,
+before `review_level_choice`, whose `default_action` runs
 `offload-canary.sh draw` and captures its output as `PR_BODY_RULES`.** The
 script reads `OFFLOAD_CANARY`, `SHARED_BRANCH` and the session directory. It
 draws one byte from `/dev/urandom` and takes its parity, records the group in
@@ -201,6 +202,15 @@ could then route on it directly. Rejected: `/work-on` is opened three ways
 and `/execute`'s `materialize_children`). The first is an agent typing a
 command, which can't be trusted to draw at random, and three draw sites are
 three places to keep in step.
+
+*Alternative: make `offload_canary` the template's initial state.* The
+earliest possible draw. Rejected after the implementation tried it: the
+documented first tick after `koto init` submits the entry evidence (`mode`
+and the issue), and a first state that accepts no evidence advances to
+`entry` with that evidence dropped, which broke every caller and every suite
+that walks the template. `analysis`'s `plan_ready` edge is the one edge every
+run that goes on to implement crosses, it carries no evidence onward, and it
+still comes before any implementation.
 
 *Alternative: draw in the `pr_creation` state itself.* Rejected: the PRD asks
 for the group when the run starts, and a run that never reaches
@@ -254,8 +264,9 @@ Resolved inline.
 **Chosen: two pass-through marker states.** A gate on `offload_canary`,
 `offload_arm`, runs `offload-canary.sh arm` against the session directory: exit
 0 for withheld, 1 for preloaded, 3 for neither. The transitions go to
-`offload_arm_withheld`, `offload_arm_preloaded` or straight to `entry`. Each
-marker state has a single unconditional transition to `entry`, so koto passes
+`offload_arm_withheld`, `offload_arm_preloaded` or straight to
+`review_level_choice`. Each marker state has a single unconditional
+transition to `review_level_choice`, so koto passes
 through it without stopping, and its `state_entered` event carries the name in
 `koto.state`. The coordinator accepted marker states on 2026-10-14.
 
@@ -271,9 +282,10 @@ a session, which the owner ruled out.
 
 ## Decision Outcome
 
-A `/work-on` run starts in `offload_canary`. The draw runs, the gate reads the
+A `/work-on` run starts at `entry` as today. When its analysis plan is
+ready, `analysis` routes to `offload_canary`: the draw runs, the gate reads the
 recorded group, and the run passes through one marker state, or neither, into
-`entry` as today. Nothing else about the run changes until `pr_creation`,
+`review_level_choice`. Nothing else about the run changes until `pr_creation`,
 whose directive tells the agent to author against `{{PR_BODY_RULES}}`. A
 withheld agent reads a conformance text with no PB4 paragraph, and a
 preloaded one reads the real file. When `pr_body_conformant` fails on PB4,
@@ -296,7 +308,7 @@ dependency outside `/work-on` is the registry's admission of PB4.
 | `skills/work-on/scripts/offload-canary.sh` | New. `draw <switch> <shared-branch> <session-dir> <plugin-root>` prints the conformance path and records the group; `arm <session-dir>` exits 0 (withheld, and its rendered file exists), 1 (preloaded) or 3 (neither). Bash 3.2, with `jq` through `rule-registry.sh`, as the other `/work-on` scripts. It reads the registry through the `<plugin-root>` it is given, which is also the test seam: a test points it at a fixture plugin root whose registry marks PB4 eligible. |
 | `scripts/rule-registry.sh` | Two read subcommands: `withhold <id>` prints the entry's `withhold` value, and `range <id>` prints the first and last line numbers `resolve` already computes. The script stays the only reader of the registry. |
 | `references/pr-body-conformance.md` | Reorganized so every statement of PB4 is inside its anchored paragraph, and the anchors move with it. |
-| `skills/work-on/koto-templates/work-on.md` | New variable `OFFLOAD_CANARY` (`values: ["on", "off"]`, default `"on"`, no `rebind`); `initial_state: offload_canary`; three new states; the `pr_creation` directive names `{{PR_BODY_RULES}}` and drops the rule-id list. |
+| `skills/work-on/koto-templates/work-on.md` | New variable `OFFLOAD_CANARY` (`values: ["on", "off"]`, default `"on"`, no `rebind`); `analysis`'s `plan_ready` edge targets `offload_canary`; three new states; the `pr_creation` directive names `{{PR_BODY_RULES}}` and drops the rule-id list. |
 | `skills/work-on/koto-templates/work-on.mermaid.md` | The three states and their edges. |
 | `skills/work-on/references/phases/phase-6-pr.md` | The Create PR paragraph defers to the directive for the conformance text. |
 | `skills/work-on/scripts/check-pr-output.sh` | After printing a `pr-body/no-heading-in-part1` finding, calls `rule-registry.sh release pr-body/no-heading-in-part1` once. |
@@ -315,35 +327,36 @@ offload_canary:
   gates:
     offload_arm:
       type: command
-      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" || exit 3; "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" arm "{{SESSION_DIR}}"'
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" || exit 3; "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" arm "{{SESSION_DIR}}" || { test $? -eq 1 && exit 1; exit 3; }'
   transitions:
     - target: offload_arm_withheld
       when: {gates.offload_arm.exit_code: 0}
     - target: offload_arm_preloaded
       when: {gates.offload_arm.exit_code: 1}
-    - target: entry
+    - target: review_level_choice
       when: {gates.offload_arm.exit_code: 3}
 offload_arm_withheld:
-  transitions: [{target: entry}]
+  transitions: [{target: review_level_choice}]
 offload_arm_preloaded:
-  transitions: [{target: entry}]
+  transitions: [{target: review_level_choice}]
 ```
 
-The `arm` subcommand maps any exit it can't classify to 3, so every outcome
-has an edge. `entry` keeps its own `skip_if` for plan-backed runs, which
-fires after the canary states as it does today after init.
+The gate maps any exit other than 0 or 1 to 3, a missing script included,
+so every outcome has an edge and a broken script can't hold the run.
+`analysis`'s `plan_ready` edge targets `offload_canary` instead of
+`review_level_choice`; nothing else in the template moves.
 
 ### Data flow
 
 1. `koto init` fixes `OFFLOAD_CANARY` (default `on`) and the other variables.
-2. The first `koto next` runs the draw: `on`, no shared branch, no recorded
+2. The tick that submits `plan_ready` at `analysis` runs the draw: `on`, no shared branch, no recorded
    group means one byte from `/dev/urandom`, `withheld` on even parity, else
    `preloaded`. In the withheld group the script first writes the rendered
    conformance text to `<session-dir>/pr-rules/`, then records the group in
    `<session-dir>/pr-rules/sample`; it creates the directory itself and
    refuses a session directory, directory or file that is a symlink.
 3. The gate reads `arm` and koto passes through the marker state into
-   `entry`. The journal records `state_entered` for each state.
+   `review_level_choice`. The journal records `state_entered` for each state.
 4. At `pr_creation` the directive renders `{{PR_BODY_RULES}}`.
 5. On a PB4 failure the gate output carries the finding and the released text.
 6. The sender forwards `state_entered` and `check_rule` as it does today.
@@ -462,9 +475,9 @@ all come from events already exported. The off switch is one line, and a
 broken script can't stop a run. The release-on-failure path is useful even
 with the canary off.
 
-**Negative.** Every `/work-on` run gains three states and one action, and its
-first state is no longer `entry`, which tests and readers of the template
-have to know. The withheld group reads its conformance text from outside the
+**Negative.** Every `/work-on` run that reaches a ready plan gains three
+states and one action between `analysis` and `review_level_choice`, which
+tests and readers of the template have to know. The withheld group reads its conformance text from outside the
 repository, under the session directory. The baseline is low and the sample
 small, so a readout means weeks, not days. Contamination from the agent's own
 knowledge or a project's PR skill narrows any measured difference.

@@ -141,11 +141,14 @@ run started with the canary turned off by the switch in R10.
   `guards` include `push`, `merge` or `pr-create` is marked `eligible`, and
   when an eligible gate entry has empty `notes`.
 - **R3. Assignment.** A standalone `/work-on` run is assigned to the withheld
-  or the preloaded group in the template's initial state, before any state
-  that asks for evidence. Each group is drawn with probability one half from
+  or the preloaded group once its analysis plan is ready, on the edge out of
+  `analysis`, before implementation begins and well before `pr_creation`. The
+  template's initial state stays `entry`, because the first tick after
+  `koto init` carries the entry evidence and a state that accepts none would
+  drop it. Each group is drawn with probability one half from
   the operating system's random source (`/dev/urandom`), independently of
   every other run. The assignment is held in a koto variable and recorded in
-  the session's own directory. Re-entering the initial state in the same
+  the session's own directory. Re-entering the assignment state in the same
   session (a rewind, a resume, a retry) reads the recorded assignment back and
   draws nothing new, so a rewound run re-enters the same marker state, never
   the other one.
@@ -208,8 +211,8 @@ run started with the canary turned off by the switch in R10.
 - **R12. No ablations.** Building and testing the canary runs no offline
   ablation and no eval-harness run beyond what `scripts/check-skill.sh` runs.
 - **R13. Failure is harmless.** If the assignment can't be made (its script
-  missing, not executable, or failing), the run goes on to `entry` in neither
-  group, with canary-off instructions, and doesn't stop.
+  missing, not executable, or failing), the run goes on to
+  `review_level_choice` in neither group, with canary-off instructions, and doesn't stop.
 - **R14. Cost.** The canary adds three states to the template (the assignment
   state and the two marker states), one koto action, and no state that asks
   for evidence.
@@ -237,13 +240,15 @@ Assignment (script tests, each draw a separate process):
 - [ ] A second draw in a session directory that already holds an assignment
       returns the same group, 20 times out of 20.
 - [ ] With the assignment script missing, or exiting non-zero, the
-      assignment state routes to `entry` and no marker state is entered.
+      assignment state routes to `review_level_choice` and no marker state
+      is entered.
 
 Template and rendering (koto sessions driven in a test, `gh` stubbed):
 
 - [ ] `koto template compile` passes for `work-on.md`. The diff adds exactly
-      three states, none with an `accepts` block, and the initial state is the
-      assignment state.
+      three states, none with an `accepts` block; `analysis`'s `plan_ready`
+      edge enters the assignment state, and the initial state is still
+      `entry`, whose first-tick evidence still routes on.
 - [ ] `koto init` with `OFFLOAD_CANARY=maybe` is refused, and attaching to a
       live session with a different `OFFLOAD_CANARY` value is refused, so a
       run in progress keeps its group after the switch changes.
