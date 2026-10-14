@@ -302,7 +302,7 @@ grep -q " claude-projects/$ENC-wt/$COPY.jsonl\$" "$ARCHD/MANIFEST" && ok "  ... 
 [ -e "$ARCHD/transcript" ] && bad "nothing is written to transcript/" || ok "nothing is written to transcript/"
 eq_ "the README lists the directories taken and skipped, and the link" \
     "- Project directory taken: $ENC|- Project directory taken: $ENC-wt|- Project directory skipped (cwd outside the instance): $ENC-2|- Symbolic link skipped: claude-projects/$ENC/linked.jsonl" \
-    "$(grep -e '^- Project directory' -e '^- Symbolic link' "$ARCHD/README.md" | paste -sd '|' -)"
+    "$(grep -e '^- Project directory' -e '^- Symbolic link' "$ARCHD/README.md" | tr '\n' '|' | sed 's/|$//')"
 eq_ "only the user can read what the pass wrote" "drwx------|drwx------" \
     "$(ls -ld "$ARCHD/claude-projects" | cut -c1-10)|$(ls -ld "$ARCHD/claude-projects/$ENC-wt/$SID" | cut -c1-10)"
 eq_ "the worker row: its transcript and three subagents in two directories; nested only the copy's own message" "5 17|1 5" \

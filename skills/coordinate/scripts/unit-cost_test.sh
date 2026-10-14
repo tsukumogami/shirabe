@@ -570,7 +570,7 @@ prs "acme/widgets#21 $MERGE"
 compute >/dev/null
 eq "with no record known, the host counts as public: each repository is looked up, the credited ones' too" \
     "api --method GET repos/acme/widgets --jq .private|api --method GET repos/acme/gadgets --jq .private" \
-    "$(grep -- '--jq .private' "$GH_DB.calls" | paste -sd '|' -)"
+    "$(grep -- '--jq .private' "$GH_DB.calls" | tr '\n' '|' | sed 's/|$//')"
 
 echo "== one entry per key =="
 seed; fresh; prs "acme/widgets#21 $MERGE"
@@ -786,7 +786,7 @@ chmod +x "$T/slowgh"
 OUT=$(GH="$T/slowgh" UNIT_COST_BUDGET_SECS=6 compute)
 NC=$(q "$OUT" '[.pulls[] | select(.via == "session")] | length')
 [ "$NC" -ge 1 ] && [ "$NC" -lt 15 ] && ok "a budget spent mid-way keeps the credit read before it ($NC of 15)" || bad "a budget spent mid-way keeps the credit read before it" "$NC: $OUT"
-eq "  ... the earliest-linked first, in order" "$(seq 61 $((60 + NC)) | tr '\n' ' ' | sed 's/ $//')" "$(q "$OUT" '[.pulls[] | select(.via == "session") | .number | tostring] | join(" ")')"
+eq "  ... the earliest-linked first, in order" "$(awk -v n="$NC" 'BEGIN { for (i = 61; i <= 60 + n; i++) printf "%s%d", (i > 61 ? " " : ""), i }')" "$(q "$OUT" '[.pulls[] | select(.via == "session") | .number | tostring] | join(" ")')"
 eq "  ... and missing names pulls, time limit" "time limit" "$(pmiss "$OUT")"
 # Hostile links and branches: matched to their patterns before any read.
 seed; mkcredit
