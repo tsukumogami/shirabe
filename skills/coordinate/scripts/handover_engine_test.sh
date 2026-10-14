@@ -37,7 +37,10 @@
 #      replacement relays it with the person as owner and itself as relayer;
 #   4. past the gate the run reaches pick with the cap of one from the
 #      record, not the default the session was opened with;
-#   5. a holding with no next step holds the gate too, and a Work row clears it.
+#   5. a holding with no next step holds the gate too, and a Work row clears it;
+#   6. a run imported while it waits at the hub (on a third host) is printed
+#      as `state=wait` with `tick=moved`, and that tick takes it through a full
+#      reconcile whose report is read on the new host and names its source.
 #
 # Needs koto, jq, git and python3; SKIPs (exit 0) without one, which
 # run-tests.sh --engine turns into a failure.
@@ -74,13 +77,14 @@ ln -s "$REPO_ROOT" "$T/plugin"
 PR="$T/plugin"
 PS="$PR/skills/coordinate/scripts"
 
-# Two hosts on one bucket. Each workspace is a clone-shaped directory in a niwa
-# instance that permits every finishing step, so the posture reads `readable`.
+# Three hosts on one bucket. Each workspace is a clone-shaped directory in a
+# niwa instance that permits every finishing step, so the posture reads
+# `readable`.
 . "$HERE/testdata/cloud-hosts.sh"
 trap 's3_stop; rm -rf "$T"' EXIT
 s3_start || { bad "the fake S3 server starts" "$(cat "$T/s3/log" 2>&1)"; done_tests handover-engine; exit 1; }
-host_make a; host_make b
-for h in a b; do
+host_make a; host_make b; host_make c
+for h in a b c; do
     W="$T/hosts/$h/work"
     mkdir -p "$W/.niwa" "$W/.claude"
     (cd "$W" && git init -q && git remote add origin https://github.com/acme/widgets.git && printf '.koto/\n' >> .git/info/exclude)
@@ -179,7 +183,7 @@ ON=b
 printf '["docs/roadmaps/ROADMAP-handover.md", "--import", "%s", "--from", "%s"]' "$S" "$WS_A" > "$T/args.json"
 OUT=$(host_on b bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
 eq "the import succeeds" 0 $?
-eq "  ... printing imported, resumed and the session" "imported=$S resumed=1 session=$S" "$(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
+eq "  ... printing imported, resumed, the session and its state (at reconcile, no tick)" "imported=$S resumed=1 session=$S state=reconcile" "$(printf '%s' "$OUT" | tr '\n' ' ' | sed 's/ $//')"
 [ -s "$T/open.err" ] && bad "  ... with nothing on stderr" "$(cat "$T/open.err")" || ok "  ... with nothing on stderr"
 eq "the run keeps A's stamp" "$S" "$(host_on b koto session list | jq -r --arg s "$S" '.[] | select(.id == $s) | .id')"
 eq "every record/ and legs/ key is the same on B" "$SNAP" "$(keys b)"
@@ -247,5 +251,20 @@ state --work "Feature 2" --kind holding --who worker-f2 --next "a ready report";
 echo "== the closing lines name the source =="
 eq "coordinate-report.sh prints the import facts" "outcome=stopped|source_workspace=$WS_A|source_session=$S|template_hash=$HASH" \
     "$(printf '{"is_terminal":true,"result":{"payload":{"outcome":"stopped"}}}' | host_on b bash "$PS/coordinate-report.sh" --session "$S" | grep -v '^events=' | tr '\n' '|' | sed 's/|$//')"
+
+echo "== 6. a run imported at the hub reconciles on its new host =="
+eq "pick holds, and the run waits at the hub" wait "$(at --with-data '{"choice":"hold"}')"
+WS_B=$(host_ws b)
+ON=c
+printf '["docs/roadmaps/ROADMAP-handover.md", "--import", "%s", "--from", "%s"]' "$S" "$WS_B" > "$T/args.json"
+OUT=$(host_on c bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
+eq "host C imports it" 0 $?
+printf '%s\n' "$OUT" | grep -qx 'state=wait' && ok "  ... printing that it waits at the hub" || bad "  ... printing that it waits at the hub" "$OUT"
+printf '%s\n' "$OUT" | grep -qx 'tick=moved' && ok "  ... and the tick that comes first" || bad "  ... and the tick that comes first" "$OUT"
+eq "the moved tick takes it through a full reconcile on C" reconcile "$(at --with-data '{"event":"moved"}')"
+host_on c koto context get "$S" reconcile/report.md 2>/dev/null | grep -qF "This run was imported from session \`$S\` in workspace \`$WS_B\`" \
+    && ok "  ... whose report was read on C, naming B as the source" \
+    || bad "  ... whose report was read on C, naming B as the source" "$(host_on c koto context get "$S" reconcile/report.md 2>&1 | head -5)"
+eq "  ... and the handover read still carries the cap" "1" "$(handover | jq -r .cap)"
 
 done_tests handover-engine

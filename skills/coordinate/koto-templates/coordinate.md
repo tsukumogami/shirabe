@@ -742,7 +742,7 @@ states:
     accepts:
       event:
         type: enum
-        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed, failure, resume, redispatch]
+        values: [report, progress, leg, quiet, decision, deferral, merged, retire, end, answer, evidence, raise, landed, failure, resume, redispatch, moved]
         required: true
         description: What arrived, or what is due.
       unit:
@@ -838,6 +838,12 @@ states:
       - target: pick_facts
         when:
           event: resume
+      # The run was imported to this host while it waited here: a new visit
+      # to the pass reads this host's workers, inventory and legs, as a start
+      # does, before anything acts on the record.
+      - target: reconcile_pass
+        when:
+          event: moved
       # A re-dispatch a pause held at dispatch_check, taken up again after the
       # resume: the failure branch resolves the unit from this evidence.
       - target: failure
@@ -2648,8 +2654,10 @@ reports to (`no-reports-to`). This full
 reconcile runs at every start and restart, again whenever the record is
 found anew after a conflict, and again
 on the first tick after an import: a report sealed on the old host read that
-host's workers, so the gate sends the run back to the pass to read this one. Later turns re-check only the holdings they are
-about to act on, which each spoke's read already does.
+host's workers, so the gate sends the run back to the pass to read this one.
+An import that finds the run at the hub gets there through the hub's `moved`
+event instead. Later turns re-check only the holdings they are about to act
+on, which each spoke's read already does.
 
 ## posture_ask
 
@@ -3015,7 +3023,9 @@ reading Done on a milestone roadmap no longer meets a clause of its Evidence
 (a failed dispatch is never this: that is `redispatch`); `retire` to finish with a worker; `resume` when a pause has ended
 or its condition may be met, so pick reads the pauses again; `redispatch`, with
 the unit, to take up again a re-dispatch a pause held; `end` when the
-rotation or the scope ends.
+rotation or the scope ends; `moved` once, first, when this run was just
+imported to this host (`coordinate-open.sh --import` printed `tick=moved`), so
+a full reconcile reads this host before anything acts.
 
 Two writes come before acting, whatever event follows. When a person's word
 arrives, on the record's thread or anywhere else (a pause or a resume, a cap, a

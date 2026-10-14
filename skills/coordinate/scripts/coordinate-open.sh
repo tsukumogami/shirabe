@@ -40,7 +40,10 @@
 # session store (`refused=session-source`) and no directed transition
 # (`refused=session-directed`). record/host takes the source's workspace,
 # session and template hash, and the output is `imported=<session>`,
-# `resumed=1`, `session=<it>`.
+# `resumed=1`, `session=<it>`, then `state=<the run's state>` and, when the run
+# waits at the hub, `tick=moved`: the first tick, which sends it through a full
+# reconcile on this host. A run at reconcile reconciles again by itself; one
+# anywhere else ticks `moved` once it reaches the hub.
 #
 # Tokens, in order, from a JSON array of strings in <args-file>:
 #   <roadmap-path>               roadmap scope (docs/roadmaps/.../ROADMAP-<name>.md)
@@ -267,6 +270,17 @@ if [ -n "$IMPORT" ]; then
         --host template_hash "$HASH" > /dev/null 2>&1 \
         || { echo "failed=host_facts"; echo "coordinate-open: $IMPORT is imported, but record/host wasn't written; run record-state.sh --host for it" >&2; exit 1; }
     printf 'imported=%s\nresumed=1\nsession=%s\n' "$IMPORT" "$IMPORT"
+    # The run reconciles again on this host before it acts. At reconcile it
+    # does so by itself (its sealed report names another host's import facts);
+    # at the hub it needs the `moved` tick, which only the hub accepts, so a
+    # run elsewhere ticks it when it next reaches the hub.
+    AT=$("$KOTO" status "$IMPORT" 2>/dev/null </dev/null | jq -r '.current_state // empty' 2>/dev/null)
+    printf 'state=%s\n' "${AT:-unknown}"
+    case "$AT" in
+        reconcile|reconcile_pass) ;;
+        wait) echo "tick=moved" ;;
+        *) echo "coordinate-open: $IMPORT is at ${AT:-an unreadable state}; once it reaches wait, tick it with event moved so it reconciles on this host" >&2 ;;
+    esac
     exit 0
 fi
 

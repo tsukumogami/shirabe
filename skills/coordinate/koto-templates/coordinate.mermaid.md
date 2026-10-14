@@ -130,6 +130,7 @@ stateDiagram-v2
     quiet_check --> failure : gates.quiet_check_verdict.exit_code: 102
     rebrief --> wait : sent: sent
     rebrief --> pick_facts : sent: worker_gone
+    reconcile --> reconcile_pass : gates.reconcile_report.exit_code: 3
     reconcile --> pick_facts : gates.reconcile_handover.exit_code: 0, gates.reconcile_posture.exit_code: 25, gates.reconcile_report.exit_code: 0, reconciled: reported
     reconcile --> posture_ask : gates.reconcile_handover.exit_code: 0, gates.reconcile_posture.exit_code: 26, gates.reconcile_report.exit_code: 0, reconciled: reported
     reconcile_pass --> reconcile : gates.reconcile_pass_verdict.exit_code: 140
@@ -249,6 +250,7 @@ stateDiagram-v2
     wait --> roadmap_status : event: landed, vars.ROADMAP: {"is_set":true}
     wait --> milestone_reopen : event: failure, evidence.unit: present, vars.ROADMAP: {"is_set":true}
     wait --> pick_facts : event: resume
+    wait --> reconcile_pass : event: moved
     wait --> failure : event: redispatch
     wait --> rotation_close : event: end, vars.DISCIPLINE: {"is_set":true}
     wait --> done_stopped : event: end, vars.DISCIPLINE: {"is_set":false}
