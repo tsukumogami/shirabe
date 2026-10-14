@@ -91,102 +91,172 @@ Datadog recorded 64 `/work-on` sessions, and 46 sessions entered
 
 ## Requirements
 
+Terms used below. **The rule** is `pr-body/no-heading-in-part1`. **The rule's
+text** is the lines its registry entry anchors in
+`references/pr-body-conformance.md` (`text.first` to `text.last`, the PB4
+paragraph). **The marker states** are `offload_arm_withheld` and
+`offload_arm_preloaded` in `/work-on`'s template. **A canary-off run** is a
+run started with the canary turned off by the switch in R10.
+
 ### Functional
 
-- **R1. The rule.** The canary withholds exactly one rule:
-  `pr-body/no-heading-in-part1` (PB4, no markdown heading in Part 1 of a pull
-  request body). Its gate, `pr_body_conformant` in `/work-on`'s `pr_creation`
-  state, runs after `gh pr create` and reads the pull request GitHub has, so
-  the gate stands after the creation it would otherwise guard. A violation is
-  fixed with `gh pr edit`, and CI's `shirabe validate --pr-body` blocks the
-  merge independently. The DESIGN records why this rule was picked over the
-  other gate rules.
-- **R2. Eligibility.** The rule's registry entry is marked
-  `withhold: eligible`, with `notes` stating why, and the registry check
-  admits it. The change admits no other entry: every other gate rule, and every
-  rule whose guards include `push`, `merge` or `pr-create`, stays
-  `withhold: never`, and the registry check fails if any of them is marked
-  eligible.
-- **R3. Assignment.** When a standalone `/work-on` run starts, before its first
-  state that asks for evidence, it is assigned to the withheld or the
-  preloaded group at random, each with probability one half, independently of
-  every other run. The assignment is held in a koto variable for the rest of
-  the run and doesn't change on a resume, a rewind or a retry.
-- **R4. Who takes part.** A `/work-on` run that `/execute` started on its
-  shared branch (`SHARED_BRANCH` set) opens no pull request of its own and
-  takes part in neither group. So does every run while the canary is off.
-  Such a run's instructions are those of a run with the canary off.
-- **R5. Withholding.** In the withheld group, no instruction the run loads
-  before the `pr_body_conformant` gate first fails carries the rule's text or
-  its rule id. That covers the `pr_creation` directive, the reference it
-  points to for the pull-request format, and the conformance text it points
-  to. The rule's text is left out by `{{VAR}}` substitution in the directive.
-  The other PR-body rules (PB1, PB2, PB3) stay in the withheld group's text,
-  unchanged.
-- **R6. The preloaded group.** In the preloaded group, every instruction the
-  run loads is byte-for-byte what a run with the canary off loads.
-- **R7. The arm in exported events.** Each run that takes part enters exactly
-  one state whose name identifies its group, and koto's `state_entered` event
-  for it reaches Datadog with that name in `koto.state`. A run that takes part
-  in neither group enters neither state.
-- **R8. Readout.** A guide under `docs/guides/` names the exact event
-  attributes and gives one Datadog query. Run from a session, the query
-  returns, per group, the number of runs that entered `pr_creation` and how
-  many of those had at least one `check_rule` event with `koto.rule.id`
-  `pr-body/no-heading-in-part1`. The guide says why the denominator is runs,
-  not passing checks.
-- **R9. Delivery on failure.** When `pr_body_conformant` fails on this rule,
-  its output, which koto returns to the agent, carries the rule's text from
-  `references/pr-body-conformance.md` as well as the finding. That happens in
-  both groups.
-- **R10. Off switch.** One change, a single variable default in
-  `/work-on`'s template, turns the canary off for every later run. The guide
-  names the line and the value.
+- **R1. The rule.** The canary withholds the rule and no other. Its gate,
+  `pr_body_conformant` in `/work-on`'s `pr_creation` state, runs after
+  `gh pr create` and reads the pull request GitHub has, so the gate stands
+  after the creation it would otherwise guard. A violation is fixed with
+  `gh pr edit`, and CI's `shirabe validate --pr-body` blocks the merge
+  independently. The DESIGN records why this rule was picked over the other
+  gate rules.
+- **R2. Eligibility.** The rule's registry entry has `guards: ["none"]`,
+  `withhold: eligible` and a non-empty `notes` stating why. The registry check
+  passes on the real registry and admits no other change: it fails when any
+  other `level: gate` entry is marked `eligible`, when any entry whose
+  `guards` include `push`, `merge` or `pr-create` is marked `eligible`, and
+  when an eligible gate entry has empty `notes`.
+- **R3. Assignment.** A standalone `/work-on` run is assigned to the withheld
+  or the preloaded group in the template's initial state, before any state
+  that asks for evidence. Each group is drawn with probability one half from
+  the operating system's random source (`/dev/urandom`), independently of
+  every other run. The assignment is held in a koto variable and recorded in
+  the session's own directory. Re-entering the initial state in the same
+  session (a rewind, a resume, a retry) reads the recorded assignment back and
+  draws nothing new, so a rewound run re-enters the same marker state, never
+  the other one.
+- **R4. Who takes part.** A run takes part in neither group when it was
+  started on `/execute`'s shared branch (`SHARED_BRANCH` non-empty), when it
+  is a canary-off run, or when the assignment fails (R13). Its instructions
+  are byte-for-byte those of a canary-off run.
+- **R5. Withholding.** In the withheld group, none of these carry the rule's
+  text or the string `pr-body/no-heading-in-part1`: the rendered
+  `pr_creation` directive, `skills/work-on/references/phases/phase-6-pr.md`
+  (which the directive points to for the pull-request format), and the
+  conformance text the directive names for the run. Every other line of
+  `references/pr-body-conformance.md`, PB1 to PB3 included, is in the
+  withheld group's conformance text unchanged. The rule's text is left out by
+  `{{VAR}}` substitution in the `pr_creation` directive, which is the only
+  directive that refers to the group.
+- **R6. The preloaded group.** In the preloaded group, every rendered
+  directive is byte-for-byte what a canary-off run renders, and the
+  conformance text the run reads is `references/pr-body-conformance.md`
+  itself.
+- **R7. The group in exported events.** A run that takes part enters one
+  marker state and never the other, and koto's `state_entered` event for it carries the
+  marker state's name in `koto.state`, an attribute the Datadog sender already
+  forwards. A run that takes part in neither group enters neither. No other
+  template uses either name.
+- **R8. Readout.** A guide, `docs/guides/offload-live-canary.md`, names the
+  attributes (`koto.session.id`, `koto.state`, `koto.rule.id`) and gives one
+  Datadog query that, over a chosen time window, joins events on
+  `koto.session.id` and returns one row per group with two counts: distinct
+  sessions that entered a marker state and then `pr_creation`, and how many of
+  those had at least one `check_rule` event with `koto.rule.id`
+  `pr-body/no-heading-in-part1`. A group with runs and no broken run shows 0. A
+  session is counted once however often it entered `pr_creation` or broke the
+  rule. Sessions with no marker state (shared-branch, canary-off, failed
+  assignment, and runs started before the canary) are excluded. The guide says
+  why the denominator is runs and not passing checks.
+- **R9. Delivery on failure.** In both groups, when `pr_body_conformant`
+  fails with a finding for the rule, the gate's output, which koto returns to
+  the agent, carries the finding and the rule's text between a
+  `::shirabe-rule::` line and a `::shirabe-rule-end::` line, as
+  `rule-registry.sh release` prints it. A failure on other PR-body rules alone
+  carries no copy of the rule's text, and a passing gate carries none.
+- **R10. Off switch.** A declared `/work-on` variable, `OFFLOAD_CANARY`, with
+  the values `on` and `off`, turns the canary on or off. Its default in the
+  template is the one change that turns it off for every run started after the
+  change. A run already in progress keeps the group it drew. The guide names
+  the file, the line and the value. koto refuses any other value at
+  `koto init`.
 
 ### Non-functional
 
 - **R11. Nothing outside a session.** The canary adds no exporter, no change
-  to the Datadog sender, and no service, daemon or scheduled job. Every new
-  command runs inside a `/work-on` session as a koto action or gate.
+  to the Datadog sender, and no service, daemon, cron entry or scheduled
+  workflow. Every new command runs inside a `/work-on` session as a koto
+  action or gate.
 - **R12. No ablations.** Building and testing the canary runs no offline
   ablation and no eval-harness run beyond what `scripts/check-skill.sh` runs.
-- **R13. Failure is harmless.** If the assignment can't be made (a script
-  missing or failing), the run continues in neither group, with the canary-off
-  instructions, rather than stopping.
-- **R14. Cost.** Assignment adds at most two states and one koto action to a
-  run, and no state that waits for evidence.
+- **R13. Failure is harmless.** If the assignment can't be made (its script
+  missing, not executable, or failing), the run goes on to `entry` in neither
+  group, with canary-off instructions, and doesn't stop.
+- **R14. Cost.** The canary adds three states to the template (the assignment
+  state and the two marker states), one koto action, and no state that asks
+  for evidence.
 
 ## Acceptance Criteria
 
-- [ ] `references/rule-registry.json` marks `pr-body/no-heading-in-part1`
-      `withhold: eligible` with a non-empty `notes` reason, and it is the only
-      `level: gate` entry marked eligible.
-- [ ] The registry check fails when any other `level: gate` entry, or any
-      entry whose `guards` include `push`, `merge` or `pr-create`, is marked
-      `eligible`. A test case shows each failure.
-- [ ] Over 200 draws, the assignment script picks each group at least 70
-      times, and it picks neither group when `OFFLOAD_CANARY` is off or
-      `SHARED_BRANCH` is set.
-- [ ] A test drives a `/work-on` session in the withheld group to
-      `pr_creation`, and the rendered directive and every file it names for
-      the pull-request format contain neither the PB4 text from
-      `references/pr-body-conformance.md` nor `pr-body/no-heading-in-part1`.
-- [ ] The same test in the preloaded group renders a `pr_creation` directive
-      byte-identical to the one rendered with the canary off.
-- [ ] A session in the withheld group records a `state_entered` for the
-      withheld marker state and none for the preloaded one, and the reverse
-      for the preloaded group. A shared-branch session records neither.
-- [ ] Given a pull request body with a heading in Part 1, the
-      `pr_body_conformant` gate's output contains the
-      `pr-body/no-heading-in-part1` finding and the PB4 text between
+Registry:
+
+- [ ] `references/rule-registry.json` gives `pr-body/no-heading-in-part1`
+      `guards: ["none"]`, `withhold: eligible` and non-empty `notes`, and it is
+      the only `level: gate` entry marked `eligible`.
+- [ ] The registry check passes on the real registry, and its test suite has
+      a failing case for each of: another gate entry marked `eligible`, an
+      entry guarding `push`, `merge` or `pr-create` marked `eligible`, and an
+      eligible gate entry with empty `notes`.
+
+Assignment (script tests, each draw a separate process):
+
+- [ ] Over 200 draws in fresh session directories with the canary on and no
+      shared branch, each group is picked at least 70 and at most 130 times.
+- [ ] With `OFFLOAD_CANARY` `off`, or `SHARED_BRANCH` non-empty, a draw picks
+      neither group and the run reads `references/pr-body-conformance.md`.
+- [ ] A second draw in a session directory that already holds an assignment
+      returns the same group, 20 times out of 20.
+- [ ] With the assignment script missing, or exiting non-zero, the
+      assignment state routes to `entry` and no marker state is entered.
+
+Template and rendering (koto sessions driven in a test, `gh` stubbed):
+
+- [ ] `koto template compile` passes for `work-on.md`. The diff adds exactly
+      three states, none with an `accepts` block, and the initial state is the
+      assignment state.
+- [ ] `koto init` with `OFFLOAD_CANARY=maybe` is refused, and attaching to a
+      live session with a different `OFFLOAD_CANARY` value is refused, so a
+      run in progress keeps its group after the switch changes.
+- [ ] A session rewound to the assignment state after drawing a group enters
+      the same marker state again and no other.
+- [ ] A session in the withheld group records a `state_entered` for
+      `offload_arm_withheld` once and none for `offload_arm_preloaded`; a
+      preloaded session the reverse; a shared-branch session and a canary-off
+      session neither. No other template under `skills/` defines either name.
+- [ ] In a withheld session at `pr_creation`, the rendered directive,
+      `phase-6-pr.md` and the conformance text the directive names contain
+      neither the rule's first anchor line nor `pr-body/no-heading-in-part1`,
+      and the conformance text equals `references/pr-body-conformance.md` with
+      exactly the rule's anchored lines removed.
+- [ ] In a preloaded session, a shared-branch session and a session whose
+      assignment failed, the rendered `pr_creation` directive is
+      byte-identical to the one a canary-off session renders.
+- [ ] `{{` references to the assignment variable appear in no directive but
+      `pr_creation`'s.
+
+Gate output (`check-pr-output.sh` tests, `gh` stubbed):
+
+- [ ] A body with a heading in Part 1 makes the gate exit 1 with the
+      `pr-body/no-heading-in-part1` finding and the rule's text between
       `::shirabe-rule::` and `::shirabe-rule-end::`.
-- [ ] Changing the one default the guide names to its off value makes a new
-      session take part in neither group.
-- [ ] The guide's query runs in Datadog from a session and returns one row per
-      group with the runs and broken-runs columns.
-- [ ] The diff adds no workflow file under `.github/workflows/` with a
-      `schedule:` trigger, and changes no file outside this repository.
-- [ ] CI is green on the pull request.
+- [ ] A body that breaks only PB2 makes the gate exit 1 without the rule's
+      text, and a conformant body exits 0 without it. A body that breaks PB4
+      and PB3 carries both findings and the rule's text once.
+
+Readout and guide:
+
+- [ ] The guide names the file, line and value of the off switch, and a test
+      fails if the template's `OFFLOAD_CANARY` default line differs from the
+      guide's.
+- [ ] The guide's query, run in Datadog over the week before the pull request
+      with the marker state names replaced by a state every `/work-on` run
+      enters, returns one row with a run count above 0, which shows the joins
+      and the zero-broken case work on real events.
+
+Boundaries:
+
+- [ ] The diff adds no file under `.github/workflows/` with a `schedule:`
+      trigger, changes no file outside `skills/work-on/`, `references/`,
+      `scripts/`, `docs/` and `.github/workflows/`, and runs no eval workflow.
+- [ ] `scripts/check-skill.sh work-on` passes, and every required CI check on
+      the pull request is green.
 
 ## Out of Scope
 
@@ -207,16 +277,21 @@ Datadog recorded 64 `/work-on` sessions, and 46 sessions entered
 
 ## Known Limitations
 
-- **Contamination from outside the template.** The `pr_creation` reference
-  tells the agent to apply its project's own PR-creation skill for Part 2,
-  and an agent may already know the convention. Either can carry the rule into
-  a withheld run, which narrows the measured difference toward zero. Neither
-  is in this repository's control.
+- **Contamination from outside the template.** `phase-6-pr.md` tells the
+  agent to apply its project's own PR-creation skill for Part 2, and an agent
+  may already know the convention. Either can carry the rule into a withheld
+  run, which narrows the measured difference toward zero. Neither is in this
+  repository's control.
 - **A small, low baseline.** About 20 to 30 runs reach `pr_creation` per group
   a week, and PB4 broke in none of the runs Datadog recorded in that week, so
   a difference shows up only as a count over several weeks.
 - **Runs, not checks.** The rate is broken runs over runs that reached the
   state. A run that breaks the rule twice counts once.
+- **The rule's choice waits on one ruling.** Making PB4 eligible narrows the
+  registry's withhold safety, which is the owner's call. Until it's made, the
+  registry change isn't committed. If the ruling is no, no gate rule can be
+  withheld under the registry as it stands, and the canary stops at its
+  design and goes back to the coordinator.
 
 ## Decisions and Trade-offs
 
@@ -227,14 +302,18 @@ Datadog recorded 64 `/work-on` sessions, and 46 sessions entered
   opens and can't be taken back. The commit, branch, docs, panel and
   verification rules stand before a push or the pull request's creation. PB4
   is narrow, checked after creation, fixed by an edit and blocked at merge by
-  CI. This choice depends on the coordinator's ruling on the registry's
-  withhold safety.
+  CI.
 - **Group visibility through state names.** koto exports no variable values,
   and the brief rules out an exporter. A marker state per group shows the
-  group in `state_entered`, an event koto already exports.
+  group in `state_entered`, an event koto already exports. The coordinator
+  accepted this on 2026-10-14.
 - **Runs as the denominator.** A passing check carries no rule id, and in
   Datadog it carries no gate name either, so pass counts per rule aren't
-  available. Runs that entered `pr_creation` are.
+  available. Runs that entered `pr_creation` are, and the gate is evaluated
+  once per entry. The coordinator accepted this on 2026-10-14.
 - **Delivery in both groups.** Releasing the rule's text on failure in both
   groups keeps the two identical except for the preloaded text, which is the
   one difference the canary measures.
+- **The switch is fixed per run.** `OFFLOAD_CANARY` isn't rebindable, so
+  turning the canary off never moves a run that already drew a group, and a
+  run's group can't change partway through.
