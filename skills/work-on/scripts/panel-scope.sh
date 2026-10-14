@@ -446,7 +446,7 @@ def unrecorded($s; $l; $panel):
 gate_ledger() {
     ledger=$(ctx_get "$LEDGER")
     [ -n "$ledger" ] || refuse "$1" "no $LEDGER: no $PANEL round is recorded (run panel-scope.sh --record $PANEL)"
-    printf '%s' "$ledger" | jq -e 'type == "object" and ((.findings // null) | type) == "object"' >/dev/null 2>&1 \
+    printf '%s' "$ledger" | jq -e 'type == "object" and ((.findings // null) | type) == "object"' >/dev/null \
         || refuse "$1" "$LEDGER is unreadable, or predates finding records: re-plan the panel as a full round"
 }
 
@@ -604,7 +604,7 @@ put() {
 # It catches overlapping honest writes; it is not a lock.
 store_ledger() {
     local now
-    now=$(ctx_get "$LEDGER" | jq -r 'if type == "object" then (.rev // 0) else 0 end' 2>/dev/null)
+    now=$(ctx_get "$LEDGER" | jq -r 'if type == "object" then (.rev // 0) else 0 end')
     [ "${now:-0}" = "$(printf '%s' "$LEDGER_JSON" | jq -r '.rev // 0')" ] \
         || die 69 "$LEDGER changed while this write was being built (rev ${now:-?}); run it again"
     put "$LEDGER" "$1"
@@ -685,7 +685,7 @@ if [ "$MODE" = "--record" ]; then
     # since, stamping their verdicts with it would vouch for a commit none of
     # them saw. No scope (the --plan fallback path) has nothing to compare.
     SCOPE_JSON=$(ctx_get "${PANEL}_scope.json")
-    if [ -n "$SCOPE_JSON" ] && ! printf '%s' "$SCOPE_JSON" | jq -e 'type == "object"' >/dev/null 2>&1; then
+    if [ -n "$SCOPE_JSON" ] && ! printf '%s' "$SCOPE_JSON" | jq -e 'type == "object"' >/dev/null; then
         die 65 "${PANEL}_scope.json is unreadable"
     fi
     scope_head=$(printf '%s' "${SCOPE_JSON:-{\}}" | jq -r '.head // empty')
@@ -693,7 +693,7 @@ if [ "$MODE" = "--record" ]; then
         || die 68 "HEAD moved since ${PANEL}_scope.json was planned at $scope_head; tick koto without evidence to re-plan, then run the round again"
     [ -n "$ROUND_FILE" ] || die 67 "missing round file for --record"
     [ -f "$ROUND_FILE" ] || die 65 "round file [$ROUND_FILE] not found"
-    jq -e 'type == "array" and length > 0 and all(.[]; type == "object")' "$ROUND_FILE" >/dev/null 2>&1 \
+    jq -e 'type == "array" and length > 0 and all(.[]; type == "object")' "$ROUND_FILE" >/dev/null \
         || die 65 "round file [$ROUND_FILE] is not a JSON array of runs"
 
     # Every problem in the round file, one per line. Empty means it may be
@@ -753,7 +753,7 @@ if [ "$MODE" = "--record" ]; then
     # round file alone can't mint a decider verdict.
     : > "$WORK/decider_events"
     if jq -e 'any(.[]; .decider? != null)' "$ROUND_FILE" >/dev/null; then
-        sdir=$(koto session dir "$SESSION" 2>/dev/null) || die 65 "a decider entry needs koto's session log, and koto session dir failed"
+        sdir=$(koto session dir "$SESSION") || die 65 "a decider entry needs koto's session log, and koto session dir failed"
         slog="$sdir/koto-$SESSION.state.jsonl"
         [ -r "$slog" ] || die 65 "a decider entry needs koto's session log, and [$slog] can't be read"
         jq -c '.[] | .decider? // empty' "$ROUND_FILE" | while IFS= read -r dec; do
@@ -952,8 +952,8 @@ pick_commit() {
         elif git merge-base --is-ancestor "$best" "$c"; then
             [ "$want" = newest ] && best=$c
         else
-            bc=$(git rev-list --count "$best" 2>/dev/null || echo 0)
-            cc=$(git rev-list --count "$c" 2>/dev/null || echo 0)
+            bc=$(git rev-list --count "$best" || echo 0)
+            cc=$(git rev-list --count "$c" || echo 0)
             [ "$cc" -lt "$bc" ] && best=$c
         fi
     done
@@ -975,7 +975,7 @@ loc_touched() {
     local base="$1" kind="$2" path="$3" lines="$4" at="$5" lo hi rc
     if [ "$kind" = none ] || [ -z "$path" ]; then echo none; return; fi
     is_commit "$base" || { echo unresolvable; return; }
-    git --literal-pathspecs diff --no-renames --name-only "$base" HEAD -- "$path" > "$WORK/tp" 2>/dev/null \
+    git --literal-pathspecs diff --no-renames --name-only "$base" HEAD -- "$path" > "$WORK/tp" \
         || { echo unresolvable; return; }
     [ -s "$WORK/tp" ] || { echo untouched; return; }
     [ "$kind" = lines ] || { echo touched; return; }
@@ -984,7 +984,7 @@ loc_touched() {
     # no longer name the same code, and the location is judged as the file.
     if [ "$at" != "$base" ]; then
         is_commit "$at" || { echo unresolvable; return; }
-        git --literal-pathspecs diff --no-renames --quiet "$at" "$base" -- "$path" 2>/dev/null
+        git --literal-pathspecs diff --no-renames --quiet "$at" "$base" -- "$path"
         rc=$?
         [ "$rc" -eq 0 ] || { [ "$rc" -eq 1 ] && echo touched || echo unresolvable; return; }
     fi
@@ -1011,7 +1011,7 @@ loc_touched() {
 DIRTY=""
 [ -n "$(git status --porcelain | head -1)" ] && DIRTY=1
 NOCOMMITS=""
-if [ -z "$IMPL_BASE" ] || [ "$(git rev-list --count "$IMPL_BASE..HEAD" 2>/dev/null || echo 0)" = 0 ]; then
+if [ -z "$IMPL_BASE" ] || [ "$(git rev-list --count "$IMPL_BASE..HEAD" || echo 0)" = 0 ]; then
     NOCOMMITS=1
 fi
 
@@ -1100,7 +1100,7 @@ if [ -z "$FULL_REASON" ]; then
     PANEL_BASE=$(pick_commit newest < "$WORK/pcommits")
     if [ -z "$PANEL_BASE" ]; then
         FULL_REASON="the panel has recorded no commit to measure a fix from"
-    elif [ "$(git rev-list --count "$IMPL_BASE..$PANEL_BASE" 2>/dev/null || echo 0)" = 0 ]; then
+    elif [ "$(git rev-list --count "$IMPL_BASE..$PANEL_BASE" || echo 0)" = 0 ]; then
         FULL_REASON="the panel last judged no commit since impl_base, so its seats have not reviewed the change"
     elif ! changed=$(changed_lines "$PANEL_BASE"); then
         FULL_REASON="git diff from $(printf '%.12s' "$PANEL_BASE") failed"
