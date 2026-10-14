@@ -423,7 +423,7 @@ fn base_required_sections(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
             }
         }
     }
-    spec.required_sections_for(&doc.schema).to_vec()
+    spec.required_sections_for(&doc.schema)
 }
 
 /// The pinned shape of a `## Status` absorption line, one per declared entry.
