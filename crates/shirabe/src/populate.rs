@@ -2139,6 +2139,32 @@ mod tests {
     }
 
     #[test]
+    fn the_key_header_is_the_versions_classic_word() {
+        let mut v1 = String::new();
+        push_table_header(&mut v1, "roadmap/v1");
+        let mut v2 = String::new();
+        push_table_header(&mut v2, ROADMAP_V2_SCHEMA);
+        let mut v3 = String::new();
+        push_table_header(&mut v3, ROADMAP_V3_SCHEMA);
+        let classic = "| Feature | Issues | Dependencies | Status |\n\
+                       |---------|--------|--------------|--------|\n";
+        assert_eq!(v1, classic);
+        assert_eq!(v2, classic);
+        assert_eq!(
+            v3,
+            "| Milestone | Issues | Dependencies | Status |\n\
+             |-----------|--------|--------------|--------|\n"
+        );
+        // A v3 milestone summarizes its Outcome, as a v2 one does.
+        let mut f = milestone_features(ROADMAP_V2_SCHEMA).remove(0);
+        f.description = "Body prose.".to_string();
+        assert_eq!(
+            summary_text(&f, ROADMAP_V3_SCHEMA),
+            summary_text(&f, ROADMAP_V2_SCHEMA)
+        );
+    }
+
+    #[test]
     fn milestone_issue_body_carries_the_outcome_only() {
         let v2 = milestone_features(ROADMAP_V2_SCHEMA);
         let e = manifest_entry_for(&v2[0], "docs/roadmaps/ROADMAP-m.md", ROADMAP_V2_SCHEMA);
