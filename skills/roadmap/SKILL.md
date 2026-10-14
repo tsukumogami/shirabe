@@ -88,12 +88,16 @@ See `references/roadmap-format.md` for the full format specification:
 frontmatter schema, required and optional sections, lifecycle states,
 validation rules, and quality guidance. Load it during Phases 3 and 4.
 
-New roadmaps are milestone roadmaps (`schema: roadmap/v2`): each item is an
+New roadmaps are milestone roadmaps (`schema: roadmap/v3`): each item is an
 outcome someone can exercise end to end, with Evidence someone other than
 the delivering session can judge and a Left open for the decisions that
-session makes. The format reference's Milestones section has the fields,
-the rule for when a milestone is Done, and what may change once the
-roadmap is Active.
+session makes. The items sit under `## Milestones`, and a classic item is
+headed `### Milestone <N>: <title>`. The format reference's Milestones
+section has the fields, the Evidence rule, the rule for when a milestone is
+Done, and what may change once the roadmap is Active. `roadmap/v2` (the same
+milestones under `## Features`, headed `### Feature <N>:`) and the
+per-feature `roadmap/v1` stay valid; this skill edits them in their own
+version and never migrates one unasked.
 
 ## File Location
 
@@ -292,7 +296,7 @@ Is there at least one feature to track?
 ```
 dispatch read roadmap <topic> prints parent=<session>
                                                            -> run under that parent; see ${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md
-ROADMAP exists, "Active", schema roadmap/v2                -> Offer: sharpen one milestone's Evidence or Left open in place,
+ROADMAP exists, "Active", schema roadmap/v2 or roadmap/v3  -> Offer: sharpen one milestone's Evidence or Left open in place,
                                                               or start a new roadmap (references/phases/sharpen.md)
 ROADMAP exists, "Active", schema roadmap/v1                -> Offer: start a new roadmap
 ROADMAP exists with status "Done"                          -> Offer to revise or start fresh
@@ -435,7 +439,8 @@ trigger mechanism.
 The roadmap's reserved Implementation Issues and Dependency Graph sections
 are populated by the `shirabe roadmap populate` subcommand on the
 `shirabe` CLI. This is a roadmap-native path: the subcommand reads the
-Features section using the shared `shirabe-validate` parser, builds a
+items section (`## Milestones` on v3, `## Features` on v1 and v2) using the
+shared `shirabe-validate` parser, builds a
 per-feature manifest, then renders the canonical table and dependency
 diagram and writes both into the reserved sections by **structural section
 replacement** (the body between each section's heading and the next `##`
@@ -473,7 +478,7 @@ during argument parsing, so nothing is written and no `gh` call is made.
    empty skeleton. See `references/phases/phase-4-validate.md`.
 2. **Automatically, on the `Draft -> Active` transition.** The activate
    path re-runs the issueless population before `shirabe transition`. This
-   catches a Features section edited during review and covers roadmaps
+   catches an items section edited during review and covers roadmaps
    created before automatic population existed. Populate is idempotent, so
    the re-run is a no-op when nothing changed.
 3. **Explicitly, to file issues.** After the roadmap is approved, a human
@@ -525,7 +530,7 @@ Options:
   key both reserved sections on those issues. Mutually exclusive with
   `--no-issues`. Required to reach GitHub at all.
 - `--no-issues` -- issueless mode: create no issues and render the reserved
-  sections from the Features section, keying table rows on feature labels
+  sections from the items section, keying table rows on item labels
   and naming dependencies by `F<n>` index. The subcommand's default when
   neither mode flag is given, and named explicitly by every invocation in
   this skill.
@@ -641,7 +646,7 @@ See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md
 | `references/phases/phase-2-discover.md` | Phase 2 |
 | `references/phases/phase-3-draft.md` | Phase 3 |
 | `references/phases/phase-4-validate.md` | Phase 4 |
-| `references/phases/sharpen.md` | Resume on an Active `roadmap/v2` roadmap |
+| `references/phases/sharpen.md` | Resume on an Active `roadmap/v2` or `roadmap/v3` roadmap |
 | `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` | Populating reserved sections |
 | `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md` | Populating reserved sections |
 | `${CLAUDE_PLUGIN_ROOT}/references/decision-protocol.md` | R14 approval gate under `--auto` |

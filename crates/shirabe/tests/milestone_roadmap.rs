@@ -554,3 +554,76 @@ fn a_v3_roadmap_activates_with_one_milestone() {
     let (code, text) = validate_code(&path, &[]);
     assert_eq!(code, 0, "{text}");
 }
+
+// ---- the /roadmap draft template on v3 ----
+
+/// The v3 roadmap `/roadmap` drafts (Phase 3's template) and the same
+/// roadmap with one Evidence clause sharpened (`sharpen.md`).
+fn v3_fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/roadmap-v3")
+        .join(name)
+}
+
+#[test]
+fn the_v3_draft_and_its_sharpened_twin_validate() {
+    let draft = v3_fixture("ROADMAP-plugin-system.md");
+    let sharpened = v3_fixture("ROADMAP-plugin-system-sharpened.md");
+    for path in [&draft, &sharpened] {
+        let (code, text) = validate_code(path, &["--visibility=public"]);
+        assert_eq!(code, 0, "{}:\n{text}", path.display());
+    }
+
+    // Sharpening touched only one milestone's Evidence.
+    let a = fs::read_to_string(&draft).unwrap();
+    let b = fs::read_to_string(&sharpened).unwrap();
+    let start = a
+        .lines()
+        .zip(b.lines())
+        .position(|(x, y)| x != y)
+        .expect("the twins differ");
+    let in_evidence = a
+        .lines()
+        .take(start)
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+        .find(|l| l.starts_with("**") || l.starts_with("### "))
+        .copied();
+    assert_eq!(
+        in_evidence,
+        Some("**Evidence:**"),
+        "first change at line {}",
+        start + 1
+    );
+    let a_tail: Vec<&str> = a.lines().rev().collect();
+    let b_tail: Vec<&str> = b.lines().rev().collect();
+    let common_tail = a_tail
+        .iter()
+        .zip(&b_tail)
+        .take_while(|(x, y)| x == y)
+        .count();
+    assert!(
+        b.lines().count() - common_tail - start <= 3,
+        "the sharpened clause is the only change"
+    );
+
+    // The draft populates and still validates, as Phase 4 runs it.
+    let dir = std::env::temp_dir().join(format!("shirabe-v3-draft-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let copy = dir.join("ROADMAP-plugin-system.md");
+    fs::copy(&draft, &copy).unwrap();
+    shirabe()
+        .args(["roadmap", "populate", "--no-issues"])
+        .arg(&copy)
+        .assert()
+        .success();
+    let populated = fs::read_to_string(&copy).unwrap();
+    assert!(
+        populated.contains("| Milestone | Issues | Dependencies | Status |\n"),
+        "{populated}"
+    );
+    let (code, text) = validate_code(&copy, &["--visibility=public"]);
+    assert_eq!(code, 0, "{text}");
+    let _ = fs::remove_dir_all(&dir);
+}
