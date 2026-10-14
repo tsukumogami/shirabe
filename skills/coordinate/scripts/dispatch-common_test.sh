@@ -161,6 +161,16 @@ else
     ok "deadline: no watcher left behind"
 fi
 OUT=$(dc_with_deadline 30 echo hi); eq "deadline: output passes through a \$(...) promptly" hi "$OUT"
+# The window between the watcher's kill and the caller's TERM to the watcher:
+# a kill that pauses after every TERM (the watcher's subshell inherits the
+# function) holds it open, so the caller's TERM always lands inside it. A
+# deadline that passed is still 124 then, never the killed command's 143.
+kill() { builtin kill "$@"; local rc=$?; [ "${1-}" = -TERM ] && sleep 0.5; return $rc; }
+dc_with_deadline 1 sleep 20; eq "deadline: still 124 when the caller's TERM reaches the watcher right after its kill" 124 "$?"
+# A command that ends on its own just as the deadline passes keeps its own
+# status: the deadline only answers for a command it had to stop.
+dc_with_deadline 1 sh -c 'trap "exit 0" TERM; sleep 20 & wait'; eq "deadline: a command that exits 0 as the deadline stops it keeps 0" 0 "$?"
+unset -f kill
 
 # --- the invocation and the holding's mode ---------------------------------------------
 #

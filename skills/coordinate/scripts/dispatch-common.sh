@@ -147,8 +147,9 @@
 #
 #   dc_with_deadline <seconds> <command...>
 #       Runs the command and kills it once the deadline passes. Returns the
-#       command's status, or 124 when the deadline killed it. `timeout` isn't
-#       on macOS, whose /bin/bash is the floor these scripts target.
+#       command's status, or 124 when the deadline stopped it (a command that
+#       exits 0 on its own just as the deadline passes keeps its 0). `timeout`
+#       isn't on macOS, whose /bin/bash is the floor these scripts target.
 
 #   Exit codes across the dispatch scripts. A condition keeps its meaning
 #   everywhere; the number a gate script uses is the one its state routes on:
@@ -502,8 +503,13 @@ dc_with_deadline() {
         sleep "$secs" &
         sp=$!
         if [ -n "$stop" ]; then kill -TERM "$sp" >/dev/null 2>&1; exit 0; fi
-        if wait "$sp" && kill -TERM "$pid" >/dev/null 2>&1; then
+        # The mark goes down before the kill: the caller stops this watcher
+        # with TERM as soon as the command ends, and a mark written after the
+        # kill could be cut off by that TERM, so a deadline that passed would
+        # read as the killed command's 143.
+        if wait "$sp"; then
             : >"$mark"
+            kill -TERM "$pid" >/dev/null 2>&1
         fi
     ) </dev/null >/dev/null 2>&1 &
     watcher=$!
@@ -511,9 +517,11 @@ dc_with_deadline() {
     rc=$?
     kill -TERM "$watcher" >/dev/null 2>&1
     wait "$watcher" >/dev/null 2>&1
+    # The deadline answers only for a command it had to stop: one that exited
+    # 0 on its own as the mark went down keeps its 0.
     if [ -e "$mark" ]; then
         rm -f "$mark"
-        return 124
+        [ "$rc" -eq 0 ] || return 124
     fi
     return "$rc"
 }
