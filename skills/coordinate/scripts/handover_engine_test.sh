@@ -224,7 +224,7 @@ echo "== 2. a new address holds the gate until each worker is told =="
 state --run coordinator lane-v2 --by lane-v2; eq "the replacement writes its own address" 0 $?
 eq "  ... as the entry after A's last (R9)" "$(printf '%06d' $((10#$LAST_A + 1)))" "$(last_entry b)"
 eq "the gate holds at reconcile" reconcile "$(at --with-data '{"reconciled":"reported"}')"
-host_on b koto context get "$S" reconcile/report.md 2>/dev/null | grep -qF "This run was imported from session \`$S\` in workspace \`$WS_A\`, compiled from template \`$HASH\`." \
+grep -qF "This run was imported from session \`$S\` in workspace \`$WS_A\`, compiled from template \`$HASH\`." <<< "$(host_on b koto context get "$S" reconcile/report.md 2>/dev/null)" \
     && ok "the reconcile report names the source" || bad "the reconcile report names the source" "$(host_on b koto context get "$S" reconcile/report.md 2>&1 | head -5)"
 handover --check >/dev/null 2>"$T/gaps"; eq "the check fails" 1 $?
 grep -q 'not-told worker-f1' "$T/gaps" && grep -q 'not-told worker-f2' "$T/gaps" \
@@ -265,8 +265,8 @@ ON=c
 printf '["docs/roadmaps/ROADMAP-handover.md", "--import", "%s", "--from", "%s"]' "$S" "$WS_B" > "$T/args.json"
 OUT=$(host_on c bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err")
 eq "host C imports it" 0 $?
-printf '%s\n' "$OUT" | grep -qx 'state=wait' && ok "  ... printing that it waits at the hub" || bad "  ... printing that it waits at the hub" "$OUT"
-printf '%s\n' "$OUT" | grep -qx 'tick=moved' && ok "  ... and the tick that comes first" || bad "  ... and the tick that comes first" "$OUT"
+grep -qx 'state=wait' <<< "$OUT" && ok "  ... printing that it waits at the hub" || bad "  ... printing that it waits at the hub" "$OUT"
+grep -qx 'tick=moved' <<< "$OUT" && ok "  ... and the tick that comes first" || bad "  ... and the tick that comes first" "$OUT"
 # The hub's directive asks this check on every visit; it reads the run's own
 # keys, so it still says a reconcile is owed when read again, as after a
 # restart, until the reconcile on this host clears it.
@@ -274,7 +274,7 @@ run reconcile-report-get.sh --check >/dev/null 2>&1; eq "the hub's check says a 
 run reconcile-report-get.sh --check >/dev/null 2>&1; eq "  ... and still says so when read again" 3 $?
 eq "the moved tick takes it through a full reconcile on C" reconcile "$(at --with-data '{"event":"moved"}')"
 run reconcile-report-get.sh --check >/dev/null 2>&1; eq "  ... after which the check is clear" 0 $?
-host_on c koto context get "$S" reconcile/report.md 2>/dev/null | grep -qF "This run was imported from session \`$S\` in workspace \`$WS_B\`" \
+grep -qF "This run was imported from session \`$S\` in workspace \`$WS_B\`" <<< "$(host_on c koto context get "$S" reconcile/report.md 2>/dev/null)" \
     && ok "  ... whose report was read on C, naming B as the source" \
     || bad "  ... whose report was read on C, naming B as the source" "$(host_on c koto context get "$S" reconcile/report.md 2>&1 | head -5)"
 eq "  ... and the handover read still carries the cap" "1" "$(handover | jq -r .cap)"

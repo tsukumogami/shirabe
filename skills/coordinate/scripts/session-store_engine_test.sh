@@ -78,7 +78,7 @@ open_run() { # open_run [plugin-root]: the opener's output in OPEN_OUT, the sess
     S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ]
 }
-has_line() { printf '%s\n' "$OPEN_OUT" | grep -qx -- "$1"; }
+has_line() { grep -qx -- "$1" <<< "$OPEN_OUT"; }
 write() { # write <script> <args...>: a write script, run from $WD as the agent runs it, on session $S
     local s=$1; shift
     (cd "$WD" && bash "$PS/$s" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err")
@@ -153,7 +153,7 @@ SESSIONS=$(koto session list | jq -r '[.[].id] | sort | join(" ")')
 sleep 1
 open_run; eq "a second start prints the first run's name" "$FIRST" "$S"
 has_line resumed=1 && ok "  ... as resumed" || bad "  ... as resumed" "$OPEN_OUT"
-printf '%s\n' "$OPEN_OUT" | grep -q '^cancelled=' && bad "  ... cancelling nothing" "$OPEN_OUT" || ok "  ... cancelling nothing"
+grep -q '^cancelled=' <<< "$OPEN_OUT" && bad "  ... cancelling nothing" "$OPEN_OUT" || ok "  ... cancelling nothing"
 eq "  ... opening no session" "$SESSIONS" "$(koto session list | jq -r '[.[].id] | sort | join(" ")')"
 eq "  ... and the run goes on where it stood" pick "$(cd "$WD" && koto status "$S" | jq -r .current_state)"
 

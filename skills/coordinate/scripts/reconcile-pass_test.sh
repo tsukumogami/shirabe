@@ -549,7 +549,7 @@ echo 8 > "$CASE/visit"
 jq -c --slurpfile h "$CASE/ctx/record%host" '.record.import = ($h[0] | {source_workspace, source_session, template_hash})' "$CASE/read.out" > "$CASE/read.x" && mv "$CASE/read.x" "$CASE/read.out"
 pass
 get --check; check "the next visit's report, read under the import, reads" $?
-ctx reconcile/report.md | grep -q 'This run was imported from session'; check "  ... and names the source" $?
+grep -q 'This run was imported from session' <<< "$(ctx reconcile/report.md)"; check "  ... and names the source" $?
 echo github > "$CASE/store"; echo 9 > "$CASE/visit"; record "[]"; pass
 get --check; check "a GitHub record has no import facts to compare" $?
 if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then

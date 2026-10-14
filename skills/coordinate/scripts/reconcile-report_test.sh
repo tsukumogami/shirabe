@@ -424,7 +424,7 @@ IMP=$(facts '[]' | jq -c --arg h "$IH" '.record.import = {source_workspace: "/sr
 printf '%s' "$IMP" | report | jq -e --arg h "$IH" '.header.import == {source_session: "coordinate-roadmap-demo-20260901T000000Z", source_workspace: "/srv/ws-a", template_hash: $h}' >/dev/null \
   && ok "the header carries an imported run's facts" || bad "the header carries an imported run's facts" "$(printf '%s' "$IMP" | report | jq -c .header)"
 out=$(printf '%s' "$IMP" | render)
-printf '%s\n' "$out" | grep -qF "This run was imported from session \`coordinate-roadmap-demo-20260901T000000Z\` in workspace \`/srv/ws-a\`, compiled from template \`$IH\`." \
+grep -qF "This run was imported from session \`coordinate-roadmap-demo-20260901T000000Z\` in workspace \`/srv/ws-a\`, compiled from template \`$IH\`." <<< "$out" \
   && ok "the text names the source session, workspace and template hash in one sentence" || bad "the import sentence" "$out"
 [ "$(printf '%s\n' "$out" | grep -c 'imported from')" = 1 ] && ok "  ... once" || bad "  ... once" "$out"
 facts '[]' | render | grep -q 'imported from' && bad "a run never imported has no import sentence" || ok "a run never imported has no import sentence"

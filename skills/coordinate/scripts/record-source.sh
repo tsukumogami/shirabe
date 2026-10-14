@@ -318,7 +318,7 @@ rs_resume_candidate() {
         jq -nc --arg s "$s" '{session: $s, action: "none", live: false, reason: "its store isn'"'"'t session"}'
         return 0
     fi
-    if ! printf '%s\n' "$live" | grep -qxF -- "$s"; then reason="it is finished or cancelled"
+    if ! grep -qxF -- "$s" <<< "$live"; then reason="it is finished or cancelled"
     elif [ "$(printf '%s\n' "$live" | grep -c .)" -gt 1 ]; then reason="another run of the scope is live"
     elif [ "$(bash "$HERE/coord-log.sh" template-hash --session "$s" 2>/dev/null)" != "$hash" ]; then reason="koto compiled it from another template"
     elif ! bash "$HERE/coord-log.sh" provenance --session "$s" > /dev/null 2>&1; then reason="it fails provenance"
@@ -326,7 +326,7 @@ rs_resume_candidate() {
         bash "$HERE/coord-log.sh" directed-since --session "$s" --from 0 > /dev/null 2>&1
         case $? in 0) ;; 1) reason="it has a directed transition" ;; *) return 2 ;; esac
     fi
-    jq -nc --arg s "$s" --arg r "$reason" --argjson l "$(printf '%s\n' "$live" | grep -qxF -- "$s" && echo true || echo false)" \
+    jq -nc --arg s "$s" --arg r "$reason" --argjson l "$(grep -qxF -- "$s" <<< "$live" && echo true || echo false)" \
         '{session: $s, action: (if $r == "" then "resume" else "carry" end), live: $l, reason: (if $r == "" then "the live run" else $r end)}'
 }
 
