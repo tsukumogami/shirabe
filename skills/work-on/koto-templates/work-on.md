@@ -578,13 +578,16 @@ states:
         context_assignments:
           failure_reason: "analysis blocked: missing context: ${evidence.approach_summary}"
 
-  # The live offload canary (docs/designs/current/DESIGN-offload-live-canary.md). The
+  # The live offload canary (DESIGN-offload-live-canary.md). The
   # draw records the run's group in the session directory and prints the
   # PR-body conformance text this run reads, captured as PR_BODY_RULES for the
   # pr_creation directive. The gate reads the recorded group back: 0 withheld,
   # 1 preloaded, 3 neither (canary off, a shared branch, a host that hasn't
   # opted in, the rule not eligible, or any failure). The action's command ends
-  # in a fallback because a failing default action would hold the run here.
+  # in a fallback because a failing default action would hold the run here, and
+  # the gate maps every exit but 0 and 1 to 3 so a broken or missing script has
+  # an edge too. Both restate offload-canary.sh's own contract (its header): a
+  # change to draw's output or arm's exit codes changes these two commands.
   offload_canary:
     default_action:
       command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" draw "{{OFFLOAD_CANARY}}" "{{SHARED_BRANCH}}" "{{SESSION_DIR}}" "{{PLUGIN_ROOT}}" || echo "{{PLUGIN_ROOT}}/references/pr-body-conformance.md"'

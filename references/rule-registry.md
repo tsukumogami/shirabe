@@ -106,7 +106,7 @@ The second is `/work-on`'s PR-body gate: when `check-pr-output.sh` prints a
 
 ## Leaving a rule out of a run
 
-The live offload canary (`docs/designs/current/DESIGN-offload-live-canary.md`) leaves one rule's
+The live offload canary (`DESIGN-offload-live-canary.md`) leaves one rule's
 text out of the conformance text half of `/work-on` runs read. It reads the registry through
 two more commands: `rule-registry.sh withhold <id>` prints the entry's `withhold` value, and
 the canary draws a group only when it prints `eligible`; `rule-registry.sh range <id>` prints

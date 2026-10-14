@@ -4,7 +4,7 @@
 # The canary leaves one registry rule, pr-body/no-heading-in-part1 (PB4), out
 # of the PR-body conformance text a random half of /work-on runs read, keeps it
 # in the other half, and shows each run's group in koto's exported events as the
-# marker state it passes through. docs/designs/current/DESIGN-offload-live-canary.md is
+# marker state it passes through. DESIGN-offload-live-canary.md is
 # the design; docs/guides/offload-live-canary.md says how to read the result.
 #
 # work-on.md's offload_canary state, which analysis's plan_ready edge enters,
@@ -19,8 +19,8 @@
 #   offload-canary.sh arm <session-dir>
 #
 # draw prints exactly one line, the absolute path of the conformance text this
-# run reads, and always exits 0: a failing default action would hold the run's
-# first state. The path is <plugin-root>/references/pr-body-conformance.md for
+# run reads, and always exits 0: a failing default action would hold the run
+# in offload_canary, between analysis and review_level_choice. The path is <plugin-root>/references/pr-body-conformance.md for
 # every run in neither group or the preloaded one, so their pr_creation
 # directive is byte-for-byte a canary-off run's. A withheld run gets
 # <session-dir>/pr-rules/pr-body-conformance.md, the same file with PB4's lines

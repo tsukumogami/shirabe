@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # offload-canary-routes_test.sh -- does work-on.md send each run through the
-# live offload canary the way docs/designs/current/DESIGN-offload-live-canary.md says,
+# live offload canary the way DESIGN-offload-live-canary.md says,
 # driven through real `koto next` calls?
 #
 #   A. The shipped template, walked from `koto init` through analysis to
@@ -213,6 +213,11 @@ section() {
     awk -v want="## $1" '$0 == want { on = 1; next } on && /^## / { exit } on { print }' "$TEMPLATE"
 }
 
+# The fixture starts at offload_canary, unlike the shipped template (which
+# starts at entry and reaches it from analysis), so the shipped canary states
+# can be run straight into a stub state that renders the shipped pr_creation
+# body. The stub is named review_level_choice because that is where the
+# extracted states route.
 BODY=$(section pr_creation)
 FIX="$T/fixture.md"
 {

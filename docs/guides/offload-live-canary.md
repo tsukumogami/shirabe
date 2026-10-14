@@ -1,0 +1,139 @@
+# The Live Offload Canary
+
+How to turn the live offload canary on for a host, turn it off, and read its
+result in Datadog. The canary leaves one rule, `pr-body/no-heading-in-part1`
+(PB4, no markdown heading in Part 1 of a pull request body), out of the
+PR-body conformance text about half of `/work-on` runs read, keeps it in the
+other half, and lets a query split the rule's broken rate between the two.
+The design is `DESIGN-offload-live-canary.md`.
+
+## What a run does
+
+A `/work-on` run takes part only when all of these hold:
+
+- the template's `OFFLOAD_CANARY` variable is `on` (its default);
+- the host has opted in (below);
+- the rule registry marks `pr-body/no-heading-in-part1` `withhold: eligible`;
+- the run isn't an `/execute` child on a shared branch, which opens no pull
+  request of its own.
+
+When its analysis plan is ready, the run passes through `offload_canary` on
+its way to `review_level_choice`. That state draws a group from
+`/dev/urandom`, records it in the session directory, and routes the run
+through one of two marker states:
+
+| Group | Marker state | What the run reads at `pr_creation` |
+|---|---|---|
+| withheld | `offload_arm_withheld` | a copy of `references/pr-body-conformance.md` without PB4's lines |
+| preloaded | `offload_arm_preloaded` | `references/pr-body-conformance.md` |
+| neither | none | `references/pr-body-conformance.md` |
+
+A run that can't be assigned, for any reason, is in neither group and goes on
+as if the canary were off. A run keeps its group for its whole life: a rewind
+reads the recorded group back, and `OFFLOAD_CANARY` can't be rebound.
+
+In every group, when the `pr_body_conformant` gate fails on PB4, its output
+carries the finding and PB4's full text, so a withheld agent learns the rule
+the first time it breaks it.
+
+## Turning it on for a host
+
+Create the opt-in file with `on` as its first line:
+
+```bash
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/shirabe"
+echo on > "${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary"
+```
+
+Only hosts whose koto events reach this project's Datadog should opt in: a
+run on any other host would withhold the rule without being measured. The
+host also needs a shirabe release that carries the canary.
+
+To turn one host off, delete the file or change its first line.
+
+## Turning it off everywhere
+
+Change the default of `OFFLOAD_CANARY` in
+`skills/work-on/koto-templates/work-on.md` from `"on"` to `"off"`. The line
+to change is:
+
+```yaml
+    default: "on"
+```
+
+under `OFFLOAD_CANARY:` in the `variables:` block. Every run started after
+the change is in neither group; a run already in progress keeps its group.
+
+## Reading the result
+
+koto exports names, not values, so a run's group is read from the marker
+state it entered. Three event kinds carry what the readout needs, joined on
+`koto.session.id`:
+
+| Event | Attribute | Meaning |
+|---|---|---|
+| `state_entered` | `koto.state` = `offload_arm_withheld` or `offload_arm_preloaded` | the run's group |
+| `state_entered` | `koto.state` = `pr_creation` | the run reached the gate: the denominator |
+| `check_rule` | `koto.rule.id` = `pr-body/no-heading-in-part1` | the gate found PB4 broken: the numerator |
+
+Run it from a session with Datadog's log analytics (the
+`analyze_datadog_logs` tool), over the window you want:
+
+- filter: `(state_entered @koto.state:(offload_arm_withheld OR offload_arm_preloaded OR pr_creation)) OR (check_rule @koto.rule.id:"pr-body/no-heading-in-part1")`
+- extra columns: `@koto.session.id`, `@koto.state`, `@koto.rule.id`, each `varchar`
+
+```sql
+WITH ev AS (
+  SELECT "@koto.session.id" AS sid, message AS kind,
+         "@koto.state" AS st, "@koto.rule.id" AS rid
+  FROM logs),
+arm AS (
+  SELECT DISTINCT sid,
+         CASE WHEN st = 'offload_arm_withheld' THEN 'withheld' ELSE 'preloaded' END AS arm
+  FROM ev
+  WHERE kind = 'state_entered' AND st IN ('offload_arm_withheld', 'offload_arm_preloaded')),
+reached AS (SELECT DISTINCT sid FROM ev WHERE kind = 'state_entered' AND st = 'pr_creation'),
+broken AS (SELECT DISTINCT sid FROM ev WHERE kind = 'check_rule' AND rid = 'pr-body/no-heading-in-part1')
+SELECT a.arm, COUNT(r.sid) AS runs, COUNT(b.sid) AS broken_runs
+FROM arm a JOIN reached r ON r.sid = a.sid LEFT JOIN broken b ON b.sid = a.sid
+GROUP BY a.arm
+```
+
+Each row is a group: `runs` is how many of its sessions reached
+`pr_creation`, and `broken_runs` how many of those had PB4 broken at least
+once. The broken rate is `broken_runs / runs`. A session counts once however
+often it entered `pr_creation` or broke the rule, a group with runs and no
+broken run shows 0, and a session with no marker state (canary off, a shared
+branch, a host that didn't opt in, a failed assignment, a run started before
+the canary) is left out by the join.
+
+### Why the denominator is runs
+
+A passing check records no rule: `check_rule` is written only when a gate
+fails. In the events sent before the Datadog sender's fix for gate names, a
+passing `check_evaluated` doesn't even carry its gate's name, because its
+`koto.check` string collided with the `koto.check.*` fields. So the
+denominator is sessions that reached `pr_creation`, where the gate runs.
+Once the fix is installed, `check_evaluated` carries the gate name as
+`koto.check.name`, and a per-check denominator can be read for the windows
+after it, counting `check_evaluated` events with `@koto.state:pr_creation`
+and `@koto.check.name:pr_body_conformant`. Keep the per-run denominator for
+any window that reaches back before the fix.
+
+## Reading it honestly
+
+- **The sample is small.** About 20 to 30 runs reach `pr_creation` per group
+  a week, and PB4 broke in none of the runs recorded in the week before the
+  canary, so a difference shows as a count over several weeks.
+- **It counts first failures.** After a run breaks PB4 once, the gate hands
+  it the rule's text, so both groups know the rule from then on. A run counts
+  once either way.
+- **Runs from one plan are related.** Each `/work-on` run in a `multi-pr`
+  plan draws on its own, but runs from one plan share an author and a task.
+- **Only runs that reach a ready plan are drawn.** A run that stops before
+  its analysis plan is ready is in neither group; it never reaches
+  `pr_creation` either, so both groups lose the same runs.
+- **Some contamination narrows the difference.** `phase-6-pr.md` points the
+  agent at its project's own PR-creation skill for Part 2, and an agent may
+  know the convention already. Either can carry the rule into a withheld
+  run.
