@@ -126,7 +126,10 @@ work.
    migrated, and its copy refuses every later read as `session_migrated`. The
    imported run must then pass what a resume needs; one that doesn't stays here
    (`refused=template-mismatch`, `session-provenance`, `session-source` or
-   `session-directed`), and a plain start carries it. A good import prints
+   `session-directed`), and a plain start carries it, except after
+   `session-source`: a run whose source isn't the session store is no resume
+   candidate, so a plain start opens a new run as it would with no session
+   here and cancels the imported one. A good import prints
    `imported=<name>`, `resumed=1` and `session=<name>`, and `record/host` takes
    the source workspace, session and template hash. The run keeps its stamp. It
    reconciles again on this host, because a report sealed on the old host

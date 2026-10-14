@@ -36,10 +36,12 @@
 # run from the bucket, taking the template from the bucket only under
 # `--trust-template`, and marks the source migrated; its refusals print
 # `refused=<koto code>`. The imported run must pass what a resume needs, or it
-# stays here refused and a plain start carries it: the shipped template's hash
-# (`refused=template-mismatch`), provenance (`refused=session-provenance`), the
-# session store (`refused=session-source`) and no directed transition
-# (`refused=session-directed`). record/host takes the source's workspace,
+# stays here refused: the shipped template's hash (`refused=template-mismatch`),
+# provenance (`refused=session-provenance`), the session store
+# (`refused=session-source`) and no directed transition
+# (`refused=session-directed`). A plain start then carries it, except after
+# session-source: a run not on the session store is no resume candidate, so the
+# start opens a new run as with no session here and cancels the imported one. record/host takes the source's workspace,
 # session and template hash, and the output is `imported=<session>`,
 # `resumed=1`, `session=<it>`, then `state=<the run's state>` and, when the run
 # waits at the hub, `tick=moved`: the first tick, which sends it through a full
@@ -254,7 +256,8 @@ if [ -n "$IMPORT" ]; then
     rm -rf "$DIR"
     # koto has imported it by now: a refusal below leaves it on this host, the
     # only copy (the source is marked migrated), and a plain start here carries
-    # its record into a new run on this host's template and plugin.
+    # its record into a new run on this host's template and plugin, all but
+    # session-source's, which holds no session-store record to carry.
     HASH=$(bash "$HERE/coord-log.sh" template-hash --session "$IMPORT" 2>/dev/null)
     [ "$HASH" = "$SHIPPED" ] || refuse_import template-mismatch \
         "$IMPORT was compiled from another template than the one shipped here; it stays on this host, and a plain start carries its record into a new run"
