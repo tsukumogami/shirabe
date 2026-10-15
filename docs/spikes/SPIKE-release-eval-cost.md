@@ -158,11 +158,6 @@ merge-method-squash, merge-resumed-with-merge,
 scope-intent-continue-branch-adopted and
 stale-invocation-refused-merge-unchanged.
 
-Each run's orchestrating session also wrote its own agent briefs: the layout
-of the with-skill and baseline prompts differs in each of the four execute
-runs, because `run-evals.sh` tells the session what to do and leaves how to
-the model.
-
 ### Run-to-run noise
 
 The four coordinate runs scored 92.4%, 91.9%, 91.9% and 97.3% with the skill
@@ -224,21 +219,23 @@ selected (all 20 suites) the same arithmetic gives $1,458.
 
 ## Recommendation
 
-Go, with five cuts. Together they bring the five-skill release run from about
-$1,202 and 2,225M tokens to about $88 and 168M tokens. That is under half of
+Go, with four cuts. Together they bring the five-skill release run from about
+$1,202 and 2,225M tokens to about $90 and 218M tokens. That is under half of
 what one execute run spent inside a single window ($184.76), so the run fits
 one window with room for other work. Everything the release run stops doing
 moves to a scheduled measurement that runs off the release path.
 
 **Target: a release eval run of the five changed skills at or under $90 list
-price and 170M tokens, in about two and a half hours.** The wall time is an
-estimate: coordinate's runs took about 30 seconds of session time per tier-1
-scenario, and execute's runs started a scenario every 4.2 to 4.7 minutes with
-both tiers mixed. 161 tier-1 scenarios at 30 s plus 15 tier-2 at about 4.5 min
-is about 2.5 hours. Running skills in parallel sessions shortens it without
-changing the cost.
+price, in three to four hours.** The target is in dollars
+because the window evidence is: the same tokens cost half as much on Sonnet,
+so a token count alone doesn't say whether a run fits. The wall time is an
+estimate: coordinate's runs took 26 to 37 seconds of session time per tier-1
+scenario (161 of them, about 80 minutes), and with tier 1 taken out, execute's
+runs took 7 to 10 minutes of session time per tier-2 scenario (15 of them,
+about 105 to 150 minutes). Running skills in parallel sessions shortens it without changing
+the cost.
 
-### The five cuts, ranked by saving
+### The four cuts, ranked by saving
 
 "Alone" applies one cut to today's $1,202. The cuts overlap, so the column
 doesn't add up; the table after it gives the combined result.
@@ -246,29 +243,31 @@ doesn't add up; the table after it gives the combined result.
 | Rank | Cut | Saves alone | What it gives up |
 |---|---|---|---|
 | 1 | **One run per release; repeat runs scheduled.** `--critical-runs 1` in `release.md`'s declared check, and the three-run measurement moves to a scheduled job. | $777, 1,452M tokens (65%) | A release sees one sample. Measured noise on an unchanged skill is up to five points (coordinate: 91.9% to 97.3%), so the drop rule needs a tolerance, or it flags noise as a drop. Variance is measured on the schedule instead. |
-| 2 | **Tier-2 subset at release.** At most 10 tier-2 scenarios per skill run at release, marked in `evals.json`; the rest run on the schedule. Candidates for execute, by measured separation between skill and baseline: merge-unprotected-base, pr-adopt-fork-pr, parity-drift-gate-intent-changing-halts, merge-failing-nonrequired-check, merge-pending-past-limit, merge-head-moved, e2e-execute-resume, coordinated-plan-verifies-its-mode-scoped-record, execute-ci-monitor-dirty-merge-state-routing and parity-finalization-cascade-atomic. Work-on's 5 are picked after its first scheduled run. | $737, 1,471M (61%) | A regression on a path outside the subset reaches a release and is caught by the next scheduled run instead. The candidates rest on one to three graded runs, and the 23 scenarios no run reached aren't ranked. |
-| 3 | **Tier-2 agents on Sonnet.** Tier-2 scenarios default to `sonnet`, as tier 1 already does. | $446, 911M (37%) | Tier-2 agents stop running on Opus. The first release after the change compares against Opus-measured rates (see the record condition below). |
+| 2 | **Tier-2 subset at release.** Execute runs 10 of its 54 tier-2 scenarios at release and work-on 5 of its 15, marked in `evals.json`; the rest run on the schedule. Execute's 10 are the ten with the widest measured separation between skill and baseline, ties broken by lower cost: merge-unprotected-base, pr-adopt-fork-pr, parity-drift-gate-intent-changing-halts, merge-head-moved, merge-review-rule-unapproved, merge-workflow-change, merge-failing-nonrequired-check, merge-no-checks, merge-pending-past-limit and coordinated-plan-verifies-its-mode-scoped-record. Work-on has no graded run, so its first 5 are one per route it takes, unmeasured: review-panel-passed, review-panel-escalate, gate-failure-blocks-transition, resume-interrupted-session and docs-issue-type-skips-panels; the first scheduled run replaces them with the five that separate best. | $737, 1,471M (61%) | A regression on a path outside the subset reaches a release and is caught by the next scheduled run instead. Execute's picks rest on one to three graded runs, and the 23 scenarios no run reached aren't ranked. |
+| 3 | **`EVAL_MODEL=sonnet` on the release check.** One setting in `release.md`'s declared check: `run-evals.sh` already passes it to the orchestrating and grading session and makes it every scenario's default model, so tier-2 agents and grading both move to Sonnet. Local runs and the scheduled measurement keep today's models. | $528 (44%); tokens unchanged | Tier-2 agents stop running on Opus, and a smaller grader may judge borderline assertions differently. The first release after the change compares against Opus-measured rates (see the record condition below). A Haiku grader would cost less, but isn't priced here: no Haiku call appears in the transcripts. |
 | 4 | **Drop the no-skill baseline from the release check.** Spawn and grade only the with-skill agent at release; the baseline moves to the scheduled measurement, where its question (what the skill adds) belongs. | $369, 623M (31%) | Nothing the release decision uses: the record and the drop rule read with-skill rates only. A release no longer shows the skill's lift over the bare model. |
-| 5 | **Grading and the orchestrating session on Sonnet.** A session-model setting of its own; `EVAL_MODEL` today also moves every tier-2 agent. | $82 (7%); tokens unchanged | A smaller grader may judge borderline assertions differently, so this one does change how a scenario is judged. A Haiku grader would cost less, but isn't priced here: no Haiku call appears in the transcripts. |
 
 | Skill | Runs | Scenarios (tier 1 + tier 2) | Cost | Tokens |
 |---|---|---|---|---|
 | coordinate | 1 | 36 + 0 | $13.9 | 24M |
-| execute | 1 | 23 + 10 | $26.0 | 54M |
+| execute | 1 | 23 + 10 | $27.4 | 90M |
 | roadmap | 1 | 17 + 0 | $7.7 | 14M |
 | scope | 1 | 66 + 0 | $23.7 | 40M |
-| work-on | 1 | 19 + 5 | $17.0 | 36M |
-| **Total** | | | **$88** | **168M** |
+| work-on | 1 | 19 + 5 | $17.0 | 52M |
+| **Total** | | | **$90** | **218M** |
 
-Without cut 3 the run is about $111 and 215M tokens; without cut 5, about
-$108. Either one alone misses the target.
+Execute's row prices its ten named scenarios at their own measured cost ($16.20
+on Sonnet, against $14.80 at the tier-2 mean); the other rows use the means.
+The margin is thin: without cut 3 the run is about $113, and with work-on
+running all 15 tier-2 scenarios, about $105. If the first measured run lands
+over $90, batching tier-1 scenarios (below) is the next lever.
 
 ### The other cuts the issue names
 
-- **Scenarios that score the same with and without the skill.** Removing or
-  rewriting the nine in the table above saves $70 on today's check, but only
-  about $1.30 on top of the five cuts, because cut 2 already leaves execute's
-  five out of the release run. Do it anyway, for the scheduled measurement and
+- **Scenarios that score the same with and without the skill.** Removing the
+  nine in the table above saves $70 on today's check, but only about $1.30 on
+  top of the four cuts, because cut 2 already leaves execute's five out of the
+  release run; a rewritten scenario still runs and still costs. Do it anyway, for the scheduled measurement and
   for what the rates mean: a scenario both sides pass adds a pass to the rate
   without testing the skill.
 - **Caching unchanged scenarios.** Across releases it saves little: coordinate
@@ -286,18 +285,19 @@ $108. Either one alone misses the target.
   scenario to declare what it reads, which isn't worth it while SKILL.md
   changes every release.
 - **Batching tier-1 scenarios** so one agent reads the skill once for several
-  plan-only scenarios is not recommended now: about $23 on top of the five
+  plan-only scenarios is not recommended now: about $23 on top of the four
   cuts, unmeasured, and the scenarios in a batch can influence each other's
   answers. It's the next lever if the first measured run lands over target.
 
 ### Condition: the record has to accept the change once
 
 The record holds one with-skill rate per skill. The first release after cuts 1,
-2, 3 and 5 compares a one-run rate on a subset, with Sonnet agents and grader,
+2 and 3 compares a one-run rate on a subset, with Sonnet agents and grader,
 against a three-run rate on every scenario. That release should treat the
 changed skills as having no baseline, and from then on a drop should be
 flagged only beyond the measured noise (five points), not on any lower
-rounded rate.
+rounded rate. This change has to land before, or with, the first release
+that runs the cut check.
 
 ### Issues to file once the plan is agreed
 
@@ -308,13 +308,16 @@ rounded rate.
    baseline and every tier-2 scenario.
 3. Mark each skill's release tier-2 subset in `evals.json` and run only it at
    release.
-4. Default tier-2 scenarios to Sonnet.
-5. Add a session-model setting for the orchestrating and grading session.
-6. Give the record a one-time "no baseline" for the changed scenario set and a
-   five-point tolerance.
-7. Keep per-scenario results and resume a stopped release run.
-8. Rewrite or remove the nine scenarios that score the same with and without
+4. Set `EVAL_MODEL=sonnet` on the release check (with issue 2's pull request
+   against `release.md`).
+5. Give the record a one-time "no baseline" for the changed scenario set and a
+   five-point tolerance; it lands before the first release that runs the cut
+   check.
+6. Keep per-scenario results and resume a stopped release run.
+7. Rewrite or remove the nine scenarios that score the same with and without
    the skill.
+8. After the first scheduled run, replace work-on's five unmeasured release
+   picks with the five that separate best.
 
 ## Limitations
 
@@ -328,7 +331,7 @@ scenarios are priced at the mean of the 31 tier-2 scenarios that ran.
 
 ## Appendix: per-scenario measurements
 
-Means over every run in which the scenario's agents ran. Dollars at the prices above; tokens are all tokens processed; seconds are the agent's own wall time (with-skill and baseline ran side by side). "Passed" lists passed:graded assertions per graded run, runs separated by `/`; execute iteration 6 ran agents but graded nothing, so a scenario can show more agent runs than grades. Grading isn't split per scenario because each grader agent covered a batch; it averaged $0.145 per scenario for coordinate and $0.238 for execute.
+Means over every run in which the scenario's agents ran. Dollars at the prices above; tokens are all tokens processed; seconds are the agent's own wall time (with-skill and baseline ran side by side). "Passed" lists passed:graded assertions per graded run, runs separated by `/`. A run that stopped graded some or none of the scenarios its agents ran (iteration 6 graded none), so a scenario can show more agent runs than grades. Grading isn't split per scenario because each grader agent covered a batch; it averaged $0.145 per scenario for coordinate and $0.238 for execute.
 
 ### coordinate
 
