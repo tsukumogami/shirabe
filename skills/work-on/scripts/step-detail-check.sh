@@ -95,7 +95,7 @@ fi
 if [ ! -e "$PLAN" ] && [ ! -L "$PLAN" ]; then
     refuse "plan not found: $(shown "$PLAN")"
 fi
-ROOT=$(git rev-parse --show-toplevel 2>/dev/null) \
+ROOT=$(git rev-parse --show-toplevel) \
     || refuse "not inside a git repository; run from the repository that holds the plan"
 ROOT=$(cd "$ROOT" 2>/dev/null && pwd -P) || refuse "cannot enter the repository root"
 
@@ -133,7 +133,7 @@ case "$SCHEMA" in
     *) refuse "not a plan/v1 or plan/v2 PLAN (frontmatter schema [$(shown "$SCHEMA")]): $(shown "$PLAN")" ;;
 esac
 
-command -v jq >/dev/null 2>&1 || refuse "jq not found on PATH; it reads the outline envelope"
+command -v jq >/dev/null || refuse "jq not found on PATH; it reads the outline envelope"
 
 if [ -n "${SHIRABE_BIN:-}" ]; then
     [ -x "$SHIRABE_BIN" ] || refuse "SHIRABE_BIN is set but is not an executable file: $(shown "$SHIRABE_BIN")"
