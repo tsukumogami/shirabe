@@ -60,8 +60,10 @@ pub enum Severity {
 /// legitimate intermediate states while a chain is being drafted, so they
 /// tolerate `Draft` posture but must be resolved before `Ready`.
 /// Everything else — the always-defect lifecycle findings
-/// `L01`/`L03`/`L04`/`L05` and the entire FC-family — is
-/// `AlwaysEnforced`. The FC-family exclusion is why `L09` is an `L` code:
+/// `L01`/`L03`/`L04`/`L05`/`L10` and the entire FC-family — is
+/// `AlwaysEnforced`. `L10` (an outline step left in a step plan at
+/// completion) is always enforced because the run that raises it is the
+/// completion cascade's: a step nobody built is not an in-flight state there. The FC-family exclusion is why `L09` is an `L` code:
 /// it is a single-document property like `L06`, and filing it under `FC`
 /// would have cost this invariant an exception.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -109,7 +111,7 @@ fn is_intrinsic_notice(code: &str) -> bool {
 /// The draft-tolerable lifecycle codes `L02`/`L06`/`L07`/`L09` resolve to
 /// a notice under `Draft` posture and an error under `Ready`; this is the
 /// single point that drives posture sensitivity. Every other code —
-/// including the always-defect lifecycle findings `L01`/`L03`/`L04`/`L05`
+/// including the always-defect lifecycle findings `L01`/`L03`/`L04`/`L05`/`L10`
 /// and the whole FC-family — is `AlwaysEnforced` and resolves to an error
 /// in both postures (subject to the intrinsic-notice set in
 /// [`is_intrinsic_notice`], which keeps `SCHEMA` and the advisory FC codes
@@ -152,7 +154,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
 /// can emit: `SCHEMA`, `FC01`-`FC22`, `FC-CONVENTIONS`, and `R6`-`R11`. The
-/// lifecycle codes (`L01`-`L09`) are produced by the `--lifecycle` traversal
+/// lifecycle codes (`L01`-`L10`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
     matches!(
@@ -595,6 +597,17 @@ mod tests {
             effective_severity("L01", ReviewPosture::Draft),
             Severity::Error
         );
+    }
+
+    /// L10 is an error in both postures and, like every lifecycle code, not
+    /// a `--check` selection: the cascade's draft-or-ready choice must not
+    /// let a plan complete over a step nobody built.
+    #[test]
+    fn l10_is_an_error_in_both_postures_and_not_selectable() {
+        for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
+            assert_eq!(effective_severity("L10", posture), Severity::Error);
+        }
+        assert!(!is_known_check_code("L10"));
     }
 
     /// FC20 is an error in both postures.

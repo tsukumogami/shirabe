@@ -4417,13 +4417,13 @@ pub fn check_fc22_steps(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     errs
 }
 
-/// The most characters of document text an FC22 message quotes.
+/// The most characters of document text an FC22 or L10 message quotes.
 const FC22_QUOTE_MAX_CHARS: usize = 80;
 
 /// Make document text safe to quote in a finding: control characters
 /// (an ANSI escape's ESC among them) are dropped and the result is cut to
 /// [`FC22_QUOTE_MAX_CHARS`] characters, counted as characters, not bytes.
-fn quote_document_text(text: &str) -> String {
+pub(crate) fn quote_document_text(text: &str) -> String {
     text.chars()
         .filter(|c| !c.is_control())
         .take(FC22_QUOTE_MAX_CHARS)

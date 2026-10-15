@@ -42,6 +42,10 @@
 //!   document — the document is told once that its consumers
 //!   disagree, rather than handed instructions it cannot both follow.
 //!   Findings of every other kind on it are unaffected.
+//! - **L10**: a `plan/v2` chain member still holds a one-line outline
+//!   step. Chain-targeted mode only (`--lifecycle-chain`, the run the
+//!   completion cascade makes before deleting the plan); one error per
+//!   outline step, naming it.
 //!
 //! Posture detection follows
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
@@ -1668,6 +1672,62 @@ fn resolve_delivery_preference(doc_path: &Path) -> Option<String> {
     )
 }
 
+// ---------- L10: outline steps left at completion ----------
+
+/// L10: a `plan/v2` step plan in the chain still holds a one-line outline
+/// step.
+///
+/// One error per outline step, naming `Step <N>` and its title. An outline
+/// step is one nobody has detailed yet, so nobody has built it either: a
+/// chain finalized over it would complete with that step's behaviour
+/// missing and the plan that named it deleted.
+///
+/// Emitted only by [`run_lifecycle_chain_check`], the run the completion
+/// cascade makes before it deletes the plan. The whole-tree run reports on
+/// every chain in flight, where an outline step is the expected shape of a
+/// step plan whose later steps are not yet due; there it would be noise.
+///
+/// "Outline" is the shared parser's `detailed` flag, the same one
+/// `shirabe plan outlines` reports and the step-detail gate reads. It
+/// agrees with FC22's reading on every plan FC22 accepts. A `plan/v1`
+/// PLAN has no outline form and never trips this.
+///
+/// Not suppressed by `allow_untracked_acs`: that flag excuses unticked
+/// criteria, and an outline step has no criteria to excuse.
+fn check_l10_outline_steps(chain: &Chain) -> Vec<ValidationError> {
+    let mut errors: Vec<ValidationError> = Vec::new();
+    for member in &chain.members {
+        if member.role != ChainRole::Plan {
+            continue;
+        }
+        let doc = match parse_doc(&member.path) {
+            Ok(d) => d,
+            // A frontmatter parse failure is already surfaced as L05 by
+            // `index_doc`; L10 has nothing to add on a doc it cannot read.
+            Err(_) => continue,
+        };
+        if !crate::checks::is_plan_v2(&doc) {
+            continue;
+        }
+        for block in crate::table::parse_issue_outlines(&doc).blocks {
+            if block.entry != crate::table::Entry::Step || block.detailed {
+                continue;
+            }
+            errors.push(error_path(
+                member.path.clone(),
+                "L10",
+                &format!(
+                    "Step {} is still an outline: '{}' (line {}); the plan's owner details it and its work reaches done before the plan completes",
+                    block.number,
+                    crate::checks::quote_document_text(&block.title),
+                    block.line
+                ),
+            ));
+        }
+    }
+    errors
+}
+
 // ---------- chain-targeted entry point ----------
 
 /// Run the chain-aware passing-state lifecycle check against the
@@ -1803,11 +1863,15 @@ pub fn run_lifecycle_chain_check(
     errors.extend(emit_document_findings(&scope, &obligations, &idx, &inv));
 
     // Chain-level findings — L06, once per chain in scope.
-    errors.extend(emit_chain_findings(
-        &containing_chains(&chains, &canon_doc),
-        &idx,
-        cfg,
-    ));
+    let in_scope = containing_chains(&chains, &canon_doc);
+    errors.extend(emit_chain_findings(&in_scope, &idx, cfg));
+
+    // L10 is this mode's alone: the completion cascade runs this mode
+    // before it deletes the plan, and an outline step is legitimate in
+    // flight, which is all the whole-tree mode sees.
+    for chain in &in_scope {
+        errors.extend(check_l10_outline_steps(chain));
+    }
 
     sort_findings(&mut errors);
     errors
@@ -4962,5 +5026,150 @@ mod tests {
             "expected no L06 errors on multi-pr PLAN; got {:?}",
             l06s
         );
+    }
+
+    // ---- L10 outline steps left at completion ----
+
+    fn v2_plan_fm(status: &str) -> String {
+        format!(
+            "schema: plan/v2\nstatus: {}\nexecution_mode: single-pr\nmilestone: \"m\"\nstep_count: 3\nupstream: docs/designs/DESIGN-foo.md\n",
+            status
+        )
+    }
+
+    /// Steps 1 and 2 detailed (criteria ticked as given), step 3 detailed
+    /// or a one-line outline.
+    fn v2_plan_body(ticks: &str, step3_detailed: bool) -> String {
+        let step3 = if step3_detailed {
+            format!(
+                "### Step 3: third\n\n**Goal**: g.\n\n**Acceptance Criteria**:\n\n- [{}] c.\n\n**Check**: run it.\n\n**Dependencies**: Step 2\n",
+                ticks
+            )
+        } else {
+            "### Step 3: third\n\nOne line naming the behaviour.\n".to_string()
+        };
+        format!(
+            "# PLAN: t\n\n## Status\n\nActive\n\n## Scope Summary\n\nS.\n\n## Decomposition Strategy\n\nD.\n\n## Steps\n\n### Step 1: first\n\n**Goal**: g.\n\n**Acceptance Criteria**:\n\n- [{t}] a.\n\n**Check**: run it.\n\n**Dependencies**: None\n\n### Step 2: second\n\n**Goal**: g.\n\n**Acceptance Criteria**:\n\n- [{t}] b.\n\n**Check**: run it.\n\n**Dependencies**: Step 1\n\n{s3}",
+            t = ticks,
+            s3 = step3
+        )
+    }
+
+    fn v2_tree(status: &str, ticks: &str, step3_detailed: bool) -> PathBuf {
+        build_tree(&[
+            (
+                "docs/designs/DESIGN-foo.md",
+                &make_design("Planned", ""),
+                &design_body("Planned"),
+            ),
+            (
+                "docs/plans/PLAN-foo.md",
+                &v2_plan_fm(status),
+                &v2_plan_body(ticks, step3_detailed),
+            ),
+        ])
+    }
+
+    fn codes<'a>(errors: &'a [ValidationError], code: &str) -> Vec<&'a ValidationError> {
+        errors.iter().filter(|e| e.code == code).collect()
+    }
+
+    #[test]
+    fn l10_names_each_outline_step_in_the_chain_targeted_run() {
+        let root = v2_tree("Active", "x", false);
+        let errors = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        let l10 = codes(&errors, "L10");
+        assert_eq!(l10.len(), 1, "one L10 for step 3; got {:?}", errors);
+        assert!(l10[0].message.contains("Step 3"), "{}", l10[0].message);
+        assert!(codes(&errors, "L06").is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn l10_is_silent_in_the_whole_tree_run() {
+        let root = v2_tree("Active", "x", false);
+        let errors = run_lifecycle_check(&root, &Config::default(), ReviewPosture::Draft);
+        assert!(codes(&errors, "L10").is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn l10_is_silent_once_every_step_is_detailed() {
+        let root = v2_tree("Active", "x", true);
+        let errors = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert!(codes(&errors, "L10").is_empty(), "{:?}", errors);
+        assert!(codes(&errors, "L06").is_empty(), "{:?}", errors);
+        assert!(errors.is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn l10_is_not_excused_by_allow_untracked_acs() {
+        let root = v2_tree("Active", " ", false);
+        let cfg = Config {
+            allow_untracked_acs: true,
+            ..Config::default()
+        };
+        let errors = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-foo.md"),
+            &cfg,
+            ReviewPosture::Draft,
+        );
+        assert_eq!(codes(&errors, "L10").len(), 1, "{:?}", errors);
+        assert!(codes(&errors, "L06").is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn l06_names_an_unticked_criterion_on_a_detailed_step() {
+        let root = v2_tree("Active", " ", true);
+        let errors = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        let l06 = codes(&errors, "L06");
+        assert_eq!(l06.len(), 3, "{:?}", errors);
+        assert!(l06.iter().any(|e| e.message.contains("Step 3: third")));
+        assert!(codes(&errors, "L10").is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn a_draft_step_plan_fails_l01_and_an_active_one_does_not() {
+        let draft = v2_tree("Draft", "x", true);
+        let errors = run_lifecycle_chain_check(
+            &draft.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert!(
+            codes(&errors, "L01")
+                .iter()
+                .any(|e| e.message.contains("PLAN at status 'Draft'")),
+            "{:?}",
+            errors
+        );
+        let active = v2_tree("Active", "x", true);
+        let errors = run_lifecycle_chain_check(
+            &active.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert!(codes(&errors, "L01").is_empty(), "{:?}", errors);
+    }
+
+    #[test]
+    fn l10_never_fires_on_a_plan_v1_plan() {
+        let root = build_single_pr_chain("- [x] done.\n");
+        let errors = run_lifecycle_chain_check(
+            &root.join("docs/plans/PLAN-foo.md"),
+            &Config::default(),
+            ReviewPosture::Draft,
+        );
+        assert!(codes(&errors, "L10").is_empty(), "{:?}", errors);
     }
 }
