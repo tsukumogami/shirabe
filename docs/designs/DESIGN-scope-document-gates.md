@@ -1,7 +1,6 @@
 ---
 schema: design/v1
 status: Proposed
-upstream: docs/prds/PRD-scope-document-gates.md
 problem: |
   /scope's hop gates ask the validator four structural questions and leave every
   other error-level check, and the banned-words rule, to prose the agent may
@@ -21,6 +20,7 @@ rationale: |
   beside the completion check leaves the fold's routing gates alone. Keying
   findings by validator code reuses the output-gates conventions, so the
   findings count per rule the way work-on's already do.
+upstream: docs/prds/PRD-scope-document-gates.md
 decision_provenance: inline-resolved
 ---
 
@@ -219,6 +219,12 @@ Plan arm.
 A code the validator reports at error level with no entry aliasing it is exit
 2: the gate never prints a finding it can't register.
 
+Validator check `R6` resolves nothing for a cross-repository `owner/repo:path`
+upstream, so the gate holds nothing for one (the PRD leaves those out of
+scope). A ROADMAP never reaches a /scope document's `upstream:` except on the
+PLAN, where it is legal; anywhere else it is an `R11` finding, which is the
+rule doing its job.
+
 #### Alternatives Considered
 
 - **One shared id for every document rule** (`docs/validator`). One entry.
@@ -382,7 +388,8 @@ hop_<x> / fold (koto)                     check-hop-document.sh
 - **`scripts/lib/declared-visibility.sh`** (new), and
   **`skills/work-on/scripts/check-branch-output.sh`** (sources it).
 - **`skills/scope/koto-templates/scope.md`**: five gates, the added transition
-  conditions, and a paragraph in each of the five states' details text.
+  conditions, the fold's `bail` verdict and its arm, and a paragraph in each of
+  the five states' details text.
 - **`references/rule-registry.json`**: fourteen new entries, three updated.
 - **`docs/guides/doc-validation.md`**: the FC20 item and the R6 correction.
 - **CI**: the suite in `.github/workflows/check-scope-scripts.yml`, in the job
