@@ -955,6 +955,26 @@ if ! lifecycle_probe "pre" "$PLAN_DOC"; then
     emit_result "skipped"
     exit 0
 fi
+
+# A step plan (plan/v2) that still holds a one-line outline step does not
+# complete: nobody has built that step. The validator names each one as L10 in
+# the probe it just ran, and the cascade stops here, before anything is
+# transitioned or deleted, so the plan survives for its owner to detail the
+# step. The rule lives in the validator; this only refuses to go past it.
+# L10_FINDINGS keeps the envelope shape so lifecycle_findings_summary renders
+# it; it is empty when the output is not a parseable envelope, and a probe
+# that could not report L10 cannot stop the run here.
+L10_FINDINGS=$(jq -c '{findings: [.findings[] | select(.code == "L10")]}' \
+    <<< "$LIFECYCLE_PROBE_OUTPUT" 2>/dev/null) || L10_FINDINGS=""
+if [[ -n "$L10_FINDINGS" ]] \
+    && [[ "$(jq -r '.findings | length' <<< "$L10_FINDINGS")" -gt 0 ]]; then
+    log_warn "Pre-cascade probe: the plan still has outline steps; the cascade stops:"
+    log_lifecycle_findings "$L10_FINDINGS"
+    add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "failed" \
+        "outline steps remain: $(lifecycle_findings_summary "$L10_FINDINGS")"
+    emit_result "partial"
+    exit 0
+fi
 add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "ok" "$L06_SUPPRESSED_DETAIL"
 
 # ── Read PLAN metadata before deletion ────────────────────────────────────────

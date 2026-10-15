@@ -3537,6 +3537,72 @@ EOF
     [[ "$ok" == "true" ]] && pass "$scenario" || true
 }
 
+# ── plan/v2: an outline step stops the cascade until it is detailed ───────────
+# The fixture chains live with the validator's tests, so the cascade and the
+# L10 check read the same documents. lifecycle-outline-step has steps 1 and 2
+# detailed and step 3 a one-line outline; lifecycle-all-detailed is the same
+# PLAN after its owner detailed step 3 and ticked its criteria. Both use the
+# real binary, so the stop comes from the validator's own finding.
+PLAN_V2_CASES="$REPO_ROOT/crates/shirabe-validate/tests/fixtures/plan-v2"
+
+scenario_plan_v2_outline_step_stops() {
+    local scenario="plan/v2: an outline step stops the cascade, its detail lets it run"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    mkdir -p docs/designs docs/plans
+    cp "$PLAN_V2_CASES/lifecycle-outline-step/docs/designs/DESIGN-greeting.md" docs/designs/
+    cp "$PLAN_V2_CASES/lifecycle-outline-step/docs/plans/PLAN-greeting.md" docs/plans/
+    commit_all
+
+    local plan="docs/plans/PLAN-greeting.md"
+    local output
+    output=$(run_cascade "$plan")
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "outline step: cascade_status is partial" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe" and .status == "failed")] | length == 1' \
+        "outline step: lifecycle_pre_probe failed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe")][0].detail | (contains("[L10]") and contains("Step 3"))' \
+        "outline step: the detail names L10 and Step 3" || ok=false
+    assert_json "$scenario" "$output" '[.steps[] | select(.action != "lifecycle_pre_probe")] | length == 0' \
+        "outline step: nothing past the probe ran" || ok=false
+    assert_shell "$scenario" "$([[ -f "$plan" ]] && echo true)" \
+        "outline step: the plan is not deleted" || ok=false
+    assert_shell "$scenario" "$([[ -z "$(git status --porcelain)" ]] && echo true)" \
+        "outline step: the working tree is untouched" "$(git status --porcelain)" || ok=false
+
+    # The owner details step 3 and ticks its criteria; the same cascade runs.
+    cp "$PLAN_V2_CASES/lifecycle-all-detailed/docs/plans/PLAN-greeting.md" docs/plans/
+    commit_all
+    output=$(run_cascade "$plan")
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "detailed: cascade_status is completed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe" and .status == "ok")] | length == 1' \
+        "detailed: lifecycle_pre_probe ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_plan" and .status == "ok")] | length == 1' \
+        "detailed: delete_plan ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design" and .status == "ok")] | length == 1' \
+        "detailed: transition_design ok" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -3683,6 +3749,9 @@ scenario_push_session_records_expected_head
 cd "$ORIG_DIR"
 
 scenario_session_records_cascade_result
+cd "$ORIG_DIR"
+
+scenario_plan_v2_outline_step_stops
 cd "$ORIG_DIR"
 
 echo ""
