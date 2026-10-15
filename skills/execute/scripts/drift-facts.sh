@@ -16,7 +16,9 @@
 # order so that if `drift_facts.json` exists, `plan_intent.md` does too:
 #
 #   plan_intent.md   -- the PLAN's title, upstreams, Scope Summary, and each
-#                       outline's goal. At most 8192 bytes.
+#                       outline's goal. On a plan/v2 step plan, each step's
+#                       goal, or for a one-line outline step that line.
+#                       At most 8192 bytes.
 #   drift_facts.json -- compact JSON, `route` first, schema drift-facts/v1.
 #                       At most 8192 bytes.
 #
@@ -186,13 +188,28 @@ awk -v tok="$WORK/tokens" -v title="$WORK/title" -v scope="$WORK/scope" \
     /^## / {
         in_scope = ($0 ~ /^## Scope Summary[ \t]*$/)
         issue = ""
+        step = ""
+        step_open = 0
         next
     }
-    /^### Issue / { issue = $0; sub(/^### /, "", issue) }
+    # A plan/v2 step: a detailed step states its goal on a **Goal**: line; an
+    # outline step is its heading and one line, which stands in for the goal.
+    # step_open holds a step heading until the first non-blank line after it
+    # decides which: a **Goal**: line is recorded by the rule below, and any
+    # other line that is not a **Field**: line is the outline line.
+    step_open && !/^[ \t]*$/ {
+        step_open = 0
+        if ($0 !~ /^\*\*[^*]+\*\*:/ && $0 !~ /^#/) {
+            o = $0; sub(/^[ \t]+/, "", o)
+            print "- " step " -- " o > goals
+        }
+    }
+    /^### Issue / { issue = $0; sub(/^### /, "", issue); step = "" }
+    /^### Step [1-9][0-9]*:/ { step = $0; sub(/^### /, "", step); issue = ""; step_open = 1 }
     in_scope { print $0 > scope }
-    /^\*\*Goal\*\*:/ && issue != "" {
+    /^\*\*Goal\*\*:/ && (issue != "" || step != "") {
         g = $0; sub(/^\*\*Goal\*\*:[ \t]*/, "", g)
-        print "- " issue " -- " g > goals
+        print "- " (issue != "" ? issue : step) " -- " g > goals
     }
     /^\*\*Files\*\*:/ {
         f = $0; sub(/^\*\*Files\*\*:/, "", f)
