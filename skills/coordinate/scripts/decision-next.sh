@@ -65,6 +65,17 @@
 #                       budget: a stop for the human, never a write GitHub or
 #                       the core would refuse
 #
+# Before any rule, a record within that margin whose Decisions section holds a
+# settled entry that owes nothing and carries no stamp of this run (the codec's
+# d_archivable) has those entries archived (record-decision.sh --archive): their
+# rows move to `decisions` entries on the record and the body keeps their
+# identifiers. The rules then read the section as it is after the move, so
+# record-full is left only for a record that is full of what can't move. With
+# --owed the move is `archive`, ahead of every rule, blocking dispatch and pick
+# alike, so a restarted run on a full record comes here before it does anything
+# else. An arrival naming an archived entry is writable: record-decision.sh
+# restores the entry first.
+#
 # --owed prints the rule that blocks the given step, or `none`, and seals and
 # writes nothing. What each rule blocks (the DESIGN's table):
 #   dispatch  before the run's first dispatch: every rule 1 to 8;
@@ -103,6 +114,36 @@ CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 if [ -n "$PARSED" ]; then
     jq -c -L "$HERE" 'include "record-codec"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
 else
+    bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
+        || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
+fi
+# live_size: the live body's size in bytes, into SIZE: the --parsed body when
+# the caller passed one, otherwise the record read here.
+live_size() {
+    if [ -n "$PARSED" ]; then
+        cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
+    else
+        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
+            || lib_die2 "cannot read the record's number"
+        rs_record "$T/live" body --json body --jq .body
+        case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
+    fi
+    SIZE=$(wc -c < "$T/live.md" | tr -d ' ')
+}
+# The archive: settled entries leave a record within the margin.
+ARCHIVE=false
+if jq -e -L "$HERE" --arg run "$RUN" 'include "record-codec"; any(.entries[]; d_archivable($run))' "$T/section.json" > /dev/null; then
+    live_size
+    [ "$SIZE" -gt $((60000 - 4096)) ] && ARCHIVE=true
+fi
+if [ "$ARCHIVE" = true ]; then
+    [ -z "$OWED" ] || { printf 'archive\n'; exit 0; }
+    bash "$HERE/record-decision.sh" --session "$SESSION" --archive > /dev/null 2> "$T/ar.err"
+    case $? in
+        0) ;;
+        12) cat "$T/ar.err" >&2; lib_die2 "the record changed while settled decisions were archived; run it again" ;;
+        *) cat "$T/ar.err" >&2; lib_die2 "cannot archive settled decisions" ;;
+    esac
     bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
         || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
 fi
@@ -195,6 +236,7 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
     --argjson park "$PARK" --argjson chain "$CHAIN" --arg pu "$PARK_UNIT" --arg since "$PARK_SINCE" --arg host "$REPO" --slurpfile st "$T/state.json" '
   include "record-codec";
   .entries as $es
+  | (.archived // []) as $archived
   | [$es[] | d_stamps[] | select(.run == $run)] as $mine
   # A raise from pick is done when the unit it named has its decision row,
   # on a new entry or on one already open, written since that pick.
@@ -214,7 +256,7 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
   # round. Anything else it refuses, so owing it would loop back forever.
   | def writable($a; $round):
       (($a.fields.decision // "") | tostring) as $d
-      | ($d | test("^[1-9][0-9]*$")) and any($es[]; .decision == $d)
+      | ($d | test("^[1-9][0-9]*$")) and (any($es[]; .decision == $d) or (($archived | index($d | tonumber)) != null))
         and ((($round | not)) or ((($a.fields.round // "") | tostring) | test("^[1-9][0-9]*$")));
   (if $ans == null or (writable($ans; true) | not) then false else $an > $ans.seq end) as $ans_taken
   # Every answer record-decision.sh takes, a re-sent identical one included,
@@ -262,17 +304,9 @@ fi
 case "$WORD" in
     clear|clear-report) ;;
     *)
-        if [ -n "$PARSED" ]; then
-            cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
-        else
-            REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
-                || lib_die2 "cannot read the record's number"
-            rs_record "$T/live" body --json body --jq .body
-            case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
-        fi
-        SIZE=$(wc -c < "$T/live.md" | tr -d ' ')
+        live_size
         if [ "$SIZE" -gt $((60000 - 4096)) ]; then
-            echo "$PROG: record-full: the record is $SIZE bytes, too close to the 60,000-byte budget for the owed $WORD; compact settled decisions or prune the record" >&2
+            echo "$PROG: record-full: the record is $SIZE bytes, too close to the 60,000-byte budget for the owed $WORD, with no settled entry left that can be archived; prune the record" >&2
             NEXT=record-full WORD=record-full
         fi ;;
 esac

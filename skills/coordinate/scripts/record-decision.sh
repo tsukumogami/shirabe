@@ -71,6 +71,16 @@
 #       its own stamped line; any other answer is evidence, as --evidence.
 #       The arrival is the latest of its kind before this visit, so a retry
 #       decision_next routes here after a write that didn't land reads it too.
+#   --archive                                      decision_next
+#       Moves every settled entry that owes nothing and carries no stamp of
+#       this run (the codec's d_archivable) out of the body: their rows, as the
+#       body holds them, go to `decisions` entries on the record
+#       (record-append.sh, one per 50,000 bytes of rows), then the body is
+#       written without them, their identifiers added to the section's
+#       Archived line. Refused unless the record is within 4,096 bytes of the
+#       60,000-byte budget and something can move. decision-next.sh runs it
+#       before it routes, so no owed write parks at record-full while settled
+#       entries could leave (shirabe#827).
 #   --sent [--route tool|message]                  a *_send state
 #       Marks the message the matching render state rendered as sent, when
 #       coord/decision_message.txt checks against that render's seal and the
@@ -78,6 +88,12 @@
 #       escalation), or, for a redirect, a `redirect <report seq>` Evidence
 #       line. An escalation to a person records its route as an `ask`
 #       Evidence line; --route is required then.
+#
+# An archived entry named by --evidence, --answer or a citation in
+# --open-from-report is restored first: its row comes back from the latest
+# unedited `decisions` entry holding it, and its identifier leaves the Archived
+# line, in the same write that records the arrival. A withdrawal reaches only
+# the entries in the body.
 #
 # The stamps, which decision-next.sh reads to tell whether this run's write
 # landed. Each names the run (lib_run_stamp) and a log sequence:
@@ -138,7 +154,7 @@ while [ $# -gt 0 ]; do
         --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --list) mode list; shift ;;
         --read) [ $# -ge 2 ] || usage; mode read; ENTRY=$2; shift 2 ;;
-        --carry|--open|--open-from-report|--take|--settle|--escalate|--hold|--evidence|--answer|--sent) mode "${1#--}"; shift ;;
+        --carry|--open|--open-from-report|--take|--settle|--escalate|--hold|--evidence|--answer|--sent|--archive) mode "${1#--}"; shift ;;
         --question) [ $# -ge 2 ] || usage; Q=$2; shift 2 ;;
         --option) [ $# -ge 2 ] || usage; OPTS+=("$2"); shift 2 ;;
         --source) [ $# -ge 2 ] || usage; SRC=$2; shift 2 ;;
@@ -247,6 +263,7 @@ case "$MODE" in
     take) WANT=decision_take ;; settle|escalate|hold) WANT=decision_verdict ;;
     evidence) WANT=decision_evidence ;; answer) WANT=decision_answer ;;
     sent) WANT="escalate_send decision_withdraw_send decision_reply_send decision_redirect_send" ;;
+    archive) WANT=decision_next ;;
 esac
 case " $WANT " in *" $CUR_STATE "*) ;; *) refuse "--$MODE runs in ${WANT// / or }, and the session is in $CUR_STATE" ;; esac
 
@@ -347,6 +364,23 @@ write() {
 has_entry() { # has_entry <n> <jq test over the entry>
     SEC | jq -e --arg n "$1" '[.entries[] | select(.decision == $n) | '"$2"'] | any' >/dev/null
 }
+is_archived() { SEC | jq -e --argjson n "$1" '(.archived // []) | index($n) != null' >/dev/null; }
+# restore <n>...: the archived entries back into the section this write starts
+# from, each from the latest unedited `decisions` entry holding its row.
+restore() {
+    bash "$HERE/record-append.sh" --session "$SESSION" --list > "$WD/entries.json" 2> "$WD/ra.err" \
+        || { lib_scrub < "$WD/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
+    jq -c -L "$HERE" --argjson ids "$(jq -nc '$ARGS.positional | map(tonumber)' --args "$@")" --slurpfile es "$WD/entries.json" 'include "record-codec";
+        ([$es[0][] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch
+        | reduce $ids[] as $n (.;
+            (first($arch[] | .text | d_archive_rows[] | select(.decision == ($n | tostring)))
+              // error("entry \($n) is archived, and no decisions entry on the record holds it")) as $e
+            | .decisions.entries += [$e] | .decisions.archived -= [$n])
+        | .decisions.entries |= sort_by(.decision | tonumber)
+        | if .decisions.archived == [] then del(.decisions.archived) else . end' "$WD/parsed.json" > "$WD/restored.json" 2> "$WD/jq.err" \
+        || refuse "$(sed -n 's/^jq: error ([^)]*): //p' "$WD/jq.err" | head -1)"
+    mv "$WD/restored.json" "$WD/parsed.json"
+}
 
 case "$MODE" in
 carry)
@@ -383,6 +417,10 @@ open-from-report)
     bash "$HERE/coord-log.sh" check --session "$SESSION" --state report_questions --sealed "$QSEAL" --key coord/questions.json > "$WD/questions.json"
     case $? in 0) ;; 1) refuse "coord/questions.json doesn't check against report_questions' seal" ;; *) lib_die2 "cannot check the question list" ;; esac
     RSEQ=$(printf '%s' "$QSEAL" | cut -d: -f2)
+    CITED=$(jq -r '[.[] | select(.kind != "withdrawal") | .cite // empty | tostring | select(test("^[1-9][0-9]*$"))] | unique | .[]' "$WD/questions.json")
+    BACK=()
+    for c in $CITED; do has_entry "$c" true || ! is_archived "$c" || BACK+=("$c"); done
+    [ ${#BACK[@]} -eq 0 ] || restore "${BACK[@]}"
     change '($q[0]) as $items | ($w[0]) as $words
       | if stamped_report($seq) then error("this run already wrote report \($seq)") else . end
       | ([$items[] | select(.kind != "withdrawal") | .index | tostring]) as $need
@@ -474,6 +512,7 @@ evidence|answer)
     RND=$(printf '%s' "$EV" | jq -r '.fields.round // ""')
     WSEQ=$(printf '%s' "$EV" | jq -r '.seq')
     [[ $N =~ ^[1-9][0-9]*$ ]] || refuse "the $MODE names no decision"
+    has_entry "$N" 'true' || ! is_archived "$N" || restore "$N"
     has_entry "$N" 'true' || refuse "the record has no entry $N"
     if [ "$MODE" = answer ]; then
         [[ $RND =~ ^[1-9][0-9]*$ ]] || refuse "an answer names its round"
@@ -552,5 +591,36 @@ sent)
           | .entries |= map(if .decision == $n then add_ev(ev_line("the coordinator"; "\($run) redirect \($rs)"; "redirect sent")) | .updated = $now else . end)
           | compact_except($n)' --arg n "$N" --arg rs "$RSEQ" ;;
     esac
+    write ;;
+archive)
+    SIZE=$(wc -c < "$WD/live.md" | tr -d ' ')
+    [ "$SIZE" -gt $((60000 - 4096)) ] || refuse "the record is $SIZE bytes, not within 4,096 bytes of the 60,000-byte budget"
+    change '[.entries[] | select(d_archivable($run)) | .decision | tonumber] as $ids
+      | if ($ids | length) == 0 then error("no settled entry owes nothing and carries no stamp of this run") else . end
+      | .entries |= map(select(d_archivable($run) | not)) | .archived = ((.archived // []) + $ids | unique)'
+    # The rows as the live body holds them, in entries of at most 50,000 bytes
+    # of rows, well under record-append.sh's 60,000-byte entry.
+    SEC | jq -c -L "$HERE" --arg run "$RUN" 'include "record-codec";
+        [.entries[] | select(d_archivable($run))]
+        | reduce .[] as $e ([];
+            ($e | render_drow) as $r
+            | if length > 0 and (.[-1].bytes + ($r | utf8bytelength) + 1) <= 50000
+              then .[-1].rows += [$r] | .[-1].ids += [$e.decision | tonumber] | .[-1].bytes += ($r | utf8bytelength) + 1
+              else . + [{rows: [$r], ids: [$e.decision | tonumber], bytes: ($r | utf8bytelength)}] end)
+        | .[] | "Decisions \(.ids | d_ranges), settled, moved out of the record body as it held them.\n\n\(d_header)\n\(.rows | join("\n"))"' \
+        > "$WD/archive.jsonl" || lib_die2 "jq failed"
+    i=0
+    while IFS= read -r line; do
+        i=$((i + 1))
+        printf '%s' "$line" | jq -r . > "$WD/archive-$i.md" || lib_die2 "jq failed"
+        bash "$HERE/record-append.sh" --session "$SESSION" --kind decisions --text-file "$WD/archive-$i.md" > /dev/null 2> "$WD/ra.err"
+        case $? in
+            0) ;;
+            10) lib_scrub < "$WD/ra.err" >&2; echo >&2; exit 10 ;;
+            65) refuse "the archive entry: $(lib_scrub < "$WD/ra.err")" ;;
+            2) lib_scrub < "$WD/ra.err" >&2; echo >&2; lib_die2 "cannot post the archive entry" ;;
+            *) echo "$PROG: the archive entry failed, the body unchanged: $(lib_scrub < "$WD/ra.err")" >&2; exit 11 ;;
+        esac
+    done < "$WD/archive.jsonl"
     write ;;
 esac

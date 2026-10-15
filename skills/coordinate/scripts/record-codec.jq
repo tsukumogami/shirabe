@@ -616,6 +616,46 @@ def compact_settled:
         | select(test("^[^ ]+ [^\\[]+ \\[[0-9]{8}T[0-9]{6}Z redirect [0-9]+\\]: "))] | join("\n"))
   else . end;
 
+# ---- the archive -------------------------------------------------------------
+#
+# A settled entry leaves the body for a `decisions` entry on the record
+# (record-append.sh), which holds its row verbatim, and its identifier joins the
+# section's `Archived:` line, so the body stays under the write core's budget
+# however long the record lives (shirabe#827). record-decision.sh --archive
+# moves them; evidence or a citation naming one brings it back (record-decision.sh
+# restores it from the latest entry holding it). `archived` is the identifiers,
+# ascending, rendered as ranges; an empty list is no line and no key, so a
+# record that never archived keeps its bytes.
+#
+# d_archivable($run): a settled entry that owes nothing and carries no stamp of
+# run $run. A stamp of the current run stays in the body, where decision-next.sh
+# reads it to tell whether the run's own writes landed.
+def d_archivable($run):
+  .state == "settled" and (.owed // "") == "" and (any(d_stamps[]; .run == $run) | not);
+def d_archived_line: " (settled; each kept verbatim in a decisions entry on this record)";
+def d_ranges:
+  reduce .[] as $n ([]; if length > 0 and .[-1][1] + 1 == $n then .[-1][1] = $n else . + [[$n, $n]] end)
+  | map(if .[0] == .[1] then "\(.[0])" else "\(.[0])-\(.[1])" end) | join(", ");
+def d_unranges:
+  [split(", ")[] | split("-") | map(tonumber) | if length == 1 then .[0] else range(.[0]; .[1] + 1) end];
+def d_header:
+  ("| " + (decisions_cols | map(.[1]) | join(" | ")) + " |") + "\n"
+  + ("|" + (decisions_cols | map("---") | join("|")) + "|");
+# render_drow: one entry as its table row, the bytes the body holds.
+def render_drow:
+  . as $r | "| " + (decisions_cols | map(.[0] as $k | $r[$k] | if any(d_text_cols[]; . == $k) then enc_d else enc end) | join(" | ")) + " |";
+# parse_drow: a table row back to its entry.
+def parse_drow:
+  (if (startswith("| ") and endswith(" |")) | not then refuse("table row: not | cell | ... |") else . end
+   | .[2:-2] | gsub("\\\\\\|"; "\u001f") | split(" | ") | map(gsub("\u001f"; "\\|") | dec_d)) as $cells
+  | if ($cells | length) != (decisions_cols | length) then refuse("Decisions: a row with \($cells | length) cells, not \(decisions_cols | length)")
+    else [range(0; decisions_cols | length) as $i | {(decisions_cols[$i][0]): $cells[$i]}] | add end;
+# d_archive_rows: the entries an archive entry's text holds, the rows under its
+# table header, whatever precedes it.
+def d_archive_rows:
+  split("\n") | (index([d_header | split("\n")[0]]) // null) as $h
+  | if $h == null then [] else .[$h + 2:] | map(select(startswith("| ")) | parse_drow) end;
+
 def check_drow($private):
   . as $row
   | if type != "object" then refuse("decisions: a row that isn't an object") else . end
@@ -641,48 +681,54 @@ def check_drow($private):
 def check_decisions($d; $private):
   if $d == null then null
   elif ($d | type) != "object" then refuse("decisions: not an object")
-  elif (($d | keys) - ["entries", "next"]) != [] then refuse("decisions.\((($d | keys) - ["entries", "next"])[0]): not a field of this section")
+  elif (($d | keys) - ["entries", "next", "archived"]) != [] then refuse("decisions.\((($d | keys) - ["entries", "next", "archived"])[0]): not a field of this section")
   elif ($d.next | type) != "number" or $d.next < 1 or $d.next > 999999 or ($d.next | floor) != $d.next then refuse("decisions.next: not a positive integer below a million")
   elif (($d.entries // []) | type) != "array" then refuse("decisions.entries: not a list")
+  elif (($d.archived // []) | type) != "array" or any(($d.archived // [])[]; type != "number" or . < 1 or floor != .)
+    then refuse("decisions.archived: not a list of identifiers")
   else
     ($d.entries // [] | map(check_drow($private))) as $rows
     | ($rows | map(.decision | tonumber)) as $ids
+    | ($d.archived // [] | unique) as $arch
     | if ($ids | unique | length) != ($ids | length) then refuse("decisions: an identifier is used twice")
       elif any($ids[]; . >= $d.next) then refuse("decisions: an identifier at or above Next decision (\($d.next))")
+      elif any($arch[]; . >= $d.next) then refuse("decisions.archived: an identifier at or above Next decision (\($d.next))")
+      elif any($arch[]; . as $a | $ids | index($a)) then refuse("decisions.archived: an identifier the body still holds")
       # floor: a number written 7.0 or 7e0 renders as 7, the one form the
       # parser reads back.
-      else {next: ($d.next | floor), entries: $rows} end
+      else {next: ($d.next | floor), entries: $rows} + (if ($arch | length) > 0 then {archived: $arch} else {} end) end
   end;
 
 def render_decisions($d):
   if $d == null or (($d.entries | length) == 0 and $d.next == 1) then ""
   else
     "\n\n## \(decisions_title)\n\nNext decision: \($d.next)\n\n"
+    + (if ($d.archived // []) == [] then "" else "Archived: \($d.archived | d_ranges)\(d_archived_line)\n\n" end)
     + if ($d.entries | length) == 0 then "None."
-      else
-        ("| " + (decisions_cols | map(.[1]) | join(" | ")) + " |") + "\n"
-        + ("|" + (decisions_cols | map("---") | join("|")) + "|")
-        + ($d.entries | map(. as $r | "\n| " + (decisions_cols | map(.[0] as $k | $r[$k] | if any(d_text_cols[]; . == $k) then enc_d else enc end) | join(" | ")) + " |") | join(""))
-      end
+      else d_header + ($d.entries | map("\n" + render_drow) | join("")) end
   end;
 
 def parse_decisions($p):
   if ($p | startswith(decisions_title + "\n\n") | not) then refuse("expected ## \(decisions_title) after Reversals") else . end
   | ($p[(decisions_title | length) + 2:]) as $body
   | ($body | capture("^Next decision: (?<n>[1-9][0-9]*)\n\n(?<rest>[\\s\\S]*)$") // refuse("Decisions: no `Next decision: <n>` line")) as $m
+  | (if $m.rest | startswith("Archived: ") then
+      ($m.rest | capture("^Archived: (?<ids>[^\n]*)\n\n(?<rest>[\\s\\S]*)$") // refuse("Decisions: an `Archived:` line with nothing after it")) as $c
+      | if ($c.ids | endswith(d_archived_line) | not) then refuse("Decisions: an `Archived:` line that doesn't end \"\(d_archived_line)\"")
+        elif ($c.ids | rtrimstr(d_archived_line) | test("^[1-9][0-9]*(-[1-9][0-9]*)?(, [1-9][0-9]*(-[1-9][0-9]*)?)*$") | not)
+        then refuse("Decisions: `Archived:` names identifiers as ascending ranges, `1-12, 14`")
+        else {ids: ($c.ids | rtrimstr(d_archived_line)), rest: $c.rest} end
+    else null end) as $a
+  | ($a.rest // $m.rest) as $rest
   | {next: ($m.n | tonumber), entries:
-      (if $m.rest == "None." then []
-       else ($m.rest | split("\n")) as $lines
-       | ("| " + (decisions_cols | map(.[1]) | join(" | ")) + " |") as $header
+      (if $rest == "None." then []
+       else ($rest | split("\n")) as $lines
        | if ($lines | length) < 3 then refuse("Decisions: a table needs a header, a separator and a row, or None.")
-         elif $lines[0] != $header then refuse("Decisions: header row differs from the fixed columns")
-         else $lines[2:] | map(
-           (if (startswith("| ") and endswith(" |")) | not then refuse("table row: not | cell | ... |") else . end
-            | .[2:-2] | gsub("\\\\\\|"; "\u001f") | split(" | ") | map(gsub("\u001f"; "\\|") | dec_d)) as $cells
-           | if ($cells | length) != (decisions_cols | length) then refuse("Decisions: a row with \($cells | length) cells, not \(decisions_cols | length)")
-             else [range(0; decisions_cols | length) as $i | {(decisions_cols[$i][0]): $cells[$i]}] | add end)
+         elif $lines[0] != (d_header | split("\n")[0]) then refuse("Decisions: header row differs from the fixed columns")
+         else $lines[2:] | map(parse_drow)
          end
-       end)};
+       end)}
+  + (if $a == null then {} else {archived: ($a.ids | d_unranges)} end);
 
 def scope_text($s):
   if ($s | type) != "object" then refuse("scope: missing")
