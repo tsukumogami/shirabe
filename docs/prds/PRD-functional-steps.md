@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: Done
 problem: |
   Plans from /plan are cut along component lines, fully detailed up front,
   and judged by criteria that name files. Nothing a user can exercise exists
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-Accepted
+Done
 
 Absorbed [BRIEF-functional-steps](docs/briefs/BRIEF-functional-steps.md); carried in Absorbed Brief.
 
