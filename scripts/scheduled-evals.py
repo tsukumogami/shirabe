@@ -39,7 +39,7 @@ The ledger is JSON Lines, one object per line, read by the next run:
    "estimate_usd", "unrun": [<skill>...]}
 A line that doesn't parse is skipped with a warning. Default location:
 $XDG_STATE_HOME/shirabe/scheduled-evals.jsonl, else
-~/.local/state/shirabe/scheduled-evals.jsonl. A lock directory next to it
+$HOME/.local/state/shirabe/scheduled-evals.jsonl. A lock directory next to it
 (<ledger>.lock) keeps two runs from overlapping.
 
 Options:
