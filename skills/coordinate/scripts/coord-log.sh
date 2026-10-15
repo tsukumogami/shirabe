@@ -86,6 +86,12 @@
 #       Prints "<seq> <from>" for the latest entry into ST (transitioned,
 #       directed or rewound), before SEQ when given; --with-time adds the
 #       entry's timestamp as a third word. Exit 0; 1 none; 2 read failure.
+#   coord-log.sh entries --session S --states ST[,ST...]
+#       What `entry` would print for each state, in one read of the log: one
+#       line per state, in the order given, "<state> <seq> <from>" for its
+#       latest entry or "<state> 0" when the log has none (koto numbers a
+#       log's events from 1; the header carries no seq, so 0 is never one).
+#       A state name is [a-z0-9_]+. Exit 0; 2 read failure.
 #   coord-log.sh evidence --session S --state ST [--after SEQ] [--before SEQ]
 #                         [--where FIELD=VALUE]... [--has FIELD]
 #       Prints {"seq","timestamp","fields"} for the latest evidence submitted at
@@ -134,9 +140,14 @@ KOTO=${KOTO_BIN:-koto}
 usage() { sed -n '/^# Usage:/,/^# Exit 64/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 die() { echo "coord-log: $*" >&2; exit 2; }
 
+# sha256: the hex digest of stdin, the first word of the tool's output, taken
+# in the shell; every seal and check hashes, so a `cut` here would start one
+# more process per call.
 sha256() {
-    if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
-    else shasum -a 256 | cut -d' ' -f1; fi
+    local h
+    if command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum) || return 1
+    else h=$(shasum -a 256) || return 1; fi
+    printf '%s\n' "${h%% *}"
 }
 
 # session_log <session> -> path of the state log. The one place any script
@@ -187,7 +198,7 @@ is_entry() { # is_entry <log> <state> <seq>
 seal_hash() { printf '%s|%s|%s|%s' "$1" "$2" "$3" "$4" | sha256; }
 
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
-SCOPE= EVENT= HAS= AFTER_TIME=
+SCOPE= EVENT= HAS= AFTER_TIME= STATES=
 WHERE='[]'
 ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
@@ -197,6 +208,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
         --state) [ $# -ge 2 ] || usage; STATE=$2; shift 2 ;;
+        --states) [ $# -ge 2 ] || usage; STATES=$2; shift 2 ;;
         --token) [ $# -ge 2 ] || usage; TOKEN=$2; shift 2 ;;
         --file) [ $# -ge 2 ] || usage; FILE=$2; shift 2 ;;
         --key) [ $# -ge 2 ] || usage; KEY=$2; shift 2 ;;
@@ -443,6 +455,21 @@ current)
     CUR=$(jq -r 'select(.type == "transitioned" or .type == "directed_transition" or .type == "rewound") | "\(.payload.to) \(.seq)"' "$LOG" | tail -1)
     [ -n "$CUR" ] || exit 1
     printf '%s\n' "$CUR"
+    ;;
+entries)
+    # `entry` for several states in one pass, for a check script that would
+    # otherwise start this script once per state. A log jq can't read ends
+    # in a read failure (jq prints only after reading the whole log), as
+    # `entry` does under pipefail, never in a "0" that reads as no entry.
+    need SESSION STATES
+    re='^[a-z0-9_]+(,[a-z0-9_]+)*$'
+    [[ $STATES =~ $re ]] || usage
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    jq -nr --arg ss "$STATES" '($ss | split(",")) as $want
+        | reduce (inputs | select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound")
+                and (.payload.to as $t | $want | index([$t]) != null))) as $e
+            ({}; .[$e.payload.to] = "\($e.seq) \($e.payload.from // "")")
+        | . as $m | $want[] | if $m[.] then "\(.) \($m[.])" else "\(.) 0" end' "$LOG" || die "cannot read $LOG"
     ;;
 entry|evidence|captures)
     if [ "$CMD" = captures ]; then need SESSION NAME; else need SESSION STATE; fi
