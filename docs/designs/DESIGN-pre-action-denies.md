@@ -1,8 +1,6 @@
 ---
 schema: design/v1
 status: Proposed
-upstream: docs/prds/PRD-pre-action-denies.md
-decision_provenance: inline-resolved
 problem: |
   shirabe's rules that guard an irreversible action (opening or editing a
   pull request, pushing) are checked after the action. The one pre-action
@@ -36,6 +34,9 @@ rationale: |
   plugin side is the one direction that can be decided: the plugin hook can
   read the settings that wire the other entry point, and the other entry
   point can't see plugin hooks at all.
+upstream: docs/prds/PRD-pre-action-denies.md
+user_visible_surface: true
+decision_provenance: inline-resolved
 ---
 
 # DESIGN: Pre-action denies from shirabe
@@ -73,47 +74,19 @@ Nothing checks a push. The commit rules exist only in
 `<base>..HEAD` at finalization, and the AI-attribution predicate they use
 is a shell port of PB3's private Rust function `is_attribution_line`.
 
-The PRD this design answers sets the behaviour. The plugin itself must
-declare a Bash PreToolUse hook with a 30-second timeout (R1). It checks
-only guarded commands (R2): a segment whose head, after `NAME=value`
-words, is `gh` with `pr create|edit` as its first non-option words, or
-`git` with `push`. On those it denies a broken PR-body rule, PB1 to PB4
-or the `pr-body/conformance` catch-all (R3), and, on a push, a non-merge
-outgoing commit carrying an AI-attribution line (R4), where the outgoing
-commits are those reachable from what the push sends and not from the
-target remote's tracking refs, in the directory the command runs in.
-Each deny lists one block per broken rule, `<id>: <summary>: <detail>`
-then `full text: <absolute path> lines <a>-<b>`, with the summary read at
-run time from the registry the plugin ships (R5). It reads a body given
-inline, from an existing file, or from a `$(cat <<'EOF' ... EOF)`
-here-document (R6). It fails closed, with a reason naming the case and
-telling the agent to ask the user (never naming the off switch), in
-twelve named cases from a missing binary to a guarded command wrapped in
-`sudo` or `bash -c`, or preceded in the same command by a `git commit`
-or a write to the body file (R7). It never blocks an unguarded command
-while the binary runs, and with the binary missing blocks only commands
-whose raw text names a guarded action (R8). `SHIRABE_PRE_ACTION_HOOK=off`
-silences both entry points, and `PR_BODY_HOOK_DISABLE` keeps silencing
-the PR-body part (R9). The offload canary's PB4 exception holds on both
-entry points, read from the same opt-in file as today (R10). `shirabe
-pr-body-hook` keeps working as niwa wires it (R11), and where both are
-wired each broken rule is reported once, with the plugin hook leaving the
-PR-body rules to the settings-wired one, recognized only by a Bash-matched
-hook whose command really runs `shirabe pr-body-hook` (R12). Every rule the hook denies
-carries a `deny` registry field, cross-checked against the hook's
-`RULE_IDS` line, with no `withhold` value changed (R13). Unguarded calls
-start no `git` or `gh`; guarded ones run local git plumbing only (R14).
-Untrusted text is never evaluated and comes back JSON-escaped, a body
-file's lines are never quoted, git runs with every repository-controlled
-program switched off, and the hook writes no file (R15). The script holds to the bash 3.2 floor without
-`jq` (R16), and the tests run through the declared command in CI (R17).
+The PRD this design answers, `docs/prds/PRD-pre-action-denies.md`,
+sets the behaviour in R1 to R17 and its example table: which commands
+are guarded, which rules are checked on each, the reason's shape, the
+twelve fail-closed cases, the off switches, the canary exception, the
+legacy entry point and the registry link. Each decision below states
+the requirement it answers where it answers it.
 
-The technical problem is therefore four problems that touch each other:
-where each piece of logic runs so that a missing binary still fails
-closed; how the binary reads registry text it never read before; how a
-push's outgoing commits are found from local state alone; and how two
-entry points that run in parallel, without shared state, agree on which
-one reports.
+The technical problem is four problems that touch each other: where
+each piece of logic runs so that a missing binary still fails closed;
+how the binary reads registry text it never read before; how a push's
+outgoing commits are found from local state alone; and how two entry
+points that run in parallel, without shared state, agree on which one
+reports.
 
 ## Decision Drivers
 
@@ -159,8 +132,10 @@ Key assumptions:
 
 #### Chosen: A thin bash wrapper in front of a new binary subcommand
 
-`hooks/hooks.json` runs `"${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh"`
-with `timeout: 30`. The script reads stdin once into a variable,
+`hooks/hooks.json` runs `bash "${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh"`
+with `timeout: 30`. Naming `bash` and quoting the path means a lost
+executable bit or a space in the plugin's path can't make the hook fail
+to start, which Claude Code would treat as a pass. The script reads stdin once into a variable,
 returns at once with no decision when `SHIRABE_PRE_ACTION_HOOK` is
 `off`, finds the binary (each absolute directory on `PATH`, skipping
 relative entries so a repository can't plant one, then
@@ -365,9 +340,10 @@ project's `.claude/settings.json` and `.claude/settings.local.json`,
 parses each with `serde_json`, and looks for a `hooks.PreToolUse` entry
 whose `matcher` is absent, empty, `*` or `Bash` and that holds a
 `"type": "command"` hook whose command, run through the same tokenizer,
-has a segment that is `shirabe pr-body-hook` followed by nothing but
-redirection words (`2>/dev/null`, `>/dev/null`, `2>&1`), which is how
-niwa's line reads. A file that sets `disableAllHooks` counts as not
+has a segment that is `shirabe pr-body-hook`, alone or followed by
+`2>/dev/null`, which is how niwa's line reads. A redirection of standard
+output (`>/dev/null`, `2>&1` into it) would throw the deny away, so such
+a line isn't wiring. A file that sets `disableAllHooks` counts as not
 wiring it. The wired command runs `shirabe` from `PATH` and exits 0
 when `command -v shirabe` fails, so the plugin hook also requires that
 `shirabe` resolve through an absolute `PATH` entry; a binary found only
@@ -481,10 +457,13 @@ segment's head, so `if true; then git push; fi` is guarded. A command
 substitution (`$(...)` or backquotes outside single quotes) is
 classified as a command of its own, its here-document lines treated as
 data; a guarded segment inside one is a wrapped guarded command. So is a
-segment whose head is on the wrapper list (which includes the
-interpreters `python`, `python3`, `perl`, `ruby` and `node`, and a `$`
-head) and whose own text passes the coarse "named in the text" test.
-Both are fail-closed cases.
+segment whose head is on the wrapper list (which includes launchers
+such as `nice`, `ssh`, `docker` and `mise`, and the interpreters
+`python`, `python3`, `perl`, `ruby` and `node`) and whose own text
+passes the coarse "named in the text" test, and a segment whose head
+starts with `$` and that has a later word `push` or `pr` followed by
+`create` or `edit` (`$G push` names no `git` for the coarse test to
+find). All are fail-closed cases.
 
 Before a guarded segment the classifier looks at every earlier segment
 of the same command. Before a `gh pr` segment, one that names the body
@@ -579,17 +558,26 @@ niwa host, in parallel:
 ### Components
 
 - **`hooks/hooks.json`.** One `PreToolUse` entry, matcher `Bash`, one
-  command hook: `"${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh"`,
+  command hook: `bash "${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh"`,
   `timeout: 30`. No `onFailure`.
 - **`hooks/pre-action-deny.sh`.** Reads stdin into a variable (`cat`),
   checks the off switch, finds the binary on the absolute `PATH`
   entries or at `~/.shirabe/bin/shirabe`, pipes the saved input into
-  it, and checks its exit status and that its output is empty or one
-  line starting with the exact deny prefix. On anything else it runs
-  the coarse test: the raw input with its JSON escapes `\n`, `\r`, `\t`,
-  `\"` and `\\` turned back into characters by `sed` (a newline in the
-  command reaches the script as the two characters `\n`, which would
-  otherwise glue `git` to the word before it), lowercased, matched with `grep -E`
+  `shirabe pre-action-hook --plugin-root <root> --rules "<its RULE_IDS
+  line>"`, and checks its exit status and that its output is empty or
+  one line starting with the exact deny prefix. The binary is started
+  as a background job beside a 26-second watchdog that kills it, so a
+  binary that hangs before its own deadline starts still ends inside
+  Claude Code's 30 seconds; a killed binary is one that can't run. The
+  `--rules` value is the version handshake: a binary that doesn't check
+  every rule listed there exits non-zero, so a binary older than the
+  plugin fails closed even when it knows the subcommand. On anything
+  else it runs the coarse test, under `LC_ALL=C`: the raw input with its
+  JSON escapes `\n`, `\r`, `\t`, `\"` and `\\` turned back into
+  characters by `sed` and a backslash-newline turned into a space (a
+  newline in the command reaches the script as the two characters
+  `\n`, which would otherwise glue `git` to the word before it),
+  lowercased, matched with `grep -E`
   for `(^|[^a-z0-9_-])gh([^a-z0-9_-].*)?[^a-z0-9_-]pr[^a-z0-9_-](.*[^a-z0-9_-])?(create|edit)([^a-z0-9_-]|$)`
   and the `git` ... `push` equivalent. On a match it prints a constant
   deny built with `printf`, naming the binary as missing or older than
@@ -597,13 +585,24 @@ niwa host, in parallel:
   asking the agent to ask the user; else nothing. It always exits 0.
   Declares `RULE_IDS="..."` (Decision 5).
 - **`crates/shirabe/src/pre_action/mod.rs`.** `run_plugin(root)` and
-  `run_legacy()` entry points; `evaluate(input, ctx) -> Option<Decision>`
-  with `ctx` carrying the rule set, the registry source, the canary probe,
-  the settings probe, the environment and the git runner, so tests
-  inject each. The entry points read at most 4 MiB of stdin and run
-  `evaluate` on a worker thread with the 25-second overall deadline
-  (Decision 6). The input's `transcript_path` and `session_id` are
-  ignored, and nothing is logged.
+  `run_legacy()` entry points; `evaluate(input, ctx) -> Option<String>`
+  (the deny reason) with `ctx` carrying the rule set, the registry
+  source, the canary probe, the settings probe, the environment and the
+  git runner, so tests inject each. The entry points read stdin whole,
+  tokenize it only up to 4 MiB, and run `evaluate` on a worker thread
+  with the 25-second overall deadline (Decision 6). A panic on the
+  worker is caught at the join and becomes the fail-closed deny when
+  the coarse test names a guarded action, printed with exit 0, so a
+  crash in either entry point is never the silent pass niwa's `|| exit
+  0` would make it. `run_plugin` compares `--rules` with its own table
+  and exits 3 when the script lists a rule the binary doesn't check.
+  `RuleSet::PrBodyOnly`, the legacy entry point's set, keeps every
+  fail-closed case attached to a `gh pr` segment, plus the
+  segment-less cases (malformed input, an unterminated quote, an
+  oversize input) when the raw text names `gh` ... `pr`; the plugin hook,
+  when it yields, keeps the push cases and the segment-less ones when
+  the raw text names `git` ... `push`. The input's `transcript_path` and
+  `session_id` are ignored, and nothing is logged.
 - **`tokenize.rs`.** The quote-aware tokenizer from `pr_body_hook.rs`,
   extended: segments end at unquoted `;`, `&`, `|`, newline, `(` and `)`;
   a backslash-newline outside quotes is removed; each segment keeps its
@@ -612,7 +611,10 @@ niwa host, in parallel:
   here-documents as data; `$'` starts an opaque word the body reader
   refuses.
 - **`classify.rs`.** Walks segments, tracks the directory (R4's `cd`,
-  `pushd`, `popd` rules), skips `NAME=value` words, and returns each
+  `pushd`, `popd` rules, with a stack the tokenizer's parenthesis depth
+  drives so a `cd` inside `( )` ends when the group closes), skips
+  `NAME=value`, redirection and reserved words before the head, and
+  returns each
   guarded segment as `Gh { words_after_action, action, dir }` or `Git {
   words_after_push, dir, git_c_dirs }`, or a fail-closed case for an
   unlisted global option, a wrapped guarded command, or an earlier
@@ -662,7 +664,7 @@ niwa host, in parallel:
 ### Key Interfaces
 
 ```text
-shirabe pre-action-hook --plugin-root <dir>    stdin: PreToolUse JSON
+shirabe pre-action-hook --plugin-root <dir> --rules "<ids>"   stdin: PreToolUse JSON
 shirabe pr-body-hook                           stdin: PreToolUse JSON
   stdout: nothing, or one line
     {"hookSpecificOutput":{"hookEventName":"PreToolUse",
@@ -733,29 +735,56 @@ Deliverables:
 
 - `crates/shirabe-validate/src/pr_body.rs`
 
-### Phase 2: The evaluator and the two entry points
+### Phase 2: The PR-body evaluator and the legacy entry point
 
 Move the tokenizer into `pre_action`, extend it, and add the classifier,
-body reader, registry reader, reason renderer, settings probe and push
-check, each with unit tests. Add the `pre-action-hook` subcommand and
-point `pr-body-hook` at `run_legacy`.
+body reader, registry reader and reason renderer, each with unit tests,
+and point `pr-body-hook` at `run_legacy`. This is the phase that flips
+the legacy entry point's five fail-open cases to deny, the change niwa
+hosts see, so it lands with its own tests.
 
 Deliverables:
 
-- `crates/shirabe/src/pre_action/{mod,tokenize,classify,body,push,registry,reason,settings}.rs`
-- `crates/shirabe/src/pr_body_hook.rs`, `crates/shirabe/src/main.rs`
+- `crates/shirabe/src/pre_action/{mod,tokenize,classify,body,registry,reason}.rs`
+- `crates/shirabe/src/pr_body_hook.rs`
 
-### Phase 3: The plugin hook and its suite
+### Phase 3: The plugin subcommand and the settings probe
 
-Add `hooks/hooks.json`, `hooks/pre-action-deny.sh` and
-`hooks/pre-action-deny_test.sh`, and the CI step.
+Add `settings.rs`, the `pre-action-hook` subcommand with `--plugin-root`
+and `--rules`, the deadline thread and the panic catch.
 
 Deliverables:
 
-- `hooks/hooks.json`, `hooks/pre-action-deny.sh`, `hooks/pre-action-deny_test.sh`
+- `crates/shirabe/src/pre_action/settings.rs`, `crates/shirabe/src/main.rs`
+
+### Phase 4: The push check
+
+Add `push.rs` and the `GitRunner`, last because it is the largest and
+the most self-contained piece.
+
+Deliverables:
+
+- `crates/shirabe/src/pre_action/push.rs`
+
+### Phase 5: The plugin hook and its suite
+
+Add `hooks/hooks.json`, `hooks/pre-action-deny.sh`,
+`hooks/pre-action-deny_test.sh` and `hooks/testdata/coarse-cases.tsv`,
+a table of command strings with the coarse test's expected answer that
+both the shell suite and a Rust test run, so the two classifiers can't
+drift apart unnoticed; and the CI step.
+
+Deliverables:
+
+- `hooks/hooks.json`, `hooks/pre-action-deny.sh`, `hooks/pre-action-deny_test.sh`,
+  `hooks/testdata/coarse-cases.tsv`
 - `.github/workflows/build-and-test.yml`
 
-### Phase 4: Registry links and the checker
+### Phase 6: Registry links and the checker
+
+This lands in the same pull request as Phase 5: the script's `RULE_IDS`
+line and the registry's `deny` fields are checked against each other, so
+neither ships without the other.
 
 Add `deny` to the six entries, the checker's new check and `hooks/`
 scan with fixtures in its suite, the Rust test tying `RULES` to the
@@ -803,7 +832,8 @@ off: the filesystem monitor, hooks, signature verification (which would
 run `gpg.program`), pagers, external diff and text conversion, and
 lazy fetches from a partial clone's promisor (which would make a
 network call through the remote's helpers; `GIT_NO_LAZY_FETCH` needs
-git 2.44 or later, and on an older git a partial clone remains a residual
+git 2.44 or later, so on an older git a repository with
+`extensions.partialClone` set is a fail-closed case rather than a
 risk). Replace objects are ignored, so a `refs/replace/` entry can't swap
 a commit's message. A source word starting with `-` is refused,
 `rev-parse` gets the rest after `--end-of-options`, `rev-list` gets only
@@ -814,7 +844,7 @@ is never overridden.
 
 **What reaches the model.** A deny reason carries registry text, the
 validator's fixed messages with line numbers, commit hashes and
-subjects from the repository (labelled `subject:`, cut to 72 characters,
+subjects from the repository (labelled `subject:`, control characters removed, cut to 72 characters,
 at most 10 of them, since they are text from a repository the agent may
 not trust), and the absolute path of the plugin's reference file (which
 shows the user's home directory name). It never quotes a body file's
@@ -854,11 +884,30 @@ and run before every Bash call, which is the trust any plugin hook
 asks for. The binary comes from `install.sh`, which checks it against
 the release's `checksums.txt` by SHA-256 before installing; both come
 from the same GitHub release, so that check gives integrity in transit,
-not authenticity. The binary
-and the plugin are versioned together; an older binary makes every
-guarded command fail closed with a reason naming the binary, and the
-registry reader ignores fields it doesn't know so a newer registry
-doesn't break an older reader. No new dependency is added.
+not authenticity; signed provenance for the binary would add that and
+is left for later. The binary and the plugin are versioned together. A
+binary older than the plugin either lacks the subcommand or fails the
+`--rules` handshake (it doesn't check a rule the script lists), and
+either way every guarded command fails closed with a reason naming the
+binary; the registry reader ignores fields it doesn't know so a newer
+registry doesn't break an older reader. No new dependency is added.
+
+**Launch and crash.** A hook that fails to start, crashes or times out
+is a pass in Claude Code. The command runs the script through `bash`
+with a quoted path, so the executable bit and spaces in the path don't
+matter, and CI checks the script's mode anyway; the script's watchdog
+and the binary's own deadline end every run inside the declared
+timeout; and a panic in either entry point is caught and turned into
+the fail-closed deny. A host with no `bash` at all is the one launch
+failure left, and Claude Code itself needs a shell to run the Bash
+tool.
+
+**What the hook still can't see.** An earlier `export GIT_DIR=...`, or a
+command that makes commits without being `git` (`npm version`, a
+release script), before a push in the same command; and `gh pr merge
+--body`, which can write an AI-attribution line into the squash commit
+(merge is out of scope). These are listed with the other residual risks
+in the PRD's Known Limitations.
 
 ## Consequences
 
@@ -866,8 +915,9 @@ doesn't break an older reader. No new dependency is added.
 
 - Every plugin user gets the denies with no settings change, and every
   deny names a registered rule in its own words.
-- A broken install is visible: a guarded command fails with the cause
-  instead of passing unchecked.
+- A broken install is visible: a missing, old, hung or crashing binary
+  makes a guarded command fail with the cause instead of passing
+  unchecked.
 - The PR-body finding-to-rule mapping is set where findings are built,
   not inferred from message text.
 - A push can no longer carry an AI-attribution trailer to a remote

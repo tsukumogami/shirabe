@@ -183,9 +183,11 @@ These terms mean the same thing everywhere below.
   applied to one segment's text, decides a wrapped guarded command.
 - **Wrapped guarded command**: a segment whose head is `env`, `command`,
   `builtin`, `exec`, `eval`, `bash`, `sh`, `zsh`, `dash`, `xargs`,
-  `sudo`, `time`, `nohup`, `timeout`, `python`, `python3`, `perl`,
-  `ruby` or `node`, or starts with `$`, and whose text names a guarded
-  action; or a command substitution (`$(...)` or backquotes, outside
+  `sudo`, `time`, `nohup`, `timeout`, `nice`, `ssh`, `docker`,
+  `podman`, `mise`, `nix`, `python`, `python3`, `perl`, `ruby` or
+  `node`, and whose text names a guarded action; a segment whose head
+  starts with `$` and that has a later word `push`, or `pr` followed by
+  `create` or `edit`; or a command substitution (`$(...)` or backquotes, outside
   single quotes) anywhere in the command whose own text, split into
   segments the same way, holds a guarded or wrapped guarded segment. A
   here-document's lines are data, not commands, so `git commit -m
@@ -195,8 +197,11 @@ These terms mean the same thing everywhere below.
 
 - **R1. The plugin declares the hook.** The shirabe plugin's own files
   declare a Claude Code PreToolUse hook on the Bash tool, with a declared
-  timeout of 30 seconds. A host that installs and enables the plugin,
-  and changes no setting, runs it.
+  timeout of 30 seconds, whose command runs the script through `bash`
+  with its path quoted, so neither a lost executable bit nor a space in
+  the plugin's path makes the hook fail to start (a hook that fails to
+  start lets every command through). A host that installs and enables
+  the plugin, and changes no setting, runs it.
 - **R2. Only guarded commands are checked.** On a command that isn't
   guarded, and holds no wrapped guarded command, the hook gives no
   decision. A wrapped guarded command (`sudo git push`, `bash -c "gh pr
@@ -241,9 +246,10 @@ These terms mean the same thing everywhere below.
   - *Which repository.* The hook input's `cwd`, moved by each earlier
     segment of the same command whose head is `cd` or `pushd` and whose
     one argument is a literal path (no `$`, backquote or leading `~`),
-    applied in order and relative to the directory before it, whatever
-    operator or parenthesis separates the segments, then by `git -C
-    <path>`. A `cd` or `pushd` with no argument, `-`, or a
+    applied in order and relative to the directory before it, then by
+    `git -C <path>`. A `cd` inside parentheses lasts until the group
+    closes, as in a subshell, so `(cd sub && x); git push` pushes from
+    the outer directory. A `cd` or `pushd` with no argument, `-`, or a
     non-literal argument, or a `popd`, makes the directory unknown for
     every later segment; a guarded push in an unknown directory, or in a
     directory that isn't inside a git work tree, fails closed.
@@ -270,8 +276,8 @@ These terms mean the same thing everywhere below.
   `text` anchors resolve to in that copy. `<detail>` says where the
   breach is: the validator's message for a PR-body rule; for the
   commit rule, each offending commit as its 12-character abbreviated
-  hash and `subject: ` followed by its subject cut to 72 characters, at
-  most 10, then `and <n> more`.
+  hash and `subject: ` followed by its subject with control characters
+  removed and cut to 72 characters, at most 10, then `and <n> more`.
 - **R6. Read the body the way agents write it.** The hook reads the
   title from `--title`/`-t` and the body from `--body`/`-b` (as `--body
   <v>`, `--body=<v>` or `-b <v>`) and `--body-file`/`-F` (as `-F <p>` or
@@ -286,8 +292,10 @@ These terms mean the same thing everywhere below.
   denies when it can't decide. Each of these is a case:
   1. the shirabe binary isn't found (the hook looks on `PATH`, then at
      `~/.shirabe/bin/shirabe`, where `install.sh` puts it), or doesn't
-     know the hook: it exits non-zero, or prints anything other than
-     nothing or one deny decision;
+     know the hook: it exits non-zero, crashes, runs past 26 seconds,
+     prints anything other than nothing or one deny decision, or
+     doesn't check every rule on the script's `RULE_IDS` line (a binary
+     older than the plugin);
   2. the hook input isn't valid JSON, or has no `tool_input.command`
      string, while its raw text names a guarded action (otherwise no
      decision);
@@ -303,7 +311,9 @@ These terms mean the same thing everywhere below.
      the hook guards, or that entry's text anchors don't resolve;
   7. any push case R4 says fails closed;
   8. a `git` command the push check runs fails, or the push check runs
-     past 20 seconds, or the whole evaluation runs past 25 seconds;
+     past 20 seconds, or the whole evaluation runs past 25 seconds or
+     crashes, or the repository is a partial clone and git is older
+     than 2.44 (which can't be stopped from fetching);
   9. a guarded segment carries a global option the Definitions don't
      list;
   10. a wrapped guarded command;
@@ -363,8 +373,9 @@ These terms mean the same thing everywhere below.
   or `.claude/settings.local.json` under `$CLAUDE_PROJECT_DIR`, has a
   `hooks.PreToolUse` entry whose `matcher` is absent, empty, `*` or
   `Bash` and that holds a `command` hook one of whose segments is the
-  words `shirabe pr-body-hook` followed by nothing but redirections
-  (`2>/dev/null`, `>/dev/null`, `2>&1`), in a file that doesn't set
+  words `shirabe pr-body-hook`, alone or followed by `2>/dev/null` (a
+  redirection of standard output would throw the deny away), in a file
+  that doesn't set
   `disableAllHooks`, and `shirabe` resolves on the hook's `PATH` (the
   wired command needs it there). When it does, the plugin's hook leaves
   the PR-body rules and their fail-closed cases to that entry point and
@@ -452,8 +463,14 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
 
 - [ ] A test reads `hooks/hooks.json` and checks that it declares a
       PreToolUse hook with matcher `Bash`, a `timeout` of 30, and a
-      command naming `${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh`,
-      which exists and is executable (R1).
+      command that runs `bash` on the quoted path
+      `${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh`, which exists
+      with mode 100755 in git; the hook suite passes run from a copy of
+      the plugin whose path holds a space (R1).
+- [ ] A binary stub that knows the subcommand but checks fewer rules
+      than the script's `RULE_IDS` line lists, one that panics, and one
+      that sleeps 40 seconds each make a guarded command a deny naming
+      the binary, the last within 28 seconds (R7).
 - [ ] Every row of the example table gives the outcome it lists, in a
       test (R2, R3, R4, R6, R7).
 - [ ] Each of these pushes has a test with the outcome given: with the
@@ -657,8 +674,14 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
   file lives in the user's home, where the agent can write.
 - A compound command with a guarded part is denied as a whole: `git add
   . && git push` doesn't run the `git add` either.
-- Directory tracking ignores subshell scope: in `(cd sub && git push);
-  git push` the second push is checked in `sub` too.
+- An earlier `export GIT_DIR=...`, or a command that makes commits
+  without being `git` (`npm version`, a release script), before a push
+  in the same command changes what the push sends without the hook
+  seeing it. So does a `gh pr merge --body` that writes an
+  AI-attribution line into the squash commit; merge is out of scope.
+- A wiring line in a settings file Claude Code doesn't load (an
+  untrusted workspace, a layer the probe doesn't read) can make the
+  plugin's hook yield to an entry point that never runs.
 - Whether Claude Code loads `hooks/hooks.json` from an installed plugin
   is Claude Code's behaviour; the tests check the declaration, not a
   live host.
