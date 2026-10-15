@@ -168,6 +168,10 @@ awk -v tok="$WORK/tokens" -v title="$WORK/title" -v scope="$WORK/scope" \
     NR == 1 && /^---[ \t]*$/ { fm = 1; next }
     fm && /^---[ \t]*$/ { fm = 0; next }
     fm {
+        # The schema decides whether step headings mean anything: only a
+        # plan/v2 plan has steps, and a plan/v1 plan may use "### Step N:"
+        # headings in its own prose (an Implementation Sequence, say).
+        if ($0 ~ /^schema:/) { v = $0; sub(/^schema:/, "", v); schema = unquote(v); next }
         if ($0 ~ /^upstream:/) {
             v = $0; sub(/^upstream:/, "", v); v = unquote(v)
             if (v != "") { print "U\t" v > tok; print v > ups; in_up = 0 }
@@ -205,7 +209,7 @@ awk -v tok="$WORK/tokens" -v title="$WORK/title" -v scope="$WORK/scope" \
         }
     }
     /^### Issue / { issue = $0; sub(/^### /, "", issue); step = "" }
-    /^### Step [1-9][0-9]*:/ { step = $0; sub(/^### /, "", step); issue = ""; step_open = 1 }
+    schema == "plan/v2" && /^### Step [1-9][0-9]*:/ { step = $0; sub(/^### /, "", step); issue = ""; step_open = 1 }
     in_scope { print $0 > scope }
     /^\*\*Goal\*\*:/ && (issue != "" || step != "") {
         g = $0; sub(/^\*\*Goal\*\*:[ \t]*/, "", g)

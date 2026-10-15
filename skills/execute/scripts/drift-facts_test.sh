@@ -565,6 +565,67 @@ else
     fail "plan/v2: referenced_paths $(jf .referenced_paths)"
 fi
 
+# --- a plan/v1 plan with "### Step" headings in its prose ----------------------
+#
+# Step headings mean something only in a plan/v2 plan. A plan/v1 plan whose
+# Implementation Sequence happens to use "### Step N:" headings keeps exactly
+# the goal lines it had before plan/v2 existed: its issues' goals and nothing
+# from the sequence.
+
+fixture v1steps
+plan '---
+schema: plan/v1
+status: Active
+execution_mode: single-pr
+milestone: "m"
+issue_count: 1
+---
+
+# PLAN: v1 with step prose
+
+## Status
+
+Active
+
+## Scope Summary
+
+A plan/v1 plan.
+
+## Issue Outlines
+
+### Issue 1: feat: add the schema
+
+**Goal**: Add the schema reader.
+
+**Acceptance Criteria**:
+
+- [ ] The reader parses the schema.
+
+**Dependencies**: None
+
+## Implementation Sequence
+
+### Step 1: Land the schema first
+
+Then everything else.
+'
+run
+if [ "$RC" -eq 0 ] && [ -n "$FACTS" ]; then
+    pass "plan/v1 with step prose: exit 0 with facts written"
+else
+    fail "plan/v1 with step prose: rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+if printf '%s\n' "$INTENT" | grep -Fxq -- '- Issue 1: feat: add the schema -- Add the schema reader.'; then
+    pass "plan/v1 with step prose: the issue's goal is listed"
+else
+    fail "plan/v1 with step prose: plan_intent.md lacks the issue goal: $INTENT"
+fi
+if printf '%s\n' "$INTENT" | grep -q '^- Step '; then
+    fail "plan/v1 with step prose: a Step line was added: $INTENT"
+else
+    pass "plan/v1 with step prose: no Step line is added"
+fi
+
 # --- hostile step titles --------------------------------------------------------
 
 HOSTILE_FX="$SCRIPT_DIR/testdata/PLAN-v2-hostile.md"
