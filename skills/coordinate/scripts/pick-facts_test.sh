@@ -193,6 +193,19 @@ refused() {
 refused "a failed read (rate limited)" '.graphql_fail = true'
 refused "a partial answer, the last issue null with no error" '.graphql_partial = true'
 refused "an issue GitHub can't resolve" '.issues |= map(select(.number != 592))'
+# A row may name a pull request: it reads like an issue, open while OPEN and
+# done once MERGED (or CLOSED).
+PRSTAND=$(jq -nc '[{standing: "s6", kind: "assignment", on: "#30", until: "", what: "land the fix", owner: "the human", relayed_by: "", set: "2026-10-06T15:00Z"},
+    {standing: "s7", kind: "assignment", on: "#31", until: "", what: "land the next", owner: "the human", relayed_by: "", set: "2026-10-06T15:00Z"}]')
+seed "$(record_json roadmap plugin-system | jq -c --argjson s "$PRSTAND" '.standing = $s')"
+pr 30 MERGED false; pr 31 OPEN false
+db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Dropped)"
+session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+OUT=$(bash "$PF" --session "$S" 2>"$T/err"); rc=$?
+eq "a pull request named by an assignment reads: exit 0" 0 "$rc"
+eq "  ... merged is done, open isn't" "#30:merged:true #31:open:false" \
+    "$(facts | jq -r '[.units[] | select(.assigned != null) | "\(.unit):\(.status):\(.done)"] | join(" ")')"
+eq "  ... and the open one keeps the roadmap from completing" pick "${OUT% sealed:*}"
 seed "$(record_json roadmap plugin-system | jq -c --argjson s "$(printf '%s' "$STAND" | jq -c '[.[1]]')" '.standing = $s')"
 db '.issues += [{repo: "acme/widgets", number: 592, title: "a second fix", body: "", state: "closed", author: "alice", editor: null}]'
 db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(roadmap Done Done Done Done Dropped)"

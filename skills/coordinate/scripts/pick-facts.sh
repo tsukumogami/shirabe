@@ -34,11 +34,12 @@
 #
 # Then, at either scope, the units a person assigned outside it: one per
 # Standing row of kind assignment (record-state.sh), its On the unit's id
-# (`#<n>` or `<owner/repo>#<n>`, an issue, read for its title and state and
-# done once closed; or `release <owner/repo> <tag>`, done when its row
-# ends), each carrying `assigned`, the row's id. One the scope already lists
-# isn't added again, and while any is open the roadmap isn't complete. A
-# holding covers one when its Unit cell is the id, or `<host><id>` for `#<n>`.
+# (`#<n>` or `<owner/repo>#<n>`, an issue or a pull request, read for its
+# title and state and done once closed or merged; or `release <owner/repo>
+# <tag>`, done when its row ends), each carrying `assigned`, the row's id.
+# One the scope already lists isn't added again, and while any is open the
+# roadmap isn't complete. A holding covers one when its Unit cell is the id,
+# or `<host><id>` for `#<n>`.
 #
 # Holdings come from the record (record-holding.sh --list), each marked
 # parked (a Verified head, and its pull request open and not a draft), merged
@@ -239,7 +240,9 @@ jq -r '.[] | select(.issue != null) | [.id, .issue.repo, .issue.number] | @tsv' 
 # passed as variables. A failed read, or an answer short of any issue (an
 # error, a null node, a number other than the one asked for), fails as a
 # failed gh issue view did: no unit is dropped, or read closed, for an issue
-# that didn't come back. Only number, title and state are asked for.
+# that didn't come back. Only number, title and state are asked for, through
+# issueOrPullRequest, so a row naming a pull request reads too: OPEN is open,
+# CLOSED or MERGED done.
 # k numbers the issues only (releases are skipped here and in assigned.tsv),
 # and the jq below advances its own .k on the same rows, so field i<k> is the
 # k-th issue on both sides.
@@ -247,7 +250,7 @@ GQ=() VARS= FIELDS= k=0
 while IFS=$'\t' read -r id r num; do
     [[ $r =~ $RE_REPO ]] && [[ $num =~ $RE_NUM ]] || lib_die2 "cannot read assigned issue $id: it names no issue"
     VARS="$VARS, \$o$k: String!, \$r$k: String!, \$n$k: Int!"
-    FIELDS="$FIELDS i$k: repository(owner: \$o$k, name: \$r$k) { issue(number: \$n$k) { number title state } }"
+    FIELDS="$FIELDS i$k: repository(owner: \$o$k, name: \$r$k) { issueOrPullRequest(number: \$n$k) { ... on Issue { number title state } ... on PullRequest { number title state } } }"
     GQ+=(-f "o$k=${r%%/*}" -f "r$k=${r#*/}" -F "n$k=$num")
     k=$((k + 1))
 done < "$T/assigned.tsv"
@@ -263,12 +266,12 @@ jq -c --slurpfile r "$T/issues-read.json" '
         if $a.issue == null then
             .out += [{unit: $a.id, number: null, title: "", status: "to release", done: false,
                       blocked: false, blocked_by: [], blocker_landed: false, landed: null, assigned: $a.standing}]
-        else (($r[0].data // {})["i\(.k)"].issue // null) as $n
+        else (($r[0].data // {})["i\(.k)"].issueOrPullRequest // null) as $n
             | if $n == null or ($n.number | tostring) != $a.issue.number or ($n.title | type) != "string"
-                 or ($n.state != "OPEN" and $n.state != "CLOSED")
+                 or ([$n.state] | inside(["OPEN", "CLOSED", "MERGED"]) | not)
               then error("assigned issue \($a.id) did not come back") else . end
             | .out += [{unit: $a.id, number: $n.number, title: ($n.title | .[0:120]), status: ($n.state | ascii_downcase),
-                        done: ($n.state == "CLOSED"), blocked: false, blocked_by: [], blocker_landed: false,
+                        done: ($n.state != "OPEN"), blocked: false, blocked_by: [], blocker_landed: false,
                         landed: null, assigned: $a.standing}]
             | .k += 1
         end)
