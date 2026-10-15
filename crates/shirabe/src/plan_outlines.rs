@@ -1,5 +1,5 @@
 //! `shirabe plan outlines` -- emit a PLAN's parsed `## Issue Outlines`
-//! section as JSON.
+//! section (or, for a `plan/v2` step plan, its `## Steps` section) as JSON.
 //!
 //! The out-of-process face of the single walk in `shirabe-validate`. Its
 //! reason to exist is that `skills/plan/scripts/plan-to-tasks.sh` used to
@@ -73,9 +73,9 @@ pub fn run(args: &OutlinesArgs) -> ExitCode {
     };
 
     let schema = doc.fields.get("schema").map(|f| f.value.trim().to_string());
-    if schema.as_deref() != Some("plan/v1") {
+    if !matches!(schema.as_deref(), Some("plan/v1") | Some("plan/v2")) {
         eprintln!(
-            "[plan outlines] {} is not a PLAN document (expected 'schema: plan/v1', found {})",
+            "[plan outlines] {} is not a PLAN document (expected 'schema: plan/v1' or 'schema: plan/v2', found {})",
             args.plan,
             schema
                 .as_deref()
@@ -119,7 +119,10 @@ fn render(path: &str, execution_mode: Option<&str>, doc: &shirabe_validate::Doc)
                     "      \"type\": {issue_type},\n",
                     "      \"files\": [{files}],\n",
                     "      \"repo\": {repo},\n",
-                    "      \"group\": {group}\n",
+                    "      \"group\": {group},\n",
+                    "      \"entry\": {entry},\n",
+                    "      \"detailed\": {detailed},\n",
+                    "      \"check_declared\": {check}\n",
                     "    }}"
                 ),
                 number = b.number,
@@ -155,6 +158,9 @@ fn render(path: &str, execution_mode: Option<&str>, doc: &shirabe_validate::Doc)
                     .join(", "),
                 repo = optional_string(b.repo.as_deref()),
                 group = optional_string(b.group.as_deref()),
+                entry = json_string(b.entry.as_str()),
+                detailed = b.detailed,
+                check = b.check_declared,
             )
         })
         .collect();
@@ -402,6 +408,36 @@ mod tests {
         ] {
             assert!(out.contains(&format!("\"{key}\":")), "missing {key}");
         }
+    }
+
+    fn step_plan(body: &str) -> shirabe_validate::Doc {
+        let md = format!(
+            "---\nschema: plan/v2\nstatus: Active\nexecution_mode: single-pr\nmilestone: \"x\"\nstep_count: 3\n---\n\n# PLAN: x\n\n## Status\n\nActive\n\n{body}\n"
+        );
+        parse_doc_bytes("docs/plans/PLAN-x.md", md.as_bytes()).expect("fixture parses")
+    }
+
+    #[test]
+    fn a_step_plan_reports_steps_with_detail_and_step_edges() {
+        let doc = step_plan(
+            "## Steps\n\n### Step 1: a\n\n**Goal**: g\n\n**Acceptance Criteria**:\n\n- [ ] c\n\n**Check**: run it\n\n**Dependencies**: None\n\n### Step 2: b\n\n**Goal**: g\n\n**Acceptance Criteria**:\n\n- [ ] c\n\n**Check**: run it\n\n**Dependencies**: Step 1\n\n### Step 3: c\n\nThe behaviour step 3 adds.\n",
+        );
+        let out = render("docs/plans/PLAN-x.md", Some("single-pr"), &doc);
+        assert_eq!(out.matches("\"entry\": \"step\"").count(), 3);
+        assert_eq!(out.matches("\"detailed\": true").count(), 2);
+        assert_eq!(out.matches("\"detailed\": false").count(), 1);
+        assert_eq!(out.matches("\"check_declared\": true").count(), 2);
+        assert!(out.contains("\"waits_on\": [1]"));
+        assert!(out.contains("\"title\": \"c\""));
+    }
+
+    #[test]
+    fn an_issue_outline_is_a_detailed_issue_entry() {
+        let doc = plan("## Issue Outlines\n\n### Issue 1: a\n\n**Dependencies**: None\n");
+        let out = render("docs/plans/PLAN-x.md", Some("single-pr"), &doc);
+        assert!(out.contains("\"entry\": \"issue\""));
+        assert!(out.contains("\"detailed\": true"));
+        assert!(out.contains("\"check_declared\": false"));
     }
 
     #[test]
