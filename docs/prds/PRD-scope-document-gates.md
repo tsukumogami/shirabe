@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   /scope credits a hop's document after the validator's schema gate and three
   structural checks (FC01, FC03, FC04). Every other error-level check
@@ -24,7 +24,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-scope-document-gates](docs/briefs/BRIEF-scope-document-gates.md); carried in Absorbed Brief.
 
