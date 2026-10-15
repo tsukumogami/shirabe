@@ -12,10 +12,11 @@ timebox: "1 session, no new eval runs"
 
 ## Status
 
-Draft. The measurement is done for coordinate and execute. Scope and work-on
-never ran an agent in the attempts behind this report, so their figures are
-estimates from the per-scenario rates below; the first release run after the
-cuts measures them.
+Draft. The measurement is done for coordinate and for the 54 of execute's 77
+scenarios that any run reached. Scope, work-on and roadmap never ran an agent
+in the attempts behind this report, so their figures are estimates: their
+tier-1 scenarios at the tier-1 rates below, work-on's tier-2 scenarios at
+execute's tier-2 rates. The first release run after the cuts measures them.
 
 ## Question
 
@@ -101,7 +102,8 @@ written on, so they are the selection the next release would run.
 
 ### Cost per scenario, per role
 
-Means over every measured run; per-scenario rows are in the appendix.
+Each scenario's mean over the runs that reached it, then the mean over scenarios
+(each scenario counted once); per-scenario rows are in the appendix.
 
 | | With-skill | Baseline | Grading (both sides) |
 |---|---|---|---|
@@ -118,12 +120,10 @@ half as much in tier 2. With its half of the grading, it is about a third of
 each scenario's cost in both tiers (32%).
 
 The `total_tokens` figure in skill-creator's `timing.json` (68k to 91k for a
-coordinate with-skill run) is the agent's final context size, not what the
-run processed. The same runs processed 481k tokens on average.
-
-Inside execute's tier-2 with-skill runs, the review panels the skill launches
-cost $23 of $284 across all measured runs (8%). The cost is the agent driving
-the workflow over many turns, not the panels.
+coordinate with-skill run) is the agent's final context size, not what the run
+processed; the same runs processed 481k tokens on average. The review panels
+execute's with-skill runs launch cost $23 of the $284 those runs cost (8%), so
+the tier-2 cost is the agent driving the workflow over many turns.
 
 ### Cost per run
 
@@ -138,12 +138,25 @@ the workflow over many turns, not the panels.
 | scope, work-on | iterations 1, 2 | 0 (stopped before any agent) | | $0 |
 
 No execute run finished one pass of its 77 scenarios inside one five-hour
-session window. The run that graded nothing had started 88
-agents; the session ended before grading, and the harness keeps no partial
-result, so that spend left no record. Scope and work-on never started an agent.
+session window. Iteration 5 spent $184.76 inside a single window before it
+stopped; iteration 3 stopped at $68.69 in a window it shared with other work.
+The run that graded nothing had started 88 agents; the session ended before
+grading, and the harness keeps no partial result, so that spend left no
+record. Scope and work-on never started an agent.
 
-Twenty-three execute scenarios were never reached in any run (listed in the
-appendix as "not reached"), all tier 2.
+Twenty-three execute scenarios, all tier 2, were never reached in any run:
+coordinated-cascade-order, coordinated-coordination-merge-not-observed,
+coordinated-head-missing, coordinated-head-moved,
+coordinated-index-foreign-author, coordinated-index-out-of-set-repository,
+coordinated-index-wrong-head-branch, coordinated-multi-repo-merged,
+coordinated-node-branch-base, coordinated-node-merge-not-observed,
+coordinated-outline-one-repo-end-to-end-merged, coordinated-pause-and-resume,
+coordinated-template-mismatch-refused, coordinated-without-merge,
+koto-leg-results, merge-attempt-evidence-names-other-pr,
+merge-call-flags-fixed, merge-confirm-override-refused, merge-method-rebase,
+merge-method-squash, merge-resumed-with-merge,
+scope-intent-continue-branch-adopted and
+stale-invocation-refused-merge-unchanged.
 
 Each run's orchestrating session also wrote its own agent briefs: the layout
 of the with-skill and baseline prompts differs in each of the four execute
@@ -211,98 +224,115 @@ selected (all 20 suites) the same arithmetic gives $1,458.
 
 ## Recommendation
 
-Go, with conditions: the check fits one session window once it stops running
-the baseline, runs each skill once, and runs a named subset of the tier-2
-scenarios, with the rest of the current check moved to a scheduled
-measurement. Every figure below applies the measured per-scenario rates to the
-five-skill selection; "alone" is the cut applied to today's $1,202, and the
-cuts overlap, so the column doesn't add up.
+Go, with five cuts. Together they bring the five-skill release run from about
+$1,202 and 2,225M tokens to about $88 and 168M tokens. That is under half of
+what one execute run spent inside a single window ($184.76), so the run fits
+one window with room for other work. Everything the release run stops doing
+moves to a scheduled measurement that runs off the release path.
 
-### The cuts, ranked by saving
+**Target: a release eval run of the five changed skills at or under $90 list
+price and 170M tokens, in about two and a half hours.** The wall time is an
+estimate: coordinate's runs took about 30 seconds of session time per tier-1
+scenario, and execute's runs started a scenario every 4.2 to 4.7 minutes with
+both tiers mixed. 161 tier-1 scenarios at 30 s plus 15 tier-2 at about 4.5 min
+is about 2.5 hours. Running skills in parallel sessions shortens it without
+changing the cost.
+
+### The five cuts, ranked by saving
+
+"Alone" applies one cut to today's $1,202. The cuts overlap, so the column
+doesn't add up; the table after it gives the combined result.
 
 | Rank | Cut | Saves alone | What it gives up |
 |---|---|---|---|
-| 1 | **One run per release; repeat runs scheduled.** `--critical-runs 1`, and a scheduled job runs the three-run measurement off the release path. | $777, 1,452M tokens (65%) | A release sees one sample. Measured noise on an unchanged skill is up to five points (coordinate: 91.9% to 97.3%), so the drop rule needs a tolerance or a per-scenario comparison, or it flags noise. Variance is measured on the schedule instead. |
-| 2 | **Tier-2 subset at release.** Each skill marks the tier-2 scenarios that run at release (here 10 of execute's 54, 5 of work-on's 15, one per workflow path); the rest run on the schedule. | $737, 1,471M (61%) | A regression on a path outside the subset reaches a release and is caught by the next scheduled run, not by the release. |
-| 3 | **Tier-2 agents on Sonnet.** A scenario model of `sonnet` for tier 2, as tier 1 already has. | $446, 911M (37%) | Tier-2 agents stop running on the model most users run the skill on. The first release after the change compares against Opus-measured rates, so it needs a fresh baseline. |
-| 4 | **Drop the no-skill baseline from the release check.** Spawn only the with-skill agent and grade only it. The baseline moves to the scheduled measurement, where its job (what the skill adds) belongs. | $369, 623M (31%) | Nothing the release decision uses: the record and the drop rule read with-skill rates only. A release no longer shows the skill's lift over the bare model. |
-| 5 | **Grading and the orchestrating session on Sonnet.** A session-model setting separate from `EVAL_MODEL`, which today also moves every tier-2 agent. | $82 (7%); tokens unchanged | Grading by the smaller model may judge borderline assertions differently; the first release after the change needs a fresh baseline. A Haiku grader is not priced here: no Haiku call appears in the transcripts. |
-| 6 | **Batch tier-1 scenarios that read the same skill.** One agent reads the skill once and answers several plan-only scenarios. | $74, 107M (6%), estimated at half the tier-1 agent cost | Scenarios in one batch can influence each other's answers. Not measured; needs one trial run before it's relied on. |
-| 7 | **Remove or rewrite the nine scenarios that score the same with and without the skill** (table above). | $70, 139M (6%) | Nothing measured: they don't tell the skill apart from the model. A rewrite costs authoring time; a removal loses the scenario's intent until it's rewritten. |
-| 8 | **Keep per-scenario results and resume.** Key each scenario's result on the skill's tree, the scenario entry, its fixtures and the models; a retry runs only scenarios with no result for that key. | Nothing on a clean run; a retry after a stop no longer repeats completed work (a complete coordinate pass, $22 to $25; 39 to 49 graded execute scenarios at about $4.54 each in tier 2) | Disk state per iteration, and a key that has to name every input or it serves a stale result. Across releases it saves little: coordinate changed in each of the last 7 releases and execute and work-on in 6, and every scenario reads SKILL.md. |
-| 9 | **Run only the skills whose files changed.** Already in place: `run-evals.sh --list-changed` selects them and the release check runs that selection. | Already taken: $1,458 for all 20 suites against $1,202 for this selection (18%) | Nothing new. Narrowing further, to scenarios whose own inputs changed, needs each scenario to declare what it reads; not worth it while SKILL.md changes every release. |
-
-### The release run after the cuts
-
-Taking cuts 1, 2, 4, 5 and 7, which change what runs but not how a scenario is
-judged:
+| 1 | **One run per release; repeat runs scheduled.** `--critical-runs 1` in `release.md`'s declared check, and the three-run measurement moves to a scheduled job. | $777, 1,452M tokens (65%) | A release sees one sample. Measured noise on an unchanged skill is up to five points (coordinate: 91.9% to 97.3%), so the drop rule needs a tolerance, or it flags noise as a drop. Variance is measured on the schedule instead. |
+| 2 | **Tier-2 subset at release.** At most 10 tier-2 scenarios per skill run at release, marked in `evals.json`; the rest run on the schedule. Candidates for execute, by measured separation between skill and baseline: merge-unprotected-base, pr-adopt-fork-pr, parity-drift-gate-intent-changing-halts, merge-failing-nonrequired-check, merge-pending-past-limit, merge-head-moved, e2e-execute-resume, coordinated-plan-verifies-its-mode-scoped-record, execute-ci-monitor-dirty-merge-state-routing and parity-finalization-cascade-atomic. Work-on's 5 are picked after its first scheduled run. | $737, 1,471M (61%) | A regression on a path outside the subset reaches a release and is caught by the next scheduled run instead. The candidates rest on one to three graded runs, and the 23 scenarios no run reached aren't ranked. |
+| 3 | **Tier-2 agents on Sonnet.** Tier-2 scenarios default to `sonnet`, as tier 1 already does. | $446, 911M (37%) | Tier-2 agents stop running on Opus. The first release after the change compares against Opus-measured rates (see the record condition below). |
+| 4 | **Drop the no-skill baseline from the release check.** Spawn and grade only the with-skill agent at release; the baseline moves to the scheduled measurement, where its question (what the skill adds) belongs. | $369, 623M (31%) | Nothing the release decision uses: the record and the drop rule read with-skill rates only. A release no longer shows the skill's lift over the bare model. |
+| 5 | **Grading and the orchestrating session on Sonnet.** A session-model setting of its own; `EVAL_MODEL` today also moves every tier-2 agent. | $82 (7%); tokens unchanged | A smaller grader may judge borderline assertions differently, so this one does change how a scenario is judged. A Haiku grader would cost less, but isn't priced here: no Haiku call appears in the transcripts. |
 
 | Skill | Runs | Scenarios (tier 1 + tier 2) | Cost | Tokens |
 |---|---|---|---|---|
-| coordinate | 1 | 32 + 0 | $12.6 | 22M |
-| execute | 1 | 23 + 10 | $40.8 | 86M |
+| coordinate | 1 | 36 + 0 | $13.9 | 24M |
+| execute | 1 | 23 + 10 | $26.0 | 54M |
 | roadmap | 1 | 17 + 0 | $7.7 | 14M |
 | scope | 1 | 66 + 0 | $23.7 | 40M |
-| work-on | 1 | 19 + 5 | $24.4 | 52M |
-| **Total** | | | **$109** | **213M** |
+| work-on | 1 | 19 + 5 | $17.0 | 36M |
+| **Total** | | | **$88** | **168M** |
 
-From $1,202 and 2,225M tokens to $109 and 213M: 91% less. Adding cut 3 or
-cut 6 brings it to $87; both, to $64 and 130M tokens.
+Without cut 3 the run is about $111 and 215M tokens; without cut 5, about
+$108. Either one alone misses the target.
 
-**Target: a five-skill release eval run at or under $65 list price and 130M
-tokens, in about two hours.** That is below the cheapest execute run that
-failed to finish in one session window ($68.69) and under three complete
-coordinate runs. Reaching it takes all seven priced cuts, or cuts 1,
-2, 4, 5 and 7 with a smaller tier-2 subset (execute 6, work-on 3 gives $91;
-with cut 6, $68). The wall time is an estimate from the measured throughput:
-about 30 seconds of session time per tier-1 scenario and about 4 minutes per
-tier-2 scenario. Running skills in parallel sessions shortens it without
-changing the cost.
+### The other cuts the issue names
 
-What the release run no longer does, and where it goes: the no-skill
-baseline, the second and third runs of critical skills, and the tier-2
-scenarios outside each skill's subset all move to a scheduled measurement that
-runs off the release path, across more than one session window if it must.
+- **Scenarios that score the same with and without the skill.** Removing or
+  rewriting the nine in the table above saves $70 on today's check, but only
+  about $1.30 on top of the five cuts, because cut 2 already leaves execute's
+  five out of the release run. Do it anyway, for the scheduled measurement and
+  for what the rates mean: a scenario both sides pass adds a pass to the rate
+  without testing the skill.
+- **Caching unchanged scenarios.** Across releases it saves little: coordinate
+  changed in each of the last 7 releases, execute and work-on in 6, and every
+  scenario reads its skill's SKILL.md. Within one release it matters: a retry
+  after a stop repeats every scenario today. Keep each scenario's grading as it
+  finishes, keyed on the release check's marker (HEAD and the last tag) and
+  the model, and run only what has no result. That saves a complete coordinate
+  pass ($22 to $25) or the 39 to 49 execute scenarios already graded on every
+  retry.
+- **Running only the skills whose files changed.** Already in place:
+  `run-evals.sh --list-changed` selects them and the release check runs that
+  selection. It is why today's figure is $1,202 and not the $1,458 all 20
+  suites would cost. Selecting scenarios rather than skills would need each
+  scenario to declare what it reads, which isn't worth it while SKILL.md
+  changes every release.
+- **Batching tier-1 scenarios** so one agent reads the skill once for several
+  plan-only scenarios is not recommended now: about $23 on top of the five
+  cuts, unmeasured, and the scenarios in a batch can influence each other's
+  answers. It's the next lever if the first measured run lands over target.
 
-### Conditions
+### Condition: the record has to accept the change once
 
-- **The first release after the cuts needs a baseline that matches.** The
-  record holds one rate per skill; a rate measured on 77 scenarios over three
-  runs is not comparable with one measured on 33 scenarios once. The record
-  should carry per-scenario results, so the comparison uses the scenarios both
-  releases ran, or treat a changed scenario set as "no baseline" once.
-- **Keep what a stopped run did.** Write each scenario's grading as it
-  finishes and let the release check resume, so a stop on the limit costs only
-  the scenario in flight (cut 8).
-- **Make the harness, not the orchestrating session, decide the agent
-  layout.** Today the session writes its own briefs, and they differed in
-  every execute run. A fixed layout makes runs comparable and is what cuts 4,
-  5 and 6 change.
-- **Changing `release.md`'s declared check** (`--critical-runs 1`, a subset
-  flag) lands as its own pull request.
+The record holds one with-skill rate per skill. The first release after cuts 1,
+2, 3 and 5 compares a one-run rate on a subset, with Sonnet agents and grader,
+against a three-run rate on every scenario. That release should treat the
+changed skills as having no baseline, and from then on a drop should be
+flagged only beyond the measured noise (five points), not on any lower
+rounded rate.
 
 ### Issues to file once the plan is agreed
 
-- Drop the baseline from the release check's runs and grade only the
-  with-skill side.
-- Run one pass per release; add the scheduled three-run and baseline
-  measurement.
-- Mark each skill's release tier-2 subset in `evals.json` and run only it at
-  release.
-- Add a session-model setting for the orchestrating and grading session,
-  separate from the scenario model.
-- Rewrite or remove the nine non-discriminating scenarios.
-- Keep per-scenario results and resume a stopped run.
-- Give the pass-rate record per-scenario results and a noise tolerance for a
-  single run.
+1. Drop the baseline from the release check's runs and grade only the
+   with-skill side.
+2. Run one pass per release (`--critical-runs 1`, as its own pull request
+   against `release.md`) and add the scheduled measurement: three runs, the
+   baseline and every tier-2 scenario.
+3. Mark each skill's release tier-2 subset in `evals.json` and run only it at
+   release.
+4. Default tier-2 scenarios to Sonnet.
+5. Add a session-model setting for the orchestrating and grading session.
+6. Give the record a one-time "no baseline" for the changed scenario set and a
+   five-point tolerance.
+7. Keep per-scenario results and resume a stopped release run.
+8. Rewrite or remove the nine scenarios that score the same with and without
+   the skill.
+
+## Limitations
+
+The iteration directories, console logs and stored transcripts this report
+reads stay on the machine that ran the check; they are not in the repository.
+The extraction is reproducible from them: join each iteration's
+`runner_session.jsonl` session id to the stored transcripts, attribute each
+subagent by its description and prompt, and price its usage at the rates
+above. Scope, work-on and roadmap are estimated, and execute's 23 unreached
+scenarios are priced at the mean of the 31 tier-2 scenarios that ran.
 
 ## Appendix: per-scenario measurements
 
-Means over every run that reached the scenario. Dollars at the prices above; tokens are all tokens processed; seconds are the agent's own wall time (with-skill and baseline ran side by side). "Passed" lists passed:graded assertions per run, runs separated by `/`. Grading isn't split per scenario because grader agents each covered a batch; it averaged $0.145 per scenario for coordinate and $0.238 for execute.
+Means over every run in which the scenario's agents ran. Dollars at the prices above; tokens are all tokens processed; seconds are the agent's own wall time (with-skill and baseline ran side by side). "Passed" lists passed:graded assertions per graded run, runs separated by `/`; execute iteration 6 ran agents but graded nothing, so a scenario can show more agent runs than grades. Grading isn't split per scenario because each grader agent covered a batch; it averaged $0.145 per scenario for coordinate and $0.238 for execute.
 
 ### coordinate
 
-| Scenario | Tier | Runs | With: $ | With: tokens | With: s | Baseline: $ | Baseline: tokens | Baseline: s | With passed | Baseline passed |
+| Scenario | Tier | Agent runs | With: $ | With: tokens | With: s | Baseline: $ | Baseline: tokens | Baseline: s | With passed | Baseline passed |
 |---|---|---|---|---|---|---|---|---|---|---|
 | a-feature-whose-deliverable-is-its-scoping | 1 | 4 | 0.48 | 831k | 69 | 0.11 | 100k | 23 | 4:5/5:5/5:5/5:5 | 1:5/3:5/2:5/2:5 |
 | a-landed-feature-is-written-back | 1 | 4 | 0.29 | 562k | 52 | 0.10 | 99k | 19 | 4:4/4:4/4:4/4:4 | 0:4/0:4/0:4/0:4 |
@@ -343,27 +373,13 @@ Means over every run that reached the scenario. Dollars at the prices above; tok
 
 ### execute
 
-| Scenario | Tier | Runs | With: $ | With: tokens | With: s | Baseline: $ | Baseline: tokens | Baseline: s | With passed | Baseline passed |
+| Scenario | Tier | Agent runs | With: $ | With: tokens | With: s | Baseline: $ | Baseline: tokens | Baseline: s | With passed | Baseline passed |
 |---|---|---|---|---|---|---|---|---|---|---|
 | auto-drives-through-to-finalized-mergeable-result-no-pause | 1 | 3 | 0.35 | 476k | 49 | 0.10 | 119k | 16 | 4:5/5:5/5:5 | 1:5/1:5/1:5 |
-| coordinated-cascade-order | 2 | 0 | not reached | | | | | | | |
-| coordinated-coordination-merge-not-observed | 2 | 0 | not reached | | | | | | | |
 | coordinated-cross-unit-carry-forward | 1 | 4 | 0.25 | 326k | 54 | 0.12 | 150k | 23 | 5:5/5:5/5:5 | 2:5/2:5/2:5 |
 | coordinated-effort-syncs-as-per-repo-prs-progress | 1 | 4 | 0.26 | 367k | 60 | 0.12 | 159k | 29 | 4:5/4:5/4:5 | 2:5/1:5/3:5 |
-| coordinated-head-missing | 2 | 0 | not reached | | | | | | | |
-| coordinated-head-moved | 2 | 0 | not reached | | | | | | | |
-| coordinated-index-foreign-author | 2 | 0 | not reached | | | | | | | |
-| coordinated-index-out-of-set-repository | 2 | 0 | not reached | | | | | | | |
-| coordinated-index-wrong-head-branch | 2 | 0 | not reached | | | | | | | |
 | coordinated-merge-last-gate-blocks-while-pr-unmerged | 1 | 4 | 0.24 | 396k | 61 | 0.10 | 135k | 26 | 3:5/5:5/3:5 | 2:5/2:5/3:5 |
-| coordinated-multi-repo-merged | 2 | 0 | not reached | | | | | | | |
-| coordinated-node-branch-base | 2 | 0 | not reached | | | | | | | |
-| coordinated-node-merge-not-observed | 2 | 0 | not reached | | | | | | | |
-| coordinated-outline-one-repo-end-to-end-merged | 2 | 0 | not reached | | | | | | | |
-| coordinated-pause-and-resume | 2 | 0 | not reached | | | | | | | |
 | coordinated-plan-verifies-its-mode-scoped-record | 2 | 4 | 0.60 | 721k | 117 | 0.32 | 325k | 62 | 5:5/5:5/4:5 | 2:5/2:5/2:5 |
-| coordinated-template-mismatch-refused | 2 | 0 | not reached | | | | | | | |
-| coordinated-without-merge | 2 | 0 | not reached | | | | | | | |
 | coordination-intent-absent-behavior-unchanged-r3 | 1 | 4 | 0.29 | 360k | 45 | 0.10 | 125k | 17 | 5:5/5:5/5:5 | 4:5/4:5/3:5 |
 | cross-skill-work-on-path-assertion | 1 | 4 | 0.16 | 208k | 25 | 0.10 | 126k | 18 | 4:4/4:4/4:4 | 0:4/0:4/0:4 |
 | dispatcher-multi-pr-one-issue-at-a-time | 1 | 4 | 0.21 | 260k | 37 | 0.11 | 124k | 17 | 5:5/5:5/5:5 | 4:5/1:5/5:5 |
@@ -381,13 +397,9 @@ Means over every run that reached the scenario. Dollars at the prices above; tok
 | execute-plan-needs-attention | 1 | 4 | 0.32 | 512k | 47 | 0.10 | 125k | 19 | 5:5/4:5/5:5 | 0:5/0:5/0:5 |
 | execute-re-evaluation-exit | 1 | 4 | 0.26 | 393k | 40 | 0.10 | 125k | 20 | 4:4/4:4/4:4 | 2:4/2:4/2:4 |
 | interactive-pause-leaves-chain-intact-at-paused-for-review | 1 | 3 | 0.35 | 537k | 50 | 0.10 | 119k | 16 | 5:5/5:5/5:5 | 0:5/0:5/0:5 |
-| koto-leg-results | 2 | 0 | not reached | | | | | | | |
 | legacy-four-column-table-parse | 1 | 4 | 0.35 | 513k | 52 | 0.10 | 117k | 18 | 4:4/4:4/4:4 | 3:4/3:4/2:4 |
 | merge-already-merged | 2 | 1 | 3.45 | 6664k | 1256 | 3.63 | 6942k | 1746 |  |  |
-| merge-attempt-evidence-names-other-pr | 2 | 0 | not reached | | | | | | | |
 | merge-call-fails | 2 | 3 | 3.63 | 8168k | 1549 | 0.56 | 780k | 122 | 4:4 | 3:4 |
-| merge-call-flags-fixed | 2 | 0 | not reached | | | | | | | |
-| merge-confirm-override-refused | 2 | 0 | not reached | | | | | | | |
 | merge-dirty-with-merge | 2 | 4 | 4.11 | 9348k | 1460 | 1.96 | 4160k | 1051 | 5:5/5:5/5:5 | 5:5/4:5/5:5 |
 | merge-draft-ready-fails | 2 | 3 | 4.70 | 10359k | 1731 | 1.50 | 3113k | 633 | 3:3/3:3 | 2:3/3:3 |
 | merge-failing-nonrequired-check | 2 | 4 | 4.61 | 9930k | 1530 | 0.53 | 723k | 120 | 3:3/3:3/3:3 | 2:3/0:3/1:3 |
@@ -395,12 +407,9 @@ Means over every run that reached the scenario. Dollars at the prices above; tok
 | merge-interrupted-resumed-without-merge | 2 | 1 | 5.02 | 12017k | 1490 | 3.69 | 8561k | 1533 |  |  |
 | merge-mergeable-with-merge | 2 | 4 | 4.92 | 11689k | 1494 | 2.79 | 6303k | 1054 | 6:6/6:6/6:6 | 6:6/4:6/6:6 |
 | merge-mergeable-without-merge | 2 | 4 | 4.00 | 8764k | 1376 | 1.05 | 1908k | 421 | 4:4/4:4/4:4 | 2:4/3:4/4:4 |
-| merge-method-rebase | 2 | 0 | not reached | | | | | | | |
-| merge-method-squash | 2 | 0 | not reached | | | | | | | |
 | merge-no-checks | 2 | 2 | 5.61 | 10836k | 1925 | 0.63 | 985k | 167 | 3:3 | 1:3 |
 | merge-not-observed | 2 | 3 | 2.92 | 6266k | 1215 | 1.48 | 3226k | 661 | 4:4 | 4:4 |
 | merge-pending-past-limit | 2 | 4 | 4.33 | 9513k | 1558 | 1.53 | 2982k | 633 | 4:4/4:4 | 2:4/1:4 |
-| merge-resumed-with-merge | 2 | 0 | not reached | | | | | | | |
 | merge-review-required-with-merge | 2 | 4 | 4.57 | 10347k | 1674 | 2.35 | 4723k | 1049 | 3:3/3:3/3:3 | 1:3/3:3/3:3 |
 | merge-review-rule-unapproved | 2 | 2 | 3.30 | 6766k | 1346 | 1.95 | 3274k | 973 | 3:3 | 1:3 |
 | merge-route-override-refused | 2 | 1 | 3.76 | 7437k | 1340 | 2.69 | 5593k | 1315 |  |  |
@@ -417,8 +426,6 @@ Means over every run that reached the scenario. Dollars at the prices above; tok
 | pr-finalization-body-file-stdin-and-fixes-omission | 1 | 3 | 0.31 | 437k | 40 | 0.10 | 132k | 19 | 3:4/3:4/3:4 | 0:4/2:4/0:4 |
 | pr-finalization-conventional-title-two-part-body | 1 | 3 | 0.30 | 431k | 41 | 0.10 | 132k | 16 | 4:5/5:5/5:5 | 0:5/0:5/0:5 |
 | report-upstream-convention-and-user-facing-behavior-docs | 1 | 3 | 0.16 | 262k | 23 | 0.10 | 145k | 18 | 1:3/1:3/1:3 | 0:3/0:3/0:3 |
-| scope-intent-continue-branch-adopted | 2 | 0 | not reached | | | | | | | |
 | single-pr-adopts-scoping-branch-routes-children-to-settled-branch | 1 | 4 | 0.38 | 504k | 55 | 0.10 | 125k | 19 | 4:6/4:6/4:6 | 1:6/1:6/1:6 |
 | single-pr-fresh-run-r7-parity-lands-on-impl-slug | 1 | 4 | 0.33 | 501k | 52 | 0.10 | 134k | 19 | 4:5/4:5/4:5 | 0:5/0:5/0:5 |
 | single-pr-plan-to-merged-pr-unchanged | 1 | 4 | 0.35 | 473k | 50 | 0.10 | 117k | 17 | 4:5/5:5/4:5 | 1:5/1:5/0:5 |
-| stale-invocation-refused-merge-unchanged | 2 | 0 | not reached | | | | | | | |
