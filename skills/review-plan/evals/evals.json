@@ -9,7 +9,7 @@
       "assertions": [
         "Fast-path mode is used (single agent per category, not multiple validators)",
         "Phase 0 reads all four required plan artifacts before any review category runs",
-        "Phases 1, 2, 3, and 4 all execute and each produces category findings",
+        "Phases 1, 2, 3, 4, and 4b all execute and each produces category findings",
         "Phase 5 writes exactly one verdict file (either _review.md or _review_loopback.md, not both)",
         "The review_result YAML block includes verdict, loop_target, round, confidence, critical_findings, and summary fields"
       ],
@@ -19,11 +19,11 @@
       "id": 2,
       "name": "adversarial-mode-flag",
       "prompt": "/review-plan my-feature --adversarial",
-      "expected_output": "Detects --adversarial flag in arguments. Phase 0 selects adversarial execution mode. For each of phases 1-4, spawns three validator agents in parallel (not one). After all validators complete, the skill identifies agreements (>=2 validators flagged the same issue) and any disagreements (only 1 validator flagged it). If disagreements exist, cross-examination agents are spawned to resolve them. Phase 5 synthesizes confirmed findings into a verdict artifact using the same review_result schema as fast-path.",
+      "expected_output": "Detects --adversarial flag in arguments. Phase 0 selects adversarial execution mode. For each of phases 1-4 and 4b, spawns three validator agents in parallel (not one). After all validators complete, the skill identifies agreements (>=2 validators flagged the same issue) and any disagreements (only 1 validator flagged it). If disagreements exist, cross-examination agents are spawned to resolve them. Phase 5 synthesizes confirmed findings into a verdict artifact using the same review_result schema as fast-path.",
       "assertions": [
         "The --adversarial flag is detected and adversarial mode is selected",
         "Three validator agents are spawned per category (not one)",
-        "All twelve validator agents (3 per category × 4 categories) are spawned in a single parallel batch before cross-examination",
+        "All fifteen validator agents (3 per category × 5 categories) are spawned in a single parallel batch before cross-examination",
         "After validators complete, the skill explicitly checks for agreements vs. disagreements before proceeding to Phase 5",
         "The output review_result schema is identical to fast-path mode output"
       ],
@@ -74,7 +74,7 @@
       "id": 6,
       "name": "clean-proceed-path",
       "prompt": "/review-plan my-feature",
-      "expected_output": "The fixture plan has three issues. All issues have clean ACs: success paths with behavioral assertions, empty-state coverage, and failure paths. No issue uses golden file validation, specific version strings, or existence-only assertions. All four categories return empty critical_findings. Phase 5 sets verdict to proceed. Phase 5 writes key work/review.md (not work/review_loopback.md) in session plan-my-feature. The review_result block has verdict: proceed and critical_findings: [].",
+      "expected_output": "The fixture plan has three issues. All issues have clean ACs: success paths with behavioral assertions, empty-state coverage, and failure paths. No issue uses golden file validation, specific version strings, or existence-only assertions. All five categories return empty critical_findings. Phase 5 sets verdict to proceed. Phase 5 writes key work/review.md (not work/review_loopback.md) in session plan-my-feature. The review_result block has verdict: proceed and critical_findings: [].",
       "assertions": [
         "verdict is proceed when no critical findings exist",
         "work/review.md is written to the plan-my-feature session (not the loopback key)",
@@ -97,6 +97,81 @@
         "No finding is produced when an issue does carry docs coverage, or when the source signals no user-visible surface"
       ],
       "files": []
+    },
+    {
+      "id": 8,
+      "name": "category-e-plan-v1-five-layer-advisory",
+      "prompt": "/review-plan crates/shirabe-validate/tests/fixtures/PLAN-v1-five-layer.md",
+      "expected_output": "The fixture is a finished plan/v1 plan of five issues cut by component: types, compiler, CLI, tests, plugin templates. No issue before the last has a criterion a person can run to observe a behaviour. Phase 4b (Category E) reports it as layer-shaped, naming each issue's component, reports that Issue 1 is not a walking skeleton, and lists each file-shaped criterion by issue and text, including Issue 1's \"Add `Transition` struct with `target: String` and ...\". Because the plan is plan/v1, every Category E finding is written to advisory_findings and none to critical_findings, and they set no loop target: Category E alone leaves the verdict at proceed. Categories A to D still run as on any plan, and a loop-back on this fixture comes only from their critical findings (for example Category C's happy-path-only criteria), never from Category E.",
+      "assertions": [
+        "Phase 0 reads the plan version as plan/v1 from the schema frontmatter",
+        "A Category E finding reports the plan as layer-shaped and names the components types, compiler, CLI, tests, and plugin templates",
+        "File-shaped criteria are listed one per finding by issue and quoted text, including Issue 1's \"Add `Transition` struct with `target: String`\" criterion",
+        "Every Category E finding is in advisory_findings, and critical_findings holds no Category E finding",
+        "No Category E finding sets loop_target or turns the verdict to loop-back; any loop-back is caused by a critical finding from categories A to D"
+      ],
+      "files": [
+        "crates/shirabe-validate/tests/fixtures/PLAN-v1-five-layer.md"
+      ]
+    },
+    {
+      "id": 9,
+      "name": "category-e-plan-v2-behavioural-clean",
+      "prompt": "/review-plan skills/review-plan/evals/fixtures/PLAN-v2-behavioural.md",
+      "expected_output": "The fixture is a plan/v2 step plan whose step 1 is a walking skeleton (its check runs `report export` end to end on the sample store) and whose detailed steps carry behavioural criteria. Steps 3 and 4 are one-line outlines, and their missing criteria are not a finding. Both detailed steps carry `**Files**:` lines naming paths, which are hints, not criteria. Phase 0 reads step_count and the ## Steps blocks without an issue-table error. Phase 4b reports no Category E finding: not layer-shaped, step 1 is a skeleton, no file-shaped criterion, and no horizon check on a standalone run.",
+      "assertions": [
+        "Phase 0 reads plan/v2, step_count 4, and the ## Steps blocks, with no error about a missing issue table or dependency graph",
+        "No Category E finding appears in critical_findings or advisory_findings",
+        "The `**Files**:` lines are not reported as file-shaped criteria",
+        "The one-line outline steps 3 and 4 are not reported for missing criteria or checks"
+      ],
+      "files": [
+        "skills/review-plan/evals/fixtures/PLAN-v2-behavioural.md"
+      ]
+    },
+    {
+      "id": 10,
+      "name": "category-e-plan-v2-types-first-loops-back",
+      "prompt": "/review-plan skills/review-plan/evals/fixtures/PLAN-v2-types-first.md",
+      "expected_output": "The fixture is a plan/v2 step plan whose step 1 adds the schedule types only and whose check is a unit test run (`cargo test -p remind-core recurrence`), not an end-to-end run. Phase 4b reports that step 1 is not a walking skeleton. Under plan/v2 that finding is critical: it goes in critical_findings with category E, the verdict is loop-back, and loop_target is 3 (Decomposition). The plan is not layer-shaped, since step 2's check runs `remind add` and `remind list`.",
+      "assertions": [
+        "A Category E critical finding says step 1 is not a walking skeleton because its check is a unit test of one component",
+        "The verdict is loop-back with loop_target 3",
+        "The finding is in critical_findings, not advisory_findings",
+        "No layer-shaped finding is reported, since step 2 has a runnable end-to-end check"
+      ],
+      "files": [
+        "skills/review-plan/evals/fixtures/PLAN-v2-types-first.md"
+      ]
+    },
+    {
+      "id": 11,
+      "name": "category-e-plan-v2-three-detailed-standalone",
+      "prompt": "/review-plan skills/review-plan/evals/fixtures/PLAN-v2-three-detailed.md",
+      "expected_output": "The fixture is a plan/v2 step plan with steps 1 to 3 detailed and step 4 an outline. Run standalone (no plan_topic argument), Phase 4b skips the horizon test: a plan reviewed after authoring may have detailed steps past step 2 as its owner moved the horizon. Step 1 is a walking skeleton and the criteria are behavioural, so there is no Category E finding.",
+      "assertions": [
+        "The run is standalone: no plan_topic argument is present",
+        "The horizon test is skipped and no horizon finding is reported",
+        "No Category E finding appears in critical_findings or advisory_findings"
+      ],
+      "files": [
+        "skills/review-plan/evals/fixtures/PLAN-v2-three-detailed.md"
+      ]
+    },
+    {
+      "id": 12,
+      "name": "category-e-horizon-as-plan-sub-operation",
+      "prompt": "Called as sub-operation with args: plan_topic=link-checker, round=1, mode=fast-path. The plan-link-checker session holds /plan's keys for the plan/v2 plan in skills/review-plan/evals/fixtures/PLAN-v2-three-detailed.md: work/decomposition.md with plan_version: v2 and step_count: 4, and work/manifest.json listing steps 1 to 3 with detail: detailed and step 4 with detail: outline.",
+      "expected_output": "plan_topic is in the arguments, so this is /plan's sub-operation at authoring and Phase 4b runs the horizon test. The plan/v2 plan has three detailed steps among four, one past the horizon of two, so Phase 4b reports a Category E horizon finding naming step 3. Under plan/v2 the finding is critical: the verdict is loop-back with loop_target 3, written to work/review_loopback.md.",
+      "assertions": [
+        "The horizon test runs because plan_topic is in the arguments",
+        "A Category E critical finding reports more than two detailed steps and names step 3",
+        "The verdict is loop-back with loop_target 3",
+        "work/review_loopback.md is written, not work/review.md"
+      ],
+      "files": [
+        "skills/review-plan/evals/fixtures/PLAN-v2-three-detailed.md"
+      ]
     }
   ]
 }

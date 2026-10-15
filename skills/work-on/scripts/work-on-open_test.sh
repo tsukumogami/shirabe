@@ -117,6 +117,10 @@ own_refusal "--koto-leg on a plan-backed child" '["--","plan-backed","github","7
 own_refusal "--koto-leg on a PLAN path" '["docs/plans/PLAN-x.md","--koto-leg=r1:work-on"]'
 printf -- '---\nschema: plan/v1\n---\n# a plan\n' > "$FIXREPO/roadmap-plan.md"
 own_refusal "--koto-leg on a .md file with plan/v1 frontmatter" '["roadmap-plan.md","--koto-leg=r1:work-on"]'
+# A step plan is a plan too, by its frontmatter alone: the copy's name does not
+# start with PLAN-.
+cp "$SCRIPT_DIR/testdata/PLAN-v2-single-pr.md" "$FIXREPO/step-plan.md"
+own_refusal "--koto-leg on a .md file with plan/v2 frontmatter" '["step-plan.md","--koto-leg=r1:work-on"]'
 
 : > "$WORK/stub.log"
 OUT=$(cd "$FIXREPO" && KOTO_STUB_LOG="$WORK/stub.log" PATH="$STUB_BIN:$PATH" \

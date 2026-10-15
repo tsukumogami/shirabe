@@ -1,12 +1,13 @@
 # Phase 5: Verdict Synthesis
 
-This phase collects findings from all four review categories (A, B, C, D) and
-synthesizes them into a single `review_result` YAML block written to one of two
-verdict keys in `plan-<topic>`.
+This phase collects findings from all five review categories (A, B, C, D, E)
+and synthesizes them into a single `review_result` YAML block written to one of
+two verdict keys in `plan-<topic>`.
 
 ## Inputs
 
-- All category findings collected after running phases 1–4
+- All category findings collected after running phases 1–4 and 4b
+- The plan version (`plan/v1` or `plan/v2`) from Phase 0
 - `round` value from args (if called as sub-operation) or `review_rounds + 1` from
   key `work/analysis.md` (if called standalone; 0 with no plan session)
 - `confidence` signals from each category phase (missing docs, empty issue bodies,
@@ -15,18 +16,35 @@ verdict keys in `plan-<topic>`.
 
 ## Verdict Rules
 
-**`verdict: "proceed"`** — no critical findings across all four categories. The
+**`verdict: "proceed"`** — no critical findings across all five categories. The
 `critical_findings` array is empty. The `loop_target` field is omitted (set to null).
 
 **`verdict: "loop-back"`** — one or more critical findings exist across any category.
 The `critical_findings` array contains all findings. The `loop_target` is set
 according to the mapping in `references/templates/review-result-schema.md`.
 
+## Category E by Plan Version
+
+Category E (Functional Shape, Phase 4b) returns its findings already split by
+plan version; keep that split here:
+
+- **`plan/v2`**: a layer-shaped plan or a first step that is not a walking
+  skeleton loops back, to Phase 3, like any critical finding. So do a
+  file-shaped criterion on a detailed step (Phase 4) and, when `/plan` ran the
+  review, more than two detailed steps (Phase 3). Each goes in
+  `critical_findings`.
+- **`plan/v1`**: the same findings are advisory. Record every one in
+  `advisory_findings` and leave it out of `critical_findings`, so a `plan/v1`
+  plan is flagged without being sent back. A `plan/v1` plan whose only findings
+  are Category E gets `verdict: "proceed"`.
+
 ## Loop Target Selection
 
 Use the deterministic category-to-phase mapping from the schema. Earliest phase wins,
 so when a verdict has both D subtypes, D-structural (Phase 3) takes precedence over
-D-dependency (Phase 5).
+D-dependency (Phase 5), and a Category E finding on the plan's cut (Phase 3) takes
+precedence over a file-shaped criterion (Phase 4). Advisory findings set no loop
+target.
 
 Read the schema reference for the full table:
 `references/templates/review-result-schema.md`
@@ -61,6 +79,7 @@ review_result:
   round: <N>
   confidence: "high | medium | low"
   critical_findings: []
+  advisory_findings: []   # Category E findings on a plan/v1 plan, if any
   summary: "<1-2 sentence summary>"
 ---
 
@@ -69,6 +88,8 @@ review_result:
 Round <N> review result: proceed.
 
 <summary sentence>
+
+<one line per advisory finding, if any>
 ```
 
 This key triggers Phase 7 in `/plan`'s resume logic — its presence is the signal
@@ -87,10 +108,11 @@ review_result:
   round: <N>
   confidence: "high | medium | low"
   critical_findings:
-    - category: "<A|B|C|D>"
+    - category: "<A|B|C|D|E>"
       description: "..."
       affected_issue_ids: [...]
       correction_hint: "..."
+  advisory_findings: []   # Category E findings on a plan/v1 plan, if any
   summary: "<1-2 sentence summary>"
 ---
 
@@ -101,15 +123,18 @@ Round <N> review result: loop-back at Phase <loop_target>.
 <summary sentence>
 ```
 
-Include all findings from all categories in `critical_findings`. Do not filter or
-deduplicate — `/plan` needs the full list to determine which issues to regenerate.
+Include all critical findings from all categories in `critical_findings`. Do not
+filter or deduplicate — `/plan` needs the full list to determine which issues to
+regenerate. Advisory findings stay in `advisory_findings` under either verdict.
 
 ## Summary Field
 
 Write a 1–2 sentence human-readable summary suitable for display in `/plan` status
 output. Examples:
 
-- `"Review passed. No critical findings across all four categories."`
+- `"Review passed. No critical findings across all five categories."`
+- `"Review passed with advisory Category E findings: the plan/v1 plan is cut into layers (types, compiler, CLI, tests, plugin templates) and has file-shaped criteria, listed as advisory findings."`
+- `"Loop-back required at Phase 3. Step 1 of the plan/v2 plan adds types only and its check is a unit test, so it is not a walking skeleton."`
 - `"Loop-back required at Phase 4. Issue 3 has fixture-anchored ACs (pattern 1) that would pass for an incorrect implementation; correction hint provided."`
 - `"Loop-back required at Phase 1. Design contradiction in sections 3.2 and 5.1 must be resolved before issue bodies can be regenerated."`
 

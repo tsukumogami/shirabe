@@ -398,6 +398,12 @@ skills/scope/scripts/resume-probe.sh	out=$("$KOTO" context get "$1" "$2" 2>/dev/
 # result is the value the calling assertion compares.
 skills/coordinate/scripts/testdata/coordinate-engine-lib.sh	now_at() { koto status "$S" 2>/dev/null | jq -r '.current_state // .state // empty'; }	1	non-zero	Test helper: a run koto cannot report reads as an empty state. Where a case asserts on it, its eq names the state it wanted against the empty one it got; where a tick loop polls it, an empty state never matches the state the loop waits for, so the loop runs to its bound and the eq after it fails.	references/tool-diagnostic-discards.md (test files are out of scope; moved from coordinate_engine_test.sh)
 skills/coordinate/scripts/testdata/coordinate-engine-lib.sh	pickf() { (cd "$WD" && koto context get "$S" coord/pick.json 2>/dev/null); }	1	1	Test helper: an absent pick fact reads as empty, which the case's assertion over it fails on and names, so the discard hides no failure.	references/tool-diagnostic-discards.md (test files are out of scope; moved from coordinate_engine_test.sh)
+# The plan/v2 outline gate reads a plan through `shirabe plan outlines`. A
+# shirabe older than plan/v2 cannot read a step plan, which is the failure
+# these two lines expect: the first read keeps its stdout clean for jq, and
+# on failure the second read captures the first stderr line for the refusal.
+skills/work-on/scripts/step-detail-check.sh	if ! ENVELOPE=$("$BIN" plan outlines "$REAL" 2>/dev/null); then	1	non-zero	The read that feeds jq keeps stderr out of the envelope; a shirabe that cannot read the plan (an older one on a step plan) takes the branch below, which reads again for the diagnostic and refuses with exit 2 quoting it.	DESIGN-functional-steps.md (step-detail-check.sh: a step plan's work waits until its step is detailed, and the check refuses a plan it cannot read)
+skills/work-on/scripts/step-detail-check.sh	why=$("$BIN" plan outlines "$REAL" 2>&1 >/dev/null | sed -n 1p)	1	non-zero	Only stdout is discarded: stderr goes into the capture, and its first line, control characters stripped and cut to 240 characters, is quoted in the refusal the caller sees.	DESIGN-functional-steps.md (step-detail-check.sh: a step plan's work waits until its step is detailed, and the check refuses a plan it cannot read)
 ```
 
 ## Running the scan

@@ -78,35 +78,98 @@ record_json() { # record_json <roadmap|discipline> <name>: an empty record
     jq -nc --arg k "$1" --arg n "$2" '{scope: {kind: $k, name: $n}, holdings: [], deferrals: [], side_effects: [], reversals: []}'
 }
 render() { # render <json> <issue|pr> [written]: a canonical body on stdout
-    printf '%s' "$1" | bash "$HERE/record-render.sh" --container "$2" --written "${3:-2026-09-26T09:00:00Z}"
+    # Suites render the same fixture many times over, so each distinct
+    # (json, container, written) is rendered once and kept under $T; a render
+    # that fails is never kept, so it fails again the same way. The key holds
+    # the inputs, not the renderer: a suite that swaps record-render.sh for a
+    # copy needs its own $T. The body comes back with one trailing newline,
+    # as record-render.sh prints it.
+    local w=${3:-2026-09-26T09:00:00Z} k f rc
+    k=$(printf '%s\n%s\n%s' "$2" "$w" "$1" | $SHA256)
+    f="$T/render-cache/${k%% *}"
+    if [ ! -f "$f" ]; then
+        mkdir -p "$T/render-cache"
+        printf '%s' "$1" | bash "$HERE/record-render.sh" --container "$2" --written "$w" > "$f.new"
+        rc=$?
+        [ "$rc" = 0 ] || { rm -f "$f.new"; return "$rc"; }
+        mv "$f.new" "$f"
+    fi
+    printf '%s\n' "$(< "$f")"
 }
+if command -v sha256sum >/dev/null 2>&1; then SHA256=sha256sum; else SHA256='shasum -a 256'; fi
 
 # Session logs. log_new <session> <vars-json> writes the header and init; each
 # log_ev appends one event with the next seq.
 log_new() {
     local d="$KOTO_STORE/sessions/$1"
     mkdir -p "$d"
-    jq -nc --arg s "$1" --arg h "${3:-feedface}" '{schema_version: 1, workflow: $s, template_hash: $h,
-        created_at: "2026-09-26T08:00:00.000Z", template_name: "coordinate"}' > "$d/koto-$1.state.jsonl"
+    if _plain "$1" && _plain "${3:-feedface}"; then
+        printf '{"schema_version":1,"workflow":"%s","template_hash":"%s","created_at":"2026-09-26T08:00:00.000Z","template_name":"coordinate"}\n' \
+            "$1" "${3:-feedface}" > "$d/koto-$1.state.jsonl"
+    else
+        jq -nc --arg s "$1" --arg h "${3:-feedface}" '{schema_version: 1, workflow: $s, template_hash: $h,
+            created_at: "2026-09-26T08:00:00.000Z", template_name: "coordinate"}' > "$d/koto-$1.state.jsonl"
+    fi
     printf '0' > "$d/.seq"
-    log_ev "$1" workflow_initialized "$(jq -nc --argjson v "$2" '{template_path: "x", variables: $v}')" 2026-09-26T08:00:00.000Z
+    if _compact "$2"; then
+        _log_put "$1" workflow_initialized "{\"template_path\":\"x\",\"variables\":$2}" 2026-09-26T08:00:00.000Z 1
+    else
+        log_ev "$1" workflow_initialized "$(jq -nc --argjson v "$2" '{template_path: "x", variables: $v}')" 2026-09-26T08:00:00.000Z
+    fi
     log_ev "$1" transitioned '{"from":null,"to":"start","condition_type":"auto"}' 2026-09-26T08:00:00.000Z
 }
-log_ev() { # log_ev <session> <type> <payload-json> [timestamp]
-    local d="$KOTO_STORE/sessions/$1" n
-    n=$(($(cat "$d/.seq") + 1))
+# The log writers below run hundreds of times a suite, so they write each line
+# without starting jq when they can: a value with nothing JSON would escape (no
+# quote, backslash or control character) is quoted as it stands, and a payload
+# with no whitespace or backslash is taken as already compact. Anything else
+# goes through jq as before. For the payloads the suites pass, the line is the
+# one `jq -c` wrote; a payload on the fast path is not validated, so a
+# malformed one shows up when a reader parses the log, not here.
+_plain() { case "$1" in *'"'*|*'\'*|*[[:cntrl:]]*) return 1 ;; esac; }
+_compact() { case "$1" in *[[:space:]]*|*'\'*|'') return 1 ;; esac; }
+# _log_put <session> <type> <payload> <timestamp> <compact:0|1>: append one
+# event with the next seq. With <compact> 1 the payload is taken as compact
+# (built here from plain values, or a caller's with no whitespace or
+# backslash) and written as it stands, unvalidated; it then differs from what
+# jq -c would write only in number literals jq rewrites, such as 1.0 or 1e2.
+_log_put() {
+    local d="$KOTO_STORE/sessions/$1" n=
+    # .seq holds no trailing newline, so read reports end of file; n is set.
+    read -r n < "$d/.seq" || true
+    n=$((n + 1))
     printf '%s' "$n" > "$d/.seq"
-    jq -nc --argjson q "$n" --arg ts "${4:-2026-09-26T10:00:00.000Z}" --arg t "$2" --argjson p "$3" \
-        '{seq: $q, timestamp: $ts, type: $t, payload: $p}' >> "$d/koto-$1.state.jsonl"
+    if [ "$5" = 1 ] && _plain "$2" && _plain "$4"; then
+        printf '{"seq":%s,"timestamp":"%s","type":"%s","payload":%s}\n' "$n" "$4" "$2" "$3" >> "$d/koto-$1.state.jsonl"
+    else
+        jq -nc --argjson q "$n" --arg ts "$4" --arg t "$2" --argjson p "$3" \
+            '{seq: $q, timestamp: $ts, type: $t, payload: $p}' >> "$d/koto-$1.state.jsonl"
+    fi
+}
+log_ev() { # log_ev <session> <type> <payload-json> [timestamp]
+    local c=0
+    _compact "$3" && c=1
+    _log_put "$1" "$2" "$3" "${4:-2026-09-26T10:00:00.000Z}" "$c"
 }
 log_to() { # log_to <session> <from> <to> [timestamp]
-    log_ev "$1" transitioned "$(jq -nc --arg f "$2" --arg t "$3" '{from: $f, to: $t, condition_type: "gate"}')" "${4:-2026-09-26T10:00:00.000Z}"
+    if _plain "$2" && _plain "$3"; then
+        _log_put "$1" transitioned "{\"from\":\"$2\",\"to\":\"$3\",\"condition_type\":\"gate\"}" "${4:-2026-09-26T10:00:00.000Z}" 1
+    else
+        log_ev "$1" transitioned "$(jq -nc --arg f "$2" --arg t "$3" '{from: $f, to: $t, condition_type: "gate"}')" "${4:-2026-09-26T10:00:00.000Z}"
+    fi
 }
 log_evidence() { # log_evidence <session> <state> <fields-json> [timestamp]
-    log_ev "$1" evidence_submitted "$(jq -nc --arg s "$2" --argjson f "$3" '{state: $s, fields: $f}')" "${4:-2026-09-26T10:00:00.000Z}"
+    if _plain "$2" && _compact "$3"; then
+        _log_put "$1" evidence_submitted "{\"state\":\"$2\",\"fields\":$3}" "${4:-2026-09-26T10:00:00.000Z}" 1
+    else
+        log_ev "$1" evidence_submitted "$(jq -nc --arg s "$2" --argjson f "$3" '{state: $s, fields: $f}')" "${4:-2026-09-26T10:00:00.000Z}"
+    fi
 }
 log_capture() { # log_capture <session> <key> <value> [timestamp]
-    log_ev "$1" variable_captured "$(jq -nc --arg k "$2" --arg v "$3" '{key: $k, value: $v}')" "${4:-2026-09-26T10:00:00.000Z}"
+    if _plain "$2" && _plain "$3"; then
+        _log_put "$1" variable_captured "{\"key\":\"$2\",\"value\":\"$3\"}" "${4:-2026-09-26T10:00:00.000Z}" 1
+    else
+        log_ev "$1" variable_captured "$(jq -nc --arg k "$2" --arg v "$3" '{key: $k, value: $v}')" "${4:-2026-09-26T10:00:00.000Z}"
+    fi
 }
 # Verdict tokens. koto refuses to capture a value holding = , + # ( [ | or ;
 # so a token may use only letters, digits, spaces and : / _ . - @. A test

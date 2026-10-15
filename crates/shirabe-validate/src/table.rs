@@ -543,6 +543,32 @@ fn rest_empty(tail: &[String]) -> bool {
 //
 // Where the old readers disagreed, the rule kept is the one the task
 // extractor used, because that reader decided what actually got built.
+//
+// The same walk reads a `plan/v2` step plan: under that schema it locates
+// `## Steps` and opens a block on `### Step <N>: <title>`, resolves
+// `Step <N>` dependency references, and records per block whether it
+// declared a `**Check**:` and how many body lines it has, from which
+// `detailed` is derived. Every other rule is shared, so the two versions
+// cannot drift apart the way the old readers did.
+
+/// Which kind of plan entry an [`OutlineBlock`] is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Entry {
+    /// A `### Issue <N>:` outline of a `plan/v1` plan.
+    Issue,
+    /// A `### Step <N>:` block of a `plan/v2` step plan.
+    Step,
+}
+
+impl Entry {
+    /// The entry kind as the `plan outlines` envelope spells it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Entry::Issue => "issue",
+            Entry::Step => "step",
+        }
+    }
+}
 
 /// A `###` heading inside `## Issue Outlines` that is neither a canonical
 /// `### Issue <N>: <title>` outline heading nor the `### Dependencies`
@@ -562,11 +588,11 @@ pub struct NonconformingHeading {
     pub line: usize,
 }
 
-/// A parsed outline block from a single-pr plan's `## Issue Outlines`
-/// section.
+/// A parsed outline block from a plan's `## Issue Outlines` section, or a
+/// step from a `plan/v2` step plan's `## Steps` section.
 ///
 /// Each block corresponds to one canonical `### Issue <N>: <title>`
-/// heading. The parser is total over arbitrary input: a missing field
+/// heading (`### Step <N>: <title>` under `plan/v2`; see [`Entry`]). The parser is total over arbitrary input: a missing field
 /// surfaces as `false`, `None`, or an empty `Vec` rather than a parse
 /// failure, so consumers decide what to refuse. Refusing is deliberately
 /// not the parser's job -- it has consumers with different severities for
@@ -637,6 +663,20 @@ pub struct OutlineBlock {
     /// The `**Group**:` declaration (the outline's PR group), trimmed with
     /// surrounding backticks stripped, when declared. Not validated here.
     pub group: Option<String>,
+    /// Whether this block is a `plan/v1` issue outline or a `plan/v2` step.
+    pub entry: Entry,
+    /// Whether the block declared a `**Check**:` line with non-empty text.
+    pub check_declared: bool,
+    /// The block's non-blank body lines after its heading, not counting a
+    /// bare `---` separator. An outline step has exactly one; the step rules
+    /// that tell an outline from a malformed step read this.
+    pub body_lines: usize,
+    /// Whether the block is a full entry rather than a one-line outline.
+    ///
+    /// A step is detailed when it declares a goal, acceptance criteria and a
+    /// check. A `plan/v1` issue outline has no outline form, so every issue
+    /// block is detailed.
+    pub detailed: bool,
 }
 
 /// A `### Gate: <name>` block inside `## Issue Outlines`.
@@ -665,11 +705,11 @@ pub struct OutlineGate {
     pub condition: Option<String>,
 }
 
-/// The parsed `## Issue Outlines` section.
+/// The parsed `## Issue Outlines` section (`## Steps` for a step plan).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OutlineSection {
-    /// One entry per canonical `### Issue <N>: <title>` heading, in
-    /// document order.
+    /// One entry per canonical `### Issue <N>: <title>` heading (or
+    /// `### Step <N>: <title>`), in document order.
     pub blocks: Vec<OutlineBlock>,
     /// `###` headings inside the section that opened no block.
     pub nonconforming_headings: Vec<NonconformingHeading>,
@@ -702,6 +742,42 @@ static OUTLINE_HEADING_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^Issue\s+(\d+):\s*(.+)$").unwrap());
 
 static ISSUE_REF_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Issue\s+(\d+)").unwrap());
+
+/// A `plan/v2` step heading. The number is checked against
+/// [`STEP_NUMBER_RE`] before the heading opens a block.
+static STEP_HEADING_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^Step\s+(\d+):\s*(.+)$").unwrap());
+
+/// A step number: 1 to 999, no leading zero. A heading whose number falls
+/// outside this is recorded as non-conforming, so no plan opens an unbounded
+/// or ambiguous step.
+static STEP_NUMBER_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[1-9][0-9]{0,2}$").unwrap());
+
+static STEP_REF_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Step\s+(\d+)").unwrap());
+
+/// Whether a `###` heading's text (the `### ` stripped) has the shape of a
+/// step heading, `Step <digits>: <title>`, whatever its number. A
+/// non-conforming heading of this shape was refused for its number alone
+/// (outside 1 to 999, or with a leading zero), which FC22 reports under its
+/// own rule.
+pub fn is_step_heading_shaped(text: &str) -> bool {
+    STEP_HEADING_RE.is_match(text)
+}
+
+/// Whether an unresolved dependency token is a `Step <N>` reference: one that
+/// is well formed but names no step in the plan.
+pub fn is_step_reference(token: &str) -> bool {
+    STEP_REF_RE
+        .find(token)
+        .is_some_and(|m| m.start() == 0 && m.end() == token.len())
+}
+
+/// A dependency leftover in a step plan that is shaped like a reference: the
+/// `plan/v1` shapes, which name no step there and so would otherwise be read
+/// as prose and dropped.
+static STEP_REFERENCE_SHAPED_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^(#?\d+|Issue\s+\d+|<<ISSUE:\d+>>)$").unwrap());
 
 static PLACEHOLDER_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<<ISSUE:(\d+)>>").unwrap());
 
@@ -741,6 +817,8 @@ struct PartialBlock {
     files: Vec<String>,
     repo: Option<String>,
     group: Option<String>,
+    check_declared: bool,
+    body_lines: usize,
 }
 
 /// Per-gate state during stage one, before references are resolved.
@@ -768,8 +846,13 @@ enum Owner {
 /// first collects blocks, fields, and non-conforming headings; the second
 /// resolves dependency references, which cannot happen during the first
 /// because a block may name a sibling that appears later.
+///
+/// Under `schema: plan/v2` the section is `## Steps` and a block opens on
+/// `### Step <N>: <title>`; `### Gate:` is a `plan/v1` coordinated form and
+/// is recorded as a non-conforming heading there.
 pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
-    let (start, end) = match locate_section(doc) {
+    let steps = doc.schema == crate::formats::PLAN_V2_SCHEMA;
+    let (start, end) = match locate_section(doc, steps) {
         Some(bounds) => bounds,
         None => return OutlineSection::default(),
     };
@@ -786,7 +869,12 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
 
         if let Some(rest) = trimmed.strip_prefix("### ") {
             accumulating = Accumulating::Nothing;
-            if let Some(name) = strip_gate_heading(rest) {
+            let heading = if steps {
+                STEP_HEADING_RE.captures(rest)
+            } else {
+                OUTLINE_HEADING_RE.captures(rest)
+            };
+            if let Some(name) = strip_gate_heading(rest).filter(|_| !steps) {
                 // A gate declaration. It is a block boundary: the outline
                 // above it is closed, and the lines below belong to the
                 // gate until the next heading.
@@ -798,15 +886,21 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
                     before_raw: String::new(),
                     condition: None,
                 });
-            } else if let Some(caps) = OUTLINE_HEADING_RE.captures(rest) {
+            } else if let Some(caps) = heading {
                 // A canonical outline heading. The only thing that opens a
                 // block -- the extractor's rule, kept because it decides
                 // what gets built.
-                let number: u32 = match caps[1].parse() {
-                    Ok(n) => n,
+                let parsed = if steps && !STEP_NUMBER_RE.is_match(&caps[1]) {
+                    None
+                } else {
+                    caps[1].parse::<u32>().ok()
+                };
+                let number: u32 = match parsed {
+                    Some(n) => n,
                     // A number too large for u32 is not an outline the
-                    // extractor could reference either.
-                    Err(_) => {
+                    // extractor could reference either, and a step number
+                    // outside 1..=999 is not a step.
+                    None => {
                         nonconforming.push(NonconformingHeading {
                             text: rest.to_string(),
                             line: absolute_line,
@@ -829,6 +923,8 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
                     files: Vec::new(),
                     repo: None,
                     group: None,
+                    check_declared: false,
+                    body_lines: 0,
                 });
             } else if is_dependencies_heading(rest)
                 && owner == Owner::Outline
@@ -866,6 +962,24 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
             Some(b) => b,
             None => continue,
         };
+
+        // A bare `---` is the separator between entries, not body text.
+        if !trimmed.is_empty() && trimmed != "---" {
+            block.body_lines += 1;
+        }
+
+        if let Some(rest) = strip_label(trimmed, "**Check**:") {
+            if !rest.trim().is_empty() {
+                block.check_declared = true;
+            }
+            // Under `plan/v1` the line falls through to the matchers below
+            // exactly as it did before `**Check**:` was read, so no issue
+            // outline parses differently.
+            if steps {
+                accumulating = Accumulating::Nothing;
+                continue;
+            }
+        }
 
         if strip_label(trimmed, "**Goal**:").is_some() {
             block.goal_declared = true;
@@ -947,7 +1061,7 @@ pub fn parse_issue_outlines(doc: &Doc) -> OutlineSection {
         }
     }
 
-    resolve(partials, nonconforming, gates)
+    resolve(partials, nonconforming, gates, steps)
 }
 
 /// Flatten every block's acceptance criteria into one list, in document
@@ -969,6 +1083,7 @@ fn resolve(
     partials: Vec<PartialBlock>,
     nonconforming: Vec<NonconformingHeading>,
     gates: Vec<PartialGate>,
+    steps: bool,
 ) -> OutlineSection {
     let known: Vec<u32> = partials.iter().map(|b| b.number).collect();
 
@@ -997,7 +1112,13 @@ fn resolve(
                 waits_on,
                 unresolved_dependencies,
                 unrecognized_dependency_text,
-            ) = resolve_dependencies(&p.dependencies_raw, &known);
+            ) = if steps {
+                resolve_step_dependencies(&p.dependencies_raw, &known)
+            } else {
+                resolve_dependencies(&p.dependencies_raw, &known)
+            };
+            let detailed =
+                !steps || (p.goal_declared && p.acceptance_criteria_declared && p.check_declared);
             OutlineBlock {
                 key: p.key,
                 number: p.number,
@@ -1015,6 +1136,10 @@ fn resolve(
                 files: p.files,
                 repo: p.repo,
                 group: p.group,
+                entry: if steps { Entry::Step } else { Entry::Issue },
+                check_declared: p.check_declared,
+                body_lines: p.body_lines,
+                detailed,
             }
         })
         .collect();
@@ -1171,6 +1296,69 @@ fn resolve_dependencies(raw: &str, known: &[u32]) -> (bool, Vec<u32>, Vec<String
     (false, waits_on, unresolved, unrecognized)
 }
 
+/// Split one step's dependency text into
+/// `(is_none, resolved_numbers, unresolved_references, unrecognized_text)`.
+///
+/// The step-plan counterpart of [`resolve_dependencies`]: `Step <N>` is the
+/// reference, and the `<<ISSUE:N>>` placeholder is not a spelling of it. A
+/// leftover in a `plan/v1` reference shape (`Issue 2`, `#2`, a bare `2`)
+/// names no step, so it is unresolved rather than prose: read as prose it
+/// would be an edge dropped without a word.
+fn resolve_step_dependencies(
+    raw: &str,
+    known: &[u32],
+) -> (bool, Vec<u32>, Vec<String>, Vec<String>) {
+    let value = raw.trim().trim_end_matches('.').trim();
+    if value.is_empty() {
+        return (false, Vec::new(), Vec::new(), Vec::new());
+    }
+    if value.eq_ignore_ascii_case("None") {
+        return (true, Vec::new(), Vec::new(), Vec::new());
+    }
+
+    let mut waits_on: Vec<u32> = Vec::new();
+    let mut unresolved: Vec<String> = Vec::new();
+    let mut unrecognized: Vec<String> = Vec::new();
+
+    for caps in STEP_REF_RE.captures_iter(value) {
+        match caps[1].parse::<u32>() {
+            Ok(n) if known.contains(&n) => {
+                if !waits_on.contains(&n) {
+                    waits_on.push(n);
+                }
+            }
+            _ => {
+                let token = caps[0].to_string();
+                if !unresolved.contains(&token) {
+                    unresolved.push(token);
+                }
+            }
+        }
+    }
+
+    let residue = STEP_REF_RE.replace_all(value, "").to_string();
+    for token in residue
+        .replace("Blocked by", ",")
+        .replace("blocked by", ",")
+        .split(',')
+    {
+        let token = token.trim().trim_end_matches('.').trim();
+        if token.is_empty() || token.eq_ignore_ascii_case("and") {
+            continue;
+        }
+        let owned = token.to_string();
+        if STEP_REFERENCE_SHAPED_RE.is_match(token) {
+            if !unresolved.contains(&owned) {
+                unresolved.push(owned);
+            }
+        } else if !unrecognized.contains(&owned) {
+            unrecognized.push(owned);
+        }
+    }
+
+    (false, waits_on, unresolved, unrecognized)
+}
+
 /// Append a fragment to a block's accumulating dependency text.
 fn append_dependency_text(target: &mut String, fragment: &str) {
     if fragment.is_empty() {
@@ -1182,16 +1370,18 @@ fn append_dependency_text(target: &mut String, fragment: &str) {
     target.push_str(fragment);
 }
 
-/// Locate `## Issue Outlines` and return its `[start, end)` body bounds.
+/// Locate `## Issue Outlines` (or, for a step plan, `## Steps`) and return
+/// its `[start, end)` body bounds.
 ///
 /// The section ends at the next `## ` heading at the same level; `###`
 /// headings stay inside.
-fn locate_section(doc: &Doc) -> Option<(usize, usize)> {
-    let start = doc
-        .body
-        .iter()
-        .position(|line| line.trim() == "## Issue Outlines")?
-        + 1;
+fn locate_section(doc: &Doc, steps: bool) -> Option<(usize, usize)> {
+    let heading = if steps {
+        "## Steps"
+    } else {
+        "## Issue Outlines"
+    };
+    let start = doc.body.iter().position(|line| line.trim() == heading)? + 1;
 
     let end = doc.body[start..]
         .iter()
@@ -2010,5 +2200,102 @@ mod tests {
         assert_eq!(section.gates[0].after, vec![1]);
         assert_eq!(section.gates[0].before, vec![2]);
         assert!(section.nonconforming_headings.is_empty());
+    }
+
+    // --- parse_issue_outlines on a plan/v2 step plan ---
+
+    fn step_plan(body: &str) -> Doc {
+        doc_from_markdown(&format!(
+            "---\nschema: plan/v2\nstatus: Active\nexecution_mode: single-pr\nmilestone: \"m\"\nstep_count: 3\n---\n\n# PLAN: m\n\n{body}"
+        ))
+    }
+
+    const DETAILED: &str =
+        "**Goal**: g\n\n**Acceptance Criteria**:\n\n- [ ] c\n\n**Check**: run it\n\n";
+
+    #[test]
+    fn steps_open_blocks_under_the_steps_section_only() {
+        let section = parse_issue_outlines(&step_plan(&format!(
+            "## Issue Outlines\n\n### Issue 9: not read\n\n## Steps\n\n### Step 1: a\n\n{DETAILED}**Dependencies**: None\n\n---\n\n### Step 2: b\n\n{DETAILED}**Dependencies**: Step 1\n\n### Step 3: c\n\nOne line naming the behaviour.\n"
+        )));
+        let numbers: Vec<u32> = section.blocks.iter().map(|b| b.number).collect();
+        assert_eq!(numbers, vec![1, 2, 3]);
+        assert!(section.blocks.iter().all(|b| b.entry == Entry::Step));
+        assert_eq!(section.blocks[0].key, "Step 1: a");
+        assert!(section.blocks[0].detailed && section.blocks[0].check_declared);
+        assert!(section.blocks[1].detailed);
+        assert_eq!(section.blocks[1].waits_on, vec![1]);
+        let outline = &section.blocks[2];
+        assert!(!outline.detailed && !outline.check_declared);
+        assert_eq!(outline.body_lines, 1);
+    }
+
+    #[test]
+    fn a_step_is_detailed_only_with_goal_criteria_and_a_check() {
+        let section = parse_issue_outlines(&step_plan(
+            "## Steps\n\n### Step 1: a\n\n**Goal**: g\n\n**Acceptance Criteria**:\n\n- [ ] c\n\n**Check**:\n\n**Dependencies**: None\n",
+        ));
+        let block = &section.blocks[0];
+        assert!(!block.check_declared, "an empty Check is not a check");
+        assert!(!block.detailed);
+        assert_eq!(block.body_lines, 5);
+    }
+
+    #[test]
+    fn step_numbers_outside_one_to_999_open_no_step() {
+        let section = parse_issue_outlines(&step_plan(
+            "## Steps\n\n### Step 0: a\n\nx\n\n### Step 01: b\n\nx\n\n### Step 1000: c\n\nx\n\n### Step 999: d\n\nx\n",
+        ));
+        let numbers: Vec<u32> = section.blocks.iter().map(|b| b.number).collect();
+        assert_eq!(numbers, vec![999]);
+        let texts: Vec<&str> = section
+            .nonconforming_headings
+            .iter()
+            .map(|h| h.text.as_str())
+            .collect();
+        assert_eq!(texts, vec!["Step 0: a", "Step 01: b", "Step 1000: c"]);
+    }
+
+    #[test]
+    fn issue_and_gate_headings_open_nothing_in_a_step_plan() {
+        let section = parse_issue_outlines(&step_plan(
+            "## Steps\n\n### Issue 1: a\n\nx\n\n### Gate: release\n\n**After**: Step 1\n",
+        ));
+        assert!(section.blocks.is_empty());
+        assert!(section.gates.is_empty());
+        assert_eq!(section.nonconforming_headings.len(), 2);
+    }
+
+    #[test]
+    fn a_v1_reference_in_a_step_plan_is_unresolved_not_prose() {
+        let section = parse_issue_outlines(&step_plan(&format!(
+            "## Steps\n\n### Step 1: a\n\n{DETAILED}**Dependencies**: None\n\n### Step 2: b\n\n{DETAILED}**Dependencies**: Issue 1, <<ISSUE:1>>, Step 7, Step 1 (the parser first)\n"
+        )));
+        let block = &section.blocks[1];
+        assert_eq!(block.waits_on, vec![1]);
+        assert_eq!(
+            block.unresolved_dependencies,
+            vec![
+                "Step 7".to_string(),
+                "Issue 1".to_string(),
+                "<<ISSUE:1>>".to_string()
+            ]
+        );
+        assert_eq!(
+            block.unrecognized_dependency_text,
+            vec!["(the parser first)".to_string()]
+        );
+    }
+
+    #[test]
+    fn issue_outlines_stay_issue_entries_and_detailed() {
+        let section = parse_issue_outlines(&doc_from_markdown(
+            "## Issue Outlines\n\n### Issue 1: a\n\n**Check**: run it\n\n**Dependencies**: None\n\n## Steps\n\n### Step 2: b\n\nx\n",
+        ));
+        assert_eq!(section.blocks.len(), 1);
+        let block = &section.blocks[0];
+        assert_eq!(block.entry, Entry::Issue);
+        assert!(block.detailed);
+        assert!(block.check_declared);
     }
 }

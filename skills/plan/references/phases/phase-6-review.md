@@ -11,6 +11,14 @@ if key work/review_loopback.md exists in plan-<topic> → execute loop-back (see
 else                                                   → run /review-plan
 ```
 
+## Plan Version v2
+
+A `v2` run hands `/review-plan` a step plan: entries are `### Step <N>:`
+blocks, steps from 3 on are one-line outlines by design, and nothing is filed.
+An outline step's missing criteria are not a finding; the plan's owner details
+it later. Judge the detailed steps' criteria and checks as the review would
+judge an issue's.
+
 ## Infinite-Loop Guard
 
 Before invoking `/review-plan`, read `review_rounds` from key
@@ -42,7 +50,8 @@ Call `/review-plan` as a sub-operation:
 `/review-plan` will:
 1. Read all plan keys from `plan-<topic>` (the session this run holds open;
    `/review-plan` opens and closes nothing here)
-2. Run all four review categories (A, B, C, D) in fast-path mode
+2. Run all five review categories (A to E) in fast-path mode; Category E
+   (Functional Shape) checks the horizon only here, as `/plan`'s sub-operation
 3. Write the verdict as key `work/review.md` (proceed) or
    `work/review_loopback.md` (loop-back) in `plan-<topic>`
 
@@ -57,7 +66,8 @@ if key work/review.md exists           → verdict is "proceed"; go to Phase 7
 if key work/review_loopback.md exists  → verdict is "loop-back"; execute below
 ```
 
-Read the `review_result` YAML block from the verdict key. Log the verdict and summary:
+Read the `review_result` YAML block from the verdict key. Log the verdict and summary,
+and every entry of `advisory_findings` (absent or empty means none):
 
 ```
 Phase 6 review complete
@@ -65,7 +75,13 @@ Phase 6 review complete
   round:      <N>
   confidence: <high | medium | low>
   summary:    <summary text>
+  advisory:   <none, or one line per advisory finding: its category and description>
 ```
+
+Advisory findings change neither the verdict nor the loop target, so nothing below
+acts on them; this log is where the plan's reader sees them. Under `plan/v1` they
+are Category E's notes on a plan cut into layers, a first issue that is not a
+walking skeleton, or a file-shaped criterion.
 
 ## On "proceed"
 

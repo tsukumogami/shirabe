@@ -13,10 +13,15 @@ review_result:
   round: 1
   confidence: "high | medium | low"
   critical_findings:
-    - category: "A | B | C | D"
+    - category: "A | B | C | D | E"
       description: "..."
       affected_issue_ids: [1, 2, 3]
       correction_hint: "..."
+  advisory_findings:
+    - category: "E"
+      description: "..."
+      affected_issue_ids: [1, 2, 3]
+      correction_hint: ""
   summary: "..."
 ```
 
@@ -47,17 +52,26 @@ Loop target is determined by finding category using a deterministic mapping:
 | C (AC Discriminability) | 4 | Agent Generation |
 | D — dependency ordering error | 5 | Dependencies |
 | D — structural deferral (must-run QA deprioritized) | 3 | Decomposition |
+| E — layer-shaped plan, first step not a walking skeleton, or past the horizon (`plan/v2`) | 3 | Decomposition |
+| E — file-shaped criterion on a detailed step (`plan/v2`) | 4 | Agent Generation |
 
 Category D has two subtypes with different loop targets. Structural deferral
 (a QA scenario classified as low-priority or deferred to the end of the plan)
 maps to Phase 3 because it is a decomposition sequencing decision. Dependency
 ordering errors (correct issues in the wrong order) map to Phase 5.
 
+Category E (Functional Shape) is critical only under `plan/v2`, and has two
+subtypes in the same way. The cut of the plan (layer shape, a first step that is
+not a walking skeleton, more than two detailed steps at authoring) is decided in
+Phase 3. A file-shaped criterion is written in Phase 4, with the step's other
+criteria. Under `plan/v1` every Category E finding is advisory (see
+`advisory_findings`) and sets no loop target.
+
 When multiple categories have findings, the earliest phase wins:
 ```
 if B findings exist                         → loop_target: 1
-elif A findings or D-structural exist       → loop_target: 3
-elif C findings exist                       → loop_target: 4
+elif A, D-structural or E-shape findings exist → loop_target: 3
+elif C or E-criterion findings exist        → loop_target: 4
 elif D-dependency-ordering findings exist   → loop_target: 5
 ```
 
@@ -92,7 +106,7 @@ Each entry in `critical_findings` represents one finding from a review category.
 
 #### `critical_findings[].category`
 
-**Type:** string enum — `"A"`, `"B"`, `"C"`, or `"D"`
+**Type:** string enum — `"A"`, `"B"`, `"C"`, `"D"`, or `"E"`
 
 Which review category produced this finding.
 
@@ -119,10 +133,17 @@ violation in Category A that doesn't map to specific issues).
 **Type:** string
 
 A brief description of what a corrected issue body should include to fix this
-finding. **Only populated for Category C (AC Discriminability) findings.**
+finding. **Only populated for Category C (AC Discriminability) findings and for
+critical Category E (Functional Shape) findings.**
 
-For Categories A, B, and D: leave as empty string `""`. The correction is
-addressed by re-running earlier phases, not by changing issue body content directly.
+For Categories A, B and D, and for an advisory Category E finding: leave as empty
+string `""`. The correction is addressed by re-running earlier phases, not by
+changing issue body content directly.
+
+For a critical Category E finding (`plan/v2`): say what the re-cut plan or the
+rewritten criterion should do, as `phase-4b-functional-shape.md` describes. The
+loop-back passes it to the `/plan` phase that regenerates the plan, as it passes
+Category C's.
 
 For Category C: describe what a discriminating AC should check. The hint gives
 Phase 4 regeneration agents positive direction without generating replacement ACs
@@ -130,6 +151,19 @@ Phase 4 regeneration agents positive direction without generating replacement AC
 
 Example: `"Add a clean-state scenario — empty the registry before running the command
 and verify the table is empty, then populate and verify it contains the expected rows."`
+
+### `advisory_findings`
+
+**Type:** array of finding objects, in the same format as `critical_findings`.
+Optional; omit it or write an empty array (`[]`) when there are none.
+
+Findings the reviewer should read that do not send the plan back. Today only
+Category E writes here, for a `plan/v1` plan: a layer-shaped plan, a first
+entry that is not a walking skeleton, and each file-shaped criterion are
+recorded so the reviewer sees them, while the plan, cut by the rules of its
+version, is not looped back. Advisory findings never change `verdict` or
+`loop_target`; a verdict with advisory findings and no critical ones is
+`"proceed"`.
 
 ### `summary`
 
@@ -147,7 +181,32 @@ review_result:
   round: 1
   confidence: "high"
   critical_findings: []
-  summary: "Review passed. No critical findings across all four categories."
+  summary: "Review passed. No critical findings across all five categories."
+```
+
+## Example: Proceed with Advisory Findings (`plan/v1`)
+
+```yaml
+review_result:
+  verdict: "proceed"
+  loop_target: null
+  round: 1
+  confidence: "medium"
+  critical_findings: []
+  advisory_findings:
+    - category: "E"
+      description: "E1 layer-shaped: every entry before the last has no runnable
+        check, and the entries are cut by component: Issue 1 types, Issue 2
+        compiler, Issue 3 CLI, Issue 4 tests, Issue 5 plugin templates."
+      affected_issue_ids: [1, 2, 3, 4, 5]
+      correction_hint: ""
+    - category: "E"
+      description: "E3 file-shaped: Issue 1, \"Add `Transition` struct with
+        `target: String` and `when: Option<BTreeMap<String, serde_json::Value>>`\""
+      affected_issue_ids: [1]
+      correction_hint: ""
+  summary: "Review passed with advisory Category E findings: the plan/v1 plan is
+    cut into layers and has file-shaped criteria."
 ```
 
 ## Example: Loop-back (Category C)

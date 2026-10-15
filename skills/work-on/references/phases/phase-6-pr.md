@@ -35,8 +35,8 @@ so a plain push is always enough.
 
 ## Create PR
 
-Author the title and body to the **mechanical** rule in
-`references/pr-body-conformance.md`, which `shirabe validate --pr-body`
+Author the title and body to the **mechanical** rule in the conformance text
+the `pr_creation` directive names, which `shirabe validate --pr-body`
 enforces in CI. `pr_creation`'s `pr_body_conformant` gate runs the same check
 on the pull request GitHub has before the run moves on, so a violation holds
 the state with a finding naming the rule: fix it with `gh pr edit` and submit

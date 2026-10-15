@@ -79,7 +79,7 @@ candidacy, not weight: an arm that fails one is absent from the ranking, absent
 from the options you present, and must not be mentioned in the recommendation.
 
 **`/execute`:** look for a qualifying PLAN -- a file at `docs/plans/PLAN-*.md`,
-or any `.md` whose frontmatter has `schema: plan/v1`, whose `execution_mode` is
+or any `.md` whose frontmatter has `schema: plan/v1` or `plan/v2`, whose `execution_mode` is
 `single-pr` or `coordinated`. A `multi-pr` PLAN does not qualify; `/execute`
 refuses that mode. No qualifying PLAN means no `/execute` arm this run.
 
