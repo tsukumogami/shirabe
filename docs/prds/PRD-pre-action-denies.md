@@ -148,8 +148,12 @@ These terms mean the same thing everywhere below.
 - **Segment**: a piece of the command text between unquoted `;`, `&`,
   `|`, newline, `(` or `)` characters. Text inside single or double
   quotes is never split.
-- **Head**: a segment's first word after any leading `NAME=value` words,
-  compared by its last path component, so `/usr/bin/git` is `git`.
+- **Head**: a segment's first word after any leading `NAME=value` words
+  and shell reserved words (`if`, `then`, `elif`, `else`, `do`, `while`,
+  `until`, `!`, `{`, `}`), compared by its last path component, so
+  `/usr/bin/git` is `git` and `if true; then git push; fi` holds a
+  guarded segment. A backslash followed by a newline outside quotes
+  joins the two lines, as the shell does.
 - **Word**: a piece of a segment between unquoted blanks, after quote
   removal. Single quotes keep their text literally; inside double quotes
   a backslash escapes only `"`, `\`, `$` and backquote; outside quotes a
@@ -175,8 +179,13 @@ These terms mean the same thing everywhere below.
   applied to one segment's text, decides a wrapped guarded command.
 - **Wrapped guarded command**: a segment whose head is `env`, `command`,
   `builtin`, `exec`, `eval`, `bash`, `sh`, `zsh`, `dash`, `xargs`,
-  `sudo`, `time`, `nohup` or `timeout`, or starts with `$`, and whose
-  text names a guarded action.
+  `sudo`, `time`, `nohup`, `timeout`, `python`, `python3`, `perl`,
+  `ruby` or `node`, or starts with `$`, and whose text names a guarded
+  action; or a command substitution (`$(...)` or backquotes, outside
+  single quotes) anywhere in the command whose own text, split into
+  segments the same way, holds a guarded or wrapped guarded segment. A
+  here-document's lines are data, not commands, so `git commit -m
+  "$(cat <<'EOF' ... git push ... EOF)"` holds none.
 
 ### Functional
 
@@ -295,11 +304,10 @@ These terms mean the same thing everywhere below.
   10. a wrapped guarded command;
   11. an earlier segment of the same command could change what the
       guarded segment checks: it names the `--body-file` path as a word
-      or after `>` or `>>`; or, before a push, it runs `git` with
-      `commit`, `merge`, `rebase`, `cherry-pick`, `am`, `revert`, `pull`,
-      `reset`, `update-ref`, `replace`, `notes`, `tag` or
-      `filter-branch`, or its head is one a wrapped guarded command can
-      have;
+      or after `>` or `>>`; or, before a push, it runs `git` with any
+      subcommand other than `status`, `log`, `diff`, `show`, `add`,
+      `rev-parse`, `describe`, `ls-files`, `grep`, `blame` or `fetch`,
+      or its head is one a wrapped guarded command can have;
   12. the hook input is larger than 4 MiB while its raw text names a
       guarded action.
 
@@ -349,11 +357,13 @@ These terms mean the same thing everywhere below.
   entry point when `~/.claude/settings.json`, or `.claude/settings.json`
   or `.claude/settings.local.json` under `$CLAUDE_PROJECT_DIR`, has a
   `hooks.PreToolUse` entry whose `matcher` is absent, empty, `*` or
-  `Bash` and that holds a `command` hook one of whose segments is
-  exactly the words `shirabe pr-body-hook`, in a file that doesn't set
-  `disableAllHooks`. When it does, the plugin's hook leaves the PR-body
-  rules and their fail-closed cases to that entry point and checks only
-  the push rule. With `CLAUDE_PROJECT_DIR` unset only the user file is
+  `Bash` and that holds a `command` hook one of whose segments is the
+  words `shirabe pr-body-hook` followed by nothing but redirections
+  (`2>/dev/null`, `>/dev/null`, `2>&1`), in a file that doesn't set
+  `disableAllHooks`, and `shirabe` resolves on the hook's `PATH` (the
+  wired command needs it there). When it does, the plugin's hook leaves
+  the PR-body rules and their fail-closed cases to that entry point and
+  checks only the push rule. With `CLAUDE_PROJECT_DIR` unset only the user file is
   read, and a file that can't be read or parsed counts as not wiring
   it, so a doubt gives a duplicate report, never a missing one. Either
   way each broken rule appears in one deny reason, not two.
@@ -407,7 +417,10 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
 | `ls`, `git status`, `git commit -m x`, `gh pr view 3`, `echo "gh pr create"`, `gh issue create --title pr --body edit`, `git log --grep push` | no decision |
 | `sudo git push`, `env X=1 git push`, `bash -c "git push"`, `eval "git push"`, `$GIT push` | deny, fail-closed (`wrapped`) |
 | `/usr/bin/git push` with the trailer commit | deny, `commit/no-ai-trailer` |
-| `git commit -m x && git push` | deny, fail-closed (`same command`) |
+| `git commit -m x && git push`, `git checkout other && git push` | deny, fail-closed (`same command`) |
+| `git status && git push` with the trailer commit | deny, `commit/no-ai-trailer` |
+| `if true; then git push; fi` with the trailer commit | deny, `commit/no-ai-trailer` |
+| `echo $(git push)`, ``echo `gh pr create` `` | deny, fail-closed (`wrapped`) |
 | `printf 'x' > b.md && gh pr create --title "feat: x" -F b.md` | deny, fail-closed (`same command`) |
 | `gh pr create --title "feat: x" -F fifo` where `fifo` is a named pipe | deny, fail-closed (`regular file`) |
 | `gh pr create --title "feat: x"` (no body) | deny, fail-closed (`no body`) |
@@ -522,7 +535,8 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
       that doesn't parse; one whose command is `echo shirabe
       pr-body-hook`; one whose matcher is `Edit`; one that sets
       `disableAllHooks`; the wiring in a `.claude/settings.json` under
-      `cwd` with `CLAUDE_PROJECT_DIR` unset. Run on the same input, the
+      `cwd` with `CLAUDE_PROJECT_DIR` unset; the wiring when `shirabe`
+      is only at `~/.shirabe/bin` and not on `PATH`. Run on the same input, the
       two entry points report the broken rule once between them (R12).
 - [ ] Every rule on the hook script's `RULE_IDS` line carries the `deny`
       field and the shipped registry passes

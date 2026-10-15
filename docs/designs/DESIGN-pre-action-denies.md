@@ -267,7 +267,7 @@ Key assumptions:
 - Remote-tracking refs are reasonably current; a stale ref can only make
   the check look at more commits, never fewer.
 
-#### Chosen: Parse the push argv, then one bounded `git log`
+#### Chosen: Parse the push argv, then two bounded plumbing calls
 
 The classifier yields the push's words after `push`. The push check
 parses them against the option list R4 names (anything else fails
@@ -276,34 +276,43 @@ closed), takes the remote from the first positional word or
 `--branches`, `--tags` or `--mirror`, or from the current branch. It
 resolves the remote when none is given from `branch.<b>.pushRemote`,
 `remote.pushDefault`, `branch.<b>.remote`, then `origin`, through `git
-config --get`. Each source is resolved with `git rev-parse --verify
---quiet <src>^{commit}`. The commits come from one call:
+config --get`. A source word starting with `-` fails closed; each
+other source is resolved with `git rev-parse --verify --quiet
+--end-of-options <src>^{commit}`, and only a 40- or 64-character
+hexadecimal answer is accepted. The commits come from two plumbing
+calls:
 
 ```text
-git log --no-merges --max-count=1001 --format=%H%x1f%s%x1f%B%x1e \
-    <source commits...> --not --remotes=<remote>
+git rev-list --no-merges --max-count=1001 <object ids...> --not --remotes=<remote>
+git cat-file --batch          # stdin: those ids, one per line
 ```
 
 with `--remotes` alone when the remote has no tracking refs (`git
 for-each-ref --count=1 refs/remotes/<remote>/` prints nothing) or isn't
-a configured remote. The source commits are passed as the full object
-ids `rev-parse` returned, after `--end-of-options`, never as the words
-the agent typed, and a remote name outside `^[A-Za-z0-9._-]+$` fails
-closed rather than reach `--remotes=`, where it would be a glob. 1,001
-records, or more than 16 MiB of output, means the bound is passed.
+a configured remote. The ids on `rev-list`'s command line are the
+hexadecimal ids `rev-parse` returned, never the words the agent typed,
+so nothing there can be read as an option. A remote name outside
+`^[A-Za-z0-9._-]+$` fails closed rather than reach `--remotes=`, where it
+would be a glob. 1,001 ids means the bound is passed. `cat-file
+--batch` returns each raw commit object with its length in a header, so
+no byte in a message can break the framing, and the check splits the
+message from the headers at the first blank line and caps the total at
+16 MiB.
 
 Every git call runs from a fixed environment rather than the hook's: it
-keeps only `PATH`, `HOME`, `LANG` and `LC_*`, and sets
+keeps only `PATH` (its absolute entries, so a repository can't plant a
+`git`), `HOME`, `LANG` and `LC_*`, and sets
 `GIT_CONFIG_NOSYSTEM=1`, `GIT_NO_LAZY_FETCH=1`,
 `GIT_NO_REPLACE_OBJECTS=1`, `GIT_OPTIONAL_LOCKS=0`,
 `GIT_TERMINAL_PROMPT=0` and `GIT_PAGER=cat`. Its arguments start `-C
 <dir> --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null -c
-log.showSignature=false -c core.pager=cat`, and the `log` call adds
-`--no-show-signature --no-ext-diff --no-textconv`. Those close the paths
-by which a repository's own configuration runs a program during a
-read: the filesystem monitor, hooks, signature verification through
-`gpg.program`, pagers, external diff and text conversion, and the lazy
-fetch a partial clone makes for a missing object. Only built-in
+log.showSignature=false -c core.pager=cat`. Those, and reading commits
+with `rev-list` and `cat-file` rather than formatting them with `log`,
+close the paths by which a repository's own configuration runs a
+program during a read: the filesystem monitor, hooks, signature
+verification through `gpg.program`, pagers, external diff and text
+conversion, and the lazy fetch a partial clone makes for a missing
+object. Only built-in
 subcommands run, which an alias can't shadow. `safe.directory` is left
 alone: a repository git refuses to read is the "work tree" case. Stdin
 is closed, and each child has a deadline: the check spawns it and polls
@@ -327,6 +336,10 @@ segment then applies its own `-C` words. `git rev-parse
   run the remote's helpers. Rejected under R14.
 - **`git rev-list` then one `git log -1` per commit.** What the shell
   check does; a process per commit. Rejected for cost on a long push.
+- **One `git log --format=...` call.** One process instead of two, but
+  `log` reads formatting configuration (signature display, pagers) and
+  a delimiter byte in a message can break its records. Rejected for
+  `rev-list` and `cat-file --batch`, which read neither.
 
 ### Decision 4: How the two entry points agree on who reports
 
@@ -352,11 +365,18 @@ project's `.claude/settings.json` and `.claude/settings.local.json`,
 parses each with `serde_json`, and looks for a `hooks.PreToolUse` entry
 whose `matcher` is absent, empty, `*` or `Bash` and that holds a
 `"type": "command"` hook whose command, run through the same tokenizer,
-has a segment that is exactly `shirabe pr-body-hook`. A file that sets
-`disableAllHooks` counts as not wiring it. When one does wire it, the
-plugin hook skips the PR-body rules and their fail-closed cases for that
-call; the legacy entry point, now the same evaluator, reports them in
-the same shape. A file it can't read or parse counts as no wiring, so
+has a segment that is `shirabe pr-body-hook` followed by nothing but
+redirection words (`2>/dev/null`, `>/dev/null`, `2>&1`), which is how
+niwa's line reads. A file that sets `disableAllHooks` counts as not
+wiring it. The wired command runs `shirabe` from `PATH` and exits 0
+when `command -v shirabe` fails, so the plugin hook also requires that
+`shirabe` resolve through an absolute `PATH` entry; a binary found only
+at `~/.shirabe/bin` means the wired command would do nothing. When all
+of that holds, the plugin hook skips the PR-body rules and their
+fail-closed cases for that call; the legacy entry point, now the same
+evaluator, reports them in the same shape. What it can't cover is that
+entry point crashing: niwa's `|| exit 0` turns a crash into a pass, a
+residual risk the binary's own always-exit-0 design keeps small. A file it can't read or parse counts as no wiring, so
 the worst failure is a duplicate report, never a missing one. A push is
 always the plugin hook's.
 
@@ -451,25 +471,42 @@ Key assumptions:
 
 #### Chosen: Fail closed on wrappers and same-command changes, and bound every read
 
-The classifier marks a segment whose head is on the wrapper list and
-whose own text passes the coarse "named in the text" test as a wrapped
-guarded command, a fail-closed case. Before a guarded segment it looks
-at every earlier segment of the same command: one that names the
-segment's `--body-file` path as a word or after `>` or `>>`, or, before
-a push, one that runs `git` with a commit- or ref-changing subcommand
-(`commit`, `merge`, `rebase`, `cherry-pick`, `am`, `revert`, `pull`,
-`reset`, `update-ref`, `replace`, `notes`, `tag`, `filter-branch`) or
-has a wrapper head, makes the guarded segment a fail-closed case too.
+The tokenizer reads the shell's structure closely enough not to lose a
+guarded command in it: a backslash-newline outside quotes joins two
+lines, and the classifier skips leading reserved words (`if`, `then`,
+`elif`, `else`, `do`, `while`, `until`, `!`, `{`, `}`) before it takes a
+segment's head, so `if true; then git push; fi` is guarded. A command
+substitution (`$(...)` or backquotes outside single quotes) is
+classified as a command of its own, its here-document lines treated as
+data; a guarded segment inside one is a wrapped guarded command. So is a
+segment whose head is on the wrapper list (which includes the
+interpreters `python`, `python3`, `perl`, `ruby` and `node`, and a `$`
+head) and whose own text passes the coarse "named in the text" test.
+Both are fail-closed cases.
 
-Every read is bounded. A `--body-file` is checked with `lstat` (a
-regular file, not a symlink to something else), opened with `O_NONBLOCK`
-so a FIFO swapped in after the check can't block, and read up to 1 MiB.
-The hook input is read up to 4 MiB. The whole evaluation runs on a
-worker thread; the main thread waits 25 seconds and, when the worker
-hasn't answered, prints the fail-closed deny for whatever the classifier
-already found guarded (or nothing, if it found nothing) and exits, so a
-hang anywhere becomes a deny inside Claude Code's 30-second timeout,
-not a pass.
+Before a guarded segment the classifier looks at every earlier segment
+of the same command. Before a `gh pr` segment, one that names the body
+file, compared after resolving both relative paths against the tracked
+directory, or that carries a word ending in the file's name, as a word
+or after `>` or `>>`, is a fail-closed case. Before a push it is an
+allowlist, not a denylist: an earlier `git` segment is acceptable only
+with `status`, `log`, `diff`, `show`, `add`, `rev-parse`, `describe`,
+`ls-files`, `grep`, `blame` or `fetch` (none of which changes what the
+push would send, except `fetch`, which can only shrink it), so `git
+checkout other && git push` or `git commit ... && git push` fail closed,
+and so does any earlier segment with a wrapper head.
+
+Every read is bounded. A `--body-file` must not be a symlink (`lstat`),
+is opened with `O_NONBLOCK` so a FIFO swapped in after the check can't
+block, is checked again with `fstat` on the open descriptor (a regular
+file of at most 1 MiB), and is read up to that size. The hook input is
+read up to 4 MiB; a longer input is denied when its raw text names a
+guarded action and gets no decision otherwise. The whole evaluation
+runs on a worker thread; the main thread waits 25 seconds and, when the
+worker hasn't answered, applies the coarse test to the raw input,
+prints the fail-closed deny when it names a guarded action (or nothing
+when it doesn't) and exits, so a hang anywhere becomes a deny inside
+Claude Code's 30-second timeout, not a pass.
 
 #### Alternatives Considered
 
@@ -497,7 +534,7 @@ no process started. A guarded `gh pr` command is checked by the
 existing validator, its findings turned into registry ids through their
 PB codes, unless the host's settings wire the legacy hook, in which case
 the plugin side leaves it to that hook (Decision 4). A guarded push is
-checked against its outgoing commits, found with one bounded `git log`
+checked against its outgoing commits, found with two bounded plumbing calls
 run with the repository's programs switched off (Decision 3). A command
 the hook can't see through, because a wrapper hides the action or an
 earlier part of the command changes what would be checked, is a
@@ -562,8 +599,11 @@ niwa host, in parallel:
   ignored, and nothing is logged.
 - **`tokenize.rs`.** The quote-aware tokenizer from `pr_body_hook.rs`,
   extended: segments end at unquoted `;`, `&`, `|`, newline, `(` and `)`;
-  each segment keeps its words and its byte span in the raw command;
-  `$'` starts an opaque word the body reader refuses.
+  a backslash-newline outside quotes is removed; each segment keeps its
+  words and its byte span in the raw command; command substitutions are
+  recorded with their spans for the classifier to recurse into, their
+  here-documents as data; `$'` starts an opaque word the body reader
+  refuses.
 - **`classify.rs`.** Walks segments, tracks the directory (R4's `cd`,
   `pushd`, `popd` rules), skips `NAME=value` words, and returns each
   guarded segment as `Gh { words_after_action, action, dir }` or `Git {
@@ -581,7 +621,7 @@ niwa host, in parallel:
   `lstat` shows a regular file, through an `O_NONBLOCK` open, and up to
   1 MiB; its lines reach the validator and never the reason.
 - **`push.rs`.** R4's argv parse, remote resolution, source resolution
-  and the bounded `git log`, through a `GitRunner` trait whose real
+  and the bounded `rev-list` and `cat-file` calls, through a `GitRunner` trait whose real
   implementation spawns `git` with the sanitized environment and the
   deadline.
 - **`registry.rs`.** `Registry::from_plugin_root(dir)` and
@@ -743,7 +783,7 @@ PreToolUse prefix (so a broken or hostile binary on `PATH` can't print
 than a here-string so it writes no temporary file, and skips relative
 `PATH` entries so a repository can't plant a `shirabe`. Reads are
 bounded: 4 MiB of input, a 1 MiB regular body file opened without
-blocking, at most 1,001 commits and 16 MiB of `git log` output, 20
+blocking, at most 1,001 commits and 16 MiB of commit objects, 20
 seconds of git and 25 seconds overall, so no input turns a check into a
 timeout that Claude Code would let through.
 
@@ -782,8 +822,13 @@ settings, counts, and that entry point then checks the same rules.
 binary or the repository's refs can defeat the check: a forged
 remote-tracking ref hides outgoing commits, a replaced binary allows
 everything, and the canary opt-in file is in the user's home. A guarded
-action inside a script file, `gh api`, an MCP tool, or a shell function
-or alias isn't seen. Fail-closed cases can be triggered by a repository
+action inside a script file, `gh api`, an MCP tool, a shell function or
+alias, `git -c alias.x=push x`, or an interpreter or exec wrapper the
+wrapper list doesn't name isn't seen. When the plugin hook yields the
+PR-body rules to a niwa-wired `shirabe pr-body-hook`, a crash of that
+entry point passes, because niwa's line ends `|| exit 0`. Commit
+subjects from whatever repository a `git -C` path names reach the model
+in a deny reason. Fail-closed cases can be triggered by a repository
 the user cloned (an unknown option, a refused `safe.directory`, more
 than 1,000 outgoing commits); each stops only the guarded command, and
 the user can turn the hook off. Required CI checks and the gates remain
@@ -792,7 +837,9 @@ the backstop for all of it.
 **Supply chain.** The plugin's files come from the plugin marketplace
 and run before every Bash call, which is the trust any plugin hook
 asks for. The binary comes from `install.sh`, which checks it against
-the release's `checksums.txt` by SHA-256 before installing. The binary
+the release's `checksums.txt` by SHA-256 before installing; both come
+from the same GitHub release, so that check gives integrity in transit,
+not authenticity. The binary
 and the plugin are versioned together; an older binary makes every
 guarded command fail closed with a reason naming the binary, and the
 registry reader ignores fields it doesn't know so a newer registry
@@ -825,7 +872,7 @@ doesn't break an older reader. No new dependency is added.
 
 ### Mitigations
 
-- The missing-binary deny names the install command and the off switch.
+- The missing-binary deny names the install command and tells the agent to ask the user.
 - The unguarded path runs no git and reads no file.
 - The coarse test is used only when the binary can't run, and its tests
   pin which commands it denies.
