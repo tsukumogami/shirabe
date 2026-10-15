@@ -157,24 +157,26 @@ its work starts, from what the earlier ones taught.
 
 **Complexity**: testable
 
-**Goal**: The scope and execute shell readers understand a `plan/v2` step plan: the scope hop check accepts it, and the startable list, the scoping PR body, the work-item goal and the drift facts all show step titles, goals and Files instead of coming out empty. Hostile step text passes through the readers as inert data.
+**Goal**: The scope and execute shell readers understand a `plan/v2` step plan: the scope hop check accepts it, and the startable list, the scoping PR body and the drift facts show step titles, goals and Files instead of coming out empty. Hostile step text passes through them as inert data. The step also closes four small gaps step 4's reviewers left in the outline gate's text.
 
 **Acceptance Criteria**:
 
-- [ ] `hop-complete.sh` reports the plan hop complete for a `plan/v2` PLAN fixture (`skills/scope/scripts/testdata/plan-v2-steps.md`) and still reports it complete for a `plan/v1` PLAN; an unknown schema value still leaves the hop incomplete.
-- [ ] `startable-issues.sh` fed `plan-v2-steps.md` lists each startable step with its `### Step N:` title; no startable step prints an empty title.
-- [ ] `publish-scoping-pr.sh` fed `plan-v2-steps.md` (using the existing gh shim, `--body-file` capture) writes a PR body that lists every `### Step N: <title>` title, none blank.
-- [ ] `node-push.sh` `work_item_goal` returns a step's `**Goal**:` text for a detailed step and its outline line for an outline step in `plan-v2-steps.md`; the result is never empty for either.
-- [ ] `drift-facts.sh` fed `plan-v2-steps.md` prints each step's goal and its `**Files**:` paths; no step shows a missing goal.
-- [ ] Hostile-title fixture `skills/execute/scripts/testdata/plan-v2-hostile-titles.md` (titles carrying `$(touch PWNED)`, backticks, a leading `--`, an ANSI escape, `Fixes #1`, an `@mention`) is run through `plan-to-tasks.sh`, `publish-scoping-pr.sh`, `node-push.sh` and `drift-facts.sh`: every script exits 0, no `PWNED` file or other side effect appears, and the title text is present verbatim as data in each output (JSON string, body file, goal, or fact line).
-- [ ] Every existing `plan/v1` case in `hop-complete_test.sh`, `startable-issues_test.sh`, `publish-scoping-pr_test.sh`, `node-push_test.sh`, `drift-facts_test.sh` and `plan-to-tasks_test.sh` still passes with its assertions unchanged.
-- [ ] The scripts and new cases run under bash 3.2 (no associative arrays, `mapfile`, or `${var,,}`).
+- [ ] New fixtures are named `PLAN-v2-*.md` and pass `shirabe validate` (FC22) with the branch's build: outline steps are a heading plus one line with no `**Dependencies**:` line, detailed steps carry Goal, a checkbox criterion, Check and Dependencies.
+- [ ] Every reader that goes through `shirabe plan outlines` takes the binary from `SHIRABE_BIN` when set, as `plan-to-tasks.sh` does, and its suite builds and points at the branch's binary, because the installed shirabe 0.25.0 refuses plan/v2.
+- [ ] `hop-complete.sh` reports the plan hop complete for a `plan/v2` fixture (`skills/scope/scripts/testdata/PLAN-v2-steps.md`) and for a `plan/v1` PLAN; an unknown schema value still leaves the hop incomplete.
+- [ ] `startable-issues.sh` on the v2 fixture lists step 1 (the only step with no unfinished predecessor) with its `### Step N:` title, and lists no step with an empty title.
+- [ ] `publish-scoping-pr.sh` on the v2 fixture (existing gh shim, `--body-file` capture) writes a PR body listing every `### Step N: <title>`, none blank.
+- [ ] `drift-facts.sh` on the v2 fixture records each step's goal, or its outline line for an outline step, in `plan_intent.md`, and its `**Files**:` paths among the referenced paths; no step shows a missing goal.
+- [ ] `node-push.sh` is left unchanged: it serves only coordinated plans, which plan/v2 does not support (FC22 refuses them); a comment at `work_item_goal` says so.
+- [ ] A hostile-title fixture `skills/execute/scripts/testdata/PLAN-v2-hostile.md` (step titles carrying `$(touch PWNED)`, backticks, a leading `--`, an ANSI escape, `Fixes #1`, an `@mention`) runs through `plan-to-tasks.sh`, `publish-scoping-pr.sh` and `drift-facts.sh`: each exits 0, no `PWNED` file appears, and the title text is present as data in each output.
+- [ ] Step 4's leftovers: the multi-pr dispatcher text in `skills/work-on/SKILL.md` says what exit 2 (refused) from `step-detail-check.sh` means, beside exit 1; the script's header states the truncation it actually applies (240 characters for shirabe's error line); `skills/work-on/koto-templates/work-on.mermaid.md` shows the gate on the `plan_validation` to `setup_plan_backed` edge; and a comment in `plan-to-tasks.sh` says why a missing `detailed` field is read as true there while the check refuses it.
+- [ ] Every existing plan/v1 case in `hop-complete_test.sh`, `startable-issues_test.sh`, `publish-scoping-pr_test.sh`, `drift-facts_test.sh`, `plan-to-tasks_test.sh` and `step-detail-check_test.sh` passes with its assertions unchanged, under /bin/bash 3.2.
 
-**Check**: Run `bash skills/scope/scripts/hop-complete_test.sh`, `startable-issues_test.sh`, `publish-scoping-pr_test.sh` (same directory), then `bash skills/execute/scripts/node-push_test.sh`, `drift-facts_test.sh` and `bash skills/plan/scripts/plan-to-tasks_test.sh`. Each exits 0 and reports the new plan/v2 and hostile-title cases as passing alongside the unchanged plan/v1 cases.
+**Check**: With `SHIRABE_BIN` pointing at the branch's build, run `bash skills/scope/scripts/hop-complete_test.sh`, `bash skills/scope/scripts/startable-issues_test.sh`, `bash skills/scope/scripts/publish-scoping-pr_test.sh`, `bash skills/execute/scripts/drift-facts_test.sh` and `bash skills/plan/scripts/plan-to-tasks_test.sh`; each exits 0 with the new plan/v2 and hostile-title cases passing beside the unchanged plan/v1 cases.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
-**Files**: `skills/scope/scripts/hop-complete.sh`, `skills/scope/scripts/hop-complete_test.sh`, `skills/scope/scripts/startable-issues.sh`, `skills/scope/scripts/startable-issues_test.sh`, `skills/scope/scripts/publish-scoping-pr.sh`, `skills/scope/scripts/publish-scoping-pr_test.sh`, `skills/scope/scripts/testdata/plan-v2-steps.md`, `skills/execute/scripts/node-push.sh`, `skills/execute/scripts/node-push_test.sh`, `skills/execute/scripts/drift-facts.sh`, `skills/execute/scripts/drift-facts_test.sh`, `skills/execute/scripts/testdata/plan-v2-hostile-titles.md`, `skills/plan/scripts/plan-to-tasks_test.sh`
+**Files**: `skills/scope/scripts/hop-complete.sh`, `skills/scope/scripts/startable-issues.sh`, `skills/scope/scripts/publish-scoping-pr.sh`, `skills/scope/scripts/testdata/PLAN-v2-steps.md`, `skills/execute/scripts/drift-facts.sh`, `skills/execute/scripts/node-push.sh`, `skills/execute/scripts/testdata/PLAN-v2-hostile.md`, `skills/work-on/SKILL.md`, `skills/work-on/scripts/step-detail-check.sh`, `skills/work-on/koto-templates/work-on.mermaid.md`, `skills/plan/scripts/plan-to-tasks.sh`, and the matching `_test.sh` files
 
 ---
 
