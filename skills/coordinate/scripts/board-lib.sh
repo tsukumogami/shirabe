@@ -5,7 +5,7 @@
 #
 # It holds the closed argument patterns, one bounded GitHub read (bl_gh), the
 # session-log reads these scripts share (a sealed capture, the unit's
-# repository, the merge posture), and the merged-blob comparison. Every GitHub
+# repository, the merge posture), and the merge confirmation. Every GitHub
 # read here is `gh api --method GET`, a GraphQL query, or `gh pr view`; there
 # is no write in this file, so a lint over a check script and this file finds
 # only reads.
@@ -232,7 +232,8 @@ bl_merge_posture() {
 
 # bl_merge_compare <repo> <pr> <sha>: prints merged, unconfirmed or
 # not-merged, from GitHub's own record of the merge, in three reads whatever
-# the pull request's size: the pull request (its state, the head it merged
+# the pull request's size (each bl_gh, which tries a failed read once more
+# under the same deadline): the pull request (its state, the head it merged
 # and its merge commit), the repository (its default branch), and one
 # comparison of the default branch with the merge commit. merged needs the
 # pull request MERGED, the head GitHub merged to be <sha>, and the merge
@@ -241,12 +242,18 @@ bl_merge_posture() {
 # default branch, is unconfirmed; an open or closed pull request is
 # not-merged. It relies on headRefOid to pin the content: GitHub builds the
 # squash commit from the head it records (a plain merge commit has that head
-# as a parent, and a rebase replays its commits), so the merged content is
-# the verified head's whatever the method. It confirms the merge event, not
-# what the default branch holds now: a later change to the same files doesn't
-# bear on it, and a revert after the merge still reads merged. Returns 0
-# printed; 2 a read failed, or the record is malformed (no merge commit on a
-# merged pull request, a head or status that isn't one).
+# as a parent, and a rebase replays its commits), so what GitHub merged is the
+# verified head's change, whatever the method. It confirms the merge event,
+# not what the default branch holds now: a later change to the same files
+# doesn't bear on it, and a revert after the merge still reads merged. It
+# makes no per-file check (the issue's squash file-coverage check included),
+# since a file list would tie the call count to the pull request's size.
+# The comparison is with the default branch, as before, so a pull request
+# merged into another base reads unconfirmed. A comparison GitHub answers
+# with not found is a read failure, not unconfirmed: from here it can't be
+# told from a merge commit GitHub hasn't indexed yet. Returns 0 printed; 2 a
+# read failed, or the record is malformed (no merge commit on a merged pull
+# request, a head or status that isn't one).
 bl_merge_compare() {
     local repo=$1 pr=$2 sha=$3 d rec state head mc def st
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-merge.XXXXXX") || return 2

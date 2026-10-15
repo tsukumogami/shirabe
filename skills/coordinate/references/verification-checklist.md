@@ -167,3 +167,5 @@ merge isn't what was verified; report it before dispatching anything that
 depends on it. The head pins what GitHub merged, so this confirms the merge
 itself, not what the default branch holds now: a later change to the same
 files doesn't bear on it, and a revert after the merge still reads as merged.
+Just after a merge, GitHub can briefly show no merge commit, or answer the
+comparison with not found; that is a read to try again, never a merge.

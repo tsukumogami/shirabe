@@ -3,8 +3,9 @@
 # GitHub, takes the head from the unit's own verify capture, and reports
 # whether a person's merge landed it.
 #
-# Covers: merged, unconfirmed (a merge of another head, or a merge commit not on the default branch) and not-merged; the unit's
-# capture from an earlier verify visit, found by its pull request among
+# Covers: merged, unconfirmed (a merge of another head, or a merge commit
+# not on the default branch) and not-merged; a failed comparison read, exit
+# 2; the unit's capture from an earlier verify visit, found by its pull request among
 # later ones; the unit from the latest wait evidence when --unit is absent
 # (none, a malformed one, a title such as "Feature 16: example", one naming no
 # holding or a holding without a pull request are each refused as
