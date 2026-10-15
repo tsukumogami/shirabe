@@ -44,7 +44,10 @@ file applies only where this section says so.
 - **Only steps 1 and 2 are detailed** (every step when `step_count` is two or
   less). These are the only steps that get a generation agent. Each agent gets
   the design, the step's title, goal, check and dependencies from the
-  decomposition, the steps before it, and `../templates/step.md`, and writes
+  decomposition, the steps before it, `../templates/step.md`, and, on a
+  review loop-back, the correction hints for that step built as step 4.4's
+  "Review Correction Hints Placeholder" describes (category C and category E
+  hints alike), and writes
   the step's block exactly as that template's "Detailed Step" shows: the
   `### Step <N>:` heading, `**Goal**:`, `**Acceptance Criteria**:` with
   `- [ ]` items, `**Check**:`, `**Dependencies**:`, and `**Files**:` only as a
@@ -75,7 +78,8 @@ file applies only where this section says so.
 
 **Validate each outline step**: the heading and exactly one non-blank line,
 with no `**Field**:` line. Steps 4.1, 4.4a and the multi-pr and roadmap
-validation lists do not apply. Steps 4.5, 4.6, 4.8 to 4.11 apply to the
+validation lists do not apply; step 4.4 applies only for its review correction
+hints. Steps 4.5, 4.6, 4.8 to 4.11 apply to the
 detailed steps' agents as written, and step 4.11 reports
 `Plan version: v2 (<D> detailed, <O> outline steps)`.
 

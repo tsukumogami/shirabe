@@ -206,15 +206,20 @@ Alternatives considered:
 ### Decision 6: refusing completion with outline steps left
 
 **Chosen: a new lifecycle check, L10.** Under `plan/v2`, an outline step in
-a plan whose chain is being finalized is an error naming the step, raised by
-the same lifecycle run `run-cascade.sh` already makes before it deletes the
-plan, so the cascade stops there. L06 (unticked outline criteria) applies to
+a plan whose chain is being finalized is a finding naming the step: a notice
+at draft posture (which the PLAN-docs CI check and `/plan` Phase 7 run, and
+where outline steps are expected) and an error at ready posture. It is raised
+by the same ready-posture lifecycle run `run-cascade.sh` already makes before
+it deletes the plan; because that pre-probe always fails mid-PR on the
+present plan, the cascade keys its stop on the L10 code rather than on the
+exit status. L06 (unticked outline criteria) applies to
 `plan/v2` detailed steps unchanged. Provenance: inline.
 
 Alternatives considered:
-- *Refuse in `run-cascade.sh` itself.* Rejected: the cascade defers
-  per-document rules to the lifecycle check; a script-side rule would be a
-  second place to look.
+- *Decide the refusal in `run-cascade.sh` itself.* Rejected: the cascade
+  defers per-document rules to the lifecycle check; a script-side rule would
+  be a second place to look. The cascade only reads the code the check
+  emits.
 
 ## Decision Outcome
 
@@ -307,8 +312,9 @@ that shows it, with the check's result.
 - `lifecycle.rs`: `plan/v2` is outline-shaped for L01's posture; new **L10**
   is a chain-level finding beside L06, emitted by the same chain-targeted
   lifecycle run (`--lifecycle-chain`) that `run-cascade.sh` makes as its
-  pre-probe, one error per outline step in a `plan/v2` chain member; the
-  cascade stops on it as it stops on L06.
+  pre-probe, one finding per outline step in a `plan/v2` chain member, a
+  notice at draft and an error at ready, like L06; the cascade stops on the
+  L10 code.
 - `validate.rs`: FC22 and L10 join the known codes and the Plan dispatch.
 
 ### Parser and `shirabe plan outlines`
@@ -333,7 +339,7 @@ and a number outside that range is a non-conforming heading;
 | `skills/scope/scripts/hop-complete.sh` | plan hop accepts `plan/v1` or `plan/v2` |
 | `skills/scope/scripts/startable-issues.sh` | read titles of both heading forms; report step titles |
 | `skills/scope/scripts/publish-scoping-pr.sh` | list `### Step N:` titles in the PR body |
-| `skills/execute/scripts/node-push.sh` | `work_item_goal` reads a step's goal, or its outline line |
+| `skills/execute/scripts/node-push.sh` | unchanged: it serves only coordinated plans, which `plan/v2` does not support; a comment at `work_item_goal` says so |
 | `skills/execute/scripts/drift-facts.sh` | collect step goals and `**Files**:` |
 | `skills/work-on/scripts/work-on-open.sh` | detect `schema: plan/v2` |
 | `skills/work-on/scripts/step-detail-check.sh` (new) | exit non-zero, naming the step, when it is an outline |
@@ -530,8 +536,8 @@ Input handling the implementation keeps:
   never `eval`, unquoted expansion or interpolation into a command. A
   fixture with hostile titles (`$(...)`, backticks, a leading `--`, ANSI
   escapes, `Fixes #1`, an `@mention`) runs through `plan-to-tasks.sh`,
-  `publish-scoping-pr.sh`, `node-push.sh`, `drift-facts.sh` and
-  `step-detail-check.sh` and comes out inert.
+  `publish-scoping-pr.sh`, `drift-facts.sh` and `step-detail-check.sh` and
+  comes out inert.
 - FC22 and L10 messages quote a step number and a rule; where a message
   quotes document text (a non-step heading, a malformed dependency value) it
   strips control characters and truncates to 80 characters (not bytes).

@@ -590,9 +590,11 @@ equal to the steps written, each detailed step carrying `**Goal**:`, a
 
 ### 7.V2 Suggest Next Steps
 
-Recommend running `/execute docs/plans/PLAN-<topic>.md`, and say that the plan's
-owner details step 3 after step 2's work reaches its terminal, and each later
-step the same way, in a commit that touches only the plan.
+Recommend running `/execute docs/plans/PLAN-<topic>.md` for a `single-pr` step
+plan and `/work-on docs/plans/PLAN-<topic>.md` for a `multi-pr` one (`/execute`
+does not run `multi-pr` plans), and say that the plan's owner details step 3
+after step 2's work reaches its terminal, and each later step the same way, in a
+commit that touches only the plan.
 
 ---
 
@@ -755,7 +757,8 @@ Design doc status: Planned
 Steps: <N> (<D> detailed, <O> outline)
 
 ### Next Steps
-Run `/execute docs/plans/PLAN-<topic>.md`. The plan's owner details step 3
+Run `/execute docs/plans/PLAN-<topic>.md` (single-pr) or
+`/work-on docs/plans/PLAN-<topic>.md` (multi-pr). The plan's owner details step 3
 after step 2's work reaches its terminal, in a commit touching only the plan.
 ```
 

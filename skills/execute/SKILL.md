@@ -39,8 +39,9 @@ interpolated into any branch name or emitted shell (see **Security Consideration
 `/execute` is the first untrusted-enum consumer; the `/work-on` dispatcher is the
 second, and re-validates the same enum independently.
 
-**`/execute` drives `plan/v1` and `plan/v2` plans.** A `plan/v2` step plan runs on
-the single-pr path; `coordinated` stays `plan/v1`, and `plan-to-tasks.sh` refuses it
+**`/execute` drives `plan/v1` and `plan/v2` plans.** A `single-pr` `plan/v2` step
+plan runs on the single-pr path; a `multi-pr` one runs through `/work-on <PLAN>`,
+as a `multi-pr` `plan/v1` plan does; `coordinated` stays `plan/v1`, and `plan-to-tasks.sh` refuses it
 for a step plan. Each step is one child named `step-<N>`, and an outline step waits
 on the step before it, so the children start in step order. An outline step's child
 stops: its `plan_validation` gate (`skills/work-on/scripts/step-detail-check.sh`)
