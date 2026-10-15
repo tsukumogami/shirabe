@@ -53,7 +53,8 @@ gates. One of them, `pr_body_conformant`, runs
 `skills/work-on/scripts/check-pr-output.sh --pr-body`, which reads the pull
 request from GitHub, runs `shirabe validate --pr-body`, and prints one
 `::koto-finding::` line per violation with a registered rule id. koto writes
-a `check_rule` journal event for each, and the Datadog sender forwards it with
+a `check_rule` journal event for each, and an exporter that forwards koto's
+events, such as one sending them to Datadog, carries it with
 `koto.session.id`, `koto.state`, `koto.check` and `koto.rule.id`. The
 directive points the agent at `skills/work-on/references/phases/phase-6-pr.md`,
 which points at `references/pr-body-conformance.md`, where PB1 to PB4 are
@@ -66,7 +67,7 @@ Five constraints shape the build:
   hash on `session_started`, the state on `state_entered`, and gate and rule
   id on `check_rule`. Variable values, evidence, context keys and directive
   text never leave the host (koto's `docs/reference/run-journal.md`, and the
-  sender's per-kind allow-list).
+  export's per-kind allow-list).
 - **A passing check names no rule.** `check_rule` is written only when a gate
   fails, and `check_evaluated` reaches Datadog without its gate name because
   `koto.check` collides with `koto.check.*`, a known export issue fixed
@@ -84,8 +85,8 @@ week, enough to read a difference over several weeks.
 
 ## Decision Drivers
 
-- Nothing new outside a session: no exporter, sender change, service or
-  scheduled job.
+- Nothing new outside a session: no exporter, change to koto's event export,
+  service or scheduled job.
 - The group must be readable from events koto already exports.
 - The preloaded group's instructions are byte-for-byte those of a canary-off
   run.
@@ -276,8 +277,8 @@ collision above.
 *Alternative: route on the value of a declared variable.* Rejected: a capture
 can't be value-routed, and Decision 3 rules out a declared variable.
 
-*Alternative: export the variable.* Rejected: it needs a sender change outside
-a session, which the owner ruled out.
+*Alternative: export the variable.* Rejected: it needs a change to koto's
+event export outside a session, which the owner ruled out.
 
 ## Decision Outcome
 
@@ -359,7 +360,8 @@ so every outcome has an edge and a broken script can't hold the run.
    `review_level_choice`. The journal records `state_entered` for each state.
 4. At `pr_creation` the directive renders `{{PR_BODY_RULES}}`.
 5. On a PB4 failure the gate output carries the finding and the released text.
-6. The sender forwards `state_entered` and `check_rule` as it does today.
+6. koto's event export forwards `state_entered` and `check_rule` as it does
+   today.
 
 ### The readout
 

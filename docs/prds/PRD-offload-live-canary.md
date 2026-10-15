@@ -91,8 +91,8 @@ The volume is enough to measure with: a few dozen `/work-on` runs reach
 - A run that wasn't given the rule and breaks it gets the rule's text from the
   gate that caught it.
 - One small, named change turns the canary off.
-- Nothing new runs outside a session: no exporter, sender change, service or
-  scheduled job, and no offline ablation.
+- Nothing new runs outside a session: no exporter, change to koto's event
+  export, service or scheduled job, and no offline ablation.
 
 ## User Stories
 
@@ -179,8 +179,8 @@ run started with the canary turned off by the switch in R10.
   itself.
 - **R7. The group in exported events.** A run that takes part enters one
   marker state and never the other, and koto's `state_entered` event for it carries the
-  marker state's name in `koto.state`, an attribute the Datadog sender already
-  forwards. A run that takes part in neither group enters neither. No other
+  marker state's name in `koto.state`, an attribute koto's event export
+  already forwards. A run that takes part in neither group enters neither. No other
   template uses either name.
 - **R8. Readout.** A guide, `docs/guides/offload-live-canary.md`, names the
   attributes (`koto.session.id`, `koto.state`, `koto.rule.id`) and gives one
@@ -209,7 +209,7 @@ run started with the canary turned off by the switch in R10.
 ### Non-functional
 
 - **R11. Nothing outside a session.** The canary adds no exporter, no change
-  to the Datadog sender, and no service, daemon, cron entry or scheduled
+  to koto's event export, and no service, daemon, cron entry or scheduled
   workflow. Every new command runs inside a `/work-on` session as a koto
   action or gate.
 - **R12. No ablations.** Building and testing the canary runs no offline
