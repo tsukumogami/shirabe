@@ -465,7 +465,7 @@ unmerged is cleared with `--drop "<tag>" --reason "<why>"`. The skill never
 merges the roadmap pull request.
 
 All of this is a feature roadmap's. The script reads the roadmap's
-frontmatter first, and on a milestone roadmap (`schema: roadmap/v2`) the same
+frontmatter first, and on a milestone roadmap (`schema: roadmap/v2` or `roadmap/v3`) the same
 `--unit` call opens nothing and marks the milestone's verdict owed, as the
 next section says.
 

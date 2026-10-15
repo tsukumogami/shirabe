@@ -1,7 +1,7 @@
 # Landing on a Feature Roadmap
 
 Read from `merge_confirm` and `merged_facts` when the run's roadmap is a
-feature roadmap (any schema but `roadmap/v2`, or a discipline's scope).
+feature roadmap (any schema but `roadmap/v2` or `roadmap/v3`, or a discipline's scope).
 
 When a feature lands
 on a roadmap whose repository doesn't hold that feature's PLAN, dispatch a worker

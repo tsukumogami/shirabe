@@ -393,7 +393,7 @@ states never ask you to do these steps by hand.
 
 ## Verdicts
 
-On a milestone roadmap (frontmatter `schema: roadmap/v2`) a merge never sets
+On a milestone roadmap (frontmatter `schema: roadmap/v2` or `roadmap/v3`) a merge never sets
 a milestone Done. A verdict does, given by you or a person and never by the
 worker that did the work, as the roadmap format reference's "When a milestone
 is Done" requires. A feature roadmap keeps the merge-driven write-back

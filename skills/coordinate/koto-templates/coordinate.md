@@ -149,9 +149,9 @@ variables:
     default: ""
   ROADMAP_FORM:
     description: >-
-      At roadmap scope, milestone when the roadmap in the working tree reads
-      `schema: roadmap/v2` as the run opens (coordinate-open.sh, through
-      milestone.sh schema), else feature; feature at discipline scope. It
+      At roadmap scope, milestone when the roadmap in the working tree is a
+      milestone roadmap (roadmap/v2 or roadmap/v3) as the run opens
+      (coordinate-open.sh, through milestone.sh is-milestone), else feature; feature at discipline scope. It
       picks guidance and the route of a finished report with no pull
       request; nothing it decides sets a status, since roadmap-status.sh
       reads the schema on the default branch itself.
@@ -4097,8 +4097,8 @@ pull request: it prints `verdict-owed <tag>`, and you submit
 <!-- details -->
 
 This run's roadmap form is `{{ROADMAP_FORM}}`, but the script decides: it reads
-the roadmap's `schema:` on the default branch first. On a `roadmap/v2`
-(milestone) roadmap a merge never sets Done. The script marks the milestone's
+the roadmap's `schema:` on the default branch first. On a milestone
+roadmap (`roadmap/v2` or `roadmap/v3`) a merge never sets Done. The script marks the milestone's
 verdict owed, a Work row whose Who is the worker that held it, and changes
 nothing on the roadmap; `--outcome` is ignored there. Ticking it again for a
 milestone whose verdict is already owed prints the same line and writes
