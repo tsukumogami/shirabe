@@ -163,8 +163,9 @@ gh api "repos/<owner/repo>/compare/<default-branch>...<merge-commit>" --jq .stat
 The comparison reads `behind` or `identical` when the merge commit is on the
 default branch. A head other than the one you verified (it moved after
 verification) or a merge commit that isn't on the default branch means the
-merge isn't what was verified; report it before dispatching anything that
-depends on it. The head pins what GitHub merged, so this confirms the merge
+merge isn't what was verified;
+report it before dispatching anything that depends on it.
+The head pins what GitHub merged, so this confirms the merge
 itself, not what the default branch holds now: a later change to the same
 files doesn't bear on it, and a revert after the merge still reads as merged.
 Just after a merge, GitHub can briefly show no merge commit, or answer the
