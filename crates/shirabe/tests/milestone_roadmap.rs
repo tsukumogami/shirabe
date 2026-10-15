@@ -1,4 +1,5 @@
-//! CLI integration tests for milestone roadmaps (`schema: roadmap/v2`).
+//! CLI integration tests for milestone roadmaps (`schema: roadmap/v2` and
+//! `roadmap/v3`).
 //!
 //! A `roadmap/v2` roadmap is checked by every roadmap check plus FC21, which
 //! names each milestone missing its Outcome, Evidence, Left open or
@@ -32,18 +33,31 @@ fn write_roadmap(tag: &str, content: &str) -> PathBuf {
 /// A roadmap whose Features section is `features`, around the other
 /// sections in their canonical order, at the given schema.
 fn roadmap(schema: &str, features: &str) -> String {
+    roadmap_with(schema, "Features", "Feature", features)
+}
+
+/// A `roadmap/v3` roadmap: the items under `## Milestones` and the
+/// `Milestone` key column.
+fn roadmap_v3(features: &str) -> String {
+    roadmap_with("roadmap/v3", "Milestones", "Milestone", features)
+}
+
+/// [`roadmap`] with the items section named `section` and the table's key
+/// column `key`.
+fn roadmap_with(schema: &str, section: &str, key: &str, features: &str) -> String {
+    let rule = "-".repeat(key.len() + 2);
     format!(
         "---\nschema: {schema}\nstatus: Draft\ntheme: |\n  Plugins a maintainer can find.\n\
          scope: |\n  The loader and the registry.\n---\n\n\
          # ROADMAP: plugins\n\n\
          ## Status\n\nDraft\n\n\
          ## Theme\n\nPlugins a maintainer can find.\n\n\
-         ## Features\n\n{features}\n\
+         ## {section}\n\n{features}\n\
          ## Sequencing Rationale\n\nThe loader comes first because the registry reads what it loads.\n\n\
          ## Progress\n\nNothing has started.\n\n\
          ## Implementation Issues\n\n\
          <!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->\n\n\
-         | Feature | Issues | Dependencies | Status |\n|---------|--------|--------------|--------|\n\n\
+         | {key} | Issues | Dependencies | Status |\n|{rule}|--------|--------------|--------|\n\n\
          ## Dependency Graph\n\n\
          <!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->\n\n\
          ```mermaid\ngraph TD\n```\n"
@@ -95,6 +109,22 @@ fn validate(path: &Path, extra: &[&str]) -> (bool, String) {
         String::from_utf8_lossy(&out.stderr)
     );
     (out.status.success(), text)
+}
+
+/// Run `shirabe validate` on `path`; returns (exit code, combined output).
+fn validate_code(path: &Path, extra: &[&str]) -> (i32, String) {
+    let out = shirabe()
+        .arg("validate")
+        .args(extra)
+        .arg(path)
+        .output()
+        .expect("run shirabe validate");
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    (out.status.code().unwrap_or(-1), text)
 }
 
 fn fc21_lines(text: &str) -> Vec<String> {
@@ -263,10 +293,11 @@ fn the_schema_line_decides_whether_milestone_checks_run() {
     assert!(ok, "v1 with classic items validates:\n{text}");
     assert!(fc21_lines(&text).is_empty(), "{text}");
 
-    let v3 = write_roadmap("classic-v3", &roadmap("roadmap/v3", CLASSIC));
-    let (_, text) = validate(&v3, &[]);
+    let v4 = write_roadmap("classic-v4", &roadmap("roadmap/v4", CLASSIC));
+    let (code, text) = validate_code(&v4, &[]);
+    assert_eq!(code, 4, "an unknown schema is skipped, exit 4:\n{text}");
     assert!(
-        text.contains("schema \"roadmap/v3\" not in supported range"),
+        text.contains("schema \"roadmap/v4\" not in supported range"),
         "an unknown schema gets the SCHEMA notice:\n{text}"
     );
     assert!(fc21_lines(&text).is_empty(), "{text}");
@@ -341,6 +372,12 @@ fn no_roadmap_in_the_repository_gains_a_milestone_finding() {
     let files: Vec<&str> = text.lines().collect();
     assert!(!files.is_empty(), "the repository carries roadmap fixtures");
     for file in files {
+        // The byte-identity corpus carries a v2 roadmap with a
+        // `### Milestone 2:` heading on purpose; its FC21 finding is part of
+        // what roadmap_identity.rs pins.
+        if file.contains("/roadmap-identity/") {
+            continue;
+        }
         let path = root.join(file);
         let (_, out) = validate(&path, &["--check", "FC21"]);
         assert!(
@@ -348,4 +385,245 @@ fn no_roadmap_in_the_repository_gains_a_milestone_finding() {
             "{file} gained an FC21 finding:\n{out}"
         );
     }
+}
+
+// ---- roadmap/v3: the same milestone shape in the milestone words ----
+
+/// Three classic v3 milestones and one prefix-tagged one, every field
+/// present. `Milestone 3` depends on `Milestone 2`, a prefix tag and a
+/// cross-repo issue.
+fn v3_valid() -> String {
+    let item = |tag: &str, title: &str, deps: &str| {
+        format!(
+            "### {tag}: {title}\n\n\
+             **Outcome:** A maintainer sees {title} work end to end.\n\n\
+             **Evidence:**\n\
+             - A reviewer, from a clean install, runs it and sees {title} listed.\n\n\
+             **Left open:** None\n\n\
+             **Dependencies:** {deps}\n\
+             **Status:** Not started\n\n"
+        )
+    };
+    [
+        item("AB1", "Loader", "None"),
+        item("Milestone 2", "Registry", "AB1"),
+        item("Milestone 3", "Search", "Milestone 2, AB1, owner/repo#7"),
+    ]
+    .concat()
+}
+
+#[test]
+fn a_v3_roadmap_validates_like_the_same_roadmap_as_v2() {
+    let path = write_roadmap("v3-valid", &roadmap_v3(&v3_valid()));
+    let (code, text) = validate_code(&path, &[]);
+    assert_eq!(code, 0, "{text}");
+
+    let as_v2 = v3_valid().replace("Milestone ", "Feature ");
+    let path = write_roadmap("v3-as-v2", &roadmap("roadmap/v2", &as_v2));
+    let (code, text) = validate_code(&path, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+/// Validate a v3 roadmap, expect exit 2, and return its FC21 lines.
+fn v3_failing(name: &str, doc: &str) -> (Vec<String>, String) {
+    let path = write_roadmap(name, doc);
+    let (code, text) = validate_code(&path, &[]);
+    assert_eq!(code, 2, "{name}: expected exit 2:\n{text}");
+    // Every FC21 message on v3 that names an item calls it a milestone.
+    for line in fc21_lines(&text) {
+        assert!(
+            !line.contains(" feature ") && !line.contains("'Feature N"),
+            "{name}: {line}"
+        );
+    }
+    (fc21_lines(&text), text)
+}
+
+#[test]
+fn a_v3_milestone_with_no_evidence_is_named_by_its_milestone_tag() {
+    let features = v3_valid().replace(
+        "**Evidence:**\n- A reviewer, from a clean install, runs it and sees Registry listed.\n\n",
+        "",
+    );
+    let (lines, text) = v3_failing("v3-no-evidence", &roadmap_v3(&features));
+    assert_eq!(lines.len(), 1, "{text}");
+    assert!(
+        lines[0].contains("[FC21] milestone 'Milestone 2: Registry' has no Evidence"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_v3_roadmap_with_a_features_section_names_the_milestones_section() {
+    let doc = roadmap_with("roadmap/v3", "Features", "Milestone", &v3_valid());
+    let (lines, text) = v3_failing("v3-features-section", &doc);
+    assert!(
+        text.contains("[FC04] missing required section '## Milestones'"),
+        "{text}"
+    );
+    assert_eq!(lines.len(), 1, "{text}");
+    assert!(
+        lines[0].contains("section '## Features' is the roadmap/v2 items section")
+            && lines[0].contains("'## Milestones'"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_v3_heading_in_the_v2_word_names_the_heading_to_write() {
+    let features = v3_valid().replace("### Milestone 2: Registry", "### Feature 2: Registry");
+    let (lines, text) = v3_failing("v3-feature-heading", &roadmap_v3(&features));
+    let heading: Vec<&String> = lines.iter().filter(|l| l.contains("] heading ")).collect();
+    assert_eq!(heading.len(), 1, "{text}");
+    assert!(
+        heading[0].contains("'### Feature 2:' is written '### Milestone 2:'"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_v3_dependency_in_the_v2_word_names_the_milestone_tag() {
+    let features = v3_valid().replace(
+        "**Dependencies:** Milestone 2, AB1, owner/repo#7",
+        "**Dependencies:** Feature 2, Feature 9, AB1, owner/repo#7",
+    );
+    let (lines, text) = v3_failing("v3-feature-dependency", &roadmap_v3(&features));
+    assert_eq!(lines.len(), 2, "{text}");
+    assert!(
+        lines[0].contains(
+            "milestone 'Milestone 3: Search' names 'Feature 2' in Dependencies; on a roadmap/v3 roadmap an entry names the milestone's tag, 'Milestone 2'"
+        ),
+        "{text}"
+    );
+    assert!(
+        lines[1].contains(
+            "milestone 'Milestone 3: Search' names 'Feature 9' in Dependencies, which is no other milestone"
+        ),
+        "{text}"
+    );
+}
+
+#[test]
+fn v3_headings_that_are_not_milestone_headings() {
+    for (name, heading) in [
+        ("v3-suffix", "### Milestone 3a: Suffix"),
+        ("v3-lowercase", "### milestone 3: Lowercase"),
+        ("v3-no-number", "### Milestone: No number"),
+    ] {
+        let features = format!("{}{heading}\n\n", v3_valid());
+        let (lines, text) = v3_failing(name, &roadmap_v3(&features));
+        assert_eq!(lines.len(), 1, "{name}:\n{text}");
+        assert!(
+            lines[0].contains(&format!("heading '{heading}' is not a milestone heading"))
+                && lines[0].contains("'Milestone 3' or 'AB1'"),
+            "{name}:\n{text}"
+        );
+    }
+}
+
+#[test]
+fn a_repeated_v3_milestone_tag_is_reported() {
+    let features = format!(
+        "{}{}",
+        v3_valid(),
+        v3_valid()
+            .split("### Milestone 3: Search")
+            .nth(1)
+            .map(|rest| format!("### Milestone 3: Again{rest}"))
+            .unwrap()
+    );
+    let (lines, text) = v3_failing("v3-duplicate", &roadmap_v3(&features));
+    assert_eq!(lines.len(), 1, "{text}");
+    assert!(
+        lines[0]
+            .contains("milestone 'Milestone 3: Again' repeats the tag of the milestone at line"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_v3_roadmap_activates_with_one_milestone() {
+    let path = write_roadmap("v3-lifecycle", &roadmap_v3(&v3_valid()));
+    shirabe()
+        .arg("transition")
+        .arg(&path)
+        .arg("Active")
+        .assert()
+        .success()
+        .stdout(contains("\"new_status\": \"Active\""));
+    let (code, text) = validate_code(&path, &[]);
+    assert_eq!(code, 0, "{text}");
+}
+
+// ---- the /roadmap draft template on v3 ----
+
+/// The v3 roadmap `/roadmap` drafts (Phase 3's template) and the same
+/// roadmap with one Evidence clause sharpened (`sharpen.md`).
+fn v3_fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/roadmap-v3")
+        .join(name)
+}
+
+#[test]
+fn the_v3_draft_and_its_sharpened_twin_validate() {
+    let draft = v3_fixture("ROADMAP-plugin-system.md");
+    let sharpened = v3_fixture("ROADMAP-plugin-system-sharpened.md");
+    for path in [&draft, &sharpened] {
+        let (code, text) = validate_code(path, &["--visibility=public"]);
+        assert_eq!(code, 0, "{}:\n{text}", path.display());
+    }
+
+    // Sharpening touched only one milestone's Evidence.
+    let a = fs::read_to_string(&draft).unwrap();
+    let b = fs::read_to_string(&sharpened).unwrap();
+    let start = a
+        .lines()
+        .zip(b.lines())
+        .position(|(x, y)| x != y)
+        .expect("the twins differ");
+    let in_evidence = a
+        .lines()
+        .take(start)
+        .collect::<Vec<_>>()
+        .iter()
+        .rev()
+        .find(|l| l.starts_with("**") || l.starts_with("### "))
+        .copied();
+    assert_eq!(
+        in_evidence,
+        Some("**Evidence:**"),
+        "first change at line {}",
+        start + 1
+    );
+    let a_tail: Vec<&str> = a.lines().rev().collect();
+    let b_tail: Vec<&str> = b.lines().rev().collect();
+    let common_tail = a_tail
+        .iter()
+        .zip(&b_tail)
+        .take_while(|(x, y)| x == y)
+        .count();
+    assert!(
+        b.lines().count() - common_tail - start <= 3,
+        "the sharpened clause is the only change"
+    );
+
+    // The draft populates and still validates, as Phase 4 runs it.
+    let dir = std::env::temp_dir().join(format!("shirabe-v3-draft-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let copy = dir.join("ROADMAP-plugin-system.md");
+    fs::copy(&draft, &copy).unwrap();
+    shirabe()
+        .args(["roadmap", "populate", "--no-issues"])
+        .arg(&copy)
+        .assert()
+        .success();
+    let populated = fs::read_to_string(&copy).unwrap();
+    assert!(
+        populated.contains("| Milestone | Issues | Dependencies | Status |\n"),
+        "{populated}"
+    );
+    let (code, text) = validate_code(&copy, &["--visibility=public"]);
+    assert_eq!(code, 0, "{text}");
+    let _ = fs::remove_dir_all(&dir);
 }

@@ -1,0 +1,27 @@
+{
+  "schema_version": "shirabe-validate/v1",
+  "summary": {
+    "outcome": "incomplete",
+    "errors": 0,
+    "notices": 1
+  },
+  "findings": [
+    {
+      "code": "SCHEMA",
+      "severity": "notice",
+      "message": "schema field missing, skipping",
+      "file": "transition-precondition-features/ROADMAP-precondition-features.md",
+      "line": 1
+    }
+  ],
+  "skipped": [
+    {
+      "file": "transition-precondition-features/ROADMAP-precondition-features.md",
+      "reason": "schema field missing, skipping"
+    }
+  ],
+  "advisory": {
+    "summary": "Draft posture: no draft-tolerable findings to flag.",
+    "notes": []
+  }
+}

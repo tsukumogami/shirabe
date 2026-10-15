@@ -568,19 +568,28 @@ roadmap_schema_of() {
 # define, so on a feature ROADMAP the roadmap skill produced the first arm is
 # the usual outcome today (shirabe#370).
 #
-# A milestone roadmap (frontmatter `schema: roadmap/v2`) is never edited here.
-# Its milestones close on a recorded, checked verdict (the roadmap format's
-# "When a milestone is Done"), not on a PLAN completing, so a merge must not
-# set one Done or retire the file. The check runs before the Downstream lookup,
-# so a v2 roadmap is left byte-for-byte unchanged even when a Downstream line
-# names the plan and every milestone already reads Done: one
-# `update_roadmap_feature` step at `skipped` (found_in null; nothing was
-# searched), no handle_roadmap_deletion, and ANY_FAILED untouched, so the run
-# still reports `completed` when nothing else failed. The file is not appended
-# to STAGED_FILES either: nothing about it changed, and any entry there opens
-# the finalization commit, which would publish the index on a run that had
-# already failed. A frontmatter that can't be read (no opening or closing
-# `---`, or no `schema:` line) is a feature roadmap, as before this check.
+# Only a feature roadmap is edited here: one whose frontmatter reads
+# `schema: roadmap/v1`, or names no schema at all. Every other schema is left
+# alone. That is an allow-list on purpose. A milestone roadmap (`roadmap/v2`
+# or `roadmap/v3`) closes each milestone on a recorded, checked verdict (the
+# roadmap format's "When a milestone is Done"), not on a PLAN completing, so a
+# merge must not set one Done or retire the file; and a schema this script
+# doesn't know yet (`roadmap/v4`) is more likely a later milestone form than a
+# feature roadmap, so it fails safe rather than taking the path that can
+# delete the file. The check runs before the Downstream lookup, so such a
+# roadmap is left byte-for-byte unchanged even when a Downstream line names
+# the plan and every item already reads Done: one `update_roadmap_feature`
+# step at `skipped` (found_in null; nothing was searched), no
+# handle_roadmap_deletion, and ANY_FAILED untouched, so the run still reports
+# `completed` when nothing else failed. The file is not appended to
+# STAGED_FILES either: nothing about it changed, and any entry there opens the
+# finalization commit, which would publish the index on a run that had
+# already failed.
+#
+# "No schema" is what roadmap_schema_of prints nothing for: no opening or
+# closing `---`, no `schema:` line, or a value that is empty once its
+# carriage return and quotes are stripped. Those roadmaps predate the schema
+# line and are feature roadmaps, as before this check.
 #
 # Usage: handle_roadmap <roadmap-path> <found-in> <plan-slug>
 
@@ -591,12 +600,21 @@ handle_roadmap() {
 
     local schema=""
     schema=$(roadmap_schema_of "$path") || schema=""
-    if [[ "$schema" == "roadmap/v2" ]]; then
-        log_info "$path is a milestone roadmap (roadmap/v2); leaving it unchanged"
-        add_step "update_roadmap_feature" "$path" "null" "skipped" \
-            "milestone roadmap: status follows a recorded verdict (roadmap format, When a milestone is Done)"
-        return 0
-    fi
+    case "$schema" in
+        ""|roadmap/v1) ;;
+        roadmap/v2|roadmap/v3)
+            log_info "$path is a milestone roadmap ($schema); leaving it unchanged"
+            add_step "update_roadmap_feature" "$path" "null" "skipped" \
+                "milestone roadmap: status follows a recorded verdict (roadmap format, When a milestone is Done)"
+            return 0
+            ;;
+        *)
+            log_info "$path has schema $schema, which is not roadmap/v1; leaving it unchanged"
+            add_step "update_roadmap_feature" "$path" "null" "skipped" \
+                "roadmap schema is not roadmap/v1; only a feature roadmap is edited here"
+            return 0
+            ;;
+    esac
 
     log_info "Updating ROADMAP feature for plan slug: $plan_slug"
 
@@ -1281,8 +1299,8 @@ fi
 #               delete node (no upstream chain). The pre-probe no-op exits
 #               earlier with the same verdict.
 #   completed -- nothing failed and the chain held more than the PLAN. A
-#               completed run can still carry `skipped` steps: a milestone
-#               (roadmap/v2) ROADMAP left as it was, a ROADMAP deletion
+#               completed run can still carry `skipped` steps: a ROADMAP
+#               whose schema isn't roadmap/v1 left as it was, a ROADMAP deletion
 #               deferred on an open issue, or a verification with no
 #               surviving document to anchor on.
 # The script exits 0 whenever the cascade ran; exit 1 is reserved for the

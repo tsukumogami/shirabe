@@ -137,7 +137,11 @@ milestone heading immediately above the table:
 
 The roadmap profile parameterizes the shared core with:
 
-- **Key column header:** `Feature`
+- **Key column header:** the roadmap version's classic word --
+  `Feature` on a `roadmap/v1` or `roadmap/v2` roadmap, `Milestone` on a
+  `roadmap/v3` roadmap. Nothing else about the table changes with the
+  version, and `FC05` checks the header against the document's own
+  `schema:`.
 - **Key form:** the feature label naming the feature (free text
   identifying the feature; not a clickable link by itself, though
   the label may contain a link to the per-feature body section)
@@ -156,6 +160,10 @@ The roadmap profile parameterizes the shared core with:
 | <feature label> | [#P](<url>) | <feature> | Done |
 | _<description>_ | | | |
 ```
+
+On a `roadmap/v3` roadmap the header reads
+`| Milestone | Issues | Dependencies | Status |` over
+`|-----------|--------|--------------|--------|`, and the rows are the same.
 
 ### Status values
 
