@@ -41,6 +41,10 @@ entry = {"runs": runs, "runs_passed": runs if code == "0" else 0,
          "exit_code": int(code), "cost_runs": int(cost_runs)}
 if cost != "-":
     entry["cost_usd"] = float(cost) * runs
+if os.path.exists(os.path.join(stub, "kill." + skill)):
+    import signal
+    os.kill(os.getppid(), signal.SIGKILL)
+    sys.exit(137)
 if not os.path.exists(os.path.join(stub, "nosummary." + skill)):
     with open(out, "w") as fh:
         json.dump({"schema": "run-evals-summary/v1", "skills": {skill: entry}}, fh)
@@ -139,8 +143,11 @@ class SelectionTest(Case):
         self.assertEqual(len(self.calls()), 1)
         self.assertRegex(self.calls()[0],
                          r"^--runs 2 --release-subset --summary-out \S+ brief model=sonnet$")
-        (entry,) = self.ledger_lines()
+        reserved, entry = self.ledger_lines()
+        self.assertEqual(reserved["kind"], "reserved")
+        self.assertEqual(reserved["estimate_usd"], 6.84)
         self.assertEqual(entry["kind"], "run")
+        self.assertEqual(entry["reservation"], reserved["id"])
         self.assertEqual(entry["skill"], "brief")
         self.assertEqual(entry["tree"], self.tree("brief"))
         self.assertEqual(entry["cost_usd"], 3.0)
@@ -304,10 +311,15 @@ class RotationTest(Case):
         self.assertEqual(len(calls), 2, calls)
         self.assertRegex(calls[0], r"^--runs 1 --release-subset ")
         self.assertRegex(calls[1], r"^--runs 1 --scenario r-0,r-1 --summary-out \S+ execute ")
-        rotation = self.ledger_lines()[-1]
-        self.assertEqual(rotation["kind"], "rotation")
+        lines = self.ledger_lines()
+        self.assertEqual([line["kind"] for line in lines],
+                         ["reserved", "run", "reserved", "rotation"])
+        rotation = lines[-1]
         self.assertEqual(rotation["scenarios"], ["r-0", "r-1"])
         self.assertEqual(rotation["tree"], self.tree("execute"))
+        self.assertEqual(rotation["reservation"], lines[2]["id"])
+        self.assertEqual(lines[2]["job"], "rotation")
+        self.assertEqual(lines[1]["reservation"], lines[0]["id"])
 
     def test_rotation_goes_on_where_it_stopped_and_the_unchanged_repeat_is_skipped(self):
         self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
@@ -411,6 +423,83 @@ class RotationTest(Case):
         self.assertEqual(len(self.calls()), 1)
         self.assertNotIn("unchanged", out)
 
+
+class ReservationTest(Case):
+    """A job's estimate is in the ledger before its harness starts."""
+
+    def reserved_line(self, estimate, ident="r1", days=1):
+        return {"kind": "reserved", "at": ago(days=days), "id": ident, "skill": "other",
+                "runs": 3, "model": "sonnet", "estimate_usd": estimate}
+
+    def test_an_unsettled_reservation_is_charged_and_stops_the_next_skill(self):
+        # A run killed inside the harness left its reservation and no run line.
+        self.seed(self.reserved_line(48))
+        rc, out = self.run_tool("--runs", "1", "brief")
+        self.assertEqual(rc, 6, out)
+        self.assertIn("cap: $48.00 of $50.00 spent", out)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_settled_reservation_counts_once_at_its_run_cost(self):
+        self.seed(self.reserved_line(48),
+                  {"kind": "run", "at": ago(days=1), "reservation": "r1", "skill": "other",
+                   "tree": "x", "runs": 3, "model": "sonnet", "cost_usd": 2,
+                   "cost_measured": True, "exit_code": 0})
+        rc, out = self.run_tool("--runs", "1", "brief")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("spent in the last 7 days: $2.00", out)
+
+    def test_a_reservation_older_than_a_week_doesnt_count(self):
+        self.seed(self.reserved_line(48, days=8))
+        rc, out = self.run_tool("--runs", "1", "brief")
+        self.assertEqual(rc, 0, out)
+
+    def test_a_run_killed_in_the_harness_still_charges_the_week(self):
+        open(os.path.join(self.stub, "kill.brief"), "w").close()
+        rc, out = self.run_tool("--runs", "2", "brief")
+        self.assertNotEqual(rc, 0, out)
+        (reserved,) = self.ledger_lines()
+        self.assertEqual(reserved["kind"], "reserved")
+        self.assertEqual(reserved["estimate_usd"], 6.84)
+        os.unlink(os.path.join(self.stub, "kill.brief"))
+        os.rmdir(self.ledger + ".lock")  # the killed run never released it
+        rc, out = self.run_tool("--runs", "1", "--cap-usd", "8", "brief")
+        self.assertEqual(rc, 6, out)
+        self.assertIn("cap: $6.84 of $8.00 spent", out)
+
+    def test_a_measured_zero_cost_is_charged_at_the_estimate(self):
+        self.result("brief", "0 9 10 0 1")
+        rc, out = self.run_tool("--runs", "2", "brief")
+        self.assertEqual(rc, 0, out)
+        entry = self.ledger_lines()[-1]
+        self.assertIs(entry["cost_measured"], False)
+        self.assertEqual(entry["cost_usd"], 6.84)
+        rc, out = self.run_tool("--dry-run", "brief")
+        self.assertIn("spent in the last 7 days: $6.84", out)
+
+    def test_bad_reserved_lines_refuse_the_run(self):
+        cases = [({"id": ""}, "no valid `id`"), ({"estimate_usd": -1}, "no valid `estimate_usd`"),
+                 ({"estimate_usd": None}, "no valid `estimate_usd`")]
+        for change, reason in cases:
+            with self.subTest(change=change):
+                line = self.reserved_line(5)
+                line.update(change)
+                os.makedirs(os.path.dirname(self.ledger), exist_ok=True)
+                with open(self.ledger, "w") as fh:
+                    fh.write(json.dumps(line) + "\n")
+                rc, out = self.run_tool("--runs", "1", "brief")
+                self.assertEqual(rc, 3, out)
+                self.assertIn(reason, out)
+                self.assertEqual(self.calls(), [])
+
+    def test_a_run_line_with_a_bad_reservation_refuses_the_run(self):
+        os.makedirs(os.path.dirname(self.ledger), exist_ok=True)
+        with open(self.ledger, "w") as fh:
+            fh.write(json.dumps({"kind": "run", "at": ago(days=1), "reservation": 5,
+                                 "cost_usd": 1}) + "\n")
+        rc, out = self.run_tool("--runs", "1", "brief")
+        self.assertEqual(rc, 3, out)
+        self.assertIn("invalid `reservation`", out)
+
 class GuardTest(Case):
     def test_lock_held_exits_3(self):
         os.makedirs(self.ledger + ".lock")
@@ -475,7 +564,7 @@ class GuardTest(Case):
     def test_unknown_entry_kind_refuses_the_run(self):
         self.write_ledger(json.dumps({"kind": "spend", "at": ago(days=1), "cost_usd": 49.5}) + "\n")
         rc, out = self.run_tool("--runs", "1", "brief")
-        self.assert_refused(rc, out, "line 1 is not a run, rotation or cap_stop entry")
+        self.assert_refused(rc, out, "line 1 is not a reserved, run, rotation or cap_stop entry")
 
     def test_dry_run_refuses_a_bad_ledger_too(self):
         self.write_ledger("not json\n")
