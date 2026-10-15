@@ -588,11 +588,11 @@ pub struct NonconformingHeading {
     pub line: usize,
 }
 
-/// A parsed outline block from a single-pr plan's `## Issue Outlines`
-/// section.
+/// A parsed outline block from a plan's `## Issue Outlines` section, or a
+/// step from a `plan/v2` step plan's `## Steps` section.
 ///
 /// Each block corresponds to one canonical `### Issue <N>: <title>`
-/// heading. The parser is total over arbitrary input: a missing field
+/// heading (`### Step <N>: <title>` under `plan/v2`; see [`Entry`]). The parser is total over arbitrary input: a missing field
 /// surfaces as `false`, `None`, or an empty `Vec` rather than a parse
 /// failure, so consumers decide what to refuse. Refusing is deliberately
 /// not the parser's job -- it has consumers with different severities for
@@ -668,7 +668,8 @@ pub struct OutlineBlock {
     /// Whether the block declared a `**Check**:` line with non-empty text.
     pub check_declared: bool,
     /// The block's non-blank body lines after its heading, not counting a
-    /// bare `---` separator. An outline step has exactly one.
+    /// bare `---` separator. An outline step has exactly one; the step rules
+    /// that tell an outline from a malformed step read this.
     pub body_lines: usize,
     /// Whether the block is a full entry rather than a one-line outline.
     ///
@@ -704,11 +705,11 @@ pub struct OutlineGate {
     pub condition: Option<String>,
 }
 
-/// The parsed `## Issue Outlines` section.
+/// The parsed `## Issue Outlines` section (`## Steps` for a step plan).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct OutlineSection {
-    /// One entry per canonical `### Issue <N>: <title>` heading, in
-    /// document order.
+    /// One entry per canonical `### Issue <N>: <title>` heading (or
+    /// `### Step <N>: <title>`), in document order.
     pub blocks: Vec<OutlineBlock>,
     /// `###` headings inside the section that opened no block.
     pub nonconforming_headings: Vec<NonconformingHeading>,

@@ -4056,9 +4056,10 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
 ///
 /// Sub-check C (dependency text that is prose rather than a reference) and
 /// sub-check F (a `###` heading under `## Steps` that opens no step) apply
-/// as they do to outlines. The rest do not: what a detailed or an outline
-/// step must carry is FC22's, `step_count` parity is FC22's, and a step plan
-/// has no Implementation Issues table or Dependency Graph for the
+/// as they do to outlines. The rest do not: `step_count` parity is FC22's,
+/// what a detailed or an outline step must carry belongs to FC22's step
+/// rules (only `step-count` exists so far), and a step plan has no
+/// Implementation Issues table or Dependency Graph for the
 /// table-versus-outline exclusion to compare.
 fn check_fc14_steps(doc: &Doc) -> Vec<ValidationError> {
     let mut errs = Vec::new();
@@ -4238,9 +4239,10 @@ fn coordinated_outline_findings(
 /// re-derives nothing -- `parse_issue_outlines` resolves references against
 /// the numbers in the headings and hands back whatever named no sibling.
 ///
-/// Plan profile, single-pr only. A multi-pr or coordinated plan's
-/// authoritative content is the Implementation Issues table, whose dependency
-/// resolution is FC06's.
+/// Plan profile: a `plan/v1` single-pr plan, and a `plan/v2` step plan in
+/// every mode (its steps are its only work items). A `plan/v1` multi-pr or
+/// coordinated plan's authoritative content is the Implementation Issues
+/// table, whose dependency resolution is FC06's.
 pub fn check_fc17(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     if spec.name != "Plan" {
         return Vec::new();
