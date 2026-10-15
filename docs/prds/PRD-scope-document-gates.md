@@ -61,7 +61,7 @@ output-gates work, `docs/designs/current/DESIGN-output-gates.md`). /scope is
 the workflow that writes the most documents and has the thinnest gate.
 
 In this PRD, codes in backticks such as `R6` or `FC10` are the validator's check
-codes; this PRD's own requirements are numbered R1 to R16 without backticks.
+codes; this PRD's own requirements are numbered R1 to R17 without backticks.
 
 ## Goals
 
@@ -106,7 +106,9 @@ codes; this PRD's own requirements are numbered R1 to R16 without backticks.
 ### Functional
 
 - **R1. A document gate at each hop.** `hop_brief`, `hop_prd`, `hop_design`
-  and `hop_plan` each carry a command gate that checks the hop's own document:
+  and `hop_plan` each carry a command gate running
+  `skills/scope/scripts/check-hop-document.sh` (its arguments are the design's
+  call) that checks the hop's own document:
   `docs/briefs/BRIEF-<topic>.md`, `docs/prds/PRD-<topic>.md`,
   `docs/plans/PLAN-<topic>.md`, or, for the design hop, each of
   `docs/designs/DESIGN-<topic>.md` and `docs/designs/current/DESIGN-<topic>.md`
@@ -132,8 +134,9 @@ codes; this PRD's own requirements are numbered R1 to R16 without backticks.
   though the validator reports it as a notice. Every other notice, including
   `FC10`'s em-dash-density finding and the plan-structure notices, is not a
   violation and prints nothing.
-- **R5. One finding per violation.** For every violation, in the validator's
-  order and without a cap of its own, the gate prints one line
+- **R5. One finding per violation.** For every violation, documents in the
+  order R1 lists their paths and findings in the validator's order, without a
+  cap of its own, the gate prints one line
   `::koto-finding::<json>` built by `scripts/lib/rule-findings.sh`'s
   `rf_finding`: `rule_id` is the registry id whose `aliases` hold the
   validator's code (for `FC10`, the banned-words entry), `level` is `error`,
@@ -159,7 +162,9 @@ codes; this PRD's own requirements are numbered R1 to R16 without backticks.
   document and checked nothing); an error-level code with no registry entry
   whose `aliases` hold it; or a registry entry that doesn't resolve. No
   transition names exit 1 or 2, so koto holds the state and reports the gate
-  in its blocking conditions.
+  in its blocking conditions. When any document can't be decided the gate
+  exits 2 and prints no finding for any document, so a partial list never
+  reads as the whole answer.
 - **R8. Absent documents pass.** A path in R1 that doesn't exist is not
   checked. When none of a gate's paths exist the gate exits 0 and says so on
   stderr; whether a hop landed stays the completion gate's question.
@@ -181,23 +186,30 @@ codes; this PRD's own requirements are numbered R1 to R16 without backticks.
   template, a hop held by the gate shows the gate in the response's blocking
   conditions with the printed findings, each carrying its registered
   `rule_id`.
+- **R13. The plugin's own rules.** The validator reads the banned words from
+  `skills/writing-style/rules.yaml`, found by walking up from the working
+  directory, and with no file to find it checks no banned word at all, without
+  an error. The gate therefore sets `SHIRABE_RULES` to the rules file shipped
+  beside it in the plugin (`<plugin root>/skills/writing-style/rules.yaml`)
+  unless the caller already set it, and exits 2 when that file can't be read,
+  so the banned-word check runs in every repository /scope works in.
 
 ### Non-functional
 
-- **R13. Fast.** Each gate runs the validator once per document. On the
+- **R14. Fast.** Each gate runs the validator once per document. On the
   largest PLAN fixture in the test suite the gate finishes in under 10 seconds,
   a third of koto's 30-second command limit.
-- **R14. Run from the repository root.** The gate changes to `git rev-parse
+- **R15. Run from the repository root.** The gate changes to `git rev-parse
   --show-toplevel` before validating, because validator check `R6` asks git
   whether an upstream is tracked and resolves paths from the working
   directory. Run from a subdirectory, it gives the same result as from the
   root.
-- **R15. Tested.** The gate script has a test suite (`_test.sh`) whose cases
+- **R16. Tested.** The gate script has a test suite (`_test.sh`) whose cases
   run against the real validator and fail rather than skip when `shirabe`
   isn't on `PATH` in CI. It covers every case in the acceptance criteria that
   doesn't need koto, records every printed finding in `SHIRABE_FINDINGS_LOG`,
   and checks the log with `scripts/rule-registry.sh verify-findings`.
-- **R16. Wired into CI.** The suite runs in `.github/workflows/check-scope-scripts.yml`
+- **R17. Wired into CI.** The suite runs in `.github/workflows/check-scope-scripts.yml`
   in a job that builds `shirabe` from source, and is listed in the `scope`
   suite of `scripts/check-bash-floor.sh`. `scripts/check-skill.sh scope` and
   `scripts/check-rule-registry.sh` pass.
@@ -216,7 +228,10 @@ Hops and transitions:
 - [ ] For each hop, a fixture document with one error-level violation makes
       the gate exit 1 with exactly one finding.
 - [ ] A design-hop fixture placed at `docs/designs/current/DESIGN-<topic>.md`
-      instead of `docs/designs/` is checked the same way.
+      instead of `docs/designs/` is checked the same way, and with a document
+      at both paths, a violation in either one exits 1.
+- [ ] A fold run with a clean PRD and a DESIGN using a banned word exits 1
+      with one finding, whose `path` is the DESIGN.
 - [ ] In `skills/scope/koto-templates/scope.md`, compiled with `koto template
       compile`, each hop state's `landed` transition requires the new gate's
       exit code 0 alongside the completion gate's, and its `skipped`,
@@ -232,6 +247,15 @@ Hops and transitions:
 
 Rules and findings:
 
+- [ ] A PRD whose `upstream:` names a BRIEF that exists but isn't tracked
+      yields a finding under the entry aliased `R6`.
+- [ ] A stub validator reporting an error finding with a null `line` yields a
+      finding with no `line` key.
+- [ ] A stub validator recording its arguments shows `--visibility=public`
+      when the fixture's `CLAUDE.md` declares `## Repo Visibility: Public`, no
+      `--visibility` flag when neither file declares one, and no `--check`.
+- [ ] Run in a fixture repository with no `skills/writing-style/rules.yaml`,
+      a DESIGN containing `leverage` still yields the banned-word finding.
 - [ ] A PRD whose `upstream:` names a nonexistent file yields a finding with
       `rule_id` equal to the entry aliased `R6`, `path` the PRD, and `line` the
       `upstream:` line.
@@ -257,8 +281,9 @@ Cannot-decide and absence:
 - [ ] With no document at any of a gate's paths, the gate exits 0 and its
       stderr says no document was found.
 - [ ] Each of these makes the gate exit 2 with no finding and a reason on
-      stderr: `shirabe` missing, `jq` missing, a stub validator exiting 1, a
-      stub printing no JSON, a schema-less document (outcome `incomplete`),
+      stderr: `shirabe` missing, `jq` missing, `git` missing, a stub validator
+      exiting 1, a stub exiting 3, a stub printing no JSON, an unreadable
+      `SHIRABE_RULES` file, a schema-less document (outcome `incomplete`),
       and a stub reporting an error-level code no registry entry aliases.
 - [ ] Run from `skills/` inside the fixture repository, the gate gives the
       same exit and findings as from the root.
@@ -282,8 +307,9 @@ Registry and repository:
       `cargo build --release --bin shirabe`, and in the `scope` list of
       `scripts/check-bash-floor.sh`.
 - [ ] `scripts/check-skill.sh scope` exits 0.
-- [ ] The gate over the suite's largest PLAN fixture finishes in under 10
-      seconds and invokes the validator once.
+- [ ] On the CI runner, the gate over the suite's largest PLAN fixture
+      finishes in under 10 seconds, and a stub validator that counts its calls
+      is called once per checked document.
 
 ## Out of Scope
 
