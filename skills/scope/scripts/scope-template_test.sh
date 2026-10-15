@@ -272,6 +272,48 @@ eq "hop_plan: filing_approval reads plan_filing_approval" '"plan_filing_approval
 eq "hop_plan: plan_filing runs check-plan-filing.sh with EXEC_MODE" 'true' \
     "$(q '.states.hop_plan.gates.plan_filing.command | contains("check-plan-filing.sh") and contains("--exec-mode \"{{EXEC_MODE}}\"")')"
 
+# --- the document gate (docs/designs/current/DESIGN-scope-document-gates.md) -----------------
+#
+# Each hop state and the fold run check-hop-document.sh as a non-overridable gate.
+# Only the edges that advance need it: a hop's landed edge (the two fold-bound arms
+# of hop_plan) and the fold's keep and absorb arms. skipped, rejected and bail name
+# no gate, and the fold's own bail arm is the way out of a fold gate that can't pass.
+for pair in hop_brief:brief_document:brief hop_prd:prd_document:prd hop_design:design_document:design hop_plan:plan_document:plan fold:fold_documents:all; do
+    st=${pair%%:*}; rest=${pair#*:}; g=${rest%%:*}; hop=${rest#*:}
+    eq "$st runs check-hop-document.sh --hop $hop as $g, not overridable" '["command",true,true,false]' \
+        "$(q "[.states.$st.gates.$g | .type, (.command | test(\"^test -x \\\"[{][{]PLUGIN_ROOT[}][}]/skills/scope/scripts/check-hop-document\\\\.sh\\\" \\\\|\\\\| exit 2; \")), (.command | endswith(\" --topic \\\"{{TOPIC}}\\\" --hop $hop\")), .overridable]")"
+done
+for pair in hop_brief:brief_document:hop_prd hop_prd:prd_document:fold hop_design:design_document:fold; do
+    st=${pair%%:*}; rest=${pair#*:}; g=${rest%%:*}; tgt=${rest#*:}
+    eq "$st's landed edge requires $g" '[0]' \
+        "$(q "[.states.$st.transitions[] | select(.when.outcome == \"landed\") | .when[\"gates.$g.exit_code\"]]")"
+    eq "$st's skipped, rejected and bail edges name no document gate" 'true' \
+        "$(q "[.states.$st.transitions[] | select(.when.outcome != \"landed\") | has(\"when\") and (.when | has(\"gates.$g.exit_code\") | not)] | all")"
+done
+eq "hop_plan's two fold-bound arms require plan_document" '[0,0]' \
+    "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | .when["gates.plan_document.exit_code"]]')"
+eq "hop_plan's bail and skipped arms name no document gate" 'true' \
+    "$(q '[.states.hop_plan.transitions[] | select(.target != "fold") | .when | has("gates.plan_document.exit_code") | not] | all')"
+eq "the fold accepts keep, absorb and bail" '["keep","absorb","bail"]' \
+    "$(q '.states.fold.accepts.verdict.values')"
+eq "all fourteen keep and absorb arms of the fold require fold_documents" '[14,true]' \
+    "$(q '[.states.fold.transitions[] | select(.when.verdict == "keep" or .when.verdict == "absorb")] | [length, all(.when["gates.fold_documents.exit_code"] == 0)]')"
+eq "the fold's bail arm routes to bail and names no gate" '[{"target":"bail","when":{"verdict":"bail"}}]' \
+    "$(q '[.states.fold.transitions[] | select(.when.verdict == "bail") | {target, when}]')"
+
+# Each gated state's directive says what a hold means.
+for pair in hop_brief:brief_document hop_prd:prd_document hop_design:design_document hop_plan:plan_document fold:fold_documents; do
+    st=${pair%%:*}; g=${pair#*:}
+    # Line breaks folded to spaces, so a phrase the prose wraps still matches.
+    sec=$(awk -v h="## $st" '$0 == h { on = 1; next } on && /^## / { exit } on' "$TEMPLATE" | tr '\n' ' ')
+    for phrase in "\`$g\`" "never an instruction" "exit 2" "names no gate"; do
+        case "$sec" in
+            *"$phrase"*) ok "$st's directive names $phrase" ;;
+            *) bad "$st's directive names $phrase" "not found in its section" ;;
+        esac
+    done
+done
+
 # An abandoned run writes no PLAN (a committed Draft PLAN fails the lifecycle
 # check), so the abandonment gate must not accept a marker on the PLAN's path.
 eq "exit_abandonment's marker gate never reads the PLAN's path" 'false' \

@@ -109,6 +109,7 @@ EOF
     printf '#!/bin/sh\nexit 3\n' > bin/fail.sh
     printf '#!/bin/sh\nsleep 30\n' > bin/slow.sh
     printf '#!/bin/sh\nsleep 30\n' > bin/child.sh
+    printf '#!/bin/sh\nsleep "${NAP_SECS:-1}"\n' > bin/nap.sh
     cat > bin/forker.sh <<'EOF'
 #!/bin/sh
 here=$(dirname "$0")
@@ -157,20 +158,85 @@ map() {
 # rec <file> <label>: a command that records its argv to <file>.
 rec() { jq -cn --arg f "$1" --arg l "$2" '{run: ["bin/rec.sh", $f, $l]}'; }
 
-# start <session>: run --start and assert it returned within two seconds.
-# Whole seconds: a difference of at most 1 between two `date +%s` readings
-# means less than two seconds passed.
-start() {
-    local t0 t1 rc
-    t0=$(date +%s)
-    "$START" --start --session "$1" >"$WORKDIR/start.out" 2>&1
-    rc=$?
-    t1=$(date +%s)
-    [ "$rc" -eq 0 ] || fail "$1: --start exited $rc: $(cat "$WORKDIR/start.out")"
-    if [ $((t1 - t0)) -le 1 ]; then
-        pass "$1: --start returned in under two seconds"
+# --- how long --start may take ------------------------------------------------------
+#
+# --start must return without waiting for the commands it starts. A fixed
+# wall-clock bound turns host load into a failure, so each start is measured
+# against a reference workload timed just before it, in the same repository:
+# --locate, which is the same script's startup and resolve, then the git and
+# jq calls --start makes after it (status, ls-tree, show, diff, and the map's
+# jq passes). That is about the same number of git and jq processes --start
+# runs, so load slows both alike. --start may take START_MULT times the
+# reference, never less than START_FLOOR_MS, which keeps a quiet host's check
+# as loose as the two seconds it replaced, and never more than
+# START_CEILING_MS, so a real hang still fails however slow the reference was.
+START_MULT=4
+START_FLOOR_MS=2000
+START_CEILING_MS=30000
+
+# A millisecond clock. bash 3.2 has no EPOCHREALTIME and macOS `date` has no
+# %N, so python3 is used when it is there -- both CI legs have it -- and whole
+# seconds otherwise, which the floor absorbs.
+PY=$(command -v python3 2>/dev/null || true)
+now_ms() {
+    if [ -n "$PY" ]; then
+        "$PY" -c 'import time; print(int(time.time()*1000))'
     else
-        fail "$1: --start took $((t1 - t0)) seconds"
+        printf '%s\n' "$(( $(date +%s) * 1000 ))"
+    fi
+}
+
+# reference_work <session>: the reference workload, run in the current
+# repository. Read-only: it starts nothing and writes no state.
+reference_work() {
+    local mb mp=.claude/shirabe-extensions/verification-map.json json
+    mb=$("$START" --locate --session "$1" 2>/dev/null | sed -n 2p)
+    [ -n "$mb" ] || mb=HEAD
+    git status --porcelain --untracked-files=no >/dev/null 2>&1
+    git ls-tree "$mb" -- "$mp" >/dev/null 2>&1
+    json=$(git show "$mb:$mp" 2>/dev/null) || json='{}'
+    git diff --name-only -z "$mb..HEAD" 2>/dev/null | jq -Rs 'split("\u0000")' >/dev/null 2>&1
+    printf '%s' "$json" | jq -se 'length == 1' >/dev/null 2>&1
+    printf '%s' "$json" | jq -c '.commands // {} | to_entries' >/dev/null 2>&1
+    printf '%s' "$json" | jq -r '.error // empty' >/dev/null 2>&1
+    printf '%s' "$json" | jq '.entries // [] | length' >/dev/null 2>&1
+    printf '%s' "$json" | jq -r '.default // [] | join(", ")' >/dev/null 2>&1
+    jq -cn --arg mb "$mb" --argjson sel "$json" '{merge_base: $mb, sel: $sel}' >/dev/null 2>&1
+    return 0
+}
+
+# start_bound_ms <reference ms>: how long --start may take.
+start_bound_ms() {
+    local b=$(( START_MULT * $1 ))
+    [ "$b" -ge "$START_FLOOR_MS" ] || b=$START_FLOOR_MS
+    [ "$b" -le "$START_CEILING_MS" ] || b=$START_CEILING_MS
+    printf '%s\n' "$b"
+}
+
+# timed_start <launcher> <session>: time the reference, then the launcher's
+# --start. Sets START_RC, REF_MS, START_MS and BOUND_MS.
+timed_start() {
+    local t0 t1
+    t0=$(now_ms)
+    reference_work "$2"
+    t1=$(now_ms)
+    REF_MS=$((t1 - t0))
+    BOUND_MS=$(start_bound_ms "$REF_MS")
+    t0=$(now_ms)
+    START_BOUND_MS=$BOUND_MS "$1" --start --session "$2" >"$WORKDIR/start.out" 2>&1
+    START_RC=$?
+    t1=$(now_ms)
+    START_MS=$((t1 - t0))
+}
+
+# start <session>: run --start and assert it returned within its bound.
+start() {
+    timed_start "$START" "$1"
+    [ "$START_RC" -eq 0 ] || fail "$1: --start exited $START_RC: $(cat "$WORKDIR/start.out")"
+    if [ "$START_MS" -le "$BOUND_MS" ]; then
+        pass "$1: --start returned in ${START_MS}ms, within its bound of ${BOUND_MS}ms (reference ${REF_MS}ms)"
+    else
+        fail "$1: --start took ${START_MS}ms, past its bound of ${BOUND_MS}ms (reference ${REF_MS}ms)"
     fi
 }
 
@@ -466,6 +532,45 @@ done
 COUNT=$(ls "$SDIR" | wc -l | tr -d ' ')
 [ "$COUNT" -eq 10 ] && pass "twelve heads leave ten head directories" || fail "twelve heads left $COUNT directories"
 [ -d "$SDIR/$(git rev-parse HEAD)" ] && pass "the current head's directory is kept" || fail "the current head's directory was pruned"
+
+# --- the bound on --start ------------------------------------------------------------------
+
+echo "--- the bound on --start"
+[ "$(start_bound_ms 100)" -eq "$START_FLOOR_MS" ] && pass "a quick reference bounds --start at the floor" \
+    || fail "a 100ms reference gives a bound of $(start_bound_ms 100)ms, want ${START_FLOOR_MS}ms"
+[ "$(start_bound_ms 1000)" -eq $((START_MULT * 1000)) ] && pass "a slower reference scales the bound" \
+    || fail "a 1000ms reference gives a bound of $(start_bound_ms 1000)ms, want $((START_MULT * 1000))ms"
+[ "$(start_bound_ms 60000)" -eq "$START_CEILING_MS" ] && pass "however slow the reference, the bound stops at the ceiling" \
+    || fail "a 60000ms reference gives a bound of $(start_bound_ms 60000)ms, want ${START_CEILING_MS}ms"
+
+# A --start that waits for the commands it starts, the regression the bound is
+# for. Its command naps a second past the bound timed_start hands it, so it
+# trips the check however loaded the host is.
+SLOW_START="$WORKDIR/slow-start.sh"
+cat > "$SLOW_START" <<EOF
+#!/bin/sh
+NAP_SECS=\$(( START_BOUND_MS / 1000 + 1 ))
+export NAP_SECS
+"$START" "\$@" || exit \$?
+n=0
+while [ "\$n" -lt 240 ]; do
+    "$VERDICT" --verdict --session "\$3" >/dev/null 2>&1
+    [ \$? -ne 75 ] && exit 0
+    n=\$((n + 1))
+    sleep 0.25
+done
+exit 0
+EOF
+chmod +x "$SLOW_START"
+mkrepo slowstart "$(map '{"nap": {"run": ["bin/nap.sh"], "timeout_secs": 60}}' '[]' '["nap"]')"
+change top.txt
+timed_start "$SLOW_START" s-slowstart
+[ "$START_RC" -eq 0 ] || fail "the slow --start exited $START_RC: $(cat "$WORKDIR/start.out")"
+if [ "$START_MS" -gt "$BOUND_MS" ]; then
+    pass "a --start that waits for its commands trips the bound (${START_MS}ms against ${BOUND_MS}ms)"
+else
+    fail "a --start that waits for its commands took ${START_MS}ms, within its bound of ${BOUND_MS}ms"
+fi
 
 # --- what the scripts must not use -----------------------------------------------------------
 

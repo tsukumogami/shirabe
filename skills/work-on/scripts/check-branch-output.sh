@@ -74,6 +74,11 @@ undecided() {
 
 # shellcheck source=../../../scripts/lib/rule-findings.sh
 . "$HERE/../../../scripts/lib/rule-findings.sh" || undecided "cannot load scripts/lib/rule-findings.sh"
+# declared_visibility, shared with skills/scope/scripts/check-hop-document.sh.
+# It reads CLAUDE.local.md and CLAUDE.md by relative path; this script changes
+# to the repository root before --docs-visibility calls it.
+# shellcheck source=../../../scripts/lib/declared-visibility.sh
+. "$HERE/../../../scripts/lib/declared-visibility.sh" || undecided "cannot load scripts/lib/declared-visibility.sh"
 
 # require_rules <id>...: every rule this mode can report resolves before the
 # check runs, so a violation is never reported without its reference.
@@ -219,30 +224,6 @@ check_commits() {
 }
 
 # --- --docs-visibility --------------------------------------------------------
-
-# declared_visibility: the root CLAUDE.local.md / CLAUDE.md header, lowercased,
-# parsed as the validator parses it (first well-formed header in a file wins,
-# CLAUDE.local.md before CLAUDE.md). Prints nothing when neither declares one.
-declared_visibility() {
-    for f in CLAUDE.local.md CLAUDE.md; do
-        [ -f "$f" ] || continue
-        v=$(LC_ALL=C tr '[:upper:]' '[:lower:]' < "$f" | awk '
-            {
-                line = $0
-                sub(/^[ \t]+/, "", line)
-                if (index(line, "## repo visibility:") != 1) next
-                value = substr(line, length("## repo visibility:") + 1)
-                sub(/^[ \t]+/, "", value)
-                if (index(value, "private") == 1) { print "private"; exit }
-                if (index(value, "public") == 1) { print "public"; exit }
-            }')
-        if [ -n "$v" ]; then
-            printf '%s\n' "$v"
-            return 0
-        fi
-    done
-    return 0
-}
 
 check_docs_visibility() {
     require_rules docs/visibility-vision-sections docs/visibility-strategy-sections docs/private-only-type

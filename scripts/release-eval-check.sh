@@ -22,12 +22,15 @@
 #      what the nested eval sessions can reach, and asks the harness for the
 #      skills changed since the last tag (scripts/run-evals.sh --list-changed).
 #   4. Writes a marker naming HEAD, the last tag and the skills it measures.
-#   5. Runs scripts/run-evals.sh --runs <N> --release-subset --summary-out
-#      <state>/<i>.json <skill> per selected skill: N is --critical-runs for a
-#      skill in --critical and 1 otherwise. A failing skill doesn't stop the
-#      others. --release-subset runs every tier-1 scenario and, of the tier-2
-#      ones, the one each behaviour marks "release": true; the rest rotate
-#      through scripts/scheduled-evals.py.
+#   5. Runs scripts/run-evals.sh --runs <N> --release-subset --no-baseline
+#      --summary-out <state>/<i>.json <skill> per selected skill: N is
+#      --critical-runs for a skill in --critical and 1 otherwise. A failing
+#      skill doesn't stop the others. --release-subset runs every tier-1
+#      scenario and, of the tier-2 ones, the one each behaviour marks
+#      "release": true; the rest rotate through scripts/scheduled-evals.py.
+#      --no-baseline runs no no-skill baseline: the record and the drop rule
+#      read with-skill rates only, and what a skill adds over the bare model
+#      is the scheduled measurement's question.
 #      With --model, each run gets EVAL_MODEL=<name>, which puts the nested
 #      session (the grader) and every scenario that names no model of its own
 #      on that model (see "Models" in run-evals.sh).
@@ -305,10 +308,11 @@ else
     echo "== $name ($runs run(s)) =="
     rc=0
     if [ -n "$MODEL" ]; then
-      EVAL_MODEL="$MODEL" "$HARNESS" --runs "$runs" --release-subset \
+      EVAL_MODEL="$MODEL" "$HARNESS" --runs "$runs" --release-subset --no-baseline \
         --summary-out "$STATE/$index.json" "$name" || rc=$?
     else
-      "$HARNESS" --runs "$runs" --release-subset --summary-out "$STATE/$index.json" "$name" || rc=$?
+      "$HARNESS" --runs "$runs" --release-subset --no-baseline \
+        --summary-out "$STATE/$index.json" "$name" || rc=$?
     fi
     echo "== $name: harness exit $rc =="
   done

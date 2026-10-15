@@ -15,6 +15,10 @@
 #   --release-subset      Run the release subset: every tier-1 eval, and the
 #                         tier-2 evals marked "release": true (one per
 #                         behaviour; see scripts/lib/check-evals-shape.py)
+#   --no-baseline         Spawn and grade only the with-skill agent: no no-skill
+#                         baseline agent, no without_skill/ directory. The
+#                         summary and its pass rate read the with-skill side
+#                         either way; the baseline only says what a skill adds
 #   --runs <N>            Run the selection N times and report a pass rate
 #   --summary-out <file>  Write a machine-readable summary of the skills run
 #
@@ -305,7 +309,7 @@ command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 
 command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
 
 usage() {
-  echo "Usage: $0 [--scenario <a,b,...>] [--release-subset] [--runs <N>] [--summary-out <file>] [<skill-name>]"
+  echo "Usage: $0 [--scenario <a,b,...>] [--release-subset] [--no-baseline] [--runs <N>] [--summary-out <file>] [<skill-name>]"
   echo "       $0 --withhold <rule key> [--case <file>] [--runs <N>] <skill-name>   (ablation mode)"
   echo "       $0 --all | --list | --list-changed | --validate <skill> | --prep-only <skill>"
   echo ""
@@ -319,6 +323,7 @@ usage() {
   echo ""
   echo "  --scenario <a,b,...>  Restrict the run to the named evals, by 'name' in evals.json"
   echo "  --release-subset      Run every tier-1 eval and the tier-2 evals marked \"release\": true"
+  echo "  --no-baseline         Run and grade only the with-skill agent, no no-skill baseline"
   echo "  --runs <N>            Repeat the run N times and report a pass rate across them"
   echo "  --summary-out <file>  Write a run-evals-summary/v1 JSON summary of the skills run"
   echo ""
@@ -336,6 +341,10 @@ EVAL_SCENARIO_FILTER=""
 # 1 with --release-subset: each skill runs its tier-1 evals and the tier-2 evals
 # marked "release": true.
 EVAL_RELEASE_SUBSET=0
+# 1 with --no-baseline: prep, the nested session's instructions and validation
+# leave out the no-skill baseline agent. Read by their Python through the
+# environment.
+EVAL_NO_BASELINE=0
 # The names one skill's run selects, comma-separated, empty for the whole
 # suite. resolve_scenario_set sets it per skill from the two above; every
 # selection site reads it as EVAL_SCENARIO_SET, so the prepared directories,
@@ -396,6 +405,10 @@ parse_run_options() {
         ;;
       --release-subset)
         EVAL_RELEASE_SUBSET=1
+        shift
+        ;;
+      --no-baseline)
+        EVAL_NO_BASELINE=1
         shift
         ;;
       --runs)
@@ -635,7 +648,8 @@ print(len(evals))
   echo ""
 
   local prep_rc=0
-  EVAL_SCENARIO_SET="$SCENARIO_SET" REPO_ROOT="$REPO_ROOT" python3 << PYEOF || prep_rc=$?
+  EVAL_SCENARIO_SET="$SCENARIO_SET" EVAL_NO_BASELINE="$EVAL_NO_BASELINE" REPO_ROOT="$REPO_ROOT" \
+    python3 << PYEOF || prep_rc=$?
 import hashlib, json, os, re, shutil, sys
 
 with open("$evals_file") as f:
@@ -817,7 +831,8 @@ for eval_item in data["evals"]:
 
     eval_dir = os.path.join(iter_dir, eval_name)
     os.makedirs(os.path.join(eval_dir, "with_skill", "outputs"), exist_ok=True)
-    os.makedirs(os.path.join(eval_dir, "without_skill", "outputs"), exist_ok=True)
+    if os.environ.get("EVAL_NO_BASELINE") != "1":
+        os.makedirs(os.path.join(eval_dir, "without_skill", "outputs"), exist_ok=True)
 
     criteria, criteria_key = criteria_for(eval_item)
     workspace_dir, from_fixture, stubbed, refused = materialize_files(
@@ -1297,7 +1312,7 @@ ISOBLOCK
   # with $(...): bash 3.2 mis-parses a heredoc inside a command substitution
   # when the heredoc holds an unpaired quote.
   local tier_file="$scratch/tier-instructions.txt"
-  EVAL_SCENARIO_SET="$SCENARIO_SET" python3 > "$tier_file" << PYEOF
+  EVAL_SCENARIO_SET="$SCENARIO_SET" EVAL_NO_BASELINE="$EVAL_NO_BASELINE" python3 > "$tier_file" << PYEOF
 import json, os
 
 with open("$evals_file") as f:
@@ -1344,11 +1359,14 @@ for ev in data["evals"]:
     # Both agents of a scenario run on its model: a session flag alone would
     # not reach the agents the session spawns.
     model = scenario_model(name)
+    agents = ("its with-skill agent (no baseline agent)"
+              if os.environ.get("EVAL_NO_BASELINE") == "1"
+              else "its with-skill agent and its baseline agent")
     if model == "inherit":
-        model_text = (" Spawn this eval's with-skill agent and its baseline agent with no "
+        model_text = (f" Spawn this eval's {agents} with no "
                       "model override, so they run on this session's model.")
     else:
-        model_text = (f" Spawn this eval's with-skill agent and its baseline agent on model "
+        model_text = (f" Spawn this eval's {agents} on model "
                       f"{model} (set it as each agent's model).")
     # The liveness eval is the one scenario that must run with the injected
     # preflight check ENABLED. The harness exports SHIRABE_PREFLIGHT_DISABLE=1
@@ -1404,6 +1422,18 @@ PYEOF
   : > "$koto_marker"
   local transcript="$iter_dir/runner_session.jsonl"
   local prompt=""
+  # With --no-baseline the session spawns, times and aggregates the with-skill
+  # side only; prep wrote no without_skill/ directory for it to fill.
+  local baseline_dirs_line="- without_skill/outputs/ (empty, for you to fill)"
+  local step1_text="For each eval, spawn a with-skill agent (reads the skill SKILL.md then executes the prompt) and a without-skill baseline agent (same prompt, no skill). Save outputs to the respective outputs/ directories."
+  local wait_text="put both of an eval's Agent calls in one message so they still run side by side"
+  local step4_text="Run the aggregation and generate the viewer to /tmp/${skill_name}-eval-review.html using --static mode."
+  if [ "$EVAL_NO_BASELINE" = 1 ]; then
+    baseline_dirs_line="- (no without_skill/ directory: this run has no baseline)"
+    step1_text="For each eval, spawn the with-skill agent only (reads the skill SKILL.md then executes the prompt). This run has NO no-skill baseline: spawn no baseline agent and grade no baseline. Save outputs to with_skill/outputs/."
+    wait_text="you may put several evals' Agent calls in one message so they run side by side"
+    step4_text="Generate the viewer to /tmp/${skill_name}-eval-review.html using --static mode, from the with-skill runs only; skip any comparison against a baseline, since this run has none."
+  fi
   # read -d '' for the same bash 3.2 reason as the isolation block above.
   IFS= read -r -d '' prompt <<PROMPT || true
 Invoke /skill-creator. You already have an existing skill with evals ready to run.
@@ -1415,7 +1445,7 @@ The eval workspace is prepared at: $iter_dir
 Each eval directory in the workspace has:
 - eval_metadata.json with the prompt and assertions
 - with_skill/outputs/ (empty, for you to fill)
-- without_skill/outputs/ (empty, for you to fill)
+$baseline_dirs_line
 - workspace/ — that scenario's working tree
 
 SCENARIO WORKING TREE (applies to every eval):
@@ -1473,12 +1503,12 @@ For tier 1 evals, the agent must NOT execute any commands. It should only read t
 skill file and describe its planned execution sequence.
 
 Follow the skill-creator's "Running and evaluating test cases" workflow:
-- Step 1: For each eval, spawn a with-skill agent (reads the skill SKILL.md then executes the prompt) and a without-skill baseline agent (same prompt, no skill). Save outputs to the respective outputs/ directories.
-  - WAIT FOR EVERY AGENT: launch each agent in the foreground, with run_in_background set to false (put both of an eval's Agent calls in one message so they still run side by side). This session is non-interactive: when you end your turn the session ends, and any agent still running is stopped with its scenario ungraded. Never end your turn, and never grade, while an agent you launched is still running; one agent finishing first is not the other finishing.
+- Step 1: $step1_text
+  - WAIT FOR EVERY AGENT: launch each agent in the foreground, with run_in_background set to false ($wait_text). This session is non-interactive: when you end your turn the session ends, and any agent still running is stopped with its scenario ungraded. Never end your turn, and never grade, while an agent you launched is still running; one agent finishing first is not the other finishing.
   - IMPORTANT: If eval_metadata.json contains "has_fixtures": true, an inputs/ directory exists alongside it with pre-defined plan artifact files (e.g. plan_my-feature_analysis.md, plan_my-feature_issue_1.md, etc.). Before running the with-skill agent for that eval, treat those files as already present in wip/ — the skill should read them rather than improvising fixture content. The agent must use the provided fixture files as the plan artifacts under review, not invent new ones.
 - Step 2: Grade each with-skill run against the assertions in eval_metadata.json. Write grading.json in each with_skill/ directory. Grade EVERY assertion listed there — one entry in grading.json per assertion. A scenario whose grading.json comes back empty fails the run.
 - Step 3: Capture timing data (total_tokens, duration_ms) to timing.json in each run directory.
-- Step 4: Run the aggregation and generate the viewer to /tmp/${skill_name}-eval-review.html using --static mode.
+- Step 4: $step4_text
 
 This is iteration $iteration for the $skill_name skill.
 PROMPT
@@ -1599,7 +1629,7 @@ validate_results() {
   local iter_dir="$1"
   local expected_count="$2"
 
-  python3 << PYEOF
+  EVAL_NO_BASELINE="$EVAL_NO_BASELINE" python3 << PYEOF
 import json, os, sys
 
 iter_dir = "$iter_dir"
@@ -1647,7 +1677,13 @@ for name in entries:
     # its two entries are excluded here. Without that, an outputs/ directory the
     # agent never wrote to would look populated and the check would never fire.
     HARNESS_WRITTEN = ("post_run_tree", "post_run_tree_manifest.txt")
-    for side in ("with_skill", "without_skill"):
+    # Prep makes without_skill/ unless --no-baseline was given, so a scenario
+    # without it was prepared with no baseline. That keeps a later --validate,
+    # which doesn't take run options, from flagging a side that was never run.
+    no_baseline = (os.environ.get("EVAL_NO_BASELINE") == "1"
+                   or not os.path.isdir(os.path.join(eval_dir, "without_skill")))
+    sides = ("with_skill",) if no_baseline else ("with_skill", "without_skill")
+    for side in sides:
         outputs = os.path.join(eval_dir, side, "outputs")
         produced = []
         if os.path.isdir(outputs):
