@@ -13,8 +13,8 @@
 # (surface) and never merged, and the block merge-order-entry.sh prints for it
 # carries the seats' evidence and the squash message; a standing hold in the
 # record routes land to surface as held, its block naming the hold, and a
-# lifted one lets it go on to goal_fit; a goal-fit gap, a body with no Review panel and
-# a stale reviewed head each go to rebrief, the reason in coord/land.json; a
+# lifted one lets it go on to goal_fit; a goal-fit gap and a body with no Review
+# panel each go to rebrief, the reason in coord/land.json; a
 # malformed table stops verify_board (unevidenced); and merge_confirm routes
 # merged to done; an unverified board routes to failure and a pending one to
 # wait; a refused check rollup green from the Actions jobs routes to surface
@@ -456,11 +456,8 @@ start coordinate-demo-20260926T150013Z complete-board "$PERMIT" "$T/nopanel"
 eq "no Review panel table: land refuses, to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
 eq "  ... with the reason no-evidence" no-evidence "$(koto context get "$S" coord/land.json 2>/dev/null | jq -r .reason)"
 [ ! -s "$BT_STATE/merge-exec.calls" ] && ok "  ... and nothing is merged" || bad "  ... and nothing is merged"
-bt_body 2222222222222222222222222222222222222222 > "$T/stale"
-start coordinate-demo-20260926T150014Z complete-board "$PERMIT" "$T/stale"
-jq -nc '{parents: [{sha: "2222222222222222222222222222222222222222"}]}' > "$GH_BOARD_DIR/commit-$H.out"
-eq "a reviewed head a non-merge commit behind: land refuses, to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
-eq "  ... with the reason stale:not-a-merge" stale:not-a-merge "$(koto context get "$S" coord/land.json 2>/dev/null | jq -r .reason)"
+# A stale round leaves land on the same unready arm; land-check_test.sh
+# covers its reasons.
 bt_body | sed 's/comment-103/comment-101/' > "$T/dup"
 start coordinate-demo-20260926T150015Z complete-board "$PERMIT" "$T/dup"
 eq "seats sharing a Run: verify_board refuses (unevidenced), to rebrief" rebrief "$(state "$(tick "$S" --with-data '{"prediction":"green","predicted":"yes"}')")"
