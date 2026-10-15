@@ -321,8 +321,11 @@ lifecycle_findings_summary() {
 #
 # The probe runs the validator in `--format json` and captures its combined
 # output so log_lifecycle_findings can surface the structured L-code findings
-# on an unexpected outcome. Control flow still follows the exit code only —
-# the JSON is consumed for diagnostic logging, never for branching.
+# on an unexpected outcome. The probe itself branches on the exit code only.
+# One caller reads the JSON to decide: right after the pre-probe, the cascade
+# stops when the findings carry L10 (outline steps left in a step plan), since
+# the pre-probe's exit code is non-zero mid-PR whether or not L10 is among them.
+# Every other use of the JSON is diagnostic logging.
 #
 # Usage: lifecycle_probe <pre|post> <seed-path>
 # Both arguments are required. Under `set -u` a one-argument call dies at
@@ -961,6 +964,11 @@ fi
 # the probe it just ran, and the cascade stops here, before anything is
 # transitioned or deleted, so the plan survives for its owner to detail the
 # step. The rule lives in the validator; this only refuses to go past it.
+# L10 needs its own gate here where L06 does not: the pre-probe expects a
+# non-zero exit mid-PR (the present PLAN fails L01 in ready posture), so the
+# exit code cannot tell an outline step from the ordinary mid-PR failure, and
+# only the finding's code can. L06 has no stop at all: an unticked criterion
+# is the plan's owner's to resolve, and the cascade has never gated on it.
 # L10_FINDINGS keeps the envelope shape so lifecycle_findings_summary renders
 # it; it is empty when the output is not a parseable envelope, and a probe
 # that could not report L10 cannot stop the run here.
@@ -970,6 +978,9 @@ if [[ -n "$L10_FINDINGS" ]] \
     && [[ "$(jq -r '.findings | length' <<< "$L10_FINDINGS")" -gt 0 ]]; then
     log_warn "Pre-cascade probe: the plan still has outline steps; the cascade stops:"
     log_lifecycle_findings "$L10_FINDINGS"
+    # A failed step sets ANY_FAILED, the pairing add_step asks of every
+    # caller; the run ends here, so the verdict it implies is emitted at once.
+    ANY_FAILED=true
     add_step "lifecycle_pre_probe" "$PLAN_DOC" "null" "failed" \
         "outline steps remain: $(lifecycle_findings_summary "$L10_FINDINGS")"
     emit_result "partial"
@@ -1311,8 +1322,10 @@ fi
 #               reported an error node or an unknown action, the ROADMAP
 #               feature was not found, a
 #               git rm (PLAN or ROADMAP) failed, the finalization commit or push
-#               failed, or the post-cascade verification failed. The cascade
-#               still RAN, so the script exits 0 -- a publish failure is neither
+#               failed, or the post-cascade verification failed. The pre-probe's
+#               L10 stop (outline steps left in a step plan) is the one failed
+#               arm that emits its verdict early and exits before this point.
+#               The cascade still RAN, so the script exits 0 -- a publish failure is neither
 #               a setup nor a precondition failure and does not belong in the
 #               exit code.
 #   skipped   -- nothing failed and finalize-chain reported only the PLAN's

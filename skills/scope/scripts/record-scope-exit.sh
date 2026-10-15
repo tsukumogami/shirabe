@@ -28,7 +28,8 @@
 #                                                              GitHub issue)
 #                        empty without a PLAN
 #   startable            multi-pr only: startable-issues.sh's `#<N> <title>`
-#                        lines, newline-joined
+#                        lines, newline-joined; for a plan/v2 step plan <N> is
+#                        a step number, not a GitHub issue
 #   pr                   --stage exit only: the owned open PR on the current
 #                        branch when the intent is continue or stop, empty
 #                        when it is none (no gh call is made then)
