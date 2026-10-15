@@ -328,7 +328,7 @@ and a number outside that range is a non-conforming heading;
 
 | Script | Change |
 |---|---|
-| `skills/plan/scripts/plan-to-tasks.sh` | accept `plan/v2`; build tasks from `plan outlines` for both supported modes; name tasks `step-<N>`; carry `detailed` in the task vars |
+| `skills/plan/scripts/plan-to-tasks.sh` | accept `plan/v2`; build tasks from `plan outlines` for both supported modes; name tasks `step-<N>`; report `detailed` through `shirabe plan outlines` (a task variable the work-on template does not declare is refused by koto) |
 | `skills/plan/scripts/resolve-plan-version.sh` (new) | flag > header > `DEFAULT_PLAN_VERSION=v1`; refuse other values |
 | `skills/scope/scripts/hop-complete.sh` | plan hop accepts `plan/v1` or `plan/v2` |
 | `skills/scope/scripts/startable-issues.sh` | read titles of both heading forms; report step titles |
@@ -382,32 +382,92 @@ This is what the dispatching coordinator needs to answer, before either
 default changes, whether artifact-shaped checkpoint reports come from layered
 plans or from how a brief words its checkpoints.
 
-- **Qualifying plans.** Two upcoming units whose plans are `plan/v1` with
-  three or more entries and that `/review-plan` reports as layer-shaped
-  (category E), each run once. The control is two earlier runs of
-  layer-shaped plans under today's wording, whose checkpoint reports are on
-  record.
-- **The one change.** The briefs for the two runs are identical to today's
-  except their `## Checkpoints` items. Today's wording names artifacts, for
-  example "The scoping pull request is open." and "The pull request is ready
-  with every CI job green, read job by job." The behavioural wording names a
-  behaviour and its check, for example "Step <N> works: report the behaviour
-  this step added and the command or check that shows it, with its result."
-  for each step, keeping the final "ready with every CI job green" item.
-  Nothing else in the brief, the plan or the execution mode changes.
-- **What is compared.** Every checkpoint report in the four runs, sentence
-  by sentence: behaviour-shaped (names an observable result and the check
-  that produced it) or artifact-shaped (names files, commits, pull requests
-  or green jobs without a behaviour). The measure is the share of
-  behaviour-shaped sentences per run.
+- **The plans.** Two finished, layer-shaped `plan/v1` plans from koto, each
+  replayed in a scratch clone at its pre-implementation commit and never
+  pushed anywhere. Each original run is that replay's baseline, so the plan,
+  the starting code and the work are the same and only the checkpoint wording
+  differs.
+- **The one change.** Each replay's brief keeps the same goal, decisions and
+  acceptance criteria as any delivery brief and differs only in its
+  `## Checkpoints` items, which name a behaviour and its check instead of an
+  artifact (the text is below). Nothing else in the brief, the plan or the
+  execution mode changes.
+- **What is compared.** Every checkpoint report in the replay against every
+  report the original run left, sentence by sentence: behaviour-shaped (names
+  an observable result and the check that produced it), behaviour claimed
+  without a check, or artifact-shaped (names files, commits, pull requests,
+  test counts or green jobs). The measure is the share of behaviour-shaped
+  sentences per run.
 - **The record.** A table in the coordinator's own record: run, plan, shape
-  (layered), wording (artifact or behaviour), reports counted, share
+  (layered), wording (original or behavioural), reports counted, share
   behaviour-shaped, and a one-line reading saying which change moved the
-  reports. If the behavioural wording moves layered plans' reports, the
+  reports. If the behavioural wording moves a layered plan's reports, the
   wording is the lever; if it does not, the plan shape is.
 
 The default plan version (`DEFAULT_PLAN_VERSION=v1`) and the brief template's
 checkpoint wording stay as they are until that record exists.
+
+#### Replay 1: koto template evidence routing
+
+- **Repository and start.** tsukumogami/koto. The plan and the code landed in
+  one pull request (koto#55, squash 675524c), so no commit holds the plan
+  without the code. Start the clone at fe48c68dc8ab09b5fb70e568468d786151fbd0e1
+  (`refs/pull/55/head` history, "accept design": the design is present,
+  `src/template/types.rs` has no `Transition` or `FieldSchema`), and add the
+  plan from `git show 0334b02^:docs/plans/PLAN-template-evidence-routing.md`
+  with its status set to `Active` and every checkbox unticked.
+- **The plan.** Five entries: evidence routing types, compiler, CLI, tests,
+  plugin templates. `single-pr`.
+- **The original run's reports.** It ran in one go: all five entries landed
+  in one commit, c2ac21c2a78de38cd430d468f77362ea7e5f4434, whose message
+  reports "All 82 tests pass."; the per-entry `summary` fields in the state
+  file that commit carries (for example "Rewrote types.rs with Transition,
+  FieldSchema, updated Gate ..., 6 validation rules, 16 unit tests"); and the
+  "Test Plan" checklist in koto#55's body. There are no pull request or issue
+  comments.
+
+#### Replay 2: koto Go-to-Rust migration
+
+- **Repository and start.** tsukumogami/koto. The plan was added on the
+  pull request's branch (koto#50, squash 0f3943f) at
+  d9220fd79683c5cad7132ca002826d4821ec4313 ("docs(plan): add
+  PLAN-migrate-koto-go-to-rust", in `refs/pull/50/head` history): the plan
+  and design are present, `go.mod` is present, and there is no `Cargo.toml`.
+  Start the clone there.
+- **The plan.** Five entries: scaffold crate and CI, template layer, engine
+  and persistence, CLI commands, integration tests. `single-pr`.
+- **The original run's reports.** It ran step by step inside the one pull
+  request: one commit body per entry, d5f369b058fd71833ecf2e90f180fba41ab89a6f
+  (for example "a working `koto version` command that returns JSON"),
+  930ba81, d898cf6, 4d2a74a ("All failure paths exit non-0 with a JSON error
+  object.") and 575d048 ("14 integration tests using assert_cmd and assert_fs
+  cover version, init, next, ..."), plus the "Scope decisions" section of
+  koto#50's body. There are no pull request or issue comments.
+
+#### The brief's checkpoint text for both replays
+
+```markdown
+## Checkpoints
+
+Report at each one and continue; don't wait for approval to go past it.
+
+1. Step 1 works: report the behaviour this step added and the command or
+   check that shows it, with its result.
+2. Step 2 works: report the behaviour this step added and the command or
+   check that shows it, with its result.
+3. Step 3 works: report the behaviour this step added and the command or
+   check that shows it, with its result.
+4. Step 4 works: report the behaviour this step added and the command or
+   check that shows it, with its result.
+5. Step 5 works: report the behaviour this step added and the command or
+   check that shows it, with its result.
+6. Every step is committed in the scratch clone with every suite green, read
+   suite by suite; nothing is pushed.
+```
+
+"Step N" is the plan's Nth entry. The original runs had no brief
+checkpoints, so their reports above are the artifact-wording side of the
+comparison as they stand.
 
 ## Implementation Approach
 
