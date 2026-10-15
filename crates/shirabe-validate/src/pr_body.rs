@@ -43,6 +43,22 @@ pub struct PrBodyFinding {
     pub message: String,
 }
 
+/// PB4's message. Named so [`is_no_heading_finding`] matches exactly the
+/// finding PB4 produces, not any message that happens to mention a heading.
+const PB4_MESSAGE: &str = "Part 1 (the squash commit body, above the `---` separator) \
+    contains a markdown section heading. Part 1 lands permanently on `main` as the commit \
+    message and must be plain prose, not a heading-structured document; rewrite Part 1 as \
+    prose and move any `## Section` headings below the `---` into Part 2 (see \
+    references/pr-body-conformance.md).";
+
+/// True when `f` is PB4's finding (no markdown heading in Part 1), the rule
+/// the live offload canary may leave out of a run's instructions. The
+/// pr-body hook drops it on a host that opted into the canary, leaving PB4 to
+/// the /work-on gate and CI.
+pub fn is_no_heading_finding(f: &PrBodyFinding) -> bool {
+    f.message == PB4_MESSAGE
+}
+
 /// The Conventional Commits types accepted in a PR title (PB1). Mirrors the
 /// set the PR-creation guidance lists.
 const CONVENTIONAL_TYPES: &[&str] = &[
@@ -110,13 +126,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
                 {
                     findings.push(PrBodyFinding {
                         line: *n,
-                        message: "Part 1 (the squash commit body, above the `---` separator) \
-                                  contains a markdown section heading. Part 1 lands permanently \
-                                  on `main` as the commit message and must be plain prose, not a \
-                                  heading-structured document; rewrite Part 1 as prose and move \
-                                  any `## Section` headings below the `---` into Part 2 (see \
-                                  references/pr-body-conformance.md)."
-                            .to_string(),
+                        message: PB4_MESSAGE.to_string(),
                     });
                 }
             }
@@ -641,5 +651,25 @@ Fixes #7
                 findings
             );
         }
+    }
+
+    #[test]
+    fn is_no_heading_finding_matches_pb4_and_nothing_else() {
+        // The pr-body hook drops PB4 by this predicate, so it must recognise
+        // the finding check_pr_body actually emits for a heading in Part 1, and
+        // must not match the other rules' findings.
+        let headed = "## Summary\n\nprose\n\n---\n\nFixes #1\n";
+        let findings = check_pr_body(headed, Some("feat: x"));
+        assert_eq!(findings.len(), 1, "expected PB4 alone, got: {:?}", findings);
+        assert!(is_no_heading_finding(&findings[0]));
+
+        let no_separator = "plain prose with no separator\n";
+        let findings = check_pr_body(no_separator, Some("not conventional"));
+        assert!(!findings.is_empty());
+        assert!(
+            findings.iter().all(|f| !is_no_heading_finding(f)),
+            "PB1 and PB2 findings must not read as PB4: {:?}",
+            findings
+        );
     }
 }

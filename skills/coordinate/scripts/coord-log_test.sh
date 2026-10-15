@@ -185,6 +185,20 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     grep -q 'schema_version 2' "$T/err" && ok "$L: the refusal names the schema version" || bad "$L: the refusal names the schema version" "$(cat "$T/err")"
     sed 's/"schema_version":2,//' "$T/v2" > "$KOTO_STORE/sessions/$S/koto-$S.state.jsonl"
     bash "$CL" entry --session "$S" --state wait 2>/dev/null; eq "$L: a header without schema_version is refused" 2 $?
+    # The header is read without jq only when it is a flat object of plain
+    # values with schema_version 1, once; every other header still goes to jq,
+    # so what jq refuses is still refused and what it reads is still read.
+    sed 1d "$T/v2" > "$T/events"
+    header_is() { { printf '%s\n' "$1"; cat "$T/events"; } > "$KOTO_STORE/sessions/$S/koto-$S.state.jsonl"; }
+    header_is "{\"schema_version\":1,\"workflow\":\"$S\",\"n\":0,\"t\":true"
+    bash "$CL" count --session "$S" 2>/dev/null; eq "$L: a header cut off after schema_version 1 is refused" 2 $?
+    header_is "{\"schema_version\":1,\"workflow\":\"$S\",\"schema_version\":2}"
+    bash "$CL" count --session "$S" 2>"$T/err"; eq "$L: a header naming schema_version twice is read as jq reads it" 2 $?
+    grep -q 'schema_version 2' "$T/err" && ok "$L: ... and refused as version 2" || bad "$L: ... and refused as version 2" "$(cat "$T/err")"
+    header_is "{\"schema_version\":1,\"workflow\":\"$S\",\"n\":0,\"t\":true,\"z\":null}"
+    eq "$L: a flat header of plain values is read" "$(( $(wc -l < "$T/events") ))" "$(bash "$CL" count --session "$S")"
+    header_is "{\"schema_version\":1,\"workflow\":\"$S\",\"v\":{\"a\":[\"b\"]},\"s\":\"a\\\\b\"}"
+    eq "$L: a nested header with escapes, as koto writes, is read" "$(( $(wc -l < "$T/events") ))" "$(bash "$CL" count --session "$S")"
 }
 
 run_suite default

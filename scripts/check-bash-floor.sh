@@ -175,6 +175,8 @@ suite_scripts() {
             echo "skills/plan/scripts/plan-to-tasks_test.sh"
             # Needs no binary.
             echo "skills/plan/scripts/resolve-split-mode_test.sh"
+            # Validates the step plan example with the suite's shirabe.
+            echo "skills/plan/scripts/resolve-plan-version_test.sh"
             ;;
         execute)
             echo "skills/work-on/scripts/run-cascade_test.sh"
@@ -299,6 +301,10 @@ suite_scripts() {
             # skip without it, so they run on the Linux leg.
             echo "skills/work-on/scripts/check-branch-output_test.sh"
             echo "skills/work-on/scripts/check-pr-output_test.sh"
+            # The live offload canary: the draw script's suite needs no engine;
+            # the route suite skips its koto cases when koto is absent.
+            echo "skills/work-on/scripts/offload-canary_test.sh"
+            echo "skills/work-on/scripts/offload-canary-routes_test.sh"
             # Reads the committed verification map with jq and the files that
             # document it; no engine.
             echo "skills/work-on/scripts/verification-map-schema_test.sh"
@@ -312,6 +318,10 @@ suite_scripts() {
             # extract-context.sh with no session and with no koto: needs only
             # bash and jq, so every case runs on the floor.
             echo "skills/work-on/scripts/extract-context_test.sh"
+            # The step detail check against git fixtures and a shirabe it
+            # builds (or $SHIRABE_BIN); its plan_validation cases skip without
+            # koto.
+            echo "skills/work-on/scripts/step-detail-check_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

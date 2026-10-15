@@ -184,12 +184,17 @@ is_document() {
 # to validation: FC01, FC03 and FC04 are type-agnostic, so a well-formed
 # document of the wrong type passes them at any path. One `cp` of the terminal
 # artifact onto the three upstream paths defeated an earlier version this way.
+#
+# The value is an extended regular expression, matched whole against the
+# frontmatter's schema value. A PLAN comes in two versions, `plan/v1` (issues)
+# and `plan/v2` (steps), and either is the plan hop's artifact. Any other
+# version, `plan/v3` included, is not, and leaves the hop incomplete.
 schema_for() {
   case "$1" in
     brief)  echo "brief/v1" ;;
     prd)    echo "prd/v1" ;;
     design) echo "design/v1" ;;
-    plan)   echo "plan/v1" ;;
+    plan)   echo "plan/v[12]" ;;
     *)      echo "" ;;
   esac
 }
