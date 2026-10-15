@@ -1168,11 +1168,13 @@
         "GH_CALL_LOG": "gh-calls.log"
       },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "The one merge call is the fixed form merge-exec.sh makes: gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>.",
+      "expected_output": "The one merge call is the fixed form merge-exec.sh makes: gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>. merge_confirm then reads the PR merged, the run ends at the merged terminal, and print-exit.sh prints outcome=merged, exit=full-run, repos=eval-org/eval-repo and pr=https://github.com/eval-org/eval-repo/pull/42.",
       "files": [],
       "expectations": [
         "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`",
-        "The `pr merge` line is exactly `pr merge 42 --repo eval-org/eval-repo --squash --match-head-commit <sha>`"
+        "The `pr merge` line is exactly `pr merge 42 --repo eval-org/eval-repo --squash --match-head-commit <sha>`",
+        "The run passes merge_confirm before reaching the merged terminal",
+        "The printed exit lines include `outcome=merged` and `exit=full-run`, with a `pr=` line and a `repos=` line"
       ]
     },
     {
