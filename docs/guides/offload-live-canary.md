@@ -17,6 +17,9 @@ A `/work-on` run takes part only when all of these hold:
 - the run isn't an `/execute` child on a shared branch, which opens no pull
   request of its own.
 
+So the canary withholds nothing until the registry marks PB4 eligible and the
+host opts in: until both hold, every run reads the full conformance text.
+
 When its analysis plan is ready, the run passes through `offload_canary` on
 its way to `review_level_choice`. That state draws a group from
 `/dev/urandom`, records it in the session directory, and routes the run
