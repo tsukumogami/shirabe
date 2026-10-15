@@ -94,27 +94,25 @@ bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 
     || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
 # The latest entry into each state the rules read, 0 when none, in one read
 # of the log (coord-log.sh entries) rather than one coord-log.sh per state.
-ENTRIES=$(CL entries --states dispatch,report_questions,decision_open,wait,classify_report,decision_answer,decision_evidence,decision_raise) \
-    || lib_die2 "cannot read the session log"
-DISPATCHED=false DISPATCH_SEQ= RQ_SEQ= OPEN_SEQ= WAIT_SEQ= CLASSIFY_SEQ= ANSWER_SEQ= EVID_SEQ= RAISE_SEQ=
-while read -r st sq _; do
-    case "$st" in
-        dispatch) DISPATCH_SEQ=$sq; [ "$sq" = 0 ] || DISPATCHED=true ;;
-        report_questions) RQ_SEQ=$sq ;;
-        decision_open) OPEN_SEQ=$sq ;;
-        wait) WAIT_SEQ=$sq ;;
-        classify_report) CLASSIFY_SEQ=$sq ;;
-        decision_answer) ANSWER_SEQ=$sq ;;
-        decision_evidence) EVID_SEQ=$sq ;;
-        decision_raise) RAISE_SEQ=$sq ;;
-    esac
-done <<EOF
-$ENTRIES
-EOF
-# Every state must have come back, or the rules would read an empty seq.
-for sq in "$DISPATCH_SEQ" "$RQ_SEQ" "$OPEN_SEQ" "$WAIT_SEQ" "$CLASSIFY_SEQ" "$ANSWER_SEQ" "$EVID_SEQ" "$RAISE_SEQ"; do
+# READS is the one list of <state>:<variable>: the request is built from it,
+# and each variable is set from its state's line only after the line was
+# found and its seq is a number, so a state added here can't be left unread,
+# and a short or garbled answer stops the run instead of reading as 0.
+READS="dispatch:DISPATCH_SEQ report_questions:RQ_SEQ decision_open:OPEN_SEQ wait:WAIT_SEQ
+classify_report:CLASSIFY_SEQ decision_answer:ANSWER_SEQ decision_evidence:EVID_SEQ decision_raise:RAISE_SEQ"
+states=
+for pair in $READS; do states="$states${states:+,}${pair%%:*}"; done
+ENTRIES=$(CL entries --states "$states") || lib_die2 "cannot read the session log"
+for pair in $READS; do
+    rest=$'\n'"$ENTRIES"
+    case "$rest" in *$'\n'"${pair%%:*} "*) ;; *) lib_die2 "cannot read the session log" ;; esac
+    rest=${rest#*$'\n'"${pair%%:*} "}
+    sq=${rest%%[ $'\n']*}
     case "$sq" in ''|*[!0-9]*) lib_die2 "cannot read the session log" ;; esac
+    printf -v "${pair#*:}" '%s' "$sq"
 done
+DISPATCHED=false
+[ "$DISPATCH_SEQ" = 0 ] || DISPATCHED=true
 # ev_json <state> [where]: the latest evidence at it, {} when none.
 ev_json() {
     local e st=$1; shift

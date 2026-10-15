@@ -459,8 +459,8 @@ current)
 entries)
     # `entry` for several states in one pass, for a check script that would
     # otherwise start this script once per state. A log jq can't read ends
-    # in a read failure, as `entry` does, never in a "0" that reads as no
-    # entry.
+    # in a read failure (jq prints only after reading the whole log), as
+    # `entry` does under pipefail, never in a "0" that reads as no entry.
     need SESSION STATES
     re='^[a-z0-9_]+(,[a-z0-9_]+)*$'
     [[ $STATES =~ $re ]] || usage

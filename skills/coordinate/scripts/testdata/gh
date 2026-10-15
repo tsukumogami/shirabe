@@ -103,7 +103,6 @@ shift 2 2>/dev/null || shift $#
 METHOD=GET JQF= REPO= HEAD= BASE= STATE=open JSONF= TITLE= BODYFILE= PAGINATE=0 DRAFT=0 LIMIT=30 LABEL= INPUT=
 BRANCH=
 FIELDS=
-POS=
 POSA=()
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -124,12 +123,13 @@ while [ $# -gt 0 ]; do
         --draft|-d) DRAFT=1; shift ;;
         --input) INPUT=$2; shift 2 ;;
         -*) unexpected ;;
-        *) POS="$POS$1"$'\n'; POSA+=("$1"); shift ;;
+        *) POSA+=("$1"); shift ;;
     esac
 done
-# pos <n>: the nth positional argument (n from 1). field <name>: the first
-# line of the first -f/-F <name>=... value, the name matched literally. Both
-# run in the shell rather than starting sed, since most calls read them.
+# pos <n>: the nth positional argument (n from 1). field <name>: what follows
+# "<name>=" on the first line of the -f/-F values that starts with it, the
+# name matched literally, as the sed it replaces found it. Both run in the
+# shell rather than starting sed, since most calls read them.
 pos() { printf '%s' "${POSA[$(( $1 - 1 ))]-}"; }
 # canon <owner/repo>: the DB's own spelling of a repository named in any
 # case, or the name as given when the DB holds no such repository.
