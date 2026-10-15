@@ -84,12 +84,12 @@ write() { # write <script> <args...>: a write script, run from $WD as the agent 
     (cd "$WD" && bash "$PS/$s" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err")
 }
 show() { (cd "$WD" && bash "$PS/record-source.sh" --session "$S" --show); }
-# keys <session>: every record/ key of the session, its name and a digest of
-# its content, read through real koto.
+# keys <session>: every record/ key of the session, its name and its content,
+# read through real koto (run-tests.sh's PATH has no cksum, so no digest).
 keys() {
     local k
     (cd "$WD" && koto context list "$1" --prefix record/) | jq -r '.[]' | LC_ALL=C sort | while IFS= read -r k; do
-        printf '%s %s\n' "$k" "$(cd "$WD" && koto context get "$1" "$k" | cksum)"
+        printf '%s %s\n' "$k" "$(cd "$WD" && koto context get "$1" "$k")"
     done
 }
 body_n() { jq -r --argjson n "$N" '.issues[] | select(.number == $n) | .body' "$GH_DB"; }

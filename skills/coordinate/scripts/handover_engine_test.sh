@@ -106,12 +106,12 @@ state() { run record-state.sh "$@" >"$T/w.out" 2>"$T/w.err"; }
 handover() { run record-handover.sh "$@"; }
 entries() { run record-append.sh --list; }
 # keys <host>: every record/ and legs/ key of $S on the host but record/host,
-# with a digest of its content.
+# with its content (run-tests.sh's PATH has no cksum, so no digest).
 keys() {
     local k
     for p in record/ legs/; do host_on "$1" koto context list "$S" --prefix "$p" 2>/dev/null | jq -r '.[]'; done \
         | grep -vx record/host | LC_ALL=C sort | while IFS= read -r k; do
-        printf '%s %s\n' "$k" "$(host_on "$1" koto context get "$S" "$k" | cksum)"
+        printf '%s %s\n' "$k" "$(host_on "$1" koto context get "$S" "$k")"
     done
 }
 last_entry() { host_on "$1" koto context list "$S" --prefix record/entries/ | jq -r 'map(ltrimstr("record/entries/")) | sort | last // ""'; }
@@ -147,8 +147,9 @@ F1=$(holding worker-f1 '{"unit": "Feature 1", "dispatch_status": "dispatched", "
 F2=$(holding worker-f2 '{"unit": "Feature 2", "dispatch_status": "dispatched", "branch": "", "pull_request": ""}')
 printf '%s' "$F1" > "$T/f1.json"; printf '%s' "$F2" > "$T/f2.json"
 jq -n '{hold: "after-release", on: "acme/widgets#12", until: "lifted", set_by: "the human", set: "2026-09-29T20:30Z", lifted: ""}' > "$T/hold.json"
-RULES=$(printf 'r%.0s' $(seq 64) | tr r a)
-BRIEFS=$(printf 'b%.0s' $(seq 64))
+# 64 hex characters each, written out: run-tests.sh's PATH has no seq.
+RULES=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+BRIEFS=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 { run record-holding.sh --topic worker-f1 --row-file "$T/f1.json" \
   && run record-holding.sh --topic worker-f2 --row-file "$T/f2.json" \
   && run record-holding.sh --topic worker-f1 --pushed-head "$SHA_HEAD" \
