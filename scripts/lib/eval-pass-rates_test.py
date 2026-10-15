@@ -19,9 +19,11 @@ SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "eval-pass-rat
 
 
 def entry(passed=9, graded=10, runs=1, runs_passed=1, rate="auto", measured_at="0.23.0",
-          models=("sonnet",)):
+          models=("sonnet",), session_model=None):
     out = {"runs": runs, "runs_passed": runs_passed, "assertions_passed": passed,
            "assertions_graded": graded, "models": list(models), "measured_at": measured_at}
+    if session_model is not None:
+        out["session_model"] = session_model
     if rate == "auto":
         out["pass_rate"] = round(passed / graded, 4)
     elif rate is not None:
@@ -34,11 +36,15 @@ def record(skills, version="0.23.0", last_tag="v0.22.0"):
             "skills": skills}
 
 
-def summary_entry(passed=9, graded=10, code=0, runs=1, runs_passed=None, models=("sonnet",)):
+def summary_entry(passed=9, graded=10, code=0, runs=1, runs_passed=None, models=("sonnet",),
+                  session_model=None):
     if runs_passed is None:
         runs_passed = runs if code == 0 else 0
-    return {"runs": runs, "runs_passed": runs_passed, "assertions_passed": passed,
-            "assertions_graded": graded, "models": list(models), "exit_code": code}
+    out = {"runs": runs, "runs_passed": runs_passed, "assertions_passed": passed,
+           "assertions_graded": graded, "models": list(models), "exit_code": code}
+    if session_model is not None:
+        out["session_model"] = session_model
+    return out
 
 
 class Case(unittest.TestCase):
@@ -67,9 +73,11 @@ class Case(unittest.TestCase):
         return proc.returncode, proc.stdout + proc.stderr
 
     def merge(self, previous, summaries, selected, confirmed="", last_tag="v0.23.0",
-              version="0.24.0", reason=""):
+              version="0.24.0", reason="", tolerance=None):
         args = ["merge", "--version", version,
                 "--last-tag", last_tag, "--out", self.out, "--confirmed", confirmed]
+        if tolerance is not None:
+            args += ["--tolerance", tolerance]
         for path in ([previous] if isinstance(previous, str) else previous):
             args += ["--previous", path]
         if reason:
@@ -166,7 +174,8 @@ class MergeTest(Case):
         self.assertEqual(data["last_tag"], "v0.23.0")
         self.assertEqual(data["skills"]["brief"], {
             "runs": 3, "runs_passed": 2, "assertions_passed": 140, "assertions_graded": 150,
-            "pass_rate": 0.9333, "models": ["haiku", "sonnet"], "measured_at": "0.24.0"})
+            "pass_rate": 0.9333, "models": ["haiku", "sonnet"], "session_model": "default",
+            "measured_at": "0.24.0"})
 
     def test_carry_forward_unchanged(self):
         old = entry(7, 10, measured_at="0.21.0")
@@ -389,6 +398,88 @@ class StampTest(Case):
         path = self.write(record({}))
         rc, _ = self.run_tool("stamp", "--record", path, "--version", "next")
         self.assertEqual(rc, 2)
+
+
+
+class ReferenceTest(Case):
+    """A rate is compared only with one measured on the same models and session model."""
+
+    def test_session_model_change_is_a_new_reference_not_a_drop(self):
+        prev = self.write(record({"brief": entry(10, 10, models=("sonnet",))}))
+        summ = self.summary({"brief": summary_entry(5, 10, code=1, session_model="sonnet")})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("new reference: brief (no earlier measurement on models sonnet, "
+                      "session model sonnet)", out)
+        self.assertNotIn("confirm:", out)
+        self.assertEqual(self.result()["skills"]["brief"]["session_model"], "sonnet")
+
+    def test_scenario_model_change_is_a_new_reference(self):
+        prev = self.write(record({"execute": entry(10, 10, models=("inherit", "sonnet"))}))
+        summ = self.summary({"execute": summary_entry(5, 10, code=1)})
+        rc, out = self.merge(prev, [summ], ["execute"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("new reference: execute", out)
+
+    def test_record_without_session_model_reads_as_default(self):
+        prev = self.write(record({"brief": entry(10, 10)}))
+        summ = self.summary({"brief": summary_entry(5, 10, code=1, session_model="default")})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 5, out)
+        self.assertNotIn("new reference", out)
+
+    def test_later_release_compares_with_the_new_reference(self):
+        prev = self.write(record({"brief": entry(8, 10, session_model="sonnet",
+                                                 measured_at="0.27.0")}, version="0.27.0"))
+        summ = self.summary({"brief": summary_entry(7, 10, code=1, session_model="sonnet")})
+        rc, out = self.merge(prev, [summ], ["brief"], last_tag="v0.27.0", version="0.28.0")
+        self.assertEqual(rc, 5, out)
+        self.assertIn("drop: brief", out)
+
+    def test_older_matching_entry_behind_a_newer_other_one(self):
+        newer = self.write(record({"brief": entry(10, 10, measured_at="0.25.0")},
+                                  version="0.25.0", last_tag="v0.24.0"))
+        older = self.write(record({"brief": entry(9, 10, session_model="sonnet",
+                                                  measured_at="0.24.0")},
+                                  version="0.24.0", last_tag="v0.23.0"))
+        summ = self.summary({"brief": summary_entry(8, 10, code=1, session_model="sonnet")})
+        rc, out = self.merge([newer, older], [summ], ["brief"], last_tag="v0.25.0",
+                             version="0.26.0")
+        self.assertEqual(rc, 5, out)  # 0.8 against 0.24.0's 0.9, not 0.25.0's 1.0
+        self.assertIn("0.9000     0.24.0", out)
+
+    def test_invalid_session_model_in_a_record_drops_the_record(self):
+        prev = self.write(record({"brief": entry(10, 10, session_model="-x")}))
+        summ = self.summary({"brief": summary_entry(5, 10, code=1)})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("session_model is not a model name", out)
+
+
+class ToleranceTest(Case):
+    def test_drop_within_tolerance_passes(self):
+        prev = self.write(record({"brief": entry(97, 100)}))
+        summ = self.summary({"brief": summary_entry(92, 100, code=1)})
+        rc, out = self.merge(prev, [summ], ["brief"], tolerance="0.05")
+        self.assertEqual(rc, 0, out)
+
+    def test_drop_beyond_tolerance_fails(self):
+        prev = self.write(record({"brief": entry(97, 100)}))
+        summ = self.summary({"brief": summary_entry(91, 100, code=1)})
+        rc, out = self.merge(prev, [summ], ["brief"], tolerance="0.05")
+        self.assertEqual(rc, 5, out)
+
+    def test_default_tolerance_flags_any_lower_rate(self):
+        prev = self.write(record({"brief": entry(97, 100)}))
+        summ = self.summary({"brief": summary_entry(96, 100, code=1)})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 5, out)
+
+    def test_invalid_tolerance_is_usage(self):
+        for value in ("x", "-0.1", "1.5", "nan"):
+            with self.subTest(value=value):
+                rc, out = self.merge("-", [], [], tolerance=value)
+                self.assertEqual(rc, 2, out)
 
 
 if __name__ == "__main__":

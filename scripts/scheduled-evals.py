@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""scheduled-evals.py - the scheduled eval measurement, off the release path.
+
+The release eval check (scripts/release-eval-check.sh) runs each changed skill
+once, on Sonnet. The repeat runs it no longer makes, which measure the noise a
+single run carries, run here instead: on a schedule the operator sets up (cron
+or a scheduled agent), within a weekly budget. See
+docs/spikes/SPIKE-release-eval-cost.md.
+
+Usage:
+  scripts/scheduled-evals.py [--runs <N>] [--model <name>] [--cap-usd <amount>]
+      [--ledger <file>] [--dry-run] [<skill>...]
+
+A run:
+  1. Takes the named skills, or every skill with skills/<name>/evals/evals.json.
+  2. Skips a skill whose skills/<name>/ tree at HEAD is the tree its last
+     graded scheduled run measured (harness exit 0 or 1): nothing in it has
+     changed since. Run it from an up-to-date checkout of the default branch.
+  3. Orders the rest: never measured first, then the longest since measured.
+  4. Before each skill, adds up what the ledger's runs cost over the last seven
+     days and estimates what one run of this skill costs: its last measured
+     cost per run on the same model, or, with none, the per-scenario rates
+     below. It runs the skill as many times as --runs asks and the budget
+     allows. When not even one run fits under --cap-usd, it stops, writes a
+     cap_stop line naming the skills left, and exits 6. A run's real cost can
+     exceed its estimate, so the last skill run can carry the week past the
+     cap; the next run sees that and stops sooner.
+  5. Runs scripts/run-evals.sh --runs <n> --summary-out <tmp> <skill> with
+     EVAL_MODEL=<model>, and appends a run line to the ledger with the cost the
+     harness's summary reports (the nested sessions' own total_cost_usd). A
+     run that reported no cost is ledgered at its estimate, marked
+     "cost_measured": false, so the budget still counts it.
+
+The ledger is JSON Lines, one object per line, read by the next run:
+  {"kind": "run", "at": <UTC ISO-8601>, "skill", "tree", "head", "runs",
+   "model", "cost_usd", "cost_measured", "estimate_usd", "exit_code",
+   "assertions_passed", "assertions_graded"}
+  {"kind": "cap_stop", "at", "spent_usd", "cap_usd", "next_skill",
+   "estimate_usd", "unrun": [<skill>...]}
+A line that doesn't parse is skipped with a warning. Default location:
+$XDG_STATE_HOME/shirabe/scheduled-evals.jsonl, else
+~/.local/state/shirabe/scheduled-evals.jsonl. A lock directory next to it
+(<ledger>.lock) keeps two runs from overlapping.
+
+Options:
+  --runs <N>        runs per skill, 1 to 9 (default 3)
+  --model <name>    EVAL_MODEL for the harness (default sonnet, the release
+                    check's model, so the repeats measure the noise of what a
+                    release runs)
+  --cap-usd <n>     weekly budget in US dollars at list price (default 50, or
+                    SHIRABE_EVAL_WEEKLY_CAP_USD)
+  --ledger <file>   the ledger to read and append to
+  --dry-run         print what would run, with estimates; run and write nothing
+
+Environment:
+  SHIRABE_EVAL_WEEKLY_CAP_USD  the default for --cap-usd
+  SCHEDULED_EVALS_HARNESS      TEST-ONLY: the harness to call instead of
+                               scripts/run-evals.sh
+
+Exit codes:
+  0  every selected skill ran with harness exit 0, or nothing needed a run
+  1  at least one harness run exited non-zero; each is in the ledger
+  2  usage
+  3  another run holds the lock, or the checkout can't be read
+  6  stopped at the weekly cap with skills left to run
+"""
+
+import argparse
+import datetime
+import glob
+import json
+import math
+import os
+import re
+import subprocess
+import sys
+import tempfile
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+WEEK = datetime.timedelta(days=7)
+
+# What one run costs per scenario before a skill has a measured run of its own,
+# at list price with the no-skill baseline and grading, from the spike report's
+# measurements moved to Sonnet (half of Opus on every token class): a tier-1
+# scenario $0.29 with the skill + $0.10 baseline + half of $0.145 grading; a
+# tier-2 one ($2.96 + $1.35) / 2 + half of $0.24; the orchestrating session
+# about $2.50 a run. Any other model is taken at Opus's rates, twice these.
+SONNET_RATES = {"tier1": 0.46, "tier2": 2.28, "session": 2.50}
+
+
+class UsageError(Exception):
+    pass
+
+
+def now_utc():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def iso(moment):
+    return moment.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def parse_iso(text):
+    try:
+        return datetime.datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=datetime.timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def default_ledger():
+    base = os.environ.get("XDG_STATE_HOME") or os.path.join(os.path.expanduser("~"), ".local", "state")
+    return os.path.join(base, "shirabe", "scheduled-evals.jsonl")
+
+
+def read_ledger(path):
+    entries = []
+    if not os.path.exists(path):
+        return entries
+    with open(path, errors="replace") as fh:
+        for number, line in enumerate(fh, 1):
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                print("warning: ledger line %d doesn't parse; skipped" % number)
+                continue
+            if isinstance(entry, dict):
+                entries.append(entry)
+    return entries
+
+
+def append_ledger(path, entry):
+    with open(path, "a") as fh:
+        fh.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+def is_cost(value):
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value) and value >= 0)
+
+
+def spent_this_week(entries, moment):
+    total = 0.0
+    for entry in entries:
+        if entry.get("kind") != "run" or not is_cost(entry.get("cost_usd")):
+            continue
+        at = parse_iso(entry.get("at"))
+        if at is not None and moment - at < WEEK:
+            total += entry["cost_usd"]
+    return total
+
+
+def git(*args):
+    proc = subprocess.run(["git", "-C", ROOT] + list(args), capture_output=True, text=True)
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def scenario_counts(skill):
+    with open(os.path.join(ROOT, "skills", skill, "evals", "evals.json")) as fh:
+        evals = json.load(fh)["evals"]
+    tier2 = sum(1 for e in evals if e.get("tier", 1) != 1)
+    return len(evals) - tier2, tier2
+
+
+def estimate_per_run(skill, runs_of_skill, model):
+    """(dollars per run, what the figure rests on)"""
+    for entry in reversed(runs_of_skill):
+        runs = entry.get("runs")
+        if (entry.get("cost_measured") is True and is_cost(entry.get("cost_usd"))
+                and isinstance(runs, int) and runs > 0 and entry.get("model") == model):
+            return entry["cost_usd"] / runs, "its last measured run"
+    tier1, tier2 = scenario_counts(skill)
+    factor = 1.0 if model == "sonnet" else 2.0
+    cost = factor * (tier1 * SONNET_RATES["tier1"] + tier2 * SONNET_RATES["tier2"]
+                     + SONNET_RATES["session"])
+    return cost, "%d tier-1 and %d tier-2 scenarios at the default rates" % (tier1, tier2)
+
+
+def selected_skills(names):
+    if names:
+        for name in names:
+            if not SKILL_RE.match(name):
+                raise UsageError("invalid skill name")
+            if not os.path.isfile(os.path.join(ROOT, "skills", name, "evals", "evals.json")):
+                raise UsageError("skills/%s has no evals/evals.json" % name)
+        return sorted(set(names))
+    found = glob.glob(os.path.join(ROOT, "skills", "*", "evals", "evals.json"))
+    return sorted(n for n in (p.split(os.sep)[-3] for p in found) if SKILL_RE.match(n))
+
+
+def read_summary(path, skill):
+    try:
+        with open(path) as fh:
+            entry = json.load(fh)["skills"][skill]
+        return entry if isinstance(entry, dict) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def run(args):
+    if not 1 <= args.runs <= 9:
+        raise UsageError("--runs must be 1 to 9")
+    if not MODEL_RE.match(args.model):
+        raise UsageError("--model must match ^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+    if not is_cost(args.cap_usd):
+        raise UsageError("--cap-usd must be a non-negative amount")
+    skills = selected_skills(args.skills)
+    head = git("rev-parse", "HEAD")
+    if head is None:
+        print("error: %s is not a git checkout" % ROOT, file=sys.stderr)
+        return 3
+    ledger = args.ledger
+    if args.dry_run:
+        return measure(args, skills, head, ledger)
+    os.makedirs(os.path.dirname(os.path.abspath(ledger)), exist_ok=True)
+    lock = ledger + ".lock"
+    try:
+        os.mkdir(lock)
+    except FileExistsError:
+        print("error: another scheduled run holds %s; if none is running, remove it" % lock,
+              file=sys.stderr)
+        return 3
+    try:
+        return measure(args, skills, head, ledger)
+    finally:
+        os.rmdir(lock)
+
+
+def measure(args, skills, head, ledger):
+    entries = read_ledger(ledger)
+    runs_by_skill = {}
+    for entry in entries:
+        if entry.get("kind") == "run" and isinstance(entry.get("skill"), str):
+            runs_by_skill.setdefault(entry["skill"], []).append(entry)
+
+    todo = []
+    for name in skills:
+        tree = git("rev-parse", "HEAD:skills/%s" % name)
+        if tree is None:
+            print("error: cannot read the tree of skills/%s at HEAD" % name, file=sys.stderr)
+            return 3
+        graded = [e for e in runs_by_skill.get(name, []) if e.get("exit_code") in (0, 1)]
+        if graded and graded[-1].get("tree") == tree:
+            print("unchanged: %s (measured %s)" % (name, graded[-1].get("at", "?")))
+            continue
+        last_at = parse_iso(graded[-1].get("at")) if graded else None
+        todo.append((last_at is not None, last_at or now_utc(), name, tree))
+    todo.sort(key=lambda item: (item[0], item[1], item[2]))
+
+    spent = spent_this_week(entries, now_utc())
+    print("spent in the last 7 days: $%.2f of $%.2f" % (spent, args.cap_usd))
+    worst = 0
+    for index, (_, _, name, tree) in enumerate(todo):
+        per_run, basis = estimate_per_run(name, runs_by_skill.get(name, []), args.model)
+        room = args.cap_usd - spent
+        runs = min(args.runs, int(room // per_run)) if per_run > 0 else args.runs
+        if runs < 1:
+            unrun = [item[2] for item in todo[index:]]
+            print("cap: $%.2f of $%.2f spent in the last 7 days; %s needs about $%.2f a run "
+                  "(%s). Stopping; not run: %s" % (spent, args.cap_usd, name, per_run, basis,
+                                                   ", ".join(unrun)))
+            if not args.dry_run:
+                append_ledger(ledger, {"kind": "cap_stop", "at": iso(now_utc()),
+                                       "spent_usd": round(spent, 4), "cap_usd": args.cap_usd,
+                                       "next_skill": name, "estimate_usd": round(per_run, 4),
+                                       "unrun": unrun})
+            return 6
+        print("%s %s: %d run(s), about $%.2f a run (%s)" % (
+            "would run" if args.dry_run else "running", name, runs, per_run, basis))
+        if args.dry_run:
+            spent += runs * per_run
+            continue
+        if run_harness(args, ledger, name, tree, head, runs, per_run) != 0:
+            worst = 1
+        spent = spent_this_week(read_ledger(ledger), now_utc())
+    return worst
+
+
+def run_harness(args, ledger, name, tree, head, runs, per_run):
+    harness = (os.environ.get("SCHEDULED_EVALS_HARNESS")
+               or os.path.join(ROOT, "scripts", "run-evals.sh"))
+    workdir = tempfile.mkdtemp(prefix="scheduled-evals.")
+    summary_path = os.path.join(workdir, "summary.json")
+    env = dict(os.environ, EVAL_MODEL=args.model)
+    try:
+        rc = subprocess.run([harness, "--runs", str(runs), "--summary-out", summary_path, name],
+                            cwd=ROOT, env=env).returncode
+        summary = read_summary(summary_path, name) or {}
+    finally:
+        if os.path.exists(summary_path):
+            os.unlink(summary_path)
+        os.rmdir(workdir)
+    cost = summary.get("cost_usd")
+    cost_runs = summary.get("cost_runs")
+    measured = (is_cost(cost) and isinstance(cost_runs, int) and not isinstance(cost_runs, bool)
+                and cost_runs > 0)
+    if not measured:
+        cost = runs * per_run
+    attempted = summary.get("runs")
+    entry = {
+        "kind": "run", "at": iso(now_utc()), "skill": name, "tree": tree, "head": head,
+        "runs": attempted if isinstance(attempted, int) and attempted > 0 else runs,
+        "model": args.model, "cost_usd": round(cost, 4), "cost_measured": measured,
+        "estimate_usd": round(runs * per_run, 4), "exit_code": rc,
+        "assertions_passed": summary.get("assertions_passed"),
+        "assertions_graded": summary.get("assertions_graded"),
+    }
+    append_ledger(ledger, entry)
+    print("ledgered %s: harness exit %d, $%.2f%s" % (
+        name, rc, cost, "" if measured else " (estimated: the harness reported no cost)"))
+    return rc
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise UsageError(message)
+
+
+def main(argv):
+    parser = Parser(prog="scheduled-evals.py")
+    parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--model", default="sonnet")
+    parser.add_argument("--cap-usd", type=float, default=None)
+    parser.add_argument("--ledger", default=None)
+    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("skills", nargs="*")
+    try:
+        args = parser.parse_args(argv)
+        if args.cap_usd is None:
+            try:
+                args.cap_usd = float(os.environ.get("SHIRABE_EVAL_WEEKLY_CAP_USD") or "50")
+            except ValueError:
+                raise UsageError("SHIRABE_EVAL_WEEKLY_CAP_USD is not an amount")
+        args.ledger = args.ledger or default_ledger()
+        return run(args)
+    except UsageError as exc:
+        print("usage error: %s" % exc, file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

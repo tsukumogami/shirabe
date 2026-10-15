@@ -20,6 +20,9 @@
 #   list-rc          --list-changed's exit code (default 0)
 #   result.<skill>   "<exit> <assertions passed> <assertions graded>"
 #   nosummary.<skill>  present: write no summary for that skill
+# and writes the EVAL_MODEL it was given (or "unset") to model.<skill>, and
+# into the summary as session_model ("default" when unset), the way the real
+# harness does.
 # The stub gh copies $STUB_DIR/asset.<tag>, else $STUB_DIR/asset, as the
 # downloaded asset, or fails as not found when there is neither;
 # gh-error.<tag> makes the download of that one tag fail otherwise.
@@ -74,6 +77,7 @@ EOF
 cat >"$BIN/run-evals.sh" <<'EOF'
 #!/usr/bin/env bash
 echo "run-evals $*" >>"$STUB_LOG"
+session_model="${EVAL_MODEL:-default}"
 if [ "$1" = --list-changed ]; then
   [ ! -f "$STUB_DIR/selection" ] || cat "$STUB_DIR/selection"
   exit "$(cat "$STUB_DIR/list-rc" 2>/dev/null || echo 0)"
@@ -86,6 +90,7 @@ while [ $# -gt 0 ]; do
     *) skill="$1"; shift ;;
   esac
 done
+echo "${EVAL_MODEL-unset}" >"$STUB_DIR/model.$skill"
 set -- $(cat "$STUB_DIR/result.$skill" 2>/dev/null || echo "0 1 1")
 code=$1 passed=$2 graded=$3
 runs_passed=0
@@ -94,7 +99,8 @@ if [ ! -f "$STUB_DIR/nosummary.$skill" ]; then
   cat >"$out" <<JSON
 {"schema": "run-evals-summary/v1", "skills": {"$skill": {"runs": $runs,
  "runs_passed": $runs_passed, "assertions_passed": $passed,
- "assertions_graded": $graded, "models": ["sonnet"], "exit_code": $code}}}
+ "assertions_graded": $graded, "models": ["sonnet"],
+ "session_model": "$session_model", "exit_code": $code}}}
 JSON
 fi
 exit "$code"
@@ -535,6 +541,65 @@ new_case
 run_finalize v0.23.0 0.24.0
 [ "$RC" -eq 1 ] && pass "--finalize refuses with no marker" || fail "finalize no marker (rc=$RC): $OUT"
 
+# -- one run on a named model, a new reference, a tolerance ----------------------
+
+run_check_model() { # run_check_model <last tag> <version> -- the declared release check
+  RC=0
+  OUT=$(cd "$REPO" && RELEASE_LAST_TAG="$1" RELEASE_VERSION="$2" \
+    bash scripts/release-eval-check.sh --critical work-on,scope --critical-runs 1 \
+    --model sonnet --tolerance 0.05 2>&1) || RC=$?
+}
+
+new_case
+printf 'work-on\nbrief\n' >"$STUB_DIR/selection"
+write_asset work-on 10 10 1.0
+echo "1 6 10" >"$STUB_DIR/result.work-on"
+run_check_model v0.23.0 0.24.0
+if [ "$(cat "$STUB_DIR/model.work-on")" = sonnet ] && [ "$(cat "$STUB_DIR/model.brief")" = sonnet ] \
+  && grep -qx 'run-evals --runs 1 --summary-out .*/1.json work-on' "$STUB_LOG"; then
+  pass "--model reaches every harness run as EVAL_MODEL, a critical skill runs once"
+else
+  fail "model passing: $(cat "$STUB_DIR"/model.* 2>/dev/null) $(cat "$STUB_LOG")"
+fi
+if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q '^new reference: work-on ' \
+  && [ "$(record_field 'r["skills"]["work-on"]["session_model"]')" = sonnet ]; then
+  pass "a rate measured on another session model is a new reference, not a drop"
+else
+  fail "new reference (rc=$RC): $OUT"
+fi
+
+new_case
+echo work-on >"$STUB_DIR/selection"
+echo "1 6 10" >"$STUB_DIR/result.work-on"
+run_check "" 0.24.0
+if [ "$(cat "$STUB_DIR/model.work-on")" = unset ]; then
+  pass "without --model the harness gets no EVAL_MODEL"
+else
+  fail "EVAL_MODEL leaked: $(cat "$STUB_DIR/model.work-on")"
+fi
+
+new_case
+echo work-on >"$STUB_DIR/selection"
+cat >"$STUB_DIR/asset" <<JSON
+{"schema": "eval-pass-rates/v1", "version": "0.23.0", "last_tag": "v0.22.0",
+ "skills": {"work-on": {"runs": 1, "runs_passed": 1, "assertions_passed": 97,
+ "assertions_graded": 100, "pass_rate": 0.97, "models": ["sonnet"],
+ "session_model": "sonnet", "measured_at": "0.23.0"}}}
+JSON
+echo "1 93 100" >"$STUB_DIR/result.work-on"
+run_check_model v0.23.0 0.24.0
+[ "$RC" -eq 0 ] && pass "a drop within --tolerance passes" || fail "within tolerance (rc=$RC): $OUT"
+new_case
+echo work-on >"$STUB_DIR/selection"
+cp "$T/stub$((N - 1))/asset" "$STUB_DIR/asset"
+echo "1 91 100" >"$STUB_DIR/result.work-on"
+run_check_model v0.23.0 0.24.0
+if [ "$RC" -eq 5 ] && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=work-on" ]; then
+  pass "a drop beyond --tolerance against the same session model asks for confirmation"
+else
+  fail "beyond tolerance (rc=$RC): $OUT"
+fi
+
 # -- usage ---------------------------------------------------------------------
 
 new_case
@@ -547,6 +612,17 @@ run_check v0.23.0 0.24.0 'Bad;name'
 RC=0
 OUT=$(cd "$REPO" && RELEASE_VERSION=0.24.0 bash scripts/release-eval-check.sh 2>&1) || RC=$?
 [ "$RC" -eq 2 ] && pass "no mode is a usage error" || fail "no mode (rc=$RC): $OUT"
+for bad in "--model -x" "--model a;b" "--tolerance 1.5" "--tolerance -0.1" "--tolerance x"; do
+  RC=0
+  # shellcheck disable=SC2086 # each case is two words by design
+  OUT=$(cd "$REPO" && RELEASE_LAST_TAG=v0.23.0 RELEASE_VERSION=0.24.0 \
+    bash scripts/release-eval-check.sh --critical work-on --critical-runs 1 $bad 2>&1) || RC=$?
+  [ "$RC" -eq 2 ] && pass "$bad is a usage error" || fail "$bad (rc=$RC): $OUT"
+done
+RC=0
+OUT=$(cd "$REPO" && RELEASE_LAST_TAG=v0.23.0 RELEASE_VERSION=0.24.0 \
+  bash scripts/release-eval-check.sh --finalize --model sonnet 2>&1) || RC=$?
+[ "$RC" -eq 2 ] && pass "--finalize with --model is a usage error" || fail "finalize --model (rc=$RC): $OUT"
 if [ "$(harness_calls)" = 0 ] && [ "$(list_calls)" = 0 ]; then
   pass "usage errors run nothing"
 else
