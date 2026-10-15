@@ -44,16 +44,16 @@ its work starts, from what the earlier ones taught.
 
 **Acceptance Criteria**:
 
-- [ ] `shirabe validate crates/shirabe-validate/tests/fixtures/plan_v2_minimal.md` (frontmatter `schema: plan/v2`, `step_count: 3`, sections Status, Scope Summary, Decomposition Strategy, Steps; steps 1 and 2 detailed, step 3 a one-line outline) exits 0 with no findings.
-- [ ] A copy of that fixture with `step_count` not matching the number of `### Step N:` headings, and a copy missing the `## Steps` section, each exit non-zero with a message naming the missing or mismatched field.
-- [ ] `shirabe plan outlines` on the minimal fixture exits 0 and prints three entries in step order; steps 1 and 2 carry `detailed: true` and a `check_declared` value taken from their `**Check**:` line, step 3 carries `detailed: false`; `**Dependencies**: Step 1` resolves to an edge from step 2 to step 1.
-- [ ] `shirabe plan outlines` on a plan/v1 fixture still prints the same entries it printed before this change (no new fields change existing keys).
-- [ ] `plan-to-tasks.sh` on the minimal fixture with `execution_mode: single-pr` exits 0 and emits tasks named `step-1`, `step-2`, `step-3` in that order, each with its dependency edges; the same fixture with `execution_mode: multi-pr` and no `tracking_level` (or `none`) emits the same task names and edges.
-- [ ] `plan-to-tasks.sh` on a plan/v2 file with `tracking_level` other than `none` exits non-zero with a message saying plan/v2 supports only `none`.
-- [ ] `plan-to-tasks_test.sh` gains plan/v2 cases for single-pr, multi-pr, and the unsupported tracking level; the script runs under bash 3.2 (no associative arrays, no `mapfile`, no `${var,,}`).
-- [ ] The koto evidence-routing plan is added as `crates/shirabe-validate/tests/fixtures/plan_v1_five_layer.md` (five entries: types, compiler, CLI, tests, plugin templates), with a leading comment naming its source (koto repo, `docs/plans/PLAN-template-evidence-routing.md`) and the commit it was recovered from.
-- [ ] `shirabe validate` on `plan_v1_five_layer.md` and on every existing plan/v1 fixture produces output identical to the recorded pre-change output (a Rust test pins the five-layer result).
-- [ ] Every existing plan/v1 test this issue touches (Rust tests in `crates/shirabe-validate`, `crates/shirabe`, and `skills/plan/scripts/plan-to-tasks_test.sh`) still passes unchanged: `cargo test --workspace` is green and no existing assertion is edited.
+- [x] `shirabe validate crates/shirabe-validate/tests/fixtures/plan_v2_minimal.md` (frontmatter `schema: plan/v2`, `step_count: 3`, sections Status, Scope Summary, Decomposition Strategy, Steps; steps 1 and 2 detailed, step 3 a one-line outline) exits 0 with no findings.
+- [x] A copy of that fixture with `step_count` not matching the number of `### Step N:` headings, and a copy missing the `## Steps` section, each exit non-zero with a message naming the missing or mismatched field.
+- [x] `shirabe plan outlines` on the minimal fixture exits 0 and prints three entries in step order; steps 1 and 2 carry `detailed: true` and a `check_declared` value taken from their `**Check**:` line, step 3 carries `detailed: false`; `**Dependencies**: Step 1` resolves to an edge from step 2 to step 1.
+- [x] `shirabe plan outlines` on a plan/v1 fixture still prints the same entries it printed before this change (no new fields change existing keys).
+- [x] `plan-to-tasks.sh` on the minimal fixture with `execution_mode: single-pr` exits 0 and emits tasks named `step-1`, `step-2`, `step-3` in that order, each with its dependency edges; the same fixture with `execution_mode: multi-pr` and no `tracking_level` (or `none`) emits the same task names and edges.
+- [x] `plan-to-tasks.sh` on a plan/v2 file with `tracking_level` other than `none` exits non-zero with a message saying plan/v2 supports only `none`.
+- [x] `plan-to-tasks_test.sh` gains plan/v2 cases for single-pr, multi-pr, and the unsupported tracking level; the script runs under bash 3.2 (no associative arrays, no `mapfile`, no `${var,,}`).
+- [x] The koto evidence-routing plan is added as `crates/shirabe-validate/tests/fixtures/plan_v1_five_layer.md` (five entries: types, compiler, CLI, tests, plugin templates), with a leading comment naming its source (koto repo, `docs/plans/PLAN-template-evidence-routing.md`) and the commit it was recovered from.
+- [x] `shirabe validate` on `plan_v1_five_layer.md` and on every existing plan/v1 fixture produces output identical to the recorded pre-change output (a Rust test pins the five-layer result).
+- [x] Every existing plan/v1 test this issue touches (Rust tests in `crates/shirabe-validate`, `crates/shirabe`, and `skills/plan/scripts/plan-to-tasks_test.sh`) still passes unchanged: `cargo test --workspace` is green and no existing assertion is edited.
 
 **Check**: Run `cargo test --workspace` and `bash skills/plan/scripts/plan-to-tasks_test.sh`; both exit 0. Then run `shirabe validate crates/shirabe-validate/tests/fixtures/plan_v2_minimal.md` (exit 0, no findings), `shirabe plan outlines` on it (three entries, two `detailed`), and `bash skills/plan/scripts/plan-to-tasks.sh crates/shirabe-validate/tests/fixtures/plan_v2_minimal.md` (tasks `step-1`, `step-2`, `step-3`).
 
