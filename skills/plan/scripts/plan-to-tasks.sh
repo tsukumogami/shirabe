@@ -762,9 +762,9 @@ process_single_pr() {
             waits_on+=("$(kv_get number_to_name "$dep_num")")
         done
 
-        # An outline step waits on the step before it (see the header). It
-        # declares no dependencies of its own, so this is its only declared
-        # edge; a detailed step gets none from here.
+        # An outline step waits on the step before it (see the header). Any
+        # edges it declares are kept as well; a detailed step gets none from
+        # here, only the edges its own **Dependencies**: line names.
         if [[ "$naming" == "step" && "${issue_detailed[$i]}" == "false" && $i -gt 0 ]]; then
             waits_on+=("${issue_names[$((i - 1))]}")
         fi

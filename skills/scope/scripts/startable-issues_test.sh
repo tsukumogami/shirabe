@@ -175,8 +175,9 @@ else
         ok "plan/v2: no step is listed with an empty title"
     fi
 
-    # Once step 1 is gone (its work landed and the owner removed it), step 2 is
-    # the root. The title still comes from its own heading, not from position.
+    # A reader handed a plan whose first block is not step 1 (a fixture cut
+    # here by hand; FC22 would refuse it as a plan) still takes each title
+    # from its own heading, not from its position.
     awk '/^### Step 1:/ { skip = 1; next } skip && /^### / { skip = 0 } !skip' "$STEPS_FX" \
         | sed 's/^step_count: 4$/step_count: 3/' > "$T/PLAN-v2-no-step-1.md"
     sed -i.bak 's/^\*\*Dependencies\*\*: Step 1$/**Dependencies**: None/' "$T/PLAN-v2-no-step-1.md"

@@ -26,7 +26,7 @@
 #   --task   the form the work-on template's gate uses: <task-name> is the
 #            child's ARTIFACT_PREFIX. plan-to-tasks.sh names every plan/v2 task
 #            step-<N>, and the number after `step-` is checked as <step>. Any
-#            other name is a plan/v1 task (o-<slug>, m-<slug>, issue_<N>), whose
+#            other name is a plan/v1 task (o-<slug>, m-<slug>, issue-<N>, pr-*, gate-*), whose
 #            entries are always detailed, so the check passes at once without
 #            reading anything.
 #
