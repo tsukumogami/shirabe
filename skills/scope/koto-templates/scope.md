@@ -785,7 +785,7 @@ states:
       brief_complete:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop brief --topic "{{TOPIC}}"'
-      # The document gate (docs/designs/DESIGN-scope-document-gates.md). It runs
+      # The document gate (docs/designs/current/DESIGN-scope-document-gates.md). It runs
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
@@ -829,7 +829,7 @@ states:
       prd_complete:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop prd --topic "{{TOPIC}}"'
-      # The document gate (docs/designs/DESIGN-scope-document-gates.md). It runs
+      # The document gate (docs/designs/current/DESIGN-scope-document-gates.md). It runs
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
@@ -875,7 +875,7 @@ states:
       design_complete:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop design --topic "{{TOPIC}}"'
-      # The document gate (docs/designs/DESIGN-scope-document-gates.md). It runs
+      # The document gate (docs/designs/current/DESIGN-scope-document-gates.md). It runs
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.
@@ -916,7 +916,7 @@ states:
       plan_complete:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop plan --topic "{{TOPIC}}"'
-      # The document gate (docs/designs/DESIGN-scope-document-gates.md). It runs
+      # The document gate (docs/designs/current/DESIGN-scope-document-gates.md). It runs
       # every check the validator reports at error level, and the banned-word
       # check the validator reports only as a notice, over this hop's document,
       # and only the landed edge needs it: skipped, rejected and bail name no gate.

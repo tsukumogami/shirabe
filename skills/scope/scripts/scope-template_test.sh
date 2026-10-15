@@ -272,7 +272,7 @@ eq "hop_plan: filing_approval reads plan_filing_approval" '"plan_filing_approval
 eq "hop_plan: plan_filing runs check-plan-filing.sh with EXEC_MODE" 'true' \
     "$(q '.states.hop_plan.gates.plan_filing.command | contains("check-plan-filing.sh") and contains("--exec-mode \"{{EXEC_MODE}}\"")')"
 
-# --- the document gate (docs/designs/DESIGN-scope-document-gates.md) -----------------
+# --- the document gate (docs/designs/current/DESIGN-scope-document-gates.md) -----------------
 #
 # Each hop state and the fold run check-hop-document.sh as a non-overridable gate.
 # Only the edges that advance need it: a hop's landed edge (the two fold-bound arms

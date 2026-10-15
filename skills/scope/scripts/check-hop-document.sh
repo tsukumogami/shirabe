@@ -6,7 +6,7 @@
 # the fold, and holds the state until it exits 0. It runs the validator once
 # per document and reports, as `::koto-finding::` lines, every finding the
 # validator calls an error, plus the banned-word findings it reports only as a
-# notice. docs/designs/DESIGN-scope-document-gates.md is the design.
+# notice. docs/designs/current/DESIGN-scope-document-gates.md is the design.
 #
 # Usage:
 #   check-hop-document.sh --topic <slug> --hop <brief|prd|design|plan|all>
@@ -202,7 +202,9 @@ complete_envelope() {
 
 # --- the canary ---------------------------------------------------------------
 
-# The first `- <term>` under the first `terms:` of the rules file.
+# The first `- <term>` under the first `terms:` of the rules file. `terms:` is
+# the list inside the `words:` entry the precheck above requires, so both read
+# the same banned-word list.
 CANARY_WORD=$(awk '
     /^[[:space:]]*terms:[[:space:]]*$/ { inside = 1; next }
     inside && /^[[:space:]]*-[[:space:]]+/ {
