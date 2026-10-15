@@ -132,29 +132,24 @@ its work starts, from what the earlier ones taught.
 
 **Complexity**: testable
 
-**Goal**: `/work-on` stops a plan/v2 step that is still a one-line outline, with a message saying the plan's owner must detail it first. Once the step is detailed, the same run passes the check and works from the detailed text.
+**Goal**: A `/work-on` child for a plan/v2 step that is still a one-line outline stops before any implementation, with a message naming the step and saying the plan's owner details it first; once the owner commits the detail, rerunning the same child builds from the detailed text. Step plans also run in order until detailed, so no outline step's child becomes startable ahead of the step before it.
 
 **Acceptance Criteria**:
 
-- [ ] `step-detail-check.sh <plan> <step>` on a single-pr plan/v2 fixture with step 2 as an outline exits non-zero and prints `step 2 is an outline; the plan's owner details it before its work starts` (fixture `skills/work-on/scripts/fixtures/step-detail/single-pr-outline.md`).
-- [ ] The same refusal holds on a multi-pr fixture (`multi-pr-outline.md`) for an outline step.
-- [ ] On `single-pr-detailed.md` and `multi-pr-detailed.md`, the same step after detailing exits 0, and the context the template extracts for it contains the detailed text.
-- [ ] A step argument not matching `^[1-9][0-9]{0,2}$` (`0`, `1000`, `01`, `a`, empty, `1;ls`) exits non-zero with a message naming the rule, before the plan is read.
-- [ ] A plan path that is missing, is not a regular file, or resolves outside the repo (absolute path elsewhere, `..` escape, symlink out) exits non-zero with a clear message.
-- [ ] The script reads the plan only through `shirabe plan outlines`; if the binary is absent or the plan is not plan/v1 or plan/v2, it exits non-zero and says so.
-- [ ] `koto template compile skills/work-on/koto-templates/work-on.md` succeeds. `plan_context_injection` extracts a step, and `plan_validation` runs the check and submits `verdict: exit` carrying the refusal message when the step is an outline.
-- [ ] `work-on-open.sh` detects `schema: plan/v2` (a fixture named by a non-`PLAN-` file) as a plan, and still detects plan/v1.
-- [ ] `skills/work-on/SKILL.md` plan-mode detection accepts both versions and its step report phrase is "the behaviour this step added", with the check run and its result. `skills/execute/SKILL.md` names plan/v1 and plan/v2.
-- [ ] Every existing plan/v1 test this issue touches (`work-on-open_test.sh`, the template and cascade suites) still passes unchanged.
-- [ ] All scripts run on bash 3.2 (no associative arrays, `mapfile`, or `${var,,}`).
-- [ ] A hostile-title plan/v2 fixture (`$(touch PWNED)`, backticks, a leading `--`, an ANSI escape) run through `step-detail-check.sh` exits as its step's shape dictates, creates no `PWNED` file, and prints no step text unescaped.
-- [ ] A work-on template case drives `plan_validation` on an outline step and shows it submitting `verdict: exit` with the refusal message, not only that the template compiles.
+- [ ] `skills/work-on/scripts/step-detail-check.sh <plan> <step>` exits 0 for a detailed step and non-zero for an outline step, printing `step <N> is an outline; the plan's owner details it before its work starts`. It decides through `shirabe plan outlines` (the `detailed` field, which needs goal, criteria and check together), so it never disagrees with what step 2's FC22 accepts on a valid plan; its suite shows this on FC22-valid fixtures named `PLAN-v2-*.md` in `skills/work-on/scripts/testdata/`, in single-pr and multi-pr.
+- [ ] A step argument not matching `^[1-9][0-9]{0,2}$` (`0`, `01`, `1000`, `a`, empty, `1;ls`) is refused, naming the rule, before the plan is read; a plan path that is missing, not a regular file, or resolves outside the repository (absolute path elsewhere, `..`, a symlink out) is refused with a clear message; a plan that is not plan/v1 or plan/v2, or a missing `shirabe` binary, is refused saying so.
+- [ ] A hostile-title plan/v2 fixture (`$(touch PWNED)`, backticks, a leading `--`, an ANSI escape in step titles) run through `step-detail-check.sh` exits as its step's shape dictates, creates no `PWNED` file, and prints no step text unescaped.
+- [ ] `skills/work-on/koto-templates/work-on.md`: `plan_context_injection` extracts a `### Step N:` block as the context for a plan/v2 task, and `plan_validation` runs `step-detail-check.sh` and submits `verdict: exit` carrying the refusal message when the step is an outline. A template-level case (the work-on template suite or a decider fixture) drives `plan_validation` on an outline step and shows the exit with the message, and on the same step after detailing shows `verdict: proceed`; `koto template compile` on the template succeeds.
+- [ ] `plan-to-tasks.sh` gives each outline step a dependency edge on the step before it, so a fresh plan/v2 runs in step order; a detailed step keeps exactly the edges its `**Dependencies**:` line declares. Existing plan/v2 cases in `plan-to-tasks_test.sh` are updated only where they asserted no edges on outline steps, and the plan/v1 cases are unchanged.
+- [ ] `skills/work-on/scripts/work-on-open.sh` treats a file declaring `schema: plan/v2` as a plan, as it does `schema: plan/v1`, shown on a fixture whose name does not start with `PLAN-`.
+- [ ] `skills/work-on/SKILL.md` plan-mode detection names both versions, and its instructions for a plan step's report say the report names "the behaviour this step added" and the check that shows it, with the check's result. `skills/execute/SKILL.md` says it drives plan/v1 and plan/v2 and that an outline step's child stops until the plan's owner details it.
+- [ ] Every existing plan/v1 case in `work-on-open_test.sh`, the work-on template suites and `run-cascade_test.sh` passes unchanged; new scripts run under /bin/bash 3.2.
 
-**Check**: Run `bash skills/work-on/scripts/step-detail-check_test.sh`, `bash skills/work-on/scripts/work-on-open_test.sh` and `koto template compile skills/work-on/koto-templates/work-on.md`. All pass; the suite shows the outline refused in both modes and the detailed step passing.
+**Check**: `bash skills/work-on/scripts/step-detail-check_test.sh` passes; `skills/work-on/scripts/step-detail-check.sh skills/work-on/scripts/testdata/PLAN-v2-single-pr.md 3` prints the outline refusal and exits non-zero, and the same call with step `1` exits 0; `bash skills/plan/scripts/plan-to-tasks_test.sh` passes and shows the outline steps' edges; `koto template compile skills/work-on/koto-templates/work-on.md` exits 0.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
-**Files**: `skills/work-on/scripts/step-detail-check.sh` `skills/work-on/scripts/step-detail-check_test.sh` `skills/work-on/scripts/fixtures/step-detail/` `skills/work-on/scripts/work-on-open.sh` `skills/work-on/scripts/work-on-open_test.sh` `skills/work-on/koto-templates/work-on.md` `skills/work-on/SKILL.md` `skills/execute/SKILL.md`
+**Files**: `skills/work-on/scripts/step-detail-check.sh`, `skills/work-on/scripts/step-detail-check_test.sh`, `skills/work-on/scripts/testdata/`, `skills/work-on/koto-templates/work-on.md`, `skills/work-on/scripts/work-on-open.sh`, `skills/work-on/SKILL.md`, `skills/execute/SKILL.md`, `skills/plan/scripts/plan-to-tasks.sh`, `skills/plan/scripts/plan-to-tasks_test.sh`
 
 ---
 
