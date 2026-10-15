@@ -124,7 +124,8 @@ coordinate with-skill run) is the agent's final context size, not what the run
 processed; the same runs processed 481k tokens on average.
 
 Execute's with-skill runs launch review panels of their own, but those panels
-cost $23 of the $284 the with-skill runs cost (8%). Most of the tier-2 cost is
+cost $23 of the $284 the with-skill runs cost across the four execute
+iterations (8%). Most of the tier-2 cost is
 the agent itself driving the workflow over many turns.
 
 ### Cost per run
@@ -166,7 +167,7 @@ The four coordinate runs scored 92.4%, 91.9%, 91.9% and 97.3% with the skill
 (171, 170, 170 and 180 of 185 assertions) on an unchanged skill. The three
 execute runs that graded scenarios scored 89.4%, 91.7% and 90.9% on the
 scenarios each reached. The record flags a drop when a skill's rounded rate is
-strictly lower than its baseline, so a single run per release would flag
+strictly lower than its prior release record, so a single run per release would flag
 noise of up to five points as a drop.
 
 ### Scenarios that score the same with and without the skill
@@ -199,7 +200,7 @@ e2e-execute-cascade-new-shape-plan-carries-roadmap, e2e-execute-happy-path,
 merge-call-fails, merge-draft-ready-fails, merge-mergeable-without-merge and
 merge-review-required-with-merge. Scope, work-on and roadmap have no graded
 runs, so their non-discriminating scenarios are unknown until the scheduled
-baseline measurement runs.
+measurement runs them with and without the skill.
 
 ### What a release costs today
 
@@ -306,11 +307,11 @@ cut check.
 
 ### Issues to file once the plan is agreed
 
-1. Drop the baseline from the release check's runs and grade only the
+1. Drop the no-skill baseline from the release check's runs and grade only the
    with-skill side.
 2. Run one pass per release (`--critical-runs 1`, as its own pull request
    against `release.md`) and add the scheduled measurement: three runs, the
-   baseline and every tier-2 scenario.
+   no-skill baseline and every tier-2 scenario.
 3. Mark each skill's release tier-2 subset in `evals.json` and run only it at
    release.
 4. Set `EVAL_MODEL=sonnet` on the release check (with issue 2's pull request
