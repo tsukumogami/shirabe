@@ -15,7 +15,8 @@ goals: |
   Each hold is countable by rule id in koto's exported check events, adopters'
   CI is unchanged, and the choice between external linters and
   `shirabe validate` is settled on the record.
-upstream: docs/briefs/BRIEF-linter-check-states.md
+absorbed:
+  - docs/briefs/BRIEF-linter-check-states.md
 ---
 
 # PRD: linter check states
@@ -23,6 +24,38 @@ upstream: docs/briefs/BRIEF-linter-check-states.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-linter-check-states](docs/briefs/BRIEF-linter-check-states.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because the pull request title and body a /work-on or
+/execute run publishes, which become the commit message on main and the
+record reviewers read, pass no writing-style check, while the documents the
+same run writes do. The pull request gate already runs the validator and
+returns findings by rule id, but only for structure, so a banned word there
+reaches main whenever the agent and the reviewer both miss it, and the
+guidance can't be considered for removal from default context without a
+check behind it. Where that check should live, external linters or
+`shirabe validate`, was also open. This document's Problem Statement states
+that in full.
+
+The outcome it asked for is an agent held at the pull request gate when the
+title or body uses a banned word, told the word, the rule id and where the
+rule's text is, so it fixes the pull request itself; and a maintainer who can
+count those holds per rule. Those are this document's Goals. Its four
+journeys (a /work-on agent's body, /execute's plan pull request held on its
+title, a maintainer counting breaks by rule id, an adopting repository's
+declared term of art and unchanged CI) are the User Stories, with the
+older-binary case added.
+
+Its boundary held the feature to settling where the check lives, the banned
+words checked in the title and body at the existing gate with the declared
+vocabulary honored, findings carrying the rule id and the rule's reference,
+and a registry entry not eligible to withhold: no rule withheld, no em-dash
+density, no judgment-only rules, no branch commit messages, no change to the
+reusable CI workflow, no escalation ladder or check lifecycle, and no
+evasion matching. Those are this document's Requirements and Out of Scope.
 
 ## Problem Statement
 
