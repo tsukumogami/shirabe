@@ -24,9 +24,10 @@ A run:
      release subset, once. A scenario is due when no graded rotation on this
      model ran it at the current tree; never-run scenarios go first, then the
      longest since run. "Graded" means harness exit 0 or 1.
-  3. Takes the repeat jobs first (never measured, then longest since), then the
-     rotation jobs (the skill whose longest-waiting scenario has waited
-     longest first).
+  3. Takes the jobs longest-waiting first, both kinds in one queue: never run,
+     then the oldest last run (a rotation waits as long as its longest-waiting
+     scenario). Since a stop at the cap ends the run, this is what keeps a
+     run of skill changes from holding the rotation off indefinitely.
   4. Before each job, adds up what the ledger's runs cost over the last seven
      days and estimates the job: the skill's last measured cost per run (a
      repeat) or per scenario (a rotation) on the same model, or, with none,
@@ -296,8 +297,8 @@ def plan_jobs(args, skills, entries):
             print("unchanged: %s (measured %s on %s)" % (name, graded[-1].get("at", "?"), args.model))
         else:
             last_at = parse_iso(graded[-1].get("at")) if graded else None
-            repeats.append(("run", (last_at is not None, last_at or now_utc(), name), name, tree,
-                            suite, None))
+            repeats.append(("run", (last_at is not None, last_at or now_utc(), 0, name), name,
+                            tree, suite, None))
         if args.rotation_size == 0 or not suite.rest:
             continue
         last_run = {}
@@ -312,16 +313,19 @@ def plan_jobs(args, skills, entries):
             continue
         order = {s: i for i, s in enumerate(suite.rest)}
 
-        def waited(scenario):
-            at = parse_iso(last_run[scenario].get("at")) if scenario in last_run else None
-            return (at is not None, at or now_utc(), order[scenario])
+        def last_rotated(scenario):
+            return parse_iso(last_run[scenario].get("at")) if scenario in last_run else None
 
-        due.sort(key=waited)
+        due.sort(key=lambda s: (last_rotated(s) is not None, last_rotated(s) or now_utc(), order[s]))
         picked = due[:args.rotation_size]
-        rotations.append(("rotation", waited(picked[0]) + (name,), name, tree, suite, picked))
-    repeats.sort(key=lambda job: job[1])
-    rotations.sort(key=lambda job: job[1])
-    return repeats + rotations
+        at = last_rotated(picked[0])
+        rotations.append(("rotation", (at is not None, at or now_utc(), 1, name), name, tree,
+                          suite, picked))
+    # One queue, longest-waiting first: a job never run before, then the one
+    # whose last run is oldest, a repeat ahead of a rotation on a tie. A stop at
+    # the cap ends the run, so ordering repeats ahead of every rotation would
+    # let a week of skill changes keep the rotation from ever running.
+    return sorted(repeats + rotations, key=lambda job: job[1])
 
 
 def measure(args, skills, head, ledger):

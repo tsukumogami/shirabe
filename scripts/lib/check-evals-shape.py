@@ -85,6 +85,9 @@ def check(path):
             continue
         if not non_empty_string(entry.get("name")):
             problems.append("%s: missing or empty `name`" % where)
+        elif "," in entry["name"]:
+            # scripts/run-evals.sh --scenario takes a comma-separated list.
+            problems.append("%s: `name` can't contain a comma" % where)
         if not non_empty_string(entry.get("prompt")):
             problems.append("%s: missing or empty `prompt`" % where)
         if not (non_empty_list(entry.get("expectations"))

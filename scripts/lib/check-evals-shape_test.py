@@ -91,6 +91,11 @@ class ReleaseSubsetTest(unittest.TestCase):
                 self.assertEqual(rc, 1, out)
                 self.assertIn("belong on tier-2 entries", out)
 
+    def test_name_with_a_comma_fails(self):
+        rc, out = self.check([scenario("plan,a")])
+        self.assertEqual(rc, 1, out)
+        self.assertIn("`name` can't contain a comma", out)
+
     def test_behaviour_must_be_kebab_case(self):
         rc, out = self.check([scenario("merge-a", tier=2, behaviour="Merge Refused", release=True)])
         self.assertEqual(rc, 1, out)

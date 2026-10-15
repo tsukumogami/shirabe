@@ -338,6 +338,17 @@ class RotationTest(Case):
         self.assertEqual(rc, 6, out)
         self.assertEqual(self.ledger_lines()[-1]["unrun"], ["execute:rotation"])
 
+    def test_a_rotation_waiting_longer_runs_before_a_newer_repeat(self):
+        self.seed({"kind": "run", "at": ago(days=2), "skill": "execute", "tree": "old", "runs": 1,
+                   "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0},
+                  {"kind": "rotation", "at": ago(days=9), "skill": "execute", "tree": "old",
+                   "runs": 1, "model": "sonnet", "cost_usd": 1, "cost_measured": True,
+                   "exit_code": 0, "scenarios": ["r-0", "r-1", "r-2", "r-3"]})
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(self.calls()[0], r"--scenario r-0,r-1 ")
+        self.assertRegex(self.calls()[1], r"--release-subset")
+
     def test_a_repeat_on_another_model_doesnt_count(self):
         self.seed({"kind": "run", "at": ago(days=1), "skill": "execute", "tree": self.tree("execute"),
                    "runs": 1, "model": "opus", "cost_usd": 1, "cost_measured": True,
