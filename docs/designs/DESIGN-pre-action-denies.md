@@ -376,9 +376,11 @@ of that holds, the plugin hook skips the PR-body rules and their
 fail-closed cases for that call; the legacy entry point, now the same
 evaluator, reports them in the same shape. What it can't cover is that
 entry point crashing: niwa's `|| exit 0` turns a crash into a pass, a
-residual risk the binary's own always-exit-0 design keeps small. A file it can't read or parse counts as no wiring, so
-the worst failure is a duplicate report, never a missing one. A push is
-always the plugin hook's.
+residual risk the binary's own always-exit-0 design keeps small. A file
+it can't read or parse counts as no wiring, so a doubt about a file gives
+a duplicate report rather than a missing one; a wiring line Claude Code
+didn't load (a settings file it ignores) is the case this can't see. A
+push is always the plugin hook's.
 
 The probe is strict on purpose. A line that only mentions the command
 (`echo shirabe pr-body-hook`), sits under a matcher that never fires on
@@ -497,11 +499,13 @@ checkout other && git push` or `git commit ... && git push` fail closed,
 and so does any earlier segment with a wrapper head.
 
 Every read is bounded. A `--body-file` must not be a symlink (`lstat`),
-is opened with `O_NONBLOCK` so a FIFO swapped in after the check can't
-block, is checked again with `fstat` on the open descriptor (a regular
-file of at most 1 MiB), and is read up to that size. The hook input is
-read up to 4 MiB; a longer input is denied when its raw text names a
-guarded action and gets no decision otherwise. The whole evaluation
+is opened with `O_NONBLOCK | O_NOFOLLOW` so a FIFO or a symlink swapped
+in after the check can't block or redirect it, is checked again with
+`fstat` on the open descriptor (a regular file of at most 1 MiB), and is
+read up to that size. The hook input is read whole, since Claude Code
+already holds it in memory, but only an input of at most 4 MiB is
+tokenized; a longer one is denied when the coarse test over all of it
+names a guarded action and gets no decision otherwise. The whole evaluation
 runs on a worker thread; the main thread waits 25 seconds and, when the
 worker hasn't answered, applies the coarse test to the raw input,
 prints the fail-closed deny when it names a guarded action (or nothing
@@ -582,7 +586,10 @@ niwa host, in parallel:
   entries or at `~/.shirabe/bin/shirabe`, pipes the saved input into
   it, and checks its exit status and that its output is empty or one
   line starting with the exact deny prefix. On anything else it runs
-  the coarse test: the raw input, lowercased, matched with `grep -E`
+  the coarse test: the raw input with its JSON escapes `\n`, `\r`, `\t`,
+  `\"` and `\\` turned back into characters by `sed` (a newline in the
+  command reaches the script as the two characters `\n`, which would
+  otherwise glue `git` to the word before it), lowercased, matched with `grep -E`
   for `(^|[^a-z0-9_-])gh([^a-z0-9_-].*)?[^a-z0-9_-]pr[^a-z0-9_-](.*[^a-z0-9_-])?(create|edit)([^a-z0-9_-]|$)`
   and the `git` ... `push` equivalent. On a match it prints a constant
   deny built with `printf`, naming the binary as missing or older than
@@ -789,23 +796,31 @@ timeout that Claude Code would let through.
 
 **Running git in a directory the agent chose.** A repository the agent
 just created is fully agent-shaped, including `.git/config`. The push
-check therefore runs only built-in plumbing and `log`, from a fixed
+check therefore runs only built-in plumbing (`rev-parse`, `config`,
+`for-each-ref`, `rev-list`, `cat-file`), from a fixed
 environment, with the configuration paths that run programs switched
 off: the filesystem monitor, hooks, signature verification (which would
 run `gpg.program`), pagers, external diff and text conversion, and
 lazy fetches from a partial clone's promisor (which would make a
-network call through the remote's helpers). Replace objects are
-ignored, so a `refs/replace/` entry can't swap a commit's message.
-Arguments are the object ids `rev-parse` resolved, after
-`--end-of-options`, and the remote name must be a plain word.
-`safe.directory` is never overridden.
+network call through the remote's helpers; `GIT_NO_LAZY_FETCH` needs
+git 2.44 or later, and on an older git a partial clone remains a residual
+risk). Replace objects are ignored, so a `refs/replace/` entry can't swap
+a commit's message. A source word starting with `-` is refused,
+`rev-parse` gets the rest after `--end-of-options`, `rev-list` gets only
+the hexadecimal ids that came back, and the remote name must be a plain
+word. A leading `GIT_...=value` assignment on a guarded push is a
+fail-closed case, since it could point git elsewhere. `safe.directory`
+is never overridden.
 
 **What reaches the model.** A deny reason carries registry text, the
 validator's fixed messages with line numbers, commit hashes and
-subjects from the repository, and the absolute path of the plugin's
-reference file (which shows the user's home directory name). It never
-quotes a body file's lines, so `--body-file` can't be used to read a
-file the agent's permissions deny it. Settings files are read only for
+subjects from the repository (labelled `subject:`, cut to 72 characters,
+at most 10 of them, since they are text from a repository the agent may
+not trust), and the absolute path of the plugin's reference file (which
+shows the user's home directory name). It never quotes a body file's
+lines, so `--body-file` can't be used to read the content of a file the
+agent's permissions deny it; what leaks is only which PR-body rule the
+file breaks and on which line. Settings files are read only for
 the wiring test and nothing from them is echoed. The hook ignores the
 input's transcript path and logs nothing.
 

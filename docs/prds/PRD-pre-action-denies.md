@@ -169,10 +169,14 @@ These terms mean the same thing everywhere below.
   command is guarded when any of its segments is. Of the options before
   the subcommand, only `-R`, `--repo`, `--repo=<v>` (gh) and `-C`, `-c`,
   `--no-pager`, `-P` (git) are understood; a guarded segment carrying
-  any other fails closed under R7.
+  any other, or a guarded `git` segment with a leading `GIT_...=value`
+  assignment (which can point git at another repository), fails closed
+  under R7 case 9. Leading redirection words (`>out`, `2>&1`) are
+  skipped like assignments.
 - **Named in the text**: the coarse test the plugin's script applies
-  when the binary can't run. The raw hook input contains, as separate
-  words and ignoring quotes, `gh` followed later by `pr` followed later
+  when the binary can't run. The raw hook input, with its JSON escapes
+  `\n`, `\r`, `\t`, `\"` and `\\` turned back into the characters they
+  stand for, contains, as separate words and ignoring quotes, `gh` followed later by `pr` followed later
   by `create` or `edit`, or `git` followed later by `push`. It is a
   superset of guarded: everything guarded is named in the text, and
   some unguarded commands are too (`echo "git push"`). The same test,
@@ -266,7 +270,8 @@ These terms mean the same thing everywhere below.
   `text` anchors resolve to in that copy. `<detail>` says where the
   breach is: the validator's message for a PR-body rule; for the
   commit rule, each offending commit as its 12-character abbreviated
-  hash and subject, at most 10, then `and <n> more`.
+  hash and `subject: ` followed by its subject cut to 72 characters, at
+  most 10, then `and <n> more`.
 - **R6. Read the body the way agents write it.** The hook reads the
   title from `--title`/`-t` and the body from `--body`/`-b` (as `--body
   <v>`, `--body=<v>` or `-b <v>`) and `--body-file`/`-F` (as `-F <p>` or
@@ -365,8 +370,9 @@ These terms mean the same thing everywhere below.
   the PR-body rules and their fail-closed cases to that entry point and
   checks only the push rule. With `CLAUDE_PROJECT_DIR` unset only the user file is
   read, and a file that can't be read or parsed counts as not wiring
-  it, so a doubt gives a duplicate report, never a missing one. Either
-  way each broken rule appears in one deny reason, not two.
+  it, so a doubt about the file gives a duplicate report rather than a
+  missing one. Either way each broken rule appears in one deny reason,
+  not two.
 - **R13. The registry names the hook.** Every rule the hook denies
   carries a `deny` field, `{"hook": "hooks/pre-action-deny.sh",
   "before": [<protected actions>]}`, naming the plugin's hook script
@@ -383,7 +389,7 @@ These terms mean the same thing everywhere below.
 - **R14. Cost.** On a command that isn't guarded the hook starts no
   `git` or `gh` process. On a guarded command it starts no `gh` process
   and makes no network call: the push check runs local `git` plumbing
-  only (`rev-parse`, `rev-list`, `log`, `config`, `symbolic-ref`,
+  only (`rev-parse`, `rev-list`, `cat-file`, `config`, `symbolic-ref`,
   `for-each-ref`), never `fetch`, `ls-remote` or `remote show`.
 - **R15. Safety of untrusted text.** The command, title, body and commit
   messages are attacker-controlled. The hook never shell-evaluates the
@@ -501,7 +507,8 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
       push"` are denied with a reason naming the binary (R8).
 - [ ] With a binary stub that exits 2 for the hook's subcommand, a
       guarded command is denied naming the binary and an unguarded one
-      gives no decision (R7, R8).
+      gives no decision; so is `cd repo` then a newline then `git push`,
+      whose newline reaches the script as the JSON escape `\n` (R7, R8).
 - [ ] With the binary present and the registry file unreadable, the
       unguarded commands of the example table give no decision (R8).
 - [ ] With `SHIRABE_PRE_ACTION_HOOK=off`, the bad-body create (on both
