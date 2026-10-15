@@ -30,10 +30,10 @@ it. Two-reviewer jury all-PASS, and the four Open Questions
 were carried into the downstream PRD's Decisions and Trade-offs before the
 section was cleared for this transition.
 
-Edited in place after acceptance: journey two originally promised the resuming
+Edited in place after acceptance: the second user path originally promised the resuming
 author a view of which steps had passed their checks. PRD research established
 that the per-step render is keyed to a session id and so does not survive into a
-later conversation, which would have made the promise false. The journey now
+later conversation, which would have made the promise false. That path now
 states what actually holds.
 
 ## Problem Statement

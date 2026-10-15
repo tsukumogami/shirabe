@@ -20,8 +20,10 @@ For recognized files, the validator:
    passes, so unschema'd docs are never blocked.
 2. **FC01–FC04** -- required frontmatter fields, valid status enum, status
    body consistency, required sections.
-3. **Format-specific rules** -- Plan docs: upstream file existence and git
-   tracking (R6). VISION docs in public repos: prohibited section headings
+3. **Format-specific rules** -- Every format that carries an `upstream:`
+   field: each entry names a file that exists and is tracked by git (R6), of
+   a type the document may name (R10) and that outlives it (R11). VISION
+   docs in public repos: prohibited section headings
    (R7). STRATEGY docs in public repos: prohibited section headings (R8).
    Private-only formats such as COMP: rejected outside private visibility
    (R9), and the gate fires before FC01-FC04.
@@ -47,6 +49,11 @@ For recognized files, the validator:
    resolves. Roughly 77 documents in this repository cite a requirement
    number that resolves nowhere, and a general rule would fail all of them
    -- those are a separate cleanup, not this check's business.
+5. **FC20 -- stale prose references.** Error-level, and run on every
+   Markdown file the validator is handed, schema or not: a document whose
+   prose names an artifact path that has since moved (a design that moved
+   to `docs/designs/current/`, say) fails, so the reference is fixed before
+   a reader follows it to nothing.
 
 Errors produce `::error` GHA annotations that fail the check. Notices
 produce `::notice` annotations that don't.
