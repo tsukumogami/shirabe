@@ -87,6 +87,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --runs) runs="$2"; shift 2 ;;
     --summary-out) out="$2"; shift 2 ;;
+    --release-subset) shift ;;
     *) skill="$1"; shift ;;
   esac
 done
@@ -234,9 +235,9 @@ new_case
 printf 'work-on\nbrief\n' >"$STUB_DIR/selection"
 write_asset brief 9 10 0.9
 run_check v0.23.0 0.24.0
-if [ "$RC" -eq 0 ] && grep -qx 'run-evals --runs 3 --summary-out .*/1.json work-on' "$STUB_LOG" \
-  && grep -qx 'run-evals --runs 1 --summary-out .*/2.json brief' "$STUB_LOG"; then
-  pass "a critical skill runs --critical-runs times, another once, summaries named by index"
+if [ "$RC" -eq 0 ] && grep -qx 'run-evals --runs 3 --release-subset --summary-out .*/1.json work-on' "$STUB_LOG" \
+  && grep -qx 'run-evals --runs 1 --release-subset --summary-out .*/2.json brief' "$STUB_LOG"; then
+  pass "a critical skill runs --critical-runs times, another once, the release subset, summaries named by index"
 else
   fail "run counts (rc=$RC): $(cat "$STUB_LOG")"
 fi
@@ -557,7 +558,7 @@ write_asset work-on 10 10 1.0
 echo "1 6 10" >"$STUB_DIR/result.work-on"
 run_check_model v0.23.0 0.24.0
 if [ "$(cat "$STUB_DIR/model.work-on")" = sonnet ] && [ "$(cat "$STUB_DIR/model.brief")" = sonnet ] \
-  && grep -qx 'run-evals --runs 1 --summary-out .*/1.json work-on' "$STUB_LOG"; then
+  && grep -qx 'run-evals --runs 1 --release-subset --summary-out .*/1.json work-on' "$STUB_LOG"; then
   pass "--model reaches every harness run as EVAL_MODEL, a critical skill runs once"
 else
   fail "model passing: $(cat "$STUB_DIR"/model.* 2>/dev/null) $(cat "$STUB_LOG")"

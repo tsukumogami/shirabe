@@ -2,61 +2,82 @@
 """scheduled-evals.py - the scheduled eval measurement, off the release path.
 
 The release eval check (scripts/release-eval-check.sh) runs each changed skill
-once, on Sonnet. The repeat runs it no longer makes, which measure the noise a
-single run carries, run here instead: on a schedule the operator sets up (cron
-or a scheduled agent), within a weekly budget. See
-docs/spikes/SPIKE-release-eval-cost.md.
+once, on Sonnet, and of its tier-2 scenarios only the release subset: the one
+each behaviour marks "release": true. What it no longer runs happens here, on a
+schedule the operator sets up (cron or a scheduled agent), within a weekly
+budget: repeat runs of the release subset, which measure the noise a single
+run carries, and a rotation through the other tier-2 scenarios, so none goes
+permanently unrun. See docs/spikes/SPIKE-release-eval-cost.md.
 
 Usage:
-  scripts/scheduled-evals.py [--runs <N>] [--model <name>] [--cap-usd <amount>]
-      [--ledger <file>] [--dry-run] [<skill>...]
+  scripts/scheduled-evals.py [--runs <N>] [--rotation-size <K>] [--model <name>]
+      [--cap-usd <amount>] [--ledger <file>] [--dry-run] [<skill>...]
 
 A run:
   1. Takes the named skills, or every skill with skills/<name>/evals/evals.json.
-  2. Skips a skill whose skills/<name>/ tree at HEAD is the tree its last
-     graded scheduled run measured (harness exit 0 or 1): nothing in it has
-     changed since. Run it from an up-to-date checkout of the default branch.
-  3. Orders the rest: never measured first, then the longest since measured.
-  4. Before each skill, adds up what the ledger's runs cost over the last seven
-     days and estimates what one run of this skill costs: its last measured
-     cost per run on the same model, never below what the per-scenario rates
-     below give. It runs the skill as many times as --runs asks and the budget
-     allows. When not even one run fits under --cap-usd, it stops, writes a
-     cap_stop line naming the skills left, and exits 6. A run's real cost can
-     exceed its estimate, so the last skill run can carry the week past the
-     cap; the next run sees that and stops sooner.
-  5. Runs scripts/run-evals.sh --runs <n> --summary-out <tmp> <skill> with
-     EVAL_MODEL=<model>, and appends a run line to the ledger with the cost the
-     harness's summary reports (the nested sessions' own total_cost_usd). A
-     run that reported no cost is ledgered at its estimate, marked
-     "cost_measured": false, so the budget still counts it.
+     Run it from an up-to-date checkout of the default branch.
+  2. Plans two kinds of job. A repeat job runs a skill's release subset
+     (scripts/run-evals.sh --release-subset) --runs times. It is due when the
+     skill has no graded repeat on this model, or the last one measured another
+     skills/<name>/ tree: something in the skill changed since. A rotation job
+     runs up to --rotation-size of the skill's tier-2 scenarios outside the
+     release subset, once. A scenario is due when no graded rotation on this
+     model ran it at the current tree; never-run scenarios go first, then the
+     longest since run. "Graded" means harness exit 0 or 1.
+  3. Takes the jobs longest-waiting first, both kinds in one queue: never run,
+     then the oldest last run (a rotation waits as long as its longest-waiting
+     scenario). Since a stop at the cap ends the run, this is what keeps a
+     run of skill changes from holding the rotation off indefinitely.
+  4. Before each job, adds up what the ledger's runs cost over the last seven
+     days and estimates the job: the skill's last measured cost per run (a
+     repeat) or per scenario (a rotation) on the same model, or, with none,
+     the per-scenario rates below. It shrinks the job to what the budget
+     allows (fewer runs, fewer scenarios); when not even one fits under
+     --cap-usd it stops, writes a cap_stop line naming the jobs left, and
+     exits 6. A job that costs more than the whole cap would never fit, and as
+     the longest-waiting job it would stop every run; it is skipped instead,
+     with a cap_stop line naming it, the jobs behind it run, and the run still
+     exits 6. A job's real cost can exceed its estimate, so the last job can
+     carry the week past the cap; the next run sees that and stops sooner.
+  5. Runs the harness with EVAL_MODEL=<model> and --summary-out, and appends a
+     line to the ledger with the cost the summary reports (the nested
+     sessions' own total_cost_usd). A job that reported no cost is ledgered at
+     its estimate, marked "cost_measured": false, so the budget still counts it.
 
 The ledger is JSON Lines, one object per line, read by the next run:
-  {"kind": "reserved", "at": <UTC ISO-8601>, "id", "skill", "runs", "model",
-   "estimate_usd"}
+  {"kind": "reserved", "at": <UTC ISO-8601>, "id", "job": "run" or "rotation",
+   "skill", "runs", "model", "estimate_usd"}
   {"kind": "run", "at", "reservation": <the reserved line's id>, "skill",
    "tree", "head", "runs", "model", "cost_usd", "cost_measured",
    "estimate_usd", "exit_code", "assertions_passed", "assertions_graded"}
-  {"kind": "cap_stop", "at", "spent_usd", "cap_usd", "next_skill",
-   "estimate_usd", "unrun": [<skill>...]}
+  {"kind": "rotation", the same fields as a run line, plus "scenarios":
+   [<name>...]}
+  {"kind": "cap_stop", "at", "spent_usd", "cap_usd", "next_job",
+   "estimate_usd", "unrun": [<skill> or <skill>:rotation...]}
 The ledger is read strictly, since a line it can't account for could hide
 spend. Any of these stops the run with exit 3 before another job starts:
   - a file that isn't UTF-8 text;
   - a last line with no newline (a write cut off);
   - a line that doesn't parse as JSON, or isn't an object;
-  - a "kind" other than "reserved", "run" or "cap_stop";
+  - a "kind" other than "reserved", "run", "rotation" or "cap_stop";
   - a line, of any kind, without a valid "at";
-  - a run line without a valid "cost_usd" (a non-negative finite number), or
-    with a "reservation" that isn't a non-empty string;
+  - a run or rotation line without a valid "cost_usd" (a non-negative finite
+    number), or with a "reservation" that isn't a non-empty string;
   - a reserved line without a non-empty "id" or a valid "estimate_usd".
-A job's estimate is reserved in the ledger before its harness starts, and the
-run line written after it names the reservation it settles. The week's spend
-counts each run line at its cost, and each reservation no run line settles at
-its estimate: a run killed partway (SIGKILL, a host asleep, a session limit)
-still charges the week what it was expected to cost.
 Blank lines are skipped. The run stays stopped until a person repairs the
-ledger: find what the line's run cost and correct the line, or replace it with
-a run line carrying that cost. Deleting it would count that spend as nothing.
+ledger: find what the line's job cost and correct the line, or replace it with
+a line carrying that cost. Deleting it would count that spend as nothing.
+
+A job's estimate is reserved in the ledger before its harness starts, and the
+run or rotation line written after it names the reservation it settles. The
+week's spend counts each run and rotation line at its cost, and each
+reservation no line settles at its estimate: a job killed partway (SIGKILL, a
+host asleep, a session limit) still charges the week what it was expected to
+cost. After a killed job, remove the stale <ledger>.lock directory once no run
+is going. Its reservation keeps charging its estimate for seven days; if the
+job cost less, append a run or rotation line whose "reservation" is that id
+and whose "cost_usd" is the real spend, and leave the reserved line in place.
+Deleting it would count the spend as nothing.
 A dry run reads the ledger without the lock, so a real run appending at that
 moment can show it a partial last line; run it again. Default location:
 $XDG_STATE_HOME/shirabe/scheduled-evals.jsonl, else
@@ -64,14 +85,17 @@ $HOME/.local/state/shirabe/scheduled-evals.jsonl. A lock directory next to it
 (<ledger>.lock) keeps two runs from overlapping.
 
 Options:
-  --runs <N>        runs per skill, 1 to 9 (default 3)
-  --model <name>    EVAL_MODEL for the harness (default sonnet, the release
-                    check's model, so the repeats measure the noise of what a
-                    release runs)
-  --cap-usd <n>     weekly budget in US dollars at list price (default 50, or
-                    SHIRABE_EVAL_WEEKLY_CAP_USD)
-  --ledger <file>   the ledger to read and append to
-  --dry-run         print what would run, with estimates; run and write nothing
+  --runs <N>           repeat runs per changed skill, 1 to 9 (default 3)
+  --rotation-size <K>  rotation scenarios per skill per run, 0 to 20 (default
+                       3); 0 turns the rotation off
+  --model <name>       EVAL_MODEL for the harness (default sonnet, the release
+                       check's model, so the repeats measure the noise of what
+                       a release runs)
+  --cap-usd <n>        weekly budget in US dollars at list price (default 50,
+                       or SHIRABE_EVAL_WEEKLY_CAP_USD)
+  --ledger <file>      the ledger to read and append to
+  --dry-run            print what would run, with estimates; run and write
+                       nothing
 
 Environment:
   SHIRABE_EVAL_WEEKLY_CAP_USD  the default for --cap-usd
@@ -79,12 +103,12 @@ Environment:
                                scripts/run-evals.sh
 
 Exit codes:
-  0  every selected skill ran with harness exit 0, or nothing needed a run
+  0  every planned job ran with harness exit 0, or nothing was due
   1  at least one harness run exited non-zero; each is in the ledger
   2  usage
   3  another run holds the lock, the ledger can't be trusted, or the checkout
      can't be read
-  6  stopped at the weekly cap with skills left to run
+  6  stopped at the weekly cap with jobs left to run
 """
 
 import argparse
@@ -101,15 +125,18 @@ import uuid
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+# The pattern scripts/run-evals.sh holds EVAL_MODEL to.
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 WEEK = datetime.timedelta(days=7)
+GRADED = (0, 1)
 
-# What one run costs per scenario before a skill has a measured run of its own,
-# at list price with the no-skill baseline and grading, from the spike report's
-# measurements moved to Sonnet (half of Opus on every token class): a tier-1
-# scenario $0.29 with the skill + $0.10 baseline + half of $0.145 grading; a
-# tier-2 one ($2.96 + $1.35) / 2 + half of $0.24; the orchestrating session
-# about $2.50 a run. Any other model is taken at Opus's rates, twice these.
+# What a job costs before a skill has a measured one of its own, at list price
+# with the no-skill baseline and grading, from the spike report's measurements
+# moved to Sonnet (half of Opus on every token class): a tier-1 scenario $0.29
+# with the skill + $0.10 baseline + half of $0.145 grading; a tier-2 one
+# ($2.96 + $1.35) / 2 + half of $0.24; the orchestrating session about $2.50 a
+# run. Any other model is taken at Opus's rates, twice these: an overestimate
+# for a smaller model, which errs toward stopping early.
 SONNET_RATES = {"tier1": 0.46, "tier2": 2.28, "session": 2.50}
 
 
@@ -156,7 +183,7 @@ def read_ledger(path):
         raise LedgerError("%s is not UTF-8 text" % path)
     lines = text.split("\n")
     # A file that doesn't end in a newline ends in a line cut off mid-append:
-    # a run that crashed while ledgering its cost. Its cost isn't knowable, so
+    # a job that crashed while ledgering its cost. Its cost isn't knowable, so
     # it is refused rather than read as $0.
     if lines and lines[-1] != "":
         raise LedgerError("%s ends in a partial line (line %d, no newline): a ledger "
@@ -168,13 +195,16 @@ def read_ledger(path):
             entry = json.loads(line)
         except ValueError:
             raise LedgerError("%s line %d doesn't parse" % (path, number))
-        if not isinstance(entry, dict) or entry.get("kind") not in ("reserved", "run", "cap_stop"):
-            raise LedgerError("%s line %d is not a reserved, run or cap_stop entry" % (path, number))
+        if not isinstance(entry, dict) or entry.get("kind") not in (
+                "reserved", "run", "rotation", "cap_stop"):
+            raise LedgerError("%s line %d is not a reserved, run, rotation or cap_stop entry"
+                              % (path, number))
         if parse_iso(entry.get("at")) is None:
             raise LedgerError("%s line %d has no valid `at` time" % (path, number))
-        if entry["kind"] == "run" and not is_cost(entry.get("cost_usd")):
+        if entry["kind"] in ("run", "rotation") and not is_cost(entry.get("cost_usd")):
             raise LedgerError("%s line %d has no valid `cost_usd`" % (path, number))
-        if entry["kind"] == "run" and "reservation" in entry and not is_id(entry["reservation"]):
+        if entry["kind"] in ("run", "rotation") and "reservation" in entry \
+                and not is_id(entry["reservation"]):
             raise LedgerError("%s line %d has an invalid `reservation`" % (path, number))
         if entry["kind"] == "reserved" and not is_id(entry.get("id")):
             raise LedgerError("%s line %d has no valid `id`" % (path, number))
@@ -207,13 +237,15 @@ def is_id(value):
 
 
 def spent_this_week(entries, moment):
-    """Run lines at their cost, plus reservations no run line settles at their
-    estimate: a job killed before it could ledger its cost still counts."""
-    settled = {e["reservation"] for e in entries if e.get("kind") == "run" and "reservation" in e}
+    """Run and rotation lines at their cost, plus reservations no line settles
+    at their estimate: a job killed before it could ledger its cost still
+    counts."""
+    settled = {e["reservation"] for e in entries
+               if e.get("kind") in ("run", "rotation") and "reservation" in e}
     total = 0.0
     for entry in entries:
         kind = entry.get("kind")
-        if kind == "run":
+        if kind in ("run", "rotation"):
             amount = entry["cost_usd"]
         elif kind == "reserved" and entry["id"] not in settled:
             amount = entry["estimate_usd"]
@@ -232,34 +264,72 @@ def git(*args):
     return proc.stdout.strip()
 
 
-def scenario_counts(skill):
-    with open(os.path.join(ROOT, "skills", skill, "evals", "evals.json")) as fh:
-        evals = json.load(fh)["evals"]
-    tier2 = sum(1 for e in evals if e.get("tier", 1) != 1)
-    return len(evals) - tier2, tier2
+class Suite:
+    """A skill's scenarios, split the way the release check splits them."""
+
+    def __init__(self, skill):
+        with open(os.path.join(ROOT, "skills", skill, "evals", "evals.json")) as fh:
+            evals = json.load(fh)["evals"]
+        self.tier1 = []
+        self.release = []
+        self.rest = []
+        for entry in evals:
+            name = entry.get("name", "eval-%s" % entry.get("id"))
+            if entry.get("tier", 1) == 1:
+                self.tier1.append(name)
+            elif entry.get("release") is True:
+                self.release.append(name)
+            else:
+                self.rest.append(name)
 
 
-def estimate_per_run(skill, runs_of_skill, model):
+def factor(model):
+    return 1.0 if model == "sonnet" else 2.0
+
+
+def measured_entries(entries, kind, model):
+    return [e for e in entries if e.get("kind") == kind and e.get("model") == model]
+
+
+def repeat_estimate(suite, entries, model):
     """(dollars per run, what the figure rests on)
 
     The skill's last measured cost per run on this model, but never less than
-    the default-rate figure: a measured $0 (a run that reported a cost of
-    nothing) would otherwise grant every run whatever the week has spent.
+    the default-rate figure: a measured $0 would otherwise grant every run
+    whatever the week has spent.
     """
-    tier1, tier2 = scenario_counts(skill)
-    factor = 1.0 if model == "sonnet" else 2.0
-    floor = factor * (tier1 * SONNET_RATES["tier1"] + tier2 * SONNET_RATES["tier2"]
-                      + SONNET_RATES["session"])
-    basis = "%d tier-1 and %d tier-2 scenarios at the default rates" % (tier1, tier2)
-    for entry in reversed(runs_of_skill):
+    floor = factor(model) * (len(suite.tier1) * SONNET_RATES["tier1"]
+                             + len(suite.release) * SONNET_RATES["tier2"] + SONNET_RATES["session"])
+    basis = "%d tier-1 and %d release tier-2 scenarios at the default rates" % (
+        len(suite.tier1), len(suite.release))
+    for entry in reversed(measured_entries(entries, "run", model)):
         runs = entry.get("runs")
-        if (entry.get("cost_measured") is True and is_cost(entry.get("cost_usd"))
-                and isinstance(runs, int) and runs > 0 and entry.get("model") == model):
+        if entry.get("cost_measured") is True and is_cost(entry.get("cost_usd")) \
+                and isinstance(runs, int) and runs > 0:
             measured = entry["cost_usd"] / runs
             if measured >= floor:
                 return measured, "its last measured run"
             return floor, basis + ", above its last measured run"
     return floor, basis
+
+
+def rotation_estimate(entries, model, size):
+    """(dollars for a rotation of `size` scenarios, what the figure rests on)
+
+    The skill's last measured cost per rotated scenario on this model, but
+    never less than the default figure (a session plus the tier-2 rate per
+    scenario), for the same reason as repeat_estimate.
+    """
+    floor = factor(model) * (SONNET_RATES["session"] + size * SONNET_RATES["tier2"])
+    for entry in reversed(measured_entries(entries, "rotation", model)):
+        names = entry.get("scenarios")
+        if entry.get("cost_measured") is True and is_cost(entry.get("cost_usd")) \
+                and isinstance(names, list) and names:
+            measured = size * entry["cost_usd"] / len(names)
+            if measured >= floor:
+                return measured, "its last measured rotation"
+            return floor, "the default tier-2 rate, above its last measured rotation"
+    return floor, "the default tier-2 rate"
 
 
 def selected_skills(names):
@@ -286,6 +356,8 @@ def read_summary(path, skill):
 def run(args):
     if not 1 <= args.runs <= 9:
         raise UsageError("--runs must be 1 to 9")
+    if not 0 <= args.rotation_size <= 20:
+        raise UsageError("--rotation-size must be 0 to 20")
     if not MODEL_RE.match(args.model):
         raise UsageError("--model must match ^[A-Za-z0-9][A-Za-z0-9._:-]*$")
     if not is_cost(args.cap_usd):
@@ -323,70 +395,139 @@ def measure_or_refuse(args, skills, head, ledger):
         return 3
 
 
-def measure(args, skills, head, ledger):
-    entries = read_ledger(ledger)
-    runs_by_skill = {}
-    for entry in entries:
-        if entry.get("kind") == "run" and isinstance(entry.get("skill"), str):
-            runs_by_skill.setdefault(entry["skill"], []).append(entry)
-
-    todo = []
+def plan_jobs(args, skills, entries):
+    """[(kind, sort key, skill, tree, suite, scenarios)] in the order they run."""
+    repeats = []
+    rotations = []
     for name in skills:
         tree = git("rev-parse", "HEAD:skills/%s" % name)
         if tree is None:
-            print("error: cannot read the tree of skills/%s at HEAD" % name, file=sys.stderr)
-            return 3
-        graded = [e for e in runs_by_skill.get(name, []) if e.get("exit_code") in (0, 1)]
+            raise RuntimeError("cannot read the tree of skills/%s at HEAD" % name)
+        suite = Suite(name)
+        mine = [e for e in entries if e.get("skill") == name and e.get("model") == args.model
+                and e.get("exit_code") in GRADED]
+        graded = [e for e in mine if e.get("kind") == "run"]
         if graded and graded[-1].get("tree") == tree:
-            print("unchanged: %s (measured %s)" % (name, graded[-1].get("at", "?")))
+            print("unchanged: %s (measured %s on %s)" % (name, graded[-1].get("at", "?"), args.model))
+        else:
+            last_at = parse_iso(graded[-1].get("at")) if graded else None
+            repeats.append(("run", (last_at is not None, last_at or now_utc(), 0, name), name,
+                            tree, suite, None))
+        if args.rotation_size == 0 or not suite.rest:
             continue
-        last_at = parse_iso(graded[-1].get("at")) if graded else None
-        todo.append((last_at is not None, last_at or now_utc(), name, tree))
-    todo.sort(key=lambda item: (item[0], item[1], item[2]))
+        last_run = {}
+        for entry in mine:
+            if entry.get("kind") != "rotation" or not isinstance(entry.get("scenarios"), list):
+                continue
+            for scenario in entry["scenarios"]:
+                last_run[scenario] = entry
+        due = [s for s in suite.rest
+               if s not in last_run or last_run[s].get("tree") != tree]
+        if not due:
+            continue
+        order = {s: i for i, s in enumerate(suite.rest)}
 
+        def last_rotated(scenario):
+            return parse_iso(last_run[scenario].get("at")) if scenario in last_run else None
+
+        due.sort(key=lambda s: (last_rotated(s) is not None, last_rotated(s) or now_utc(), order[s]))
+        picked = due[:args.rotation_size]
+        at = last_rotated(picked[0])
+        rotations.append(("rotation", (at is not None, at or now_utc(), 1, name), name, tree,
+                          suite, picked))
+    # One queue, longest-waiting first: a job never run before, then the one
+    # whose last run is oldest, a repeat ahead of a rotation on a tie. A stop at
+    # the cap ends the run, so ordering repeats ahead of every rotation would
+    # let a week of skill changes keep the rotation from ever running.
+    return sorted(repeats + rotations, key=lambda job: job[1])
+
+
+def measure(args, skills, head, ledger):
+    entries = read_ledger(ledger)
+    try:
+        jobs = plan_jobs(args, skills, entries)
+    except RuntimeError as exc:
+        print("error: %s" % exc, file=sys.stderr)
+        return 3
     spent = spent_this_week(entries, now_utc())
     print("spent in the last 7 days: $%.2f of $%.2f" % (spent, args.cap_usd))
     worst = 0
-    for index, (_, _, name, tree) in enumerate(todo):
-        per_run, basis = estimate_per_run(name, runs_by_skill.get(name, []), args.model)
+    skipped = False
+    for index, (kind, _, name, tree, suite, scenarios) in enumerate(jobs):
+        mine = [e for e in entries if e.get("skill") == name]
         room = args.cap_usd - spent
-        runs = min(args.runs, int(room // per_run))
-        if runs < 1:
-            unrun = [item[2] for item in todo[index:]]
-            print("cap: $%.2f of $%.2f spent in the last 7 days; %s needs about $%.2f a run "
-                  "(%s). Stopping; not run: %s" % (spent, args.cap_usd, name, per_run, basis,
-                                                   ", ".join(unrun)))
+        if kind == "run":
+            per, basis = repeat_estimate(suite, mine, args.model)
+            size = min(args.runs, int(room // per))
+            label, cost = name, per
+            what = "%d run(s) of the release subset, about $%.2f a run (%s)" % (size, per, basis)
+        else:
+            size, cost, basis = len(scenarios), 0.0, ""
+            while size >= 1:
+                cost, basis = rotation_estimate(mine, args.model, size)
+                if cost <= room:
+                    break
+                size -= 1
+            if size < 1:
+                cost, basis = rotation_estimate(mine, args.model, 1)
+            label = name + ":rotation"
+            scenarios = scenarios[:max(size, 0)]
+            what = "rotation of %s, about $%.2f (%s)" % (", ".join(scenarios), cost, basis)
+        if size < 1 and cost > args.cap_usd:
+            # More than the whole cap: it would never fit, and as the
+            # longest-waiting job it would stop every run before the jobs
+            # behind it. Skip it and say so; only a higher --cap-usd runs it.
+            print("cap: %s needs about $%.2f, more than the whole $%.2f cap; skipping it "
+                  "(raise --cap-usd to run it)" % (label, cost, args.cap_usd))
             if not args.dry_run:
                 append_ledger(ledger, {"kind": "cap_stop", "at": iso(now_utc()),
                                        "spent_usd": round(spent, 4), "cap_usd": args.cap_usd,
-                                       "next_skill": name, "estimate_usd": round(per_run, 4),
+                                       "next_job": label, "estimate_usd": round(cost, 4),
+                                       "unrun": [label]})
+            skipped = True
+            continue
+        if size < 1:
+            unrun = [job[2] + (":rotation" if job[0] == "rotation" else "") for job in jobs[index:]]
+            print("cap: $%.2f of $%.2f spent in the last 7 days; %s needs about $%.2f. "
+                  "Stopping; not run: %s" % (spent, args.cap_usd, label, cost, ", ".join(unrun)))
+            if not args.dry_run:
+                append_ledger(ledger, {"kind": "cap_stop", "at": iso(now_utc()),
+                                       "spent_usd": round(spent, 4), "cap_usd": args.cap_usd,
+                                       "next_job": label, "estimate_usd": round(cost, 4),
                                        "unrun": unrun})
             return 6
-        print("%s %s: %d run(s), about $%.2f a run (%s)" % (
-            "would run" if args.dry_run else "running", name, runs, per_run, basis))
+        print("%s %s: %s" % ("would run" if args.dry_run else "running", name, what))
+        estimate = size * per if kind == "run" else cost
         if args.dry_run:
-            spent += runs * per_run
+            spent += estimate
             continue
-        if run_harness(args, ledger, name, tree, head, runs, per_run) != 0:
+        if kind == "run":
+            harness_args = ["--runs", str(size), "--release-subset"]
+        else:
+            harness_args = ["--runs", "1", "--scenario", ",".join(scenarios)]
+        if run_harness(args, ledger, kind, name, tree, head, harness_args, size, estimate,
+                       scenarios) != 0:
             worst = 1
-        spent = spent_this_week(read_ledger(ledger), now_utc())
-    return worst
+        entries = read_ledger(ledger)
+        spent = spent_this_week(entries, now_utc())
+    return worst or (6 if skipped else 0)
 
 
-def run_harness(args, ledger, name, tree, head, runs, per_run):
+def run_harness(args, ledger, kind, name, tree, head, harness_args, size, estimate, scenarios):
     harness = (os.environ.get("SCHEDULED_EVALS_HARNESS")
                or os.path.join(ROOT, "scripts", "run-evals.sh"))
-    # Reserve the estimate before spending anything, so a run killed inside
-    # the harness still charges the week; the run line below settles it.
+    runs = size if kind == "run" else 1
+    # Reserve the estimate before spending anything, so a job killed inside
+    # the harness still charges the week; the line below settles it.
     reservation = uuid.uuid4().hex
     append_ledger(ledger, {"kind": "reserved", "at": iso(now_utc()), "id": reservation,
-                           "skill": name, "runs": runs, "model": args.model,
-                           "estimate_usd": round(runs * per_run, 4)})
+                           "job": kind, "skill": name, "runs": runs, "model": args.model,
+                           "estimate_usd": round(estimate, 4)})
     workdir = tempfile.mkdtemp(prefix="scheduled-evals.")
     summary_path = os.path.join(workdir, "summary.json")
     env = dict(os.environ, EVAL_MODEL=args.model)
     try:
-        rc = subprocess.run([harness, "--runs", str(runs), "--summary-out", summary_path, name],
+        rc = subprocess.run([harness] + harness_args + ["--summary-out", summary_path, name],
                             cwd=ROOT, env=env).returncode
         summary = read_summary(summary_path, name) or {}
     finally:
@@ -395,25 +536,27 @@ def run_harness(args, ledger, name, tree, head, runs, per_run):
         os.rmdir(workdir)
     cost = summary.get("cost_usd")
     cost_runs = summary.get("cost_runs")
-    # A run that reports costing nothing reported no cost: it is charged at its
+    # A job that reports costing nothing reported no cost: it is charged at its
     # estimate, never ledgered as free.
     measured = (is_cost(cost) and cost > 0 and isinstance(cost_runs, int)
                 and not isinstance(cost_runs, bool) and cost_runs > 0)
     if not measured:
-        cost = runs * per_run
+        cost = estimate
     attempted = summary.get("runs")
     entry = {
-        "kind": "run", "at": iso(now_utc()), "reservation": reservation, "skill": name,
+        "kind": kind, "at": iso(now_utc()), "reservation": reservation, "skill": name,
         "tree": tree, "head": head,
         "runs": attempted if isinstance(attempted, int) and attempted > 0 else runs,
         "model": args.model, "cost_usd": round(cost, 4), "cost_measured": measured,
-        "estimate_usd": round(runs * per_run, 4), "exit_code": rc,
+        "estimate_usd": round(estimate, 4), "exit_code": rc,
         "assertions_passed": summary.get("assertions_passed"),
         "assertions_graded": summary.get("assertions_graded"),
     }
+    if kind == "rotation":
+        entry["scenarios"] = list(scenarios)
     append_ledger(ledger, entry)
-    print("ledgered %s: harness exit %d, $%.2f%s" % (
-        name, rc, cost, "" if measured else " (estimated: the harness reported no cost)"))
+    print("ledgered %s %s: harness exit %d, $%.2f%s" % (
+        kind, name, rc, cost, "" if measured else " (estimated: the harness reported no cost)"))
     return rc
 
 
@@ -425,6 +568,7 @@ class Parser(argparse.ArgumentParser):
 def main(argv):
     parser = Parser(prog="scheduled-evals.py")
     parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--rotation-size", type=int, default=3)
     parser.add_argument("--model", default="sonnet")
     parser.add_argument("--cap-usd", type=float, default=None)
     parser.add_argument("--ledger", default=None)

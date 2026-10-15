@@ -3705,8 +3705,8 @@ call failed.
 It reads the land check's verdict from the session log, re-reads the posture,
 and builds the squash message again from the live title and Part 1. It
 merges only at the verified head, with that message. After it returns, the next
-state confirms the change on the default branch
-by reading the changed files there, not by trusting the merge event.
+state confirms the merge from GitHub's record: merged from the verified head,
+its merge commit on the default branch, not by trusting the command's exit.
 
 A hold is not decided here. When someone asks you to hold a merge, record it
 with `record-hold.sh --add` at once: the land check reads every hold in the
@@ -3717,8 +3717,9 @@ refusal; the pull request goes back through verify.
 
 ## merge_confirm
 
-Confirming the merge. koto runs `merge-confirm.sh` itself: it compares each
-changed file on the default branch with the verified head's version.
+Confirming the merge. koto runs `merge-confirm.sh` itself: it reads GitHub's
+record, the pull request merged from the verified head with its merge commit
+on the default branch.
 
 <!-- details -->
 

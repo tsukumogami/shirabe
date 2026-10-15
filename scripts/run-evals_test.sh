@@ -543,6 +543,56 @@ else
 fi
 rm -rf "$SUITE/tiers"
 
+# Selection: --release-subset and a comma-separated --scenario, read from which
+# scenario directories prep wrote.
+mkdir -p "$SUITE/subset/evals"
+echo "# subset skill" > "$SUITE/subset/SKILL.md"
+cat > "$SUITE/subset/evals/evals.json" <<'EOF'
+{"skill_name": "subset", "evals": [
+  {"id": 1, "name": "plan-a", "prompt": "one", "expected_output": "one", "files": [],
+   "expectations": ["stub criterion"]},
+  {"id": 2, "name": "merge-a", "tier": 2, "behaviour": "merge", "release": true, "prompt": "two",
+   "expected_output": "two", "files": [], "expectations": ["stub criterion"]},
+  {"id": 3, "name": "merge-b", "tier": 2, "behaviour": "merge", "prompt": "three",
+   "expected_output": "three", "files": [], "expectations": ["stub criterion"]},
+  {"id": 4, "name": "resume-a", "tier": 2, "behaviour": "resume", "release": true, "prompt": "four",
+   "expected_output": "four", "files": [], "expectations": ["stub criterion"]}
+]}
+EOF
+# prepared_scenarios -- the scenario directories of the subset skill's newest iteration
+prepared_scenarios() {
+  local iter
+  iter=$(ls -d "$SUITE/subset/evals/workspace"/iteration-* 2>/dev/null | sort -t- -k2 -n | tail -n 1)
+  [ -n "$iter" ] || { echo none; return; }
+  for d in "$iter"/*/; do [ -f "$d/eval_metadata.json" ] && basename "$d"; done | sort | tr '\n' ' '
+}
+run_runner plan --release-subset --prep-only subset
+if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "merge-a plan-a resume-a " ] \
+  && printf '%s\n' "$OUT" | grep -q 'Selection:  the release subset'; then
+  pass "--release-subset: every tier-1 scenario and the tier-2 ones marked release"
+else
+  fail "--release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
+fi
+run_runner plan --scenario merge-b,plan-a --prep-only subset
+if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "merge-b plan-a " ]; then
+  pass "--scenario takes a comma-separated list"
+else
+  fail "--scenario list (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
+fi
+run_runner plan --scenario merge-b,resume-a --release-subset --prep-only subset
+if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "resume-a " ]; then
+  pass "--scenario with --release-subset: the named scenarios that are in the subset"
+else
+  fail "--scenario with --release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
+fi
+run_runner plan --scenario merge-b,nope --prep-only subset
+if [ "$RC" -eq 3 ] && printf '%s\n' "$OUT" | grep -q "no eval named 'nope'"; then
+  pass "--scenario: a name the suite lacks is refused, and named"
+else
+  fail "--scenario unknown name (rc=$RC): $OUT"
+fi
+rm -rf "$SUITE/subset"
+
 mkdir -p "$SUITE/pinned/evals"
 echo "# pinned skill" > "$SUITE/pinned/SKILL.md"
 cat > "$SUITE/pinned/evals/evals.json" <<'EOF'
@@ -627,7 +677,7 @@ fi
 if [ "$(summary_field "$SUM" pinned session_model)" = opus ] \
   && [ "$(summary_field "$SUM" pinned cost_usd)" = 1.25 ] \
   && [ "$(summary_field "$SUM" pinned cost_runs)" = 1 ]; then
-  pass "--summary-out: session_model is EVAL_MODEL, cost_usd the last result event's total_cost_usd"
+  pass "--summary-out: session_model is EVAL_MODEL, cost_usd the last total_cost_usd a result event carries"
 else
   fail "--summary-out session model and cost: $(cat "$SUM" 2>/dev/null)"
 fi

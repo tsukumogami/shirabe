@@ -11,7 +11,10 @@
 #   scripts/run-evals.sh --prep-only <skill>      Prepare workspace only (for /skill-creator)
 #
 # Options (combine with a selection):
-#   --scenario <name>     Run only the named eval from that skill's suite
+#   --scenario <a,b,...>  Run only the named evals from that skill's suite
+#   --release-subset      Run the release subset: every tier-1 eval, and the
+#                         tier-2 evals marked "release": true (one per
+#                         behaviour; see scripts/lib/check-evals-shape.py)
 #   --runs <N>            Run the selection N times and report a pass rate
 #   --summary-out <file>  Write a machine-readable summary of the skills run
 #
@@ -154,9 +157,10 @@
 #   validation_summary.json), models (the distinct values in the iterations'
 #   eval_metadata.json), session_model (EVAL_MODEL as the caller gave it, or
 #   "default" for the claude CLI's own default), cost_usd (the sum of each
-#   run's total_cost_usd, from the result event its runner_session.jsonl
-#   ends with), cost_runs (how many runs reported one; a run cut short before
-#   its session ended reports none) and exit_code. It is written when --runs stops early on
+#   run's total_cost_usd, from the last result event in its
+#   runner_session.jsonl that carries one: a session's result events carry
+#   its cost so far), cost_runs (how many runs reported one; a run cut short
+#   before any result event reports none) and exit_code. It is written when --runs stops early on
 #   3 or 4 too, and when the default selection finds nothing to run, so a caller
 #   never has to parse the report above. A summary that cannot be written turns
 #   an exit 0 into 2, so a caller never reads success with no summary behind it.
@@ -301,7 +305,7 @@ command -v claude >/dev/null 2>&1 || { echo "Error: claude CLI not found"; exit 
 command -v python3 >/dev/null 2>&1 || { echo "Error: python3 not found"; exit 3; }
 
 usage() {
-  echo "Usage: $0 [--scenario <name>] [--runs <N>] [--summary-out <file>] [<skill-name>]"
+  echo "Usage: $0 [--scenario <a,b,...>] [--release-subset] [--runs <N>] [--summary-out <file>] [<skill-name>]"
   echo "       $0 --withhold <rule key> [--case <file>] [--runs <N>] <skill-name>   (ablation mode)"
   echo "       $0 --all | --list | --list-changed | --validate <skill> | --prep-only <skill>"
   echo ""
@@ -313,7 +317,8 @@ usage() {
   echo "  --validate <skill> Re-validate the latest iteration without re-running"
   echo "  --prep-only <skill>     Prepare workspace only (use with /skill-creator in Claude Code)"
   echo ""
-  echo "  --scenario <name>     Restrict the run to one eval, by its 'name' in evals.json"
+  echo "  --scenario <a,b,...>  Restrict the run to the named evals, by 'name' in evals.json"
+  echo "  --release-subset      Run every tier-1 eval and the tier-2 evals marked \"release\": true"
   echo "  --runs <N>            Repeat the run N times and report a pass rate across them"
   echo "  --summary-out <file>  Write a run-evals-summary/v1 JSON summary of the skills run"
   echo ""
@@ -325,8 +330,17 @@ usage() {
 }
 
 # Scenario filter, consumed by prep_skill_evals through the environment so the
-# name never reaches a shell or Python expression as interpolated text.
+# name never reaches a shell or Python expression as interpolated text: one name
+# or a comma-separated list of names.
 EVAL_SCENARIO_FILTER=""
+# 1 with --release-subset: each skill runs its tier-1 evals and the tier-2 evals
+# marked "release": true.
+EVAL_RELEASE_SUBSET=0
+# The names one skill's run selects, comma-separated, empty for the whole
+# suite. resolve_scenario_set sets it per skill from the two above; every
+# selection site reads it as EVAL_SCENARIO_SET, so the prepared directories,
+# the tier instructions and the isolation decision see the same set.
+SCENARIO_SET=""
 # How many times to repeat the selection. 1 keeps the single-run path exactly as
 # it was, aggregate reporting included only when N > 1.
 EVAL_RUNS=1
@@ -378,6 +392,10 @@ parse_run_options() {
         ;;
       --scenario=*)
         EVAL_SCENARIO_FILTER="${1#--scenario=}"
+        shift
+        ;;
+      --release-subset)
+        EVAL_RELEASE_SUBSET=1
         shift
         ;;
       --runs)
@@ -526,6 +544,40 @@ PREP_ITER_DIR=""
 PREP_EVAL_COUNT=0
 PREP_ITERATION=0
 
+# Sets SCENARIO_SET for one skill's run from EVAL_SCENARIO_FILTER (names,
+# comma-separated) and EVAL_RELEASE_SUBSET: the names to run, comma-separated,
+# or empty for the whole suite. A filter name the suite doesn't have is an
+# error (exit 3), named in the message. The names reach Python through the
+# environment, never as interpolated text.
+resolve_scenario_set() { # resolve_scenario_set <evals.json>
+  local out
+  out=$(EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" EVAL_RELEASE_SUBSET="$EVAL_RELEASE_SUBSET" \
+    python3 - "$1" <<'PYEOF'
+import json, os, sys
+
+evals = json.load(open(sys.argv[1]))["evals"]
+names = [e.get("name", "eval-%s" % e.get("id")) for e in evals]
+wanted = [n for n in os.environ.get("EVAL_SCENARIO_FILTER", "").split(",") if n]
+missing = [n for n in wanted if n not in names]
+if missing:
+    print("no eval named %s" % ", ".join("'%s'" % n for n in missing))
+    sys.exit(3)
+subset = os.environ.get("EVAL_RELEASE_SUBSET") == "1"
+if not wanted and not subset:
+    print("")
+    sys.exit(0)
+selected = set(wanted) if wanted else set(names)
+if subset:
+    selected = {n for e, n in zip(evals, names)
+                if n in selected and (e.get("tier", 1) == 1 or e.get("release") is True)}
+# The suite's order. A selection that matches nothing prints a lone comma, so
+# the sites read a non-empty set that selects no eval, never the whole suite.
+print(",".join(n for n in names if n in selected) or ",")
+PYEOF
+  ) || { echo "Error: $out in $1"; return 3; }
+  SCENARIO_SET="$out"
+}
+
 prep_skill_evals() {
   local skill_name="$1"
   local skill_dir="$SKILLS_DIR/$skill_name"
@@ -548,19 +600,21 @@ prep_skill_evals() {
   iteration=$(next_iteration "$workspace")
   local iter_dir="$workspace/iteration-$iteration"
 
+  resolve_scenario_set "$evals_file" || return 3
+
   local eval_count
-  eval_count=$(EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 -c "
+  eval_count=$(EVAL_SCENARIO_SET="$SCENARIO_SET" python3 -c "
 import json, os
-sel = os.environ.get('EVAL_SCENARIO_FILTER', '')
+sel = {n for n in os.environ.get('EVAL_SCENARIO_SET', '').split(',') if n}
 evals = json.load(open('$evals_file'))['evals']
-if sel:
-    evals = [e for e in evals if e.get('name') == sel]
+if os.environ.get('EVAL_SCENARIO_SET', ''):
+    evals = [e for e in evals if e.get('name', 'eval-%s' % e.get('id')) in sel]
 print(len(evals))
 ")
 
   if [ "$eval_count" -eq 0 ]; then
-    if [ -n "$EVAL_SCENARIO_FILTER" ]; then
-      echo "Error: no eval named '$EVAL_SCENARIO_FILTER' in $evals_file"
+    if [ "$EVAL_RELEASE_SUBSET" = 1 ]; then
+      echo "Error: the release subset of $evals_file selects no evals"
     else
       echo "Error: $evals_file declares no evals"
     fi
@@ -570,6 +624,9 @@ print(len(evals))
   echo "=== Preparing evals for skill: $skill_name ==="
   echo "  Evals file: $evals_file"
   echo "  Eval count: $eval_count"
+  if [ "$EVAL_RELEASE_SUBSET" = 1 ]; then
+    echo "  Selection:  the release subset"
+  fi
   if [ -n "$EVAL_SCENARIO_FILTER" ]; then
     echo "  Scenario:   $EVAL_SCENARIO_FILTER (filtered)"
   fi
@@ -578,7 +635,7 @@ print(len(evals))
   echo ""
 
   local prep_rc=0
-  EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" REPO_ROOT="$REPO_ROOT" python3 << PYEOF || prep_rc=$?
+  EVAL_SCENARIO_SET="$SCENARIO_SET" REPO_ROOT="$REPO_ROOT" python3 << PYEOF || prep_rc=$?
 import hashlib, json, os, re, shutil, sys
 
 with open("$evals_file") as f:
@@ -588,7 +645,8 @@ iter_dir = "$iter_dir"
 evals_dir = os.path.dirname("$evals_file")
 fixtures_root = os.path.join(evals_dir, "fixtures")
 repo_root = os.environ["REPO_ROOT"]
-selected = os.environ.get("EVAL_SCENARIO_FILTER", "")
+selected = {n for n in os.environ.get("EVAL_SCENARIO_SET", "").split(",") if n}
+scenario_set = os.environ.get("EVAL_SCENARIO_SET", "")
 
 # The model each scenario's agents run on (see "Models" in the header): its own
 # model key; else, for a tier-1 scenario (plan_only, the structure and routing
@@ -610,7 +668,7 @@ models = {}
 bad_models = []
 for eval_item in data["evals"]:
     eval_name = eval_item.get("name", f"eval-{eval_item['id']}")
-    if selected and eval_name != selected:
+    if scenario_set and eval_name not in selected:
         continue
     model = eval_item.get("model",
                           tier1_default if is_tier1(eval_item) else other_default)
@@ -753,7 +811,7 @@ prepared = 0
 for eval_item in data["evals"]:
     eval_id = eval_item["id"]
     eval_name = eval_item.get("name", f"eval-{eval_id}")
-    if selected and eval_name != selected:
+    if scenario_set and eval_name not in selected:
         continue
     prompt = eval_item["prompt"]
 
@@ -843,12 +901,12 @@ PYEOF
 # isolated clone that only tier-2 execution needs.
 skill_has_tier2() {
   local evals_file="$1"
-  EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 -c "
+  EVAL_SCENARIO_SET="$SCENARIO_SET" python3 -c "
 import json, os, sys
-sel = os.environ.get('EVAL_SCENARIO_FILTER', '')
+sel = {n for n in os.environ.get('EVAL_SCENARIO_SET', '').split(',') if n}
 evals = json.load(open('$evals_file'))['evals']
-if sel:
-    evals = [e for e in evals if e.get('name') == sel]
+if os.environ.get('EVAL_SCENARIO_SET', ''):
+    evals = [e for e in evals if e.get('name', 'eval-%s' % e.get('id')) in sel]
 sys.exit(0 if any(e.get('tier', 1) == 2 for e in evals) else 1)
 " 2>/dev/null
 }
@@ -1239,13 +1297,14 @@ ISOBLOCK
   # with $(...): bash 3.2 mis-parses a heredoc inside a command substitution
   # when the heredoc holds an unpaired quote.
   local tier_file="$scratch/tier-instructions.txt"
-  EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 > "$tier_file" << PYEOF
+  EVAL_SCENARIO_SET="$SCENARIO_SET" python3 > "$tier_file" << PYEOF
 import json, os
 
 with open("$evals_file") as f:
     data = json.load(f)
 
-selected = os.environ.get("EVAL_SCENARIO_FILTER", "")
+selected = {n for n in os.environ.get("EVAL_SCENARIO_SET", "").split(",") if n}
+scenario_set = os.environ.get("EVAL_SCENARIO_SET", "")
 iter_dir = "$iter_dir"
 tier2_workdir = "$tier2_checkout"
 
@@ -1280,7 +1339,7 @@ lines = []
 for ev in data["evals"]:
     tier = ev.get("tier", 1)
     name = ev.get("name", f"eval-{ev['id']}")
-    if selected and name != selected:
+    if scenario_set and name not in selected:
         continue
     # Both agents of a scenario run on its model: a session flag alone would
     # not reach the agents the session spawns.
@@ -1880,8 +1939,9 @@ models = set()
 cost = 0.0
 cost_runs = 0
 for iter_dir in sys.argv[8:]:
-    # The nested session's own figure for what the run cost, from the result
-    # event it ends with; a run stopped before that event reports none.
+    # The nested session's own figure for what the run cost: the last result
+    # event that carries a cost, since each one holds the session's cost so
+    # far. A run stopped before any result event reports none.
     run_cost = None
     try:
         with open(os.path.join(iter_dir, "runner_session.jsonl"), errors="replace") as fh:
@@ -2114,12 +2174,13 @@ case "$1" in
       exit 2
     fi
     iter_dir="$workspace/iteration-$iteration"
-    eval_count=$(EVAL_SCENARIO_FILTER="$EVAL_SCENARIO_FILTER" python3 -c "
+    resolve_scenario_set "$SKILLS_DIR/$skill_name/evals/evals.json" || exit 3
+    eval_count=$(EVAL_SCENARIO_SET="$SCENARIO_SET" python3 -c "
 import json, os
-sel = os.environ.get('EVAL_SCENARIO_FILTER', '')
+sel = {n for n in os.environ.get('EVAL_SCENARIO_SET', '').split(',') if n}
 evals = json.load(open('$SKILLS_DIR/$skill_name/evals/evals.json'))['evals']
-if sel:
-    evals = [e for e in evals if e.get('name') == sel]
+if os.environ.get('EVAL_SCENARIO_SET', ''):
+    evals = [e for e in evals if e.get('name', 'eval-%s' % e.get('id')) in sel]
 print(len(evals))
 ")
     echo "=== Validating iteration $iteration for $skill_name ==="
