@@ -141,7 +141,7 @@
       "summary": "A changed document has a type allowed only in a private repository",
       "text": {
         "path": "docs/guides/doc-validation.md",
-        "first": "3. **Format-specific rules** -- Plan docs",
+        "first": "3. **Format-specific rules** --",
         "last": "(R9), and the gate fires before FC01-FC04."
       },
       "check": {
@@ -176,7 +176,7 @@
       "summary": "A changed STRATEGY document has a section a public repository prohibits",
       "text": {
         "path": "docs/guides/doc-validation.md",
-        "first": "3. **Format-specific rules** -- Plan docs",
+        "first": "3. **Format-specific rules** --",
         "last": "(R9), and the gate fires before FC01-FC04."
       },
       "check": {
@@ -211,7 +211,7 @@
       "summary": "A changed VISION document has a section a public repository prohibits",
       "text": {
         "path": "docs/guides/doc-validation.md",
-        "first": "3. **Format-specific rules** -- Plan docs",
+        "first": "3. **Format-specific rules** --",
         "last": "(R9), and the gate fires before FC01-FC04."
       },
       "check": {
