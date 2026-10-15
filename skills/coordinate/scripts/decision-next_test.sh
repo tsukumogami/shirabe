@@ -125,6 +125,34 @@ awk '/elif lowest\(.owed == "withdrawal"\)/ { w = $0; getline r1; print r1; prin
 if cmp -s "$DN" "$SW/decision-next.sh"; then bad "the swapped copy differs from the script"
 else [ "$(pairs "$SW/decision-next.sh")" -lt 10 ] && ok "a copy with two adjacent rules swapped fails the order" || bad "a copy with two adjacent rules swapped fails the order"; fi
 
+echo "== the entry read fails closed =="
+# The script reads its entry seqs in one `coord-log.sh entries` call. A copy
+# whose coord-log.sh answers `entries` wrongly (a read failure, a state left
+# out, a seq that isn't a number) must stop with the read error and route
+# nothing, never take the missing seq as "not entered".
+FC="$T/failclosed"; mkdir -p "$FC"; cp "$HERE"/*.sh "$HERE"/*.jq "$FC/"
+cat > "$FC/coord-log.sh" <<EOF
+#!/usr/bin/env bash
+if [ "\${1:-}" = entries ]; then
+    case "\$ENTRIES_MODE" in
+        fail) echo "coord-log: cannot read" >&2; exit 2 ;;
+        short) bash "$HERE/coord-log.sh" "\$@" | sed '\$d'; exit 0 ;;
+        garbled) bash "$HERE/coord-log.sh" "\$@" | sed 's/^wait [0-9]*/wait x/'; exit 0 ;;
+    esac
+fi
+exec bash "$HERE/coord-log.sh" "\$@"
+EOF
+build verdict
+eq "the wrapped copy routes as the script does when entries answers right" verdict \
+    "$(ENTRIES_MODE=ok bash "$FC/decision-next.sh" --session "$S" 2>/dev/null | cut -d' ' -f1)"
+for mode in fail short garbled; do
+    out=$(ENTRIES_MODE=$mode bash "$FC/decision-next.sh" --session "$S" 2>"$T/err"); rc=$?
+    eq "entries answering $mode: exit 2" 2 "$rc"
+    eq "entries answering $mode: no verdict" "" "$out"
+    grep -q 'cannot read the session log' "$T/err" && ok "entries answering $mode: names the read" \
+        || bad "entries answering $mode: names the read" "$(cat "$T/err")"
+done
+
 echo "== what counts =="
 build
 db '(.prs[0].body) = $b' --arg b "$(render "$(record_json discipline ci | jq -c --argjson e "[$(E 7 coordinator-verdict '"verdict": "hold", "reason": "the benchmark"')]" '.decisions = {next: 20, entries: $e}')" pr)"

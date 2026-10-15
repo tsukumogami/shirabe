@@ -253,48 +253,43 @@ expect "past 300 paths the list says truncated" '(.paths | length) == 300 and .t
 
 echo "== merge =="
 # The merge subcommand is the record feature's bl_merge_compare: the pull
-# request's state and final file list, then each file's blob on the default
-# branch and at the verified head.
-merge_setup() {  # merge_setup <case> <state> <paths-json>
+# request's record (its state, the head it merged and its merge commit), the
+# repository's default branch, and one comparison of that branch with the
+# merge commit.
+MCOMMIT=cccccccccccccccccccccccccccccccccccccccc
+merge_setup() {  # merge_setup <case> <state> [head] [merge-commit]
     new_case "$1"
-    serve pr-view 1 "$(jq -nc --arg s "$2" --argjson p "$3" '{state: $s, files: ($p | map({path: .}))}')"
+    serve pr-view 1 "$(jq -nc --arg s "$2" --arg h "${3-$VH}" --arg m "${4-$MCOMMIT}" \
+        '{state: $s, headRefOid: $h, mergeCommit: (if $m == "" then null else {oid: $m} end)}')"
     serve api-repo 1 '{"default_branch":"main"}'
 }
-# at REF PATH BLOB -- the contents read of PATH at REF answers BLOB.
-at() { printf '{"type":"file","sha":"%s"}' "$3" > "$CASE/contents@$1@$(printf '%s' "$2" | tr '/' '_')"; }
-# A contents read with no file served for its ref and path is GitHub's 404.
+reach() { serve compare 1 "$(jq -nc --arg s "$1" '{status: $s}')"; }  # reach <status>
 
-merge_setup merge-confirmed MERGED '["src/a.go","src/gone.go"]'
-at main src/a.go "$BA"; at "$VH" src/a.go "$BA"
-expect "matching files and a deletion absent on the default branch confirm the merge" '.kind == "merge" and .status == "ok" and .verdict == "confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
-grep -q "gh pr view 7 --repo $R --json state,files" "$CASE/log" && ok "the file list is the merged pull request's own" || bad "the file list is the merged pull request's own" "$(cat "$CASE/log")"
-grep -q "contents/src/a.go?ref=$VH" "$CASE/log" && grep -q "contents/src/a.go?ref=main" "$CASE/log" \
-    && ok "each file is read at the verified head and on the default branch" || bad "each file is read at the verified head and on the default branch" "$(cat "$CASE/log")"
+merge_setup merge-confirmed MERGED; reach behind
+expect "merged from the verified head, its merge commit on the default branch: confirmed" '.kind == "merge" and .status == "ok" and .verdict == "confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
+grep -q "gh pr view 7 --repo $R --json state,headRefOid,mergeCommit" "$CASE/log" && ok "the record is the merged pull request's own" || bad "the record is the merged pull request's own" "$(cat "$CASE/log")"
+grep -q "compare/main...$MCOMMIT" "$CASE/log" && ok "the merge commit is compared with the default branch" || bad "the merge commit is compared with the default branch" "$(cat "$CASE/log")"
 grep -E '^gh api' "$CASE/log" | grep -v -- '--method GET' && bad "every API call is a GET" || ok "every API call is a GET"
 
-merge_setup merge-differs MERGED '["src/a.go"]'
-at main src/a.go "$BB"; at "$VH" src/a.go "$BA"
-expect "a file whose default-branch content differs from the verified head is not confirmed" '.verdict == "not_confirmed" and (.reason | test("default branch"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
+merge_setup merge-moved-head MERGED "$BB"; reach behind
+expect "a merge of a head other than the verified one is not confirmed" '.verdict == "not_confirmed" and (.reason | test("other than the verified"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
 
-merge_setup merge-deleted-still-there MERGED '["src/gone.go"]'
-at main src/gone.go "$BB"
-expect "a file deleted at the verified head but still on the default branch is not confirmed" '.verdict == "not_confirmed"' "$(run merge --repo $R --number 7 --verified-head $VH)"
+merge_setup merge-off-default MERGED; reach diverged
+expect "a merge commit that isn't on the default branch is not confirmed" '.verdict == "not_confirmed" and (.reason | test("default branch"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
 
-merge_setup merge-open OPEN '["src/a.go"]'
+merge_setup merge-open OPEN
 expect "an unmerged pull request is not confirmed" '.verdict == "not_confirmed" and (.reason | test("not merged"))' "$(run merge --repo $R --number 7 --verified-head $VH)"
-grep -q contents "$CASE/log" && bad "no contents read for an unmerged pull request" || ok "no contents read for an unmerged pull request"
+grep -q compare "$CASE/log" && bad "no comparison read for an unmerged pull request" || ok "no comparison read for an unmerged pull request"
 
-merge_setup merge-odd-state WEIRD '[]'
+merge_setup merge-odd-state WEIRD
 expect "a pull request state it doesn't know is not verified" '.status == "not_verified"' "$(run merge --repo $R --number 7 --verified-head $VH)"
 
 new_case merge-read-fails
 fail_with pr-view 1 1 "gh: server error"; fail_with pr-view 2 1 "gh: server error"
 expect "a failed pull request read is not verified, never confirmed" '.status == "not_verified" and .kind == "merge"' "$(run merge --repo $R --number 7 --verified-head $VH)"
 
-merge_setup merge-encode MERGED '["docs/a b#c.md"]'
-at main 'docs/a%20b%23c.md' "$BA"; at "$VH" 'docs/a%20b%23c.md' "$BA"
-run merge --repo $R --number 7 --verified-head $VH >/dev/null
-grep -q 'contents/docs/a%20b%23c.md?ref=' "$CASE/log" && ok "a path is percent-encoded per segment" || bad "a path is percent-encoded per segment" "$(cat "$CASE/log")"
+merge_setup merge-no-commit MERGED "$VH" ""
+expect "a merged pull request with no merge commit is not verified, never confirmed" '.status == "not_verified" and .kind == "merge"' "$(run merge --repo $R --number 7 --verified-head $VH)"
 
 echo "== host =="
 # h8 C -- eight C's: the instance names' hex suffixes are built here rather
