@@ -1,0 +1,49 @@
+{
+  "schema_version": "shirabe-validate/v1",
+  "summary": {
+    "outcome": "violations",
+    "errors": 5,
+    "notices": 0
+  },
+  "findings": [
+    {
+      "code": "FC04",
+      "severity": "error",
+      "message": "[FC04] missing required section '## Dependency Graph'",
+      "file": "coordinate-evals/ROADMAP-plugin-system.md",
+      "line": 1
+    },
+    {
+      "code": "FC05",
+      "severity": "error",
+      "message": "[FC05] entity row at line 58 is missing its description row (expected an italic \"_..._\" row immediately after)",
+      "file": "coordinate-evals/ROADMAP-plugin-system.md",
+      "line": 58
+    },
+    {
+      "code": "FC05",
+      "severity": "error",
+      "message": "[FC05] entity row at line 59 is missing its description row (expected an italic \"_..._\" row immediately after)",
+      "file": "coordinate-evals/ROADMAP-plugin-system.md",
+      "line": 59
+    },
+    {
+      "code": "FC05",
+      "severity": "error",
+      "message": "[FC05] entity row at line 60 is missing its description row (expected an italic \"_..._\" row immediately after)",
+      "file": "coordinate-evals/ROADMAP-plugin-system.md",
+      "line": 60
+    },
+    {
+      "code": "FC05",
+      "severity": "error",
+      "message": "[FC05] entity row at line 61 is missing its description row (expected an italic \"_..._\" row immediately after)",
+      "file": "coordinate-evals/ROADMAP-plugin-system.md",
+      "line": 61
+    }
+  ],
+  "advisory": {
+    "summary": "Draft posture: no draft-tolerable findings to flag.",
+    "notes": []
+  }
+}

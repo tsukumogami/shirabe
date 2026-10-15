@@ -1,0 +1,28 @@
+{
+  "schema_version": "shirabe-validate/v1",
+  "summary": {
+    "outcome": "violations",
+    "errors": 1,
+    "notices": 1
+  },
+  "findings": [
+    {
+      "code": "FC05",
+      "severity": "error",
+      "message": "[FC05] issues-table header \"Feature | Status | Downstream Artifact\" does not match the Roadmap profile (expected \"Feature | Issues | Dependencies | Status\")",
+      "file": "golden-synthetic/ROADMAP-fc05-divergent-header.md",
+      "line": 30
+    },
+    {
+      "code": "FC07",
+      "severity": "notice",
+      "message": "[FC07] no mermaid block under ## Dependency Graph (skipping per-node checks)",
+      "file": "golden-synthetic/ROADMAP-fc05-divergent-header.md",
+      "line": 37
+    }
+  ],
+  "advisory": {
+    "summary": "Draft posture: no draft-tolerable findings to flag.",
+    "notes": []
+  }
+}
