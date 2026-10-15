@@ -2,7 +2,9 @@
 # record-decision.sh -- the one reader and writer of the record's Decisions
 # section. The decision scripts read the section through --list and --read
 # (closeout-read.sh and reconcile read it through the parser, as they read the
-# rest of the record); the write modes are the only way anything changes it.
+# rest of the record, and pick-facts.sh and decision-next.sh --parsed through
+# --list's own projection, record-codec.jq decisions_list, over a parse they
+# already hold); the write modes are the only way anything changes it.
 #
 # Usage:
 #   record-decision.sh --session S --list        print the section

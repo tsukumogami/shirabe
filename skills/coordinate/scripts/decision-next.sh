@@ -7,12 +7,15 @@
 #   decision-next.sh --session S                  route: print the sealed verdict
 #   decision-next.sh --session S --owed dispatch|pick [--parsed FILE]
 #
-# --parsed names the record as the caller already read and parsed it
-# (record-source.sh rs_record's output, FILE.md beside it): pick-facts.sh
-# passes its own, so the record is read once in the tick (shirabe#840).
-# Without it the record is read here.
+# --parsed, with --owed only, names the record this session's caller read and
+# parsed in the same tick: rs_record's output FILE, with the body it parsed at
+# FILE.md, both readable (otherwise usage, 64). pick-facts.sh passes its own,
+# so the record is read once in the tick (shirabe#840). Nothing checks that FILE
+# is this session's record; only a caller that just read it may pass it.
+# Without --parsed the record is read here.
 #
-# It reads the Decisions section (record-decision.sh --list), the session log
+# It reads the Decisions section (record-decision.sh --list, or its projection
+# over the --parsed record), the session log
 # (coord-log.sh), and at discipline scope before the first dispatch the
 # previous rotation's handoff. The rules, in routing order; the first that
 # holds is the verdict:

@@ -167,8 +167,8 @@
 # standing; the entry is still on the record, so --verdict or --reopen can
 # open the edit again from it.
 # --list prints the pending rows as a JSON array of {unit, pull_request,
-# attempted, action}; it is the one reader of these rows, which pick-facts.sh
-# marks as landed units.
+# attempted, action}, record-codec.jq pending_list, the projection pick-facts.sh
+# also takes from its own parse to mark landed units.
 #
 # Each change to the record is told as an entry with record-append.sh, kind
 # roadmap-status, after the body is written.

@@ -2,6 +2,11 @@
 # pick-facts.sh -- the check action of state pick_facts: the facts pick
 # decides on, and whether the scope is over.
 #
+# Where this header names a lister (record-holding.sh --list, record-state.sh,
+# record-decision.sh --list, roadmap-status.sh --list), the rows are that
+# lister's --list projection in record-codec.jq, taken from the one read and
+# parse of the record this script makes; the listers themselves aren't run.
+#
 # Units, in order. Roadmap scope: the features under `## Features` of the
 # roadmap on the host's default branch, in the roadmap's order, as
 # record-common.sh lib_roadmap_features reads them: `### Feature N: title` or
@@ -157,6 +162,8 @@ esac
 jq -c -L "$HERE" --arg s "$SCOPE" 'include "record-codec";
     holdings_list, state_list, decisions_list, (if $s == "roadmap" then pending_list else [] end)' "$T/rec.json" > "$T/lists" \
     || lib_die2 "jq failed"
+# One compact line each, in this order: holdings, Run/Standing/Work, decisions,
+# pending roadmap pull requests ([] outside roadmap scope).
 { IFS= read -r l1 && IFS= read -r l2 && IFS= read -r l3 && IFS= read -r l4; } < "$T/lists" || lib_die2 "jq failed"
 printf '%s\n' "$l1" > "$T/holdings.json"
 printf '%s\n' "$l2" > "$T/state.json"
@@ -233,6 +240,9 @@ jq -r '.[] | select(.issue != null) | [.id, .issue.repo, .issue.number] | @tsv' 
 # error, a null node, a number other than the one asked for), fails as a
 # failed gh issue view did: no unit is dropped, or read closed, for an issue
 # that didn't come back. Only number, title and state are asked for.
+# k numbers the issues only (releases are skipped here and in assigned.tsv),
+# and the jq below advances its own .k on the same rows, so field i<k> is the
+# k-th issue on both sides.
 GQ=() VARS= FIELDS= k=0
 while IFS=$'\t' read -r id r num; do
     [[ $r =~ $RE_REPO ]] && [[ $num =~ $RE_NUM ]] || lib_die2 "cannot read assigned issue $id: it names no issue"
