@@ -125,7 +125,9 @@ naming `plan/v1` as the version for those cases.
 Every step becomes one task, detailed or one-line outline, in step order,
 named `step-<N>` in both modes, so the task names and edges don't depend on
 the mode. Whether an outline step's work may start is decided when that work
-starts, not at extraction.
+starts, not at extraction: `/work-on`'s `plan_validation` state runs
+`skills/work-on/scripts/step-detail-check.sh` and stops the step's child while
+the step is still one line.
 
 | Key | Value |
 |-----|-------|
@@ -135,7 +137,10 @@ starts, not at extraction.
 
 `waits_on` comes from each step's `**Dependencies**:` line (`None`, or
 `Step <N>` references) plus the shared-`**Files**:` edges single-pr already
-adds. A dependency naming no step exits 2.
+adds. A dependency naming no step exits 2. An outline step has no
+`**Dependencies**:` line, so it waits on the step before it instead: a fresh
+step plan runs in step order, and no outline step's child becomes startable
+ahead of the step before it. A detailed step gets no such edge.
 
 ### coordinated vars
 

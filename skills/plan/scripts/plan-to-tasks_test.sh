@@ -7,7 +7,8 @@
 # outline path (two-node DAG, gate nodes, per-node REPO/PR_GROUP/ISSUES/
 # ISSUE_SOURCE vars, the X->Y->X contraction-cycle resolution, and
 # irreducible-atomicity refusal), and `plan/v2` step plans in single-pr and
-# multi-pr (step-<N> task names, edges, and the tracking-level refusal).
+# multi-pr (step-<N> task names, declared edges, an outline step waiting on
+# the step before it, and the tracking-level refusal).
 #
 # Usage:
 #   bash plan-to-tasks_test.sh
@@ -3577,7 +3578,7 @@ test_plan_v2_single_pr() {
     output=$("$PARSER_SCRIPT" "$PLAN_V2_FIXTURE" 2>"$TEST_DIR/stderr") || rc=$?
     local got
     got=$(printf '%s' "$output" | plan_v2_shape 2>/dev/null) || got=""
-    local want='[["step-1",[],"plan_outline","step-1"],["step-2",["step-1"],"plan_outline","step-2"],["step-3",[],"plan_outline","step-3"]]'
+    local want='[["step-1",[],"plan_outline","step-1"],["step-2",["step-1"],"plan_outline","step-2"],["step-3",["step-2"],"plan_outline","step-3"]]'
     if [[ $rc -ne 0 ]]; then
         fail "$name" "expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
     elif [[ "$got" != "$want" ]]; then
@@ -3596,7 +3597,7 @@ test_plan_v2_multi_pr() {
     setup
 
     local level got rc output
-    local want='[["step-1",[],"plan_item","step-1"],["step-2",["step-1"],"plan_item","step-2"],["step-3",[],"plan_item","step-3"]]'
+    local want='[["step-1",[],"plan_item","step-1"],["step-2",["step-1"],"plan_item","step-2"],["step-3",["step-2"],"plan_item","step-3"]]'
     for level in "" none; do
         plan_v2_variant "$TEST_DIR/PLAN-multi.md" multi-pr "$level"
         rc=0
@@ -3664,6 +3665,48 @@ test_plan_v2_unresolved_step_refuses() {
         pass "$name"
     else
         fail "$name" "expected exit 2 naming step 2 and Step 7, got $rc: $(cat "$TEST_DIR/stderr")"
+    fi
+
+    teardown
+}
+
+# Outline steps run in step order: each waits on the step before it, while a
+# detailed step keeps exactly what its **Dependencies**: line declares. The
+# validator's PLAN-v2-valid.md has two outline steps in a row (3 and 4); the
+# variant makes detailed step 2 declare `None`, which must leave it with no
+# edge even though it follows step 1.
+test_plan_v2_outline_steps_wait_on_the_step_before() {
+    local name="plan/v2 outline steps wait on the step before them; detailed steps keep their declared edges"
+    setup
+
+    local valid="$REPO_ROOT/crates/shirabe-validate/tests/fixtures/PLAN-v2-valid.md"
+    local output="" rc=0 got want mode
+    for mode in single-pr multi-pr; do
+        sed "s/^execution_mode: .*/execution_mode: $mode/" "$valid" > "$TEST_DIR/PLAN-outlines.md"
+        rc=0
+        output=$("$PARSER_SCRIPT" "$TEST_DIR/PLAN-outlines.md" 2>"$TEST_DIR/stderr") || rc=$?
+        got=$(printf '%s' "$output" | jq -c '[.[] | [.name, .waits_on]]' 2>/dev/null) || got=""
+        want='[["step-1",[]],["step-2",["step-1"]],["step-3",["step-2"]],["step-4",["step-3"]]]'
+        if [[ $rc -ne 0 ]]; then
+            fail "$name" "$mode: expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
+        elif [[ "$got" != "$want" ]]; then
+            fail "$name" "$mode: expected $want, got $got"
+        else
+            pass "$name ($mode, steps 3 and 4 are outlines)"
+        fi
+    done
+
+    sed 's/^\*\*Dependencies\*\*: Step 1$/**Dependencies**: None/' "$PLAN_V2_FIXTURE" > "$TEST_DIR/PLAN-none.md"
+    rc=0
+    output=$("$PARSER_SCRIPT" "$TEST_DIR/PLAN-none.md" 2>"$TEST_DIR/stderr") || rc=$?
+    got=$(printf '%s' "$output" | jq -c '[.[] | [.name, .waits_on]]' 2>/dev/null) || got=""
+    want='[["step-1",[]],["step-2",[]],["step-3",["step-2"]]]'
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "Dependencies None: expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
+    elif [[ "$got" != "$want" ]]; then
+        fail "$name" "Dependencies None: expected $want, got $got"
+    else
+        pass "$name (a detailed step declaring None keeps no edge)"
     fi
 
     teardown
@@ -3739,6 +3782,7 @@ test_plan_v2_multi_pr
 test_plan_v2_unsupported_tracking_level
 test_plan_v2_coordinated_refused
 test_plan_v2_unresolved_step_refuses
+test_plan_v2_outline_steps_wait_on_the_step_before
 test_unknown_schema_names_both_versions
 
 echo "" >&2

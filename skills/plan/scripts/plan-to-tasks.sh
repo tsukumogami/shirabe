@@ -25,7 +25,11 @@
 # is read through the same `shirabe plan outlines` envelope in both modes it
 # supports, single-pr and multi-pr at `tracking_level: none` (or absent). Each
 # step becomes one task named `step-<N>`, detailed or not; whether an outline
-# step may start is decided when its work starts, not here.
+# step may start is decided when its work starts, not here. An outline step
+# carries no `**Dependencies**:` line, so it waits on the step before it: a
+# fresh step plan then runs in step order, and no outline step's child becomes
+# startable ahead of the step whose work its detail will draw on. A detailed
+# step keeps the edges its own `**Dependencies**:` line declares.
 #
 # Usage:
 #   plan-to-tasks.sh <PLAN.md-path>
@@ -511,7 +515,7 @@ process_single_pr() {
     # 64 chars: koto rejects names with length_out_of_range above this limit (empirically verified)
     local KOTO_NAME_MAX=64
 
-    # Collect the parsed outlines: one field per line, seven lines per outline.
+    # Collect the parsed outlines: one field per line, eight lines per outline.
     #
     # The obvious shape -- one line per outline with the fields joined by a
     # control character -- does not work on the bash floor this script targets.
@@ -539,8 +543,9 @@ process_single_pr() {
     local -a issue_unresolved=()  # display string; empty means everything resolved
     local -a issue_types=()       # empty string = not specified
     local -a issue_files=()       # space-separated paths (backticks already stripped)
+    local -a issue_detailed=()    # true|false -- false only for a plan/v2 outline step
 
-    local o_number o_title o_none o_waits o_unresolved o_type o_files
+    local o_number o_title o_none o_waits o_unresolved o_type o_files o_detailed
     while IFS= read -r o_number; do
         # A trailing blank line from the here-string is not a record. Guard
         # before the reads below, which at EOF would fail and, under `set -e`,
@@ -552,6 +557,7 @@ process_single_pr() {
         IFS= read -r o_unresolved
         IFS= read -r o_type
         IFS= read -r o_files
+        IFS= read -r o_detailed
 
         issue_numbers+=("$o_number")
         issue_titles+=("$o_title")
@@ -567,6 +573,7 @@ process_single_pr() {
         issue_unresolved+=("$o_unresolved")
         issue_types+=("$o_type")
         issue_files+=("$o_files")
+        issue_detailed+=("$o_detailed")
     done < <(printf '%s' "$envelope" | jq -r '
         .outlines[]
         | (.number|tostring),
@@ -575,7 +582,8 @@ process_single_pr() {
           (.waits_on | map(tostring) | join(" ")),
           (.unresolved_dependencies | join(", ")),
           (.type // ""),
-          (.files | join(" "))')
+          (.files | join(" ")),
+          (if has("detailed") then .detailed else true end | tostring)')
 
     local count="${#issue_numbers[@]}"
     if [[ $count -eq 0 ]]; then
@@ -744,6 +752,13 @@ process_single_pr() {
         for dep_num in ${issue_waits[$i]}; do
             waits_on+=("$(kv_get number_to_name "$dep_num")")
         done
+
+        # An outline step waits on the step before it (see the header). It
+        # declares no dependencies of its own, so this is its only declared
+        # edge; a detailed step gets none from here.
+        if [[ "$naming" == "step" && "${issue_detailed[$i]}" == "false" && $i -gt 0 ]]; then
+            waits_on+=("${issue_names[$((i - 1))]}")
+        fi
 
         # Add file-based waits_on edges: if this outline declares a file that
         # was already claimed by an earlier outline, wait on that earlier outline.
