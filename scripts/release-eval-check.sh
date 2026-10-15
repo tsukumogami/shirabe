@@ -40,8 +40,8 @@
 #   7. Runs scripts/lib/eval-pass-rates.py merge with every record found,
 #      newest first, and --tolerance when given. Each skill is compared with
 #      the newest release that measured it on the same models and session
-#      model; with none, this run's rate is a new reference for it, never a
-#      drop. A drop is a rate lower than that reference by more than the
+#      model over the same number of runs; with none, this run's rate is a new
+#      reference for it, never a drop. A drop is a rate lower than that reference by more than the
 #      tolerance. The merge writes <state>/eval-pass-rates.json, prints the
 #      comparison, and decides the exit code.
 #

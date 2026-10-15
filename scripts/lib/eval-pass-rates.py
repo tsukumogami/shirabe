@@ -34,9 +34,12 @@ merge
     its value. No usable record at all means "no baseline".
   - A selected skill is compared only with an earlier measurement taken the
     same way: the newest entry, among the composed records, that has a
-    pass_rate and the same models and session_model as this run's entry. An
-    entry with no session_model was measured on the CLI default session model
-    and reads as session_model "default". When the skill has no such entry,
+    pass_rate and the same models, session_model and number of runs as this
+    run's entry. An entry with no session_model was measured on the CLI
+    default session model and reads as session_model "default". The number of
+    runs is in the key because a rate pooled over three runs and a one-run
+    rate carry different noise. The tolerance is not in the key: it changes
+    how a rate is judged, not the rate. When the skill has no such entry,
     this run's rate is a new reference for it: printed as one, never a drop,
     and the entries this release writes are what later releases compare with.
   - A drop is a skill whose rounded rate is lower than its reference rate by
@@ -118,9 +121,10 @@ def session_model_of(entry, where):
 
 
 def measured_the_same_way(a, b):
-    """True when two entries ran on the same scenario models and session model."""
+    """True when two entries ran on the same scenario models, session model and run count."""
     return (sorted(set(a["models"])) == sorted(set(b["models"]))
-            and a.get("session_model", DEFAULT_SESSION) == b.get("session_model", DEFAULT_SESSION))
+            and a.get("session_model", DEFAULT_SESSION) == b.get("session_model", DEFAULT_SESSION)
+            and a["runs"] == b["runs"])
 
 
 def clean_record_entry(entry, where):
@@ -405,8 +409,9 @@ def cmd_merge(args):
             drops.append(name)
     print("record: %s" % args.out)
     for name in references:
-        print("new reference: %s (no earlier measurement on models %s, session model %s)" % (
-            name, ",".join(skills[name]["models"]) or "-", skills[name]["session_model"]))
+        print("new reference: %s (no earlier measurement on models %s, session model %s, "
+              "%d run(s))" % (name, ",".join(skills[name]["models"]) or "-",
+                              skills[name]["session_model"], skills[name]["runs"]))
 
     if infra:
         print("")
