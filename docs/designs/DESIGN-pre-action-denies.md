@@ -505,6 +505,66 @@ Claude Code's 30-second timeout, not a pass.
 - **Rely on Claude Code's timeout.** Simpler, but a timed-out hook lets
   the call run. Rejected: a FIFO would be a one-line bypass.
 
+### Decision 7: Whether the hook guards merging
+
+Resolved inline.
+
+Merging is the third irreversible action shirabe's rules guard: a squash
+merge writes the pull request's Part 1 onto the default branch for good.
+The PRD leaves `gh pr merge` out (its Out of Scope and Decisions and
+Trade-offs), because no active rule guarding `merge` can be decided from
+the command and the local repository. This decision records why that
+holds at the design level and what guards the merge instead.
+
+Key assumptions:
+
+- The repositories shirabe runs in protect their default branch with
+  required status checks, and the PR-body check (`pr-body.yml`, the
+  reusable workflow `validate-pr-body.yml` calls) is among them where the
+  two-part convention applies.
+- `/execute` and `/work-on` merge only through their own merge gates.
+
+#### Chosen: No merge deny; the merge stays behind server-side and workflow gates
+
+The hook doesn't recognize `gh pr merge` or the API merge forms. What a
+squash merge writes is the pull request's title and body as GitHub holds
+them, plus any `--subject`, `--body` or `--body-file` the command gives;
+the first half is GitHub's state, which the hook never reads (R14), and
+the rules that judge it already run where that state lives:
+
+- **The PR-body CI check** runs PB1 to PB4 on the pull request GitHub
+  has, and as a required status check it keeps a non-conforming pull
+  request from merging. Every PR-body rule the hook denies before
+  creation is checked again here before merge, and PB4, the one rule the
+  canary may leave to the gate, is backstopped by exactly this check
+  (its registry `backstop`).
+- **Branch protection** refuses the merge while any required check
+  fails, whoever runs `gh pr merge` and however.
+- **`/execute`'s merge gates** (`merge_readiness`, `merge_attempt`,
+  `merge_confirm`) and the review pause decide whether a run may merge
+  at all, and merge only through `merge-exec.sh`.
+- **`/work-on`'s PR-body gate** reads the pull request after creation and
+  holds the run until it conforms.
+
+#### Alternatives Considered
+
+- **Deny `gh pr merge` when its own `--subject`, `--body` or
+  `--body-file` carries an AI-attribution line.** That part is local and
+  decidable, and it would close the one way a merge can add a trailer
+  the PR-body check never saw. Rejected for this feature: no registry
+  rule guards `merge` with that text, no workflow shirabe ships passes a
+  merge body, and adding it means a new rule entry and a new guarded
+  command for a case no skill produces. It is listed as a residual risk
+  and is the natural first step if merge coverage is wanted later.
+- **Re-check the pull request's live body at merge time with `gh pr
+  view`.** Catches the same things the required CI check does, a moment
+  earlier, at the cost of a network call on every merge and a new
+  fail-closed case whenever GitHub is slow or unreachable. Rejected: it
+  duplicates a check that already blocks the merge.
+- **Recognize API merges (`gh api .../merge`, GitHub MCP tools).** These
+  aren't Bash commands the hook can classify reliably, and an MCP tool
+  isn't a Bash call at all. Rejected; branch protection covers them.
+
 ## Decision Outcome
 
 The five decisions make one pipeline. Claude Code runs the plugin's
