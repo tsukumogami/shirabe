@@ -265,9 +265,10 @@ a skill's koto loop, not after.
 
 Whenever a skill is created or updated, create or update its scenarios in
 `skills/<name>/evals/evals.json`. The pull request doesn't run them: its
-definition of done is `scripts/check-skill.sh <skill>` (see
+definition of done is `scripts/check-skill.sh --changed <skill>` (see
 `.claude/shirabe-extensions/README.md`), which checks the scenarios' shape
-along with the skill's Markdown, templates and script suites.
+along with the skill's Markdown, templates and the script suites the change
+touches. CI runs every suite.
 
 The evals run in the release precondition. `/shirabe:release` runs the eval
 check declared in `.claude/shirabe-extensions/release.md` on every skill
