@@ -237,6 +237,26 @@ class CapTest(Case):
         self.assertIn("about $10.00 a run (its last measured run)", out)
         self.assertRegex(self.calls()[0], r"^--runs 2 ")
 
+    def test_zero_measured_cost_is_floored_and_stops_a_spent_week(self):
+        # A skill whose last measured run cost $0 must not slip past a spent week.
+        self.seed({"kind": "run", "at": ago(days=10), "skill": "brief", "tree": "old", "runs": 3,
+                   "model": "sonnet", "cost_usd": 0, "cost_measured": True, "exit_code": 0},
+                  {"kind": "run", "at": ago(days=1), "skill": "other", "tree": "x", "runs": 3,
+                   "model": "sonnet", "cost_usd": 80, "cost_measured": True, "exit_code": 0})
+        rc, out = self.run_tool("--runs", "3", "brief")
+        self.assertEqual(rc, 6, out)
+        self.assertEqual(self.calls(), [])
+        self.assertIn("brief needs about $3.42.", out)
+
+    def test_measured_cost_below_the_default_rates_is_floored(self):
+        self.seed({"kind": "run", "at": ago(days=10), "skill": "brief", "tree": "old", "runs": 2,
+                   "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0})
+        rc, out = self.run_tool("--cap-usd", "7", "--runs", "3", "brief")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("about $3.42 a run (2 tier-1 and 0 release tier-2 scenarios at the default "
+                      "rates, above its last measured run)", out)
+        self.assertRegex(self.calls()[0], r"^--runs 2 ")
+
     def test_cost_spent_during_the_run_stops_the_next_skill(self):
         self.result("brief", "0 9 10 45 1")
         rc, out = self.run_tool("--runs", "1")
@@ -321,6 +341,29 @@ class RotationTest(Case):
         self.assertEqual(rc, 0, out)
         self.assertRegex(self.calls()[-1], r"--scenario r-0,r-1 ")
 
+    def test_a_zero_cost_rotation_is_floored_at_the_default_rate(self):
+        # A rotation that once reported $0 must not let a spent week rotate for free.
+        self.seed({"kind": "rotation", "at": ago(days=9), "skill": "execute", "tree": "old",
+                   "runs": 1, "model": "sonnet", "cost_usd": 0, "cost_measured": True,
+                   "exit_code": 0, "scenarios": ["r-0", "r-1"]},
+                  {"kind": "run", "at": ago(days=1), "skill": "execute",
+                   "tree": self.tree("execute"), "runs": 1, "model": "sonnet", "cost_usd": 48,
+                   "cost_measured": True, "exit_code": 0})
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 6, out)
+        self.assertEqual(self.rotations(), [])
+        self.assertIn("execute:rotation needs about $4.78.", out)
+
+    def test_a_bad_rotation_line_refuses_the_run(self):
+        os.makedirs(os.path.dirname(self.ledger), exist_ok=True)
+        with open(self.ledger, "w") as fh:
+            fh.write(json.dumps({"kind": "rotation", "at": ago(days=1), "skill": "execute",
+                                 "scenarios": ["r-0"], "model": "sonnet"}) + "\n")
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 3, out)
+        self.assertIn("line 1 has no valid `cost_usd`", out)
+        self.assertEqual(self.calls(), [])
+
     def test_rotation_size_zero_turns_it_off(self):
         rc, out = self.run_tool("--runs", "1", "--rotation-size", "0", "execute")
         self.assertEqual(rc, 0, out)
@@ -380,13 +423,71 @@ class GuardTest(Case):
         self.assertEqual(rc, 0, out)
         self.assertFalse(os.path.exists(self.ledger + ".lock"))
 
-    def test_unparseable_ledger_line_is_skipped(self):
+    def write_ledger(self, text):
         os.makedirs(os.path.dirname(self.ledger), exist_ok=True)
         with open(self.ledger, "w") as fh:
-            fh.write("not json\n")
+            fh.write(text)
+
+    def assert_refused(self, rc, out, reason):
+        self.assertEqual(rc, 3, out)
+        self.assertIn(reason, out)
+        self.assertIn("No further job was run", out)
+        self.assertIn("deleting it would count the spend as nothing", out)
+        self.assertEqual(self.calls(), [])
+
+    def run_line(self, **fields):
+        entry = {"kind": "run", "at": ago(days=1), "skill": "other", "tree": "x", "runs": 3,
+                 "model": "sonnet", "cost_usd": 49.5, "cost_measured": True, "exit_code": 0}
+        entry.update(fields)
+        return json.dumps(entry) + "\n"
+
+    def test_unparseable_line_refuses_the_run(self):
+        # A $49.50 run whose line got mangled must not read as $0 and free the week.
+        self.write_ledger(self.run_line() + "not json\n" + self.run_line(cost_usd=1))
+        rc, out = self.run_tool("--runs", "1", "brief")
+        self.assert_refused(rc, out, "line 2 doesn't parse")
+
+    def test_trailing_partial_line_refuses_the_run(self):
+        self.write_ledger(self.run_line(cost_usd=1) + self.run_line()[:40])
+        rc, out = self.run_tool("--runs", "1", "brief")
+        self.assert_refused(rc, out, "ends in a partial line (line 2, no newline)")
+
+    def test_bad_time_refuses_the_run(self):
+        for at in ("yesterday", None, 5):
+            with self.subTest(at=at):
+                self.write_ledger(self.run_line(at=at))
+                rc, out = self.run_tool("--runs", "1", "brief")
+                self.assert_refused(rc, out, "line 1 has no valid `at` time")
+
+    def test_bad_cost_refuses_the_run(self):
+        for cost in ("49.5", -1, None, True, float("nan")):
+            with self.subTest(cost=cost):
+                line = self.run_line()
+                entry = json.loads(line)
+                if cost is None:
+                    del entry["cost_usd"]
+                else:
+                    entry["cost_usd"] = cost
+                self.write_ledger(json.dumps(entry) + "\n")
+                rc, out = self.run_tool("--runs", "1", "brief")
+                self.assert_refused(rc, out, "line 1 has no valid `cost_usd`")
+
+    def test_unknown_entry_kind_refuses_the_run(self):
+        self.write_ledger(json.dumps({"kind": "spend", "at": ago(days=1), "cost_usd": 49.5}) + "\n")
+        rc, out = self.run_tool("--runs", "1", "brief")
+        self.assert_refused(rc, out, "line 1 is not a run, rotation or cap_stop entry")
+
+    def test_dry_run_refuses_a_bad_ledger_too(self):
+        self.write_ledger("not json\n")
+        rc, out = self.run_tool("--dry-run")
+        self.assertEqual(rc, 3, out)
+
+    def test_a_good_ledger_with_a_cap_stop_line_reads(self):
+        self.write_ledger(self.run_line(cost_usd=1) + json.dumps(
+            {"kind": "cap_stop", "at": ago(days=1), "unrun": ["brief"]}) + "\n")
         rc, out = self.run_tool("--runs", "1", "brief")
         self.assertEqual(rc, 0, out)
-        self.assertIn("ledger line 1 doesn't parse", out)
+        self.assertEqual(len(self.calls()), 1)
 
     def test_usage_errors(self):
         for args in (["--runs", "0"], ["--runs", "10"], ["--model", "-x"],

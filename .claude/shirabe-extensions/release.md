@@ -17,7 +17,8 @@ The check runs the evals of every skill changed since the last release tag,
 once each, with `EVAL_MODEL=sonnet`: the nested session that grades, and every
 scenario that names no model of its own, run on Sonnet. It compares each
 skill's pass rate with the newest earlier release whose `eval-pass-rates.json`
-asset measured that skill on the same scenario models and session model. It
+asset measured that skill the same way: on the same scenario models and
+session model, over the same number of runs. It
 reads the asset from the last tag and up to nine releases before it, so a
 release that measured only some skills still leaves a baseline for the rest. A
 skill that hasn't changed since the last tag doesn't run, the critical ones

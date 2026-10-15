@@ -422,18 +422,19 @@ fi
 
 new_case
 tag_head v0.22.0 v0.23.0 v0.24.0 v0.25.0
-printf 'brief\nscope\n' >"$STUB_DIR/selection"
+# Neither skill is critical, so each runs once, as the records measured them.
+printf 'brief\nprd\n' >"$STUB_DIR/selection"
 echo "1 9 10" >"$STUB_DIR/result.brief"
-echo "1 8 10" >"$STUB_DIR/result.scope"
+echo "1 8 10" >"$STUB_DIR/result.prd"
 tag_asset v0.24.0 0.24.0 brief:9:10:0.24.0
-tag_asset v0.22.0 0.22.0 brief:5:10:0.22.0 scope:9:10:0.22.0 vision:7:10:0.21.0
+tag_asset v0.22.0 0.22.0 brief:5:10:0.22.0 prd:9:10:0.22.0 vision:7:10:0.21.0
 run_check v0.24.0 0.25.0
 if [ "$(download_tags)" = "v0.24.0 v0.23.0 v0.22.0 " ]; then
   pass "walks the last tag then older tags newest first, never a newer tag"
 else
   fail "download order: $(download_tags)"
 fi
-if [ "$RC" -eq 5 ] && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=scope" ] \
+if [ "$RC" -eq 5 ] && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=prd" ] \
   && printf '%s\n' "$OUT" | grep -qx 'Baseline records, newest first: 1=v0.24.0 2=v0.22.0'; then
   pass "a skill the last release didn't measure is compared with an older release that did"
 else

@@ -48,7 +48,20 @@ The ledger is JSON Lines, one object per line, read by the next run:
   {"kind": "rotation", the same fields, plus "scenarios": [<name>...]}
   {"kind": "cap_stop", "at", "spent_usd", "cap_usd", "next_job",
    "estimate_usd", "unrun": [<skill> or <skill>:rotation...]}
-A line that doesn't parse is skipped with a warning. Default location:
+The ledger is read strictly, since a line it can't account for could hide
+spend. Any of these stops the run with exit 3 before another job starts:
+  - a file that isn't UTF-8 text;
+  - a last line with no newline (a write cut off);
+  - a line that doesn't parse as JSON, or isn't an object;
+  - a "kind" other than "run", "rotation" or "cap_stop";
+  - a line, of any kind, without a valid "at";
+  - a run or rotation line without a valid "cost_usd" (a non-negative finite
+    number).
+Blank lines are skipped. The run stays stopped until a person repairs the
+ledger: find what the line's job cost and correct the line, or replace it with
+a line carrying that cost. Deleting it would count that spend as nothing.
+A dry run reads the ledger without the lock, so a real run appending at that
+moment can show it a partial last line; run it again. Default location:
 $XDG_STATE_HOME/shirabe/scheduled-evals.jsonl, else
 $HOME/.local/state/shirabe/scheduled-evals.jsonl. A lock directory next to it
 (<ledger>.lock) keeps two runs from overlapping.
@@ -75,7 +88,8 @@ Exit codes:
   0  every planned job ran with harness exit 0, or nothing was due
   1  at least one harness run exited non-zero; each is in the ledger
   2  usage
-  3  another run holds the lock, or the checkout can't be read
+  3  another run holds the lock, the ledger can't be trusted, or the checkout
+     can't be read
   6  stopped at the weekly cap with jobs left to run
 """
 
@@ -136,27 +150,57 @@ def default_ledger():
     return os.path.join(base, "shirabe", "scheduled-evals.jsonl")
 
 
+class LedgerError(Exception):
+    """The ledger can't be trusted to say what the week has cost."""
+
+
 def read_ledger(path):
+    """Every entry, or LedgerError. Fails closed: a line it can't account for
+    could be spend, and counting it as nothing would let the cap through."""
     entries = []
     if not os.path.exists(path):
         return entries
-    with open(path, errors="replace") as fh:
-        for number, line in enumerate(fh, 1):
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-            except ValueError:
-                print("warning: ledger line %d doesn't parse; skipped" % number)
-                continue
-            if isinstance(entry, dict):
-                entries.append(entry)
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise LedgerError("%s is not UTF-8 text" % path)
+    lines = text.split("\n")
+    # A file that doesn't end in a newline ends in a line cut off mid-append:
+    # a job that crashed while ledgering its cost. Its cost isn't knowable, so
+    # it is refused rather than read as $0.
+    if lines and lines[-1] != "":
+        raise LedgerError("%s ends in a partial line (line %d, no newline): a ledger "
+                          "write was cut off" % (path, len(lines)))
+    for number, line in enumerate(lines[:-1], 1):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            raise LedgerError("%s line %d doesn't parse" % (path, number))
+        if not isinstance(entry, dict) or entry.get("kind") not in ("run", "rotation", "cap_stop"):
+            raise LedgerError("%s line %d is not a run, rotation or cap_stop entry" % (path, number))
+        if parse_iso(entry.get("at")) is None:
+            raise LedgerError("%s line %d has no valid `at` time" % (path, number))
+        if entry["kind"] in ("run", "rotation") and not is_cost(entry.get("cost_usd")):
+            raise LedgerError("%s line %d has no valid `cost_usd`" % (path, number))
+        entries.append(entry)
     return entries
 
 
 def append_ledger(path, entry):
-    with open(path, "a") as fh:
-        fh.write(json.dumps(entry, sort_keys=True) + "\n")
+    # The whole line to an O_APPEND descriptor, looping until every byte is
+    # written. If the process dies part-way, the ledger ends in a partial line
+    # with no newline, which read_ledger refuses rather than reads as $0.
+    data = (json.dumps(entry, sort_keys=True) + "\n").encode("utf-8")
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        while data:
+            data = data[os.write(fd, data):]
+    finally:
+        os.close(fd)
 
 
 def is_cost(value):
@@ -210,27 +254,44 @@ def measured_entries(entries, kind, model):
 
 
 def repeat_estimate(suite, entries, model):
-    """(dollars per run, what the figure rests on)"""
+    """(dollars per run, what the figure rests on)
+
+    The skill's last measured cost per run on this model, but never less than
+    the default-rate figure: a measured $0 would otherwise grant every run
+    whatever the week has spent.
+    """
+    floor = factor(model) * (len(suite.tier1) * SONNET_RATES["tier1"]
+                             + len(suite.release) * SONNET_RATES["tier2"] + SONNET_RATES["session"])
+    basis = "%d tier-1 and %d release tier-2 scenarios at the default rates" % (
+        len(suite.tier1), len(suite.release))
     for entry in reversed(measured_entries(entries, "run", model)):
         runs = entry.get("runs")
         if entry.get("cost_measured") is True and is_cost(entry.get("cost_usd")) \
                 and isinstance(runs, int) and runs > 0:
-            return entry["cost_usd"] / runs, "its last measured run"
-    cost = factor(model) * (len(suite.tier1) * SONNET_RATES["tier1"]
-                            + len(suite.release) * SONNET_RATES["tier2"] + SONNET_RATES["session"])
-    return cost, "%d tier-1 and %d release tier-2 scenarios at the default rates" % (
-        len(suite.tier1), len(suite.release))
+            measured = entry["cost_usd"] / runs
+            if measured >= floor:
+                return measured, "its last measured run"
+            return floor, basis + ", above its last measured run"
+    return floor, basis
 
 
-def rotation_estimate(entries, model):
-    """(session dollars, dollars per scenario, what the figures rest on)"""
+def rotation_estimate(entries, model, size):
+    """(dollars for a rotation of `size` scenarios, what the figure rests on)
+
+    The skill's last measured cost per rotated scenario on this model, but
+    never less than the default figure (a session plus the tier-2 rate per
+    scenario), for the same reason as repeat_estimate.
+    """
+    floor = factor(model) * (SONNET_RATES["session"] + size * SONNET_RATES["tier2"])
     for entry in reversed(measured_entries(entries, "rotation", model)):
         names = entry.get("scenarios")
         if entry.get("cost_measured") is True and is_cost(entry.get("cost_usd")) \
                 and isinstance(names, list) and names:
-            return 0.0, entry["cost_usd"] / len(names), "its last measured rotation"
-    return (factor(model) * SONNET_RATES["session"], factor(model) * SONNET_RATES["tier2"],
-            "the default tier-2 rate")
+            measured = size * entry["cost_usd"] / len(names)
+            if measured >= floor:
+                return measured, "its last measured rotation"
+            return floor, "the default tier-2 rate, above its last measured rotation"
+    return floor, "the default tier-2 rate"
 
 
 def selected_skills(names):
@@ -270,7 +331,7 @@ def run(args):
         return 3
     ledger = args.ledger
     if args.dry_run:
-        return measure(args, skills, head, ledger)
+        return measure_or_refuse(args, skills, head, ledger)
     os.makedirs(os.path.dirname(os.path.abspath(ledger)), exist_ok=True)
     lock = ledger + ".lock"
     try:
@@ -280,9 +341,20 @@ def run(args):
               file=sys.stderr)
         return 3
     try:
-        return measure(args, skills, head, ledger)
+        return measure_or_refuse(args, skills, head, ledger)
     finally:
         os.rmdir(lock)
+
+
+def measure_or_refuse(args, skills, head, ledger):
+    try:
+        return measure(args, skills, head, ledger)
+    except LedgerError as exc:
+        print("error: %s. No further job was run, and scheduled runs stay stopped until "
+              "the ledger reads. Find what that line's run cost and correct the line, or "
+              "replace it with a run line carrying that cost; deleting it would count the "
+              "spend as nothing." % exc, file=sys.stderr)
+        return 3
 
 
 def plan_jobs(args, skills, entries):
@@ -347,16 +419,21 @@ def measure(args, skills, head, ledger):
         room = args.cap_usd - spent
         if kind == "run":
             per, basis = repeat_estimate(suite, mine, args.model)
-            size = min(args.runs, int(room // per)) if per > 0 else args.runs
+            size = min(args.runs, int(room // per))
             label, cost = name, per
             what = "%d run(s) of the release subset, about $%.2f a run (%s)" % (size, per, basis)
         else:
-            session, per, basis = rotation_estimate(mine, args.model)
-            size = min(len(scenarios), int((room - session) // per)) if per > 0 else len(scenarios)
-            label, cost = name + ":rotation", session + per
+            size, cost, basis = len(scenarios), 0.0, ""
+            while size >= 1:
+                cost, basis = rotation_estimate(mine, args.model, size)
+                if cost <= room:
+                    break
+                size -= 1
+            if size < 1:
+                cost, basis = rotation_estimate(mine, args.model, 1)
+            label = name + ":rotation"
             scenarios = scenarios[:max(size, 0)]
-            what = "rotation of %s, about $%.2f (%s)" % (", ".join(scenarios), session + per * size,
-                                                         basis)
+            what = "rotation of %s, about $%.2f (%s)" % (", ".join(scenarios), cost, basis)
         if size < 1:
             unrun = [job[2] + (":rotation" if job[0] == "rotation" else "") for job in jobs[index:]]
             print("cap: $%.2f of $%.2f spent in the last 7 days; %s needs about $%.2f. "
@@ -368,7 +445,7 @@ def measure(args, skills, head, ledger):
                                        "unrun": unrun})
             return 6
         print("%s %s: %s" % ("would run" if args.dry_run else "running", name, what))
-        estimate = size * per if kind == "run" else session + size * per
+        estimate = size * per if kind == "run" else cost
         if args.dry_run:
             spent += estimate
             continue
