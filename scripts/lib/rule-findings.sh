@@ -20,7 +20,15 @@
 #                              be in RULE_IDS and an active registry entry whose
 #                              text resolves; otherwise `undecided`. Resolving
 #                              up front means a broken anchor holds the gate at
-#                              once, not only when a violation turns up.
+#                              once, not only when a violation turns up. One
+#                              script resolves late instead:
+#                              skills/scope/scripts/check-hop-document.sh calls
+#                              it after deciding, with only the ids its findings
+#                              map to through a fixed in-source table, because
+#                              resolving all seventeen on every run is too slow
+#                              for a koto command gate; the membership test still
+#                              applies, and CI's check-rule-registry.sh keeps
+#                              every anchor resolvable.
 #   rf_require_any <id>...     like rf_require, for an id the script reads from
 #                              data rather than writes in its source (a
 #                              finding's own rule). Each id must be an active
