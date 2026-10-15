@@ -504,8 +504,9 @@ split_mode_source: <none | flag | intent | header | default>  # set in step 3.6
 - **Dependencies**: Step 2
 ```
 
-An outline's dependencies stay in this artifact for the owner to use when it
-details the step; Phase 7 writes only the one line. Then proceed to step 3.5a
+Phase 7 writes only an outline's one line, so its dependencies here do not
+reach the PLAN: the owner decides them again, from what the earlier steps
+taught, when it details the step. Then proceed to step 3.5a
 (Value Confirmation), and on from there to step 3.6 (Execution Mode Selection).
 
 ---

@@ -19,7 +19,8 @@
 # from the file --claude-md names (the repository root's CLAUDE.md), and a line
 # inside a fenced code block (``` or ~~~) is ignored. The value is trimmed of
 # surrounding whitespace and must then be `v1` or `v2` exactly. The header is
-# read only when no flag is given: the flag wins.
+# read only when no flag is given: the flag wins, and a run given the flag is
+# not stopped by a duplicated or malformed header it never reads.
 #
 # Usage:
 #   resolve-plan-version.sh [--plan-version <v1|v2>] [--claude-md <path>]

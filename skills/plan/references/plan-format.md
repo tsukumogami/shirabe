@@ -450,7 +450,8 @@ step_count: 4
   issues and no milestone, so `issues` and `issues-and-milestone`
   are refused, naming `plan/v1` as the version that files them.
 - `split_rationale`, `split_mode_source` and `upstream` follow the
-  `plan/v1` rules above.
+  `plan/v1` rules above. `milestone` names the work in prose; no
+  GitHub milestone is created for it.
 
 Required sections, in order: `Status`, `Scope Summary`,
 `Decomposition Strategy`, `Steps`. `Implementation Sequence` may

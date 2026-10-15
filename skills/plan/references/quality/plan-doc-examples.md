@@ -329,7 +329,7 @@ report's rows: they match.
 
 ## Implementation Sequence
 
-The steps run in order. Step 1 is detailed and runs first; the plan's owner
+The steps run in order. Steps 1 and 2 are detailed; the plan's owner
 details step 3 after step 2's work reaches its terminal, and step 4 after
 step 3's.
 ```

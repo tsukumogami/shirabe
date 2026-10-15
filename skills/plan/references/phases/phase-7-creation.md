@@ -783,6 +783,9 @@ and under `/scope` both belong to the parent (shape 6, Parent-owned-publishing,
 in `${CLAUDE_PLUGIN_ROOT}/references/fixes/sub-agent-dispatch.md`; recorded in
 `docs/decisions/DECISION-contradiction-child-steps-under-scope-2026-09-28.md`).
 
+**Skip it for a `plan/v2` step plan** too: it filed no issues, so there is
+nothing to link.
+
 Otherwise, ask the user if there's an upstream issue that should be updated:
 
 ```

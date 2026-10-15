@@ -11,6 +11,14 @@ if key work/review_loopback.md exists in plan-<topic> → execute loop-back (see
 else                                                   → run /review-plan
 ```
 
+## Plan Version v2
+
+A `v2` run hands `/review-plan` a step plan: entries are `### Step <N>:`
+blocks, steps from 3 on are one-line outlines by design, and nothing is filed.
+An outline step's missing criteria are not a finding; the plan's owner details
+it later. Judge the detailed steps' criteria and checks as the review would
+judge an issue's.
+
 ## Infinite-Loop Guard
 
 Before invoking `/review-plan`, read `review_rounds` from key

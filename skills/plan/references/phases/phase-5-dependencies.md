@@ -26,6 +26,14 @@ Read `input_type` from key `work/decomposition.md`'s YAML frontmatter.
 - **design** or **prd**: Follow the standard dependency flow (steps 5.1 through 5.6)
 - **roadmap**: Follow the roadmap dependency import flow (step 5.R1), then rejoin at step 5.2
 
+**Plan version `v2`** (`plan_version: v2` in the decomposition frontmatter):
+the entries are steps and their dependencies are `Step <N>` references to
+earlier steps, never `<<ISSUE:N>>`. Run steps 5.1 to 5.6 over the steps,
+writing `Step <N>` wherever the artifact below says `Issue <N>`; a dependency
+on a later step is a decomposition problem, like a cycle. The artifact is for
+this run only: a step plan carries no Dependency Graph, and an outline step's
+dependencies are not written into the PLAN.
+
 ---
 
 ## Steps
