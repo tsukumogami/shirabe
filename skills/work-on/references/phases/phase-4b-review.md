@@ -40,11 +40,11 @@ Delete the detail files once the round is aggregated; anything worth keeping goe
 
 ## Aggregation
 
-After every spawned seat returns, record the round, passed and blocking seats alike, exactly as `phase-4a-scrutiny.md` describes, with `review` as the panel:
+After every spawned run returns, record the round, passed and blocking alike, exactly as `phase-4a-scrutiny.md` describes, with `review` as the panel: one entry per run, naming its `run`, a full seat's `answers` for its own findings, and the re-verifier's `answers` by id (`holds` or `reverified`, with a reason on each `reverified`):
 
 ```bash
 ROUND=$(mktemp)
-# write the JSON array of spawned seats to "$ROUND"
+# write the JSON array of runs to "$ROUND"
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record review <WF> "$ROUND" && rm -f "$ROUND"
 ```
 
@@ -69,7 +69,7 @@ koto next <WF> --no-cleanup
 
 ## Retry Loop
 
-Run this only once the retry budget in the state's directive has granted the retry. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. The retry budget is `"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-retry-budget.sh" <WF> review`, with no count: it reads the panel's unclosed blocking findings from the ledger itself. Exit 0 grants the retry; any other exit refuses it, and you escalate with the reason it printed. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=review_outcome

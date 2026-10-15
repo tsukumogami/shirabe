@@ -59,6 +59,16 @@ If tests fail:
 
 Commit format: `<type>(scope): <description>`
 
+### Mark Fixed Findings
+
+When this pass fixes blocking findings a panel raised (a retry), commit the fix first, then mark each finding you fixed by its id, so the next round re-verifies it:
+
+```bash
+"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --mark-fixed <panel> <WF> <id>...
+```
+
+The ids are in the findings the panel's `--verdict` gate printed and in `verdict_ledger.json`. A finding whose recorded location the fix touched is due anyway; marking is what makes the others due: one fixed somewhere other than where it was recorded, or one with no location. A mark is a `fixed` record by the agent: it asks for re-verification and never closes anything, and only the re-verifier's `reverified` answer does. Mark after committing, before the tick that enters the panel; a mark written after the round is planned re-plans it. `--mark-fixed` refuses (65) an id the panel doesn't hold, an advisory finding, and one already closed.
+
 ## Coverage Tracking
 
 If the project tracks coverage:

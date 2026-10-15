@@ -43,11 +43,13 @@ Delete the detail file once the round is aggregated; anything worth keeping goes
 
 ## Aggregation
 
-After the tester returns, record its verdict, as `phase-4a-scrutiny.md` describes, with `qa` as the panel and one `severity: blocking` finding per failed scenario:
+After the run returns, record it, as `phase-4a-scrutiny.md` describes, with `qa` as the panel: the tester with one `severity: blocking` finding per failed scenario, or the re-verifier answering each due scenario by id with `holds` (it still fails) or `reverified` (it passes now, with a reason):
 
 ```bash
 ROUND=$(mktemp)
-# write [{"seat": "tester", "cited": [...], "findings": [{"severity": "blocking", ...}, ...]}] to "$ROUND"
+# write [{"seat": "tester", "run": "qa-r1-tester", "cited": [...], "findings": [{"severity": "blocking", ...}]}]
+# or [{"seat": "reverifier", "run": "qa-r2-reverifier", "answers": [{"id": "...", "record": "reverified", "reason": "..."}]}]
+# to "$ROUND"
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record qa <WF> "$ROUND" && rm -f "$ROUND"
 ```
 
@@ -72,7 +74,7 @@ koto next <WF> --no-cleanup
 
 ## Retry Loop
 
-Run this only once the retry budget in the state's directive has granted the retry. When a defect sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. The retry budget is `"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-retry-budget.sh" <WF> qa_validation`, with no count: it reads the panel's unclosed blocking findings from the ledger itself. Exit 0 grants the retry; any other exit refuses it, and you escalate with the reason it printed. When a defect sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=qa_outcome

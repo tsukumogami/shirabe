@@ -53,11 +53,12 @@ The seat writes full findings to a `mktemp`-produced file outside the repository
 
 ## Aggregation
 
-Record the round, passed or blocking, as `phase-4a-scrutiny.md` describes, with `light` as the panel and `reviewer` as the seat:
+Record the round, passed or blocking, as `phase-4a-scrutiny.md` describes, with `light` as the panel: the `reviewer` seat in a full round, or the re-verifier answering its due findings by id:
 
 ```bash
 ROUND=$(mktemp)
-# write the JSON array with the one seat, {"seat": "reviewer", ...}, to "$ROUND"
+# write the JSON array with the one run, {"seat": "reviewer", "run": "light-r1-reviewer", ...}
+# or {"seat": "reverifier", "run": "light-r2-reverifier", "answers": [...]}, to "$ROUND"
 "${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-scope.sh" --record light <WF> "$ROUND" && rm -f "$ROUND"
 ```
 
@@ -82,7 +83,7 @@ koto next <WF> --no-cleanup
 
 ## Retry Loop
 
-Run this only once the retry budget in the state's directive has granted the retry. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
+Run this only once the retry budget in the state's directive has granted the retry. The retry budget is `"${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/panel-retry-budget.sh" <WF> light_review`, with no count: it reads the panel's unclosed blocking findings from the ledger itself. Exit 0 grants the retry; any other exit refuses it, and you escalate with the reason it printed. When a blocking finding sends the work back, clear every artifact the return trip invalidates before submitting the retry. Run this instead of a bare `koto next`:
 
 ```bash
 OUTCOME_FIELD=light_outcome
