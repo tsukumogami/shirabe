@@ -563,6 +563,16 @@ else
     GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel review --seat pragmatic
     [ "$CODE" -eq 64 ] && pass "code: --seat with no scope for the panel: exit 64" || fail "code: no scope: exit $CODE"
 
+    # The re-check prompt asks for answers by id and no longer says a passing
+    # re-check records the seat as passed.
+    PROMPT=$(awk '/^## The re-check prompt/ { on = 1; next } on && /^## / { exit } on { print }' \
+        "$SCRIPT_DIR/../references/review-seat-commissioning.md")
+    printf '%s\n' "$PROMPT" | grep -q 'by id' && printf '%s\n' "$PROMPT" | grep -q '`holds`' \
+        && printf '%s\n' "$PROMPT" | grep -q '`reverified`' && printf '%s\n' "$PROMPT" | grep -q 'reason' \
+        && ! printf '%s\n' "$PROMPT" | grep -q 'records this seat as passed' \
+        && pass "the re-check prompt asks for holds or reverified by id, with a reason" \
+        || fail "the re-check prompt: $PROMPT"
+
     # Refusals: a seat that isn't marked recheck gets the code packet, so
     # this kind refuses it rather than build a narrower one.
     scope "$RS" scrutiny intent ",\"fix_diff_from\":\"$FIRST_SHA\""

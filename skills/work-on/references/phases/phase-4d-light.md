@@ -4,7 +4,7 @@ The one panel of the `light` review level (`../review-levels.md`): a single revi
 
 ## Reviewer
 
-**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Reviewer runs on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`, with `--criteria <file>` in place of `--issue <N>` when the run has no GitHub issue: a plan-outline child, whose `<N>` numbers an item in its PLAN, writes its outline's acceptance criteria to the file. The panel's re-verifier, the one run a retry round plans, gets its own packet instead, built from the due findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel light --seat reverifier`.
+**Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): Reviewer runs on `model: "sonnet"` with a 15-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" code --session <WF> --issue <N>`, with `--criteria <file>` in place of `--issue <N>` when the run has no GitHub issue: a plan-outline child, whose `<N>` numbers an item in its PLAN, writes its outline's acceptance criteria to the file. Add `--panel light --seat <seat>` for each `full` seat, which lists that seat's own unclosed findings by id, the ones it answers this round; one packet per seat when more than one seat has findings of its own. The panel's re-verifier, the one run a retry round plans, gets its own packet instead, built from the due findings and the fix diff: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" recheck --session <WF> --panel light --seat reverifier`.
 
 Spawn the one seat with the Task tool. After the seat preamble, its prompt:
 
@@ -53,7 +53,7 @@ The seat writes full findings to a `mktemp`-produced file outside the repository
 
 ## Aggregation
 
-Record the round, passed or blocking, as `phase-4a-scrutiny.md` describes, with `light` as the panel: the `reviewer` seat in a full round, or the re-verifier answering its due findings by id:
+Record the round, passed or blocking, as `phase-4a-scrutiny.md` describes, with `light` as the panel: the `reviewer` seat in a full round, or the re-verifier answering each due finding by id with `holds` or `reverified`, a reason on each `reverified` (it may not dismiss one):
 
 ```bash
 ROUND=$(mktemp)

@@ -414,7 +414,8 @@ panel_criteria() {
         if [ -r "$file" ]; then
             awk '/^## (Reviewers|Tester Agent)$/ { on = 1; next }
                  on && /^## / { exit }
-                 on && (/^- \*\*/ || /^[0-9]+\. /) { print }' "$file"
+                 on && (/^- \*\*/ || /^[0-9]+\. /) { print; n++ }
+                 END { if (n == 0) print "[missing: no criteria found under ## Reviewers or ## Tester Agent in this phase file; judge the fix against the acceptance criteria instead]" }' "$file"
         else
             echo "[absent: ${entry%%:*} is not in this checkout]"
         fi
