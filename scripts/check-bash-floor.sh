@@ -175,6 +175,8 @@ suite_scripts() {
             echo "skills/plan/scripts/plan-to-tasks_test.sh"
             # Needs no binary.
             echo "skills/plan/scripts/resolve-split-mode_test.sh"
+            # Validates the step plan example with the suite's shirabe.
+            echo "skills/plan/scripts/resolve-plan-version_test.sh"
             ;;
         execute)
             echo "skills/work-on/scripts/run-cascade_test.sh"

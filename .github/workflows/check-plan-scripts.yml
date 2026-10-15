@@ -8,6 +8,8 @@ on:
       # against the table in this contract, so an edit to either side has to
       # run the suite.
       - 'references/coordination-strategy.md'
+      # resolve-plan-version_test.sh validates the step plan example kept here.
+      - 'skills/plan/references/quality/plan-doc-examples.md'
       # plan-to-tasks.sh reads `## Issue Outlines` through `shirabe plan
       # outlines` rather than parsing it, so a change to the crates can break
       # this suite without touching a file under skills/. Leaving the filter
@@ -86,7 +88,15 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/plan/scripts/resolve-split-mode_test.sh
 
-      # Both harnesses above, on the floor: the `plan` suite in
+      # resolve-plan-version_test.sh validates the step plan example in
+      # references/quality/plan-doc-examples.md with a plan/v2-aware shirabe.
+      # It runs the same `cargo build --release -p shirabe` as the suite
+      # above, which finds the build already done.
+      - name: Run resolve-plan-version tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/plan/scripts/resolve-plan-version_test.sh
+
+      # The harnesses above, on the floor: the `plan` suite in
       # scripts/check-bash-floor.sh.
       - name: Run plan suite on the bash 3.2 floor (macOS, system bash)
         if: runner.os == 'macOS'
