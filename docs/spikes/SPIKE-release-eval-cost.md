@@ -121,9 +121,11 @@ each scenario's cost in both tiers (32%).
 
 The `total_tokens` figure in skill-creator's `timing.json` (68k to 91k for a
 coordinate with-skill run) is the agent's final context size, not what the run
-processed; the same runs processed 481k tokens on average. The review panels
-execute's with-skill runs launch cost $23 of the $284 those runs cost (8%), so
-the tier-2 cost is the agent driving the workflow over many turns.
+processed; the same runs processed 481k tokens on average.
+
+Execute's with-skill runs launch review panels of their own, but those panels
+cost $23 of the $284 the with-skill runs cost (8%). Most of the tier-2 cost is
+the agent itself driving the workflow over many turns.
 
 ### Cost per run
 
@@ -226,11 +228,13 @@ one window with room for other work. Everything the release run stops doing
 moves to a scheduled measurement that runs off the release path.
 
 **Target: a release eval run of the five changed skills at or under $90 list
-price, in three to four hours.** The target is in dollars
-because the window evidence is: the same tokens cost half as much on Sonnet,
-so a token count alone doesn't say whether a run fits. The wall time is an
+price, in about three to four hours.** The target is in dollars
+because the session-window evidence is a dollar figure, and the same tokens
+cost half as much on Sonnet, so a token count alone doesn't say whether a run
+fits. It assumes the session limit counts Sonnet usage at its lower price, as
+list price does; the first measured run checks that. The wall time is an
 estimate: coordinate's runs took 26 to 37 seconds of session time per tier-1
-scenario (161 of them, about 80 minutes), and with tier 1 taken out, execute's
+scenario (161 of them, 70 to 99 minutes), and with tier 1 taken out, execute's
 runs took 7 to 10 minutes of session time per tier-2 scenario (15 of them,
 about 105 to 150 minutes). Running skills in parallel sessions shortens it without changing
 the cost.
@@ -250,7 +254,7 @@ doesn't add up; the table after it gives the combined result.
 | Skill | Runs | Scenarios (tier 1 + tier 2) | Cost | Tokens |
 |---|---|---|---|---|
 | coordinate | 1 | 36 + 0 | $13.9 | 24M |
-| execute | 1 | 23 + 10 | $27.4 | 90M |
+| execute | 1 | 23 + 10 | $27.4 | 89M |
 | roadmap | 1 | 17 + 0 | $7.7 | 14M |
 | scope | 1 | 66 + 0 | $23.7 | 40M |
 | work-on | 1 | 19 + 5 | $17.0 | 52M |
@@ -258,7 +262,8 @@ doesn't add up; the table after it gives the combined result.
 
 Execute's row prices its ten named scenarios at their own measured cost ($16.20
 on Sonnet, against $14.80 at the tier-2 mean); the other rows use the means.
-The margin is thin: without cut 3 the run is about $113, and with work-on
+The margin is thin, and the plan leans on cut 3: without it (tier-2 agents,
+grading and the orchestrating session all back on Opus) the run is about $133, and with work-on
 running all 15 tier-2 scenarios, about $105. If the first measured run lands
 over $90, batching tier-1 scenarios (below) is the next lever.
 
@@ -294,10 +299,10 @@ over $90, batching tier-1 scenarios (below) is the next lever.
 The record holds one with-skill rate per skill. The first release after cuts 1,
 2 and 3 compares a one-run rate on a subset, with Sonnet agents and grader,
 against a three-run rate on every scenario. That release should treat the
-changed skills as having no baseline, and from then on a drop should be
+changed skills as having no prior record to compare with, and from then on a drop should be
 flagged only beyond the measured noise (five points), not on any lower
-rounded rate. This change has to land before, or with, the first release
-that runs the cut check.
+rounded rate. This change has to land before the first release that runs the
+cut check.
 
 ### Issues to file once the plan is agreed
 
@@ -310,8 +315,8 @@ that runs the cut check.
    release.
 4. Set `EVAL_MODEL=sonnet` on the release check (with issue 2's pull request
    against `release.md`).
-5. Give the record a one-time "no baseline" for the changed scenario set and a
-   five-point tolerance; it lands before the first release that runs the cut
+5. Give the record a one-time "no prior record" for the changed scenario set
+   and a five-point tolerance; it lands before the first release that runs the cut
    check.
 6. Keep per-scenario results and resume a stopped release run.
 7. Rewrite or remove the nine scenarios that score the same with and without
