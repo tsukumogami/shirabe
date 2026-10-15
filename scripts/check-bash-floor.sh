@@ -314,6 +314,10 @@ suite_scripts() {
             # extract-context.sh with no session and with no koto: needs only
             # bash and jq, so every case runs on the floor.
             echo "skills/work-on/scripts/extract-context_test.sh"
+            # The step detail check against git fixtures and a shirabe it
+            # builds (or $SHIRABE_BIN); its plan_validation cases skip without
+            # koto.
+            echo "skills/work-on/scripts/step-detail-check_test.sh"
             # session-role.sh is deliberately NOT listed. Every entry here is
             # run with no arguments and a nonzero status is a failure, and the
             # discriminator exits 2 on a missing session name by design. It

@@ -136,7 +136,12 @@ branch interpolation** (an out-of-set value halts with a clear error). Then rout
   from the PLAN (an issue is blocked while its Dependencies reference open issues) and
   run it as a single issue-backed unit against the repo-persisted PLAN, each landing
   its own PR. There is no shared branch and no cross-issue carry-forward — multi-pr
-  issues are independent, per the DESIGN's ephemeral-home model.
+  issues are independent, per the DESIGN's ephemeral-home model. On a `plan/v2` step
+  plan the unit is a step, taken in step order: an outline step waits on the step
+  before it. Before a step's work starts, run
+  `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/step-detail-check.sh <PLAN> <N>`;
+  when it exits 1 the step is still a one-line outline, so stop there and report its
+  message, since the plan's owner details the step first.
 
 ### Mode Detection
 
@@ -151,7 +156,7 @@ detection: the tokens file `work-on-open.sh` reads is the original `$ARGUMENTS`,
 `--koto-leg` and the bound included.
 
 - If `$ARGUMENTS` begins with `-- plan-backed` — **plan-backed child mode** (highest priority; the plan-level coordinator /execute is spawning this as a per-issue child workflow)
-- If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` — **plan dispatcher mode** (see Plan Input above)
+- If the argument is a path matching `docs/plans/PLAN-*.md`, or any `.md` file whose frontmatter contains `schema: plan/v1` or `schema: plan/v2` — **plan dispatcher mode** (see Plan Input above). `plan/v1` plans carry issue outlines; `plan/v2` plans carry steps (see `skills/plan/references/plan-format.md`)
 - If the argument is an issue reference (`#N` or a GitHub issue URL) — **issue-backed mode**
 - If the argument is a free-form task description — **free-form mode**
 
@@ -170,6 +175,24 @@ Submit entry evidence: `{"mode": "plan_backed", "issue_source": "<source>", "iss
 
 For `ISSUE_SOURCE=github`: read the GitHub issue with `gh issue view <ISSUE_NUMBER>` during the `plan_context_injection` state to get the issue title, body, and labels. Then proceed directly to `setup_plan_backed` → `analysis`.
 For `ISSUE_SOURCE=plan_outline`: extract the outline from the PLAN doc during `plan_context_injection`. Then route through `plan_validation` → `setup_plan_backed` → `analysis`.
+
+**A `plan/v2` step.** `/execute` names each task of a step plan `step-<N>`, and that
+name is the child's `ARTIFACT_PREFIX`. The context is the `### Step <N>:` block, read
+from the PLAN as committed when the child runs. At `plan_validation` koto runs
+`scripts/step-detail-check.sh` as the `step_detail` gate. A step that is still a
+one-line outline fails it with `step <N> is an outline; the plan's owner details it
+before its work starts`: `proceed` is refused, so submit `verdict: exit` with that
+message as the rationale, and build nothing. Never detail the step yourself. Once the
+plan's owner commits the detail, running the same child again passes the gate and
+builds from the detailed text. A `plan/v1` task passes the gate without it reading
+anything.
+
+**The report for a step.** The `summary.md` of a `plan/v2` step names
+"the behaviour this step added" and the check that shows it, with the check's
+result: the step's `**Check**:` as the plan states it, run, and the line of output
+or the state that showed it worked. Not the files changed or a test count. Put it
+in `## What Was Implemented`; the format behind the rule is the report rule in
+`skills/plan/references/plan-format.md`.
 
 Skip staleness checks in plan-backed mode.
 
