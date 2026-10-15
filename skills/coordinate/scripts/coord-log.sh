@@ -143,20 +143,23 @@ sha256() {
 # finds a session's log: every other script reads it through the subcommands
 # below. A header whose schema_version isn't 1 is a format this reader doesn't
 # know, so the log is refused rather than misread.
+FLAT_HEADER='^\{"schema_version":1(,"[^"\\[:cntrl:]]*":("[^"\\[:cntrl:]]*"|-?(0|[1-9][0-9]*)|true|false|null))*\}$'
 session_log() {
     local dir f v line=
     dir=$("$KOTO" session dir "$1") || return 1
     f="$dir/koto-$1.state.jsonl"
     [ -r "$f" ] || return 1
-    # koto writes the header compact with schema_version first, so the common
-    # case is read without starting jq; any other first line goes to jq. The
-    # fast path checks only that prefix, not the rest of the line: a header
-    # broken after it fails at the first jq read of the log instead.
+    # A header that is a flat JSON object of plain values (no escapes, no
+    # nesting), schema_version 1 first and only once, is read without starting
+    # jq: the pattern admits only valid JSON, so jq would say 1 for it too.
+    # Anything else, koto's own nested header included, goes to jq as before,
+    # so a header jq refuses is still refused here.
     IFS= read -r line < "$f" || true
-    case "$line" in
-        '{"schema_version":1,'*) v=1 ;;
-        *) v=$(printf '%s\n' "$line" | jq -c '.schema_version') || v=unreadable ;;
-    esac
+    if [[ $line =~ $FLAT_HEADER ]] && case "${line#*'"schema_version"'}" in *'"schema_version"'*) false ;; esac; then
+        v=1
+    else
+        v=$(printf '%s\n' "$line" | jq -c '.schema_version') || v=unreadable
+    fi
     if [ "$v" != 1 ]; then
         echo "coord-log: $1's log header has schema_version ${v:-none}; this reader knows 1" >&2
         return 1
@@ -222,8 +225,9 @@ LOG=
 
 # cmd_check: the `check` subcommand, on SESSION, STATE, SEALED, KEY and ANY,
 # reading LOG when this process has read it already. It ends the process with
-# its exit status, so a caller that goes on afterwards runs it in a subshell
-# with the variables the subcommand would have been given, the others cleared.
+# its exit status, so a caller that goes on afterwards runs it in a subshell,
+# setting the variables it reads (SESSION, STATE, SEALED, KEY, ANY) to what the
+# subcommand would have been given.
 cmd_check() {
     need SESSION STATE SEALED
     [ -n "$LOG" ] || LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
