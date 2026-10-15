@@ -90,7 +90,10 @@ write_outputs() {
   for dir in "$workspace"/*/; do
     [ -f "$dir/eval_metadata.json" ] || continue
     echo "with skill" > "$dir/with_skill/outputs/response.md"
-    echo "without skill" > "$dir/without_skill/outputs/response.md"
+    # A --no-baseline run has no without_skill/ directory to fill.
+    if [ -d "$dir/without_skill/outputs" ]; then
+      echo "without skill" > "$dir/without_skill/outputs/response.md"
+    fi
     if [ "$with_grading" = yes ] || [ "$with_grading" = first ] || [ "$with_grading" = failing ]; then
       echo '{"expectations": [{"text": "stub criterion", "passed": '"$passed"', "evidence": "stub"}]}' \
         > "$dir/with_skill/grading.json"

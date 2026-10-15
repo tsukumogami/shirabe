@@ -18,7 +18,9 @@ once each, with `EVAL_MODEL=sonnet`: the nested session that grades, and every
 scenario that names no model of its own, run on Sonnet. Of a skill's
 scenarios it runs the release subset: every tier-1 scenario and, of the
 tier-2 ones, the one per behaviour that `evals.json` marks `"release": true`.
-It compares each
+It runs the with-skill agent only, with no no-skill baseline: the release
+decision reads with-skill rates, and the baseline, which measures what the
+skill adds, stays with the scheduled runs. It compares each
 skill's pass rate with the newest earlier release whose `eval-pass-rates.json`
 asset measured that skill the same way: on the same scenario models and
 session model, over the same number of runs. It

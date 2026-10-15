@@ -393,6 +393,16 @@ class RotationTest(Case):
         self.assertEqual(rc, 6, out)
         self.assertEqual(self.ledger_lines()[-1]["unrun"], ["execute:rotation"])
 
+    def test_never_run_jobs_take_repeats_first_then_skill_name(self):
+        self.add_skill("alpha", tier1=1, tier2=1, rest=1)
+        self.commit()
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "1", "execute", "alpha")
+        self.assertEqual(rc, 0, out)
+        jobs = [("rotation" if "--scenario" in line else "run", line.split()[-2])
+                for line in self.calls()]
+        self.assertEqual(jobs, [("run", "alpha"), ("run", "execute"),
+                                ("rotation", "alpha"), ("rotation", "execute")])
+
     def test_a_job_bigger_than_the_whole_cap_is_skipped_not_blocking(self):
         # execute never ran, so its jobs wait longest; its repeat ($5.24) and
         # rotation ($4.78) each cost more than a $4 cap and could never fit.
