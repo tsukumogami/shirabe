@@ -83,9 +83,13 @@ class Case(unittest.TestCase):
                                "-c", "user.email=t@example.com"] + list(args),
                               capture_output=True, text=True, check=True).stdout.strip()
 
-    def add_skill(self, name, tier1=1, tier2=0, note=""):
+    def add_skill(self, name, tier1=1, tier2=0, rest=0, note=""):
+        """tier2 release scenarios, one behaviour each; rest more tier-2 ones outside the subset."""
         evals = [{"id": i, "name": "t1-%d" % i} for i in range(tier1)]
-        evals += [{"id": 100 + i, "name": "t2-%d" % i, "tier": 2} for i in range(tier2)]
+        evals += [{"id": 100 + i, "name": "t2-%d" % i, "tier": 2, "behaviour": "b%d" % i,
+                   "release": True} for i in range(tier2)]
+        evals += [{"id": 200 + i, "name": "r-%d" % i, "tier": 2, "behaviour": "b0"}
+                  for i in range(rest)]
         directory = os.path.join(self.repo, "skills", name, "evals")
         os.makedirs(directory, exist_ok=True)
         with open(os.path.join(directory, "evals.json"), "w") as fh:
@@ -137,7 +141,8 @@ class SelectionTest(Case):
         rc, out = self.run_tool("--runs", "2", "brief")
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.calls()), 1)
-        self.assertRegex(self.calls()[0], r"^--runs 2 --summary-out \S+ brief model=sonnet$")
+        self.assertRegex(self.calls()[0],
+                         r"^--runs 2 --release-subset --summary-out \S+ brief model=sonnet$")
         reserved, entry = self.ledger_lines()
         self.assertEqual(reserved["kind"], "reserved")
         self.assertEqual(reserved["estimate_usd"], 6.84)
@@ -189,7 +194,7 @@ class SelectionTest(Case):
                    "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0})
         rc, out = self.run_tool("--runs", "1")
         self.assertEqual(rc, 0, out)
-        order = [line.split()[4] for line in self.calls()]
+        order = [line.split()[5] for line in self.calls()]
         self.assertEqual(order, ["brief", "execute", "zeta", "alpha"])
 
     def test_harness_failure_exits_1_and_is_ledgered(self):
@@ -248,15 +253,15 @@ class CapTest(Case):
         rc, out = self.run_tool("--runs", "3", "brief")
         self.assertEqual(rc, 6, out)
         self.assertEqual(self.calls(), [])
-        self.assertIn("brief needs about $3.42 a run", out)
+        self.assertIn("brief needs about $3.42.", out)
 
     def test_measured_cost_below_the_default_rates_is_floored(self):
         self.seed({"kind": "run", "at": ago(days=10), "skill": "brief", "tree": "old", "runs": 2,
                    "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0})
         rc, out = self.run_tool("--cap-usd", "7", "--runs", "3", "brief")
         self.assertEqual(rc, 0, out)
-        self.assertIn("about $3.42 a run (2 tier-1 and 0 tier-2 scenarios at the default rates, "
-                      "above its last measured run)", out)
+        self.assertIn("about $3.42 a run (2 tier-1 and 0 release tier-2 scenarios at the default "
+                      "rates, above its last measured run)", out)
         self.assertRegex(self.calls()[0], r"^--runs 2 ")
 
     def test_cost_spent_during_the_run_stops_the_next_skill(self):
@@ -286,6 +291,142 @@ class CapTest(Case):
         self.assertEqual(self.calls(), [])
         self.assertFalse(os.path.exists(self.ledger))
 
+
+
+class RotationTest(Case):
+    """Tier-2 scenarios outside the release subset rotate through the schedule."""
+
+    def setUp(self):
+        super().setUp()
+        self.add_skill("execute", tier1=1, tier2=1, rest=4)
+        self.commit()
+
+    def rotations(self):
+        return [line for line in self.calls() if "--scenario" in line]
+
+    def test_first_run_repeats_the_subset_then_rotates_the_first_k(self):
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        calls = self.calls()
+        self.assertEqual(len(calls), 2, calls)
+        self.assertRegex(calls[0], r"^--runs 1 --release-subset ")
+        self.assertRegex(calls[1], r"^--runs 1 --scenario r-0,r-1 --summary-out \S+ execute ")
+        lines = self.ledger_lines()
+        self.assertEqual([line["kind"] for line in lines],
+                         ["reserved", "run", "reserved", "rotation"])
+        rotation = lines[-1]
+        self.assertEqual(rotation["scenarios"], ["r-0", "r-1"])
+        self.assertEqual(rotation["tree"], self.tree("execute"))
+        self.assertEqual(rotation["reservation"], lines[2]["id"])
+        self.assertEqual(lines[2]["job"], "rotation")
+        self.assertEqual(lines[1]["reservation"], lines[0]["id"])
+
+    def test_rotation_goes_on_where_it_stopped_and_the_unchanged_repeat_is_skipped(self):
+        self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("unchanged: execute", out)
+        self.assertEqual(len(self.calls()), 3)
+        self.assertRegex(self.calls()[-1], r"--scenario r-2,r-3 ")
+
+    def test_nothing_due_once_every_scenario_ran_at_this_tree(self):
+        self.run_tool("--runs", "1", "--rotation-size", "4", "execute")
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "4", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_a_tree_change_makes_every_scenario_due_again_oldest_first(self):
+        self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.add_skill("execute", tier1=1, tier2=1, rest=4, note="changed")
+        self.commit()
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(self.calls()[-2], r"--release-subset")
+        self.assertRegex(self.calls()[-1], r"--scenario r-0,r-1 ")
+
+    def test_a_failed_rotation_is_due_again(self):
+        self.result("execute", "2 0 0 1.0 1")
+        self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.result("execute", "0 9 10 1.0 1")
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(self.calls()[-1], r"--scenario r-0,r-1 ")
+
+    def test_a_zero_cost_rotation_is_floored_at_the_default_rate(self):
+        # A rotation that once reported $0 must not let a spent week rotate for free.
+        self.seed({"kind": "rotation", "at": ago(days=9), "skill": "execute", "tree": "old",
+                   "runs": 1, "model": "sonnet", "cost_usd": 0, "cost_measured": True,
+                   "exit_code": 0, "scenarios": ["r-0", "r-1"]},
+                  {"kind": "run", "at": ago(days=1), "skill": "execute",
+                   "tree": self.tree("execute"), "runs": 1, "model": "sonnet", "cost_usd": 48,
+                   "cost_measured": True, "exit_code": 0})
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 6, out)
+        self.assertEqual(self.rotations(), [])
+        self.assertIn("execute:rotation needs about $4.78.", out)
+
+    def test_a_bad_rotation_line_refuses_the_run(self):
+        os.makedirs(os.path.dirname(self.ledger), exist_ok=True)
+        with open(self.ledger, "w") as fh:
+            fh.write(json.dumps({"kind": "rotation", "at": ago(days=1), "skill": "execute",
+                                 "scenarios": ["r-0"], "model": "sonnet"}) + "\n")
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 3, out)
+        self.assertIn("line 1 has no valid `cost_usd`", out)
+        self.assertEqual(self.calls(), [])
+
+    def test_rotation_size_zero_turns_it_off(self):
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "0", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.rotations(), [])
+
+    def test_rotation_shrinks_to_the_budget(self):
+        # Repeat: 1 tier-1 and 1 release tier-2 at default rates = $5.24; the stub
+        # reports $1 a run. Rotation default: $2.50 session + $2.28 a scenario.
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "4", "--cap-usd", "6", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(self.rotations()[0], r"--scenario r-0 ")
+
+    def test_rotation_that_doesnt_fit_stops_at_the_cap(self):
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "--cap-usd", "5.5", "execute")
+        self.assertEqual(rc, 6, out)
+        self.assertEqual(self.ledger_lines()[-1]["unrun"], ["execute:rotation"])
+
+    def test_a_job_bigger_than_the_whole_cap_is_skipped_not_blocking(self):
+        # execute never ran, so its jobs wait longest; its repeat ($5.24) and
+        # rotation ($4.78) each cost more than a $4 cap and could never fit.
+        # brief ($3.42) waits behind them and must still run.
+        self.seed({"kind": "run", "at": ago(days=10), "skill": "brief", "tree": "old", "runs": 1,
+                   "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0})
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "1", "--cap-usd", "4",
+                                "brief", "execute")
+        self.assertEqual(rc, 6, out)
+        self.assertEqual(len(self.calls()), 1)
+        self.assertRegex(self.calls()[0], r"--release-subset .*brief")
+        stops = [e for e in self.ledger_lines() if e["kind"] == "cap_stop"]
+        self.assertEqual([s["unrun"] for s in stops], [["execute"], ["execute:rotation"]])
+        self.assertIn("more than the whole $4.00 cap; skipping it", out)
+
+    def test_a_rotation_waiting_longer_runs_before_a_newer_repeat(self):
+        self.seed({"kind": "run", "at": ago(days=2), "skill": "execute", "tree": "old", "runs": 1,
+                   "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0},
+                  {"kind": "rotation", "at": ago(days=9), "skill": "execute", "tree": "old",
+                   "runs": 1, "model": "sonnet", "cost_usd": 1, "cost_measured": True,
+                   "exit_code": 0, "scenarios": ["r-0", "r-1", "r-2", "r-3"]})
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(self.calls()[0], r"--scenario r-0,r-1 ")
+        self.assertRegex(self.calls()[1], r"--release-subset")
+
+    def test_a_repeat_on_another_model_doesnt_count(self):
+        self.seed({"kind": "run", "at": ago(days=1), "skill": "execute", "tree": self.tree("execute"),
+                   "runs": 1, "model": "opus", "cost_usd": 1, "cost_measured": True,
+                   "exit_code": 0})
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "0", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.calls()), 1)
+        self.assertNotIn("unchanged", out)
 
 
 class ReservationTest(Case):
@@ -428,7 +569,7 @@ class GuardTest(Case):
     def test_unknown_entry_kind_refuses_the_run(self):
         self.write_ledger(json.dumps({"kind": "spend", "at": ago(days=1), "cost_usd": 49.5}) + "\n")
         rc, out = self.run_tool("--runs", "1", "brief")
-        self.assert_refused(rc, out, "line 1 is not a reserved, run or cap_stop entry")
+        self.assert_refused(rc, out, "line 1 is not a reserved, run, rotation or cap_stop entry")
 
     def test_dry_run_refuses_a_bad_ledger_too(self):
         self.write_ledger("not json\n")
@@ -444,7 +585,7 @@ class GuardTest(Case):
 
     def test_usage_errors(self):
         for args in (["--runs", "0"], ["--runs", "10"], ["--model", "-x"],
-                     ["--cap-usd", "-1"], ["Bad"], ["absent"]):
+                     ["--cap-usd", "-1"], ["--rotation-size", "21"], ["Bad"], ["absent"]):
             with self.subTest(args=args):
                 rc, out = self.run_tool(*args)
                 self.assertEqual(rc, 2, out)

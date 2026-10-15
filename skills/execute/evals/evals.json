@@ -67,6 +67,8 @@
       "id": 5,
       "name": "parity-drift-gate-intent-changing-halts",
       "tier": 2,
+      "behaviour": "drift-gate",
+      "release": true,
       "mode": "execute",
       "scenario": "drift-intent-changing",
       "env": {
@@ -88,6 +90,7 @@
       "id": 6,
       "name": "parity-drift-gate-absorbs-non-intent-changing",
       "tier": 2,
+      "behaviour": "drift-gate",
       "mode": "execute",
       "scenario": "drift-informational",
       "env": {
@@ -139,6 +142,8 @@
       "id": 9,
       "name": "parity-finalization-cascade-atomic",
       "tier": 2,
+      "behaviour": "completion-cascade",
+      "release": true,
       "mode": "execute",
       "scenario": "e2e-cascade-short",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
@@ -240,6 +245,7 @@
       "id": 15,
       "name": "e2e-execute-happy-path",
       "tier": 2,
+      "behaviour": "single-pr-orchestration",
       "mode": "execute",
       "scenario": "e2e-plan-happy",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
@@ -257,6 +263,7 @@
       "id": 16,
       "name": "e2e-execute-escalate-recovery",
       "tier": 2,
+      "behaviour": "single-pr-orchestration",
       "mode": "execute",
       "scenario": "e2e-plan-escalate",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
@@ -274,6 +281,8 @@
       "id": 17,
       "name": "e2e-execute-resume",
       "tier": 2,
+      "behaviour": "single-pr-orchestration",
+      "release": true,
       "mode": "execute",
       "scenario": "e2e-resume-plan",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
@@ -307,6 +316,7 @@
       "id": 19,
       "name": "e2e-execute-cascade-design-roadmap",
       "tier": 2,
+      "behaviour": "completion-cascade",
       "mode": "execute",
       "scenario": "e2e-cascade-short",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
@@ -329,6 +339,7 @@
       "id": 20,
       "name": "e2e-execute-cascade-new-shape-plan-carries-roadmap",
       "tier": 2,
+      "behaviour": "completion-cascade",
       "mode": "execute",
       "scenario": "e2e-cascade-new-shape",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-new-shape.md",
@@ -358,6 +369,7 @@
       "id": 34,
       "name": "e2e-execute-cascade-old-shape-still-reaches-the-roadmap",
       "tier": 2,
+      "behaviour": "completion-cascade",
       "mode": "execute",
       "scenario": "e2e-cascade-full",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
@@ -386,6 +398,7 @@
       "id": 21,
       "name": "execute-ci-monitor-dirty-merge-state-routing",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-dirty",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) whose merge state is DIRTY with no check runs, and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
@@ -580,6 +593,8 @@
       "id": 35,
       "name": "coordinated-plan-verifies-its-mode-scoped-record",
       "tier": 2,
+      "behaviour": "coordinated-run",
+      "release": true,
       "mode": "plan_only",
       "prompt": "/execute docs/plans/PLAN-multi-repo-rollout.md -- the PLAN's frontmatter carries execution_mode: coordinated.",
       "expected_output": "The enum re-validates against {single-pr, coordinated, multi-pr} and resolves to coordinated, which is the moment /execute's one mode:coordinated record becomes live: shirabe validate's --coordination-body and --merge-gate modes, the two a single-pr plan never reaches. That record was not checked at load, because the load-time preflight evaluates always records only and the PLAN had not been read yet. So right after the re-validation passes and before the loop dispatches any child, the transcript runs ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true, keeping the guard. Silence means the coordinated surface is present. Output means the merge-last gate cannot run as declared, and it is surfaced before the first child rather than at the gate, where a whole cascade has already landed. A single-pr PLAN makes no mode call, because there is no mode:single-pr record to evaluate.",
@@ -596,6 +611,8 @@
       "id": 36,
       "name": "merge-mergeable-with-merge",
       "tier": 2,
+      "behaviour": "merge-performed",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -620,6 +637,8 @@
       "id": 37,
       "name": "merge-mergeable-without-merge",
       "tier": 2,
+      "behaviour": "ready-without-merge",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -642,6 +661,7 @@
       "id": 38,
       "name": "merge-review-required-with-merge",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-review-required",
       "requirements": [
@@ -664,6 +684,7 @@
       "id": 39,
       "name": "merge-dirty-with-merge",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-dirty",
       "requirements": [
@@ -688,6 +709,8 @@
       "id": 40,
       "name": "merge-failing-nonrequired-check",
       "tier": 2,
+      "behaviour": "ci-failure-stops",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-failing-check",
       "requirements": [
@@ -709,6 +732,7 @@
       "id": 41,
       "name": "merge-pending-past-limit",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-pending-timeout",
       "requirements": [
@@ -732,6 +756,7 @@
       "id": 42,
       "name": "merge-draft-ready-fails",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-draft-ready-fails",
       "requirements": [
@@ -753,6 +778,8 @@
       "id": 43,
       "name": "merge-call-fails",
       "tier": 2,
+      "behaviour": "merge-outcome-unconfirmed",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-call-fails",
       "requirements": [
@@ -775,6 +802,7 @@
       "id": 44,
       "name": "merge-not-observed",
       "tier": 2,
+      "behaviour": "merge-outcome-unconfirmed",
       "mode": "execute",
       "scenario": "merge-not-observed",
       "requirements": [
@@ -798,6 +826,8 @@
       "id": 45,
       "name": "merge-unprotected-base",
       "tier": 2,
+      "behaviour": "merge-refused",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-unprotected",
       "requirements": [
@@ -819,6 +849,7 @@
       "id": 46,
       "name": "merge-no-checks",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-no-checks",
       "requirements": [
@@ -840,6 +871,7 @@
       "id": 47,
       "name": "merge-head-moved",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-head-moved",
       "requirements": [
@@ -861,6 +893,7 @@
       "id": 48,
       "name": "merge-review-rule-unapproved",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-review-rule",
       "requirements": [
@@ -882,6 +915,7 @@
       "id": 49,
       "name": "merge-workflow-change",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-workflow-change",
       "requirements": [
@@ -903,6 +937,8 @@
       "id": 50,
       "name": "pr-adopt-fork-pr",
       "tier": 2,
+      "behaviour": "pr-adoption",
+      "release": true,
       "mode": "execute",
       "scenario": "pr-adopt-fork",
       "requirements": [
@@ -925,6 +961,7 @@
       "id": 51,
       "name": "pr-adopt-other-author-pr",
       "tier": 2,
+      "behaviour": "pr-adoption",
       "mode": "execute",
       "scenario": "pr-adopt-other-author",
       "requirements": [
@@ -947,6 +984,7 @@
       "id": 52,
       "name": "merge-already-merged",
       "tier": 2,
+      "behaviour": "merge-outcome-unconfirmed",
       "mode": "execute",
       "scenario": "merge-already-merged",
       "requirements": [
@@ -968,6 +1006,8 @@
       "id": 53,
       "name": "merge-interrupted-resumed-without-merge",
       "tier": 2,
+      "behaviour": "merge-resume",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -990,6 +1030,7 @@
       "id": 54,
       "name": "merge-stopped-at-attempt-resumed-without-merge",
       "tier": 2,
+      "behaviour": "merge-resume",
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -1013,6 +1054,8 @@
       "id": 55,
       "name": "merge-route-override-refused",
       "tier": 2,
+      "behaviour": "override-refused",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-pending-open",
       "requirements": [
@@ -1035,6 +1078,7 @@
       "id": 56,
       "name": "merge-attempt-evidence-names-other-pr",
       "tier": 2,
+      "behaviour": "merge-outcome-unconfirmed",
       "mode": "execute",
       "scenario": "merge-other-pr-evidence",
       "requirements": [
@@ -1057,6 +1101,7 @@
       "id": 57,
       "name": "merge-resumed-with-merge",
       "tier": 2,
+      "behaviour": "merge-resume",
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -1079,6 +1124,7 @@
       "id": 58,
       "name": "stale-invocation-refused-merge-unchanged",
       "tier": 2,
+      "behaviour": "override-refused",
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -1101,6 +1147,7 @@
       "id": 59,
       "name": "merge-confirm-override-refused",
       "tier": 2,
+      "behaviour": "override-refused",
       "mode": "execute",
       "scenario": "merge-not-observed",
       "requirements": [
@@ -1122,6 +1169,7 @@
       "id": 60,
       "name": "merge-method-squash",
       "tier": 2,
+      "behaviour": "merge-performed",
       "mode": "execute",
       "scenario": "merge-method-squash",
       "requirements": [
@@ -1142,6 +1190,7 @@
       "id": 61,
       "name": "merge-method-rebase",
       "tier": 2,
+      "behaviour": "merge-performed",
       "mode": "execute",
       "scenario": "merge-method-rebase",
       "requirements": [
@@ -1162,6 +1211,7 @@
       "id": 62,
       "name": "scope-intent-continue-branch-adopted",
       "tier": 2,
+      "behaviour": "pr-adoption",
       "mode": "execute",
       "scenario": "scope-adopt",
       "requirements": [
@@ -1184,6 +1234,8 @@
       "id": 63,
       "name": "koto-leg-results",
       "tier": 2,
+      "behaviour": "caller-leg-result",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -1206,6 +1258,7 @@
       "id": 64,
       "name": "merge-call-flags-fixed",
       "tier": 2,
+      "behaviour": "merge-performed",
       "mode": "execute",
       "scenario": "merge-method-squash",
       "requirements": [
@@ -1226,6 +1279,7 @@
       "id": 65,
       "name": "coordinated-outline-one-repo-end-to-end-merged",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
@@ -1252,6 +1306,7 @@
       "id": 66,
       "name": "coordinated-multi-repo-merged",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-multi-repo",
       "requirements": [
@@ -1276,6 +1331,7 @@
       "id": 67,
       "name": "coordinated-node-branch-base",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
@@ -1297,6 +1353,7 @@
       "id": 68,
       "name": "coordinated-pause-and-resume",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
@@ -1319,6 +1376,8 @@
       "id": 69,
       "name": "coordinated-node-merge-not-observed",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
+      "release": true,
       "mode": "execute",
       "scenario": "coord-merge-not-observed",
       "requirements": [
@@ -1341,6 +1400,7 @@
       "id": 70,
       "name": "coordinated-coordination-merge-not-observed",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-coordination-not-observed",
       "requirements": [
@@ -1364,6 +1424,7 @@
       "id": 71,
       "name": "coordinated-head-moved",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-head-moved",
       "requirements": [
@@ -1385,6 +1446,7 @@
       "id": 72,
       "name": "coordinated-head-missing",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-head-missing",
       "requirements": [
@@ -1406,6 +1468,7 @@
       "id": 73,
       "name": "coordinated-index-foreign-author",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-index-foreign-author",
       "requirements": [
@@ -1427,6 +1490,7 @@
       "id": 74,
       "name": "coordinated-index-wrong-head-branch",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-index-wrong-branch",
       "requirements": [
@@ -1448,6 +1512,7 @@
       "id": 75,
       "name": "coordinated-index-out-of-set-repository",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-index-out-of-set",
       "requirements": [
@@ -1468,6 +1533,7 @@
       "id": 76,
       "name": "coordinated-without-merge",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-multi-repo",
       "requirements": [
@@ -1489,6 +1555,7 @@
       "id": 77,
       "name": "coordinated-cascade-order",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
@@ -1510,6 +1577,7 @@
       "id": 78,
       "name": "coordinated-template-mismatch-refused",
       "tier": 2,
+      "behaviour": "override-refused",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
