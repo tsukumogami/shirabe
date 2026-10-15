@@ -91,16 +91,18 @@ rule and the line, and the worker rewrites the sentence before going on.
 ### A maintainer checks that a rule is locked before withholding it
 
 A maintainer is weighing whether the banned-words instruction can be removed
-from what an agent loads during a hop. They look the rule up in the rule
-registry, see that the scope hop gate checks it at blocking level, and know
-that removing the prose won't leave the rule unenforced. The removal itself
+from what an agent loads during a hop. They look up what enforces the rule
+and see that a /scope hop now holds on it, so removing the prose won't leave
+the rule unenforced. The removal itself
 happens through the withholding work, not here.
 
 ### A reader counts failures per rule
 
-Someone reading the run's exported gate events counts how often each
-document rule failed at a scope hop, grouped by the registered rule id the
-findings carry, the same way they already count the work-on gates.
+A maintainer reviewing a week of live /scope runs wants to know which
+document rules agents break and which they never do. They count the failed
+scope hop checks in the exported gate events, grouped by the rule each
+finding names, the same way they already count the work-on gates, and get a
+per-rule failure rate without reading any transcript.
 
 ## Scope Boundary
 
@@ -133,6 +135,3 @@ findings carry, the same way they already count the work-on gates.
 - Which notice-level checks beyond the banned words, if any, guard a rule
   likely to be withheld and are reliable enough to block on? The PRD settles
   the list.
-- Does the full check run inside the completion check, or as a separate gate
-  beside it? The completion check deliberately avoids whole-document
-  validation, and the DESIGN owns the answer.
