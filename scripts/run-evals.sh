@@ -1677,7 +1677,12 @@ for name in entries:
     # its two entries are excluded here. Without that, an outputs/ directory the
     # agent never wrote to would look populated and the check would never fire.
     HARNESS_WRITTEN = ("post_run_tree", "post_run_tree_manifest.txt")
-    sides = ("with_skill",) if os.environ.get("EVAL_NO_BASELINE") == "1" else ("with_skill", "without_skill")
+    # Prep makes without_skill/ unless --no-baseline was given, so a scenario
+    # without it was prepared with no baseline. That keeps a later --validate,
+    # which doesn't take run options, from flagging a side that was never run.
+    no_baseline = (os.environ.get("EVAL_NO_BASELINE") == "1"
+                   or not os.path.isdir(os.path.join(eval_dir, "without_skill")))
+    sides = ("with_skill",) if no_baseline else ("with_skill", "without_skill")
     for side in sides:
         outputs = os.path.join(eval_dir, side, "outputs")
         produced = []

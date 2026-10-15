@@ -630,6 +630,15 @@ if [ "$RC" -eq 0 ] && grep -q "spawn the with-skill agent only" "$LOG/prompt" \
 else
   fail "--no-baseline run (rc=$RC): $OUT"
 fi
+# --validate takes no run options; the iteration's missing without_skill/ is
+# what tells it the baseline was never run.
+run_runner plan --validate demo
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "All assertions passed." \
+  && ! printf '%s' "$OUT" | grep -q "without_skill"; then
+  pass "--validate on a no-baseline iteration checks the with-skill side only"
+else
+  fail "--validate no-baseline (rc=$RC): $OUT"
+fi
 run_runner grade demo
 if [ "$RC" -eq 0 ] && grep -q "and a without-skill baseline agent" "$LOG/prompt" \
   && grep -q "with-skill agent and its baseline agent" "$LOG/prompt"; then
