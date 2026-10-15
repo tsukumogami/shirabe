@@ -19,8 +19,8 @@
 #      notes; prose needs check `none`
 #   3  paths: text, check, backstop and fixture paths have a safe shape and
 #      stay in the repository; an active entry's check path, backstop check
-#      and fixtures exist; a
-#      review-shadow check names a criterion in criteria.json
+#      and fixtures exist; a review-shadow check names a criterion in
+#      criteria.json
 #   4  pointers: every active entry's anchors resolve, through
 #      rule-registry.sh's own lookup, to a range with no marker line and no
 #      control character but tab; a retired entry is exempt

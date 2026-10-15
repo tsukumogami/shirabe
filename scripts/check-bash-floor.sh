@@ -299,6 +299,10 @@ suite_scripts() {
             # skip without it, so they run on the Linux leg.
             echo "skills/work-on/scripts/check-branch-output_test.sh"
             echo "skills/work-on/scripts/check-pr-output_test.sh"
+            # The live offload canary: the draw script's suite needs no engine;
+            # the route suite skips its koto cases when koto is absent.
+            echo "skills/work-on/scripts/offload-canary_test.sh"
+            echo "skills/work-on/scripts/offload-canary-routes_test.sh"
             # Reads the committed verification map with jq and the files that
             # document it; no engine.
             echo "skills/work-on/scripts/verification-map-schema_test.sh"

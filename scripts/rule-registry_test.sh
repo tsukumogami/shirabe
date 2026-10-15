@@ -376,7 +376,7 @@ eligible=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[4-9]|1[0-7])$")) | sele
 # offload canary); every other gate rule stays never.
 gate_eligible=$(jq -r '[.rules[] | select(.level == "gate" and .withhold == "eligible") | .id] | join(",")' "$REG")
 backstop=$(jq -r '.rules[] | select(.id == "pr-body/no-heading-in-part1") | "\(.guards | join(","))|\(.backstop.before)|\(.backstop.check)"' "$REG")
-[ "$gate_eligible" = pr-body/no-heading-in-part1 ] && [ "$backstop" = "none|merge|.github/workflows/pr-body.yml" ] \
+[ "$gate_eligible" = pr-body/no-heading-in-part1 ] && [ "$backstop" = "none|merge|.github/workflows/validate-pr-body.yml" ] \
     && pass "PB4 is the one eligible gate rule, guarding none with the PR-body CI gate as its backstop" \
     || fail "eligible gate rules" "eligible=[$gate_eligible] backstop=[$backstop]"
 

@@ -438,7 +438,7 @@
       "notes": "The one gate rule eligible to withhold (the live offload canary, DESIGN-offload-live-canary.md): its gate runs after gh pr create on the pull request GitHub has, a violation is fixed with gh pr edit, and CI's shirabe validate --pr-body (the backstop) still blocks the merge, so a heading in Part 1 never reaches main whatever the agent was told.",
       "backstop": {
         "before": "merge",
-        "check": ".github/workflows/pr-body.yml"
+        "check": ".github/workflows/validate-pr-body.yml"
       }
     },
     {

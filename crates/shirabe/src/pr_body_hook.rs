@@ -55,7 +55,7 @@ pub fn run() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let input = read_stdin();
-    if let Some(reason) = evaluate_with(&input, canary_opted_in()) {
+    if let Some(reason) = evaluate_with(&input, canary_opted_in) {
         emit_deny(&reason);
     }
     ExitCode::SUCCESS
@@ -77,15 +77,17 @@ fn canary_opted_in() -> bool {
 }
 
 /// True when `path` is a regular file, not a symlink, whose first line is
-/// exactly `on`. Any error reads as not opted in, so a broken file keeps the
-/// hook denying PB4.
+/// exactly the bytes `on`. Compared as bytes, like the shell's `read -r`, so
+/// a `on\r` line or invalid UTF-8 later in the file reads the same in both.
+/// Any error reads as not opted in, so a broken file keeps the hook denying
+/// PB4.
 fn opted_in_at(path: &std::path::Path) -> bool {
     match std::fs::symlink_metadata(path) {
         Ok(m) if m.file_type().is_file() => {}
         _ => return false,
     }
-    match std::fs::read_to_string(path) {
-        Ok(s) => s.lines().next() == Some("on"),
+    match std::fs::read(path) {
+        Ok(bytes) => bytes.split(|b| *b == b'\n').next() == Some(&b"on"[..]),
         Err(_) => false,
     }
 }
@@ -112,12 +114,14 @@ fn read_stdin() -> String {
 /// Every failure path returns `None` (fail-open, DESIGN D9).
 #[cfg(test)]
 fn evaluate(input: &str) -> Option<String> {
-    evaluate_with(input, false)
+    evaluate_with(input, || false)
 }
 
-/// [`evaluate`], with PB4's finding dropped when `skip_pb4` is set: the
-/// offload canary's opted-in hosts, where PB4 is left to the /work-on gate.
-fn evaluate_with(input: &str, skip_pb4: bool) -> Option<String> {
+/// [`evaluate`], with PB4's finding dropped when `skip_pb4` answers true:
+/// the offload canary's opted-in hosts, where PB4 is left to the /work-on
+/// gate. It is asked only when there is a PB4 finding to drop, so the common
+/// path reads no file.
+fn evaluate_with(input: &str, skip_pb4: impl FnOnce() -> bool) -> Option<String> {
     let v: serde_json::Value = serde_json::from_str(input).ok()?;
     let command = v
         .get("tool_input")
@@ -140,7 +144,7 @@ fn evaluate_with(input: &str, skip_pb4: bool) -> Option<String> {
         // or `--fill`): allow.
         (None, None) => return None,
     };
-    let findings: Vec<PrBodyFinding> = if skip_pb4 {
+    let findings: Vec<PrBodyFinding> = if findings.iter().any(is_no_heading_finding) && skip_pb4() {
         findings
             .into_iter()
             .filter(|f| !is_no_heading_finding(f))
@@ -641,13 +645,13 @@ Fixes #1'";
 
     #[test]
     fn heading_in_part1_is_denied_without_the_opt_in() {
-        let reason = evaluate_with(&hook(HEADED), false).expect("should deny");
+        let reason = evaluate_with(&hook(HEADED), || false).expect("should deny");
         assert!(reason.contains("markdown section heading"), "got: {reason}");
     }
 
     #[test]
     fn heading_in_part1_is_allowed_on_an_opted_in_host() {
-        assert_eq!(evaluate_with(&hook(HEADED), true), None);
+        assert_eq!(evaluate_with(&hook(HEADED), || true), None);
     }
 
     #[test]
@@ -655,7 +659,7 @@ Fixes #1'";
         let cmd = "gh pr create --title 'Add the mode' --body '## Summary
 
 Adds the mode.'";
-        let reason = evaluate_with(&hook(cmd), true).expect("should still deny");
+        let reason = evaluate_with(&hook(cmd), || true).expect("should still deny");
         assert!(reason.contains("not Conventional Commits"), "got: {reason}");
         assert!(reason.contains("no `---` separator"), "got: {reason}");
         assert!(
@@ -676,6 +680,16 @@ Adds the mode.'";
         assert!(!opted_in_at(&f), "a file reading off is not");
         std::fs::write(&f, "").unwrap();
         assert!(!opted_in_at(&f), "an empty file is not");
+        std::fs::write(&f, "on\r\n").unwrap();
+        assert!(
+            !opted_in_at(&f),
+            "a CRLF line is not, as in the shell reader"
+        );
+        std::fs::write(&f, b"on\n\xff\xfe").unwrap();
+        assert!(
+            opted_in_at(&f),
+            "invalid UTF-8 after the first line doesn't matter"
+        );
         std::fs::write(&f, "on\n").unwrap();
         let link = dir.join("link");
         let _ = std::fs::remove_file(&link);

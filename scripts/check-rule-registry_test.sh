@@ -38,7 +38,7 @@ for d in references skills scripts docs/guides; do
 done
 for f in CLAUDE.md .claude-plugin/plugin.json docs/designs/current/DESIGN-output-gates.md \
     docs/measurement/offload-baseline/template-pin.json .github/workflows/check-rule-registry.yml \
-    .github/workflows/pr-body.yml; do
+    .github/workflows/validate-pr-body.yml; do
     cp "$REPO_ROOT/$f" "$S/$f"
 done
 
@@ -193,7 +193,7 @@ expect_problem "a backstop on a never-withhold entry" "$G: a backstop needs with
 reg "$(sel $G).notes = \"\""
 expect_problem "a backstop with no notes" "$G: a backstop needs notes saying why"
 
-reg "$(sel $RS).backstop = {\"before\": \"merge\", \"check\": \".github/workflows/pr-body.yml\"}"
+reg "$(sel $RS).backstop = {\"before\": \"merge\", \"check\": \".github/workflows/validate-pr-body.yml\"}"
 expect_problem "a backstop on a review-shadow entry" "$RS: a backstop needs level gate"
 
 reg "$(sel $TK).check = {\"kind\": \"script\", \"path\": \"skills/execute/scripts/adopt-or-create-pr.sh\"}"
