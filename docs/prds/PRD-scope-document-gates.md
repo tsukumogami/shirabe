@@ -28,6 +28,12 @@ In Progress
 
 Absorbed [BRIEF-scope-document-gates](docs/briefs/BRIEF-scope-document-gates.md); carried in Absorbed Brief.
 
+Amended after acceptance, during design review: R13 now overrides a caller's
+`SHIRABE_RULES` instead of honouring it, and proves the rules live with a
+canary run, because an inherited value could switch the banned-word check off;
+R14 counts that canary run; and R2 gives the fold a gate-free `bail` verdict,
+because without one a fold gate that can't pass leaves the run no way out.
+
 ## Absorbed Brief
 
 The feature exists because /scope credits each hop's document after four
@@ -148,8 +154,10 @@ codes; this PRD's own requirements are numbered R1 to R17 without backticks.
   document passes on the next `landed`.
 - **R2. A document gate at the fold.** The `fold` state carries a gate that
   checks every one of the topic's documents present on disk at the paths in
-  R1. Every transition out of `fold` requires it to exit 0, so a document the
-  absorb rewrote is checked before the run moves on.
+  R1. Every `keep` and `absorb` transition out of `fold` requires it to exit
+  0, so a document the absorb rewrote is checked before the run moves on. The
+  fold also accepts a `bail` verdict whose transition names no gate, the same
+  way out the hop states' `bail` gives.
 - **R3. Every error-level check, at the declared visibility.** For each
   document the gate runs `shirabe validate --format json` once, without
   `--check`, and passes `--visibility=<v>` where `<v>` is the first
@@ -220,13 +228,15 @@ codes; this PRD's own requirements are numbered R1 to R17 without backticks.
   `skills/writing-style/rules.yaml`, found by walking up from the working
   directory, and with no file to find it checks no banned word at all, without
   an error. The gate therefore sets `SHIRABE_RULES` to the rules file shipped
-  beside it in the plugin (`<plugin root>/skills/writing-style/rules.yaml`)
-  unless the caller already set it, and exits 2 when that file can't be read,
-  so the banned-word check runs in every repository /scope works in.
+  beside it in the plugin (`<plugin root>/skills/writing-style/rules.yaml`),
+  whatever the caller's environment set, and exits 2 when that file can't be
+  read or a canary run with a banned word yields no banned-word finding, so the
+  banned-word check runs in every repository /scope works in.
 
 ### Non-functional
 
-- **R14. Fast.** Each gate runs the validator once per document. On the
+- **R14. Fast.** Each gate runs the validator once per document and once for
+  the canary. On the
   largest PLAN fixture in the test suite the gate finishes in under 10 seconds,
   a third of koto's 30-second command limit.
 - **R15. Run from the repository root.** The gate changes to `git rev-parse
@@ -266,8 +276,9 @@ Hops and transitions:
       compile`, each hop state's `landed` transition requires the new gate's
       exit code 0 alongside the completion gate's, and its `skipped`,
       `rejected` and `bail` transitions name no new gate.
-- [ ] In the compiled template, every transition out of `fold` requires the
-      fold's new gate to exit 0.
+- [ ] In the compiled template, every `keep` and `absorb` transition out of
+      `fold` requires the fold's new gate to exit 0, and a `bail` verdict
+      routes to `bail` naming no gate.
 - [ ] In the compiled template, every new gate has `overridable: false`.
 - [ ] In a real koto session on the shipped template, a PRD hop whose PRD
       names a nonexistent `upstream:` stays in `hop_prd` after `landed`, and
@@ -312,8 +323,8 @@ Cannot-decide and absence:
       stderr says no document was found.
 - [ ] Each of these makes the gate exit 2 with no finding and a reason on
       stderr: `shirabe` missing, `jq` missing, `git` missing, a stub validator
-      exiting 1, a stub exiting 3, a stub printing no JSON, an unreadable
-      `SHIRABE_RULES` file, a schema-less document (outcome `incomplete`),
+      exiting 1, a stub exiting 3, a stub printing no JSON, the plugin's rules
+      file missing, a canary run with no banned-word finding, a schema-less document (outcome `incomplete`),
       and a stub reporting an error-level code no registry entry aliases.
 - [ ] Run from `skills/` inside the fixture repository, the gate gives the
       same exit and findings as from the root.
@@ -339,7 +350,7 @@ Registry and repository:
 - [ ] `scripts/check-skill.sh scope` exits 0.
 - [ ] On the CI runner, the gate over the suite's largest PLAN fixture
       finishes in under 10 seconds, and a stub validator that counts its calls
-      is called once per checked document.
+      is called once per checked document plus once for the canary.
 
 ## Out of Scope
 
