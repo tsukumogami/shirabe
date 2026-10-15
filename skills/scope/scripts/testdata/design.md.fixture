@@ -35,8 +35,8 @@ rationale: |
 Planned
 
 Authored under `/scope`'s chain, which approved it inside the design hop. Six
-decisions were evaluated. The two critical-tier ones ran through `/decision`, with
-empirical verification against koto 0.11.6; the four standard-tier ones were
+decisions were evaluated. The two critical-level ones ran through `/decision`, with
+empirical verification against koto 0.11.6; the four standard-level ones were
 resolved inline, per the decision-bypass-with-inline-resolution shape in
 `references/fixes/sub-agent-dispatch.md`, and the frontmatter records that. The
 verification those four would have had was run directly rather than dropped, and
