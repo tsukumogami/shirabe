@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   The pull request a /work-on or /execute run publishes passes no
   writing-style check, though its title and Part 1 become the commit message
@@ -29,7 +29,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
