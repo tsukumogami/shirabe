@@ -23,7 +23,13 @@
 # entries, none of them holding a slot; a unit's verdict_owed from a
 # verdict-owed Work row, with and without its holding, and no brief form for
 # it; a unit's rework text from a rework Work row, the unit offered and
-# briefable.
+# briefable. On a roadmap/v3 roadmap (`## Milestones`, `### Milestone N:`)
+# the facts are the v2 roadmap's (units, dependencies, blocked flags and
+# statuses, holdings, landed and Work rows), the Dependencies prose still
+# saying `Feature N` naming the item tagged `Milestone N`; holdings, a landed
+# row and verdict-owed and follow-up rows written under `Feature N` cover
+# `Milestone N`, a holding naming `Milestone 2` covers a v2 `Feature 2`, and
+# `Milestone 03`, `feature 2` and `#2` cover nothing.
 #
 # Usage: bash skills/coordinate/scripts/pick-facts_test.sh
 set -uo pipefail
@@ -328,6 +334,51 @@ db '.files["acme/widgets"]["main:docs/disciplines/ci-health.md"] = $t' --arg t "
 session "$(discipline_vars ci-health)" 22 discipline-ci-health
 OUT=$(bash "$PF" --session "$S" --today 2026-09-29 2>"$T/err")
 eq "a carry owed is decisions" "decisions carry" "${OUT% sealed:*}"
+
+echo "== roadmap/v3: the same facts as v2, the record under Feature N =="
+# rmv <schema> <statuses...>: roadmap()'s text with that schema, and on v3
+# its items under `## Milestones` headed `### Milestone N:`; the Dependencies
+# prose (`Feature 1`, `Features 1 and 2`, `Feature 4`) is left as it is.
+rmv() {
+    local sch=$1; shift
+    roadmap "$@" | awk -v s="$sch" 'NR == 1 { print; print "schema: " s; next } { print }' \
+        | if [ "$sch" = roadmap/v3 ]; then sed -e 's/^## Features$/## Milestones/' -e 's/^### Feature \([0-9]\)/### Milestone \1/'; else cat; fi
+}
+RS4='{"action":"roadmap-status","target":"Feature 4 [#30](https://github.com/acme/widgets/pull/30)","verified_head":"","attempted":"2026-09-26T09:00Z","how_to_confirm":"the roadmap on main reads Feature 4 Done"}'
+ROWS=$(jq -nc '[{item: "Feature 5", kind: "verdict-owed", who: "none", next: "verdict owed since 2026-09-26", wakes: "0", updated: "2026-09-26T07:00Z"},
+    {item: "Feature 1", kind: "follow-up", who: "acme/widgets#41", next: "/shirabe:execute docs/plans/PLAN-loader.md", wakes: "0", updated: "2026-09-26T07:00Z"}]')
+for v in v2 v3; do
+    seed "$(printf '%s' "$REC" | jq -c --argjson r "$RS4" --argjson w "$ROWS" '.side_effects = [$r] | .work = $w')"; pr 21 OPEN true; pr 23 OPEN false
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(rmv roadmap/$v Done 'In progress' 'Not started' 'Not started' 'In progress')"
+    session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+    OUT=$(bash "$PF" --session "$S" 2>"$T/err"); eq "$v: the facts are read" "0 pick" "$? ${OUT% sealed:*}"
+    facts > "$T/parity-$v.json"
+done
+eq "v3 units are the Milestone N headings, in order" "Milestone 1,Milestone 2,Milestone 3,Milestone 4,Milestone 5" "$(jq -r '[.units[].unit] | join(",")' "$T/parity-v3.json")"
+eq "v2 and v3 give the same facts, a unit read Milestone N for Feature N" \
+    "$(jq -c '.units' "$T/parity-v2.json")" "$(jq -c '.units | map(.unit |= sub("^Milestone "; "Feature "))' "$T/parity-v3.json")"
+eq "  ... and the same holdings, counts and decisions" "$(jq -c 'del(.units)' "$T/parity-v2.json")" "$(jq -c 'del(.units)' "$T/parity-v3.json")"
+eq "v3: Feature 1 in prose blocks Milestone 2 on Milestone 1; Features 1 and 2 block Milestone 3 on Milestone 2" "false [] true|true [2] false" \
+    "$(jq -r '[.units[1], .units[2]] | map("\(.blocked) \(.blocked_by | tojson) \(.blocker_landed)") | join("|")' "$T/parity-v3.json")"
+eq "v3: holdings naming Feature 2, Feature 4 and Feature 3: Sandbox cover Milestones 2, 4 and 3" "alpha beta gamma" \
+    "$(jq -r '[.units[1].holding.worker, .units[3].holding.worker, .units[2].holding.worker] | join(" ")' "$T/parity-v3.json")"
+eq "v3: the landed row for Feature 4 marks Milestone 4 landed" "[#30](https://github.com/acme/widgets/pull/30)" "$(jq -r '.units[3].landed' "$T/parity-v3.json")"
+eq "v3: the verdict-owed row for Feature 5 and the follow-up row for Feature 1 mark Milestones 5 and 1" "true acme/widgets#41" \
+    "$(jq -r '"\(.units[4].verdict_owed) \(.units[0].follow_up.after)"' "$T/parity-v3.json")"
+# covered_in <schema> <unit-cell>: the unit pick reads one holding as covering, or none.
+covered_in() {
+    seed "$(record_json roadmap plugin-system | jq -c --argjson h "$(holding solo "$(jq -nc --arg u "$2" '{unit: $u, pull_request: ""}')")" '.holdings = [$h]')"
+    db '.files["acme/widgets"][$k] = $t' --arg k "main:$RP" --arg t "$(rmv "$1" Done 'In progress' 'Not started' 'Not started' Dropped)"
+    session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
+    bash "$PF" --session "$S" > /dev/null 2>&1
+    facts | jq -r '[.units[] | select(.holding.worker == "solo") | .unit][0] // "none"'
+}
+eq "v2: a holding naming Milestone 2 covers Feature 2" "Feature 2" "$(covered_in roadmap/v2 "Milestone 2")"
+eq "v2: one naming Milestone 3: Sandbox covers Feature 3" "Feature 3" "$(covered_in roadmap/v2 "Milestone 3: Sandbox")"
+eq "v3: one naming Feature 3: Registry, another title, covers nothing" none "$(covered_in roadmap/v3 "Feature 3: Registry")"
+eq "v3: one naming Feature 03 covers nothing" none "$(covered_in roadmap/v3 "Feature 03")"
+eq "v3: one naming feature 2 covers nothing" none "$(covered_in roadmap/v3 "feature 2")"
+eq "v3: one naming #2, an issue, covers nothing" none "$(covered_in roadmap/v3 "#2")"
 
 echo "== the dispatch path's unit forms are the ones pick reads =="
 # dispatch-common.sh dc_unit_forms lists, from coord/pick.json, the Unit cells

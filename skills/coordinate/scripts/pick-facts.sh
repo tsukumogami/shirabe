@@ -2,10 +2,12 @@
 # pick-facts.sh -- the check action of state pick_facts: the facts pick
 # decides on, and whether the scope is over.
 #
-# Units, in order. Roadmap scope: the features under `## Features` of the
-# roadmap on the host's default branch, in the roadmap's order, as
-# record-common.sh lib_roadmap_features reads them: `### Feature N: title` or
-# `### <PREFIX><N>[a-z]: title`, the `**Status:**` value, and the dependencies
+# Units, in order. Roadmap scope: the items under the items section of the
+# roadmap on the host's default branch (`## Milestones` on a roadmap/v3
+# roadmap, `## Features` otherwise), in the roadmap's order, as
+# record-common.sh lib_roadmap_features reads them: `### Feature N: title`
+# (`### Milestone N: title` on v3) or `### <PREFIX><N>[a-z]: title`, the
+# `**Status:**` value, and the dependencies
 # its `**Dependencies:**` paragraph names, soft mentions and parenthesised
 # text aside. A dependency is satisfied only when the feature it names is
 # finished (its Status opens Done or Shipped); a Dropped one never satisfies
@@ -23,7 +25,10 @@
 # Each unit carries the holding that covers it, {worker, phase}, or null: a
 # holding covers a roadmap unit when its Unit cell is the feature's heading tag
 # ("Feature 2", "ED1") or "<tag>: <title>", and an issue when it is "#<n>" or
-# "<owner/repo>#<n>". dispatch-common.sh dc_unit_forms lists the same forms
+# "<owner/repo>#<n>". A tag and a unit compare by record-common.sh tag_key,
+# here and for landed rows and Work rows, so a holding or a row written under
+# `Feature 2` still covers the heading `Milestone 2` of a v3 roadmap, and one
+# naming `Milestone 2` covers a v2 `Feature 2`. dispatch-common.sh dc_unit_forms lists the same forms
 # from coord/pick.json for the dispatch path's check of a brief's unit;
 # pick-facts_test.sh holds the two to each other.
 #
@@ -175,14 +180,19 @@ if [ "$SCOPE" = roadmap ]; then
     # record-decision.sh above.
     bash "$HERE/roadmap-status.sh" "$@" > "$T/landed.json" 2> "$T/landed.err" \
         || lib_die2 "roadmap-status.sh --list failed: $(lib_scrub < "$T/landed.err")"
-    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" '. as $f | map(. as $u
+    # covers($id; $title): a Unit cell naming the item, as its tag or as
+    # `<tag>: <title>`, the tag compared by key.
+    jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" "$JQ_TAG_KEY"'
+        def covers($id; $title): (tag_key == ($id | tag_key))
+            or (index(": ") as $i | $i != null and (.[0:$i] | tag_key) == ($id | tag_key) and .[$i + 2:] == $title);
+        . as $f | map(. as $u
         | (if $u.done then [] else [$u.dependencies[] as $d | select(([$f[] | select(.number == $d and .finished)] | length) == 0) | $d] end) as $by
         | {unit: $u.id, number: $u.number, title: $u.title, status: $u.status, done: $u.done,
            blocked: (($by | length) > 0), blocked_by: $by,
            blocker_landed: ((($u.dependencies | length) > 0) and (($by | length) == 0)),
-           holding: ([$h[0][] | select(.unit == $u.id or .unit == ($u.id + ": " + $u.title))][0]
+           holding: ([$h[0][] | select(.unit | covers($u.id; $u.title))][0]
                      | if . == null then null else {worker, phase} end),
-           landed: ([$l[0][] | select(.unit == $u.id) | .pull_request][0] // null)})' "$T/features.json" > "$T/units.json" \
+           landed: ([$l[0][] | select((.unit | tag_key) == ($u.id | tag_key)) | .pull_request][0] // null)})' "$T/features.json" > "$T/units.json" \
         || lib_die2 "jq failed"
     if [ "$(jq length "$T/units.json")" -gt 0 ] && jq -e 'all(.done)' "$T/units.json" > /dev/null; then
         VERDICT=scope-complete
@@ -246,10 +256,10 @@ if [ -n "$SESSION" ]; then
 fi
 
 jq -n --arg scope "$SCOPE" --arg name "$NAME" --arg host "$REPO" --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --slurpfile d "$T/decisions.json" \
-    --slurpfile pz "$T/pauses.json" --slurpfile st "$T/state.json" --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" '
+    --slurpfile pz "$T/pauses.json" --slurpfile st "$T/state.json" --argjson cap "$CAP" --argjson pb "$PARKED_BOUND" "$JQ_TAG_KEY"'
     $pz[0] as $p
     | ($st[0].work // []) as $w
-    | def row($k; $x): [$w[] | select(.kind == $k and (.item == $x or .item == ($host + $x)))][0];
+    | def row($k; $x): [$w[] | select(.kind == $k and ((.item | tag_key) == ($x | tag_key) or .item == ($host + $x)))][0];
       def parked_on($x): (row("decision"; $x) | if . == null then null else (.who | ltrimstr("decision ")) end) as $n
         | ([($d[0].entries // [])[] | select(.decision == $n)][0]) as $e
         | if $n == null then {awaiting: null, answered: null}
