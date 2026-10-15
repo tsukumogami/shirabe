@@ -66,7 +66,8 @@ if key work/review.md exists           → verdict is "proceed"; go to Phase 7
 if key work/review_loopback.md exists  → verdict is "loop-back"; execute below
 ```
 
-Read the `review_result` YAML block from the verdict key. Log the verdict and summary:
+Read the `review_result` YAML block from the verdict key. Log the verdict and summary,
+and every entry of `advisory_findings` (absent or empty means none):
 
 ```
 Phase 6 review complete
@@ -74,7 +75,13 @@ Phase 6 review complete
   round:      <N>
   confidence: <high | medium | low>
   summary:    <summary text>
+  advisory:   <none, or one line per advisory finding: its category and description>
 ```
+
+Advisory findings change neither the verdict nor the loop target, so nothing below
+acts on them; this log is where the plan's reader sees them. Under `plan/v1` they
+are Category E's notes on a plan cut into layers, a first issue that is not a
+walking skeleton, or a file-shaped criterion.
 
 ## On "proceed"
 

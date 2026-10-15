@@ -102,7 +102,7 @@ following values:
 ### 0.4 Read Issue Bodies
 
 Read each issue body key the manifest lists (`work/<file>`). These are the
-inputs to Categories A, C, and D. Category B also needs the upstream design doc
+inputs to Categories A, C, D and E. Category B also needs the upstream design doc
 path.
 
 If the manifest lists a body whose key doesn't exist, report it and continue —

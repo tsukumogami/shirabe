@@ -65,7 +65,9 @@ These are the PRD's definitions. Apply them as written; do not widen them.
 
 ## The Four Tests
 
-Run every test on every plan, and report each finding separately.
+Run E1, E2 and E3 on every plan, and report each finding separately. E4,
+the horizon test, runs only when this review is `/plan`'s sub-operation and the
+plan is `plan/v2`; every other run skips it.
 
 ### E1. Layer Shape
 
@@ -149,8 +151,16 @@ the description:
 - category: "E"
   description: "E1 layer-shaped: ..."   # or E2, E3, E4; name the entries
   affected_issue_ids: [1, 2, 3, 4, 5]   # entry numbers the finding names
-  correction_hint: ""                   # always empty for Category E
+  correction_hint: "..."                # plan/v2 critical only; "" when advisory
 ```
+
+A critical finding (`plan/v2`) carries a `correction_hint` saying what the
+re-cut plan or the rewritten criterion should do, in one or two sentences: for
+E1, the behaviour each step should add instead of a layer; for E2, the command
+step 1 should run end to end; for E3, the result the criterion should observe;
+for E4, which steps to fold back to one-line outlines. The hint gives the
+`/plan` phase that regenerates the plan a direction, never replacement text.
+An advisory finding (`plan/v1`) changes nothing, so its hint stays empty.
 
 An E3 description names the entry and quotes the criterion as written:
 

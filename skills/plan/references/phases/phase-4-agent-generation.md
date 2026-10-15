@@ -183,7 +183,8 @@ For each issue in `issue_outlines`:
 **Loop-back round** (key `work/review_loopback.md` exists in `plan-<topic>`):
 
 1. Read the loopback key and extract all `correction_hint` values from
-   `critical_findings` where `category: "C"` and the hint is non-empty.
+   `critical_findings` where `category` is `"C"` or `"E"` and the hint is
+   non-empty.
 2. Filter to hints for this issue — only include hints where the issue's internal
    ID appears in `affected_issue_ids`.
 3. If no hints apply to this issue, substitute with an empty string `""`.

@@ -133,10 +133,17 @@ violation in Category A that doesn't map to specific issues).
 **Type:** string
 
 A brief description of what a corrected issue body should include to fix this
-finding. **Only populated for Category C (AC Discriminability) findings.**
+finding. **Only populated for Category C (AC Discriminability) findings and for
+critical Category E (Functional Shape) findings.**
 
-For Categories A, B, D, and E: leave as empty string `""`. The correction is
-addressed by re-running earlier phases, not by changing issue body content directly.
+For Categories A, B and D, and for an advisory Category E finding: leave as empty
+string `""`. The correction is addressed by re-running earlier phases, not by
+changing issue body content directly.
+
+For a critical Category E finding (`plan/v2`): say what the re-cut plan or the
+rewritten criterion should do, as `phase-4b-functional-shape.md` describes. The
+loop-back passes it to the `/plan` phase that regenerates the plan, as it passes
+Category C's.
 
 For Category C: describe what a discriminating AC should check. The hint gives
 Phase 4 regeneration agents positive direction without generating replacement ACs
