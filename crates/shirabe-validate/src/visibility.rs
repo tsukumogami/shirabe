@@ -193,7 +193,10 @@ pub fn resolve_prose_vocabulary(path: &Path) -> Vec<String> {
 /// caller passes the directory it runs in.
 pub fn resolve_prose_vocabulary_from_dir(dir: &Path) -> Vec<String> {
     // The walk begins at its argument's parent, so start it from an entry
-    // inside `dir`. The entry need not exist.
+    // inside `dir`. The entry need not exist; because it doesn't, the walk
+    // can't canonicalize it and walks `dir` as given, so a caller passing a
+    // symlinked directory gets the symlink's ancestors. `current_dir()` is
+    // already resolved, which is what the one caller passes.
     resolve_prose_vocabulary(&dir.join(".prose-vocabulary-anchor"))
 }
 
@@ -203,7 +206,8 @@ mod tests {
 
     #[test]
     fn vocabulary_from_dir_starts_at_the_directory_and_stops_at_its_repo() {
-        let root = std::env::temp_dir().join("shirabe-vocab-from-dir");
+        let root =
+            std::env::temp_dir().join(format!("shirabe-vocab-from-dir-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let repo = root.join("repo");
         let nested = repo.join("a/b");

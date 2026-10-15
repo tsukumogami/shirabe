@@ -372,9 +372,10 @@ pub fn set_rules(rules: Rules) -> bool {
 
 /// The resolved rule source, or `None` when resolution failed.
 ///
-/// Callers that need the failure *reason* (the CLI, which turns it into a
-/// tool error) call `resolve_rules_path` and `load_rules` directly. This
-/// accessor exists for check functions, which have no error channel.
+/// The reason is dropped: the document checks that read this accessor have
+/// no error channel, and they check no word when it is `None`. A caller that
+/// must not pass silently (`--pr-body --writing-style <file>`) calls
+/// `resolve_rules_path` and `load_rules` itself and reports the error.
 pub fn cached_rules() -> Option<Rules> {
     RULES_CACHE
         .get_or_init(|| {

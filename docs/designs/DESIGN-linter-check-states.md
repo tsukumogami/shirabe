@@ -163,9 +163,11 @@ Key assumptions:
 
 `shirabe validate --pr-body <file>` gains `--writing-style <rules-file>`,
 valid only with `--pr-body`, which reports banned terms in the title and the
-body as `PB5` findings in the existing `shirabe-pr-body/v1` envelope. As
-for PB1 to PB4, `PB5` is the message's prefix (`[PB5] `), since a
-`PrBodyFinding` carries only a line and a message. The
+body as `PB5` findings in the existing `shirabe-pr-body/v1` envelope. A
+`PrBodyFinding` carries only a line and a message, so `PB5` is marked in the
+message itself, as a fixed `[PB5] ` prefix; PB1 to PB4 messages carry no
+prefix, which leaves the gate one prefixed class to match and everything
+else to its existing arms. The
 matching is FC10's own code, pulled out of `check_writing_style_with` into a
 span-level function both call, so documents and pull requests are judged by
 one matcher over one CommonMark scoping. The gate passes the plugin's
