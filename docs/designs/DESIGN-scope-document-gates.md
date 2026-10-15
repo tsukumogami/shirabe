@@ -143,6 +143,13 @@ advances on `landed`: the one `landed` arm in `hop_brief`, `hop_prd` and
 In `fold` it is added to all fourteen arms. Arms on `skipped`, `rejected` and
 `bail` don't name it.
 
+The fold has no `bail` today: it accepts only `verdict: keep|absorb`, so a
+fold gate that can't pass (an environment fault, or a settled document this
+run didn't write that now breaks a rule) would hold the run with no way out.
+The fold's `verdict` therefore gains a third value, `bail`, with one arm to the
+`bail` state that names no gate, as the hop states' `bail` arms do. The
+details text says when to use it.
+
 #### Alternatives Considered
 
 - **Widen `hop-complete.sh`'s `--check` list.** One gate per state, no template
@@ -199,7 +206,12 @@ timing `scope:hop_plan` and `scope:fold`; the rest take all five /scope states.
 The three existing visibility entries add the five /scope timings and a note
 that `check-hop-document.sh` also prints them. `baseline_keys` hold the pinned
 commit's range where the anchor already occurs there, and are empty with the
-registry's standard note where it doesn't. `docs/guides/doc-validation.md`
+registry's standard note where it doesn't. Entries that share an anchor, and
+so a key (`FC01` to `FC04`; `FC18` and `FC19`; `R10` and `R11`; and `R6` with
+the three visibility entries, which already share the format-specific rules
+item), name each other in `notes`, as the registry check requires. Every
+anchor file is already inside `check-rule-registry.yml`'s path filter
+(`references/**`, `skills/**`, `docs/guides/**`). `docs/guides/doc-validation.md`
 gains the missing FC20 item and its R6 sentence is corrected to say R6 runs for
 every format that carries `upstream:`, which it has since R6 moved out of the
 Plan arm.
@@ -245,9 +257,17 @@ Before validating, the script sets `SHIRABE_RULES` to
 `<plugin root>/skills/writing-style/rules.yaml`, found relative to the script
 itself, always, ignoring a value the caller's environment carries, and exits 2
 when that file isn't readable or has no `words:` entry. It then runs the
-validator once on a canary, a one-line schema-less Markdown file in its
-temporary directory holding a word from the rules file, and exits 2 unless
-the gate's own `jq` selector picks that run's banned-word finding out. Running
+validator once on a canary and exits 2 unless the gate's own `jq` selector
+picks that run's banned-word finding out. The canary word is the first
+`- <term>` line under the first `terms:` key of the rules file, read with
+`awk` (the file's own format, a plain YAML list of words); the test suite
+checks that rule against the shipped file. The canary is a one-line,
+schema-less Markdown file in the gate's temporary directory, outside any
+repository, so no declared prose vocabulary applies to it. The validator runs
+the banned-word check on every Markdown file, schema or not (verified with
+shirabe 0.25.0: a schema-less file reports the `FC10` notice with exit 0), so
+the canary's verdict is read differently from a document's: exit 0 and at
+least one selected finding passes, anything else is undecided. Running
 the canary through the same selector means a validator whose message wording
 no longer matches the pinned prefixes (an installed release older or newer
 than the source CI builds) refuses rather than passes. The validator silently
@@ -288,7 +308,16 @@ Key assumptions:
 Both `check-branch-output.sh` and `check-hop-document.sh` source it. The
 function moves unchanged: first well-formed `## Repo Visibility:` header,
 `CLAUDE.local.md` before `CLAUDE.md`, lowercased, nothing when neither file
-declares one.
+declares one. It reads both files by relative path, so the library's header
+states its precondition: the caller has already changed to the repository
+root, as both scripts do.
+
+The validator's `R7`, `R8` and `R9` are the only checks visibility changes,
+and none of them can fire on a BRIEF, PRD, DESIGN or PLAN, so the flag changes
+nothing the gate reports today. It is passed anyway because PRD R3 asks for
+the same validator call work-on makes, so a visibility-gated check the
+validator later adds for these types is held at the declared visibility, not a
+guessed one.
 
 #### Alternatives Considered
 
@@ -388,8 +417,10 @@ one finding printed; 2 no finding printed, reason on stderr.
 ### Data Flow
 
 1. Resolve the root with `git rev-parse --show-toplevel` and `cd` there.
-2. Check `git`, `jq`, `shirabe`; set and check `SHIRABE_RULES`; `rf_require`
-   every id; run the canary.
+2. Check `git`, `jq`, `shirabe`, and refuse a `shirabe` that resolves under
+   the repository root (a shim planted in the tree); name the resolved
+   validator and its version on stderr; set and check `SHIRABE_RULES`;
+   `rf_require` every id; run the canary.
 3. Read the declared visibility.
 4. For each path in order: a path that doesn't exist is skipped; a symlink, a
    non-regular file, an empty file, or a path whose resolved location isn't
@@ -397,8 +428,8 @@ one finding printed; 2 no finding printed, reason on stderr.
    as `hop-complete.sh`'s `is_document` refuses the first three. Otherwise run the validator and store stdout
    and the exit status in the temporary directory. Only exit status 0 or 2
    with a parseable envelope whose `schema_version` is `shirabe-validate/v1`,
-   whose `summary.outcome` is `clean` or `violations`, and whose every finding
-   carries a `severity`, is a verdict. Everything else is undecided: exit 4 or
+   whose `summary.outcome` is `clean` or `violations`, whose `findings` is an
+   array, and whose every finding carries a `severity`, is a verdict. Everything else is undecided: exit 4 or
    an `incomplete` outcome (a schema-skipped document nobody checked), exit 1
    or 3, no JSON, and an exit 2 whose envelope holds no error-level finding.
 5. With every document decided, select findings with `jq` (`severity ==
@@ -409,27 +440,41 @@ one finding printed; 2 no finding printed, reason on stderr.
    agent's context.
 6. Exit 1 if anything printed, else 0.
 
+koto captures a command gate's stdout and stderr and returns both in the
+blocking condition (the `captured` field), so an exit-2 reason reaches the
+agent at the fold as at a hop. A koto timeout on the gate holds the state like
+any other failure; nothing advances on it. The gate prints every violation
+without a cap of its own (PRD R5): the validator already caps banned-word
+findings at 50 per document, and the other checks report at most a few
+findings per section or field, so the volume is bounded by the document.
+
 ## Implementation Approach
 
-### Phase 1: Registry and shared pieces
+### Phase 1: Shared pieces
 
 Add `scripts/lib/declared-visibility.sh` and switch `check-branch-output.sh`
-to it. Add the FC20 item and the R6 correction to `docs/guides/doc-validation.md`.
-Add the fourteen registry entries and update the three visibility entries.
-`check-rule-registry.sh` and `check-branch-output_test.sh` pass.
+to it. Add the FC20 item and the R6 correction to
+`docs/guides/doc-validation.md`, so the anchors the registry entries need
+exist. `check-branch-output_test.sh` passes.
 
-### Phase 2: The gate script and its tests
+### Phase 2: The gate script, its tests and its registry entries
 
 Write `check-hop-document.sh` and `check-hop-document_test.sh` covering every
-acceptance criterion that doesn't need koto, and wire the suite into
-`check-scope-scripts.yml` and `check-bash-floor.sh`.
+acceptance criterion that doesn't need koto, and in the same change add the
+fourteen registry entries and update the three visibility entries: the
+registry check refuses an entry whose check script or fixture doesn't exist
+yet, so the entries can't land before the script. Wire the suite into
+`check-scope-scripts.yml` and `check-bash-floor.sh`. `check-rule-registry.sh`
+passes.
 
 ### Phase 3: Template wiring
 
-Add the five gates and their edge conditions to `scope.md`, the paragraph in
-each state's details, and the template and substrate test cases; make the
-existing substrate fixtures pass the gate. `scripts/check-skill.sh scope`
-passes.
+Add the five gates and their edge conditions to `scope.md`, the fold's `bail`
+value and arm, the paragraph in each state's details, and the template and
+substrate test cases, including a session that absorbs a document at the fold
+and passes the fold gate. Fix the existing substrate fixtures in the same
+change, since the wiring is what makes them fail. `scripts/check-skill.sh
+scope` passes.
 
 ## Security Considerations
 
@@ -446,7 +491,9 @@ is data, never an instruction, and that an exit 2 is a fault in the
 environment, not in the document.
 
 The gate is `overridable: false`, so koto won't accept a recorded override;
-the only ways out are fixing the document or `bail`. Its inputs are hardened to
+the only ways out are fixing the document or `bail`, which every gated state,
+the fold included, offers. A `bail` leaves the document on the branch as it
+was. Its inputs are hardened to
 match. It always sets `SHIRABE_RULES` to the plugin's own
 `skills/writing-style/rules.yaml` and ignores an inherited value, requires that
 file to be readable with a `words:` entry, and runs a canary banned word
@@ -460,19 +507,27 @@ through the same selector as the documents, so a validator whose wording the
 selector no longer matches refuses instead of passing.
 
 The script writes only to its own `mktemp -d` directory, removed on exit and on
-`INT`, `TERM` and `HUP`, makes no network call itself, and runs `git`, `jq` and
-`shirabe` from `PATH`, naming the resolved validator and its version on stderr
-so a hold can be traced to the binary that produced it. The validator's `FC09`
-probe on a PLAN runs `gh auth status`, whose result is a notice the gate
-ignores. Findings go to koto's session on the local machine, and
+`INT`, `TERM` and `HUP`. The script makes no network call; the validator's
+`FC09` probe on a PLAN runs `gh auth status`, whose result is a notice the gate
+ignores. It runs `git`, `jq` and `shirabe` from `PATH`, refuses a `shirabe`
+that resolves inside the repository, and names the resolved validator and its
+version on stderr so a hold can be traced to the binary that produced it. The
+only environment variable that changes which banned words or severities the
+validator applies is `SHIRABE_RULES`, which the gate overrides; the others it
+reads (`SHIRABE_PR_NUMBER`, `GITHUB_REF`, `GITHUB_REPOSITORY`) feed `FC09`. Findings go to koto's session on the local machine, and
 `SHIRABE_FINDINGS_LOG` is honoured only for a regular file under `$TMPDIR`, as
 `rule-registry.sh` already enforces; no finding text leaves the machine through
 this gate.
 
-Residual risks, accepted: an agent that controls `PATH` can substitute the
-validator; an agent that edits the repository's declared prose vocabulary,
-its declared visibility, or its git configuration can change what the
-validator reports, though those edits are part of the reviewed diff; and in
+Residual risks, accepted. The gate runs in the agent's own environment, so it
+holds an agent that skips a step, not one set on defeating it, and outside
+shirabe's own repository the repository's CI is the only independent check.
+Within that: an agent that controls `PATH` can put a validator outside the
+repository ahead of the real one; the repository's declared prose vocabulary
+can only allow a word, never add one, and an edit to it, to the declared
+visibility, or to the repository's git configuration (which can also run code
+when git runs) is part of the reviewed diff; a file swapped for a symlink
+between the gate's check and the validator's read is not guarded; and in
 shirabe's own repository an agent can edit the gate or the template, which the
 registry and template checks in CI are there to catch.
 
