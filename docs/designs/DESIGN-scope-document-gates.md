@@ -374,11 +374,13 @@ hop_<x> / fold (koto)                     check-hop-document.sh
   (one of `brief`, `prd`, `design`, `plan`, `all`). A `RULE_IDS` line listing
   the seventeen ids; an `undecided` that prints `check-hop-document: <reason>`
   and exits 2; `rf_require` on the ids a run is about to print, once every
-  document is decided and before anything prints (each resolution reads the
-  registry and git, about half a second apiece on a busy host, so resolving all
-  seventeen on every run would put a clean hop near koto's 30-second limit;
-  `check-rule-registry.sh` in CI keeps every anchor resolvable). A fixed map
-  from validator code to id written as a `case` statement.
+  document is decided and before anything prints. Each resolution reads the
+  registry and git twice, for the reference and the summary; on a busy shared
+  host, resolving all seventeen up front made a clean PLAN check take 19
+  seconds, against about 3 resolving only what prints, and koto's command limit
+  is 30. `check-rule-registry.sh` in CI keeps every anchor resolvable. A fixed
+  map from validator code to id written as a `case` statement, which the test
+  suite checks against the registry's aliases in both directions.
 - **`skills/scope/scripts/check-hop-document_test.sh`** (new). Builds
   throwaway git repositories with fixture documents, runs the script against
   the real validator, and uses stub `shirabe` scripts on `PATH` for the

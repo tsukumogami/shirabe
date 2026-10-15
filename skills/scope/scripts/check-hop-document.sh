@@ -142,8 +142,20 @@ cd "$ROOT" || undecided "cannot enter $ROOT"
 ROOT_REAL=$(pwd -P)
 
 # A validator planted inside the tree under review is refused: the document's
-# own author could have written it.
+# own author could have written it. Symlinks are followed to the file they name
+# (a link outside the tree to a binary inside it is still inside), with a hop
+# limit so a link loop can't hang the gate.
 SHIRABE_BIN=$(command -v shirabe)
+hops=0
+while [ -L "$SHIRABE_BIN" ] && [ "$hops" -lt 40 ]; do
+    target=$(readlink "$SHIRABE_BIN") || undecided "cannot read the link $SHIRABE_BIN"
+    case "$target" in
+        /*) SHIRABE_BIN=$target ;;
+        *) SHIRABE_BIN="$(dirname "$SHIRABE_BIN")/$target" ;;
+    esac
+    hops=$((hops + 1))
+done
+[ -L "$SHIRABE_BIN" ] && undecided "shirabe resolves through more than 40 links"
 SHIRABE_DIR=$(cd "$(dirname "$SHIRABE_BIN")" 2>/dev/null && pwd -P) \
     || undecided "cannot resolve the directory of $SHIRABE_BIN"
 case "$SHIRABE_DIR/" in
@@ -309,7 +321,7 @@ while IFS= read -r hit; do
     line=$(printf '%s' "$hit" | jq -r 'if .line == null then "" else (.line | tostring) end')
     msg=$(printf '%s' "$hit" | jq -r '.message // ""')
     if [ "${#msg}" -gt "$MESSAGE_CAP" ]; then
-        msg="${msg:0:$MESSAGE_CAP}..."
+        msg="${msg:0:$((MESSAGE_CAP - 3))}..."
     fi
     rf_finding "$(code_to_id "$code")" "$msg" "$file" "$line"
     printed=$((printed + 1))

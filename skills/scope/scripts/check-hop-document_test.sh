@@ -223,6 +223,54 @@ expect_undecided "usage: a malformed topic"
 gate --topic t- --hop prd
 expect_undecided "usage: a topic ending in a hyphen"
 
+# --- the code-to-rule map and the registry ----------------------------------------
+#
+# code_to_id in the script is the one place a validator code becomes a rule id.
+# Every arm must name an active entry whose aliases hold that code, every entry
+# this script checks must have an arm, and RULE_IDS must be exactly the mapped
+# ids, so a code added on one side and not the other fails here rather than at
+# a run that happens to report it.
+REGISTRY="$SCRIPT_DIR/../../../references/rule-registry.json"
+MAP=$(awk '/^code_to_id\(\)/ { on = 1; next } on && /^}/ { exit }
+    on && /^[[:space:]]+[A-Z0-9-]+\)[[:space:]]+echo / {
+        code = $1; sub(/\)$/, "", code); print code "\t" $3 }' "$CHECK")
+if [ -z "$MAP" ]; then
+    fail "code_to_id: no arms found in $CHECK"
+else
+    map_ok=1
+    while IFS='	' read -r code id; do
+        jq -e --arg id "$id" --arg code "$code" \
+            '.rules[] | select(.id == $id and .status == "active") | .aliases | index($code)' \
+            "$REGISTRY" >/dev/null 2>&1 || { map_ok=0; fail "code_to_id: $code -> $id is not an active entry aliasing $code"; }
+    done <<EOF
+$MAP
+EOF
+    [ "$map_ok" -eq 1 ] && pass "every code_to_id arm names an active registry entry that aliases its code"
+    want=$(jq -r '.rules[] | select(.status == "active" and .check.path == "skills/scope/scripts/check-hop-document.sh") | .aliases[]' "$REGISTRY" | sort)
+    have=$(printf '%s\n' "$MAP" | cut -f1 | sort)
+    missing=$(comm -23 <(printf '%s\n' "$want") <(printf '%s\n' "$have"))
+    if [ -z "$missing" ]; then
+        pass "every entry the registry gives this script has a code_to_id arm"
+    else
+        fail "registry aliases with no code_to_id arm: $missing"
+    fi
+    ids=$(printf '%s\n' "$MAP" | cut -f2 | sort -u | tr '\n' ' ')
+    rule_ids=$(sed -n 's/^RULE_IDS="\(.*\)"$/\1/p' "$CHECK" | tr ' ' '\n' | sort -u | tr '\n' ' ')
+    if [ "$ids" = "$rule_ids" ]; then
+        pass "RULE_IDS lists exactly the ids code_to_id maps to"
+    else
+        fail "RULE_IDS [$rule_ids] differs from the mapped ids [$ids]"
+    fi
+fi
+
+# The shared visibility library keeps its loop variables to itself.
+LIB_OUT=$(f=mine v=mine; . "$SCRIPT_DIR/../../../scripts/lib/declared-visibility.sh"; cd "$WORKDIR" && declared_visibility >/dev/null; printf '%s %s' "$f" "$v")
+if [ "$LIB_OUT" = "mine mine" ]; then
+    pass "declared_visibility leaves its caller's f and v alone"
+else
+    fail "declared_visibility changed its caller's variables: [$LIB_OUT]"
+fi
+
 # --- stub cases -------------------------------------------------------------------
 
 fixture stub-empty
@@ -276,6 +324,21 @@ else
     fail "null line: rc=$RC out=[$(cat "$OUT")]"
 fi
 
+LONG=$(awk 'BEGIN { for (i = 0; i < 60; i++) printf "0123456789" }')
+stub_json "{\"schema_version\":\"shirabe-validate/v1\",\"summary\":{\"outcome\":\"violations\",\"errors\":1,\"notices\":0},\"findings\":[{\"code\":\"R6\",\"severity\":\"error\",\"message\":\"[R6] $LONG\",\"file\":\"docs/prds/PRD-t.md\",\"line\":4}]}"
+STUB_RC=2
+with_stub --topic t --hop prd
+summary=$(jq -r '.rules[] | select(.id == "docs/upstream-resolves") | .summary' "$REGISTRY")
+detail=$(findings | jq -r '.message' | awk -v p="$summary: " '{ print substr($0, length(p) + 1) }')
+if [ "$RC" -eq 1 ] && [ "${#detail}" -eq 400 ]; then
+    case "$detail" in
+        *...) pass "a long validator message is cut to 400 characters, ending in ..." ;;
+        *) fail "long message: no ... at the end: [$detail]" ;;
+    esac
+else
+    fail "long message: rc=$RC detail length ${#detail}"
+fi
+
 stub_json "$CLEAN_ENVELOPE"; STUB_RC=0
 STUB_CANARY=none with_stub --topic t --hop prd
 expect_undecided "a canary run the selector picks nothing from"
@@ -319,7 +382,12 @@ stub_json "$CLEAN_ENVELOPE"
 (cd "$REPO" && PATH="$REPO/bin:$ORIG_PATH" "$CHECK" --topic t --hop prd) > "$OUT" 2> "$ERR"
 RC=$?
 expect_undecided "a shirabe that resolves inside the repository"
-rm -rf "$REPO/bin"
+mkdir -p "$WORKDIR/link-bin"
+ln -sf "$REPO/bin/shirabe" "$WORKDIR/link-bin/shirabe"
+(cd "$REPO" && PATH="$WORKDIR/link-bin:$ORIG_PATH" "$CHECK" --topic t --hop prd) > "$OUT" 2> "$ERR"
+RC=$?
+expect_undecided "a shirabe on PATH outside the repository that links to one inside it"
+rm -rf "$REPO/bin" "$WORKDIR/link-bin"
 
 for tool in git jq shirabe; do
     p=$(path_without "$tool")
