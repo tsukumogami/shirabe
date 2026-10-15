@@ -114,6 +114,34 @@ falls through to the mode-derived default.
 | `ARTIFACT_PREFIX` | Same as `name` (e.g., `"o-add-core-parser"`) |
 | `ISSUE_TYPE` | Value of the **Type**: annotation, omitted if annotation is absent |
 
+### plan/v2 vars
+
+A `plan/v2` step plan carries its entries as `### Step <N>: <title>` blocks
+under `## Steps`, read through the same `shirabe plan outlines` envelope. It
+supports `single-pr` and `multi-pr` at `tracking_level: none` (or the field
+absent); any other tracking level, and `execution_mode: coordinated`, exit 2
+naming `plan/v1` as the version for those cases.
+
+Every step becomes one task, detailed or one-line outline, in step order,
+named `step-<N>` in both modes, so the task names and edges don't depend on
+the mode. Whether an outline step's work may start is decided when that work
+starts, not at extraction: `/work-on`'s `plan_validation` state runs
+`skills/work-on/scripts/step-detail-check.sh` and stops the step's child while
+the step is still one line.
+
+| Key | Value |
+|-----|-------|
+| `ISSUE_SOURCE` | `"plan_outline"` under `single-pr`, `"plan_item"` under `multi-pr` (the same split as `plan/v1`) |
+| `ARTIFACT_PREFIX` | Same as `name` (e.g., `"step-2"`) |
+| `ISSUE_TYPE` | Value of the **Type**: annotation, omitted if annotation is absent |
+
+`waits_on` comes from each step's `**Dependencies**:` line (`None`, or
+`Step <N>` references) plus the shared-`**Files**:` edges single-pr already
+adds. A dependency naming no step exits 2. An outline step has no
+`**Dependencies**:` line, so it waits on the step before it instead: a fresh
+step plan runs in step order, and no outline step's child becomes startable
+ahead of the step before it. A detailed step gets no such edge.
+
 ### coordinated vars
 
 Coordinated mode emits one task entry per merge-order **node** (not per work
@@ -164,7 +192,9 @@ execution_mode: single-pr  # or multi-pr, or coordinated
 
 The script exits 2 if:
 - The file does not start with `---`
-- `schema:` is missing or not `plan/v1`
+- `schema:` is missing or not `plan/v1` / `plan/v2`
+- (`plan/v2`) `tracking_level` is set to anything but `none`, or
+  `execution_mode` is `coordinated`
 - `execution_mode:` is missing or not `single-pr` / `multi-pr` / `coordinated`
 - (coordinated) a work item is missing its Repo/Group declaration, a tag or
   gate name is invalid, a gate names no work item (outline path), or the
@@ -259,6 +289,12 @@ they disagreed in eight ways — see
 `docs/designs/current/DESIGN-issue-outlines-one-parser.md`. An envelope whose `schema`
 is not the expected value is refused rather than read field by field, so a
 binary and a script that have skewed across an install fail loudly.
+
+Each envelope entry also carries `entry` (`issue`, or `step` for a `plan/v2`
+step), `detailed` (always `true` for an issue outline; for a step, whether it
+declares a goal, criteria and a check) and `check_declared`. The keys were
+added without a version bump because consumers read fields by name, and no
+existing key changed.
 
 What this script still owns is everything after the parse: slug generation,
 the `o-` prefix, 64-character truncation, collision suffixing, the

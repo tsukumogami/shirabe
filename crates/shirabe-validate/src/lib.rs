@@ -70,7 +70,7 @@ pub use report::{
     render_human, render_human_with_advisory, render_json, render_json_with_advisory,
 };
 pub use table::{
-    is_stable_table_key, parse_issue_outlines, parse_issues_table, parse_outline_acs,
+    is_stable_table_key, parse_issue_outlines, parse_issues_table, parse_outline_acs, Entry,
     NonconformingHeading, OutlineAc, OutlineBlock, OutlineGate, OutlineSection, Profile, Row,
     RowKind, Table,
 };

@@ -9,7 +9,7 @@ review round counter, and signals `/plan` to re-enter at the target phase.
 **Steps:**
 
 1. Read key `work/review_loopback.md` and extract `loop_target` and all
-   Category C `correction_hint` values from `critical_findings`
+   Category C and Category E `correction_hint` values from `critical_findings`
 2. Remove `/plan`'s keys from `loop_target` forward (`koto context remove
    plan-<topic> <key>` for each) — see the key removal sequences below; do not
    remove the loopback key itself
@@ -81,7 +81,10 @@ work/decomposition.md
 Preserve: `work/analysis.md`, `work/milestones.md`, `work/review_loopback.md`
 
 Phase 3 reads the existing `work/analysis.md` and `work/milestones.md`. Re-entering at
-Phase 3 does not re-run Phase 1 (Analysis) or Phase 2 (Milestones).
+Phase 3 does not re-run Phase 1 (Analysis) or Phase 2 (Milestones). The loopback key
+is present at this point; a Category E finding's hint (a layer-shaped cut, a first
+step that is not a walking skeleton, steps past the horizon) reaches Phase 3 here,
+because Phase 3 is where the cut is made again.
 
 ### loop_target: 4 (re-enter at Phase 4 — Agent Generation)
 
@@ -119,15 +122,20 @@ unchanged) and produces a new `work/dependencies.md`.
 
 ## Correction Hints and Phase 4 Injection
 
-When the loopback key contains Category C findings with non-empty `correction_hint`
-values, and `loop_target` is 3 or 4 (both re-enter Phase 4), the hints must reach
-Phase 4 regeneration agents.
+When the loopback key contains Category C or Category E findings with non-empty
+`correction_hint` values, and `loop_target` is 3 or 4 (both re-enter Phase 4), the
+hints must reach the phases that regenerate the plan. Category E hints on a
+loop-back to Phase 3 reach Phase 3's step decomposition first (see
+`skills/plan/references/phases/phase-3-decomposition.md`, "Review Hints on a
+Loop-back"), framed as below; Phase 4 then receives both categories' hints for the
+steps they name.
 
 Phase 4's step 4.4 reads the `{{REVIEW_CORRECTION_HINTS}}` placeholder from the
 agent prompt template. On a loop-back round, this placeholder is populated from the
 loopback key:
 
-1. Read all `correction_hint` values from `critical_findings` where `category: "C"`
+1. Read all `correction_hint` values from `critical_findings` where `category` is
+   `"C"` or `"E"`
 2. For each hint, format it with its `affected_issue_ids`:
    ```
    Issue <N>: <correction_hint text>

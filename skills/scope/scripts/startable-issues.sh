@@ -22,6 +22,13 @@
 #   outlines       an issueless PLAN (tracking_level: none), whose entries
 #                  follow the `### Issue <N>: <title>` headings of
 #                  `## Issue Outlines` one for one, in order.
+#   steps          a plan/v2 step plan, whose entries plan-to-tasks.sh names
+#                  `step-<N>`; the title is the `### Step <N>: <title>`
+#                  heading of `## Steps` with that number. A step keeps the
+#                  same `#<N> <title>` line shape, N being the step number,
+#                  because record-scope-exit.sh and print-scope-exit.sh read
+#                  that shape. An outline step waits on the step before it, so
+#                  on a fresh step plan only step 1 is startable.
 #
 # Usage:
 #   startable-issues.sh <plan-path>
@@ -33,7 +40,8 @@
 #   1   the PLAN could not be read, or plan-to-tasks.sh failed
 #   64  usage error
 #
-# Requires: bash 3.2+, jq, and what plan-to-tasks.sh requires.
+# Requires: bash 3.2+, jq, and what plan-to-tasks.sh requires: for a plan/v2
+# PLAN, a shirabe that reads plan/v2, taken from $SHIRABE_BIN when set.
 set -uo pipefail
 
 PROG=startable-issues
@@ -93,8 +101,26 @@ outline_titles() {
     ' "$PLAN"
 }
 
+# The step headings: "<N>\t<title>". Step numbers are 1 to 999 with no
+# leading zero, as the parser that named the tasks reads them.
+step_titles() {
+    awk '
+        /^##[[:space:]]+Steps[[:space:]]*$/ { s = 1; next }
+        s && /^##[[:space:]]/ { exit }
+        s && /^###[[:space:]]+Step[[:space:]]+[1-9][0-9]*:/ {
+            line = $0
+            sub(/^###[[:space:]]+Step[[:space:]]+/, "", line)
+            num = line; sub(/:.*$/, "", num)
+            title = substr(line, length(num) + 2)
+            sub(/^[[:space:]]+/, "", title)
+            printf "%s\t%s\n", num, title
+        }
+    ' "$PLAN"
+}
+
 TABLE=$(table_titles)
 OUTLINES=$(outline_titles)
+STEPS=$(step_titles)
 
 # Each entry's position, name, and whether it can start, in emitted order.
 ROOTS=$(printf '%s' "$TASKS" | jq -r 'to_entries[] | select((.value.waits_on // []) | length == 0) | "\(.key)\t\(.value.name)"') \
@@ -107,6 +133,10 @@ printf '%s\n' "$ROOTS" | while IFS="$TAB" read -r idx name; do
         issue-*)
             num="${name#issue-}"
             title=$(printf '%s\n' "$TABLE" | awk -F '\t' -v n="$num" '$1 == n { sub(/^[^\t]*\t/, ""); print; exit }')
+            ;;
+        step-*)
+            num="${name#step-}"
+            title=$(printf '%s\n' "$STEPS" | awk -F '\t' -v n="$num" '$1 == n { sub(/^[^\t]*\t/, ""); print; exit }')
             ;;
         *)
             row=$(printf '%s\n' "$OUTLINES" | sed -n "$((idx + 1))p")

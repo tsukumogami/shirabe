@@ -2,13 +2,20 @@
 
 This arm exists only when a qualifying PLAN is already on disk. Crystallize
 checked that before scoring — a file at `docs/plans/PLAN-*.md`, or any `.md`
-whose frontmatter carries `schema: plan/v1`, whose `execution_mode` reads
-`single-pr` or `coordinated`. If you reached this file without that path in
+whose frontmatter carries `schema: plan/v1` or `schema: plan/v2`, whose
+`execution_mode` reads `single-pr` or `coordinated`. If you reached this file without that path in
 hand, the arm was not a candidate and something upstream misrouted; go back to
 key `work/crystallize.md` and read the Candidacy section.
 
 `/execute` accepts a PLAN path and nothing else. It has no topic mode, so the
 arm is named only alongside the path it hands over.
+
+A `plan/v2` PLAN is a step plan: its entries are `### Step <N>:` blocks under
+`## Steps`, the first ones detailed and the rest one-line outlines that the
+plan's owner details as the earlier steps reach done. `/execute` runs it the same
+way, but the plan does not complete while an outline step remains: the
+completion cascade's lifecycle check names each one (L10) and stops before it
+deletes the plan. Tell the author so when the PLAN still has outline steps.
 
 **What the arm passes:** the PLAN path, exactly as it appears on disk.
 

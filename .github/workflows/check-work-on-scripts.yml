@@ -353,6 +353,18 @@ jobs:
         if: runner.os == 'Linux'
         run: skills/work-on/scripts/extract-context_test.sh
 
+      # step-detail-check.sh against git fixtures, with the shirabe built above
+      # (an installed one may predate plan/v2), then the shipped template's
+      # plan_validation gate on an outline step, before and after the step is
+      # detailed, through a real koto. The macOS leg runs it on the floor
+      # through the work-on suite, where it builds shirabe itself and the koto
+      # cases skip.
+      - name: Run step detail check tests (Linux)
+        if: runner.os == 'Linux'
+        env:
+          SHIRABE_BIN: ${{ runner.temp }}/work-on-bin/shirabe
+        run: skills/work-on/scripts/step-detail-check_test.sh
+
       # The macOS leg is the floor check. It goes through the runner rather than
       # calling /bin/bash directly so the whole process tree stays on 3.2, and so
       # it is the same command a developer runs locally.

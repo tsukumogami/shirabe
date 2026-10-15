@@ -33,7 +33,7 @@ near-miss.
 
 **`/execute` is a candidate only when a qualifying PLAN exists.** A qualifying
 PLAN is a file at `docs/plans/PLAN-*.md`, or any `.md` whose frontmatter carries
-`schema: plan/v1`, whose `execution_mode` is `single-pr` or `coordinated`. A
+`schema: plan/v1` or `plan/v2`, whose `execution_mode` is `single-pr` or `coordinated`. A
 `multi-pr` PLAN does not qualify: `/execute` refuses that mode and directs the
 author to `/work-on` one issue at a time. Check the file before scoring stage 2.
 No PLAN, or only a `multi-pr` one, and the `/execute` arm does not exist for this

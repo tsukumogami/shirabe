@@ -359,6 +359,21 @@ states:
     # work-on.plan_validation.verdict.decider.jsonl, and
     # scripts/check-decider-declarations.sh holds the modes to
     # scripts/decider-declarations.tsv.
+    #
+    # step_detail stops a plan/v2 step that is still a one-line outline before
+    # any implementation. plan-to-tasks.sh names every plan/v2 task step-<N>,
+    # and the check reads that step from PLAN_DOC as committed now, through
+    # `shirabe plan outlines`: exit 0 detailed, 1 an outline (its stderr line,
+    # which koto shows as the gate's finding, names the step), 2 refused. A
+    # plan/v1 task's name is never step-<N>, so the check passes it at once
+    # without reading anything. proceed needs exit 0; exit is open whatever the
+    # check said. Not overridable: an override would start work on a step that
+    # has no detail to build from.
+    gates:
+      step_detail:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/step-detail-check.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/step-detail-check.sh" --task "{{ARTIFACT_PREFIX}}" "{{PLAN_DOC}}"'
+        overridable: false
     accepts:
       verdict:
         type: enum
@@ -380,6 +395,7 @@ states:
       - target: setup_plan_backed
         when:
           verdict: proceed
+          gates.step_detail.exit_code: 0
       - target: validation_exit
         when:
           verdict: exit
@@ -2338,6 +2354,14 @@ Obtain the issue context for a plan-backed task. Behavior differs by ISSUE_SOURC
 - If ISSUE_SOURCE is `plan_outline`: the PLAN doc is already available via the
   PLAN_DOC variable. Extract the specific issue outline from the PLAN doc and write
   it as `context.md`, then proceed to plan_validation.
+- A `plan/v2` PLAN (frontmatter `schema: plan/v2`) holds steps, not issues: the
+  task name {{ARTIFACT_PREFIX}} is `step-<N>`, and the context is the
+  `### Step <N>:` block under `## Steps`, from that heading up to the next
+  `### ` or `## ` heading. Read it from the PLAN as committed now, not from an
+  earlier copy: the plan's owner details a step in its own commit, and a rerun
+  after that commit has to build from the detailed text. Write the block as
+  `context.md` unchanged. A step that is still a one-line outline is written
+  as it stands; plan_validation is where it stops.
 
 Submit `status: completed` with `issue_source` set to match the source used,
 `status: override` if context is provided differently, or `status: blocked` if context cannot be obtained.
@@ -2351,6 +2375,18 @@ Evidence schema:
 Validate that the plan outline item (ISSUE_SOURCE=plan_outline path) is clear
 enough for direct implementation. Check that acceptance criteria exist and are
 specific enough to code against.
+
+koto runs the `step_detail` gate on entry:
+`{{PLUGIN_ROOT}}/skills/work-on/scripts/step-detail-check.sh` reads a `plan/v2`
+step from the PLAN as committed now. On a `plan/v1` task it passes without
+reading anything. When the step is still a one-line outline the gate fails and
+its finding reads `step <N> is an outline; the plan's owner details it before
+its work starts`; any other failure is a refusal that names its reason (a
+missing shirabe, a plan it cannot read). Either way the step's work does not
+start here: `proceed` is refused while the gate fails, so submit
+`verdict: exit` with `rationale` set to the finding's message, word for word.
+Don't detail the step yourself; the plan's owner does that in a commit of its
+own, and running this child again after that commit passes the gate.
 
 Submit `verdict: proceed` to continue to setup_plan_backed, or `verdict: exit`
 with rationale to route to validation_exit.

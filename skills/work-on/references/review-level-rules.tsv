@@ -120,6 +120,7 @@ class	engine	skills/work-on/scripts/record-changed-paths.sh
 class	engine	skills/work-on/scripts/review-level.sh
 class	engine	skills/work-on/scripts/run-verification.sh
 class	engine	skills/work-on/scripts/session-role.sh
+class	engine	skills/work-on/scripts/step-detail-check.sh
 
 # Text an agent follows as instructions.
 class	instruction	**/SKILL.md
