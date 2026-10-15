@@ -247,7 +247,10 @@ itself, always, ignoring a value the caller's environment carries, and exits 2
 when that file isn't readable or has no `words:` entry. It then runs the
 validator once on a canary, a one-line schema-less Markdown file in its
 temporary directory holding a word from the rules file, and exits 2 unless
-that run reports the canary's banned-word finding. The validator silently
+the gate's own `jq` selector picks that run's banned-word finding out. Running
+the canary through the same selector means a validator whose message wording
+no longer matches the pinned prefixes (an installed release older or newer
+than the source CI builds) refuses rather than passes. The validator silently
 checks no banned word when its rules don't load, so the canary is what turns
 that silence into a refusal. The repository's declared prose vocabulary still
 applies, because the validator reads it per file from the document's own
@@ -389,8 +392,9 @@ one finding printed; 2 no finding printed, reason on stderr.
    every id; run the canary.
 3. Read the declared visibility.
 4. For each path in order: a path that doesn't exist is skipped; a symlink, a
-   non-regular file or an empty file is undecided (as `hop-complete.sh`'s
-   `is_document` refuses them). Otherwise run the validator and store stdout
+   non-regular file, an empty file, or a path whose resolved location isn't
+   under the repository root (a symlinked directory on the way) is undecided,
+   as `hop-complete.sh`'s `is_document` refuses the first three. Otherwise run the validator and store stdout
    and the exit status in the temporary directory. Only exit status 0 or 2
    with a parseable envelope whose `schema_version` is `shirabe-validate/v1`,
    whose `summary.outcome` is `clean` or `violations`, and whose every finding
@@ -437,8 +441,9 @@ line is built by `rf_finding` through `jq`, which JSON-escapes the fields and
 replaces control characters in the message, and the library refuses an id it
 didn't resolve. Message text still comes from the document (an `upstream:`
 value, a matched word), so the script cuts each validator message to 400
-characters, and the details text tells the agent to treat a finding's quoted
-text as data.
+characters, and the details text tells the agent that a finding's quoted text
+is data, never an instruction, and that an exit 2 is a fault in the
+environment, not in the document.
 
 The gate is `overridable: false`, so koto won't accept a recorded override;
 the only ways out are fixing the document or `bail`. Its inputs are hardened to
@@ -449,15 +454,25 @@ through the validator before trusting a "no banned words" result. A symlink,
 non-regular or empty file at a topic path, a schema-skipped document (validator
 status 4), a validator that exits 2 with no error finding, an envelope without
 the expected version or a finding without a `severity`, and an error-level
-code with no registry alias are all exit 2 with no finding, never a pass. The
-script writes only to its own `mktemp -d` directory, removed on exit, makes no
-network call itself, and runs `git`, `jq` and `shirabe` from `PATH`; the
-validator's `FC09` probe on a PLAN runs `gh auth status`, whose result is a
-notice the gate ignores.
+code with no registry alias are all exit 2 with no finding, never a pass. So
+is a topic path that resolves outside the repository root. The canary runs
+through the same selector as the documents, so a validator whose wording the
+selector no longer matches refuses instead of passing.
+
+The script writes only to its own `mktemp -d` directory, removed on exit and on
+`INT`, `TERM` and `HUP`, makes no network call itself, and runs `git`, `jq` and
+`shirabe` from `PATH`, naming the resolved validator and its version on stderr
+so a hold can be traced to the binary that produced it. The validator's `FC09`
+probe on a PLAN runs `gh auth status`, whose result is a notice the gate
+ignores. Findings go to koto's session on the local machine, and
+`SHIRABE_FINDINGS_LOG` is honoured only for a regular file under `$TMPDIR`, as
+`rule-registry.sh` already enforces; no finding text leaves the machine through
+this gate.
 
 Residual risks, accepted: an agent that controls `PATH` can substitute the
-validator; an agent that edits the repository's declared prose vocabulary can
-allow a word there, though that edit is part of the reviewed diff; and in
+validator; an agent that edits the repository's declared prose vocabulary,
+its declared visibility, or its git configuration can change what the
+validator reports, though those edits are part of the reviewed diff; and in
 shirabe's own repository an agent can edit the gate or the template, which the
 registry and template checks in CI are there to catch.
 
