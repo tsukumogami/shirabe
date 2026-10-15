@@ -115,7 +115,7 @@ impl RoadmapVersion {
 /// One parsed feature from a roadmap's `## Features` section.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Feature {
-    /// 1-based index within the Features section (1, 2, 3, ...). The index
+    /// 1-based index within the items section (1, 2, 3, ...). The index
     /// is what [`dependency_positions`] returns and the dependency edges
     /// resolve to; `Feature 1` in a Dependencies cell means the feature
     /// tagged `Feature 1`, which is the one with `id == 1` unless headings
@@ -154,9 +154,9 @@ pub struct Feature {
     /// The `**Delivered:**` value, joined like the Outcome; `None` when absent.
     pub delivered: Option<String>,
     /// Description prose collected from the item's other lines, up to the
-    /// next `### ` heading or the end of the Features section. On a
-    /// `roadmap/v2` document it excludes every field line's extent; on any
-    /// other it is every line but the Needs, Dependencies and Status lines,
+    /// next `### ` heading or the end of the items section. On a milestone
+    /// roadmap (`roadmap/v2` or `roadmap/v3`) it excludes every field line's
+    /// extent; on any other it is every line but the Needs, Dependencies and Status lines,
     /// as it always was. Blank lines are collapsed to single spaces so the
     /// description fits on one logical line (e.g. one table cell).
     pub description: String,
@@ -432,8 +432,8 @@ static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9]+").
 /// is one. An item never depends on itself, so a mention of its own tag or
 /// number (`AB7 (the review surface AB10 renders)` under `AB10`) is dropped,
 /// as the coordinator's roadmap reader drops it. (FC21, which allows only
-/// tags on a `roadmap/v2` Dependencies line, reports a self-mention there as
-/// naming no other milestone.)
+/// tags on a milestone roadmap's Dependencies line, reports a self-mention
+/// there as naming no other milestone.)
 pub fn dependency_positions(deps: &str, features: &[Feature], own: Option<usize>) -> Vec<usize> {
     let tagged = |tag: &str| features.iter().find(|f| f.tag == tag).map(|f| f.id);
     let positional = |n: usize| (1..=features.len()).contains(&n).then_some(n);

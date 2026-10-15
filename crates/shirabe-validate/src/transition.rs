@@ -115,7 +115,8 @@ pub enum Precondition {
     OpenQuestionsResolved,
     /// At least N feature headings -- classic `### Feature N:` or the
     /// strategy-derived `### <PREFIX><N>:` form (roadmap Draft -> Active,
-    /// N = 1). A roadmap is a strategy's progress ledger, so one feature is
+    /// N = 1); on `roadmap/v3`, milestone headings inside `## Milestones`
+    /// only (see `validate_features_count`). A roadmap is a strategy's progress ledger, so one feature is
     /// a coherent roadmap; the gate only rejects a roadmap with no features
     /// at all, which has nothing to track.
     MinFeatures(usize),

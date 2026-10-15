@@ -233,7 +233,8 @@ fn run_issueless(
 
 /// Render the feature-keyed Implementation Issues table for issueless mode.
 ///
-/// The roadmap profile (`Feature | Issues | Dependencies | Status`) is
+/// The roadmap profile (`Feature | Issues | Dependencies | Status`, with a
+/// `Milestone` key column on `roadmap/v3`; see [`push_table_header`]) is
 /// preserved so the validator selects the roadmap branch. The first column
 /// carries the feature's label, per the Roadmap Profile key form in
 /// `references/issues-table.md` -- or its `F<n>` fallback when the label
@@ -778,7 +779,8 @@ fn gh_repo_owner_repo() -> Result<String, String> {
 /// Render the canonical roadmap-profile Implementation Issues table.
 ///
 /// Per `references/issues-table.md` (the shared roadmap profile from
-/// Slice A): `Feature | Issues | Dependencies | Status`, with an italic
+/// Slice A): `Feature | Issues | Dependencies | Status` (`Milestone` on v3),
+/// with an italic
 /// description row immediately following each entity row. `schema` picks
 /// the text each description cell summarizes (see [`summary_text`]).
 pub fn render_table(

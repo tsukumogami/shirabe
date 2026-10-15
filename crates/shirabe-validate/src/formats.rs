@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::features::RoadmapVersion;
+
 /// The identity of a shirabe artifact type.
 ///
 /// Deliberately separate from [`FormatSpec::name`], whose casing is
@@ -128,38 +130,48 @@ impl FormatSpec {
 
     /// True for the Roadmap spec reading a `roadmap/v3` document: the one
     /// schema whose required sections and table columns differ from the
-    /// spec's own lists (`Milestones` for `Features`, `Milestone` for
-    /// `Feature`). Every other spec and schema reads its lists unchanged.
+    /// spec's own lists, which carry the v1 and v2 words.
     fn is_roadmap_v3(&self, schema: &str) -> bool {
-        self.id == FormatId::Roadmap && schema == crate::features::ROADMAP_V3_SCHEMA
+        self.id == FormatId::Roadmap && RoadmapVersion::of(schema) == RoadmapVersion::V3
+    }
+
+    /// `list` with the v1/v2 word `from` read as v3's `to` when the Roadmap
+    /// spec reads a `roadmap/v3` document, and unchanged otherwise.
+    fn v3_words(&self, schema: &str, list: &[String], from: &str, to: &str) -> Vec<String> {
+        let v3 = self.is_roadmap_v3(schema);
+        list.iter()
+            .map(|name| {
+                if v3 && name == from {
+                    to.to_string()
+                } else {
+                    name.clone()
+                }
+            })
+            .collect()
     }
 
     /// The required sections a document at `schema` must carry, in canonical
-    /// order: `required_sections`, with `Features` read as `Milestones` on a
-    /// `roadmap/v3` roadmap.
+    /// order: `required_sections`, with the items section named by the
+    /// roadmap version (`Milestones` on `roadmap/v3`).
     pub fn required_sections_for(&self, schema: &str) -> Vec<String> {
-        let v3 = self.is_roadmap_v3(schema);
-        self.required_sections
-            .iter()
-            .map(|name| match name.as_str() {
-                "Features" if v3 => "Milestones".to_string(),
-                _ => name.clone(),
-            })
-            .collect()
+        self.v3_words(
+            schema,
+            &self.required_sections,
+            RoadmapVersion::V2.items_section(),
+            RoadmapVersion::V3.items_section(),
+        )
     }
 
     /// The issues-table columns a document at `schema` must use:
-    /// `issues_table_columns`, with the `Feature` key column read as
-    /// `Milestone` on a `roadmap/v3` roadmap.
+    /// `issues_table_columns`, with the key column named by the roadmap
+    /// version (`Milestone` on `roadmap/v3`).
     pub fn issues_table_columns_for(&self, schema: &str) -> Vec<String> {
-        let v3 = self.is_roadmap_v3(schema);
-        self.issues_table_columns
-            .iter()
-            .map(|name| match name.as_str() {
-                "Feature" if v3 => "Milestone".to_string(),
-                _ => name.clone(),
-            })
-            .collect()
+        self.v3_words(
+            schema,
+            &self.issues_table_columns,
+            RoadmapVersion::V2.classic_word(),
+            RoadmapVersion::V3.classic_word(),
+        )
     }
 
     /// A spec carrying no structural expectations, for the prose family.

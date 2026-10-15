@@ -486,7 +486,8 @@ during argument parsing, so nothing is written and no `gh` call is made.
    creates issues, and it regenerates both sections so the table carries
    issue links instead of labels.
 
-The roadmap profile shape (`Feature | Issues | Dependencies | Status`) and
+The roadmap profile shape (`Feature | Issues | Dependencies | Status`, whose
+key column reads `Milestone` on a `roadmap/v3` roadmap) and
 the dependency-diagram convention come from
 `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md` and
 `${CLAUDE_PLUGIN_ROOT}/references/dependency-diagram.md`.
