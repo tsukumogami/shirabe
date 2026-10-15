@@ -141,7 +141,11 @@ branch interpolation** (an out-of-set value halts with a clear error). Then rout
   before it. Before a step's work starts, run
   `${CLAUDE_PLUGIN_ROOT}/skills/work-on/scripts/step-detail-check.sh <PLAN> <N>`;
   when it exits 1 the step is still a one-line outline, so stop there and report its
-  message, since the plan's owner details the step first.
+  message, since the plan's owner details the step first. Exit 2 means the check
+  refused to decide: a malformed step number, a plan path that is missing or outside
+  the repository, a PLAN that is not `plan/v1` or `plan/v2`, no such step, or a
+  missing or too-old `shirabe`. Stop there too and report its message; it says what
+  to fix, and the step's work does not start until the check exits 0.
 
 ### Mode Detection
 

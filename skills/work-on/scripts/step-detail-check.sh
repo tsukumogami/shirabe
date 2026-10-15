@@ -36,7 +36,8 @@
 # Output: nothing from the plan itself. Step titles and text never reach the
 # output, so hostile plan text cannot reach a terminal or a log through here.
 # Caller-supplied values echoed in a refusal have control characters stripped
-# and are cut to 80 characters.
+# and are cut to 80 characters. When shirabe cannot read the plan, the first
+# line of its error is echoed the same way, stripped and cut to 240 characters.
 #
 # Exit codes:
 #   0 - the step is detailed (stdout: `step <N> is detailed`), or --task named

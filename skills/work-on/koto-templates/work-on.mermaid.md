@@ -66,7 +66,7 @@ stateDiagram-v2
     plan_context_injection --> setup_plan_backed : status: override
     plan_context_injection --> done_blocked : status: blocked
     plan_context_injection --> setup_plan_backed
-    plan_validation --> setup_plan_backed : verdict: proceed
+    plan_validation --> setup_plan_backed : gates.step_detail.exit_code: 0, verdict: proceed
     plan_validation --> validation_exit : verdict: exit
     post_research_validation --> setup_free_form : verdict: ready
     post_research_validation --> validation_exit : verdict: needs_design
@@ -222,6 +222,9 @@ stateDiagram-v2
     end note
     note left of plan_context_injection
         gate: context_artifact
+    end note
+    note left of plan_validation
+        gate: step_detail
     end note
     note left of pr_creation
         gate: closing_keyword
