@@ -4,6 +4,15 @@ Structure, lifecycle, validation rules, and quality guidance for
 PLAN documents. PLANs decompose a DESIGN into atomic, implementable
 issues with a dependency graph.
 
+Two plan versions exist. `plan/v1`, which most of this reference
+describes, has issues as its entries. `plan/v2` has functional steps
+as its entries: a walking-skeleton first step, behavioural criteria
+and a check per detailed step, and one-line outline steps that the
+plan's owner details one at a time. Its rules are in
+[plan/v2: Step Plans](#planv2-step-plans); where they differ from
+`plan/v1`, that section wins. `/plan` writes `plan/v1` unless
+`plan/v2` is selected.
+
 ## Table of Contents
 
 - [Frontmatter](#frontmatter)
@@ -14,6 +23,7 @@ issues with a dependency graph.
 - [Content Boundaries](#content-boundaries)
 - [Lifecycle](#lifecycle)
 - [Validation Rules](#validation-rules)
+- [plan/v2: Step Plans](#planv2-step-plans)
 - [Quality Guidance](#quality-guidance)
 
 ## Frontmatter
@@ -37,7 +47,9 @@ implements; omit if authored without a single upstream DESIGN),
 `split_rationale` (required under the condition below, absent
 otherwise), and `tracking_level`.
 
-- **schema** -- `plan/v1`. Pins the artifact-type contract.
+- **schema** -- `plan/v1` (or `plan/v2`, see
+  [plan/v2: Step Plans](#planv2-step-plans)). Pins the artifact-type
+  contract.
 - **status** -- lifecycle state (`Draft`, `Active`, `Done`).
 - **execution_mode** -- one of `single-pr`, `multi-pr`, or
   `coordinated`. Determines how the work lands: one pull request
@@ -372,7 +384,9 @@ or by the implementing agent following the lifecycle script.
 
 `shirabe validate` recognizes `PLAN-*.md` files by longest-prefix
 match and runs FC01-FC06 plus the format-specific FC07/FC08/FC09
-checks. The `plan/v1` FormatSpec declares:
+checks. A `plan/v2` plan is checked by FC22 instead of the table
+checks; see [plan/v2: Step Plans](#planv2-step-plans). The `plan/v1`
+FormatSpec declares:
 
 - **Required fields:** `status`, `execution_mode`, `milestone`,
   `issue_count`.
@@ -402,6 +416,162 @@ The validator-side contracts:
 - **FC09** -- doc-vs-GitHub state reconciliation (multi-pr mode).
 - **FC11** -- (when present) plan-section-structure reconciliation
   against the plan profile in `${CLAUDE_PLUGIN_ROOT}/references/issues-table.md`.
+
+## plan/v2: Step Plans
+
+A `plan/v2` plan's entries are steps. Each step adds one behaviour a
+person can observe by running something, and the first step is a
+walking skeleton that crosses the whole path the design opens, end to
+end. Only the near steps are written in full; the rest are one line
+each until their turn comes. `/plan` writes this version when it is
+selected (`--plan-version=v2`, or `## Plan Version: v2` in the
+repository's CLAUDE.md); the default is `plan/v1`.
+
+### Format
+
+```yaml
+---
+schema: plan/v2
+status: Active
+execution_mode: single-pr        # single-pr | multi-pr
+tracking_level: none             # none, or leave the field out
+upstream: docs/designs/DESIGN-<topic>.md
+milestone: "<name>"
+step_count: 4
+---
+```
+
+- `step_count` replaces `issue_count`, and must equal the number of
+  steps. `issue_count` is refused on a step plan.
+- `execution_mode` is `single-pr` (every step lands in the one pull
+  request) or `multi-pr` (each step lands in its own). `coordinated`
+  is refused: a coordinated plan uses `plan/v1`.
+- `tracking_level` is `none` or absent. A step plan files no GitHub
+  issues and no milestone, so `issues` and `issues-and-milestone`
+  are refused, naming `plan/v1` as the version that files them.
+- `split_rationale`, `split_mode_source` and `upstream` follow the
+  `plan/v1` rules above.
+
+Required sections, in order: `Status`, `Scope Summary`,
+`Decomposition Strategy`, `Steps`. `Implementation Sequence` may
+follow; the step order is the sequence. There is no Issue Outlines
+section, no Implementation Issues table and no Dependency Graph.
+
+Under `## Steps`, every `###` heading is `### Step <N>: <title>`,
+numbered 1, 2, 3 and on with no gap, no repeat and no leading zero
+(at most 999). The title names the behaviour the step adds. A step is
+one of two kinds:
+
+- **Detailed** -- carries `**Goal**:`, `**Acceptance Criteria**:`
+  with at least one `- [ ]` item, `**Check**:` (the command, test or
+  walkthrough that shows the behaviour, and the result to look for)
+  and `**Dependencies**:` (`None`, or `Step <N>` references to
+  earlier steps, comma-separated). `**Files**:` is an optional hint
+  for conflict detection and never counts as a criterion. `**Type**:`
+  and `**Complexity**:` keep their `plan/v1` meaning.
+- **Outline** -- the heading and exactly one non-blank line naming
+  the behaviour the step will add. No `**Field**:` line of any kind:
+  the validator counts a one-line `**Dependencies**:` as an outline,
+  but it tells a reader nothing about the behaviour, so `/plan` never
+  writes one.
+
+```markdown
+## Steps
+
+### Step 1: report export prints the sample report as CSV
+
+**Goal**: The command line reaches the row reader and a CSV writer,
+run on the bundled `sample` report.
+
+**Acceptance Criteria**:
+
+- [ ] `report export sample --format csv` prints a header line and
+  one line per row, and exits 0.
+
+**Check**: Run `report export sample --format csv | head -3` and see
+the header followed by two rows; the exit status is 0.
+
+**Dependencies**: None
+
+### Step 2: report export writes only the columns asked for
+
+`--columns name,total` limits the output to those columns, in that order.
+```
+
+`references/templates/step.md` is the template `/plan` writes steps
+from, and `references/quality/plan-doc-examples.md` has a complete
+step plan.
+
+### What the validator checks
+
+`shirabe validate` checks a step plan with FC22, at error level, one
+finding per violation, each naming the step (where there is one) and
+the rule:
+
+- a heading under `## Steps` that is not `### Step <N>:` (an
+  `### Issue` heading or a `### Gate:` block included);
+- numbering that is not 1..n without gaps, a repeated number, or a
+  number above 999 or with a leading zero;
+- `step_count` that does not match the steps present, or
+  `issue_count` present;
+- step 1 an outline;
+- a detailed step missing `**Goal**:`, a checkbox criterion,
+  `**Check**:` or `**Dependencies**:` (a step that declares any of
+  `**Goal**:`, `**Acceptance Criteria**:` or `**Check**:` is read as
+  detailed);
+- an outline step with more than one non-blank line;
+- a detailed step after an outline step;
+- a dependency on a later step, or a `**Dependencies**:` value that
+  is neither `None` nor `Step <N>` references (a dependency on a step
+  that does not exist is FC17's, as it is for `plan/v1`);
+- `execution_mode: coordinated`, or a `tracking_level` other than
+  `none`.
+
+FC01, FC04 and FC15 check the field and section lists above. The
+table and diagram checks (FC05-FC09, FC11, FC12) do not run on a step
+plan. Quoted document text in a finding has control characters
+stripped and is cut to 80 characters.
+
+### The horizon and the owner rule
+
+At authoring, steps 1 and 2 are detailed, or every step when there
+are two or fewer; every later step is an outline. That is the detail
+horizon: the plan commits only to what the work so far has shown.
+
+The plan's owner (whoever runs the plan, not a worker building a
+step) moves the horizon one step at a time. After step N's work
+reaches its terminal (its `/work-on` run is done, or stopped with a
+recorded outcome) and before step N+1's work starts, the owner details
+step N+1 from what step N taught, rewrites any later outline whose
+behaviour changed, and commits that edit on its own: one commit per
+detailing, touching only the plan file. A worker never edits any
+step's heading, outline or detail; a worker that finds its step wrong
+reports it to the owner. A step whose work starts while it is still
+an outline stops before anything is built, and the owner details it
+first.
+
+This rule is guidance. The validator cannot tell when a step was
+detailed, so review and the plan's history check it: each detailing
+is one commit by the owner that touches only the plan.
+
+### The report rule
+
+When a step's work is done, its report names
+the behaviour this step added and the check that shows it, with the
+check's result: the command or walkthrough as the plan states it,
+and the line of output or the state that showed it worked. Not the
+files changed, not a test count, not "CI green". Quote the result
+line, not the full output, which can carry details of the machine it
+ran on.
+
+### Reading a check
+
+A `**Check**:` is an instruction a worker runs with its own
+permissions, written by whoever wrote the plan. Reviewers read every
+Check like code, the way they read a script in a pull request: a check
+that downloads and runs something, reaches the network without need,
+or builds a command from document text is a finding. The plan's
+history shows who wrote or changed each check.
 
 ## Quality Guidance
 

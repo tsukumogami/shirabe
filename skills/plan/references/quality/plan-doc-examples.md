@@ -9,6 +9,7 @@ See `plan-doc-structure.md` for the format specification.
 - [Example with Completed Issues](#example-with-completed-issues)
 - [Inline Implementation (Single Issue)](#inline-implementation-single-issue)
 - [Roadmap Example](#roadmap-example-multi-pr-feature-by-feature-planning)
+- [Step Plan Example (plan/v2)](#step-plan-example-planv2)
 
 ## Complete Example (multi-pr mode)
 
@@ -236,4 +237,99 @@ graph TD
 2. Issue 603 -- depends on authentication requirements from #600
 
 **Parallelization:** 3 of 4 issues can start immediately.
+```
+
+## Step Plan Example (plan/v2)
+
+A `plan/v2` plan as `/plan` writes it at authoring: step 1 is the walking
+skeleton and its check runs it end to end, step 2 is detailed, and steps 3
+and 4 are one-line outlines the plan's owner details later, one at a time.
+The criteria name what a person sees by running something, never a file to
+create. `resolve-plan-version_test.sh` saves this block as a `PLAN-` file and
+checks that `shirabe validate` passes it with no finding, so keep it valid
+when you edit it.
+
+```markdown
+---
+schema: plan/v2
+status: Active
+execution_mode: single-pr
+split_mode_source: none
+tracking_level: none
+upstream: docs/designs/DESIGN-csv-export.md
+milestone: "CSV export"
+step_count: 4
+---
+
+# PLAN: CSV export
+
+## Status
+
+Active
+
+## Scope Summary
+
+Add `report export --format csv`, which writes the report's rows as CSV to
+standard output, then lets the caller pick the columns and write to a file.
+
+## Decomposition Strategy
+
+**Walking skeleton.** Step 1 takes one fixed report from the command line
+through the row reader to CSV on standard output, so the integration the
+design worries about (the row reader feeding a writer it has never fed) is
+crossed first. Every later step adds one behaviour a person can see by
+running the command.
+
+## Steps
+
+### Step 1: report export prints the sample report as CSV
+
+**Goal**: The command line reaches the row reader and a CSV writer, run on
+the bundled `sample` report.
+
+**Acceptance Criteria**:
+
+- [ ] `report export sample --format csv` prints a header line and one line
+  per row of the sample report, and exits 0.
+- [ ] `report export sample --format xml` prints `unsupported format: xml`
+  on stderr and exits 2.
+
+**Check**: Run `report export sample --format csv | head -3` and see the
+header line followed by the first two rows; the exit status is 0.
+
+**Dependencies**: None
+
+**Files**: `src/export.rs`, `src/cli.rs`
+
+### Step 2: report export quotes fields that need it
+
+**Goal**: A field holding a comma, a quote or a line break comes out as one
+CSV field that a spreadsheet reads back unchanged.
+
+**Acceptance Criteria**:
+
+- [ ] A row whose name is `Smith, Jo` prints as `"Smith, Jo"`.
+- [ ] A field holding `say "hi"` prints as `"say ""hi"""`.
+- [ ] Reading the output back with a CSV reader gives the same rows as the
+  report.
+
+**Check**: Run `report export quoting --format csv > out.csv`, load
+`out.csv` with the CSV reader the tests use, and compare it with the
+report's rows: they match.
+
+**Dependencies**: Step 1
+
+### Step 3: report export writes only the columns asked for
+
+`--columns name,total` limits the output to those columns, in that order.
+
+### Step 4: report export writes to a file
+
+`--output <path>` writes the CSV to the file and prints nothing on standard output.
+
+## Implementation Sequence
+
+The steps run in order. Step 1 is detailed and runs first; the plan's owner
+details step 3 after step 2's work reaches its terminal, and step 4 after
+step 3's.
 ```

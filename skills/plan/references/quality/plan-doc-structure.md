@@ -16,6 +16,7 @@ content that has no shared analogue.
 - [Required Sections](#required-sections)
 - [Execution Mode Differences](#execution-mode-differences)
 - [Decomposition Strategies](#decomposition-strategies)
+- [Step Plans (plan/v2)](#step-plans-planv2)
 - [Examples](#examples) (in `plan-doc-examples.md`)
 
 ## Shared References
@@ -390,10 +391,67 @@ the creation of its required upstream artifact. The per-feature `needs-*` label 
 what type of artifact each feature requires next.
 ```
 
+## Step Plans (plan/v2)
+
+Everything above describes `plan/v1`, whose entries are issues. When
+the run's plan version resolves to `v2` (Phase 1), the PLAN's entries
+are steps instead, and these parts change:
+
+- **Frontmatter** -- `schema: plan/v2` and `step_count: <N>` in place
+  of `issue_count`. `execution_mode` is `single-pr` or `multi-pr`,
+  and `tracking_level` is `none`: a step plan files no issue and no
+  milestone.
+- **Required sections** -- `Status`, `Scope Summary`, `Decomposition
+  Strategy`, `Steps`, in that order, with `Implementation Sequence`
+  optional after them. No Issue Outlines, no Implementation Issues
+  table, no Dependency Graph.
+- **Entries** -- `### Step <N>: <title>` under `## Steps`, numbered
+  from 1. Steps 1 and 2 are detailed and every later step is an
+  outline (every step is detailed when there are two or fewer).
+
+A detailed step:
+
+```markdown
+### Step 2: report export quotes fields that need it
+
+**Goal**: A field holding a comma, a quote or a line break comes out
+as one CSV field that a spreadsheet reads back unchanged.
+
+**Acceptance Criteria**:
+
+- [ ] A row whose name is `Smith, Jo` prints as `"Smith, Jo"`.
+
+**Check**: Run `report export quoting --format csv` and see
+`"Smith, Jo"` on the second line.
+
+**Dependencies**: Step 1
+
+**Files**: `src/export.rs`                        # optional hint
+```
+
+An outline step:
+
+```markdown
+### Step 3: report export writes only the columns asked for
+
+`--columns name,total` limits the output to those columns, in that order.
+```
+
+Step 1 is the walking skeleton: its goal names the integration it
+crosses and the input it runs on, and its check runs it end to end.
+Criteria describe what a person sees by running something, never a
+file or identifier to create. `**Dependencies**:` names only earlier
+steps (`None`, or `Step 1, Step 2`), never `<<ISSUE:N>>`.
+
+The format, the rules `shirabe validate` checks (FC22), the horizon,
+the owner rule and the report rule are in `../plan-format.md` under
+"plan/v2: Step Plans"; the step template is `../templates/step.md`.
+
 ## Examples
 
 See `plan-doc-examples.md` for complete examples of multi-pr,
-completed issues, inline implementation, and roadmap modes.
+completed issues, inline implementation, roadmap modes, and a
+`plan/v2` step plan.
 
 ## Contribution to the Chain
 
