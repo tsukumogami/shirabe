@@ -166,7 +166,7 @@ its check admits that one gate rule by name and no other.
       entry that is `withhold: eligible` with non-empty `notes`.
 - [ ] `references/rule-registry.json` gives PB4 `guards: ["none"]`,
       `withhold: eligible`, `backstop` (before `merge`, check
-      `.github/workflows/pr-body.yml`) and `notes` giving the reason, and the
+      `.github/workflows/validate-pr-body.yml`) and `notes` giving the reason, and the
       check passes on it.
 - [ ] `shirabe pr-body-hook` allows a PB4-only violation on a host whose
       opt-in file reads `on`, still denies PB1 to PB3 there, and denies PB4

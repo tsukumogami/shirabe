@@ -133,7 +133,7 @@ Resolved inline.
 on 2026-10-14 that a gate rule may be eligible when its harm is undone by a
 later edit and a deterministic check blocks the irreversible step, and asked
 for that to be a rule, not a one-off. An eligible gate rule names that check:
-`backstop: {"before": "merge", "check": ".github/workflows/pr-body.yml"}` for
+`backstop: {"before": "merge", "check": ".github/workflows/validate-pr-body.yml"}` for
 PB4. `scripts/check-rule-registry.sh` accepts `level: gate` with
 `guards: ["none"]` only beside a backstop, requires a backstop to sit on an
 eligible gate rule with notes, requires `before` to be a protected action and
