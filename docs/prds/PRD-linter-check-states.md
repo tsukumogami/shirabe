@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   A /work-on or /execute run publishes a pull request whose title and body
   become the commit message on main and the record reviewers read, and no
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-linter-check-states](docs/briefs/BRIEF-linter-check-states.md); carried in Absorbed Brief.
 
