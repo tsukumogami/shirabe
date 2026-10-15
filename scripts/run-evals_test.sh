@@ -296,6 +296,20 @@ EOF
 
 LOG="$T/log"
 
+# newest_iteration <workspace dir> -- its highest-numbered iteration-N directory.
+# Sorting the paths would compare them as text once a skill reaches iteration-10,
+# and the temporary directory's own name holds hyphens, so take the number.
+newest_iteration() {
+  local dir n best=-1
+  for dir in "$1"/iteration-*; do
+    [ -d "$dir" ] || continue
+    n=${dir##*iteration-}
+    case "$n" in ''|*[!0-9]*) continue ;; esac
+    [ "$n" -gt "$best" ] && best=$n
+  done
+  [ "$best" -ge 0 ] && printf '%s\n' "$1/iteration-$best"
+}
+
 run_runner() { # run_runner <stub-mode> <runner args...>
   local mode="$1"
   shift
@@ -442,7 +456,7 @@ else
   fail "--prep-only (rc=$RC, session started: $([ -e "$LOG/args" ] && echo yes || echo no)): $OUT"
 fi
 
-latest=$(ls -d "$SUITE"/demo/evals/workspace/iteration-* | sort -t- -k2 -n | tail -n 1)
+latest=$(newest_iteration "$SUITE/demo/evals/workspace")
 mkdir -p "$latest/demo-scenario/with_skill/outputs" "$latest/demo-scenario/without_skill/outputs"
 echo x > "$latest/demo-scenario/with_skill/outputs/response.md"
 echo x > "$latest/demo-scenario/without_skill/outputs/response.md"
@@ -468,7 +482,7 @@ fi
 # in the skill's latest iteration.
 metadata_model() {
   local dir
-  dir=$(ls -d "$SUITE/$1"/evals/workspace/iteration-* | sort -t- -k2 -n | tail -n 1)
+  dir=$(newest_iteration "$SUITE/$1/evals/workspace")
   python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('model'))" \
     "$dir/$2/eval_metadata.json"
 }
@@ -562,7 +576,7 @@ EOF
 # prepared_scenarios -- the scenario directories of the subset skill's newest iteration
 prepared_scenarios() {
   local iter
-  iter=$(ls -d "$SUITE/subset/evals/workspace"/iteration-* 2>/dev/null | sort -t- -k2 -n | tail -n 1)
+  iter=$(newest_iteration "$SUITE/subset/evals/workspace")
   [ -n "$iter" ] || { echo none; return; }
   for d in "$iter"/*/; do [ -f "$d/eval_metadata.json" ] && basename "$d"; done | sort | tr '\n' ' '
 }
@@ -597,7 +611,7 @@ rm -rf "$SUITE/subset"
 # to spawn the with-skill agent only, and a graded run passes without one.
 # demo_iteration -- the demo skill's newest iteration directory
 demo_iteration() {
-  ls -d "$SUITE/demo/evals/workspace"/iteration-* 2>/dev/null | sort -t- -k2 -n | tail -n 1
+  newest_iteration "$SUITE/demo/evals/workspace"
 }
 run_runner plan --no-baseline --prep-only demo
 ITER=$(demo_iteration)
