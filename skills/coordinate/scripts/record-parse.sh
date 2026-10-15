@@ -23,7 +23,7 @@
 # scope (the reason on stderr); 1 an internal failure.
 set -euo pipefail
 
-HERE=$(cd "$(dirname "$0")" && pwd)
+case "$0" in */*) HERE=$(cd "${0%/*}" && pwd) ;; *) HERE=$(pwd) ;; esac
 FORMAT=record
 CONTAINER=issue
 EXPECT=
@@ -55,7 +55,7 @@ if [ "$INPUT" = - ]; then cat > "$T/in"; else
     [ -e "$INPUT" ] || { echo "record-parse: no such file: $INPUT" >&2; exit 64; }
     cat "$INPUT" > "$T/in"
 fi
-SIZE=$(wc -c < "$T/in" | tr -d ' ')
+SIZE=$(( $(wc -c < "$T/in") ))
 if [ "$SIZE" -gt "$MAX_BYTES" ]; then
     echo "record-parse: refused: body is $SIZE bytes, over GitHub's $MAX_BYTES" >&2
     exit 65
@@ -103,7 +103,7 @@ if [ "$CANONICAL" = 1 ]; then
         exit 3
     fi
     # Compare after CRLF -> LF and trimming trailing newlines, on both sides.
-    norm() { tr -d '\r' < "$1" | awk '{ lines[NR] = $0 } END { n = NR; while (n > 0 && lines[n] == "") n--; for (i = 1; i <= n; i++) print lines[i] }'; }
+    norm() { awk '{ gsub(/\r/, ""); lines[NR] = $0 } END { n = NR; while (n > 0 && lines[n] == "") n--; for (i = 1; i <= n; i++) print lines[i] }' "$1"; }
     norm "$T/in" > "$T/a"
     norm "$T/re" > "$T/b"
     if ! cmp -s "$T/a" "$T/b"; then
