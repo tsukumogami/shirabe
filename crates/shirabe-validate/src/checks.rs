@@ -16,7 +16,10 @@ use regex::Regex;
 
 use crate::doc::{Config, Doc, FieldEntries, ValidationError};
 use crate::features::{non_milestone_headings, parse_features, ROADMAP_V2_SCHEMA};
-use crate::formats::{detect_format, FormatId, FormatSpec, Lifetime};
+use crate::formats::{
+    detect_format, plan_v2_required_fields, plan_v2_required_sections, FormatId, FormatSpec,
+    Lifetime, PLAN_V2_SCHEMA,
+};
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
 use crate::table::{parse_issue_outlines, parse_issues_table, Profile, Row, RowKind, Table};
@@ -105,9 +108,17 @@ pub fn check_schema(doc: &Doc, spec: &FormatSpec) -> Option<ValidationError> {
 
 /// Returns a `ValidationError` for each required field missing from
 /// `doc.fields`. Line is 1 (the field is absent, no specific line).
+///
+/// A `plan/v2` document is checked against the step plan's field list
+/// (`step_count` in place of `issue_count`).
 pub fn check_fc01(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     let mut errs = Vec::new();
-    for field in &spec.required_fields {
+    let required = if spec.id == FormatId::Plan && is_plan_v2(doc) {
+        plan_v2_required_fields()
+    } else {
+        spec.required_fields.clone()
+    };
+    for field in &required {
         if !doc.fields.contains_key(field) {
             errs.push(ValidationError {
                 file: doc.path.clone(),
@@ -357,7 +368,13 @@ fn required_sections_for(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
 /// form needs the explicit field so every coordinated PLAN written before
 /// coordinated followed the tracking level keeps its table shape, and so the
 /// validator and `plan-to-tasks.sh` select the same form.
+///
+/// A `plan/v2` step plan is outline-shaped in every mode: it files no issues
+/// and carries its entries under `## Steps`.
 pub fn plan_is_outline_shaped(doc: &Doc) -> bool {
+    if is_plan_v2(doc) {
+        return true;
+    }
     let mode = doc
         .fields
         .get("execution_mode")
@@ -371,6 +388,14 @@ pub fn plan_is_outline_shaped(doc: &Doc) -> bool {
             .is_some_and(|f| f.value.trim() == "none"),
         _ => false,
     }
+}
+
+/// Whether `doc` is a `plan/v2` step plan.
+///
+/// Read from the document's own `schema`, because the Plan spec accepts both
+/// versions: every version-gated Plan rule asks this rather than the spec.
+pub fn is_plan_v2(doc: &Doc) -> bool {
+    doc.schema == PLAN_V2_SCHEMA
 }
 
 /// Whether a repo declaration is a GitHub `owner/repo`: exactly one slash,
@@ -407,6 +432,10 @@ fn is_valid_group_slug(value: &str) -> bool {
 
 /// The list before any contribution splice.
 fn base_required_sections(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
+    // A step plan has one section list for every execution mode.
+    if spec.id == FormatId::Plan && is_plan_v2(doc) {
+        return plan_v2_required_sections();
+    }
     if let Some(map) = &spec.execution_mode_required_sections {
         if let Some(mode_field) = doc.fields.get("execution_mode") {
             // An issueless multi-pr PLAN takes the issueless section list.
@@ -1059,7 +1088,8 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
 /// generic schema-mismatch message, pointing the author at the canonical
 /// three-column shape.
 pub fn check_fc05(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
     let table = match parse_issues_table(doc) {
@@ -1253,7 +1283,8 @@ fn validate_row_shape(doc: &Doc, table: &Table) -> Vec<ValidationError> {
 /// FC06 is a no-op when the format has no issues table or the table is
 /// absent.
 pub fn check_fc06(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
     let table = match parse_issues_table(doc) {
@@ -1837,7 +1868,8 @@ const NON_STATUS_CLASSES: &[&str] = &[
 /// per-dimension passes; a `MissingBlock` short-circuits the per-node
 /// checks.
 pub fn check_fc07(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
     let mut errs: Vec<ValidationError> = Vec::new();
@@ -2771,7 +2803,8 @@ fn extract_legend(body: &[String], fence_end_line: usize) -> Vec<String> {
 /// any external identifier, URL, env-var value, or private repo name
 /// (PRD R12 public-cleanliness).
 pub fn check_fc08(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
     let location = match find_dependency_graph_block(doc) {
@@ -2966,7 +2999,8 @@ pub fn check_fc09(
     client: &dyn IssueStateClient,
     pr_ctx: Option<&PrContext>,
 ) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
 
@@ -3571,7 +3605,8 @@ pub fn check_plan_section_structure(doc: &Doc, spec: &FormatSpec) -> Vec<Validat
     // Focus on plan/v1 -- FC11 points at the plan profile of
     // references/issues-table.md. roadmap/v1 has its own column contract
     // handled by FC05/FC06.
-    if spec.schema_version != "plan/v1" {
+    // The Plan spec also accepts `plan/v2`, which has no table.
+    if spec.schema_version != "plan/v1" || is_plan_v2(doc) {
         return Vec::new();
     }
     // If the Implementation Issues section is absent, FC04 handles it.
@@ -3625,7 +3660,7 @@ pub fn check_plan_section_structure(doc: &Doc, spec: &FormatSpec) -> Vec<Validat
 /// FC12 is notice-level. Graceful skip when no upstream DESIGN is named in
 /// the frontmatter (the field-consistency check has no anchor without one).
 pub fn check_plan_design_field_consistency(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.schema_version != "plan/v1" {
+    if spec.schema_version != "plan/v1" || is_plan_v2(doc) {
         return Vec::new();
     }
     // Graceful skip: no upstream DESIGN named, nothing to reconcile.
@@ -3813,6 +3848,9 @@ pub fn check_eval_fixture_frontmatter(doc: &Doc, _spec: &FormatSpec) -> Vec<Vali
 pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     if spec.name != "Plan" {
         return Vec::new();
+    }
+    if is_plan_v2(doc) {
+        return check_fc14_steps(doc);
     }
     let mode = match doc.fields.get("execution_mode") {
         Some(f) => f.value.clone(),
@@ -4014,6 +4052,90 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     errs
 }
 
+/// FC14 on a `plan/v2` step plan: the two sub-checks that carry over.
+///
+/// Sub-check C (dependency text that is prose rather than a reference) and
+/// sub-check F (a `###` heading under `## Steps` that opens no step) apply
+/// as they do to outlines. The rest do not: what a detailed or an outline
+/// step must carry is FC22's, `step_count` parity is FC22's, and a step plan
+/// has no Implementation Issues table or Dependency Graph for the
+/// table-versus-outline exclusion to compare.
+fn check_fc14_steps(doc: &Doc) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+    let steps = parse_issue_outlines(doc);
+    for block in &steps.blocks {
+        for token in &block.unrecognized_dependency_text {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: block.line,
+                code: "FC14".to_string(),
+                message: format!(
+                    "[FC14] step '{}' declares unresolved dependency '{}' (no earlier step matches; use 'None' or 'Step <N>')",
+                    block.key, token
+                ),
+            });
+        }
+    }
+    for heading in &steps.nonconforming_headings {
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: heading.line,
+            code: "FC14".to_string(),
+            message: format!(
+                "[FC14] heading '### {}' inside '## Steps' is not a '### Step <N>: <title>' step heading and opens no step (task extraction will not see it)",
+                heading.text
+            ),
+        });
+    }
+    errs
+}
+
+/// FC22 -- the step rules of a `plan/v2` step plan.
+///
+/// Error-level (absent from `is_intrinsic_notice` and `posture_class`), and a
+/// no-op on every document that is not `plan/v2`, so no `plan/v1` output
+/// changes. Each finding names the rule it broke.
+///
+/// Rules:
+/// - `step-count`: the frontmatter `step_count` is a whole number equal to
+///   the number of `### Step <N>:` headings under `## Steps`. Skipped when
+///   `## Steps` is absent (FC04 names the missing section) or `step_count` is
+///   absent (FC01 names the missing field).
+pub fn check_fc22_steps(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.id != FormatId::Plan || !is_plan_v2(doc) {
+        return Vec::new();
+    }
+    let mut errs = Vec::new();
+    if let Some(field) = doc.fields.get("step_count") {
+        let has_steps_section = doc.sections.iter().any(|sec| sec.name == "Steps");
+        match field.value.trim().parse::<usize>() {
+            Ok(declared) if has_steps_section => {
+                let observed = parse_issue_outlines(doc).blocks.len();
+                if declared != observed {
+                    errs.push(ValidationError {
+                        file: doc.path.clone(),
+                        line: field.line,
+                        code: "FC22".to_string(),
+                        message: format!(
+                            "[FC22] frontmatter 'step_count: {}' does not match the {} '### Step <N>:' heading(s) in '## Steps' (rule: step-count)",
+                            declared, observed
+                        ),
+                    });
+                }
+            }
+            Ok(_) => {}
+            Err(_) => errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: field.line,
+                code: "FC22".to_string(),
+                message: "[FC22] frontmatter 'step_count' is not a whole number (rule: step-count)"
+                    .to_string(),
+            }),
+        }
+    }
+    errs
+}
+
 /// FC14 Sub-check G findings for an outline-shaped coordinated PLAN.
 fn coordinated_outline_findings(
     doc: &Doc,
@@ -4123,23 +4245,36 @@ pub fn check_fc17(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     if spec.name != "Plan" {
         return Vec::new();
     }
-    match doc.fields.get("execution_mode") {
-        Some(f) if f.value == "single-pr" => {}
-        // A missing execution_mode is an FC01 / FC02 concern, not FC17's.
-        _ => return Vec::new(),
+    // A `plan/v2` step plan carries its entries under `## Steps` in every
+    // supported mode, so it is checked whatever its execution_mode.
+    let steps = is_plan_v2(doc);
+    if !steps {
+        match doc.fields.get("execution_mode") {
+            Some(f) if f.value == "single-pr" => {}
+            // A missing execution_mode is an FC01 / FC02 concern, not FC17's.
+            _ => return Vec::new(),
+        }
     }
 
     let mut errs = Vec::new();
     for block in &parse_issue_outlines(doc).blocks {
         for token in &block.unresolved_dependencies {
+            let message = if steps {
+                format!(
+                    "[FC17] step '{}' declares unresolved dependency '{}' (no step matches; task extraction would drop this edge -- use 'None' or 'Step <N>')",
+                    block.key, token
+                )
+            } else {
+                format!(
+                    "[FC17] outline '{}' declares unresolved dependency '{}' (no sibling outline matches; task extraction would drop this edge -- use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder)",
+                    block.key, token
+                )
+            };
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: block.line,
                 code: "FC17".to_string(),
-                message: format!(
-                    "[FC17] outline '{}' declares unresolved dependency '{}' (no sibling outline matches; task extraction would drop this edge -- use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder)",
-                    block.key, token
-                ),
+                message,
             });
         }
     }
@@ -9804,4 +9939,130 @@ fn fc20_scans_one_file_well_under_the_budget() {
         elapsed < std::time::Duration::from_millis(250),
         "single-file check took {elapsed:?}"
     );
+}
+
+#[cfg(test)]
+mod plan_v2_tests {
+    //! The `plan/v2` step plan through the Plan spec: the version-gated
+    //! field and section lists, the checks that stand down on a plan with no
+    //! table, and FC22's step-count rule.
+
+    use super::*;
+    use crate::frontmatter::parse_doc_bytes;
+    use crate::validate::validate_file;
+
+    const MINIMAL: &str = include_str!("../tests/fixtures/PLAN-v2-minimal.md");
+
+    fn plan_spec() -> FormatSpec {
+        detect_format("PLAN-x.md").expect("plan spec")
+    }
+
+    fn run(md: &str) -> Vec<ValidationError> {
+        let doc = parse_doc_bytes("PLAN-x.md", md.as_bytes()).expect("parse");
+        validate_file(&doc, &plan_spec(), &Config::default())
+    }
+
+    fn codes(errs: &[ValidationError]) -> Vec<&str> {
+        errs.iter().map(|e| e.code.as_str()).collect()
+    }
+
+    #[test]
+    fn the_minimal_step_plan_validates_clean() {
+        let errs = run(MINIMAL);
+        assert!(errs.is_empty(), "expected no findings, got {errs:?}");
+    }
+
+    #[test]
+    fn the_minimal_step_plan_validates_clean_as_multi_pr() {
+        let errs = run(&MINIMAL.replace("execution_mode: single-pr", "execution_mode: multi-pr"));
+        assert!(errs.is_empty(), "expected no findings, got {errs:?}");
+    }
+
+    #[test]
+    fn a_step_plan_is_outline_shaped_in_every_mode() {
+        for mode in ["single-pr", "multi-pr", "coordinated"] {
+            let md = MINIMAL.replace(
+                "execution_mode: single-pr",
+                &format!("execution_mode: {mode}"),
+            );
+            let doc = parse_doc_bytes("PLAN-x.md", md.as_bytes()).expect("parse");
+            assert!(plan_is_outline_shaped(&doc), "{mode}");
+        }
+    }
+
+    #[test]
+    fn step_count_replaces_issue_count_in_the_required_fields() {
+        let errs = run(&MINIMAL.replace("step_count: 3\n", ""));
+        assert_eq!(codes(&errs), vec!["FC01"]);
+        assert!(errs[0].message.contains("\"step_count\""));
+    }
+
+    #[test]
+    fn a_missing_steps_section_is_named_by_fc04_alone() {
+        let cut = MINIMAL.find("## Steps").expect("steps section");
+        let errs = run(&MINIMAL[..cut]);
+        assert_eq!(codes(&errs), vec!["FC04"]);
+        assert!(errs[0].message.contains("'## Steps'"));
+    }
+
+    #[test]
+    fn a_step_count_mismatch_is_an_fc22_error() {
+        let errs = run(&MINIMAL.replace("step_count: 3", "step_count: 4"));
+        assert_eq!(codes(&errs), vec!["FC22"]);
+        assert!(errs[0].message.contains("step_count: 4"));
+        assert!(errs[0].message.contains("rule: step-count"));
+        assert_eq!(
+            crate::validate::effective_severity("FC22", crate::validate::ReviewPosture::Draft),
+            crate::validate::Severity::Error
+        );
+    }
+
+    #[test]
+    fn a_step_count_that_is_not_a_number_is_an_fc22_error() {
+        let errs = run(&MINIMAL.replace("step_count: 3", "step_count: three"));
+        assert_eq!(codes(&errs), vec!["FC22"]);
+    }
+
+    #[test]
+    fn fc22_is_silent_on_plan_v1() {
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: single-pr\nmilestone: \"m\"\nissue_count: 1\nstep_count: 9\n---\n\n## Steps\n";
+        let doc = parse_doc_bytes("PLAN-x.md", md.as_bytes()).expect("parse");
+        assert!(check_fc22_steps(&doc, &plan_spec()).is_empty());
+    }
+
+    #[test]
+    fn an_unresolved_step_reference_is_an_fc17_error_in_multi_pr_too() {
+        let md = MINIMAL
+            .replace("execution_mode: single-pr", "execution_mode: multi-pr")
+            .replace("**Dependencies**: Step 1", "**Dependencies**: Step 7");
+        let errs = run(&md);
+        assert_eq!(codes(&errs), vec!["FC17"]);
+        assert!(errs[0].message.contains("'Step 7'"));
+    }
+
+    #[test]
+    fn a_non_step_heading_under_steps_is_named_by_fc14() {
+        let md = MINIMAL.replace("### Step 3:", "### Issue 3:");
+        let errs = run(&md);
+        let fc14: Vec<&ValidationError> = errs.iter().filter(|e| e.code == "FC14").collect();
+        assert_eq!(fc14.len(), 1, "{errs:?}");
+        assert!(fc14[0].message.contains("'### Issue 3:"));
+        assert!(fc14[0].message.contains("'## Steps'"));
+    }
+
+    #[test]
+    fn table_and_diagram_checks_stand_down_on_a_step_plan() {
+        let md = format!(
+            "{MINIMAL}\n## Implementation Issues\n\n| Issue | Title |\n|---|---|\n| 1 | x |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1\n```\n"
+        );
+        let doc = parse_doc_bytes("PLAN-x.md", md.as_bytes()).expect("parse");
+        let spec = plan_spec();
+        assert!(check_fc05(&doc, &spec).is_empty());
+        assert!(check_fc06(&doc, &spec).is_empty());
+        assert!(check_fc07(&doc, &spec).is_empty());
+        assert!(check_fc08(&doc, &spec).is_empty());
+        assert!(check_plan_section_structure(&doc, &spec).is_empty());
+        assert!(check_plan_design_field_consistency(&doc, &spec).is_empty());
+        assert!(check_fc14(&doc, &spec).is_empty());
+    }
 }

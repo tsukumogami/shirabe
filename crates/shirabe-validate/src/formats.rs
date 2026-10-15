@@ -118,9 +118,15 @@ impl FormatSpec {
     /// Roadmap format also accepts `roadmap/v2`, the milestone roadmap, which
     /// runs every roadmap check plus FC21 (`check_fc21_milestones`). One spec
     /// for both keeps prefix routing and the `roadmap/v1` gates unchanged.
+    ///
+    /// The Plan format accepts `plan/v2`, the step plan, the same way: one
+    /// spec for both versions, with the version-specific rules gated on the
+    /// document's own `schema` (see [`plan_v2_required_fields`] and
+    /// [`plan_v2_required_sections`]).
     pub fn accepts_schema(&self, schema: &str) -> bool {
         schema == self.schema_version
             || (self.id == FormatId::Roadmap && schema == crate::features::ROADMAP_V2_SCHEMA)
+            || (self.id == FormatId::Plan && schema == PLAN_V2_SCHEMA)
     }
 
     /// A spec carrying no structural expectations, for the prose family.
@@ -154,6 +160,25 @@ impl FormatSpec {
 
 fn s(values: &[&str]) -> Vec<String> {
     values.iter().map(|v| (*v).to_string()).collect()
+}
+
+/// The `schema` value of a step plan. A `plan/v2` document is checked by the
+/// Plan spec (see [`FormatSpec::accepts_schema`]); its entries are
+/// `### Step <N>:` blocks under `## Steps` rather than issues.
+pub const PLAN_V2_SCHEMA: &str = "plan/v2";
+
+/// The required frontmatter fields of a `plan/v2` document. `step_count`
+/// takes the place `issue_count` has in `plan/v1`.
+pub fn plan_v2_required_fields() -> Vec<String> {
+    s(&["status", "execution_mode", "milestone", "step_count"])
+}
+
+/// The required sections of a `plan/v2` document, in order. One list for
+/// every execution mode: a step plan carries no Implementation Issues table
+/// or Dependency Graph, and its step order is its sequence, so
+/// `Implementation Sequence` is optional.
+pub fn plan_v2_required_sections() -> Vec<String> {
+    s(&["Status", "Scope Summary", "Decomposition Strategy", "Steps"])
 }
 
 /// The tactical chain in order, with the heading a survivor uses to carry each

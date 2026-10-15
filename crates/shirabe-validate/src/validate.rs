@@ -9,7 +9,7 @@
 use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
-    check_fc15, check_fc17, check_fc18, check_fc19, check_fc21_milestones,
+    check_fc15, check_fc17, check_fc18, check_fc19, check_fc21_milestones, check_fc22_steps,
     check_plan_design_field_consistency, check_plan_section_structure, check_private_only,
     check_roadmap_reserved_sections, check_schema, check_stale_references, check_strategy_public,
     check_upstream_legality, check_upstream_resolves, check_vision_public, check_writing_style,
@@ -311,6 +311,11 @@ fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Valida
             // failure here that would otherwise pass validation and then
             // extract to a task graph missing the edge.
             errs.extend(check_fc17(doc, spec));
+            // FC22: the step rules of a `plan/v2` step plan; a no-op on
+            // `plan/v1`. Error-level (absent from is_intrinsic_notice). It
+            // runs in every full pass; making it selectable with `--check`
+            // comes with the rest of the step rules.
+            errs.extend(check_fc22_steps(doc, spec));
         }
         "Roadmap" => {
             errs.extend(check_fc05(doc, spec));
