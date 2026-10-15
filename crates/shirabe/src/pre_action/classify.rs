@@ -1,0 +1,892 @@
+//! The command classifier: which segments are guarded, and which can't be
+//! checked (PRD Definitions, R2, R4's "which repository", R7 cases 9 to 11).
+//!
+//! It walks a tokenized command's segments in order. For each it skips the
+//! leading `NAME=value`, redirection and reserved words, takes the head by its
+//! last path component, and returns a guarded segment as [`GhSegment`] or
+//! [`PushSegment`] with the directory it runs in. A guarded segment it can't
+//! check becomes a [`FailClosed`] case instead: an unlisted global option, a
+//! `GIT_...=` assignment on a push, a wrapped guarded command (a wrapper head,
+//! a `$` head, or a guarded segment inside a command substitution), an
+//! earlier segment that changes what a push sends, or a push in a directory
+//! it can't follow. The body-file check against earlier segments needs the
+//! body reader's path, so it is [`Classified::earlier_names_file`].
+//!
+//! The directory starts at the input's `cwd` and moves through `cd` and
+//! `pushd` with one literal argument; `cd` with none, `-` or a non-literal
+//! one, or a `popd`, makes it unknown. A `cd` inside parentheses ends when the
+//! group closes, as in a subshell.
+
+use std::path::{Component, Path, PathBuf};
+
+use super::reason::{Action, Case, FailClosed, PrAction};
+use super::tokenize::{Segment, Tokenized, Word};
+
+/// Heads that run another command (PRD Definitions, wrapped guarded command).
+const WRAPPERS: &[&str] = &[
+    "env", "command", "builtin", "exec", "eval", "bash", "sh", "zsh", "dash", "xargs", "sudo",
+    "time", "nohup", "timeout", "nice", "ssh", "docker", "podman", "mise", "nix", "python",
+    "python3", "perl", "ruby", "node",
+];
+
+/// Words skipped before a segment's head.
+const RESERVED: &[&str] = &[
+    "if", "then", "elif", "else", "do", "while", "until", "!", "{", "}",
+];
+
+/// `git` subcommands an earlier segment may run before a push in the same
+/// command: none changes what the push would send, except `fetch`, which can
+/// only shrink it (PRD R7 case 11).
+const READ_ONLY_GIT: &[&str] = &[
+    "status",
+    "log",
+    "diff",
+    "show",
+    "add",
+    "rev-parse",
+    "describe",
+    "ls-files",
+    "grep",
+    "blame",
+    "fetch",
+];
+
+/// A guarded `gh pr create|edit` segment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GhSegment {
+    pub action: PrAction,
+    /// The words after the action word.
+    pub words: Vec<Word>,
+    /// The directory it runs in; `None` when unknown.
+    pub dir: Option<PathBuf>,
+    /// Its index in the command's top-level segments.
+    pub index: usize,
+}
+
+/// A guarded `git push` segment, for the push check.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PushSegment {
+    /// The words after `push`.
+    pub words: Vec<String>,
+    /// The directory it runs in, `-C` paths applied.
+    pub dir: PathBuf,
+    pub index: usize,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Item {
+    Gh(GhSegment),
+    Push(PushSegment),
+    Fail(FailClosed),
+}
+
+/// The classifier's answer.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Classified {
+    pub items: Vec<Item>,
+    /// Each top-level segment's words and the directory it runs in, for the
+    /// earlier-segment check on a body file.
+    segments: Vec<(Vec<Word>, Option<PathBuf>)>,
+}
+
+/// What the coarse "named in the text" test finds (PRD Definitions).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Named {
+    pub pr: bool,
+    pub push: bool,
+}
+
+impl Named {
+    /// The actions it names, PR first.
+    pub fn actions(self) -> Vec<Action> {
+        let mut v = Vec::new();
+        if self.pr {
+            v.push(Action::Pr(None));
+        }
+        if self.push {
+            v.push(Action::Push);
+        }
+        v
+    }
+}
+
+/// The coarse test: lowercased and split into words of `[a-z0-9_-]`, the
+/// text has `gh`, later `pr`, later `create` or `edit`; or `git`, later
+/// `push`. Quotes and every other character only separate words.
+pub fn named_in_text(text: &str) -> Named {
+    let lower = text.to_ascii_lowercase();
+    let toks: Vec<&str> = lower
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
+        .filter(|t| !t.is_empty())
+        .collect();
+    let after = |from: usize, want: &[&str]| -> Option<usize> {
+        toks[from..]
+            .iter()
+            .position(|t| want.contains(t))
+            .map(|i| from + i)
+    };
+    let pr = after(0, &["gh"])
+        .and_then(|g| after(g + 1, &["pr"]))
+        .and_then(|p| after(p + 1, &["create", "edit"]))
+        .is_some();
+    let push = after(0, &["git"])
+        .and_then(|g| after(g + 1, &["push"]))
+        .is_some();
+    Named { pr, push }
+}
+
+/// The coarse test on the raw hook input, its JSON escapes `\n`, `\r`, `\t`,
+/// `\"` and `\\` decoded and a backslash-newline read as a space, the way the
+/// plugin's script reads it.
+pub fn named_in_raw_input(raw: &str) -> Named {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('r') => out.push('\r'),
+            Some('t') => out.push('\t'),
+            Some('"') => out.push('"'),
+            Some('\\') => out.push('\\'),
+            Some(o) => {
+                out.push('\\');
+                out.push(o);
+            }
+            None => out.push('\\'),
+        }
+    }
+    named_in_text(&out.replace("\\\n", " "))
+}
+
+/// How a segment reads once its leading words are skipped.
+enum Kind {
+    /// Nothing guarded.
+    Other,
+    /// `cd` or `pushd`, with its arguments.
+    Cd(Vec<Word>),
+    Popd,
+    /// `gh [-R x] pr create|edit`, with the first unlisted global option.
+    Gh {
+        action: PrAction,
+        rest: Vec<Word>,
+        bad_option: Option<String>,
+    },
+    /// `git` with its subcommand (`None` for a bare `git`).
+    Git {
+        sub: Option<String>,
+        rest: Vec<Word>,
+        c_dirs: Vec<Word>,
+        bad_option: Option<String>,
+        /// The first leading `GIT_...` assignment.
+        git_assignment: Option<String>,
+    },
+    /// A wrapper head or a `$` head, and what its text names.
+    Wrapper {
+        head: String,
+        named: Named,
+    },
+}
+
+fn is_assignment(t: &str) -> bool {
+    match t.split_once('=') {
+        Some((name, _)) => {
+            name.chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+                && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        }
+        None => false,
+    }
+}
+
+/// A redirection word, and whether its target is the next word (`>`, `2>`,
+/// `>>`, `<`, `&>` alone).
+fn redirection(w: &Word) -> Option<bool> {
+    if w.heredoc.is_some() {
+        return Some(false);
+    }
+    let t = w.text.as_str();
+    let rest = t.trim_start_matches(|c: char| c.is_ascii_digit());
+    let op_len = ["&>>", "&>", ">>", ">&", "<&", ">|", "<>", ">", "<"]
+        .iter()
+        .find(|op| rest.starts_with(*op))
+        .map(|op| op.len())?;
+    Some(rest.len() == op_len)
+}
+
+fn basename(t: &str) -> &str {
+    t.rsplit('/').next().unwrap_or(t)
+}
+
+fn kind(seg: &Segment) -> Kind {
+    let ws = &seg.words;
+    let mut i = 0;
+    let mut git_assignment = None;
+    while i < ws.len() {
+        let t = ws[i].text.as_str();
+        if is_assignment(t) {
+            if t.starts_with("GIT_") && git_assignment.is_none() {
+                git_assignment = Some(t.split('=').next().unwrap_or(t).to_string() + "=");
+            }
+            i += 1;
+        } else if ws[i].bare || ws[i].heredoc.is_some() {
+            match redirection(&ws[i]) {
+                Some(true) => i += 2,
+                Some(false) => i += 1,
+                None if RESERVED.contains(&t) => i += 1,
+                None => break,
+            }
+        } else {
+            break;
+        }
+    }
+    let Some(head) = ws.get(i) else {
+        return Kind::Other;
+    };
+    let rest = &ws[i + 1..];
+    let text_of = |ws: &[Word]| {
+        ws.iter()
+            .map(|w| w.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    if head.text.starts_with('$') {
+        let later: Vec<&str> = rest.iter().map(|w| w.text.as_str()).collect();
+        let push = later.contains(&"push");
+        let pr = later
+            .windows(2)
+            .any(|p| p[0] == "pr" && (p[1] == "create" || p[1] == "edit"));
+        return Kind::Wrapper {
+            head: head.text.clone(),
+            named: Named { pr, push },
+        };
+    }
+    let name = basename(&head.text);
+    if WRAPPERS.contains(&name) {
+        return Kind::Wrapper {
+            head: head.text.clone(),
+            named: named_in_text(&text_of(&ws[i..])),
+        };
+    }
+    match name {
+        "cd" | "pushd" => Kind::Cd(rest.to_vec()),
+        "popd" => Kind::Popd,
+        "gh" => {
+            let mut j = 0;
+            let mut bad_option = None;
+            while j < rest.len() {
+                let t = rest[j].text.as_str();
+                if t == "-R" || t == "--repo" {
+                    j += 2;
+                } else if t.starts_with("--repo=") {
+                    j += 1;
+                } else if t.starts_with('-') {
+                    bad_option.get_or_insert_with(|| t.to_string());
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+            let action = match (
+                rest.get(j).map(|w| w.text.as_str()),
+                rest.get(j + 1).map(|w| w.text.as_str()),
+            ) {
+                (Some("pr"), Some("create")) => PrAction::Create,
+                (Some("pr"), Some("edit")) => PrAction::Edit,
+                _ => return Kind::Other,
+            };
+            Kind::Gh {
+                action,
+                rest: rest[j + 2..].to_vec(),
+                bad_option,
+            }
+        }
+        "git" => {
+            let mut j = 0;
+            let mut bad_option = None;
+            let mut c_dirs = Vec::new();
+            while j < rest.len() {
+                let t = rest[j].text.as_str();
+                match t {
+                    "-C" => {
+                        if let Some(w) = rest.get(j + 1) {
+                            c_dirs.push(w.clone());
+                        }
+                        j += 2;
+                    }
+                    "-c" => j += 2,
+                    "--no-pager" | "-P" => j += 1,
+                    _ if t.starts_with('-') => {
+                        bad_option.get_or_insert_with(|| t.to_string());
+                        j += 1;
+                    }
+                    _ => break,
+                }
+            }
+            Kind::Git {
+                sub: rest.get(j).map(|w| w.text.clone()),
+                rest: rest.get(j + 1..).map(<[Word]>::to_vec).unwrap_or_default(),
+                c_dirs,
+                bad_option,
+                git_assignment,
+            }
+        }
+        _ => Kind::Other,
+    }
+}
+
+/// A word the directory can follow: literal, not `-`, not `~...`.
+fn literal(w: &Word) -> bool {
+    !w.expansion && !w.ansi_c && !w.tilde && !w.text.is_empty() && w.text != "-"
+}
+
+/// `p` with `.` and `..` removed lexically, as `cd` does by default.
+pub(crate) fn normalize(p: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for c in p.components() {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    out
+}
+
+/// `dir` moved to the word `w`, or `None` when that can't be followed.
+fn moved(dir: Option<&Path>, w: &Word) -> Option<PathBuf> {
+    if !literal(w) {
+        return None;
+    }
+    let p = Path::new(&w.text);
+    if p.is_absolute() {
+        Some(normalize(p))
+    } else {
+        dir.map(|d| normalize(&d.join(p)))
+    }
+}
+
+/// Whether `tok` (a command substitution's contents) holds a guarded or a
+/// wrapped guarded segment, and what it names.
+fn holds_guarded(tok: &Tokenized) -> Named {
+    let mut named = Named::default();
+    for seg in &tok.segments {
+        match kind(seg) {
+            Kind::Gh { .. } => named.pr = true,
+            Kind::Git { sub, .. } if sub.as_deref() == Some("push") => named.push = true,
+            Kind::Wrapper { named: n, .. } => {
+                named.pr |= n.pr;
+                named.push |= n.push;
+            }
+            _ => {}
+        }
+    }
+    for sub in &tok.substitutions {
+        let n = holds_guarded(&sub.inner);
+        named.pr |= n.pr;
+        named.push |= n.push;
+    }
+    named
+}
+
+/// Classify a tokenized command run from `cwd`.
+pub fn classify(tok: &Tokenized, cwd: Option<&Path>) -> Classified {
+    let mut c = Classified::default();
+    let mut dir: Option<PathBuf> = cwd.filter(|p| p.is_absolute()).map(normalize);
+    let mut stack: Vec<(usize, Option<PathBuf>)> = Vec::new();
+    // Why the directory became unknown, for the deny.
+    let mut lost = String::from("the hook input gives no absolute `cwd`");
+    // Heads of earlier segments that rule out a later push, first one kept.
+    let mut push_blocker: Option<String> = None;
+
+    for (index, seg) in tok.segments.iter().enumerate() {
+        // Leave the groups this segment isn't in, restoring the directory each
+        // had on entry; then enter the new ones.
+        while let Some((g, _)) = stack.last() {
+            if seg.groups.contains(g) {
+                break;
+            }
+            dir = stack.pop().and_then(|(_, d)| d);
+        }
+        for g in &seg.groups {
+            if !stack.iter().any(|(s, _)| s == g) {
+                stack.push((*g, dir.clone()));
+            }
+        }
+        c.segments.push((seg.words.clone(), dir.clone()));
+
+        match kind(seg) {
+            Kind::Other => {}
+            Kind::Cd(args) => {
+                let to = match args.as_slice() {
+                    [w] => moved(dir.as_deref(), w),
+                    _ => None,
+                };
+                if to.is_none() {
+                    lost = format!(
+                        "an earlier `{}` moves to a directory the hook can't follow (no argument, `-`, or not a literal path)",
+                        seg.words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>().join(" ")
+                    );
+                }
+                dir = to;
+            }
+            Kind::Popd => {
+                lost = "an earlier `popd` moves to a directory the hook can't follow".into();
+                dir = None;
+            }
+            Kind::Wrapper { head, named } => {
+                for action in named.actions() {
+                    c.items.push(Item::Fail(FailClosed {
+                        action,
+                        case: Case::Wrapped,
+                    }));
+                }
+                push_blocker.get_or_insert(head);
+            }
+            Kind::Gh {
+                action,
+                rest,
+                bad_option,
+            } => {
+                let a = Action::Pr(Some(action));
+                if let Some(opt) = bad_option {
+                    c.items.push(Item::Fail(FailClosed {
+                        action: a,
+                        case: Case::UnknownOption(opt),
+                    }));
+                } else {
+                    c.items.push(Item::Gh(GhSegment {
+                        action,
+                        words: rest,
+                        dir: dir.clone(),
+                        index,
+                    }));
+                }
+            }
+            Kind::Git {
+                sub,
+                rest,
+                c_dirs,
+                bad_option,
+                git_assignment,
+            } => {
+                if sub.as_deref() != Some("push") {
+                    if let Some(s) = &sub {
+                        if !READ_ONLY_GIT.contains(&s.as_str()) {
+                            push_blocker.get_or_insert_with(|| format!("git {s}"));
+                        }
+                    }
+                    continue;
+                }
+                let fail = |case| {
+                    Item::Fail(FailClosed {
+                        action: Action::Push,
+                        case,
+                    })
+                };
+                if let Some(opt) = git_assignment.or(bad_option) {
+                    c.items.push(fail(Case::UnknownOption(opt)));
+                    continue;
+                }
+                if let Some(head) = &push_blocker {
+                    c.items.push(fail(Case::SameCommand(format!(
+                        "an earlier `{head}` in the same command could change what the push sends, and the hook checks before it runs"
+                    ))));
+                    continue;
+                }
+                let mut at = dir.clone();
+                let mut why = lost.clone();
+                for w in &c_dirs {
+                    at = moved(at.as_deref(), w);
+                    if at.is_none() {
+                        why = format!("`git -C {}` isn't a literal path", w.text);
+                        break;
+                    }
+                }
+                match at {
+                    Some(d) => c.items.push(Item::Push(PushSegment {
+                        words: rest.into_iter().map(|w| w.text).collect(),
+                        dir: d,
+                        index,
+                    })),
+                    None => c.items.push(fail(Case::Directory(why))),
+                }
+                // A push changes the remote-tracking refs a later push reads.
+                push_blocker.get_or_insert_with(|| "git push".into());
+            }
+        }
+    }
+
+    // A guarded or wrapped guarded segment inside a command substitution,
+    // anywhere in the command, is a wrapped guarded command.
+    for sub in &tok.substitutions {
+        for action in holds_guarded(&sub.inner).actions() {
+            c.items.push(Item::Fail(FailClosed {
+                action,
+                case: Case::Wrapped,
+            }));
+        }
+    }
+    c
+}
+
+impl Classified {
+    /// Whether a top-level segment before `index` names the body file `file`
+    /// (absolute) given as `given`: the same word, a word resolving to the
+    /// same path from that segment's directory, or a word ending in the
+    /// file's name, alone or after `>` or `>>` (PRD R7 case 11).
+    pub fn earlier_names_file(&self, index: usize, file: &Path, given: &str) -> bool {
+        let name = file.file_name().map(|n| n.to_string_lossy().into_owned());
+        self.segments[..index.min(self.segments.len())]
+            .iter()
+            .any(|(words, dir)| {
+                words.iter().any(|w| {
+                    let t = w
+                        .text
+                        .trim_start_matches(|c: char| c.is_ascii_digit())
+                        .trim_start_matches('&')
+                        .trim_start_matches('>');
+                    if t.is_empty() {
+                        return false;
+                    }
+                    t == given
+                        || name.as_deref().is_some_and(|n| t.ends_with(n))
+                        || moved(
+                            dir.as_deref(),
+                            &Word {
+                                text: t.to_string(),
+                                ..w.clone()
+                            },
+                        )
+                        .is_some_and(|p| p == file)
+                })
+            })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::tokenize::tokenize;
+    use super::*;
+
+    const CWD: &str = "/work/repo";
+
+    fn cl(cmd: &str) -> Classified {
+        classify(&tokenize(cmd).expect("tokenizes"), Some(Path::new(CWD)))
+    }
+
+    fn fails(cmd: &str) -> Vec<(Action, Case)> {
+        cl(cmd)
+            .items
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Fail(f) => Some((f.action, f.case)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn pushes(cmd: &str) -> Vec<PushSegment> {
+        cl(cmd)
+            .items
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Push(p) => Some(p),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn ghs(cmd: &str) -> Vec<GhSegment> {
+        cl(cmd)
+            .items
+            .into_iter()
+            .filter_map(|i| match i {
+                Item::Gh(g) => Some(g),
+                _ => None,
+            })
+            .collect()
+    }
+
+    // --- the example table, row by row ------------------------------------
+
+    #[test]
+    fn unguarded_rows_give_nothing() {
+        for cmd in [
+            "ls",
+            "git status",
+            "git commit -m x",
+            "gh pr view 3",
+            "echo \"gh pr create\"",
+            "gh issue create --title pr --body edit",
+            "git log --grep push",
+        ] {
+            assert_eq!(cl(cmd).items, vec![], "{cmd}");
+        }
+    }
+
+    #[test]
+    fn wrapped_rows_fail_closed() {
+        for cmd in [
+            "sudo git push",
+            "env X=1 git push",
+            "bash -c \"git push\"",
+            "eval \"git push\"",
+            "$GIT push",
+            "echo $(git push)",
+        ] {
+            assert_eq!(fails(cmd), vec![(Action::Push, Case::Wrapped)], "{cmd}");
+            assert!(pushes(cmd).is_empty(), "{cmd}");
+        }
+        assert_eq!(
+            fails("echo `gh pr create`"),
+            vec![(Action::Pr(None), Case::Wrapped)]
+        );
+        assert_eq!(
+            fails("bash -c 'gh pr create --title x --body y'"),
+            vec![(Action::Pr(None), Case::Wrapped)]
+        );
+        assert_eq!(
+            fails("$G pr edit 3 --title x"),
+            vec![(Action::Pr(None), Case::Wrapped)]
+        );
+        // A wrapper whose text names nothing guarded is just a command.
+        assert_eq!(cl("sudo ls").items, vec![]);
+        assert_eq!(cl("$EDITOR file").items, vec![]);
+        // Nested substitutions are found too.
+        assert_eq!(
+            fails("echo \"$(echo $(git push))\""),
+            vec![(Action::Push, Case::Wrapped)]
+        );
+    }
+
+    #[test]
+    fn a_here_document_inside_a_substitution_is_data() {
+        let cmd = "git commit -m \"$(cat <<'EOF'\nthen git push\nEOF\n)\"";
+        assert_eq!(cl(cmd).items, vec![]);
+    }
+
+    #[test]
+    fn heads_compare_by_basename_after_skipped_words() {
+        assert_eq!(pushes("/usr/bin/git push").len(), 1);
+        assert_eq!(pushes("if true; then git push; fi").len(), 1);
+        assert_eq!(pushes("2>&1 git push").len(), 1);
+        assert_eq!(pushes("> out git push").len(), 1);
+        assert_eq!(pushes("! git push").len(), 1);
+        assert_eq!(pushes("{ git push; }").len(), 1);
+        let g = ghs("GH_TOKEN=t gh -R o/r pr create --title x");
+        assert_eq!(g.len(), 1);
+        assert_eq!(g[0].action, PrAction::Create);
+        assert_eq!(g[0].words[0].text, "--title");
+        assert_eq!(ghs("gh --repo o/r pr edit 3").len(), 1);
+        assert_eq!(ghs("gh --repo=o/r pr edit 3").len(), 1);
+        assert_eq!(ghs("/opt/bin/gh pr create").len(), 1);
+    }
+
+    #[test]
+    fn earlier_segments_that_change_a_push_fail_closed() {
+        for cmd in [
+            "git commit -m x && git push",
+            "git checkout other && git push",
+            "sudo ls; git push",
+            "$X; git push",
+            "git push origin a; git push origin b",
+        ] {
+            let f = fails(cmd);
+            assert!(
+                f.iter()
+                    .any(|(a, c)| *a == Action::Push && matches!(c, Case::SameCommand(_))),
+                "{cmd}: {f:?}"
+            );
+        }
+        for cmd in [
+            "git status && git push",
+            "git add . && git push",
+            "git fetch && git log && git push",
+            "ls && git push",
+        ] {
+            assert_eq!(fails(cmd), vec![], "{cmd}");
+            assert_eq!(pushes(cmd).len(), 1, "{cmd}");
+        }
+    }
+
+    #[test]
+    fn push_words_and_directory() {
+        let p = pushes("git push --force origin +topic");
+        assert_eq!(p[0].words, vec!["--force", "origin", "+topic"]);
+        assert_eq!(p[0].dir, PathBuf::from(CWD));
+        assert_eq!(pushes("git push origin --delete topic")[0].words.len(), 3);
+        assert_eq!(
+            pushes("git push origin :topic")[0].words,
+            vec!["origin", ":topic"]
+        );
+        assert_eq!(pushes("git -c k=v push").len(), 1);
+        assert_eq!(pushes("git --no-pager -P push").len(), 1);
+        assert_eq!(
+            pushes("cd sub && git push")[0].dir,
+            PathBuf::from("/work/repo/sub")
+        );
+        assert_eq!(
+            pushes("git -C sub push")[0].dir,
+            PathBuf::from("/work/repo/sub")
+        );
+        assert_eq!(
+            pushes("cd sub && git -C ../other push")[0].dir,
+            PathBuf::from("/work/repo/other")
+        );
+        assert_eq!(
+            pushes("pushd /abs && git push")[0].dir,
+            PathBuf::from("/abs")
+        );
+        assert_eq!(
+            pushes("(cd sub && ls); git push")[0].dir,
+            PathBuf::from(CWD)
+        );
+        assert_eq!(pushes("(cd a); (git push)")[0].dir, PathBuf::from(CWD));
+        assert_eq!(
+            pushes("(cd sub; git push)")[0].dir,
+            PathBuf::from("/work/repo/sub")
+        );
+        assert_eq!(
+            pushes("cd sub\ngit push")[0].dir,
+            PathBuf::from("/work/repo/sub")
+        );
+    }
+
+    #[test]
+    fn an_unknown_directory_fails_closed() {
+        for cmd in [
+            "cd \"$DIR\" && git push",
+            "cd && git push",
+            "cd - && git push",
+            "pushd \"$X\" && git push",
+            "popd && git push",
+            "cd ~/x && git push",
+            "git -C \"$P\" push",
+            "cd a b && git push",
+        ] {
+            let f = fails(cmd);
+            assert!(
+                matches!(f.as_slice(), [(Action::Push, Case::Directory(_))]),
+                "{cmd}: {f:?}"
+            );
+        }
+        // No cwd at all.
+        let c = classify(&tokenize("git push").unwrap(), None);
+        assert!(matches!(
+            c.items.as_slice(),
+            [Item::Fail(FailClosed {
+                case: Case::Directory(_),
+                ..
+            })]
+        ));
+        // An absolute `cd` recovers it.
+        let c = classify(&tokenize("cd /r && git push").unwrap(), None);
+        assert!(matches!(c.items.as_slice(), [Item::Push(_)]));
+    }
+
+    #[test]
+    fn unlisted_global_options_fail_closed() {
+        assert_eq!(
+            fails("git --git-dir=/x push"),
+            vec![(Action::Push, Case::UnknownOption("--git-dir=/x".into()))]
+        );
+        assert_eq!(
+            fails("GIT_DIR=/x git push"),
+            vec![(Action::Push, Case::UnknownOption("GIT_DIR=".into()))]
+        );
+        assert_eq!(
+            fails("gh --hostname h pr create --title x"),
+            vec![],
+            "`h` is the first non-option word, so this isn't `gh pr`"
+        );
+        assert_eq!(
+            fails("gh --verbose pr create"),
+            vec![(
+                Action::Pr(Some(PrAction::Create)),
+                Case::UnknownOption("--verbose".into())
+            )]
+        );
+        // Not guarded: options don't matter.
+        assert_eq!(fails("GIT_DIR=/x git status"), vec![]);
+        assert_eq!(fails("git --bare log"), vec![]);
+    }
+
+    #[test]
+    fn earlier_segments_naming_the_body_file() {
+        let c = cl("printf 'x' > b.md && gh pr create --title t -F b.md");
+        let g = ghs("printf 'x' > b.md && gh pr create --title t -F b.md");
+        let file = Path::new("/work/repo/b.md");
+        assert!(c.earlier_names_file(g[0].index, file, "b.md"));
+        let c = cl("echo x >>sub/../b.md; gh pr create");
+        assert!(c.earlier_names_file(1, file, "b.md"));
+        let c = cl("cd sub && cp x ../b.md && gh pr create");
+        assert!(c.earlier_names_file(2, file, "b.md"));
+        let c = cl("ls && gh pr create --title t -F b.md");
+        assert!(!c.earlier_names_file(1, file, "b.md"));
+        assert!(!c.earlier_names_file(0, file, "b.md"));
+    }
+
+    #[test]
+    fn the_coarse_test() {
+        let yes = [
+            (
+                "gh pr create",
+                Named {
+                    pr: true,
+                    push: false,
+                },
+            ),
+            (
+                "GH PR EDIT",
+                Named {
+                    pr: true,
+                    push: false,
+                },
+            ),
+            (
+                "echo \"git push\"",
+                Named {
+                    pr: false,
+                    push: true,
+                },
+            ),
+            (
+                "gh x pr y create",
+                Named {
+                    pr: true,
+                    push: false,
+                },
+            ),
+            (
+                "git -C a push",
+                Named {
+                    pr: false,
+                    push: true,
+                },
+            ),
+        ];
+        for (t, n) in yes {
+            assert_eq!(named_in_text(t), n, "{t}");
+        }
+        for t in [
+            "ls",
+            "gh pr view",
+            "git pushx",
+            "github pr create",
+            "push git",
+            "git-push",
+        ] {
+            assert_eq!(named_in_text(t), Named::default(), "{t}");
+        }
+        assert!(named_in_raw_input(r#"{"command":"cd repo\ngit push"}"#).push);
+        assert!(named_in_raw_input("cd x\\\ngit push").push);
+        assert!(!named_in_raw_input(r#"{"command":"echo a\\ngit"}"#).push);
+    }
+}

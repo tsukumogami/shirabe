@@ -49,8 +49,7 @@ pub struct PrBodyFinding {
     pub message: String,
 }
 
-/// PB4's message. Named so [`is_no_heading_finding`] matches exactly the
-/// finding PB4 produces, not any message that happens to mention a heading.
+/// PB4's message.
 const PB4_MESSAGE: &str = "Part 1 (the squash commit body, above the `---` separator) \
     contains a markdown section heading. Part 1 lands permanently on `main` as the commit \
     message and must be plain prose, not a heading-structured document; rewrite Part 1 as \
@@ -60,9 +59,10 @@ const PB4_MESSAGE: &str = "Part 1 (the squash commit body, above the `---` separ
 /// True when `f` is PB4's finding (no markdown heading in Part 1), the rule
 /// the live offload canary may leave out of a run's instructions. The
 /// pr-body hook drops it on a host that opted into the canary, leaving PB4 to
-/// the /work-on gate and CI.
+/// the /work-on gate and CI. Matched by its code, so no other finding that
+/// happens to mention a heading is dropped.
 pub fn is_no_heading_finding(f: &PrBodyFinding) -> bool {
-    f.message == PB4_MESSAGE
+    f.code == "PB4"
 }
 
 /// The Conventional Commits types accepted in a PR title (PB1). Mirrors the

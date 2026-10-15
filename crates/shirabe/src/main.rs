@@ -25,6 +25,7 @@ use shirabe_validate::{
 mod plan_outlines;
 mod populate;
 mod pr_body_hook;
+mod pre_action;
 mod work_summary;
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
@@ -94,14 +95,14 @@ enum Commands {
     /// emit hook JSON) and the `/inflight` skill (`render`, which prints the
     /// plain block). Every subcommand exits 0 (fail-safe).
     WorkSummary(work_summary::WorkSummaryArgs),
-    /// Client-side PreToolUse hook: gate a `gh pr create` / `gh pr edit`
-    /// command against the mechanical PR-body rule
+    /// Client-side PreToolUse hook: deny a `gh pr create` / `gh pr edit`
+    /// command whose title or body breaks a PR-body rule
     /// (references/pr-body-conformance.md) before it runs. Reads a Claude Code
     /// hook JSON on stdin, reuses the `validate --pr-body` engine, and emits a
-    /// PreToolUse `deny` decision naming the findings — or nothing (allow) when
-    /// the body/title is clean or cannot be confidently extracted. Fail-safe:
-    /// always exits 0. Registered via dot-niwa; the CI `pr-body.yml` gate is
-    /// the authoritative backstop.
+    /// PreToolUse `deny` decision naming each broken rule from the registry
+    /// built into the binary, or a fail-closed deny for a pull-request command
+    /// it can't check; nothing otherwise. Always exits 0. Registered via
+    /// dot-niwa; the CI `pr-body.yml` gate remains the backstop.
     PrBodyHook,
 }
 
