@@ -11,3 +11,5 @@ coordinate-evals/ROADMAP-telemetry.md	skills/coordinate/evals/fixtures/files/doc
 execute-evals/ROADMAP-cascade-test.md	skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md
 work-on-evals/ROADMAP-cascade-test.md	skills/work-on/evals/fixtures/roadmaps/ROADMAP-cascade-test.md
 v2-milestone-word/ROADMAP-plugin-loader.md	(none: written for this corpus; a roadmap/v2 roadmap carrying a ### Milestone 2: heading and a ## Milestones section)
+milestone-prose/ROADMAP-v1-milestone-prose.md	(none: written for this corpus; a roadmap/v1 roadmap whose free-prose Dependencies lines mention another project's milestones)
+milestone-prose/ROADMAP-v2-milestone-prose.md	(none: written for this corpus; a roadmap/v2 roadmap whose Dependencies line mentions another project's milestone)

@@ -1426,7 +1426,7 @@ fn crossed(word: &str, other: &str) -> String {
 }
 
 #[test]
-fn dependency_prose_names_the_item_tagged_with_either_word() {
+fn dependency_prose_crosses_the_two_words_on_v3_only() {
     // v3: `Feature 1` prose names the milestone tagged `Milestone 1`, the
     // second item, not the first.
     let dir = tempdir();
@@ -1446,18 +1446,21 @@ fn dependency_prose_names_the_item_tagged_with_either_word() {
     assert!(generated.contains("    F2 --> F3\n"), "{generated}");
     let _ = fs::remove_dir_all(&dir);
 
-    // v2: `Milestone 1` prose names the item tagged `Feature 1`.
-    let dir = tempdir();
-    let path = write_roadmap(&dir, "roadmap/v2", &crossed("Feature", "Milestone"));
-    populate_no_issues(&path);
-    let out = fs::read_to_string(&path).unwrap();
-    let generated = generated_sections(&out);
-    assert!(
-        generated.contains("| Report | None | F2 | Not started |\n"),
-        "{generated}"
-    );
-    assert!(generated.contains("    F2 --> F3\n"), "{generated}");
-    let _ = fs::remove_dir_all(&dir);
+    // v1 and v2: the milestone words name nothing, as before v3, so
+    // `Milestone 1` prose draws no edge.
+    for schema in ["roadmap/v1", "roadmap/v2"] {
+        let dir = tempdir();
+        let path = write_roadmap(&dir, schema, &crossed("Feature", "Milestone"));
+        populate_no_issues(&path);
+        let out = fs::read_to_string(&path).unwrap();
+        let generated = generated_sections(&out);
+        assert!(
+            generated.contains("| Report | None | None | Not started |\n"),
+            "{schema}: {generated}"
+        );
+        assert!(!generated.contains("--> F3"), "{schema}: {generated}");
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 #[test]

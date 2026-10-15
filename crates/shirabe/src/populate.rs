@@ -167,7 +167,7 @@ fn run_inner(args: &PopulateArgs) -> Result<(), String> {
         &args.milestone,
         &doc.schema,
     );
-    let diagram = render_diagram(&features, &mapping);
+    let diagram = render_diagram(&features, &mapping, RoadmapVersion::of(&doc.schema));
 
     let table_body = wrap_section_body(&table);
     let diagram_body = wrap_section_body(&diagram);
@@ -210,7 +210,7 @@ fn run_issueless(
     }
 
     let table = render_issueless_table(features, &args.milestone, schema);
-    let diagram = render_issueless_diagram(features);
+    let diagram = render_issueless_diagram(features, RoadmapVersion::of(schema));
 
     let table_body = wrap_section_body(&table);
     let diagram_body = wrap_section_body(&diagram);
@@ -276,7 +276,13 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str, schema: &st
                 None => "None".to_string(),
             }
         };
-        let deps_cell = render_deps_cell(&f.dependencies, Some(f.id), features, &aliases);
+        let deps_cell = render_deps_cell(
+            &f.dependencies,
+            Some(f.id),
+            features,
+            &aliases,
+            RoadmapVersion::of(schema),
+        );
         let status_cell = pick_status_cell(f);
         let desc = concise_description(summary_text(f, schema));
         if feature_is_terminal(f) {
@@ -301,8 +307,9 @@ pub fn render_issueless_table(features: &[Feature], milestone: &str, schema: &st
 /// Nodes are `F<n>` labeled with the (truncated) feature name; edges derive
 /// from each feature's stated dependencies (`F1 --> F2`). The status-class
 /// palette and Legend mirror the issue-creating diagram so a reader sees the
-/// same `needs-*` coloring in both modes.
-pub fn render_issueless_diagram(features: &[Feature]) -> String {
+/// same `needs-*` coloring in both modes. `version` is the roadmap's; it
+/// decides how Dependencies prose resolves ([`dependency_positions`]).
+pub fn render_issueless_diagram(features: &[Feature], version: RoadmapVersion) -> String {
     let mut s = String::new();
     s.push_str("```mermaid\n");
     s.push_str("graph TD\n");
@@ -317,14 +324,14 @@ pub fn render_issueless_diagram(features: &[Feature]) -> String {
         if f.dependencies.is_empty() || f.dependencies == "None" {
             continue;
         }
-        for n in dependency_positions(&f.dependencies, features, Some(f.id)) {
+        for n in dependency_positions(&f.dependencies, features, Some(f.id), version) {
             s.push_str(&format!("    F{} --> F{}\n", n, f.id));
         }
     }
 
     let mut assigned: Vec<&'static str> = Vec::new();
     for f in features {
-        let class = pick_class(f, features);
+        let class = pick_class(f, features, version);
         if !assigned.contains(&class) {
             assigned.push(class);
         }
@@ -337,7 +344,7 @@ pub fn render_issueless_diagram(features: &[Feature]) -> String {
         s.push_str(&format!(
             "    class F{} {}\n",
             f.id,
-            pick_class(f, features)
+            pick_class(f, features, version)
         ));
     }
 
@@ -812,7 +819,13 @@ pub fn render_table(
             Some(n) => format!("[#{}](https://github.com/{}/issues/{})", n, owner_repo, n),
             None => "None".to_string(),
         };
-        let deps_cell = render_deps_cell(&f.dependencies, Some(f.id), features, &keys);
+        let deps_cell = render_deps_cell(
+            &f.dependencies,
+            Some(f.id),
+            features,
+            &keys,
+            RoadmapVersion::of(schema),
+        );
         let status_cell = pick_status_cell(f);
         let desc = concise_description(summary_text(f, schema));
         if feature_is_terminal(f) {
@@ -860,8 +873,9 @@ fn pick_status_cell(f: &Feature) -> String {
 /// as the reference requires. Edges run blocker-to-dependent between
 /// issue-keyed nodes; class assignments come from [`pick_class`]; the
 /// `classDef` block and Legend name only the classes actually assigned so
-/// FC08 stays clean.
-pub fn render_diagram(features: &[Feature], mapping: &IssueMap) -> String {
+/// FC08 stays clean. `version` is the roadmap's, as in
+/// [`render_issueless_diagram`].
+pub fn render_diagram(features: &[Feature], mapping: &IssueMap, version: RoadmapVersion) -> String {
     let mut s = String::new();
     s.push_str("```mermaid\n");
     s.push_str("graph LR\n");
@@ -885,7 +899,7 @@ pub fn render_diagram(features: &[Feature], mapping: &IssueMap) -> String {
         let Some(dependent) = mapping.get(&f.id.to_string()) else {
             continue;
         };
-        for pos in dependency_positions(&f.dependencies, features, Some(f.id)) {
+        for pos in dependency_positions(&f.dependencies, features, Some(f.id), version) {
             if let Some(blocker) = mapping.get(&features[pos - 1].id.to_string()) {
                 s.push_str(&format!("    I{} --> I{}\n", blocker, dependent));
             }
@@ -896,7 +910,7 @@ pub fn render_diagram(features: &[Feature], mapping: &IssueMap) -> String {
     let mut assigned: Vec<&'static str> = Vec::new();
     for f in features {
         if mapping.contains_key(&f.id.to_string()) {
-            let class = pick_class(f, features);
+            let class = pick_class(f, features, version);
             if !assigned.contains(&class) {
                 assigned.push(class);
             }
@@ -908,7 +922,11 @@ pub fn render_diagram(features: &[Feature], mapping: &IssueMap) -> String {
     s.push('\n');
     for f in features {
         if let Some(n) = mapping.get(&f.id.to_string()) {
-            s.push_str(&format!("    class I{} {}\n", n, pick_class(f, features)));
+            s.push_str(&format!(
+                "    class I{} {}\n",
+                n,
+                pick_class(f, features, version)
+            ));
         }
     }
 
@@ -928,7 +946,7 @@ pub fn render_diagram(features: &[Feature], mapping: &IssueMap) -> String {
 /// once every local dependency is terminal. This keeps the emitted class
 /// consistent with the validator, including when a feature's only blocker
 /// has already shipped.
-fn pick_class(f: &Feature, features: &[Feature]) -> &'static str {
+fn pick_class(f: &Feature, features: &[Feature], version: RoadmapVersion) -> &'static str {
     if feature_is_terminal(f) {
         return "done";
     }
@@ -940,10 +958,10 @@ fn pick_class(f: &Feature, features: &[Feature]) -> &'static str {
             "needs-decision" => "needsDecision",
             "needs-planning" => "needsPlanning",
             "needs-explore" => "needsExplore",
-            _ => ready_or_blocked(f, features),
+            _ => ready_or_blocked(f, features, version),
         };
     }
-    ready_or_blocked(f, features)
+    ready_or_blocked(f, features, version)
 }
 
 /// Resolve `ready` vs `blocked` from a feature's dependencies. Blocked
@@ -952,11 +970,11 @@ fn pick_class(f: &Feature, features: &[Feature]) -> &'static str {
 /// otherwise ready. References that name no feature in this roadmap
 /// resolve to nothing -- `render_deps_cell` drops them too, so the diagram
 /// and table stay in agreement.
-fn ready_or_blocked(f: &Feature, features: &[Feature]) -> &'static str {
+fn ready_or_blocked(f: &Feature, features: &[Feature], version: RoadmapVersion) -> &'static str {
     if has_cross_repo_dep(&f.dependencies) {
         return "blocked";
     }
-    for pos in dependency_positions(&f.dependencies, features, Some(f.id)) {
+    for pos in dependency_positions(&f.dependencies, features, Some(f.id), version) {
         if !feature_is_terminal(&features[pos - 1]) {
             return "blocked";
         }
@@ -1183,15 +1201,17 @@ fn first_sentence(text: &str) -> String {
 /// or a tag no item carries contributes no token, which is what both modes
 /// have always done with a reference they cannot resolve. `own` is the
 /// position of the feature whose cell this is, so a mention of itself is
-/// dropped too.
+/// dropped too. `version` is the roadmap's: the milestone words resolve only
+/// on `roadmap/v3`.
 fn render_deps_cell(
     deps: &str,
     own: Option<usize>,
     features: &[Feature],
     tokens: &[String],
+    version: RoadmapVersion,
 ) -> String {
     let mut parts: Vec<String> = Vec::new();
-    for pos in dependency_positions(deps, features, own) {
+    for pos in dependency_positions(deps, features, own, version) {
         let Some(token) = tokens.get(pos - 1) else {
             continue;
         };
@@ -1553,7 +1573,7 @@ mod tests {
             make_feature(3, "Done thing", "None", "Feature 1", "Done", "x."),
         ];
         let map = synthesize_mapping(&features);
-        let diagram = render_diagram(&features, &map);
+        let diagram = render_diagram(&features, &map, RoadmapVersion::V1);
         assert!(diagram.contains("graph LR"));
         // Nodes are keyed `I<issue-number>` so they bind to the `#n` links
         // in the table's Issues column (FC07 roadmap bijection).
@@ -1659,7 +1679,7 @@ mod tests {
             ),
             make_feature(3, "Done thing", "None", "Feature 1", "Done", "x."),
         ];
-        let diagram = render_issueless_diagram(&features);
+        let diagram = render_issueless_diagram(&features, RoadmapVersion::V1);
         assert!(diagram.contains("graph TD"));
         // F<n> nodes labeled with the feature name (no `#<issue>:` prefix).
         assert!(diagram.contains("F1[\"Foundation\"]"));
@@ -1997,7 +2017,8 @@ mod tests {
             .map(|n| make_feature(n, &format!("L{}", n), "", "None", "Not started", "x."))
             .collect();
         let aliases = feature_aliases(&features);
-        let cell = |deps: &str| render_deps_cell(deps, None, &features, &aliases);
+        let cell =
+            |deps: &str| render_deps_cell(deps, None, &features, &aliases, RoadmapVersion::V1);
         assert_eq!(cell("Features 2, 3"), "F2, F3");
         assert_eq!(cell("Features 2 and 3"), "F2, F3");
         assert_eq!(cell("Feature 1, 2 and 3"), "F1, F2, F3");
@@ -2036,13 +2057,16 @@ mod tests {
             table.contains("| Next | None | F1 | Not started |"),
             "{table}"
         );
-        let diagram = render_issueless_diagram(&features);
+        let diagram = render_issueless_diagram(&features, RoadmapVersion::V1);
         assert!(diagram.contains("    F1 --> F2\n"), "{diagram}");
-        assert_eq!(pick_class(&features[1], &features), "blocked");
+        assert_eq!(
+            pick_class(&features[1], &features, RoadmapVersion::V1),
+            "blocked"
+        );
 
         // The issue-keyed renderers resolve the same edge.
         let map = synthesize_mapping(&features);
-        let diagram = render_diagram(&features, &map);
+        let diagram = render_diagram(&features, &map, RoadmapVersion::V1);
         assert!(diagram.contains("    I1001 --> I1002\n"), "{diagram}");
         let table = render_table(&features, &map, "owner/repo", "", "roadmap/v1");
         // Issue-creating mode names the depended-on feature by its label.
@@ -2075,24 +2099,33 @@ mod tests {
             table.contains("| Next | None | F1 | Not started |"),
             "{table}"
         );
-        let diagram = render_issueless_diagram(&features);
+        let diagram = render_issueless_diagram(&features, RoadmapVersion::V1);
         assert!(diagram.contains("    F1 --> F2\n"), "{diagram}");
         assert!(!diagram.contains("F2 --> F2"), "{diagram}");
-        assert_eq!(pick_class(&features[1], &features), "ready");
+        assert_eq!(
+            pick_class(&features[1], &features, RoadmapVersion::V1),
+            "ready"
+        );
         let map = synthesize_mapping(&features);
-        assert!(!render_diagram(&features, &map).contains("I1002 --> I1002"));
+        assert!(!render_diagram(&features, &map, RoadmapVersion::V1).contains("I1002 --> I1002"));
     }
 
     #[test]
     fn a_dependency_naming_an_unknown_tag_draws_nothing() {
         let features = prefixed_features();
         let aliases = feature_aliases(&features);
-        assert_eq!(render_deps_cell("ZZ9", None, &features, &aliases), "None");
-        let diagram = render_issueless_diagram(&features);
+        assert_eq!(
+            render_deps_cell("ZZ9", None, &features, &aliases, RoadmapVersion::V1),
+            "None"
+        );
+        let diagram = render_issueless_diagram(&features, RoadmapVersion::V1);
         assert!(!diagram.contains("--> F3"), "{diagram}");
-        assert_eq!(pick_class(&features[2], &features), "ready");
+        assert_eq!(
+            pick_class(&features[2], &features, RoadmapVersion::V1),
+            "ready"
+        );
         let map = synthesize_mapping(&features);
-        assert!(!render_diagram(&features, &map).contains("--> I1003"));
+        assert!(!render_diagram(&features, &map, RoadmapVersion::V1).contains("--> I1003"));
     }
 
     /// A one-item milestone roadmap's parsed features.
@@ -2344,15 +2377,24 @@ mod tests {
         // (its row key) so FC06 passes.
         let f4 = make_feature(4, "Dash", "", "Features 2, 3", "Not started", "x.");
         assert_eq!(
-            render_deps_cell(&f4.dependencies, None, &features, &keys),
+            render_deps_cell(&f4.dependencies, None, &features, &keys, RoadmapVersion::V1),
             "Caching layer, Metrics"
         );
         // Cross-repo refs are preserved verbatim alongside resolved labels.
         assert_eq!(
-            render_deps_cell("tsukumogami/koto#65, Feature 1", None, &features, &keys),
+            render_deps_cell(
+                "tsukumogami/koto#65, Feature 1",
+                None,
+                &features,
+                &keys,
+                RoadmapVersion::V1
+            ),
             "Foundation layer, tsukumogami/koto#65"
         );
-        assert_eq!(render_deps_cell("None", None, &features, &keys), "None");
+        assert_eq!(
+            render_deps_cell("None", None, &features, &keys, RoadmapVersion::V1),
+            "None"
+        );
     }
 
     #[test]
@@ -2367,15 +2409,21 @@ mod tests {
         ];
         let keys = feature_keys(&features);
         assert_eq!(
-            render_deps_cell("Feature 0", None, &features, &keys),
+            render_deps_cell("Feature 0", None, &features, &keys, RoadmapVersion::V1),
             "None"
         );
         assert_eq!(
-            render_deps_cell("Feature 99", None, &features, &keys),
+            render_deps_cell("Feature 99", None, &features, &keys, RoadmapVersion::V1),
             "None"
         );
         assert_eq!(
-            render_deps_cell("Feature 1, Feature 99", None, &features, &keys),
+            render_deps_cell(
+                "Feature 1, Feature 99",
+                None,
+                &features,
+                &keys,
+                RoadmapVersion::V1
+            ),
             "Foundation layer"
         );
     }
@@ -2397,11 +2445,23 @@ mod tests {
         ];
         let keys = feature_keys(&features);
         assert_eq!(
-            render_deps_cell(&features[1].dependencies, None, &features, &keys),
+            render_deps_cell(
+                &features[1].dependencies,
+                None,
+                &features,
+                &keys,
+                RoadmapVersion::V1
+            ),
             "Foundation layer"
         );
         assert_eq!(
-            render_deps_cell("None (ext: onboarding)", None, &features, &keys),
+            render_deps_cell(
+                "None (ext: onboarding)",
+                None,
+                &features,
+                &keys,
+                RoadmapVersion::V1
+            ),
             "None"
         );
     }
@@ -2417,7 +2477,13 @@ mod tests {
         // A dependency on the fallen-back feature names the fallback key.
         let keys = feature_keys(&features);
         assert_eq!(
-            render_deps_cell(&features[1].dependencies, None, &features, &keys),
+            render_deps_cell(
+                &features[1].dependencies,
+                None,
+                &features,
+                &keys,
+                RoadmapVersion::V1
+            ),
             "F1"
         );
 
@@ -2537,11 +2603,23 @@ mod tests {
             make_feature(4, "On open", "None", "Feature 2", "Not started", "x."),
             make_feature(5, "Cross", "None", "owner/repo#9", "Not started", "x."),
         ];
-        assert_eq!(pick_class(&features[0], &features), "done");
-        assert_eq!(pick_class(&features[2], &features), "ready");
-        assert_eq!(pick_class(&features[3], &features), "blocked");
+        assert_eq!(
+            pick_class(&features[0], &features, RoadmapVersion::V1),
+            "done"
+        );
+        assert_eq!(
+            pick_class(&features[2], &features, RoadmapVersion::V1),
+            "ready"
+        );
+        assert_eq!(
+            pick_class(&features[3], &features, RoadmapVersion::V1),
+            "blocked"
+        );
         // A cross-repo dependency's state is unobservable here -> blocked.
-        assert_eq!(pick_class(&features[4], &features), "blocked");
+        assert_eq!(
+            pick_class(&features[4], &features, RoadmapVersion::V1),
+            "blocked"
+        );
     }
 
     #[test]

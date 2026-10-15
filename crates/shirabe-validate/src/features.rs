@@ -389,6 +389,8 @@ fn split_field_line(line: &str) -> Option<(&str, &str)> {
 /// (case-insensitive), followed by a list (group 2) of integers separated by
 /// commas, whitespace, or the word `and`. Cross-repo refs such as
 /// `acme/widgets#65` carry no keyword and so contribute no captures.
+/// [`dependency_positions`] uses a milestone-word capture only on a
+/// `roadmap/v3` roadmap and skips it on v1 and v2.
 static FEATURE_DEP_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)\b(features?|milestones?)\s+(\d+(?:[\s,]+(?:and[\s,]+)?\d+)*)").unwrap()
 });
@@ -409,20 +411,26 @@ static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9]+").
 ///
 /// Three spellings name a feature:
 ///
-/// - `Feature N`, `Features N, M and K`, `Milestone N`, `Milestones N and M`
-///   (any case): the item tagged with that word and number when one exists,
-///   else the item tagged with the other word and the number exactly as
-///   written, else the Nth item. The second step is the one equivalence
-///   across versions: `Feature 2` written on a `roadmap/v3` roadmap names the
-///   item tagged `Milestone 2`, and `Milestone 2` on a v2 roadmap names the
-///   one tagged `Feature 2`. It compares strings, so it applies only to the
-///   capitalized words and digits as written (`Feature 03` is not
-///   `Milestone 3`, and `feature 2` is not `Milestone 2`); such a reference
-///   still resolves by position, as it always did;
+/// - `Feature N`, `Features N, M and K` (any case): the item tagged
+///   `Feature N` when one exists, else the Nth item. On a `roadmap/v3`
+///   roadmap, `Milestone N` and `Milestones N and M` (any case) read the same
+///   way with their own word, and between those two steps the capitalized
+///   word also finds the item tagged with the other word and the number
+///   exactly as written: `Feature 2` names the item tagged `Milestone 2`, so
+///   prose written before a roadmap moved from v2 to v3 keeps resolving. That
+///   step compares strings (`Feature 03` is not `Milestone 3`, and
+///   `feature 2` is not `Milestone 2`); such a reference still resolves by
+///   position;
 /// - `F<N>`, the index alias the issueless tables use: the item tagged
-///   `Feature N` or `Milestone N` when one exists, else the Nth item (an
-///   `F<N>` that is itself some feature's tag resolves as that tag instead);
+///   `Feature N` (or, on v3, `Milestone N`) when one exists, else the Nth
+///   item (an `F<N>` that is itself some feature's tag resolves as that tag
+///   instead);
 /// - a whole `[A-Za-z0-9]+` token equal to a feature's tag (`AB1`, `AB10a`).
+///
+/// On v1 and v2 the milestone words name nothing. A v1 roadmap's
+/// Dependencies line is free prose that no check holds to tags, so a phrase
+/// such as `None (lands after the upstream milestone 3)` must not become an
+/// edge; v1 and v2 resolve exactly as they did before v3 existed.
 ///
 /// A number or tag that names no feature contributes nothing, and a
 /// cross-repo reference (`owner/repo#7`) never matches, so callers get only
@@ -434,21 +442,31 @@ static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9]+").
 /// as the coordinator's roadmap reader drops it. (FC21, which allows only
 /// tags on a milestone roadmap's Dependencies line, reports a self-mention
 /// there as naming no other milestone.)
-pub fn dependency_positions(deps: &str, features: &[Feature], own: Option<usize>) -> Vec<usize> {
+pub fn dependency_positions(
+    deps: &str,
+    features: &[Feature],
+    own: Option<usize>,
+    version: RoadmapVersion,
+) -> Vec<usize> {
+    let v3 = version == RoadmapVersion::V3;
     let tagged = |tag: &str| features.iter().find(|f| f.tag == tag).map(|f| f.id);
     let positional = |n: usize| (1..=features.len()).contains(&n).then_some(n);
     let mut hits: Vec<(usize, usize)> = Vec::new();
     for cap in FEATURE_DEP_RE.captures_iter(deps) {
         let word = cap.get(1).expect("group 1").as_str();
         let list = cap.get(2).expect("group 2");
-        let (own, other) = if word.to_ascii_lowercase().starts_with('m') {
+        let milestone_word = word.to_ascii_lowercase().starts_with('m');
+        if milestone_word && !v3 {
+            continue;
+        }
+        let (own, other) = if milestone_word {
             ("Milestone", "Feature")
         } else {
             ("Feature", "Milestone")
         };
         // The cross-version equivalence is a tag comparison, so it holds
-        // only for the words as a tag spells them.
-        let as_tag = matches!(word, "Feature" | "Features" | "Milestone" | "Milestones");
+        // only for the words as a tag spells them, and only on v3.
+        let as_tag = v3 && matches!(word, "Feature" | "Features" | "Milestone" | "Milestones");
         for m in DIGITS_RE.find_iter(list.as_str()) {
             let digits = m.as_str();
             let Ok(n) = digits.parse::<usize>() else {
@@ -477,7 +495,7 @@ pub fn dependency_positions(deps: &str, features: &[Feature], own: Option<usize>
             continue;
         };
         let id = tagged(&format!("Feature {n}"))
-            .or_else(|| tagged(&format!("Milestone {n}")))
+            .or_else(|| v3.then(|| tagged(&format!("Milestone {n}"))).flatten())
             .or_else(|| positional(n));
         if let Some(id) = id {
             hits.push((m.start(), id));
@@ -1158,36 +1176,61 @@ mod tests {
     #[test]
     fn dependency_positions_resolves_every_spelling() {
         let classic = tagged(&["Feature 1", "Feature 2", "Feature 3"]);
-        assert_eq!(dependency_positions("Feature 2", &classic, None), vec![2]);
         assert_eq!(
-            dependency_positions("Features 1, 2 and 3", &classic, None),
+            dependency_positions("Feature 2", &classic, None, RoadmapVersion::V1),
+            vec![2]
+        );
+        assert_eq!(
+            dependency_positions("Features 1, 2 and 3", &classic, None, RoadmapVersion::V1),
             vec![1, 2, 3]
         );
-        assert_eq!(dependency_positions("F2", &classic, None), vec![2]);
         assert_eq!(
-            dependency_positions("None", &classic, None),
+            dependency_positions("F2", &classic, None, RoadmapVersion::V1),
+            vec![2]
+        );
+        assert_eq!(
+            dependency_positions("None", &classic, None, RoadmapVersion::V1),
             Vec::<usize>::new()
         );
         assert_eq!(
-            dependency_positions("Feature 3, Feature 3, Feature 1", &classic, None),
+            dependency_positions(
+                "Feature 3, Feature 3, Feature 1",
+                &classic,
+                None,
+                RoadmapVersion::V1
+            ),
             vec![3, 1]
         );
 
         let prefixed = tagged(&["AB1", "AB2", "AB10a"]);
-        assert_eq!(dependency_positions("AB1", &prefixed, None), vec![1]);
         assert_eq!(
-            dependency_positions("AB10a, AB1", &prefixed, None),
+            dependency_positions("AB1", &prefixed, None, RoadmapVersion::V1),
+            vec![1]
+        );
+        assert_eq!(
+            dependency_positions("AB10a, AB1", &prefixed, None, RoadmapVersion::V1),
             vec![3, 1]
         );
         // `Feature N` on a prefixed roadmap is the Nth item.
-        assert_eq!(dependency_positions("Feature 2", &prefixed, None), vec![2]);
+        assert_eq!(
+            dependency_positions("Feature 2", &prefixed, None, RoadmapVersion::V1),
+            vec![2]
+        );
         // Unknown tags, out-of-range numbers and cross-repo refs name nothing.
         assert_eq!(
-            dependency_positions("ZZ9, Feature 9, owner/repo#7", &prefixed, None),
+            dependency_positions(
+                "ZZ9, Feature 9, owner/repo#7",
+                &prefixed,
+                None,
+                RoadmapVersion::V1
+            ),
             Vec::<usize>::new()
         );
         // `AB1` inside `AB10a` is not a whole token.
-        assert_eq!(dependency_positions("AB10a", &prefixed, None), vec![3]);
+        assert_eq!(
+            dependency_positions("AB10a", &prefixed, None, RoadmapVersion::V1),
+            vec![3]
+        );
     }
 
     #[test]
@@ -1195,10 +1238,22 @@ mod tests {
         // A roadmap whose second item is tagged `Feature 1` (headings out of
         // order): the tag wins over the position.
         let fs = tagged(&["Feature 2", "Feature 1"]);
-        assert_eq!(dependency_positions("Feature 1", &fs, None), vec![2]);
-        assert_eq!(dependency_positions("Feature 2", &fs, None), vec![1]);
-        assert_eq!(dependency_positions("F2", &fs, None), vec![1]);
-        assert_eq!(dependency_positions("F1", &fs, None), vec![2]);
+        assert_eq!(
+            dependency_positions("Feature 1", &fs, None, RoadmapVersion::V1),
+            vec![2]
+        );
+        assert_eq!(
+            dependency_positions("Feature 2", &fs, None, RoadmapVersion::V1),
+            vec![1]
+        );
+        assert_eq!(
+            dependency_positions("F2", &fs, None, RoadmapVersion::V1),
+            vec![1]
+        );
+        assert_eq!(
+            dependency_positions("F1", &fs, None, RoadmapVersion::V1),
+            vec![2]
+        );
     }
 
     #[test]
@@ -1207,16 +1262,21 @@ mod tests {
         let prefixed = tagged(&["AB7", "AB8", "AB9", "AB10"]);
         let deps = "AB7 (the review surface AB10 renders); AB8 + AB9";
         assert_eq!(
-            dependency_positions(deps, &prefixed, Some(4)),
+            dependency_positions(deps, &prefixed, Some(4), RoadmapVersion::V1),
             vec![1, 2, 3]
         );
         assert_eq!(
-            dependency_positions(deps, &prefixed, None),
+            dependency_positions(deps, &prefixed, None, RoadmapVersion::V1),
             vec![1, 4, 2, 3]
         );
         let classic = tagged(&["Feature 1", "Feature 2"]);
         assert_eq!(
-            dependency_positions("Feature 1 (unlike Feature 2 or F2)", &classic, Some(2)),
+            dependency_positions(
+                "Feature 1 (unlike Feature 2 or F2)",
+                &classic,
+                Some(2),
+                RoadmapVersion::V1
+            ),
             vec![1]
         );
     }
@@ -1224,7 +1284,10 @@ mod tests {
     #[test]
     fn a_tag_spelled_like_the_index_alias_resolves_as_the_tag() {
         let fs = tagged(&["F2", "F1"]);
-        assert_eq!(dependency_positions("F2", &fs, None), vec![1]);
+        assert_eq!(
+            dependency_positions("F2", &fs, None, RoadmapVersion::V1),
+            vec![1]
+        );
     }
 
     #[test]
@@ -1314,38 +1377,62 @@ mod tests {
     }
 
     #[test]
-    fn feature_n_and_milestone_n_name_the_item_tagged_either_way() {
+    fn feature_n_and_milestone_n_name_the_item_tagged_either_way_on_v3() {
+        let v3v = RoadmapVersion::V3;
         // Out of order on purpose, so a tag match and a position differ.
         let v3 = tagged(&["Milestone 2", "Milestone 1", "Milestone 3"]);
-        assert_eq!(dependency_positions("Milestone 2", &v3, None), vec![1]);
-        assert_eq!(dependency_positions("Feature 2", &v3, None), vec![1]);
+        assert_eq!(dependency_positions("Milestone 2", &v3, None, v3v), vec![1]);
+        // Prose written before the roadmap moved from v2 keeps resolving.
+        assert_eq!(dependency_positions("Feature 2", &v3, None, v3v), vec![1]);
         assert_eq!(
-            dependency_positions("Features 1 and 2", &v3, None),
+            dependency_positions("Features 1 and 2", &v3, None, v3v),
             vec![2, 1]
         );
         // Neither the leading zero nor the lowercase word is the tag: each
         // falls back to the position, as `Feature N` always has.
-        assert_eq!(dependency_positions("Feature 02", &v3, None), vec![2]);
-        assert_eq!(dependency_positions("feature 2", &v3, None), vec![2]);
+        assert_eq!(dependency_positions("Feature 02", &v3, None, v3v), vec![2]);
+        assert_eq!(dependency_positions("feature 2", &v3, None, v3v), vec![2]);
         // On v3 the milestone word is the classic one, matched like `Feature`
-        // was: numerically and in any case.
-        assert_eq!(dependency_positions("milestone 02", &v3, None), vec![1]);
-        assert_eq!(dependency_positions("F2", &v3, None), vec![1]);
+        // is: numerically and in any case.
         assert_eq!(
-            dependency_positions("Feature 9, owner/repo#7", &v3, None),
+            dependency_positions("milestone 02", &v3, None, v3v),
+            vec![1]
+        );
+        assert_eq!(dependency_positions("F2", &v3, None, v3v), vec![1]);
+        assert_eq!(
+            dependency_positions("Feature 9, owner/repo#7", &v3, None, v3v),
             Vec::<usize>::new()
         );
-
-        let v2 = tagged(&["Feature 2", "Feature 1", "Feature 3"]);
-        assert_eq!(dependency_positions("Milestone 2", &v2, None), vec![1]);
-        assert_eq!(dependency_positions("Milestone 02", &v2, None), vec![2]);
-        assert_eq!(dependency_positions("milestone 2", &v2, None), vec![2]);
-        assert_eq!(dependency_positions("Feature 2", &v2, None), vec![1]);
-
         // An item never depends on itself, by either word.
         assert_eq!(
-            dependency_positions("Feature 2, Milestone 1", &v3, Some(1)),
+            dependency_positions("Feature 2, Milestone 1", &v3, Some(1), v3v),
             vec![2]
         );
+    }
+
+    #[test]
+    fn the_milestone_word_names_nothing_on_v1_and_v2() {
+        // A v1 Dependencies line is free prose: a milestone of some other
+        // project is not an edge, and v2 reads the same way.
+        let fs = tagged(&["Feature 2", "Feature 1", "Feature 3"]);
+        for version in [RoadmapVersion::V1, RoadmapVersion::V2] {
+            for deps in [
+                "None (lands after the upstream milestone 3)",
+                "Milestone 2",
+                "Milestones 1 and 2",
+            ] {
+                assert_eq!(
+                    dependency_positions(deps, &fs, None, version),
+                    Vec::<usize>::new(),
+                    "{deps:?} on {version:?}"
+                );
+            }
+            // `Feature N` and `F<N>` resolve exactly as before v3.
+            assert_eq!(
+                dependency_positions("Feature 2", &fs, None, version),
+                vec![1]
+            );
+            assert_eq!(dependency_positions("F3", &fs, None, version), vec![3]);
+        }
     }
 }

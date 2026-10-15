@@ -203,17 +203,24 @@ populate and the coordinator's roadmap reader), it may name another
 feature three ways:
 
 - by its tag (`ED1`, `AB10a`), a whole word equal to the tag;
-- by `Feature <N>` or `Milestone <N>`, either word in any case, singular
-  or plural, with a list of numbers (`Features 2, 3 and 5`): the item
-  tagged with that word and number (compared as a number, so `feature 02`
-  finds `Feature 2`); else the item tagged with the other word and the
-  number exactly as written, which only the capitalized words reach (see
-  [Feature N and Milestone N](#feature-n-and-milestone-n)); else the Nth
-  item by position. `Milestone <N>` resolves this way on every version, so
-  on a v1 or v2 roadmap it names the Nth item when no item is tagged
-  `Feature <N>`;
-- by `F<N>`: the item tagged `Feature <N>` or `Milestone <N>` when there is
-  one (an item tagged `F<N>` itself is found by its tag), else the Nth item.
+- by `Feature <N>`, in any case, singular or plural, with a list of
+  numbers (`Features 2, 3 and 5`): the item tagged `Feature <N>` (compared
+  as a number, so `feature 02` finds `Feature 2`), else the Nth item by
+  position;
+- on a `roadmap/v3` roadmap only, by `Milestone <N>` read the same way with
+  its own word. There the capitalized words also cross: before falling back
+  to position, `Feature <N>` finds the item tagged `Milestone <N>` (the
+  number exactly as written; see [Feature N and Milestone
+  N](#feature-n-and-milestone-n)), so prose written before a roadmap moved
+  from v2 to v3 keeps resolving;
+- by `F<N>`: the item tagged `Feature <N>` (on v3, `Milestone <N>`) when
+  there is one (an item tagged `F<N>` itself is found by its tag), else the
+  Nth item.
+
+On v1 and v2 the milestone words name nothing, exactly as before v3
+existed. A v1 roadmap's Dependencies line is free prose that no check holds
+to tags, so a phrase such as `None (lands after the upstream milestone 3)`
+must not become an edge.
 
 On a milestone roadmap FC21 is stricter and takes only another
 milestone's exact tag, so write the tag there. Pick one form per roadmap
@@ -352,12 +359,14 @@ implementation"), and the clause should read like the first.
 
 ### Feature N and Milestone N
 
-The readers treat the two classic words as one tag where a document names
-an item. A Dependencies line, a coordinator's record or a verdict that
-says `Feature 2` matches the item tagged `Milestone 2` on a v3 roadmap,
-and one that says `Milestone 2` matches the item tagged `Feature 2` on a
-v2 roadmap, so nothing written under one word stops matching when a
-roadmap moves to the other. The match compares the tag as written:
+The readers treat the two classic words as one tag where a record names an
+item. A coordinator's record or a verdict that says `Feature 2` matches the
+item tagged `Milestone 2` on a v3 roadmap, and one that says `Milestone 2`
+matches the item tagged `Feature 2` on a v2 roadmap, so nothing written
+under one word stops matching when a roadmap moves to the other. Dependencies
+prose crosses one way only, on v3: `Feature 2` there names the item tagged
+`Milestone 2`, while on v1 and v2 the milestone words name nothing (see
+[Heading forms](#heading-forms)). The match compares the tag as written:
 exactly one space and the number's digits, so `Feature 03` is not
 `Milestone 3`, `feature 2` is not `Milestone 2`, and `Feature 1` is never
 `Milestone 14`. A prefix tag (`AB1`) matches only itself.
