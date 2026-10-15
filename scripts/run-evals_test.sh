@@ -624,6 +624,13 @@ if [ "$RC" -eq 0 ] && [ "$(summary_field "$SUM" pinned runs)" = 1 ] \
 else
   fail "--summary-out passing run (rc=$RC): $(cat "$SUM" 2>/dev/null)"
 fi
+if [ "$(summary_field "$SUM" pinned session_model)" = opus ] \
+  && [ "$(summary_field "$SUM" pinned cost_usd)" = 1.25 ] \
+  && [ "$(summary_field "$SUM" pinned cost_runs)" = 1 ]; then
+  pass "--summary-out: session_model is EVAL_MODEL, cost_usd the last result event's total_cost_usd"
+else
+  fail "--summary-out session model and cost: $(cat "$SUM" 2>/dev/null)"
+fi
 
 rm -f "$SUM"
 run_runner plan --runs 3 --summary-out "$SUM" demo
@@ -633,6 +640,13 @@ if [ "$RC" -eq 4 ] && [ "$(summary_field "$SUM" demo runs)" = 1 ] \
   pass "--summary-out: written when --runs stops early on 4, with the one run attempted"
 else
   fail "--summary-out early stop (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
+if [ "$(summary_field "$SUM" demo session_model)" = default ] \
+  && [ "$(summary_field "$SUM" demo cost_usd)" = 0.0 ] \
+  && [ "$(summary_field "$SUM" demo cost_runs)" = 0 ]; then
+  pass "--summary-out: no EVAL_MODEL is session_model default; a run with no cost reports none"
+else
+  fail "--summary-out default session model, no cost: $(cat "$SUM" 2>/dev/null)"
 fi
 
 rm -f "$SUM"

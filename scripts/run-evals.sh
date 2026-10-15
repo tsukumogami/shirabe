@@ -152,7 +152,11 @@
 #   per skill run: runs (attempted, so an early stop shows), runs_passed,
 #   assertions_passed and assertions_graded (summed from each run's
 #   validation_summary.json), models (the distinct values in the iterations'
-#   eval_metadata.json) and exit_code. It is written when --runs stops early on
+#   eval_metadata.json), session_model (EVAL_MODEL as the caller gave it, or
+#   "default" for the claude CLI's own default), cost_usd (the sum of each
+#   run's total_cost_usd, from the result event its runner_session.jsonl
+#   ends with), cost_runs (how many runs reported one; a run cut short before
+#   its session ended reports none) and exit_code. It is written when --runs stops early on
 #   3 or 4 too, and when the default selection finds nothing to run, so a caller
 #   never has to parse the report above. A summary that cannot be written turns
 #   an exit 0 into 2, so a caller never reads success with no summary behind it.
@@ -1873,7 +1877,29 @@ import glob, json, os, sys
 out, name = sys.argv[1], sys.argv[2]
 runs, runs_passed, a_passed, a_graded, exit_code = (int(v) for v in sys.argv[3:8])
 models = set()
+cost = 0.0
+cost_runs = 0
 for iter_dir in sys.argv[8:]:
+    # The nested session's own figure for what the run cost, from the result
+    # event it ends with; a run stopped before that event reports none.
+    run_cost = None
+    try:
+        with open(os.path.join(iter_dir, "runner_session.jsonl"), errors="replace") as fh:
+            for line in fh:
+                if '"type":"result"' not in line.replace(" ", ""):
+                    continue
+                try:
+                    event = json.loads(line)
+                except ValueError:
+                    continue
+                value = event.get("total_cost_usd")
+                if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0:
+                    run_cost = float(value)
+    except OSError:
+        pass
+    if run_cost is not None:
+        cost += run_cost
+        cost_runs += 1
     for meta in glob.glob(os.path.join(iter_dir, "*", "eval_metadata.json")):
         try:
             with open(meta) as fh:
@@ -1888,6 +1914,9 @@ entry = {
     "assertions_passed": a_passed,
     "assertions_graded": a_graded,
     "models": sorted(models),
+    "session_model": os.environ.get("EVAL_MODEL_EXPLICIT") or "default",
+    "cost_usd": round(cost, 4),
+    "cost_runs": cost_runs,
     "exit_code": exit_code,
 }
 with open(out, "a") as fh:
