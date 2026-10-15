@@ -184,25 +184,24 @@ its work starts, from what the earlier ones taught.
 
 **Complexity**: testable
 
-**Goal**: `/review-plan` gains category E (Functional Shape). It flags a plan cut into layers, a first entry that is not a walking skeleton, each file-shaped criterion, and, at authoring, a `plan/v2` plan with more than two detailed steps. Findings loop back under `plan/v2` and are advisory under `plan/v1`.
+**Goal**: A reviewer running `/review-plan` on a plan cut into layers is told so: a new category E (Functional Shape) reports the layer cut with its components, a first entry that is not a walking skeleton, each file-shaped criterion by entry and text, and, when run inside `/plan`, a `plan/v2` plan detailed past step 2. Findings loop back under `plan/v2` and are advisory under `plan/v1`, so existing plans are flagged without being sent back.
 
 **Acceptance Criteria**:
 
-- [ ] A fresh-session `/review-plan` run on the koto five-layer `plan/v1` fixture (added by issue 1) reports it as layer-shaped, names the entries and their components (types, compiler, CLI, tests, plugin templates), and lists each file-shaped criterion by entry and text (for example "Add `Transition` struct with `target: String`"). The findings are advisory and the verdict does not loop back.
-- [ ] A run on the behavioural `plan/v2` fixture `skills/review-plan/evals/fixtures/plan-v2-behavioural.md`, which carries `**Files**:` lines, reports no layer-shaped finding and no file-shaped finding. No `**Files**:` line is ever listed as a file-shaped criterion.
-- [ ] A run on `skills/review-plan/evals/fixtures/plan-v2-types-only-step1.md` (step 1 adds types only) reports that step 1 is not a walking skeleton, because its check is a build or unit test of one component and not observed end to end. The finding is a loop-back finding.
-- [ ] A run on `skills/review-plan/evals/fixtures/plan-v2-three-detailed.md` (three detailed steps) invoked inside `/plan` at authoring flags the horizon. The same fixture run standalone does not.
-- [ ] The category E finding is recorded in the `review_result` schema with category `E`. `references/templates/review-result-schema.md` documents it, and `phase-5-verdict.md` loops back on a layer-shaped plan or non-skeleton first step under `plan/v2` and treats the same findings as advisory under `plan/v1`.
-- [ ] `phase-0-setup.md` reads `step_count` and `## Steps` for `plan/v2`, so a `plan/v2` plan is reviewed without an issue-table error.
-- [ ] `SKILL.md` lists category E in its category table and counts five categories in the adversarial-mode spawn count (15 validator agents, not 12).
-- [ ] `skills/review-plan/evals/evals.json` has a scenario per fixture above, each stating the expected findings, and passes the shape check.
-- [ ] Every existing plan/v1 review-plan eval scenario and test the issue touches still passes unchanged.
+- [ ] `skills/review-plan/references/phases/phase-4b-functional-shape.md` states category E's tests using the PRD's definitions: a layer-shaped plan (three or more entries, every entry before the last without a runnable criterion or check, entries named or grouped by component), a file-shaped criterion (a path or code identifier with a construction verb and no observable result; `**Files**:` lines are never criteria), a walking skeleton (step 1's check runs it end to end, not a build or a unit test of one component), and the horizon (more than two detailed steps in a `plan/v2` plan when the review runs as `/plan`'s sub-operation, which is when `plan_topic` is in its arguments).
+- [ ] Review fixtures live in `skills/review-plan/evals/fixtures/` and are named `PLAN-*.md` so `shirabe validate` routes them; the three `plan/v2` ones pass FC22 with the branch's build (outline steps are a heading plus one line with no `**Dependencies**:`): `PLAN-v2-behavioural.md` (a walking skeleton, behavioural criteria, `**Files**:` lines), `PLAN-v2-types-first.md` (step 1 adds types only, its check a unit test), `PLAN-v2-three-detailed.md` (steps 1 to 3 detailed). The five-layer `plan/v1` fixture is the one step 1 added, `crates/shirabe-validate/tests/fixtures/PLAN-v1-five-layer.md`, referenced, not copied.
+- [ ] The step agent runs `/review-plan` standalone, in a fresh single-seat subagent per fixture, one at a time, on all four fixtures, and records each run's findings in the child's koto context as `review_plan_runs/<fixture>.md`. The results: the five-layer plan is reported layer-shaped, naming its entries' components (types, compiler, CLI, tests, plugin templates), with its file-shaped criteria listed by entry and text (including "Add `Transition` struct with `target: String`"), all advisory, verdict proceed; the behavioural fixture gets no category E finding; the types-first fixture gets a loop-back finding that step 1 is not a walking skeleton; the three-detailed fixture run standalone gets no horizon finding.
+- [ ] The horizon finding fires only as `/plan`'s sub-operation: the phase file says how category E tells the two apart, and an eval scenario covers the sub-operation case with the three-detailed fixture.
+- [ ] `references/templates/review-result-schema.md` admits category `E`, with its loop target (Phase 3, decomposition) for a `plan/v2` loop-back; `phase-5-verdict.md` loops back on a layer-shaped plan or a non-skeleton first step under `plan/v2` and records the same findings as advisory under `plan/v1`; `phase-0-setup.md` reads `step_count` and `## Steps` for a `plan/v2` plan, so it is reviewed without an issue-table error.
+- [ ] `SKILL.md` lists category E in its category table and Reference Files, and its adversarial-mode count reads five categories and fifteen validators.
+- [ ] `skills/review-plan/evals/evals.json` gains a scenario per fixture stating the expected findings; `scripts/check-skill.sh review-plan` passes.
+- [ ] Existing review-plan eval scenarios and the files they cite are unchanged apart from the category count.
 
-**Check**: From a fresh session, run `/review-plan` on each of the four fixtures and compare the findings with the criteria above. Then run `scripts/check-skill.sh review-plan`. Passing shows the expected findings per fixture, no finding on the behavioural fixture, and exit 0 from the check.
+**Check**: `scripts/check-skill.sh review-plan` exits 0; `shirabe validate` (branch build) passes each `PLAN-v2-*.md` fixture; `koto context get <child> review_plan_runs/<fixture>.md` for each of the four fixtures shows the findings listed above.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
-**Files**: `skills/review-plan/SKILL.md`, `skills/review-plan/references/phases/phase-4b-functional-shape.md`, `skills/review-plan/references/phases/phase-0-setup.md`, `skills/review-plan/references/phases/phase-5-verdict.md`, `skills/review-plan/references/templates/review-result-schema.md`, `skills/review-plan/evals/evals.json`, `skills/review-plan/evals/fixtures/`
+**Files**: `skills/review-plan/SKILL.md`, `skills/review-plan/references/phases/phase-4b-functional-shape.md`, `skills/review-plan/references/phases/phase-0-setup.md`, `skills/review-plan/references/phases/phase-5-verdict.md`, `skills/review-plan/references/templates/review-result-schema.md`, `skills/review-plan/evals/evals.json`, `skills/review-plan/evals/fixtures/PLAN-v2-*.md`
 
 ---
 
