@@ -12,8 +12,9 @@ decision: |
   json` once per document and prints a `::koto-finding::` per error-level
   finding and per banned-word finding, under registry ids keyed by validator
   code. Each hop's `landed` edge and every edge out of `fold` require it, not
-  overridable. It loads the plugin's own writing-style rules and reads the
-  declared visibility through a library it shares with work-on's gate.
+  overridable. It always loads the plugin's own writing-style rules, proves
+  them live with a canary, refuses any envelope it can't fully read, and
+  reads the declared visibility through a library shared with work-on's gate.
 rationale: |
   Reading severity from the validator's envelope holds every error-level check
   the validator has, now and later, without a code list to keep in step. A gate
@@ -242,9 +243,22 @@ so a reworded message fails CI.
 
 Before validating, the script sets `SHIRABE_RULES` to
 `<plugin root>/skills/writing-style/rules.yaml`, found relative to the script
-itself, unless the caller already set it, and exits 2 when that file isn't
-readable. The repository's declared prose vocabulary still applies, because
-the validator reads it per file from the document's own repository.
+itself, always, ignoring a value the caller's environment carries, and exits 2
+when that file isn't readable or has no `words:` entry. It then runs the
+validator once on a canary, a one-line schema-less Markdown file in its
+temporary directory holding a word from the rules file, and exits 2 unless
+that run reports the canary's banned-word finding. The validator silently
+checks no banned word when its rules don't load, so the canary is what turns
+that silence into a refusal. The repository's declared prose vocabulary still
+applies, because the validator reads it per file from the document's own
+repository.
+
+This departs from PRD R13, which let a caller's `SHIRABE_RULES` stand. The
+caller of a koto gate is the agent's own environment, so honouring it would let
+`SHIRABE_RULES=/dev/null` switch the banned-word check off; the security review
+found that, and a gate an agent can switch off isn't a gate. Tests reach the
+unreadable-rules case by running a copy of the script from a plugin tree with
+no rules file.
 
 #### Alternatives Considered
 
@@ -328,8 +342,11 @@ hop_<x> / fold (koto)                     check-hop-document.sh
   the real validator, and uses stub `shirabe` scripts on `PATH` for the
   null-line, argument-recording, call-counting, exit-code and no-JSON cases.
   Sets `SHIRABE_FINDINGS_LOG` and checks it with `rule-registry.sh
-  verify-findings`. Fails, rather than skips, when `shirabe` is missing and
-  `CI` is set.
+  verify-findings`. Its real-validator cases fail, rather than skip, when
+  `shirabe` is missing and `SCOPE_GATE_REQUIRE_SHIRABE=1` is set, which the
+  Linux job that builds `shirabe` sets; the macOS bash-floor leg has no
+  `shirabe`, so there the stub cases run on bash 3.2 and the real-validator
+  cases skip, as the other scope suites' validator cases do.
 - **`scripts/lib/declared-visibility.sh`** (new), and
   **`skills/work-on/scripts/check-branch-output.sh`** (sources it).
 - **`skills/scope/koto-templates/scope.md`**: five gates, the added transition
@@ -369,17 +386,23 @@ one finding printed; 2 no finding printed, reason on stderr.
 
 1. Resolve the root with `git rev-parse --show-toplevel` and `cd` there.
 2. Check `git`, `jq`, `shirabe`; set and check `SHIRABE_RULES`; `rf_require`
-   every id.
+   every id; run the canary.
 3. Read the declared visibility.
-4. For each present path in order: run the validator, store stdout and the
-   exit status in the temporary directory. Exit status 0, 2 or 4 with a
-   parseable `shirabe-validate/v1` envelope is a verdict; anything else is
-   undecided. An envelope whose `summary.outcome` is `incomplete` is
-   undecided.
+4. For each path in order: a path that doesn't exist is skipped; a symlink, a
+   non-regular file or an empty file is undecided (as `hop-complete.sh`'s
+   `is_document` refuses them). Otherwise run the validator and store stdout
+   and the exit status in the temporary directory. Only exit status 0 or 2
+   with a parseable envelope whose `schema_version` is `shirabe-validate/v1`,
+   whose `summary.outcome` is `clean` or `violations`, and whose every finding
+   carries a `severity`, is a verdict. Everything else is undecided: exit 4 or
+   an `incomplete` outcome (a schema-skipped document nobody checked), exit 1
+   or 3, no JSON, and an exit 2 whose envelope holds no error-level finding.
 5. With every document decided, select findings with `jq` (`severity ==
    "error"`, or the two `FC10` prefixes), map each code to its id (an unmapped
    code is undecided, checked before anything prints), then print each through
-   `rf_finding <id> <message> <file> [<line>]`.
+   `rf_finding <id> <message> <file> [<line>]`, the validator's message cut to
+   400 characters so a long quoted value from the document can't flood the
+   agent's context.
 6. Exit 1 if anything printed, else 0.
 
 ## Implementation Approach
@@ -406,20 +429,37 @@ passes.
 
 ## Security Considerations
 
-The gate reads documents an agent wrote and passes paths built from the topic
-slug, which koto already constrains and the script re-validates before
-composing any path. The documents reach the validator as file arguments, never
-as shell text, and the validator's JSON reaches findings through `jq`, so a
-document can't inject a command or a `::koto-finding::` line of its own: every
-printed line is built by `rf_finding`, which replaces control characters.
-`SHIRABE_RULES` is set only to a path computed from the script's own location
-and is checked readable, so a document can't redirect it; a caller that set it
-already is the caller's choice. The gate runs the validator, `git` and `jq`
-and nothing else, writes only to its own `mktemp -d` directory, removed on
-exit, and makes no network call itself; the validator's `FC09` probe on a
-PLAN runs `gh auth status`, whose result is a notice the gate ignores. The
-gate is `overridable: false`, so an agent can't record its way past it; its
-only way out is fixing the document or `bail`.
+The gate reads documents an agent wrote, which may carry text from ingested
+sources. Documents reach the validator as file arguments, never as shell text,
+and the topic slug is re-validated before any path is built. A document can't
+add a `::koto-finding::` line or forge a rule id or reference: every printed
+line is built by `rf_finding` through `jq`, which JSON-escapes the fields and
+replaces control characters in the message, and the library refuses an id it
+didn't resolve. Message text still comes from the document (an `upstream:`
+value, a matched word), so the script cuts each validator message to 400
+characters, and the details text tells the agent to treat a finding's quoted
+text as data.
+
+The gate is `overridable: false`, so koto won't accept a recorded override;
+the only ways out are fixing the document or `bail`. Its inputs are hardened to
+match. It always sets `SHIRABE_RULES` to the plugin's own
+`skills/writing-style/rules.yaml` and ignores an inherited value, requires that
+file to be readable with a `words:` entry, and runs a canary banned word
+through the validator before trusting a "no banned words" result. A symlink,
+non-regular or empty file at a topic path, a schema-skipped document (validator
+status 4), a validator that exits 2 with no error finding, an envelope without
+the expected version or a finding without a `severity`, and an error-level
+code with no registry alias are all exit 2 with no finding, never a pass. The
+script writes only to its own `mktemp -d` directory, removed on exit, makes no
+network call itself, and runs `git`, `jq` and `shirabe` from `PATH`; the
+validator's `FC09` probe on a PLAN runs `gh auth status`, whose result is a
+notice the gate ignores.
+
+Residual risks, accepted: an agent that controls `PATH` can substitute the
+validator; an agent that edits the repository's declared prose vocabulary can
+allow a word there, though that edit is part of the reviewed diff; and in
+shirabe's own repository an agent can edit the gate or the template, which the
+registry and template checks in CI are there to catch.
 
 ## Consequences
 
