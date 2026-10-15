@@ -382,7 +382,7 @@ if [ "$FU" != none ]; then
         if [[ $ITEM =~ $RE_NEW ]]; then
             T=${BASH_REMATCH[1]}
             [ "${#T}" -le 120 ] || fail "line $((P + 2)): a new follow-up's title is over 120 bytes"
-            printf '%s' "$T" | grep -q '[][`*()<>|#\\@]' \
+            grep -q '[][`*()<>|#\\@]' <<<"$T" \
                 && fail "line $((P + 2)): a new follow-up's title holds a markdown or HTML character, or an @: [${T:0:80}]"
             FU_JSON=$(printf '%s' "$FU_JSON" | jq -c --arg t "$T" '. + [{kind: "new", title: $t}]')
         elif [[ $ITEM =~ $RE_AMEND ]]; then

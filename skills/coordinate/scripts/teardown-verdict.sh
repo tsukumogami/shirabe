@@ -135,7 +135,7 @@ if [ "$MODE" = read ]; then
         # this visit saying the unit was removed outside the pass; that
         # reader checks its own seal, topic and directed transitions.
         if ! HV=$(bash "$HERE/teardown-handoff.sh" read --session "$SESSION" 2>/dev/null) \
-            || ! printf '%s\n' "$HV" | grep -qx 'removed yes'; then
+            || ! grep -qx 'removed yes' <<<"$HV"; then
             printf '%s: the instance is absent, and no sealed handoff of this visit says it was removed\n' "$PROG" >&2
             exit 5
         fi

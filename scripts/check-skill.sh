@@ -116,7 +116,7 @@ done
 [ "$LIST" = 0 ] || [ "$CHANGED" = 1 ] || usage
 SKILL="$1"
 
-if ! printf '%s\n' "$SKILL" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
+if ! grep -Eq '^[a-z0-9][a-z0-9-]*$' <<<"$SKILL" \
     || [ "$(printf '%s\n' "$SKILL" | wc -l | tr -d ' ')" != "1" ]; then
     echo "check-skill: invalid skill name (must match ^[a-z0-9][a-z0-9-]*\$)" >&2
     exit 2
@@ -150,7 +150,7 @@ if [ ! -d "$SKILL_DIR" ]; then
 fi
 
 JOBS="${CHECK_SKILL_JOBS:-4}"
-if ! printf '%s\n' "$JOBS" | grep -Eq '^[1-9][0-9]?$' \
+if ! grep -Eq '^[1-9][0-9]?$' <<<"$JOBS" \
     || [ "$(printf '%s\n' "$JOBS" | wc -l | tr -d ' ')" != "1" ]; then
     echo "check-skill: CHECK_SKILL_JOBS must be a whole number from 1 to 99" >&2
     exit 2
@@ -311,7 +311,7 @@ $p" ;;
                     return
                 fi
                 names=$(callers_of "$name" "$shared")
-                hits=$(printf '%s\n' "$names" | grep -lF -f - "${suites[@]}")
+                hits=$(grep -lF -f - "${suites[@]}" <<<"$names")
                 # The script's own suite counts whether or not it names it.
                 s="$SKILL_DIR/scripts/${name%.*}_test.sh"
                 [ -f "$s" ] && hits="$hits

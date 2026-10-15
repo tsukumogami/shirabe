@@ -625,7 +625,7 @@ eq "no refusal opened a pull request" 0 "$(jq '.prs | length' "$GH_DB")"
 echo "== --reopen: the edit =="
 reset_calls
 OUT=$(bash "$RS" "${W[@]}" --reopen MV1 --entry-file "$T/f.txt" --entry-url "$URLF" 2>"$T/err"); rc=$?
-eq "a failure against Done MV1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(printf '%s\n' "$OUT" | head -1)"
+eq "a failure against Done MV1 opens the reopen pull request" "0 https://github.com/acme/widgets/pull/8" "$rc $(head -1 <<<"$OUT")"
 [ $rc = 0 ] || printf '     %s\n' "$(cat "$T/err")"
 eq "  ... and names MV2, which depends on MV1 and holds a worker" "held-dependent MV2 mv2-host" "$(printf '%s\n' "$OUT" | sed -n '2,$p')"
 PRR=$(jq -r '.prs[] | select(.number == 8) | .headRefName' "$GH_DB")

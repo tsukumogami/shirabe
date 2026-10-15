@@ -115,12 +115,12 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -n "$SESSION" ]; then
-    printf '%s' "$SESSION" | grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._-]*$' \
+    grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._-]*$' <<<"$SESSION" \
         || undecided "--session [$SESSION] is not a session name"
 fi
 if [ -n "$BASE_REF" ]; then
-    printf '%s' "$BASE_REF" | grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._/-]*$' \
-        && ! printf '%s' "$BASE_REF" | grep -q '\.\.' \
+    grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._/-]*$' <<<"$BASE_REF" \
+        && ! grep -q '\.\.' <<<"$BASE_REF" \
         || undecided "--base-ref [$BASE_REF] is not a ref name"
 fi
 
@@ -199,7 +199,7 @@ check_commits() {
         short=$(printf '%s' "$sha" | cut -c1-12)
         subject=$(git log -1 --format=%s "$sha") \
             || undecided "cannot read commit $sha"
-        if ! printf '%s\n' "$subject" | grep -Eq "$CONVENTIONAL"; then
+        if ! grep -Eq "$CONVENTIONAL" <<<"$subject"; then
             finding commit/conventional-subject \
                 "commit $short subject \"$subject\" is not a Conventional Commits subject: use <type>[optional scope][!]: <description>, with <type> one of feat|fix|docs|chore|refactor|test|perf|build|ci|style|revert"
         fi

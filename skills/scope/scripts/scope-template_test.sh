@@ -323,7 +323,7 @@ done
 DISPATCH="$HERE/../../../references/fixes/sub-agent-dispatch.md"
 PHASE2="$HERE/../references/phases/phase-2-chain-orchestration.md"
 SCOPE_ROWS=$(grep -E '^\| `/(brief|prd|design|plan)` \|' "$DISPATCH")
-if [ -n "$SCOPE_ROWS" ] && ! printf '%s\n' "$SCOPE_ROWS" | grep -q 'Parent-delegated-approval'; then
+if [ -n "$SCOPE_ROWS" ] && ! grep -q 'Parent-delegated-approval' <<<"$SCOPE_ROWS"; then
     ok "the dispatch reference no longer delegates a /scope child's approval to the parent"
 else
     bad "the dispatch reference no longer delegates a /scope child's approval to the parent" "$SCOPE_ROWS"

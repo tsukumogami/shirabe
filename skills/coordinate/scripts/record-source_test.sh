@@ -372,7 +372,7 @@ printf 'cost of worker-f1\n\n```json\n{"schema":"unit-cost/1","key":"worker-f1"}
 OUT=$(bash "$HERE/record-append.sh" --session "$S2" --kind cost --text-file "$T/cost.txt" 2>"$T/err"); rc=$?
 eq "record-append.sh --session S --kind cost --text-file F posts" "0 https://github.com/acme/widgets/issues/7#issuecomment-1001" "$rc $OUT"
 BODY=$(jq -r '.comments[0].body' "$GH_DB")
-[ "$(printf '%s' "$BODY" | head -1)" = '<!-- coordinator-record-entry v1 kind=cost -->' ] \
+[ "$(head -1 <<<"$BODY")" = '<!-- coordinator-record-entry v1 kind=cost -->' ] \
     && ok "  ... a comment whose first line is the cost marker the join selects on" || bad "  ... a comment whose first line is the cost marker the join selects on" "$BODY"
 L=$(bash "$HERE/record-append.sh" --session "$S2" --list 2>"$T/err"); eq "record-append.sh --session S --list reads" 0 $?
 eq "  ... the entry, with its kind and text" "cost|$(cat "$T/cost.txt")" "$(printf '%s' "$L" | jq -r '.[0] | "\(.kind)|\(.text)"')"

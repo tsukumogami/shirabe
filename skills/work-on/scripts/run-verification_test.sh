@@ -299,7 +299,7 @@ if jq -e '.status == "timed-out" and (.commands | length) == 1 and .commands[0].
           and (.detail | test("not started: b"))' "$BRES" >/dev/null 2>&1; then
     pass "the budget stops the running command and starts no other (status timed-out)"
 else
-    fail "the budget result is wrong: $(cat "$BRES" 2>&1 | head -c 400)"
+    fail "the budget result is wrong: $(head -c 400 "$BRES" 2>&1)"
 fi
 [ $((T1 - T0)) -lt 20 ] && pass "the run ended at its budget ($((T1 - T0))s), not at the commands' own timeouts" \
     || fail "the run took $((T1 - T0))s under a 2-second budget"

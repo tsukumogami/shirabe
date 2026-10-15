@@ -333,7 +333,7 @@ replay_check() {
     first_render=$(printf '%s\n' "$order" | grep -E ':(escalate|decision_withdraw|decision_reply)$' | head -1 | cut -d: -f1)
     [ -n "$first_verdict" ] || return 1
     [ -z "$first_render" ] || [ "$first_verdict" -lt "$first_render" ] || return 1
-    ! printf '%s\n' "$order" | grep -q ':escalate$' || return 1
+    ! grep -q ':escalate$' <<<"$order" || return 1
     [ ! -e "$T/$1.bad-table" ]
 }
 

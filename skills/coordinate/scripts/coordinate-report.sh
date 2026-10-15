@@ -36,7 +36,7 @@ emit() { # emit <key> <pattern>
     v=$(printf '%s' "$PAYLOAD" | jq -r --arg k "$1" '.[$k] // empty | tostring')
     case "$v" in *'
 '*) return 0 ;; esac
-    printf '%s' "$v" | grep -Eq "$2" && printf '%s=%s\n' "$1" "$v"
+    grep -Eq "$2" <<<"$v" && printf '%s=%s\n' "$1" "$v"
     return 0
 }
 emit outcome '^(closed|handed-over|stopped|not-active)$'

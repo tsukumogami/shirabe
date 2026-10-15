@@ -156,7 +156,7 @@ finish() {
 OUT=$(bash "$HERE/coord-log.sh" directed-since --session "$SESSION" --from 0 2>/dev/null)
 case $? in
     0) ;;
-    1) VERDICT=directed; REASON="directed transition $(printf '%s' "$OUT" | head -1)"; finish ;;
+    1) VERDICT=directed; REASON="directed transition $(head -1 <<<"$OUT")"; finish ;;
     *) lib_die2 "cannot read the session log" ;;
 esac
 lib_log_readable || lib_die2 "cannot read the session log"

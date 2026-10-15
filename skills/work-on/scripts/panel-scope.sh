@@ -661,7 +661,7 @@ if [ "$MODE" = "--mark-fixed" ]; then
           elif $f.severity != "blocking" then "finding [\($id)] is advisory, and advisory findings are never re-verified"
           elif ($f | closed($l.runs // {})) then "finding [\($id)] is already closed"
           else empty end') || die 65 "could not read $LEDGER"
-    [ -z "$problems" ] || die 65 "$(printf '%s' "$problems" | head -n 3 | tr '\n' ';')"
+    [ -z "$problems" ] || die 65 "$(head -n 3 <<<"$problems" | tr '\n' ';')"
     ROUND_NO=$(printf '%s' "$LEDGER_JSON" | jq --arg p "$PANEL" '[(.history // [])[] | select(.panel == $p) | .round] | max // 1')
     printf '%s' "$LEDGER_JSON" | jq --arg head "$HEAD" --argjson round "$ROUND_NO" --rawfile ids "$WORK/fixids" '
         .rev = ((.rev // 0) + 1)
@@ -741,7 +741,7 @@ if [ "$MODE" = "--record" ]; then
               end ]
         + ( [ .[] | select(.run? != null) | .run ] | group_by(.) | map(select(length > 1) | "run [\(.[0])] appears twice in the round file") )
         | .[]' "$ROUND_FILE" 2>"$WORK/jq.err") || die 65 "could not read round file [$ROUND_FILE]: $(head -n 1 "$WORK/jq.err")"
-    [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused: $(printf '%s' "$problems" | head -n 5 | tr '\n' ';')"
+    [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused: $(head -n 5 <<<"$problems" | tr '\n' ';')"
 
     # Every rule id a finding names must be an active registry entry now.
     for rid in $(jq -r '[.[] | (.findings // [])[] | .rule_id? // empty] + [.[] | .decider?.rule_id? // empty] | unique | .[]' "$ROUND_FILE"); do
@@ -798,7 +798,7 @@ if [ "$MODE" = "--record" ]; then
         ( group_by(.i) | map(group_by(.id) | map(select(length > 1) | "two findings of one run share id \(.[0].id): word their summaries apart")) | flatten[] ),
         ( .[] | . as $f | ($l.findings // {})[$f.id] // null | select(. != null and .canon != $f.canon)
           | "finding id \($f.id) collides with a different finding already in the ledger" )' "$WORK/ids")
-    [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused: $(printf '%s' "$problems" | head -n 3 | tr '\n' ';')"
+    [ -z "$problems" ] || die 65 "round file [$ROUND_FILE] refused: $(head -n 3 <<<"$problems" | tr '\n' ';')"
 
     # A seat's earlier citations carry forward, but their line ranges are in
     # the numbering of the commit it judged then. Where the file has changed

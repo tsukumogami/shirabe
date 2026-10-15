@@ -58,7 +58,7 @@ eq "a refused invocation leaves the live run alone" false "$(koto status "$S1" |
 sleep 1
 OUT=$(open_ '["docs/roadmaps/ROADMAP-plugin-system.md"]'); eq "a second invocation opens" 0 $?
 S2=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
-printf '%s\n' "$OUT" | grep -qx "cancelled=$S1" && pass "the earlier run is cancelled" || fail "the earlier run is cancelled" "$OUT"
+grep -qx "cancelled=$S1" <<<"$OUT" && pass "the earlier run is cancelled" || fail "the earlier run is cancelled" "$OUT"
 [ -r "$(koto session dir "$S1")/koto-$S1.state.jsonl" ] && pass "the cancelled run's log is kept" || fail "the cancelled run's log is kept"
 eq "the new run keeps the default cap" 5 "$(var "$S2" CAP)"
 eq "without --reports-to the target is a person (REPORTS_TO empty)" "" "$(var "$S2" REPORTS_TO)"

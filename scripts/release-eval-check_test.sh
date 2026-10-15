@@ -202,12 +202,12 @@ echo "brief" >"$STUB_DIR/selection"
 echo "0 9 10" >"$STUB_DIR/result.brief"
 run_check "" 0.24.0
 HOST=$(hostname 2>/dev/null || uname -n)
-if printf '%s\n' "$OUT" | grep -qxF "Eval check host: $HOST"; then
+if grep -qxF "Eval check host: $HOST" <<<"$OUT"; then
   pass "prints the host it runs on"
 else
   fail "host line missing: $OUT"
 fi
-if printf '%s\n' "$OUT" | grep -q 'access to its stored credentials (gh logins, git credential helpers, SSH keys on disk); only GH_TOKEN, GITHUB_TOKEN and SSH_AUTH_SOCK are unset'; then
+if grep -q 'access to its stored credentials (gh logins, git credential helpers, SSH keys on disk); only GH_TOKEN, GITHUB_TOKEN and SSH_AUTH_SOCK are unset' <<<"$OUT"; then
   pass "states what the nested sessions can reach"
 else
   fail "credential line missing: $OUT"
@@ -220,7 +220,7 @@ else
   fail "notice order: $OUT"
 fi
 if [ "$RC" -eq 0 ] && ! grep -q '^gh ' "$STUB_LOG" \
-  && printf '%s\n' "$OUT" | grep -q 'no baseline: no last tag' \
+  && grep -q 'no baseline: no last tag' <<<"$OUT" \
   && [ "$(record_field 'r["skills"]["brief"]["pass_rate"]')" = 0.9 ] \
   && [ "$(record_field 'r["last_tag"]')" = "" ]; then
   pass "empty last tag: no download, no baseline, record written, exit 0"
@@ -288,7 +288,7 @@ else
 fi
 run_check v0.23.0 0.24.0 brief
 if [ "$RC" -eq 0 ] && [ "$(harness_calls)" = "$BEFORE" ] && [ "$(list_calls)" = "$BEFORE_LIST" ] \
-  && printf '%s\n' "$OUT" | grep -q 'Confirmation re-run'; then
+  && grep -q 'Confirmation re-run' <<<"$OUT"; then
   pass "a confirmed drop exits 0 and the re-run makes no harness call"
 else
   fail "confirmed drop (rc=$RC): $OUT"
@@ -316,7 +316,7 @@ for code in 2 3 4; do
   echo "1 1 10" >"$STUB_DIR/result.scope"
   write_asset scope 9 10 0.9
   run_check v0.23.0 0.24.0
-  if [ "$RC" -eq 1 ] && printf '%s\n' "$OUT" | grep -q "infrastructure failure: brief (harness exit $code)" \
+  if [ "$RC" -eq 1 ] && grep -q "infrastructure failure: brief (harness exit $code)" <<<"$OUT" \
     && [ "$(harness_calls)" = 2 ] \
     && [ "$(record_field '"pass_rate" in r["skills"]["brief"]')" = False ] \
     && [ "$(record_field 'r["skills"]["brief"]["exit_code"]')" = "$code" ]; then
@@ -338,7 +338,7 @@ echo brief >"$STUB_DIR/selection"
 touch "$STUB_DIR/nosummary.brief"
 run_check v0.23.0 0.24.0
 if [ "$RC" -eq 1 ] && [ "$(harness_calls)" = 1 ] \
-  && printf '%s\n' "$OUT" | grep -q 'infrastructure failure: brief (no summary, recorded as exit 2)'; then
+  && grep -q 'infrastructure failure: brief (no summary, recorded as exit 2)' <<<"$OUT"; then
   pass "a selected skill with no summary is an infrastructure failure"
 else
   fail "missing summary (rc=$RC): $OUT"
@@ -365,7 +365,7 @@ new_case
 echo brief >"$STUB_DIR/selection"
 echo "0 1 10" >"$STUB_DIR/result.brief"
 run_check v0.23.0 0.24.0
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'no baseline: no eval-pass-rates.json on the v0.23.0 release'; then
+if [ "$RC" -eq 0 ] && grep -q 'no baseline: no eval-pass-rates.json on the v0.23.0 release' <<<"$OUT"; then
   pass "no asset: no baseline with a warning, exit 0"
 else
   fail "no asset (rc=$RC): $OUT"
@@ -376,7 +376,7 @@ echo brief >"$STUB_DIR/selection"
 echo "0 1 10" >"$STUB_DIR/result.brief"
 : >"$STUB_DIR/no-release"
 run_check v0.23.0 0.24.0
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'no baseline: no eval-pass-rates.json on the v0.23.0 release'; then
+if [ "$RC" -eq 0 ] && grep -q 'no baseline: no eval-pass-rates.json on the v0.23.0 release' <<<"$OUT"; then
   pass "no release for the last tag: no baseline with a warning, exit 0"
 else
   fail "no release (rc=$RC): $OUT"
@@ -388,8 +388,8 @@ echo "0 1 10" >"$STUB_DIR/result.brief"
 echo 'error connecting to api.github.com' >"$STUB_DIR/gh-error"
 run_check v0.23.0 0.24.0
 if [ "$RC" -eq 1 ] \
-  && printf '%s\n' "$OUT" | grep -q 'could not download eval-pass-rates.json from the v0.23.0 release: error connecting to api.github.com' \
-  && ! printf '%s\n' "$OUT" | grep -q 'no baseline'; then
+  && grep -q 'could not download eval-pass-rates.json from the v0.23.0 release: error connecting to api.github.com' <<<"$OUT" \
+  && ! grep -q 'no baseline' <<<"$OUT"; then
   pass "a download error that is not not-found exits 1 with gh's reason, not no baseline"
 else
   fail "download error (rc=$RC): $OUT"
@@ -400,7 +400,7 @@ echo brief >"$STUB_DIR/selection"
 echo "0 1 10" >"$STUB_DIR/result.brief"
 echo '{not json' >"$STUB_DIR/asset"
 run_check v0.23.0 0.24.0
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'no baseline: the file does not parse'; then
+if [ "$RC" -eq 0 ] && grep -q 'no baseline: the file does not parse' <<<"$OUT"; then
   pass "an unparseable asset: no baseline, exit 0"
 else
   fail "unparseable asset (rc=$RC): $OUT"
@@ -411,7 +411,7 @@ echo brief >"$STUB_DIR/selection"
 echo "0 1 10" >"$STUB_DIR/result.brief"
 echo '{"schema": "eval-pass-rates/v9", "version": "0.23.0", "last_tag": "", "skills": {}}' >"$STUB_DIR/asset"
 run_check v0.23.0 0.24.0
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'no baseline: schema is not eval-pass-rates/v1'; then
+if [ "$RC" -eq 0 ] && grep -q 'no baseline: schema is not eval-pass-rates/v1' <<<"$OUT"; then
   pass "an unknown schema: no baseline, exit 0"
 else
   fail "unknown schema (rc=$RC): $OUT"
@@ -434,7 +434,7 @@ else
   fail "download order: $(download_tags)"
 fi
 if [ "$RC" -eq 5 ] && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=prd" ] \
-  && printf '%s\n' "$OUT" | grep -qx 'Baseline records, newest first: 1=v0.24.0 2=v0.22.0'; then
+  && grep -qx 'Baseline records, newest first: 1=v0.24.0 2=v0.22.0' <<<"$OUT"; then
   pass "a skill the last release didn't measure is compared with an older release that did"
 else
   fail "per-skill fallback (rc=$RC): $OUT"
@@ -452,7 +452,7 @@ echo brief >"$STUB_DIR/selection"
 run_check v0.12.0 0.13.0
 if [ "$RC" -eq 0 ] \
   && [ "$(download_tags)" = "v0.12.0 v0.11.0 v0.10.0 v0.9.0 v0.8.0 v0.7.0 v0.6.0 v0.5.0 v0.4.0 v0.3.0 " ] \
-  && printf '%s\n' "$OUT" | grep -q 'no baseline: no eval-pass-rates.json on the v0.12.0 release or the 9 before it'; then
+  && grep -q 'no baseline: no eval-pass-rates.json on the v0.12.0 release or the 9 before it' <<<"$OUT"; then
   pass "the walk stops after ten releases, in version order, and none found is no baseline"
 else
   fail "depth cap (rc=$RC): $(download_tags) $OUT"
@@ -466,8 +466,8 @@ echo '{not json' >"$STUB_DIR/asset.v0.24.0"
 tag_asset v0.23.0 0.23.0 brief:9:10:0.23.0
 run_check v0.24.0 0.25.0
 if [ "$RC" -eq 5 ] && [ "$(last_line)" = "confirm: RELEASE_CONFIRMED_DROPS=brief" ] \
-  && printf '%s\n' "$OUT" | grep -qx 'Baseline records, newest first: 1=v0.24.0 2=v0.23.0' \
-  && printf '%s\n' "$OUT" | grep -q 'warning: previous record 1 ignored: the file does not parse as JSON'; then
+  && grep -qx 'Baseline records, newest first: 1=v0.24.0 2=v0.23.0' <<<"$OUT" \
+  && grep -q 'warning: previous record 1 ignored: the file does not parse as JSON' <<<"$OUT"; then
   pass "an unusable record on the last tag is skipped for an older release's"
 else
   fail "unusable newest record (rc=$RC): $OUT"
@@ -480,7 +480,7 @@ tag_asset v0.24.0 0.24.0 brief:9:10:0.24.0
 echo 'HTTP 502: bad gateway' >"$STUB_DIR/gh-error.v0.23.0"
 run_check v0.24.0 0.25.0
 if [ "$RC" -eq 1 ] \
-  && printf '%s\n' "$OUT" | grep -q 'could not download eval-pass-rates.json from the v0.23.0 release: HTTP 502: bad gateway'; then
+  && grep -q 'could not download eval-pass-rates.json from the v0.23.0 release: HTTP 502: bad gateway' <<<"$OUT"; then
   pass "a download error on an older release still exits 1 with gh's reason"
 else
   fail "older release error (rc=$RC): $OUT"
@@ -562,7 +562,7 @@ if [ "$(cat "$STUB_DIR/model.work-on")" = sonnet ] && [ "$(cat "$STUB_DIR/model.
 else
   fail "model passing: $(cat "$STUB_DIR"/model.* 2>/dev/null) $(cat "$STUB_LOG")"
 fi
-if [ "$RC" -eq 0 ] && printf '%s\n' "$OUT" | grep -q '^new reference: work-on ' \
+if [ "$RC" -eq 0 ] && grep -q '^new reference: work-on ' <<<"$OUT" \
   && [ "$(record_field 'r["skills"]["work-on"]["session_model"]')" = sonnet ]; then
   pass "a rate measured on another session model is a new reference, not a drop"
 else
@@ -632,7 +632,7 @@ fi
 
 # -- never uploads -------------------------------------------------------------
 
-if cat "$T"/stub*/log | grep -q '^gh release upload'; then
+if grep -q '^gh release upload' "$T"/stub*/log; then
   fail "a case called gh release upload"
 else
   pass "no case called gh release upload"

@@ -552,7 +552,7 @@ scenario_plan_roadmap_no_design() {
     downstream=$(grep -m1 '^\*\*Downstream:\*\*' \
         "$repo/docs/roadmaps/ROADMAP-cascade-test.md" || true)
 
-    if printf '%s' "$downstream" | grep -qE 'PLAN-|DESIGN-'; then
+    if grep -qE 'PLAN-|DESIGN-' <<<"$downstream"; then
         fail "$scenario: roadmap Downstream points at a deleted artifact: $downstream"
         ok=false
     else
@@ -2101,7 +2101,7 @@ EOF
     local head_changes
     head_changes=$(git show --name-status --format= HEAD)
     assert_shell "$scenario" \
-        "$(printf '%s' "$head_changes" | grep -q '^D[[:space:]]*docs/plans/PLAN-no-upstream.md$' && echo true || echo false)" \
+        "$(grep -q '^D[[:space:]]*docs/plans/PLAN-no-upstream.md$' <<<"$head_changes" && echo true || echo false)" \
         "the new HEAD commit deletes the PLAN" "git show --name-status HEAD: $head_changes" || ok=false
 
     # The push actually reached the bare origin. Guards a half-fix that commits

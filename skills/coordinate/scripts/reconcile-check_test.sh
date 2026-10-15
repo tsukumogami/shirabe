@@ -516,7 +516,7 @@ rep=$(jq -nc --argjson inv "$out" '{schema: "coordinate-reconcile-facts/v1", sco
   record: {written: "2026-09-26T10:00:00Z"}, reconciled_at: "2026-09-27T10:00:00Z", reasoning: null, unparseable: [], side_effects: [], deferrals: [],
   holdings: [{row: {worker: "w", pull_request: "none yet"}, refused: null, facts: [{kind: "host", status: "ok", state: "found"}, $inv]}]}' \
   | bash "$HERE/reconcile-report.sh" md)
-printf '%s' "$rep" | grep -q 'not everything was read' && ok "a truncated empty inventory never reads 'nothing unique found'" || bad "a truncated empty inventory never reads 'nothing unique found'" "$rep"
+grep -q 'not everything was read' <<<"$rep" && ok "a truncated empty inventory never reads 'nothing unique found'" || bad "a truncated empty inventory never reads 'nothing unique found'" "$rep"
 
 # Many live refs: a pushed branch whose own ref sorts late is still pushed.
 I5="$T/inst5"; R5="$I5/repo"; mkdir -p "$R5"
