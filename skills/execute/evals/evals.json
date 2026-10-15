@@ -1498,6 +1498,22 @@
         "`git status --porcelain` is the same before and after",
         "koto status shows the execute.md session where it was, with MERGE still false"
       ]
+    },
+    {
+      "id": 79,
+      "name": "step-plan-outline-steps-wait",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/work-on/scripts/testdata/PLAN-v2-single-pr.md",
+      "expected_output": "Agent accepts the plan/v2 step plan on the single-pr path. plan-to-tasks.sh emits one child per step named step-1 to step-4: step-2 waits on step-1 as its Dependencies line declares, and outline steps 3 and 4 each wait on the step before them, so the children start in step order. Steps 1 and 2 are built; step 3's child stops at plan_validation with `step 3 is an outline; the plan's owner details it before its work starts` and ends at validation_exit having built nothing, until the plan's owner details the step in a commit of its own.",
+      "files": [],
+      "expectations": [
+        "Agent accepts the PLAN as plan/v2 and runs the single-pr execution path",
+        "Agent plans children named step-1, step-2, step-3 and step-4",
+        "Agent states that step-3 waits on step-2 and step-4 waits on step-3 because they are outline steps",
+        "Agent says the step-3 child stops at plan_validation naming the step, and builds nothing for it",
+        "Agent does NOT plan to detail step 3 or step 4 itself; the plan's owner does that before the child runs again"
+      ]
     }
   ]
 }

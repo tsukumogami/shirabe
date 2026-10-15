@@ -218,6 +218,68 @@ SUMMARY=$("$SCRIPT_DIR/../../../scripts/rule-registry.sh" summary pr-body/no-ai-
 [ "$MSG" = "$SUMMARY: $PB3" ] && pass "--pr-body: the finding carries the rule's summary, then the validator's message" || fail "--pr-body: message [$MSG]"
 check_shape "--pr-body: every rule"
 
+# --- --pr-body: PB4's text is released when PB4 is broken -----------------------
+#
+# The offload canary may leave PB4 out of a run's preloaded text, so a PB4
+# finding releases the rule's lines on stderr, once, and nothing else does.
+
+release_count() { grep -c '^::shirabe-rule::{"rule_id":"pr-body/no-heading-in-part1"' "$WORKDIR/stderr"; }
+PB4_FIRST=$(jq -r '.rules[] | select(.id == "pr-body/no-heading-in-part1") | .text.first' \
+    "$SCRIPT_DIR/../../../references/rule-registry.json")
+
+# PB4 has one home: outside the lines its entry anchors, the conformance file
+# names neither PB4 nor a heading, so leaving those lines out leaves no trace
+# of the rule; and the lines fit release's 60-line cap.
+CONF="$SCRIPT_DIR/../../../references/pr-body-conformance.md"
+PB4_RANGE=$(rf_test_expected_range pr-body/no-heading-in-part1)
+PB4_A=${PB4_RANGE#*#L}; PB4_A=${PB4_A%-L*}
+PB4_B=${PB4_RANGE##*-L}
+OUTSIDE=$(awk -v a="$PB4_A" -v b="$PB4_B" 'NR < a || NR > b' "$CONF" | grep -ciE 'PB4|heading')
+if [ "$OUTSIDE" -eq 0 ] && [ $((PB4_B - PB4_A + 1)) -le 60 ]; then
+    pass "references/pr-body-conformance.md states PB4 only inside its anchored lines ($PB4_RANGE)"
+else
+    fail "references/pr-body-conformance.md: $OUTSIDE lines outside $PB4_RANGE mention PB4 or a heading"
+fi
+
+FAKE_SHIRABE_RC=2
+FAKE_SHIRABE_OUT=$(msg_json "$PB4")
+run --pr-body
+expect_rc "--pr-body: a PB4 finding exits 1" 1
+if [ "$(release_count)" -eq 1 ] && grep -qF -- "$PB4_FIRST" "$WORKDIR/stderr" \
+    && grep -q '^::shirabe-rule-end::$' "$WORKDIR/stderr"; then
+    pass "--pr-body: a PB4 finding releases PB4's text between the marker lines"
+else
+    fail "--pr-body: PB4 release missing from stderr: $(cat "$WORKDIR/stderr")"
+fi
+[ "$(findings | jq -r '.rule_id')" = pr-body/no-heading-in-part1 ] \
+    && pass "--pr-body: the release leaves the finding on stdout unchanged" \
+    || fail "--pr-body: findings with a release: $OUT"
+
+FAKE_SHIRABE_OUT=$(msg_json "$PB4" "$PB3")
+run --pr-body
+if [ "$RC" -eq 1 ] && [ "$(finding_count)" -eq 2 ] && [ "$(release_count)" -eq 1 ]; then
+    pass "--pr-body: PB4 and PB3 print both findings and release PB4's text once"
+else
+    fail "--pr-body: PB4+PB3: rc $RC, $(finding_count) findings, $(release_count) releases"
+fi
+
+FAKE_SHIRABE_OUT=$(msg_json "$PB2")
+run --pr-body
+if [ "$RC" -eq 1 ] && ! grep -q '^::shirabe-rule::' "$WORKDIR/stderr"; then
+    pass "--pr-body: a PB2-only violation releases no rule text"
+else
+    fail "--pr-body: PB2 only: rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+
+FAKE_SHIRABE_RC=0
+FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'
+run --pr-body
+if [ "$RC" -eq 0 ] && ! grep -q '^::shirabe-rule::' "$WORKDIR/stderr"; then
+    pass "--pr-body: a conformant body releases no rule text"
+else
+    fail "--pr-body: conformant: rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+
 # --- --pr-body: which PR, and the title as data ----------------------------------
 
 FAKE_SHIRABE_RC=0

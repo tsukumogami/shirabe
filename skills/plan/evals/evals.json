@@ -672,6 +672,105 @@
         "Transcript runs (or describes) shirabe validate --lifecycle-chain on the PLAN after that transition",
         "Transcript continues from step 7.6 and does not rewrite the PLAN or file issues again"
       ]
+    },
+    {
+      "id": 45,
+      "name": "plan-version-flag-selects-step-plan",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --plan-version=v2 --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (schema, execution_mode, tracking_level, status, step_count or issue_count), every `###` heading under its entries section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. Also print the output of `skills/plan/scripts/resolve-plan-version.sh --plan-version=v2 --claude-md CLAUDE.md`.",
+      "expected_output": "Phase 1 runs resolve-plan-version.sh, which prints v2 from the flag, and records Plan Version: v2 in work/analysis.md. The PLAN has schema: plan/v2, step_count in place of issue_count, tracking_level: none and status Active, a ## Steps section whose headings are ### Step 1:, ### Step 2:, ... with steps 1 and 2 detailed and the rest one-line outlines, no ## Issue Outlines and no Implementation Issues table. Step 1 is a walking skeleton whose check runs the release path end to end. The gh shim logs no issue create, and shirabe validate exits 0.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "plan-version-selection",
+      "release": true,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R8, R9 and R10 of the functional-steps PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG. Needs a shirabe that knows plan/v2 on PATH.",
+      "expectations": [
+        "Transcript runs (or describes running) skills/plan/scripts/resolve-plan-version.sh in Phase 1 with the --plan-version value, and records Plan Version: v2 in work/analysis.md",
+        "The PLAN's frontmatter has schema: plan/v2, a step_count field, no issue_count field, and tracking_level: none",
+        "Every ### heading under the PLAN's ## Steps section has the form ### Step <N>: <title>, numbered from 1",
+        "Steps 1 and 2 each carry **Goal**:, a - [ ] criterion, **Check**: and **Dependencies**:, and every step from 3 on is its heading and one line",
+        "Step 1's **Check**: runs a command or walkthrough across the whole release path, not a build or a single component's unit test",
+        "The shim's call log contains zero `issue create` lines",
+        "shirabe validate on the written PLAN exits 0"
+      ]
+    },
+    {
+      "id": 46,
+      "name": "plan-version-header-selects-step-plan",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plan-version-v2.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (schema, execution_mode, tracking_level, status, step_count or issue_count), every `###` heading under its entries section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. [run 2] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plan-version-v2.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --plan-version=v1 --auto`. Afterwards print the PLAN's schema line and whether it has a `## Steps` section.",
+      "expected_output": "Run 1: with no flag, the CLAUDE.md header `## Plan Version: v2` selects v2, so the PLAN is a plan/v2 step plan with step_count and ## Steps. The CLAUDE.md also declares `## Tracking Level: issues`, which a step plan does not apply: the PLAN has tracking_level: none, nothing is filed (zero issue create lines), and the run says it wrote tracking_level: none because step plans file no issues. shirabe validate exits 0. Run 2: the --plan-version=v1 flag wins over the header, so the PLAN is schema: plan/v1 with no ## Steps section.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "plan-version-selection",
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R8, R9 and R10 of the functional-steps PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG. Needs a shirabe that knows plan/v2 on PATH.",
+      "expectations": [
+        "Run 1's PLAN has schema: plan/v2 and a ## Steps section, selected by the CLAUDE.md header with no flag",
+        "Run 1's PLAN has tracking_level: none and the shim's call log contains zero `issue create` lines, although CLAUDE.md declares ## Tracking Level: issues",
+        "Run 1's transcript says the stated tracking level was not applied and tracking_level: none was written because a step plan files no issues",
+        "Run 1's shirabe validate exits 0",
+        "Run 2's PLAN has schema: plan/v1 and no ## Steps section: the flag wins over the header"
+      ]
+    },
+    {
+      "id": 47,
+      "name": "plan-version-default-is-v1",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto`. Afterwards print the frontmatter of docs/plans/PLAN-release-pipeline.md (schema, execution_mode, tracking_level, status, step_count or issue_count), every `###` heading under its entries section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-release-pipeline.md`. Also print `grep -n '^DEFAULT_PLAN_VERSION=' skills/plan/scripts/resolve-plan-version.sh` from the shirabe checkout.",
+      "expected_output": "With no flag and no `## Plan Version:` header, resolve-plan-version.sh prints the default, v1, so the run writes a plan/v1 PLAN exactly as before plan versions existed: schema: plan/v1, issue_count, ### Issue N: outlines (or an issues table), no ## Steps section and no step_count. The default is one assignment line in the script. shirabe validate exits 0.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "plan-version-selection",
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R8, R9 and R10 of the functional-steps PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG. Needs a shirabe that knows plan/v2 on PATH.",
+      "expectations": [
+        "Transcript records Plan Version: v1, coming from the default because neither a flag nor a header was given",
+        "The PLAN's frontmatter has schema: plan/v1 and issue_count, and no step_count",
+        "The PLAN has no ## Steps section and no ### Step headings",
+        "The grep finds exactly one DEFAULT_PLAN_VERSION= line, set to v1",
+        "shirabe validate on the written PLAN exits 0"
+      ]
+    },
+    {
+      "id": 48,
+      "name": "plan-version-refused-value-writes-nothing",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --plan-version=v3 --auto`. Afterwards print whether docs/plans/ exists, `git status --short`, and the status line of docs/designs/DESIGN-release-pipeline.md. [run 2] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-release-pipeline.md CLAUDE-plan-version-bad.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-release-pipeline.md --auto`. Afterwards print the same three things.",
+      "expected_output": "Both runs stop in Phase 1 when resolve-plan-version.sh exits non-zero: run 1 because the flag value v3 is not v1 or v2, run 2 because the CLAUDE.md header value `steps` is not v1 or v2. Each run reports the script's message, which names v1 and v2. Nothing is written: no docs/plans/ directory, a clean git status, and the design still at Accepted.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "plan-version-selection",
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R8, R9 and R10 of the functional-steps PRD. Uses the gh shim at skills/plan/evals/fixtures/bin/gh, which logs one line per call to GH_CALL_LOG. Needs a shirabe that knows plan/v2 on PATH.",
+      "expectations": [
+        "Run 1 stops with a message naming v1 and v2 as the accepted values for --plan-version",
+        "Run 2 stops with a message naming v1 and v2 as the accepted values for the ## Plan Version: header",
+        "Neither run writes a PLAN: docs/plans/ does not exist and git status is clean in both repositories",
+        "The design stays at status Accepted in both repositories (no transition ran)"
+      ]
+    },
+    {
+      "id": 49,
+      "name": "plan-version-v2-on-koto-evidence-routing-is-skeleton-first",
+      "prompt": "Scenario setup: skills/plan/evals/fixtures/bin must be first on PATH (the gh shim) and EVAL_SCENARIO=plan-default. In each repository, export GH_CALL_LOG=\"$PWD/.eval-gh-calls.log\" before running /plan. Answer any question /plan asks by accepting its recommended option unless told otherwise. [run 1] Create a fresh repository with `skills/plan/evals/fixtures/setup-plan-repo.sh \"$(mktemp -d)/repo\" DESIGN-template-evidence-routing.md CLAUDE-plain.md`, cd into the directory it prints, and run `/plan docs/designs/DESIGN-template-evidence-routing.md --plan-version=v2 --auto`. Afterwards print the frontmatter of docs/plans/PLAN-template-evidence-routing.md (schema, execution_mode, tracking_level, status, step_count or issue_count), every `###` heading under its entries section, the output of `grep -c '^issue create' \"$GH_CALL_LOG\"`, and the exit code of `shirabe validate docs/plans/PLAN-template-evidence-routing.md`. Then print the full text of steps 1 and 2.",
+      "expected_output": "The design (koto's template evidence routing, which its original plan cut into five layers: types, compiler, CLI, tests, plugin templates) is planned as a plan/v2 step plan cut by behaviour. Step 1 is a walking skeleton: one template with an accepts block and a when condition is compiled and, run through koto next with evidence, routes to the transition the evidence selects; its check runs that end to end and names the result to look for. Step 2 adds a second observable behaviour (for example, the compiler refusing a template whose when conditions overlap, with the error it prints). Later steps are one-line outlines. No step is named after a layer (types, compiler, CLI, tests), criteria describe observable results rather than files or identifiers to add, nothing is filed, and shirabe validate exits 0.",
+      "files": [],
+      "tier": 2,
+      "behaviour": "step-plan-cut-by-behaviour",
+      "release": true,
+      "mode": "execute",
+      "scenario": "plan-default",
+      "notes": "Covers R3, R8 and R16 of the functional-steps PRD. The design fixture is koto's DESIGN-template-evidence-routing.md at the commit that accepted it, copied with its source named; koto's own plan for it was the five-layer plan/v1 kept in crates/shirabe-validate/tests/fixtures/PLAN-v1-five-layer.md. Uses the gh shim at skills/plan/evals/fixtures/bin/gh. Needs a shirabe that knows plan/v2 on PATH.",
+      "expectations": [
+        "The PLAN has schema: plan/v2, a ## Steps section and step_count, and shirabe validate exits 0",
+        "Step 1's goal and check cross from a template through compilation to routing evidence at run time, and the check names a command or walkthrough with the result that shows the evidence picked the transition",
+        "No step title names a layer alone (types, compiler, CLI, tests, templates); each names a behaviour",
+        "Steps 1 and 2 are detailed and every later step is a one-line outline",
+        "No acceptance criterion in steps 1 and 2 is file-shaped (a path or identifier with add, create, implement, define, update, remove or rename and no observable result)",
+        "The shim's call log contains zero `issue create` lines"
+      ]
     }
   ]
 }

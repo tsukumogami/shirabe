@@ -34,6 +34,9 @@ A run:
      the per-scenario rates below. It shrinks the job to what the budget
      allows (fewer runs, fewer scenarios); when not even one fits under
      --cap-usd it stops, writes a cap_stop line naming the jobs left, and
+     exits 6. A job that costs more than the whole cap would never fit, and as
+     the longest-waiting job it would stop every run; it is skipped instead,
+     with a cap_stop line naming it, the jobs behind it run, and the run still
      exits 6. A job's real cost can exceed its estimate, so the last job can
      carry the week past the cap; the next run sees that and stops sooner.
   5. Runs the harness with EVAL_MODEL=<model> and --summary-out, and appends a
@@ -453,6 +456,7 @@ def measure(args, skills, head, ledger):
     spent = spent_this_week(entries, now_utc())
     print("spent in the last 7 days: $%.2f of $%.2f" % (spent, args.cap_usd))
     worst = 0
+    skipped = False
     for index, (kind, _, name, tree, suite, scenarios) in enumerate(jobs):
         mine = [e for e in entries if e.get("skill") == name]
         room = args.cap_usd - spent
@@ -473,6 +477,19 @@ def measure(args, skills, head, ledger):
             label = name + ":rotation"
             scenarios = scenarios[:max(size, 0)]
             what = "rotation of %s, about $%.2f (%s)" % (", ".join(scenarios), cost, basis)
+        if size < 1 and cost > args.cap_usd:
+            # More than the whole cap: it would never fit, and as the
+            # longest-waiting job it would stop every run before the jobs
+            # behind it. Skip it and say so; only a higher --cap-usd runs it.
+            print("cap: %s needs about $%.2f, more than the whole $%.2f cap; skipping it "
+                  "(raise --cap-usd to run it)" % (label, cost, args.cap_usd))
+            if not args.dry_run:
+                append_ledger(ledger, {"kind": "cap_stop", "at": iso(now_utc()),
+                                       "spent_usd": round(spent, 4), "cap_usd": args.cap_usd,
+                                       "next_job": label, "estimate_usd": round(cost, 4),
+                                       "unrun": [label]})
+            skipped = True
+            continue
         if size < 1:
             unrun = [job[2] + (":rotation" if job[0] == "rotation" else "") for job in jobs[index:]]
             print("cap: $%.2f of $%.2f spent in the last 7 days; %s needs about $%.2f. "
@@ -497,7 +514,7 @@ def measure(args, skills, head, ledger):
             worst = 1
         entries = read_ledger(ledger)
         spent = spent_this_week(entries, now_utc())
-    return worst
+    return worst or (6 if skipped else 0)
 
 
 def run_harness(args, ledger, kind, name, tree, head, harness_args, size, estimate, scenarios):

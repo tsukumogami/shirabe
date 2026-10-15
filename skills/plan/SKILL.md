@@ -14,7 +14,7 @@ description: >-
   last hop. Do NOT use it to sequence FEATURES across an initiative rather
   than issues inside one (`/roadmap`), or to run the resulting plan
   (`/execute`).
-argument-hint: '<doc-path-or-topic> [--upstream <roadmap-path>] [--walking-skeleton|--no-skeleton] [--strategic|--tactical] [--intent=continue|stop] [--coordinated|--no-coordinated] [--auto]'
+argument-hint: '<doc-path-or-topic> [--upstream <roadmap-path>] [--walking-skeleton|--no-skeleton] [--strategic|--tactical] [--intent=continue|stop] [--coordinated|--no-coordinated] [--plan-version=v1|v2] [--auto]'
 allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(true)
 ---
 
@@ -84,6 +84,30 @@ Phase 7's "Filing approval" step carries the procedure.
 (tracking level `none`, coordinated's default) files nothing, so it is
 authored at `Active`. A coordinated PLAN at `issues` or
 `issues-and-milestone` files issues only behind that filing approval.
+
+### Plan Version
+
+`/plan` writes one of two plan versions. `plan/v1` -- the default, and
+everything else in this file unless it says otherwise -- has issues as its
+entries. `plan/v2` has functional steps: step 1 a walking skeleton whose check
+runs it end to end, steps 1 and 2 detailed with behavioural criteria and a
+check each, every later step a one-line outline the plan's owner details when
+its turn comes, and no issue or milestone filed. The format and its rules are
+in `references/plan-format.md` under "plan/v2: Step Plans".
+
+The version resolves on a `flag > CLAUDE.md-header > default` stack, through
+`scripts/resolve-plan-version.sh` in Phase 1:
+
+- `--plan-version=v1|v2` on the command line;
+- else a `## Plan Version: v1|v2` line in the repository root's CLAUDE.md
+  (outside fenced code);
+- else the default, `v1`, held as `DEFAULT_PLAN_VERSION` on one line of that
+  script and nowhere else.
+
+Any other value, or two `## Plan Version:` headers, stops the run before
+anything is written, naming `v1` and `v2`. A step plan is `single-pr` or
+`multi-pr` only: a split that resolves to `coordinated` stops the run, and a
+roadmap is planned under `v1`.
 
 ## Decomposition Strategies
 
@@ -238,6 +262,16 @@ forwards them verbatim when its caller passed them):
   the `CLAUDE.md` header.
 - `--no-coordinated` -- resolve a split to `multi-pr`, outranking `--intent` and
   the `CLAUDE.md` header.
+
+**Plan version flag:**
+- `--plan-version=v1|v2` -- the plan version to write (see Plan Version
+  above). Passed verbatim to `scripts/resolve-plan-version.sh` in Phase 1,
+  which refuses any other value, an empty one included, before anything is
+  written. Without it, a `## Plan Version:` CLAUDE.md header decides, then the
+  default `v1`; a run given the flag never reads the header, so a malformed
+  header does not stop it. With `v2`, `--no-skeleton` is refused in Phase 3: a
+  step plan always starts from a walking skeleton. Neither check is part of the
+  up-front validation below, but both stop the run before any file is written.
 
 A run with none of the three behaves exactly as before they existed. Validate
 them before anything else runs, and before the `plan-<topic>` session is
@@ -479,6 +513,12 @@ Under `--auto` it takes the recommended verdict and names it in its output.
 
 ### Workflow Phases
 
+Under plan version `v2` (resolved in Phase 1), Phase 3 cuts the work into
+steps, Phase 4 details steps 1 and 2 and writes the rest as one-line outlines,
+and Phase 7 writes a `plan/v2` PLAN (`schema: plan/v2`, `step_count`,
+`## Steps`, `tracking_level: none`) and files nothing, in `single-pr` and
+`multi-pr` alike. The list below is the `v1` behaviour.
+
 What Phases 4 and 7 produce depends on the execution mode:
 
 - **single-pr**: Phase 4 agents produce structured outlines (not full issue bodies).
@@ -500,7 +540,7 @@ What Phases 4 and 7 produce depends on the execution mode:
 Execute phases sequentially by reading the corresponding phase file. Use the effective
 scope from Context Resolution throughout.
 
-1. **Analysis**: Understand source document scope and components/features
+1. **Analysis**: Resolve the plan version, then understand source document scope and components/features
    - Read: `references/phases/phase-1-analysis.md`
    - Artifact: key `work/analysis.md`
 
@@ -558,6 +598,14 @@ Final artifacts depend on execution mode:
 - Source design doc status updated to "Planned"
 - Not available for roadmap input (roadmap mode is always multi-pr)
 
+**plan/v2 (step plan), single-pr or multi-pr:**
+- `docs/plans/PLAN-<topic>.md` with status Active, `schema: plan/v2`,
+  `step_count`, and `tracking_level: none`
+- A `## Steps` section: steps 1 and 2 detailed, later steps one-line outlines
+- No GitHub issues or milestone, whatever CLAUDE.md's `## Tracking Level:` says
+  (the run says it wrote `none`)
+- Source design doc status updated to "Planned"
+
 **coordinated mode, tracking level `none` (the default):**
 - `docs/plans/PLAN-<topic>.md` with status Active, `execution_mode: coordinated`,
   `split_mode_source`, and `tracking_level: none`
@@ -598,9 +646,11 @@ See [Dispatch Contract](${CLAUDE_PLUGIN_ROOT}/references/parent-skill-pattern.md
 | `references/templates/ac-simple.md` | Phase 4 simple complexity |
 | `references/templates/ac-testable.md` | Phase 4 testable complexity |
 | `references/templates/walking-skeleton-issue.md` | Phase 4 walking skeleton |
+| `references/templates/step.md` | Phases 3, 4 and 7 under plan version `v2` |
 | `references/quality/plan-doc-structure.md` | Phase 7 PLAN doc construction |
 | `references/quality/plan-doc-examples.md` | Phase 7 (if examples needed) |
 | `references/quality/consumer-validation-rules.md` | When implementing a consuming skill that must validate PLAN artifacts |
+| `${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh` | Phase 1 step 1.0a (plan version) |
 | `${CLAUDE_SKILL_DIR}/scripts/resolve-split-mode.sh` | Phase 3 step 5a (split mode) |
 | `${CLAUDE_SKILL_DIR}/scripts/build-dependency-graph.sh` | Phase 5 |
 | `${CLAUDE_SKILL_DIR}/scripts/create-issues-batch.sh` | Phase 7 multi-pr and coordinated filing (**stable sub-operation** via `${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/create-issues-batch.sh`) |

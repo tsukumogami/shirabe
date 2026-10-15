@@ -17,6 +17,19 @@ T="demo"
 BASE="$(mktemp -d)"
 trap 'rm -rf "$BASE"' EXIT
 
+# The predicate runs `shirabe validate` from PATH. A plan/v2 PLAN needs a
+# shirabe that reads plan/v2, which an older install does not, so a SHIRABE_BIN
+# given to the suite goes first on PATH for every case. The stub cases below put
+# their own directory in front of it, and the absent-validator case replaces
+# PATH outright, so both still see what they set up.
+if [ -n "${SHIRABE_BIN:-}" ]; then
+  [ -x "$SHIRABE_BIN" ] || { echo "SHIRABE_BIN is set but not executable: $SHIRABE_BIN" >&2; exit 2; }
+  mkdir -p "$BASE/shirabe-bin"
+  ln -s "$SHIRABE_BIN" "$BASE/shirabe-bin/shirabe"
+  PATH="$BASE/shirabe-bin:$PATH"
+  export PATH
+fi
+
 PASS=0
 FAIL=0
 
@@ -105,6 +118,17 @@ cp "$C/docs/plans/PLAN-$T.md" "$C/docs/briefs/BRIEF-$T.md"
 cp "$C/docs/plans/PLAN-$T.md" "$C/docs/prds/PRD-$T.md"
 cp "$C/docs/plans/PLAN-$T.md" "$C/docs/designs/DESIGN-$T.md"
 run "plan copied onto every path" "$C" brief 1
+
+# A PLAN is either version. A plan/v2 step plan at the canonical path is the
+# plan hop's artifact, as a plan/v1 PLAN is; any other version is not.
+C="$BASE/a9"; mkdir -p "$C/docs/plans"
+cp "$FIXTURES/PLAN-v2-steps.md" "$C/docs/plans/PLAN-$T.md"
+run "plan/v2 step plan at the plan path" "$C" plan 0
+C="$BASE/a10"; seed "$C" plan
+run "plan/v1 PLAN at the plan path" "$C" plan 0
+C="$BASE/a11"; mkdir -p "$C/docs/plans"
+sed 's/^schema: plan\/v2$/schema: plan\/v3/' "$FIXTURES/PLAN-v2-steps.md" > "$C/docs/plans/PLAN-$T.md"
+run "unknown plan version (plan/v3)" "$C" plan 1
 
 # --- limb (b): the hop is declared absorbed --------------------------------
 

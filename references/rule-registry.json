@@ -442,7 +442,7 @@
       "text": {
         "path": "references/pr-body-conformance.md",
         "first": "**PB4 — no markdown section heading in Part 1.**",
-        "last": "is not matched, so a prose Part 1 that mentions one is never a false positive."
+        "last": "Prose commit bodies essentially never use setext."
       },
       "check": {
         "kind": "script",
@@ -458,17 +458,20 @@
         "execute:pr_finalization"
       ],
       "guards": [
-        "pr-create",
-        "publish"
+        "none"
       ],
-      "withhold": "never",
+      "withhold": "eligible",
       "baseline_keys": [
         "references/pr-body-conformance.md#L61-L75"
       ],
       "aliases": [
         "PB4"
       ],
-      "notes": ""
+      "notes": "The one gate rule eligible to withhold (the live offload canary, DESIGN-offload-live-canary.md): its gate runs after gh pr create on the pull request GitHub has, a violation is fixed with gh pr edit, and the backstop, validate-pr-body.yml, is a required status check on main, so a heading in Part 1 never reaches main whatever the agent was told.",
+      "backstop": {
+        "before": "merge",
+        "check": ".github/workflows/validate-pr-body.yml"
+      }
     },
     {
       "id": "pr-body/one-separator",
