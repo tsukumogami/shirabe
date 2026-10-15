@@ -336,12 +336,59 @@ ln -s "$T/elsewhere/target.log" "$T/tmpdir/link.log"
 SHIRABE_FINDINGS_LOG="$T/tmpdir/link.log" TMPDIR="$T/tmpdir" "$I/scripts/rule-registry.sh" log-finding "$good"
 [ ! -e "$T/elsewhere/target.log" ] && pass "log-finding ignores a symlinked log" || fail "log-finding symlink" "log written through the link"
 
+# --- rf_require_any ------------------------------------------------------------
+
+# A gate script that resolves a finding's own rule at run time. The probe sources
+# the library from an installed-style copy, so the reader it reaches is that
+# copy's registry, with its t/ fixtures.
+A="$T/any"; make_root "$A" 1.2.3
+mkdir -p "$A/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/rule-findings.sh" "$A/scripts/lib/rule-findings.sh"
+cat > "$A/probe.sh" <<'PROBE'
+#!/usr/bin/env bash
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="t/multi"
+[ -z "${NO_MARKER:-}" ] && RULE_IDS_ANY_ACTIVE=1
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+rf_require_any "$@"
+rf_finding "$1" "a finding under its own rule"
+PROBE
+chmod +x "$A/probe.sh"
+OUT=$("$A/probe.sh" t/single 2>"$T/err"); RC=$?
+if [ $RC -eq 0 ] && printf '%s' "$OUT" | grep -q '"rule_id":"t/single"' \
+    && printf '%s' "$OUT" | grep -q '"message":"Single-line rule: a finding under its own rule"'; then
+    pass "rf_require_any resolves an active id that is not in RULE_IDS"
+else
+    fail "rf_require_any active" "rc=$RC out=[$OUT] err=[$(cat "$T/err")]"
+fi
+"$A/probe.sh" t/retired >/dev/null 2>"$T/err"; RC=$?
+[ $RC -eq 2 ] && pass "rf_require_any refuses a retired id" || fail "rf_require_any retired" "rc=$RC"
+"$A/probe.sh" t/nope >/dev/null 2>"$T/err"; RC=$?
+[ $RC -eq 2 ] && pass "rf_require_any refuses an unknown id" || fail "rf_require_any unknown" "rc=$RC"
+NO_MARKER=1 "$A/probe.sh" t/single >/dev/null 2>"$T/err"; RC=$?
+[ $RC -eq 2 ] && grep -q "RULE_IDS_ANY_ACTIVE=1" "$T/err" \
+    && pass "rf_require_any refuses a script without the RULE_IDS_ANY_ACTIVE marker" \
+    || fail "rf_require_any marker" "rc=$RC err=[$(cat "$T/err")]"
+# rf_emit still refuses an id the run resolved neither way.
+cat > "$A/probe2.sh" <<'PROBE'
+#!/usr/bin/env bash
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="t/multi"
+  RULE_IDS_ANY_ACTIVE=1
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+rf_require_any t/single
+rf_emit '{"rule_id":"t/multi","level":"error","message":"Multi-line rule: x","rule_ref":"r"}'
+PROBE
+chmod +x "$A/probe2.sh"
+"$A/probe2.sh" >/dev/null 2>"$T/err"; RC=$?
+[ $RC -eq 2 ] && pass "rf_emit refuses an id rf_require_any did not resolve" || fail "rf_emit unresolved" "rc=$RC"
+
 # --- the real registry's shape -----------------------------------------------
 
 REG="$REPO_ROOT/references/rule-registry.json"
 n=$(jq '.rules | length' "$REG"); gates=$(jq '[.rules[] | select(.level == "gate")] | length' "$REG")
 rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
-[ "$n" = 39 ] && [ "$gates" = 21 ] && [ "$rsn" = 17 ] && pass "the registry has 39 rules: 21 gates and 17 criteria" \
+[ "$n" = 40 ] && [ "$gates" = 22 ] && [ "$rsn" = 17 ] && pass "the registry has 40 rules: 22 gates and 17 criteria" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \
@@ -353,7 +400,7 @@ bad=$(jq -r '.rules[] | select(.withhold != "never" and ((.guards != ["none"]) o
 
 never=$(jq -r '[.rules[] | select(.level == "gate" or .id == "rs-001" or .id == "rs-002" or .id == "rs-003" or .id == "execute/pr-takeover-needs-signal") | select(.withhold == "never")] | length' "$REG")
 eligible=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[4-9]|1[0-7])$")) | select(.withhold == "eligible" and .guards == ["none"])] | length' "$REG")
-[ "$never" = 25 ] && [ "$eligible" = 14 ] && pass "gates, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-017 are eligible" \
+[ "$never" = 26 ] && [ "$eligible" = 14 ] && pass "gates, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-017 are eligible" \
     || fail "withhold marking" "never=$never eligible=$eligible"
 
 unexplained=$(jq -r '

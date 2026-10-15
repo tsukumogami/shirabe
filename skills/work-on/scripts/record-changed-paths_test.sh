@@ -35,6 +35,8 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$SCRIPT_DIR/record-changed-paths.sh"
 TEMPLATE="$SCRIPT_DIR/../koto-templates/work-on.md"
 PLUGIN_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
+# Round files name their runs (panel-scope.sh --record refuses one that doesn't).
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -442,6 +444,7 @@ pass_round() {
     local s="$1" p="$2" seat
     shift 2
     for seat in "$@"; do printf '{"seat":"%s","findings":[]}\n' "$seat"; done | jq -s . > "$WORKDIR/round.json"
+    panel_round_runs "$s" "$p" "$WORKDIR/round.json"
     (cd "$FX/repo" && "$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh" --record "$p" "$s" "$WORKDIR/round.json") >/dev/null \
         || fail "$s: panel-scope.sh --record $p failed"
     tick "$s"

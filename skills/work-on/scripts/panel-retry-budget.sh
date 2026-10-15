@@ -49,10 +49,17 @@
 # so a run that repeats a call counts against the ceiling early and may read a
 # repeated count as no progress. Both mistakes stop the run sooner, never later.
 #
-# Usage: panel-retry-budget.sh <koto-session-name> <panel> <blocking-count>
+# The count is not the agent's to give. The script reads it from the findings
+# ledger through `panel-scope.sh --open-count`: the number of the panel's
+# blocking findings with no closing record, which is the number of findings
+# the panel's --verdict gate printed (failed scenarios for qa_validation).
+# Advisory findings are never counted. A count it can't read -- the ledger
+# unreadable, the round not fully recorded, the script missing -- is a
+# refusal (64), never a grant, and a count of 0 is a refusal too: a panel
+# with nothing open passes, it doesn't retry.
+#
+# Usage: panel-retry-budget.sh <koto-session-name> <panel>
 #   <panel>           scrutiny | review | qa_validation | light_review
-#   <blocking-count>  this round's blocking findings (failed scenarios for
-#                     qa_validation), a whole number of at least 1
 #
 # Prints one line on stdout:
 #   verdict=retry retry=<n> ceiling=<CEILING>
@@ -61,11 +68,11 @@
 # Exit codes:
 #   0  -- retry granted and recorded; submit blocking_retry through the retry loop
 #   1  -- refused; submit blocking_escalate with the printed reason
-#   64 -- no answer: the record could not be read, or holds a line this script
-#         didn't write; escalate
+#   64 -- no answer: the record or the ledger's count could not be read, or the
+#         record holds a line this script didn't write; escalate
 #   66 -- the grant could not be recorded: the write failed, or the read-back
 #         doesn't show it; escalate
-#   67 -- bad arguments; nothing was read or written
+#   67 -- bad arguments, a count among them; nothing was read or written
 #
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail
@@ -82,7 +89,7 @@ KEY=panel_retries
 usage() {
     echo "verdict=escalate reason=panel-retry-budget.sh was called wrongly: $1"
     echo "panel-retry-budget: $1" >&2
-    echo "usage: panel-retry-budget.sh <koto-session-name> <scrutiny|review|qa_validation|light_review> <blocking-count>" >&2
+    echo "usage: panel-retry-budget.sh <koto-session-name> <scrutiny|review|qa_validation|light_review>" >&2
     exit 67
 }
 
@@ -103,27 +110,38 @@ refuse() {
     exit 1
 }
 
-[ "$#" -eq 3 ] || usage "expected 3 arguments, got $#"
+[ "$#" -ne 3 ] || usage "the count is read from the ledger, not given: pass only the session and the panel"
+[ "$#" -eq 2 ] || usage "expected 2 arguments, got $#"
 SESSION=$1
 PANEL=$2
-COUNT=$3
 
 [ -n "$SESSION" ] || usage "missing session name"
+# The ledger names the panels after their seats' panel, not their state.
 case "$PANEL" in
-    scrutiny|review|qa_validation|light_review) ;;
+    scrutiny) LEDGER_PANEL=scrutiny ;;
+    review) LEDGER_PANEL=review ;;
+    qa_validation) LEDGER_PANEL=qa ;;
+    light_review) LEDGER_PANEL=light ;;
     *) usage "unknown panel [$PANEL]" ;;
 esac
+
+# --- read the count ------------------------------------------------------------
+
+SCOPE_SH="$(cd "$(dirname "$0")" && pwd)/panel-scope.sh"
+[ -x "$SCOPE_SH" ] || no_answer "panel-scope.sh is missing beside this script, so the count can't be read"
+COUNT=$("$SCOPE_SH" --open-count "$LEDGER_PANEL" "$SESSION" 2>/dev/null) \
+    || no_answer "could not read $PANEL's open blocking findings from the ledger (panel-scope.sh --open-count $LEDGER_PANEL)"
 case "$COUNT" in
-    ''|*[!0-9]*) usage "blocking count [$COUNT] is not a whole number" ;;
+    ''|*[!0-9]*) no_answer "the ledger's count for $PANEL is not a whole number: [$COUNT]" ;;
 esac
 # Six digits is far past any real round. The cap has to match the one the
 # record reader below applies to each recorded count: a longer count granted
 # within the floor would be recorded, and the next call would then reject the
 # record as malformed (exit 64).
-[ "${#COUNT}" -le 6 ] || usage "blocking count [$COUNT] is longer than 6 digits"
+[ "${#COUNT}" -le 6 ] || no_answer "the ledger's count for $PANEL [$COUNT] is longer than 6 digits"
 # Strip leading zeros so the arithmetic below never reads the count as octal.
 COUNT=$(printf '%s' "$COUNT" | sed 's/^0*//')
-[ -n "$COUNT" ] || usage "blocking count is 0; a round with no blocking findings passes, it doesn't retry"
+[ -n "$COUNT" ] || refuse "$PANEL has no open blocking finding in the ledger; a panel with nothing open passes, it doesn't retry"
 
 # --- read the record ---------------------------------------------------------
 

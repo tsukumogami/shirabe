@@ -29,8 +29,9 @@ In increasing order:
 - **`full`** runs scrutiny, review, then QA.
 
 A blocking result from any panel, the `light` panel included, retries through
-implementation under the same retry cap, sticky verdicts and per-seat scoping
-as before. A `docs` or `task` run records a level too; its route skips the
+implementation under the same retry cap, and its next round is planned from
+the findings ledger like every panel's: only the findings the fix made due are
+re-verified. A `docs` or `task` run records a level too; its route skips the
 panels, so the level only appears in its ledger.
 
 ## Choosing, raising and lowering
