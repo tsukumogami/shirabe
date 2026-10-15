@@ -6,8 +6,9 @@
 # shared <file under scripts/>: a change to it runs every suite. A file
 # sourced by two or more of the skill's files is shared without a row; these
 # are the ones that check can't see: the template's own scripts, which every
-# engine suite drives, and the record codec, which jq includes and nearly
-# every script reads or writes through.
+# engine suite drives; the record codec, which jq includes and nearly every
+# script reads or writes through; and run-tests.sh, which CI runs every suite
+# through.
 shared	coord-verdict.sh
 shared	coord-log.sh
 shared	coordinate-open.sh

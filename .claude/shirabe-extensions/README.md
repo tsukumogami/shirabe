@@ -58,14 +58,24 @@ today. For an opted-in skill, `--changed` diffs the branch against its merge-bas
 default branch, the gate's own base, and classifies each changed path:
 
 - a suite (`scripts/<name>_test.sh`) runs itself;
-- a script under `scripts/` that is neither shared nor deleted runs the unit suites that
-  name it or one of its direct callers, the skill's other scripts that name it. Engine
-  suites (`*_engine_test.sh`) run only when no unit suite names any of them;
+- a script under `scripts/` that is neither shared nor deleted runs its own
+  `<stem>_test.sh` and the unit suites that name it or one of its direct callers, the
+  skill's other scripts that name it. Engine suites (`*_engine_test.sh`) run only when no
+  unit suite names any of them, so a script that only an engine suite tests still gets
+  tested;
 - everything else runs every suite: a shared script, anything under a subdirectory of
   `scripts/` (testdata and the test libraries), a koto template, the skill's Markdown and
   data files, `check-skill.tsv` itself, a deleted file, and any path outside the skill,
   `scripts/check-skill.sh` included. So do a change with no merge-base and a branch with
-  no changes.
+  no changes. Markdown and data files run everything because suites read them by glob as
+  well as by name (`references/`, `SKILL.md`, `requires.tsv`, `evals.json`), which name
+  matching can't see.
+
+Callers are followed one level only. A suite that reaches a changed script only through
+two scripts in a row, or an engine suite that drives the script while a unit suite names
+it, isn't run locally. That's the one place a selection can miss a suite that would fail.
+Followed further, callers reach 45 of coordinate's 77 suites from almost any script, so
+the gate would gain nothing, and CI runs every suite before merge.
 
 A script is shared when two or more of the skill's files source it, which the script works
 out on each run, or when `check-skill.tsv` names it on a `shared` row. The rows hold what
@@ -87,7 +97,10 @@ Keeping `check-skill.tsv` current:
   a script the template or another skill's code drives directly, or a jq module. A script
   two files source is shared without a row.
 - Add a `cost` row for a new suite, and re-measure the rows when a suite's cost changes
-  much. A suite with no row launches last, which costs time but never correctness.
+  much. A suite with no row launches last, which costs time but never correctness;
+  `scripts/check-skill_test.sh` fails when coordinate's rows and suites differ.
+- A skill opts in by adding the file. Until it has one, its suites have never been
+  classified, so `--changed` runs them all.
 - A suite that drives a script only through a variable, never by name, can't be found by
   name. Name the script in the suite, a comment is enough, or make the script shared.
 

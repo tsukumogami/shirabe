@@ -507,9 +507,10 @@ fi
 #   caller.sh    runs one.sh
 #   lonely.sh    named by the engine suite alone
 #   orphan.sh    named by no suite
+#   two.sh       named by no suite, but two_test.sh is its own
 # and suites one_test.sh (names one.sh), caller_test.sh (names caller.sh),
-# two_test.sh, flow_engine_test.sh (names one.sh and lonely.sh), and
-# testdata/lib.sh. Each suite passes.
+# two_test.sh (names nothing), flow_engine_test.sh (names one.sh and
+# lonely.sh), and testdata/lib.sh. Each suite passes.
 select_tree() {
     new_tree
     local d="$ROOT/skills/demo/scripts"
@@ -525,7 +526,7 @@ select_tree() {
     printf 'helper\n' > "$d/testdata/lib.sh"
     printf '# one.sh\nexit 0\n' > "$d/one_test.sh"
     printf '# caller.sh\nexit 0\n' > "$d/caller_test.sh"
-    printf '# two.sh\nexit 0\n' > "$d/two_test.sh"
+    printf 'exit 0\n' > "$d/two_test.sh"
     printf '# one.sh lonely.sh\nexit 0\n' > "$d/flow_engine_test.sh"
 }
 ALL_DEMO="skills/demo/scripts/caller_test.sh skills/demo/scripts/flow_engine_test.sh skills/demo/scripts/one_test.sh skills/demo/scripts/two_test.sh"
@@ -571,6 +572,11 @@ expect_listed "a script nothing else runs selects only the suites naming it" \
 select_tree
 run_list skills/demo/scripts/two_test.sh
 expect_listed "a changed suite selects itself" "skills/demo/scripts/two_test.sh"
+
+select_tree
+run_list skills/demo/scripts/two.sh
+expect_listed "a script's own suite is selected though it doesn't name the script" \
+    "skills/demo/scripts/two_test.sh"
 
 select_tree
 run_list skills/demo/scripts/lonely.sh
@@ -687,6 +693,16 @@ done
 run_coord_list skills/coordinate/scripts/need-check.sh
 expect_listed "coordinate: a change to need-check.sh selects only need-check_test.sh" \
     "skills/coordinate/scripts/need-check_test.sh" "selects 1 of"
+
+# Every coordinate suite has a cost row and every cost row names a suite, so
+# a new suite can't quietly launch last.
+COSTED=$(awk -F'\t' '$1 == "cost" { print "skills/coordinate/scripts/" $2 }' \
+    "$REPO_ROOT/skills/coordinate/check-skill.tsv" | sort | tr '\n' ' ' | sed 's/ $//')
+if [ "$COSTED" = "$COORD_ALL" ]; then
+    pass "coordinate: check-skill.tsv has one cost row per suite"
+else
+    fail "coordinate: cost rows and suites differ: $(printf '%s\n' $COSTED $COORD_ALL | sort | uniq -u | tr '\n' ' ')"
+fi
 
 echo ""
 echo "check-skill_test: $PASS_COUNT passed, $FAIL_COUNT failed"

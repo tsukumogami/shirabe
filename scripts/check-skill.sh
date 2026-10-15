@@ -49,11 +49,11 @@
 #   - scripts/<name>_test.sh: that suite;
 #   - scripts/<file> named on a `shared` row of check-skill.tsv, sourced by
 #     two or more of the skill's files, or deleted: every suite;
-#   - any other scripts/<file>: every unit suite (not *_engine_test.sh) that
-#     names the file or one of its callers, the skill's other scripts/*.sh and
-#     *.jq files that name it, shared ones excepted. Engine suites are taken
-#     only when no unit suite names any of them, and when none does either,
-#     every suite runs;
+#   - any other scripts/<file>: its own <stem>_test.sh, and every unit suite
+#     (not *_engine_test.sh) that names the file or one of its callers, the
+#     skill's other scripts/*.sh and *.jq files that name it, shared ones
+#     excepted. Engine suites are taken only when no unit suite names any of
+#     them, and when none does either, every suite runs;
 #   - anything else (Markdown, templates, check-skill.tsv itself): every
 #     suite.
 #
@@ -312,6 +312,10 @@ $p" ;;
                 fi
                 names=$(callers_of "$name" "$shared")
                 hits=$(printf '%s\n' "$names" | grep -lF -f - "${suites[@]}")
+                # The script's own suite counts whether or not it names it.
+                s="$SKILL_DIR/scripts/${name%.*}_test.sh"
+                [ -f "$s" ] && hits="$hits
+$s"
                 units=$(printf '%s\n' "$hits" | grep -v '_engine_test\.sh$')
                 engines=$(printf '%s\n' "$hits" | grep '_engine_test\.sh$')
                 if [ -n "$units" ]; then
