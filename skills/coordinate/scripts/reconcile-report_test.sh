@@ -419,7 +419,7 @@ facts '[]' '[{"row":{"action":"merge","target":"acme/widgets#3"}}]' | report | j
 check_next "a lowercase merged state still drops" "$(holding a "[$(pr merged "$VH")]")" "merged; tear down its worker, which removes the row"
 
 echo "== an imported run =="
-IH=$(printf 'ab%.0s' $(seq 32))
+IH=abababababababababababababababababababababababababababababababab  # 64 characters, written out: run-tests.sh's PATH has no seq
 IMP=$(facts '[]' | jq -c --arg h "$IH" '.record.import = {source_workspace: "/srv/ws-a", source_session: "coordinate-roadmap-demo-20260901T000000Z", template_hash: $h}')
 printf '%s' "$IMP" | report | jq -e --arg h "$IH" '.header.import == {source_session: "coordinate-roadmap-demo-20260901T000000Z", source_workspace: "/srv/ws-a", template_hash: $h}' >/dev/null \
   && ok "the header carries an imported run's facts" || bad "the header carries an imported run's facts" "$(printf '%s' "$IMP" | report | jq -c .header)"
