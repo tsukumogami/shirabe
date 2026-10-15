@@ -85,7 +85,14 @@ eq "  ... with ROADMAP_FORM milestone" milestone "$(var "$S3" ROADMAP_FORM)"
 
 # --- two hosts on koto's cloud backend -----------------------------------------
 # Hosts A and B share a bucket served by testdata/fake-s3.py; each has its own
-# HOME, cache and workspace (testdata/cloud-hosts.sh).
+# HOME, cache and workspace (testdata/cloud-hosts.sh). Everything from here
+# needs koto's `session import`, which an older koto (CI's entry floor) lacks,
+# so the cases stop here when the probe the opener reads says it's missing.
+PROBE=$(bash "$HERE/record-source.sh" --probe)
+if [ "$(jq -r '.session_import // false' <<< "$PROBE")" != true ]; then
+    echo "koto lacks session import ($PROBE); the two-host and --import cases need a newer koto"
+    echo; echo "coordinate-open engine: $PASS passed, $FAIL failed"; [ "$FAIL" -eq 0 ]; exit $?
+fi
 echo "== two hosts =="
 . "$HERE/testdata/cloud-hosts.sh"
 trap 's3_stop; rm -rf "$T"' EXIT
