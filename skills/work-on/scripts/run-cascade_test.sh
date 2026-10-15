@@ -848,6 +848,34 @@ scenario_brief_with_upstream() {
         '[.steps[] | select(.action == "update_roadmap_feature" and .status == "ok")] | length == 1' \
         "walk reaches ROADMAP (update_roadmap_feature ok)" || ok=false
 
+    # The rest of the old-shape chain, and the roadmap text the walk leaves:
+    # this chain keeps the BRIEF naming the ROADMAP on purpose, the shape a
+    # corpus written before the upstream-legality rule still has.
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_plan" and .status == "ok")] | length == 1' \
+        "delete_plan ok" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design" and .status == "ok")] | length == 1' \
+        "transition_design ok" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_prd" and .status == "ok")] | length == 1' \
+        "transition_prd ok" || ok=false
+
+    assert_shell "$scenario" "$([[ ! -e docs/plans/PLAN-cascade-test-full.md && -f docs/designs/current/DESIGN-cascade-test-full.md ]] && echo true || echo false)" \
+        "the PLAN is deleted and the DESIGN moved to docs/designs/current/" || ok=false
+
+    local feature_status feature_downstream
+    feature_status=$(awk '/^### Feature 2:/ { f = 1; next } f && /^\*\*Status:\*\*/ { print; exit }' \
+        docs/roadmaps/ROADMAP-cascade-test.md)
+    feature_downstream=$(awk '/^### Feature 2:/ { f = 1; next } f && /^\*\*Downstream:\*\*/ { print; exit }' \
+        docs/roadmaps/ROADMAP-cascade-test.md)
+    assert_shell "$scenario" "$([[ "$feature_status" == "**Status:** Done" ]] && echo true || echo false)" \
+        "Feature 2's Status was written Done" "$feature_status" || ok=false
+    assert_shell "$scenario" "$([[ "$feature_downstream" == "**Downstream:** DESIGN-cascade-test-full.md (Current)" ]] && echo true || echo false)" \
+        "Feature 2's Downstream names the DESIGN at Current" "$feature_downstream" || ok=false
+
     [[ "$ok" == "true" ]] && pass "$scenario" || true
 
     rm -rf "$tmpdir"
