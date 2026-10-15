@@ -393,6 +393,21 @@ class RotationTest(Case):
         self.assertEqual(rc, 6, out)
         self.assertEqual(self.ledger_lines()[-1]["unrun"], ["execute:rotation"])
 
+    def test_a_job_bigger_than_the_whole_cap_is_skipped_not_blocking(self):
+        # execute never ran, so its jobs wait longest; its repeat ($5.24) and
+        # rotation ($4.78) each cost more than a $4 cap and could never fit.
+        # brief ($3.42) waits behind them and must still run.
+        self.seed({"kind": "run", "at": ago(days=10), "skill": "brief", "tree": "old", "runs": 1,
+                   "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0})
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "1", "--cap-usd", "4",
+                                "brief", "execute")
+        self.assertEqual(rc, 6, out)
+        self.assertEqual(len(self.calls()), 1)
+        self.assertRegex(self.calls()[0], r"--release-subset .*brief")
+        stops = [e for e in self.ledger_lines() if e["kind"] == "cap_stop"]
+        self.assertEqual([s["unrun"] for s in stops], [["execute"], ["execute:rotation"]])
+        self.assertIn("more than the whole $4.00 cap; skipping it", out)
+
     def test_a_rotation_waiting_longer_runs_before_a_newer_repeat(self):
         self.seed({"kind": "run", "at": ago(days=2), "skill": "execute", "tree": "old", "runs": 1,
                    "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0},
