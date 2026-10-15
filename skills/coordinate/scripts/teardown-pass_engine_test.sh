@@ -25,8 +25,8 @@
 # removes nothing. teardown_handoff refuses to surface, nothing removed and
 # teardown_topic cleared, when the pull request isn't merged (the seal's other
 # refusals are teardown-handoff_test.sh's). The pass refuses a key seal that
-# isn't the verdict's, a pull request no longer merged, unique material since the inventory, and a job whose state since
-# the verdict went missing, became unknown, or that left the listing; it
+# isn't the verdict's, a pull request no longer merged, unique material
+# since the inventory, and a job whose state since the verdict went missing, became unknown, or that left the listing; it
 # reports incomplete when the removal fails after the destroy; and
 # teardown_confirm refuses a `destroyed` no pass backs. The verdict carries
 # niwa's dispatch id (`invalid` outside its shape) and the pass writes it into
