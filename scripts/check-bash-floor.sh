@@ -488,6 +488,7 @@ suite_scripts() {
             echo "skills/scope/scripts/record-scope-exit_test.sh"
             echo "skills/scope/scripts/publish-scoping-pr_test.sh"
             echo "skills/scope/scripts/print-scope-exit_test.sh"
+            echo "skills/scope/scripts/check-hop-document_test.sh"
             ;;
         offload-baseline)
             # The instruction-offload baseline's pin check and token count.

@@ -373,8 +373,12 @@ hop_<x> / fold (koto)                     check-hop-document.sh
   (validated against `^[a-z0-9][a-z0-9-]*$`, no trailing hyphen) and `--hop`
   (one of `brief`, `prd`, `design`, `plan`, `all`). A `RULE_IDS` line listing
   the seventeen ids; an `undecided` that prints `check-hop-document: <reason>`
-  and exits 2; `rf_require` on every id before any check. A fixed map from
-  validator code to id written as a `case` statement.
+  and exits 2; `rf_require` on the ids a run is about to print, once every
+  document is decided and before anything prints (each resolution reads the
+  registry and git, about half a second apiece on a busy host, so resolving all
+  seventeen on every run would put a clean hop near koto's 30-second limit;
+  `check-rule-registry.sh` in CI keeps every anchor resolvable). A fixed map
+  from validator code to id written as a `case` statement.
 - **`skills/scope/scripts/check-hop-document_test.sh`** (new). Builds
   throwaway git repositories with fixture documents, runs the script against
   the real validator, and uses stub `shirabe` scripts on `PATH` for the
@@ -426,8 +430,8 @@ one finding printed; 2 no finding printed, reason on stderr.
 1. Resolve the root with `git rev-parse --show-toplevel` and `cd` there.
 2. Check `git`, `jq`, `shirabe`, and refuse a `shirabe` that resolves under
    the repository root (a shim planted in the tree); name the resolved
-   validator and its version on stderr; set and check `SHIRABE_RULES`;
-   `rf_require` every id; run the canary.
+   validator and its version on stderr; set and check `SHIRABE_RULES`; run
+   the canary.
 3. Read the declared visibility.
 4. For each path in order: a path that doesn't exist is skipped; a symlink, a
    non-regular file, an empty file, or a path whose resolved location isn't
@@ -440,8 +444,10 @@ one finding printed; 2 no finding printed, reason on stderr.
    an `incomplete` outcome (a schema-skipped document nobody checked), exit 1
    or 3, no JSON, and an exit 2 whose envelope holds no error-level finding.
 5. With every document decided, select findings with `jq` (`severity ==
-   "error"`, or the two `FC10` prefixes), map each code to its id (an unmapped
-   code is undecided, checked before anything prints), then print each through
+   "error"`, or the two `FC10` prefixes), map each code to its id and
+   `rf_require` the ids that turned up (an unmapped code, or an entry that
+   doesn't resolve, is undecided, checked before anything prints), then print
+   each through
    `rf_finding <id> <message> <file> [<line>]`, the validator's message cut to
    400 characters so a long quoted value from the document can't flood the
    agent's context.

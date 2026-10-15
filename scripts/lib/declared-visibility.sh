@@ -24,6 +24,8 @@
 # Written for the bash 3.2 floor.
 
 declared_visibility() {
+    # Local, so a sourcing script's own f or v is left alone.
+    local f v
     for f in CLAUDE.local.md CLAUDE.md; do
         [ -f "$f" ] || continue
         v=$(LC_ALL=C tr '[:upper:]' '[:lower:]' < "$f" | awk '
