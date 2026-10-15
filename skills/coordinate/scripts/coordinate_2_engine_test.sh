@@ -231,7 +231,7 @@ if land_run merging 112; then
         && [ "$(at --with-data '{"fit":"fits_with_follow_ups","rationale":"delivers Feature 1; follow-up: document the loader flags"}')" = land_merge ]; then
         # The merge landed the verified content: MERGED, and the one file's
         # blob on main equals the head's.
-        bt_merged MERGED '["src/main.go"]'; bt_blob main src/main.go aaaa; bt_blob "$H" src/main.go aaaa
+        bt_merged MERGED; bt_reach behind
         eq "17: a confirmed merge goes on to record" record "$(at --with-data '{"merge":"attempted"}')"
         case "$(bash "$PS/coord-log.sh" capture --session "$S" --name MERGE_CONFIRM)" in
             "merged 12 $H "*) ok "17: MERGE_CONFIRM reads merged" ;; *) bad "17: MERGE_CONFIRM reads merged" ;;

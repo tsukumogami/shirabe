@@ -3,7 +3,7 @@
 # GitHub, takes the head from the unit's own verify capture, and reports
 # whether a person's merge landed it.
 #
-# Covers: merged, unconfirmed (a blob differs) and not-merged; the unit's
+# Covers: merged, unconfirmed (a merge of another head, or a merge commit not on the default branch) and not-merged; the unit's
 # capture from an earlier verify visit, found by its pull request among
 # later ones; the unit from the latest wait evidence when --unit is absent
 # (none, a malformed one, a title such as "Feature 16: example", one naming no
@@ -24,8 +24,6 @@ bt_setup
 MF="$PS/merged-facts.sh"
 CL="$PS/coord-log.sh"
 PERMIT="readable merge:permit close:permit teardown:permit"
-B1=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-B2=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 N=0
 at_facts() { # #12 verified for plugin-registry, #13 verified later for sandbox; now at merged_facts
     N=$((N + 1))
@@ -40,8 +38,7 @@ at_facts() { # #12 verified for plugin-registry, #13 verified later for sandbox;
              {worker: "sandbox", repo: "acme/widgets", pull_request: "[#13](https://github.com/acme/widgets/pull/13)"},
              {worker: "unopened", repo: "acme/widgets", pull_request: ""}]' > "$BT_STATE/holdings"
     rm -rf "$GH_BOARD_DIR"; mkdir -p "$GH_BOARD_DIR"
-    bt_merged MERGED '["src/main.go"]'
-    bt_blob main src/main.go "$B1"; bt_blob "$H" src/main.go "$B1"
+    bt_merged MERGED; bt_reach behind
 }
 token() { bash "$MF" --session "$S" --unit "${1:-plugin-registry}" 2>"$T/err" | sed 's/ sealed:.*//'; }
 
@@ -50,13 +47,15 @@ at_facts
 OUT=$(bash "$MF" --session "$S" --unit plugin-registry 2>"$T/err")
 eq "a person's merge of the verified head: merged" "merged 12 $H" "${OUT% sealed:*}"
 bash "$CL" check --session "$S" --state merged_facts --sealed "$OUT" && ok "sealed to the latest entry into merged_facts" || bad "sealed to the latest entry into merged_facts"
-grep -q "contents/src/main.go?ref=$H" "$GH_BOARD_DIR/calls" && ok "the head is the unit's own verify capture, from an earlier visit" || bad "the head is the unit's own verify capture" "$(cat "$GH_BOARD_DIR/calls")"
+grep -q "compare/main...$BT_MC" "$GH_BOARD_DIR/calls" && ok "the merge commit is compared with the default branch" || bad "the merge commit is compared with the default branch" "$(cat "$GH_BOARD_DIR/calls")"
 grep -q -- '--topic plugin-registry --read' "$BT_STATE/holding.calls" && ok "the holding is found by topic on GitHub" || bad "the holding is found by topic on GitHub"
-at_facts; bt_blob main src/main.go "$B2"
-eq "a merge that doesn't hold the verified content: unconfirmed" "unconfirmed 12 $H" "$(token)"
-at_facts; bt_merged OPEN '["src/main.go"]'
+at_facts; bt_merged MERGED "$MOVED"
+eq "the head is the unit's own verify capture: a merge of another head is unconfirmed" "unconfirmed 12 $H" "$(token)"
+at_facts; bt_reach diverged
+eq "a merge commit that isn't on the default branch: unconfirmed" "unconfirmed 12 $H" "$(token)"
+at_facts; bt_merged OPEN
 eq "still open: not-merged" "not-merged 12" "$(token)"
-at_facts; bt_merged CLOSED '["src/main.go"]'
+at_facts; bt_merged CLOSED
 eq "closed without merging: not-merged" "not-merged 12" "$(token)"
 
 echo "== the unit from the merged event =="
@@ -103,8 +102,8 @@ bash "$MF" --session "$S" --unit plugin-registry >/dev/null 2>&1; eq "the latest
 at_facts; echo 2 > "$BT_STATE/holding.rc"
 bash "$MF" --session "$S" --unit plugin-registry >/dev/null 2>&1; eq "a failed holding read" 2 $?
 rm -f "$BT_STATE/holding.rc"
-at_facts; bt_blob main src/main.go fail
-bash "$MF" --session "$S" --unit plugin-registry >/dev/null 2>&1; eq "a failed blob read" 2 $?
+at_facts; bt_reach fail
+bash "$MF" --session "$S" --unit plugin-registry >/dev/null 2>&1; eq "a failed comparison read" 2 $?
 
 echo "== overrides and usage =="
 at_facts

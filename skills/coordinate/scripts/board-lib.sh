@@ -230,63 +230,56 @@ bl_merge_posture() {
     printf '%s\n' "$eff"
 }
 
-# bl_path_uri <path>: URL-encode each segment of a repository path.
-bl_path_uri() { jq -rn --arg p "$1" '$p | split("/") | map(@uri) | join("/")'; }
-
 # bl_merge_compare <repo> <pr> <sha>: prints merged, unconfirmed or
-# not-merged. merged needs the pull request MERGED and every file it changed
-# to have the same blob on the default branch as at <sha> (a file absent at
-# <sha>, deleted by the pull request, must be absent there too). Blob reads
-# run in parallel, six at a time. Returns 0 printed; 2 a read failed.
+# not-merged, from GitHub's own record of the merge, in three reads whatever
+# the pull request's size: the pull request (its state, the head it merged
+# and its merge commit), the repository (its default branch), and one
+# comparison of the default branch with the merge commit. merged needs the
+# pull request MERGED, the head GitHub merged to be <sha>, and the merge
+# commit reachable from the default branch (the comparison reads behind or
+# identical). A merged head other than <sha>, or a merge commit not on the
+# default branch, is unconfirmed; an open or closed pull request is
+# not-merged. It relies on headRefOid to pin the content: GitHub builds the
+# squash commit from the head it records (a plain merge commit has that head
+# as a parent, and a rebase replays its commits), so the merged content is
+# the verified head's whatever the method. It confirms the merge event, not
+# what the default branch holds now: a later change to the same files doesn't
+# bear on it, and a revert after the merge still reads merged. Returns 0
+# printed; 2 a read failed, or the record is malformed (no merge commit on a
+# merged pull request, a head or status that isn't one).
 bl_merge_compare() {
-    local repo=$1 pr=$2 sha=$3 d state def n i p ref k a b
+    local repo=$1 pr=$2 sha=$3 d rec state head mc def st
     d=$(mktemp -d "${TMPDIR:-/tmp}/board-merge.XXXXXX") || return 2
-    if ! bl_gh "$d/pr" pr view "$pr" --repo "$repo" --json state,files; then rm -rf "$d"; return 2; fi
-    state=$(jq -r '.state // ""' "$d/pr")
+    if ! bl_gh "$d/pr" pr view "$pr" --repo "$repo" --json state,headRefOid,mergeCommit; then rm -rf "$d"; return 2; fi
+    # One jq for the three fields, joined by `|` rather than a tab, so an
+    # empty field stays in place (read collapses runs of whitespace IFS).
+    rec=$(jq -r '[(.state // ""), (.headRefOid // ""), ((.mergeCommit // {}) | .oid? // "")] | map(tostring) | join("|")' "$d/pr") \
+        || { echo "$PROG: the pull request's record isn't JSON" >&2; rm -rf "$d"; return 2; }
+    IFS='|' read -r state head mc <<EOF
+$rec
+EOF
     case "$state" in
         MERGED) ;;
         OPEN|CLOSED) rm -rf "$d"; echo not-merged; return 0 ;;
         *) echo "$PROG: pull request state [$state]" >&2; rm -rf "$d"; return 2 ;;
     esac
-    jq -r '.files[]?.path' "$d/pr" > "$d/paths" || { rm -rf "$d"; return 2; }
+    bl_sha_ok "$head" || { echo "$PROG: #$pr merged head [$head] is not a sha" >&2; rm -rf "$d"; return 2; }
+    bl_sha_ok "$mc" || { echo "$PROG: #$pr is merged with no merge commit [$mc]" >&2; rm -rf "$d"; return 2; }
+    if [ "$head" != "$sha" ]; then
+        echo "$PROG: #$pr merged head $head, not the verified $sha" >&2
+        rm -rf "$d"; echo unconfirmed; return 0
+    fi
     if ! bl_gh "$d/repo" api --method GET "repos/$repo"; then rm -rf "$d"; return 2; fi
     def=$(jq -r '.default_branch // ""' "$d/repo")
     bl_branch_ok "$def" || { echo "$PROG: default branch [$def]" >&2; rm -rf "$d"; return 2; }
-    n=0
-    while IFS= read -r p; do
-        [ -n "$p" ] || continue
-        n=$((n + 1))
-        printf '%s\n' "$p" > "$d/path.$n"
-        for ref in "$def" "$sha"; do
-            [ "$ref" = "$def" ] && k=def || k=sha
-            ( bl_gh "$d/blob.$n.$k" api --method GET "repos/$repo/contents/$(bl_path_uri "$p")?ref=$(jq -rn --arg r "$ref" '$r | @uri')" ) &
-        done
-        [ $((n % 3)) -eq 0 ] && wait
-    done < "$d/paths"
-    wait
-    local result=merged
-    i=1
-    while [ "$i" -le "$n" ]; do
-        for k in def sha; do
-            if [ -f "$d/blob.$i.$k.fail" ]; then
-                if [ "$(cat "$d/blob.$i.$k.fail")" = notfound ]; then
-                    printf 'absent' > "$d/sha.$i.$k"
-                else
-                    rm -rf "$d"; return 2
-                fi
-            else
-                jq -r 'if type == "object" and .type == "file" and (.sha | type) == "string" then .sha else "not-a-file" end' "$d/blob.$i.$k" > "$d/sha.$i.$k" || { rm -rf "$d"; return 2; }
-            fi
-        done
-        a=$(cat "$d/sha.$i.def"); b=$(cat "$d/sha.$i.sha")
-        if [ "$a" != "$b" ] || [ "$a" = not-a-file ]; then
-            echo "$PROG: $(cat "$d/path.$i") differs on $def ($a) from $sha ($b)" >&2
-            result=unconfirmed
-        fi
-        i=$((i + 1))
-    done
+    if ! bl_gh "$d/cmp" api --method GET "repos/$repo/compare/$def...$mc"; then rm -rf "$d"; return 2; fi
+    st=$(jq -r '.status // ""' "$d/cmp")
     rm -rf "$d"
-    echo "$result"
+    case "$st" in
+        behind|identical) echo merged ;;
+        ahead|diverged) echo "$PROG: #$pr's merge commit $mc is not on $def ($st)" >&2; echo unconfirmed ;;
+        *) echo "$PROG: comparison status [$st]" >&2; return 2 ;;
+    esac
 }
 
 # bl_reviewed_fresh <repo> <base-branch> <reviewed> <head>: is the head the

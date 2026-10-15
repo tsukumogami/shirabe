@@ -164,7 +164,7 @@ fi
 if LAND_PHASE=scoping land_run scopemerge 211; then
     LAND_PHASE=scoping record_verified
     if [ "$(at)" = goal_fit ] && [ "$(at --with-data '{"fit":"fits","rationale":"the scoping documents land"}')" = land_merge ]; then
-        bt_merged MERGED '["docs/plans/PLAN-feat-1.md"]'; bt_blob main docs/plans/PLAN-feat-1.md aaaa; bt_blob "$H" docs/plans/PLAN-feat-1.md aaaa
+        bt_merged MERGED; bt_reach behind
         eq "21: the merge is confirmed" record "$(at --with-data '{"merge":"attempted"}')"
         rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
         (cd "$WD" && bash "$PS/record-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"
