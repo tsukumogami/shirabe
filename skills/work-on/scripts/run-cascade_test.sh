@@ -848,9 +848,11 @@ scenario_brief_with_upstream() {
         '[.steps[] | select(.action == "update_roadmap_feature" and .status == "ok")] | length == 1' \
         "walk reaches ROADMAP (update_roadmap_feature ok)" || ok=false
 
-    # The rest of the old-shape chain, and the roadmap text the walk leaves:
-    # this chain keeps the BRIEF naming the ROADMAP on purpose, the shape a
-    # corpus written before the upstream-legality rule still has.
+    # The rest of the old-shape chain, and the roadmap text the walk leaves.
+    # The BRIEF names the ROADMAP on purpose: it is the shape a corpus written
+    # before the upstream-legality rule still has, and this scenario is the
+    # only check that such a corpus still cascades. (The execute eval fixtures
+    # of the same name keep that shape too, but no eval runs them.)
     assert_json "$scenario" "$output" \
         '[.steps[] | select(.action == "delete_plan" and .status == "ok")] | length == 1' \
         "delete_plan ok" || ok=false
