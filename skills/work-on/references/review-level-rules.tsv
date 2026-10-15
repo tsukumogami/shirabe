@@ -98,6 +98,7 @@ class	engine	skills/execute/scripts/record-merge-verdict.sh
 class	engine	skills/execute/scripts/record-settled-branch.sh
 class	engine	skills/execute/scripts/record-write-set.sh
 class	engine	skills/execute/scripts/run-id.sh
+class	engine	skills/scope/scripts/check-hop-document.sh
 class	engine	skills/scope/scripts/check-plan-filing.sh
 class	engine	skills/scope/scripts/check-plan-mode.sh
 class	engine	skills/scope/scripts/hop-complete.sh
