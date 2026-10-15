@@ -38,8 +38,8 @@ export GIT_AUTHOR_NAME=test GIT_AUTHOR_EMAIL=test@example.invalid
 export GIT_COMMITTER_NAME=test GIT_COMMITTER_EMAIL=test@example.invalid
 
 REGISTRY_JSON='{"schema":"shirabe-rule-registry/v1","rules":[
- {"id":"t/multi","status":"active","summary":"Multi-line rule","text":{"path":"references/r.md","first":"RULE-MULTI starts","last":"RULE-MULTI ends"}},
- {"id":"t/single","status":"active","summary":"Single-line rule","text":{"path":"references/r.md","first":"RULE-SINGLE only line"}},
+ {"id":"t/multi","status":"active","summary":"Multi-line rule","withhold":"eligible","text":{"path":"references/r.md","first":"RULE-MULTI starts","last":"RULE-MULTI ends"}},
+ {"id":"t/single","status":"active","summary":"Single-line rule","withhold":"never","text":{"path":"references/r.md","first":"RULE-SINGLE only line"}},
  {"id":"t/retired","status":"retired","summary":"Gone","text":{"path":"references/gone.md","first":"nothing"}},
  {"id":"t/dup","status":"active","summary":"Dup","text":{"path":"references/r.md","first":"DUP"}},
  {"id":"t/backwards","status":"active","summary":"Backwards","text":{"path":"references/r.md","first":"RULE-MULTI ends","last":"RULE-MULTI starts"}},
@@ -223,6 +223,22 @@ want=$(sed -n '3,5p' "$I/references/r.md")
 [ "$RC" -eq 0 ] && [ "$OUT" = "$want" ] && pass "text prints the lines byte for byte, backslash included" \
     || fail "text" "out=[$OUT]"
 
+run "$I" range t/multi
+[ "$RC" -eq 0 ] && [ "$OUT" = "3 5" ] && pass "range prints the text's first and last line numbers" || fail "range" "out=[$OUT]"
+run "$I" range t/single
+[ "$RC" -eq 0 ] && [ "$OUT" = "7 7" ] && pass "range of a one-line rule is that line twice" || fail "range single" "out=[$OUT]"
+expect_rc 2 "range of a rule whose anchors don't resolve" range t/backwards
+expect_rc 1 "range of a retired id" range t/retired
+
+run "$I" withhold t/multi
+[ "$RC" -eq 0 ] && [ "$OUT" = eligible ] && pass "withhold prints eligible" || fail "withhold eligible" "out=[$OUT]"
+run "$I" withhold t/single
+[ "$RC" -eq 0 ] && [ "$OUT" = never ] && pass "withhold prints never" || fail "withhold never" "out=[$OUT]"
+run "$I" withhold t/dup
+[ "$RC" -eq 2 ] && [ -z "$OUT" ] && pass "withhold of an entry with no withhold value exits 2 and prints nothing" \
+    || fail "withhold missing" "rc=$RC out=[$OUT]"
+expect_rc 1 "withhold of an unknown id" withhold t/none
+
 echo '{"rules": [' > "$T/broken.json"
 OUT=$("$I/scripts/rule-registry.sh" --registry "$T/broken.json" ref t/multi 2>/dev/null); RC=$?
 [ $RC -eq 2 ] && pass "a registry that doesn't parse exits 2" || fail "broken registry" "rc=$RC"
@@ -336,12 +352,61 @@ ln -s "$T/elsewhere/target.log" "$T/tmpdir/link.log"
 SHIRABE_FINDINGS_LOG="$T/tmpdir/link.log" TMPDIR="$T/tmpdir" "$I/scripts/rule-registry.sh" log-finding "$good"
 [ ! -e "$T/elsewhere/target.log" ] && pass "log-finding ignores a symlinked log" || fail "log-finding symlink" "log written through the link"
 
+# --- rf_require_any ------------------------------------------------------------
+
+# A gate script that resolves a finding's own rule at run time. The probe sources
+# the library from an installed-style copy, so the reader it reaches is that
+# copy's registry, with its t/ fixtures.
+A="$T/any"; make_root "$A" 1.2.3
+mkdir -p "$A/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/rule-findings.sh" "$A/scripts/lib/rule-findings.sh"
+cat > "$A/probe.sh" <<'PROBE'
+#!/usr/bin/env bash
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="t/multi"
+[ -z "${NO_MARKER:-}" ] && RULE_IDS_ANY_ACTIVE=1
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+rf_require_any "$@"
+rf_finding "$1" "a finding under its own rule"
+PROBE
+chmod +x "$A/probe.sh"
+OUT=$("$A/probe.sh" t/single 2>"$T/err"); RC=$?
+if [ $RC -eq 0 ] && printf '%s' "$OUT" | grep -q '"rule_id":"t/single"' \
+    && printf '%s' "$OUT" | grep -q '"message":"Single-line rule: a finding under its own rule"'; then
+    pass "rf_require_any resolves an active id that is not in RULE_IDS"
+else
+    fail "rf_require_any active" "rc=$RC out=[$OUT] err=[$(cat "$T/err")]"
+fi
+"$A/probe.sh" t/retired >/dev/null 2>"$T/err"; RC=$?
+[ $RC -eq 2 ] && pass "rf_require_any refuses a retired id" || fail "rf_require_any retired" "rc=$RC"
+"$A/probe.sh" t/nope >/dev/null 2>"$T/err"; RC=$?
+[ $RC -eq 2 ] && pass "rf_require_any refuses an unknown id" || fail "rf_require_any unknown" "rc=$RC"
+NO_MARKER=1 "$A/probe.sh" t/single >/dev/null 2>"$T/err"; RC=$?
+[ $RC -eq 2 ] && grep -q "RULE_IDS_ANY_ACTIVE=1" "$T/err" \
+    && pass "rf_require_any refuses a script without the RULE_IDS_ANY_ACTIVE marker" \
+    || fail "rf_require_any marker" "rc=$RC err=[$(cat "$T/err")]"
+# rf_emit still refuses an id the run resolved neither way.
+cat > "$A/probe2.sh" <<'PROBE'
+#!/usr/bin/env bash
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="t/multi"
+  RULE_IDS_ANY_ACTIVE=1
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+rf_require_any t/single
+rf_emit '{"rule_id":"t/multi","level":"error","message":"Multi-line rule: x","rule_ref":"r"}'
+PROBE
+chmod +x "$A/probe2.sh"
+"$A/probe2.sh" >/dev/null 2>"$T/err"; RC=$?
+[ $RC -eq 2 ] && pass "rf_emit refuses an id rf_require_any did not resolve" || fail "rf_emit unresolved" "rc=$RC"
+
 # --- the real registry's shape -----------------------------------------------
 
 REG="$REPO_ROOT/references/rule-registry.json"
 n=$(jq '.rules | length' "$REG"); gates=$(jq '[.rules[] | select(.level == "gate")] | length' "$REG")
 rsn=$(jq '[.rules[] | select(.id | test("^rs-"))] | length' "$REG")
-[ "$n" = 39 ] && [ "$gates" = 21 ] && [ "$rsn" = 17 ] && pass "the registry has 39 rules: 21 gates and 17 criteria" \
+# The 14 scope document-gate rules (check-hop-document.sh) took this from 40
+# rules and 22 gates to 54 and 36.
+[ "$n" = 54 ] && [ "$gates" = 36 ] && [ "$rsn" = 17 ] && pass "the registry has 54 rules: 36 gates and 17 criteria" \
     || fail "registry shape" "n=$n gates=$gates rs=$rsn"
 
 missing=$(jq -r --slurpfile reg "$REG" '.criteria[].rule_id | select(. as $id | ($reg[0].rules | map(.id) | index($id)) == null)' \
@@ -353,8 +418,16 @@ bad=$(jq -r '.rules[] | select(.withhold != "never" and ((.guards != ["none"]) o
 
 never=$(jq -r '[.rules[] | select(.level == "gate" or .id == "rs-001" or .id == "rs-002" or .id == "rs-003" or .id == "execute/pr-takeover-needs-signal") | select(.withhold == "never")] | length' "$REG")
 eligible=$(jq -r '[.rules[] | select(.id | test("^rs-0(0[4-9]|1[0-7])$")) | select(.withhold == "eligible" and .guards == ["none"])] | length' "$REG")
-[ "$never" = 25 ] && [ "$eligible" = 14 ] && pass "gates, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-017 are eligible" \
+[ "$never" = 39 ] && [ "$eligible" = 14 ] && pass "gates but PB4, rs-001 to rs-003 and the takeover rule are never; rs-004 to rs-017 are eligible" \
     || fail "withhold marking" "never=$never eligible=$eligible"
+
+# The one gate rule eligible to withhold, through its backstop (the live
+# offload canary); every other gate rule stays never.
+gate_eligible=$(jq -r '[.rules[] | select(.level == "gate" and .withhold == "eligible") | .id] | join(",")' "$REG")
+backstop=$(jq -r '.rules[] | select(.id == "pr-body/no-heading-in-part1") | "\(.guards | join(","))|\(.backstop.before)|\(.backstop.check)"' "$REG")
+[ "$gate_eligible" = pr-body/no-heading-in-part1 ] && [ "$backstop" = "none|merge|.github/workflows/validate-pr-body.yml" ] \
+    && pass "PB4 is the one eligible gate rule, guarding none with the PR-body CI gate as its backstop" \
+    || fail "eligible gate rules" "eligible=[$gate_eligible] backstop=[$backstop]"
 
 unexplained=$(jq -r '
     (.rules | map(.baseline_keys[]) | group_by(.) | map(select(length > 1) | .[0])) as $shared

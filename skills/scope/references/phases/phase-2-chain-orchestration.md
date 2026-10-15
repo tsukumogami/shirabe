@@ -876,7 +876,9 @@ The fields:
   `^https://github\.com/<owner>/<repo>/pull/<n>$`, the same pattern
   the printed `pr=` line is held to.
 - `chain_ran:` entry names against `{brief, prd, design, plan}`.
-- `verdict:` against `{absorb, keep}` and `stage:` against
+- `verdict:` against `{absorb, keep}` (the fold state also accepts a
+  `bail` verdict, the way out when its document gate can't pass; that is
+  not a consolidation judgment and is never recorded as one) and `stage:` against
   `{preflight, judgment, carry}` — both are read back from the
   state file and drive the absorb's control flow, and `verdict:`
   decides whether a deletion happens at all, so a tampered value

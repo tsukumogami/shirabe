@@ -803,7 +803,9 @@ cat > "$(store review_level.jsonl)" <<EOF
 {$ts,"event":"veto","from":"standard","to":"full","rule":"level_fits_facts"}
 {$ts,"event":"check","level":"light","floor":"full","head":"b"}
 EOF
-printf '{"history":[{"panel":"scrutiny","round":1,"spawned":3},{"panel":"review","round":1,"spawned":3},{"panel":"scrutiny","round":2,"spawned":1}]}\n' \
+# The ledger in the shape panel-scope.sh writes now, with finding records and
+# runs beside the history; report reads only history[].spawned.
+printf '{"history":[{"panel":"scrutiny","round":1,"spawned":3},{"panel":"review","round":1,"spawned":3},{"panel":"scrutiny","round":2,"spawned":1,"runs":["r"]}],"findings":{"0123456789abcdef":{"id":"0123456789abcdef","panel":"scrutiny","severity":"blocking","records":[{"kind":"raised"}]}},"runs":{"r":{"panel":"scrutiny","rev":2,"recorded":true}},"reverified":{"scrutiny":{"rev":2,"run":"r","head":"b"}}}\n' \
     > "$(store verdict_ledger.json)"
 printf '{"overrides":{"count":3,"items":[{"gate":"level_floor"},{"gate":"level_fits_facts"},{"gate":"has_commits"}]},"state":"x"}\n' \
     > "$(store .overrides)"

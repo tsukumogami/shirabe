@@ -15,8 +15,11 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::doc::{Config, Doc, FieldEntries, ValidationError};
-use crate::features::{non_milestone_headings, parse_features, ROADMAP_V2_SCHEMA};
-use crate::formats::{detect_format, FormatId, FormatSpec, Lifetime};
+use crate::features::{non_milestone_headings, parse_features, RoadmapVersion};
+use crate::formats::{
+    detect_format, plan_v2_required_fields, plan_v2_required_sections, FormatId, FormatSpec,
+    Lifetime, PLAN_V2_SCHEMA,
+};
 use crate::gh::{is_valid_owner_or_repo, ClientError, IssueState, IssueStateClient, PrContext};
 use crate::mermaid::{extract_diagram, find_dependency_graph_block, Diagram, Issue};
 use crate::table::{parse_issue_outlines, parse_issues_table, Profile, Row, RowKind, Table};
@@ -74,8 +77,8 @@ pub const SCHEMA_SKIP_CODE: &str = "SCHEMA";
 
 /// Returns a SCHEMA `ValidationError` (to be emitted as `::notice`) if the
 /// spec doesn't accept `doc.schema` ([`FormatSpec::accepts_schema`]: its own
-/// `schema_version`, or `roadmap/v2` for the Roadmap spec). Returns `None` if
-/// it does.
+/// `schema_version`, or `roadmap/v2` and `roadmap/v3` for the Roadmap spec).
+/// Returns `None` if it does.
 ///
 /// When `doc.schema` is empty, the notice message uses the SCHEMA-MISSING
 /// shape ("schema field missing, skipping") to distinguish the missing
@@ -105,9 +108,17 @@ pub fn check_schema(doc: &Doc, spec: &FormatSpec) -> Option<ValidationError> {
 
 /// Returns a `ValidationError` for each required field missing from
 /// `doc.fields`. Line is 1 (the field is absent, no specific line).
+///
+/// A `plan/v2` document is checked against the step plan's field list
+/// (`step_count` in place of `issue_count`).
 pub fn check_fc01(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     let mut errs = Vec::new();
-    for field in &spec.required_fields {
+    let required = if spec.id == FormatId::Plan && is_plan_v2(doc) {
+        plan_v2_required_fields()
+    } else {
+        spec.required_fields.clone()
+    };
+    for field in &required {
         if !doc.fields.contains_key(field) {
             errs.push(ValidationError {
                 file: doc.path.clone(),
@@ -357,7 +368,13 @@ fn required_sections_for(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
 /// form needs the explicit field so every coordinated PLAN written before
 /// coordinated followed the tracking level keeps its table shape, and so the
 /// validator and `plan-to-tasks.sh` select the same form.
+///
+/// A `plan/v2` step plan is outline-shaped in every mode: it files no issues
+/// and carries its entries under `## Steps`.
 pub fn plan_is_outline_shaped(doc: &Doc) -> bool {
+    if is_plan_v2(doc) {
+        return true;
+    }
     let mode = doc
         .fields
         .get("execution_mode")
@@ -371,6 +388,14 @@ pub fn plan_is_outline_shaped(doc: &Doc) -> bool {
             .is_some_and(|f| f.value.trim() == "none"),
         _ => false,
     }
+}
+
+/// Whether `doc` is a `plan/v2` step plan.
+///
+/// Read from the document's own `schema`, because the Plan spec accepts both
+/// versions: every version-gated Plan rule asks this rather than the spec.
+pub fn is_plan_v2(doc: &Doc) -> bool {
+    doc.schema == PLAN_V2_SCHEMA
 }
 
 /// Whether a repo declaration is a GitHub `owner/repo`: exactly one slash,
@@ -405,8 +430,13 @@ fn is_valid_group_slug(value: &str) -> bool {
     chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '-')
 }
 
-/// The list before any contribution splice.
+/// The list before any contribution splice. A schema variant's own list
+/// (`roadmap/v3`'s `Milestones` section) stands in for the spec's.
 fn base_required_sections(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
+    // A step plan has one section list for every execution mode.
+    if spec.id == FormatId::Plan && is_plan_v2(doc) {
+        return plan_v2_required_sections();
+    }
     if let Some(map) = &spec.execution_mode_required_sections {
         if let Some(mode_field) = doc.fields.get("execution_mode") {
             // An issueless multi-pr PLAN takes the issueless section list.
@@ -422,7 +452,7 @@ fn base_required_sections(doc: &Doc, spec: &FormatSpec) -> Vec<String> {
             }
         }
     }
-    spec.required_sections.clone()
+    spec.required_sections_for(&doc.schema)
 }
 
 /// The pinned shape of a `## Status` absorption line, one per declared entry.
@@ -890,16 +920,21 @@ pub fn check_roadmap_reserved_sections(doc: &Doc, spec: &FormatSpec) -> Vec<Vali
     }
     let mut errs = Vec::new();
 
-    // Implementation Issues: prose where the canonical table belongs.
+    // Implementation Issues: prose where the canonical table belongs. The
+    // header the message quotes is the version's (`| Milestone | ...` on v3).
     if let Some(line) = section_line(doc, "Implementation Issues") {
         if parse_issues_table(doc).is_none() && section_has_prose(doc, "## Implementation Issues") {
+            let header = format!(
+                "| {} |",
+                spec.issues_table_columns_for(&doc.schema).join(" | ")
+            );
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line,
                 code: "FC16".to_string(),
-                message:
-                    "[FC16] '## Implementation Issues' holds prose but no canonical issues table; the reserved section must be the empty skeleton (marker comment + '| Feature | Issues | Dependencies | Status |' header) or a tool-populated table -- see skills/roadmap/references/roadmap-format.md"
-                        .to_string(),
+                message: format!(
+                    "[FC16] '## Implementation Issues' holds prose but no canonical issues table; the reserved section must be the empty skeleton (marker comment + '{header}' header) or a tool-populated table -- see skills/roadmap/references/roadmap-format.md"
+                ),
             });
         }
     }
@@ -932,25 +967,34 @@ const MILESTONE_STATUSES: [&str; 4] = ["Not started", "In progress", "Done", "Dr
 static CROSS_REPO_ISSUE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[0-9]+$").unwrap());
 
-/// FC21 -- the milestone shape on a `roadmap/v2` roadmap.
+/// FC21 -- the milestone shape on a `roadmap/v2` or `roadmap/v3` roadmap.
 ///
-/// A `roadmap/v2` roadmap is a milestone roadmap
-/// (`skills/roadmap/references/roadmap-format.md`, Milestone roadmaps):
-/// every item carries an Outcome, at least one Evidence clause, a Left open,
-/// a one-line Dependencies list of other milestones' tags or cross-repo
-/// issue references, and one of four Status values. FC21 reports each
-/// milestone that breaks that shape, naming it by tag and title, and each
-/// `###` line in the Features section that isn't a milestone heading, so a
-/// mistyped heading can't hide an item from the rest of the check.
+/// A `roadmap/v2` or `roadmap/v3` roadmap is a milestone roadmap
+/// (`skills/roadmap/references/roadmap-format.md`, Milestones): every item
+/// carries an Outcome, at least one Evidence clause, a Left open, a one-line
+/// Dependencies list of other milestones' tags or cross-repo issue
+/// references, and one of four Status values. FC21 reports each milestone
+/// that breaks that shape, naming it by tag and title, and each `###` line in
+/// the items section that isn't a milestone heading, so a mistyped heading
+/// can't hide an item from the rest of the check.
+///
+/// The two versions differ only in their words (`## Features` and
+/// `Feature N` on v2, `## Milestones` and `Milestone N` on v3), so the check
+/// takes them from [`RoadmapVersion`]. On v3 it also names the v2 word where
+/// an author wrote it: a `## Features` section, a `### Feature N:` heading
+/// (pointing at `### Milestone N:`) and a `Feature N` Dependencies entry
+/// (pointing at `Milestone N` when that milestone exists). v2's findings and
+/// messages are the ones it had before v3 existed.
 ///
 /// Gated on the document's schema, not the spec's: the Roadmap format
-/// accepts both `roadmap/v1` and `roadmap/v2`, and a `roadmap/v1` roadmap
-/// gets nothing from this check. Error-level (absent from
-/// `is_intrinsic_notice`).
+/// accepts `roadmap/v1` too, and a `roadmap/v1` roadmap gets nothing from
+/// this check. Error-level (absent from `is_intrinsic_notice`).
 pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.id != FormatId::Roadmap || doc.schema != ROADMAP_V2_SCHEMA {
+    let version = RoadmapVersion::of(&doc.schema);
+    if spec.id != FormatId::Roadmap || !version.is_milestone() {
         return Vec::new();
     }
+    let v3 = version == RoadmapVersion::V3;
     let finding = |line: usize, message: String| ValidationError {
         file: doc.path.clone(),
         line,
@@ -959,14 +1003,35 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
     };
     let mut errs = Vec::new();
 
+    if v3 {
+        if let Some(line) = section_line(doc, RoadmapVersion::V2.items_section()) {
+            errs.push(finding(
+                line,
+                "section '## Features' is the roadmap/v2 items section; a roadmap/v3 roadmap lists its milestones under '## Milestones', and nothing under '## Features' is read as a milestone -- see skills/roadmap/references/roadmap-format.md".to_string(),
+            ));
+        }
+    }
+
+    let classic = version.classic_word();
     let bad_headings = non_milestone_headings(doc);
     for (line, text) in &bad_headings {
-        errs.push(finding(
-            *line,
-            format!(
-                "heading '{text}' is not a milestone heading; a milestone heading is '### <tag>: <title>' with a tag like 'Feature 3' or 'AB1' -- see skills/roadmap/references/roadmap-format.md"
+        // A v3 heading written with the v2 word: name the heading to write.
+        let number = v3
+            .then(|| {
+                let rest = text.strip_prefix("### Feature ")?;
+                let digits_end = rest.find(|c: char| !c.is_ascii_digit())?;
+                (digits_end > 0 && rest[digits_end..].starts_with(':')).then(|| &rest[..digits_end])
+            })
+            .flatten();
+        let message = match number {
+            Some(n) => format!(
+                "heading '{text}' uses the roadmap/v2 word; on a roadmap/v3 roadmap '### Feature {n}:' is written '### Milestone {n}:' -- see skills/roadmap/references/roadmap-format.md"
             ),
-        ));
+            None => format!(
+                "heading '{text}' is not a milestone heading; a milestone heading is '### <tag>: <title>' with a tag like '{classic} 3' or 'AB1' -- see skills/roadmap/references/roadmap-format.md"
+            ),
+        };
+        errs.push(finding(*line, message));
     }
 
     let features = parse_features(doc);
@@ -1018,12 +1083,25 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
             if !none_alone {
                 for entry in entries {
                     let names_milestone = features.iter().any(|g| g.id != f.id && g.tag == entry);
-                    if !names_milestone && !CROSS_REPO_ISSUE_RE.is_match(entry) {
-                        errs.push(finding(
-                            at,
-                            format!("{name} names '{entry}' in Dependencies, which is no other milestone"),
-                        ));
+                    if names_milestone || CROSS_REPO_ISSUE_RE.is_match(entry) {
+                        continue;
                     }
+                    // On v3, `Feature N` for an existing `Milestone N`: the
+                    // exact tag is what an entry names, so say which one.
+                    let renamed = v3
+                        .then(|| entry.strip_prefix("Feature "))
+                        .flatten()
+                        .map(|n| format!("Milestone {n}"))
+                        .filter(|want| features.iter().any(|g| g.id != f.id && g.tag == *want));
+                    let message = match renamed {
+                        Some(want) => format!(
+                            "{name} names '{entry}' in Dependencies; on a roadmap/v3 roadmap an entry names the milestone's tag, '{want}'"
+                        ),
+                        None => format!(
+                            "{name} names '{entry}' in Dependencies, which is no other milestone"
+                        ),
+                    };
+                    errs.push(finding(at, message));
                 }
             }
         }
@@ -1059,7 +1137,8 @@ pub fn check_fc21_milestones(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationErro
 /// generic schema-mismatch message, pointing the author at the canonical
 /// three-column shape.
 pub fn check_fc05(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
     let table = match parse_issues_table(doc) {
@@ -1078,11 +1157,12 @@ pub fn check_fc05(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
         }];
     }
 
-    if table.columns == spec.issues_table_columns {
+    let columns = spec.issues_table_columns_for(&doc.schema);
+    if table.columns == columns {
         return validate_row_shape(doc, &table);
     }
 
-    let want = spec.issues_table_columns.join(" | ");
+    let want = columns.join(" | ");
     let got = table.columns.join(" | ");
     vec![ValidationError {
         file: doc.path.clone(),
@@ -1253,7 +1333,8 @@ fn validate_row_shape(doc: &Doc, table: &Table) -> Vec<ValidationError> {
 /// FC06 is a no-op when the format has no issues table or the table is
 /// absent.
 pub fn check_fc06(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
     let table = match parse_issues_table(doc) {
@@ -1837,7 +1918,8 @@ const NON_STATUS_CLASSES: &[&str] = &[
 /// per-dimension passes; a `MissingBlock` short-circuits the per-node
 /// checks.
 pub fn check_fc07(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
     let mut errs: Vec<ValidationError> = Vec::new();
@@ -2771,7 +2853,8 @@ fn extract_legend(body: &[String], fence_end_line: usize) -> Vec<String> {
 /// any external identifier, URL, env-var value, or private repo name
 /// (PRD R12 public-cleanliness).
 pub fn check_fc08(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
     let location = match find_dependency_graph_block(doc) {
@@ -2966,7 +3049,8 @@ pub fn check_fc09(
     client: &dyn IssueStateClient,
     pr_ctx: Option<&PrContext>,
 ) -> Vec<ValidationError> {
-    if spec.issues_table_columns.is_empty() {
+    // A `plan/v2` step plan has no issues table or diagram to check.
+    if spec.issues_table_columns.is_empty() || is_plan_v2(doc) {
         return Vec::new();
     }
 
@@ -3571,7 +3655,8 @@ pub fn check_plan_section_structure(doc: &Doc, spec: &FormatSpec) -> Vec<Validat
     // Focus on plan/v1 -- FC11 points at the plan profile of
     // references/issues-table.md. roadmap/v1 has its own column contract
     // handled by FC05/FC06.
-    if spec.schema_version != "plan/v1" {
+    // The Plan spec also accepts `plan/v2`, which has no table.
+    if spec.schema_version != "plan/v1" || is_plan_v2(doc) {
         return Vec::new();
     }
     // If the Implementation Issues section is absent, FC04 handles it.
@@ -3625,7 +3710,7 @@ pub fn check_plan_section_structure(doc: &Doc, spec: &FormatSpec) -> Vec<Validat
 /// FC12 is notice-level. Graceful skip when no upstream DESIGN is named in
 /// the frontmatter (the field-consistency check has no anchor without one).
 pub fn check_plan_design_field_consistency(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
-    if spec.schema_version != "plan/v1" {
+    if spec.schema_version != "plan/v1" || is_plan_v2(doc) {
         return Vec::new();
     }
     // Graceful skip: no upstream DESIGN named, nothing to reconcile.
@@ -3813,6 +3898,9 @@ pub fn check_eval_fixture_frontmatter(doc: &Doc, _spec: &FormatSpec) -> Vec<Vali
 pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     if spec.name != "Plan" {
         return Vec::new();
+    }
+    if is_plan_v2(doc) {
+        return check_fc14_steps(doc);
     }
     let mode = match doc.fields.get("execution_mode") {
         Some(f) => f.value.clone(),
@@ -4014,6 +4102,334 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     errs
 }
 
+/// FC14 on a `plan/v2` step plan: the two sub-checks that carry over.
+///
+/// Quoted document text passes through [`quote_document_text`], as FC22's
+/// does, so a hostile heading prints inert in either finding.
+///
+/// Sub-check C (dependency text that is prose rather than a reference) and
+/// sub-check F (a `###` heading under `## Steps` that opens no step) apply
+/// as they do to outlines, as notices; FC22 reports the same two defects at
+/// error level under its `dependency-format` and `step-heading` rules. The
+/// rest do not: `step_count` parity is FC22's, what a detailed or an outline
+/// step must carry belongs to FC22's step rules, and a step plan has no
+/// Implementation Issues table or Dependency Graph for the
+/// table-versus-outline exclusion to compare.
+fn check_fc14_steps(doc: &Doc) -> Vec<ValidationError> {
+    let mut errs = Vec::new();
+    let steps = parse_issue_outlines(doc);
+    for block in &steps.blocks {
+        for token in &block.unrecognized_dependency_text {
+            errs.push(ValidationError {
+                file: doc.path.clone(),
+                line: block.line,
+                code: "FC14".to_string(),
+                message: format!(
+                    "[FC14] step '{}' declares unresolved dependency '{}' (no earlier step matches; use 'None' or 'Step <N>')",
+                    quote_document_text(&block.key),
+                    quote_document_text(token)
+                ),
+            });
+        }
+    }
+    for heading in &steps.nonconforming_headings {
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: heading.line,
+            code: "FC14".to_string(),
+            message: format!(
+                "[FC14] heading '### {}' inside '## Steps' is not a '### Step <N>: <title>' step heading and opens no step (task extraction will not see it)",
+                quote_document_text(&heading.text)
+            ),
+        });
+    }
+    errs
+}
+
+/// FC22 -- the step rules of a `plan/v2` step plan.
+///
+/// Error-level (absent from `is_intrinsic_notice` and `posture_class`), and a
+/// no-op on every document that is not `plan/v2`, so no `plan/v1` output
+/// changes. One finding per violation; each names the step (where there is
+/// one) and, last, the rule it broke as `(rule: <name>)`. Text quoted from
+/// the document passes through [`quote_document_text`].
+///
+/// Rules:
+/// - `supported-mode`: `execution_mode` is not `coordinated`.
+/// - `supported-tracking`: `tracking_level` is `none` or absent. Both
+///   messages name `plan/v1` as the version for those plans, the same
+///   refusals `plan-to-tasks.sh` makes.
+/// - `issue-count`: no `issue_count` field; a step plan counts steps.
+/// - `step-count`: the frontmatter `step_count` is a whole number no greater
+///   than 999 and equal to the number of `### Step <N>:` headings under
+///   `## Steps`. The parity half is skipped when `## Steps` is absent (FC04
+///   names the missing section); an absent field is FC01's.
+/// - `step-heading`: every `###` heading under `## Steps` is a step heading
+///   (the `### Dependencies` sub-heading of a step aside). `### Issue <N>:`
+///   and `### Gate:` are `plan/v1` forms.
+/// - `step-number`: a step heading's number is 1 to 999 with no leading
+///   zero.
+/// - `step-numbering`: steps are numbered from 1 with no gap and no
+///   duplicate.
+/// - `skeleton-detailed`: step 1 is detailed.
+/// - `detailed-goal`, `detailed-criteria`, `detailed-check`,
+///   `detailed-dependencies`: a detailed step (one that declares any of
+///   `**Goal**:`, `**Acceptance Criteria**:` or `**Check**:`) carries all of
+///   a goal, at least one checkbox criterion, a non-empty check and a
+///   dependencies line.
+/// - `outline-one-line`: an outline step is its heading and exactly one
+///   non-blank line.
+/// - `detailed-prefix`: no detailed step follows an outline step.
+/// - `dependency-order`: a step depends only on earlier steps.
+/// - `dependency-format`: a dependencies value is `None` or `Step <N>`
+///   references. A well-formed `Step <N>` naming no step is FC17's, which
+///   reports it as it reports an unresolved `Issue <N>` on `plan/v1`.
+pub fn check_fc22_steps(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
+    if spec.id != FormatId::Plan || !is_plan_v2(doc) {
+        return Vec::new();
+    }
+    let mut errs = Vec::new();
+    let finding = |line: usize, message: String| ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC22".to_string(),
+        message,
+    };
+
+    if let Some(field) = doc.fields.get("execution_mode") {
+        if field.value.trim() == "coordinated" {
+            errs.push(finding(
+                field.line,
+                "[FC22] execution_mode 'coordinated' is not supported by plan/v2, which supports 'single-pr' and 'multi-pr'; a coordinated plan stays on plan/v1 (rule: supported-mode)"
+                    .to_string(),
+            ));
+        }
+    }
+    if let Some(field) = doc.fields.get("tracking_level") {
+        let value = field.value.trim();
+        if value != "none" {
+            errs.push(finding(
+                field.line,
+                format!(
+                    "[FC22] tracking_level '{}' is not supported by plan/v2, which supports only 'none'; a plan that files GitHub issues stays on plan/v1 (rule: supported-tracking)",
+                    quote_document_text(value)
+                ),
+            ));
+        }
+    }
+    if let Some(field) = doc.fields.get("issue_count") {
+        errs.push(finding(
+            field.line,
+            "[FC22] frontmatter 'issue_count' is a plan/v1 field; a step plan declares 'step_count' instead (rule: issue-count)"
+                .to_string(),
+        ));
+    }
+
+    let steps = parse_issue_outlines(doc);
+    if let Some(field) = doc.fields.get("step_count") {
+        let has_steps_section = doc.sections.iter().any(|sec| sec.name == "Steps");
+        match field.value.trim().parse::<usize>() {
+            Ok(declared) if declared > 999 => errs.push(finding(
+                field.line,
+                format!(
+                    "[FC22] frontmatter 'step_count: {}' is above 999, the most steps a plan may hold (rule: step-count)",
+                    declared
+                ),
+            )),
+            Ok(declared) if has_steps_section => {
+                let observed = steps.blocks.len();
+                if declared != observed {
+                    errs.push(finding(
+                        field.line,
+                        format!(
+                            "[FC22] frontmatter 'step_count: {}' does not match the {} '### Step <N>:' heading(s) in '## Steps' (rule: step-count)",
+                            declared, observed
+                        ),
+                    ));
+                }
+            }
+            Ok(_) => {}
+            Err(_) => errs.push(finding(
+                field.line,
+                "[FC22] frontmatter 'step_count' is not a whole number (rule: step-count)"
+                    .to_string(),
+            )),
+        }
+    }
+
+    for heading in &steps.nonconforming_headings {
+        let quoted = quote_document_text(&heading.text);
+        let message = if crate::table::is_step_heading_shaped(&heading.text) {
+            format!(
+                "[FC22] heading '### {}' has a step number outside 1 to 999 or with a leading zero (rule: step-number)",
+                quoted
+            )
+        } else {
+            format!(
+                "[FC22] heading '### {}' under '## Steps' is not a step heading; every heading there is '### Step <N>: <title>' (rule: step-heading)",
+                quoted
+            )
+        };
+        errs.push(finding(heading.line, message));
+    }
+
+    let mut seen: HashSet<u32> = HashSet::new();
+    let mut previous: Option<u32> = None;
+    for block in &steps.blocks {
+        let n = block.number;
+        if !seen.insert(n) {
+            errs.push(finding(
+                block.line,
+                format!(
+                    "[FC22] step {} is numbered twice; each step number appears once (rule: step-numbering)",
+                    n
+                ),
+            ));
+            continue;
+        }
+        let expected = previous.map_or(1, |p| p + 1);
+        if n != expected {
+            let message = match previous {
+                None => format!(
+                    "[FC22] step {} is the first step; steps are numbered from 1 with no gap (rule: step-numbering)",
+                    n
+                ),
+                Some(p) => format!(
+                    "[FC22] step {} follows step {}; steps are numbered from 1 with no gap (rule: step-numbering)",
+                    n, p
+                ),
+            };
+            errs.push(finding(block.line, message));
+        }
+        previous = Some(n);
+    }
+
+    let mut first_outline: Option<u32> = None;
+    for block in &steps.blocks {
+        let n = block.number;
+        let detailed =
+            block.goal_declared || block.acceptance_criteria_declared || block.check_declared;
+        if detailed {
+            if let Some(outline) = first_outline {
+                errs.push(finding(
+                    block.line,
+                    format!(
+                        "[FC22] step {} is detailed but follows outline step {}; detailed steps come before every outline step (rule: detailed-prefix)",
+                        n, outline
+                    ),
+                ));
+            }
+            let missing = [
+                (
+                    !block.goal_declared,
+                    "has no '**Goal**:' line",
+                    "detailed-goal",
+                ),
+                (
+                    block.acceptance_criteria.is_empty(),
+                    "has no '- [ ]' checkbox criterion under '**Acceptance Criteria**:'",
+                    "detailed-criteria",
+                ),
+                (
+                    !block.check_declared,
+                    "has no non-empty '**Check**:' line",
+                    "detailed-check",
+                ),
+                (
+                    !block.dependencies_declared,
+                    "has no '**Dependencies**:' line (use 'None' or 'Step <N>')",
+                    "detailed-dependencies",
+                ),
+            ];
+            for (is_missing, what, rule) in missing {
+                if is_missing {
+                    errs.push(finding(
+                        block.line,
+                        format!(
+                            "[FC22] step {} is detailed but {} (rule: {})",
+                            n, what, rule
+                        ),
+                    ));
+                }
+            }
+        } else {
+            if n == 1 {
+                errs.push(finding(
+                    block.line,
+                    "[FC22] step 1 is an outline; step 1 is the walking skeleton and is always detailed (rule: skeleton-detailed)"
+                        .to_string(),
+                ));
+            }
+            if block.body_lines != 1 {
+                errs.push(finding(
+                    block.line,
+                    format!(
+                        "[FC22] step {} is an outline with {} non-blank line(s); an outline step is its heading and one line naming the behaviour it will add (rule: outline-one-line)",
+                        n, block.body_lines
+                    ),
+                ));
+            }
+            first_outline.get_or_insert(n);
+        }
+
+        for &target in &block.waits_on {
+            if target >= n {
+                errs.push(finding(
+                    block.line,
+                    format!(
+                        "[FC22] step {} depends on step {}, which is not an earlier step; a step depends only on earlier steps (rule: dependency-order)",
+                        n, target
+                    ),
+                ));
+            }
+        }
+        let malformed = block
+            .unresolved_dependencies
+            .iter()
+            .filter(|t| !crate::table::is_step_reference(t))
+            .chain(block.unrecognized_dependency_text.iter());
+        for token in malformed {
+            errs.push(finding(
+                block.line,
+                format!(
+                    "[FC22] step {} has dependency text '{}', which is neither 'None' nor a 'Step <N>' reference (rule: dependency-format)",
+                    n,
+                    quote_document_text(token)
+                ),
+            ));
+        }
+        if block.dependencies_declared
+            && !block.dependencies_none
+            && block.waits_on.is_empty()
+            && block.unresolved_dependencies.is_empty()
+            && block.unrecognized_dependency_text.is_empty()
+        {
+            errs.push(finding(
+                block.line,
+                format!(
+                    "[FC22] step {} has an empty '**Dependencies**:' value (use 'None' or 'Step <N>') (rule: dependency-format)",
+                    n
+                ),
+            ));
+        }
+    }
+
+    errs
+}
+
+/// The most characters of document text an FC22 or L10 message quotes.
+const FC22_QUOTE_MAX_CHARS: usize = 80;
+
+/// Make document text safe to quote in a finding: control characters
+/// (an ANSI escape's ESC among them) are dropped and the result is cut to
+/// [`FC22_QUOTE_MAX_CHARS`] characters, counted as characters, not bytes.
+pub(crate) fn quote_document_text(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control())
+        .take(FC22_QUOTE_MAX_CHARS)
+        .collect()
+}
+
 /// FC14 Sub-check G findings for an outline-shaped coordinated PLAN.
 fn coordinated_outline_findings(
     doc: &Doc,
@@ -4116,30 +4532,50 @@ fn coordinated_outline_findings(
 /// re-derives nothing -- `parse_issue_outlines` resolves references against
 /// the numbers in the headings and hands back whatever named no sibling.
 ///
-/// Plan profile, single-pr only. A multi-pr or coordinated plan's
-/// authoritative content is the Implementation Issues table, whose dependency
-/// resolution is FC06's.
+/// Plan profile: a `plan/v1` single-pr plan, and a `plan/v2` step plan in
+/// every mode (its steps are its only work items). A `plan/v1` multi-pr or
+/// coordinated plan's authoritative content is the Implementation Issues
+/// table, whose dependency resolution is FC06's.
 pub fn check_fc17(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     if spec.name != "Plan" {
         return Vec::new();
     }
-    match doc.fields.get("execution_mode") {
-        Some(f) if f.value == "single-pr" => {}
-        // A missing execution_mode is an FC01 / FC02 concern, not FC17's.
-        _ => return Vec::new(),
+    // A `plan/v2` step plan carries its entries under `## Steps` in every
+    // supported mode, so it is checked whatever its execution_mode.
+    let steps = is_plan_v2(doc);
+    if !steps {
+        match doc.fields.get("execution_mode") {
+            Some(f) if f.value == "single-pr" => {}
+            // A missing execution_mode is an FC01 / FC02 concern, not FC17's.
+            _ => return Vec::new(),
+        }
     }
 
     let mut errs = Vec::new();
     for block in &parse_issue_outlines(doc).blocks {
         for token in &block.unresolved_dependencies {
+            // On a step plan FC17 reports a well-formed `Step <N>` that names
+            // no step. A token in another shape (`Issue 2`, `#2`) is a
+            // malformed value, which FC22's `dependency-format` reports.
+            if steps && !crate::table::is_step_reference(token) {
+                continue;
+            }
+            let message = if steps {
+                format!(
+                    "[FC17] step '{}' declares unresolved dependency '{}' (no step matches; task extraction would drop this edge -- use 'None' or 'Step <N>')",
+                    block.key, token
+                )
+            } else {
+                format!(
+                    "[FC17] outline '{}' declares unresolved dependency '{}' (no sibling outline matches; task extraction would drop this edge -- use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder)",
+                    block.key, token
+                )
+            };
             errs.push(ValidationError {
                 file: doc.path.clone(),
                 line: block.line,
                 code: "FC17".to_string(),
-                message: format!(
-                    "[FC17] outline '{}' declares unresolved dependency '{}' (no sibling outline matches; task extraction would drop this edge -- use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder)",
-                    block.key, token
-                ),
+                message,
             });
         }
     }
@@ -9804,4 +10240,258 @@ fn fc20_scans_one_file_well_under_the_budget() {
         elapsed < std::time::Duration::from_millis(250),
         "single-file check took {elapsed:?}"
     );
+}
+
+#[cfg(test)]
+mod plan_v2_tests {
+    //! The `plan/v2` step plan through the Plan spec: the version-gated
+    //! field and section lists, the checks that stand down on a plan with no
+    //! table, and FC22's step-count rule.
+
+    use super::*;
+    use crate::frontmatter::parse_doc_bytes;
+    use crate::validate::validate_file;
+
+    const MINIMAL: &str = include_str!("../tests/fixtures/PLAN-v2-minimal.md");
+
+    fn plan_spec() -> FormatSpec {
+        detect_format("PLAN-x.md").expect("plan spec")
+    }
+
+    fn run(md: &str) -> Vec<ValidationError> {
+        let doc = parse_doc_bytes("PLAN-x.md", md.as_bytes()).expect("parse");
+        validate_file(&doc, &plan_spec(), &Config::default())
+    }
+
+    fn codes(errs: &[ValidationError]) -> Vec<&str> {
+        errs.iter().map(|e| e.code.as_str()).collect()
+    }
+
+    #[test]
+    fn the_minimal_step_plan_validates_clean() {
+        let errs = run(MINIMAL);
+        assert!(errs.is_empty(), "expected no findings, got {errs:?}");
+    }
+
+    #[test]
+    fn the_minimal_step_plan_validates_clean_as_multi_pr() {
+        let errs = run(&MINIMAL.replace("execution_mode: single-pr", "execution_mode: multi-pr"));
+        assert!(errs.is_empty(), "expected no findings, got {errs:?}");
+    }
+
+    #[test]
+    fn a_step_plan_is_outline_shaped_in_every_mode() {
+        for mode in ["single-pr", "multi-pr", "coordinated"] {
+            let md = MINIMAL.replace(
+                "execution_mode: single-pr",
+                &format!("execution_mode: {mode}"),
+            );
+            let doc = parse_doc_bytes("PLAN-x.md", md.as_bytes()).expect("parse");
+            assert!(plan_is_outline_shaped(&doc), "{mode}");
+        }
+    }
+
+    #[test]
+    fn step_count_replaces_issue_count_in_the_required_fields() {
+        let errs = run(&MINIMAL.replace("step_count: 3\n", ""));
+        assert_eq!(codes(&errs), vec!["FC01"]);
+        assert!(errs[0].message.contains("\"step_count\""));
+    }
+
+    #[test]
+    fn a_missing_steps_section_is_named_by_fc04_alone() {
+        let cut = MINIMAL.find("## Steps").expect("steps section");
+        let errs = run(&MINIMAL[..cut]);
+        assert_eq!(codes(&errs), vec!["FC04"]);
+        assert!(errs[0].message.contains("'## Steps'"));
+    }
+
+    #[test]
+    fn a_step_count_mismatch_is_an_fc22_error() {
+        let errs = run(&MINIMAL.replace("step_count: 3", "step_count: 4"));
+        assert_eq!(codes(&errs), vec!["FC22"]);
+        assert!(errs[0].message.contains("step_count: 4"));
+        assert!(errs[0].message.contains("rule: step-count"));
+        assert_eq!(
+            crate::validate::effective_severity("FC22", crate::validate::ReviewPosture::Draft),
+            crate::validate::Severity::Error
+        );
+    }
+
+    #[test]
+    fn a_step_count_that_is_not_a_number_is_an_fc22_error() {
+        let errs = run(&MINIMAL.replace("step_count: 3", "step_count: three"));
+        assert_eq!(codes(&errs), vec!["FC22"]);
+    }
+
+    #[test]
+    fn fc22_is_silent_on_plan_v1() {
+        let md = "---\nschema: plan/v1\nstatus: Active\nexecution_mode: single-pr\nmilestone: \"m\"\nissue_count: 1\nstep_count: 9\n---\n\n## Steps\n";
+        let doc = parse_doc_bytes("PLAN-x.md", md.as_bytes()).expect("parse");
+        assert!(check_fc22_steps(&doc, &plan_spec()).is_empty());
+    }
+
+    #[test]
+    fn an_unresolved_step_reference_is_an_fc17_error_in_multi_pr_too() {
+        let md = MINIMAL
+            .replace("execution_mode: single-pr", "execution_mode: multi-pr")
+            .replace("**Dependencies**: Step 1", "**Dependencies**: Step 7");
+        let errs = run(&md);
+        assert_eq!(codes(&errs), vec!["FC17"]);
+        assert!(errs[0].message.contains("'Step 7'"));
+    }
+
+    #[test]
+    fn a_non_step_heading_under_steps_is_named_by_fc14() {
+        let md = MINIMAL.replace("### Step 3:", "### Issue 3:");
+        let errs = run(&md);
+        let fc14: Vec<&ValidationError> = errs.iter().filter(|e| e.code == "FC14").collect();
+        assert_eq!(fc14.len(), 1, "{errs:?}");
+        assert!(fc14[0].message.contains("'### Issue 3:"));
+        assert!(fc14[0].message.contains("'## Steps'"));
+    }
+
+    #[test]
+    fn table_and_diagram_checks_stand_down_on_a_step_plan() {
+        let md = format!(
+            "{MINIMAL}\n## Implementation Issues\n\n| Issue | Title |\n|---|---|\n| 1 | x |\n\n## Dependency Graph\n\n```mermaid\ngraph TD\n    I1\n```\n"
+        );
+        let doc = parse_doc_bytes("PLAN-x.md", md.as_bytes()).expect("parse");
+        let spec = plan_spec();
+        assert!(check_fc05(&doc, &spec).is_empty());
+        assert!(check_fc06(&doc, &spec).is_empty());
+        assert!(check_fc07(&doc, &spec).is_empty());
+        assert!(check_fc08(&doc, &spec).is_empty());
+        assert!(check_plan_section_structure(&doc, &spec).is_empty());
+        assert!(check_plan_design_field_consistency(&doc, &spec).is_empty());
+        assert!(check_fc14(&doc, &spec).is_empty());
+    }
+
+    const VALID: &str = include_str!("../tests/fixtures/PLAN-v2-valid.md");
+
+    fn fc22(md: &str) -> Vec<ValidationError> {
+        run(md).into_iter().filter(|e| e.code == "FC22").collect()
+    }
+
+    #[test]
+    fn the_valid_four_step_plan_has_no_finding() {
+        let errs = run(VALID);
+        assert!(errs.is_empty(), "expected no findings, got {errs:?}");
+    }
+
+    #[test]
+    fn tracking_level_none_passes_and_every_other_value_names_plan_v1() {
+        let with = |level: &str| {
+            VALID.replace(
+                "execution_mode: single-pr\n",
+                &format!("execution_mode: multi-pr\ntracking_level: {level}\n"),
+            )
+        };
+        assert!(run(&with("none")).is_empty());
+        for level in ["issues", "issues-and-milestone", "weekly"] {
+            let errs = fc22(&with(level));
+            assert_eq!(errs.len(), 1, "{level}: {errs:?}");
+            assert!(errs[0].message.contains("plan/v1"), "{level}");
+            assert!(errs[0].message.contains("rule: supported-tracking"));
+        }
+    }
+
+    #[test]
+    fn a_step_count_above_999_is_refused() {
+        let errs = fc22(&VALID.replace("step_count: 4", "step_count: 1000"));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("above 999"));
+        assert!(errs[0].message.contains("rule: step-count"));
+    }
+
+    #[test]
+    fn an_outline_step_with_no_line_is_refused() {
+        let line = "`greet Ada Grace` prints one greeting line per name, in the order given.\n";
+        let errs = fc22(&VALID.replace(line, ""));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0]
+            .message
+            .starts_with("[FC22] step 4 is an outline with 0"));
+        assert!(errs[0].message.contains("rule: outline-one-line"));
+    }
+
+    #[test]
+    fn a_detailed_step_without_dependencies_is_refused() {
+        let errs = fc22(&VALID.replace("**Dependencies**: Step 1\n", ""));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.starts_with("[FC22] step 2 "));
+        assert!(errs[0].message.contains("rule: detailed-dependencies"));
+    }
+
+    #[test]
+    fn an_empty_dependencies_value_is_refused() {
+        let errs = fc22(&VALID.replace("**Dependencies**: Step 1\n", "**Dependencies**:\n"));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("empty '**Dependencies**:'"));
+        assert!(errs[0].message.contains("rule: dependency-format"));
+    }
+
+    #[test]
+    fn a_step_depending_on_itself_is_refused() {
+        let errs = fc22(&VALID.replace("**Dependencies**: Step 1\n", "**Dependencies**: Step 2\n"));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("step 2 depends on step 2"));
+        assert!(errs[0].message.contains("rule: dependency-order"));
+    }
+
+    /// A malformed value is FC22's alone: FC17 on a step plan reports only a
+    /// well-formed `Step <N>` that names no step, so the same token is not
+    /// refused twice.
+    #[test]
+    fn a_plan_v1_shaped_dependency_is_fc22_not_fc17() {
+        for value in [
+            "Issue 1",
+            "#1",
+            "1",
+            "<<ISSUE:1>>",
+            "after the parser lands",
+        ] {
+            let md = VALID.replace(
+                "**Dependencies**: Step 1\n",
+                &format!("**Dependencies**: {value}\n"),
+            );
+            let errs: Vec<ValidationError> =
+                run(&md).into_iter().filter(|e| e.code != "FC14").collect();
+            assert_eq!(codes(&errs), vec!["FC22"], "{value}: {errs:?}");
+            assert!(errs[0].message.contains("rule: dependency-format"));
+        }
+    }
+
+    #[test]
+    fn quoted_document_text_is_stripped_of_control_characters_and_cut_to_80() {
+        let long = format!("\u{1b}[31m{}\u{7}", "\u{e9}".repeat(100));
+        let quoted = quote_document_text(&long);
+        assert!(!quoted.chars().any(|c| c.is_control()), "{quoted:?}");
+        assert_eq!(quoted.chars().count(), 80);
+        assert!(quoted.starts_with("[31m"));
+        assert_eq!(quote_document_text("Issue 2: short"), "Issue 2: short");
+    }
+
+    #[test]
+    fn a_malformed_dependency_value_is_quoted_sanitized() {
+        let value = format!("\u{1b}[2J{}", "x".repeat(120));
+        let md = VALID.replace(
+            "**Dependencies**: Step 1\n",
+            &format!("**Dependencies**: {value}\n"),
+        );
+        let errs = fc22(&md);
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(!errs[0].message.contains('\u{1b}'));
+        let quoted = errs[0]
+            .message
+            .split('\'')
+            .nth(1)
+            .expect("quoted dependency text");
+        assert_eq!(quoted.chars().count(), 80);
+    }
+
+    #[test]
+    fn fc22_is_selectable_with_check() {
+        assert!(crate::validate::is_known_check_code("FC22"));
+    }
 }

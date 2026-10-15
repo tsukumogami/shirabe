@@ -195,16 +195,27 @@ bt_prview() {
           files: [{path: "skills/x.sh", additions: 1, deletions: 0}]}' > "$GH_BOARD_DIR/prview-12.out"
 }
 
+# The merge confirmation's reads (board-lib.sh's bl_merge_compare): pull
+# request #12's record and the repository, then the comparison of main with
+# the merge commit. BT_MC is the merge commit unless a case names another.
+BT_MC=cccccccccccccccccccccccccccccccccccccccc
+# bt_merged <state> [head] [merge-commit]: #12's record, the head GitHub
+# merged (default $H, the verified head) and its merge commit (default
+# $BT_MC; "" for none); and the repository, whose default branch is main.
 bt_merged() {
-    jq -nc --arg s "$1" --argjson f "$2" '{state: $s, files: [$f[] | {path: ., additions: 1, deletions: 0}]}' > "$GH_BOARD_DIR/prview-12.out"
+    jq -nc --arg s "$1" --arg h "${2-$H}" --arg m "${3-$BT_MC}" \
+        '{state: $s, headRefOid: $h, mergeCommit: (if $m == "" then null else {oid: $m} end)}' > "$GH_BOARD_DIR/prview-12.out"
     echo '{"full_name":"acme/widgets","default_branch":"main"}' > "$GH_BOARD_DIR/repo.out"
 }
-bt_blob() {
-    local k="contents-$1-$(printf '%s' "$2" | sed 's#/#__#g')"
+# bt_reach <status|fail|notfound> [merge-commit]: the comparison of main with
+# the merge commit (default $BT_MC): a status (behind or identical means the
+# commit is on main), or a failed read.
+bt_reach() {
+    local k="compare-main...${2-$BT_MC}"
     rm -f "$GH_BOARD_DIR/$k.out" "$GH_BOARD_DIR/$k.err" "$GH_BOARD_DIR/$k.rc"
-    case "$3" in
-        absent) echo 'gh: Not Found (HTTP 404)' > "$GH_BOARD_DIR/$k.err"; echo 1 > "$GH_BOARD_DIR/$k.rc" ;;
+    case "$1" in
+        notfound) echo 'gh: Not Found (HTTP 404)' > "$GH_BOARD_DIR/$k.err"; echo 1 > "$GH_BOARD_DIR/$k.rc" ;;
         fail) echo 'gh: Server Error (HTTP 502)' > "$GH_BOARD_DIR/$k.err"; echo 1 > "$GH_BOARD_DIR/$k.rc" ;;
-        *) jq -nc --arg p "$2" --arg s "$3" '{type: "file", path: $p, sha: $s}' > "$GH_BOARD_DIR/$k.out" ;;
+        *) jq -nc --arg s "$1" '{status: $s}' > "$GH_BOARD_DIR/$k.out" ;;
     esac
 }

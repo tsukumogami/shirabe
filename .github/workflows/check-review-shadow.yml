@@ -10,6 +10,7 @@ on:
   pull_request:
     paths:
       - 'scripts/review-shadow/**'
+      - 'skills/work-on/scripts/panel-scope.sh'
       - '.github/workflows/check-review-shadow.yml'
 
 permissions:

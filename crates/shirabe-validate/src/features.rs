@@ -1,6 +1,7 @@
-//! Roadmap `## Features` section parser.
+//! Roadmap items-section parser.
 //!
-//! Walks a roadmap [`Doc`]'s `## Features` section and produces a
+//! Walks a roadmap [`Doc`]'s items section (`## Features`, or `## Milestones`
+//! on a `roadmap/v3` roadmap; see [`RoadmapVersion`]) and produces a
 //! [`Vec<Feature>`] suitable for downstream consumers (the binary crate's
 //! `roadmap populate` subcommand, the validator's milestone check, future
 //! tooling). The parser is total over arbitrary line input -- a missing field
@@ -19,10 +20,15 @@
 //! <one or more lines of description prose>
 //! ```
 //!
-//! A milestone roadmap (`schema: roadmap/v2`) adds `**Outcome:**`,
+//! A milestone roadmap (`schema: roadmap/v2` or `roadmap/v3`) adds `**Outcome:**`,
 //! `**Evidence:**` (one `- ` clause per line below it), `**Left open:**` and
 //! an optional `**Delivered:**`. A field's value runs from its marker to the
 //! first blank line, the next column-0 `**Name:**` line or the next heading.
+//!
+//! On a `roadmap/v3` roadmap the classic heading reads `### Milestone N:`
+//! instead, and only that word: each version reads the classic word it uses,
+//! so `### Feature 3:` is no item on v3 and `### Milestone 3:` is none on v1
+//! or v2.
 //!
 //! The heading also accepts the strategy-derived prefix form
 //! `### <PREFIX><N>: <label>` (e.g. `### ED1:`, `### SE2:`, `### AB10a:`),
@@ -45,19 +51,78 @@ use regex::Regex;
 
 use crate::doc::Doc;
 
-/// The schema value that marks a milestone roadmap.
+/// The schema value that marks a milestone roadmap whose items section is
+/// still `## Features`.
 pub const ROADMAP_V2_SCHEMA: &str = "roadmap/v2";
+
+/// The schema value of a milestone roadmap that lists its items under
+/// `## Milestones` and heads a classic item `### Milestone N:`.
+pub const ROADMAP_V3_SCHEMA: &str = "roadmap/v3";
+
+/// Which roadmap shape a document's `schema:` names.
+///
+/// v2 and v3 differ only in two words: the items section (`Features` or
+/// `Milestones`) and the classic heading word (`Feature` or `Milestone`).
+/// Every field, rule and reading is otherwise the same, so a check or a
+/// renderer asks the version for those words and for [`is_milestone`]
+/// instead of comparing the schema string. Any schema that isn't v2 or v3
+/// reads as v1, which is what every reader did before the versions existed;
+/// `shirabe validate` refuses a schema the Roadmap format doesn't accept
+/// before any roadmap check runs.
+///
+/// [`is_milestone`]: RoadmapVersion::is_milestone
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoadmapVersion {
+    V1,
+    V2,
+    V3,
+}
+
+impl RoadmapVersion {
+    /// The version a frontmatter `schema:` value names.
+    pub fn of(schema: &str) -> Self {
+        match schema {
+            ROADMAP_V2_SCHEMA => RoadmapVersion::V2,
+            ROADMAP_V3_SCHEMA => RoadmapVersion::V3,
+            _ => RoadmapVersion::V1,
+        }
+    }
+
+    /// True for a milestone roadmap (v2 or v3): the one whose items carry
+    /// Outcome, Evidence and Left open and which FC21 checks.
+    pub fn is_milestone(self) -> bool {
+        matches!(self, RoadmapVersion::V2 | RoadmapVersion::V3)
+    }
+
+    /// The name of the `##` section that lists the items.
+    pub fn items_section(self) -> &'static str {
+        match self {
+            RoadmapVersion::V3 => "Milestones",
+            RoadmapVersion::V1 | RoadmapVersion::V2 => "Features",
+        }
+    }
+
+    /// The word of the classic heading form, `### <word> <N>: <title>`, and
+    /// of the populated table's key column.
+    pub fn classic_word(self) -> &'static str {
+        match self {
+            RoadmapVersion::V3 => "Milestone",
+            RoadmapVersion::V1 | RoadmapVersion::V2 => "Feature",
+        }
+    }
+}
 
 /// One parsed feature from a roadmap's `## Features` section.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Feature {
-    /// 1-based index within the Features section (1, 2, 3, ...). The index
+    /// 1-based index within the items section (1, 2, 3, ...). The index
     /// is what [`dependency_positions`] returns and the dependency edges
     /// resolve to; `Feature 1` in a Dependencies cell means the feature
     /// tagged `Feature 1`, which is the one with `id == 1` unless headings
     /// are out of order.
     pub id: usize,
-    /// The heading's tag: the text before its colon, `Feature 3` or `AB10a`.
+    /// The heading's tag: the text before its colon, `Feature 3`,
+    /// `Milestone 3` (v3) or `AB10a`.
     pub tag: String,
     /// The full label text from the heading, after the `### Feature N: ` (or
     /// `### <PREFIX><N>: `) prefix and colon.
@@ -89,13 +154,13 @@ pub struct Feature {
     /// The `**Delivered:**` value, joined like the Outcome; `None` when absent.
     pub delivered: Option<String>,
     /// Description prose collected from the item's other lines, up to the
-    /// next `### ` heading or the end of the Features section. On a
-    /// `roadmap/v2` document it excludes every field line's extent; on any
-    /// other it is every line but the Needs, Dependencies and Status lines,
+    /// next `### ` heading or the end of the items section. On a milestone
+    /// roadmap (`roadmap/v2` or `roadmap/v3`) it excludes every field line's
+    /// extent; on any other it is every line but the Needs, Dependencies and Status lines,
     /// as it always was. Blank lines are collapsed to single spaces so the
     /// description fits on one logical line (e.g. one table cell).
     pub description: String,
-    /// 1-indexed absolute line number of the `### Feature N:` heading.
+    /// 1-indexed absolute line number of the item's heading.
     pub heading_line: usize,
 }
 
@@ -112,15 +177,17 @@ enum Field {
     Other,
 }
 
-/// Parse the `## Features` section of `doc` into an ordered list of
-/// [`Feature`]s. Returns an empty vector when the section is missing or
-/// contains no feature headings (neither `### Feature N:` nor the
-/// strategy-derived `### <PREFIX><N>:` form).
+/// Parse the items section of `doc` (`## Features`, or `## Milestones` on
+/// v3) into an ordered list of [`Feature`]s. Returns an empty vector when the
+/// section is missing or contains no item headings (neither the version's
+/// classic `### Feature N:` / `### Milestone N:` nor the strategy-derived
+/// `### <PREFIX><N>:` form).
 pub fn parse_features(doc: &Doc) -> Vec<Feature> {
-    let Some((start_idx, end_idx, _heading_line)) = find_features_section(doc) else {
+    let version = RoadmapVersion::of(&doc.schema);
+    let Some((start_idx, end_idx, _heading_line)) = find_features_section(doc, version) else {
         return Vec::new();
     };
-    let milestone = doc.schema == ROADMAP_V2_SCHEMA;
+    let milestone = version.is_milestone();
 
     let mut out: Vec<Feature> = Vec::new();
     let mut current: Option<Feature> = None;
@@ -136,7 +203,7 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
         // through without opening a new one. The Features section in a
         // canonical roadmap only carries Feature sub-headings, but the
         // parser tolerates drift without panicking.
-        if let Some((tag, label)) = parse_feature_heading(raw) {
+        if let Some((tag, label)) = parse_feature_heading(raw, version) {
             if let Some(f) = current.take() {
                 out.push(f);
             }
@@ -144,7 +211,7 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
                 id: next_id,
                 tag,
                 label,
-                heading_line: absolute_line(doc, i),
+                heading_line: absolute_line(doc, i, version),
                 ..Feature::default()
             });
             field = None;
@@ -252,18 +319,26 @@ pub fn parse_features(doc: &Doc) -> Vec<Feature> {
     out
 }
 
-/// The `###` lines in the Features section that aren't milestone headings
-/// ([`is_milestone_heading`]), as `(absolute line, heading text)` pairs.
-/// [`parse_features`] passes over such a line silently, so this is how a
-/// milestone check finds a mistyped heading that would otherwise hide an
-/// item.
+/// The `###` lines in the items section that aren't milestone headings
+/// ([`is_milestone_heading`]) for the document's version, as `(absolute line,
+/// heading text)` pairs. [`parse_features`] passes over such a line silently,
+/// so this is how a milestone check finds a mistyped heading that would
+/// otherwise hide an item.
 pub fn non_milestone_headings(doc: &Doc) -> Vec<(usize, String)> {
-    let Some((start_idx, end_idx, _)) = find_features_section(doc) else {
+    let version = RoadmapVersion::of(&doc.schema);
+    let Some((start_idx, end_idx, _)) = find_features_section(doc, version) else {
         return Vec::new();
     };
     (start_idx..end_idx)
-        .filter(|&i| doc.body[i].starts_with("### ") && !is_milestone_heading(&doc.body[i]))
-        .map(|i| (absolute_line(doc, i), doc.body[i].trim_end().to_string()))
+        .filter(|&i| {
+            doc.body[i].starts_with("### ") && !is_milestone_heading(&doc.body[i], version)
+        })
+        .map(|i| {
+            (
+                absolute_line(doc, i, version),
+                doc.body[i].trim_end().to_string(),
+            )
+        })
         .collect()
 }
 
@@ -309,13 +384,16 @@ fn split_field_line(line: &str) -> Option<(&str, &str)> {
     Some((name, rest[end + 3..].trim_start()))
 }
 
-/// Matches a `**Dependencies:**` reference to one or more features. The
-/// keyword is `Feature` or `Features` (case-insensitive), followed by a
-/// list of feature-index integers separated by commas, whitespace, or the
-/// word `and`. Cross-repo refs such as `tsukumogami/koto#65` carry no
-/// `Feature` keyword and so contribute no captures.
-static FEATURE_DEP_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\bfeatures?\s+(\d+(?:[\s,]+(?:and[\s,]+)?\d+)*)").unwrap());
+/// Matches a `**Dependencies:**` reference to one or more items. The
+/// keyword (group 1) is `Feature`, `Features`, `Milestone` or `Milestones`
+/// (case-insensitive), followed by a list (group 2) of integers separated by
+/// commas, whitespace, or the word `and`. Cross-repo refs such as
+/// `acme/widgets#65` carry no keyword and so contribute no captures.
+/// [`dependency_positions`] uses a milestone-word capture only on a
+/// `roadmap/v3` roadmap and skips it on v1 and v2.
+static FEATURE_DEP_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(features?|milestones?)\s+(\d+(?:[\s,]+(?:and[\s,]+)?\d+)*)").unwrap()
+});
 
 /// Matches a run of ASCII digits, used to pull each integer out of a
 /// [`FEATURE_DEP_RE`] number list.
@@ -333,11 +411,26 @@ static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9]+").
 ///
 /// Three spellings name a feature:
 ///
-/// - `Feature N`, `Features N, M and K` (any case), and `F<N>`, the index
-///   alias the issueless tables use: the feature whose tag is `Feature N`
-///   when one exists, else the Nth feature (an `F<N>` that is itself some
-///   feature's tag resolves as that tag instead);
+/// - `Feature N`, `Features N, M and K` (any case): the item tagged
+///   `Feature N` when one exists, else the Nth item. On a `roadmap/v3`
+///   roadmap, `Milestone N` and `Milestones N and M` (any case) read the same
+///   way with their own word, and between those two steps the capitalized
+///   word also finds the item tagged with the other word and the number
+///   exactly as written: `Feature 2` names the item tagged `Milestone 2`, so
+///   prose written before a roadmap moved from v2 to v3 keeps resolving. That
+///   step compares strings (`Feature 03` is not `Milestone 3`, and
+///   `feature 2` is not `Milestone 2`); such a reference still resolves by
+///   position;
+/// - `F<N>`, the index alias the issueless tables use: the item tagged
+///   `Feature N` (or, on v3, `Milestone N`) when one exists, else the Nth
+///   item (an `F<N>` that is itself some feature's tag resolves as that tag
+///   instead);
 /// - a whole `[A-Za-z0-9]+` token equal to a feature's tag (`AB1`, `AB10a`).
+///
+/// On v1 and v2 the milestone words name nothing. A v1 roadmap's
+/// Dependencies line is free prose that no check holds to tags, so a phrase
+/// such as `None (lands after the upstream milestone 3)` must not become an
+/// edge; v1 and v2 resolve exactly as they did before v3 existed.
 ///
 /// A number or tag that names no feature contributes nothing, and a
 /// cross-repo reference (`owner/repo#7`) never matches, so callers get only
@@ -347,23 +440,46 @@ static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[A-Za-z0-9]+").
 /// is one. An item never depends on itself, so a mention of its own tag or
 /// number (`AB7 (the review surface AB10 renders)` under `AB10`) is dropped,
 /// as the coordinator's roadmap reader drops it. (FC21, which allows only
-/// tags on a `roadmap/v2` Dependencies line, reports a self-mention there as
-/// naming no other milestone.)
-pub fn dependency_positions(deps: &str, features: &[Feature], own: Option<usize>) -> Vec<usize> {
-    // `Feature N` names the item tagged so when there is one, else the Nth.
-    let numbered = |n: usize| -> Option<usize> {
-        let tagged = format!("Feature {n}");
-        features
-            .iter()
-            .find(|f| f.tag == tagged)
-            .map(|f| f.id)
-            .or_else(|| (1..=features.len()).contains(&n).then_some(n))
-    };
+/// tags on a milestone roadmap's Dependencies line, reports a self-mention
+/// there as naming no other milestone.)
+pub fn dependency_positions(
+    deps: &str,
+    features: &[Feature],
+    own: Option<usize>,
+    version: RoadmapVersion,
+) -> Vec<usize> {
+    let v3 = version == RoadmapVersion::V3;
+    let tagged = |tag: &str| features.iter().find(|f| f.tag == tag).map(|f| f.id);
+    let positional = |n: usize| (1..=features.len()).contains(&n).then_some(n);
     let mut hits: Vec<(usize, usize)> = Vec::new();
     for cap in FEATURE_DEP_RE.captures_iter(deps) {
-        let list = cap.get(1).expect("group 1");
+        let word = cap.get(1).expect("group 1").as_str();
+        let list = cap.get(2).expect("group 2");
+        let milestone_word = word.to_ascii_lowercase().starts_with('m');
+        if milestone_word && !v3 {
+            continue;
+        }
+        let (own, other) = if milestone_word {
+            ("Milestone", "Feature")
+        } else {
+            ("Feature", "Milestone")
+        };
+        // The cross-version equivalence is a tag comparison, so it holds
+        // only for the words as a tag spells them, and only on v3.
+        let as_tag = v3 && matches!(word, "Feature" | "Features" | "Milestone" | "Milestones");
         for m in DIGITS_RE.find_iter(list.as_str()) {
-            if let Some(id) = m.as_str().parse::<usize>().ok().and_then(numbered) {
+            let digits = m.as_str();
+            let Ok(n) = digits.parse::<usize>() else {
+                continue;
+            };
+            let id = tagged(&format!("{own} {n}"))
+                .or_else(|| {
+                    as_tag
+                        .then(|| tagged(&format!("{other} {digits}")))
+                        .flatten()
+                })
+                .or_else(|| positional(n));
+            if let Some(id) = id {
                 hits.push((list.start() + m.start(), id));
             }
         }
@@ -375,7 +491,13 @@ pub fn dependency_positions(deps: &str, features: &[Feature], own: Option<usize>
             continue;
         }
         let m = cap.get(1).expect("group 1");
-        if let Some(id) = m.as_str().parse::<usize>().ok().and_then(numbered) {
+        let Ok(n) = m.as_str().parse::<usize>() else {
+            continue;
+        };
+        let id = tagged(&format!("Feature {n}"))
+            .or_else(|| v3.then(|| tagged(&format!("Milestone {n}"))).flatten())
+            .or_else(|| positional(n));
+        if let Some(id) = id {
             hits.push((m.start(), id));
         }
     }
@@ -452,21 +574,23 @@ pub fn extract_needs_label(needs_line: &str) -> Option<String> {
     None
 }
 
-/// Return the `[start, end)` body indices that bound the Features section,
-/// plus the absolute line of its `## Features` heading. `None` if the
-/// section is absent.
-fn find_features_section(doc: &Doc) -> Option<(usize, usize, usize)> {
+/// Return the `[start, end)` body indices that bound the version's items
+/// section, plus the absolute line of its `## Features` (or `## Milestones`)
+/// heading. `None` if the section is absent.
+fn find_features_section(doc: &Doc, version: RoadmapVersion) -> Option<(usize, usize, usize)> {
+    let name = version.items_section();
     let heading_line = doc
         .sections
         .iter()
-        .find(|sec| sec.name == "Features")
+        .find(|sec| sec.name == name)
         .map(|sec| sec.line)?;
+    let heading = format!("## {name}");
 
     let mut start_idx: Option<usize> = None;
     let mut end_idx = doc.body.len();
     for (i, line) in doc.body.iter().enumerate() {
         if start_idx.is_none() {
-            if line.trim_end_matches([' ', '\t']) == "## Features" {
+            if line.trim_end_matches([' ', '\t']) == heading {
                 start_idx = Some(i + 1);
             }
             continue;
@@ -488,23 +612,25 @@ fn find_features_section(doc: &Doc) -> Option<(usize, usize, usize)> {
 /// In practice the binary crate only needs `Feature.heading_line` for
 /// downstream error messages, so an off-by-frontmatter-size value would
 /// still be useful even if not strictly correct; we anchor with the
-/// Features-section heading line so the relative position is exact even if
+/// items-section heading line so the relative position is exact even if
 /// the absolute baseline drifts.
-fn absolute_line(doc: &Doc, body_idx: usize) -> usize {
-    // Find the Features section's absolute heading line.
+fn absolute_line(doc: &Doc, body_idx: usize, version: RoadmapVersion) -> usize {
+    let name = version.items_section();
+    // Find the items section's absolute heading line.
     let features_heading = doc
         .sections
         .iter()
-        .find(|s| s.name == "Features")
+        .find(|s| s.name == name)
         .map(|s| s.line)
         .unwrap_or(0);
 
-    // Locate the body index of the `## Features` line; the difference
+    // Locate the body index of the `## <items section>` line; the difference
     // (body_idx - that index) is the offset within the section, which is
     // exact regardless of the frontmatter size.
+    let heading = format!("## {name}");
     let mut features_body_idx: Option<usize> = None;
     for (i, line) in doc.body.iter().enumerate() {
-        if line.trim_end_matches([' ', '\t']) == "## Features" {
+        if line.trim_end_matches([' ', '\t']) == heading {
             features_body_idx = Some(i);
             break;
         }
@@ -513,21 +639,29 @@ fn absolute_line(doc: &Doc, body_idx: usize) -> usize {
     features_heading + body_idx.saturating_sub(features_body_idx)
 }
 
-/// Recognize a feature heading and return its label. Two forms are accepted:
+/// Recognize a feature heading and return its tag and label. Two forms are
+/// accepted:
 ///
-/// - `### Feature <N>: <label>` -- the classic numbered form.
+/// - `### Feature <N>: <label>` -- the classic numbered form, whose word is
+///   the version's [`RoadmapVersion::classic_word`]: `### Milestone <N>:` on
+///   v3, and only that word, so each version reads its own classic headings
+///   and no other.
 /// - `### <PREFIX><N>: <label>` -- the strategy-derived prefix form, where
 ///   `<PREFIX>` is a short alphabetic tag (e.g. `ED`, `SE`, `SR`, `NW`)
 ///   immediately followed by the feature number with no space between them.
 ///
 /// In both forms the returned label is everything after the colon, trimmed.
-fn parse_feature_heading(line: &str) -> Option<(String, String)> {
+fn parse_feature_heading(line: &str, version: RoadmapVersion) -> Option<(String, String)> {
     let rest = line.strip_prefix("### ")?;
 
-    // Classic form: the literal word `Feature`, a space, then `<N>: <label>`.
-    if let Some(after) = rest.strip_prefix("Feature ") {
+    // Classic form: the version's word, a space, then `<N>: <label>`.
+    let word = version.classic_word();
+    if let Some(after) = rest
+        .strip_prefix(word)
+        .and_then(|after| after.strip_prefix(' '))
+    {
         let (tag_len, label) = parse_number_colon_label(after, false)?;
-        return Some((format!("Feature {}", &after[..tag_len]), label));
+        return Some((format!("{word} {}", &after[..tag_len]), label));
     }
 
     // Prefix form: an alphabetic tag immediately followed by the number (and
@@ -573,25 +707,27 @@ fn parse_number_colon_label(s: &str, suffix: bool) -> Option<(usize, String)> {
     Some((tag_end, after_colon.trim().to_string()))
 }
 
-/// True when `line` is a milestone heading as a `roadmap/v2` roadmap requires
-/// it: a feature heading [`parse_features`] reads, with a space after the
-/// colon and a title that isn't empty. [`parse_features`] itself also takes
-/// `### AB2:Lister`; a milestone heading doesn't, because the coordinator's
-/// roadmap reader requires the space and would not see that item at all.
-pub fn is_milestone_heading(line: &str) -> bool {
-    match parse_feature_heading(line) {
+/// True when `line` is a milestone heading as a milestone roadmap of
+/// `version` requires it: a feature heading [`parse_features`] reads, with a
+/// space after the colon and a title that isn't empty. [`parse_features`]
+/// itself also takes `### AB2:Lister`; a milestone heading doesn't, because
+/// the coordinator's roadmap reader requires the space and would not see
+/// that item at all.
+pub fn is_milestone_heading(line: &str, version: RoadmapVersion) -> bool {
+    match parse_feature_heading(line, version) {
         Some((tag, label)) => !label.is_empty() && line.starts_with(&format!("### {tag}: ")),
         None => false,
     }
 }
 
-/// True when `line` is a feature heading recognized by [`parse_features`]:
-/// either the classic `### Feature <N>:` form or the strategy-derived
-/// `### <PREFIX><N>:` prefix form. `shirabe transition` uses this to count
-/// features with the same prefix grammar the parser applies, so a roadmap
-/// that activates is also one the parser can read.
-pub fn is_feature_heading(line: &str) -> bool {
-    parse_feature_heading(line).is_some()
+/// True when `line` is a feature heading recognized by [`parse_features`] on
+/// a roadmap of `version`: either the classic `### Feature <N>:` form
+/// (`### Milestone <N>:` on v3) or the strategy-derived `### <PREFIX><N>:`
+/// prefix form. `shirabe transition` uses this to count features with the
+/// same prefix grammar the parser applies, so a roadmap that activates is
+/// also one the parser can read.
+pub fn is_feature_heading(line: &str, version: RoadmapVersion) -> bool {
+    parse_feature_heading(line, version).is_some()
 }
 
 #[cfg(test)]
@@ -770,21 +906,42 @@ mod tests {
     #[test]
     fn is_feature_heading_recognizes_both_forms() {
         // Classic numbered form.
-        assert!(is_feature_heading("### Feature 1: Foundation"));
-        assert!(is_feature_heading("### Feature 12: Caching"));
+        assert!(is_feature_heading(
+            "### Feature 1: Foundation",
+            RoadmapVersion::V1
+        ));
+        assert!(is_feature_heading(
+            "### Feature 12: Caching",
+            RoadmapVersion::V1
+        ));
         // Strategy-derived prefix form (short alpha tag + number, no space).
-        assert!(is_feature_heading("### ED1: Dispatch"));
-        assert!(is_feature_heading("### SE2: Skills"));
-        assert!(is_feature_heading("### SR10: Consolidation"));
-        assert!(is_feature_heading("### NW1: Networking"));
-        assert!(is_feature_heading("### A1: Single-letter tag"));
+        assert!(is_feature_heading("### ED1: Dispatch", RoadmapVersion::V1));
+        assert!(is_feature_heading("### SE2: Skills", RoadmapVersion::V1));
+        assert!(is_feature_heading(
+            "### SR10: Consolidation",
+            RoadmapVersion::V1
+        ));
+        assert!(is_feature_heading(
+            "### NW1: Networking",
+            RoadmapVersion::V1
+        ));
+        assert!(is_feature_heading(
+            "### A1: Single-letter tag",
+            RoadmapVersion::V1
+        ));
         // Non-headings and near-misses.
-        assert!(!is_feature_heading("### Feature A")); // no number/colon
-        assert!(!is_feature_heading("### Milestone: Foo")); // no number
-        assert!(!is_feature_heading("### 1: No tag")); // no alpha prefix
-        assert!(!is_feature_heading("### ED1 Dispatch")); // no colon
-        assert!(!is_feature_heading("### Sequencing Rationale"));
-        assert!(!is_feature_heading("## Features")); // wrong heading level
+        assert!(!is_feature_heading("### Feature A", RoadmapVersion::V1)); // no number/colon
+        assert!(!is_feature_heading(
+            "### Milestone: Foo",
+            RoadmapVersion::V1
+        )); // no number
+        assert!(!is_feature_heading("### 1: No tag", RoadmapVersion::V1)); // no alpha prefix
+        assert!(!is_feature_heading("### ED1 Dispatch", RoadmapVersion::V1)); // no colon
+        assert!(!is_feature_heading(
+            "### Sequencing Rationale",
+            RoadmapVersion::V1
+        ));
+        assert!(!is_feature_heading("## Features", RoadmapVersion::V1)); // wrong heading level
     }
 
     #[test]
@@ -968,22 +1125,41 @@ mod tests {
             ("AB10a", "Rehearsal")
         );
         assert_eq!(fs[1].tag, "Feature 3");
-        assert!(is_feature_heading("### AB10a: Rehearsal"));
-        assert!(!is_feature_heading("### AB10ab: Two letters"));
+        assert!(is_feature_heading(
+            "### AB10a: Rehearsal",
+            RoadmapVersion::V1
+        ));
         assert!(!is_feature_heading(
-            "### Feature 3a: No suffix on the classic form"
+            "### AB10ab: Two letters",
+            RoadmapVersion::V1
+        ));
+        assert!(!is_feature_heading(
+            "### Feature 3a: No suffix on the classic form",
+            RoadmapVersion::V1
         ));
     }
 
     #[test]
     fn a_milestone_heading_needs_a_title() {
-        assert!(is_milestone_heading("### AB2: Registry"));
-        assert!(is_milestone_heading("### Feature 2: Registry"));
-        assert!(!is_milestone_heading("### AB2:"));
-        assert!(!is_milestone_heading("### AB2:   "));
-        assert!(!is_milestone_heading("### AB2:Lister"));
-        assert!(!is_milestone_heading("### Feature 2:Lister"));
-        assert!(!is_milestone_heading("### Stage 1 -- Runtime"));
+        assert!(is_milestone_heading(
+            "### AB2: Registry",
+            RoadmapVersion::V2
+        ));
+        assert!(is_milestone_heading(
+            "### Feature 2: Registry",
+            RoadmapVersion::V2
+        ));
+        assert!(!is_milestone_heading("### AB2:", RoadmapVersion::V2));
+        assert!(!is_milestone_heading("### AB2:   ", RoadmapVersion::V2));
+        assert!(!is_milestone_heading("### AB2:Lister", RoadmapVersion::V2));
+        assert!(!is_milestone_heading(
+            "### Feature 2:Lister",
+            RoadmapVersion::V2
+        ));
+        assert!(!is_milestone_heading(
+            "### Stage 1 -- Runtime",
+            RoadmapVersion::V2
+        ));
     }
 
     fn tagged(tags: &[&str]) -> Vec<Feature> {
@@ -1000,36 +1176,61 @@ mod tests {
     #[test]
     fn dependency_positions_resolves_every_spelling() {
         let classic = tagged(&["Feature 1", "Feature 2", "Feature 3"]);
-        assert_eq!(dependency_positions("Feature 2", &classic, None), vec![2]);
         assert_eq!(
-            dependency_positions("Features 1, 2 and 3", &classic, None),
+            dependency_positions("Feature 2", &classic, None, RoadmapVersion::V1),
+            vec![2]
+        );
+        assert_eq!(
+            dependency_positions("Features 1, 2 and 3", &classic, None, RoadmapVersion::V1),
             vec![1, 2, 3]
         );
-        assert_eq!(dependency_positions("F2", &classic, None), vec![2]);
         assert_eq!(
-            dependency_positions("None", &classic, None),
+            dependency_positions("F2", &classic, None, RoadmapVersion::V1),
+            vec![2]
+        );
+        assert_eq!(
+            dependency_positions("None", &classic, None, RoadmapVersion::V1),
             Vec::<usize>::new()
         );
         assert_eq!(
-            dependency_positions("Feature 3, Feature 3, Feature 1", &classic, None),
+            dependency_positions(
+                "Feature 3, Feature 3, Feature 1",
+                &classic,
+                None,
+                RoadmapVersion::V1
+            ),
             vec![3, 1]
         );
 
         let prefixed = tagged(&["AB1", "AB2", "AB10a"]);
-        assert_eq!(dependency_positions("AB1", &prefixed, None), vec![1]);
         assert_eq!(
-            dependency_positions("AB10a, AB1", &prefixed, None),
+            dependency_positions("AB1", &prefixed, None, RoadmapVersion::V1),
+            vec![1]
+        );
+        assert_eq!(
+            dependency_positions("AB10a, AB1", &prefixed, None, RoadmapVersion::V1),
             vec![3, 1]
         );
         // `Feature N` on a prefixed roadmap is the Nth item.
-        assert_eq!(dependency_positions("Feature 2", &prefixed, None), vec![2]);
+        assert_eq!(
+            dependency_positions("Feature 2", &prefixed, None, RoadmapVersion::V1),
+            vec![2]
+        );
         // Unknown tags, out-of-range numbers and cross-repo refs name nothing.
         assert_eq!(
-            dependency_positions("ZZ9, Feature 9, owner/repo#7", &prefixed, None),
+            dependency_positions(
+                "ZZ9, Feature 9, owner/repo#7",
+                &prefixed,
+                None,
+                RoadmapVersion::V1
+            ),
             Vec::<usize>::new()
         );
         // `AB1` inside `AB10a` is not a whole token.
-        assert_eq!(dependency_positions("AB10a", &prefixed, None), vec![3]);
+        assert_eq!(
+            dependency_positions("AB10a", &prefixed, None, RoadmapVersion::V1),
+            vec![3]
+        );
     }
 
     #[test]
@@ -1037,10 +1238,22 @@ mod tests {
         // A roadmap whose second item is tagged `Feature 1` (headings out of
         // order): the tag wins over the position.
         let fs = tagged(&["Feature 2", "Feature 1"]);
-        assert_eq!(dependency_positions("Feature 1", &fs, None), vec![2]);
-        assert_eq!(dependency_positions("Feature 2", &fs, None), vec![1]);
-        assert_eq!(dependency_positions("F2", &fs, None), vec![1]);
-        assert_eq!(dependency_positions("F1", &fs, None), vec![2]);
+        assert_eq!(
+            dependency_positions("Feature 1", &fs, None, RoadmapVersion::V1),
+            vec![2]
+        );
+        assert_eq!(
+            dependency_positions("Feature 2", &fs, None, RoadmapVersion::V1),
+            vec![1]
+        );
+        assert_eq!(
+            dependency_positions("F2", &fs, None, RoadmapVersion::V1),
+            vec![1]
+        );
+        assert_eq!(
+            dependency_positions("F1", &fs, None, RoadmapVersion::V1),
+            vec![2]
+        );
     }
 
     #[test]
@@ -1049,16 +1262,21 @@ mod tests {
         let prefixed = tagged(&["AB7", "AB8", "AB9", "AB10"]);
         let deps = "AB7 (the review surface AB10 renders); AB8 + AB9";
         assert_eq!(
-            dependency_positions(deps, &prefixed, Some(4)),
+            dependency_positions(deps, &prefixed, Some(4), RoadmapVersion::V1),
             vec![1, 2, 3]
         );
         assert_eq!(
-            dependency_positions(deps, &prefixed, None),
+            dependency_positions(deps, &prefixed, None, RoadmapVersion::V1),
             vec![1, 4, 2, 3]
         );
         let classic = tagged(&["Feature 1", "Feature 2"]);
         assert_eq!(
-            dependency_positions("Feature 1 (unlike Feature 2 or F2)", &classic, Some(2)),
+            dependency_positions(
+                "Feature 1 (unlike Feature 2 or F2)",
+                &classic,
+                Some(2),
+                RoadmapVersion::V1
+            ),
             vec![1]
         );
     }
@@ -1066,7 +1284,10 @@ mod tests {
     #[test]
     fn a_tag_spelled_like_the_index_alias_resolves_as_the_tag() {
         let fs = tagged(&["F2", "F1"]);
-        assert_eq!(dependency_positions("F2", &fs, None), vec![1]);
+        assert_eq!(
+            dependency_positions("F2", &fs, None, RoadmapVersion::V1),
+            vec![1]
+        );
     }
 
     #[test]
@@ -1081,5 +1302,137 @@ mod tests {
         let doc = with_schema(make_doc(body, vec![("Features", 1)]), ROADMAP_V2_SCHEMA);
         let f = &parse_features(&doc)[0];
         assert_eq!(f.evidence.as_deref(), Some(&["Real.".to_string()][..]));
+    }
+
+    #[test]
+    fn the_version_names_the_section_and_the_classic_word() {
+        assert_eq!(RoadmapVersion::of("roadmap/v1"), RoadmapVersion::V1);
+        assert_eq!(RoadmapVersion::of(""), RoadmapVersion::V1);
+        assert_eq!(RoadmapVersion::of(ROADMAP_V2_SCHEMA), RoadmapVersion::V2);
+        assert_eq!(RoadmapVersion::of(ROADMAP_V3_SCHEMA), RoadmapVersion::V3);
+        assert!(!RoadmapVersion::V1.is_milestone());
+        assert!(RoadmapVersion::V2.is_milestone());
+        assert!(RoadmapVersion::V3.is_milestone());
+        assert_eq!(RoadmapVersion::V2.items_section(), "Features");
+        assert_eq!(RoadmapVersion::V3.items_section(), "Milestones");
+        assert_eq!(RoadmapVersion::V2.classic_word(), "Feature");
+        assert_eq!(RoadmapVersion::V3.classic_word(), "Milestone");
+    }
+
+    #[test]
+    fn each_version_reads_only_its_own_classic_word() {
+        let v3 = RoadmapVersion::V3;
+        assert!(is_milestone_heading("### Milestone 3: Registry", v3));
+        assert!(is_milestone_heading("### AB1: Loader", v3));
+        assert!(!is_feature_heading("### Feature 3: Registry", v3));
+        assert!(!is_feature_heading("### Milestone 3a: Suffix", v3));
+        assert!(!is_feature_heading("### milestone 3: Lowercase", v3));
+        assert!(!is_feature_heading("### Milestone: No number", v3));
+        assert!(!is_feature_heading("### Milestones 3: Plural", v3));
+        assert!(!is_feature_heading(
+            "### Milestone 3: Registry",
+            RoadmapVersion::V2
+        ));
+        assert!(!is_feature_heading(
+            "### Milestone 3: Registry",
+            RoadmapVersion::V1
+        ));
+    }
+
+    #[test]
+    fn a_v3_roadmap_lists_its_items_under_milestones() {
+        let body = vec![
+            "## Features",
+            "### Milestone 9: In the wrong section",
+            "## Milestones",
+            "### Milestone 1: Loader",
+            "**Outcome:** Loads.",
+            "### Feature 2: The v2 word",
+            "### AB3: Registry",
+            "**Dependencies:** Milestone 1",
+        ];
+        let doc = with_schema(
+            make_doc(body, vec![("Features", 10), ("Milestones", 12)]),
+            ROADMAP_V3_SCHEMA,
+        );
+        let fs = parse_features(&doc);
+        let tags: Vec<&str> = fs.iter().map(|f| f.tag.as_str()).collect();
+        assert_eq!(tags, vec!["Milestone 1", "AB3"]);
+        assert_eq!(fs[0].heading_line, 13);
+        assert_eq!(fs[0].outcome.as_deref(), Some("Loads."));
+        // The stray v2 heading is reported, not read.
+        assert_eq!(
+            non_milestone_headings(&doc),
+            vec![(15, "### Feature 2: The v2 word".to_string())]
+        );
+
+        // The same body read as v2 sees only the Features section.
+        let v2 = with_schema(doc.clone(), ROADMAP_V2_SCHEMA);
+        let fs = parse_features(&v2);
+        assert!(fs.is_empty());
+        assert_eq!(
+            non_milestone_headings(&v2),
+            vec![(11, "### Milestone 9: In the wrong section".to_string())]
+        );
+    }
+
+    #[test]
+    fn feature_n_and_milestone_n_name_the_item_tagged_either_way_on_v3() {
+        let v3v = RoadmapVersion::V3;
+        // Out of order on purpose, so a tag match and a position differ.
+        let v3 = tagged(&["Milestone 2", "Milestone 1", "Milestone 3"]);
+        assert_eq!(dependency_positions("Milestone 2", &v3, None, v3v), vec![1]);
+        // Prose written before the roadmap moved from v2 keeps resolving.
+        assert_eq!(dependency_positions("Feature 2", &v3, None, v3v), vec![1]);
+        assert_eq!(
+            dependency_positions("Features 1 and 2", &v3, None, v3v),
+            vec![2, 1]
+        );
+        // Neither the leading zero nor the lowercase word is the tag: each
+        // falls back to the position, as `Feature N` always has.
+        assert_eq!(dependency_positions("Feature 02", &v3, None, v3v), vec![2]);
+        assert_eq!(dependency_positions("feature 2", &v3, None, v3v), vec![2]);
+        // On v3 the milestone word is the classic one, matched like `Feature`
+        // is: numerically and in any case.
+        assert_eq!(
+            dependency_positions("milestone 02", &v3, None, v3v),
+            vec![1]
+        );
+        assert_eq!(dependency_positions("F2", &v3, None, v3v), vec![1]);
+        assert_eq!(
+            dependency_positions("Feature 9, owner/repo#7", &v3, None, v3v),
+            Vec::<usize>::new()
+        );
+        // An item never depends on itself, by either word.
+        assert_eq!(
+            dependency_positions("Feature 2, Milestone 1", &v3, Some(1), v3v),
+            vec![2]
+        );
+    }
+
+    #[test]
+    fn the_milestone_word_names_nothing_on_v1_and_v2() {
+        // A v1 Dependencies line is free prose: a milestone of some other
+        // project is not an edge, and v2 reads the same way.
+        let fs = tagged(&["Feature 2", "Feature 1", "Feature 3"]);
+        for version in [RoadmapVersion::V1, RoadmapVersion::V2] {
+            for deps in [
+                "None (lands after the upstream milestone 3)",
+                "Milestone 2",
+                "Milestones 1 and 2",
+            ] {
+                assert_eq!(
+                    dependency_positions(deps, &fs, None, version),
+                    Vec::<usize>::new(),
+                    "{deps:?} on {version:?}"
+                );
+            }
+            // `Feature N` and `F<N>` resolve exactly as before v3.
+            assert_eq!(
+                dependency_positions("Feature 2", &fs, None, version),
+                vec![1]
+            );
+            assert_eq!(dependency_positions("F3", &fs, None, version), vec![3]);
+        }
     }
 }

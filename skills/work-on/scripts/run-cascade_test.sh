@@ -3315,6 +3315,294 @@ EOF
 }
 
 
+# ── Other schemas: only roadmap/v1 or no schema is edited ─────────────────────
+#
+# The guard is an allow-list. A roadmap/v3 milestone roadmap is left alone
+# exactly as a v2 one is (Scenario 35, the same shape as Scenario 33), and so
+# is a schema the cascade doesn't know yet (Scenario 36's `roadmap/v4`). The
+# schema value is read after its carriage return and quotes are stripped, so
+# a CRLF `roadmap/v3` line still reads v3 and a CRLF `roadmap/v1` line still
+# reads v1, and a `schema:` line whose value is empty is no schema: a feature
+# roadmap, as before the line existed.
+
+# The detail the step carries for a schema that is neither a milestone roadmap
+# nor roadmap/v1.
+OTHER_SCHEMA_STEP_DETAIL="roadmap schema is not roadmap/v1; only a feature roadmap is edited here"
+
+# Write a roadmap/v3 fixture with two milestones at <status>, and a
+# `**Downstream:**` line naming <downstream> under the first. One classic
+# `Milestone <N>` heading and one prefix tag, as /roadmap writes them.
+# Usage: write_roadmap_v3 <path> <status> <downstream>
+write_roadmap_v3() {
+    local path="$1"
+    local status="$2"
+    local downstream="$3"
+    mkdir -p "$(dirname "$path")"
+    cat > "$path" <<EOF
+---
+schema: roadmap/v3
+status: Active
+theme: |
+  Milestone roadmap fixture for cascade validation.
+scope: |
+  Cascade tests only.
+---
+
+# ROADMAP: Cascade Milestones
+
+## Status
+
+Active
+
+## Theme
+
+Milestone roadmap fixture for cascade validation.
+
+## Milestones
+
+### Milestone 1: the cascade leaves this alone
+
+**Outcome:** A maintainer finishes a PLAN under a v3 milestone roadmap.
+
+**Evidence:**
+- A reviewer runs the cascade and sees the roadmap unchanged.
+
+**Left open:** None
+
+**Dependencies:** None
+**Status:** $status
+**Downstream:** $downstream
+
+### AB2: a second milestone
+
+**Outcome:** A second milestone exists.
+
+**Evidence:**
+- A reviewer reads two milestones.
+
+**Left open:** None
+
+**Dependencies:** Milestone 1
+**Status:** $status
+EOF
+}
+
+scenario_roadmap_v3_all_done_not_deleted() {
+    local scenario="Scenario 35: --push neither transitions nor deletes a roadmap/v3 ROADMAP whose milestones all read Done"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    local roadmap="docs/roadmaps/ROADMAP-cascade-milestones.md"
+    write_roadmap_v3 "$repo/$roadmap" "Done" "PLAN-milestone-done.md"
+    write_plan "$repo/docs/plans/PLAN-milestone-done.md" "$roadmap"
+
+    commit_and_push_all
+
+    local blob_before
+    blob_before=$(git hash-object "$roadmap")
+
+    local rc_file="$tmpdir/rc"
+    local output
+    output=$(run_cascade_rc "$rc_file" "docs/plans/PLAN-milestone-done.md" --push)
+    local rc
+    rc=$(cat "$rc_file")
+
+    local ok=true
+
+    assert_shell "$scenario" "$([[ "$rc" == "0" ]] && echo true || echo false)" \
+        "the script exits 0" "rc=$rc" || ok=false
+
+    # The same one step a v2 roadmap gets: a v3 roadmap is a milestone roadmap.
+    assert_v2_roadmap_skipped "$scenario" "$output" "$roadmap" || ok=false
+
+    local tracked=false
+    git ls-files --error-unmatch "$roadmap" > /dev/null 2>&1 && tracked=true
+    assert_shell "$scenario" "$tracked" "the ROADMAP is still tracked" || ok=false
+
+    local in_head=false
+    git cat-file -e "HEAD:$roadmap" 2>/dev/null && in_head=true
+    assert_shell "$scenario" "$in_head" "the ROADMAP is in the finalization commit's tree" || ok=false
+
+    local porcelain
+    porcelain=$(git status --porcelain -- "$roadmap")
+    assert_shell "$scenario" "$([[ -z "$porcelain" ]] && echo true || echo false)" \
+        "no deletion or edit is staged for the ROADMAP" "status: '$porcelain'" || ok=false
+
+    local blob_after=""
+    [[ -f "$roadmap" ]] && blob_after=$(git hash-object "$roadmap")
+    assert_shell "$scenario" "$([[ "$blob_after" == "$blob_before" ]] && echo true || echo false)" \
+        "the ROADMAP is byte-for-byte unchanged" "$blob_before -> $blob_after" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
+# One dry run per schema line shape, each in its own repo, every fixture with a
+# Downstream line naming the plan so the feature path would write Done:
+#
+#   crlf-v3      `schema: roadmap/v3` + CR    -> left alone, the milestone step
+#   quoted-v3    `schema: "roadmap/v3"`       -> left alone, the milestone step
+#   v4           `schema: roadmap/v4`         -> left alone, the other-schema step
+#   crlf-v1      `schema: roadmap/v1` + CR    -> the feature path (Done written)
+#   empty        `schema:`                    -> the feature path
+#   empty-quoted `schema: ""` + CR            -> the feature path
+scenario_roadmap_schema_line_shapes() {
+    local scenario="Scenario 36: the schema line decides the roadmap path after CR and quote stripping"
+    echo "Running $scenario..."
+
+    local ok=true
+    local shape
+    for shape in crlf-v3 quoted-v3 v4 crlf-v1 empty empty-quoted; do
+        local tmpdir
+        tmpdir=$(mktemp -d)
+        local repo="$tmpdir/repo"
+        setup_test_repo "$repo"
+
+        local schema_line expect
+        case "$shape" in
+            crlf-v3) schema_line=$'schema: roadmap/v3\r'; expect=milestone ;;
+            quoted-v3) schema_line='schema: "roadmap/v3"'; expect=milestone ;;
+            v4) schema_line='schema: roadmap/v4'; expect=other ;;
+            crlf-v1) schema_line=$'schema: roadmap/v1\r'; expect=feature ;;
+            empty) schema_line='schema:'; expect=feature ;;
+            empty-quoted) schema_line=$'schema: ""\r'; expect=feature ;;
+        esac
+
+        local roadmap="docs/roadmaps/ROADMAP-cascade-test.md"
+        mkdir -p "$repo/docs/roadmaps"
+        {
+            printf -- '---\n%s\nstatus: Active\n---\n\n' "$schema_line"
+            cat <<'EOF'
+# ROADMAP: Cascade Test
+
+## Features
+
+### Feature 1: Planned Against
+
+**Status:** Planned
+**Downstream:** PLAN-shapes.md
+
+### Feature 2: Still Planned
+
+**Status:** Planned
+EOF
+        } > "$repo/$roadmap"
+        write_plan "$repo/docs/plans/PLAN-shapes.md" "$roadmap"
+        commit_all
+
+        local blob_before
+        blob_before=$(git hash-object "$roadmap")
+
+        local output
+        output=$(run_cascade "docs/plans/PLAN-shapes.md")
+
+        local blob_after
+        blob_after=$(git hash-object "$roadmap")
+        local feature_status
+        feature_status=$(awk '/^### Feature 1:/ { f = 1; next } f && /^\*\*Status:\*\*/ { print; exit }' "$roadmap")
+
+        if [[ "$expect" == "feature" ]]; then
+            assert_json "$scenario [$shape]" "$output" \
+                '[.steps[] | select(.action == "update_roadmap_feature")] | length == 1 and .[0].status == "ok" and .[0].detail == null' \
+                "the feature path ran: one update_roadmap_feature step, ok" || ok=false
+            assert_shell "$scenario [$shape]" "$([[ "$feature_status" == "**Status:** Done" ]] && echo true || echo false)" \
+                "Feature 1's Status was written Done" "$feature_status" || ok=false
+        else
+            local detail="$V2_ROADMAP_STEP_DETAIL"
+            [[ "$expect" == "other" ]] && detail="$OTHER_SCHEMA_STEP_DETAIL"
+            assert_json "$scenario [$shape]" "$output" \
+                "[.steps[] | select(.action == \"update_roadmap_feature\")] == [{\"action\":\"update_roadmap_feature\",\"target\":\"$roadmap\",\"found_in\":null,\"status\":\"skipped\",\"detail\":\"$detail\"}]" \
+                "exactly one update_roadmap_feature step, skipped, with the $expect detail" || ok=false
+            assert_json "$scenario [$shape]" "$output" \
+                '[.steps[] | select(.action == "delete_roadmap")] | length == 0' \
+                "no delete_roadmap step" || ok=false
+            assert_shell "$scenario [$shape]" "$([[ "$blob_after" == "$blob_before" ]] && echo true || echo false)" \
+                "the ROADMAP is byte-for-byte unchanged" "$blob_before -> $blob_after" || ok=false
+            local staged
+            staged=$(git diff --cached --name-only -- "$roadmap")
+            assert_shell "$scenario [$shape]" "$([[ -z "$staged" ]] && echo true || echo false)" \
+                "nothing is staged for the ROADMAP" "staged: '$staged'" || ok=false
+        fi
+
+        rm -rf "$tmpdir"
+        cd "$SCRIPT_DIR"
+    done
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+}
+
+# ── plan/v2: an outline step stops the cascade until it is detailed ───────────
+# The fixture chains live with the validator's tests, so the cascade and the
+# L10 check read the same documents. lifecycle-outline-step has steps 1 and 2
+# detailed and step 3 a one-line outline; lifecycle-all-detailed is the same
+# PLAN after its owner detailed step 3 and ticked its criteria. Both use the
+# real binary, so the stop comes from the validator's own finding.
+PLAN_V2_CASES="$REPO_ROOT/crates/shirabe-validate/tests/fixtures/plan-v2"
+
+scenario_plan_v2_outline_step_stops() {
+    local scenario="plan/v2: an outline step stops the cascade, its detail lets it run"
+    echo "Running $scenario..."
+
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local repo="$tmpdir/repo"
+    setup_test_repo "$repo"
+
+    mkdir -p docs/designs docs/plans
+    cp "$PLAN_V2_CASES/lifecycle-outline-step/docs/designs/DESIGN-greeting.md" docs/designs/
+    cp "$PLAN_V2_CASES/lifecycle-outline-step/docs/plans/PLAN-greeting.md" docs/plans/
+    commit_all
+
+    local plan="docs/plans/PLAN-greeting.md"
+    local output
+    output=$(run_cascade "$plan")
+
+    local ok=true
+
+    assert_json "$scenario" "$output" '.cascade_status == "partial"' \
+        "outline step: cascade_status is partial" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe" and .status == "failed")] | length == 1' \
+        "outline step: lifecycle_pre_probe failed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe")][0].detail | (contains("[L10]") and contains("Step 3"))' \
+        "outline step: the detail names L10 and Step 3" || ok=false
+    assert_json "$scenario" "$output" '[.steps[] | select(.action != "lifecycle_pre_probe")] | length == 0' \
+        "outline step: nothing past the probe ran" || ok=false
+    assert_shell "$scenario" "$([[ -f "$plan" ]] && echo true)" \
+        "outline step: the plan is not deleted" || ok=false
+    assert_shell "$scenario" "$([[ -z "$(git status --porcelain)" ]] && echo true)" \
+        "outline step: the working tree is untouched" "$(git status --porcelain)" || ok=false
+
+    # The owner details step 3 and ticks its criteria; the same cascade runs.
+    cp "$PLAN_V2_CASES/lifecycle-all-detailed/docs/plans/PLAN-greeting.md" docs/plans/
+    commit_all
+    output=$(run_cascade "$plan")
+
+    assert_json "$scenario" "$output" '.cascade_status == "completed"' \
+        "detailed: cascade_status is completed" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "lifecycle_pre_probe" and .status == "ok")] | length == 1' \
+        "detailed: lifecycle_pre_probe ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_plan" and .status == "ok")] | length == 1' \
+        "detailed: delete_plan ok" || ok=false
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design" and .status == "ok")] | length == 1' \
+        "detailed: transition_design ok" || ok=false
+
+    [[ "$ok" == "true" ]] && pass "$scenario" || true
+
+    rm -rf "$tmpdir"
+    cd "$SCRIPT_DIR"
+}
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 # Check prerequisites
@@ -3451,10 +3739,19 @@ cd "$ORIG_DIR"
 scenario_roadmap_unreadable_frontmatter_is_feature
 cd "$ORIG_DIR"
 
+scenario_roadmap_v3_all_done_not_deleted
+cd "$ORIG_DIR"
+
+scenario_roadmap_schema_line_shapes
+cd "$ORIG_DIR"
+
 scenario_push_session_records_expected_head
 cd "$ORIG_DIR"
 
 scenario_session_records_cascade_result
+cd "$ORIG_DIR"
+
+scenario_plan_v2_outline_step_stops
 cd "$ORIG_DIR"
 
 echo ""

@@ -22,14 +22,11 @@
 # and exactly one `claude rm <job>`, confirms both listings, and leaves the
 # transcript where it was; with the row removed, `destroyed` passes
 # teardown_confirm to record. A second pass on the same verdict refuses and
-# removes nothing. teardown_handoff refuses, and nothing is removed, when the
-# pull request isn't merged, when the handoff is missing, on another unit's
-# pull request or gone, when the job is still working or in a state not
-# known to be finished (a missing state included), when two jobs ran in the
-# instance, and when niwa's name for the instance isn't a plain name. The
-# pass refuses a key seal that isn't the verdict's, a pull request no longer
-# merged, unique material since the inventory, and a job whose state since
-# the verdict went missing, became unknown, or that left the listing; it
+# removes nothing. teardown_handoff refuses to surface, nothing removed and
+# teardown_topic cleared, when the pull request isn't merged (the seal's other
+# refusals are teardown-handoff_test.sh's). The pass refuses a key seal that
+# isn't the verdict's, a pull request no longer merged, unique material
+# since the inventory, and a job whose state since the verdict went missing, became unknown, or that left the listing; it
 # reports incomplete when the removal fails after the destroy; and
 # teardown_confirm refuses a `destroyed` no pass backs. The verdict carries
 # niwa's dispatch id (`invalid` outside its shape) and the pass writes it into
@@ -374,6 +371,9 @@ eq  "leaving the teardown clears teardown_topic" "" "$(ctx teardown_topic)"
 has "teardown_confirm says why" "$(ctx coord/teardown_confirm.json)" "the archive is whole"
 
 # --- refusals before anything is removed --------------------------------------------------------------
+#
+# One refusal proves the refused arm; teardown-handoff_test.sh holds the rest
+# of the seal's refusals.
 
 fixture
 printf '[]\n' >"$ST/merged-feat_w5.json"
@@ -382,6 +382,7 @@ stopped
 eq  "an unmerged pull request: teardown_handoff refuses to surface" surface "$(at)"
 has "and the verdict says why" "$(ctx teardown_handoff)" "is merged"
 nothing_removed "an unmerged pull request"
+eq  "and teardown_topic is cleared" "" "$(ctx teardown_topic)"
 
 # A root the user set up keeps its mode, and an owner in another case is
 # still the holding's own.
@@ -395,76 +396,6 @@ eq  "an owner login in another case is the holding's own" destroy "$(at)"
 KSEAL=$(handover | sed -n 's/^keyseal //p')
 eq  "a pass into a root the user set up is done" 0 "$( (cd "$W" && TEARDOWN_ARCHIVE_DIR="$SHARED_ROOT" bash "$S/teardown-pass.sh" run --session "$SESS" --keyseal "$KSEAL" >"$T/pass.out" 2>&1); echo $?)"
 eq  "that root keeps its mode" drwxr-xr-x "$(mode "$SHARED_ROOT")"
-
-fixture
-printf '[{"number":601,"mergeCommit":{"oid":"%s"},"headRepositoryOwner":{"login":"someone"}}]\n' "$MERGE" >"$ST/merged-feat_w5.json"
-start
-stopped
-eq  "a merged pull request from a fork's branch of the same name: refused" surface "$(at)"
-nothing_removed "a merged pull request from a fork's branch of the same name"
-eq  "and teardown_topic is cleared" "" "$(ctx teardown_topic)"
-
-fixture
-start
-tick --with-data '{"teardown":"stopped"}'
-eq  "no handoff link: refused to surface" surface "$(at)"
-has "and the verdict says why" "$(ctx teardown_handoff)" "no handoff link"
-nothing_removed "no handoff link"
-
-fixture
-start
-stopped "https://github.com/acme/widgets/pull/599#issuecomment-1002"
-eq  "a handoff on another unit's pull request: refused" surface "$(at)"
-has "and the verdict says why" "$(ctx teardown_handoff)" "neither a merged pull request of the unit nor its issue"
-nothing_removed "a handoff on another unit's pull request"
-
-fixture
-start
-stopped "https://github.com/acme/widgets/pull/600#issuecomment-9999"
-eq  "a handoff comment that doesn't exist: refused" surface "$(at)"
-has "and the verdict says why" "$(ctx teardown_handoff)" "doesn't exist"
-nothing_removed "a handoff comment that doesn't exist"
-
-fixture working
-start
-stopped
-eq  "a job still working: refused" surface "$(at)"
-has "and the verdict says why" "$(ctx teardown_handoff)" "still working"
-nothing_removed "a job still working"
-
-fixture
-jq -c '. + [.[0] | .id = "9c9c9c9c" | .sessionId = "9c9c9c9c-0000-4000-8000-00000000"]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
-start
-stopped
-eq  "two jobs in the instance: refused" surface "$(at)"
-has "and the reason names both" "$(ctx teardown_handoff)" "$JOB, 9c9c9c9c"
-nothing_removed "two jobs in the instance"
-
-# Only a state known to be finished passes: a missing state, or one the
-# script doesn't know, is treated as possibly running.
-for st in missing waiting; do
-    fixture
-    if [ "$st" = missing ]; then
-        jq -c '[.[] | del(.state)]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
-    else
-        jq -c --arg s "$st" '[.[] | .state = $s]' "$ST/agents.json" >"$ST/a.tmp" && mv "$ST/a.tmp" "$ST/agents.json"
-    fi
-    start
-    stopped
-    eq  "a job whose state is $st: refused" surface "$(at)"
-    has "and the verdict says why" "$(ctx teardown_handoff)" "isn't known to be finished"
-    nothing_removed "a job whose state is $st"
-done
-
-# An instance name niwa lists that isn't a plain name never reaches a
-# command: the verdict refuses it.
-fixture
-jq -c '[.[] | .name = "--workspace"]' "$ST/niwa.json" >"$ST/n.tmp" && mv "$ST/n.tmp" "$ST/niwa.json"
-start
-stopped
-eq  "an instance name that isn't a plain name: refused" surface "$(at)"
-has "and the verdict says why" "$(ctx teardown_handoff)" "not a plain instance name"
-nothing_removed "an instance name that isn't a plain name"
 
 # --- the pass refuses, or stops part way --------------------------------------------------------------
 

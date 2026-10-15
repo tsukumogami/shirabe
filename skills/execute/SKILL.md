@@ -26,7 +26,7 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 From `$ARGUMENTS`:
 
 1. **Path to a PLAN doc** (`docs/plans/PLAN-*.md`, or any `.md` whose frontmatter
-   has `schema: plan/v1`) — read the PLAN's `execution_mode`:
+   has `schema: plan/v1` or `schema: plan/v2`) — read the PLAN's `execution_mode`:
    - `single-pr` — run the single-pr execution path below.
    - `coordinated` — run the coordinated execution path below.
    - `multi-pr` — out of scope for `/execute`; multi-pr plans run one issue at a time
@@ -38,6 +38,18 @@ The PLAN's `execution_mode` is an enum-typed input surface; re-validate it again
 interpolated into any branch name or emitted shell (see **Security Considerations**).
 `/execute` is the first untrusted-enum consumer; the `/work-on` dispatcher is the
 second, and re-validates the same enum independently.
+
+**`/execute` drives `plan/v1` and `plan/v2` plans.** A `single-pr` `plan/v2` step
+plan runs on the single-pr path; a `multi-pr` one runs through `/work-on <PLAN>`,
+as a `multi-pr` `plan/v1` plan does; `coordinated` stays `plan/v1`, and `plan-to-tasks.sh` refuses it
+for a step plan. Each step is one child named `step-<N>`, and an outline step waits
+on the step before it, so the children start in step order. An outline step's child
+stops: its `plan_validation` gate (`skills/work-on/scripts/step-detail-check.sh`)
+fails with `step <N> is an outline; the plan's owner details it before its work
+starts`, and the child ends at `validation_exit` having built nothing. It stays
+stopped until the plan's owner details the step in a commit of its own; then the
+same child runs again from `plan_validation` (`koto rewind <child>`, then tick it)
+and builds from the detailed text.
 
 **When the enum resolves to `coordinated`, verify the mode-scoped
 prerequisites before the coordinated path starts.** `skills/execute/requires.tsv`

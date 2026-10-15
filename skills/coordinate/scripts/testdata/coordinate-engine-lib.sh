@@ -43,8 +43,9 @@ mkdir -p "$GH_BOARD_DIR"
 # directory holds a response for them: the board's GraphQL snapshot (any
 # GraphQL query but the author/editor one) and the REST reads only the board
 # makes (runs, jobs, rules, branch, the ref, files, checks), and the merge
-# confirmation's reads (the pull request's state and files, the repository,
-# each file's blob) when the case directory holds them.
+# confirmation's reads (the pull request's record, the repository, and the
+# comparison of the default branch with the merge commit) when the case
+# directory holds them.
 cat > "$T/bin/gh" <<'EOF'
 #!/usr/bin/env bash
 key=
@@ -62,6 +63,7 @@ case "${1-} ${2-}" in
             repos/*/*/commits/*/check-runs) key=checkruns ;;
             repos/*/*/commits/*/status) key=statuses ;;
             repos/*/*/contents/*) ls "$GH_BOARD_DIR"/contents-* >/dev/null 2>&1 && exec "$COORD_TESTDATA/gh-board" "$@" ;;
+            repos/*/*/compare/*) key="compare-${p##*/compare/}" ;;
             repos/*/*/*) ;;
             repos/*/*) key=repo ;;
         esac ;;

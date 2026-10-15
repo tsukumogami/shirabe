@@ -108,6 +108,8 @@ submit() {
 }
 put() { printf '%s\n' "$3" | koto context add "$1" "$2" >/dev/null 2>&1; }
 names_gate() { printf '%s' "$NEXT_RESPONSE" | grep -q "\"name\":\"$1\""; }
+# Round files name their runs (panel-scope.sh --record refuses one that doesn't).
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 # pass_panel <session> <panel> <seat>...: records a clean round for every seat
 # and ticks with nothing submitted. A panel's pass is its <panel>_verdict gate,
@@ -116,6 +118,7 @@ pass_panel() {
     local s="$1" p="$2" seat
     shift 2
     for seat in "$@"; do printf '{"seat":"%s","findings":[]}\n' "$seat"; done | jq -s . > "$WORKDIR/round.json"
+    panel_round_runs "$s" "$p" "$WORKDIR/round.json"
     "$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh" --record "$p" "$s" "$WORKDIR/round.json" >/dev/null \
         || fail "$s: panel-scope.sh --record $p failed"
     NEXT_RESPONSE=$(koto next "$s" 2>/dev/null)

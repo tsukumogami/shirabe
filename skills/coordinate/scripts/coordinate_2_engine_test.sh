@@ -29,10 +29,12 @@
 #      accepted, not refused, and goes back to wait without touching its leg;
 #      the same worker's later terminal report is classified as before. (19
 #      sits before 17 in this file, beside the cases it reuses fixtures from.)
-#      A leg-bound worker's checkpoint reaches the coordinator whole
-#      (shirabe#610): its question opens a decision entry whose source is the
-#      worker, and its pull request is written onto its holding, its leg
-#      never read.
+#      A leg-bound worker's checkpoint naming its pull request (shirabe#610)
+#      has it written onto its holding, the leg's return path kept and the
+#      leg never read. (Its question opening an entry needs no case of its
+#      own: dispatch-path_engine_test.sh shows the checkpoint reads as
+#      progress, the case above shows a progress question opens an entry, and
+#      record-decision_test.sh the entry's worker source.)
 #  22. work a person assigns outside the roadmap (shirabe#607, #627): an
 #      issue and a release recorded as Standing assignment rows are listed by
 #      pick and dispatched through dispatch-worker.sh at roadmap scope, the
@@ -155,27 +157,10 @@ if to_pick progressq "$(record_json roadmap progressq | jq -c --argjson h "$(PRO
 else
     bad "19 question: reach wait" "$(cat "$T/open.err" "$T/tick.err" 2>/dev/null)"
 fi
-# A leg-bound worker's checkpoint reaches the coordinator whole (shirabe#610):
-# its question opens a decision entry and its pull request reaches its
-# holding, while its leg stays open for its result.
+# A leg-bound worker's checkpoint naming its pull request (shirabe#610): the
+# pull request reaches its holding, while its leg stays open for its result.
 if to_pick progressleg "$(record_json roadmap progressleg | jq -c --argjson h "$(PROG_ROWS)" '.holdings = $h')" 193 \
     && [ "$(at --with-data '{"choice":"hold"}')" = wait ]; then
-    eq "19 leg question: a leg-bound worker's checkpoint asking a question opens a decision entry" decision_open \
-        "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 1 reached.\nQuestions:\n1. Should the registry ship in 1.4?"}')"
-    eq "19 leg question: read as progress, not refused" progress "$(cd "$WD" && koto context get "$S" report_source 2>/dev/null)"
-    printf '%s' '{"1": {"question": "Should the registry ship in 1.4?", "options": ["ship -- in 1.4", "wait -- for 1.5"]}}' > "$T/q193.json"
-    write_as_agent record-decision.sh --open-from-report --text-file "$T/q193.json"
-    eq "19 leg question: record-decision.sh opens it" 0 $?
-    eq "19 leg question: a proposed entry, its source the leg-bound worker" "proposed worker feat-2" \
-        "$(live_body 193 | jq -r '[.decisions.entries[] | select(.question == "Should the registry ship in 1.4?")][0] | "\(.state) \(.source | split(" [")[0])"')"
-    tick --with-data '{"opened":"opened"}' >/dev/null
-    # The entry is the coordinator's to take up; back to the hub for the next.
-    for _ in 1 2 3 4; do [ "$(now_at)" = wait ] && break; case "$(now_at)" in
-        decision_take) write_as_agent record-decision.sh --take; tick --with-data '{"taken":"taken"}' >/dev/null ;;
-        decision_verdict) write_as_agent record-decision.sh --hold --reason "the release plan"; tick --with-data '{"verdict":"hold","rationale":"waits on the release plan"}' >/dev/null ;;
-        *) tick >/dev/null ;; esac; done
-    [ "$(now_at)" = pick ] && tick --with-data '{"choice":"hold"}' >/dev/null
-    eq "19 leg question: the run is back at wait" wait "$(now_at)"
     eq "19 leg link: its checkpoint naming its pull request goes to report_link" report_link \
         "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 2: PR is up.","pull_request":"acme/widgets#12"}')"
     write_as_agent holding-link.sh
@@ -244,9 +229,9 @@ if land_run merging 112; then
     # A fit with follow-ups goes on exactly as a fit does.
     if [ "$(at)" = goal_fit ] \
         && [ "$(at --with-data '{"fit":"fits_with_follow_ups","rationale":"delivers Feature 1; follow-up: document the loader flags"}')" = land_merge ]; then
-        # The merge landed the verified content: MERGED, and the one file's
-        # blob on main equals the head's.
-        bt_merged MERGED '["src/main.go"]'; bt_blob main src/main.go aaaa; bt_blob "$H" src/main.go aaaa
+        # The merge landed the verified head: MERGED from it, and its merge
+        # commit on main.
+        bt_merged MERGED; bt_reach behind
         eq "17: a confirmed merge goes on to record" record "$(at --with-data '{"merge":"attempted"}')"
         case "$(bash "$PS/coord-log.sh" capture --session "$S" --name MERGE_CONFIRM)" in
             "merged 12 $H "*) ok "17: MERGE_CONFIRM reads merged" ;; *) bad "17: MERGE_CONFIRM reads merged" ;;

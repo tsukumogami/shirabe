@@ -124,7 +124,20 @@ new_run() {
             --var TOPIC="$tag" --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" \
             --var PLUGIN_ROOT_PLACEMENT=outside >/dev/null 2>&1
         HOME="$home" koto next "$PFX-$tag" --no-cleanup >/dev/null 2>&1
-        [ -d .docs-held ] && mv .docs-held docs
+        if [ -d .docs-held ]; then
+            mv .docs-held docs
+            # Committed, as a real run's per-hop commits leave them: the hop
+            # document gate holds a document whose upstream git doesn't track
+            # (validator check R6), and the fixtures' upstreams name each other.
+            git add -A docs
+            # A tree with an empty docs/ has nothing to commit, which is fine;
+            # anything staged that fails to commit is a broken fixture.
+            if ! git diff --cached --quiet; then
+                git -c user.email=t@example.invalid -c user.name=t \
+                    commit --quiet -m "docs: fixture documents" \
+                    || echo "new_run: could not commit the fixture documents in $tree" >&2
+            fi
+        fi
     )
     printf '%s %s-%s' "$home" "$PFX" "$tag"
 }
@@ -299,9 +312,14 @@ seed_recorded_fold() {
     sed "s/scope-koto-adoption/$topic/g" "$FIXTURES/plan.md.fixture" \
         > "$root/docs/plans/PLAN-$topic.md"
     python3 - "$root/docs/plans/PLAN-$topic.md" "$topic" <<'PY'
-import sys
+import re, sys
 p, topic = sys.argv[1], sys.argv[2]
 s = open(p).read()
+# A real absorb re-points the survivor's upstream: past the DESIGN, the PRD and
+# the BRIEF it absorbed, to the BRIEF's own upstream, which the fixture has none
+# of. Leaving the DESIGN named is the dangling link the fold's document gate
+# holds on (validator check R6).
+s = re.sub(r"^upstream: .*\n", "", s, count=1, flags=re.M)
 s = s.replace("---\nschema: plan/v1\n",
               "---\nschema: plan/v1\nabsorbed:\n"
               "  - docs/briefs/BRIEF-%s.md\n"
@@ -452,6 +470,145 @@ case "$fold_directive" in
             bad "the reduction argument is not at the fold state" "" ;
         fi ;;
 esac
+
+echo
+echo "== the document gate holds a hop, and a fixed document passes =="
+
+# seed_brief_prd <root> <topic> [<prd upstream>]: a BRIEF and a PRD, the PRD's
+# upstream replaced when one is given.
+seed_brief_prd() {
+    local root="$1" topic="$2" up="${3-}"
+    make_tree "$root"
+    mkdir -p "$root/docs/briefs" "$root/docs/prds"
+    sed "s/scope-koto-adoption/$topic/g" "$FIXTURES/brief.md.fixture" > "$root/docs/briefs/BRIEF-$topic.md"
+    sed "s/scope-koto-adoption/$topic/g" "$FIXTURES/prd.md.fixture"   > "$root/docs/prds/PRD-$topic.md"
+    if [ -n "$up" ]; then
+        sed -i.bak "s#^upstream: .*#upstream: $up#" "$root/docs/prds/PRD-$topic.md"
+        rm -f "$root/docs/prds/PRD-$topic.md.bak"
+    fi
+}
+
+# adv_json <home> <name> <json>: submit evidence and print koto's response
+# alone, without the stderr advance() folds in, so jq can read it.
+adv_json() { HOME="$1" koto next "$2" --with-data "$3" 2>/dev/null; }
+
+# finding_ids <response> <gate>: the rule_ids of the findings a gate reported.
+finding_ids() {
+    printf '%s' "$1" | jq -r --arg g "$2" \
+        '.blocking_conditions[]? | select(.name == $g) | .failure.findings[]? | .rule_id' 2>/dev/null \
+        | sort -u | tr '\n' ' '
+}
+
+# to_prd_landed <home> <name> <tree>: setup, discovery, proceed, then landed at
+# the BRIEF hop, leaving the run at the PRD hop.
+to_prd_landed() {
+    (
+        cd "$3" || exit 1
+        advance "$1" "$2" '{"setup_result":"ready"}'        >/dev/null
+        advance "$1" "$2" '{"discovery_result":"proposed"}' >/dev/null
+        advance "$1" "$2" '{"author_decision":"proceed"}'   >/dev/null
+        advance "$1" "$2" '{"outcome":"landed"}'            >/dev/null
+    )
+}
+
+seed_brief_prd "$SANDBOX/badup-tree" badup docs/briefs/BRIEF-nowhere.md
+read -r H N <<<"$(new_run badup "$SANDBOX/badup-tree")"
+to_prd_landed "$H" "$N" "$SANDBOX/badup-tree"
+resp=$(cd "$SANDBOX/badup-tree" && adv_json "$H" "$N" '{"outcome":"landed"}')
+st=$(state_of "$H" "$N")
+ids=$(finding_ids "$resp" prd_document)
+if [ "$st" = hop_prd ] && [ "$ids" = "docs/upstream-resolves " ]; then
+    ok "a PRD naming a missing upstream holds hop_prd with a docs/upstream-resolves finding"
+else
+    bad "a PRD naming a missing upstream did not hold hop_prd on prd_document" "state=$st ids=[$ids] $(printf '%.300s' "$resp")"
+fi
+(
+    cd "$SANDBOX/badup-tree" || exit 1
+    sed -i.bak "s#^upstream: .*#upstream: docs/briefs/BRIEF-badup.md#" docs/prds/PRD-badup.md
+    rm -f docs/prds/PRD-badup.md.bak
+    git add -A docs && git -c user.email=t@example.invalid -c user.name=t commit --quiet -m "docs: fix the upstream"
+)
+(cd "$SANDBOX/badup-tree" && advance "$H" "$N" '{"outcome":"landed"}') >/dev/null
+st=$(state_of "$H" "$N")
+if [ "$st" = fold ]; then
+    ok "with the upstream fixed, the next landed advances to the fold"
+else
+    bad "the fixed PRD did not advance" "state=$st"
+fi
+
+echo
+echo "== the fold checks what the absorb wrote =="
+
+# absorb_brief <root> <topic> [malformed]: fold the BRIEF into the PRD, as
+# Stage 3 of the consolidation judgment does, and commit it. A malformed fold
+# declares the BRIEF absorbed and carries no contribution section.
+absorb_brief() {
+    local root="$1" topic="$2" how="${3-}"
+    python3 - "$root/docs/prds/PRD-$topic.md" "$topic" "$how" <<'PY'
+import re, sys
+p, topic, how = sys.argv[1], sys.argv[2], sys.argv[3]
+s = open(p).read()
+s = re.sub(r"^upstream: .*\n", "", s, count=1, flags=re.M)
+s = s.replace("---\nschema: prd/v1\n",
+              "---\nschema: prd/v1\nabsorbed:\n  - docs/briefs/BRIEF-%s.md\n" % topic, 1)
+if how != "malformed":
+    s = s.replace("## Status\n\nAccepted\n",
+                  "## Status\n\nAccepted\n\n"
+                  "Absorbed [BRIEF](docs/briefs/BRIEF-%s.md); carried in Absorbed Brief.\n\n"
+                  "## Absorbed Brief\n\nFraming carried forward.\n" % topic, 1)
+open(p, "w").write(s)
+PY
+    (
+        cd "$root" || exit 1
+        git rm --quiet "docs/briefs/BRIEF-$topic.md"
+        git add -A docs
+        git -c user.email=t@example.invalid -c user.name=t commit --quiet -m "docs(scope): absorb the BRIEF"
+    )
+}
+
+seed_brief_prd "$SANDBOX/absorb-tree" absorb
+read -r H N <<<"$(new_run absorb "$SANDBOX/absorb-tree")"
+to_prd_landed "$H" "$N" "$SANDBOX/absorb-tree"
+(cd "$SANDBOX/absorb-tree" && advance "$H" "$N" '{"outcome":"landed"}') >/dev/null
+st=$(state_of "$H" "$N")
+if [ "$st" = fold ]; then
+    absorb_brief "$SANDBOX/absorb-tree" absorb
+    resp=$(cd "$SANDBOX/absorb-tree" && adv_json "$H" "$N" '{"verdict":"absorb"}')
+    st=$(state_of "$H" "$N")
+    if [ "$st" = hop_design ]; then
+        ok "a well-formed absorb passes fold_documents and goes on to the design hop"
+    else
+        bad "a well-formed absorb was held at the fold" "state=$st $(printf '%.300s' "$resp")"
+    fi
+else
+    bad "the absorb case did not reach the fold" "state=$st"
+fi
+
+seed_brief_prd "$SANDBOX/badfold-tree" badfold
+read -r H N <<<"$(new_run badfold "$SANDBOX/badfold-tree")"
+to_prd_landed "$H" "$N" "$SANDBOX/badfold-tree"
+(cd "$SANDBOX/badfold-tree" && advance "$H" "$N" '{"outcome":"landed"}') >/dev/null
+st=$(state_of "$H" "$N")
+if [ "$st" = fold ]; then
+    absorb_brief "$SANDBOX/badfold-tree" badfold malformed
+    resp=$(cd "$SANDBOX/badfold-tree" && adv_json "$H" "$N" '{"verdict":"absorb"}')
+    st=$(state_of "$H" "$N")
+    ids=$(finding_ids "$resp" fold_documents)
+    case "$st:$ids" in
+        fold:*docs/absorbed-declaration*)
+            ok "an absorb with no contribution section holds the fold with a docs/absorbed-declaration finding" ;;
+        *) bad "a malformed absorb was not held at the fold" "state=$st ids=[$ids] $(printf '%.300s' "$resp")" ;;
+    esac
+    resp=$(cd "$SANDBOX/badfold-tree" && adv_json "$H" "$N" '{"verdict":"bail"}')
+    st=$(state_of "$H" "$N")
+    if [ "$st" = bail ]; then
+        ok "the fold's bail verdict leaves a fold the gate holds"
+    else
+        bad "the fold's bail verdict did not reach bail" "state=$st $(printf '%.200s' "$resp")"
+    fi
+else
+    bad "the malformed-absorb case did not reach the fold" "state=$st"
+fi
 
 echo
 echo "== store isolation =="

@@ -1,0 +1,84 @@
+---
+schema: roadmap/v2
+status: Active
+theme: |
+  A plugin system a maintainer can install plugins into and list.
+scope: |
+  The loader and the list command. Publishing is out.
+---
+
+# ROADMAP: Plugin system, milestone prose on v2
+
+## Status
+
+Active
+
+## Theme
+
+A plugin system a maintainer can install plugins into and list.
+
+## Features
+
+### Feature 1: A maintainer lists the plugins they installed
+
+**Outcome:** A maintainer who installed three plugins sees each one listed
+by name with the version it loaded.
+
+**Evidence:**
+- A reviewer, from a clean install with three sample plugins, runs the
+  list command and sees exactly those three names and versions.
+
+**Left open:** the list command's output layout.
+
+**Dependencies:** None
+**Status:** Done
+
+### Feature 2: A maintainer finds a plugin by name
+
+**Outcome:** A maintainer finds an installed plugin by name without reading
+the plugin directory.
+
+**Evidence:**
+- A reviewer runs the find command for an installed plugin and sees its
+  path.
+
+**Left open:** None
+
+**Dependencies:** Feature 1
+**Status:** In progress
+
+### Feature 3: A maintainer updates a plugin
+
+**Outcome:** A maintainer updates one installed plugin to its newest version.
+
+**Evidence:**
+- A reviewer, with an outdated sample plugin installed, runs the update
+  command and sees the new version listed.
+
+**Left open:** None
+
+**Dependencies:** None (lands after the upstream project's milestone 2)
+**Status:** Not started
+
+## Sequencing Rationale
+
+The list comes first because the other commands read what it records.
+
+## Progress
+
+- The list command shipped.
+
+## Implementation Issues
+
+<!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->
+
+| Feature | Issues | Dependencies | Status |
+|---------|--------|--------------|--------|
+
+## Dependency Graph
+
+<!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->
+
+```mermaid
+graph TD
+```

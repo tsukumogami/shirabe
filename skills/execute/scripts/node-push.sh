@@ -274,6 +274,12 @@ fi
 # `## Implementation Issues` (annotation rows, `^_..._`, are not summaries),
 # else that row's title. Prints nothing when the PLAN names no such item.
 # Fenced blocks are skipped, so an example in the PLAN is never read as one.
+#
+# It reads plan/v1 forms only, on purpose. This script serves coordinated
+# plans, and a plan/v2 step plan cannot be one: `shirabe validate` refuses a
+# coordinated plan/v2 (FC22) and plan-to-tasks.sh refuses it too, naming
+# plan/v1. So a `### Step <N>:` heading never reaches this function, and it
+# has no step form to read.
 work_item_goal() {
     awk -v n="$1" '
         function flat(s) { gsub(/[[:space:]]+/, " ", s); sub(/^ /, "", s); sub(/ $/, "", s); return s }

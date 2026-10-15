@@ -6,17 +6,19 @@
 #
 # The pull request and the head come from land's own capture (LAND, sealed at
 # the latest entry into land, reading `permit <pr> <sha>`), never from an
-# argument; --pr only checks that the capture names that number. It reads
-# the pull request (gh pr view --json state,files) and, when it is MERGED,
-# compares every changed file's blob on the default branch with its blob at
-# <sha> (a file the pull request deleted must be absent on both).
+# argument; --pr only checks that the capture names that number. It checks
+# GitHub's own record of the merge in three reads, whatever the pull
+# request's size (board-lib.sh's bl_merge_compare): the pull request (gh pr
+# view --json state,headRefOid,mergeCommit), the repository's default branch,
+# and one comparison of that branch with the merge commit.
 #
-# Token: `merged <pr> <sha>` when MERGED and every blob matches, else
-# `unconfirmed <pr> <sha>` (not merged yet, or the default branch doesn't
-# hold the verified content); sealed to the latest entry into merge_confirm
-# (captured as MERGE_CONFIRM). The repository is the one the record's
-# Holdings row for #<pr> links; --repo overrides it, for tests. --no-seal
-# (tests) prints the bare token.
+# Token: `merged <pr> <sha>` when the pull request is MERGED, the head it
+# merged is <sha> and its merge commit is on the default branch, else
+# `unconfirmed <pr> <sha>` (not merged yet, merged from another head, or the
+# merge commit isn't on the default branch); sealed to the latest entry into
+# merge_confirm (captured as MERGE_CONFIRM). The repository is the one the
+# record's Holdings row for #<pr> links; --repo overrides it, for tests.
+# --no-seal (tests) prints the bare token.
 #
 # Exit codes: 0 a token printed; 2 no valid land capture, or a read failed;
 # 64 usage.

@@ -73,7 +73,15 @@ done
 [ "${1:-}" = search ] && { echo "gh stub: gh search: $*" >&2; exit 9; }
 
 ALL="$*"
-FAILRC=$(jq -r --arg a "$ALL" '[(.fail // [])[] | select(. as $f | $a | contains($f.match))][0] // empty | "\(.rc)\t\(.stderr // "gh: failed")"' "$GH_DB")
+# One read of the DB for what every call needs: the login, then the failure
+# rule this call matches, if any. The login comes first and on one line (a
+# GitHub login has no newline), so everything after the first newline is the
+# rule, whose stderr may run over several lines. A DB jq can't read stops the
+# call rather than reading as "no rule, default login".
+X=$(jq -r --arg a "$ALL" '(.login // "coord" | tostring), ([(.fail // [])[] | select(. as $f | $a | contains($f.match))][0] // empty | "\(.rc)\t\(.stderr // "gh: failed")")' "$GH_DB") \
+    || { echo "gh stub: cannot read GH_DB" >&2; exit 9; }
+LOGIN=${X%%$'\n'*}
+case "$X" in *$'\n'*) FAILRC=${X#*$'\n'} ;; *) FAILRC= ;; esac
 if [ -n "$FAILRC" ]; then
     printf '%s\n' "${FAILRC#*	}" >&2
     exit "${FAILRC%%	*}"
@@ -95,7 +103,7 @@ shift 2 2>/dev/null || shift $#
 METHOD=GET JQF= REPO= HEAD= BASE= STATE=open JSONF= TITLE= BODYFILE= PAGINATE=0 DRAFT=0 LIMIT=30 LABEL= INPUT=
 BRANCH=
 FIELDS=
-POS=
+POSA=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --method|-X) METHOD=$2; shift 2 ;;
@@ -115,16 +123,27 @@ while [ $# -gt 0 ]; do
         --draft|-d) DRAFT=1; shift ;;
         --input) INPUT=$2; shift 2 ;;
         -*) unexpected ;;
-        *) POS="$POS$1"$'\n'; shift ;;
+        *) POSA+=("$1"); shift ;;
     esac
 done
-pos() { printf '%s' "$POS" | sed -n "${1}p"; }
+# pos <n>: the nth positional argument (n from 1). field <name>: what follows
+# "<name>=" on the first line of the -f/-F values that starts with it, the
+# name matched literally, as the sed it replaces found it. Both run in the
+# shell rather than starting sed, since most calls read them.
+pos() { printf '%s' "${POSA[$(( $1 - 1 ))]-}"; }
 # canon <owner/repo>: the DB's own spelling of a repository named in any
 # case, or the name as given when the DB holds no such repository.
 canon() { jq -r --arg r "$1" '[(.repos // {}) | keys[] | select(ascii_downcase == ($r | ascii_downcase))][0] // $r' "$GH_DB"; }
 [ -n "$REPO" ] && REPO=$(canon "$REPO")
-field() { printf '%s' "$FIELDS" | sed -n "s/^$1=//p" | head -1; }
-LOGIN=$(jq -r '.login // "coord"' "$GH_DB")
+field() {
+    local rest=$FIELDS line
+    while [ -n "$rest" ]; do
+        line=${rest%%$'\n'*}
+        case "$line" in "$1="*) printf '%s' "${line#"$1="}"; return ;; esac
+        [ "$line" = "$rest" ] && return
+        rest=${rest#*$'\n'}
+    done
+}
 
 emit() { # emit <json>: print it, through --jq when given
     if [ -n "$JQF" ]; then printf '%s\n' "$1" | jq -r "$JQF"; else printf '%s\n' "$1"; fi

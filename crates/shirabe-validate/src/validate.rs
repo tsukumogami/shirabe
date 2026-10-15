@@ -9,7 +9,7 @@
 use crate::checks::{
     check_claude_md_conventions, check_eval_fixture_frontmatter, check_fc01, check_fc02,
     check_fc03, check_fc04, check_fc05, check_fc06, check_fc07, check_fc08, check_fc09, check_fc14,
-    check_fc15, check_fc17, check_fc18, check_fc19, check_fc21_milestones,
+    check_fc15, check_fc17, check_fc18, check_fc19, check_fc21_milestones, check_fc22_steps,
     check_plan_design_field_consistency, check_plan_section_structure, check_private_only,
     check_roadmap_reserved_sections, check_schema, check_stale_references, check_strategy_public,
     check_upstream_legality, check_upstream_resolves, check_vision_public, check_writing_style,
@@ -56,14 +56,22 @@ pub enum Severity {
 ///
 /// The draft-tolerable set is the lifecycle in-flight findings `L02`
 /// (orphan/connectivity), `L06` (outline-AC completeness), `L07`
-/// (design-location), and `L09` (split-rationale presence): these are
-/// legitimate intermediate states while a chain is being drafted, so they
-/// tolerate `Draft` posture but must be resolved before `Ready`.
+/// (design-location), `L09` (split-rationale presence) and `L10` (an
+/// outline step left in a step plan): these are legitimate intermediate
+/// states while a chain is being drafted, so they tolerate `Draft` posture
+/// but must be resolved before `Ready`.
 /// Everything else — the always-defect lifecycle findings
 /// `L01`/`L03`/`L04`/`L05` and the entire FC-family — is
 /// `AlwaysEnforced`. The FC-family exclusion is why `L09` is an `L` code:
 /// it is a single-document property like `L06`, and filing it under `FC`
 /// would have cost this invariant an exception.
+///
+/// `L10` is draft-tolerable for the same reason `L06` is. A step plan in
+/// flight has outline steps by design, and the chain-targeted run that
+/// raises L10 is also made at `Draft` posture while the plan is authored
+/// and reviewed (`/plan`'s Phase 7, the PLAN-docs CI job). The completion
+/// cascade runs it at `Ready`, where an outline step is an error and stops
+/// the plan from completing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PostureClass {
     DraftTolerable,
@@ -106,17 +114,17 @@ fn is_intrinsic_notice(code: &str) -> bool {
 
 /// Classify a finding code by how its enforcement responds to posture.
 ///
-/// The draft-tolerable lifecycle codes `L02`/`L06`/`L07`/`L09` resolve to
-/// a notice under `Draft` posture and an error under `Ready`; this is the
-/// single point that drives posture sensitivity. Every other code —
-/// including the always-defect lifecycle findings `L01`/`L03`/`L04`/`L05`
-/// and the whole FC-family — is `AlwaysEnforced` and resolves to an error
+/// The draft-tolerable lifecycle codes `L02`/`L06`/`L07`/`L09`/`L10`
+/// resolve to a notice under `Draft` posture and an error under `Ready`;
+/// this is the single point that drives posture sensitivity. Every other
+/// code — including the always-defect lifecycle findings
+/// `L01`/`L03`/`L04`/`L05` and the whole FC-family — is `AlwaysEnforced` and resolves to an error
 /// in both postures (subject to the intrinsic-notice set in
 /// [`is_intrinsic_notice`], which keeps `SCHEMA` and the advisory FC codes
 /// notices regardless of posture).
 pub fn posture_class(code: &str) -> PostureClass {
     match code {
-        "L02" | "L06" | "L07" | "L09" => PostureClass::DraftTolerable,
+        "L02" | "L06" | "L07" | "L09" | "L10" => PostureClass::DraftTolerable,
         _ => PostureClass::AlwaysEnforced,
     }
 }
@@ -151,8 +159,8 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC21`, `FC-CONVENTIONS`, and `R6`-`R11`. The
-/// lifecycle codes (`L01`-`L09`) are produced by the `--lifecycle` traversal
+/// can emit: `SCHEMA`, `FC01`-`FC22`, `FC-CONVENTIONS`, and `R6`-`R11`. The
+/// lifecycle codes (`L01`-`L10`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
     matches!(
@@ -179,6 +187,7 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC19"
             | "FC20"
             | "FC21"
+            | "FC22"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
@@ -311,6 +320,9 @@ fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Valida
             // failure here that would otherwise pass validation and then
             // extract to a task graph missing the edge.
             errs.extend(check_fc17(doc, spec));
+            // FC22: the step rules of a `plan/v2` step plan; a no-op on
+            // `plan/v1`. Error-level (absent from is_intrinsic_notice).
+            errs.extend(check_fc22_steps(doc, spec));
         }
         "Roadmap" => {
             errs.extend(check_fc05(doc, spec));
@@ -593,6 +605,22 @@ mod tests {
         );
     }
 
+    /// L10 is a notice while a step plan is drafted and an error at ready,
+    /// the posture the completion cascade runs. Like every lifecycle code,
+    /// it is not a `--check` selection.
+    #[test]
+    fn l10_is_draft_tolerable_and_not_selectable() {
+        assert_eq!(
+            effective_severity("L10", ReviewPosture::Draft),
+            Severity::Notice
+        );
+        assert_eq!(
+            effective_severity("L10", ReviewPosture::Ready),
+            Severity::Error
+        );
+        assert!(!is_known_check_code("L10"));
+    }
+
     /// FC20 is an error in both postures.
     ///
     /// It shipped notice-level only because the corpus it inherited was
@@ -654,6 +682,7 @@ mod tests {
             "FC19",
             "FC20",
             "FC21",
+            "FC22",
             "FC-CONVENTIONS",
             "R6",
             "R7",

@@ -6,6 +6,7 @@ Generate issue bodies using parallel agents with full design context and downstr
 
 - [Resume Check](#resume-check)
 - [Execution Mode](#execution-mode)
+- [Plan Version v2: Steps](#plan-version-v2-steps)
 - [Prerequisites](#prerequisites)
 - [Steps](#steps): 4.1 Build Downstream Mapping, 4.2 Read Design Document, 4.3 Read Agent Prompt Template, 4.4 Prepare Agent Contexts, 4.5 Spawn Agents in Parallel, 4.6 Collect Agent Results, 4.7 Validate Agent Outputs, 4.8 Handle Validation Failures, 4.9 Handle Agent Timeouts, 4.10 Compile Final Manifest, 4.11 Report Summary
 - [Success Criteria](#success-criteria)
@@ -33,6 +34,54 @@ The execution mode affects:
 1. Which instructions are included in the agent prompt (`{{EXECUTION_MODE}}` placeholder)
 2. What validation checks are applied to agent output (step 4.7)
 3. What sections are required in the output files
+
+## Plan Version v2: Steps
+
+When the decomposition frontmatter carries `plan_version: v2`, this phase
+writes steps, not issues, whatever the execution mode, and the rest of this
+file applies only where this section says so.
+
+- **Only steps 1 and 2 are detailed** (every step when `step_count` is two or
+  less). These are the only steps that get a generation agent. Each agent gets
+  the design, the step's title, goal, check and dependencies from the
+  decomposition, the steps before it, `../templates/step.md`, and, on a
+  review loop-back, the correction hints for that step built as step 4.4's
+  "Review Correction Hints Placeholder" describes (category C and category E
+  hints alike), and writes
+  the step's block exactly as that template's "Detailed Step" shows: the
+  `### Step <N>:` heading, `**Goal**:`, `**Acceptance Criteria**:` with
+  `- [ ]` items, `**Check**:`, `**Dependencies**:`, and `**Files**:` only as a
+  hint. No frontmatter, no `## Validation` script, no Security Checklist.
+- **Every later step is an outline** and gets no agent. Write its block
+  yourself from the decomposition: the heading and the one outline line,
+  nothing else.
+- **Body keys keep their names.** Each step's block is ingested as
+  `work/issue_<N>_body.md` (N is the step number) and listed in
+  `work/manifest.json` with `"detail": "detailed"` or `"detail": "outline"`,
+  so resume, Phase 5 and Phase 7 find it where they look today.
+
+**Validate each detailed step** in place of step 4.7's checks:
+
+- [ ] Heading is `### Step <N>: <title>` with the decomposition's number and
+      title
+- [ ] `**Goal**:` present; step 1's names the integration it crosses and the
+      input it runs on
+- [ ] At least one `- [ ]` criterion, and every criterion names an observable
+      result (an output, exit code, message or state). A criterion whose
+      subject is a path or identifier, whose verb is add, create, implement,
+      define, update, remove or rename, and which names no result is
+      file-shaped: send it back to the agent with that reason
+- [ ] `**Check**:` present and non-empty, naming a command or walkthrough and
+      the result to look for; step 1's runs the skeleton end to end
+- [ ] `**Dependencies**:` is `None` or `Step <N>` references to earlier steps
+- [ ] No `<<ISSUE:N>>` placeholder anywhere
+
+**Validate each outline step**: the heading and exactly one non-blank line,
+with no `**Field**:` line. Steps 4.1, 4.4a and the multi-pr and roadmap
+validation lists do not apply; step 4.4 applies only for its review correction
+hints. Steps 4.5, 4.6, 4.8 to 4.11 apply to the
+detailed steps' agents as written, and step 4.11 reports
+`Plan version: v2 (<D> detailed, <O> outline steps)`.
 
 ## Prerequisites
 
@@ -138,7 +187,8 @@ For each issue in `issue_outlines`:
 **Loop-back round** (key `work/review_loopback.md` exists in `plan-<topic>`):
 
 1. Read the loopback key and extract all `correction_hint` values from
-   `critical_findings` where `category: "C"` and the hint is non-empty.
+   `critical_findings` where `category` is `"C"` or `"E"` and the hint is
+   non-empty.
 2. Filter to hints for this issue — only include hints where the issue's internal
    ID appears in `affected_issue_ids`.
 3. If no hints apply to this issue, substitute with an empty string `""`.

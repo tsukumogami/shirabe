@@ -58,6 +58,8 @@ TEMPLATE="$SKILL_DIR/koto-templates/work-on.md"
 # test covers. So the checkout is reached through a symlink in the temp tree
 # when its own path falls outside the pattern (set up below, once WORKDIR exists).
 PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
+# Round files name their runs (panel-scope.sh --record refuses one that doesn't).
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -271,6 +273,7 @@ record_round() {
     [ "$3" = blocking ] && finding='[{"severity":"blocking","summary":"a defect","path":"f.txt"}]'
     for seat in $seats; do printf '{"seat":"%s","findings":%s}\n' "$seat" "$finding"; done \
         | jq -s . > "$WORKDIR/round.json"
+    panel_round_runs "$1" "$2" "$WORKDIR/round.json"
     "$PANEL_SCOPE" --record "$2" "$1" "$WORKDIR/round.json" >/dev/null \
         || fail "$1: panel-scope.sh --record $2 failed"
 }

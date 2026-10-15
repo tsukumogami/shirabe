@@ -296,6 +296,20 @@ EOF
 
 LOG="$T/log"
 
+# newest_iteration <workspace dir> -- its highest-numbered iteration-N directory.
+# Sorting the paths would compare them as text once a skill reaches iteration-10,
+# and the temporary directory's own name holds hyphens, so take the number.
+newest_iteration() {
+  local dir n best=-1
+  for dir in "$1"/iteration-*; do
+    [ -d "$dir" ] || continue
+    n=${dir##*iteration-}
+    case "$n" in ''|*[!0-9]*) continue ;; esac
+    [ "$n" -gt "$best" ] && best=$n
+  done
+  [ "$best" -ge 0 ] && printf '%s\n' "$1/iteration-$best"
+}
+
 run_runner() { # run_runner <stub-mode> <runner args...>
   local mode="$1"
   shift
@@ -442,7 +456,7 @@ else
   fail "--prep-only (rc=$RC, session started: $([ -e "$LOG/args" ] && echo yes || echo no)): $OUT"
 fi
 
-latest=$(ls -d "$SUITE"/demo/evals/workspace/iteration-* | sort -t- -k2 -n | tail -n 1)
+latest=$(newest_iteration "$SUITE/demo/evals/workspace")
 mkdir -p "$latest/demo-scenario/with_skill/outputs" "$latest/demo-scenario/without_skill/outputs"
 echo x > "$latest/demo-scenario/with_skill/outputs/response.md"
 echo x > "$latest/demo-scenario/without_skill/outputs/response.md"
@@ -468,7 +482,7 @@ fi
 # in the skill's latest iteration.
 metadata_model() {
   local dir
-  dir=$(ls -d "$SUITE/$1"/evals/workspace/iteration-* | sort -t- -k2 -n | tail -n 1)
+  dir=$(newest_iteration "$SUITE/$1/evals/workspace")
   python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('model'))" \
     "$dir/$2/eval_metadata.json"
 }
@@ -542,6 +556,96 @@ else
   fail "model tiers with EVAL_MODEL (rc=$RC): t1=$(metadata_model tiers tier1-scenario) t2=$(metadata_model tiers tier2-scenario) pinned=$(metadata_model tiers tier2-pinned)"
 fi
 rm -rf "$SUITE/tiers"
+
+# Selection: --release-subset and a comma-separated --scenario, read from which
+# scenario directories prep wrote.
+mkdir -p "$SUITE/subset/evals"
+echo "# subset skill" > "$SUITE/subset/SKILL.md"
+cat > "$SUITE/subset/evals/evals.json" <<'EOF'
+{"skill_name": "subset", "evals": [
+  {"id": 1, "name": "plan-a", "prompt": "one", "expected_output": "one", "files": [],
+   "expectations": ["stub criterion"]},
+  {"id": 2, "name": "merge-a", "tier": 2, "behaviour": "merge", "release": true, "prompt": "two",
+   "expected_output": "two", "files": [], "expectations": ["stub criterion"]},
+  {"id": 3, "name": "merge-b", "tier": 2, "behaviour": "merge", "prompt": "three",
+   "expected_output": "three", "files": [], "expectations": ["stub criterion"]},
+  {"id": 4, "name": "resume-a", "tier": 2, "behaviour": "resume", "release": true, "prompt": "four",
+   "expected_output": "four", "files": [], "expectations": ["stub criterion"]}
+]}
+EOF
+# prepared_scenarios -- the scenario directories of the subset skill's newest iteration
+prepared_scenarios() {
+  local iter
+  iter=$(newest_iteration "$SUITE/subset/evals/workspace")
+  [ -n "$iter" ] || { echo none; return; }
+  for d in "$iter"/*/; do [ -f "$d/eval_metadata.json" ] && basename "$d"; done | sort | tr '\n' ' '
+}
+run_runner plan --release-subset --prep-only subset
+if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "merge-a plan-a resume-a " ] \
+  && printf '%s\n' "$OUT" | grep -q 'Selection:  the release subset'; then
+  pass "--release-subset: every tier-1 scenario and the tier-2 ones marked release"
+else
+  fail "--release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
+fi
+run_runner plan --scenario merge-b,plan-a --prep-only subset
+if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "merge-b plan-a " ]; then
+  pass "--scenario takes a comma-separated list"
+else
+  fail "--scenario list (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
+fi
+run_runner plan --scenario merge-b,resume-a --release-subset --prep-only subset
+if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "resume-a " ]; then
+  pass "--scenario with --release-subset: the named scenarios that are in the subset"
+else
+  fail "--scenario with --release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
+fi
+run_runner plan --scenario merge-b,nope --prep-only subset
+if [ "$RC" -eq 3 ] && printf '%s\n' "$OUT" | grep -q "no eval named 'nope'"; then
+  pass "--scenario: a name the suite lacks is refused, and named"
+else
+  fail "--scenario unknown name (rc=$RC): $OUT"
+fi
+rm -rf "$SUITE/subset"
+
+# --no-baseline: prep writes no without_skill/ directory, the session is told
+# to spawn the with-skill agent only, and a graded run passes without one.
+# demo_iteration -- the demo skill's newest iteration directory
+demo_iteration() {
+  newest_iteration "$SUITE/demo/evals/workspace"
+}
+run_runner plan --no-baseline --prep-only demo
+ITER=$(demo_iteration)
+if [ "$RC" -eq 0 ] && [ -d "$ITER/demo-scenario/with_skill/outputs" ] \
+  && [ ! -e "$ITER/demo-scenario/without_skill" ]; then
+  pass "--no-baseline: prep writes with_skill/ and no without_skill/"
+else
+  fail "--no-baseline prep (rc=$RC): $(ls "$ITER/demo-scenario" 2>/dev/null | tr '\n' ' ')"
+fi
+run_runner grade --no-baseline demo
+if [ "$RC" -eq 0 ] && grep -q "spawn the with-skill agent only" "$LOG/prompt" \
+  && grep -q "NO no-skill baseline" "$LOG/prompt" \
+  && grep -q "demo-scenario: .*with-skill agent (no baseline agent)" "$LOG/prompt" \
+  && ! grep -q "without_skill/outputs/ (empty" "$LOG/prompt"; then
+  pass "--no-baseline: the session is told to run and grade the with-skill agent only, and the run passes"
+else
+  fail "--no-baseline run (rc=$RC): $OUT"
+fi
+# --validate takes no run options; the iteration's missing without_skill/ is
+# what tells it the baseline was never run.
+run_runner plan --validate demo
+if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "All assertions passed." \
+  && ! printf '%s' "$OUT" | grep -q "without_skill"; then
+  pass "--validate on a no-baseline iteration checks the with-skill side only"
+else
+  fail "--validate no-baseline (rc=$RC): $OUT"
+fi
+run_runner grade demo
+if [ "$RC" -eq 0 ] && grep -q "and a without-skill baseline agent" "$LOG/prompt" \
+  && grep -q "with-skill agent and its baseline agent" "$LOG/prompt"; then
+  pass "without --no-baseline the session still runs the baseline"
+else
+  fail "default baseline (rc=$RC): $OUT"
+fi
 
 mkdir -p "$SUITE/pinned/evals"
 echo "# pinned skill" > "$SUITE/pinned/SKILL.md"
@@ -624,6 +728,13 @@ if [ "$RC" -eq 0 ] && [ "$(summary_field "$SUM" pinned runs)" = 1 ] \
 else
   fail "--summary-out passing run (rc=$RC): $(cat "$SUM" 2>/dev/null)"
 fi
+if [ "$(summary_field "$SUM" pinned session_model)" = opus ] \
+  && [ "$(summary_field "$SUM" pinned cost_usd)" = 1.25 ] \
+  && [ "$(summary_field "$SUM" pinned cost_runs)" = 1 ]; then
+  pass "--summary-out: session_model is EVAL_MODEL, cost_usd the last total_cost_usd a result event carries"
+else
+  fail "--summary-out session model and cost: $(cat "$SUM" 2>/dev/null)"
+fi
 
 rm -f "$SUM"
 run_runner plan --runs 3 --summary-out "$SUM" demo
@@ -633,6 +744,13 @@ if [ "$RC" -eq 4 ] && [ "$(summary_field "$SUM" demo runs)" = 1 ] \
   pass "--summary-out: written when --runs stops early on 4, with the one run attempted"
 else
   fail "--summary-out early stop (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
+if [ "$(summary_field "$SUM" demo session_model)" = default ] \
+  && [ "$(summary_field "$SUM" demo cost_usd)" = 0.0 ] \
+  && [ "$(summary_field "$SUM" demo cost_runs)" = 0 ]; then
+  pass "--summary-out: no EVAL_MODEL is session_model default; a run with no cost reports none"
+else
+  fail "--summary-out default session model, no cost: $(cat "$SUM" 2>/dev/null)"
 fi
 
 rm -f "$SUM"

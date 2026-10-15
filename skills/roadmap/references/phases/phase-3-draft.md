@@ -77,31 +77,38 @@ tool to create `docs/roadmaps/ROADMAP-<topic>.md`.
 
 **Drafting guidance:**
 
-- **Frontmatter**: Include `schema: roadmap/v2`, `status`, `theme`, `scope`, and
+- **Frontmatter**: Include `schema: roadmap/v3`, `status`, `theme`, `scope`, and
   `upstream` (if detected in step 3.1). Omit `upstream` when no path was provided.
-  Every new roadmap is a milestone roadmap; the per-feature `roadmap/v1` format is
-  for roadmaps that already use it.
+  Every new roadmap is a milestone roadmap in the milestone words: its items go
+  under `## Milestones` and a classic heading reads `### Milestone <N>:`. The
+  `roadmap/v2` and per-feature `roadmap/v1` formats are for roadmaps that already
+  use them; they stay valid, so don't migrate one unasked.
 - **Status**: Set to "Draft". Active requires human approval via lifecycle transition.
 - **Theme**: Synthesize from Phase 1's theme statement and Phase 2's findings. Should
   explain what initiative ties the features together and why coordinated sequencing
   matters.
 - **Scope**: Draw from Phase 1's scope boundaries. What this roadmap covers and
   doesn't cover.
-- **Features**: Populate from Phase 2 agent outputs. Each item is a milestone in
-  the shape `references/roadmap-format.md` gives under Milestones:
-  - A `### <tag>: <title>` heading whose title names what someone can do
+- **Milestones**: Populate the `## Milestones` section from Phase 2 agent outputs.
+  Each item is a milestone in the shape `references/roadmap-format.md` gives under
+  Milestones:
+  - A `### <tag>: <title>` heading whose title names what someone can do; the tag
+    is `Milestone <N>` (`### Milestone 2: A maintainer finds a plugin by name`)
+    or a prefix tag such as `AB1`
   - `**Outcome:**` -- who can do what, end to end, that they couldn't before
     (for a removal, migration or contract, the invariant that holds), with no
     mechanism in it
   - `**Evidence:**` -- one or more `- ` clauses, each naming who checks, from
-    what starting state, and what observable result shows the Outcome is met;
-    never a merge, a test run or an artifact existing
+    what starting state, what they do and what they see; never a merge, a test
+    run or an artifact existing, and never the file, script, function or line
+    that implements it (the format reference's Evidence rule; mechanism goes in
+    Left open)
   - `**Left open:**` -- the how-decisions the session doing the work makes,
     or `None`
   - `**Needs:**` when a needs-* label applies
-  - `**Dependencies:**` -- one line: `None`, or other milestones' tags and
-    `<owner>/<repo>#<n>` references, comma-separated; soft ordering goes in
-    the Sequencing Rationale
+  - `**Dependencies:**` -- one line: `None`, or other milestones' exact tags
+    (`Milestone 1`, `AB1`) and `<owner>/<repo>#<n>` references, comma-separated;
+    soft ordering goes in the Sequencing Rationale
   - `**Status:** Not started`
 - **Sequencing**: Draw from the sequencing analyst's findings. Explain ordering
   rationale -- why this order and not another. Acknowledge parallelization
@@ -197,9 +204,11 @@ docs(roadmap): draft ROADMAP for <topic>
 
 Before proceeding:
 - [ ] ROADMAP draft written to `docs/roadmaps/ROADMAP-<topic>.md` with status "Draft"
-- [ ] Frontmatter has `schema: roadmap/v2`
+- [ ] Frontmatter has `schema: roadmap/v3`, and the items sit under `## Milestones`
 - [ ] Every milestone has an Outcome, at least one Evidence clause, Left open,
       one-line Dependencies, and `Not started` status
+- [ ] Every Evidence clause names who checks, from what start, what they do and
+      what they see, and none names the file, script, function or line behind it
 - [ ] `shirabe validate` reports no FC21 finding
 - [ ] At least one feature in the roadmap
 - [ ] Sequencing rationale explains ordering, not just lists features (for a

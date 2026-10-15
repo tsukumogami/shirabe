@@ -169,16 +169,24 @@ doesn't contain downstream content.
 3. Are all features marked `Not started`? At creation time, no feature should
    have progress.
 4. Does the roadmap pass structural validation? Check against the format spec:
-   required sections present, frontmatter correct (`schema: roadmap/v2`),
-   status is "Draft", and `shirabe validate` reports no FC21 finding.
-5. On a `roadmap/v2` roadmap, judge each milestone's content against the
-   format reference's Milestones section. Each of these is an issue that
+   required sections present, frontmatter correct (`schema: roadmap/v3`, with
+   the items under `## Milestones`), status is "Draft", and `shirabe validate`
+   reports no FC21 finding.
+5. On a milestone roadmap (`roadmap/v2` or `roadmap/v3`), judge each
+   milestone's content against the format reference's Milestones section,
+   applying its Evidence rule to every clause. Each of these is an issue that
    fails the review and sends the draft back:
    - an Outcome that names mechanism (a command, file, component or
      implementation step to build) instead of who can do what, end to end;
+   - an Evidence clause that doesn't say who checks, from what starting
+     state, what they do and what they see;
    - an Evidence clause only the author could judge (the delivering session's
      say-so, "works well"), or one that is a merged pull request, a passing
      test run or an artifact existing;
+   - an Evidence clause that names the file, script, function or line that
+     implements the check (`run check-plugins.sh`, `the loader's
+     parse_manifest returns an error`): that is mechanism, and it belongs in
+     Left open;
    - a Left open that holds part of the Outcome: something whose absence
      would make the Outcome false.
 6. Are scope boundaries clear? The "covers" and "doesn't cover" should leave no
@@ -282,9 +290,10 @@ Three things about this step:
   the 4.5 summary -- it names a feature the author may want to rename or
   give a shorter opening.
 
-If the roadmap has no Features section content yet, populate fails with a
-clear error. That is a real problem with the draft, not a reason to skip
-this step: return to Phase 3 and fix the Features section.
+If the roadmap has no items yet (an empty `## Milestones` section, or
+`## Features` on a v1 or v2 roadmap), populate fails with a clear error. That
+is a real problem with the draft, not a reason to skip this step: return to
+Phase 3 and fix the items section.
 
 ### 4.5 Present to User
 

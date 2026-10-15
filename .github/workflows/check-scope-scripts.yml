@@ -46,9 +46,21 @@ on:
       - 'skills/execute/scripts/owned-pr.sh'
       - 'skills/execute/scripts/run-id.sh'
       - 'skills/plan/scripts/plan-to-tasks.sh'
+      # The startable and publish suites run /execute's hostile-title step
+      # plan through their scripts.
+      - 'skills/execute/scripts/testdata/PLAN-v2-hostile.md'
       # The substrate job runs the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'
+      # check-hop-document.sh sources these two libraries, prints findings under
+      # the registry's entries, and loads the plugin's writing-style rules for
+      # the banned-word check, so a change to any of them can change what the
+      # document gate holds on.
+      - 'scripts/lib/declared-visibility.sh'
+      - 'scripts/lib/rule-findings.sh'
+      - 'scripts/rule-registry.sh'
+      - 'references/rule-registry.json'
+      - 'skills/writing-style/rules.yaml'
 
 env:
   # `tsuku install` calls the GitHub API; the token
@@ -191,6 +203,15 @@ jobs:
 
       - name: Run hop-complete fixtures
         run: bash skills/scope/scripts/hop-complete_test.sh
+
+      # The document gate's real-validator cases need the binary built above.
+      # SCOPE_GATE_REQUIRE_SHIRABE=1 makes a missing validator a failure here
+      # rather than a skip; the macOS bash-floor leg, which has no validator,
+      # runs the suite's stub cases through the `scope` suite.
+      - name: Run check-hop-document tests
+        env:
+          SCOPE_GATE_REQUIRE_SHIRABE: "1"
+        run: bash skills/scope/scripts/check-hop-document_test.sh
 
   # Drives real koto sessions against the shipped template. This is the job that
   # asserts the thing the whole feature is for: a run cannot reach the full-run

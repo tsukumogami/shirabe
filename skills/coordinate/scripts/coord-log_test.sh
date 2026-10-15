@@ -127,6 +127,30 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     log_to "$S2" pick_facts wait 2026-09-26T09:10:00.000Z                     # 5
     eq "$L: entry --with-time into a state entered twice is the latest" "5 pick_facts 2026-09-26T09:10:00.000Z" "$(bash "$CL" entry --session "$S2" --state wait --with-time)"
     eq "$L: entry --with-time --before takes the earlier one" "3 pick_facts 2026-09-26T09:00:00.000Z" "$(bash "$CL" entry --session "$S2" --state wait --before 5 --with-time)"
+    # entries is entry for each state at once: the same "<seq> <from>" as
+    # entry prints, the latest when a state was entered twice, and "0" where
+    # entry finds none, in the order asked. A directed transition and a
+    # rewind count as entries, as they do for entry, and an entry with no
+    # "from" prints the empty from entry prints.
+    log_ev "$S2" directed_transition '{"from":"wait","to":"jumped"}'           # 6
+    log_ev "$S2" rewound '{"to":"rewound_into"}'                               # 7
+    local want="" st e
+    for st in wait decision_apply never_entered pick_facts jumped rewound_into; do
+        e=$(bash "$CL" entry --session "$S2" --state "$st") || e=0
+        want="$want$st $e
+"
+    done
+    eq "$L: entries is entry for each state, in order" "$want" "$(bash "$CL" entries --session "$S2" --states wait,decision_apply,never_entered,pick_facts,jumped,rewound_into)
+"
+    bash "$CL" entries --session "$S2" --states 'wait,Bad State' >/dev/null 2>&1; eq "$L: entries refuses a state name outside [a-z0-9_]" 64 $?
+    bash "$CL" entries --session "$S2" >/dev/null 2>&1; eq "$L: entries needs --states" 64 $?
+    # A log jq can't read is a read failure, never a "0" that reads as no entry.
+    cp "$KOTO_STORE/sessions/$S2/koto-$S2.state.jsonl" "$T/twice"
+    printf '{"seq":8,"type":"transitioned","payload":{"to":"wait"\n' >> "$KOTO_STORE/sessions/$S2/koto-$S2.state.jsonl"
+    out=$(bash "$CL" entries --session "$S2" --states wait 2>/dev/null); rc=$?
+    eq "$L: entries on a log with a broken line is a read failure" 2 "$rc"
+    eq "$L: ... and prints nothing" "" "$out"
+    cp "$T/twice" "$KOTO_STORE/sessions/$S2/koto-$S2.state.jsonl"
     eq "$L: evidence is the latest in the state" 6 "$(bash "$CL" evidence --session "$S" --state wait | jq .seq)"
     eq "$L: evidence --before bounds the window" 3 "$(bash "$CL" evidence --session "$S" --state wait --before 5 | jq .seq)"
     eq "$L: evidence --after bounds the window" 6 "$(bash "$CL" evidence --session "$S" --state wait --after 5 | jq .seq)"
@@ -187,6 +211,28 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     grep -q 'schema_version 2' "$T/err" && ok "$L: the refusal names the schema version" || bad "$L: the refusal names the schema version" "$(cat "$T/err")"
     sed 's/"schema_version":2,//' "$T/v2" > "$KOTO_STORE/sessions/$S/koto-$S.state.jsonl"
     bash "$CL" entry --session "$S" --state wait 2>/dev/null; eq "$L: a header without schema_version is refused" 2 $?
+    # The header is read without jq only when it is a flat object of plain
+    # values with schema_version 1, once; every other header still goes to jq,
+    # so what jq refuses is still refused and what it reads is still read.
+    sed 1d "$T/v2" > "$T/events"
+    header_is() { { printf '%s\n' "$1"; cat "$T/events"; } > "$KOTO_STORE/sessions/$S/koto-$S.state.jsonl"; }
+    header_is "{\"schema_version\":1,\"workflow\":\"$S\",\"n\":0,\"t\":true"
+    bash "$CL" count --session "$S" 2>/dev/null; eq "$L: a header cut off after schema_version 1 is refused" 2 $?
+    header_is "{\"schema_version\":1,\"workflow\":\"$S\",\"schema_version\":2}"
+    bash "$CL" count --session "$S" 2>"$T/err"; eq "$L: a header naming schema_version twice is read as jq reads it" 2 $?
+    grep -q 'schema_version 2' "$T/err" && ok "$L: ... and refused as version 2" || bad "$L: ... and refused as version 2" "$(cat "$T/err")"
+    header_is "{\"schema_version\":1,\"workflow\":\"$S\",\"n\":0,\"t\":true,\"z\":null}"
+    eq "$L: a flat header of plain values is read" "$(( $(wc -l < "$T/events") ))" "$(bash "$CL" count --session "$S")"
+    header_is "{\"schema_version\":1,\"workflow\":\"$S\",\"v\":{\"a\":[\"b\"]},\"s\":\"a\\\\b\"}"
+    eq "$L: a nested header with escapes, as koto writes, is read" "$(( $(wc -l < "$T/events") ))" "$(bash "$CL" count --session "$S")"
+    # Two more shapes the jq-free check must hand to jq: an empty first line
+    # (jq reads nothing, so it is refused) and a value that isn't an integer
+    # (jq reads it, so it is read).
+    header_is ""
+    bash "$CL" count --session "$S" 2>"$T/err"; eq "$L: an empty header line is refused" 2 $?
+    grep -q 'schema_version none' "$T/err" && ok "$L: ... naming no schema version" || bad "$L: ... naming no schema version" "$(cat "$T/err")"
+    header_is "{\"schema_version\":1,\"workflow\":\"$S\",\"ratio\":0.5}"
+    eq "$L: a flat header with a float value is read" "$(( $(wc -l < "$T/events") ))" "$(bash "$CL" count --session "$S")"
 }
 
 run_suite default

@@ -58,6 +58,8 @@ PHASES="$SKILL_DIR/references/phases"
 # koto validates a variable value against ^[a-zA-Z0-9._/:@ \-]*$; a checkout
 # under a directory outside it is reached through a symlink below.
 PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
+# Round files name their runs (panel-scope.sh --record refuses one that doesn't).
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -153,8 +155,16 @@ done
 GOT=$(jq -r '[.variables.REVIEW_LEVEL.rebind, .variables.REVIEW_FLOOR.rebind, .variables.REVIEW_CEILING.rebind]
              | map(. // false) | map(tostring) | join(",")' "$COMPILED" 2>/dev/null)
 [ "$GOT" = "true,false,false" ] && pass "only REVIEW_LEVEL is rebindable" || fail "rebind flags are [$GOT]"
+# plan_ready passes through the live offload canary's states, which add no
+# evidence, on its way to review_level_choice.
 GOT=$(jq -r '.states.analysis.transitions[] | select(.when.plan_outcome == "plan_ready") | .target' "$COMPILED" 2>/dev/null)
-[ "$GOT" = review_level_choice ] && pass "plan_ready targets review_level_choice" || fail "plan_ready targets [$GOT]"
+[ "$GOT" = offload_canary ] && pass "plan_ready targets offload_canary" || fail "plan_ready targets [$GOT]"
+GOT=$(jq -r '[.states.offload_canary.transitions[].target, .states.offload_arm_withheld.transitions[].target,
+              .states.offload_arm_preloaded.transitions[].target]
+             | map(select(. != "offload_arm_withheld" and . != "offload_arm_preloaded")) | unique | join(",")' \
+      "$COMPILED" 2>/dev/null)
+[ "$GOT" = review_level_choice ] && pass "every route out of the canary states reaches review_level_choice" \
+    || fail "the canary states route to [$GOT]"
 GOT=$(jq -r '.states.issue_type_routing.transitions[] | select(.when.issue_type == "code") | .target' "$COMPILED" 2>/dev/null)
 [ "$GOT" = review_level_check ] && pass "the code route targets review_level_check" || fail "the code route targets [$GOT]"
 GOT=$(jq -r '.states.review_level_check.gates | [.level_floor.type, .level_fits_facts.type] | join(",")' "$COMPILED" 2>/dev/null)
@@ -279,6 +289,7 @@ choose_and_implement() {
 record_round() {
     # $1 session, $2 panel, $3 round JSON
     printf '%s\n' "$3" > "$WORKDIR/round.json"
+    panel_round_runs "$1" "$2" "$WORKDIR/round.json"
     "$PS" --record "$2" "$1" "$WORKDIR/round.json" 2>"$WORKDIR/record.err" \
         || fail "$1: panel-scope.sh --record $2 failed: $(cat "$WORKDIR/record.err")"
 }

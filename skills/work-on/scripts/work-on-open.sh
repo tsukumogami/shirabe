@@ -29,7 +29,8 @@
 # SKILL.md's Mode Detection uses: tokens that begin with `-- plan-backed` (a
 # plan-backed child, whose result is /execute's) and a PLAN path (a token whose
 # file name is PLAN-*.md, or a .md file whose frontmatter says
-# `schema: plan/v1`), which runs several issues where one leg answers one. Each
+# `schema: plan/v1` or `schema: plan/v2`), which runs several issues or steps
+# where one leg answers one. Each
 # exits 64 with `error=usage` and makes no koto call. koto-open.sh adds two: an
 # args file inside the work tree, and no koto binary.
 #
@@ -190,7 +191,7 @@ while IFS= read -r t; do
     if [ "$plan" -eq 0 ] && [ -f "$t" ] \
         && awk 'NR == 1 { if ($0 !~ /^---[[:space:]]*$/) exit 1; next }
                 /^---[[:space:]]*$/ { exit 1 }
-                /^schema:[[:space:]]*plan\/v1[[:space:]]*$/ { found = 1; exit 0 }
+                /^schema:[[:space:]]*plan\/v[12][[:space:]]*$/ { found = 1; exit 0 }
                 END { exit found ? 0 : 1 }' "$t"; then
         plan=1
     fi

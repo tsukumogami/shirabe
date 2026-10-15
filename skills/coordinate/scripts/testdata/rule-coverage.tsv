@@ -127,7 +127,7 @@ C114	skills/coordinate/references/verification-checklist.md	-	A claim you can't 
 C115	skills/coordinate/koto-templates/coordinate.md	land	Take each finishing step as far as the workspace's
 C116	skills/coordinate/koto-templates/coordinate.md	surface	the order (`surfaced: merge_table`)
 C117	skills/coordinate/koto-templates/coordinate.md	land_merge	merges only at the verified head
-C118	skills/coordinate/koto-templates/coordinate.md	land_merge	by reading the changed files there, not by trusting
+C118	skills/coordinate/koto-templates/coordinate.md	land_merge	merged from the verified head,
 C119	skills/coordinate/references/verification-checklist.md	-	| Pull request | Worker | Verified at | Why this position |
 C120	skills/coordinate/koto-templates/coordinate.md	surface	back to unverified until you read it again
 C121	skills/coordinate/references/verification-checklist.md	-	report it before dispatching anything that depends on it

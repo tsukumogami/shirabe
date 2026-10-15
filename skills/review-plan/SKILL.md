@@ -23,9 +23,10 @@ allowed-tools: Bash(${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh *), Bash(tr
 # Review Plan Skill
 
 `/review-plan` adversarially challenges a complete plan artifact before any issues
-are created. It runs four review categories against the plan's working keys (or,
+are created. It runs five review categories against the plan's working keys (or,
 with no plan session, the PLAN document alone) and the upstream design doc, then
-writes a structured verdict to one of two keys depending on outcome.
+writes a structured verdict to one of two keys depending on outcome. It reviews
+plans of either version, `plan/v1` (issues) and `plan/v2` (steps).
 
 **Writing style:** Read `skills/writing-style/SKILL.md` for guidance.
 
@@ -34,7 +35,8 @@ writes a structured verdict to one of two keys depending on outcome.
 The skill sits between `/plan` Phase 5 (Dependencies) and Phase 7 (Creation). It
 asks not "does the plan cover the design?" but "would this plan catch the wrong
 implementation?" Four categories map to the three failure modes identified in
-issue #19:
+issue #19, and a fifth checks whether the plan is cut by behaviour or by
+component:
 
 | Category | Name | Failure mode covered |
 |----------|------|---------------------|
@@ -42,6 +44,12 @@ issue #19:
 | B | Design Fidelity | Plan inherits a contradiction from the design doc |
 | C | AC Discriminability | ACs pass for the wrong implementation |
 | D | Sequencing/Priority Integrity | Must-run QA scenarios are deprioritized |
+| E | Functional Shape | Plan cut into layers, first entry not a walking skeleton, file-shaped criteria, or (inside `/plan`) more than two detailed steps |
+
+Category E's findings loop back under `plan/v2`. Under `plan/v1` they are
+advisory: the verdict records them in `advisory_findings` and they change
+neither the verdict nor the loop target, so an existing plan is flagged without
+being sent back.
 
 ## Session and Keys
 
@@ -105,7 +113,7 @@ args:
   mode: fast-path
 ```
 
-Each of the four review categories (phases 1–4) runs with a single agent. The agent
+Each of the five review categories (phases 1–4 and 4b) runs with a single agent. The agent
 applies heuristic pattern checks and taxonomy-anchored adversarial reasoning within
 a single call. Phase 5 synthesizes all category findings into the verdict.
 
@@ -126,7 +134,7 @@ Invoked as:
 
 ## Adversarial Mode: Multi-Agent Bakeoff
 
-When running in adversarial mode, each review category (phases 1–4) runs through
+When running in adversarial mode, each review category (phases 1–4 and 4b) runs through
 a three-step sequence before producing findings.
 
 ### Step 1: Spawn Validator Agents
@@ -136,10 +144,12 @@ For each category, spawn three independent validator agents in parallel. Each ag
 - Receives the same inputs (plan artifacts, issue bodies, upstream design doc)
 - Reads the same phase reference file for its category
 - Applies the full check independently, without seeing other validators' findings
-- Returns its findings in `critical_findings` format
+- Returns its findings in `critical_findings` format (Category E also returns
+  `advisory_findings`)
 
-Spawn all three agents for all four categories in a single message (12 agents total)
-to minimize wall-clock time. Each agent runs with `run_in_background: true`.
+Spawn all three agents for all five categories in a single message (fifteen
+validator agents in total) to minimize wall-clock time. Each agent runs with
+`run_in_background: true`.
 
 **Seat commissioning** (per `${CLAUDE_PLUGIN_ROOT}/references/review-seat-commissioning.md`): validators run on `model: "sonnet"` with a 10-call budget, and cross-examination agents on `model: "sonnet"` with a 6-call budget. Packet: `"${CLAUDE_PLUGIN_ROOT}/scripts/review-packet.sh" doc --doc <decomposition-artifact> --format skills/review-plan/references/phases/<category-phase-file> --extra <analysis-artifact> --extra <dependencies-artifact> --extra <upstream-design-doc> --extra <issue-body-file> ...`, one per category. The artifacts are the keys `references/phases/phase-0-setup.md` lists, materialized into a scratch directory with `skill-session.sh get` (step 0.4); with no plan session, `--doc` is the PLAN document and there are no extras but the upstream doc. `<category-phase-file>` is the category's phase reference. A cross-examination agent gets the same packet plus the disagreeing findings.
 
@@ -206,7 +216,8 @@ else                                                   → start at Phase 0
 | `references/phases/phase-2-design-fidelity.md` | Phase 2 |
 | `references/phases/phase-3-ac-discriminability.md` | Phase 3 |
 | `references/phases/phase-4-sequencing.md` | Phase 4 |
+| `references/phases/phase-4b-functional-shape.md` | Phase 4b (Category E) |
 | `references/phases/phase-5-verdict.md` | Phase 5 |
 | `references/phases/phase-6-loop-back.md` | Phase 6 (loop-back only) |
-| `references/templates/review-result-schema.md` | Phases 1–5 (finding format) |
+| `references/templates/review-result-schema.md` | Phases 1–5, 4b included (finding format) |
 | `references/templates/ac-discriminability-taxonomy.md` | Phase 3, before Pass 1 |

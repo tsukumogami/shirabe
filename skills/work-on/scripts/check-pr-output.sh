@@ -210,16 +210,27 @@ check_pr_body() {
         2) ;;
         *) undecided "shirabe validate --pr-body exited $rc: $(tail -n 1 "$WORK/err")" ;;
     esac
+    pb4=0
     if jq -r '.findings[].message' "$WORK/out" > "$WORK/messages" \
         && [ -s "$WORK/messages" ]; then
         while IFS= read -r msg; do
             [ -n "$msg" ] || continue
-            finding "$(rule_for_message "$msg")" "$msg"
+            rule=$(rule_for_message "$msg")
+            [ "$rule" != pr-body/no-heading-in-part1 ] || pb4=1
+            finding "$rule" "$msg"
         done < "$WORK/messages"
     fi
     if [ "$VIOLATIONS" -eq 0 ]; then
         finding pr-body/conformance \
             "shirabe validate --pr-body reported violations it did not list; run it on the PR body for the detail"
+    fi
+    # PB4 is the rule the offload canary may leave out of a run's preloaded
+    # text (DESIGN-offload-live-canary.md), so when it is
+    # broken its full text is released here, once, in every run. release
+    # prints on stderr, which koto returns to the agent with the gate's output,
+    # and always exits 0, so it never changes this gate's result.
+    if [ "$pb4" -eq 1 ]; then
+        "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null
     fi
     echo "check-pr-output: $VIOLATIONS PR title/body violation(s)" >&2
     exit 1
