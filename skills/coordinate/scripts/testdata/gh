@@ -73,7 +73,11 @@ done
 [ "${1:-}" = search ] && { echo "gh stub: gh search: $*" >&2; exit 9; }
 
 ALL="$*"
-FAILRC=$(jq -r --arg a "$ALL" '[(.fail // [])[] | select(. as $f | $a | contains($f.match))][0] // empty | "\(.rc)\t\(.stderr // "gh: failed")"' "$GH_DB")
+# One read of the DB for what every call needs: the login, then the failure
+# rule this call matches, if any (its stderr may run over several lines).
+X=$(jq -r --arg a "$ALL" '(.login // "coord"), ([(.fail // [])[] | select(. as $f | $a | contains($f.match))][0] // empty | "\(.rc)\t\(.stderr // "gh: failed")")' "$GH_DB")
+LOGIN=${X%%$'\n'*}
+case "$X" in *$'\n'*) FAILRC=${X#*$'\n'} ;; *) FAILRC= ;; esac
 if [ -n "$FAILRC" ]; then
     printf '%s\n' "${FAILRC#*	}" >&2
     exit "${FAILRC%%	*}"
@@ -96,6 +100,7 @@ METHOD=GET JQF= REPO= HEAD= BASE= STATE=open JSONF= TITLE= BODYFILE= PAGINATE=0 
 BRANCH=
 FIELDS=
 POS=
+POSA=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --method|-X) METHOD=$2; shift 2 ;;
@@ -115,16 +120,26 @@ while [ $# -gt 0 ]; do
         --draft|-d) DRAFT=1; shift ;;
         --input) INPUT=$2; shift 2 ;;
         -*) unexpected ;;
-        *) POS="$POS$1"$'\n'; shift ;;
+        *) POS="$POS$1"$'\n'; POSA+=("$1"); shift ;;
     esac
 done
-pos() { printf '%s' "$POS" | sed -n "${1}p"; }
+# pos <n>: the nth positional argument. field <name>: the first line of the
+# first -f/-F <name>=... value. Both run in the shell rather than in sed, since
+# every call reads them.
+pos() { printf '%s' "${POSA[$(( $1 - 1 ))]-}"; }
 # canon <owner/repo>: the DB's own spelling of a repository named in any
 # case, or the name as given when the DB holds no such repository.
 canon() { jq -r --arg r "$1" '[(.repos // {}) | keys[] | select(ascii_downcase == ($r | ascii_downcase))][0] // $r' "$GH_DB"; }
 [ -n "$REPO" ] && REPO=$(canon "$REPO")
-field() { printf '%s' "$FIELDS" | sed -n "s/^$1=//p" | head -1; }
-LOGIN=$(jq -r '.login // "coord"' "$GH_DB")
+field() {
+    local rest=$FIELDS line
+    while [ -n "$rest" ]; do
+        line=${rest%%$'\n'*}
+        case "$line" in "$1="*) printf '%s' "${line#"$1="}"; return ;; esac
+        [ "$line" = "$rest" ] && return
+        rest=${rest#*$'\n'}
+    done
+}
 
 emit() { # emit <json>: print it, through --jq when given
     if [ -n "$JQF" ]; then printf '%s\n' "$1" | jq -r "$JQF"; else printf '%s\n' "$1"; fi
