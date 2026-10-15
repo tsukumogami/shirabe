@@ -143,6 +143,10 @@ sha256() {
 # finds a session's log: every other script reads it through the subcommands
 # below. A header whose schema_version isn't 1 is a format this reader doesn't
 # know, so the log is refused rather than misread.
+# FLAT_HEADER: `{"schema_version":1` then any number of `,"key":value`, where a
+# key is a string with no quote, backslash or control character and a value is
+# such a string, an integer without leading zeros, true, false or null; then
+# `}`. Every line it matches is valid JSON with no nesting.
 FLAT_HEADER='^\{"schema_version":1(,"[^"\\[:cntrl:]]*":("[^"\\[:cntrl:]]*"|-?(0|[1-9][0-9]*)|true|false|null))*\}$'
 session_log() {
     local dir f v line=
@@ -154,6 +158,8 @@ session_log() {
     # jq: the pattern admits only valid JSON, so jq would say 1 for it too.
     # Anything else, koto's own nested header included, goes to jq as before,
     # so a header jq refuses is still refused here.
+    # The case refuses a second "schema_version" after the first, since jq
+    # reads the last of duplicate keys.
     IFS= read -r line < "$f" || true
     if [[ $line =~ $FLAT_HEADER ]] && case "${line#*'"schema_version"'}" in *'"schema_version"'*) false ;; esac; then
         v=1

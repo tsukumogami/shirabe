@@ -23,6 +23,7 @@
 # scope (the reason on stderr); 1 an internal failure.
 set -euo pipefail
 
+# This script's directory, found without starting dirname.
 case "$0" in */*) HERE=${0%/*}; HERE=$(cd "${HERE:-/}" && pwd) ;; *) HERE=$(pwd) ;; esac
 FORMAT=record
 CONTAINER=issue

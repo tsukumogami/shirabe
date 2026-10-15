@@ -82,7 +82,8 @@ render() { # render <json> <issue|pr> [written]: a canonical body on stdout
     # (json, container, written) is rendered once and kept under $T; a render
     # that fails is never kept, so it fails again the same way. The key holds
     # the inputs, not the renderer: a suite that swaps record-render.sh for a
-    # copy needs its own $T.
+    # copy needs its own $T. The body comes back with one trailing newline,
+    # as record-render.sh prints it.
     local w=${3:-2026-09-26T09:00:00Z} k f rc
     k=$(printf '%s\n%s\n%s' "$2" "$w" "$1" | $SHA256)
     f="$T/render-cache/${k%% *}"
@@ -121,14 +122,16 @@ log_new() {
 # without starting jq when they can: a value with nothing JSON would escape (no
 # quote, backslash or control character) is quoted as it stands, and a payload
 # with no whitespace or backslash is taken as already compact. Anything else
-# goes through jq as before. For the compact payloads the suites pass, the line
-# is the one `jq -c` wrote; a payload on the fast path is not validated, so a
+# goes through jq as before. For the payloads the suites pass, the line is the
+# one `jq -c` wrote; a payload on the fast path is not validated, so a
 # malformed one shows up when a reader parses the log, not here.
 _plain() { case "$1" in *'"'*|*'\'*|*[[:cntrl:]]*) return 1 ;; esac; }
 _compact() { case "$1" in *[[:space:]]*|*'\'*|'') return 1 ;; esac; }
 # _log_put <session> <type> <payload> <timestamp> <compact:0|1>: append one
-# event with the next seq. With <compact> 1 the payload is known compact (built
-# here from plain values) and is written as it stands.
+# event with the next seq. With <compact> 1 the payload is taken as compact
+# (built here from plain values, or a caller's with no whitespace or
+# backslash) and written as it stands, unvalidated; it then differs from what
+# jq -c would write only in number literals jq rewrites, such as 1.0 or 1e2.
 _log_put() {
     local d="$KOTO_STORE/sessions/$1" n=
     # .seq holds no trailing newline, so read reports end of file; n is set.
