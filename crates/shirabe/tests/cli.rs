@@ -494,3 +494,150 @@ fn clean_document_exits_zero_with_an_envelope() {
         .stdout(contains(ENVELOPE_TAG))
         .stdout(contains("\"outcome\": \"clean\""));
 }
+
+// --- `--pr-body --writing-style` (PB5) ---
+
+/// The rule source shipped in this repository.
+fn shipped_rules() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../skills/writing-style/rules.yaml")
+        .canonicalize()
+        .expect("the shipped rule source exists")
+}
+
+/// A scratch repository (a `.git` directory and, when given, a CLAUDE.md or
+/// CLAUDE.local.md) holding a pull request body, returned as (repo, body).
+fn pr_scratch(
+    tag: &str,
+    claude_file: Option<(&str, &str)>,
+    body: &str,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let repo = std::env::temp_dir().join(format!("shirabe-cli-pb5-{tag}"));
+    let _ = std::fs::remove_dir_all(&repo);
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    if let Some((name, contents)) = claude_file {
+        std::fs::write(repo.join(name), contents).unwrap();
+    }
+    let body_path = repo.join("body.md");
+    std::fs::write(&body_path, body).unwrap();
+    (repo, body_path)
+}
+
+// Split across source lines so no line restates the rule list.
+const PB5_BODY: &str = concat!(
+    "We tier the work and ",
+    "leverage the cache.\n\n---\n\nA ",
+    "tiered note.\n"
+);
+
+#[test]
+fn writing_style_without_pr_body_exits_one() {
+    shirabe()
+        .arg("validate")
+        .arg("--writing-style")
+        .arg(shipped_rules())
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn writing_style_reports_pb5_findings_and_exits_two() {
+    let (repo, body) = pr_scratch("findings", None, PB5_BODY);
+    shirabe()
+        .current_dir(&repo)
+        .arg("validate")
+        .arg("--pr-body")
+        .arg(&body)
+        .arg("--pr-title")
+        .arg("feat: a seamless change")
+        .arg("--writing-style")
+        .arg(shipped_rules())
+        .arg("--format")
+        .arg("json")
+        .assert()
+        .code(2)
+        .stdout(contains("\"schema\":\"shirabe-pr-body/v1\""))
+        .stdout(contains(
+            "[PB5] writing-style banned word \\\"seamless\\\" in the title",
+        ))
+        .stdout(contains(
+            "[PB5] writing-style banned word \\\"leverage\\\" on line 1",
+        ))
+        .stdout(contains(
+            "[PB5] writing-style banned word \\\"tier\\\" on line 1",
+        ))
+        .stdout(contains(
+            "[PB5] writing-style banned word \\\"tiered\\\" on line 5",
+        ));
+}
+
+#[test]
+fn writing_style_honors_the_working_directorys_declared_vocabulary() {
+    for (tag, file) in [
+        ("vocab-md", "CLAUDE.md"),
+        ("vocab-local", "CLAUDE.local.md"),
+    ] {
+        let (repo, body) = pr_scratch(
+            tag,
+            Some((file, "# repo\n\n## Prose Vocabulary: tier\n")),
+            PB5_BODY,
+        );
+        shirabe()
+            .current_dir(&repo)
+            .arg("validate")
+            .arg("--pr-body")
+            .arg(&body)
+            .arg("--writing-style")
+            .arg(shipped_rules())
+            .arg("--format")
+            .arg("json")
+            .assert()
+            .code(2)
+            .stdout(contains("banned word \\\"tier\\\"").not())
+            .stdout(contains("banned word \\\"tiered\\\" on line 5"))
+            .stderr(contains("declared prose vocabulary suppressed: tier"));
+    }
+}
+
+#[test]
+fn writing_style_rules_that_cannot_be_used_are_a_tool_error() {
+    let (repo, body) = pr_scratch("bad-rules", None, PB5_BODY);
+    let invalid = repo.join("invalid.yaml");
+    std::fs::write(&invalid, "words: [unclosed\n").unwrap();
+    let empty = repo.join("empty.yaml");
+    std::fs::write(&empty, "words: []\n").unwrap();
+    let missing = repo.join("missing.yaml");
+    for rules in [&invalid, &empty, &missing] {
+        shirabe()
+            .current_dir(&repo)
+            .arg("validate")
+            .arg("--pr-body")
+            .arg(&body)
+            .arg("--writing-style")
+            .arg(rules)
+            .arg("--format")
+            .arg("json")
+            .assert()
+            .code(1)
+            .stdout(contains("shirabe-pr-body/v1").not())
+            .stderr(contains("--writing-style:"));
+    }
+}
+
+#[test]
+fn pr_body_without_writing_style_ignores_banned_words() {
+    let (repo, body) = pr_scratch("default", None, PB5_BODY);
+    shirabe()
+        .current_dir(&repo)
+        .arg("validate")
+        .arg("--pr-body")
+        .arg(&body)
+        .arg("--pr-title")
+        .arg("feat: a seamless change")
+        .arg("--format")
+        .arg("json")
+        .assert()
+        .code(0)
+        .stdout("{\"schema\":\"shirabe-pr-body/v1\",\"outcome\":\"clean\",\"findings\":[]}\n")
+        .stderr("");
+}

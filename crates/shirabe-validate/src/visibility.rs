@@ -185,9 +185,42 @@ pub fn resolve_prose_vocabulary(path: &Path) -> Vec<String> {
     resolve_claude_md_header(path, |c| parse_prose_vocabulary_header(c), true).unwrap_or_default()
 }
 
+/// Resolve the declared prose vocabulary of the repository containing `dir`.
+///
+/// The same bounded walk as [`resolve_prose_vocabulary`], started at `dir`
+/// itself rather than at a file's parent. For text that is not a file in the
+/// repository, such as a pull request body written to a temporary file, the
+/// caller passes the directory it runs in.
+pub fn resolve_prose_vocabulary_from_dir(dir: &Path) -> Vec<String> {
+    // The walk begins at its argument's parent, so start it from an entry
+    // inside `dir`. The entry need not exist.
+    resolve_prose_vocabulary(&dir.join(".prose-vocabulary-anchor"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vocabulary_from_dir_starts_at_the_directory_and_stops_at_its_repo() {
+        let root = std::env::temp_dir().join("shirabe-vocab-from-dir");
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("repo");
+        let nested = repo.join("a/b");
+        std::fs::create_dir_all(&nested).unwrap();
+        // A worktree's `.git` is a file, and it bounds the walk too.
+        std::fs::write(repo.join(".git"), "gitdir: elsewhere\n").unwrap();
+        std::fs::write(repo.join("CLAUDE.md"), "## Prose Vocabulary: tier\n").unwrap();
+        // Above the repository: never read.
+        std::fs::write(root.join("CLAUDE.md"), "## Prose Vocabulary: journey\n").unwrap();
+
+        assert_eq!(resolve_prose_vocabulary_from_dir(&repo), vec!["tier"]);
+        assert_eq!(resolve_prose_vocabulary_from_dir(&nested), vec!["tier"]);
+
+        std::fs::remove_file(repo.join("CLAUDE.md")).unwrap();
+        assert!(resolve_prose_vocabulary_from_dir(&nested).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
     use std::fs;
     use std::path::PathBuf;
 
