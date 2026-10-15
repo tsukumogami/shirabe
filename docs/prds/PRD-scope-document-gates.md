@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   /scope credits a hop's document after the validator's schema gate and three
   structural checks (FC01, FC03, FC04). Every other error-level check
@@ -23,7 +23,7 @@ upstream: docs/briefs/BRIEF-scope-document-gates.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
