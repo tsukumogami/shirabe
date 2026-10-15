@@ -608,9 +608,9 @@ states:
           gates.offload_arm.exit_code: 3
 
   # The two marker states pass straight through to review_level_choice. Their
-  # names are what carries a run's group to Datadog: koto's state_entered
-  # event has the state name in koto.state, and no variable value is ever
-  # exported.
+  # names are what carries a run's group to an exporter such as Datadog:
+  # koto's state_entered event has the state name in koto.state, and no
+  # variable value is ever exported.
   offload_arm_withheld:
     transitions:
       - target: review_level_choice

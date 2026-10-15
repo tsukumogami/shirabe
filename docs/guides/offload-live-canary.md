@@ -58,10 +58,10 @@ mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/shirabe"
 echo on > "${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary"
 ```
 
-Only hosts whose koto events reach this project's Datadog should opt in: a
-run on any other host would withhold the rule without being measured. The
-host also needs a shirabe release that carries the canary, for both the
-plugin's files and the `shirabe` binary the hook runs.
+Only hosts whose koto events reach the backend you read results from should
+opt in: a run on any other host would withhold the rule without being
+measured. The host also needs a shirabe release that carries the canary, for
+both the plugin's files and the `shirabe` binary the hook runs.
 
 To turn one host off, delete the file or change its first line.
 
@@ -138,9 +138,9 @@ before it.
 
 ## Reading it honestly
 
-- **The sample is small.** About 20 to 30 runs reach `pr_creation` per group
-  a week, and PB4 broke in none of the runs recorded in the week before the
-  canary, so a difference shows as a count over several weeks.
+- **The sample is small.** Expect a few dozen runs a week to reach
+  `pr_creation` across both groups, and PB4 rarely breaks, so a difference
+  shows as a count over several weeks.
 - **It counts first failures.** After a run breaks PB4 once, the gate hands
   it the rule's text, so both groups know the rule from then on. A run counts
   once either way.

@@ -78,9 +78,8 @@ outside a session. Four facts stand in the way today:
   must guard an action, and any guard forces `never`. No rule an output gate
   checks is eligible to withhold.
 
-The volume is enough to measure with. Over the seven days to 2026-10-14,
-Datadog recorded 64 `/work-on` sessions, and 46 sessions entered
-`pr_creation`.
+The volume is enough to measure with: a few dozen `/work-on` runs reach
+`pr_creation` in a typical week.
 
 ## Goals
 
@@ -163,7 +162,8 @@ run started with the canary turned off by the switch in R10.
   instructions are byte-for-byte those of a canary-off run. A host opts in
   with a file, `${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary`,
   whose first line is `on`; without it no run on that host takes part, since
-  only this project's own hosts send events to its Datadog.
+  only hosts that send events to the backend you read results from can be
+  measured.
 - **R5. Withholding.** In the withheld group, none of these carry the rule's
   text or the string `pr-body/no-heading-in-part1`: the rendered
   `pr_creation` directive, `skills/work-on/references/phases/phase-6-pr.md`
@@ -307,10 +307,10 @@ Boundaries:
 - **The `/execute` side.** `/execute`'s `pr_finalization` checks the same
   rule and keeps the text in every run. Its shared-branch children open no
   pull request and take part in neither group.
-- **Dashboards, monitors and the measurement model.** They belong to the
-  Datadog optimization work. The guide's query is the readout until they ship.
-- **The `check_evaluated` gate-name collision.** It's fixed in the Datadog
-  sender by the work that owns it, not here. The canary doesn't depend on it.
+- **Dashboards, monitors and the measurement model.** Dashboards are out of
+  scope. The guide's query is the readout.
+- **The `check_evaluated` gate-name collision.** A known export issue fixed
+  outside this change. The canary doesn't depend on it.
 - **Linter check states and an escalation ladder** for repeated gate
   failures.
 - **Offline ablations and the eval harness.**
@@ -333,7 +333,7 @@ Boundaries:
   registry's withhold safety, which is the owner's call. Until it's made, the
   registry change isn't committed. If the ruling is no, no gate rule can be
   withheld under the registry as it stands, and the canary stops at its
-  design and goes back to the coordinator.
+  design.
 
 ## Decisions and Trade-offs
 
@@ -347,12 +347,12 @@ Boundaries:
   CI.
 - **Group visibility through state names.** koto exports no variable values,
   and the brief rules out an exporter. A marker state per group shows the
-  group in `state_entered`, an event koto already exports. The coordinator
-  accepted this on 2026-10-14.
+  group in `state_entered`, an event koto already exports. The maintainers
+  decided this.
 - **Runs as the denominator.** A passing check carries no rule id, and in
   Datadog it carries no gate name either, so pass counts per rule aren't
   available. Runs that entered `pr_creation` are, and the gate is evaluated
-  once per entry. The coordinator accepted this on 2026-10-14.
+  once per entry. The maintainers decided this.
 - **Delivery in both groups.** Releasing the rule's text on failure in both
   groups keeps the two identical except for the preloaded text, which is the
   one difference the canary measures.
@@ -360,7 +360,7 @@ Boundaries:
   turning the canary off never moves a run that already drew a group, and a
   run's group can't change partway through.
 - **Opt-in per host.** shirabe is public, and a canary on for everyone would
-  withhold the rule from runs whose events never reach this project's
-  Datadog. Only a host with the opt-in file takes part, and turning the file
-  on for this project's hosts is a separate step after the canary merges. The
-  coordinator decided this on 2026-10-14.
+  withhold the rule from runs whose events never reach the backend you read
+  results from. Only a host with the opt-in file takes part, and turning the
+  file on for a host is a separate step after the canary merges. The
+  maintainers decided this.

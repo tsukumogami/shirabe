@@ -8,7 +8,7 @@
 #      pr-body/no-heading-in-part1 eligible: the first tick's entry evidence
 #      still reaches entry; a withheld run enters offload_arm_withheld once and
 #      a preloaded run offload_arm_preloaded once, read from koto's run journal
-#      (the state_entered events the Datadog sender forwards); an off, a
+#      (the state_entered events koto exports); an off, a
 #      shared-branch and a failed-assignment run (script missing, not
 #      executable, or failing) enter neither and still reach
 #      review_level_choice; a bad switch value and an attach with a different

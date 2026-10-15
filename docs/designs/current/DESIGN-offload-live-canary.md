@@ -69,8 +69,8 @@ Five constraints shape the build:
   sender's per-kind allow-list).
 - **A passing check names no rule.** `check_rule` is written only when a gate
   fails, and `check_evaluated` reaches Datadog without its gate name because
-  `koto.check` collides with `koto.check.*`. The Datadog lane is fixing the
-  collision in the sender; the canary doesn't wait for it.
+  `koto.check` collides with `koto.check.*`, a known export issue fixed
+  outside this change; the canary doesn't wait for it.
 - **koto variable values are plain.** A value must match
   `^[a-zA-Z0-9._/:@+ \-]*$`, so it can carry a path but never a paragraph of
   markdown. A rule's text can't be substituted in; a pointer to it can.
@@ -79,8 +79,8 @@ Five constraints shape the build:
   requires a guard other than `none` on every `level: gate` entry, and any
   such guard forces `withhold: never`. All 21 gate rules are `never`.
 
-The volume: 64 `/work-on` sessions and 46 entries into `pr_creation` in the
-seven days to 2026-10-14, read from Datadog.
+The volume: a few dozen `/work-on` runs reach `pr_creation` in a typical
+week, enough to read a difference over several weeks.
 
 ## Decision Drivers
 
@@ -170,9 +170,9 @@ file's path. The script also asks the registry before it draws: unless
 can't withhold anything the registry hasn't admitted. It draws only on a host
 that has opted in: `${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary`
 must exist, be a regular file, and read `on` on its first line. shirabe is a
-public plugin, and other people's runs never reach this project's Datadog, so
-withholding from them would be unmeasured risk; the coordinator ruled for a
-per-host opt-in on 2026-10-14. The template default stays the global off
+public plugin, and other people's runs never reach the backend you read
+results from, so withholding from them would be unmeasured risk; the
+maintainers decided on a per-host opt-in. The template default stays the global off
 switch, and deleting the file turns one host off. The arm file is written
 last, after the withheld rendering succeeds, so a failed render can't leave a
 run labeled withheld while it reads the full text.
@@ -267,7 +267,7 @@ Resolved inline.
 `review_level_choice`. Each marker state has a single unconditional
 transition to `review_level_choice`, so koto passes
 through it without stopping, and its `state_entered` event carries the name in
-`koto.state`. The coordinator accepted marker states on 2026-10-14.
+`koto.state`. The maintainers decided on marker states.
 
 *Alternative: encode the group in a rule id or gate name.* Rejected: a rule id
 reaches Datadog only on a failure, and a gate name on a pass is lost to the
