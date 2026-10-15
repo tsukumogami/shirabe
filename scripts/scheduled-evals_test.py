@@ -232,7 +232,7 @@ class CapTest(Case):
         self.assertIn("about $10.00 a run (its last measured run)", out)
         self.assertRegex(self.calls()[0], r"^--runs 2 ")
 
-    def test_zero_estimate_over_the_cap_runs_nothing(self):
+    def test_zero_measured_cost_is_floored_and_stops_a_spent_week(self):
         # A skill whose last measured run cost $0 must not slip past a spent week.
         self.seed({"kind": "run", "at": ago(days=10), "skill": "brief", "tree": "old", "runs": 3,
                    "model": "sonnet", "cost_usd": 0, "cost_measured": True, "exit_code": 0},
@@ -300,7 +300,8 @@ class GuardTest(Case):
     def assert_refused(self, rc, out, reason):
         self.assertEqual(rc, 3, out)
         self.assertIn(reason, out)
-        self.assertIn("nothing was run", out)
+        self.assertIn("No further job was run", out)
+        self.assertIn("deleting it would count the spend as nothing", out)
         self.assertEqual(self.calls(), [])
 
     def run_line(self, **fields):

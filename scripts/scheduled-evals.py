@@ -37,10 +37,19 @@ The ledger is JSON Lines, one object per line, read by the next run:
    "assertions_passed", "assertions_graded"}
   {"kind": "cap_stop", "at", "spent_usd", "cap_usd", "next_skill",
    "estimate_usd", "unrun": [<skill>...]}
-The ledger is read strictly: a line that doesn't parse, a run line without a
-valid `at` or `cost_usd`, or a last line with no newline (a write cut off)
-stops the run with exit 3 before anything runs, since any of them could hide
-spend. Default location:
+The ledger is read strictly, since a line it can't account for could hide
+spend. Any of these stops the run with exit 3 before another job starts:
+  - a file that isn't UTF-8 text;
+  - a last line with no newline (a write cut off);
+  - a line that doesn't parse as JSON, or isn't an object;
+  - a "kind" other than "run" or "cap_stop";
+  - a line, of either kind, without a valid "at";
+  - a run line without a valid "cost_usd" (a non-negative finite number).
+Blank lines are skipped. The run stays stopped until a person repairs the
+ledger: find what the line's run cost and correct the line, or replace it with
+a run line carrying that cost. Deleting it would count that spend as nothing.
+A dry run reads the ledger without the lock, so a real run appending at that
+moment can show it a partial last line; run it again. Default location:
 $XDG_STATE_HOME/shirabe/scheduled-evals.jsonl, else
 $HOME/.local/state/shirabe/scheduled-evals.jsonl. A lock directory next to it
 (<ledger>.lock) keeps two runs from overlapping.
@@ -140,9 +149,8 @@ def read_ledger(path):
     # a run that crashed while ledgering its cost. Its cost isn't knowable, so
     # it is refused rather than read as $0.
     if lines and lines[-1] != "":
-        raise LedgerError(
-            "%s ends in a partial line (line %d, no newline): a ledger write was cut off. "
-            "Check what that run cost, then complete or remove the line" % (path, len(lines)))
+        raise LedgerError("%s ends in a partial line (line %d, no newline): a ledger "
+                          "write was cut off" % (path, len(lines)))
     for number, line in enumerate(lines[:-1], 1):
         if not line.strip():
             continue
@@ -161,13 +169,14 @@ def read_ledger(path):
 
 
 def append_ledger(path, entry):
-    # One write of the whole line to an O_APPEND descriptor, so a line lands
-    # whole or, if the process dies inside the write, as a trailing partial
-    # line that read_ledger refuses.
+    # The whole line to an O_APPEND descriptor, looping until every byte is
+    # written. If the process dies part-way, the ledger ends in a partial line
+    # with no newline, which read_ledger refuses rather than reads as $0.
     data = (json.dumps(entry, sort_keys=True) + "\n").encode("utf-8")
     fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
     try:
-        os.write(fd, data)
+        while data:
+            data = data[os.write(fd, data):]
     finally:
         os.close(fd)
 
@@ -279,7 +288,10 @@ def measure_or_refuse(args, skills, head, ledger):
     try:
         return measure(args, skills, head, ledger)
     except LedgerError as exc:
-        print("error: %s; nothing was run" % exc, file=sys.stderr)
+        print("error: %s. No further job was run, and scheduled runs stay stopped until "
+              "the ledger reads. Find what that line's run cost and correct the line, or "
+              "replace it with a run line carrying that cost; deleting it would count the "
+              "spend as nothing." % exc, file=sys.stderr)
         return 3
 
 

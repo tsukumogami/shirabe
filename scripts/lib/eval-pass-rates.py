@@ -38,8 +38,8 @@ merge
     run's entry. An entry with no session_model was measured on the CLI
     default session model and reads as session_model "default". The number of
     runs is in the key because a rate pooled over three runs and a one-run
-    rate carry different noise. The tolerance is not: it changes how a rate is
-    judged, not the rate. When the skill has no such entry,
+    rate carry different noise. The tolerance is not in the key: it changes
+    how a rate is judged, not the rate. When the skill has no such entry,
     this run's rate is a new reference for it: printed as one, never a drop,
     and the entries this release writes are what later releases compare with.
   - A drop is a skill whose rounded rate is lower than its reference rate by
