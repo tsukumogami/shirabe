@@ -89,7 +89,8 @@
 #   coord-log.sh entries --session S --states ST[,ST...]
 #       What `entry` would print for each state, in one read of the log: one
 #       line per state, in the order given, "<state> <seq> <from>" for its
-#       latest entry or "<state> 0" when the log has none (a seq is never 0).
+#       latest entry or "<state> 0" when the log has none (koto numbers a
+#       log's events from 1; the header carries no seq, so 0 is never one).
 #       A state name is [a-z0-9_]+. Exit 0; 2 read failure.
 #   coord-log.sh evidence --session S --state ST [--after SEQ] [--before SEQ]
 #                         [--where FIELD=VALUE]... [--has FIELD]
@@ -139,7 +140,10 @@ KOTO=${KOTO_BIN:-koto}
 usage() { sed -n '/^# Usage:/,/^# Exit 64/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 die() { echo "coord-log: $*" >&2; exit 2; }
 
-sha256() { # the hex digest of stdin; the digest is the output's first word
+# sha256: the hex digest of stdin, the first word of the tool's output, taken
+# in the shell; every seal and check hashes, so a `cut` here would start one
+# more process per call.
+sha256() {
     local h
     if command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum) || return 1
     else h=$(shasum -a 256) || return 1; fi

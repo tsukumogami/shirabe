@@ -127,20 +127,24 @@ event_reads() { # event_reads <label>: entry, evidence, captures, unit, count, s
     eq "$L: entry --with-time --before takes the earlier one" "3 pick_facts 2026-09-26T09:00:00.000Z" "$(bash "$CL" entry --session "$S2" --state wait --before 5 --with-time)"
     # entries is entry for each state at once: the same "<seq> <from>" as
     # entry prints, the latest when a state was entered twice, and "0" where
-    # entry finds none, in the order asked.
+    # entry finds none, in the order asked. A directed transition and a
+    # rewind count as entries, as they do for entry, and an entry with no
+    # "from" prints the empty from entry prints.
+    log_ev "$S2" directed_transition '{"from":"wait","to":"jumped"}'           # 6
+    log_ev "$S2" rewound '{"to":"rewound_into"}'                               # 7
     local want="" st e
-    for st in wait decision_apply never_entered pick_facts; do
+    for st in wait decision_apply never_entered pick_facts jumped rewound_into; do
         e=$(bash "$CL" entry --session "$S2" --state "$st") || e=0
         want="$want$st $e
 "
     done
-    eq "$L: entries is entry for each state, in order" "$want" "$(bash "$CL" entries --session "$S2" --states wait,decision_apply,never_entered,pick_facts)
+    eq "$L: entries is entry for each state, in order" "$want" "$(bash "$CL" entries --session "$S2" --states wait,decision_apply,never_entered,pick_facts,jumped,rewound_into)
 "
     bash "$CL" entries --session "$S2" --states 'wait,Bad State' >/dev/null 2>&1; eq "$L: entries refuses a state name outside [a-z0-9_]" 64 $?
     bash "$CL" entries --session "$S2" >/dev/null 2>&1; eq "$L: entries needs --states" 64 $?
     # A log jq can't read is a read failure, never a "0" that reads as no entry.
     cp "$KOTO_STORE/sessions/$S2/koto-$S2.state.jsonl" "$T/twice"
-    printf '{"seq":6,"type":"transitioned","payload":{"to":"wait"\n' >> "$KOTO_STORE/sessions/$S2/koto-$S2.state.jsonl"
+    printf '{"seq":8,"type":"transitioned","payload":{"to":"wait"\n' >> "$KOTO_STORE/sessions/$S2/koto-$S2.state.jsonl"
     out=$(bash "$CL" entries --session "$S2" --states wait 2>/dev/null); rc=$?
     eq "$L: entries on a log with a broken line is a read failure" 2 "$rc"
     eq "$L: ... and prints nothing" "" "$out"

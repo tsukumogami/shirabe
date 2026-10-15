@@ -74,8 +74,12 @@ done
 
 ALL="$*"
 # One read of the DB for what every call needs: the login, then the failure
-# rule this call matches, if any (its stderr may run over several lines).
-X=$(jq -r --arg a "$ALL" '(.login // "coord"), ([(.fail // [])[] | select(. as $f | $a | contains($f.match))][0] // empty | "\(.rc)\t\(.stderr // "gh: failed")")' "$GH_DB")
+# rule this call matches, if any. The login comes first and on one line (a
+# GitHub login has no newline), so everything after the first newline is the
+# rule, whose stderr may run over several lines. A DB jq can't read stops the
+# call rather than reading as "no rule, default login".
+X=$(jq -r --arg a "$ALL" '(.login // "coord" | tostring), ([(.fail // [])[] | select(. as $f | $a | contains($f.match))][0] // empty | "\(.rc)\t\(.stderr // "gh: failed")")' "$GH_DB") \
+    || { echo "gh stub: cannot read GH_DB" >&2; exit 9; }
 LOGIN=${X%%$'\n'*}
 case "$X" in *$'\n'*) FAILRC=${X#*$'\n'} ;; *) FAILRC= ;; esac
 if [ -n "$FAILRC" ]; then
@@ -123,9 +127,9 @@ while [ $# -gt 0 ]; do
         *) POS="$POS$1"$'\n'; POSA+=("$1"); shift ;;
     esac
 done
-# pos <n>: the nth positional argument. field <name>: the first line of the
-# first -f/-F <name>=... value. Both run in the shell rather than in sed, since
-# every call reads them.
+# pos <n>: the nth positional argument (n from 1). field <name>: the first
+# line of the first -f/-F <name>=... value, the name matched literally. Both
+# run in the shell rather than starting sed, since most calls read them.
 pos() { printf '%s' "${POSA[$(( $1 - 1 ))]-}"; }
 # canon <owner/repo>: the DB's own spelling of a repository named in any
 # case, or the name as given when the DB holds no such repository.
