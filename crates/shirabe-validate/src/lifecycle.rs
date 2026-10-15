@@ -43,9 +43,10 @@
 //!   disagree, rather than handed instructions it cannot both follow.
 //!   Findings of every other kind on it are unaffected.
 //! - **L10**: a `plan/v2` chain member still holds a one-line outline
-//!   step. Chain-targeted mode only (`--lifecycle-chain`, the run the
-//!   completion cascade makes before deleting the plan); one error per
-//!   outline step, naming it.
+//!   step. Chain-targeted mode only (`--lifecycle-chain`); one finding per
+//!   outline step, naming it. Draft-tolerable: a notice while the plan is
+//!   authored and reviewed, an error at the ready posture the completion
+//!   cascade runs before deleting the plan.
 //!
 //! Posture detection follows
 //! `docs/decisions/DECISION-multi-pr-posture-detection-2026-06-06.md`:
@@ -1682,10 +1683,14 @@ fn resolve_delivery_preference(doc_path: &Path) -> Option<String> {
 /// chain finalized over it would complete with that step's behaviour
 /// missing and the plan that named it deleted.
 ///
-/// Emitted only by [`run_lifecycle_chain_check`], the run the completion
-/// cascade makes before it deletes the plan. The whole-tree run reports on
-/// every chain in flight, where an outline step is the expected shape of a
-/// step plan whose later steps are not yet due; there it would be noise.
+/// Emitted only by [`run_lifecycle_chain_check`]. The completion cascade
+/// makes that run at ready posture before it deletes the plan, and there
+/// L10 is an error that stops it. The same run is made at draft posture
+/// while the plan is authored and reviewed (`/plan`'s Phase 7, the
+/// PLAN-docs CI job), where L10 is a notice: the code is draft-tolerable
+/// (see `validate::posture_class`), as L06 is. The whole-tree run reports
+/// on every chain in flight, where an outline step is the expected shape of
+/// a step plan whose later steps are not yet due; there it would be noise.
 ///
 /// "Outline" is the shared parser's `detailed` flag, the same one
 /// `shirabe plan outlines` reports and the step-detail gate reads. It
@@ -1867,8 +1872,8 @@ pub fn run_lifecycle_chain_check(
     errors.extend(emit_chain_findings(&in_scope, &idx, cfg));
 
     // L10 is this mode's alone: the completion cascade runs this mode
-    // before it deletes the plan, and an outline step is legitimate in
-    // flight, which is all the whole-tree mode sees.
+    // (at ready posture) before it deletes the plan, and an outline step is
+    // legitimate in flight, which is all the whole-tree mode sees.
     for chain in &in_scope {
         errors.extend(check_l10_outline_steps(chain));
     }

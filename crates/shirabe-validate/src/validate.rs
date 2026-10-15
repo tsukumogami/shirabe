@@ -56,18 +56,22 @@ pub enum Severity {
 ///
 /// The draft-tolerable set is the lifecycle in-flight findings `L02`
 /// (orphan/connectivity), `L06` (outline-AC completeness), `L07`
-/// (design-location), and `L09` (split-rationale presence): these are
-/// legitimate intermediate states while a chain is being drafted, so they
-/// tolerate `Draft` posture but must be resolved before `Ready`.
+/// (design-location), `L09` (split-rationale presence) and `L10` (an
+/// outline step left in a step plan): these are legitimate intermediate
+/// states while a chain is being drafted, so they tolerate `Draft` posture
+/// but must be resolved before `Ready`.
 /// Everything else — the always-defect lifecycle findings
-/// `L01`/`L03`/`L04`/`L05`/`L10` and the entire FC-family — is
+/// `L01`/`L03`/`L04`/`L05` and the entire FC-family — is
 /// `AlwaysEnforced`. The FC-family exclusion is why `L09` is an `L` code:
 /// it is a single-document property like `L06`, and filing it under `FC`
 /// would have cost this invariant an exception.
 ///
-/// `L10` (an outline step left in a step plan) is always enforced because
-/// only the chain-targeted run the completion cascade makes raises it, and
-/// there a step nobody built is not an in-flight state.
+/// `L10` is draft-tolerable for the same reason `L06` is. A step plan in
+/// flight has outline steps by design, and the chain-targeted run that
+/// raises L10 is also made at `Draft` posture while the plan is authored
+/// and reviewed (`/plan`'s Phase 7, the PLAN-docs CI job). The completion
+/// cascade runs it at `Ready`, where an outline step is an error and stops
+/// the plan from completing.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PostureClass {
     DraftTolerable,
@@ -110,17 +114,17 @@ fn is_intrinsic_notice(code: &str) -> bool {
 
 /// Classify a finding code by how its enforcement responds to posture.
 ///
-/// The draft-tolerable lifecycle codes `L02`/`L06`/`L07`/`L09` resolve to
-/// a notice under `Draft` posture and an error under `Ready`; this is the
-/// single point that drives posture sensitivity. Every other code —
-/// including the always-defect lifecycle findings `L01`/`L03`/`L04`/`L05`/`L10`
-/// and the whole FC-family — is `AlwaysEnforced` and resolves to an error
+/// The draft-tolerable lifecycle codes `L02`/`L06`/`L07`/`L09`/`L10`
+/// resolve to a notice under `Draft` posture and an error under `Ready`;
+/// this is the single point that drives posture sensitivity. Every other
+/// code — including the always-defect lifecycle findings
+/// `L01`/`L03`/`L04`/`L05` and the whole FC-family — is `AlwaysEnforced` and resolves to an error
 /// in both postures (subject to the intrinsic-notice set in
 /// [`is_intrinsic_notice`], which keeps `SCHEMA` and the advisory FC codes
 /// notices regardless of posture).
 pub fn posture_class(code: &str) -> PostureClass {
     match code {
-        "L02" | "L06" | "L07" | "L09" => PostureClass::DraftTolerable,
+        "L02" | "L06" | "L07" | "L09" | "L10" => PostureClass::DraftTolerable,
         _ => PostureClass::AlwaysEnforced,
     }
 }
@@ -601,14 +605,19 @@ mod tests {
         );
     }
 
-    /// L10 is an error in both postures, so no posture lets a plan complete
-    /// over a step nobody built. Like every lifecycle code, it is not a
-    /// `--check` selection.
+    /// L10 is a notice while a step plan is drafted and an error at ready,
+    /// the posture the completion cascade runs. Like every lifecycle code,
+    /// it is not a `--check` selection.
     #[test]
-    fn l10_is_an_error_in_both_postures_and_not_selectable() {
-        for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
-            assert_eq!(effective_severity("L10", posture), Severity::Error);
-        }
+    fn l10_is_draft_tolerable_and_not_selectable() {
+        assert_eq!(
+            effective_severity("L10", ReviewPosture::Draft),
+            Severity::Notice
+        );
+        assert_eq!(
+            effective_severity("L10", ReviewPosture::Ready),
+            Severity::Error
+        );
         assert!(!is_known_check_code("L10"));
     }
 
