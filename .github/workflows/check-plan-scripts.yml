@@ -90,8 +90,8 @@ jobs:
 
       # resolve-plan-version_test.sh validates the step plan example in
       # references/quality/plan-doc-examples.md with a plan/v2-aware shirabe.
-      # It runs the same `cargo build --release -p shirabe` as the suite
-      # above, which finds the build already done.
+      # It runs the same `cargo build --release -p shirabe` as
+      # plan-to-tasks_test.sh, which finds the build already done.
       - name: Run resolve-plan-version tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/plan/scripts/resolve-plan-version_test.sh

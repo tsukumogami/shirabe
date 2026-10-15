@@ -34,8 +34,8 @@ PASS_COUNT=0
 FAIL_COUNT=0
 
 # The setting's name, kept apart from its value so this file never spells the
-# assignment out: the PLAN's check greps skills/plan/scripts/ for it and expects
-# exactly one match, the script's own line.
+# assignment out: `git grep -n "<name>=v1" skills/plan/scripts/` must match
+# exactly once, the script's own line, to show the default lives in one place.
 DEFAULT_NAME="DEFAULT_PLAN_VERSION"
 
 pass() {
@@ -148,6 +148,8 @@ reject "unknown argument" "unknown argument" --plan-versions=v2
 printf '## Plan Version: v2\x1b[31m%s\n' "$(printf 'x%.0s' $(seq 1 80))" > "$TEST_DIR/hostile.md"
 reject "a quoted header value has control characters stripped" "must be v1 or v2" \
     --claude-md "$TEST_DIR/hostile.md"
+# The checks below read the stderr the reject call above left in place.
+# 45 = the 40 kept characters, the "..." marker and the newline, plus one.
 if LC_ALL=C grep -q "$(printf '\033')" "$TEST_DIR/stderr"; then
     fail "a quoted header value carries no escape" "stderr holds an ESC byte"
 elif [ "$(sed -n "s/.*got '\\(.*\\)'.*/\\1/p" "$TEST_DIR/stderr" | wc -c | tr -d ' ')" -gt 45 ]; then

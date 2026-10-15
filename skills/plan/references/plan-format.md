@@ -458,7 +458,8 @@ Required sections, in order: `Status`, `Scope Summary`,
 follow; the step order is the sequence. There is no Issue Outlines
 section, no Implementation Issues table and no Dependency Graph.
 
-Under `## Steps`, every `###` heading is `### Step <N>: <title>`,
+Under `## Steps`, every `###` heading is `### Step <N>: <title>`
+(a step's own `### Dependencies` sub-heading aside),
 numbered 1, 2, 3 and on with no gap, no repeat and no leading zero
 (at most 999). The title names the behaviour the step adds. A step is
 one of two kinds:

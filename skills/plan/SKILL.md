@@ -268,8 +268,10 @@ forwards them verbatim when its caller passed them):
   above). Passed verbatim to `scripts/resolve-plan-version.sh` in Phase 1,
   which refuses any other value, an empty one included, before anything is
   written. Without it, a `## Plan Version:` CLAUDE.md header decides, then the
-  default `v1`. With `v2`, `--no-skeleton` is refused in Phase 3: a step plan
-  always starts from a walking skeleton.
+  default `v1`; a run given the flag never reads the header, so a malformed
+  header does not stop it. With `v2`, `--no-skeleton` is refused in Phase 3: a
+  step plan always starts from a walking skeleton. Neither check is part of the
+  up-front validation below, but both stop the run before any file is written.
 
 A run with none of the three behaves exactly as before they existed. Validate
 them before anything else runs, and before the `plan-<topic>` session is

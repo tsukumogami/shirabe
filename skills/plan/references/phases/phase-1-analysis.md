@@ -49,7 +49,8 @@ the default, which is `v1`.
 
 **A non-zero exit stops the run** with the script's stderr line: a value other
 than `v1` or `v2` (an empty one included), or two `## Plan Version:` headers in
-CLAUDE.md. Nothing has been written at that point and nothing is.
+CLAUDE.md. Nothing has been written at that point and nothing is. A run given
+`--plan-version` never reads the header, so a bad header does not stop it.
 
 Store the version for every later phase:
 
