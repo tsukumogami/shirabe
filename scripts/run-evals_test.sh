@@ -568,7 +568,7 @@ prepared_scenarios() {
 }
 run_runner plan --release-subset --prep-only subset
 if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "merge-a plan-a resume-a " ] \
-  && printf '%s\n' "$OUT" | grep -q 'Selection:  the release subset'; then
+  && grep -q 'Selection:  the release subset' <<<"$OUT"; then
   pass "--release-subset: every tier-1 scenario and the tier-2 ones marked release"
 else
   fail "--release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
@@ -586,7 +586,7 @@ else
   fail "--scenario with --release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
 fi
 run_runner plan --scenario merge-b,nope --prep-only subset
-if [ "$RC" -eq 3 ] && printf '%s\n' "$OUT" | grep -q "no eval named 'nope'"; then
+if [ "$RC" -eq 3 ] && grep -q "no eval named 'nope'" <<<"$OUT"; then
   pass "--scenario: a name the suite lacks is refused, and named"
 else
   fail "--scenario unknown name (rc=$RC): $OUT"

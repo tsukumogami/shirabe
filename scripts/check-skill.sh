@@ -21,7 +21,9 @@
 #      once, the costliest first, reporting each in the order a serial run
 #      would;
 #   5. runs scripts/lib/check-evals-shape.py on evals/evals.json (a skill whose
-#      SKILL.md declares disable-model-invocation: true may have none).
+#      SKILL.md declares disable-model-invocation: true may have none);
+#   6. runs scripts/check-pipe-readers.sh over the skill's directory, which
+#      refuses a printf, echo or cat piped into grep -q or head.
 #
 # Every check runs even after one fails. Each failure is reported with the
 # file it concerns, and the run ends with the list of failures.
@@ -466,6 +468,15 @@ if python3 "$SHAPE_CHECK" "$evals_json" "$SKILL_DIR/SKILL.md" >"$LOG" 2>&1; then
 else
     show_log
     fail "eval shape: $evals_json"
+fi
+
+# 6. No shell value piped into a reader that stops early (grep -q, head):
+#    under pipefail the writer can be cut off and a match read as no match.
+if bash "$SCRIPT_DIR/check-pipe-readers.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
+    echo "ok: pipe readers ($SKILL_DIR)"
+else
+    show_log
+    fail "pipe readers: $SKILL_DIR (scripts/check-pipe-readers.sh)"
 fi
 
 if [ -n "$FAILURES" ]; then

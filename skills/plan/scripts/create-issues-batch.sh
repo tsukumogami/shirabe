@@ -189,7 +189,7 @@ topological_sort() {
 strip_frontmatter() {
     local content="$1"
 
-    if head -1 <<<"$content" | grep -q '^---$'; then
+    if [ "$(head -1 <<<"$content")" = --- ]; then
         echo "$content" | awk '
             BEGIN { in_frontmatter=0; found_end=0 }
             /^---$/ {
