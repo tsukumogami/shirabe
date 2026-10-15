@@ -107,7 +107,7 @@ read)
     exit 0
     ;;
 list)
-    jq -c '.holdings' "$T/parsed.json"
+    jq -c -L "$HERE" 'include "record-codec"; holdings_list' "$T/parsed.json"
     exit 0
     ;;
 esac

@@ -5,7 +5,12 @@
 #
 # Usage:
 #   decision-next.sh --session S                  route: print the sealed verdict
-#   decision-next.sh --session S --owed dispatch|pick
+#   decision-next.sh --session S --owed dispatch|pick [--parsed FILE]
+#
+# --parsed names the record as the caller already read and parsed it
+# (record-source.sh rs_record's output, FILE.md beside it): pick-facts.sh
+# passes its own, so the record is read once in the tick (shirabe#840).
+# Without it the record is read here.
 #
 # It reads the Decisions section (record-decision.sh --list), the session log
 # (coord-log.sh), and at discipline scope before the first dispatch the
@@ -70,16 +75,18 @@ set -uo pipefail
 
 PROG=decision-next
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= OWED= NO_SEAL=0
+SESSION= OWED= PARSED= NO_SEAL=0
 usage() { sed -n '/^# Usage:/,/^# It reads/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
         --owed) [ $# -ge 2 ] || usage; OWED=$2; shift 2 ;;
+        --parsed) [ $# -ge 2 ] || usage; PARSED=$2; shift 2 ;;
         *) usage ;;
     esac
 done
 [ -n "$SESSION" ] || usage
+[ -z "$PARSED" ] || { [ -n "$OWED" ] && [ -r "$PARSED" ] && [ -r "$PARSED.md" ]; } || usage
 case "$OWED" in ''|dispatch|pick) ;; *) usage ;; esac
 SCOPE= NAME= REPO= REF=
 . "$HERE/record-common.sh"
@@ -90,8 +97,12 @@ trap 'rm -rf "$T"' EXIT
 CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 
 # The section and the log facts the rules read.
-bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
-    || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
+if [ -n "$PARSED" ]; then
+    jq -c -L "$HERE" 'include "record-codec"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
+else
+    bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
+        || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
+fi
 # The latest entry into each state the rules read, 0 when none, in one read
 # of the log (coord-log.sh entries) rather than one coord-log.sh per state.
 # READS is the one list of <state>:<variable>: the request is built from it,
@@ -147,8 +158,12 @@ if [ "$PARK" = true ]; then
     PARK_UNIT=$(printf '%s' "$PICK_EV" | jq -r '.fields.unit // "" | tostring')
     # The pick's minute: a park row older than the pick is an earlier park.
     PARK_SINCE=$(printf '%s' "$PICK_EV" | jq -r '(.timestamp // "")[0:16]')
-    bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/rs.err" \
-        || { cat "$T/rs.err" >&2; lib_die2 "cannot read the Work section"; }
+    if [ -n "$PARSED" ]; then
+        jq -c -L "$HERE" 'include "record-codec"; state_list' "$PARSED" > "$T/state.json" || lib_die2 "cannot read the Work section"
+    else
+        bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/rs.err" \
+            || { cat "$T/rs.err" >&2; lib_die2 "cannot read the Work section"; }
+    fi
 else
     echo '{"work":[]}' > "$T/state.json"
 fi
@@ -244,10 +259,14 @@ fi
 case "$WORD" in
     clear|clear-report) ;;
     *)
-        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
-            || lib_die2 "cannot read the record's number"
-        rs_record "$T/live" body --json body --jq .body
-        case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
+        if [ -n "$PARSED" ]; then
+            cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
+        else
+            REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
+                || lib_die2 "cannot read the record's number"
+            rs_record "$T/live" body --json body --jq .body
+            case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
+        fi
         SIZE=$(wc -c < "$T/live.md" | tr -d ' ')
         if [ "$SIZE" -gt $((60000 - 4096)) ]; then
             echo "$PROG: record-full: the record is $SIZE bytes, too close to the 60,000-byte budget for the owed $WORD; compact settled decisions or prune the record" >&2

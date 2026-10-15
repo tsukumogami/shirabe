@@ -208,7 +208,7 @@ read_live() {
 read_live
 case "$MODE" in
 list)
-    jq -c '.decisions // {next: 1, entries: []}' "$WD/parsed.json"
+    jq -c -L "$HERE" 'include "record-codec"; decisions_list' "$WD/parsed.json"
     exit 0
     ;;
 read)

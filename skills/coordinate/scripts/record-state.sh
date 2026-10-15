@@ -206,7 +206,7 @@ if [ "$MODE" = run ] && [ "$KEY" = store ] && [ "$VALUE" = github ] \
 fi
 
 if [ "$MODE" = list ]; then
-    jq -c '{run: (.run // []), standing: (.standing // []), work: (.work // [])}' "$WD/parsed.json"
+    jq -c -L "$HERE" 'include "record-codec"; state_list' "$WD/parsed.json"
     exit 0
 fi
 

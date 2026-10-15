@@ -199,6 +199,27 @@ case "$W1 $W2" in
     "POST graphql")
         q=$(field query)
         case "$q" in *mutation*) echo "gh stub: a GraphQL mutation" >&2; exit 9 ;; esac
+        case "$q" in *"query pickAssigned("*)
+            # pick-facts.sh's one read of the assigned issues: field i<k> is
+            # issue n<k> of o<k>/r<k>. An issue the DB lacks answers null with an
+            # error and exit 1, as GitHub and gh do; .graphql_fail fails the
+            # read outright, and .graphql_partial answers the last field null
+            # with no error and exit 0.
+            jq -e '.graphql_fail // false' "$GH_DB" > /dev/null && { echo "gh: API rate limit exceeded" >&2; exit 1; }
+            reqs= k=0
+            while [ -n "$(field "o$k")" ]; do
+                reqs="$reqs$k $(field "o$k")/$(field "r$k") $(field "n$k")"$'\n'
+                k=$((k + 1))
+            done
+            out=$(jq -c --arg q "$reqs" '. as $db | ($q | split("\n") | map(select(. != "") | split(" "))) as $rs
+                | (reduce $rs[] as $x ({}; .["i\($x[0])"] = {issue: ([$db.issues[]? | select(.repo == $x[1] and (.number | tostring) == $x[2])][0]
+                      | if . == null then null else {number, title, state: (.state | ascii_upcase)} end)})) as $d
+                | {data: $d} + (if any($d[]; .issue == null) then {errors: [{type: "NOT_FOUND", message: "Could not resolve to an Issue"}]} else {} end)
+                | if ($db.graphql_partial // false) and ($rs | length) > 0 then .data["i\(($rs | length) - 1)"] = null | del(.errors) else . end' "$GH_DB")
+            emit "$out"
+            case "$out" in *'"errors"'*) echo "gh: Could not resolve to an Issue" >&2; exit 1 ;; esac
+            exit 0 ;;
+        esac
         kind=issue
         case "$q" in *"pullRequest("*) kind=pullRequest ;; esac
         r="$(field owner)/$(field name)"
