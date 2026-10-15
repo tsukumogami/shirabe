@@ -301,7 +301,8 @@ track the creation of upstream artifacts (PRDs, designs, spikes, decisions).
 
 ### 3.R1 Map Features to Planning Issues
 
-For each feature in the analysis artifact's "Features Identified" section:
+For each feature in the analysis artifact's "Features Identified" section (on a
+`roadmap/v3` roadmap, each milestone from its Milestones section):
 
 1. Create one planning issue per feature
 2. Issue title format: `docs(<scope>): <feature-name>`

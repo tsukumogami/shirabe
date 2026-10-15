@@ -500,7 +500,9 @@ STRATEGY content the chain has already produced.
 - **Initial Scope** — the scope boundary the roadmap inherits
   from the STRATEGY, written as prose.
 - **Candidate Features** — a list of features candidate for
-  sequencing, derived from the STRATEGY's Building Blocks.
+  sequencing, derived from the STRATEGY's Building Blocks. A
+  `roadmap/v3` roadmap lists them as milestones, under
+  `## Milestones`.
 - **Dependency Sketch** — a sketch of feature-to-feature
   dependencies derived from the STRATEGY's Coordination
   Dependencies section.
