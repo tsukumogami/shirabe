@@ -114,6 +114,17 @@ variables:
       floor. Recorded with REVIEW_FLOOR.
     required: false
     pattern: ^(light|standard|full)?$
+  OFFLOAD_CANARY:
+    description: >-
+      The live offload canary's switch (docs/guides/offload-live-canary.md).
+      With `on`, a run on a host that opted in, while the rule registry marks
+      pr-body/no-heading-in-part1 withhold: eligible, is assigned to the
+      withheld or the preloaded group at offload_canary. Its default is the one
+      change that turns the canary off for every later run. Not rebindable: a
+      run never changes group partway through.
+    required: false
+    default: "on"
+    values: ["on", "off"]
 
 states:
   entry:
@@ -544,8 +555,9 @@ states:
         type: string
         description: Summary of the implementation approach
     transitions:
-      # The review level is chosen next, before anything is implemented.
-      - target: review_level_choice
+      # The live offload canary assigns the run's group next, then the
+      # review level is chosen, before anything is implemented.
+      - target: offload_canary
         when:
           plan_outcome: plan_ready
           gates.plan_artifact.exists: true
@@ -565,6 +577,47 @@ states:
           plan_outcome: blocked_missing_context
         context_assignments:
           failure_reason: "analysis blocked: missing context: ${evidence.approach_summary}"
+
+  # The live offload canary (DESIGN-offload-live-canary.md). The
+  # draw records the run's group in the session directory and prints the
+  # PR-body conformance text this run reads, captured as PR_BODY_RULES for the
+  # pr_creation directive. The gate reads the recorded group back: 0 withheld,
+  # 1 preloaded, 3 neither (canary off, a shared branch, a host that hasn't
+  # opted in, the rule not eligible, or any failure). The action's command ends
+  # in a fallback because a failing default action would hold the run here, and
+  # the gate maps every exit but 0 and 1 to 3 so a broken or missing script has
+  # an edge too. Both restate offload-canary.sh's own contract (its header): a
+  # change to draw's output or arm's exit codes changes these two commands.
+  offload_canary:
+    default_action:
+      command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" && "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" draw "{{OFFLOAD_CANARY}}" "{{SHARED_BRANCH}}" "{{SESSION_DIR}}" "{{PLUGIN_ROOT}}" || echo "{{PLUGIN_ROOT}}/references/pr-body-conformance.md"'
+      capture_stdout_as: PR_BODY_RULES
+    gates:
+      offload_arm:
+        type: command
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" || exit 3; "{{PLUGIN_ROOT}}/skills/work-on/scripts/offload-canary.sh" arm "{{SESSION_DIR}}" || { test $? -eq 1 && exit 1; exit 3; }'
+    transitions:
+      - target: offload_arm_withheld
+        when:
+          gates.offload_arm.exit_code: 0
+      - target: offload_arm_preloaded
+        when:
+          gates.offload_arm.exit_code: 1
+      - target: review_level_choice
+        when:
+          gates.offload_arm.exit_code: 3
+
+  # The two marker states pass straight through to review_level_choice. Their
+  # names are what carries a run's group to an exporter such as Datadog:
+  # koto's state_entered event has the state name in koto.state, and no
+  # variable value is ever exported.
+  offload_arm_withheld:
+    transitions:
+      - target: review_level_choice
+
+  offload_arm_preloaded:
+    transitions:
+      - target: review_level_choice
 
   review_level_choice:
     # The run commits to a review level here, after analysis has read the code
@@ -2378,6 +2431,23 @@ use `scope_changed_escalate`. The cap lives here until koto enforces it from its
 attempt counts, with the same number. Submit `blocked_missing_context` if stuck.
 Record non-obvious decisions with `koto decisions record {{SESSION_NAME}}`.
 
+## offload_canary
+
+koto runs this state itself and moves on to `review_level_choice` without
+stopping. It assigns the run to the live offload canary's groups when the
+canary applies; there is nothing to submit. If it ever holds here, tick again with
+`koto next {{SESSION_NAME}} --no-cleanup`.
+
+## offload_arm_withheld
+
+koto passes through this state to `review_level_choice` without stopping.
+There is nothing to submit.
+
+## offload_arm_preloaded
+
+koto passes through this state to `review_level_choice` without stopping.
+There is nothing to submit.
+
 ## review_level_choice
 
 Choose this run's review level now, before implementing anything. The level
@@ -2794,6 +2864,9 @@ a run without it opens its own pull request.
 Otherwise, read `references/phases/phase-6-pr.md` for PR format, pre-PR
 verification, and push instructions.
 
+Author the title and body to the mechanical rule in `{{PR_BODY_RULES}}`, which
+`shirabe validate --pr-body` enforces in CI.
+
 Check if a PR already exists: `gh pr list --head {{BRANCH}}`
 
 Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it is already interpolated above; do not recover it again.
@@ -2803,11 +2876,9 @@ Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it 
 `pr_status: created` advances only when the `pr_body_conformant` gate passes. It
 runs `check-pr-output.sh --pr-body`, which reads the pull request's title and body
 from GitHub and checks them with `shirabe validate --pr-body` against the PR-body
-conformance rules (`references/pr-body-conformance.md`). On a violation the state
-holds and each finding names the rule (`pr-body/conventional-title`,
-`pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1`, or
-`pr-body/conformance`): fix the title or body with `gh pr edit` and submit
-`pr_status: created` again. An exit 2 means the check could not decide (no pull
+conformance rules. On a violation the state holds and each finding names the rule
+it breaks: fix the title or body with `gh pr edit` and submit `pr_status: created`
+again. An exit 2 means the check could not decide (no pull
 request for the branch, `gh` or `shirabe` missing); run
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body` for the reason.
 

@@ -2,7 +2,7 @@
 stateDiagram-v2
     direction LR
     [*] --> entry
-    analysis --> review_level_choice : gates.plan_artifact.exists: true, plan_outcome: plan_ready
+    analysis --> offload_canary : gates.plan_artifact.exists: true, plan_outcome: plan_ready
     analysis --> done_already_complete : plan_outcome: already_complete
     analysis --> analysis : plan_outcome: scope_changed_retry
     analysis --> done_blocked : plan_outcome: scope_changed_escalate
@@ -61,6 +61,11 @@ stateDiagram-v2
     light_review --> implementation : gates.light_carried.exit_code: 1, gates.light_recorded.exit_code: 0, gates.light_verdict.exit_code: 1, light_outcome: blocking_retry
     light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 1, light_outcome: blocking_escalate
     light_review --> done_blocked : gates.light_carried.exit_code: 1, gates.light_verdict.exit_code: 2, light_outcome: blocking_escalate
+    offload_arm_preloaded --> review_level_choice
+    offload_arm_withheld --> review_level_choice
+    offload_canary --> offload_arm_withheld : gates.offload_arm.exit_code: 0
+    offload_canary --> offload_arm_preloaded : gates.offload_arm.exit_code: 1
+    offload_canary --> review_level_choice : gates.offload_arm.exit_code: 3
     plan_context_injection --> setup_plan_backed : gates.context_artifact.exists: true, issue_source: github, status: completed
     plan_context_injection --> plan_validation : gates.context_artifact.exists: true, issue_source: plan_outline, status: completed
     plan_context_injection --> setup_plan_backed : status: override
@@ -219,6 +224,9 @@ stateDiagram-v2
     end note
     note left of light_review
         gate: light_verdict
+    end note
+    note left of offload_canary
+        gate: offload_arm
     end note
     note left of plan_context_injection
         gate: context_artifact
