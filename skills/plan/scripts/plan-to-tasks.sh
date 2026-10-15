@@ -496,7 +496,9 @@ load_outline_envelope() {
 
 # The optional fourth argument selects the naming: `slug` (the default) names
 # each task from its title, `step` names it `step-<N>` from the step number,
-# which the parser has already bounded to 1..999.
+# which the parser has already bounded to 1..999. A `plan/v2` step plan comes
+# through here in both of its modes, single-pr and multi-pr, with `step`
+# naming; the issue_* names below then hold steps.
 process_single_pr() {
     local file="$1"
     local id_prefix="${2:-o-}"

@@ -31,6 +31,10 @@ use shirabe_validate::{parse_doc, parse_issue_outlines, ParseError};
 /// read fields positionally: an installed binary and a checked-out script
 /// can skew, and the version is what makes that detectable instead of
 /// silent.
+///
+/// Keys are only ever added under this id, never renamed or removed: the
+/// `entry`, `detailed` and `check_declared` keys the `plan/v2` step plan
+/// brought kept it at `v1` because consumers read fields by name.
 pub const SCHEMA: &str = "shirabe-plan-outlines/v1";
 
 #[derive(clap::Args)]
@@ -41,8 +45,9 @@ pub struct PlanArgs {
 
 #[derive(clap::Subcommand)]
 pub enum PlanCommands {
-    /// Parse a PLAN's `## Issue Outlines` section and write it to stdout as
-    /// a `shirabe-plan-outlines/v1` JSON envelope. Read-only.
+    /// Parse a PLAN's `## Issue Outlines` section (a `plan/v2` step plan's
+    /// `## Steps`) and write it to stdout as a `shirabe-plan-outlines/v1`
+    /// JSON envelope. Read-only.
     Outlines(OutlinesArgs),
 }
 

@@ -285,6 +285,12 @@ they disagreed in eight ways — see
 is not the expected value is refused rather than read field by field, so a
 binary and a script that have skewed across an install fail loudly.
 
+Each envelope entry also carries `entry` (`issue`, or `step` for a `plan/v2`
+step), `detailed` (always `true` for an issue outline; for a step, whether it
+declares a goal, criteria and a check) and `check_declared`. The keys were
+added without a version bump because consumers read fields by name, and no
+existing key changed.
+
 What this script still owns is everything after the parse: slug generation,
 the `o-` prefix, 64-character truncation, collision suffixing, the
 `**Files**:` ownership edges, and the koto task-entry assembly.
