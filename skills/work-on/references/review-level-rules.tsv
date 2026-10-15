@@ -113,12 +113,14 @@ class	engine	skills/work-on/scripts/check-staleness.sh
 class	engine	skills/work-on/scripts/check-verification.sh
 class	engine	skills/work-on/scripts/find-anchor-plan.sh
 class	engine	skills/work-on/scripts/has-commits.sh
+class	engine	skills/work-on/scripts/offload-canary.sh
 class	engine	skills/work-on/scripts/panel-retry-budget.sh
 class	engine	skills/work-on/scripts/panel-scope.sh
 class	engine	skills/work-on/scripts/record-changed-paths.sh
 class	engine	skills/work-on/scripts/review-level.sh
 class	engine	skills/work-on/scripts/run-verification.sh
 class	engine	skills/work-on/scripts/session-role.sh
+class	engine	skills/work-on/scripts/step-detail-check.sh
 
 # Text an agent follows as instructions.
 class	instruction	**/SKILL.md

@@ -46,9 +46,14 @@
 #
 # The body is a fixed template over validated fields only: the slug, exit,
 # outcome, `intent=`, mode, the docs/ artifact paths that exist, and the PLAN's
-# work-item IDs. No free-text state field reaches it. A coordinated body starts
-# with the fixed coordination-PR declaration prefix and is checked with
-# `shirabe validate --coordination-body` before it is posted.
+# work-item IDs. No free-text state field reaches it. The one text read from a
+# document is a plan/v2 step plan's step headings, which the body lists as
+# `### Step <N>: <title>` lines (a step has no ID beyond its number). They go
+# inside a fenced code block, with every control character made a space and a
+# fence longer than any backtick run in them, so a title stays literal text:
+# no heading, link, mention or closing keyword in it is live. A coordinated
+# body starts with the fixed coordination-PR declaration prefix and is checked
+# with `shirabe validate --coordination-body` before it is posted.
 #
 # --verify exits 0 only when `git ls-remote origin refs/heads/<branch>` equals
 # `git rev-parse HEAD`, exactly one owned open PR exists on the branch, and,
@@ -323,8 +328,39 @@ DRAFT=1
 
 TITLE="docs(scope): ${TOPIC} (${EXIT})"
 
+# render_steps -- a plan/v2 PLAN's work items: each `### Step <N>: <title>`
+# heading of `## Steps`, in PLAN order, inside one fenced code block. Control
+# characters become spaces, so a title cannot start a line of its own or carry
+# a terminal escape, and the fence is one backtick longer than the longest run
+# in the titles (three at least), so no title can close it.
+render_steps() {
+    local steps fence
+    steps=$(LC_ALL=C awk '
+        /^##[[:space:]]+Steps[[:space:]]*$/ { s = 1; next }
+        s && /^##[[:space:]]/ { exit }
+        s && /^###[[:space:]]+Step[[:space:]]+[1-9][0-9]*:/ {
+            line = $0
+            sub(/^###[[:space:]]+Step[[:space:]]+/, "", line)
+            num = line; sub(/:.*$/, "", num)
+            title = substr(line, length(num) + 2)
+            gsub(/[[:cntrl:]]/, " ", title)
+            gsub(/  +/, " ", title)
+            sub(/^ /, "", title); sub(/ $/, "", title)
+            printf "### Step %s: %s\n", num, title
+        }
+    ' "$PLAN")
+    [ -n "$steps" ] || return 0
+    fence=$(printf '%s\n' "$steps" | awk '
+        { line = $0
+          while (match(line, /`+/)) { if (RLENGTH > max) max = RLENGTH; line = substr(line, RSTART + RLENGTH) } }
+        END { n = (max >= 3) ? max + 1 : 3; f = ""; for (i = 0; i < n; i++) f = f "`"; print f }')
+    printf '\n## Work Items\n\n'
+    printf '%stext\n%s\n%s\n' "$fence" "$steps" "$fence"
+}
+
 # The fixed template. Every value is an enum, the validated slug, or a path
-# composed from it; work-item IDs are digits read from the PLAN.
+# composed from it; work-item IDs are digits read from the PLAN, and a step
+# plan's step headings are listed as literal text (render_steps).
 render_body() {
     local f="$1" p ids
     {
@@ -366,7 +402,9 @@ render_body() {
             if [ -z "$ids" ]; then
                 ids=$(awk '/^###[[:space:]]+Issue[[:space:]]+[0-9]+/ { o = $0; sub(/^###[[:space:]]+Issue[[:space:]]+/, "", o); sub(/[^0-9].*$/, "", o); print "Issue " o }' "$PLAN")
             fi
-            if [ -n "$ids" ]; then
+            if [ "$(frontmatter_field "$PLAN" schema)" = plan/v2 ]; then
+                render_steps
+            elif [ -n "$ids" ]; then
                 printf '\n## Work Items\n\n'
                 printf '%s\n' "$ids" | sed 's/^/- /'
             fi

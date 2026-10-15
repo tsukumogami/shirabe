@@ -21,6 +21,16 @@
 # order or refuses (exit 2). It NEVER emits a cyclic order. Every PR node
 # carries vars.REPO, vars.PR_GROUP, vars.ISSUES, and vars.ISSUE_SOURCE.
 #
+# A `plan/v2` step plan (entries are `### Step <N>:` blocks under `## Steps`)
+# is read through the same `shirabe plan outlines` envelope in both modes it
+# supports, single-pr and multi-pr at `tracking_level: none` (or absent). Each
+# step becomes one task named `step-<N>`, detailed or not; whether an outline
+# step may start is decided when its work starts, not here. An outline step
+# carries no `**Dependencies**:` line, so it waits on the step before it: a
+# fresh step plan then runs in step order, and no outline step's child becomes
+# startable ahead of the step whose work its detail will draw on. A detailed
+# step keeps the edges its own `**Dependencies**:` line declares.
+#
 # Usage:
 #   plan-to-tasks.sh <PLAN.md-path>
 #
@@ -488,10 +498,16 @@ load_outline_envelope() {
     OUTLINE_BIN="$bin"
 }
 
+# The optional fourth argument selects the naming: `slug` (the default) names
+# each task from its title, `step` names it `step-<N>` from the step number,
+# which the parser has already bounded to 1..999. A `plan/v2` step plan comes
+# through here in both of its modes, single-pr and multi-pr, with `step`
+# naming; the issue_* names below then hold steps.
 process_single_pr() {
     local file="$1"
     local id_prefix="${2:-o-}"
     local issue_source="${3:-plan_outline}"
+    local naming="${4:-slug}"
 
     load_outline_envelope "$file"
     local envelope="$OUTLINE_ENVELOPE"
@@ -499,7 +515,7 @@ process_single_pr() {
     # 64 chars: koto rejects names with length_out_of_range above this limit (empirically verified)
     local KOTO_NAME_MAX=64
 
-    # Collect the parsed outlines: one field per line, seven lines per outline.
+    # Collect the parsed outlines: one field per line, eight lines per outline.
     #
     # The obvious shape -- one line per outline with the fields joined by a
     # control character -- does not work on the bash floor this script targets.
@@ -520,6 +536,15 @@ process_single_pr() {
     # fields are empty -- the common case: no unresolved deps, no Type, no
     # Files -- loses them, and the record's reads then hit EOF mid-way. The
     # loop still runs in this shell, so the arrays it fills survive it.
+    #
+    # A missing `detailed` field reads as true here, while
+    # skills/work-on/scripts/step-detail-check.sh refuses an envelope without
+    # it. The two answer different questions. Here the field only decides
+    # whether an outline step gets an edge to the step before it, and a shirabe
+    # that predates the field also predates plan/v2, so the field is absent
+    # only on a plan/v1 envelope, whose issues are all detailed and get no such
+    # edge. The check decides whether a step's work may start, so a field it
+    # cannot read is a reason to stop, not a default.
     local -a issue_numbers=()
     local -a issue_titles=()
     local -a issue_declared=()    # true|false -- a **Dependencies**: line or ### Dependencies section
@@ -527,8 +552,9 @@ process_single_pr() {
     local -a issue_unresolved=()  # display string; empty means everything resolved
     local -a issue_types=()       # empty string = not specified
     local -a issue_files=()       # space-separated paths (backticks already stripped)
+    local -a issue_detailed=()    # true|false -- false only for a plan/v2 outline step
 
-    local o_number o_title o_none o_waits o_unresolved o_type o_files
+    local o_number o_title o_none o_waits o_unresolved o_type o_files o_detailed
     while IFS= read -r o_number; do
         # A trailing blank line from the here-string is not a record. Guard
         # before the reads below, which at EOF would fail and, under `set -e`,
@@ -540,6 +566,7 @@ process_single_pr() {
         IFS= read -r o_unresolved
         IFS= read -r o_type
         IFS= read -r o_files
+        IFS= read -r o_detailed
 
         issue_numbers+=("$o_number")
         issue_titles+=("$o_title")
@@ -555,6 +582,7 @@ process_single_pr() {
         issue_unresolved+=("$o_unresolved")
         issue_types+=("$o_type")
         issue_files+=("$o_files")
+        issue_detailed+=("$o_detailed")
     done < <(printf '%s' "$envelope" | jq -r '
         .outlines[]
         | (.number|tostring),
@@ -563,7 +591,8 @@ process_single_pr() {
           (.waits_on | map(tostring) | join(" ")),
           (.unresolved_dependencies | join(", ")),
           (.type // ""),
-          (.files | join(" "))')
+          (.files | join(" ")),
+          (if has("detailed") then .detailed else true end | tostring)')
 
     local count="${#issue_numbers[@]}"
     if [[ $count -eq 0 ]]; then
@@ -573,6 +602,12 @@ process_single_pr() {
         # thing to be told.
         local strays
         strays=$(printf '%s' "$envelope" | jq -r '[.nonconforming_headings[].text] | join("; ")')
+        if [[ "$naming" == "step" ]]; then
+            if [[ -n "$strays" ]]; then
+                die_schema "plan/v2 PLAN has no steps in ## Steps section. Found these headings, none of which is a '### Step <N>: <title>' step heading: ${strays}"
+            fi
+            die_schema "plan/v2 PLAN has no steps in ## Steps section"
+        fi
         if [[ -n "$strays" ]]; then
             die_schema "single-pr PLAN has no issue outlines in ## Issue Outlines section. Found these headings, none of which is a '### Issue <N>: <title>' outline heading: ${strays}"
         fi
@@ -586,6 +621,9 @@ process_single_pr() {
     # same defect and both now stop the run.
     local i
     for i in "${!issue_numbers[@]}"; do
+        if [[ -n "${issue_unresolved[$i]}" && "$naming" == "step" ]]; then
+            die_schema "step ${issue_numbers[$i]} declares dependencies that name no step: ${issue_unresolved[$i]}. Task extraction would drop these edges, so the declared ordering would be lost. Use 'None' or 'Step <N>'."
+        fi
         if [[ -n "${issue_unresolved[$i]}" ]]; then
             die_schema "issue ${issue_numbers[$i]} declares dependencies that name no sibling outline: ${issue_unresolved[$i]}. Task extraction would drop these edges, so the declared ordering would be lost. Use 'None', 'Issue <N>', or the <<ISSUE:N>> placeholder."
         fi
@@ -597,7 +635,9 @@ process_single_pr() {
     # is fixed, but the asymmetry is still worth flagging: an outline with no
     # dependencies line at all is more often an omission than a claim of
     # independence, and `**Dependencies**: None` says the latter out loud.
-    if [[ $count -ge 2 ]]; then
+    # A step plan is exempt: its outline steps are one line by definition and
+    # carry no dependencies line until the plan's owner details them.
+    if [[ $count -ge 2 && "$naming" != "step" ]]; then
         local empty_count=0
         local nonempty_count=0
         for i in "${!issue_numbers[@]}"; do
@@ -617,6 +657,23 @@ process_single_pr() {
     local slug_counts=""
 
     for i in "${!issue_numbers[@]}"; do
+        if [[ "$naming" == "step" ]]; then
+            # Step numbers are unique per plan only when the plan is
+            # well-formed; a duplicate would collapse two tasks into one
+            # name, so refuse it rather than suffix it.
+            local step_name="step-${issue_numbers[$i]}"
+            local seen
+            for seen in "${issue_names[@]+"${issue_names[@]}"}"; do
+                if [[ "$seen" == "$step_name" ]]; then
+                    die_schema "plan/v2 PLAN declares step ${issue_numbers[$i]} more than once"
+                fi
+            done
+            if ! validate_name "$step_name"; then
+                die_schema "generated name '${step_name}' violates R9 regex ^[a-z][a-z0-9-]*$"
+            fi
+            issue_names+=("$step_name")
+            continue
+        fi
         local title="${issue_titles[$i]}"
         local slug
         slug=$(slugify "$title")
@@ -704,6 +761,13 @@ process_single_pr() {
         for dep_num in ${issue_waits[$i]}; do
             waits_on+=("$(kv_get number_to_name "$dep_num")")
         done
+
+        # An outline step waits on the step before it (see the header). Any
+        # edges it declares are kept as well; a detailed step gets none from
+        # here, only the edges its own **Dependencies**: line names.
+        if [[ "$naming" == "step" && "${issue_detailed[$i]}" == "false" && $i -gt 0 ]]; then
+            waits_on+=("${issue_names[$((i - 1))]}")
+        fi
 
         # Add file-based waits_on edges: if this outline declares a file that
         # was already claimed by an earlier outline, wait on that earlier outline.
@@ -1404,12 +1468,18 @@ fi
 
 frontmatter=$(extract_frontmatter "$PLAN_PATH")
 
-schema_val=$(echo "$frontmatter" | awk '/^schema:/ { gsub(/^schema: */, ""); print; exit }')
-if [[ "$schema_val" != "plan/v1" ]]; then
-    die_schema "PLAN frontmatter schema must be 'plan/v1', got: '${schema_val}'"
+# Each field is read with a here-string, not `echo "$frontmatter" | awk`:
+# awk exits at its first match, and when it does so before the writer has
+# finished, the writer takes SIGPIPE. Under pipefail that makes the
+# assignment fail with 141 and set -e ends the script with it, which the
+# suite saw as rare exit-141 failures under load. A here-string has no
+# writer process to kill.
+schema_val=$(awk '/^schema:/ { gsub(/^schema: */, ""); print; exit }' <<< "$frontmatter")
+if [[ "$schema_val" != "plan/v1" && "$schema_val" != "plan/v2" ]]; then
+    die_schema "PLAN frontmatter schema must be 'plan/v1' or 'plan/v2', got: '${schema_val}'"
 fi
 
-execution_mode=$(echo "$frontmatter" | awk '/^execution_mode:/ { gsub(/^execution_mode: */, ""); print; exit }')
+execution_mode=$(awk '/^execution_mode:/ { gsub(/^execution_mode: */, ""); print; exit }' <<< "$frontmatter")
 if [[ -z "$execution_mode" ]]; then
     die_schema "PLAN frontmatter missing required field: execution_mode"
 fi
@@ -1424,7 +1494,34 @@ fi
 # written before this field existed carries. An unrecognized value is
 # treated the same way, so a malformed header cannot redirect
 # extraction.
-tracking_level=$(echo "$frontmatter" | awk '/^tracking_level:/ { gsub(/^tracking_level: */, ""); print; exit }')
+tracking_level=$(awk '/^tracking_level:/ { gsub(/^tracking_level: */, ""); print; exit }' <<< "$frontmatter")
+
+# A step plan files no issues, so the only tracking level it supports is
+# `none` (or the field absent). Checked on the raw value, before the
+# normalization below would turn an unknown value into "absent".
+if [[ "$schema_val" == "plan/v2" ]]; then
+    if [[ -n "$tracking_level" && "$tracking_level" != "none" ]]; then
+        die_schema "plan/v2 supports only tracking_level 'none', got: '${tracking_level}'. A plan that files GitHub issues stays on plan/v1."
+    fi
+    case "$execution_mode" in
+        single-pr)
+            log "Processing single-pr step PLAN: $PLAN_PATH"
+            process_single_pr "$PLAN_PATH" "" "plan_outline" "step"
+            ;;
+        multi-pr)
+            log "Processing multi-pr step PLAN: $PLAN_PATH"
+            process_single_pr "$PLAN_PATH" "" "plan_item" "step"
+            ;;
+        coordinated)
+            die_schema "plan/v2 supports execution_mode 'single-pr' and 'multi-pr', got: 'coordinated'. A coordinated plan stays on plan/v1."
+            ;;
+        *)
+            die_schema "Unknown execution_mode '${execution_mode}': expected 'single-pr' or 'multi-pr'"
+            ;;
+    esac
+    exit 0
+fi
+
 case "$tracking_level" in
     none|issues|issues-and-milestone) ;;
     *) tracking_level="" ;;

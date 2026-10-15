@@ -22,10 +22,14 @@
 #   plan_execution_mode  single-pr | multi-pr | coordinated, from the PLAN's
 #                        frontmatter (never from evidence); empty otherwise
 #   next                 /execute docs/plans/PLAN-<topic>.md   single-pr, coordinated
-#                        /work-on #<first startable>           multi-pr
+#                        /work-on #<first startable>           multi-pr plan/v1
+#                        /work-on docs/plans/PLAN-<topic>.md   multi-pr plan/v2 (a
+#                                                              step number is not a
+#                                                              GitHub issue)
 #                        empty without a PLAN
 #   startable            multi-pr only: startable-issues.sh's `#<N> <title>`
-#                        lines, newline-joined
+#                        lines, newline-joined; for a plan/v2 step plan <N> is
+#                        a step number, not a GitHub issue
 #   pr                   --stage exit only: the owned open PR on the current
 #                        branch when the intent is continue or stop, empty
 #                        when it is none (no gh call is made then)
@@ -138,8 +142,15 @@ if [ -f "$PLAN" ] && [ -r "$PLAN" ]; then
         single-pr|coordinated) NEXT="/execute $PLAN" ;;
         multi-pr)
             START=$(bash "$STARTABLE" "$PLAN" 2>/dev/null) || START=""
-            FIRST=$(printf '%s\n' "$START" | sed -n '1s/^\(#[0-9][0-9]*\).*/\1/p')
-            if [ -n "$FIRST" ]; then NEXT="/work-on $FIRST"; else NEXT="/work-on"; fi
+            if [ "$(frontmatter_field "$PLAN" schema)" = plan/v2 ]; then
+                # A step plan files no issues: its startable lines number steps,
+                # so `/work-on #<N>` would name an unrelated GitHub issue.
+                # /work-on runs a multi-pr PLAN one step at a time from its path.
+                NEXT="/work-on $PLAN"
+            else
+                FIRST=$(printf '%s\n' "$START" | sed -n '1s/^\(#[0-9][0-9]*\).*/\1/p')
+                if [ -n "$FIRST" ]; then NEXT="/work-on $FIRST"; else NEXT="/work-on"; fi
+            fi
             ;;
         *) MODE="" ;;
     esac

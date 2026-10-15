@@ -56,6 +56,15 @@ transition files GitHub issues, after the filing approval. By mode:
   is authored at Active; at `issues` or `issues-and-milestone` it is
   Active once its filing approval has run.
 
+A `plan/v2` PLAN (a step plan, `single-pr` or `multi-pr`) is Active and
+files nothing: its work lives in `## Steps`, the first steps detailed and
+the rest one-line outlines the plan's owner details as earlier steps
+reach done. It completes only when no outline step remains; until then
+the completion cascade's lifecycle check names each outline step (L10)
+and stops before deleting the plan. The next command for a `multi-pr`
+step plan is `/work-on docs/plans/PLAN-<topic>.md`, never `/work-on #<N>`:
+a step number is not a GitHub issue.
+
 Phase 3 writes these fields into key `work/state.md` (a read-modify-write
 of the whole key with `koto context add scope-<topic> work/state.md`):
 

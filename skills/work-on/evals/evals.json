@@ -594,6 +594,38 @@
         "Agent records the round with panel-scope.sh --record scrutiny, with a round file naming only seat reverifier and run scrutiny-r2-reverifier, its answer given by id",
         "Agent does not re-run the kept seats on its own judgment"
       ]
+    },
+    {
+      "id": 44,
+      "name": "plan-backed-outline-step-stops",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on -- plan-backed task, ISSUE_SOURCE=plan_outline, ARTIFACT_PREFIX=step-3, PLAN_DOC=skills/work-on/scripts/testdata/PLAN-v2-single-pr.md, SHARED_BRANCH=feat/word-count",
+      "expected_output": "Agent detects plan_backed mode on a plan/v2 step plan. At plan_context_injection it extracts the `### Step 3:` block from the PLAN as committed, unchanged. At plan_validation the step_detail gate runs step-detail-check.sh, which fails because step 3 is a one-line outline, with the finding `step 3 is an outline; the plan's owner details it before its work starts`. The agent submits verdict: exit with that message as the rationale, reaches validation_exit, builds nothing, and does not detail the step itself.",
+      "files": [],
+      "expectations": [
+        "Agent plans to extract the `### Step 3:` block (a one-line outline) as context.md rather than an issue outline",
+        "Agent recognizes the step_detail gate's failure at plan_validation and quotes `step 3 is an outline; the plan's owner details it before its work starts`",
+        "Agent plans to submit verdict: exit with that message as the rationale, not verdict: proceed",
+        "Agent does NOT plan any implementation, branch work or commit for step 3",
+        "Agent does NOT plan to edit the PLAN to detail step 3; it says the plan's owner details it first"
+      ]
+    },
+    {
+      "id": 45,
+      "name": "plan-v2-path-runs-steps-in-order",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on skills/work-on/scripts/testdata/PLAN-v2-multi-pr.md",
+      "expected_output": "Agent detects the path as a PLAN by its `schema: plan/v2` frontmatter and acts as the thin dispatcher. execution_mode is multi-pr, so it runs in place, one step at a time in step order, starting with step 1. Before a step's work starts it runs step-detail-check.sh on the PLAN and that step; steps 1 and 2 are detailed and may start, while steps 3 and 4 are one-line outlines that stop with the refusal line until the plan's owner details them.",
+      "files": [],
+      "expectations": [
+        "Agent treats the file as a PLAN because its frontmatter declares schema: plan/v2",
+        "Agent re-validates execution_mode against {single-pr, multi-pr, coordinated} and routes multi-pr in place",
+        "Agent selects step 1 first and works the steps in step order",
+        "Agent plans to run step-detail-check.sh before a step's work starts",
+        "Agent says steps 3 and 4 are outlines that stop until the plan's owner details them, and does not plan to build them"
+      ]
     }
   ]
 }
