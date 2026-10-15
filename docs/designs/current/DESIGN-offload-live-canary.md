@@ -109,13 +109,13 @@ front of the creation. A violation is a formatting defect fixed by
 `gh pr edit`. The harm it exists to prevent is a heading landing on `main`
 as part of the squash commit, and CI's `shirabe validate --pr-body` blocks
 that merge whatever the agent was told. Its text is one self-contained
-paragraph, and its rule id isn't shared with any other rule. Over the week
-to 2026-10-14 it broke in no recorded run, so it's a low-risk first canary.
+paragraph, and its rule id isn't shared with any other rule. It rarely
+breaks, so it's a low-risk first canary.
 
-*Alternative: PB2 (`pr-body/one-separator`).* It has a nonzero baseline (one
-broken run that week), which would make a difference easier to see. Rejected:
-the separator defines the two-part body every other PR-body check reads, so
-withholding it changes more than one rule's behavior at once.
+*Alternative: PB2 (`pr-body/one-separator`).* It breaks more often, which
+would make a difference easier to see. Rejected: the separator defines the
+two-part body every other PR-body check reads, so withholding it changes more
+than one rule's behavior at once.
 
 *Alternative: PB1 (`pr-body/conventional-title`).* Rejected: its text is
 shared with `commit/conventional-subject`, whose gate stands before the push.
@@ -172,8 +172,8 @@ that has opted in: `${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary`
 must exist, be a regular file, and read `on` on its first line. shirabe is a
 public plugin, and other people's runs never reach the backend you read
 results from, so withholding from them would be unmeasured risk; the
-maintainers decided on a per-host opt-in. The template default stays the global off
-switch, and deleting the file turns one host off. The arm file is written
+maintainers decided on a per-host opt-in. The template default stays the
+global off switch, and deleting the file turns one host off. The arm file is written
 last, after the withheld rendering succeeds, so a failed render can't leave a
 run labeled withheld while it reads the full text.
 
@@ -388,8 +388,8 @@ GROUP BY a.arm
 
 `DISTINCT` counts each session once, the inner join drops sessions with no
 marker state, and the left join gives a group with no broken run a 0. The
-shape was run against the week to 2026-10-14 with `pr_precheck` standing in
-for a marker state; it returned 46 runs.
+shape was sanity-checked against a recent week with `pr_precheck` standing
+in for a marker state.
 
 ## Implementation Approach
 
