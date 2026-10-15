@@ -1444,12 +1444,18 @@ fi
 
 frontmatter=$(extract_frontmatter "$PLAN_PATH")
 
-schema_val=$(echo "$frontmatter" | awk '/^schema:/ { gsub(/^schema: */, ""); print; exit }')
+# Each field is read with a here-string, not `echo "$frontmatter" | awk`:
+# awk exits at its first match, and when it does so before the writer has
+# finished, the writer takes SIGPIPE. Under pipefail that makes the
+# assignment fail with 141 and set -e ends the script with it, which the
+# suite saw as rare exit-141 failures under load. A here-string has no
+# writer process to kill.
+schema_val=$(awk '/^schema:/ { gsub(/^schema: */, ""); print; exit }' <<< "$frontmatter")
 if [[ "$schema_val" != "plan/v1" && "$schema_val" != "plan/v2" ]]; then
     die_schema "PLAN frontmatter schema must be 'plan/v1' or 'plan/v2', got: '${schema_val}'"
 fi
 
-execution_mode=$(echo "$frontmatter" | awk '/^execution_mode:/ { gsub(/^execution_mode: */, ""); print; exit }')
+execution_mode=$(awk '/^execution_mode:/ { gsub(/^execution_mode: */, ""); print; exit }' <<< "$frontmatter")
 if [[ -z "$execution_mode" ]]; then
     die_schema "PLAN frontmatter missing required field: execution_mode"
 fi
@@ -1464,7 +1470,7 @@ fi
 # written before this field existed carries. An unrecognized value is
 # treated the same way, so a malformed header cannot redirect
 # extraction.
-tracking_level=$(echo "$frontmatter" | awk '/^tracking_level:/ { gsub(/^tracking_level: */, ""); print; exit }')
+tracking_level=$(awk '/^tracking_level:/ { gsub(/^tracking_level: */, ""); print; exit }' <<< "$frontmatter")
 
 # A step plan files no issues, so the only tracking level it supports is
 # `none` (or the field absent). Checked on the raw value, before the
