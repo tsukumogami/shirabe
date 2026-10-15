@@ -33,7 +33,9 @@ pub struct Submitted {
     pub body: Option<String>,
 }
 
-/// Flags whose body the hook can't see.
+/// Flags whose body the hook can't see, with the name the deny gives each.
+/// The short forms are gh's own aliases (`-f` is `--fill`), so they are
+/// refused under the long name.
 const UNREADABLE_FLAGS: &[(&str, &str)] = &[
     ("--fill", "--fill"),
     ("-f", "--fill"),
@@ -94,6 +96,8 @@ pub fn read(seg: &GhSegment, tok: &Tokenized, classified: &Classified) -> Result
         i += 1;
     }
 
+    // A title the shell would expand is as unreadable as such a body; PB1
+    // would otherwise judge the literal `$T`.
     let title = match title {
         Some(w) if w.expansion || w.ansi_c => return Err(Case::TitleExpansion),
         Some(w) => Some(w.text),
@@ -155,6 +159,8 @@ fn file_body(w: &Word, seg: &GhSegment, classified: &Classified) -> Result<Strin
     if w.text == "-" {
         return Err(Case::Stdin);
     }
+    // A `~` path is the shell's expansion too; the hook doesn't guess at it
+    // from its own `HOME`, which need not be the one the command runs with.
     if w.expansion || w.ansi_c || w.tilde || w.text.is_empty() {
         return Err(Case::BodyExpansion);
     }

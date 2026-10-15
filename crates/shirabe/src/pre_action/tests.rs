@@ -544,6 +544,10 @@ fn example_rows_for_pull_request_commands() {
         &["pr-body/one-separator"],
     );
     rule(
+        &format!("gh pr -R o/r create --title \"feat: x\" --body '{BAD}'"),
+        &["pr-body/one-separator"],
+    );
+    rule(
         "gh pr edit 12 --title \"bad title\"",
         &["pr-body/conventional-title"],
     );

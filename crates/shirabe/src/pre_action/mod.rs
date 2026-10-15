@@ -98,7 +98,9 @@ impl RuleSet {
     }
 }
 
-/// What an evaluation reads besides its input, so tests inject each.
+/// What an evaluation reads besides its input, so tests inject each. The
+/// design's settings probe and git runner join it with the plugin's entry
+/// point and the push check.
 pub struct Ctx<'a> {
     pub rules: RuleSet,
     pub registry: RegistrySource,

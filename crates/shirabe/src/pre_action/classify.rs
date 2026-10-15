@@ -222,6 +222,45 @@ fn basename(t: &str) -> &str {
     t.rsplit('/').next().unwrap_or(t)
 }
 
+/// Skip `gh` options from `ws[from]`: `-R <v>`, `--repo <v>` and
+/// `--repo=<v>` are understood, any other `-` word is the first unlisted
+/// option. Returns the next position, that option, and whether the last word
+/// skipped was an unlisted option without `=`, which may have taken the next
+/// word as its value.
+fn gh_options(ws: &[Word], from: usize) -> (usize, Option<String>, bool) {
+    let mut j = from;
+    let mut bad = None;
+    let mut ambiguous = false;
+    while let Some(w) = ws.get(j) {
+        let t = w.text.as_str();
+        if t == "-R" || t == "--repo" {
+            ambiguous = false;
+            j += 2;
+        } else if t.starts_with("--repo=") {
+            ambiguous = false;
+            j += 1;
+        } else if t.starts_with('-') {
+            bad.get_or_insert_with(|| t.to_string());
+            ambiguous = !t.contains('=');
+            j += 1;
+        } else {
+            break;
+        }
+    }
+    (j, bad, ambiguous)
+}
+
+/// The positions the next word may be at: `j`, and `j + 1` when an unlisted
+/// option just before it may have taken `ws[j]` as its value. A match at
+/// `j + 1` always carries that option, so it fails closed.
+fn candidates(j: usize, ambiguous: bool) -> Vec<usize> {
+    if ambiguous {
+        vec![j, j + 1]
+    } else {
+        vec![j]
+    }
+}
+
 fn kind(seg: &Segment) -> Kind {
     let ws = &seg.words;
     let mut i = 0;
@@ -276,38 +315,34 @@ fn kind(seg: &Segment) -> Kind {
         "cd" | "pushd" => Kind::Cd(rest.to_vec()),
         "popd" => Kind::Popd,
         "gh" => {
-            let mut j = 0;
-            let mut bad_option = None;
-            while j < rest.len() {
-                let t = rest[j].text.as_str();
-                if t == "-R" || t == "--repo" {
-                    j += 2;
-                } else if t.starts_with("--repo=") {
-                    j += 1;
-                } else if t.starts_with('-') {
-                    bad_option.get_or_insert_with(|| t.to_string());
-                    j += 1;
-                } else {
-                    break;
+            // gh takes `-R`/`--repo` before `pr` or between `pr` and the
+            // action word, so both runs of options are skipped.
+            let (j, mut bad_option, ambiguous) = gh_options(rest, 0);
+            for p in candidates(j, ambiguous) {
+                if rest.get(p).map(|w| w.text.as_str()) != Some("pr") {
+                    continue;
+                }
+                let (k, bad2, ambiguous2) = gh_options(rest, p + 1);
+                for a in candidates(k, ambiguous2) {
+                    let action = match rest.get(a).map(|w| w.text.as_str()) {
+                        Some("create") => PrAction::Create,
+                        Some("edit") => PrAction::Edit,
+                        _ => continue,
+                    };
+                    bad_option = bad_option.or(bad2);
+                    return Kind::Gh {
+                        action,
+                        rest: rest[a + 1..].to_vec(),
+                        bad_option,
+                    };
                 }
             }
-            let action = match (
-                rest.get(j).map(|w| w.text.as_str()),
-                rest.get(j + 1).map(|w| w.text.as_str()),
-            ) {
-                (Some("pr"), Some("create")) => PrAction::Create,
-                (Some("pr"), Some("edit")) => PrAction::Edit,
-                _ => return Kind::Other,
-            };
-            Kind::Gh {
-                action,
-                rest: rest[j + 2..].to_vec(),
-                bad_option,
-            }
+            Kind::Other
         }
         "git" => {
             let mut j = 0;
             let mut bad_option = None;
+            let mut ambiguous = false;
             let mut c_dirs = Vec::new();
             while j < rest.len() {
                 let t = rest[j].text.as_str();
@@ -316,16 +351,33 @@ fn kind(seg: &Segment) -> Kind {
                         if let Some(w) = rest.get(j + 1) {
                             c_dirs.push(w.clone());
                         }
+                        ambiguous = false;
                         j += 2;
                     }
-                    "-c" => j += 2,
-                    "--no-pager" | "-P" => j += 1,
+                    "-c" => {
+                        ambiguous = false;
+                        j += 2;
+                    }
+                    "--no-pager" | "-P" => {
+                        ambiguous = false;
+                        j += 1;
+                    }
                     _ if t.starts_with('-') => {
                         bad_option.get_or_insert_with(|| t.to_string());
+                        ambiguous = !t.contains('=');
                         j += 1;
                     }
                     _ => break,
                 }
+            }
+            // `git --git-dir /x push`: the unknown option may have taken the
+            // next word as its value, so `push` one word later counts too,
+            // and fails closed on the option.
+            if ambiguous
+                && rest.get(j).map(|w| w.text.as_str()) != Some("push")
+                && rest.get(j + 1).map(|w| w.text.as_str()) == Some("push")
+            {
+                j += 1;
             }
             Kind::Git {
                 sub: rest.get(j).map(|w| w.text.clone()),
@@ -686,6 +738,18 @@ mod tests {
         assert_eq!(g[0].words[0].text, "--title");
         assert_eq!(ghs("gh --repo o/r pr edit 3").len(), 1);
         assert_eq!(ghs("gh --repo=o/r pr edit 3").len(), 1);
+        // gh also takes `-R` between `pr` and the action word.
+        for cmd in [
+            "gh pr -R o/r create --title x",
+            "gh pr --repo o/r create --title x",
+            "gh pr --repo=o/r edit 3",
+            "gh -R a/b pr -R o/r edit 3",
+        ] {
+            let g = ghs(cmd);
+            assert_eq!(g.len(), 1, "{cmd}");
+            assert_eq!(fails(cmd), vec![], "{cmd}");
+        }
+        assert_eq!(cl("gh pr -R o/r view 3").items, vec![]);
         assert_eq!(ghs("/opt/bin/gh pr create").len(), 1);
     }
 
@@ -801,11 +865,31 @@ mod tests {
             fails("GIT_DIR=/x git push"),
             vec![(Action::Push, Case::UnknownOption("GIT_DIR=".into()))]
         );
+        // An unlisted option may take the next word as its value, so the
+        // guarded word one later counts too.
         assert_eq!(
             fails("gh --hostname h pr create --title x"),
-            vec![],
-            "`h` is the first non-option word, so this isn't `gh pr`"
+            vec![(
+                Action::Pr(Some(PrAction::Create)),
+                Case::UnknownOption("--hostname".into())
+            )]
         );
+        assert_eq!(
+            fails("gh pr --hostname h edit 3"),
+            vec![(
+                Action::Pr(Some(PrAction::Edit)),
+                Case::UnknownOption("--hostname".into())
+            )]
+        );
+        for opt in ["--git-dir /x", "--work-tree w", "--namespace n"] {
+            let cmd = format!("git {opt} push");
+            let name = opt.split(' ').next().unwrap();
+            assert_eq!(
+                fails(&cmd),
+                vec![(Action::Push, Case::UnknownOption(name.into()))],
+                "{cmd}"
+            );
+        }
         assert_eq!(
             fails("gh --verbose pr create"),
             vec![(
