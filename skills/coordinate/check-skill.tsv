@@ -20,16 +20,18 @@ shared	run-tests.sh
 
 # cost <suite> <seconds>: the suite's CPU seconds (user plus system), measured
 # on main at 05d3a50 with four suites at a time on a loaded host. Suites
-# launch costliest first; a suite with no row launches after the rest.
+# launch costliest first; a suite with no row launches after the rest. The
+# rows of the suites #830 cut are scaled by each suite's measured after/before
+# ratio, so they stay on the same scale as the rest.
 cost	coordinate_1_engine_test.sh	271
-cost	coordinate_2_engine_test.sh	256
+cost	coordinate_2_engine_test.sh	255
 cost	coordinate_3_engine_test.sh	237
-cost	coordinate_4_engine_test.sh	211
+cost	coordinate_4_engine_test.sh	200
 cost	decision-next_test.sh	196
 cost	deferral-check_test.sh	195
-cost	decisions-replay_engine_test.sh	194
 cost	pick-facts_test.sh	193
 cost	record-decision_test.sh	186
+cost	decisions-replay_engine_test.sh	176
 cost	unit-cost_test.sh	164
 cost	teardown-inventory_test.sh	154
 cost	land-check_test.sh	141
@@ -40,29 +42,29 @@ cost	reconcile-check_test.sh	113
 cost	record-state_test.sh	112
 cost	milestone-verdicts_test.sh	106
 cost	report-questions_test.sh	100
-cost	teardown-pass_engine_test.sh	84
 cost	milestone-verdict_engine_test.sh	71
-cost	board-record_test.sh	64
 cost	report-facts_test.sh	63
 cost	reconcile-pass_test.sh	59
 cost	record-write_test.sh	57
 cost	dispatch-worker_test.sh	56
-cost	board-land_engine_test.sh	55
+cost	teardown-pass_engine_test.sh	55
 cost	land-merge_test.sh	53
 cost	holding-link_test.sh	48
+cost	board-land_engine_test.sh	47
 cost	quiet-check_test.sh	46
 cost	decision-render_test.sh	42
 cost	board-verdict_test.sh	40
 cost	session-store_engine_test.sh	32
 cost	closeout-read_test.sh	30
 cost	record-source_test.sh	30
+cost	board-record_test.sh	29
 cost	handover_engine_test.sh	29
 cost	record-codec_test.sh	25
 cost	writeback_engine_test.sh	25
 cost	render-brief_test.sh	19
 cost	record-holding_test.sh	17
-cost	dispatch-path_engine_test.sh	16
 cost	record-find_test.sh	16
+cost	dispatch-path_engine_test.sh	15
 cost	merged-facts_test.sh	15
 cost	record-hold_test.sh	15
 cost	reconcile-read_test.sh	14
@@ -86,6 +88,7 @@ cost	reconcile-pass_engine_test.sh	6
 cost	coordinate-open_engine_test.sh	5
 cost	reconcile-report_test.sh	5
 cost	wait-target_test.sh	5
+cost	teardown-handoff_test.sh	4
 cost	coord-log_engine_test.sh	3
 cost	coord-verdict-table_test.sh	3
 cost	rule-coverage_test.sh	3

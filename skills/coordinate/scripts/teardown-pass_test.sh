@@ -3,7 +3,7 @@
 # commands from.
 #
 # A sealed verdict can't carry a bad instance name: teardown-handoff.sh
-# refuses one when it seals (teardown-pass_engine_test.sh covers that). The
+# refuses one when it seals (teardown-handoff_test.sh covers that). The
 # pass still checks every field it builds a command from, so a verdict that
 # somehow carried one would stop there. This feeds such verdicts straight to
 # `teardown-pass.sh run` through a stand-in for `teardown-handoff.sh read`,

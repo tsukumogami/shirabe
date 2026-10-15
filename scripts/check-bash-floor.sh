@@ -438,6 +438,7 @@ suite_scripts() {
             # niwa, claude, gh and record scripts, process groups under the
             # deadline, so every case runs on 3.2.
             echo "skills/coordinate/scripts/teardown-pass_test.sh"
+            echo "skills/coordinate/scripts/teardown-handoff_test.sh"
             echo "skills/coordinate/scripts/unit-cost_test.sh"
             # The decision-phrasing list's reader: bash, awk and grep only.
             echo "skills/coordinate/scripts/decision-phrasings_test.sh"

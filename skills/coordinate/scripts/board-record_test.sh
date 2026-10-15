@@ -5,8 +5,8 @@
 #
 # Covers: a verified board (the token carries the head, sealed to the latest
 # entry into verify_board, and coord/board.json's verdict, head, reasons and
-# skipped match the board read); every unverified fixture prints unverified
-# with no head; a pending board; a refused check rollup reads source
+# skipped match the board read); one unverified, one pending and one not-run
+# fixture each print their word with no head; a refused check rollup reads source
 # `actions` and prints actions-green (never verified, even with a check only
 # isRequired names unseen); a failed board read or the deadline prints
 # board-unreadable, a merged pull request not-open, and a pull request no
@@ -56,12 +56,17 @@ eq "coord/board.json's verdict, head, reasons and skipped match the read" \
 eq "and it lists the skipped job" '[{"run":101,"job":1003,"name":"LLM Quality Gate"}]' "$(ctx | jq -c .skipped)"
 
 echo "== unverified, pending and not-run record no head =="
+# One fixture per verdict: board-verdict_test.sh judges every fixture, and
+# board-record.sh only maps the verdict word to its token.
+SEEN=" "
 for cf in "$TD"/board/cases/*.jq; do
     name=$(basename "$cf" .jq)
     set -- $(sed -n 's/^# expect: //p' "$cf")
     [ "$1" = unverified ] || [ "$1" = pending ] || [ "$1" = not-run ] || continue
+    case "$SEEN" in *" $1 "*) continue ;; esac
     sed -n 's/^# args: //p' "$cf" | grep -q . && continue
     sed -n 's/^# env: //p' "$cf" | grep -q . && continue
+    SEEN="$SEEN$1 "
     want=$1; shift
     fresh
     bt_board "$name"
