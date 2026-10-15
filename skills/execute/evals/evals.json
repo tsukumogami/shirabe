@@ -612,6 +612,7 @@
       "name": "merge-mergeable-with-merge",
       "tier": 2,
       "behaviour": "merge-performed",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -708,7 +709,7 @@
       "id": 40,
       "name": "merge-failing-nonrequired-check",
       "tier": 2,
-      "behaviour": "merge-performed",
+      "behaviour": "ci-failure-stops",
       "release": true,
       "mode": "execute",
       "scenario": "merge-failing-check",
