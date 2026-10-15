@@ -20,12 +20,13 @@
 # repository. The head comes from the unit's own verify capture in this run
 # (VERIFIED naming #<pr>, sealed at verify_board at any visit, reading
 # `verified <pr> <sha>`), never from the record or the coordinator. Then the
-# same comparison as merge-confirm.sh: the pull request's state and, when
-# MERGED, each changed file's blob on the default branch against <sha>.
+# same check as merge-confirm.sh, from GitHub's record of the merge: the pull
+# request's state and, when MERGED, that the head it merged is <sha> and its
+# merge commit is on the default branch (board-lib.sh's bl_merge_compare).
 #
-# Token: `merged <pr> <sha>`, `unconfirmed <pr> <sha>` (merged, but the
-# default branch doesn't hold the verified content), `not-merged <pr>`, or
-# `unknown-topic`;
+# Token: `merged <pr> <sha>`, `unconfirmed <pr> <sha>` (merged, but from
+# another head, or its merge commit isn't on the default branch),
+# `not-merged <pr>`, or `unknown-topic`;
 # sealed to the latest entry into merged_facts (captured as MERGED_FACTS).
 # --pr with --repo skip the holding read, for tests; --no-seal (tests) prints
 # the bare token.

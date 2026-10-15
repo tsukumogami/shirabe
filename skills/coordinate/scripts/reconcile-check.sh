@@ -663,15 +663,14 @@ files)
 merge)
     # The record feature's own merge check, so a restart's reconcile and the
     # loop's merge_confirm read a side effect by one rule: the pull request is
-    # merged and every file it changed has, on the default branch, the content
-    # it had at the verified head ("Confirming a Merge" in
-    # references/verification-checklist.md).
+    # merged, from the verified head, and its merge commit is on the default
+    # branch ("Confirming a Merge" in references/verification-checklist.md).
     need_repo; need_number
     rd_valid_sha "$VHEAD" || refuse merge "invalid verified head in the side-effect row"
     R=$(rd_merge_compare "$DEADLINE" "$REPO" "$NUMBER" "$VHEAD") || refuse merge "a merge read failed"
     case "$R" in
         merged) verdict=confirmed reason="" ;;
-        unconfirmed) verdict=not_confirmed reason="a file the pull request changed differs on the default branch from the verified head" ;;
+        unconfirmed) verdict=not_confirmed reason="the pull request was merged from a head other than the verified one, or its merge commit isn't on the default branch" ;;
         not-merged) verdict=not_confirmed reason="pull request is not merged" ;;
         *) refuse merge "unreadable merge verdict" ;;
     esac
