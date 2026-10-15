@@ -157,7 +157,7 @@ off everywhere, and run the readout query from a session using one guide.
 **Complexity**: critical
 
 **Goal**: The registry marks PB4 `withhold: eligible` with its reason, and
-its check admits that one gate rule by name and no other.
+its check admits a gate rule only through a backstop, which PB4 alone has.
 
 **Acceptance Criteria**:
 - [ ] `scripts/check-rule-registry.sh` enforces the `backstop` rule: a
@@ -176,7 +176,7 @@ its check admits that one gate rule by name and no other.
       `pr-create`, and an eligible gate entry with empty `notes`.
 - [ ] `references/rule-registry.md` and
       `docs/designs/current/DESIGN-rule-registry.md` say that one gate rule is
-      withholdable and where the list lives.
+      withholdable and describe the `backstop` rule.
 - [ ] Against the real plugin root, with an opt-in file reading `on` under a
       scratch `XDG_CONFIG_HOME`, `offload-canary.sh draw` picks a group.
 - [ ] The commit lands only after the owner's ruling on narrowing the

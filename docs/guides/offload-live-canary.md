@@ -42,8 +42,9 @@ On an opted-in host, `shirabe pr-body-hook`, the PreToolUse hook that checks a
 `gh pr create` or `gh pr edit` before it runs, no longer denies one for PB4,
 in either group: otherwise it would stop a PB4 violation before the pull
 request exists and the koto gate would never count it. It still denies PB1 to
-PB3 there, and it denies PB4 on every other host. The gate and CI's
-`shirabe validate --pr-body` still enforce PB4 before anything merges.
+PB3 there, and it denies PB4 on every other host. The koto gate holds the
+run on a PB4 finding, and the PR-body CI check, a required status check on
+shirabe's `main`, keeps the pull request from merging while it fails.
 
 ## Turning it on for a host
 
@@ -140,8 +141,9 @@ before it.
 - **It counts first failures.** After a run breaks PB4 once, the gate hands
   it the rule's text, so both groups know the rule from then on. A run counts
   once either way.
-- **Runs from one plan are related.** Each `/work-on` run in a `multi-pr`
-  plan draws on its own, but runs from one plan share an author and a task.
+- **Runs from one plan are correlated.** Each `/work-on` run in a `multi-pr`
+  plan draws on its own, but runs from one plan share an author and a task,
+  so they aren't independent samples.
 - **Only runs that reach a ready plan are drawn.** A run that stops before
   its analysis plan is ready is in neither group; it never reaches
   `pr_creation` either, so both groups lose the same runs.

@@ -131,8 +131,8 @@ run started with the canary turned off by the switch in R10.
   `pr_body_conformant` in `/work-on`'s `pr_creation` state, runs after
   `gh pr create` and reads the pull request GitHub has, so the gate stands
   after the creation it would otherwise guard. A violation is fixed with
-  `gh pr edit`, and CI's `shirabe validate --pr-body` blocks the merge
-  independently. The DESIGN records why this rule was picked over the other
+  `gh pr edit`, and the PR-body CI check, required on `main`, keeps the
+  pull request from merging while it fails. The DESIGN records why this rule was picked over the other
   gate rules.
 - **R2. Eligibility.** The rule's registry entry has `guards: ["none"]`,
   `withhold: eligible`, a `backstop` naming the deterministic check that still

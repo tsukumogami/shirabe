@@ -223,6 +223,20 @@ draw "$T/does-not-exist"
 [ "$RC" -eq 0 ] && [ "$OUT" = "$CONF" ] && pass "a missing session directory: neither group, exit 0" \
     || fail "missing session dir: rc=$RC out=[$OUT]"
 
+# --- the guide's off switch ---------------------------------------------------------------
+
+# The guide tells a maintainer which line turns the canary off. That line must
+# be the template's: OFFLOAD_CANARY's default, quoted in the guide's yaml block.
+TEMPLATE_DEFAULT=$(awk '/^  OFFLOAD_CANARY:$/ { f = 1; next } f && /^    default: / { print; exit } f && /^  [A-Z_]+:$/ { exit }' \
+    "$REAL_ROOT/skills/work-on/koto-templates/work-on.md")
+GUIDE="$REAL_ROOT/docs/guides/offload-live-canary.md"
+if [ -n "$TEMPLATE_DEFAULT" ] && grep -qxF -- "$TEMPLATE_DEFAULT" "$GUIDE" \
+    && grep -qF 'under `OFFLOAD_CANARY:`' "$GUIDE"; then
+    pass "the guide quotes the template's OFFLOAD_CANARY default line ($TEMPLATE_DEFAULT)"
+else
+    fail "the guide's off-switch line doesn't match the template's [$TEMPLATE_DEFAULT]"
+fi
+
 # --- the one-line contract -------------------------------------------------------------
 
 d=$(fresh)

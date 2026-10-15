@@ -263,7 +263,8 @@ blocks the irreversible step. Such an entry carries `backstop: {"before": <prote
 why; a gate rule with `guards: ["none"]` and no backstop still fails, and a backstop on
 anything but an eligible gate rule fails. The one entry today is `pr-body/no-heading-in-part1`
 (PB4): its gate reads the pull request after `gh pr create`, `gh pr edit` fixes it, and
-`.github/workflows/validate-pr-body.yml` blocks the merge, so a heading in Part 1 never reaches `main`.
+`.github/workflows/validate-pr-body.yml`, a required status check on `main`, keeps the pull
+request from merging while it fails, so a heading in Part 1 never reaches `main`.
 The rule's protected guards are untouched: no rule guarding a push, a merge or a pull
 request's creation becomes eligible.
 

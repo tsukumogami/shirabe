@@ -38,7 +38,8 @@
 //! Offload canary: on a host that opted into the live offload canary
 //! (`${XDG_CONFIG_HOME:-$HOME/.config}/shirabe/offload-canary` reads `on`), PB4
 //! is not denied, so a PB4 violation reaches the /work-on gate that counts it
-//! and CI still blocks its merge. PB1 to PB3 are denied as everywhere else.
+//! and the required PR-body CI check keeps it from merging. PB1 to PB3 are
+//! denied as everywhere else.
 //! docs/guides/offload-live-canary.md says why.
 
 use std::io::Read;

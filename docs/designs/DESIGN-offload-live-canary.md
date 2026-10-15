@@ -29,8 +29,9 @@ rationale: |
   routing. Rendering the withheld text from the registry's own anchors keeps
   one copy of the rule, and a gate that fails closed toward the canary-off
   path keeps a broken assignment from stopping a run. PB4 is the one gate
-  rule whose gate runs after the action it would guard and whose harm CI
-  still blocks, and the registry admits it by name on an explicit list.
+  rule whose gate runs after the action it would guard and whose harm a
+  later edit undoes before a required CI check lets it merge; the
+  registry admits it through a backstop its check enforces.
 upstream: docs/prds/PRD-offload-live-canary.md
 user_visible_surface: true
 decision_provenance: inline-resolved
@@ -145,11 +146,6 @@ Decision 6.
 Narrow, and it would make the safety decision a list of names with no
 statement of what qualifies a rule. Rejected after the owner asked for the
 rule itself to be enforced.
-
-*Alternative: drop the pairing "a gate needs a guard" for all entries.*
-Simpler, and it would let any gate rule be reclassified in a JSON edit nobody
-reviews as a safety decision. Rejected: the list makes the safety decision a
-named, reviewable line that changes only with the owner's ruling.
 
 *Alternative: drop the pairing "a gate needs a guard" for every entry.*
 Rejected: it would let any gate rule become eligible in a JSON edit nobody
@@ -318,7 +314,7 @@ dependency outside `/work-on` is the registry's admission of PB4.
 | `references/rule-registry.json` | PB4: `guards: ["none"]`, `withhold: eligible`, `backstop`, `notes`. |
 | `scripts/check-rule-registry.sh` | The `backstop` rule (Decision 2). |
 | `crates/shirabe/src/pr_body_hook.rs`, `crates/shirabe-validate/src/pr_body.rs` | On a host with the canary's opt-in file, the PreToolUse hook stops denying PB4 in both groups, so a PB4 violation reaches the `/work-on` gate that counts it; PB1 to PB3 are still denied. |
-| `references/rule-registry.md`, `docs/designs/current/DESIGN-rule-registry.md` | Say that one gate rule is withheld, and where the list lives. |
+| `references/rule-registry.md`, `docs/designs/current/DESIGN-rule-registry.md` | Describe the `backstop` field and the rule the check enforces. |
 | `docs/guides/offload-live-canary.md` | New. The attributes, the query, the off switch, and how to read the result. |
 
 ### The new states
@@ -416,12 +412,12 @@ for a marker state; it returned 46 runs.
    nothing until PB4 is eligible, that the readout counts first failures
    (after one, both groups have the released text), and that runs from one
    plan are correlated.
-4. **Registry admission.** The list in `check-rule-registry.sh`, the PB4
-   entry, the doc updates, and the test cases R2 names. Last, because it
+4. **Registry admission.** The `backstop` rule in `check-rule-registry.sh`,
+   the PB4 entry, the doc updates, and the test cases R2 names. Last, because it
    waits on the owner's ruling. Steps 1 to 3 are safe without it: the draw
    asks the registry first, so until PB4 is eligible every run takes part in
-   neither group and the canary withholds nothing. The JSON edit, the list and
-   the narrowed check land in one commit, since either half alone fails CI.
+   neither group and the canary withholds nothing. The JSON edit and the
+   backstop rule land in one commit, since either half alone fails CI.
 
 ## Security Considerations
 
@@ -446,26 +442,30 @@ exported event.
 
 **Integrity of the measurement.** An agent could read the real conformance
 file on its own initiative, or run the script itself and read the arm file.
-Neither weakens a safeguard: the gate still checks PB4 in both groups, and CI
-still blocks the merge. It would only blur the measurement toward no
+Neither weakens a safeguard: the gate still checks PB4 in both groups, and
+the required PR-body check still keeps the pull request from merging. It would only blur the measurement toward no
 difference, which the guide states as a limitation.
 
 **The safety change itself.** Narrowing the withhold safety is the one
-change with a safety dimension. The list admits exactly one rule, the
-protected-guard rule still fails any eligible entry that guards a push, merge
-or pull-request creation, and the change waits on the owner's ruling. Three
+change with a safety dimension. Only PB4 has a backstop, so the check admits
+exactly one gate rule, the protected-guard rule still fails any eligible entry
+that guards a push, merge or pull-request creation, and the change waits on
+the owner's ruling. Three
 things bound what a wrong call could cost:
 
 - The `/work-on` gate holds `pr_creation` on a PB4 finding in every
   repository, and on an exit 2 (could not decide) too, since neither has an
   edge out of the state. So a withheld run can't leave the state with a
   heading in Part 1 whether or not CI checks it.
-- "CI blocks the merge" holds only where a repository runs
-  `shirabe validate --pr-body` in CI, as shirabe does. Elsewhere the gate
-  above is the only check, which is the same position a preloaded run is in.
+- What blocks the merge is a specific check. In shirabe,
+  `validate-pr-body.yml`, the PR-body CI check, fails the pull request, and
+  it is a required status check on `main`, so the pull request can't merge
+  while it fails. In a repository that doesn't run
+  `shirabe validate --pr-body` at all, the gate above is the only check,
+  which is the same position a preloaded run is in.
 - The draw asks the registry before it withholds, so the canary's reach is
-  exactly what the registry admits, and the list in
-  `check-rule-registry.sh` is the single line a reviewer has to watch. The
+  exactly what the registry admits, and a `backstop` in
+  `references/rule-registry.json` is the field a reviewer has to watch. The
   repository has no CODEOWNERS file, so that review is the pull request's.
 
 The canary is on by default once PB4 is eligible. The guide says so first,
@@ -488,5 +488,5 @@ knowledge or a project's PR skill narrows any measured difference.
 
 **Mitigations.** The new states pass through without asking for evidence, and
 a test pins the canary-off directive. The guide states the sample size, the
-limitation, and the reading window. A second rule waits for a schema field
-(Decision 2's second alternative) rather than growing the list.
+limitation, and the reading window. A second rule needs a backstop of its own,
+which the check makes a reviewable line in the registry.
