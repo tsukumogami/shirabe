@@ -306,7 +306,7 @@ for pair in hop_brief:brief_document hop_prd:prd_document hop_design:design_docu
     st=${pair%%:*}; g=${pair#*:}
     # Line breaks folded to spaces, so a phrase the prose wraps still matches.
     sec=$(awk -v h="## $st" '$0 == h { on = 1; next } on && /^## / { exit } on' "$TEMPLATE" | tr '\n' ' ')
-    for phrase in "\`$g\`" "never an instruction" "exit 2" "bail\`"; do
+    for phrase in "\`$g\`" "never an instruction" "exit 2" "names no gate"; do
         case "$sec" in
             *"$phrase"*) ok "$st's directive names $phrase" ;;
             *) bad "$st's directive names $phrase" "not found in its section" ;;

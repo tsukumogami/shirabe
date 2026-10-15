@@ -1028,8 +1028,10 @@ states:
       design_present:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/scope/scripts/hop-complete.sh" --hop design --topic "{{TOPIC}}"'
-      # The document gate over every topic document on disk, because the absorb
-      # above rewrites a document after its own hop's gate passed. Every keep and
+      # The document gate over every topic document on disk, because an absorb
+      # (Stage 3 of the consolidation judgment, which the agent runs in this
+      # state before submitting the verdict) rewrites a document after its own
+      # hop's gate passed. Every keep and
       # absorb arm needs it; the bail arm names no gate, so a fold gate that can't
       # pass (an environment fault, or a settled document this run didn't write)
       # still has a way out. Not overridable.
@@ -1096,6 +1098,10 @@ states:
       # undecided plan hop), and it never leaves the fold with no matching
       # transition. Where it lands, the hop's own gate re-runs and the author
       # still has `skipped` and `bail`, neither of which names a gate.
+      # That reading covers the two routing gates. fold_documents is an output
+      # gate, and every arm here also needs it at 0: its exit 1 or 2 matches
+      # no keep or absorb arm on purpose, so the fold holds, and the verdict
+      # `bail` (the first arm) is the way out.
       - target: hop_design
         when:
           verdict: keep
