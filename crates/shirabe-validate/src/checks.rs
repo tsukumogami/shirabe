@@ -4104,11 +4104,15 @@ pub fn check_fc14(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
 
 /// FC14 on a `plan/v2` step plan: the two sub-checks that carry over.
 ///
+/// Quoted document text passes through [`quote_document_text`], as FC22's
+/// does, so a hostile heading prints inert in either finding.
+///
 /// Sub-check C (dependency text that is prose rather than a reference) and
 /// sub-check F (a `###` heading under `## Steps` that opens no step) apply
-/// as they do to outlines. The rest do not: `step_count` parity is FC22's,
-/// what a detailed or an outline step must carry belongs to FC22's step
-/// rules (only `step-count` exists so far), and a step plan has no
+/// as they do to outlines, as notices; FC22 reports the same two defects at
+/// error level under its `dependency-format` and `step-heading` rules. The
+/// rest do not: `step_count` parity is FC22's, what a detailed or an outline
+/// step must carry belongs to FC22's step rules, and a step plan has no
 /// Implementation Issues table or Dependency Graph for the
 /// table-versus-outline exclusion to compare.
 fn check_fc14_steps(doc: &Doc) -> Vec<ValidationError> {
@@ -4122,7 +4126,8 @@ fn check_fc14_steps(doc: &Doc) -> Vec<ValidationError> {
                 code: "FC14".to_string(),
                 message: format!(
                     "[FC14] step '{}' declares unresolved dependency '{}' (no earlier step matches; use 'None' or 'Step <N>')",
-                    block.key, token
+                    quote_document_text(&block.key),
+                    quote_document_text(token)
                 ),
             });
         }
@@ -4134,7 +4139,7 @@ fn check_fc14_steps(doc: &Doc) -> Vec<ValidationError> {
             code: "FC14".to_string(),
             message: format!(
                 "[FC14] heading '### {}' inside '## Steps' is not a '### Step <N>: <title>' step heading and opens no step (task extraction will not see it)",
-                heading.text
+                quote_document_text(&heading.text)
             ),
         });
     }
@@ -4145,46 +4150,284 @@ fn check_fc14_steps(doc: &Doc) -> Vec<ValidationError> {
 ///
 /// Error-level (absent from `is_intrinsic_notice` and `posture_class`), and a
 /// no-op on every document that is not `plan/v2`, so no `plan/v1` output
-/// changes. Each finding names the rule it broke.
+/// changes. One finding per violation; each names the step (where there is
+/// one) and, last, the rule it broke as `(rule: <name>)`. Text quoted from
+/// the document passes through [`quote_document_text`].
 ///
 /// Rules:
-/// - `step-count`: the frontmatter `step_count` is a whole number equal to
-///   the number of `### Step <N>:` headings under `## Steps`. Skipped when
-///   `## Steps` is absent (FC04 names the missing section) or `step_count` is
-///   absent (FC01 names the missing field).
+/// - `supported-mode`: `execution_mode` is not `coordinated`.
+/// - `supported-tracking`: `tracking_level` is `none` or absent. Both
+///   messages name `plan/v1` as the version for those plans, the same
+///   refusals `plan-to-tasks.sh` makes.
+/// - `issue-count`: no `issue_count` field; a step plan counts steps.
+/// - `step-count`: the frontmatter `step_count` is a whole number no greater
+///   than 999 and equal to the number of `### Step <N>:` headings under
+///   `## Steps`. The parity half is skipped when `## Steps` is absent (FC04
+///   names the missing section); an absent field is FC01's.
+/// - `step-heading`: every `###` heading under `## Steps` is a step heading
+///   (the `### Dependencies` sub-heading of a step aside). `### Issue <N>:`
+///   and `### Gate:` are `plan/v1` forms.
+/// - `step-number`: a step heading's number is 1 to 999 with no leading
+///   zero.
+/// - `step-numbering`: steps are numbered from 1 with no gap and no
+///   duplicate.
+/// - `skeleton-detailed`: step 1 is detailed.
+/// - `detailed-goal`, `detailed-criteria`, `detailed-check`,
+///   `detailed-dependencies`: a detailed step (one that declares any of
+///   `**Goal**:`, `**Acceptance Criteria**:` or `**Check**:`) carries all of
+///   a goal, at least one checkbox criterion, a non-empty check and a
+///   dependencies line.
+/// - `outline-one-line`: an outline step is its heading and exactly one
+///   non-blank line.
+/// - `detailed-prefix`: no detailed step follows an outline step.
+/// - `dependency-order`: a step depends only on earlier steps.
+/// - `dependency-format`: a dependencies value is `None` or `Step <N>`
+///   references. A well-formed `Step <N>` naming no step is FC17's, which
+///   reports it as it reports an unresolved `Issue <N>` on `plan/v1`.
 pub fn check_fc22_steps(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     if spec.id != FormatId::Plan || !is_plan_v2(doc) {
         return Vec::new();
     }
     let mut errs = Vec::new();
+    let finding = |line: usize, message: String| ValidationError {
+        file: doc.path.clone(),
+        line,
+        code: "FC22".to_string(),
+        message,
+    };
+
+    if let Some(field) = doc.fields.get("execution_mode") {
+        if field.value.trim() == "coordinated" {
+            errs.push(finding(
+                field.line,
+                "[FC22] execution_mode 'coordinated' is not supported by plan/v2, which supports 'single-pr' and 'multi-pr'; a coordinated plan stays on plan/v1 (rule: supported-mode)"
+                    .to_string(),
+            ));
+        }
+    }
+    if let Some(field) = doc.fields.get("tracking_level") {
+        let value = field.value.trim();
+        if value != "none" {
+            errs.push(finding(
+                field.line,
+                format!(
+                    "[FC22] tracking_level '{}' is not supported by plan/v2, which supports only 'none'; a plan that files GitHub issues stays on plan/v1 (rule: supported-tracking)",
+                    quote_document_text(value)
+                ),
+            ));
+        }
+    }
+    if let Some(field) = doc.fields.get("issue_count") {
+        errs.push(finding(
+            field.line,
+            "[FC22] frontmatter 'issue_count' is a plan/v1 field; a step plan declares 'step_count' instead (rule: issue-count)"
+                .to_string(),
+        ));
+    }
+
+    let steps = parse_issue_outlines(doc);
     if let Some(field) = doc.fields.get("step_count") {
         let has_steps_section = doc.sections.iter().any(|sec| sec.name == "Steps");
         match field.value.trim().parse::<usize>() {
+            Ok(declared) if declared > 999 => errs.push(finding(
+                field.line,
+                format!(
+                    "[FC22] frontmatter 'step_count: {}' is above 999, the most steps a plan may hold (rule: step-count)",
+                    declared
+                ),
+            )),
             Ok(declared) if has_steps_section => {
-                let observed = parse_issue_outlines(doc).blocks.len();
+                let observed = steps.blocks.len();
                 if declared != observed {
-                    errs.push(ValidationError {
-                        file: doc.path.clone(),
-                        line: field.line,
-                        code: "FC22".to_string(),
-                        message: format!(
+                    errs.push(finding(
+                        field.line,
+                        format!(
                             "[FC22] frontmatter 'step_count: {}' does not match the {} '### Step <N>:' heading(s) in '## Steps' (rule: step-count)",
                             declared, observed
                         ),
-                    });
+                    ));
                 }
             }
             Ok(_) => {}
-            Err(_) => errs.push(ValidationError {
-                file: doc.path.clone(),
-                line: field.line,
-                code: "FC22".to_string(),
-                message: "[FC22] frontmatter 'step_count' is not a whole number (rule: step-count)"
+            Err(_) => errs.push(finding(
+                field.line,
+                "[FC22] frontmatter 'step_count' is not a whole number (rule: step-count)"
                     .to_string(),
-            }),
+            )),
         }
     }
+
+    for heading in &steps.nonconforming_headings {
+        let quoted = quote_document_text(&heading.text);
+        let message = if crate::table::is_step_heading_shaped(&heading.text) {
+            format!(
+                "[FC22] heading '### {}' has a step number outside 1 to 999 or with a leading zero (rule: step-number)",
+                quoted
+            )
+        } else {
+            format!(
+                "[FC22] heading '### {}' under '## Steps' is not a step heading; every heading there is '### Step <N>: <title>' (rule: step-heading)",
+                quoted
+            )
+        };
+        errs.push(finding(heading.line, message));
+    }
+
+    let mut seen: HashSet<u32> = HashSet::new();
+    let mut previous: Option<u32> = None;
+    for block in &steps.blocks {
+        let n = block.number;
+        if !seen.insert(n) {
+            errs.push(finding(
+                block.line,
+                format!(
+                    "[FC22] step {} is numbered twice; each step number appears once (rule: step-numbering)",
+                    n
+                ),
+            ));
+            continue;
+        }
+        let expected = previous.map_or(1, |p| p + 1);
+        if n != expected {
+            let message = match previous {
+                None => format!(
+                    "[FC22] step {} is the first step; steps are numbered from 1 with no gap (rule: step-numbering)",
+                    n
+                ),
+                Some(p) => format!(
+                    "[FC22] step {} follows step {}; steps are numbered from 1 with no gap (rule: step-numbering)",
+                    n, p
+                ),
+            };
+            errs.push(finding(block.line, message));
+        }
+        previous = Some(n);
+    }
+
+    let mut first_outline: Option<u32> = None;
+    for block in &steps.blocks {
+        let n = block.number;
+        let detailed =
+            block.goal_declared || block.acceptance_criteria_declared || block.check_declared;
+        if detailed {
+            if let Some(outline) = first_outline {
+                errs.push(finding(
+                    block.line,
+                    format!(
+                        "[FC22] step {} is detailed but follows outline step {}; detailed steps come before every outline step (rule: detailed-prefix)",
+                        n, outline
+                    ),
+                ));
+            }
+            let missing = [
+                (
+                    !block.goal_declared,
+                    "has no '**Goal**:' line",
+                    "detailed-goal",
+                ),
+                (
+                    block.acceptance_criteria.is_empty(),
+                    "has no '- [ ]' checkbox criterion under '**Acceptance Criteria**:'",
+                    "detailed-criteria",
+                ),
+                (
+                    !block.check_declared,
+                    "has no non-empty '**Check**:' line",
+                    "detailed-check",
+                ),
+                (
+                    !block.dependencies_declared,
+                    "has no '**Dependencies**:' line (use 'None' or 'Step <N>')",
+                    "detailed-dependencies",
+                ),
+            ];
+            for (is_missing, what, rule) in missing {
+                if is_missing {
+                    errs.push(finding(
+                        block.line,
+                        format!(
+                            "[FC22] step {} is detailed but {} (rule: {})",
+                            n, what, rule
+                        ),
+                    ));
+                }
+            }
+        } else {
+            if n == 1 {
+                errs.push(finding(
+                    block.line,
+                    "[FC22] step 1 is an outline; step 1 is the walking skeleton and is always detailed (rule: skeleton-detailed)"
+                        .to_string(),
+                ));
+            }
+            if block.body_lines != 1 {
+                errs.push(finding(
+                    block.line,
+                    format!(
+                        "[FC22] step {} is an outline with {} non-blank line(s); an outline step is its heading and one line naming the behaviour it will add (rule: outline-one-line)",
+                        n, block.body_lines
+                    ),
+                ));
+            }
+            first_outline.get_or_insert(n);
+        }
+
+        for &target in &block.waits_on {
+            if target >= n {
+                errs.push(finding(
+                    block.line,
+                    format!(
+                        "[FC22] step {} depends on step {}, which is not an earlier step; a step depends only on earlier steps (rule: dependency-order)",
+                        n, target
+                    ),
+                ));
+            }
+        }
+        let malformed = block
+            .unresolved_dependencies
+            .iter()
+            .filter(|t| !crate::table::is_step_reference(t))
+            .chain(block.unrecognized_dependency_text.iter());
+        for token in malformed {
+            errs.push(finding(
+                block.line,
+                format!(
+                    "[FC22] step {} has dependency text '{}', which is neither 'None' nor a 'Step <N>' reference (rule: dependency-format)",
+                    n,
+                    quote_document_text(token)
+                ),
+            ));
+        }
+        if block.dependencies_declared
+            && !block.dependencies_none
+            && block.waits_on.is_empty()
+            && block.unresolved_dependencies.is_empty()
+            && block.unrecognized_dependency_text.is_empty()
+        {
+            errs.push(finding(
+                block.line,
+                format!(
+                    "[FC22] step {} has an empty '**Dependencies**:' value (use 'None' or 'Step <N>') (rule: dependency-format)",
+                    n
+                ),
+            ));
+        }
+    }
+
     errs
+}
+
+/// The most characters of document text an FC22 message quotes.
+const FC22_QUOTE_MAX_CHARS: usize = 80;
+
+/// Make document text safe to quote in a finding: control characters
+/// (an ANSI escape's ESC among them) are dropped and the result is cut to
+/// [`FC22_QUOTE_MAX_CHARS`] characters, counted as characters, not bytes.
+fn quote_document_text(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control())
+        .take(FC22_QUOTE_MAX_CHARS)
+        .collect()
 }
 
 /// FC14 Sub-check G findings for an outline-shaped coordinated PLAN.
@@ -4311,6 +4554,12 @@ pub fn check_fc17(doc: &Doc, spec: &FormatSpec) -> Vec<ValidationError> {
     let mut errs = Vec::new();
     for block in &parse_issue_outlines(doc).blocks {
         for token in &block.unresolved_dependencies {
+            // On a step plan FC17 reports a well-formed `Step <N>` that names
+            // no step. A token in another shape (`Issue 2`, `#2`) is a
+            // malformed value, which FC22's `dependency-format` reports.
+            if steps && !crate::table::is_step_reference(token) {
+                continue;
+            }
             let message = if steps {
                 format!(
                     "[FC17] step '{}' declares unresolved dependency '{}' (no step matches; task extraction would drop this edge -- use 'None' or 'Step <N>')",
@@ -10116,5 +10365,133 @@ mod plan_v2_tests {
         assert!(check_plan_section_structure(&doc, &spec).is_empty());
         assert!(check_plan_design_field_consistency(&doc, &spec).is_empty());
         assert!(check_fc14(&doc, &spec).is_empty());
+    }
+
+    const VALID: &str = include_str!("../tests/fixtures/PLAN-v2-valid.md");
+
+    fn fc22(md: &str) -> Vec<ValidationError> {
+        run(md).into_iter().filter(|e| e.code == "FC22").collect()
+    }
+
+    #[test]
+    fn the_valid_four_step_plan_has_no_finding() {
+        let errs = run(VALID);
+        assert!(errs.is_empty(), "expected no findings, got {errs:?}");
+    }
+
+    #[test]
+    fn tracking_level_none_passes_and_every_other_value_names_plan_v1() {
+        let with = |level: &str| {
+            VALID.replace(
+                "execution_mode: single-pr\n",
+                &format!("execution_mode: multi-pr\ntracking_level: {level}\n"),
+            )
+        };
+        assert!(run(&with("none")).is_empty());
+        for level in ["issues", "issues-and-milestone", "weekly"] {
+            let errs = fc22(&with(level));
+            assert_eq!(errs.len(), 1, "{level}: {errs:?}");
+            assert!(errs[0].message.contains("plan/v1"), "{level}");
+            assert!(errs[0].message.contains("rule: supported-tracking"));
+        }
+    }
+
+    #[test]
+    fn a_step_count_above_999_is_refused() {
+        let errs = fc22(&VALID.replace("step_count: 4", "step_count: 1000"));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("above 999"));
+        assert!(errs[0].message.contains("rule: step-count"));
+    }
+
+    #[test]
+    fn an_outline_step_with_no_line_is_refused() {
+        let line = "`greet Ada Grace` prints one greeting line per name, in the order given.\n";
+        let errs = fc22(&VALID.replace(line, ""));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0]
+            .message
+            .starts_with("[FC22] step 4 is an outline with 0"));
+        assert!(errs[0].message.contains("rule: outline-one-line"));
+    }
+
+    #[test]
+    fn a_detailed_step_without_dependencies_is_refused() {
+        let errs = fc22(&VALID.replace("**Dependencies**: Step 1\n", ""));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.starts_with("[FC22] step 2 "));
+        assert!(errs[0].message.contains("rule: detailed-dependencies"));
+    }
+
+    #[test]
+    fn an_empty_dependencies_value_is_refused() {
+        let errs = fc22(&VALID.replace("**Dependencies**: Step 1\n", "**Dependencies**:\n"));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("empty '**Dependencies**:'"));
+        assert!(errs[0].message.contains("rule: dependency-format"));
+    }
+
+    #[test]
+    fn a_step_depending_on_itself_is_refused() {
+        let errs = fc22(&VALID.replace("**Dependencies**: Step 1\n", "**Dependencies**: Step 2\n"));
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(errs[0].message.contains("step 2 depends on step 2"));
+        assert!(errs[0].message.contains("rule: dependency-order"));
+    }
+
+    /// A malformed value is FC22's alone: FC17 on a step plan reports only a
+    /// well-formed `Step <N>` that names no step, so the same token is not
+    /// refused twice.
+    #[test]
+    fn a_plan_v1_shaped_dependency_is_fc22_not_fc17() {
+        for value in [
+            "Issue 1",
+            "#1",
+            "1",
+            "<<ISSUE:1>>",
+            "after the parser lands",
+        ] {
+            let md = VALID.replace(
+                "**Dependencies**: Step 1\n",
+                &format!("**Dependencies**: {value}\n"),
+            );
+            let errs: Vec<ValidationError> =
+                run(&md).into_iter().filter(|e| e.code != "FC14").collect();
+            assert_eq!(codes(&errs), vec!["FC22"], "{value}: {errs:?}");
+            assert!(errs[0].message.contains("rule: dependency-format"));
+        }
+    }
+
+    #[test]
+    fn quoted_document_text_is_stripped_of_control_characters_and_cut_to_80() {
+        let long = format!("\u{1b}[31m{}\u{7}", "\u{e9}".repeat(100));
+        let quoted = quote_document_text(&long);
+        assert!(!quoted.chars().any(|c| c.is_control()), "{quoted:?}");
+        assert_eq!(quoted.chars().count(), 80);
+        assert!(quoted.starts_with("[31m"));
+        assert_eq!(quote_document_text("Issue 2: short"), "Issue 2: short");
+    }
+
+    #[test]
+    fn a_malformed_dependency_value_is_quoted_sanitized() {
+        let value = format!("\u{1b}[2J{}", "x".repeat(120));
+        let md = VALID.replace(
+            "**Dependencies**: Step 1\n",
+            &format!("**Dependencies**: {value}\n"),
+        );
+        let errs = fc22(&md);
+        assert_eq!(errs.len(), 1, "{errs:?}");
+        assert!(!errs[0].message.contains('\u{1b}'));
+        let quoted = errs[0]
+            .message
+            .split('\'')
+            .nth(1)
+            .expect("quoted dependency text");
+        assert_eq!(quoted.chars().count(), 80);
+    }
+
+    #[test]
+    fn fc22_is_selectable_with_check() {
+        assert!(crate::validate::is_known_check_code("FC22"));
     }
 }

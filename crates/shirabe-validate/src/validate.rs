@@ -151,7 +151,7 @@ pub fn is_notice(err: &ValidationError, posture: ReviewPosture) -> bool {
 
 /// Reports whether `code` is a known per-file check code that the `--check`
 /// selector can address. The set is the codes the per-file validation pass
-/// can emit: `SCHEMA`, `FC01`-`FC21`, `FC-CONVENTIONS`, and `R6`-`R11`. The
+/// can emit: `SCHEMA`, `FC01`-`FC22`, `FC-CONVENTIONS`, and `R6`-`R11`. The
 /// lifecycle codes (`L01`-`L09`) are produced by the `--lifecycle` traversal
 /// modes, not the per-file pass, so they are not selectable here.
 pub fn is_known_check_code(code: &str) -> bool {
@@ -179,6 +179,7 @@ pub fn is_known_check_code(code: &str) -> bool {
             | "FC19"
             | "FC20"
             | "FC21"
+            | "FC22"
             | "FC-CONVENTIONS"
             | "R6"
             | "R7"
@@ -312,9 +313,7 @@ fn validate_structural(doc: &Doc, spec: &FormatSpec, cfg: &Config) -> Vec<Valida
             // extract to a task graph missing the edge.
             errs.extend(check_fc17(doc, spec));
             // FC22: the step rules of a `plan/v2` step plan; a no-op on
-            // `plan/v1`. Error-level (absent from is_intrinsic_notice). It
-            // runs in every full pass; making it selectable with `--check`
-            // comes with the rest of the step rules.
+            // `plan/v1`. Error-level (absent from is_intrinsic_notice).
             errs.extend(check_fc22_steps(doc, spec));
         }
         "Roadmap" => {
@@ -659,6 +658,7 @@ mod tests {
             "FC19",
             "FC20",
             "FC21",
+            "FC22",
             "FC-CONVENTIONS",
             "R6",
             "R7",

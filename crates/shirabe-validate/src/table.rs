@@ -756,6 +756,23 @@ static STEP_NUMBER_RE: LazyLock<Regex> =
 
 static STEP_REF_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"Step\s+(\d+)").unwrap());
 
+/// Whether a `###` heading's text (the `### ` stripped) has the shape of a
+/// step heading, `Step <digits>: <title>`, whatever its number. A
+/// non-conforming heading of this shape was refused for its number alone
+/// (outside 1 to 999, or with a leading zero), which FC22 reports under its
+/// own rule.
+pub fn is_step_heading_shaped(text: &str) -> bool {
+    STEP_HEADING_RE.is_match(text)
+}
+
+/// Whether an unresolved dependency token is a `Step <N>` reference: one that
+/// is well formed but names no step in the plan.
+pub fn is_step_reference(token: &str) -> bool {
+    STEP_REF_RE
+        .find(token)
+        .is_some_and(|m| m.start() == 0 && m.end() == token.len())
+}
+
 /// A dependency leftover in a step plan that is shaped like a reference: the
 /// `plan/v1` shapes, which name no step there and so would otherwise be read
 /// as prose and dropped.
