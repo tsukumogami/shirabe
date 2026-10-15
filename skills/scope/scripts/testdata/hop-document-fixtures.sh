@@ -1,4 +1,5 @@
-# fixtures.sh -- minimal valid topic documents for check-hop-document_test.sh.
+# hop-document-fixtures.sh -- minimal valid topic documents for
+# check-hop-document_test.sh.
 # Sourced. Each writer prints a document for topic $1 on stdout.
 
 fx_brief() {

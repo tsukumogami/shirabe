@@ -226,6 +226,9 @@ select_violations "$WORK/canary.json" > "$WORK/canary.hits" 2>/dev/null \
 # --- the documents ------------------------------------------------------------
 
 VIS=$(declared_visibility)
+# The arguments were parsed above, so the positional parameters are free: they
+# carry the optional --visibility flag, which keeps an empty value from reaching
+# the validator as an empty argument (bash 3.2 has no safe empty-array expansion).
 set --
 [ -z "$VIS" ] || set -- "--visibility=$VIS"
 
@@ -295,9 +298,10 @@ code_to_id() {
 }
 
 # Map every code, and resolve the entries the findings will print under, before
-# printing anything. Only those entries are resolved: each resolution reads the
-# registry and git, about half a second apiece, and resolving all seventeen on
-# every gate run would put a clean hop near koto's 30-second command limit.
+# printing anything. Only those entries are resolved: each resolution runs
+# rule-registry.sh twice (reference and summary), and on a busy shared host
+# resolving all seventeen up front made a clean PLAN check take 19 seconds,
+# against about 3 this way, under koto's 30-second command limit.
 # check-rule-registry.sh in CI is what keeps every anchor resolvable.
 [ -f "$WORK/hits" ] || : > "$WORK/hits"
 : > "$WORK/ids"

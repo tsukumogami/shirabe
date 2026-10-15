@@ -285,7 +285,7 @@
       "aliases": [
         "R9"
       ],
-      "notes": "Shares its text and baseline key with docs/visibility-strategy-sections and docs/visibility-vision-sections: one paragraph states R7, R8 and R9. Also shares them with docs/upstream-resolves (R6). skills/scope/scripts/check-hop-document.sh also prints this rule, at /scope's hops and fold."
+      "notes": "Shares its text and baseline key with docs/visibility-strategy-sections and docs/visibility-vision-sections: one paragraph states R7, R8 and R9. Also shares its text and baseline key with docs/upstream-resolves (R6). skills/scope/scripts/check-hop-document.sh also prints this rule, at /scope's hops and fold."
     },
     {
       "id": "docs/required-fields",
@@ -591,7 +591,7 @@
       "aliases": [
         "R8"
       ],
-      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-vision-sections: one paragraph states R7, R8 and R9. Also shares them with docs/upstream-resolves (R6). skills/scope/scripts/check-hop-document.sh also prints this rule, at /scope's hops and fold."
+      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-vision-sections: one paragraph states R7, R8 and R9. Also shares its text and baseline key with docs/upstream-resolves (R6). skills/scope/scripts/check-hop-document.sh also prints this rule, at /scope's hops and fold."
     },
     {
       "id": "docs/visibility-vision-sections",
@@ -631,7 +631,7 @@
       "aliases": [
         "R7"
       ],
-      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-strategy-sections: one paragraph states R7, R8 and R9. Also shares them with docs/upstream-resolves (R6). skills/scope/scripts/check-hop-document.sh also prints this rule, at /scope's hops and fold."
+      "notes": "Shares its text and baseline key with docs/private-only-type and docs/visibility-strategy-sections: one paragraph states R7, R8 and R9. Also shares its text and baseline key with docs/upstream-resolves (R6). skills/scope/scripts/check-hop-document.sh also prints this rule, at /scope's hops and fold."
     },
     {
       "id": "execute/pr-takeover-needs-signal",

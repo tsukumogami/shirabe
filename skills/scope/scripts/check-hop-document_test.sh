@@ -117,12 +117,9 @@ expect() {
     shift 2
     want_ids=$(printf '%s\n' "$@" | awk 'NF' )
     got_ids=$(findings | jq -r '.rule_id' 2>/dev/null)
-    if [ -s "$OUT" ]; then
-        if ! findings | jq -e 'select((.rule_id and .level == "error" and .message and .rule_ref) | not)' >/dev/null 2>&1; then
-            :
-        else
-            shape_ok=0
-        fi
+    # A finding missing any of koto's fields makes the shape check fail.
+    if [ -s "$OUT" ] && findings | jq -e 'select((.rule_id and .level == "error" and .message and .rule_ref) | not)' >/dev/null 2>&1; then
+        shape_ok=0
     fi
     if [ "$RC" -eq "$want" ] && [ "$got_ids" = "$want_ids" ] && [ "$shape_ok" -eq 1 ]; then
         pass "$label"
@@ -482,12 +479,14 @@ if [ "$run_real" -eq 1 ]; then
     fx_design t | put docs/designs/DESIGN-t.md
     fx_plan t | put docs/plans/PLAN-t.md
     commit_all
-    for hop in brief prd design plan; do
-        start=$(date +%s)
+    for hop in brief prd design; do
         gate --topic t --hop "$hop"
-        took=$(( $(date +%s) - start ))
         expect "clean $hop: exit 0, no finding" 0
     done
+    start=$(date +%s)
+    gate --topic t --hop plan
+    took=$(( $(date +%s) - start ))
+    expect "clean plan: exit 0, no finding" 0
     if [ "$took" -lt 10 ]; then
         pass "the PLAN check finishes in under 10 seconds (${took}s)"
     else
