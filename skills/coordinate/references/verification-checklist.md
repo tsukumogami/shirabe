@@ -168,5 +168,8 @@ report it before dispatching anything that depends on it.
 The head pins what GitHub merged, so this confirms the merge
 itself, not what the default branch holds now: a later change to the same
 files doesn't bear on it, and a revert after the merge still reads as merged.
-Just after a merge, GitHub can briefly show no merge commit, or answer the
-comparison with not found; that is a read to try again, never a merge.
+The comparison is with the default branch, which is where the coordinator
+merges: a pull request merged into another base doesn't confirm here. If the
+pull request reads merged but shows no merge commit, or the comparison
+answers not found, the merge can't be confirmed yet; read again, and never
+take it as merged.

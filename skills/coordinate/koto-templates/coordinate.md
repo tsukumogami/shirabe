@@ -3717,8 +3717,9 @@ refusal; the pull request goes back through verify.
 
 ## merge_confirm
 
-Confirming the merge. koto runs `merge-confirm.sh` itself: it compares each
-changed file on the default branch with the verified head's version.
+Confirming the merge. koto runs `merge-confirm.sh` itself: it reads GitHub's
+record, the pull request merged from the verified head with its merge commit
+on the default branch.
 
 <!-- details -->
 
