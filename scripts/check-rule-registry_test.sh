@@ -160,6 +160,12 @@ expect_problem "a summary with ::" "$G: summary holds the marker ::"
 reg "$(sel $RS).guards = [\"push\"]"
 expect_problem "an eligible entry with a protected guard" "$RS: a protected guard requires withhold never"
 
+reg "$(sel $RS).guards = [\"merge\"]"
+expect_problem "an eligible entry guarding merge" "$RS: a protected guard requires withhold never"
+
+reg "$(sel $RS).guards = [\"pr-create\"]"
+expect_problem "an eligible entry guarding pr-create" "$RS: a protected guard requires withhold never"
+
 reg "$(sel $RS).check = {\"kind\": \"none\"}"
 expect_problem "an eligible entry with check none" "$RS: check.kind none requires withhold never"
 
