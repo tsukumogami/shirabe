@@ -5,8 +5,9 @@ Read all plan artifacts and determine execution mode before any review category 
 ## Goal
 
 Load the complete plan context from the keys in `plan-<topic>` (or from the PLAN
-document when there is no plan session), detect the `input_type` that gates
-category behavior, and select fast-path or adversarial execution mode.
+document when there is no plan session), detect the plan version and the
+`input_type` that gate category behavior, and select fast-path or adversarial
+execution mode.
 
 ## Steps
 
@@ -15,8 +16,10 @@ category behavior, and select fast-path or adversarial execution mode.
 Determine the `<topic>` string from input:
 
 - If called as sub-operation: use `plan_topic` from args
-- If called standalone with a PLAN path (`docs/plans/PLAN-<topic>.md`): strip the
-  directory, the `PLAN-` prefix and the `.md` suffix to get `<topic>`
+- If called standalone with a PLAN path (`docs/plans/PLAN-<topic>.md`, or a
+  `PLAN-*.md` file elsewhere, such as an eval fixture): strip the directory,
+  the `PLAN-` prefix and the `.md` suffix to get `<topic>`, and remember the
+  path as the PLAN document
 - If called standalone with a topic string: use as-is
 
 Check `<topic>` against `^[a-z0-9][a-z0-9-]*$` before it reaches any command.
@@ -32,8 +35,9 @@ SKILL.md's Session and Keys names three cases. Pick one:
 
 - Called as a sub-operation: `/plan` holds `plan-<topic>` open. Use it as is.
 - `live` (standalone): a plan is in flight. Use it as is; close nothing.
-- `absent` or `finished` (standalone): review the PLAN document alone. Check
-  that `docs/plans/PLAN-<topic>.md` exists (stop and say so when it doesn't),
+- `absent` or `finished` (standalone): review the PLAN document alone: the
+  path given, or `docs/plans/PLAN-<topic>.md` for a topic. Check that it exists
+  (stop and say so when it doesn't),
   then open the session the verdict goes to and record any parent match:
 
   ```bash
@@ -79,13 +83,17 @@ following values:
 - `review_rounds` counter (if present; defaults to 0 if absent)
 
 **From `work/decomposition.md`:**
-- Issue count
+- Plan version: `plan_version: v2` in its frontmatter means `plan/v2`; no
+  `plan_version` means `plan/v1`
+- Issue count (under `plan/v2`, `step_count`)
 - Decomposition strategy (`walking-skeleton` or `horizontal`)
-- Complexity breakdown (simple / testable / critical counts)
+- Complexity breakdown (simple / testable / critical counts; a `plan/v2` step
+  has none)
 
 **From `work/manifest.json`:**
 - List of issue bodies: each entry's `file` (`issue_<id>_body.md`) names key
-  `work/issue_<id>_body.md`
+  `work/issue_<id>_body.md`. Under `plan/v2` each body is a step's block, and
+  the entry's `detail` (`detailed` or `outline`) says which kind it is
 
 **From `work/dependencies.md`:**
 - Full dependency graph
@@ -115,14 +123,27 @@ agents return:
 
 ### 0.4a Read the PLAN Document (no plan session)
 
-When 0.1a found no plan session, the PLAN document is the whole input. From
-`docs/plans/PLAN-<topic>.md` take the upstream design doc (its `upstream:`
+When 0.1a found no plan session, the PLAN document is the whole input. Its
+`schema:` frontmatter gives the plan version (`plan/v1` or `plan/v2`). From
+the PLAN document take the upstream design doc (its `upstream:`
 frontmatter), `input_type` from that upstream's type (`design`, `prd`,
-`roadmap`, or `topic` when it has none), the issue count and decomposition
-strategy from its Decomposition Strategy section, each issue's outline (from
-Issue Outlines, or the Implementation Issues table and the issues it links)
-as that issue's body, and the dependency graph from its Dependency Graph
-section. `review_rounds` is 0. Seat packets use `--doc` on the PLAN document.
+`roadmap`, or `topic` when it has none), and the decomposition strategy from
+its Decomposition Strategy section. `review_rounds` is 0. Seat packets use
+`--doc` on the PLAN document.
+
+The entries depend on the version:
+
+- **`plan/v1`**: the issue count from `issue_count`, each issue's outline
+  (from Issue Outlines, or the Implementation Issues table and the issues it
+  links) as that issue's body, and the dependency graph from its Dependency
+  Graph section.
+- **`plan/v2`**: the entry count from `step_count`, and each `### Step <N>:`
+  block under `## Steps` as that step's body. A step with `**Goal**:`,
+  `**Acceptance Criteria**:` and `**Check**:` is detailed; a step whose body
+  is one line is an outline. The dependency graph is each detailed step's
+  `**Dependencies**:` line. A step plan has no Implementation Issues table,
+  no Issue Outlines section and no Dependency Graph section, and their
+  absence is not an error.
 
 ### 0.5 Detect Execution Mode
 
@@ -134,7 +155,7 @@ if $ARGUMENTS contains "--adversarial"  → adversarial mode
 else                          → fast-path mode (default)
 ```
 
-Record the selected mode. It determines agent count in phases 1–4:
+Record the selected mode. It determines agent count in phases 1–4 and 4b:
 - **Fast-path**: single agent per category
 - **Adversarial**: multiple validators per category + cross-examination step
 
@@ -142,8 +163,17 @@ Record the selected mode. It determines agent count in phases 1–4:
 
 `input_type` gates category behavior in later phases:
 
-Record the `input_type` and pass it to phases 1–4; each phase has its own
-input-type behavior table.
+Record the `input_type` and pass it to phases 1–4 and 4b; each phase has its
+own input-type behavior table.
+
+### 0.6a Record the Plan Version
+
+Record the plan version and pass it to every category. Under `plan/v2` an
+entry is a step, and an outline step is one line by design: it has no criteria,
+check or dependencies yet, and no category reports that absence. Categories A
+to D judge the detailed steps' criteria and checks as they would an issue's.
+Phase 4b (Category E) and Phase 5 use the version to decide whether a
+Category E finding loops back (`plan/v2`) or is advisory (`plan/v1`).
 
 ### 0.7 Log Setup Summary
 
@@ -153,8 +183,9 @@ Output before continuing to Phase 1:
 Review Plan — Phase 0 complete
   topic:        <topic>
   input_type:   <input_type>
+  plan_version: plan/v1 | plan/v2
   mode:         fast-path | adversarial
-  issue_count:  <N>
+  issue_count:  <N>   (step_count under plan/v2, with how many are detailed)
   strategy:     <walking-skeleton | horizontal>
   round:        <args.round if called as sub-operation, else review_rounds + 1>
   upstream_doc: <path or "none">

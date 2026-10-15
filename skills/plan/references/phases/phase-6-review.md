@@ -50,7 +50,8 @@ Call `/review-plan` as a sub-operation:
 `/review-plan` will:
 1. Read all plan keys from `plan-<topic>` (the session this run holds open;
    `/review-plan` opens and closes nothing here)
-2. Run all four review categories (A, B, C, D) in fast-path mode
+2. Run all five review categories (A to E) in fast-path mode; Category E
+   (Functional Shape) checks the horizon only here, as `/plan`'s sub-operation
 3. Write the verdict as key `work/review.md` (proceed) or
    `work/review_loopback.md` (loop-back) in `plan-<topic>`
 
