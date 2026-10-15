@@ -128,7 +128,7 @@ set -uo pipefail
 # Every check script calls this one many times per run, so it spends no process
 # it doesn't need: its directory comes from $0 without `dirname`, and a
 # subcommand that needs another one's answer calls it in-process.
-case "$0" in */*) HERE=$(cd "${0%/*}" && pwd) ;; *) HERE=$(pwd) ;; esac
+case "$0" in */*) HERE=${0%/*}; HERE=$(cd "${HERE:-/}" && pwd) ;; *) HERE=$(pwd) ;; esac
 KOTO=${KOTO_BIN:-koto}
 
 usage() { sed -n '/^# Usage:/,/^# Exit 64/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -149,7 +149,9 @@ session_log() {
     f="$dir/koto-$1.state.jsonl"
     [ -r "$f" ] || return 1
     # koto writes the header compact with schema_version first, so the common
-    # case is read without starting jq; any other first line goes to jq.
+    # case is read without starting jq; any other first line goes to jq. The
+    # fast path checks only that prefix, not the rest of the line: a header
+    # broken after it fails at the first jq read of the log instead.
     IFS= read -r line < "$f" || true
     case "$line" in
         '{"schema_version":1,'*) v=1 ;;

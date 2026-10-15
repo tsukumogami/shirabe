@@ -80,7 +80,9 @@ record_json() { # record_json <roadmap|discipline> <name>: an empty record
 render() { # render <json> <issue|pr> [written]: a canonical body on stdout
     # Suites render the same fixture many times over, so each distinct
     # (json, container, written) is rendered once and kept under $T; a render
-    # that fails is never kept, so it fails again the same way.
+    # that fails is never kept, so it fails again the same way. The key holds
+    # the inputs, not the renderer: a suite that swaps record-render.sh for a
+    # copy needs its own $T.
     local w=${3:-2026-09-26T09:00:00Z} k f rc
     k=$(printf '%s\n%s\n%s' "$2" "$w" "$1" | $SHA256)
     f="$T/render-cache/${k%% *}"
@@ -119,15 +121,18 @@ log_new() {
 # without starting jq when they can: a value with nothing JSON would escape (no
 # quote, backslash or control character) is quoted as it stands, and a payload
 # with no whitespace or backslash is taken as already compact. Anything else
-# goes through jq as before. Either way the line is the one `jq -c` writes.
+# goes through jq as before. For the compact payloads the suites pass, the line
+# is the one `jq -c` wrote; a payload on the fast path is not validated, so a
+# malformed one shows up when a reader parses the log, not here.
 _plain() { case "$1" in *'"'*|*'\'*|*[[:cntrl:]]*) return 1 ;; esac; }
 _compact() { case "$1" in *[[:space:]]*|*'\'*|'') return 1 ;; esac; }
 # _log_put <session> <type> <payload> <timestamp> <compact:0|1>: append one
 # event with the next seq. With <compact> 1 the payload is known compact (built
 # here from plain values) and is written as it stands.
 _log_put() {
-    local d="$KOTO_STORE/sessions/$1" n
-    read -r n < "$d/.seq"
+    local d="$KOTO_STORE/sessions/$1" n=
+    # .seq holds no trailing newline, so read reports end of file; n is set.
+    read -r n < "$d/.seq" || true
     n=$((n + 1))
     printf '%s' "$n" > "$d/.seq"
     if [ "$5" = 1 ] && _plain "$2" && _plain "$4"; then

@@ -21,7 +21,7 @@
 # stderr); 1 an internal failure.
 set -euo pipefail
 
-case "$0" in */*) HERE=$(cd "${0%/*}" && pwd) ;; *) HERE=$(pwd) ;; esac
+case "$0" in */*) HERE=${0%/*}; HERE=$(cd "${HERE:-/}" && pwd) ;; *) HERE=$(pwd) ;; esac
 FORMAT=record
 CONTAINER=issue
 WRITTEN=
