@@ -374,7 +374,7 @@ eq "merge-exec gets the verified sha" "acme/widgets 12 $H" "$(cat "$BT_STATE/mer
 eq "and the squash message equals the title and the fixture's Part 1" \
     "$(printf 'feat(land): read the round\n\nReads the worker'"'"'s review round in the land step.')" \
     "$(cat "$BT_STATE/merge-exec.msg" 2>/dev/null)"
-bt_merged MERGED '["src/main.go"]'; bt_blob main src/main.go aaaa; bt_blob "$H" src/main.go aaaa
+bt_merged MERGED; bt_reach behind
 eq "merge_confirm routes merged to done" done "$(state "$(tick "$S" --with-data '{"outcome":"attempted"}')")"
 
 echo "== unverified, pending, denied =="

@@ -92,29 +92,34 @@ CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 # The section and the log facts the rules read.
 bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
     || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
+# The latest entry into each state the rules read, 0 when none, in one read
+# of the log (coord-log.sh entries) rather than one coord-log.sh per state.
+# READS is the one list of <state>:<variable>: the request is built from it,
+# and each variable is set from its state's line only after the line was
+# found and its seq is a number, so a state added here can't be left unread,
+# and a short or garbled answer stops the run instead of reading as 0.
+READS="dispatch:DISPATCH_SEQ report_questions:RQ_SEQ decision_open:OPEN_SEQ wait:WAIT_SEQ
+classify_report:CLASSIFY_SEQ decision_answer:ANSWER_SEQ decision_evidence:EVID_SEQ decision_raise:RAISE_SEQ"
+states=
+for pair in $READS; do states="$states${states:+,}${pair%%:*}"; done
+ENTRIES=$(CL entries --states "$states") || lib_die2 "cannot read the session log"
+for pair in $READS; do
+    rest=$'\n'"$ENTRIES"
+    case "$rest" in *$'\n'"${pair%%:*} "*) ;; *) lib_die2 "cannot read the session log" ;; esac
+    rest=${rest#*$'\n'"${pair%%:*} "}
+    sq=${rest%%[ $'\n']*}
+    case "$sq" in ''|*[!0-9]*) lib_die2 "cannot read the session log" ;; esac
+    printf -v "${pair#*:}" '%s' "$sq"
+done
 DISPATCHED=false
-CL entered --state dispatch > /dev/null
-case $? in 0) DISPATCHED=true ;; 1) ;; *) lib_die2 "cannot read the session log" ;; esac
-# entry_seq <state>: the latest entry into it, 0 when none.
-entry_seq() {
-    local e
-    e=$(CL entry --state "$1")
-    case $? in 0) printf '%s' "${e%% *}" ;; 1) printf 0 ;; *) lib_die2 "cannot read the session log" ;; esac
-}
+[ "$DISPATCH_SEQ" = 0 ] || DISPATCHED=true
 # ev_json <state> [where]: the latest evidence at it, {} when none.
 ev_json() {
     local e st=$1; shift
     e=$(CL evidence --state "$st" "$@")
     case $? in 0) printf '%s' "$e" ;; 1) printf '{}' ;; *) lib_die2 "cannot read the session log" ;; esac
 }
-RQ_SEQ=$(entry_seq report_questions)
 QCAP=$(CL capture --name QUESTIONS --state report_questions 2>/dev/null) || QCAP=
-OPEN_SEQ=$(entry_seq decision_open)
-WAIT_SEQ=$(entry_seq wait)
-CLASSIFY_SEQ=$(entry_seq classify_report)
-ANSWER_SEQ=$(entry_seq decision_answer)
-EVID_SEQ=$(entry_seq decision_evidence)
-RAISE_SEQ=$(entry_seq decision_raise)
 WAIT_ANS=$(ev_json wait --where event=answer)
 TOOL_ANS=$(ev_json escalate_send --where sent=answered)
 WAIT_EVI=$(ev_json wait --where event=evidence)

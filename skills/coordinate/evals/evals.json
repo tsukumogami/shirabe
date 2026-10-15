@@ -74,14 +74,14 @@
       "id": 4,
       "name": "restart-with-unconfirmed-merge",
       "prompt": "/shirabe:coordinate docs/roadmaps/ROADMAP-plugin-system.md -- restarting after the previous session crashed; its record lists PR #408 under side effects in flight as a merge attempted at 14:02 and never confirmed, with verified head 3f1c2a9e8d7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a",
-      "expected_output": "The coordinator treats the record as a dated snapshot and reconciles before dispatching anything: it re-reads PR #408's state and head, compares the changed files on the default branch against the verified head the record gives to settle whether the merge landed, re-checks every other holding's pull request, branch and CI against GitHub and each worker's session on the host, and lists the open deferrals. If #408 is still open, its head is re-checked against the verified head before any merge is considered.",
+      "expected_output": "The coordinator treats the record as a dated snapshot and reconciles before dispatching anything: it re-reads PR #408's state and head, and settles whether the merge landed from GitHub's record: merged from the verified head the record gives, with its merge commit on the default branch; re-checks every other holding's pull request, branch and CI against GitHub and each worker's session on the host, and lists the open deferrals. If #408 is still open, its head is re-checked against the verified head before any merge is considered.",
       "files": [
         "docs/roadmaps/ROADMAP-plugin-system.md"
       ],
       "expectations": [
         "Before any dispatch, the coordinator re-reads each holding's pull request state, head, branch and CI from GitHub and checks each worker's session on the host",
         "The record's claims are treated as a snapshot dated by its Written time, not as current fact",
-        "PR #408's merge is settled by comparing the changed files on the default branch with the recorded verified head 3f1c2a9e8d7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a, not by trusting the record or the branch's current head",
+        "PR #408's merge is settled from GitHub's record, merged from the recorded verified head 3f1c2a9e8d7b6c5a4f3e2d1c0b9a8f7e6d5c4b3a with its merge commit on the default branch, not by trusting the record or the branch's current head",
         "If PR #408 is still open, its current head is compared with the recorded verified head before any merge is considered, and a moved head is verified again",
         "No merge of PR #408 is attempted again before its state is read",
         "The reconcile report lists what changed, what is held, and open deferrals",
@@ -241,7 +241,7 @@
         "The verified head is written into the holding in the record before any merge step",
         "The head is re-read on entering the land step, and a moved head goes back to verification",
         "The merge is pinned to the verified head and made because the workspace permits it, not handed to the human",
-        "After the merge, the change is confirmed on the default branch by reading the changed files there",
+        "After the merge, the merge is confirmed from GitHub's record: merged from the verified head, its merge commit on the default branch",
         "The coordinator runs no review panel of its own: the land step reads the worker's Review panel table from the pull request body, and the merge carries a squash message built from the title and Part 1"
       ],
       "requirements": [
