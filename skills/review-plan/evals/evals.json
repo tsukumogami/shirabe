@@ -102,13 +102,13 @@
       "id": 8,
       "name": "category-e-plan-v1-five-layer-advisory",
       "prompt": "/review-plan crates/shirabe-validate/tests/fixtures/PLAN-v1-five-layer.md",
-      "expected_output": "The fixture is a finished plan/v1 plan of five issues cut by component: types, compiler, CLI, tests, plugin templates. No issue before the last has a criterion a person can run to observe a behaviour. Phase 4b (Category E) reports it as layer-shaped, naming each issue's component, reports that Issue 1 is not a walking skeleton, and lists each file-shaped criterion by issue and text, including Issue 1's \"Add `Transition` struct with `target: String` and ...\". Because the plan is plan/v1, every Category E finding is written to advisory_findings and none to critical_findings, and they set no loop target. The verdict is proceed, written to work/review.md.",
+      "expected_output": "The fixture is a finished plan/v1 plan of five issues cut by component: types, compiler, CLI, tests, plugin templates. No issue before the last has a criterion a person can run to observe a behaviour. Phase 4b (Category E) reports it as layer-shaped, naming each issue's component, reports that Issue 1 is not a walking skeleton, and lists each file-shaped criterion by issue and text, including Issue 1's \"Add `Transition` struct with `target: String` and ...\". Because the plan is plan/v1, every Category E finding is written to advisory_findings and none to critical_findings, and they set no loop target: Category E alone leaves the verdict at proceed. Categories A to D still run as on any plan, and a loop-back on this fixture comes only from their critical findings (for example Category C's happy-path-only criteria), never from Category E.",
       "assertions": [
         "Phase 0 reads the plan version as plan/v1 from the schema frontmatter",
         "A Category E finding reports the plan as layer-shaped and names the components types, compiler, CLI, tests, and plugin templates",
         "File-shaped criteria are listed one per finding by issue and quoted text, including Issue 1's \"Add `Transition` struct with `target: String`\" criterion",
         "Every Category E finding is in advisory_findings, and critical_findings holds no Category E finding",
-        "The verdict is proceed and the Category E findings do not set loop_target"
+        "No Category E finding sets loop_target or turns the verdict to loop-back; any loop-back is caused by a critical finding from categories A to D"
       ],
       "files": [
         "crates/shirabe-validate/tests/fixtures/PLAN-v1-five-layer.md"
