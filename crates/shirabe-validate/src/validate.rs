@@ -61,11 +61,13 @@ pub enum Severity {
 /// tolerate `Draft` posture but must be resolved before `Ready`.
 /// Everything else — the always-defect lifecycle findings
 /// `L01`/`L03`/`L04`/`L05`/`L10` and the entire FC-family — is
-/// `AlwaysEnforced`. `L10` (an outline step left in a step plan at
-/// completion) is always enforced because the run that raises it is the
-/// completion cascade's: a step nobody built is not an in-flight state there. The FC-family exclusion is why `L09` is an `L` code:
+/// `AlwaysEnforced`. The FC-family exclusion is why `L09` is an `L` code:
 /// it is a single-document property like `L06`, and filing it under `FC`
 /// would have cost this invariant an exception.
+///
+/// `L10` (an outline step left in a step plan) is always enforced because
+/// only the chain-targeted run the completion cascade makes raises it, and
+/// there a step nobody built is not an in-flight state.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PostureClass {
     DraftTolerable,
@@ -599,9 +601,9 @@ mod tests {
         );
     }
 
-    /// L10 is an error in both postures and, like every lifecycle code, not
-    /// a `--check` selection: the cascade's draft-or-ready choice must not
-    /// let a plan complete over a step nobody built.
+    /// L10 is an error in both postures, so no posture lets a plan complete
+    /// over a step nobody built. Like every lifecycle code, it is not a
+    /// `--check` selection.
     #[test]
     fn l10_is_an_error_in_both_postures_and_not_selectable() {
         for posture in [ReviewPosture::Draft, ReviewPosture::Ready] {
