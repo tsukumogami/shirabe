@@ -338,6 +338,16 @@ class RotationTest(Case):
         self.assertEqual(rc, 6, out)
         self.assertEqual(self.ledger_lines()[-1]["unrun"], ["execute:rotation"])
 
+    def test_never_run_jobs_take_repeats_first_then_skill_name(self):
+        self.add_skill("alpha", tier1=1, tier2=1, rest=1)
+        self.commit()
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "1", "execute", "alpha")
+        self.assertEqual(rc, 0, out)
+        jobs = [("rotation" if "--scenario" in line else "run", line.split()[-2])
+                for line in self.calls()]
+        self.assertEqual(jobs, [("run", "alpha"), ("run", "execute"),
+                                ("rotation", "alpha"), ("rotation", "execute")])
+
     def test_a_rotation_waiting_longer_runs_before_a_newer_repeat(self):
         self.seed({"kind": "run", "at": ago(days=2), "skill": "execute", "tree": "old", "runs": 1,
                    "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0},

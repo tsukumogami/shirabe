@@ -593,6 +593,37 @@ else
 fi
 rm -rf "$SUITE/subset"
 
+# --no-baseline: prep writes no without_skill/ directory, the session is told
+# to spawn the with-skill agent only, and a graded run passes without one.
+# demo_iteration -- the demo skill's newest iteration directory
+demo_iteration() {
+  ls -d "$SUITE/demo/evals/workspace"/iteration-* 2>/dev/null | sort -t- -k2 -n | tail -n 1
+}
+run_runner plan --no-baseline --prep-only demo
+ITER=$(demo_iteration)
+if [ "$RC" -eq 0 ] && [ -d "$ITER/demo-scenario/with_skill/outputs" ] \
+  && [ ! -e "$ITER/demo-scenario/without_skill" ]; then
+  pass "--no-baseline: prep writes with_skill/ and no without_skill/"
+else
+  fail "--no-baseline prep (rc=$RC): $(ls "$ITER/demo-scenario" 2>/dev/null | tr '\n' ' ')"
+fi
+run_runner grade --no-baseline demo
+if [ "$RC" -eq 0 ] && grep -q "spawn the with-skill agent only" "$LOG/prompt" \
+  && grep -q "NO no-skill baseline" "$LOG/prompt" \
+  && grep -q "demo-scenario: .*with-skill agent (no baseline agent)" "$LOG/prompt" \
+  && ! grep -q "without_skill/outputs/ (empty" "$LOG/prompt"; then
+  pass "--no-baseline: the session is told to run and grade the with-skill agent only, and the run passes"
+else
+  fail "--no-baseline run (rc=$RC): $OUT"
+fi
+run_runner grade demo
+if [ "$RC" -eq 0 ] && grep -q "and a without-skill baseline agent" "$LOG/prompt" \
+  && grep -q "with-skill agent and its baseline agent" "$LOG/prompt"; then
+  pass "without --no-baseline the session still runs the baseline"
+else
+  fail "default baseline (rc=$RC): $OUT"
+fi
+
 mkdir -p "$SUITE/pinned/evals"
 echo "# pinned skill" > "$SUITE/pinned/SKILL.md"
 cat > "$SUITE/pinned/evals/evals.json" <<'EOF'

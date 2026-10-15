@@ -95,6 +95,10 @@ SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 # The pattern scripts/run-evals.sh holds EVAL_MODEL to.
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 WEEK = datetime.timedelta(days=7)
+# The sort time of a job or scenario that never ran. Never-run ones already sort
+# first on their own key element; a fixed time lets the tie-breaks after it (a
+# repeat before a rotation, then the skill's name) decide among them.
+NEVER = datetime.datetime(1970, 1, 1, tzinfo=datetime.timezone.utc)
 GRADED = (0, 1)
 
 # What a job costs before a skill has a measured one of its own, at list price
@@ -297,7 +301,7 @@ def plan_jobs(args, skills, entries):
             print("unchanged: %s (measured %s on %s)" % (name, graded[-1].get("at", "?"), args.model))
         else:
             last_at = parse_iso(graded[-1].get("at")) if graded else None
-            repeats.append(("run", (last_at is not None, last_at or now_utc(), 0, name), name,
+            repeats.append(("run", (last_at is not None, last_at or NEVER, 0, name), name,
                             tree, suite, None))
         if args.rotation_size == 0 or not suite.rest:
             continue
@@ -316,10 +320,10 @@ def plan_jobs(args, skills, entries):
         def last_rotated(scenario):
             return parse_iso(last_run[scenario].get("at")) if scenario in last_run else None
 
-        due.sort(key=lambda s: (last_rotated(s) is not None, last_rotated(s) or now_utc(), order[s]))
+        due.sort(key=lambda s: (last_rotated(s) is not None, last_rotated(s) or NEVER, order[s]))
         picked = due[:args.rotation_size]
         at = last_rotated(picked[0])
-        rotations.append(("rotation", (at is not None, at or now_utc(), 1, name), name, tree,
+        rotations.append(("rotation", (at is not None, at or NEVER, 1, name), name, tree,
                           suite, picked))
     # One queue, longest-waiting first: a job never run before, then the one
     # whose last run is oldest, a repeat ahead of a rotation on a tie. A stop at

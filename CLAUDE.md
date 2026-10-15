@@ -272,8 +272,9 @@ touches. CI runs every suite.
 
 The evals run in the release precondition. `/shirabe:release` runs the eval
 check declared in `.claude/shirabe-extensions/release.md` on every skill
-changed since the last tag and stops on a pass-rate drop. It runs every tier-1
-scenario and, of the tier-2 ones, only the release subset: each tier-2
+changed since the last tag and stops on a pass-rate drop. It runs the
+with-skill agent only, with no no-skill baseline, on every tier-1 scenario
+and, of the tier-2 ones, only the release subset: each tier-2
 scenario names the behaviour it exercises in `"behaviour"`, and exactly one
 scenario per behaviour carries `"release": true`. The shape check enforces
 that, so a new tier-2 scenario either joins a behaviour or starts one and
