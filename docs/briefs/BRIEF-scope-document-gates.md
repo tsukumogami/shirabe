@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   /scope credits a hop's document after four structural checks. Every other
   format rule `shirabe validate` knows for that type is held only by a prose
@@ -23,7 +23,7 @@ motivating_context: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -129,9 +129,3 @@ per-rule failure rate without reading any transcript.
   /design or /prd run on its own.
 - Offline ablation or long evaluation runs to measure the effect; measurement
   is live.
-
-## Open Questions
-
-- Which notice-level checks beyond the banned words, if any, guard a rule
-  likely to be withheld and are reliable enough to block on? The PRD settles
-  the list.
