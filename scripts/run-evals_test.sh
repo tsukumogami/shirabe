@@ -633,8 +633,8 @@ fi
 # --validate takes no run options; the iteration's missing without_skill/ is
 # what tells it the baseline was never run.
 run_runner plan --validate demo
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "All assertions passed." \
-  && ! printf '%s' "$OUT" | grep -q "without_skill"; then
+if [ "$RC" -eq 0 ] && grep -q "All assertions passed." <<<"$OUT" \
+  && ! grep -q "without_skill" <<<"$OUT"; then
   pass "--validate on a no-baseline iteration checks the with-skill side only"
 else
   fail "--validate no-baseline (rc=$RC): $OUT"
