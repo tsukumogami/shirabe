@@ -161,8 +161,9 @@ SHIRABE_DIR=$(cd "$(dirname "$SHIRABE_BIN")" 2>/dev/null && pwd -P) \
 case "$SHIRABE_DIR/" in
     "$ROOT_REAL"/*) undecided "shirabe resolves inside the repository ($SHIRABE_DIR); refusing a validator from the tree under review" ;;
 esac
-SHIRABE_VERSION=$(shirabe --version | awk 'NR == 1 { print; exit }')
-echo "check-hop-document: validator $SHIRABE_DIR/$(basename "$SHIRABE_BIN") (${SHIRABE_VERSION:-unknown version})" >&2
+# The path only: skills/scope/requires.tsv may declare shirabe subcommands and
+# nothing else, so the gate doesn't call `shirabe --version`.
+echo "check-hop-document: validator $SHIRABE_DIR/$(basename "$SHIRABE_BIN")" >&2
 
 RULES_FILE="$PLUGIN_ROOT/skills/writing-style/rules.yaml"
 [ -f "$RULES_FILE" ] && [ -r "$RULES_FILE" ] \
@@ -251,7 +252,9 @@ for p in $PATHS; do
     rc=$?
     case "$rc" in
         0|2) ;;
-        *) undecided "shirabe validate exited $rc on $p: $(tail -n 1 "$WORK/$n.err")" ;;
+        *)
+            reason=$(tail -n 1 "$WORK/$n.err")
+            undecided "the validator exited $rc on $p: $reason" ;;
     esac
     complete_envelope "$WORK/$n.json" \
         || undecided "shirabe validate gave no complete verdict on $p (a schema-skipped document, or output this script can't read)"

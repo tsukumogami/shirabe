@@ -432,7 +432,9 @@ one finding printed; 2 no finding printed, reason on stderr.
 1. Resolve the root with `git rev-parse --show-toplevel` and `cd` there.
 2. Check `git`, `jq`, `shirabe`, and refuse a `shirabe` that resolves under
    the repository root (a shim planted in the tree); name the resolved
-   validator and its version on stderr; set and check `SHIRABE_RULES`; run
+   validator's path on stderr (not its version: the skill's tool declarations
+   allow shirabe subcommands only, so the gate doesn't call `shirabe
+   --version`); set and check `SHIRABE_RULES`; run
    the canary.
 3. Read the declared visibility.
 4. For each path in order: a path that doesn't exist is skipped; a symlink, a
@@ -525,8 +527,8 @@ The script writes only to its own `mktemp -d` directory, removed on exit and on
 `INT`, `TERM` and `HUP`. The script makes no network call; the validator's
 `FC09` probe on a PLAN runs `gh auth status`, whose result is a notice the gate
 ignores. It runs `git`, `jq` and `shirabe` from `PATH`, refuses a `shirabe`
-that resolves inside the repository, and names the resolved validator and its
-version on stderr so a hold can be traced to the binary that produced it. The
+that resolves inside the repository, and names the resolved validator's path on
+stderr so a hold can be traced to the binary that produced it. The
 only environment variable that changes which banned words or severities the
 validator applies is `SHIRABE_RULES`, which the gate overrides; the others it
 reads (`SHIRABE_PR_NUMBER`, `GITHUB_REF`, `GITHUB_REPOSITORY`) feed `FC09`. Findings go to koto's session on the local machine, and
