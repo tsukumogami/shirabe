@@ -4,9 +4,13 @@
 //! Each case under `crates/shirabe-validate/tests/fixtures/plan-v2/<case>/`
 //! is a small repository root: a DESIGN and the `plan/v2` PLAN built from it.
 //! `--lifecycle-chain` derives the root from the PLAN's `docs/plans/` path,
-//! so each case is read on its own. The runs use the default draft posture,
-//! where a present PLAN at `Active` is the expected mid-PR state and raises
-//! no L01, so the findings below are the ones the step plan itself causes.
+//! so each case is read on its own.
+//!
+//! L10 is draft-tolerable. At `--mode=ready`, the posture the completion
+//! cascade runs, it is an error; those runs also carry the L01 findings a
+//! present PLAN raises at ready, which the assertions here leave aside. At
+//! the default draft posture, the one `/plan`'s Phase 7 and the PLAN-docs CI
+//! job run while a step plan is authored, it is a notice and the run passes.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -52,6 +56,11 @@ fn lifecycle_chain(case: &str) -> (Option<i32>, String) {
     (out.status.code(), stdout(&out))
 }
 
+fn lifecycle_chain_ready(case: &str) -> (Option<i32>, String) {
+    let out = shirabe(&["validate", "--lifecycle-chain", &plan(case), "--mode=ready"]);
+    (out.status.code(), stdout(&out))
+}
+
 #[test]
 fn every_case_plan_passes_fc22() {
     for case in [
@@ -68,7 +77,7 @@ fn every_case_plan_passes_fc22() {
 
 #[test]
 fn one_outline_step_stops_completion_naming_it() {
-    let (code, text) = lifecycle_chain("lifecycle-outline-step");
+    let (code, text) = lifecycle_chain_ready("lifecycle-outline-step");
     assert_ne!(code, Some(0), "{text}");
     let l10 = lines_with(&text, "L10");
     assert_eq!(l10.len(), 1, "{text}");
@@ -78,29 +87,53 @@ fn one_outline_step_stops_completion_naming_it() {
 
 #[test]
 fn two_outline_steps_give_one_finding_each() {
-    let (code, text) = lifecycle_chain("lifecycle-two-outline-steps");
+    let (code, text) = lifecycle_chain_ready("lifecycle-two-outline-steps");
     assert_ne!(code, Some(0), "{text}");
     let l10 = lines_with(&text, "L10");
     assert_eq!(l10.len(), 2, "{text}");
+    assert!(l10.iter().all(|l| l.starts_with("::error ")), "{text}");
     assert!(l10[0].contains("Step 3 "), "{text}");
     assert!(l10[1].contains("Step 4 "), "{text}");
 }
 
 #[test]
 fn a_fully_detailed_and_ticked_plan_raises_neither_l10_nor_l06() {
-    let (code, text) = lifecycle_chain("lifecycle-all-detailed");
-    assert_eq!(code, Some(0), "{text}");
+    let (_, text) = lifecycle_chain_ready("lifecycle-all-detailed");
     assert!(lines_with(&text, "L10").is_empty(), "{text}");
     assert!(lines_with(&text, "L06").is_empty(), "{text}");
+    let (code, text) = lifecycle_chain("lifecycle-all-detailed");
+    assert_eq!(code, Some(0), "{text}");
+    assert!(text.is_empty(), "{text}");
 }
 
 #[test]
 fn an_unticked_detailed_step_is_l06_not_l10() {
-    let (_, text) = lifecycle_chain("lifecycle-unticked-detailed-step");
+    let (_, text) = lifecycle_chain_ready("lifecycle-unticked-detailed-step");
     assert!(lines_with(&text, "L10").is_empty(), "{text}");
     let l06 = lines_with(&text, "L06");
     assert_eq!(l06.len(), 1, "{text}");
     assert!(l06[0].contains("Step 3: "), "{text}");
+}
+
+/// What `/plan`'s Phase 7 and the PLAN-docs CI job run on a step plan they
+/// have just written: its outline steps are named as notices, and the run
+/// passes.
+#[test]
+fn outline_steps_are_notices_and_pass_at_draft_posture() {
+    for (case, steps) in [
+        ("lifecycle-outline-step", 1),
+        ("lifecycle-two-outline-steps", 2),
+    ] {
+        let (code, text) = lifecycle_chain(case);
+        assert_eq!(code, Some(0), "{case}: {text}");
+        let l10 = lines_with(&text, "L10");
+        assert_eq!(l10.len(), steps, "{case}: {text}");
+        assert!(
+            l10.iter().all(|l| l.starts_with("::notice ")),
+            "{case}: {text}"
+        );
+        assert!(!text.contains("::error "), "{case}: {text}");
+    }
 }
 
 #[test]
