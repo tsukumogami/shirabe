@@ -231,7 +231,7 @@ if [ -n "$IMPORT" ]; then
         1) ;;
         *) echo "failed=live_sessions"; echo "coordinate-open: could not list the live runs of $SLUG" >&2; exit 1 ;;
     esac
-    [ "$(bash "$HERE/record-source.sh" --probe 2>/dev/null | jq -r '.session_import // false')" = true ] \
+    [ "$(bash "$HERE/record-source.sh" --probe | jq -r '.session_import // false')" = true ] \
         || refuse_import store-unsupported "this koto has no \`session import\`; install a koto that has it"
     COMPILED=$("$KOTO" template compile "$TEMPLATE" 2>/dev/null </dev/null) || COMPILED=
     SHIPPED=$(basename -- "$COMPILED" .json)

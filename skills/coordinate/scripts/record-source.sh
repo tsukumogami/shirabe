@@ -320,7 +320,7 @@ rs_resume_candidate() {
     fi
     if ! grep -qxF -- "$s" <<< "$live"; then reason="it is finished or cancelled"
     elif [ "$(printf '%s\n' "$live" | grep -c .)" -gt 1 ]; then reason="another run of the scope is live"
-    elif [ "$(bash "$HERE/coord-log.sh" template-hash --session "$s" 2>/dev/null)" != "$hash" ]; then reason="koto compiled it from another template"
+    elif [ "$("$HERE/coord-log.sh" template-hash --session "$s" 2>/dev/null)" != "$hash" ]; then reason="koto compiled it from another template"
     elif ! bash "$HERE/coord-log.sh" provenance --session "$s" > /dev/null 2>&1; then reason="it fails provenance"
     else
         bash "$HERE/coord-log.sh" directed-since --session "$s" --from 0 > /dev/null 2>&1
