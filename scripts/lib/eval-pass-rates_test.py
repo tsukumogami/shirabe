@@ -410,7 +410,7 @@ class ReferenceTest(Case):
         rc, out = self.merge(prev, [summ], ["brief"])
         self.assertEqual(rc, 0, out)
         self.assertIn("new reference: brief (no earlier measurement on models sonnet, "
-                      "session model sonnet)", out)
+                      "session model sonnet, 1 run(s))", out)
         self.assertNotIn("confirm:", out)
         self.assertEqual(self.result()["skills"]["brief"]["session_model"], "sonnet")
 
@@ -447,6 +447,24 @@ class ReferenceTest(Case):
                              version="0.26.0")
         self.assertEqual(rc, 5, out)  # 0.8 against 0.24.0's 0.9, not 0.25.0's 1.0
         self.assertIn("0.9000     0.24.0", out)
+
+    def test_run_count_change_is_a_new_reference(self):
+        prev = self.write(record({"brief": entry(29, 30, runs=3, runs_passed=3,
+                                                 session_model="sonnet")}))
+        summ = self.summary({"brief": summary_entry(5, 10, code=1, runs=1,
+                                                    session_model="sonnet")})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 0, out)
+        self.assertIn("new reference: brief (no earlier measurement on models sonnet, "
+                      "session model sonnet, 1 run(s))", out)
+
+    def test_same_run_count_is_compared(self):
+        prev = self.write(record({"brief": entry(29, 30, runs=3, runs_passed=3,
+                                                 session_model="sonnet")}))
+        summ = self.summary({"brief": summary_entry(20, 30, code=1, runs=3,
+                                                    session_model="sonnet")})
+        rc, out = self.merge(prev, [summ], ["brief"])
+        self.assertEqual(rc, 5, out)
 
     def test_invalid_session_model_in_a_record_drops_the_record(self):
         prev = self.write(record({"brief": entry(10, 10, session_model="-x")}))

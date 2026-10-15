@@ -19,8 +19,8 @@ A run:
   3. Orders the rest: never measured first, then the longest since measured.
   4. Before each skill, adds up what the ledger's runs cost over the last seven
      days and estimates what one run of this skill costs: its last measured
-     cost per run on the same model, or, with none, the per-scenario rates
-     below. It runs the skill as many times as --runs asks and the budget
+     cost per run on the same model, never below what the per-scenario rates
+     below give. It runs the skill as many times as --runs asks and the budget
      allows. When not even one run fits under --cap-usd, it stops, writes a
      cap_stop line naming the skills left, and exits 6. A run's real cost can
      exceed its estimate, so the last skill run can carry the week past the
@@ -37,7 +37,10 @@ The ledger is JSON Lines, one object per line, read by the next run:
    "assertions_passed", "assertions_graded"}
   {"kind": "cap_stop", "at", "spent_usd", "cap_usd", "next_skill",
    "estimate_usd", "unrun": [<skill>...]}
-A line that doesn't parse is skipped with a warning. Default location:
+The ledger is read strictly: a line that doesn't parse, a run line without a
+valid `at` or `cost_usd`, or a last line with no newline (a write cut off)
+stops the run with exit 3 before anything runs, since any of them could hide
+spend. Default location:
 $XDG_STATE_HOME/shirabe/scheduled-evals.jsonl, else
 $HOME/.local/state/shirabe/scheduled-evals.jsonl. A lock directory next to it
 (<ledger>.lock) keeps two runs from overlapping.
@@ -61,7 +64,8 @@ Exit codes:
   0  every selected skill ran with harness exit 0, or nothing needed a run
   1  at least one harness run exited non-zero; each is in the ledger
   2  usage
-  3  another run holds the lock, or the checkout can't be read
+  3  another run holds the lock, the ledger can't be trusted, or the checkout
+     can't be read
   6  stopped at the weekly cap with skills left to run
 """
 
@@ -115,27 +119,57 @@ def default_ledger():
     return os.path.join(base, "shirabe", "scheduled-evals.jsonl")
 
 
+class LedgerError(Exception):
+    """The ledger can't be trusted to say what the week has cost."""
+
+
 def read_ledger(path):
+    """Every entry, or LedgerError. Fails closed: a line it can't account for
+    could be spend, and counting it as nothing would let the cap through."""
     entries = []
     if not os.path.exists(path):
         return entries
-    with open(path, errors="replace") as fh:
-        for number, line in enumerate(fh, 1):
-            if not line.strip():
-                continue
-            try:
-                entry = json.loads(line)
-            except ValueError:
-                print("warning: ledger line %d doesn't parse; skipped" % number)
-                continue
-            if isinstance(entry, dict):
-                entries.append(entry)
+    with open(path, "rb") as fh:
+        raw = fh.read()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise LedgerError("%s is not UTF-8 text" % path)
+    lines = text.split("\n")
+    # A file that doesn't end in a newline ends in a line cut off mid-append:
+    # a run that crashed while ledgering its cost. Its cost isn't knowable, so
+    # it is refused rather than read as $0.
+    if lines and lines[-1] != "":
+        raise LedgerError(
+            "%s ends in a partial line (line %d, no newline): a ledger write was cut off. "
+            "Check what that run cost, then complete or remove the line" % (path, len(lines)))
+    for number, line in enumerate(lines[:-1], 1):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            raise LedgerError("%s line %d doesn't parse" % (path, number))
+        if not isinstance(entry, dict) or entry.get("kind") not in ("run", "cap_stop"):
+            raise LedgerError("%s line %d is not a run or cap_stop entry" % (path, number))
+        if parse_iso(entry.get("at")) is None:
+            raise LedgerError("%s line %d has no valid `at` time" % (path, number))
+        if entry["kind"] == "run" and not is_cost(entry.get("cost_usd")):
+            raise LedgerError("%s line %d has no valid `cost_usd`" % (path, number))
+        entries.append(entry)
     return entries
 
 
 def append_ledger(path, entry):
-    with open(path, "a") as fh:
-        fh.write(json.dumps(entry, sort_keys=True) + "\n")
+    # One write of the whole line to an O_APPEND descriptor, so a line lands
+    # whole or, if the process dies inside the write, as a trailing partial
+    # line that read_ledger refuses.
+    data = (json.dumps(entry, sort_keys=True) + "\n").encode("utf-8")
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o644)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
 
 
 def is_cost(value):
@@ -169,17 +203,26 @@ def scenario_counts(skill):
 
 
 def estimate_per_run(skill, runs_of_skill, model):
-    """(dollars per run, what the figure rests on)"""
+    """(dollars per run, what the figure rests on)
+
+    The skill's last measured cost per run on this model, but never less than
+    the default-rate figure: a measured $0 (a run that reported a cost of
+    nothing) would otherwise grant every run whatever the week has spent.
+    """
+    tier1, tier2 = scenario_counts(skill)
+    factor = 1.0 if model == "sonnet" else 2.0
+    floor = factor * (tier1 * SONNET_RATES["tier1"] + tier2 * SONNET_RATES["tier2"]
+                      + SONNET_RATES["session"])
+    basis = "%d tier-1 and %d tier-2 scenarios at the default rates" % (tier1, tier2)
     for entry in reversed(runs_of_skill):
         runs = entry.get("runs")
         if (entry.get("cost_measured") is True and is_cost(entry.get("cost_usd"))
                 and isinstance(runs, int) and runs > 0 and entry.get("model") == model):
-            return entry["cost_usd"] / runs, "its last measured run"
-    tier1, tier2 = scenario_counts(skill)
-    factor = 1.0 if model == "sonnet" else 2.0
-    cost = factor * (tier1 * SONNET_RATES["tier1"] + tier2 * SONNET_RATES["tier2"]
-                     + SONNET_RATES["session"])
-    return cost, "%d tier-1 and %d tier-2 scenarios at the default rates" % (tier1, tier2)
+            measured = entry["cost_usd"] / runs
+            if measured >= floor:
+                return measured, "its last measured run"
+            return floor, basis + ", above its last measured run"
+    return floor, basis
 
 
 def selected_skills(names):
@@ -217,7 +260,7 @@ def run(args):
         return 3
     ledger = args.ledger
     if args.dry_run:
-        return measure(args, skills, head, ledger)
+        return measure_or_refuse(args, skills, head, ledger)
     os.makedirs(os.path.dirname(os.path.abspath(ledger)), exist_ok=True)
     lock = ledger + ".lock"
     try:
@@ -227,9 +270,17 @@ def run(args):
               file=sys.stderr)
         return 3
     try:
-        return measure(args, skills, head, ledger)
+        return measure_or_refuse(args, skills, head, ledger)
     finally:
         os.rmdir(lock)
+
+
+def measure_or_refuse(args, skills, head, ledger):
+    try:
+        return measure(args, skills, head, ledger)
+    except LedgerError as exc:
+        print("error: %s; nothing was run" % exc, file=sys.stderr)
+        return 3
 
 
 def measure(args, skills, head, ledger):
@@ -259,7 +310,7 @@ def measure(args, skills, head, ledger):
     for index, (_, _, name, tree) in enumerate(todo):
         per_run, basis = estimate_per_run(name, runs_by_skill.get(name, []), args.model)
         room = args.cap_usd - spent
-        runs = min(args.runs, int(room // per_run)) if per_run > 0 else args.runs
+        runs = min(args.runs, int(room // per_run))
         if runs < 1:
             unrun = [item[2] for item in todo[index:]]
             print("cap: $%.2f of $%.2f spent in the last 7 days; %s needs about $%.2f a run "
