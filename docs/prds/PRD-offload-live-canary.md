@@ -324,9 +324,9 @@ Boundaries:
   may already know the convention. Either can carry the rule into a withheld
   run, which narrows the measured difference toward zero. Neither is in this
   repository's control.
-- **A small, low baseline.** About 20 to 30 runs reach `pr_creation` per group
-  a week, and PB4 broke in none of the runs Datadog recorded in that week, so
-  a difference shows up only as a count over several weeks.
+- **A small, low baseline.** The weekly sample per group is small and PB4
+  rarely breaks, so a difference shows up only as a count over several
+  weeks.
 - **Runs, not checks.** The rate is broken runs over runs that reached the
   state. A run that breaks the rule twice counts once.
 - **The rule's choice waits on one ruling.** Making PB4 eligible narrows the
