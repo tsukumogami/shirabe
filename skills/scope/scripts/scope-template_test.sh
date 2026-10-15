@@ -292,8 +292,8 @@ for pair in hop_brief:brief_document:hop_prd hop_prd:prd_document:fold hop_desig
 done
 eq "hop_plan's two fold-bound arms require plan_document" '[0,0]' \
     "$(q '[.states.hop_plan.transitions[] | select(.target == "fold") | .when["gates.plan_document.exit_code"]]')"
-eq "hop_plan's bail arms name no document gate" 'true' \
-    "$(q '[.states.hop_plan.transitions[] | select(.target == "bail") | .when | has("gates.plan_document.exit_code") | not] | all')"
+eq "hop_plan's bail and skipped arms name no document gate" 'true' \
+    "$(q '[.states.hop_plan.transitions[] | select(.target != "fold") | .when | has("gates.plan_document.exit_code") | not] | all')"
 eq "the fold accepts keep, absorb and bail" '["keep","absorb","bail"]' \
     "$(q '.states.fold.accepts.verdict.values')"
 eq "all fourteen keep and absorb arms of the fold require fold_documents" '[14,true]' \
@@ -304,8 +304,9 @@ eq "the fold's bail arm routes to bail and names no gate" '[{"target":"bail","wh
 # Each gated state's directive says what a hold means.
 for pair in hop_brief:brief_document hop_prd:prd_document hop_design:design_document hop_plan:plan_document fold:fold_documents; do
     st=${pair%%:*}; g=${pair#*:}
-    sec=$(awk -v h="## $st" '$0 == h { on = 1; next } on && /^## / { exit } on' "$TEMPLATE")
-    for phrase in "\`$g\`" "never" "an instruction" "exit 2" "bail\`"; do
+    # Line breaks folded to spaces, so a phrase the prose wraps still matches.
+    sec=$(awk -v h="## $st" '$0 == h { on = 1; next } on && /^## / { exit } on' "$TEMPLATE" | tr '\n' ' ')
+    for phrase in "\`$g\`" "never an instruction" "exit 2" "bail\`"; do
         case "$sec" in
             *"$phrase"*) ok "$st's directive names $phrase" ;;
             *) bad "$st's directive names $phrase" "not found in its section" ;;

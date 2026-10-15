@@ -130,8 +130,13 @@ new_run() {
             # document gate holds a document whose upstream git doesn't track
             # (validator check R6), and the fixtures' upstreams name each other.
             git add -A docs
-            git -c user.email=t@example.invalid -c user.name=t \
-                commit --quiet -m "docs: fixture documents" || true
+            # A tree with an empty docs/ has nothing to commit, which is fine;
+            # anything staged that fails to commit is a broken fixture.
+            if ! git diff --cached --quiet; then
+                git -c user.email=t@example.invalid -c user.name=t \
+                    commit --quiet -m "docs: fixture documents" \
+                    || echo "new_run: could not commit the fixture documents in $tree" >&2
+            fi
         fi
     )
     printf '%s %s-%s' "$home" "$PFX" "$tag"

@@ -2710,6 +2710,8 @@ Evidence schema:
 - `verdict`: `keep` or `absorb`
 - `finding`: what the upstream holds that the survivor would not, or what the
   carry check confirmed arrived
+- `verdict` also takes `bail`, the way out when `fold_documents` can't pass;
+  its route names no gate
 
 ## hop_select
 
