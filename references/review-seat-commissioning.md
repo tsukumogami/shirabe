@@ -23,21 +23,22 @@ those lines have in common, so it is said once.
    under that number. An exit of 64 from a
    code packet means no base resolved: record `impl_base` as `analysis`'s
    fallback says and run it again. Don't spawn a seat without a packet.
-   A `/work-on` panel seat whose `<panel>_scope.json` decision is `recheck`
-   gets its own `recheck` packet, one per such seat, instead of the round's
-   code packet; build the code packet only when a `full` or `rerun` seat is
-   spawned. A seat with any other decision gets the code packet, unchanged.
-   An exit of 64 from a `recheck` packet means the scope can't give that
-   seat a re-check (no scope, an unreadable one, a decision other than
-   `recheck`, or no base to fall back to); its message names which. Give the
-   seat the code packet instead.
+   A `/work-on` panel's re-verifier, the `reverifier` decision its
+   `<panel>_scope.json` marks `recheck`, gets its own `recheck` packet
+   instead of the round's code packet; build the code packet only when a
+   `full` seat is spawned. A `full` seat's code packet takes `--panel <panel>
+   --seat <seat>` as well, which adds the seat's own unclosed findings by id,
+   the ones it answers this round. An exit of 64 from a `recheck` packet means
+   the scope can't give a re-verification (no scope, an unreadable one, a
+   decision other than `recheck`, or no base to fall back to); its message
+   names which. Don't spawn the run without a packet; read the scope again.
 2. Pass the model on every spawn (`model: "sonnet"` or `model: "haiku"`). A
    spawn with no model inherits the parent's.
 3. Open each prompt with the seat preamble below, after any fixed preamble the
    spawn site already has, with the packet path and the seat's budget filled
    in. Where a prompt template says to include the document or its sections
    (`[Contents of ...]`), name the packet path instead of pasting the text.
-   A `recheck` seat's prompt is the re-check prompt below, with `<seat>`
+   The re-verifier's prompt is the re-check prompt below, with `<panel>`
    filled in, after the preamble, in place of its panel's full-review prompt: its packet carries
    no acceptance criteria for that prompt to judge.
 4. Delete the packet once the round is aggregated, with the seats' detail
@@ -56,20 +57,29 @@ it, stop and return your verdict on what you have, and say the budget ran out.
 ## The re-check prompt
 
 ```
-You raised the blocking findings in the packet last round, as the <seat>
-seat. Answer, for each one, whether the fix diff in the packet fixes it.
-Read the whole fix diff: a defect the fix itself introduces is a blocking
-finding too, because a passing re-check records this seat as passed at
-HEAD. Don't re-review anything else; the rest of the change kept its
-verdict. If the packet's `fix diff from:` line says `fallback:`, the diff
-is wider than the fix, from the start of the change; judge the same
-questions on it. An empty fix diff means nothing fixed the findings.
-Return each finding that still holds, and each the fix introduced, with
-`severity: blocking`; a fixed one is not returned.
+You are the <panel> panel's re-verifier. The packet lists, by id, each
+blocking finding that is due for re-verification. Answer every one of
+them by id: `holds` if it is still a defect, `reverified` if the fix
+diff resolves it, with a one-line reason for each `reverified` saying
+what in the fix diff resolves it. Don't dismiss a finding; that is the
+raising seat's call, in a full round. A finding you leave out keeps its
+status and stays due. If the packet's `fix diff from:` or `review from:`
+line says `fallback:`, the diff is wider than the fix, from the start of
+the change; judge the same questions on it. An empty fix diff means
+nothing fixed the findings.
+
+When the packet's `fix review:` line says `yes`, also review the fix
+diff from its `review from:` commit against every panel's criteria in
+the packet. You stand in for every panel this retry re-enters, so judge
+the fix as each of them would, and return each defect the fix introduced
+as a new finding with `severity: blocking` and its location.
+
+Return your answers as {"id", "record", "reason"} entries in an
+`answers` list, and any new defects in `findings`.
 ```
 
-The QA tester's re-check also runs each failing scenario again, since its
-findings are failures it observed, not lines it read.
+The QA panel's re-verifier also runs each due failing scenario again, since
+those findings are failures the tester observed, not lines it read.
 
 ## Why a model is named
 
@@ -89,10 +99,10 @@ repository and design documents turn after turn, and each turn re-reads
 everything before it. [`scripts/review-packet.sh`](../scripts/review-packet.sh)
 assembles a bounded input instead. A `code` packet carries the acceptance
 criteria, the design context phase 0 recorded, the changed paths and the diff
-from `impl_base`. A `recheck` packet is for a seat that blocked last round
-and now checks only whether its findings are fixed: it carries those findings
-and the diff since the commit the seat judged, and nothing the seat already
-read. A `doc` packet carries the document under review, its format
+from `impl_base`. A `recheck` packet is for a panel's re-verifier, the one
+run a retry round plans: it carries the due findings by id and the diff since
+they were last judged, plus every panel's criteria when the run also reviews
+the fix diff, and nothing the seats already read. A `doc` packet carries the document under review, its format
 reference, and any supporting files the spawn site names. Each section is
 capped and says when it was cut; the script's header has the details.
 

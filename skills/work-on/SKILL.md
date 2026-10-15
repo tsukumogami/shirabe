@@ -337,14 +337,17 @@ leg, since one leg answers one session.
   `changed_paths.txt` in context before `issue_type_routing` asks for the type.
   Exit codes: 0 written, 64 no base resolves, 66 a context write failed, 67 a
   missing argument. The script's header has the base rules and the caps.
-- `scripts/panel-scope.sh --plan|--carried|--recorded|--record <panel> <session>`
-  — which review seats a panel round needs. koto runs `--plan` on entering
-  `scrutiny`, `review`, `qa_validation` and `light_review`, and `--carried` and
-  `--recorded` as each one's gates; the agent runs `--record` after each round. A seat whose
-  passed verdict the fix didn't touch is kept, a seat that raised a blocking
-  finding re-checks only that finding against the fix diff, and a panel with
-  nothing to run is carried through by koto. The phase files under
-  `references/phases/phase-4*` say how to act on the scope;
+- `scripts/panel-scope.sh --plan|--carried|--recorded|--verdict|--open-count|--record|--mark-fixed <panel> <session>`
+  — the findings ledger and what a panel round runs. koto runs `--plan` on
+  entering `scrutiny`, `review`, `qa_validation` and `light_review`, and
+  `--carried`, `--recorded` and `--verdict` as each one's gates; the agent runs
+  `--record` after each round and `--mark-fixed` after committing a fix. A full
+  round spawns every seat; any other round keeps every seat and runs at most one
+  re-verifier, which answers the findings the fix made due by id and reviews the
+  fix diff once per retry. A panel passes only when every blocking finding is
+  closed, and one with nothing to run and nothing open is carried through by
+  koto. `--open-count` gives `panel-retry-budget.sh` its count. The phase files
+  under `references/phases/phase-4*` say how to act on the scope;
   `scripts/panel-scope_test.sh` is its harness.
 - `scripts/review-level.sh init|set|facts|check|slice|report|level` — the run's
   review level (`references/review-levels.md`). koto runs `init` on entering
@@ -364,9 +367,11 @@ leg, since one leg answers one session.
   `scripts/koto-open.sh`. Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 127 no koto or jq, and koto's own code otherwise.
-- `scripts/panel-retry-budget.sh <session-name> <panel> <count>` — decides
+- `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
-  again, and records each retry it grants in `panel_retries`. The panel
+  again, reading the count of unclosed blocking findings from the ledger
+  (`panel-scope.sh --open-count`), and records each retry it grants in
+  `panel_retries`. The panel
   directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
   64 the record could not be read or is malformed, 66 the grant could not be
   recorded, 67 bad arguments; every exit but 0 means escalate.

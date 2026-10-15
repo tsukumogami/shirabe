@@ -2,6 +2,8 @@
 
 use std::collections::HashMap;
 
+use crate::features::RoadmapVersion;
+
 /// The identity of a shirabe artifact type.
 ///
 /// Deliberately separate from [`FormatSpec::name`], whose casing is
@@ -115,12 +117,61 @@ pub struct FormatSpec {
 impl FormatSpec {
     /// True when a document whose frontmatter `schema` is `schema` is checked
     /// against this spec. Every format accepts its own `schema_version`; the
-    /// Roadmap format also accepts `roadmap/v2`, the milestone roadmap, which
-    /// runs every roadmap check plus FC21 (`check_fc21_milestones`). One spec
-    /// for both keeps prefix routing and the `roadmap/v1` gates unchanged.
+    /// Roadmap format also accepts `roadmap/v2` and `roadmap/v3`, the
+    /// milestone roadmaps, which run every roadmap check plus FC21
+    /// (`check_fc21_milestones`). One spec for all three keeps prefix routing
+    /// and the `roadmap/v1` gates unchanged.
     pub fn accepts_schema(&self, schema: &str) -> bool {
         schema == self.schema_version
-            || (self.id == FormatId::Roadmap && schema == crate::features::ROADMAP_V2_SCHEMA)
+            || (self.id == FormatId::Roadmap
+                && (schema == crate::features::ROADMAP_V2_SCHEMA
+                    || schema == crate::features::ROADMAP_V3_SCHEMA))
+    }
+
+    /// True for the Roadmap spec reading a `roadmap/v3` document: the one
+    /// schema whose required sections and table columns differ from the
+    /// spec's own lists, which carry the v1 and v2 words.
+    fn is_roadmap_v3(&self, schema: &str) -> bool {
+        self.id == FormatId::Roadmap && RoadmapVersion::of(schema) == RoadmapVersion::V3
+    }
+
+    /// `list` with the v1/v2 word `from` read as v3's `to` when the Roadmap
+    /// spec reads a `roadmap/v3` document, and unchanged otherwise.
+    fn v3_words(&self, schema: &str, list: &[String], from: &str, to: &str) -> Vec<String> {
+        let v3 = self.is_roadmap_v3(schema);
+        list.iter()
+            .map(|name| {
+                if v3 && name == from {
+                    to.to_string()
+                } else {
+                    name.clone()
+                }
+            })
+            .collect()
+    }
+
+    /// The required sections a document at `schema` must carry, in canonical
+    /// order: `required_sections`, with the items section named by the
+    /// roadmap version (`Milestones` on `roadmap/v3`).
+    pub fn required_sections_for(&self, schema: &str) -> Vec<String> {
+        self.v3_words(
+            schema,
+            &self.required_sections,
+            RoadmapVersion::V2.items_section(),
+            RoadmapVersion::V3.items_section(),
+        )
+    }
+
+    /// The issues-table columns a document at `schema` must use:
+    /// `issues_table_columns`, with the key column named by the roadmap
+    /// version (`Milestone` on `roadmap/v3`).
+    pub fn issues_table_columns_for(&self, schema: &str) -> Vec<String> {
+        self.v3_words(
+            schema,
+            &self.issues_table_columns,
+            RoadmapVersion::V2.classic_word(),
+            RoadmapVersion::V3.classic_word(),
+        )
     }
 
     /// A spec carrying no structural expectations, for the prose family.

@@ -58,6 +58,8 @@ PHASES="$SKILL_DIR/references/phases"
 # koto validates a variable value against ^[a-zA-Z0-9._/:@ \-]*$; a checkout
 # under a directory outside it is reached through a symlink below.
 PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
+# Round files name their runs (panel-scope.sh --record refuses one that doesn't).
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -287,6 +289,7 @@ choose_and_implement() {
 record_round() {
     # $1 session, $2 panel, $3 round JSON
     printf '%s\n' "$3" > "$WORKDIR/round.json"
+    panel_round_runs "$1" "$2" "$WORKDIR/round.json"
     "$PS" --record "$2" "$1" "$WORKDIR/round.json" 2>"$WORKDIR/record.err" \
         || fail "$1: panel-scope.sh --record $2 failed: $(cat "$WORKDIR/record.err")"
 }

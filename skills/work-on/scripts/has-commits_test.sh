@@ -37,6 +37,8 @@ SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$SCRIPT_DIR/has-commits.sh"
 TEMPLATE="$SCRIPT_DIR/../koto-templates/work-on.md"
 PLUGIN_ROOT=$(cd "$SCRIPT_DIR/../../.." && pwd)
+# Round files name their runs (panel-scope.sh --record refuses one that doesn't).
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -292,6 +294,7 @@ for sh in plain nomain worktree; do
     # is what holds it.
     printf '[{"seat":"completeness","findings":[]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]\n' \
         > "$WORKDIR/round.json"
+    panel_round_runs "e-code-$sh" scrutiny "$WORKDIR/round.json"
     (cd "$RUN" && "$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh" --record scrutiny "e-code-$sh" "$WORKDIR/round.json") >/dev/null \
         || fail "$sh: panel-scope.sh --record scrutiny failed"
     tick "e-code-$sh"
@@ -301,6 +304,10 @@ for sh in plain nomain worktree; do
     # tick re-plans them, and their round is recorded again.
     commit_file fix.txt
     tick "e-code-$sh"
+    # A new round: new runs, since a run is recorded once.
+    printf '[{"seat":"completeness","findings":[]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]\n' \
+        > "$WORKDIR/round.json"
+    panel_round_runs "e-code-$sh" scrutiny "$WORKDIR/round.json"
     (cd "$RUN" && "$PLUGIN_ROOT/skills/work-on/scripts/panel-scope.sh" --record scrutiny "e-code-$sh" "$WORKDIR/round.json") >/dev/null \
         || fail "$sh: panel-scope.sh --record scrutiny failed after the commit"
     tick "e-code-$sh"

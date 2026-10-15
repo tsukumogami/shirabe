@@ -60,7 +60,13 @@ Join records on `rule_id`; `rule_ref` is for opening the text.
 ## Checking what the gate scripts print
 
 Gate scripts source `scripts/lib/rule-findings.sh`, which resolves every id in their mode
-before any check runs and builds each finding. When `SHIRABE_FINDINGS_LOG` names a file,
+before any check runs and builds each finding. One exception is declared rather than ambient:
+a script that prints a finding under the finding's own rule (`panel-scope.sh --verdict`,
+where a finding raised by a rule's check, or citing an active id, prints under that id)
+resolves the id at run time with `rf_require_any`, which refuses any id that isn't an active
+entry. Such a script carries a `RULE_IDS_ANY_ACTIVE=1` line beside its `RULE_IDS` line, and
+`check-rule-registry.sh` allows that line only in `panel-scope.sh`, only beside an
+`rf_require_any` call. When `SHIRABE_FINDINGS_LOG` names a file,
 `rule-registry.sh log-finding <line>` appends a printed `::koto-finding::` line to it; the
 library calls it for every finding, and the gate scripts' test suites set the variable. Because an agent can also run a gate script from its own shell,
 the log is honored only for a regular file under `$TMPDIR` (or `/tmp`) that isn't a symlink;

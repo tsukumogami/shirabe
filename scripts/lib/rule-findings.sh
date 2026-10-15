@@ -21,6 +21,15 @@
 #                              text resolves; otherwise `undecided`. Resolving
 #                              up front means a broken anchor holds the gate at
 #                              once, not only when a violation turns up.
+#   rf_require_any <id>...     like rf_require, for an id the script reads from
+#                              data rather than writes in its source (a
+#                              finding's own rule). Each id must be an active
+#                              registry entry whose text resolves; it need not
+#                              be in RULE_IDS. Only a script that also defines
+#                              `RULE_IDS_ANY_ACTIVE=1` on a line of its own may
+#                              call it, and scripts/check-rule-registry.sh
+#                              allows that line in panel-scope.sh alone, so the
+#                              exception is declared and checked, not ambient
 #   rf_finding <id> <detail> [<path> [<line>]]
 #                              prints one ::koto-finding:: line whose rule_id is
 #                              <id>, rule_ref is the reference rf_require
@@ -58,6 +67,21 @@ rf_require() {
             *" $id "*) ;;
             *) undecided "rule $id is not in this script's RULE_IDS" ;;
         esac
+        ref=$("$RF_HELPER" ref "$id" 2>&1) || undecided "cannot resolve rule $id: $ref"
+        summary=$("$RF_HELPER" summary "$id" 2>&1) || undecided "cannot read rule $id: $summary"
+        RF_CACHE="$RF_CACHE$id$RF_TAB$ref$RF_TAB$summary
+"
+    done
+}
+
+rf_require_any() {
+    local id ref summary
+    [ "${RULE_IDS_ANY_ACTIVE:-}" = 1 ] \
+        || undecided "rf_require_any needs RULE_IDS_ANY_ACTIVE=1 in the calling script"
+    [ -x "$RF_HELPER" ] || undecided "the rule registry reader $RF_HELPER is not executable"
+    for id in "$@"; do
+        # Already resolved this run: a second lookup would read the same entry.
+        [ -z "$(rf_field "$id" 2)" ] || continue
         ref=$("$RF_HELPER" ref "$id" 2>&1) || undecided "cannot resolve rule $id: $ref"
         summary=$("$RF_HELPER" summary "$id" 2>&1) || undecided "cannot read rule $id: $summary"
         RF_CACHE="$RF_CACHE$id$RF_TAB$ref$RF_TAB$summary

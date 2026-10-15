@@ -13,9 +13,9 @@ When adding or modifying a skill:
    verifiable checks).
 
 2. **Pass the skill gate.** A pull request's definition of done for a skill
-   change is `scripts/check-skill.sh <skill-name>`: `shirabe validate`, the
-   template compile, the skill's script suites, and the shape of
-   `evals/evals.json`. The pull request doesn't run the evals.
+   change is `scripts/check-skill.sh --changed <skill-name>`: `shirabe
+   validate`, the template compile, the script suites the change touches, and
+   the shape of `evals/evals.json`. The pull request doesn't run the evals.
 
 3. **The evals run at release.** `/shirabe:release` runs the evals of every
    skill changed since the last tag and stops on a pass-rate drop (see

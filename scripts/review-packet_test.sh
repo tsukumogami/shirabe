@@ -471,6 +471,108 @@ else
         || fail "recheck: non-ancestor fix_diff_from: exit $CODE, stderr: $ERR"
     [ "$CODE" -eq 0 ] && rm -f "$OUT"
 
+    # The re-verifier, the one run a retry round plans: its findings by id
+    # and, with a fix-diff review, every panel's criteria and the review
+    # range. Written the way panel-scope.sh --plan writes the decision.
+    # reverifier_scope <fix_review> <review_from>
+    reverifier_scope() {
+        printf '{"panel":"scrutiny","head":"%s","rev":2,"decisions":[{"seat":"completeness","decision":"keep","reason":"r"},{"seat":"reverifier","decision":"recheck","run":"scrutiny-r2-reverifier","reason":"r","findings":[{"id":"0123456789abcdef","severity":"blocking","summary":"c.txt says more","raiser":"intent","status":"open","path":"c.txt","lines":"1","due":"open, and the fix touched its location"}],"fix_diff_from":"%s","fix_review":%s,"review_from":"%s"}]}\n' \
+            "$HEAD_SHA" "$MAIN_SHA" "$1" "$2" > "$RS/scrutiny_scope.json"
+    }
+    # section_of <heading prefix> <packet>: the lines of one section.
+    section_of() {
+        awk -v h="## $1" 'index($0, h) == 1 { on = 1; next } on && /^## / { exit } on { print }' "$2"
+    }
+    reverifier_scope true "$FIRST_SHA"
+    run "$RS" recheck --session s --panel scrutiny --seat reverifier
+    if [ "$CODE" -eq 0 ] && [ -f "$OUT" ]; then
+        grep -q '^seat: reverifier$' "$OUT" && grep -q '^fix review: yes$' "$OUT" \
+            && grep -q "^review from: $FIRST_SHA (review_from)\$" "$OUT" \
+            && grep -q "^fix diff from: $MAIN_SHA (fix_diff_from)\$" "$OUT" \
+            && pass "recheck: the re-verifier's header names the fix-diff review and where its range starts" \
+            || fail "recheck: re-verifier header: $(sed -n 1,9p "$OUT")"
+        FIND=$(section_of "Findings to re-verify, by id" "$OUT")
+        printf '%s\n' "$FIND" | grep -q '"id": "0123456789abcdef"' \
+            && printf '%s\n' "$FIND" | grep -q '"summary": "c.txt says more"' \
+            && printf '%s\n' "$FIND" | grep -q '"raiser": "intent"' \
+            && printf '%s\n' "$FIND" | grep -q '"path": "c.txt"' \
+            && printf '%s\n' "$FIND" | grep -q '"lines": "1"' \
+            && pass "recheck: each due finding is listed by id, with its text, location and raiser" \
+            || fail "recheck: re-verifier findings: $FIND"
+        CRIT=$(section_of "Every panel's blocking criteria" "$OUT")
+        printf '%s\n' "$CRIT" | grep -q '^### Scrutiny$' && printf '%s\n' "$CRIT" | grep -q '^- \*\*Completeness reviewer\*\*' \
+            && printf '%s\n' "$CRIT" | grep -q '^### Review$' && printf '%s\n' "$CRIT" | grep -q '^- \*\*Maintainer reviewer\*\*' \
+            && printf '%s\n' "$CRIT" | grep -q '^### QA$' && printf '%s\n' "$CRIT" | grep -q 'acceptance criteria' \
+            && pass "recheck: a fix-diff review carries the scrutiny, review and QA criteria, from the phase files" \
+            || fail "recheck: fix-review criteria: $CRIT"
+        RANGE=$(section_of "Changed paths (fix-diff review" "$OUT")
+        printf '%s\n' "$RANGE" | grep -q '^A	c.txt$' && ! printf '%s\n' "$RANGE" | grep -q 'b.txt' \
+            && pass "recheck: the review range's paths run from review_from" \
+            || fail "recheck: review range: $RANGE"
+        rm -f "$OUT"
+    else
+        fail "recheck: the re-verifier: exit $CODE, stderr: $ERR"
+    fi
+
+    reverifier_scope false "$FIRST_SHA"
+    run "$RS" recheck --session s --panel scrutiny --seat reverifier
+    if [ "$CODE" -eq 0 ] && grep -q '^fix review: no$' "$OUT" && ! grep -q '^review from:' "$OUT" \
+        && ! grep -q "^## Every panel's blocking criteria" "$OUT" && ! grep -q '^## Changed paths (fix-diff review' "$OUT" \
+        && grep -q '"id": "0123456789abcdef"' "$OUT"; then
+        pass "recheck: without a fix-diff review, no criteria and no review range"
+    else
+        fail "recheck: re-verifier with no fix review: exit $CODE, stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    reverifier_scope true "--output=y"
+    run "$RS" recheck --session s --panel scrutiny --seat reverifier
+    [ "$CODE" -eq 0 ] && grep -q "^review from: $MAIN_SHA (fallback: the scope has a review_from \[--output=y\] that is not a commit id; impl_base)\$" "$OUT" \
+        && [ ! -e "$REPO/y" ] \
+        && pass "recheck: a bad review_from falls back to the code packet's base, and says so" \
+        || fail "recheck: bad review_from: exit $CODE, stderr: $ERR"
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+
+    # A full round's seat answers its own unclosed findings by id: its code
+    # packet lists them.
+    printf '{"panel":"scrutiny","head":"%s","rev":2,"full":true,"decisions":[{"seat":"completeness","decision":"full","run":"scrutiny-r2-completeness","reason":"r","findings":[{"id":"fedcba9876543210","severity":"blocking","summary":"b.txt is wrong","raiser":"completeness","status":"open","path":"b.txt"}]},{"seat":"intent","decision":"full","run":"scrutiny-r2-intent","reason":"r","findings":[]}]}\n' \
+        "$HEAD_SHA" > "$RS/scrutiny_scope.json"
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel scrutiny --seat completeness
+    OWN=$( [ "$CODE" -eq 0 ] && section_of "Your unclosed findings, by id" "$OUT")
+    if printf '%s\n' "$OWN" | grep -q '"id": "fedcba9876543210"' && printf '%s\n' "$OWN" | grep -q '"summary": "b.txt is wrong"' \
+        && grep -q '^## Diff$' "$OUT"; then
+        pass "code: a full-round seat's packet lists its unclosed findings by id"
+    else
+        fail "code: own findings: exit $CODE, section [$OWN], stderr: $ERR"
+    fi
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel scrutiny --seat intent
+    [ "$CODE" -eq 0 ] && [ "$(section_of "Your unclosed findings, by id" "$OUT" | grep -c .)" = 1 ] \
+        && section_of "Your unclosed findings, by id" "$OUT" | grep -q '^\[none\]$' \
+        && pass "code: a seat with no unclosed findings is told it has none" \
+        || fail "code: no own findings: exit $CODE, stderr: $ERR"
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12
+    [ "$CODE" -eq 0 ] && ! grep -q '^## Your unclosed findings' "$OUT" \
+        && pass "code: without --seat, no findings section" || fail "code: no --seat: exit $CODE"
+    [ "$CODE" -eq 0 ] && rm -f "$OUT"
+    run "$RS" code --session s --panel scrutiny
+    [ "$CODE" -eq 67 ] && pass "code: --panel without --seat: exit 67" || fail "code: --panel alone: exit $CODE"
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel scrutiny --seat justification
+    [ "$CODE" -eq 64 ] && pass "code: a seat the scope has no decision for: exit 64" || fail "code: absent seat: exit $CODE"
+    GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel review --seat pragmatic
+    [ "$CODE" -eq 64 ] && pass "code: --seat with no scope for the panel: exit 64" || fail "code: no scope: exit $CODE"
+
+    # The re-check prompt asks for answers by id and no longer says a passing
+    # re-check records the seat as passed.
+    PROMPT=$(awk '/^## The re-check prompt/ { on = 1; next } on && /^## / { exit } on { print }' \
+        "$SCRIPT_DIR/../references/review-seat-commissioning.md")
+    printf '%s\n' "$PROMPT" | grep -q 'by id' && printf '%s\n' "$PROMPT" | grep -q '`holds`' \
+        && printf '%s\n' "$PROMPT" | grep -q '`reverified`' && printf '%s\n' "$PROMPT" | grep -q 'reason' \
+        && ! printf '%s\n' "$PROMPT" | grep -q 'records this seat as passed' \
+        && pass "the re-check prompt asks for holds or reverified by id, with a reason" \
+        || fail "the re-check prompt: $PROMPT"
+
     # Refusals: a seat that isn't marked recheck gets the code packet, so
     # this kind refuses it rather than build a narrower one.
     scope "$RS" scrutiny intent ",\"fix_diff_from\":\"$FIRST_SHA\""
