@@ -367,9 +367,11 @@ leg, since one leg answers one session.
   `scripts/koto-open.sh`. Exit codes: 0 opened or attached, 2 refused (recorded on
   the leg only when the leg was still open and unbound), 64 its own usage refusal
   with no koto call, 127 no koto or jq, and koto's own code otherwise.
-- `scripts/panel-retry-budget.sh <session-name> <panel> <count>` — decides
+- `scripts/panel-retry-budget.sh <session-name> <panel>` — decides
   whether a review panel that found blocking issues may send the work back
-  again, and records each retry it grants in `panel_retries`. The panel
+  again, reading the count of unclosed blocking findings from the ledger
+  (`panel-scope.sh --open-count`), and records each retry it grants in
+  `panel_retries`. The panel
   directives run it before the retry loop. Exit codes: 0 granted, 1 refused,
   64 the record could not be read or is malformed, 66 the grant could not be
   recorded, 67 bad arguments; every exit but 0 means escalate.
