@@ -10,6 +10,8 @@ on:
       - 'references/coordination-strategy.md'
       # resolve-plan-version_test.sh validates the step plan example kept here.
       - 'skills/plan/references/quality/plan-doc-examples.md'
+      # plan-to-tasks_test.sh runs /execute's hostile-title step plan.
+      - 'skills/execute/scripts/testdata/PLAN-v2-hostile.md'
       # plan-to-tasks.sh reads `## Issue Outlines` through `shirabe plan
       # outlines` rather than parsing it, so a change to the crates can break
       # this suite without touching a file under skills/. Leaving the filter

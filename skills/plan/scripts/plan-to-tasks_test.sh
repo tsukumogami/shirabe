@@ -3728,6 +3728,40 @@ test_unknown_schema_names_both_versions() {
     teardown
 }
 
+# A step plan whose titles carry a command substitution, backticks, a leading
+# `--`, an ANSI escape, a closing keyword and a mention. The fixture is
+# /execute's (skills/execute/scripts/testdata/), shared with the scope and
+# execute readers' suites. Task names come from step numbers, so nothing in a
+# title reaches the task list or runs: four tasks in step order, no PWNED file.
+test_plan_v2_hostile_titles() {
+    local name="plan/v2 hostile step titles: exit 0, step-<N> tasks only, nothing runs"
+    setup
+
+    local fx="$REPO_ROOT/skills/execute/scripts/testdata/PLAN-v2-hostile.md"
+    local output="" rc=0 got
+    if ! "$SHIRABE_BIN" validate "$fx" >"$TEST_DIR/validate.out" 2>&1; then
+        fail "$name" "the fixture does not pass shirabe validate: $(cat "$TEST_DIR/validate.out")"
+        teardown
+        return
+    fi
+    output=$(cd "$TEST_DIR" && "$PARSER_SCRIPT" "$fx" 2>"$TEST_DIR/stderr") || rc=$?
+    got=$(printf '%s' "$output" | plan_v2_shape 2>/dev/null) || got=""
+    local want='[["step-1",[],"plan_outline","step-1"],["step-2",["step-1"],"plan_outline","step-2"],["step-3",["step-2"],"plan_outline","step-3"],["step-4",["step-3"],"plan_outline","step-4"]]'
+    if [[ $rc -ne 0 ]]; then
+        fail "$name" "expected exit 0, got $rc: $(cat "$TEST_DIR/stderr")"
+    elif [[ "$got" != "$want" ]]; then
+        fail "$name" "expected $want, got $got"
+    elif [[ -e "$TEST_DIR/PWNED" || -e "$SCRIPT_DIR/PWNED" || -e "$REPO_ROOT/PWNED" ]]; then
+        fail "$name" "a PWNED file appeared"
+    elif printf '%s' "$output" | grep -q 'PWNED'; then
+        fail "$name" "title text reached the task list: $output"
+    else
+        pass "$name"
+    fi
+
+    teardown
+}
+
 build_shirabe_binary
 
 echo "Running plan-to-tasks.sh tests..." >&2
@@ -3783,6 +3817,7 @@ test_plan_v2_unsupported_tracking_level
 test_plan_v2_coordinated_refused
 test_plan_v2_unresolved_step_refuses
 test_plan_v2_outline_steps_wait_on_the_step_before
+test_plan_v2_hostile_titles
 test_unknown_schema_names_both_versions
 
 echo "" >&2

@@ -536,6 +536,15 @@ process_single_pr() {
     # fields are empty -- the common case: no unresolved deps, no Type, no
     # Files -- loses them, and the record's reads then hit EOF mid-way. The
     # loop still runs in this shell, so the arrays it fills survive it.
+    #
+    # A missing `detailed` field reads as true here, while
+    # skills/work-on/scripts/step-detail-check.sh refuses an envelope without
+    # it. The two answer different questions. Here the field only decides
+    # whether an outline step gets an edge to the step before it, and a shirabe
+    # that predates the field also predates plan/v2, so the field is absent
+    # only on a plan/v1 envelope, whose issues are all detailed and get no such
+    # edge. The check decides whether a step's work may start, so a field it
+    # cannot read is a reason to stop, not a default.
     local -a issue_numbers=()
     local -a issue_titles=()
     local -a issue_declared=()    # true|false -- a **Dependencies**: line or ### Dependencies section
