@@ -14,12 +14,43 @@ goals: |
   PR-body rule, or pushes a commit carrying an AI-attribution line. The
   stop names the registered rule and where to read it. A check that
   can't run stops only the guarded action, and nothing else is touched.
-upstream: docs/briefs/BRIEF-pre-action-denies.md
+absorbed:
+  - docs/briefs/BRIEF-pre-action-denies.md
 ---
 
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-pre-action-denies](docs/briefs/BRIEF-pre-action-denies.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The brief framed why this feature exists. shirabe wants to stop
+preloading every rule into an agent's context and hand a rule over at
+the moment it applies, and for a rule whose harm can't be undone that is
+safe only when something still blocks the action itself, beforehand.
+This feature builds that block and withholds no rule. The gap it named
+is this document's Problem Statement: rules guarding pull-request
+creation and pushing are checked only after the action, and the one deny
+that runs first reaches only hosts niwa wired, lets the action through
+when it can't decide, and doesn't speak in the rule's words.
+
+The outcome it asked for, an agent on any Claude Code host stopped
+before an irreversible action and told the rule and where to read it,
+with a check that can't run stopping only the guarded action, is this
+document's Goals. Its five journeys (a plugin-only user opening a pull
+request, an agent pushing a commit with an AI-attribution trailer, a
+maintainer upgrading a host that already wires the hook, a user whose
+binary is missing, a maintainer running the offload canary) are the
+first four User Stories and the last. Its scope boundary is the
+Requirements and Out of Scope: the plugin's own hook, PR-body rules on
+pull-request commands and the commit-trailer rule on push, registry
+text in the reason, fail-closed checks, compatibility with the existing
+entry point and the canary, and the registry link are in; withholding
+any rule, rules that need GitHub's state, merge, linter check states,
+validate-and-return on koto gates, niwa's own wiring and other hosts
+are out.
 
 ## Problem Statement
 
