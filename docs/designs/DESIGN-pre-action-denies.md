@@ -87,21 +87,25 @@ then `full text: <absolute path> lines <a>-<b>`, with the summary read at
 run time from the registry the plugin ships (R5). It reads a body given
 inline, from an existing file, or from a `$(cat <<'EOF' ... EOF)`
 here-document (R6). It fails closed, with a reason naming the case and
-the off switch `SHIRABE_PRE_ACTION_HOOK=off`, in nine named cases from a
-missing binary to an unknown option (R7). It never blocks an unguarded
-command while the binary runs, and with the binary missing blocks only
-commands whose raw text names a guarded action (R8). `SHIRABE_PRE_ACTION_HOOK=off`
+telling the agent to ask the user (never naming the off switch), in
+twelve named cases from a missing binary to a guarded command wrapped in
+`sudo` or `bash -c`, or preceded in the same command by a `git commit`
+or a write to the body file (R7). It never blocks an unguarded command
+while the binary runs, and with the binary missing blocks only commands
+whose raw text names a guarded action (R8). `SHIRABE_PRE_ACTION_HOOK=off`
 silences both entry points, and `PR_BODY_HOOK_DISABLE` keeps silencing
 the PR-body part (R9). The offload canary's PB4 exception holds on both
 entry points, read from the same opt-in file as today (R10). `shirabe
 pr-body-hook` keeps working as niwa wires it (R11), and where both are
 wired each broken rule is reported once, with the plugin hook leaving the
-PR-body rules to the settings-wired one (R12). Every rule the hook denies
+PR-body rules to the settings-wired one, recognized only by a Bash-matched
+hook whose command really runs `shirabe pr-body-hook` (R12). Every rule the hook denies
 carries a `deny` registry field, cross-checked against the hook's
 `RULE_IDS` line, with no `withhold` value changed (R13). Unguarded calls
 start no `git` or `gh`; guarded ones run local git plumbing only (R14).
-Untrusted text is never evaluated and comes back JSON-escaped, and the
-hook writes no file (R15). The script holds to the bash 3.2 floor without
+Untrusted text is never evaluated and comes back JSON-escaped, a body
+file's lines are never quoted, git runs with every repository-controlled
+program switched off, and the hook writes no file (R15). The script holds to the bash 3.2 floor without
 `jq` (R16), and the tests run through the declared command in CI (R17).
 
 The technical problem is therefore four problems that touch each other:
@@ -156,16 +160,24 @@ Key assumptions:
 #### Chosen: A thin bash wrapper in front of a new binary subcommand
 
 `hooks/hooks.json` runs `"${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh"`
-with `timeout: 30`. The script reads stdin once, returns at once with no
-decision when `SHIRABE_PRE_ACTION_HOOK` is `off`, finds the binary, and
-runs `shirabe pre-action-hook --plugin-root "$CLAUDE_PLUGIN_ROOT"` with
-the input on stdin. When the binary exits 0 and prints nothing or one
-line that opens `{"hookSpecificOutput":`, the script passes that through.
-Otherwise (no binary, a non-zero exit, other output) it applies the
-coarse "named in the text" test to the raw input and either prints a
-fixed deny naming the binary, built with `printf` from constant text and
-the rule ids on its own `RULE_IDS` line, or prints nothing. The script
-never interpolates the input into its output.
+with `timeout: 30`. The script reads stdin once into a variable,
+returns at once with no decision when `SHIRABE_PRE_ACTION_HOOK` is
+`off`, finds the binary (each absolute directory on `PATH`, skipping
+relative entries so a repository can't plant one, then
+`~/.shirabe/bin/shirabe`), and pipes the input with `printf '%s'` into
+`shirabe pre-action-hook --plugin-root "$CLAUDE_PLUGIN_ROOT"`. A pipe,
+not a here-string: bash 3.2 to 5.0 back a here-string with a temporary
+file, which would write to disk and fail when `TMPDIR` isn't writable.
+When the binary exits 0 and prints nothing, or exactly one line that
+starts `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny",`,
+the script passes it through; any other output, `allow` and `ask`
+included, is treated as a binary that can't run, so a broken or hostile
+binary can't approve a command. Otherwise (no binary, a non-zero exit,
+other output) it applies the coarse "named in the text" test to the raw
+input and either prints a fixed deny naming the binary, built with
+`printf` from constant text and the rule ids on its own `RULE_IDS` line,
+or prints nothing. The script never interpolates the input into its
+output.
 
 #### Alternatives Considered
 
@@ -274,13 +286,29 @@ git log --no-merges --max-count=1001 --format=%H%x1f%s%x1f%B%x1e \
 
 with `--remotes` alone when the remote has no tracking refs (`git
 for-each-ref --count=1 refs/remotes/<remote>/` prints nothing) or isn't
-a configured remote. 1,001 records means the bound is passed. Every git
-call runs with `GIT_DIR`, `GIT_WORK_TREE` and the other location
-variables cleared, `GIT_CONFIG_NOSYSTEM=1`, `-c core.fsmonitor=false -c
-core.hooksPath=/dev/null`, `-C <dir>`, stdin closed, and a deadline: the
-check spawns each child and polls `try_wait`, killing it when the
-20-second budget (`SHIRABE_PRE_ACTION_GIT_TIMEOUT` overrides it, for
-tests) runs out.
+a configured remote. The source commits are passed as the full object
+ids `rev-parse` returned, after `--end-of-options`, never as the words
+the agent typed, and a remote name outside `^[A-Za-z0-9._-]+$` fails
+closed rather than reach `--remotes=`, where it would be a glob. 1,001
+records, or more than 16 MiB of output, means the bound is passed.
+
+Every git call runs from a fixed environment rather than the hook's: it
+keeps only `PATH`, `HOME`, `LANG` and `LC_*`, and sets
+`GIT_CONFIG_NOSYSTEM=1`, `GIT_NO_LAZY_FETCH=1`,
+`GIT_NO_REPLACE_OBJECTS=1`, `GIT_OPTIONAL_LOCKS=0`,
+`GIT_TERMINAL_PROMPT=0` and `GIT_PAGER=cat`. Its arguments start `-C
+<dir> --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null -c
+log.showSignature=false -c core.pager=cat`, and the `log` call adds
+`--no-show-signature --no-ext-diff --no-textconv`. Those close the paths
+by which a repository's own configuration runs a program during a
+read: the filesystem monitor, hooks, signature verification through
+`gpg.program`, pagers, external diff and text conversion, and the lazy
+fetch a partial clone makes for a missing object. Only built-in
+subcommands run, which an alias can't shadow. `safe.directory` is left
+alone: a repository git refuses to read is the "work tree" case. Stdin
+is closed, and each child has a deadline: the check spawns it and polls
+`try_wait`, killing it when the 20-second budget
+(`SHIRABE_PRE_ACTION_GIT_TIMEOUT` overrides it, for tests) runs out.
 
 The directory starts at the input's `cwd`. The classifier walks the
 segments in order; a segment whose head is `cd` or `pushd` with one
@@ -318,15 +346,27 @@ Key assumptions:
 
 #### Chosen: The plugin hook reads the settings and yields the PR-body rules
 
-On a guarded `gh pr` command, the plugin hook reads those three files
-(under `$CLAUDE_PROJECT_DIR`, else under the input's `cwd`), parses each
-with `serde_json`, and looks for a `hooks.PreToolUse[].hooks[].command`
-string containing `shirabe pr-body-hook`. When it finds one it skips the
-PR-body rules and their fail-closed cases for that call; the legacy entry
-point, now the same evaluator, reports them in the same shape. A file it
-can't read or parse counts as no wiring, so the worst failure is a
-duplicate report, never a missing one. A push is always the plugin
-hook's.
+On a guarded `gh pr` command, the plugin hook reads
+`~/.claude/settings.json` and, when `CLAUDE_PROJECT_DIR` is set, the
+project's `.claude/settings.json` and `.claude/settings.local.json`,
+parses each with `serde_json`, and looks for a `hooks.PreToolUse` entry
+whose `matcher` is absent, empty, `*` or `Bash` and that holds a
+`"type": "command"` hook whose command, run through the same tokenizer,
+has a segment that is exactly `shirabe pr-body-hook`. A file that sets
+`disableAllHooks` counts as not wiring it. When one does wire it, the
+plugin hook skips the PR-body rules and their fail-closed cases for that
+call; the legacy entry point, now the same evaluator, reports them in
+the same shape. A file it can't read or parse counts as no wiring, so
+the worst failure is a duplicate report, never a missing one. A push is
+always the plugin hook's.
+
+The probe is strict on purpose. A line that only mentions the command
+(`echo shirabe pr-body-hook`), sits under a matcher that never fires on
+Bash, or lives in a directory the agent `cd`s into isn't wiring, so the
+only way to make the plugin hook yield is to wire the legacy entry point
+for real, and that entry point then checks the same rules. There is no
+fallback to the input's `cwd`: a directory the agent chose is not where
+Claude Code reads settings.
 
 #### Alternatives Considered
 
@@ -387,6 +427,64 @@ documents the field.
   Exact, but the registry check would need a built binary, and it runs
   in a workflow that builds none. Rejected.
 
+### Decision 6: What the hook does with what it can't see through
+
+Resolved inline.
+
+The hook sees one command string at one moment. Three things defeat a
+check made from that string alone: a guarded action behind a wrapper
+(`sudo git push`, `bash -c "gh pr create ..."`, `$GIT push`); an earlier
+part of the same command that changes what the check reads (`git commit
+... && git push` makes a commit the check can't see yet; `printf ... >
+b.md && gh pr create -F b.md` writes the body after the hook read it);
+and an input that makes the check itself hang (a `--body-file` naming a
+FIFO, a device or a huge file), which Claude Code then treats as a
+timed-out hook and lets through.
+
+Key assumptions:
+
+- The wrapper list (`env`, `command`, `builtin`, `exec`, `eval`, `bash`,
+  `sh`, `zsh`, `dash`, `xargs`, `sudo`, `time`, `nohup`, `timeout`, a
+  `$` head) covers how agents usually prefix a command.
+- Splitting `git commit ... && git push` into two calls costs an agent
+  one more tool call, which the deny reason tells it to make.
+
+#### Chosen: Fail closed on wrappers and same-command changes, and bound every read
+
+The classifier marks a segment whose head is on the wrapper list and
+whose own text passes the coarse "named in the text" test as a wrapped
+guarded command, a fail-closed case. Before a guarded segment it looks
+at every earlier segment of the same command: one that names the
+segment's `--body-file` path as a word or after `>` or `>>`, or, before
+a push, one that runs `git` with a commit- or ref-changing subcommand
+(`commit`, `merge`, `rebase`, `cherry-pick`, `am`, `revert`, `pull`,
+`reset`, `update-ref`, `replace`, `notes`, `tag`, `filter-branch`) or
+has a wrapper head, makes the guarded segment a fail-closed case too.
+
+Every read is bounded. A `--body-file` is checked with `lstat` (a
+regular file, not a symlink to something else), opened with `O_NONBLOCK`
+so a FIFO swapped in after the check can't block, and read up to 1 MiB.
+The hook input is read up to 4 MiB. The whole evaluation runs on a
+worker thread; the main thread waits 25 seconds and, when the worker
+hasn't answered, prints the fail-closed deny for whatever the classifier
+already found guarded (or nothing, if it found nothing) and exits, so a
+hang anywhere becomes a deny inside Claude Code's 30-second timeout,
+not a pass.
+
+#### Alternatives Considered
+
+- **Let wrapped commands through, as the PRD's first draft did.** No
+  false denies, but `sudo git push` and `bash -c "gh pr create ..."`
+  would skip the check entirely. Rejected: the coarse test already tells
+  the hook a guarded action is in there, so saying nothing is a choice
+  to fail open.
+- **Simulate the earlier segments.** Work out what `git commit -m ...`
+  would add and check it. It means re-implementing git's commit and
+  every shell redirection, and still misses a commit made by a hook or
+  a script. Rejected.
+- **Rely on Claude Code's timeout.** Simpler, but a timed-out hook lets
+  the call run. Rejected: a FIFO would be a one-line bypass.
+
 ## Decision Outcome
 
 The five decisions make one pipeline. Claude Code runs the plugin's
@@ -400,9 +498,13 @@ existing validator, its findings turned into registry ids through their
 PB codes, unless the host's settings wire the legacy hook, in which case
 the plugin side leaves it to that hook (Decision 4). A guarded push is
 checked against its outgoing commits, found with one bounded `git log`
-(Decision 3). Every deny is rendered from the registry the plugin ships,
-and every rule that can produce one is linked in the registry and
-checked against the script and the code (Decision 5).
+run with the repository's programs switched off (Decision 3). A command
+the hook can't see through, because a wrapper hides the action or an
+earlier part of the command changes what would be checked, is a
+fail-closed case, and every read is bounded so nothing can turn a hang
+into a pass (Decision 6). Every deny is rendered from the registry the
+plugin ships, and every rule that can produce one is linked in the
+registry and checked against the script and the code (Decision 5).
 
 The pieces trade a small amount of duplication for the fail-closed
 guarantee: the script's coarse test is a second, cruder classifier, kept
@@ -439,20 +541,25 @@ niwa host, in parallel:
   command hook: `"${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh"`,
   `timeout: 30`. No `onFailure`.
 - **`hooks/pre-action-deny.sh`.** Reads stdin into a variable (`cat`),
-  checks the off switch, finds the binary, runs it with a here-string
-  feeding the saved input, and checks its exit status and that its output
-  is empty or one line starting `{"hookSpecificOutput":`. On anything
-  else it runs the coarse test: the raw input, lowercased, matched with
-  `grep -E` for `(^|[^a-z0-9_-])gh([^a-z0-9_-].*)?[^a-z0-9_-]pr[^a-z0-9_-](.*[^a-z0-9_-])?(create|edit)([^a-z0-9_-]|$)`
+  checks the off switch, finds the binary on the absolute `PATH`
+  entries or at `~/.shirabe/bin/shirabe`, pipes the saved input into
+  it, and checks its exit status and that its output is empty or one
+  line starting with the exact deny prefix. On anything else it runs
+  the coarse test: the raw input, lowercased, matched with `grep -E`
+  for `(^|[^a-z0-9_-])gh([^a-z0-9_-].*)?[^a-z0-9_-]pr[^a-z0-9_-](.*[^a-z0-9_-])?(create|edit)([^a-z0-9_-]|$)`
   and the `git` ... `push` equivalent. On a match it prints a constant
-  deny built with `printf`, naming the binary, the install command, the
-  ids from its `RULE_IDS` line and `SHIRABE_PRE_ACTION_HOOK=off`; else
-  nothing. It always exits 0. Declares `RULE_IDS="..."` (Decision 5).
+  deny built with `printf`, naming the binary as missing or older than
+  the plugin, the install command, the ids from its `RULE_IDS` line, and
+  asking the agent to ask the user; else nothing. It always exits 0.
+  Declares `RULE_IDS="..."` (Decision 5).
 - **`crates/shirabe/src/pre_action/mod.rs`.** `run_plugin(root)` and
   `run_legacy()` entry points; `evaluate(input, ctx) -> Option<Decision>`
   with `ctx` carrying the rule set, the registry source, the canary probe,
   the settings probe, the environment and the git runner, so tests
-  inject each.
+  inject each. The entry points read at most 4 MiB of stdin and run
+  `evaluate` on a worker thread with the 25-second overall deadline
+  (Decision 6). The input's `transcript_path` and `session_id` are
+  ignored, and nothing is logged.
 - **`tokenize.rs`.** The quote-aware tokenizer from `pr_body_hook.rs`,
   extended: segments end at unquoted `;`, `&`, `|`, newline, `(` and `)`;
   each segment keeps its words and its byte span in the raw command;
@@ -461,14 +568,18 @@ niwa host, in parallel:
   `pushd`, `popd` rules), skips `NAME=value` words, and returns each
   guarded segment as `Gh { words_after_action, action, dir }` or `Git {
   words_after_push, dir, git_c_dirs }`, or a fail-closed case for an
-  unlisted global option.
+  unlisted global option, a wrapped guarded command, or an earlier
+  segment that changes what the guarded one checks (Decision 6). Heads
+  compare by their last path component.
 - **`body.rs`.** Reads `--title`/`-t` and `--body`/`-b`/`--body=`,
   `--body-file`/`-F`/`--body-file=`; detects the here-document form in
   the segment's raw span (`$(cat <<` followed by an optional `-`, a
   delimiter quoted with `'` or `"` or bare, a newline, lines, a line equal
   to the delimiter, `)`), returns its lines byte for byte, and refuses an
   unquoted-delimiter body holding `$` or a backquote; refuses every form
-  R7 case 4 lists with the form's name.
+  R7 case 4 lists with the form's name. A body file is read only after
+  `lstat` shows a regular file, through an `O_NONBLOCK` open, and up to
+  1 MiB; its lines reach the validator and never the reason.
 - **`push.rs`.** R4's argv parse, remote resolution, source resolution
   and the bounded `git log`, through a `GitRunner` trait whose real
   implementation spawns `git` with the sanitized environment and the
@@ -543,7 +654,7 @@ pr-body/one-separator: The pull request body needs exactly one --- separator and
 shirabe could not check this `git push` (directory: `cd "$DIR"` isn't a literal path), so it is denied.
 It is guarded by: commit/no-ai-trailer.
 Fix: run the push from the repository's directory, or with `git -C <path>`.
-To turn the check off: set SHIRABE_PRE_ACTION_HOOK=off in the host's settings env.
+If you believe this deny is wrong, ask the user.
 ```
 
 The registry field:
@@ -615,7 +726,77 @@ Deliverables:
 
 ## Security Considerations
 
-To be completed in the security review.
+The hook is a guardrail against an agent's mistakes, not a boundary
+against an agent determined to get past it. It runs before every Bash
+call with the user's privileges and outside Claude Code's permission
+prompts, so the things it must never do matter more than the things it
+catches.
+
+**Untrusted input.** The command, the title and body, body files, commit
+messages, the repository's configuration and refs, and the project's
+settings files are all things the agent can shape. The command is
+tokenized and never evaluated; nothing the agent wrote reaches a shell,
+and output is built with `serde_json`. The wrapper never interpolates
+the input, passes through only a deny decision with the exact
+PreToolUse prefix (so a broken or hostile binary on `PATH` can't print
+`allow` and approve a command), feeds the binary through a pipe rather
+than a here-string so it writes no temporary file, and skips relative
+`PATH` entries so a repository can't plant a `shirabe`. Reads are
+bounded: 4 MiB of input, a 1 MiB regular body file opened without
+blocking, at most 1,001 commits and 16 MiB of `git log` output, 20
+seconds of git and 25 seconds overall, so no input turns a check into a
+timeout that Claude Code would let through.
+
+**Running git in a directory the agent chose.** A repository the agent
+just created is fully agent-shaped, including `.git/config`. The push
+check therefore runs only built-in plumbing and `log`, from a fixed
+environment, with the configuration paths that run programs switched
+off: the filesystem monitor, hooks, signature verification (which would
+run `gpg.program`), pagers, external diff and text conversion, and
+lazy fetches from a partial clone's promisor (which would make a
+network call through the remote's helpers). Replace objects are
+ignored, so a `refs/replace/` entry can't swap a commit's message.
+Arguments are the object ids `rev-parse` resolved, after
+`--end-of-options`, and the remote name must be a plain word.
+`safe.directory` is never overridden.
+
+**What reaches the model.** A deny reason carries registry text, the
+validator's fixed messages with line numbers, commit hashes and
+subjects from the repository, and the absolute path of the plugin's
+reference file (which shows the user's home directory name). It never
+quotes a body file's lines, so `--body-file` can't be used to read a
+file the agent's permissions deny it. Settings files are read only for
+the wiring test and nothing from them is echoed. The hook ignores the
+input's transcript path and logs nothing.
+
+**Turning the hook off.** `SHIRABE_PRE_ACTION_HOOK=off` comes from the
+hook's environment, which a command can't set but a write to the
+project's settings `env` can. The reason never names the switch; it
+tells the agent to ask the user. Whoever can write the settings controls
+the hook, which is true of every Claude Code hook. The double-wiring
+probe can't be satisfied by a mention: only a Bash-matched hook that
+really runs `shirabe pr-body-hook`, in the user's or the project's
+settings, counts, and that entry point then checks the same rules.
+
+**Residual risk.** An agent that can write the user's home, `PATH`, the
+binary or the repository's refs can defeat the check: a forged
+remote-tracking ref hides outgoing commits, a replaced binary allows
+everything, and the canary opt-in file is in the user's home. A guarded
+action inside a script file, `gh api`, an MCP tool, or a shell function
+or alias isn't seen. Fail-closed cases can be triggered by a repository
+the user cloned (an unknown option, a refused `safe.directory`, more
+than 1,000 outgoing commits); each stops only the guarded command, and
+the user can turn the hook off. Required CI checks and the gates remain
+the backstop for all of it.
+
+**Supply chain.** The plugin's files come from the plugin marketplace
+and run before every Bash call, which is the trust any plugin hook
+asks for. The binary comes from `install.sh`, which checks it against
+the release's `checksums.txt` by SHA-256 before installing. The binary
+and the plugin are versioned together; an older binary makes every
+guarded command fail closed with a reason naming the binary, and the
+registry reader ignores fields it doesn't know so a newer registry
+doesn't break an older reader. No new dependency is added.
 
 ## Consequences
 
