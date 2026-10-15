@@ -16,7 +16,8 @@ goals: |
   finding with a registered rule id, the rule's reference and the line, so the
   validator becomes the enforcement for document-format rules at /scope's hops
   and failures can be counted per rule from koto's gate results.
-upstream: docs/briefs/BRIEF-scope-document-gates.md
+absorbed:
+  - docs/briefs/BRIEF-scope-document-gates.md
 ---
 
 # PRD: scope document gates
@@ -24,6 +25,35 @@ upstream: docs/briefs/BRIEF-scope-document-gates.md
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-scope-document-gates](docs/briefs/BRIEF-scope-document-gates.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because /scope credits each hop's document after four
+structural checks, while every other format rule the validator knows is held
+by a prose step the agent may skip, and the banned-words rule, checked only at
+notice level, is held by nothing. Until a gate holds those rules, their prose
+can't leave what an agent loads, and nobody can count which rules agents break.
+This document's Problem Statement states that in full.
+
+The outcome it asked for is an author or dispatched worker whose hop is held
+until its document passes the checks that matter for its type, with each
+failure naming the rule and the line in the shape the work-on gates use; a
+maintainer who can see that a gate holds a rule before deciding its prose can
+go; and a reader who can count failures per rule. That's this document's Goals.
+Its four journeys (an author's PRD held on a broken upstream link, a worker's
+DESIGN held on a banned word, a maintainer checking a rule is enforced before
+withholding it, a reader counting failures per rule) are the User Stories,
+with the fold, fixed-hop and broken-environment cases added.
+
+Its boundary held the feature to a gate at /scope's hops that runs every
+error-level check plus the notice-level checks guarding a rule likely to be
+withheld, findings with registered rule ids, and registry entries for each:
+no prose removed, no validator severity changed, no check lifecycle, no gate
+for documents written outside /scope, and no offline measurement. Those are
+this document's Out of Scope. Its one open question, which notice-level checks
+are raised, is settled under Decisions and Trade-offs.
 
 ## Problem Statement
 
@@ -337,7 +367,7 @@ Registry and repository:
 
 ## Decisions and Trade-offs
 
-**Which notice-level checks are raised (the BRIEF's open question).** Only
+**Which notice-level checks are raised (the absorbed brief's open question).** Only
 `FC10`'s banned-word findings and its truncation finding. A notice is raised
 when the rule it checks is prohibitive (an author can write a conforming
 document without ever reading the rule, so its prose is a real candidate to
