@@ -67,35 +67,34 @@ its work starts, from what the earlier ones taught.
 
 **Complexity**: testable
 
-**Goal**: `shirabe validate` accepts a well-formed `plan/v2` step plan and refuses a malformed one with an error that names the step and the rule broken. A new error-level check, FC22, carries the step rules; plan/v1 output is unchanged.
+**Goal**: `shirabe validate` accepts a well-formed `plan/v2` step plan and refuses each malformed one with an FC22 error naming the step and the rule broken, so an author sees exactly what to fix; plan/v1 output stays byte-identical. Issue 1 already added FC22 with its step-count rule and made a missing `## Steps` an FC04 error; this step adds the remaining step rules to that check and makes FC22 selectable.
 
 **Acceptance Criteria**:
 
-- [ ] A valid `plan/v2` fixture (`valid-plan-v2.md`: step 1 detailed, later steps detailed then one-line outlines, `step_count` matching) validates with exit 0 and no FC22, FC01, FC04, FC05-FC09, FC11, FC12, FC14 or FC15 finding.
-- [ ] Each invalid fixture below exits non-zero with an FC22 error naming the step and the rule; each is a separate fixture under the Plan fixtures in `crates/shirabe-validate/tests`:
-  - an `### Issue N:` heading (or other non-step heading) under `## Steps`
-  - `step_count` not equal to the steps present
-  - `issue_count` present
+- [ ] Every fixture this step adds lives in `crates/shirabe-validate/tests/fixtures/` and is named `PLAN-v2-<rule>.md`: the validator routes by the `PLAN-` filename prefix, so a fixture without it would get prose checks only and prove nothing.
+- [ ] `shirabe validate` on a valid fixture (`PLAN-v2-valid.md`: steps 1 and 2 detailed, steps 3 and 4 one-line outlines, `**Files**:` on one detailed step and not the other, `step_count: 4`) exits 0 with no finding.
+- [ ] Each of these fixtures exits non-zero with one FC22 error naming the step (where there is one) and the rule, and no other new finding:
+  - `### Issue 2:` heading under `## Steps`; a `### Gate:` heading under `## Steps`
+  - `issue_count` present (with or without `step_count`)
   - step 1 an outline
-  - a detailed step missing `**Goal**:`, missing a checkbox criterion, and missing `**Check**:` (three fixtures)
+  - a detailed step missing `**Goal**:`, one with no checkbox criterion, one missing `**Check**:`
   - an outline step with two non-blank lines
   - a detailed step after an outline step
-  - a dependency on a later step, and on a missing step
-  - a malformed `**Dependencies**:` value
-  - numbering with a gap, a duplicate number, and a number above 999
-- [ ] `execution_mode: coordinated`, `tracking_level: issues` and `tracking_level: issues-and-milestone` each yield an FC22 error whose message names `plan/v1`; `tracking_level: none` or absent passes.
-- [ ] A `plan/v2` fixture with no `## Steps` section, and one with sections out of order, each yield an FC04 error naming the missing or misplaced section; a v2 plan missing `step_count` yields FC01 naming `step_count`, and one with `issue_count` required by nothing.
-- [ ] FC05-FC09, FC11 and FC12 produce no findings on `plan/v2` fixtures, and FC14 does not emit table-versus-outline messages on them; FC14 sub-check F accepts `### Step N:` headings.
-- [ ] Quoted text in an FC22 message has control characters stripped and is truncated to 80 characters (checked on a fixture whose heading or Dependencies value contains control characters and exceeds 80 characters).
-- [ ] FC22 is a known check code (`is_known_check_code("FC22")` is true; selecting it by code works).
-- [ ] Every existing plan/v1 test and fixture touched by this issue still passes unchanged, with identical validator output.
-- [ ] FC17 reports an unresolved `Step <N>` dependency on a plan/v2 fixture the same way it reports an unresolved `Issue <N>` on plan/v1, and the refusals Issue 1 added for `step_count` and a missing `## Steps` are reused, not duplicated.
+  - a dependency on a later step; a dependency on a step that does not exist
+  - a `**Dependencies**:` value that is neither `None` nor `Step <N>` references
+  - step numbers with a gap; a duplicate number; a number above 999 or with a leading zero
+- [ ] `execution_mode: coordinated`, `tracking_level: issues` and `tracking_level: issues-and-milestone` each yield an FC22 error whose message names `plan/v1` as the version for that case; `tracking_level: none` and an absent field pass. These match what `plan-to-tasks.sh` already refuses.
+- [ ] Sections out of order on a v2 fixture yield FC15 naming the section; a v2 fixture missing `step_count` yields FC01 naming `step_count`. The existing step-count and missing-`## Steps` fixtures from Issue 1 keep their findings unchanged.
+- [ ] FC05-FC09, FC11 and FC12 produce no findings on any `plan/v2` fixture, FC14 emits no table-versus-outline message on one, and FC17 reports an unresolved `Step <N>` dependency the way it reports an unresolved `Issue <N>` on plan/v1.
+- [ ] Text an FC22 message quotes from the document (a non-step heading, a malformed dependency value) has control characters stripped and is cut to 80 characters, shown on a fixture whose heading carries an ANSI escape and runs past 80 characters.
+- [ ] `shirabe validate --check FC22 <fixture>` selects FC22 alone. The test that pins the set of known check codes is updated to include FC22; that is the one existing assertion this step changes, and no other existing test or fixture changes.
+- [ ] Every plan/v1 fixture in the repository produces byte-identical `shirabe validate` output before and after this step, and `crates/shirabe/tests/roadmap_identity.rs` stays green.
 
-**Check**: Run `cargo test -p shirabe-validate`, then `cargo run -p shirabe -- validate crates/shirabe-validate/tests/fixtures/<each invalid plan-v2 fixture>`. All tests pass, the valid fixture exits 0, and each invalid fixture exits non-zero printing `FC22` with the step number and rule name.
+**Check**: `cargo test --workspace` passes; `for f in crates/shirabe-validate/tests/fixtures/PLAN-v2-*.md; do cargo run -q -p shirabe -- validate "$f"; echo "exit=$?"; done` shows exit 0 for `PLAN-v2-valid.md` and `PLAN-v2-minimal.md`, and for each invalid fixture a non-zero exit with one `[FC22]` (or the named FC01/FC04/FC15) line naming the step and rule.
 
 **Dependencies**: Blocked by <<ISSUE:1>>
 
-**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/formats.rs`, `crates/shirabe-validate/src/table.rs`, `crates/shirabe-validate/src/validate.rs`, `crates/shirabe-validate/tests/`, `docs/prds/PRD-functional-steps.md`
+**Files**: `crates/shirabe-validate/src/checks.rs`, `crates/shirabe-validate/src/table.rs`, `crates/shirabe-validate/src/validate.rs`, `crates/shirabe-validate/tests/`, `crates/shirabe-validate/tests/fixtures/PLAN-v2-*.md`
 
 ---
 
