@@ -12,6 +12,7 @@
 # Three kinds:
 #
 #   code --session <koto-session> [--issue <N> | --criteria <file>]
+#        [--panel <panel> --seat <seat>]
 #       For /work-on's code seats (scrutiny, review, QA, the implementation
 #       agent review). Sections, in order:
 #         - acceptance criteria: from --criteria <file>, or from issue <N>'s
@@ -24,6 +25,10 @@
 #           from the design doc that names the issue, when present
 #         - changed paths: `git diff --name-status -M <base> HEAD`
 #         - the diff: `git diff -M <base> HEAD`
+#         - with --panel and --seat, the seat's unclosed findings: the
+#           `findings` its decision in `<panel>_scope.json` carries, which
+#           panel-scope.sh --plan hands a seat in a full round so it answers
+#           each by id. "[none]" when the decision carries none
 #       The base is the session's `impl_base` (record-changed-paths.sh --base
 #       wrote it on entry to `analysis`), else the merge-base with origin's
 #       default branch, else with local main -- the order
@@ -31,23 +36,34 @@
 #       changed_paths.txt describe the same range.
 #
 #   recheck --session <koto-session> --panel <panel> --seat <seat>
-#       For a /work-on seat that panel-scope.sh --plan marked `recheck`: it
-#       raised a blocking finding last round and now checks only whether that
-#       finding is fixed. <panel> is scrutiny, review, qa or light, as
-#       panel-scope.sh names them. The packet is read from the session's
-#       `<panel>_scope.json`, from the seat's own decision there. Sections:
-#         - findings to re-check: the seat's `findings` as the scope recorded
-#           them, every field kept, pretty-printed by jq
+#       For the run panel-scope.sh --plan marked `recheck`: the panel's
+#       re-verifier (seat `reverifier`), which answers each due finding by id
+#       and, when its decision says so, reviews the fix diff. <panel> is
+#       scrutiny, review, qa or light, as panel-scope.sh names them. The
+#       packet is read from the session's `<panel>_scope.json`, from the
+#       seat's own decision there. Its header says whether the decision
+#       carries the fix-diff review (`fix review:`) and, when it does, where
+#       that review's range starts (`review from:`). Sections:
+#         - findings to re-verify: the decision's `findings`, every field
+#           kept (id, summary, location, raiser, status, why it is due),
+#           pretty-printed by jq
+#         - with a fix-diff review, every panel's blocking criteria: the
+#           scrutiny and review seats' questions and the QA tester's steps,
+#           read from the shipped phase files, since this one review stands
+#           in for every panel the retry re-enters
+#         - with a fix-diff review, the review range's changed paths:
+#           `git diff --name-status -M <review_from> HEAD`
 #         - changed paths: `git diff --name-status -M <fix_diff_from> HEAD`
 #         - the fix diff: `git diff -M <fix_diff_from> HEAD`
 #       No acceptance criteria, design context or diff from impl_base: the
-#       seat judged those last round, and re-reading them is the cost a
-#       re-check exists to avoid. An empty fix diff still writes a packet,
-#       saying the diff is empty, so the seat can answer that nothing fixed
-#       the finding. A `fix_diff_from` that is absent, not a commit, or not an
-#       ancestor of HEAD can't bound the fix, so the diff falls back to the
-#       code packet's base (below) and the packet's header says so: wider than
-#       a re-check needs, never narrower than the fix.
+#       seats judged those already, and re-reading them is the cost a
+#       re-verification exists to avoid. An empty fix diff still writes a
+#       packet, saying the diff is empty, so the run can answer that nothing
+#       fixed a finding. A `fix_diff_from` or `review_from` that is absent,
+#       not a commit, or not an ancestor of HEAD can't bound the fix, so it
+#       falls back to the code packet's base (below) and the packet's header
+#       says so: wider than a re-verification needs, never narrower than the
+#       fix.
 #
 #   doc --doc <path> --format <reference> [--extra <path>]...
 #       For the jury seats. The document under review, its format reference,
@@ -78,12 +94,14 @@
 #         --criteria is not a file, or no base resolves (not a git repository,
 #         no commit at HEAD, no impl_base and no merge-base); for recheck,
 #         `<panel>_scope.json` is absent or not JSON, or it does not mark
-#         --seat `recheck` (commission that seat with the code packet)
+#         --seat `recheck` (commission that seat with the code packet); for
+#         code with --seat, `<panel>_scope.json` is absent or not JSON, or has
+#         no decision for --seat
 #   66 -- a read or write failed: `gh issue view`, `git diff`, or the packet
 #         file could not be created or written
 #   67 -- usage: missing or unrecognised kind, flag, or flag value, or
 #         --issue for a plan-outline child's session
-#   127 -- recheck only: jq is not on PATH
+#   127 -- recheck, or code with --seat: jq is not on PATH
 #
 # On any non-zero exit no packet file is left behind.
 #
@@ -118,7 +136,7 @@ die() {
 
 usage() {
     die 67 "$1
-usage: review-packet.sh code --session <koto-session> [--issue <N> | --criteria <file>]
+usage: review-packet.sh code --session <koto-session> [--issue <N> | --criteria <file>] [--panel <panel> --seat <seat>]
        review-packet.sh recheck --session <koto-session> --panel <panel> --seat <seat>
        review-packet.sh doc --doc <path> --format <reference> [--extra <path>]..."
 }
@@ -191,7 +209,7 @@ while [ $# -gt 0 ]; do
     flag="$1"
     shift
     case "$KIND:$flag" in
-        code:--session|code:--issue|code:--criteria|recheck:--session|recheck:--panel|recheck:--seat|doc:--doc|doc:--format|doc:--extra)
+        code:--session|code:--issue|code:--criteria|code:--panel|code:--seat|recheck:--session|recheck:--panel|recheck:--seat|doc:--doc|doc:--format|doc:--extra)
             [ $# -ge 1 ] && [ -n "$1" ] || usage "$flag needs a value"
             ;;
         *) usage "unrecognised flag [$flag] for $KIND" ;;
@@ -210,6 +228,18 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+# check_panel_seat: --panel and --seat name a panel and a seat as
+# panel-scope.sh names them, before either reaches jq or a context key name.
+check_panel_seat() {
+    case "$PANEL" in
+        scrutiny|review|qa|light) ;;
+        *) usage "unrecognised --panel [$PANEL]: expected scrutiny, review, qa or light" ;;
+    esac
+    case "$SEAT" in
+        *[!a-z]*) usage "--seat must be a seat name in lower case, got [$SEAT]" ;;
+    esac
+}
+
 # Validate before creating anything on disk.
 if [ "$KIND" = "doc" ]; then
     [ -n "$DOC" ] || usage "doc needs --doc"
@@ -224,16 +254,15 @@ elif [ "$KIND" = "recheck" ]; then
     [ -n "$SESSION" ] || usage "recheck needs --session"
     [ -n "$PANEL" ] || usage "recheck needs --panel"
     [ -n "$SEAT" ] || usage "recheck needs --seat"
-    case "$PANEL" in
-        scrutiny|review|qa|light) ;;
-        *) usage "unrecognised --panel [$PANEL]: expected scrutiny, review, qa or light" ;;
-    esac
-    case "$SEAT" in
-        *[!a-z]*) usage "--seat must be a seat name in lower case, got [$SEAT]" ;;
-    esac
+    check_panel_seat
     command -v jq >/dev/null || die 127 "jq not on PATH"
 else
     [ -n "$SESSION" ] || usage "code needs --session"
+    if [ -n "$PANEL$SEAT" ]; then
+        [ -n "$PANEL" ] && [ -n "$SEAT" ] || usage "code takes --panel and --seat together"
+        check_panel_seat
+        command -v jq >/dev/null || die 127 "jq not on PATH"
+    fi
     [ -z "$ISSUE" ] || [ -z "$CRITERIA" ] || usage "code takes --issue or --criteria, not both"
     case "$ISSUE" in
         *[!0-9]*) usage "--issue must be a number, got [$ISSUE]" ;;
@@ -323,51 +352,101 @@ section() {
     if [ -s "$3" ]; then emit_capped "$2" "$3"; else echo "$4"; fi
 }
 
-# --------------------------------------------------------------- recheck ------
-
-if [ "$KIND" = "recheck" ]; then
+# scope_decision: the session's <panel>_scope.json in $WORK/scope and --seat's
+# decision there in $WORK/decision, or exit 64 saying which is missing.
+scope_decision() {
     SCOPE_KEY="${PANEL}_scope.json"
     koto context exists "$SESSION" "$SCOPE_KEY" >/dev/null 2>&1 \
-        || die 64 "no $SCOPE_KEY in session [$SESSION]: panel-scope.sh --plan $PANEL has not run, so no seat is marked recheck"
+        || die 64 "no $SCOPE_KEY in session [$SESSION]: panel-scope.sh --plan $PANEL has not run, so no seat has a decision"
     koto context get "$SESSION" "$SCOPE_KEY" > "$WORK/scope" 2>"$WORK/koto.err" \
         || die 66 "koto context get $SCOPE_KEY failed: $(cat "$WORK/koto.err")"
     jq -c --arg s "$SEAT" '[.decisions[]? | select(.seat == $s)][0] // empty' \
         "$WORK/scope" > "$WORK/decision" 2>/dev/null \
         || die 64 "$SCOPE_KEY is not readable JSON"
     [ -s "$WORK/decision" ] || die 64 "$SCOPE_KEY has no decision for seat [$SEAT]"
+}
+
+# bound <field>: the decision's <field> as the commit a diff to HEAD starts
+# from, in BOUND, with BOUND_SOURCE naming where it came from. panel-scope.sh
+# writes only ancestors of HEAD there, so each refusal below means the scope
+# was written by hand or by an older script; the fallback to the code
+# packet's base widens the diff rather than dropping the fix, and says so.
+BOUND=""
+BOUND_SOURCE=""
+bound() {
+    local field="$1" raw why=""
+    raw=$(jq -r --arg f "$field" '.[$f] // ""' "$WORK/decision")
+    BOUND=""
+    case "$raw" in
+        "") why="has no $field" ;;
+        *[!0-9a-f]*) why="has a $field [$raw] that is not a commit id" ;;
+        *)
+            if ! BOUND=$(git rev-parse --verify -q "${raw}^{commit}"); then
+                BOUND=""
+                why="has a $field [$raw] that is not a commit here"
+            elif ! git merge-base --is-ancestor "$BOUND" HEAD; then
+                BOUND=""
+                why="has a $field [$raw] that is not an ancestor of HEAD"
+            fi
+            ;;
+    esac
+    if [ -n "$BOUND" ]; then
+        BOUND_SOURCE="$field"
+        return 0
+    fi
+    echo "review-packet: seat [$SEAT] in $SCOPE_KEY $why; the diff falls back to the code packet's base" >&2
+    resolve_base || die 64 "seat [$SEAT] in $SCOPE_KEY $why, and no base resolves to fall back to"
+    BOUND="$BASE"
+    BOUND_SOURCE="fallback: the scope $why; $BASE_SOURCE"
+}
+
+# panel_criteria: every panel's blocking criteria, as the shipped phase files
+# state them -- the scrutiny and review seats' questions and the QA tester's
+# steps -- for the fix-diff review, which stands in for every panel a retry
+# re-enters. Read from the files so the packet never drifts from them.
+panel_criteria() {
+    local entry file title
+    for entry in phase-4a-scrutiny.md:Scrutiny phase-4b-review.md:Review phase-4c-qa.md:QA; do
+        file="$PLUGIN_ROOT/skills/work-on/references/phases/${entry%%:*}"
+        title=${entry#*:}
+        echo "### $title"
+        echo
+        if [ -r "$file" ]; then
+            awk '/^## (Reviewers|Tester Agent)$/ { on = 1; next }
+                 on && /^## / { exit }
+                 on && (/^- \*\*/ || /^[0-9]+\. /) { print }' "$file"
+        else
+            echo "[absent: ${entry%%:*} is not in this checkout]"
+        fi
+        echo
+    done
+}
+
+# --------------------------------------------------------------- recheck ------
+
+if [ "$KIND" = "recheck" ]; then
+    scope_decision
     DECISION=$(jq -r '.decision // ""' "$WORK/decision")
     [ "$DECISION" = "recheck" ] \
         || die 64 "$SCOPE_KEY marks seat [$SEAT] [$DECISION], not recheck: commission it with the code packet"
     jq '.findings // []' "$WORK/decision" > "$WORK/findings" \
         || die 66 "could not read the findings for seat [$SEAT]"
+    [ "$(jq 'length' "$WORK/findings")" != 0 ] || : > "$WORK/findings"
 
-    # The fix diff starts where the seat's verdict was given. panel-scope.sh
-    # only marks a seat recheck when that commit is an ancestor of HEAD, so
-    # each refusal below means the scope was written by hand or by an older
-    # script; the fallback widens the diff rather than dropping the fix.
-    FROM_RAW=$(jq -r '.fix_diff_from // ""' "$WORK/decision")
-    FROM=""
-    why=""
-    case "$FROM_RAW" in
-        "") why="has no fix_diff_from" ;;
-        *[!0-9a-f]*) why="has a fix_diff_from [$FROM_RAW] that is not a commit id" ;;
-        *)
-            if ! FROM=$(git rev-parse --verify -q "${FROM_RAW}^{commit}"); then
-                FROM=""
-                why="has a fix_diff_from [$FROM_RAW] that is not a commit here"
-            elif ! git merge-base --is-ancestor "$FROM" HEAD; then
-                FROM=""
-                why="has a fix_diff_from [$FROM_RAW] that is not an ancestor of HEAD"
-            fi
-            ;;
-    esac
-    if [ -n "$FROM" ]; then
-        FROM_SOURCE="fix_diff_from"
-    else
-        echo "review-packet: seat [$SEAT] in $SCOPE_KEY $why; the fix diff falls back to the code packet's base" >&2
-        resolve_base || die 64 "seat [$SEAT] in $SCOPE_KEY $why, and no base resolves to fall back to"
-        FROM="$BASE"
-        FROM_SOURCE="fallback: the scope $why; $BASE_SOURCE"
+    # The fix diff starts at the oldest commit the findings were last judged
+    # at; the fix-diff review's range at the newest commit any panel recorded.
+    bound fix_diff_from
+    FROM="$BOUND"
+    FROM_SOURCE="$BOUND_SOURCE"
+    FIX_REVIEW=no
+    if [ "$(jq -r '.fix_review // false' "$WORK/decision")" = true ]; then
+        FIX_REVIEW=yes
+        bound review_from
+        REVIEW_FROM="$BOUND"
+        REVIEW_SOURCE="$BOUND_SOURCE"
+        git diff --name-status -M "$REVIEW_FROM" HEAD > "$WORK/rpaths" \
+            || die 66 "git diff --name-status -M $REVIEW_FROM HEAD failed"
+        panel_criteria > "$WORK/criteria"
     fi
 
     git diff --name-status -M "$FROM" HEAD > "$WORK/paths" \
@@ -381,10 +460,16 @@ if [ "$KIND" = "recheck" ]; then
         echo
         echo "panel: $PANEL"
         echo "seat: $SEAT"
+        echo "fix review: $FIX_REVIEW"
+        [ "$FIX_REVIEW" = no ] || echo "review from: $REVIEW_FROM ($REVIEW_SOURCE)"
         echo "fix diff from: $FROM ($FROM_SOURCE)"
         echo "head: $HEAD_SHA"
         echo "changed paths: $PATH_COUNT"
-        section "Findings to re-check ($SCOPE_KEY)" "$FINDINGS_CAP" "$WORK/findings" "[none recorded]"
+        section "Findings to re-verify, by id ($SCOPE_KEY)" "$FINDINGS_CAP" "$WORK/findings" "[none due]"
+        if [ "$FIX_REVIEW" = yes ]; then
+            section "Every panel's blocking criteria (the fix-diff review)" "$AC_CAP" "$WORK/criteria" "[none found]"
+            section "Changed paths (fix-diff review, from $REVIEW_FROM)" "$PATHS_CAP" "$WORK/rpaths" "[no changes between $REVIEW_FROM and HEAD]"
+        fi
         section "Changed paths (fix diff)" "$PATHS_CAP" "$WORK/paths" "[no changes between $FROM and HEAD]"
         section "Fix diff" "$DIFF_CAP" "$WORK/diff" "[empty: no commit since $FROM changes anything]"
     } > "$PACKET" || die 66 "could not write the packet file"
@@ -443,6 +528,16 @@ git diff -M "$BASE" HEAD > "$WORK/diff" \
     || die 66 "git diff -M $BASE HEAD failed"
 PATH_COUNT=$(wc -l < "$WORK/paths" | tr -d '[:space:]')
 
+# A seat in a full round answers its own unclosed findings by id: the ones its
+# decision carries.
+: > "$WORK/own"
+if [ -n "$SEAT" ]; then
+    scope_decision
+    jq '.findings // []' "$WORK/decision" > "$WORK/own" \
+        || die 66 "could not read the findings for seat [$SEAT]"
+    [ "$(jq 'length' "$WORK/own")" != 0 ] || : > "$WORK/own"
+fi
+
 {
     echo "# Review packet: code"
     echo
@@ -453,6 +548,9 @@ PATH_COUNT=$(wc -l < "$WORK/paths" | tr -d '[:space:]')
     section "Design context ($DESIGN_SOURCE)" "$DESIGN_CAP" "$WORK/design" "[none recorded]"
     section "Changed paths" "$PATHS_CAP" "$WORK/paths" "[no changes between base and HEAD]"
     section "Diff" "$DIFF_CAP" "$WORK/diff" "[empty]"
+    if [ -n "$SEAT" ]; then
+        section "Your unclosed findings, by id ($SCOPE_KEY, seat $SEAT)" "$FINDINGS_CAP" "$WORK/own" "[none]"
+    fi
 } > "$PACKET" || die 66 "could not write the packet file"
 
 echo "$PACKET"
