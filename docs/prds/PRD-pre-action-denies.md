@@ -148,7 +148,8 @@ These terms mean the same thing everywhere below.
 - **Segment**: a piece of the command text between unquoted `;`, `&`,
   `|`, newline, `(` or `)` characters. Text inside single or double
   quotes is never split.
-- **Head**: a segment's first word after any leading `NAME=value` words.
+- **Head**: a segment's first word after any leading `NAME=value` words,
+  compared by its last path component, so `/usr/bin/git` is `git`.
 - **Word**: a piece of a segment between unquoted blanks, after quote
   removal. Single quotes keep their text literally; inside double quotes
   a backslash escapes only `"`, `\`, `$` and backquote; outside quotes a
@@ -170,7 +171,12 @@ These terms mean the same thing everywhere below.
   words and ignoring quotes, `gh` followed later by `pr` followed later
   by `create` or `edit`, or `git` followed later by `push`. It is a
   superset of guarded: everything guarded is named in the text, and
-  some unguarded commands are too (`echo "git push"`).
+  some unguarded commands are too (`echo "git push"`). The same test,
+  applied to one segment's text, decides a wrapped guarded command.
+- **Wrapped guarded command**: a segment whose head is `env`, `command`,
+  `builtin`, `exec`, `eval`, `bash`, `sh`, `zsh`, `dash`, `xargs`,
+  `sudo`, `time`, `nohup` or `timeout`, or starts with `$`, and whose
+  text names a guarded action.
 
 ### Functional
 
@@ -179,10 +185,10 @@ These terms mean the same thing everywhere below.
   timeout of 30 seconds. A host that installs and enables the plugin,
   and changes no setting, runs it.
 - **R2. Only guarded commands are checked.** On a command that isn't
-  guarded the hook gives no decision. Commands whose guarded action sits
-  behind a prefix (`sudo`, `env`, `time`, `xargs`, `command`), inside
-  `eval`, `bash -c` or a script, or is built from a variable aren't
-  guarded.
+  guarded, and holds no wrapped guarded command, the hook gives no
+  decision. A wrapped guarded command (`sudo git push`, `bash -c "gh pr
+  create ..."`, `$GIT push`) can't be checked and fails closed under R7.
+  A guarded action inside a script file the agent runs isn't seen.
 - **R3. PR-body rules on pull-request commands.** On a guarded `gh pr
   create` or `gh pr edit` the hook denies when the submitted title or
   body breaks `pr-body/conventional-title` (PB1),
@@ -275,26 +281,41 @@ These terms mean the same thing everywhere below.
   4. a pull-request command's body is in a form R6 can't read: stdin
      (`-F -`), `--fill`, `--fill-first`, `--fill-verbose`, `--web`,
      `--editor`, `--template`, a command or variable expansion, `$'...'`,
-     a `--body-file` that doesn't exist, isn't a regular file or can't
-     be read (for instance because the same command writes it first),
-     or, on `gh pr create`, no body at all;
+     a `--body-file` that doesn't exist, isn't a regular file (a FIFO,
+     a device, a directory), is larger than 1 MiB or can't be read, or,
+     on `gh pr create`, no body at all;
   5. a `gh pr create` with no title;
   6. the registry can't be read, or lacks an active entry for a rule
      the hook guards, or that entry's text anchors don't resolve;
   7. any push case R4 says fails closed;
-  8. a `git` command the push check runs fails, or the check runs past
-     20 seconds;
+  8. a `git` command the push check runs fails, or the push check runs
+     past 20 seconds, or the whole evaluation runs past 25 seconds;
   9. a guarded segment carries a global option the Definitions don't
-     list.
+     list;
+  10. a wrapped guarded command;
+  11. an earlier segment of the same command could change what the
+      guarded segment checks: it names the `--body-file` path as a word
+      or after `>` or `>>`; or, before a push, it runs `git` with
+      `commit`, `merge`, `rebase`, `cherry-pick`, `am`, `revert`, `pull`,
+      `reset`, `update-ref`, `replace`, `notes`, `tag` or
+      `filter-branch`, or its head is one a wrapped guarded command can
+      have;
+  12. the hook input is larger than 4 MiB while its raw text names a
+      guarded action.
 
   The reason of a fail-closed deny names the action, the case that
-  failed, the rules the action is guarded by, how to fix it, and the off
-  switch by its exact setting, `SHIRABE_PRE_ACTION_HOOK=off`. The case
-  is named by these words: 1 `binary`; 2 `hook input`; 3 `quote`; 4 the
-  body form (`--fill`, `stdin`, the path, `no body`); 5 `title`; 6 the
-  rule id; 7 `HEAD`, the unresolved source, `1000 commits`,
-  `directory`, `work tree` or the option; 8 `git`; 9 the option. For a
-  body it can't read the reason also names the forms R6 reads.
+  failed, the rules the action is guarded by and how to fix it, and
+  ends by telling the agent to ask the user if it believes the deny is
+  wrong. It doesn't name the off switch: the switch is for the person
+  running the host and is documented in the plugin's README, and a
+  reason that names it invites the agent to turn the check off. The
+  case is named by these words: 1 `binary`; 2 `hook input`; 3 `quote`;
+  4 the body form (`--fill`, `stdin`, the path, `regular file`, `1 MiB`,
+  `no body`); 5 `title`; 6 the rule id; 7 `HEAD`, the unresolved
+  source, `1000 commits`, `directory`, `work tree` or the option; 8
+  `git` or `25 seconds`; 9 the option; 10 `wrapped`; 11 `same command`;
+  12 `4 MiB`. For a body it can't read the reason also names the forms
+  R6 reads.
 - **R8. Never block what it doesn't guard.** With the binary present,
   the hook gives no decision on a command that isn't guarded, whatever
   else fails, the registry included. With the binary missing or unable
@@ -324,16 +345,18 @@ These terms mean the same thing everywhere below.
   under R3, R5, R6, R7 and R10 for pull-request commands. Its registry
   is the copy built into the binary, and its pointer names the file by
   its repository-relative path.
-- **R12. One deny where both are wired.** When the host's settings
-  (`~/.claude/settings.json`, and `.claude/settings.json` and
-  `.claude/settings.local.json` under `$CLAUDE_PROJECT_DIR`, or under the
-  hook input's `cwd` when that variable is unset) carry a
-  `hooks.PreToolUse[].hooks[].command` string containing `shirabe
-  pr-body-hook`, the plugin's hook leaves
-  the PR-body rules and their fail-closed cases to that entry point and
-  checks only the push rule. A settings file it can't read or parse
-  counts as not wiring it. Either way each broken rule appears in one
-  deny reason, not two.
+- **R12. One deny where both are wired.** The host wires the legacy
+  entry point when `~/.claude/settings.json`, or `.claude/settings.json`
+  or `.claude/settings.local.json` under `$CLAUDE_PROJECT_DIR`, has a
+  `hooks.PreToolUse` entry whose `matcher` is absent, empty, `*` or
+  `Bash` and that holds a `command` hook one of whose segments is
+  exactly the words `shirabe pr-body-hook`, in a file that doesn't set
+  `disableAllHooks`. When it does, the plugin's hook leaves the PR-body
+  rules and their fail-closed cases to that entry point and checks only
+  the push rule. With `CLAUDE_PROJECT_DIR` unset only the user file is
+  read, and a file that can't be read or parsed counts as not wiring
+  it, so a doubt gives a duplicate report, never a missing one. Either
+  way each broken rule appears in one deny reason, not two.
 - **R13. The registry names the hook.** Every rule the hook denies
   carries a `deny` field, `{"hook": "hooks/pre-action-deny.sh",
   "before": [<protected actions>]}`, naming the plugin's hook script
@@ -355,7 +378,11 @@ These terms mean the same thing everywhere below.
 - **R15. Safety of untrusted text.** The command, title, body and commit
   messages are attacker-controlled. The hook never shell-evaluates the
   command, never interpolates them into a shell command, builds its
-  output with a JSON encoder, and writes no file.
+  output with a JSON encoder, and writes no file. A deny reason never
+  quotes a line of a body file; it names lines by number. Git runs with
+  repository-controlled programs switched off (signature verification,
+  pagers, external diff and text conversion, hooks, the filesystem
+  monitor, lazy fetches and replace objects).
 - **R16. Portability.** The plugin's script passes
   `scripts/check-bash-floor.sh` (the bash 3.2 floor) and needs no `jq`.
 - **R17. Tested.** Tests feed the hook PreToolUse JSON through the
@@ -378,7 +405,11 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
 | Command | Outcome |
 |---|---|
 | `ls`, `git status`, `git commit -m x`, `gh pr view 3`, `echo "gh pr create"`, `gh issue create --title pr --body edit`, `git log --grep push` | no decision |
-| `sudo git push`, `env X=1 git push`, `bash -c "git push"`, `eval "git push"`, `$GIT push` with the trailer commit | no decision |
+| `sudo git push`, `env X=1 git push`, `bash -c "git push"`, `eval "git push"`, `$GIT push` | deny, fail-closed (`wrapped`) |
+| `/usr/bin/git push` with the trailer commit | deny, `commit/no-ai-trailer` |
+| `git commit -m x && git push` | deny, fail-closed (`same command`) |
+| `printf 'x' > b.md && gh pr create --title "feat: x" -F b.md` | deny, fail-closed (`same command`) |
+| `gh pr create --title "feat: x" -F fifo` where `fifo` is a named pipe | deny, fail-closed (`regular file`) |
 | `gh pr create --title "feat: x"` (no body) | deny, fail-closed (`no body`) |
 | `gh pr create --body <good>` (no title) | deny, fail-closed (`title`) |
 | `gh pr create --title "feat: x" --body <good>` | no decision |
@@ -444,8 +475,8 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
       is checked; an unquoted here-document whose lines hold `$HOME` or
       a backquote is a fail-closed deny (R6, R7).
 - [ ] Each fail-closed case in R7 has a test whose deny reason contains
-      the case's word R7 names and the string
-      `SHIRABE_PRE_ACTION_HOOK=off`; case 6 has one test each for an
+      the case's word R7 names and the words `ask the user`, and doesn't
+      contain `SHIRABE_PRE_ACTION_HOOK`; case 6 has one test each for an
       unreadable registry, a missing entry and an anchor that doesn't
       resolve, on a guarded command (R7).
 - [ ] Malformed hook input whose raw text doesn't name a guarded action
@@ -481,16 +512,18 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
       `unreadable_body_file_is_allowed`, `body_file_dash_stdin_is_allowed`
       and `unterminated_quote_segment_is_allowed`), which now deny; its deny for a bad
       body has the R5 shape with the repository-relative path (R11).
-- [ ] With the wiring in each of `~/.claude/settings.json`, the
+- [ ] With niwa's wiring line in each of `~/.claude/settings.json`, the
       project's `.claude/settings.json` and its
-      `.claude/settings.local.json` (one test each, plus one with
-      `CLAUDE_PROJECT_DIR` unset and the files under `cwd`), the
-      plugin's hook gives no decision on the bad-body create and on the
-      `--fill` create, and still denies the trailer push; without the
-      wiring it denies both creates. A settings file that doesn't parse
-      leaves the plugin's hook checking the PR-body rules. Run on the
-      same input, the two entry points report the broken rule once
-      between them (R12).
+      `.claude/settings.local.json` (one test each), the plugin's hook
+      gives no decision on the bad-body create and on the `--fill`
+      create, and still denies the trailer push; without the wiring it
+      denies both creates. Each of these counts as not wired, so the
+      plugin's hook still denies the bad-body create: a settings file
+      that doesn't parse; one whose command is `echo shirabe
+      pr-body-hook`; one whose matcher is `Edit`; one that sets
+      `disableAllHooks`; the wiring in a `.claude/settings.json` under
+      `cwd` with `CLAUDE_PROJECT_DIR` unset. Run on the same input, the
+      two entry points report the broken rule once between them (R12).
 - [ ] Every rule on the hook script's `RULE_IDS` line carries the `deny`
       field and the shipped registry passes
       `scripts/check-rule-registry.sh`; a fixture missing one field, one
@@ -566,6 +599,19 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
   settings that wire the other entry point; the other entry point can't
   tell whether a plugin hook is running. Both entry points run the same
   checks with the same reason shape, so yielding loses nothing.
+- **The reason doesn't name the off switch.** An earlier draft printed
+  `SHIRABE_PRE_ACTION_HOOK=off` in every fail-closed reason. The design's
+  security review pointed out that this tells the agent how to turn the
+  check off, and an agent that can write the project's settings can do
+  it. The reason now tells the agent to ask the user, and the switch is
+  documented where the person running the host reads it.
+- **Wrapped commands and same-command writes fail closed.** An earlier
+  draft let `sudo git push` and `bash -c "git push"` through unchecked,
+  and checked a push or a body file as they stood before the command
+  ran. `git commit ... && git push` is the commonest way an agent pushes,
+  and checking the state before the commit misses the very commit being
+  pushed, so these are cases the hook can't decide and it says so. The
+  cost is that an agent has to split such a command in two.
 - **A push's unknown commits are bounded.** Pushing to a remote with no
   tracking refs could otherwise walk a repository's whole history; past
   1,000 commits the hook fails closed and says so, and the off switch
@@ -576,10 +622,18 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
 - With the binary missing, the coarse test may deny an unguarded command
   that mentions a guarded action (R8). The reason says the binary is
   missing, which is the thing to fix.
-- A guarded action behind a prefix, inside `eval` or `bash -c`, built
-  from a variable, or run inside a script isn't recognized (R2) and runs
+- A guarded action run inside a script file isn't seen (R2) and runs
   unchecked. So does a pull request opened through `gh api` or an MCP
-  tool. CI and the gates remain the backstop for all of them.
+  tool, and a wrapped command whose text hides the guarded action (a
+  shell function, an alias, `git -c alias.x=push x`). CI and the gates
+  remain the backstop for all of them.
+- The hook guards against an agent's mistakes, not against an agent set
+  on getting past it. An agent that can write the user's settings,
+  `PATH`, the binary or the repository's refs can defeat it: a forged
+  remote-tracking ref hides outgoing commits, a planted settings line
+  that really wires `shirabe pr-body-hook` moves the PR-body rules to
+  that entry point (which still checks them), and the canary opt-in
+  file lives in the user's home, where the agent can write.
 - A compound command with a guarded part is denied as a whole: `git add
   . && git push` doesn't run the `git add` either.
 - Directory tracking ignores subshell scope: in `(cd sub && git push);
