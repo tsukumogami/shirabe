@@ -15,8 +15,10 @@
 # sealed token; every token in koto's capture alphabet; pick.json's host; every
 # Unit cell form dispatch-common.sh dc_unit_forms lists from pick.json is one
 # this script reads as covering its unit, and the old template's form isn't;
-# units a person assigned (Standing assignment rows: issues read in their own
-# repositories, a closed one done, a release open until its row ends) listed
+# units a person assigned (Standing assignment rows: issues or pull requests
+# read in their own repositories in one GraphQL read, a closed or merged one
+# done, a failed, partial or unknown-state answer refused; a release open
+# until its row ends) listed
 # after the roadmap's, covered by a holding, their forms the dispatch path
 # takes, and an open one keeping the roadmap from completing; a unit's
 # awaiting, answered and follow_up from the record's Work rows and Decisions
@@ -187,12 +189,13 @@ refused() {
     session "$(roadmap_vars plugin-system)" 7 roadmap-plugin-system
     bash "$PF" --session "$S" > /dev/null 2> "$T/err"
     eq "$1: exit 2" 2 $?
-    grep -q "cannot read the assigned issues" "$T/err" && ok "$1: and says the assigned issues couldn't be read" || bad "$1: and says the assigned issues couldn't be read" "$(cat "$T/err")"
+    grep -q "cannot read the assigned units" "$T/err" && ok "$1: and says the assigned units couldn't be read" || bad "$1: and says the assigned units couldn't be read" "$(cat "$T/err")"
     if [ -e "$KOTO_STORE/context/$S/coord/pick.json" ]; then bad "$1: no facts are written" "$(facts)"; else ok "$1: no facts are written"; fi
 }
 refused "a failed read (rate limited)" '.graphql_fail = true'
 refused "a partial answer, the last issue null with no error" '.graphql_partial = true'
 refused "an issue GitHub can't resolve" '.issues |= map(select(.number != 592))'
+refused "a state other than OPEN, CLOSED or MERGED" '(.issues[] | select(.number == 592)).state = "op"'
 # A row may name a pull request: it reads like an issue, open while OPEN and
 # done once MERGED (or CLOSED).
 PRSTAND=$(jq -nc '[{standing: "s6", kind: "assignment", on: "#30", until: "", what: "land the fix", owner: "the human", relayed_by: "", set: "2026-10-06T15:00Z"},

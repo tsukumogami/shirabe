@@ -214,10 +214,10 @@ case "$W1 $W2" in
             out=$(jq -c --arg q "$reqs" '. as $db | ($q | split("\n") | map(select(. != "") | split(" "))) as $rs
                 | (reduce $rs[] as $x ({}; .["i\($x[0])"] = {issueOrPullRequest: ([$db.issues[]?, $db.prs[]? | select(.repo == $x[1] and (.number | tostring) == $x[2])][0]
                       | if . == null then null else {number, title, state: (.state | ascii_upcase)} end)})) as $d
-                | {data: $d} + (if any($d[]; .issueOrPullRequest == null) then {errors: [{type: "NOT_FOUND", message: "Could not resolve to an Issue"}]} else {} end)
+                | {data: $d} + (if any($d[]; .issueOrPullRequest == null) then {errors: [{type: "NOT_FOUND", message: "Could not resolve to an issue or pull request"}]} else {} end)
                 | if ($db.graphql_partial // false) and ($rs | length) > 0 then .data["i\(($rs | length) - 1)"] = null | del(.errors) else . end' "$GH_DB")
             emit "$out"
-            case "$out" in *'"errors"'*) echo "gh: Could not resolve to an Issue" >&2; exit 1 ;; esac
+            case "$out" in *'"errors"'*) echo "gh: Could not resolve to an issue or pull request" >&2; exit 1 ;; esac
             exit 0 ;;
         esac
         kind=issue

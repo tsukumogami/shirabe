@@ -256,7 +256,7 @@ while IFS=$'\t' read -r id r num; do
 done < "$T/assigned.tsv"
 if [ "$k" -gt 0 ]; then
     gh api graphql -f query="query pickAssigned(${VARS#, }) {$FIELDS }" "${GQ[@]}" > "$T/issues-read.json" 2> "$T/issues-read.err" < /dev/null \
-        || lib_die2 "cannot read the assigned issues: $(lib_scrub < "$T/issues-read.err")"
+        || lib_die2 "cannot read the assigned units: $(lib_scrub < "$T/issues-read.err")"
 else
     echo '{"data": {}}' > "$T/issues-read.json"
 fi
@@ -268,15 +268,15 @@ jq -c --slurpfile r "$T/issues-read.json" '
                       blocked: false, blocked_by: [], blocker_landed: false, landed: null, assigned: $a.standing}]
         else (($r[0].data // {})["i\(.k)"].issueOrPullRequest // null) as $n
             | if $n == null or ($n.number | tostring) != $a.issue.number or ($n.title | type) != "string"
-                 or ([$n.state] | inside(["OPEN", "CLOSED", "MERGED"]) | not)
-              then error("assigned issue \($a.id) did not come back") else . end
+                 or (($n.state | IN("OPEN", "CLOSED", "MERGED")) | not)
+              then error("assigned unit \($a.id) did not come back") else . end
             | .out += [{unit: $a.id, number: $n.number, title: ($n.title | .[0:120]), status: ($n.state | ascii_downcase),
-                        done: ($n.state != "OPEN"), blocked: false, blocked_by: [], blocker_landed: false,
+                        done: ($n.state == "CLOSED" or $n.state == "MERGED"), blocked: false, blocked_by: [], blocker_landed: false,
                         landed: null, assigned: $a.standing}]
             | .k += 1
         end)
     | .out[]' "$T/assigned.json" > "$T/assigned.lines" 2> "$T/assigned.err" \
-    || lib_die2 "cannot read the assigned issues: $(lib_scrub < "$T/assigned.err")"
+    || lib_die2 "cannot read the assigned units: $(lib_scrub < "$T/assigned.err")"
 jq -c -s --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --arg r "$REPO" '$u[0] + map(. as $a
     | . + {holding: ([$h[0][] | select(.unit == $a.unit or .unit == ($r + $a.unit))][0]
                      | if . == null then null else {worker, phase} end)})' "$T/assigned.lines" > "$T/units2.json" \
