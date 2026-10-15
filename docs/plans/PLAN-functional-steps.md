@@ -194,7 +194,7 @@ its work starts, from what the earlier ones taught.
 - [x] The horizon finding fires only as `/plan`'s sub-operation: the phase file says how category E tells the two apart, and an eval scenario covers the sub-operation case with the three-detailed fixture.
 - [x] `references/templates/review-result-schema.md` admits category `E`, with its loop target (Phase 3, decomposition) for a `plan/v2` loop-back; `phase-5-verdict.md` loops back on a layer-shaped plan or a non-skeleton first step under `plan/v2` and records the same findings as advisory under `plan/v1`; `phase-0-setup.md` reads `step_count` and `## Steps` for a `plan/v2` plan, so it is reviewed without an issue-table error.
 - [x] `SKILL.md` lists category E in its category table and Reference Files, and its adversarial-mode count reads five categories and fifteen validators.
-- [ ] `skills/review-plan/evals/evals.json` gains a scenario per fixture stating the expected findings; `scripts/check-skill.sh review-plan` passes.
+- [x] `skills/review-plan/evals/evals.json` gains a scenario per fixture stating the expected findings; `scripts/check-skill.sh review-plan` passes.
 - [x] Existing review-plan eval scenarios and the files they cite are unchanged apart from the category count.
 
 **Check**: `scripts/check-skill.sh review-plan` exits 0; `shirabe validate` (branch build) passes each `PLAN-v2-*.md` fixture; `koto context get <child> review_plan_runs/<fixture>.md` for each of the four fixtures shows the findings listed above.
