@@ -11,6 +11,7 @@ GitHub issues and a milestone. The branch taken depends on `execution_mode`
 - [multi-pr Mode](#multi-pr-mode): 7.1 Create GitHub Issues, 7.2 Write PLAN Artifact (roadmap population is handled by `/roadmap populate`, not this phase), 7.3 Verify Creation, 7.4 Validate Traceability
 - [single-pr Mode](#single-pr-mode): 7.1 Write PLAN Artifact, 7.2 Suggest Next Steps
 - [coordinated Mode](#coordinated-mode): 7.C1 Filing Approval, 7.C2 Create GitHub Issues, 7.C3 Write PLAN Artifact, 7.C4 Suggest Next Steps
+- [plan/v2 Step Plan](#planv2-step-plan): 7.V1 Write PLAN Artifact, 7.V2 Suggest Next Steps (when the plan version is `v2`, whatever the mode)
 - [Common Steps](#common-steps-all-modes): 7.5 Status Transition, 7.6 Cleanup, 7.7 Report Summary, 7.8 Upstream Issue Update
 
 ## Resume Check
@@ -47,7 +48,7 @@ Read the keys in `plan-<topic>` (`koto context get plan-<topic> <key>`):
 
 **STOP** if key `work/manifest.json` does not exist. Phase 4 (Agent Generation) must run first.
 
-Read the `execution_mode` from the decomposition artifact's YAML frontmatter, then branch to the appropriate section below. Carry its `split_mode_source` (and, on a split, `split_rationale`) into the PLAN's frontmatter next to `execution_mode`: they are the record that lets a caller re-run `scripts/resolve-split-mode.sh` over the PLAN's split and compare.
+Read `plan_version` from the decomposition artifact's YAML frontmatter first. When it is `v2`, skip "Resolve the Tracking Level first", "Filing approval" and the three mode sections, and go to [plan/v2 Step Plan](#planv2-step-plan), then the common steps. Otherwise (`v1`, or no `plan_version` field) read the `execution_mode` from the same frontmatter, then branch to the appropriate section below. Carry its `split_mode_source` (and, on a split, `split_rationale`) into the PLAN's frontmatter next to `execution_mode`: they are the record that lets a caller re-run `scripts/resolve-split-mode.sh` over the PLAN's split and compare.
 
 ### Resolve the Tracking Level first
 
@@ -524,6 +525,77 @@ per PR node, opens the coordination PR, and lands the nodes in merge order.
 
 ---
 
+## plan/v2 Step Plan
+
+Steps 7.V1 and 7.V2 apply when the decomposition artifact records
+`plan_version: v2`, in `single-pr` and `multi-pr` alike (Phase 3 has already
+stopped a `coordinated` step plan). The format is `../plan-format.md` under
+"plan/v2: Step Plans".
+
+**A step plan files nothing.** No `gh issue create`, no milestone call, no
+filing approval, no Implementation Issues table. The tracking level is always
+`none`. When the repository's CLAUDE.md declares `## Tracking Level: issues` or
+`issues-and-milestone` (or the run was given a filing level), do not apply it:
+write `tracking_level: none` and say so in the run's output, in these words or
+close to them: "CLAUDE.md asks for `<level>`; this PLAN is a step plan, which
+files no issues, so it was written with `tracking_level: none`." Under `--auto`,
+record the same as a decision block in key `work/decisions.md`.
+
+### 7.V1 Write PLAN Artifact
+
+Create `docs/plans/PLAN-<topic>.md` at `status: Active`: nothing is filed, so
+the Draft -> Active transition auto-fires as authoring completes.
+
+**Frontmatter:**
+
+```yaml
+---
+schema: plan/v2
+status: Active
+execution_mode: <single-pr | multi-pr>
+split_mode_source: <none | flag | intent | header | default>   # from the decomposition artifact
+split_rationale: |                                             # only when the rules above require it
+  <branch>. <rationale>
+tracking_level: none
+upstream: <source-doc-path>
+milestone: "<Milestone Name>"
+step_count: <N>
+---
+```
+
+No `issue_count`. A `--upstream <roadmap-path>` makes `upstream:` a sequence,
+exactly as in the multi-pr branch's 7.2b.
+
+**Required sections** (in order):
+
+1. **Status** -- `Active`
+2. **Scope Summary** -- from key `work/analysis.md`
+3. **Decomposition Strategy** -- walking skeleton: what step 1 crosses end to
+   end and on which input, and how the later steps build on it
+4. **Steps** -- one block per step, copied from the body keys
+   (`work/issue_<N>_body.md`) in step order: steps 1 and 2 detailed (every
+   step when there are two or fewer), every later step its heading and one
+   line
+5. **Implementation Sequence** (optional) -- the steps run in order; say which
+   can run beside another when the dependencies allow it
+
+No Issue Outlines, no Implementation Issues table, no Dependency Graph.
+
+Before 7.4b, read the Steps section against the rules `shirabe validate`
+applies (FC22): numbering 1..n with no gap and no leading zero, `step_count`
+equal to the steps written, each detailed step carrying `**Goal**:`, a
+`- [ ]` criterion, `**Check**:` and `**Dependencies**:` (`None` or earlier
+`Step <N>`s), each outline step exactly one non-blank line with no
+`**Field**:` line, and no detailed step after an outline.
+
+### 7.V2 Suggest Next Steps
+
+Recommend running `/execute docs/plans/PLAN-<topic>.md`, and say that the plan's
+owner details step 3 after step 2's work reaches its terminal, and each later
+step the same way, in a commit that touches only the plan.
+
+---
+
 ## Common Steps (All Modes)
 
 These steps run after the mode-specific steps above.
@@ -572,8 +644,9 @@ The chain's status check runs after 7.5's transition, not here: it holds an
   its features is still being built, which is the whole window in which a PLAN
   naming it exists.
 - **An exit 4 means the PLAN was not checked at all.** The filename routed it
-  to the plan format but its `schema:` field is missing or is not `plan/v1`,
-  so nothing above ran. Add the field and re-run; do not read the absence of
+  to the plan format but its `schema:` field is missing or is neither
+  `plan/v1` nor `plan/v2`, so nothing above ran. (A `shirabe` older than the
+  one that added `plan/v2` exits 4 on every step plan; update it.) Add the field and re-run; do not read the absence of
   findings as a pass.
 
 **STOP if any check fails.** Fix the PLAN doc and re-run before proceeding to
@@ -673,6 +746,19 @@ Design doc status: Planned
 Run `/execute docs/plans/PLAN-<topic>.md` to begin implementation.
 ```
 
+**plan/v2 (step plan):**
+```markdown
+## Created Artifacts
+
+PLAN document: `docs/plans/PLAN-<topic>.md` (plan/v2, <single-pr|multi-pr>, tracking level: none)
+Design doc status: Planned
+Steps: <N> (<D> detailed, <O> outline)
+
+### Next Steps
+Run `/execute docs/plans/PLAN-<topic>.md`. The plan's owner details step 3
+after step 2's work reaches its terminal, in a commit touching only the plan.
+```
+
 **coordinated:**
 ```markdown
 ## Created Artifacts
@@ -734,6 +820,9 @@ If yes, provide the issue reference in <owner>/<repo>#<number> format.
 Before completing:
 - [ ] PLAN artifact created at `docs/plans/PLAN-<topic>.md`
 - [ ] Frontmatter includes all required fields (`schema`, `status`, `execution_mode`, `milestone`, `issue_count`) and `tracking_level`, `none` included
+- [ ] plan/v2: `schema: plan/v2`, `step_count` in place of `issue_count`,
+  `tracking_level: none`, a `## Steps` section, no issue or milestone filed,
+  and an ignored filing level named in the output
 - [ ] multi-pr: status is Active; at a filing level, all issues created (and the
   milestone assigned at `issues-and-milestone`); at `none`, outlines and nothing filed
 - [ ] any PLAN that filed: the filing approval ran before the first
