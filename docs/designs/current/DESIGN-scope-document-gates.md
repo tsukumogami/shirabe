@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Planned
+status: Current
 problem: |
   /scope's hop gates ask the validator four structural questions and leave every
   other error-level check, and the banned-words rule, to prose the agent may
@@ -28,7 +28,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Planned
+Current
 
 ## Context and Problem Statement
 
