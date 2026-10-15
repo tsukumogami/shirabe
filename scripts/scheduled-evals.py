@@ -42,10 +42,13 @@ A run:
      its estimate, marked "cost_measured": false, so the budget still counts it.
 
 The ledger is JSON Lines, one object per line, read by the next run:
-  {"kind": "run", "at": <UTC ISO-8601>, "skill", "tree", "head", "runs",
-   "model", "cost_usd", "cost_measured", "estimate_usd", "exit_code",
-   "assertions_passed", "assertions_graded"}
-  {"kind": "rotation", the same fields, plus "scenarios": [<name>...]}
+  {"kind": "reserved", "at": <UTC ISO-8601>, "id", "job": "run" or "rotation",
+   "skill", "runs", "model", "estimate_usd"}
+  {"kind": "run", "at", "reservation": <the reserved line's id>, "skill",
+   "tree", "head", "runs", "model", "cost_usd", "cost_measured",
+   "estimate_usd", "exit_code", "assertions_passed", "assertions_graded"}
+  {"kind": "rotation", the same fields as a run line, plus "scenarios":
+   [<name>...]}
   {"kind": "cap_stop", "at", "spent_usd", "cap_usd", "next_job",
    "estimate_usd", "unrun": [<skill> or <skill>:rotation...]}
 The ledger is read strictly, since a line it can't account for could hide
@@ -53,13 +56,25 @@ spend. Any of these stops the run with exit 3 before another job starts:
   - a file that isn't UTF-8 text;
   - a last line with no newline (a write cut off);
   - a line that doesn't parse as JSON, or isn't an object;
-  - a "kind" other than "run", "rotation" or "cap_stop";
+  - a "kind" other than "reserved", "run", "rotation" or "cap_stop";
   - a line, of any kind, without a valid "at";
   - a run or rotation line without a valid "cost_usd" (a non-negative finite
-    number).
+    number), or with a "reservation" that isn't a non-empty string;
+  - a reserved line without a non-empty "id" or a valid "estimate_usd".
 Blank lines are skipped. The run stays stopped until a person repairs the
 ledger: find what the line's job cost and correct the line, or replace it with
 a line carrying that cost. Deleting it would count that spend as nothing.
+
+A job's estimate is reserved in the ledger before its harness starts, and the
+run or rotation line written after it names the reservation it settles. The
+week's spend counts each run and rotation line at its cost, and each
+reservation no line settles at its estimate: a job killed partway (SIGKILL, a
+host asleep, a session limit) still charges the week what it was expected to
+cost. After a killed job, remove the stale <ledger>.lock directory once no run
+is going. Its reservation keeps charging its estimate for seven days; if the
+job cost less, append a run or rotation line whose "reservation" is that id
+and whose "cost_usd" is the real spend, and leave the reserved line in place.
+Deleting it would count the spend as nothing.
 A dry run reads the ledger without the lock, so a real run appending at that
 moment can show it a partial last line; run it again. Default location:
 $XDG_STATE_HOME/shirabe/scheduled-evals.jsonl, else
@@ -103,6 +118,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import uuid
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -176,12 +192,21 @@ def read_ledger(path):
             entry = json.loads(line)
         except ValueError:
             raise LedgerError("%s line %d doesn't parse" % (path, number))
-        if not isinstance(entry, dict) or entry.get("kind") not in ("run", "rotation", "cap_stop"):
-            raise LedgerError("%s line %d is not a run, rotation or cap_stop entry" % (path, number))
+        if not isinstance(entry, dict) or entry.get("kind") not in (
+                "reserved", "run", "rotation", "cap_stop"):
+            raise LedgerError("%s line %d is not a reserved, run, rotation or cap_stop entry"
+                              % (path, number))
         if parse_iso(entry.get("at")) is None:
             raise LedgerError("%s line %d has no valid `at` time" % (path, number))
         if entry["kind"] in ("run", "rotation") and not is_cost(entry.get("cost_usd")):
             raise LedgerError("%s line %d has no valid `cost_usd`" % (path, number))
+        if entry["kind"] in ("run", "rotation") and "reservation" in entry \
+                and not is_id(entry["reservation"]):
+            raise LedgerError("%s line %d has an invalid `reservation`" % (path, number))
+        if entry["kind"] == "reserved" and not is_id(entry.get("id")):
+            raise LedgerError("%s line %d has no valid `id`" % (path, number))
+        if entry["kind"] == "reserved" and not is_cost(entry.get("estimate_usd")):
+            raise LedgerError("%s line %d has no valid `estimate_usd`" % (path, number))
         entries.append(entry)
     return entries
 
@@ -204,14 +229,28 @@ def is_cost(value):
             and math.isfinite(value) and value >= 0)
 
 
+def is_id(value):
+    return isinstance(value, str) and value != ""
+
+
 def spent_this_week(entries, moment):
+    """Run and rotation lines at their cost, plus reservations no line settles
+    at their estimate: a job killed before it could ledger its cost still
+    counts."""
+    settled = {e["reservation"] for e in entries
+               if e.get("kind") in ("run", "rotation") and "reservation" in e}
     total = 0.0
     for entry in entries:
-        if entry.get("kind") not in ("run", "rotation") or not is_cost(entry.get("cost_usd")):
+        kind = entry.get("kind")
+        if kind in ("run", "rotation"):
+            amount = entry["cost_usd"]
+        elif kind == "reserved" and entry["id"] not in settled:
+            amount = entry["estimate_usd"]
+        else:
             continue
         at = parse_iso(entry.get("at"))
         if at is not None and moment - at < WEEK:
-            total += entry["cost_usd"]
+            total += amount
     return total
 
 
@@ -460,6 +499,13 @@ def measure(args, skills, head, ledger):
 def run_harness(args, ledger, kind, name, tree, head, harness_args, size, estimate, scenarios):
     harness = (os.environ.get("SCHEDULED_EVALS_HARNESS")
                or os.path.join(ROOT, "scripts", "run-evals.sh"))
+    runs = size if kind == "run" else 1
+    # Reserve the estimate before spending anything, so a job killed inside
+    # the harness still charges the week; the line below settles it.
+    reservation = uuid.uuid4().hex
+    append_ledger(ledger, {"kind": "reserved", "at": iso(now_utc()), "id": reservation,
+                           "job": kind, "skill": name, "runs": runs, "model": args.model,
+                           "estimate_usd": round(estimate, 4)})
     workdir = tempfile.mkdtemp(prefix="scheduled-evals.")
     summary_path = os.path.join(workdir, "summary.json")
     env = dict(os.environ, EVAL_MODEL=args.model)
@@ -473,14 +519,16 @@ def run_harness(args, ledger, kind, name, tree, head, harness_args, size, estima
         os.rmdir(workdir)
     cost = summary.get("cost_usd")
     cost_runs = summary.get("cost_runs")
-    measured = (is_cost(cost) and isinstance(cost_runs, int) and not isinstance(cost_runs, bool)
-                and cost_runs > 0)
+    # A job that reports costing nothing reported no cost: it is charged at its
+    # estimate, never ledgered as free.
+    measured = (is_cost(cost) and cost > 0 and isinstance(cost_runs, int)
+                and not isinstance(cost_runs, bool) and cost_runs > 0)
     if not measured:
         cost = estimate
     attempted = summary.get("runs")
-    runs = size if kind == "run" else 1
     entry = {
-        "kind": kind, "at": iso(now_utc()), "skill": name, "tree": tree, "head": head,
+        "kind": kind, "at": iso(now_utc()), "reservation": reservation, "skill": name,
+        "tree": tree, "head": head,
         "runs": attempted if isinstance(attempted, int) and attempted > 0 else runs,
         "model": args.model, "cost_usd": round(cost, 4), "cost_measured": measured,
         "estimate_usd": round(estimate, 4), "exit_code": rc,
