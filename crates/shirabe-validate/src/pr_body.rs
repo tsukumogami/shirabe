@@ -652,4 +652,24 @@ Fixes #7
             );
         }
     }
+
+    #[test]
+    fn is_no_heading_finding_matches_pb4_and_nothing_else() {
+        // The pr-body hook drops PB4 by this predicate, so it must recognise
+        // the finding check_pr_body actually emits for a heading in Part 1, and
+        // must not match the other rules' findings.
+        let headed = "## Summary\n\nprose\n\n---\n\nFixes #1\n";
+        let findings = check_pr_body(headed, Some("feat: x"));
+        assert_eq!(findings.len(), 1, "expected PB4 alone, got: {:?}", findings);
+        assert!(is_no_heading_finding(&findings[0]));
+
+        let no_separator = "plain prose with no separator\n";
+        let findings = check_pr_body(no_separator, Some("not conventional"));
+        assert!(!findings.is_empty());
+        assert!(
+            findings.iter().all(|f| !is_no_heading_finding(f)),
+            "PB1 and PB2 findings must not read as PB4: {:?}",
+            findings
+        );
+    }
 }
