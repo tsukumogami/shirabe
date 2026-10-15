@@ -79,9 +79,13 @@ class Case(unittest.TestCase):
                                "-c", "user.email=t@example.com"] + list(args),
                               capture_output=True, text=True, check=True).stdout.strip()
 
-    def add_skill(self, name, tier1=1, tier2=0, note=""):
+    def add_skill(self, name, tier1=1, tier2=0, rest=0, note=""):
+        """tier2 release scenarios, one behaviour each; rest more tier-2 ones outside the subset."""
         evals = [{"id": i, "name": "t1-%d" % i} for i in range(tier1)]
-        evals += [{"id": 100 + i, "name": "t2-%d" % i, "tier": 2} for i in range(tier2)]
+        evals += [{"id": 100 + i, "name": "t2-%d" % i, "tier": 2, "behaviour": "b%d" % i,
+                   "release": True} for i in range(tier2)]
+        evals += [{"id": 200 + i, "name": "r-%d" % i, "tier": 2, "behaviour": "b0"}
+                  for i in range(rest)]
         directory = os.path.join(self.repo, "skills", name, "evals")
         os.makedirs(directory, exist_ok=True)
         with open(os.path.join(directory, "evals.json"), "w") as fh:
@@ -133,7 +137,8 @@ class SelectionTest(Case):
         rc, out = self.run_tool("--runs", "2", "brief")
         self.assertEqual(rc, 0, out)
         self.assertEqual(len(self.calls()), 1)
-        self.assertRegex(self.calls()[0], r"^--runs 2 --summary-out \S+ brief model=sonnet$")
+        self.assertRegex(self.calls()[0],
+                         r"^--runs 2 --release-subset --summary-out \S+ brief model=sonnet$")
         (entry,) = self.ledger_lines()
         self.assertEqual(entry["kind"], "run")
         self.assertEqual(entry["skill"], "brief")
@@ -182,7 +187,7 @@ class SelectionTest(Case):
                    "model": "sonnet", "cost_usd": 1, "cost_measured": True, "exit_code": 0})
         rc, out = self.run_tool("--runs", "1")
         self.assertEqual(rc, 0, out)
-        order = [line.split()[4] for line in self.calls()]
+        order = [line.split()[5] for line in self.calls()]
         self.assertEqual(order, ["brief", "execute", "zeta", "alpha"])
 
     def test_harness_failure_exits_1_and_is_ledgered(self):
@@ -260,6 +265,88 @@ class CapTest(Case):
         self.assertFalse(os.path.exists(self.ledger))
 
 
+
+class RotationTest(Case):
+    """Tier-2 scenarios outside the release subset rotate through the schedule."""
+
+    def setUp(self):
+        super().setUp()
+        self.add_skill("execute", tier1=1, tier2=1, rest=4)
+        self.commit()
+
+    def rotations(self):
+        return [line for line in self.calls() if "--scenario" in line]
+
+    def test_first_run_repeats_the_subset_then_rotates_the_first_k(self):
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        calls = self.calls()
+        self.assertEqual(len(calls), 2, calls)
+        self.assertRegex(calls[0], r"^--runs 1 --release-subset ")
+        self.assertRegex(calls[1], r"^--runs 1 --scenario r-0,r-1 --summary-out \S+ execute ")
+        rotation = self.ledger_lines()[-1]
+        self.assertEqual(rotation["kind"], "rotation")
+        self.assertEqual(rotation["scenarios"], ["r-0", "r-1"])
+        self.assertEqual(rotation["tree"], self.tree("execute"))
+
+    def test_rotation_goes_on_where_it_stopped_and_the_unchanged_repeat_is_skipped(self):
+        self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("unchanged: execute", out)
+        self.assertEqual(len(self.calls()), 3)
+        self.assertRegex(self.calls()[-1], r"--scenario r-2,r-3 ")
+
+    def test_nothing_due_once_every_scenario_ran_at_this_tree(self):
+        self.run_tool("--runs", "1", "--rotation-size", "4", "execute")
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "4", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.calls()), 2)
+
+    def test_a_tree_change_makes_every_scenario_due_again_oldest_first(self):
+        self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.add_skill("execute", tier1=1, tier2=1, rest=4, note="changed")
+        self.commit()
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(self.calls()[-2], r"--release-subset")
+        self.assertRegex(self.calls()[-1], r"--scenario r-0,r-1 ")
+
+    def test_a_failed_rotation_is_due_again(self):
+        self.result("execute", "2 0 0 1.0 1")
+        self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.result("execute", "0 9 10 1.0 1")
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(self.calls()[-1], r"--scenario r-0,r-1 ")
+
+    def test_rotation_size_zero_turns_it_off(self):
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "0", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.rotations(), [])
+
+    def test_rotation_shrinks_to_the_budget(self):
+        # Repeat: 1 tier-1 and 1 release tier-2 at default rates = $5.24; the stub
+        # reports $1 a run. Rotation default: $2.50 session + $2.28 a scenario.
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "4", "--cap-usd", "6", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertRegex(self.rotations()[0], r"--scenario r-0 ")
+
+    def test_rotation_that_doesnt_fit_stops_at_the_cap(self):
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "2", "--cap-usd", "5.5", "execute")
+        self.assertEqual(rc, 6, out)
+        self.assertEqual(self.ledger_lines()[-1]["unrun"], ["execute:rotation"])
+
+    def test_a_repeat_on_another_model_doesnt_count(self):
+        self.seed({"kind": "run", "at": ago(days=1), "skill": "execute", "tree": self.tree("execute"),
+                   "runs": 1, "model": "opus", "cost_usd": 1, "cost_measured": True,
+                   "exit_code": 0})
+        rc, out = self.run_tool("--runs", "1", "--rotation-size", "0", "execute")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(self.calls()), 1)
+        self.assertNotIn("unchanged", out)
+
 class GuardTest(Case):
     def test_lock_held_exits_3(self):
         os.makedirs(self.ledger + ".lock")
@@ -282,7 +369,7 @@ class GuardTest(Case):
 
     def test_usage_errors(self):
         for args in (["--runs", "0"], ["--runs", "10"], ["--model", "-x"],
-                     ["--cap-usd", "-1"], ["Bad"], ["absent"]):
+                     ["--cap-usd", "-1"], ["--rotation-size", "21"], ["Bad"], ["absent"]):
             with self.subTest(args=args):
                 rc, out = self.run_tool(*args)
                 self.assertEqual(rc, 2, out)

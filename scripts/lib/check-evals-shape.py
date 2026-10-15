@@ -9,7 +9,13 @@ skill. It checks the file the eval harness reads without running it:
   - the file parses as JSON and is an object with an `evals` list;
   - every entry under `evals` has a non-empty `name` and a non-empty `prompt`;
   - every entry has at least one of `expectations` or `assertions` as a
-    non-empty list. Both shapes are in use across the suites.
+    non-empty list. Both shapes are in use across the suites;
+  - every tier-2 entry (`tier` other than 1) names the behaviour it exercises
+    in `behaviour`, a kebab-case slug, and each behaviour has exactly one entry
+    with `"release": true`: the scenario the release eval check runs for it
+    (scripts/run-evals.sh --release-subset). The scheduled runs rotate through
+    the rest (scripts/scheduled-evals.py). `release` is only ever `true`, and
+    a tier-1 entry carries neither key: every tier-1 scenario runs at release.
 
 A skill with no evals.json passes only when its SKILL.md declares
 `disable-model-invocation: true`, read the way scripts/check-evals-exist.sh
@@ -28,7 +34,10 @@ Exit codes:
 
 import json
 import os
+import re
 import sys
+
+SLUG = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 
 def non_empty_string(value):
@@ -82,6 +91,39 @@ def check(path):
                 or non_empty_list(entry.get("assertions"))):
             problems.append(
                 "%s: needs a non-empty `expectations` or `assertions` list" % where)
+    problems.extend(check_release_subset(path, evals))
+    return problems
+
+
+def check_release_subset(path, evals):
+    """Each tier-2 behaviour has exactly one release scenario."""
+    problems = []
+    releases = {}
+    for index, entry in enumerate(evals):
+        if not isinstance(entry, dict):
+            continue
+        where = "%s: %s" % (path, label(index, entry))
+        tier2 = entry.get("tier", 1) != 1
+        behaviour = entry.get("behaviour")
+        if "release" in entry and entry["release"] is not True:
+            problems.append("%s: `release` is only ever `true`" % where)
+        if not tier2:
+            if "behaviour" in entry or "release" in entry:
+                problems.append("%s: `behaviour` and `release` belong on tier-2 entries; "
+                                "every tier-1 scenario runs at release" % where)
+            continue
+        if not (isinstance(behaviour, str) and SLUG.match(behaviour)):
+            problems.append("%s: a tier-2 entry needs a kebab-case `behaviour` naming what it "
+                            "exercises" % where)
+            continue
+        releases.setdefault(behaviour, [])
+        if entry.get("release") is True:
+            releases[behaviour].append(label(index, entry))
+    for behaviour, picked in sorted(releases.items()):
+        if len(picked) != 1:
+            problems.append("%s: behaviour %r needs exactly one `\"release\": true` entry, "
+                            "has %d%s" % (path, behaviour, len(picked),
+                                          (": " + ", ".join(picked)) if picked else ""))
     return problems
 
 
