@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   A gate failing on a registry rule shows the same one-line summary on every
   failure, only PB4 ever returns its full text (by special case), and a check
@@ -16,7 +16,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
@@ -142,8 +142,3 @@ shell, outside a koto session, gets exactly the output it gets today.
   adopt later; this feature changes only `/work-on`'s template.
 - A koto change. koto's per-rule counts are already on its published
   session-feed contract.
-
-## Open Questions
-
-- The exact counts that release the full text and open the exit set observable
-  behaviour, so the requirements fix them; the journeys assume 2 and 3.
