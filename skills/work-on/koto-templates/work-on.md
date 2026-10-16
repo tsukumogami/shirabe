@@ -1013,7 +1013,8 @@ states:
     # pending until the agent answers it with `koto decider answer` (koto
     # 0.20.0), in shadow as in veto, so the slot's directive has to give that
     # command, as review_level_check's does. Any answer then lets a shadow
-    # check through. It is not built yet. The same holds for review,
+    # check through: a shadow fail, the agent's or the decider's, is only
+    # recorded. It is not built yet. The same holds for review,
     # qa_validation and light_review.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan scrutiny "{{SESSION_NAME}}"'
@@ -2648,13 +2649,13 @@ the run here even though a shadow check never fails it.
 
 `pass` (the level is thorough enough) and `unclear` (the facts don't say
 enough) let the check through. On `fail` (the level is too light), raise the
-level with a plain `set ... <level>`, without `--cause`, and tick again: a
-`veto` line in the ledger means the decider asked for the raise, and this one
-is yours. In veto your `fail` holds the run until the level changes, whether
-you raise before or after the tick that shows it; in shadow it's only
-recorded and the next tick moves on, so raise before you tick. The tick after
-the raise asks the decider about the raised level and falls back to you again
-if it still can't answer. Your answer is recorded as yours, never as the
+level with a plain `set ... <level>`, without `--cause`, before you tick again.
+Raise first whichever mode the check runs in, since the response doesn't say:
+in veto your `fail` holds the run until the level changes, but in shadow it's
+only recorded and the next tick moves on. No `--cause`, because a `veto` line
+in the ledger means the decider asked for the raise, and this one is yours.
+The tick after the raise asks the decider about the raised level and falls
+back to you again if it still can't answer. Your answer is recorded as yours, never as the
 decider's verdict. Don't record an override to get past a waiting check, and
 answer only a criterion the response lists under `awaiting`.
 

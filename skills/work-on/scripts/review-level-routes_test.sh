@@ -476,7 +476,7 @@ if new_case "$S" "$SMALL"; then
         expect_state "the tick after the agent answered pass" scrutiny
         GOT=$(jq -rs '[.[] | select(.type == "decider_checked" and .payload.gate == "level_fits_facts")
                        | .payload.outcome] | unique | join(",")' "$(slog "$S")")
-        [ "$GOT" = unanswered ] && pass "the log holds no decider verdict for the agent's answer" \
+        [ "$GOT" = unanswered ] && pass "the only decider_checked outcome is unanswered: the agent's answer is no decider verdict" \
             || fail "level_fits_facts decider_checked outcomes are [$GOT]"
         GOT=$(jq -rs '[.[] | select(.type == "decider_check_answered" and .payload.gate == "level_fits_facts")
                        | .payload.answer] | join(",")' "$(slog "$S")")
@@ -516,7 +516,7 @@ if new_case "$S" "$SMALL"; then
             || fail "ledger events are [$(events "$S")]"
         GOT=$(jq -rs '[.[] | select(.type == "decider_checked" and .payload.gate == "level_fits_facts")
                        | .payload.outcome] | unique | join(",")' "$(slog "$S")")
-        [ "$GOT" = unanswered ] && pass "the log holds no decider verdict for either answer" \
+        [ "$GOT" = unanswered ] && pass "the only decider_checked outcome is unanswered: neither answer is a decider verdict" \
             || fail "level_fits_facts decider_checked outcomes are [$GOT]"
     fi
     decider_off
