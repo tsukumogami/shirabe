@@ -157,7 +157,7 @@ case "$OUT" in *pr=*|*pr_state=*) bad "a non-GitHub URL and pr_state=closed are 
 render done_full_run '{"outcome":"handed-off-multi-pr","exit":"full-run","intent":"none","next":"/work-on #7; rm -rf /","plan_execution_mode":"multi-pr","startable":"#7 ok\noutcome=merged\n#8 fine","wip_paths":"wip/a,../etc"}'
 case "$OUT" in *"rm -rf"*) bad "a next outside the pattern is dropped" "$OUT" ;; *) ok "a next outside the pattern is dropped" ;; esac
 case "$OUT" in *"wip_paths="*) bad "a leftover wip_paths in a payload is never printed" "$OUT" ;; *) ok "a leftover wip_paths in a payload is never printed" ;; esac
-if printf '%s\n' "$OUT" | grep -q '^outcome=merged'; then bad "a startable line that is not #<N> <title> is dropped" "$OUT"; else ok "a startable line that is not #<N> <title> is dropped"; fi
+if grep -q '^outcome=merged' <<<"$OUT"; then bad "a startable line that is not #<N> <title> is dropped" "$OUT"; else ok "a startable line that is not #<N> <title> is dropped"; fi
 
 render hop_plan '{}'
 eq "a non-terminal state exits 1" "1" "$RC"
@@ -203,7 +203,7 @@ session scope-never
 eq "a session that never existed exits 1" "1" "$RC"
 eq "a session that never existed prints no block" "" "$OUT"
 
-if printf '%s\n' "$ALL" | grep -q '^outcome=refused'; then
+if grep -q '^outcome=refused' <<<"$ALL"; then
     bad "no terminal prints outcome=refused" "$(printf '%s\n' "$ALL" | grep '^outcome=refused')"
 else
     ok "no terminal prints outcome=refused"

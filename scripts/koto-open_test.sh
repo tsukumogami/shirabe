@@ -491,7 +491,7 @@ run_real() {
     STDOUT=$(cat "$T/stdout")
     STDERR=$(cat "$T/stderr")
 }
-first_line() { printf '%s\n' "$STDOUT" | head -1; }
+first_line() { head -1 <<<"$STDOUT"; }
 state_file() { printf '%s/.koto/sessions/%s/koto-%s.state.jsonl' "$HOME" "$1" "$1"; }
 
 # new

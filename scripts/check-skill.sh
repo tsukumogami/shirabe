@@ -24,7 +24,9 @@
 #      once, the costliest first, reporting each in the order a serial run
 #      would;
 #   5. runs scripts/lib/check-evals-shape.py on evals/evals.json (a skill whose
-#      SKILL.md declares disable-model-invocation: true may have none).
+#      SKILL.md declares disable-model-invocation: true may have none);
+#   6. runs scripts/check-pipe-readers.sh over the skill's directory, which
+#      refuses a printf, echo or cat piped into grep -q or head.
 #
 # Every check runs even after one fails. Each failure is reported with the
 # file it concerns, and the run ends with the list of failures.
@@ -119,7 +121,7 @@ done
 [ "$LIST" = 0 ] || [ "$CHANGED" = 1 ] || usage
 SKILL="$1"
 
-if ! printf '%s\n' "$SKILL" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
+if ! grep -Eq '^[a-z0-9][a-z0-9-]*$' <<<"$SKILL" \
     || [ "$(printf '%s\n' "$SKILL" | wc -l | tr -d ' ')" != "1" ]; then
     echo "check-skill: invalid skill name (must match ^[a-z0-9][a-z0-9-]*\$)" >&2
     exit 2
@@ -154,7 +156,7 @@ if [ ! -d "$SKILL_DIR" ]; then
 fi
 
 JOBS="${CHECK_SKILL_JOBS:-4}"
-if ! printf '%s\n' "$JOBS" | grep -Eq '^[1-9][0-9]?$' \
+if ! grep -Eq '^[1-9][0-9]?$' <<<"$JOBS" \
     || [ "$(printf '%s\n' "$JOBS" | wc -l | tr -d ' ')" != "1" ]; then
     echo "check-skill: CHECK_SKILL_JOBS must be a whole number from 1 to 99" >&2
     exit 2
@@ -315,7 +317,7 @@ $p" ;;
                     return
                 fi
                 names=$(callers_of "$name" "$shared")
-                hits=$(printf '%s\n' "$names" | grep -lF -f - "${suites[@]}")
+                hits=$(grep -lF -f - "${suites[@]}" <<<"$names")
                 # The script's own suite counts whether or not it names it.
                 s="$SKILL_DIR/scripts/${name%.*}_test.sh"
                 [ -f "$s" ] && hits="$hits
@@ -517,6 +519,15 @@ if python3 "$SHAPE_CHECK" "$evals_json" "$SKILL_DIR/SKILL.md" >"$LOG" 2>&1; then
 else
     show_log
     fail "eval shape: $evals_json"
+fi
+
+# 6. No shell value piped into a reader that stops early (grep -q, head):
+#    under pipefail the writer can be cut off and a match read as no match.
+if bash "$SCRIPT_DIR/check-pipe-readers.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
+    echo "ok: pipe readers ($SKILL_DIR)"
+else
+    show_log
+    fail "pipe readers: $SKILL_DIR (scripts/check-pipe-readers.sh)"
 fi
 
 if [ -n "$FAILURES" ]; then

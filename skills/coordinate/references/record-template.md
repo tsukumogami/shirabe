@@ -201,7 +201,12 @@ take it over the `--cap` the session was opened with), this coordinator's
 address (its messaging address: the session name a worker can message, which
 may hold `_`, or a dispatch topic; never a session id, a path or an instance
 name) and one `told` row per party
-that has been sent that address. A new address clears the `told` rows. Every
+that has been sent that address. A new address clears the `told` rows. On the
+session store it also holds the crash set: `rules` and `briefs` rows (`<label>
+sha256:<64 hex>`, the digest of a file this coordinator ran with, one row per
+label, a second write replacing the first), a `friction` label, and
+`reports-to` (`<role>` or `<role> at <address>`, who this coordinator reports
+up to); each is refused on a GitHub record. Every
 worker's brief names that address as where to report, read from here by
 `scripts/dispatch-worker.sh`, which refuses a dispatch while it is missing.
 **Standing** holds the events only a person owns while they still bind: a
@@ -235,6 +240,8 @@ written to the body and then told as an entry:
 
 ```
 record-state.sh --session S --run arguments|cap|coordinator|store <value> --by <who>
+record-state.sh --session S --run rules|briefs|friction|reports-to <value> --by <who>   (session store)
+record-state.sh --session S --host <key> <value> [--host <key> <value>]...            (session store)
 record-state.sh --session S --told <topic> --by <who>
 record-state.sh --session S --standing <kind> [--on <scope>] [--until <condition>] --what <text> --owner <who> [--relayed-by <who>]
 record-state.sh --session S --end <s<n>> --by <who>
@@ -403,6 +410,19 @@ still posted to it. A new record starts there with `--store session`
 writes the row, at the next start (`record_move`, `scripts/record-move.sh`).
 `scripts/record-source.sh --show` prints the session's state as the body would
 read.
+
+Two more things live only in the session. `record/host` holds host facts, never
+rendered and never sent to GitHub: where the crash set's files are
+(`rules:<label>`, `briefs:<label>` and `friction`, each an absolute path) and,
+after an import, where the state came from (`source_workspace`,
+`source_session`, `template_hash`). Only `record-state.sh --host` writes it, and
+the opener calls it after an import. And each holding keeps its pushed head
+beside its row in `record/holdings` (`pushed_head`, 40 hex), set with
+`record-holding.sh --topic T --pushed-head <sha>`, by `holding-link.sh` when it
+links a pull request and by the report check when a report reads a new head;
+the rendered body never shows it. The keys move with the session: a resume
+keeps them, a carry copies every `record/` and `legs/` key into the new run,
+and an import brings them all from the other host.
 
 A coordinator's state lives outside its session and outside any directory the
 workspace manager converges, and what must outlive the host lives on GitHub,

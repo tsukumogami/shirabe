@@ -158,13 +158,13 @@ test_machine_readable_registry() {
     local suites scripts rc=0
 
     suites=$($RUNNER --suites 2>&1) || rc=$?
-    if [ $rc -ne 0 ] || ! printf '%s\n' "$suites" | grep -qx deliver \
-        || printf '%s\n' "$suites" | grep -q ' '; then
+    if [ $rc -ne 0 ] || ! grep -qx deliver <<<"$suites" \
+        || grep -q ' ' <<<"$suites"; then
         fail "$name" "--suites (rc=$rc): $suites"
         return
     fi
     scripts=$($RUNNER --scripts plan 2>&1) || rc=$?
-    if [ $rc -ne 0 ] || ! printf '%s\n' "$scripts" | grep -qx 'skills/plan/scripts/plan-to-tasks_test.sh'; then
+    if [ $rc -ne 0 ] || ! grep -qx 'skills/plan/scripts/plan-to-tasks_test.sh' <<<"$scripts"; then
         fail "$name" "--scripts plan (rc=$rc): $scripts"
         return
     fi

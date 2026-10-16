@@ -1137,7 +1137,7 @@ else
     ANY_FAILED=true
     errmsg=$(echo "$FINALIZE_ERR" | jq -r '.error // empty' 2>/dev/null) || errmsg=""
     if [[ -z "$errmsg" ]]; then
-        errmsg=$(echo "$FINALIZE_ERR" | head -1)
+        errmsg=$(head -1 <<<"$FINALIZE_ERR")
     fi
     add_step "transition_design" "$PLAN_DOC" "null" "failed" \
         "finalize-chain exited $FINALIZE_RC while walking the upstream chain of $PLAN_DOC: ${errmsg:-no error detail}"

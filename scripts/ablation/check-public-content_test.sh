@@ -263,19 +263,19 @@ STATUS=0
 OUT=$(cd "$REPO_ROOT" && env -u PUBLIC_CONTENT_ALLOWLIST "$SUT" --denylist "$DENY" scripts/check-template-directives_test.sh 2>&1) || STATUS=$?
 case "$STATUS:$OUT" in
     0:*"allowed: scripts/check-template-directives_test.sh:"*) pass "the committed allow file covers the lint's own fixtures by default" ;;
-    *) fail "the committed allow file covers the lint's own fixtures by default" "status $STATUS: $(printf '%s' "$OUT" | head -3)" ;;
+    *) fail "the committed allow file covers the lint's own fixtures by default" "status $STATUS: $(head -3 <<<"$OUT")" ;;
 esac
 STATUS=0
 OUT=$(cd "$REPO_ROOT" && env -u PUBLIC_CONTENT_ALLOWLIST "$SUT" --denylist "$DENY" skills/scope/scripts/resume-probe_test.sh 2>&1) || STATUS=$?
 case "$STATUS:$OUT" in
     0:*"allowed: skills/scope/scripts/resume-probe_test.sh:"*) pass "the committed allow file covers the probe's seeds by default" ;;
-    *) fail "the committed allow file covers the probe's seeds by default" "status $STATUS: $(printf '%s' "$OUT" | head -3)" ;;
+    *) fail "the committed allow file covers the probe's seeds by default" "status $STATUS: $(head -3 <<<"$OUT")" ;;
 esac
 STATUS=0
 OUT=$(cd "$REPO_ROOT" && env PUBLIC_CONTENT_ALLOWLIST="" "$SUT" --denylist "$DENY" scripts/check-template-directives_test.sh 2>&1) || STATUS=$?
 case "$STATUS:$OUT" in
     1:*"wip/ path"*) pass "with the allowlist disabled the same file is refused" ;;
-    *) fail "with the allowlist disabled the same file is refused" "status $STATUS: $(printf '%s' "$OUT" | head -3)" ;;
+    *) fail "with the allowlist disabled the same file is refused" "status $STATUS: $(head -3 <<<"$OUT")" ;;
 esac
 
 echo "check-public-content_test: $PASS_COUNT passed, $FAIL_COUNT failed" >&2
