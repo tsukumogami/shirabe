@@ -140,10 +140,14 @@ live_size() {
 ARCHIVE=false
 if jq -e -L "$HERE" 'include "record-codec"; any(.entries[]; d_archivable)' "$T/section.json" > /dev/null; then
     live_size
-    if [ "$SIZE" -gt $((60000 - 4096)) ] \
-        && jq -e -L "$HERE" --slurpfile r "$LIVE" 'include "record-codec"; ($r[0] | d_parked) as $p | any(.entries[]; d_archivable($p))' \
-            "$T/section.json" > /dev/null 2>&1; then
-        ARCHIVE=true
+    if [ "$SIZE" -gt $((60000 - 4096)) ]; then
+        jq -e -L "$HERE" --slurpfile r "$LIVE" 'include "record-codec"; ($r[0] | d_parked) as $p | any(.entries[]; d_archivable($p))' \
+            "$T/section.json" > /dev/null 2> "$T/parked.err"
+        case $? in
+            0) ARCHIVE=true ;;
+            1) ;;
+            *) cat "$T/parked.err" >&2; lib_die2 "cannot read the Work section" ;;
+        esac
     fi
 fi
 if [ "$ARCHIVE" = true ]; then
