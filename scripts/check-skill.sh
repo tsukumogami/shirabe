@@ -10,10 +10,13 @@
 # starts `claude` or calls a model.
 #
 # For skills/<skill>/ it:
-#   1. checks shirabe, koto, python3 and git are on PATH, naming each one that
-#      is missing (exit 2);
+#   1. checks koto, python3 and git are on PATH, naming each one that is
+#      missing (exit 2);
 #   2. runs `shirabe validate` once over the skill's Markdown outside evals/
-#      and koto-templates/;
+#      and koto-templates/, with the branch's own shirabe where the tree can
+#      give one (SHIRABE_BIN, the tree's fresh target/release build, or a
+#      build of it) and the installed one otherwise, naming which (exit 2
+#      when there is none);
 #   3. runs `koto template compile` on each koto-templates/*.md that is not a
 #      *.mermaid.md;
 #   4. runs each scripts/*_test.sh with `bash`, from the repository root, the
@@ -123,7 +126,7 @@ if ! printf '%s\n' "$SKILL" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
 fi
 
 missing=""
-for tool in shirabe koto python3 git; do
+for tool in koto python3 git; do
     command -v "$tool" >/dev/null || missing="$missing $tool"
 done
 if [ -n "$missing" ]; then
@@ -143,6 +146,7 @@ for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
 done
 
 cd "$ROOT" || { echo "check-skill: cannot enter $ROOT" >&2; exit 2; }
+
 SKILL_DIR="skills/$SKILL"
 if [ ! -d "$SKILL_DIR" ]; then
     echo "check-skill: no such skill: $SKILL_DIR" >&2
@@ -378,6 +382,53 @@ fi
 
 echo "check-skill: $SKILL_DIR"
 
+# The shirabe that validates (shirabe#860): the branch's own wherever the
+# tree can give one, so a format newer than the installed release (a PLAN
+# schema, say) is judged by the code that ships with it rather than failing
+# on content that is correct. In order:
+#   1. SHIRABE_BIN, when set to an executable (CI builds the branch's);
+#   2. the tree's target/release/shirabe, when nothing under crates/ and no
+#      Cargo.toml or Cargo.lock is newer than it;
+#   3. a build of it (cargo build --release --locked -p shirabe), once, when
+#      the tree is shirabe's source and cargo is on PATH;
+#   4. the installed shirabe on PATH.
+# The run says which it used. A binary from 1 to 3 is also exported as
+# SHIRABE_BIN, which the suites that run shirabe read.
+resolve_shirabe() {
+    local bin="target/release/shirabe" newer
+    if [ -n "${SHIRABE_BIN:-}" ] && [ -x "$SHIRABE_BIN" ]; then
+        VALIDATOR=$SHIRABE_BIN VALIDATOR_FROM="SHIRABE_BIN"
+        return 0
+    fi
+    [ -f crates/shirabe/Cargo.toml ] || return 1
+    if [ -x "$bin" ]; then
+        newer=$(find crates Cargo.toml Cargo.lock -newer "$bin" -type f 2>/dev/null)
+        if [ -z "$newer" ]; then
+            VALIDATOR="$ROOT/$bin" VALIDATOR_FROM="the tree's build"
+            return 0
+        fi
+    fi
+    command -v cargo >/dev/null || return 1
+    echo "check-skill: building shirabe from the tree (cargo build --release --locked -p shirabe)"
+    if cargo build --release --locked -p shirabe >"$LOG" 2>&1 && [ -x "$bin" ]; then
+        VALIDATOR="$ROOT/$bin" VALIDATOR_FROM="a build of the tree"
+        return 0
+    fi
+    show_log
+    echo "check-skill: the build failed; falling back to the installed shirabe"
+    return 1
+}
+VALIDATOR="" VALIDATOR_FROM=""
+if resolve_shirabe; then
+    export SHIRABE_BIN="$VALIDATOR"
+elif command -v shirabe >/dev/null; then
+    VALIDATOR=$(command -v shirabe) VALIDATOR_FROM="the installed release"
+else
+    echo "check-skill: required tool(s) not on PATH: shirabe (and the tree builds none)" >&2
+    exit 2
+fi
+echo "check-skill: validating with $VALIDATOR ($VALIDATOR_FROM)"
+
 # 2. shirabe validate, once, over the skill's Markdown outside evals/ and
 # koto-templates/. Collected into an array so names reach the tool intact.
 md_files=()
@@ -390,7 +441,7 @@ EOF
 
 if [ ${#md_files[@]} -eq 0 ]; then
     echo "shirabe validate: no Markdown outside evals/ and koto-templates/"
-elif shirabe validate "${md_files[@]}" >"$LOG" 2>&1; then
+elif "$VALIDATOR" validate "${md_files[@]}" >"$LOG" 2>&1; then
     echo "ok: shirabe validate (${#md_files[@]} files)"
 else
     show_log
