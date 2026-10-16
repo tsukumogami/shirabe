@@ -968,9 +968,12 @@ eq  "  ... and attaches nothing again" 0 "$(attaches)"
 # Killed after the request opened but before the key named it: the re-run
 # abandons that stray request and opens its own.
 imp_setup
-printf '{"requests":[{"request_id":"req_7","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+# The listing names the leg being re-legged too, as a store that did hold it
+# would: it is never abandoned.
+printf '{"requests":[{"request_id":"req_7","coordinator_of_record":"coordinate-plugin-api","request_state":"open"},{"request_id":"req_9","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
 run --releg-imported plugin-api >/dev/null 2>&1; eq "crash: killed before releg-pending, a re-run finishes: exit 0" 0 "$?"
 has "  ... abandoning the request the interrupted run left" "$(calls)" "koto request abandon-request req_7"
+lacks "  ... and never the request being re-legged" "$(calls)" "koto request abandon-request req_9"
 eq  "  ... and attaching once, to its own" 1 "$(attaches)"
 
 # Killed after the pending request was written: a re-run attaches it once.

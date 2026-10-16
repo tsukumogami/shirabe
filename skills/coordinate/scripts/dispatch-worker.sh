@@ -662,11 +662,15 @@ if [ -n "$IMPORTED" ]; then
     if [ -z "$NEW" ]; then
         # A request an earlier run opened under this topic and was stopped
         # before it recorded is named by no key: abandon it, so the one this
-        # run opens is the topic's only open request here.
+        # run opens is the topic's only open request here. The leg being
+        # re-legged is never among them (this host's store doesn't hold its
+        # request, which is how this run got here), and is skipped by name
+        # all the same.
         LEFT=$("$KOTO" request list --coordinator-of-record "coordinate-$TOPIC" --state open </dev/null) ||
             die 2 "koto request list failed for $TOPIC"
         while IFS= read -r old; do
             [[ $old =~ $RE_REQ ]] || continue
+            [ "$old" != "$REQ" ] || continue
             "$KOTO" request abandon-request "$old" --rationale "left by an interrupted re-leg of $TOPIC" </dev/null >/dev/null ||
                 die 2 "could not abandon the open request $old for $TOPIC"
         done <<EOF
