@@ -21,9 +21,10 @@ on:
       - 'skills/execute/evals/fixtures/bin/gh'
       - 'skills/scope/koto-templates/scope.md'
       - '.github/workflows/check-deliver-scripts.yml'
-      # The macOS leg reaches bash 3.2 through the runner, so a change to it has
-      # to re-run this suite.
+      # The macOS leg reaches bash 3.2 through the runner, which reads this
+      # suite's scripts from its list, so a change to either has to re-run it.
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/deliver.list'
       # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'

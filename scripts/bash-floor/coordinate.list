@@ -1,0 +1,69 @@
+workflow: .github/workflows/check-coordinate-scripts.yml
+# /coordinate's script tests. They drive test-local gh and koto
+# stand-ins and need only jq and git, so every case runs on 3.2.
+# Its engine suites (*_engine_test.sh) need real koto and run on
+# ubuntu only.
+skills/coordinate/scripts/record-codec_test.sh
+skills/coordinate/scripts/coord-log_test.sh
+skills/coordinate/scripts/coordinate-report_test.sh
+skills/coordinate/scripts/rule-coverage_test.sh
+skills/coordinate/scripts/record-find_test.sh
+skills/coordinate/scripts/record-open_test.sh
+skills/coordinate/scripts/record-write_test.sh
+skills/coordinate/scripts/record-holding_test.sh
+skills/coordinate/scripts/record-confirm_test.sh
+skills/coordinate/scripts/start-check_test.sh
+skills/coordinate/scripts/posture-read_test.sh
+# The board, land and merge scripts: a localized plugin tree with
+# the gh-board and koto stand-ins, so every case runs on 3.2.
+skills/coordinate/scripts/board-verdict_test.sh
+skills/coordinate/scripts/board-record_test.sh
+skills/coordinate/scripts/land-check_test.sh
+skills/coordinate/scripts/land-merge_test.sh
+skills/coordinate/scripts/merge-confirm_test.sh
+skills/coordinate/scripts/merged-facts_test.sh
+# The close-outs and the turn's checks: the gh and koto stand-ins
+# (closeout-read's in a localized tree with a stand-in board), so
+# every case runs on 3.2.
+skills/coordinate/scripts/predecessor-handoff_test.sh
+skills/coordinate/scripts/closeout-read_test.sh
+skills/coordinate/scripts/rotation-close_test.sh
+skills/coordinate/scripts/deferral-check_test.sh
+skills/coordinate/scripts/pick-facts_test.sh
+skills/coordinate/scripts/roadmap-features_test.sh
+skills/coordinate/scripts/report-facts_test.sh
+skills/coordinate/scripts/quiet-check_test.sh
+skills/coordinate/scripts/skill-hygiene_test.sh
+skills/coordinate/scripts/progress-view_test.sh
+skills/coordinate/scripts/coord-verdict-table_test.sh
+# The dispatch path's scripts: test-local niwa, koto, gh and record
+# stand-ins, so every case runs on 3.2.
+skills/coordinate/scripts/dispatch-common_test.sh
+skills/coordinate/scripts/render-brief_test.sh
+skills/coordinate/scripts/dispatch-worker_test.sh
+skills/coordinate/scripts/wait-target_test.sh
+skills/coordinate/scripts/teardown-inventory_test.sh
+# The teardown pass's field checks and its cost capture: stand-in
+# niwa, claude, gh and record scripts, process groups under the
+# deadline, so every case runs on 3.2.
+skills/coordinate/scripts/teardown-pass_test.sh
+skills/coordinate/scripts/teardown-handoff_test.sh
+skills/coordinate/scripts/unit-cost_test.sh
+# The decision-phrasing list's reader: bash, awk and grep only.
+skills/coordinate/scripts/decision-phrasings_test.sh
+skills/coordinate/scripts/decision-render_test.sh
+skills/coordinate/scripts/report-questions_test.sh
+skills/coordinate/scripts/record-decision_test.sh
+skills/coordinate/scripts/decision-next_test.sh
+skills/coordinate/scripts/need-check_test.sh
+skills/coordinate/scripts/skill-states_test.sh
+# Milestone verdicts (docs/designs/DESIGN-milestone-verdicts.md):
+# the file-only reader and checker, the writer of verdict-owed
+# rows and verdict edits, the record scripts it changes, and the
+# feature's acceptance suite. gh and koto stand-ins and a stand-in
+# shirabe, so every case runs on 3.2.
+skills/coordinate/scripts/milestone_test.sh
+skills/coordinate/scripts/roadmap-status_test.sh
+skills/coordinate/scripts/record-state_test.sh
+skills/coordinate/scripts/record-append_test.sh
+skills/coordinate/scripts/milestone-verdicts_test.sh

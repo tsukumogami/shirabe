@@ -12,6 +12,7 @@ on:
       # reconcile-deps.sh sources /execute's validators.
       - 'skills/execute/scripts/coord-common.sh'
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/coordinate-reconcile.list'
       - '.github/workflows/check-coordinate-reconcile-scripts.yml'
 
 jobs:

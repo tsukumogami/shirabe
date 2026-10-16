@@ -657,6 +657,61 @@ test_image_recipe() {
     pass "$name"
 }
 
+# The registry is one list per suite under scripts/bash-floor/ (shirabe#907).
+# Each list has to say which workflow runs it and name at least one script, or
+# a suite can sit in the registry while nothing floor-checks it.
+test_every_list_names_a_workflow_and_scripts() {
+    local name="every suite list names an existing workflow and a script"
+    local list suite wf n bad=""
+
+    for list in "$SCRIPT_DIR"/bash-floor/*.list; do
+        suite=$(basename "$list" .list)
+        wf=$(awk 'sub(/^workflow:[[:space:]]*/, "") { print; exit }' "$list")
+        [ -n "$wf" ] && [ -f "$SCRIPT_DIR/../$wf" ] || bad="$bad $suite(workflow:${wf:-none})"
+        n=$($RUNNER --scripts "$suite" | grep -c .) || n=0
+        [ "$n" -gt 0 ] || bad="$bad $suite(no scripts)"
+    done
+    if [ -n "$bad" ]; then
+        fail "$name" "$bad"
+    else
+        pass "$name"
+    fi
+}
+
+# Every suite a workflow hands the runner has to have a list. A list that is
+# renamed or removed would otherwise fail only when that workflow next runs,
+# and a suite would drop off the floor until then.
+test_every_floor_call_names_a_list() {
+    local name="every suite a workflow runs on the floor has a list"
+    local calls suite missing=""
+
+    calls=$(sed -n 's/.*check-bash-floor\.sh --backend [a-z]* \([a-z0-9-]*\).*/\1/p' "$SCRIPT_DIR"/../.github/workflows/*.yml
+        sed -n 's/^ *suite: \[\(.*\)\]/\1/p' "$SCRIPT_DIR/../.github/workflows/check-bash-floor.yml" | tr ',' '\n')
+    for suite in $calls; do
+        [ -f "$SCRIPT_DIR/bash-floor/$suite.list" ] || missing="$missing $suite"
+    done
+    if [ -z "$calls" ]; then
+        fail "$name" "found no floor call in .github/workflows/"
+    elif [ -n "$missing" ]; then
+        fail "$name" "no list for:$missing"
+    else
+        pass "$name"
+    fi
+}
+
+# A suite name is a list's name, never a path.
+test_suite_name_is_not_a_path() {
+    local name="a suite name that reaches outside the lists is refused"
+    local rc=0
+
+    $RUNNER --scripts ../bash-floor/plan >/dev/null 2>&1 || rc=$?
+    if [ "$rc" -eq 2 ]; then
+        pass "$name"
+    else
+        fail "$name" "expected exit 2, got $rc"
+    fi
+}
+
 echo "Running check-bash-floor.sh tests..."
 echo ""
 
@@ -666,6 +721,9 @@ test_floor_run_names_the_version
 test_list_names_every_suite
 test_registry_scripts_exist
 test_machine_readable_registry
+test_every_list_names_a_workflow_and_scripts
+test_every_floor_call_names_a_list
+test_suite_name_is_not_a_path
 test_unknown_suite_is_refused
 test_no_suite_is_refused
 test_unreachable_floor_is_not_reported_as_a_suite_failure
