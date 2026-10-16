@@ -545,6 +545,7 @@ for bad in "$LOGS/missing.jsonl" "$LOGS/noheader.jsonl" "$LOGS/v2.jsonl" "$LOGS/
     ladder "$bad" g t/multi t/single
     if [ $RC -eq 1 ] && [ "$(released t/multi)" = 1 ] && [ "$(released t/single)" = 1 ] && [ "$(notices)" = 0 ] \
         && grep -q "^rule-findings: could not read koto's counts from $bad" "$T/lerr" \
+        && ! grep -q '^jq: ' "$T/lerr" \
         && cmp -s "$T/lout" <("$L/probe.sh" t/multi t/single 2>/dev/null); then
         pass "ladder: an unreadable log ($(basename "$bad")) releases every rule and offers no exit"
     else
@@ -562,6 +563,10 @@ fi
 SHIRABE_GATE_NAME=g "$L/probe.sh" t/multi > /dev/null 2> "$T/lerr"
 [ "$(released t/multi)" = 1 ] && pass "ladder: a gate name with no log is the unreadable-log path, not silence" \
     || fail "ladder half context" "err=[$(cat "$T/lerr")]"
+SHIRABE_GATE_LOG="$LOGS/one.jsonl" "$L/probe.sh" t/multi > /dev/null 2> "$T/lerr"
+[ "$(released t/multi)" = 1 ] && grep -q "^rule-findings: could not read koto's counts" "$T/lerr" \
+    && pass "ladder: a log with no gate name is the unreadable-log path, not silence" \
+    || fail "ladder half context log" "err=[$(cat "$T/lerr")]"
 
 # Text release refuses: its refusal line, then the rule's anchored reference.
 mklog "$LOGS/refused.jsonl" pr_creation "$(fail_ev pr_creation g t/long 1)" "$(fail_ev pr_creation g t/docs 1)"

@@ -209,7 +209,10 @@ rf_exit_field() {
 # highest rule_counts[id].session on gate_evaluated events of this state and
 # SHIRABE_GATE_NAME. Returns non-zero, printing nothing, when the log can't be
 # read: missing, not a schema-version-1 koto log, or no transition to name the
-# state. jq's own message can quote the log, so it is discarded with its file.
+# state. The header is line 1 and, unlike every event, carries no `seq`
+# (koto's session-feed contract), which is how a log cut from the middle or an
+# event file passed by mistake is told from a real one. jq's own message can
+# quote the log, so it is discarded with its file.
 rf_ladder_counts() {
     local log=${SHIRABE_GATE_LOG:-} err out rc
     [ -n "$log" ] && [ -n "${SHIRABE_GATE_NAME:-}" ] && [ -f "$log" ] && [ -r "$log" ] || return 1
@@ -243,9 +246,9 @@ rf_ladder_counts() {
 rf_deliver() {
     local counts state field id count released top_id="" top=0 notice
     [ -z "$RF_DELIVERED" ] || return 0
-    RF_DELIVERED=1
     [ -n "$RF_REPORTED" ] || return 0
     rf_ladder_active || return 0
+    RF_DELIVERED=1
     if counts=$(rf_ladder_counts); then
         state=$(printf '%s\n' "$counts" | awk -F'\t' '$1 == "state" { print $2; exit }')
         counts=$(printf '%s\n' "$counts" | awk -F'\t' '$1 != "state"')
