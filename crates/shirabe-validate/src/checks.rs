@@ -3452,10 +3452,11 @@ const PROSE_FINDING_CAP: usize = 50;
 /// read the list at validate time. It did not: the constant and the
 /// reference diverged, which is the defect the rule source exists to end.
 ///
-/// A rule source that fails to resolve or parse yields no findings here.
-/// The CLI surfaces that as a tool error before checks run, because a
-/// checking surface reporting success when its rules did not load is the
-/// same failure mode.
+/// A rule source that fails to resolve or parse yields no findings here,
+/// and nothing reports that: `cached_rules()` discards the reason, and the
+/// document path of the CLI does not turn it into a tool error. A caller
+/// that must not pass silently loads its rules explicitly, as
+/// `shirabe validate --pr-body --writing-style <file>` does.
 pub fn check_writing_style(doc: &Doc, _spec: &FormatSpec) -> Vec<ValidationError> {
     match crate::rules::cached_rules() {
         Some(rules) => {
@@ -3481,14 +3482,71 @@ pub fn check_writing_style_with(
     rules: &crate::rules::Rules,
     vocabulary: &[String],
 ) -> Vec<ValidationError> {
-    let mut errs = Vec::new();
     let spans = crate::prose::prose_spans(&doc.body, doc.body_start_line);
+    let (hits, truncated) = banned_terms_in_spans(&spans, rules, vocabulary, PROSE_FINDING_CAP);
+    let mut errs: Vec<ValidationError> = hits
+        .into_iter()
+        .map(|hit| {
+            let banned = hit.term;
+            ValidationError {
+                file: doc.path.clone(),
+                line: hit.line,
+                code: "FC10".to_string(),
+                message: format!(
+                    "[FC10] writing-style banned word {banned:?} -- see skills/writing-style/rules.yaml for canonical alternatives"
+                ),
+            }
+        })
+        .collect();
+
+    if truncated {
+        errs.push(ValidationError {
+            file: doc.path.clone(),
+            line: 1,
+            code: "FC10".to_string(),
+            message: format!(
+                "[FC10] writing-style findings truncated at {PROSE_FINDING_CAP} for this file; fix these and re-run to see the rest"
+            ),
+        });
+    }
+
+    errs
+}
+
+/// One banned term found in prose: the term as the rule source spells it
+/// (lowercased) and the line its span starts on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TermHit {
+    pub term: String,
+    pub line: usize,
+}
+
+/// The banned-term matcher every writing-style check shares.
+///
+/// FC10 (documents) and PB5 (pull request titles and bodies) both call it,
+/// over spans `prose::prose_spans` produced, so what counts as prose and how
+/// a term matches are decided once. A change to either, such as skipping
+/// quoted text, reaches both checks.
+///
+/// Matching is case-insensitive and whole-word: a hit is preceded and
+/// followed by a non-alphanumeric, non-underscore byte or by the span's
+/// edge. Terms in `vocabulary` are skipped. Hits come in span order, then
+/// in the rule source's sorted term order, then left to right.
+///
+/// At most `cap` hits are returned. The second value is `true` when there
+/// was at least one more, and matching stops there rather than scanning on.
+pub fn banned_terms_in_spans(
+    spans: &[crate::prose::ProseSpan],
+    rules: &crate::rules::Rules,
+    vocabulary: &[String],
+    cap: usize,
+) -> (Vec<TermHit>, bool) {
+    let mut hits = Vec::new();
     let suppressed: std::collections::BTreeSet<String> =
         vocabulary.iter().map(|t| t.to_lowercase()).collect();
     let terms = rules.all_terms();
-    let mut truncated = false;
 
-    'outer: for span in &spans {
+    for span in spans {
         if span.text.trim().is_empty() {
             continue;
         }
@@ -3518,17 +3576,12 @@ pub fn check_writing_style_with(
                         .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
                         .unwrap_or(false);
                 if before_ok && after_ok {
-                    if errs.len() >= PROSE_FINDING_CAP {
-                        truncated = true;
-                        break 'outer;
+                    if hits.len() >= cap {
+                        return (hits, true);
                     }
-                    errs.push(ValidationError {
-                        file: doc.path.clone(),
+                    hits.push(TermHit {
+                        term: banned.to_string(),
                         line: span.line,
-                        code: "FC10".to_string(),
-                        message: format!(
-                            "[FC10] writing-style banned word {banned:?} -- see skills/writing-style/rules.yaml for canonical alternatives"
-                        ),
                     });
                 }
                 search_from = abs + banned.len();
@@ -3539,18 +3592,7 @@ pub fn check_writing_style_with(
         }
     }
 
-    if truncated {
-        errs.push(ValidationError {
-            file: doc.path.clone(),
-            line: 1,
-            code: "FC10".to_string(),
-            message: format!(
-                "[FC10] writing-style findings truncated at {PROSE_FINDING_CAP} for this file; fix these and re-run to see the rest"
-            ),
-        });
-    }
-
-    errs
+    (hits, false)
 }
 
 /// FC10 frequency rules: a rate against a threshold, reported per document.

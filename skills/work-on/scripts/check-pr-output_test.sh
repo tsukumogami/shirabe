@@ -36,6 +36,13 @@ WORKDIR=$(cd -P "$WORKDIR" && pwd -P)
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 
+# A real validator for the PB5 cases near the end, found before the stand-ins
+# go on PATH: CHECK_PR_OUTPUT_REAL_SHIRABE, else the shirabe already on PATH.
+# The cases run only when it knows --writing-style; CI builds one from this
+# checkout and sets CHECK_PR_OUTPUT_REQUIRE_SHIRABE=1, which makes a missing
+# one a failure instead of a skip.
+REAL_SHIRABE=${CHECK_PR_OUTPUT_REAL_SHIRABE:-$(command -v shirabe 2>/dev/null || true)}
+
 BIN="$WORKDIR/bin"
 LOG="$WORKDIR/log"
 mkdir -p "$BIN" "$LOG"
@@ -59,6 +66,8 @@ for a in "$@"; do
     printf '%s' "$a" > "$LOG/$tool/arg.$i"
 done
 printf '%s\n' "$i" > "$LOG/$tool/argc"
+# One line per call, appended, so a case can count calls.
+printf 'call\n' >> "$LOG/$tool/calls"
 EOF
 
 # gh pr view [<url>] --json title,body: FAKE_GH_OWNED_JSON for a URL,
@@ -407,6 +416,256 @@ else
     fail "owned-pr.sh resolution: rc=$RC, execute copy ran: $([ -f "$LOG/owned-execute/argc" ] && echo yes || echo no), PATH copy ran: $([ -e "$LOG/owned" ] && echo yes || echo no)"
 fi
 
+# --- --pr-body: banned words (PB5, --writing-style) ----------------------------
+
+PLUGIN_RULES="$(cd "$SCRIPT_DIR/../../writing-style" && pwd -P)/rules.yaml"
+PB5_BODY='[PB5] writing-style banned word "leverage" on line 3 -- Prefer the plain verb. Most of these are longer ways to say use, help, or show.'
+PB5_TITLE='[PB5] writing-style banned word "seamless" in the title -- These assert a quality instead of demonstrating it. Cut, or replace with the specific claim.'
+
+# arg_after <tool> <flag>: the argument the stand-in received after <flag>.
+arg_after() {
+    local i=1 n
+    n=$(cat "$LOG/$1/argc")
+    while [ "$i" -lt "$n" ]; do
+        if [ "$(cat "$LOG/$1/arg.$i")" = "$2" ]; then
+            cat "$LOG/$1/arg.$((i + 1))"
+            return 0
+        fi
+        i=$((i + 1))
+    done
+    return 1
+}
+
+FAKE_SHIRABE_RC=0
+FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'
+run --pr-body
+if [ "$RC" -eq 0 ] && [ "$(arg_after shirabe --writing-style)" = "$PLUGIN_RULES" ] \
+    && [ "$(cat "$LOG/shirabe/arg.4")" = --pr-title ] && [ "$(cat "$LOG/shirabe/arg.6")" = --format ]; then
+    pass "--pr-body: the validator gets --writing-style with this plugin's own rules.yaml, after the existing arguments"
+else
+    fail "--pr-body: --writing-style got [$(arg_after shirabe --writing-style)], want [$PLUGIN_RULES]"
+fi
+
+# Neither SHIRABE_RULES nor a rules.yaml where the gate runs changes the file
+# the validator is told to load.
+mkdir -p "$WORKDIR/repo/skills/writing-style"
+printf 'words: []\n' > "$WORKDIR/repo/skills/writing-style/rules.yaml"
+OUT=$(cd "$WORKDIR/repo" && SHIRABE_RULES=/dev/null "$CHECK" --pr-body 2>"$WORKDIR/stderr")
+RC=$?
+if [ "$RC" -eq 0 ] && [ "$(arg_after shirabe --writing-style)" = "$PLUGIN_RULES" ]; then
+    pass "--pr-body: SHIRABE_RULES and a rules.yaml in the working directory don't change the rules passed"
+else
+    fail "--pr-body: with SHIRABE_RULES and a local rules.yaml, --writing-style got [$(arg_after shirabe --writing-style)]"
+fi
+
+# Each stand-in appends one line to its `calls` file per call.
+rm -rf "$LOG/gh" "$LOG/shirabe"
+run --pr-body
+calls() { grep -c . "$LOG/$1/calls" 2>/dev/null || echo 0; }
+if [ "$(calls gh)" -eq 1 ] && [ "$(calls shirabe)" -eq 1 ]; then
+    pass "--pr-body: one gh pr view and one validator run per evaluation"
+else
+    fail "--pr-body: gh ran $(calls gh), shirabe ran $(calls shirabe) times"
+fi
+
+FAKE_SHIRABE_RC=2
+FAKE_SHIRABE_OUT=$(msg_json "$PB5_BODY")
+run --pr-body
+expect_rc "--pr-body: a PB5 finding exits 1" 1
+check_shape "--pr-body: PB5"
+F=$(findings)
+REF=$(printf '%s' "$F" | jq -r '.rule_ref')
+WANT_REF=$("$SCRIPT_DIR/../../../scripts/rule-registry.sh" ref pr-body/banned-word)
+SUMMARY=$("$SCRIPT_DIR/../../../scripts/rule-registry.sh" summary pr-body/banned-word)
+if [ "$(finding_count)" -eq 1 ] && [ "$(printf '%s' "$F" | jq -r '.rule_id')" = pr-body/banned-word ] \
+    && [ "$(printf '%s' "$F" | jq -r '.level')" = error ] && [ "$REF" = "$WANT_REF" ] \
+    && [ "$(printf '%s' "$F" | jq -r '.message')" = "$SUMMARY: $PB5_BODY" ]; then
+    pass "--pr-body: a [PB5] message is one pr-body/banned-word finding at level error, with the entry's summary and rule_ref"
+else
+    fail "--pr-body: PB5 finding [$F], want rule_ref [$WANT_REF]"
+fi
+case "$REF" in
+    skills/writing-style/rules.yaml#L*) pass "--pr-body: pr-body/banned-word's rule_ref opens skills/writing-style/rules.yaml" ;;
+    *) fail "--pr-body: pr-body/banned-word rule_ref [$REF]" ;;
+esac
+
+FAKE_SHIRABE_OUT=$(msg_json "$PB5_TITLE")
+# shellcheck disable=SC2086
+run --pr-body --owned $OWNED_ARGS
+GOT=$(findings | jq -r '.rule_id' | tr '\n' ' ')
+if [ "$RC" -eq 1 ] && [ "$GOT" = "pr-body/banned-word " ]; then
+    pass "--pr-body --owned: a title-only PB5 finding is pr-body/banned-word, not pr-body/conventional-title"
+else
+    fail "--pr-body --owned: title PB5 rc $RC, rules [$GOT]"
+fi
+
+FAKE_SHIRABE_OUT=$(msg_json "$PB2" "$PB5_BODY")
+run --pr-body
+GOT=$(findings | jq -r '.rule_id' | tr '\n' ' ')
+if [ "$RC" -eq 1 ] && [ "$GOT" = "pr-body/one-separator pr-body/banned-word " ]; then
+    pass "--pr-body: PB2 and PB5 together print both findings and exit 1"
+else
+    fail "--pr-body: PB2+PB5 rc $RC, rules [$GOT]"
+fi
+
+# A validator exit 1 for any reason but the flag holds the gate, without the
+# upgrade wording.
+FAKE_SHIRABE_RC=1
+FAKE_SHIRABE_OUT=''
+run --pr-body
+if [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ] && ! grep -q 'predates' "$WORKDIR/stderr"; then
+    pass "--pr-body: a validator exit 1 for another reason holds the gate (2) without the upgrade message"
+else
+    fail "--pr-body: validator exit 1: rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+
+# An installed shirabe older than --writing-style: clap rejects the flag (exit
+# 1, its usage hint on the last stderr line), and the gate holds and says to
+# upgrade. That validator lives in its own directory, put ahead of $BIN for
+# this one run, so the suite's stand-in is never rewritten. The message is the
+# one clap prints today; the gate matches on it, so a clap upgrade that
+# rewords it would show up here first.
+OLDSH="$WORKDIR/oldsh"
+mkdir -p "$OLDSH"
+cat > "$OLDSH/shirabe" <<'EOF'
+#!/usr/bin/env bash
+echo "error: unexpected argument '--writing-style' found" >&2
+echo "" >&2
+echo "For more information, try '--help'." >&2
+exit 1
+EOF
+chmod +x "$OLDSH/shirabe"
+OUT=$(PATH="$OLDSH:$PATH" "$CHECK" --pr-body 2>"$WORKDIR/stderr")
+RC=$?
+if [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ] && grep -q 'predates the PR writing-style check' "$WORKDIR/stderr"; then
+    pass "--pr-body: a shirabe that rejects --writing-style holds the gate (2), no finding, and names the upgrade"
+else
+    fail "--pr-body: old shirabe: rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+
+# No shirabe on PATH at all.
+NOSH="$WORKDIR/nosh"
+mkdir -p "$NOSH"
+for t in gh record.sh owned-pr.sh; do cp "$BIN/$t" "$NOSH/"; done
+for t in jq bash cat sed grep awk mktemp rm tail wc tr cut head dirname printf mkdir cp git; do
+    p=$(command -v "$t" 2>/dev/null) && ln -sf "$p" "$NOSH/$t"
+done
+OUT=$(PATH="$NOSH" "$CHECK" --pr-body 2>"$WORKDIR/stderr")
+RC=$?
+if [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ]; then
+    pass "--pr-body: no shirabe on PATH holds the gate (2) with no finding"
+else
+    fail "--pr-body: without shirabe: rc $RC, stdout $OUT"
+fi
+
+# This plugin's rules.yaml missing from an installed-style copy: the gate
+# holds with no finding (the control is the unaltered copy deciding).
+NORULES="$WORKDIR/norules"
+rf_test_copy_plugin "$NORULES"
+FAKE_SHIRABE_RC=0
+FAKE_SHIRABE_OUT='{"schema":"shirabe-pr-body/v1","outcome":"clean","findings":[]}'
+OUT=$(SHIRABE_FINDINGS_LOG="" "$NORULES/skills/work-on/scripts/check-pr-output.sh" --pr-body 2>"$WORKDIR/stderr")
+RC_CONTROL=$?
+rm -f "$NORULES/skills/writing-style/rules.yaml"
+OUT=$(SHIRABE_FINDINGS_LOG="" "$NORULES/skills/work-on/scripts/check-pr-output.sh" --pr-body 2>"$WORKDIR/stderr")
+RC=$?
+if [ "$RC_CONTROL" -eq 0 ] && [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ]; then
+    pass "--pr-body: a plugin copy without its rules.yaml holds the gate (2) with no finding"
+else
+    fail "--pr-body: missing rules.yaml: control rc $RC_CONTROL, rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+
+# --- --pr-body against a real validator -----------------------------------------
+#
+# The stand-in can't show that the real messages carry the prefix the gate
+# maps on, or that a broken rules file stops the real validator.
+
+real_ok=0
+if [ -n "$REAL_SHIRABE" ] && [ -x "$REAL_SHIRABE" ] \
+    && grep -q -- '--writing-style' <<<"$("$REAL_SHIRABE" validate --help 2>/dev/null)"; then
+    real_ok=1
+fi
+if [ "$real_ok" -eq 0 ]; then
+    if [ "${CHECK_PR_OUTPUT_REQUIRE_SHIRABE:-0}" = 1 ]; then
+        fail "real validator: no shirabe with --writing-style (got [${REAL_SHIRABE:-none}])"
+    else
+        echo "SKIP: real-validator cases (no shirabe with --writing-style; set CHECK_PR_OUTPUT_REAL_SHIRABE)"
+    fi
+else
+    REALBIN="$WORKDIR/realbin"
+    mkdir -p "$REALBIN" "$WORKDIR/realcwd"
+    ln -sf "$REAL_SHIRABE" "$REALBIN/shirabe"
+    real_run() { # <plugin root> [args...]: run that plugin's gate with the real validator
+        local root=$1
+        shift
+        OUT=$(cd "$WORKDIR/realcwd" && PATH="$REALBIN:$PATH" "$root/skills/work-on/scripts/check-pr-output.sh" "$@" 2>"$WORKDIR/stderr")
+        RC=$?
+    }
+    PLUGIN_ROOT_HERE=$(cd "$SCRIPT_DIR/../../.." && pwd -P)
+
+    FAKE_GH_BRANCH_JSON=$(pr_json "feat: a plain title" "Part one.
+
+We will leverage the cache.
+
+---
+
+Part two.")
+    real_run "$PLUGIN_ROOT_HERE" --pr-body
+    F=$(findings)
+    if [ "$RC" -eq 1 ] && [ "$(finding_count)" -eq 1 ] \
+        && [ "$(printf '%s' "$F" | jq -r '.rule_id')" = pr-body/banned-word ] \
+        && [ "$(printf '%s' "$F" | jq -r '.rule_ref')" = "$WANT_REF" ] \
+        && grep -qF -- "$SUMMARY: [PB5] writing-style banned word \"leverage\" on line 3 -- Prefer the plain verb." <<<"$(jq -r '.message' <<<"$F")"; then
+        pass "real validator: body line 3's leverage is one pr-body/banned-word finding with the summary, line, guidance and rule_ref"
+    else
+        fail "real validator: line-3 case rc $RC, findings [$F], stderr $(cat "$WORKDIR/stderr")"
+    fi
+
+    MANY=""
+    i=0
+    while [ "$i" -lt 60 ]; do MANY="$MANY
+leverage
+"; i=$((i + 1)); done
+    FAKE_GH_BRANCH_JSON=$(pr_json "feat: a plain title" "Part one.
+$MANY
+---
+
+Part two.")
+    real_run "$PLUGIN_ROOT_HERE" --pr-body
+    N=$(findings | jq -r 'select(.rule_id == "pr-body/banned-word") | .message' | grep -c 'truncated at 50')
+    if [ "$RC" -eq 1 ] && [ "$(finding_count)" -eq 51 ] && [ "$N" -eq 1 ]; then
+        pass "real validator: 60 occurrences give 50 findings and one truncation finding, all pr-body/banned-word"
+    else
+        fail "real validator: truncation rc $RC, $(finding_count) findings, $N truncation"
+    fi
+
+    # Broken copies of this plugin's rules.yaml: the anchors the registry reads
+    # stay, so the rule still resolves and the validator is what refuses.
+    BROKEN="$WORKDIR/broken"
+    rf_test_copy_plugin "$BROKEN"
+    FAKE_GH_BRANCH_JSON=$(pr_json "feat: a plain title" "We will leverage it.
+
+---
+
+Part two.")
+    printf '%s\n' '# Banned words, grouped by the category the guidance uses.' 'words: [unclosed' '# - Moreover' \
+        > "$BROKEN/skills/writing-style/rules.yaml"
+    real_run "$BROKEN" --pr-body
+    if [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ]; then
+        pass "real validator: invalid YAML in the plugin's rules.yaml holds the gate (2) with no finding"
+    else
+        fail "real validator: invalid rules rc $RC, stdout $OUT"
+    fi
+    printf '%s\n' '# Banned words, grouped by the category the guidance uses.' 'words: []' '# - Moreover' \
+        > "$BROKEN/skills/writing-style/rules.yaml"
+    real_run "$BROKEN" --pr-body
+    if [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ]; then
+        pass "real validator: an emptied words: block holds the gate (2) with no finding"
+    else
+        fail "real validator: empty rules rc $RC, stdout $OUT"
+    fi
+fi
+
 # --- the rule registry ----------------------------------------------------------
 
 # The stand-in validator reports a PB3 violation, so the unaltered copy's
@@ -415,6 +674,13 @@ fi
 FAKE_SHIRABE_RC=2
 FAKE_SHIRABE_OUT=$(msg_json "$PB3")
 rf_test_refusals "--pr-body" skills/work-on/scripts/check-pr-output.sh pr-body/no-ai-trailer --pr-body
+# The log verify-findings checks holds the PB5 findings printed above, so the
+# new rule is among the ones it verifies.
+if grep -q '"rule_id":"pr-body/banned-word"' "$SHIRABE_FINDINGS_LOG"; then
+    pass "--pr-body: the verified findings log includes pr-body/banned-word findings"
+else
+    fail "--pr-body: no pr-body/banned-word finding in $SHIRABE_FINDINGS_LOG"
+fi
 rf_test_verify "--pr-body"
 
 echo
