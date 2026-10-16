@@ -106,7 +106,7 @@ VALUE=${LINES#"${KEY}: "}
 git rev-parse --git-dir >/dev/null || fail "not inside a git repository"
 
 if [ "$MODE" = --cleanup ]; then
-    printf '%s' "$VALUE" | grep -qE '^[0-9a-f]{7,40}$' \
+    grep -qE '^[0-9a-f]{7,40}$' <<<"$VALUE" \
         || fail "cleanup_commit [$VALUE] is not a sha of 7 to 40 lowercase hex characters"
     git cat-file -e "${VALUE}^{commit}" \
         || fail "cleanup_commit [$VALUE] does not name a commit in this repository"
@@ -120,7 +120,7 @@ case "$VALUE" in
         exit 0
         ;;
 esac
-printf '%s' "$VALUE" | grep -qE '^docs/[^ ]+[.]md$' \
+grep -qE '^docs/[^ ]+[.]md$' <<<"$VALUE" \
     || fail "design_diagram [$VALUE] is neither a docs/<path>.md nor 'not-applicable: <reason>'"
 TYPE=$(git cat-file -t "HEAD:${VALUE}") \
     || fail "design_diagram [$VALUE] is not in HEAD's tree; commit it, or name the path that exists"

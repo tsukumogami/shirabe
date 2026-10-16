@@ -454,6 +454,18 @@ Fixes #1'";
     }
 
     #[test]
+    fn banned_writing_style_words_are_allowed() {
+        // PB5 runs only under `shirabe validate --pr-body --writing-style`;
+        // the hook keeps deciding on PB1 to PB4 alone.
+        let cmd = "gh pr create --title 'feat: a seamless mode' --body 'Leverage the mode.
+
+---
+
+A robust note. Fixes #1'";
+        assert_eq!(evaluate(&hook(cmd)), None);
+    }
+
+    #[test]
     fn non_conventional_title_is_denied() {
         let cmd = "gh pr create --title 'Add the mode' --body 'Body.
 

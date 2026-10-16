@@ -23,6 +23,10 @@
 # `transition <plan> Done`. SKILL.md's visibility boundary routes the
 # governance-aware checks with `--visibility`.
 #
+# pr_finalization's owned_pr_body_conformant gate runs /work-on's
+# check-pr-output.sh on every plan, which calls `validate --pr-body
+# --pr-title --format --writing-style`, so those flags are always records too.
+#
 # The coordinated path adds the two coordination modes of the same subcommand:
 # `--coordination-body` for offline authoring feedback on the PR body, and
 # `--merge-gate` for the live merge-last gate. Neither runs on a single-pr
@@ -104,7 +108,7 @@ koto	context remove	-	always
 koto	context exists	-	always
 koto	status	-	always
 koto	session cleanup	-	always
-shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--visibility	always
+shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always
 gh	-	-	always
