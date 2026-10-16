@@ -30,7 +30,8 @@
 #                              rule_counts[<rule>].session = <session>; the
 #                              gate run against it with SHIRABE_GATE_LOG=<file>
 #                              and SHIRABE_GATE_NAME=<gate> sees count
-#                              <session> + 1 for <rule>
+#                              <session> + 1 for <rule>; visit is written equal
+#                              to session because the ladder reads session only
 #
 # Needs bash, jq, grep, awk. Written for the bash 3.2 floor.
 

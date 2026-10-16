@@ -345,8 +345,11 @@ expect "clean: --docs-visibility with no changed document" 0
 # A passing run reads no log and prints nothing more with the ladder's context.
 rf_test_ladder_log "$LADDER_LOG" finalization commit_convention commit/conventional-subject 2
 same_laddered "clean ladder: a passing --commits" --commits --session s-clean
-[ ! -s "$WORKDIR/stderr" ] || ! grep -q '^::shirabe-' "$WORKDIR/stderr" \
-    && pass "clean ladder: a passing run releases nothing" || fail "clean ladder: stderr $(cat "$WORKDIR/stderr")"
+if grep -q '^::shirabe-' "$WORKDIR/stderr"; then
+    fail "clean ladder: a passing run printed ladder output: $(cat "$WORKDIR/stderr")"
+else
+    pass "clean ladder: a passing run releases nothing"
+fi
 same_laddered "clean ladder: a passing --synced" --synced
 
 # --- could not decide -----------------------------------------------------------

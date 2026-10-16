@@ -196,7 +196,7 @@ run() {
     RC=$?
 }
 
-# same_laddered <label> <args>...: the run with the escalation ladder's context
+# same_laddered <label> --verdict <panel> <session>: the run with the escalation ladder's context
 # (a session log where koto recorded <panel>_verdict failing once on
 # panel/open-finding) exits and prints on standard output exactly what the run
 # without it does, and adds no ::shirabe- line to stderr when it printed no

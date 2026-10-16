@@ -160,6 +160,8 @@ $LINES
 EOF
 
 # The escalation ladder (scripts/lib/rule-findings.sh): nothing without the
-# template's context, or when no finding was printed.
+# template's context, or when no finding was printed. A passing verdict prints
+# none, so rf_deliver does nothing before an exit 0 and always returns 0, which
+# is why it can sit before every exit here.
 rf_deliver
 exit "$VERDICT"
