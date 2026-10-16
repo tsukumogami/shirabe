@@ -74,10 +74,6 @@ files() {
 }
 
 LIST=$(files "$@") || exit 2
-# skills/coordinate/'s sites are fixed in a pull request of their own
-# (shirabe#875), held until another coordinate change lands; until it does,
-# the scan skips that directory. That pull request removes this filter.
-LIST=$(grep -v -e "^$REPO_ROOT/skills/coordinate/" -e '^skills/coordinate/' <<<"$LIST")
 [ -n "$LIST" ] || exit 0
 
 # One awk over every file. A writer is a command word: at the start of the
