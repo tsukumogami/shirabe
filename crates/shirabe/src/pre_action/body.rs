@@ -3,7 +3,8 @@
 //!
 //! The title comes from `--title`/`-t`; the body from `--body`/`-b`/`--body=`
 //! or `--body-file`/`-F`/`--body-file=`, a relative path resolved against the
-//! segment's directory. A body of the form `"$(cat <<'EOF' ... EOF)"`, or
+//! segment's directory. A short flag's value may be attached, as gh reads it:
+//! `-tVALUE`, `-t=VALUE`, `-bVALUE`, `-FPATH`. A body of the form `"$(cat <<'EOF' ... EOF)"`, or
 //! with the delimiter double-quoted, is the here-document's lines as written;
 //! with an unquoted delimiter only when those lines hold no `$` and no
 //! backquote. Every other form is one the hook can't read and is refused by
@@ -60,19 +61,9 @@ pub fn read(seg: &GhSegment, tok: &Tokenized, classified: &Classified) -> Result
     let ws = &seg.words;
     while i < ws.len() {
         let w = &ws[i];
-        // `--flag=value` for a long option; otherwise the value is the next
-        // word.
-        let (flag, inline) = match w.text.split_once('=') {
-            Some((f, v)) if f.starts_with("--") => (
-                f,
-                Some(Word {
-                    text: v.to_string(),
-                    tilde: v.starts_with('~') && w.bare,
-                    ..w.clone()
-                }),
-            ),
-            _ => (w.text.as_str(), None),
-        };
+        // An attached value (`--flag=value`, `-bvalue`, `-b=value`);
+        // otherwise the value is the next word.
+        let (flag, inline) = split_flag(w);
         if let Some((_, name)) = UNREADABLE_FLAGS.iter().find(|(f, _)| *f == flag) {
             return Err(Case::BodyFlag(name.to_string()));
         }
@@ -117,6 +108,41 @@ pub fn read(seg: &GhSegment, tok: &Tokenized, classified: &Classified) -> Result
         }
     }
     Ok(Submitted { title, body })
+}
+
+/// Short flags that take a value. gh's flag parser (pflag) also reads one
+/// attached: `-bVALUE` and `-b=VALUE` are `-b VALUE`.
+const SHORT_VALUED: &[&str] = &["-t", "-b", "-F", "-T"];
+
+/// A flag word as its flag and the value attached to it, if any: a long
+/// option's `--flag=value`, or a short value-taking flag's `-xVALUE` or
+/// `-x=VALUE`. The value keeps the word's quoting flags, and is the
+/// here-document form when a plain prefix ends just before a lone
+/// double-quoted substitution (`--body="$(cat <<'EOF' ... EOF)"`).
+fn split_flag(w: &Word) -> (&str, Option<Word>) {
+    let t = w.text.as_str();
+    let at = if t.starts_with("--") {
+        t.find('=').map(|i| (i, i + 1))
+    } else if t.len() > 2 && SHORT_VALUED.iter().any(|f| t.starts_with(f)) {
+        Some((2, if t.as_bytes()[2] == b'=' { 3 } else { 2 }))
+    } else {
+        None
+    };
+    let Some((end, from)) = at else {
+        return (t, None);
+    };
+    let v = &t[from..];
+    let value = Word {
+        text: v.to_string(),
+        tilde: v.starts_with('~') && w.bare,
+        dq_substitution: w
+            .dq_prefixed
+            .filter(|(len, _)| *len == from)
+            .map(|(_, idx)| idx),
+        dq_prefixed: None,
+        ..w.clone()
+    };
+    (&t[..end], Some(value))
 }
 
 /// A `--body` value: literal text, or the here-document form.
@@ -271,6 +297,85 @@ mod tests {
         let s = here("gh pr create --title='feat: x' --body='a b'").unwrap();
         assert_eq!(s.title.as_deref(), Some("feat: x"));
         assert_eq!(s.body.as_deref(), Some("a b"));
+    }
+
+    #[test]
+    fn attached_short_values() {
+        for action in ["create", "edit 12"] {
+            for (flags, title, body) in [
+                ("-t'feat: x' -b'Adds x.'", "feat: x", "Adds x."),
+                ("-t='feat: x' -b='Adds x.'", "feat: x", "Adds x."),
+                ("-tfeat -bbody", "feat", "body"),
+                ("-t=feat -b=a=b", "feat", "a=b"),
+                ("-t\"feat: x\" -b\"a b\"", "feat: x", "a b"),
+            ] {
+                let cmd = format!("gh pr {action} {flags}");
+                let s = here(&cmd).unwrap_or_else(|e| panic!("{cmd}: {e:?}"));
+                assert_eq!(s.title.as_deref(), Some(title), "{cmd}");
+                assert_eq!(s.body.as_deref(), Some(body), "{cmd}");
+            }
+            // Edits may give one alone.
+            let s = here(&format!("gh pr {action} -t'Add x' -b'b'")).unwrap();
+            assert_eq!(s.title.as_deref(), Some("Add x"));
+        }
+        let s = here("gh pr edit 12 -b'Adds x.'").unwrap();
+        assert_eq!((s.title, s.body.as_deref()), (None, Some("Adds x.")));
+        let s = here("gh pr edit 12 -t'Add x'").unwrap();
+        assert_eq!((s.title.as_deref(), s.body), (Some("Add x"), None));
+        // The refused forms keep their names when attached.
+        for (cmd, want) in [
+            ("gh pr create -t x -F-", Case::Stdin),
+            ("gh pr create -t x -F=-", Case::Stdin),
+            (
+                "gh pr create -t x -Tx.md",
+                Case::BodyFlag("--template".into()),
+            ),
+            ("gh pr create -t x -b\"$B\"", Case::BodyExpansion),
+            ("gh pr create -t\"$T\" -b x", Case::TitleExpansion),
+            ("gh pr create -t x -F~/b.md", Case::BodyExpansion),
+            ("gh pr edit 3 -b\"$(date)\"", Case::BodyExpansion),
+        ] {
+            assert_eq!(here(cmd), Err(want), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn attached_body_file_paths() {
+        let d = scratch("attached");
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        std::fs::write(d.join("sub/b.md"), "x\n\n---\n\ny\n").unwrap();
+        for cmd in [
+            "gh pr create -t t -Fsub/b.md",
+            "gh pr create -t t -F=sub/b.md",
+            "gh pr edit 3 -Fsub/b.md",
+            "gh pr edit 3 -F=sub/b.md",
+        ] {
+            let s = submit(cmd, &d).unwrap_or_else(|e| panic!("{cmd}: {e:?}"));
+            assert_eq!(s.body.as_deref(), Some("x\n\n---\n\ny\n"), "{cmd}");
+        }
+        assert!(matches!(
+            submit("gh pr create -t t -Fnope.md", &d),
+            Err(Case::BodyFileMissing(_))
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn here_document_forms_with_an_attached_flag() {
+        for flag in ["--body=", "-b", "-b="] {
+            for action in ["create --title 'feat: x'", "edit 3"] {
+                let cmd = format!(
+                    "gh pr {action} {flag}\"$(cat <<'EOF'\nIt's x.\n\n---\n\nctx\nEOF\n)\""
+                );
+                let s = here(&cmd).unwrap_or_else(|e| panic!("{cmd}: {e:?}"));
+                assert_eq!(s.body.as_deref(), Some("It's x.\n\n---\n\nctx"), "{cmd}");
+            }
+        }
+        // Text after the substitution is an expansion like any other.
+        assert_eq!(
+            here("gh pr edit 3 --body=\"$(cat <<'EOF'\nx\nEOF\n)\"y"),
+            Err(Case::BodyExpansion)
+        );
     }
 
     #[test]

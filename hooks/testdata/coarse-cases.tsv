@@ -2,7 +2,7 @@
 #
 # Each row is the expected answer, a tab, and a command written as the JSON
 # string value Claude Code sends, escapes included. `named` means the text
-# names `gh` ... `pr` ... `create`|`edit` or `git` ... `push`; `clear` means
+# names `gh` ... `pr` ... `create`|`new`|`edit` or `git` ... `push`; `clear` means
 # it doesn't. The test is a superset of guarded on purpose, so some rows the
 # binary would give no decision with its full classifier (`git log --grep
 # push`, `gh issue create --title pr --body edit`) are `named` here.
@@ -15,6 +15,10 @@
 # {"tool_name":"Bash","tool_input":{"command":"<row>"}}.
 named	gh pr create
 named	gh pr edit 12 --title x
+# `new` is gh's built-in alias for `create`.
+named	gh pr new
+named	gh -R o/r pr new --title x
+named	GH PR NEW
 named	GH PR CREATE
 named	gh -R o/r pr create
 named	gh x pr y create
@@ -52,6 +56,8 @@ clear	push git
 clear	github pr create
 clear	ghpr create
 clear	gh pr creates
+clear	gh pr news
+clear	gh new pr
 clear	npm push
 # One word to the shell once its quotes are removed.
 clear	echo \"gh\"\"pr\"\"create\"

@@ -45,11 +45,12 @@ use std::time::Duration;
 
 use shirabe_validate::{check_pr_body, check_pr_title, is_no_heading_finding, PrBodyFinding};
 
-use classify::{classify, named_in_raw_input, named_in_text, Item, Named, PushSegment};
+use classify::{classify, named_in_command, named_in_raw_input, Item, Named, PushSegment};
 use push::{GitRunner, SystemGit};
 use reason::{Action, Broken, Case, FailClosed, PrAction};
 pub use registry::RegistrySource;
 use registry::{Registry, RegistryError};
+use tokenize::Refused;
 
 /// The PR-body rules, checked on `gh pr create` and `gh pr edit`.
 pub const PR_RULES: &[&str] = &[
@@ -275,7 +276,7 @@ fn named_in_input(input: &str) -> Named {
     if input.len() <= MAX_INPUT {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
             if let Some(command) = v.pointer("/tool_input/command").and_then(|c| c.as_str()) {
-                return named_in_text(command);
+                return named_in_command(command);
             }
         }
     }
@@ -314,8 +315,12 @@ pub fn evaluate(input: &str, ctx: &Ctx) -> Option<String> {
         return ctx.segment_less(named_in_raw_input(input), Case::HookInput);
     };
     let cwd = v.get("cwd").and_then(|c| c.as_str()).map(Path::new);
-    let Ok(tok) = tokenize::tokenize(command) else {
-        return ctx.segment_less(named_in_text(command), Case::Quote);
+    let tok = match tokenize::tokenize(command) {
+        Ok(tok) => tok,
+        Err(Refused::Unterminated) => {
+            return ctx.segment_less(named_in_command(command), Case::Quote)
+        }
+        Err(Refused::TooDeep) => return ctx.segment_less(named_in_command(command), Case::Nesting),
     };
     let classified = classify(&tok, cwd);
     let rules = ctx.rules_for(classified.items.iter().any(|i| match i {

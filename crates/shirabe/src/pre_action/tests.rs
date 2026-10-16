@@ -753,6 +753,105 @@ fn a_panic_or_a_hang_fails_closed_on_a_guarded_command_only() {
 }
 
 #[test]
+fn attached_short_values_are_checked() {
+    for (cmd, id, not) in [
+        (
+            "gh pr edit 12 -b'Adds x.'",
+            "pr-body/one-separator",
+            "pr-body/conventional-title",
+        ),
+        (
+            "gh pr edit 12 -t'Add x'",
+            "pr-body/conventional-title",
+            "pr-body/one-separator",
+        ),
+        (
+            "gh pr edit 12 -t=Add",
+            "pr-body/conventional-title",
+            "pr-body/one-separator",
+        ),
+        (
+            "gh pr create -t'feat: x' -b'Adds x.'",
+            "pr-body/one-separator",
+            "pr-body/conventional-title",
+        ),
+        (
+            "gh pr create -t='Add x' -b='Adds x.\n\n---\n\nctx'",
+            "pr-body/conventional-title",
+            "pr-body/one-separator",
+        ),
+    ] {
+        for r in [
+            evaluate(&hook(cmd)),
+            evaluate_all(&hook(cmd), RegistrySource::Embedded),
+        ] {
+            let r = r.unwrap_or_else(|| panic!("{cmd} should deny"));
+            assert!(r.contains(&format!("{id}:")), "{cmd}: {r}");
+            assert!(!r.contains(&format!("{not}:")), "{cmd}: {r}");
+        }
+    }
+    assert_eq!(
+        evaluate(&hook("gh pr create -t'feat: x' -b'Adds x.\n\n---\n\nctx'")),
+        None
+    );
+}
+
+#[test]
+fn gh_pr_new_is_checked_like_create() {
+    let r = evaluate(&hook(
+        &create("feat: x", BAD).replace("pr create", "pr new"),
+    ))
+    .expect("denies");
+    assert!(r.contains("pr-body/one-separator:"), "{r}");
+    assert!(r.contains("`gh pr create`"), "{r}");
+    let r = evaluate(&hook("gh pr new --fill")).expect("denies");
+    assert_fail_closed(&r, "--fill");
+    let r = evaluate(&hook("gh pr new --body x")).expect("denies");
+    assert_fail_closed(&r, "title");
+    assert_eq!(
+        evaluate(&hook(
+            &create("feat: x", GOOD).replace("pr create", "pr new")
+        )),
+        None
+    );
+    // The segment-less cases name it too.
+    assert!(evaluate(&hook("gh pr new --title 'oops")).is_some());
+    assert!(evaluate("not json: gh pr new").is_some());
+}
+
+#[test]
+fn substitutions_nested_too_deep_fail_closed_on_a_guarded_command_only() {
+    let deep = |head: &str| format!("{head} {}x{}", "$(".repeat(3000), ")".repeat(3000));
+    for (head, rules) in [
+        ("git push origin", RuleSet::All),
+        ("gh pr create --title", RuleSet::PrBodyOnly),
+    ] {
+        let input = hook_in(&deep(head), Path::new("/r"));
+        let r = super::evaluate(
+            &input,
+            &Ctx {
+                rules,
+                registry: RegistrySource::Embedded,
+                canary_opted_in: &|| false,
+                legacy_wired: &|| false,
+                git: &NotARepo,
+                git_budget: push::GIT_BUDGET,
+            },
+        )
+        .unwrap_or_else(|| panic!("{head} should deny"));
+        assert_fail_closed(&r, "nested");
+    }
+    assert_eq!(evaluate(&hook(&deep("echo"))), None);
+    assert_eq!(
+        evaluate_all(&hook(&deep("echo")), RegistrySource::Embedded),
+        None
+    );
+    // Unclosed, it is the same case.
+    let r = evaluate(&hook(&format!("gh pr edit 3 -b {}", "$(".repeat(4000)))).expect("denies");
+    assert_fail_closed(&r, "nested");
+}
+
+#[test]
 fn the_fallback_reads_the_command_not_the_rest_of_the_input() {
     let boom = |_: &str| -> Option<String> { panic!("boom") };
     let slow = |_: &str| -> Option<String> {
@@ -776,6 +875,19 @@ fn the_fallback_reads_the_command_not_the_rest_of_the_input() {
         })
         .to_string();
         assert!(decide(guarded, RuleSet::All, short, eval).is_some());
+        // A backslash-newline in the command joins its lines.
+        for (command, named) in [("gi\\\nt push", true), ("cd x\\\ngit push", false)] {
+            let input = serde_json::json!({
+                "tool_name": "Bash",
+                "tool_input": { "command": command },
+            })
+            .to_string();
+            assert_eq!(
+                decide(input, RuleSet::All, short, eval).is_some(),
+                named,
+                "{command}"
+            );
+        }
         // Input that doesn't parse is read raw.
         assert!(decide("not json: git push".into(), RuleSet::All, short, eval).is_some());
     }

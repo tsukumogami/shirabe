@@ -279,6 +279,13 @@ run_hook 'gh pr create --title \"feat: x\" --body \"$BODY\"'
 expect_deny "table: a variable body" "body" "--body-file" "ask the user"
 run_hook 'gh pr create --fill'
 expect_deny "table: a --fill create" "--fill"
+run_hook "gh pr new --title \\\"feat: x\\\" --body $BAD"
+expect_deny "table: gh pr new, gh's alias for create, with a bad body" "pr-body/one-separator"
+# A short flag's value attached, as gh reads it.
+run_hook "gh pr edit 12 -b'Adds x.'"
+expect_deny "attached: an edit with -b'<bad>'" "pr-body/one-separator" '!pr-body/conventional-title'
+run_hook "gh pr edit 12 -t'Add x'"
+expect_deny "attached: an edit with -t'bad title'" "pr-body/conventional-title" '!pr-body/one-separator'
 run_hook 'gh pr edit 12 --title \"bad title\"'
 expect_deny "table: an edit with a bad title" "pr-body/conventional-title" '!pr-body/one-separator'
 run_hook "gh pr edit 12 --body $BAD"

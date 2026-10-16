@@ -53,6 +53,11 @@ pub struct Word {
     /// The word is exactly one double-quoted command substitution,
     /// `"$(...)"`; the index into [`Tokenized::substitutions`].
     pub dq_substitution: Option<usize>,
+    /// The word is a plain prefix (no quote, backslash, `$` or backquote)
+    /// followed by one double-quoted command substitution, as in
+    /// `--body="$(...)"` or `-b"$(...)"`: the prefix's length in bytes and
+    /// the index into [`Tokenized::substitutions`].
+    pub dq_prefixed: Option<(usize, usize)>,
     /// Starts with an unquoted redirection operator, after an optional
     /// file-descriptor number: `>out`, `2>&1`, `&>`, `<`.
     pub redirect: bool,
@@ -107,19 +112,27 @@ pub struct Tokenized {
     pub heredocs: Vec<HereDoc>,
 }
 
-/// Why a command could not be tokenized: an unterminated quote, `$(...)`,
-/// `${...}` or backquote (PRD R7 case 3).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Unterminated;
+/// Why a command could not be tokenized (PRD R7 case 3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Refused {
+    /// An unterminated quote, `$(...)`, `${...}` or backquote.
+    Unterminated,
+    /// Command substitutions nested deeper than [`MAX_DEPTH`].
+    TooDeep,
+}
+
+use Refused::{TooDeep, Unterminated};
+
+/// How deep command substitutions (`$(...)`, backquotes, and those in an
+/// unquoted here-document) may nest. Each level is a recursion, and a stack
+/// overflow aborts the process, which a host's `|| exit 0` would turn into a
+/// silent pass; deeper input is refused instead.
+pub const MAX_DEPTH: usize = 64;
 
 /// Tokenize `cmd`. A backslash followed by a newline outside single quotes is
 /// removed, joining the two lines as the shell does.
-pub fn tokenize(cmd: &str) -> Result<Tokenized, Unterminated> {
-    let mut sc = Scanner {
-        s: cmd.as_bytes(),
-        i: 0,
-    };
-    sc.scan(End::Eof)
+pub fn tokenize(cmd: &str) -> Result<Tokenized, Refused> {
+    Scanner::new(cmd.as_bytes(), 0, 0).scan(End::Eof)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -132,6 +145,22 @@ enum End {
 struct Scanner<'a> {
     s: &'a [u8],
     i: usize,
+    /// How many command substitutions enclose the text being scanned.
+    depth: usize,
+}
+
+impl<'a> Scanner<'a> {
+    fn new(s: &'a [u8], i: usize, depth: usize) -> Self {
+        Scanner { s, i, depth }
+    }
+
+    /// A scanner for a substitution inside this one's text, or [`TooDeep`].
+    fn nested<'b>(&self, s: &'b [u8], i: usize) -> Result<Scanner<'b>, Refused> {
+        if self.depth >= MAX_DEPTH {
+            return Err(TooDeep);
+        }
+        Ok(Scanner::new(s, i, self.depth + 1))
+    }
 }
 
 /// A separator between segments, as far as subshells go.
@@ -269,14 +298,24 @@ impl Level {
         w.text = String::from_utf8_lossy(&std::mem::take(&mut self.cur)).into_owned();
         w.span = self.start..at;
         // `"$(...)"` alone: the word opens with `"$(`, closes with `)"`, and
-        // one substitution spans everything between.
+        // one substitution spans everything between. With a plain prefix
+        // before the `"`, it is `dq_prefixed`.
         let word = &s[self.start..at];
-        if word.starts_with(b"\"$(") && word.ends_with(b")\"") && word.len() >= 5 {
-            w.dq_substitution = self
-                .out
-                .substitutions
-                .iter()
-                .position(|sub| sub.span == (self.start + 3..at - 2));
+        if word.ends_with(b")\"") && word.len() >= 5 {
+            let start = self.start;
+            let found = self.out.substitutions.iter().position(|sub| {
+                sub.span.end == at - 2
+                    && sub.span.start >= start + 3
+                    && &s[sub.span.start - 3..sub.span.start] == b"\"$("
+            });
+            if let Some(idx) = found {
+                let len = self.out.substitutions[idx].span.start - 3 - start;
+                if len == 0 {
+                    w.dq_substitution = Some(idx);
+                } else if !s[start..start + len].iter().any(|b| b"\"'\\$`".contains(b)) {
+                    w.dq_prefixed = Some((len, idx));
+                }
+            }
         }
         self.words.push(w);
         self.in_word = false;
@@ -314,40 +353,44 @@ impl Level {
     }
 }
 
-/// The `$(...)` and backquoted commands in an unquoted-delimiter
-/// here-document's lines, where only a backslash quotes, and whether one of
-/// them never closes.
-fn heredoc_expansions(body: &[u8]) -> (Vec<Tokenized>, bool) {
-    let mut subs = Vec::new();
-    let mut i = 0;
-    while i < body.len() {
-        match body[i] {
-            b'\\' => i += 2,
-            b'$' if body.get(i + 1) == Some(&b'(') => {
-                let mut sc = Scanner { s: body, i: i + 2 };
-                match sc.scan(End::Paren) {
-                    Ok(t) => {
-                        subs.push(t);
-                        i = sc.i;
+impl Scanner<'_> {
+    /// The `$(...)` and backquoted commands in an unquoted-delimiter
+    /// here-document's lines, where only a backslash quotes, and whether one
+    /// of them never closes. Nesting too deep is refused like anywhere else.
+    fn heredoc_expansions(&self, body: &[u8]) -> Result<(Vec<Tokenized>, bool), Refused> {
+        let mut subs = Vec::new();
+        let mut i = 0;
+        while i < body.len() {
+            match body[i] {
+                b'\\' => i += 2,
+                b'$' if body.get(i + 1) == Some(&b'(') => {
+                    let mut sc = self.nested(body, i + 2)?;
+                    match sc.scan(End::Paren) {
+                        Ok(t) => {
+                            subs.push(t);
+                            i = sc.i;
+                        }
+                        Err(Unterminated) => return Ok((subs, true)),
+                        Err(TooDeep) => return Err(TooDeep),
                     }
-                    Err(Unterminated) => return (subs, true),
                 }
-            }
-            b'`' => {
-                let mut sc = Scanner { s: body, i };
-                let mut lv = Level::new();
-                match sc.backquote(&mut lv) {
-                    Ok(()) => {
-                        subs.extend(lv.out.substitutions.into_iter().map(|s| s.inner));
-                        i = sc.i;
+                b'`' => {
+                    let mut sc = Scanner::new(body, i, self.depth);
+                    let mut lv = Level::new();
+                    match sc.backquote(&mut lv) {
+                        Ok(()) => {
+                            subs.extend(lv.out.substitutions.into_iter().map(|s| s.inner));
+                            i = sc.i;
+                        }
+                        Err(Unterminated) => return Ok((subs, true)),
+                        Err(TooDeep) => return Err(TooDeep),
                     }
-                    Err(Unterminated) => return (subs, true),
                 }
+                _ => i += 1,
             }
-            _ => i += 1,
         }
+        Ok((subs, false))
     }
-    (subs, false)
 }
 
 impl<'a> Scanner<'a> {
@@ -355,7 +398,7 @@ impl<'a> Scanner<'a> {
         self.s.get(self.i + off).copied()
     }
 
-    fn scan(&mut self, end: End) -> Result<Tokenized, Unterminated> {
+    fn scan(&mut self, end: End) -> Result<Tokenized, Refused> {
         let mut lv = Level::new();
         loop {
             let Some(c) = self.peek(0) else {
@@ -425,7 +468,7 @@ impl<'a> Scanner<'a> {
                         lv.separator(Sep::Seq);
                     }
                     self.i += 1;
-                    self.heredoc_lines(&mut lv, end);
+                    self.heredoc_lines(&mut lv, end)?;
                 }
                 b'&' | b'|' | b';' => {
                     // `>&`, `<&` and `>|` continue a redirection operator,
@@ -519,7 +562,7 @@ impl<'a> Scanner<'a> {
     /// A `"..."` piece, the scanner on its opening quote. Inside, a backslash
     /// escapes only `"`, `\`, `$` and backquote (and a newline, which it
     /// removes); `$` and backquotes still expand.
-    fn double_quoted(&mut self, lv: &mut Level) -> Result<(), Unterminated> {
+    fn double_quoted(&mut self, lv: &mut Level) -> Result<(), Refused> {
         self.i += 1;
         loop {
             match self.peek(0) {
@@ -555,14 +598,16 @@ impl<'a> Scanner<'a> {
     }
 
     /// A `$` piece, the scanner on the `$`.
-    fn dollar(&mut self, lv: &mut Level, in_dq: bool) -> Result<(), Unterminated> {
+    fn dollar(&mut self, lv: &mut Level, in_dq: bool) -> Result<(), Refused> {
         let start = self.i;
         match self.peek(1) {
             Some(b'(') => {
                 lv.word.expansion = true;
                 self.i += 2;
                 let inner_start = self.i;
-                let inner = self.scan(End::Paren)?;
+                let mut sc = self.nested(self.s, self.i)?;
+                let inner = sc.scan(End::Paren)?;
+                self.i = sc.i;
                 let inner_end = self.i - 1;
                 lv.out.substitutions.push(Substitution {
                     span: inner_start..inner_end,
@@ -629,7 +674,7 @@ impl<'a> Scanner<'a> {
     /// A backquoted substitution, the scanner on the opening backquote. Its
     /// text, with `\``, `\\` and `\$` unescaped, is tokenized as a command of
     /// its own.
-    fn backquote(&mut self, lv: &mut Level) -> Result<(), Unterminated> {
+    fn backquote(&mut self, lv: &mut Level) -> Result<(), Refused> {
         let start = self.i;
         let mut inner = Vec::new();
         let mut j = self.i + 1;
@@ -656,7 +701,7 @@ impl<'a> Scanner<'a> {
             }
         }
         let text = String::from_utf8_lossy(&inner).into_owned();
-        let parsed = tokenize(&text)?;
+        let parsed = self.nested(text.as_bytes(), 0)?.scan(End::Eof)?;
         lv.word.expansion = true;
         lv.out.substitutions.push(Substitution {
             span: start + 1..j,
@@ -736,7 +781,7 @@ impl<'a> Scanner<'a> {
     /// Consume the lines of every pending here-document, the scanner just
     /// past a newline. Inside `$(...)` a line that is the delimiter followed
     /// by `)` also ends it, leaving the `)` to close the substitution.
-    fn heredoc_lines(&mut self, lv: &mut Level, end: End) {
+    fn heredoc_lines(&mut self, lv: &mut Level, end: End) -> Result<(), Refused> {
         for idx in std::mem::take(&mut lv.pending) {
             let strip = lv.out.heredocs[idx].strip_tabs;
             let delim = lv.out.heredocs[idx].delimiter.clone().into_bytes();
@@ -772,12 +817,13 @@ impl<'a> Scanner<'a> {
                 self.i += (len + 1).min(rest.len());
             }
             if !lv.out.heredocs[idx].quoted {
-                let (subs, unterminated) = heredoc_expansions(&body);
+                let (subs, unterminated) = self.heredoc_expansions(&body)?;
                 lv.out.heredocs[idx].substitutions = subs;
                 lv.out.heredocs[idx].unterminated_substitution = unterminated;
             }
             lv.out.heredocs[idx].body = String::from_utf8_lossy(&body).into_owned();
         }
+        Ok(())
     }
 }
 
@@ -874,6 +920,48 @@ mod tests {
         assert_eq!(marks, vec![false, false, false, true, false, true]);
         // Quoted, it is text; inside a word's quotes it never splits.
         assert_eq!(w("echo 'a>b' \"c<d\""), v(&[&["echo", "a>b", "c<d"]]));
+    }
+
+    #[test]
+    fn substitutions_nested_too_deep_are_refused() {
+        let deep = |n: usize| format!("git push {}x{}", "$(".repeat(n), ")".repeat(n));
+        assert!(tokenize(&deep(MAX_DEPTH)).is_ok());
+        assert_eq!(tokenize(&deep(MAX_DEPTH + 1)), Err(Refused::TooDeep));
+        assert_eq!(tokenize(&deep(5000)), Err(Refused::TooDeep));
+        // Unclosed, deep nesting is refused before the end is reached.
+        assert_eq!(tokenize(&"$(".repeat(5000)), Err(Refused::TooDeep));
+        let quoted = format!("echo \"{}\"", "$(".repeat(5000));
+        assert_eq!(tokenize(&quoted), Err(Refused::TooDeep));
+        // Inside an unquoted here-document too.
+        let heredoc = format!("cat <<EOF\n{}\nEOF", "$(".repeat(5000));
+        assert_eq!(tokenize(&heredoc), Err(Refused::TooDeep));
+        // Backquotes nest through escaping; a few levels are fine.
+        assert!(tokenize("echo `a \\`b\\``").is_ok());
+    }
+
+    #[test]
+    fn a_plain_prefix_before_a_quoted_substitution_is_recorded() {
+        let t = tokenize("gh --body=\"$(cat x)\" -b\"$(cat y)\" -b=\"$(z)\" a\"$(x)\" \"$(x)\"")
+            .unwrap();
+        let marks: Vec<(Option<(usize, usize)>, Option<usize>)> = t.segments[0]
+            .words
+            .iter()
+            .map(|w| (w.dq_prefixed, w.dq_substitution))
+            .collect();
+        assert_eq!(
+            marks,
+            vec![
+                (None, None),
+                (Some((7, 0)), None),
+                (Some((2, 1)), None),
+                (Some((3, 2)), None),
+                (Some((1, 3)), None),
+                (None, Some(4)),
+            ]
+        );
+        // A quote, `$` or backslash in the prefix, or text after, isn't one.
+        let t = tokenize("'-b'\"$(x)\" $a\"$(x)\" -b\"$(x)\"z").unwrap();
+        assert!(t.segments[0].words.iter().all(|w| w.dq_prefixed.is_none()));
     }
 
     #[test]
@@ -1075,7 +1163,7 @@ mod tests {
             "echo $'a",
             "echo \"$(a\"",
         ] {
-            assert_eq!(tokenize(cmd), Err(Unterminated), "{cmd}");
+            assert_eq!(tokenize(cmd), Err(Refused::Unterminated), "{cmd}");
         }
     }
 }

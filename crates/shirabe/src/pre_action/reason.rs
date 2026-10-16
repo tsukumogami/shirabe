@@ -62,6 +62,8 @@ pub enum Case {
     HookInput,
     /// Case 3.
     Quote,
+    /// Case 3: command substitutions nested past the tokenizer's limit.
+    Nesting,
     /// Case 4: a body form the hook can't read, by name (`--fill`, `--web`).
     BodyFlag(String),
     /// Case 4: `-F -`.
@@ -157,6 +159,14 @@ fn describe(case: &Case) -> (String, String, &'static str) {
             "quote".into(),
             "the command has an unterminated quote, command substitution or `${`".into(),
             "close the quote, or put long text in a file and pass it with `--body-file`.",
+        ),
+        Case::Nesting => (
+            "nested".into(),
+            format!(
+                "the command nests command substitutions more than {} deep",
+                super::tokenize::MAX_DEPTH
+            ),
+            "flatten the command: run the inner commands on their own first, or put long text in a file and pass it with `--body-file`.",
         ),
         Case::BodyFlag(flag) => (
             format!("`{flag}`"),
@@ -413,6 +423,7 @@ mod tests {
         let cases = [
             (Case::HookInput, "hook input"),
             (Case::Quote, "quote"),
+            (Case::Nesting, "nested"),
             (Case::BodyFlag("--fill".into()), "--fill"),
             (Case::Stdin, "stdin"),
             (Case::BodyExpansion, "expansion"),

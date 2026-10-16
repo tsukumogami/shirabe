@@ -117,7 +117,8 @@ impl Named {
 /// The coarse test: with its `"` and `'` characters dropped (the shell
 /// removes quotes without splitting, so `g"i"t` is `git`), lowercased and
 /// split into words of `[a-z0-9_-]`, the text has `gh`, later `pr`, later
-/// `create` or `edit`; or `git`, later `push`. Every other character only
+/// `create`, `new` (gh's alias for `create`) or `edit`; or `git`, later
+/// `push`. Every other character only
 /// separates words.
 pub fn named_in_text(text: &str) -> Named {
     let lower: String = text
@@ -137,12 +138,18 @@ pub fn named_in_text(text: &str) -> Named {
     };
     let pr = after(0, &["gh"])
         .and_then(|g| after(g + 1, &["pr"]))
-        .and_then(|p| after(p + 1, &["create", "edit"]))
+        .and_then(|p| after(p + 1, &["create", "new", "edit"]))
         .is_some();
     let push = after(0, &["git"])
         .and_then(|g| after(g + 1, &["push"]))
         .is_some();
     Named { pr, push }
+}
+
+/// The coarse test on a command's text, a backslash-newline removed first as
+/// the shell joins the two lines, the way [`named_in_raw_input`] reads it.
+pub fn named_in_command(command: &str) -> Named {
+    named_in_text(&command.replace("\\\n", ""))
 }
 
 /// The coarse test on the raw hook input, its JSON escapes `\n`, `\r`, `\t`,
@@ -169,7 +176,7 @@ pub fn named_in_raw_input(raw: &str) -> Named {
             None => out.push('\\'),
         }
     }
-    named_in_text(&out.replace("\\\n", ""))
+    named_in_command(&out)
 }
 
 /// How a segment reads once its leading words are skipped.
@@ -328,7 +335,7 @@ fn kind(seg: &Segment) -> Kind {
         let push = later.contains(&"push");
         let pr = later
             .windows(2)
-            .any(|p| p[0] == "pr" && (p[1] == "create" || p[1] == "edit"));
+            .any(|p| p[0] == "pr" && matches!(p[1], "create" | "new" | "edit"));
         return Kind::Wrapper {
             head: head.text.clone(),
             named: Named { pr, push },
@@ -355,7 +362,8 @@ fn kind(seg: &Segment) -> Kind {
                 let (k, bad2, ambiguous2) = gh_options(rest, p + 1);
                 for a in candidates(k, ambiguous2) {
                     let action = match rest.get(a).map(|w| w.text.as_str()) {
-                        Some("create") => PrAction::Create,
+                        // `new` is gh's built-in alias for `create`.
+                        Some("create" | "new") => PrAction::Create,
                         Some("edit") => PrAction::Edit,
                         _ => continue,
                     };
@@ -809,6 +817,34 @@ mod tests {
         ] {
             assert_eq!(cl(cmd).items, vec![], "{cmd}");
         }
+    }
+
+    #[test]
+    fn gh_pr_new_is_gh_pr_create() {
+        for cmd in [
+            "gh pr new --title x",
+            "gh -R o/r pr new",
+            "gh pr --repo o/r new -t x",
+        ] {
+            let g = ghs(cmd);
+            assert_eq!(g.len(), 1, "{cmd}");
+            assert_eq!(g[0].action, PrAction::Create, "{cmd}");
+        }
+        assert_eq!(
+            fails("sudo gh pr new --title x"),
+            vec![(Action::Pr(None), Case::Wrapped)]
+        );
+        assert_eq!(fails("$GH pr new"), vec![(Action::Pr(None), Case::Wrapped)]);
+        assert!(named_in_text("gh pr new").pr);
+        assert!(!named_in_text("gh pr news").pr);
+        assert_eq!(cl("gh pr news").items, vec![]);
+    }
+
+    #[test]
+    fn the_command_coarse_test_joins_a_backslash_newline() {
+        assert!(named_in_command("gi\\\nt push").push);
+        assert!(!named_in_command("cd x\\\ngit push").push);
+        assert!(named_in_command("cd x\ngit push").push);
     }
 
     #[test]

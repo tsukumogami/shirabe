@@ -25,7 +25,7 @@
 #      nothing or one complete deny line. Anything else (no binary, a non-zero exit, a
 #      kill, other output, `allow` or `ask`) is a binary that can't run, and
 #      the coarse test decides: a command whose text names `gh` ... `pr` ...
-#      `create`|`edit` or `git` ... `push` gets a fixed deny naming the
+#      `create`|`new`|`edit` or `git` ... `push` gets a fixed deny naming the
 #      binary, and every other command gets no decision. Under
 #      PR_BODY_HOOK_DISABLE (non-empty, not 0 or false) the PR-body rules
 #      are off, so only `git` ... `push` is denied.
@@ -107,7 +107,7 @@ run_shirabe() {
 }
 
 # The coarse "named in the text" test (PRD Definitions), on the raw input:
-# true when it names `gh`, later `pr`, later `create` or `edit`, or `git`,
+# true when it names `gh`, later `pr`, later `create`, `new` or `edit`, or `git`,
 # later `push`, as separate words, ignoring case and quotes. With the
 # argument `push`, only `git` ... `push` counts.
 #
@@ -154,7 +154,7 @@ names_guarded() {
         LC_ALL=C awk -v only_push="$only_push" '
             !only_push && $0 == "gh" { gh = 1; next }
             gh && $0 == "pr" { pr = 1; next }
-            pr && ($0 == "create" || $0 == "edit") { found = 1; exit }
+            pr && ($0 == "create" || $0 == "new" || $0 == "edit") { found = 1; exit }
             $0 == "git" { git = 1; next }
             git && $0 == "push" { found = 1; exit }
             END { exit !found }
