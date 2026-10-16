@@ -4,8 +4,47 @@
 //! R11 names, which now deny.
 
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
+use super::push::{GitError, GitOut};
 use super::*;
+
+/// The git runner of an evaluation that must never reach git.
+struct NoGit;
+
+impl GitRunner for NoGit {
+    fn run(
+        &self,
+        _: &Path,
+        args: &[&str],
+        _: Option<Vec<u8>>,
+        _: usize,
+        _: Instant,
+    ) -> Result<GitOut, GitError> {
+        panic!("this evaluation runs no git, yet ran {args:?}")
+    }
+}
+
+/// A git runner for directories that aren't repositories: every call exits
+/// 128, as git does outside a work tree. The push check's own tests run
+/// real repositories (`push_tests.rs`).
+struct NotARepo;
+
+impl GitRunner for NotARepo {
+    fn run(
+        &self,
+        _: &Path,
+        _: &[&str],
+        _: Option<Vec<u8>>,
+        _: usize,
+        _: Instant,
+    ) -> Result<GitOut, GitError> {
+        Ok(GitOut {
+            code: Some(128),
+            stdout: Vec::new(),
+        })
+    }
+}
 
 /// A PreToolUse hook JSON with `command` as the Bash tool input.
 fn hook(command: &str) -> String {
@@ -39,6 +78,8 @@ fn evaluate_with(input: &str, canary: impl Fn() -> bool) -> Option<String> {
             registry: RegistrySource::Embedded,
             canary_opted_in: &canary,
             legacy_wired: &|| panic!("the legacy set never asks"),
+            git: &NoGit,
+            git_budget: push::GIT_BUDGET,
         },
     )
 }
@@ -60,6 +101,8 @@ fn evaluate_plugin(
             registry,
             canary_opted_in: &|| false,
             legacy_wired: &wired,
+            git: &NotARepo,
+            git_budget: push::GIT_BUDGET,
         },
     )
 }
@@ -653,15 +696,14 @@ fn push_cases_belong_to_the_full_rule_set() {
         assert_fail_closed(&r, word);
         assert!(r.contains("commit/no-ai-trailer"), "{r}");
     }
-    // A push the classifier hands over gets no decision here; the push
-    // check decides it.
-    assert_eq!(
-        evaluate_all(
-            &hook_in("git push", Path::new("/r")),
-            RegistrySource::Embedded
-        ),
-        None
-    );
+    // A push the classifier hands over reaches the push check, which finds
+    // no repository at `/r`.
+    let r = evaluate_all(
+        &hook_in("git push", Path::new("/r")),
+        RegistrySource::Embedded,
+    )
+    .expect("denies");
+    assert_fail_closed(&r, "work tree");
 }
 
 // --- the deadline runner ---------------------------------------------------
@@ -854,6 +896,8 @@ fn the_settings_are_read_only_for_a_pull_request_under_the_full_set() {
             registry: RegistrySource::Embedded,
             canary_opted_in: &|| false,
             legacy_wired: &probe,
+            git: &NoGit,
+            git_budget: push::GIT_BUDGET,
         },
     );
     assert_eq!(r, None);

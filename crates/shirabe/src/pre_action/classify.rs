@@ -66,8 +66,9 @@ pub struct GhSegment {
 /// A guarded `git push` segment, for the push check.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PushSegment {
-    /// The words after `push`.
-    pub words: Vec<String>,
+    /// The words after `push`, with their quoting, so the push check can
+    /// refuse one the shell would expand.
+    pub words: Vec<Word>,
     /// The directory it runs in, `-C` paths applied.
     pub dir: PathBuf,
     pub index: usize,
@@ -563,7 +564,7 @@ pub fn classify(tok: &Tokenized, cwd: Option<&Path>) -> Classified {
                 }
                 match at {
                     Some(d) => c.items.push(Item::Push(PushSegment {
-                        words: rest.into_iter().map(|w| w.text).collect(),
+                        words: rest,
                         dir: d,
                         index,
                     })),
@@ -783,11 +784,12 @@ mod tests {
     #[test]
     fn push_words_and_directory() {
         let p = pushes("git push --force origin +topic");
-        assert_eq!(p[0].words, vec!["--force", "origin", "+topic"]);
+        let texts = |p: &PushSegment| p.words.iter().map(|w| w.text.clone()).collect::<Vec<_>>();
+        assert_eq!(texts(&p[0]), vec!["--force", "origin", "+topic"]);
         assert_eq!(p[0].dir, PathBuf::from(CWD));
         assert_eq!(pushes("git push origin --delete topic")[0].words.len(), 3);
         assert_eq!(
-            pushes("git push origin :topic")[0].words,
+            texts(&pushes("git push origin :topic")[0]),
             vec!["origin", ":topic"]
         );
         assert_eq!(pushes("git -c k=v push").len(), 1);

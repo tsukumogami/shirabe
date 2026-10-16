@@ -16,16 +16,22 @@
 //! `shirabe_validate::check_pr_body` / `check_pr_title`, the engine `shirabe
 //! validate --pr-body` runs, mapping each finding to a registry id through
 //! the entry whose `aliases` holds its PB code ([`registry`]); render the
-//! deny ([`reason`]). A command with nothing guarded in it gets no decision
-//! whatever else fails, the registry included, and starts no process.
+//! deny ([`reason`]). For each guarded `git push`, find the non-merge commits
+//! it would send with local git plumbing and test their messages with PB3's
+//! predicate ([`push`]). A command with nothing guarded in it gets no
+//! decision whatever else fails, the registry included, and starts no
+//! process.
 //!
-//! Security: the command, title and body are attacker-controlled. Nothing is
-//! shell-evaluated, the deny is built with `serde_json`, nothing is written,
-//! and a body file's lines never reach the reason. The input's
+//! Security: the command, title, body and commit messages are
+//! attacker-controlled. Nothing is shell-evaluated, the deny is built with
+//! `serde_json`, nothing is written, and a body file's lines never reach the
+//! reason. Git runs from a fixed environment with the repository's programs
+//! switched off. The input's
 //! `transcript_path` and `session_id` are ignored, and nothing is logged.
 
 pub mod body;
 pub mod classify;
+pub mod push;
 pub mod reason;
 pub mod registry;
 pub mod settings;
@@ -39,7 +45,8 @@ use std::time::Duration;
 
 use shirabe_validate::{check_pr_body, check_pr_title, is_no_heading_finding, PrBodyFinding};
 
-use classify::{classify, named_in_raw_input, named_in_text, Item, Named};
+use classify::{classify, named_in_raw_input, named_in_text, Item, Named, PushSegment};
+use push::{GitRunner, SystemGit};
 use reason::{Action, Broken, Case, FailClosed, PrAction};
 pub use registry::RegistrySource;
 use registry::{Registry, RegistryError};
@@ -104,8 +111,7 @@ impl RuleSet {
     }
 }
 
-/// What an evaluation reads besides its input, so tests inject each. The
-/// design's git runner joins it with the push check.
+/// What an evaluation reads besides its input, so tests inject each.
 pub struct Ctx<'a> {
     pub rules: RuleSet,
     pub registry: RegistrySource,
@@ -117,6 +123,10 @@ pub struct Ctx<'a> {
     /// Asked only under [`RuleSet::All`] and only when a pull-request action
     /// is in play, so an unguarded command or a lone push reads no settings.
     pub legacy_wired: &'a dyn Fn() -> bool,
+    /// Runs the push check's git children; asked only for a guarded push.
+    pub git: &'a dyn GitRunner,
+    /// How long the push check's git calls may take together.
+    pub git_budget: Duration,
 }
 
 impl Ctx<'_> {
@@ -148,6 +158,9 @@ pub fn run_legacy() -> ExitCode {
                 registry: RegistrySource::Embedded,
                 canary_opted_in: &canary_opted_in,
                 legacy_wired: &|| false,
+                // The legacy set checks no push, so this is never asked.
+                git: &SystemGit::from_env(),
+                git_budget: push::git_budget(),
             },
         )
     });
@@ -189,6 +202,8 @@ pub fn run_plugin(root: &Path, rules: &str) -> ExitCode {
                 registry,
                 canary_opted_in: &canary_opted_in,
                 legacy_wired: &settings::legacy_wired,
+                git: &SystemGit::from_env(),
+                git_budget: push::git_budget(),
             },
         )
     });
@@ -261,7 +276,7 @@ fn segment_less(named: Named, rules: RuleSet, case: Case) -> Option<String> {
     if fails.is_empty() {
         None
     } else {
-        Some(reason::render(None, &[], &fails))
+        Some(reason::render(&[], &[], &fails))
     }
 }
 
@@ -290,6 +305,7 @@ pub fn evaluate(input: &str, ctx: &Ctx) -> Option<String> {
 
     let mut fails: Vec<FailClosed> = Vec::new();
     let mut checks: Vec<(PrAction, body::Submitted)> = Vec::new();
+    let mut pushes: Vec<&PushSegment> = Vec::new();
     for item in &classified.items {
         match item {
             Item::Fail(f) => {
@@ -308,29 +324,42 @@ pub fn evaluate(input: &str, ctx: &Ctx) -> Option<String> {
                     case,
                 }),
             },
-            // The push check reads these; the classifier has already failed
-            // closed on every push it could not hand over.
+            // The classifier has already failed closed on every push it
+            // could not hand over.
+            Item::Push(p) if rules.keeps(Action::Push) => pushes.push(p),
             Item::Push(_) => {}
         }
     }
 
     let mut broken: Vec<Broken> = Vec::new();
-    let mut header = None;
-    if let Some((first, _)) = checks.first() {
-        match pr_registry(&ctx.registry) {
-            Err(e) => fails.push(FailClosed {
-                action: Action::Pr(Some(*first)),
-                case: Case::Registry {
-                    id: e.id,
-                    what: e.what,
-                },
-            }),
-            Ok(reg) => {
+    let mut actions: Vec<Action> = Vec::new();
+    // The registry is read once, and only when something is checked.
+    let reg = if checks.is_empty() && pushes.is_empty() {
+        None
+    } else {
+        Some(Registry::load(&ctx.registry))
+    };
+    let registry_fail = |action: Action, e: RegistryError| FailClosed {
+        action,
+        case: Case::Registry {
+            id: e.id,
+            what: e.what,
+        },
+    };
+    if let (Some((first, _)), Some(reg)) = (checks.first(), &reg) {
+        match reg
+            .as_ref()
+            .map_err(Clone::clone)
+            .and_then(|r| answers(r, PR_RULES))
+        {
+            Err(e) => fails.push(registry_fail(Action::Pr(Some(*first)), e)),
+            Ok(()) => {
+                let reg = reg.as_ref().expect("checked above");
                 for (action, s) in &checks {
-                    match broken_rules(&reg, s, ctx) {
+                    match broken_rules(reg, s, ctx) {
                         Ok(b) if b.is_empty() => {}
                         Ok(b) => {
-                            header.get_or_insert(Action::Pr(Some(*action)));
+                            actions.push(Action::Pr(Some(*action)));
                             for rule in b {
                                 match broken.iter_mut().find(|x| x.id == rule.id) {
                                     Some(x) => x.details.extend(rule.details),
@@ -338,36 +367,72 @@ pub fn evaluate(input: &str, ctx: &Ctx) -> Option<String> {
                                 }
                             }
                         }
-                        Err(e) => fails.push(FailClosed {
-                            action: Action::Pr(Some(*action)),
-                            case: Case::Registry {
-                                id: e.id,
-                                what: e.what,
-                            },
+                        Err(e) => fails.push(registry_fail(Action::Pr(Some(*action)), e)),
+                    }
+                }
+            }
+        }
+    }
+    if let (false, Some(reg)) = (pushes.is_empty(), &reg) {
+        match reg.as_ref().map_err(Clone::clone).and_then(|r| {
+            answers(r, PUSH_RULES)?;
+            Ok(r)
+        }) {
+            Err(e) => fails.push(registry_fail(Action::Push, e)),
+            Ok(reg) => {
+                let mut offenders: Vec<push::Offender> = Vec::new();
+                for p in &pushes {
+                    match push::check(p, ctx.git, ctx.git_budget) {
+                        Ok(found) => {
+                            for o in found {
+                                if !offenders.iter().any(|x| x.id == o.id) {
+                                    offenders.push(o);
+                                }
+                            }
+                        }
+                        Err(case) => fails.push(FailClosed {
+                            action: Action::Push,
+                            case,
                         }),
                     }
                 }
-                broken.sort_by_key(|b| reg.order(&b.id));
+                if !offenders.is_empty() {
+                    let id = PUSH_RULES[0];
+                    match reg.entry(id).and_then(|e| Ok((e, reg.range(e)?))) {
+                        Ok((entry, range)) => {
+                            actions.push(Action::Push);
+                            broken.push(Broken {
+                                id: entry.id.clone(),
+                                summary: entry.summary.clone(),
+                                range,
+                                details: push::details(&offenders),
+                            });
+                        }
+                        Err(e) => fails.push(registry_fail(Action::Push, e)),
+                    }
+                }
             }
         }
+    }
+    if let Some(Ok(reg)) = &reg {
+        broken.sort_by_key(|b| reg.order(&b.id));
     }
 
     if broken.is_empty() && fails.is_empty() {
         None
     } else {
-        Some(reason::render(header, &broken, &fails))
+        Some(reason::render(&actions, &broken, &fails))
     }
 }
 
-/// The registry, checked to answer for every PR-body rule: an active entry
-/// and text anchors that resolve (PRD R7 case 6), so a damaged registry
-/// denies a checked command even when its body is clean.
-fn pr_registry(source: &RegistrySource) -> Result<Registry, RegistryError> {
-    let reg = Registry::load(source)?;
-    for id in PR_RULES {
+/// Whether the registry answers for every rule in `ids`: an active entry and
+/// text anchors that resolve (PRD R7 case 6), so a damaged registry denies a
+/// checked command even when nothing in it breaks a rule.
+fn answers(reg: &Registry, ids: &[&str]) -> Result<(), RegistryError> {
+    for id in ids {
         reg.range(reg.entry(id)?)?;
     }
-    Ok(reg)
+    Ok(())
 }
 
 /// The PR-body rules `s` breaks, one entry per rule with every finding's

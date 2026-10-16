@@ -364,3 +364,252 @@ fn the_two_entry_points_report_each_broken_rule_once() {
     );
     assert!(!p.contains("pr-body/"), "{p}");
 }
+
+// --- the push check through the binary --------------------------------------
+
+const TRAILER: &str = "feat: add x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n";
+
+/// A scratch `origin.git` and `work`, whose `main` holds one pushed commit
+/// and one unpushed trailer commit.
+fn trailer_repo(h: &Host) -> String {
+    let git = |dir: &str, args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .current_dir(h.dir(dir))
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", h.dir("home"))
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.com"])
+            .args(["-c", "commit.gpgSign=false"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    };
+    git("", &["init", "-q", "--bare", "-b", "main", "origin.git"]);
+    git("", &["init", "-q", "-b", "main", "work"]);
+    git("work", &["remote", "add", "origin", &h.dir("origin.git")]);
+    git(
+        "work",
+        &["commit", "-q", "--allow-empty", "-m", "chore: base"],
+    );
+    git("work", &["push", "-q", "origin", "main"]);
+    git("work", &["commit", "-q", "--allow-empty", "-m", TRAILER]);
+    h.dir("work")
+}
+
+/// The plugin's entry point on `command` run in `cwd`.
+fn plugin_in(command: &str, cwd: &str, env: &[(String, String)]) -> String {
+    let root = plugin_root();
+    let out = run_in(
+        &[
+            "pre-action-hook",
+            "--plugin-root",
+            root.to_str().unwrap(),
+            "--rules",
+            RULES,
+        ],
+        &hook(command, cwd),
+        env,
+        Path::new("/"),
+    );
+    assert_eq!(out.code, 0, "{command}");
+    reason(&out.stdout)
+}
+
+/// The first executable `git` on this process's `PATH`.
+fn real_git() -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|d| d.join("git"))
+        .find(|p| {
+            std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        })
+        .expect("git on PATH")
+}
+
+/// A stub `git` in `h`'s `stub` directory running `body`; the directory.
+fn stub_git(h: &Host, body: &str) -> String {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::create_dir_all(h.root.join("stub")).unwrap();
+    let p = h.root.join("stub/git");
+    std::fs::write(&p, format!("#!/bin/sh\n{body}\n")).unwrap();
+    std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+    h.dir("stub")
+}
+
+#[test]
+fn a_trailer_push_is_denied_and_only_the_off_switch_turns_it_off() {
+    let h = Host::new();
+    let work = trailer_repo(&h);
+    let r = plugin_in("git push", &work, &[]);
+    assert!(
+        r.starts_with("shirabe denied this `git push` before it ran.\n\ncommit/no-ai-trailer: "),
+        "{r}"
+    );
+    assert!(r.contains(" subject: feat: add x\n"), "{r}");
+    let off = with(&[("SHIRABE_PRE_ACTION_HOOK", "off")]);
+    assert_eq!(plugin_in("git push", &work, &off), "");
+    // PR_BODY_HOOK_DISABLE leaves the push on.
+    let r = plugin_in("git push", &work, &with(&[("PR_BODY_HOOK_DISABLE", "1")]));
+    assert!(r.contains("commit/no-ai-trailer: "), "{r}");
+    // So does the legacy wiring, and the legacy entry point checks no push:
+    // each rule is reported once between the two.
+    h.write("home/.claude/settings.json", &settings("Bash", NIWA));
+    let mut env = h.env();
+    env.retain(|(k, _)| k != "PATH");
+    env.push(("PATH".into(), format!("{}:/usr/bin:/bin", h.dir("bin"))));
+    let cmd = "gh pr create --title 'Add x' --body 'Adds x.' && git push";
+    let p = plugin_in(cmd, &work, &env);
+    assert!(p.contains("commit/no-ai-trailer: "), "{p}");
+    assert!(!p.contains("pr-body/"), "{p}");
+    let out = run_in(&["pr-body-hook"], &hook(cmd, &work), &env, Path::new("/"));
+    let l = reason(&out.stdout);
+    assert!(l.contains("pr-body/one-separator: "), "{l}");
+    assert!(!l.contains("commit/no-ai-trailer"), "{l}");
+}
+
+#[test]
+fn a_git_past_the_shortened_budget_is_denied_naming_git_in_time() {
+    let h = Host::new();
+    let work = trailer_repo(&h);
+    let stub = stub_git(&h, "exec sleep 5");
+    let env = with(&[
+        ("SHIRABE_PRE_ACTION_GIT_TIMEOUT", "1"),
+        ("PATH", &format!("{stub}:/usr/bin:/bin")),
+    ]);
+    let start = std::time::Instant::now();
+    let r = plugin_in("git push", &work, &env);
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(3),
+        "{:?}",
+        start.elapsed()
+    );
+    assert!(
+        r.contains("(git: `git rev-parse` ran past the push check's 1-second budget)"),
+        "{r}"
+    );
+    assert!(r.contains("ask the user"), "{r}");
+}
+
+#[test]
+fn every_git_child_runs_plumbing_only_from_the_fixed_environment() {
+    let h = Host::new();
+    let work = trailer_repo(&h);
+    let calls = h.root.join("calls");
+    let envs = h.root.join("envs");
+    let stub = stub_git(
+        &h,
+        &format!(
+            "for a in \"$@\"; do printf '%s\\n' \"$a\" >> '{c}'; done\n\
+             printf '%s\\n' '--end--' >> '{c}'\n\
+             env >> '{e}'\n\
+             printf '%s\\n' '--end--' >> '{e}'\n\
+             exec '{g}' \"$@\"",
+            c = calls.display(),
+            e = envs.display(),
+            g = real_git().display()
+        ),
+    );
+    let env = with(&[
+        ("PATH", &format!("relative/bin:{stub}:/usr/bin:/bin")),
+        ("HOME", &h.dir("home")),
+        ("LANG", "C"),
+        ("LC_ALL", "C"),
+        ("GIT_DIR", "/nonexistent"),
+        ("GIT_CONFIG_PARAMETERS", "'core.fsmonitor'='/x'"),
+        ("LEAK", "1"),
+    ]);
+    let r = plugin_in("git push", &work, &env);
+    assert!(r.contains("commit/no-ai-trailer: "), "{r}");
+
+    let calls = std::fs::read_to_string(&calls).unwrap();
+    let mut subs = Vec::new();
+    for call in calls.split("--end--\n").filter(|c| !c.is_empty()) {
+        let args: Vec<&str> = call.lines().collect();
+        assert_eq!(
+            &args[..11],
+            &[
+                "-C",
+                work.as_str(),
+                "--no-pager",
+                "-c",
+                "core.fsmonitor=false",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "-c",
+                "log.showSignature=false",
+                "-c",
+                "core.pager=cat"
+            ],
+            "{call}"
+        );
+        subs.push(args[11].to_string());
+    }
+    // Local plumbing only: no `fetch`, `ls-remote` or `remote`.
+    for sub in &subs {
+        assert!(
+            [
+                "rev-parse",
+                "config",
+                "symbolic-ref",
+                "for-each-ref",
+                "rev-list",
+                "cat-file"
+            ]
+            .contains(&sub.as_str()),
+            "{subs:?}"
+        );
+    }
+    assert!(subs.iter().any(|s| s == "cat-file"), "{subs:?}");
+
+    let envs = std::fs::read_to_string(&envs).unwrap();
+    for e in envs.split("--end--\n").filter(|c| !c.is_empty()) {
+        let mut vars: Vec<&str> = e
+            .lines()
+            .filter(|l| l.contains('='))
+            // Set by the stub's own shell.
+            .filter(|l| {
+                !["PWD=", "OLDPWD=", "SHLVL=", "_="]
+                    .iter()
+                    .any(|p| l.starts_with(p))
+            })
+            .collect();
+        vars.sort();
+        let home = format!("HOME={}", h.dir("home"));
+        let path = format!("PATH={stub}:/usr/bin:/bin");
+        let mut want = vec![
+            "GIT_CONFIG_NOSYSTEM=1",
+            "GIT_NO_LAZY_FETCH=1",
+            "GIT_NO_REPLACE_OBJECTS=1",
+            "GIT_OPTIONAL_LOCKS=0",
+            "GIT_PAGER=cat",
+            "GIT_TERMINAL_PROMPT=0",
+            home.as_str(),
+            "LANG=C",
+            "LC_ALL=C",
+            path.as_str(),
+        ];
+        want.sort();
+        assert_eq!(vars, want, "{e}");
+    }
+}
+
+#[test]
+fn a_push_check_in_an_empty_home_and_tmpdir_writes_nothing() {
+    let h = Host::new();
+    let work = trailer_repo(&h);
+    for d in ["empty-home", "empty-tmp"] {
+        std::fs::create_dir_all(h.root.join(d)).unwrap();
+    }
+    let env = with(&[
+        ("HOME", &h.dir("empty-home")),
+        ("TMPDIR", &h.dir("empty-tmp")),
+    ]);
+    let r = plugin_in("git push", &work, &env);
+    assert!(r.contains("commit/no-ai-trailer: "), "{r}");
+    for d in ["empty-home", "empty-tmp"] {
+        let n = std::fs::read_dir(h.root.join(d)).unwrap().count();
+        assert_eq!(n, 0, "{d}");
+    }
+}

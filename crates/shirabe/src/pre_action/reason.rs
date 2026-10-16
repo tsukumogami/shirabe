@@ -89,6 +89,24 @@ pub enum Case {
     /// Case 7, decided by the classifier: the directory a push runs in is
     /// unknown.
     Directory(String),
+    /// Case 7: HEAD is detached and the push names no refspec.
+    DetachedHead,
+    /// Case 7: a push source that doesn't resolve to a commit, starts with
+    /// `-`, or is an expansion.
+    Source(String),
+    /// Case 7: more than 1,000 commits to check.
+    TooManyCommits,
+    /// Case 7: the push's directory isn't inside a work tree git will read.
+    WorkTree(PathBuf),
+    /// Case 7: a push option R4 doesn't list.
+    PushOption(String),
+    /// Case 7: a remote that is an expansion, or a configured remote whose
+    /// name isn't a plain word.
+    Remote(String),
+    /// Case 8: a git call of the push check failed or ran out of time, or
+    /// the repository is a partial clone and git is too old to keep it
+    /// from fetching.
+    Git(String),
     /// Case 8.
     Deadline,
     /// Case 8: the evaluation crashed.
@@ -209,6 +227,41 @@ fn describe(case: &Case) -> (String, String, &'static str) {
             why.clone(),
             "run the push from the repository's directory, or with `git -C <path>` and a literal path.",
         ),
+        Case::DetachedHead => (
+            "HEAD".into(),
+            "HEAD is detached and the push names no refspec, so what it pushes is unknown".into(),
+            "name what to push, as `git push <remote> HEAD:refs/heads/<branch>`.",
+        ),
+        Case::Source(src) => (
+            format!("`{src}`"),
+            "the push source doesn't resolve to a commit in this repository, starts with `-`, or is an expansion the hook doesn't evaluate".into(),
+            "name a branch, tag or commit that exists, as a literal word.",
+        ),
+        Case::TooManyCommits => (
+            "1000 commits".into(),
+            "the push would send more than 1000 commits, more than the hook checks".into(),
+            "push in smaller steps, or ask the user to run this push.",
+        ),
+        Case::WorkTree(dir) => (
+            "work tree".into(),
+            format!("{} isn't inside a git work tree that git will read", path(dir)),
+            "run the push from inside the repository's work tree.",
+        ),
+        Case::PushOption(opt) => (
+            format!("`{opt}`"),
+            "the hook doesn't understand this push option, which could change what the push sends".into(),
+            "run the push without it.",
+        ),
+        Case::Remote(name) => (
+            format!("`{name}`"),
+            "the push's remote is an expansion, or a configured remote whose name isn't made of letters, digits, `.`, `_` and `-`".into(),
+            "push to a remote with a plain name, given as a literal word.",
+        ),
+        Case::Git(why) => (
+            "git".into(),
+            why.clone(),
+            "check that `git` works in this repository and try again; a partial clone needs git 2.44 or later.",
+        ),
         Case::Deadline => (
             "25 seconds".into(),
             "the check ran past 25 seconds".into(),
@@ -276,15 +329,30 @@ pub fn fail_closed(f: &FailClosed) -> String {
 }
 
 /// The whole reason: the broken-rule blocks, sorted by the caller into
-/// registry order, under a line naming `action`, then each fail-closed
-/// paragraph once.
-pub fn render(action: Option<Action>, broken: &[Broken], fails: &[FailClosed]) -> String {
+/// registry order, under a line naming the `actions` that broke them (a
+/// command can break PR-body rules and the push rule at once), then each
+/// fail-closed paragraph once.
+pub fn render(actions: &[Action], broken: &[Broken], fails: &[FailClosed]) -> String {
     let mut parts: Vec<String> = Vec::new();
     if !broken.is_empty() {
-        let mut s = format!(
-            "shirabe denied this `{}` before it ran.",
-            action.unwrap_or(Action::Pr(None)).label()
-        );
+        let mut named: Vec<Action> = Vec::new();
+        for a in actions {
+            if !named.contains(a) {
+                named.push(*a);
+            }
+        }
+        if named.is_empty() {
+            named.push(Action::Pr(None));
+        }
+        let labels: Vec<String> = named.iter().map(|a| format!("`{}`", a.label())).collect();
+        let mut s = if labels.len() == 1 {
+            format!("shirabe denied this {} before it ran.", labels[0])
+        } else {
+            format!(
+                "shirabe denied this command's {} before they ran.",
+                labels.join(" and ")
+            )
+        };
         for b in broken {
             s.push_str(&format!(
                 "\n\n{}: {}: {}\n  full text: {} lines {}-{}",
@@ -322,7 +390,7 @@ mod tests {
     #[test]
     fn a_block_per_rule_with_details_joined() {
         let r = render(
-            Some(Action::Pr(Some(PrAction::Create))),
+            &[Action::Pr(Some(PrAction::Create))],
             &[Broken {
                 id: "pr-body/one-separator".into(),
                 summary: "Needs one separator".into(),
@@ -361,6 +429,13 @@ mod tests {
                 "pr-body/one-separator",
             ),
             (Case::Directory("cd \"$DIR\"".into()), "directory"),
+            (Case::DetachedHead, "HEAD"),
+            (Case::Source("nosuch".into()), "`nosuch`"),
+            (Case::TooManyCommits, "1000 commits"),
+            (Case::WorkTree(p.clone()), "work tree"),
+            (Case::PushOption("--new".into()), "`--new`"),
+            (Case::Remote("fo+o".into()), "`fo+o`"),
+            (Case::Git("x".into()), "git"),
             (Case::Deadline, "25 seconds"),
             (Case::UnknownOption("--git-dir=x".into()), "--git-dir=x"),
             (Case::Wrapped, "wrapped"),
@@ -382,12 +457,42 @@ mod tests {
     }
 
     #[test]
+    fn a_command_breaking_pr_and_push_rules_names_both_actions() {
+        let block = |id: &str| Broken {
+            id: id.into(),
+            summary: "s".into(),
+            range: range(),
+            details: vec!["d".into()],
+        };
+        let r = render(
+            &[
+                Action::Push,
+                Action::Pr(Some(PrAction::Create)),
+                Action::Push,
+            ],
+            &[
+                block("commit/no-ai-trailer"),
+                block("pr-body/one-separator"),
+            ],
+            &[],
+        );
+        assert!(
+            r.starts_with(
+                "shirabe denied this command's `git push` and `gh pr create` before they ran.\n\n\
+                 commit/no-ai-trailer: s: d\n"
+            ),
+            "{r}"
+        );
+        assert_eq!(r.matches("shirabe denied").count(), 1, "{r}");
+    }
+
+    #[test]
     fn a_repeated_case_is_rendered_once() {
         let f = FailClosed {
             action: Action::Push,
             case: Case::Wrapped,
         };
-        let r = render(None, &[], &[f.clone(), f]);
+        let r = render(&[], &[], &[f.clone(), f]);
         assert_eq!(r.matches("wrapped").count(), 1, "{r}");
     }
 }
