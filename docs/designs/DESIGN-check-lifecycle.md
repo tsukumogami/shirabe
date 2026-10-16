@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 upstream: docs/prds/PRD-check-lifecycle.md
 problem: |
   Every gate script reports every registered rule at level error through
@@ -38,7 +38,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
@@ -341,14 +341,23 @@ id with no entry or a non-script entry. It fails closed: it prints `block` for
 a script entry with no stage (an older registry), for a stage outside the four
 values, and for an active entry whose guards include a protected action and
 whose stage isn't `block` while `stage_backstops` doesn't cover every such
-guard. That repeats the registry check's safety rule at run time, so a
-registry edited without passing CI still can't soften a guarded rule. `verify-findings` also fails a finding whose level isn't the
+guard with a path that exists under the plugin root and isn't the entry's own
+`check.path`. That repeats the registry check's safety rule at run time, so a
+registry edited without passing CI still can't soften a guarded rule. A new
+`resolve <id>` prints the reference, summary and effective stage on one line,
+tab-separated, from one jq pass, so the library adds no registry call per rule
+(`check-hop-document.sh` resolves late precisely because each call costs).
+`verify-findings [--stage-source <id>] <log>` also fails a finding whose level
+isn't the one its rule's stage maps to; with `--stage-source`, the stage is
+that rule's instead, which is how `panel-scope.sh`'s suite verifies findings
+printed under cited rules at `panel/open-finding`'s stage. `verify-findings` also fails a finding whose level isn't the
 one its rule's stage maps to.
 
 **`scripts/lib/rule-findings.sh`**:
 
 - `RF_CACHE` lines gain a fourth column, the stage, filled by `rf_require` and
-  `rf_require_any` through `rule-registry.sh stage`.
+  `rf_require_any` through `rule-registry.sh resolve`, which replaces their
+  separate `ref` and `summary` calls.
 - `rf_stage <id>` prints a resolved rule's stage; `rf_level <stage>` maps
   `block`→`error`, `warn`→`warning`, `shadow`→`info`.
 - `rf_finding <id> <detail> [<path> [<line>]]` returns without printing for a
@@ -358,9 +367,12 @@ one its rule's stage maps to.
 - `rf_emit <json> [<stage-id>]` sets the finding's `level` from the stage of
   `<stage-id>` (default: the finding's own `rule_id`) before its existing
   checks, with the same retired and counting behaviour.
-- `rf_dispute_hint` prints one line on standard error naming
-  `scripts/rule-dispute.sh` and its arguments, for a script about to exit 1 on
-  block findings.
+- `rf_dispute_hint` prints one line on standard error for a script about to
+  exit non-zero on block findings: `<script>: to dispute a finding you believe
+  is wrong, run <plugin-root>/scripts/rule-dispute.sh --session <session>
+  --gate <gate> --rule <rule-id> --reason <why>; the session and gate are in
+  the koto response`. Gate scripts don't know their session or gate, so the
+  line names them as placeholders the agent fills from the response it holds.
 
 **Gate scripts**, each replacing its own exit test with `RF_BLOCKING`:
 
@@ -368,7 +380,7 @@ one its rule's stage maps to.
 |---|---|
 | `check-branch-output.sh` | `exit 1` per mode when `RF_BLOCKING` > 0, after `rf_dispute_hint`. |
 | `check-hop-document.sh` | Same. Its late resolution keeps working: `rf_require` caches the stage when it resolves. |
-| `check-verification.sh` | Prints findings first, then ranks the route over lines whose rule's stage is `block`; exits 0 when no block line remains. |
+| `check-verification.sh` | Prints findings first, then ranks the route over lines whose rule's stage is `block`; exits 0 when no block line remains, and prints the dispute hint before a non-zero route (1, 3 or 4). |
 | `check-pr-output.sh` | Fallback `pr-body/conformance` only when the validator listed no finding; PB4 text released only when `rf_stage pr-body/no-heading-in-part1` is `warn` or `block`; exit 1 only on `RF_BLOCKING`. |
 | `panel-scope.sh` | Calls `rf_emit "$json" panel/open-finding`, so every finding takes the panel rule's stage. |
 
@@ -382,20 +394,28 @@ The pre-action hook and `shirabe pre-action-hook` don't read `stage`, so a
   retired` implies `stage: retired`; `gates` non-empty on an active script
   entry and each value matching `^[a-z0-9-]+:[a-z0-9_]+:[a-z0-9_]+$`;
   `stage_backstops` entries with `before` in the protected set, unique, and a
-  non-empty `check`; for an active script entry whose guards include a
-  protected action and whose stage isn't `block`, every protected guard
-  covered by a backstop whose `check` isn't the entry's `check.path`.
+  non-empty `check`, and non-empty `notes` whenever `stage_backstops` is
+  present; for an active script entry whose guards include a protected action
+  and whose stage isn't `block`, every protected guard covered by a backstop
+  whose `check` isn't the entry's `check.path`.
 - In the existence check: every `stage_backstops[].check` path exists.
 - A new numbered check for `gates`: an awk pass over each skill's
   `koto-templates/*.md` (not `*.mermaid.md`) frontmatter lists every command
   gate as `state`, `gate`, `command`; a value fails when no such line exists,
   or when the command names no script whose `RULE_IDS` line lists the id,
   except a command naming `panel-scope.sh`, which may report any active rule.
-- Under `--base`, beside check 11: base and head entries joined by id; a new
-  entry may start at `shadow`, `warn` or `block`; a change of stage must be
-  one of R4's and must raise `stage_since`; a status change to `retired` must
-  set the stage to `retired`; a `status: retired` base entry may not change
-  status or stage.
+- Under `--base`, beside check 11: base and head entries joined by id. A new
+  entry may start at `shadow`, `warn` or `block`. A base entry with no stage
+  (the migration) may take only `block`, or `retired` when its status is
+  `retired`. Otherwise a change of stage must be one of: one step up
+  (`shadow`→`warn`, `warn`→`block`); down any number of steps among `block`,
+  `warn` and `shadow`; any stage to `retired`; `retired`→`shadow` on an active
+  entry. Every change of stage must raise `stage_since`. A status change to
+  `retired` must set the stage to `retired`, and a `status: retired` base
+  entry may not change status or stage. An active entry that loses a
+  protected guard must be at `block` in the same change, so dropping a guard
+  and softening the stage take two reviewed changes. With `--base` given and
+  the base unreadable, the check exits 2 rather than passing.
 
 **`scripts/rule-lifecycle.sh figures [--json] [<file>...]`** reads journal
 lines from files or standard input and the registry beside it, and runs one jq
@@ -405,16 +425,22 @@ program:
    take the window's end as the newest `at` among all input lines.
 2. Evaluations: `check_evaluated` records carrying `koto.check.finding_count`
    whose (`koto.state`, `koto.check`) is one of the rule's gates' state and
-   gate, keyed by `koto.session.id` and `koto.seq`.
+   gate, keyed by `koto.session.id` and `koto.seq`, with their
+   `koto.check.outcome`, `koto.visit.seq` and `koto.check.findings_truncated`.
 3. Fires: those evaluations with a `check_finding` record for the rule at the
    same session and `koto.seq`, counted once per evaluation and by
-   `koto.finding.level`.
+   `koto.finding.level`. A finding only counts at the rule's own gates, so a
+   review panel's finding citing a rule counts for `panel/open-finding`, whose
+   gates the panel gates are, and not for the cited rule.
 4. Disputes: `check_disputed` records naming the rule at one of its gates, by
-   `koto.dispute.source`.
+   `koto.dispute.source`, counted at most once per session per rule, so one
+   session repeating a dispute moves the figure once.
 5. Unconverged visits: (`koto.session.id`, `koto.visit.seq`) pairs with an
    `error` fire for the rule and no `passed` evaluation of the same gate in
    that visit.
-6. The first criterion of R17's table the rule meets, or `hold`.
+6. The first criterion of R17's table the rule meets, or `hold`. For the
+   retire criterion only, evaluations whose findings were cut are left out of
+   the evaluation count, since a cut list may have dropped the rule's finding.
 
 It prints `id stage days evaluations fires_error fires_warning fires_info
 passes disputes_agent disputes_person unconverged criterion`, tab-separated,
@@ -456,7 +482,8 @@ describes the four fields and links it.
   `advisories` after `attempts` when non-empty, capped at 100 findings. The
   `--to` path and `koto status` don't.
 - `src/cli/disputes.rs` (new): `koto disputes record`, validating as the PRD
-  says, appending `finding_disputed` through the same append path overrides
+  says, passing the reason through koto's credential redaction before it's
+  stored, appending `finding_disputed` through the same append path overrides
   use, printing `{"status":"recorded"}`.
 - `src/engine/types.rs`: the `FindingDisputed` event variant and type name.
 - Docs: `docs/reference/run-journal.md`, `docs/reference/session-feed.md`
@@ -533,8 +560,10 @@ Deliverables:
 
 ### Phase 3: Figures reader, dispute wrapper and reference
 
-Depends on Phase 1's fields. Add `rule-lifecycle.sh` and `rule-dispute.sh`
-with fixture-driven suites, and write `references/check-lifecycle.md`.
+Depends on Phase 1's fields, and on the measurement owners' review of koto's
+record names, since the reader's fixtures and the wrapper's koto call are
+written in those names. Add `rule-lifecycle.sh` and `rule-dispute.sh` with
+fixture-driven suites, and write `references/check-lifecycle.md`.
 
 Deliverables:
 - `scripts/rule-lifecycle.sh`, `scripts/rule-dispute.sh`, their suites,
@@ -563,8 +592,18 @@ kept in the session log and never journaled, following the override
 rationale's precedent; it's bounded at 1,000 bytes.
 
 **`advisories` on the response.** Its findings are the same objects koto
-already returns in `failure`, so koto's guidance to treat finding text as
-data applies unchanged; nothing routes on it.
+already returns in `failure`, each message held to koto's 1,000-byte bound,
+and they can quote content a contributor wrote, such as a pull request body.
+koto's guidance to treat finding text as data, never as instructions, applies
+unchanged, the koto-user skill repeats it for `advisories`, and nothing routes
+on it.
+
+**Figures an agent can influence.** The journal lives where the agent's
+process can write, disputes are self-reported, and a 50-finding cut can hide a
+finding. So the reader counts one dispute per session per rule, leaves cut
+evaluations out of the retire count, and the reference treats the figures as
+evidence for a reviewer, never as a trigger: a guarded rule still needs
+declared backstops and a reviewed change to move.
 
 **The dispute wrapper.** `rule-dispute.sh` passes each argument to koto as a
 separate word and builds the decision's JSON with `jq --arg`, so a reason
@@ -624,7 +663,9 @@ session logs off the host would carry it, bounded at 1,000 bytes.
 - The figures reader matches gates by state and gate name, so two skills
   sharing a state and gate name would mix their evaluations.
 - On koto 0.20.0 a warn finding is invisible to the agent, so warn behaves as
-  shadow until the floor rises.
+  shadow until the floor rises. No shirabe-side workaround is attempted: the
+  only channel koto offers a passing check is the one the companion change
+  adds.
 - 34 of 35 active rules can't leave `block` until someone declares backstops
   for them.
 - koto's 50-finding cap can drop warning pairs from a noisy evaluation.
