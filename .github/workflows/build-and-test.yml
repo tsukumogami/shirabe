@@ -33,5 +33,12 @@ jobs:
       - name: Cargo build (release)
         run: cargo build --release
 
+      # The plugin's pre-action hook, run through the command hooks/hooks.json
+      # declares, against the binary just built. This workflow runs on every
+      # pull request, so it covers every path a change to the hook can come
+      # from: hooks/, crates/, the registry and the conformance reference.
+      - name: Pre-action hook suite
+        run: PATH="$PWD/target/release:$PATH" bash hooks/pre-action-deny_test.sh
+
       - name: Cargo test (workspace)
         run: cargo test --workspace

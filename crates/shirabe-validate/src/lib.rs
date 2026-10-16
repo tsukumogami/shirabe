@@ -65,8 +65,8 @@ pub use merge_gate::{
     GhVisibilityResolver, MergeGateOutcome,
 };
 pub use pr_body::{
-    check_pr_body, check_pr_title, check_pr_writing_style, is_no_heading_finding, suppressed_terms,
-    PrBodyFinding,
+    check_pr_body, check_pr_title, check_pr_writing_style, is_attribution_line,
+    is_no_heading_finding, suppressed_terms, PrBodyFinding,
 };
 pub use repoint::{repoint_references, FileRewrite, RepointError};
 pub use report::{

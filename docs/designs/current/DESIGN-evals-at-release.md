@@ -270,7 +270,8 @@ separate shell calls, is per worktree, and can never be committed.
 --critical-runs 3` (the arguments are what `release.md` lists, so the list
 lives in the extension; since shirabe#843 it declares `--critical-runs 1
 --model sonnet --tolerance 0.05`, compares a skill only with a measurement on
-the same scenario models and session model, runs each skill's release subset
+the same scenario models and session model, and since shirabe#879 on the same
+set of scenarios, runs each skill's release subset
 (`--release-subset`: every tier-1 scenario and one tier-2 scenario per
 behaviour) with no no-skill baseline (`--no-baseline`), and leaves the repeat
 runs, the baseline and the other tier-2 scenarios to

@@ -233,11 +233,15 @@ Claude Code session:
   exposure is narrow because `install.sh` accepts only `linux` and `darwin`
   anyway, but it is real and it is stated rather than papered over.
 - The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
-  so install it before you use them (see [Local install](#local-install))
+  and the plugin's pre-action hook runs it on every guarded command, so
+  install it before you use them (see [Local install](#local-install))
 - [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`,
-  `/deliver`, `/work-on`, and `/coordinate` require koto 0.15.0 or later.
+  `/deliver`, `/work-on`, and `/coordinate` require koto 0.20.0 or later.
   `.tsuku.toml` tracks the newest koto 0.x rather than pinning a release, so
-  `tsuku install` never downgrades a newer koto you already have. 0.15.0 routes
+  `tsuku install` never downgrades a newer koto you already have. 0.20.0 hands
+  a decider-check criterion the decider couldn't answer back to the agent, who
+  answers it with `koto decider answer`, where an older koto passed it
+  unjudged; `/work-on`'s review-level check relies on it. 0.15.0 routes
   on a template variable's value and runs veto-only decider checks, which
   `/work-on`'s review level uses. 0.14.1 accepts
   `+` in `--var` values, so a plugin or checkout under a directory whose name
@@ -283,6 +287,42 @@ execute-<plan-slug>`), before you upgrade. `/deliver` first shipped against
 koto 0.13.0, so it has no older sessions of its own, but it resumes a topic through
 `/scope` and `/execute` and can't pick up their old sessions either. There is
 no automatic migration.
+
+## The pre-action hook
+
+The plugin ships a Claude Code PreToolUse hook, `hooks/pre-action-deny.sh`,
+that checks a Bash command before it runs. It denies a `gh pr create` or
+`gh pr edit` whose title or body breaks a PR-body rule from
+`references/pr-body-conformance.md` (a Conventional Commits title, one `---`
+separator, no AI-attribution line, no heading in Part 1), and a `git push`
+that would send a commit with an AI-attribution trailer. The deny names each
+broken rule and where its full text is, so the agent can fix the command and
+run it again. On a host opted into the live offload canary it lets the
+Part 1 heading rule through, as `docs/guides/offload-live-canary.md` explains.
+
+The checking is done by the `shirabe` binary, so install it with `install.sh`
+(see [Local install](#local-install)); the hook looks for it on `PATH`, then at
+`$HOME/.shirabe/bin/shirabe`. Without the binary, or with one older than the
+plugin, the hook fails closed: it denies every command that names
+`gh pr create`, `gh pr edit` or `git push`, with the install command in the
+reason, and lets everything else through. A guarded command it can't see
+through, such as a body read from a variable, is denied the same way.
+
+The person running a host turns the hook off with `SHIRABE_PRE_ACTION_HOOK`
+set to `off` in the `env` block of their Claude Code settings:
+
+```json
+{ "env": { "SHIRABE_PRE_ACTION_HOOK": "off" } }
+```
+
+`PR_BODY_HOOK_DISABLE=1` there turns off only the PR-body part and keeps the
+push check. The hook's script reads that switch too, so on a host without the
+binary the fail-closed deny above then covers only `git push`.
+
+Both switches also cover `shirabe pr-body-hook`, the older entry point a host
+can wire into its own settings. When a host does wire it, the plugin's hook
+leaves the PR-body rules to that entry point, so each broken rule is reported
+once.
 
 ## CLI and doc validation
 

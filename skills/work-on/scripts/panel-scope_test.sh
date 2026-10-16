@@ -1455,6 +1455,13 @@ dent() { # dent <visit_seq> <rule_id> <outcome>
 }
 : > "$LOG"
 refused "a decider entry koto's log does not hold" scrutiny "[$(dent 1 rs-007 fail)]"
+# koto 0.20.0 records the agent's answer to a criterion the decider couldn't
+# grade as decider_check_answered; it is the agent's, and backs no entry.
+printf '{"type":"decider_check_answered","payload":{"state":"scrutiny","visit_seq":1,"gate":"scrutiny_decider","rule_id":"rs-007","declaration_hash":"abcd1234","input_sha256":"ef01","answer":"pass"}}\n' >> "$LOG"
+refused "a decider entry backed only by the agent's answer" scrutiny "[$(dent 1 rs-007 pass)]"
+grep -q "holds no decider_checked event" "$WORKDIR/stderr" \
+    && pass "the refusal says koto's log holds no decider verdict for it" || fail "stderr: $(cat "$WORKDIR/stderr")"
+: > "$LOG"
 refused "a decider entry with a malformed gate" scrutiny '[{"decider":{"state":"scrutiny","visit_seq":1,"gate":"Bad Gate","rule_id":"rs-007","declaration_hash":"abcd1234","outcome":"fail"}}]'
 dc 1 rs-007 fail
 refused "a decider entry whose input hash differs from the event's" scrutiny '[{"decider":{"state":"scrutiny","visit_seq":1,"gate":"scrutiny_decider","rule_id":"rs-007","declaration_hash":"abcd1234","input_sha256":"ffff","outcome":"fail"}}]'

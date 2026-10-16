@@ -214,8 +214,8 @@ pause, a go-ahead (a release or another step allowed once), a relayed approval,
 a standing answer. Owner is the person who decided it; Relayed by is who
 carried it to you, blank when they told you directly. A pause names its
 scope in On, `all` (the whole coordinator) or one unit as pick lists it
-(`Feature 2`, `ED1`, `#12`, `owner/repo#12`), and its resume condition in
-Until: `lifted` (a person's resume ends it), `time <YYYY-MM-DDTHH:MMZ>` in UTC,
+(`Feature 2`, `Milestone 2`, `ED1`, `#12`, `owner/repo#12`), and its resume
+condition in Until: `lifted` (a person's resume ends it), `time <YYYY-MM-DDTHH:MMZ>` in UTC,
 `merged owner/repo#n` or `tag owner/repo <tag>`. pick, the dispatch check, the
 land check and the merge read every pause live (`scripts/pause-read.sh`) and
 refuse what one holds; a pause whose condition reads met holds nothing, and
@@ -321,6 +321,36 @@ roadmap record can't close while an entry is unsettled.
 The write core refuses a body over 60,000 bytes (`record-full`, exit 13), under
 GitHub's 65,536-byte limit.
 
+**The archive.** A settled entry doesn't stay in the body for good. When the
+record is within 4,096 bytes of that budget, `decision-next.sh` moves every
+settled entry that owes nothing out of the body before it routes anything,
+except one a `decision` Work row still parks a unit on, whose outcome pick
+reads when it dispatches the unit
+(`record-decision.sh --archive`): their rows go, exactly as the body held them,
+to `decisions` entries on the record (`record-append.sh`), and their
+identifiers join an `Archived:` line under `Next decision`. The current run's
+own entries move too, but their stamps stay, on one line, because the replay
+guard and the unrecorded and redirect rules read a stamp's kind, sequence and
+entry, and whether it marks a question addressed to a person, and never the
+rest of the row:
+
+```markdown
+Archived: 1-12, 14, 17-30 (settled; each kept verbatim in a decisions entry on this record)
+
+Stamps kept for run 20261015T080000Z: 17 raise 41, 18 report 52.1 addressed, 18 redirect 52
+```
+
+Only the archiving run's stamps are kept; a later run's archive drops them,
+since no rule reads another run's. `--owed` reads the move as `archive`, ahead
+of every rule, so a run restarted on a full record archives before it picks or
+dispatches anything. `record-full` is left for a record full of what can't
+move: unsettled entries, entries owed a message and entries a unit is parked
+on. Evidence, an answer or a
+worker's citation naming an archived entry restores it first, from the latest
+unedited `decisions` entry holding its row, in the same write that records the
+arrival, and its kept stamps go back to its row. A withdrawal reaches only the
+entries in the body. `Next decision` is unchanged by either move.
+
 The declaration line is for readers. It is deliberately different from the
 `This is a **coordination PR**` marker that `/execute` uses, so no gate
 written for coordination pull requests ever parses a record.
@@ -357,10 +387,13 @@ scope's, stamps the entry from the host clock in UTC to the second, and posts:
 The record's other writers post their own kinds with `--kind`, which takes
 the place of `entry` in both lines. The milestone steps post three:
 `milestone-verdict`, `goal-fit` and `milestone-failure`, whose lines are
-under Milestone Verdicts.
+under Milestone Verdicts. `record-decision.sh --archive` posts `decisions`,
+the settled Decisions rows it moves out of the body (see the archive under
+Decisions).
 
-An entry never grows and is never rewritten, so the record needs no archive
-however long the run. Write one when something happens that a successor would
+An entry comment never grows and is never rewritten, so the comments need no
+archive however long the run; only the body's Decisions section does. Write
+one when something happens that a successor would
 need the story of: what you dispatched and why, what a person told you, what
 you decided and on what evidence. On a public host the text gets the checks the
 Decisions section's text gets (no private repository, home-directory path or
@@ -465,7 +498,7 @@ unmerged is cleared with `--drop "<tag>" --reason "<why>"`. The skill never
 merges the roadmap pull request.
 
 All of this is a feature roadmap's. The script reads the roadmap's
-frontmatter first, and on a milestone roadmap (`schema: roadmap/v2`) the same
+frontmatter first, and on a milestone roadmap (`schema: roadmap/v2` or `roadmap/v3`) the same
 `--unit` call opens nothing and marks the milestone's verdict owed, as the
 next section says.
 

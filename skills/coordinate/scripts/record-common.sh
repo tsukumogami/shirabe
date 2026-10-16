@@ -395,14 +395,58 @@ lib_roadmap_path() {
     case "$ROADMAP" in *..*) echo "$PROG: the roadmap path holds .." >&2; exit 64 ;; esac
 }
 
-# lib_roadmap_features <roadmap.md>: the features under `## Features`, as a JSON
-# array in source order: {number, id, title, status, finished, done,
-# dependencies}. The picker's reading of a roadmap of either version, its
-# rules applied in this order:
-#   1. An item is a `### <tag>: <title>` heading whose tag is `Feature <N>` or
-#      `<PREFIX><N>` with an optional lower-case letter (`AB10a`); any other
-#      `### ` heading ends the item before it. Items are numbered by
-#      position, as shirabe-validate numbers them; `id` is the tag.
+# lib_roadmap_words <roadmap.md>: RM_SECTION and RM_WORD, the roadmap's items
+# section and the word of its classic headings, chosen by its `schema:` as
+# milestone.sh schema reads it: `Milestones` and `Milestone` on roadmap/v3,
+# `Features` and `Feature` on any other (v1, v2, none). A reader takes only
+# its version's pair, so a v3 roadmap's `## Features` section or
+# `### Feature 3:` heading is no item, and the same holds for `## Milestones`
+# and `### Milestone 3:` on v2, as shirabe-validate reads them.
+lib_roadmap_words() {
+    if [ "$(bash "$HERE/milestone.sh" schema "$1" 2> /dev/null)" = roadmap/v3 ]; then
+        RM_SECTION=Milestones RM_WORD=Milestone
+    else
+        RM_SECTION=Features RM_WORD=Feature
+    fi
+}
+
+# JQ_TAG_KEY: the jq def `tag_key`, a tag's key, through which every match of
+# a unit to a roadmap heading compares (a holding, a landed row, a Work row,
+# a verdict, goal-fit or failure entry, a follow-up, an amendment, a
+# reopen): `ms:<N>` for exactly `Feature <N>` or `Milestone <N>` (one space,
+# the decimal digits as written, nothing after them, case-sensitive), so a
+# record written under `Feature 2` matches the heading `Milestone 2`; any
+# other text is its own key. The key is a string: `Feature 03` keys `ms:03`
+# and matches no `Milestone 3`, `feature 2` and `AB1` are themselves, and
+# `#3` (an issue) is never `ms:3`. lib_tag_key below and milestone.sh
+# ms_tag_key are the bash ones, with the same rule. Prefix it to a jq program
+# that calls tag_key.
+JQ_TAG_KEY='def tag_key: if type == "string" and test("\\A(Feature|Milestone) [0-9]+\\z") then "ms:" + .[(index(" ") + 1):] else . end;'
+
+# lib_tag_key <tag>: the tag's key, as JQ_TAG_KEY's tag_key gives it.
+lib_tag_key() {
+    local re='^(Feature|Milestone) ([0-9]+)$'
+    if [[ $1 =~ $re ]]; then printf 'ms:%s\n' "${BASH_REMATCH[2]}"; else printf '%s\n' "$1"; fi
+}
+
+# lib_heading_tag <tag>: TAG as the roadmap read by lib_roadmap_words spells
+# its heading: `<RM_WORD> <N>` for `Feature <N>` or `Milestone <N>`, TAG
+# itself otherwise. Call lib_roadmap_words first.
+lib_heading_tag() {
+    local re='^(Feature|Milestone) ([0-9]+)$'
+    if [[ $1 =~ $re ]]; then printf '%s %s\n' "$RM_WORD" "${BASH_REMATCH[2]}"; else printf '%s\n' "$1"; fi
+}
+
+# lib_roadmap_features <roadmap.md>: the items under the roadmap's items
+# section (lib_roadmap_words: `## Milestones` on roadmap/v3, `## Features`
+# otherwise), as a JSON array in source order: {number, id, title, status,
+# finished, done, dependencies}. The picker's reading of a roadmap of any
+# version, its rules applied in this order:
+#   1. An item is a `### <tag>: <title>` heading whose tag is `<RM_WORD> <N>`
+#      (`Feature <N>`, or `Milestone <N>` on v3) or `<PREFIX><N>` with an
+#      optional lower-case letter (`AB10a`); any other `### ` heading ends the
+#      item before it. Items are numbered by position, as shirabe-validate
+#      numbers them; `id` is the tag.
 #   2. `finished` when the `**Status:**` value starts with Done or Shipped
 #      followed by its end or a character other than a letter, digit or
 #      hyphen; closed the same way with Dropped. Case-sensitive, so a
@@ -425,14 +469,22 @@ lib_roadmap_path() {
 #   7. What is left names `Feature N`, `Features N, M and K` and `F<N>`
 #      (the item tagged `Feature N` when there is one, else the Nth item),
 #      and every whole word equal to another item's tag. Soft mentions, the
-#      item itself and tags no item carries are not dependencies.
+#      item itself and tags no item carries are not dependencies. On a
+#      roadmap/v3 roadmap only, `Milestone N` and `Milestones N, M and K`
+#      name items too, and either word's N is the item tagged `Milestone N`
+#      when there is one, else the Nth item; rules 4 and 7 read `milestone`
+#      beside `feature` there. On v1 and v2 a `milestone 3` in prose (a
+#      free-prose roadmap mentions one in passing) names nothing.
 # `dependencies` is those positions, ascending, each once. A paragraph over
 # 4096 bytes fails the read: non-zero, the item's tag on stderr, prefixed by
 # the caller's PROG.
 lib_roadmap_features() {
     local tsv
-    # LC_ALL=C: length() counts bytes, and the classes are ASCII.
-    tsv=$(tr -d '\r' < "$1" | LC_ALL=C awk -v prog="${PROG:-record-common}" '
+    lib_roadmap_words "$1"
+    # LC_ALL=C: length() counts bytes, and the classes are ASCII. The section
+    # and word are from lib_roadmap_words' closed set, never the roadmap's text.
+    tsv=$(tr -d '\r' < "$1" | RF_SECTION="$RM_SECTION" RF_WORD="$RM_WORD" LC_ALL=C awk -v prog="${PROG:-record-common}" '
+        BEGIN { sect = "## " ENVIRON["RF_SECTION"]; headre = "^(" ENVIRON["RF_WORD"] " [0-9]+|[A-Za-z]+[0-9]+[a-z]?): " }
         function flush() {
             if (have) {
                 gsub(/\t/, " ", title); gsub(/\t/, " ", status); gsub(/\t/, " ", deps)
@@ -445,14 +497,14 @@ lib_roadmap_features() {
             }
             have = 0; indeps = 0
         }
-        /^## / { if (infeat) { flush(); infeat = 0 } if ($0 ~ /^## Features[ \t]*$/) infeat = 1; next }
+        /^## / { if (infeat) { flush(); infeat = 0 } s = $0; sub(/[ \t]+$/, "", s); if (s == sect) infeat = 1; next }
         !infeat { next }
         indeps && (/^[ \t]*$/ || /^\*\*[A-Z][A-Za-z ]*:\*\*/ || /^#+([ \t]|$)/) { indeps = 0 }
         indeps { s = $0; sub(/^[ \t]+/, "", s); sub(/[ \t]+$/, "", s); deps = (deps == "" ? s : deps " " s); next }
         /^### / {
             flush()
             line = substr($0, 5)
-            if (match(line, /^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?): /)) {
+            if (match(line, headre)) {
                 n++; have = 1
                 id = substr(line, 1, RLENGTH - 2); title = substr(line, RLENGTH + 1)
                 status = ""; deps = ""
@@ -462,19 +514,24 @@ lib_roadmap_features() {
         have && /^\*\*Status:\*\*/ { s = $0; sub(/^\*\*Status:\*\*[ \t]*/, "", s); sub(/[ \t]+$/, "", s); status = s; next }
         have && /^\*\*Dependencies:\*\*/ { s = $0; sub(/^\*\*Dependencies:\*\*[ \t]*/, "", s); sub(/[ \t]+$/, "", s); deps = s; indeps = 1; next }
         END { if (infeat && !failed) flush() }') || return
-    printf '%s\n' "$tsv" | jq -R -s -c 'split("\n") | map(select(. != "") | split("\t"))
+    # The words dependency prose reads: `feature` everywhere, and `milestone`
+    # beside it on v3 only. RM_WORD is lib_roadmap_words' closed set.
+    local word='feature' words='features?'
+    if [ "$RM_WORD" = Milestone ]; then word='feature|milestone' words='features?|milestones?'; fi
+    printf '%s\n' "$tsv" | jq -R -s -c --arg w "$word" --arg ws "$words" --arg cw "$RM_WORD" 'split("\n") | map(select(. != "") | split("\t"))
         | map(.[1]) as $ids | length as $count
-        # num: `Feature N` or `F<N>`, the item tagged `Feature N`, else the Nth.
-        | def num($n): ($ids | index("Feature \($n)")) as $i
+        # num: `Feature N` or `F<N>` (and `Milestone N` on v3), the item
+        # tagged `<the version'"'"'s word> N`, else the Nth.
+        | def num($n): ($ids | index("\($cw) \($n)")) as $i
             | if $i != null then $i + 1 elif $n >= 1 and $n <= $count then $n else empty end;
           def tag($t): range(0; $count) | select($ids[.] == $t) | . + 1;
-          def named: (scan("\\b(?i:features?) ([0-9]+(?:(?:,? and |, | & )[0-9]+)*)") | .[0] | scan("[0-9]+") | tonumber | num(.)),
+          def named: (scan("\\b(?i:" + $ws + ") ([0-9]+(?:(?:,? and |, | & )[0-9]+)*)") | .[0] | scan("[0-9]+") | tonumber | num(.)),
               (scan("\\bF([0-9]+)\\b") | .[0] | tonumber | num(.)),
               (scan("[A-Za-z0-9]+") | tag(.));
           # A soft mark in parentheses strikes only the tag: the parenthetical
           # is left whole for rule 5. A bare mark goes with its tag.
-          def desoft: gsub("\\b((?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)(?=\\s*\\(\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b)"; "")
-              | gsub("\\b((?i:feature) [0-9]+|[A-Za-z]+[0-9]+[a-z]?)\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b"; "");
+          def desoft: gsub("\\b((?i:" + $w + ") [0-9]+|[A-Za-z]+[0-9]+[a-z]?)(?=\\s*\\(\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b)"; "")
+              | gsub("\\b((?i:" + $w + ") [0-9]+|[A-Za-z]+[0-9]+[a-z]?)\\s*(?i:soft|optional|preferred|sequencing-preferred|paced by)\\b"; "");
           # The space a removed parenthetical leaves before `,` goes too, so
           # `Features 2 (x), 3 and 4` stays one list.
           def unparen: reduce range(20) as $_ (.; if test("\\([^()]*\\)") then gsub("\\([^()]*\\)"; "") else . end)

@@ -37,8 +37,11 @@
 # 9. For those three, the tokens goal_fit reads: when the run is at roadmap
 #    scope and the pull request's Holdings row names a unit by its roadmap
 #    heading tag, the roadmap is read on the host's default branch, and on a
-#    roadmap/v2 roadmap the detail gains `milestone: {tag, evidence: [clause, ...]}` (milestone.sh
-#    evidence; the clauses in the roadmap's order, numbered from 1), so goal
+#    milestone roadmap (milestone.sh is-milestone: roadmap/v2 or roadmap/v3)
+#    the detail gains `milestone: {tag, evidence: [clause, ...]}` (milestone.sh
+#    evidence, which finds a unit held as `Feature N` under a v3 roadmap's
+#    `### Milestone N:` heading; the clauses in the roadmap's order, numbered
+#    from 1), so goal
 #    fit can name the clauses the pull request advances
 #    (docs/designs/DESIGN-milestone-verdicts.md, Decision 2). A version 1
 #    roadmap, a discipline scope or no holding naming the pull request adds
@@ -216,7 +219,7 @@ P=$(bl_merge_posture "$SESSION") || exit 2
 # read failed.
 milestone_evidence() {
     local vars scope roadmap host unit db ms re='^docs/roadmaps/([A-Za-z0-9._-]+/)*ROADMAP-[A-Za-z0-9._-]+\.md$'
-    local tagre='^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
+    local tagre='^(Feature [0-9]+|Milestone [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
     vars=$(bash "$HERE/coord-log.sh" vars --session "$SESSION") || { echo "the session's variables couldn't be read"; return 1; }
     scope=$(printf '%s' "$vars" | jq -r '.SCOPE // ""')
     roadmap=$(printf '%s' "$vars" | jq -r '.ROADMAP // ""')
@@ -241,7 +244,7 @@ milestone_evidence() {
     bl_gh "$MS.rm" api --method GET "repos/$host/contents/$roadmap?ref=$db" || { echo "$roadmap couldn't be read on $db"; return 1; }
     jq -r '.content // empty' "$MS.rm" > "$MS.rm.b64" && [ -s "$MS.rm.b64" ] && lib_b64d "$MS.rm.b64" "$MS.roadmap" \
         || { echo "$roadmap on $db couldn't be decoded"; return 1; }
-    [ "$(bash "$HERE/milestone.sh" schema "$MS.roadmap" 2>/dev/null)" = roadmap/v2 ] || return 0
+    bash "$HERE/milestone.sh" is-milestone "$MS.roadmap" 2>/dev/null || return 0
     ms=$(bash "$HERE/milestone.sh" evidence "$MS.roadmap" "$unit" 2> "$MS.ms.err") \
         || { echo "$unit has no Evidence on $db: $(head -1 "$MS.ms.err" | sed 's/^milestone: //')"; return 1; }
     printf '%s' "$ms" | jq -c '{tag, evidence}'

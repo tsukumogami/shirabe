@@ -21,7 +21,9 @@
 #   - every numbered item under a line reading exactly `Questions:`, up to the
 #     first line that is neither a numbered item nor blank. An item's
 #     `(decision <n>)` is its citation only when there is a holding and entry
-#     <n>'s Source is `worker <topic>`; any other citation is dropped;
+#     <n>'s Source is `worker <topic>`, read from the row its latest unedited
+#     `decisions` entry holds when <n> is archived; any other citation is
+#     dropped;
 #   - every other line ending in `?`, and every other line the phrasing list
 #     marks as a decision (phrasing-lib.sh);
 #   - each marked `addressed` when the list's person-addressing patterns match.
@@ -300,9 +302,29 @@ fi
 
 cut -f3- "$T/all" > "$T/all.txt"
 phrase_lines addressed "$T/all.txt" > "$T/addressed" || lib_die2 "the phrasing list can't be read"
+# An archived entry (record-template.md, the archive) is the worker's own when
+# the row its latest unedited `decisions` entry holds says so, the row
+# record-decision.sh --open-from-report restores. The entries are read only
+# when an item of the Questions part cites an archived identifier.
+OWNED='[]'
+if [ "$HOLDING" = 1 ] && printf '%s' "$SECTION" | jq -e '(.archived // []) | length > 0' > /dev/null; then
+    CITED=$(jq -R -s -c '[split("\n")[] | select(length > 0) | split("\t") | select(.[1] == "item")
+        | .[2:] | join("\t") | capture("\\(decision (?<n>[1-9][0-9]*)\\)") | .n | tonumber] | unique' "$T/all") \
+        || lib_die2 "cannot read the citations"
+    if printf '%s' "$SECTION" | jq -e --argjson c "$CITED" 'any((.archived // [])[]; . as $a | $c | index($a) != null)' > /dev/null; then
+        bash "$HERE/record-append.sh" --session "$SESSION" --list > "$T/entries.json" 2> "$T/ra.err" \
+            || { lib_scrub < "$T/ra.err" >&2; echo >&2; lib_die2 "cannot read the record's entries"; }
+        OWNED=$(jq -c -L "$HERE" --arg topic "$TOPIC" --argjson sec "$SECTION" --argjson c "$CITED" 'include "record-codec";
+            ([.[] | select(.kind == "decisions" and (.edited | not))] | reverse) as $arch
+            | [($sec.archived // [])[] | select(. as $a | $c | index($a) != null) | tostring as $n
+               | (first($arch[] | .text | d_archive_rows[] | select(.decision == $n)) // null)
+               | select(. != null and (.source | startswith("worker \($topic) ["))) | .decision]' "$T/entries.json") \
+            || lib_die2 "cannot read the archived entries"
+    fi
+fi
 # A citation is honored only on an item of the Questions part, and only for
-# the reporting worker's own entry.
-jq -R -s -c --rawfile addr "$T/addressed" --argjson sec "$SECTION" --arg topic "$TOPIC" --argjson holding "$HOLDING" '
+# the reporting worker's own entry, in the body or archived.
+jq -R -s -c --rawfile addr "$T/addressed" --argjson sec "$SECTION" --arg topic "$TOPIC" --argjson holding "$HOLDING" --argjson owned "$OWNED" '
     ($addr | split("\n") | map(select(length > 0) | tonumber)) as $a
     | split("\n") | map(select(length > 0)) | to_entries
     | map(.key as $k | (.value | split("\t")) as $f | ($f[2:] | join("\t")) as $text
@@ -310,7 +332,8 @@ jq -R -s -c --rawfile addr "$T/addressed" --argjson sec "$SECTION" --arg topic "
         | {kind: "question", text: $text, source: "worker \($topic)",
            addressed: ($a | index($k + 1) != null),
            cite: (if $f[1] == "item" and $holding == 1 and $c != null
-                     and any($sec.entries[]; .decision == $c and (.source | startswith("worker \($topic) [")))
+                     and (any($sec.entries[]; .decision == $c and (.source | startswith("worker \($topic) [")))
+                          or ($owned | index($c) != null))
                   then ($c | tonumber) else null end)})
     | .[]' "$T/all" > "$T/items" || lib_die2 "cannot build the list"
 write_list "$T/items"

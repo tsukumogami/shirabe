@@ -26,7 +26,10 @@
 # rework row round-trips, its text held to one paragraph of 600 bytes with no
 # URL or link, its Item a heading tag and its Who `verdict <id>` or
 # `failure <id>`; a milestone-reopen row round-trips; rework_cap cuts a
-# failure's text to 600 bytes without splitting a codepoint.
+# failure's text to 600 bytes without splitting a codepoint. Milestone N units:
+# a `Milestone 3` Item round-trips as a unit and as a heading tag, and
+# `Milestone 03` and `milestone 3` are refused as `Feature 03` and `feature 3`
+# are.
 #
 # Needs bash and jq only.
 # Usage: bash skills/coordinate/scripts/record-codec_test.sh
@@ -453,6 +456,18 @@ eq "  ... cuts a longer one to 600 bytes ending ..." "600 ..." "$(cap "$LONG" | 
 MB="Evidence clause 1 failed: $(printf 'x%.0s' 1 2 3)$(i=0; while [ $i -lt 200 ]; do printf '\342\202\254'; i=$((i + 1)); done)"
 eq "  ... never splits a codepoint, and the result passes rework_problem" "true" \
     "$(cap "$MB" | jq -R -s -L "$HERE" 'include "record-codec"; (utf8bytelength <= 600) and (rework_problem == null) and endswith("...")')"
+
+echo "== Milestone N units =="
+# A roadmap/v3 roadmap's classic tag is `Milestone <N>`: a unit and a heading
+# tag the same as `Feature <N>`, and refused in the same shapes.
+UNITROW() { jq -nc --arg i "$1" '{item: $i, kind: "decision", who: "decision 1", next: "waits on the human", wakes: "0", updated: "2026-10-09T10:00Z"}'; }
+mv_roundtrip "a decision row whose Item is Milestone 3 round-trips" "$(MVREC "[$(UNITROW 'Milestone 3')]" '[]')"
+refuse "  ... Milestone 03 is refused, as Feature 03 is" "$(MVREC "[$(UNITROW 'Milestone 03')]" '[]')" "Item is a unit as pick lists it"
+refuse "  ... Feature 03 is still refused" "$(MVREC "[$(UNITROW 'Feature 03')]" '[]')" "Item is a unit as pick lists it"
+refuse "  ... milestone 3 is refused, as feature 3 is" "$(MVREC "[$(UNITROW 'milestone 3')]" '[]')" "Item is a unit as pick lists it"
+refuse "  ... feature 3 is still refused" "$(MVREC "[$(UNITROW 'feature 3')]" '[]')" "Item is a unit as pick lists it"
+mv_roundtrip "a verdict-owed row whose Item is Milestone 3 round-trips" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.item = "Milestone 3"')]" '[]')"
+refuse "  ... milestone 3 is refused as a heading tag" "$(MVREC "[$(printf '%s' "$OWED" | jq -c '.item = "milestone 3"')]" '[]')" "a verdict-owed row's Item is a milestone's heading tag"
 
 echo "== the crash set (PRD R17) =="
 # rules, briefs, friction and reports-to: a session-store record's Run rows,

@@ -36,6 +36,25 @@
 //! the corpus figure, so a frequency rule whose denominator nobody wrote
 //! down is not reproducible.
 //!
+//! ## Quoted text
+//!
+//! Blockquote text and double-quoted text are prose a reader reads, so they
+//! stay in the spans and in the frequency denominator. But the words belong
+//! to whoever is quoted: an owner's ruling, a reviewer's comment, an error
+//! message. The author can't reword them honestly, and a gate that blocks on
+//! them has no fix to offer. Each span therefore carries the byte ranges of
+//! its text that are quoted ([`ProseSpan::quoted`]), and the banned-word
+//! matcher reads [`ProseSpan::unquoted_text`], which blanks them. Frequency
+//! rules read the whole text, so em-dash density is measured as before.
+//!
+//! A span inside a blockquote, at any depth, is quoted whole. Double quotes
+//! count only when they pair on one source line: a straight `"` with the
+//! next straight `"`, or a curly opening quote with the next curly closing
+//! one. Pairing runs over the line's spans joined, so a quote around
+//! emphasis or a code span still pairs. A straight mark right after a letter
+//! or digit (an inch sign) never opens a quote, and a quote left open quotes
+//! nothing. Single quotes don't count, because `'` is also the apostrophe.
+//!
 //! ## Two selections over one parse
 //!
 //! This module projects one CommonMark parse two ways, by opposite criteria.
@@ -54,6 +73,9 @@
 //! first one does: fence handling is the part that goes wrong, and it has
 //! already been paid for once.
 
+use std::borrow::Cow;
+use std::ops::Range;
+
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 
 /// A run of prose text with the file line it starts on.
@@ -63,6 +85,32 @@ pub struct ProseSpan {
     pub line: usize,
     /// Prose text originating on that line.
     pub text: String,
+    /// Byte ranges of `text` that quote someone else's words, in order and
+    /// not overlapping. See the module's "Quoted text" section.
+    pub quoted: Vec<Range<usize>>,
+}
+
+impl ProseSpan {
+    /// The text with its quoted ranges blanked to spaces, which is what the
+    /// banned-word matcher reads. A blank is a word boundary, so a term can't
+    /// be matched across a quote's edge.
+    pub fn unquoted_text(&self) -> Cow<'_, str> {
+        if self.quoted.is_empty() {
+            return Cow::Borrowed(&self.text);
+        }
+        let mut out = String::with_capacity(self.text.len());
+        let mut at = 0;
+        for r in &self.quoted {
+            out.push_str(&self.text[at..r.start]);
+            out.extend(std::iter::repeat_n(
+                ' ',
+                self.text[r.clone()].chars().count(),
+            ));
+            at = r.end;
+        }
+        out.push_str(&self.text[at..]);
+        Cow::Owned(out)
+    }
 }
 
 /// Prose spans for a document body.
@@ -107,6 +155,7 @@ pub fn prose_spans(body: &[String], body_start_line: usize) -> Vec<ProseSpan> {
 
     let mut spans: Vec<ProseSpan> = Vec::new();
     let mut suppress_depth = 0usize;
+    let mut blockquote_depth = 0usize;
     // Destination of the link currently being walked, if any. An autolink
     // `<https://x>` has a label equal to its destination, so its text is a
     // URL rather than words a reader reads; a real label is prose.
@@ -123,6 +172,11 @@ pub fn prose_spans(body: &[String], body_start_line: usize) -> Vec<ProseSpan> {
                 suppress_depth = suppress_depth.saturating_sub(1);
             }
 
+            Event::Start(Tag::BlockQuote(_)) => blockquote_depth += 1,
+            Event::End(TagEnd::BlockQuote(_)) => {
+                blockquote_depth = blockquote_depth.saturating_sub(1);
+            }
+
             Event::Start(Tag::Link { dest_url, .. }) => link_dest.push(dest_url.to_string()),
             Event::End(TagEnd::Link) => {
                 link_dest.pop();
@@ -136,9 +190,15 @@ pub fn prose_spans(body: &[String], body_start_line: usize) -> Vec<ProseSpan> {
                     strip_url_tokens(&t)
                 };
                 if !text.trim().is_empty() {
+                    let quoted = if blockquote_depth > 0 {
+                        std::iter::once(0..text.len()).collect()
+                    } else {
+                        Vec::new()
+                    };
                     spans.push(ProseSpan {
                         line: line_of(range.start),
                         text,
+                        quoted,
                     });
                 }
             }
@@ -153,7 +213,107 @@ pub fn prose_spans(body: &[String], body_start_line: usize) -> Vec<ProseSpan> {
         }
     }
 
+    mark_double_quotes(&mut spans);
     spans
+}
+
+/// Mark the double-quoted text of each source line as quoted.
+///
+/// Spans on one line are joined before pairing, because inline markup
+/// splits a line into several spans: `"we *always* ship"` reaches here as
+/// three, and only the joined text has both marks. Code spans are already
+/// gone from the join, so a quote mark inside one never pairs.
+fn mark_double_quotes(spans: &mut [ProseSpan]) {
+    let mut start = 0;
+    while start < spans.len() {
+        let line = spans[start].line;
+        let end = start + spans[start..].iter().take_while(|s| s.line == line).count();
+        let group = &mut spans[start..end];
+
+        let mut joined = String::new();
+        let mut offsets = Vec::with_capacity(group.len());
+        for span in group.iter() {
+            offsets.push(joined.len());
+            joined.push_str(&span.text);
+        }
+
+        // Quotes and spans both run left to right, so one sweep pairs them;
+        // `k` is the first span the current quote can still reach.
+        let mut k = 0;
+        for quote in double_quoted_ranges(&joined) {
+            while k < group.len() && offsets[k] + group[k].text.len() <= quote.start {
+                k += 1;
+            }
+            let mut j = k;
+            while j < group.len() && offsets[j] < quote.end {
+                let span = &mut group[j];
+                let at = offsets[j];
+                let lo = quote.start.max(at);
+                let hi = quote.end.min(at + span.text.len());
+                // A blockquote span is already quoted whole.
+                let whole = span.quoted.first() == Some(&(0..span.text.len()));
+                if lo < hi && !whole {
+                    span.quoted.push(lo - at..hi - at);
+                }
+                j += 1;
+            }
+        }
+
+        start = end;
+    }
+}
+
+/// Byte ranges of `s`, marks included, that sit between a pair of double
+/// quotes: a straight `"` closed by the next straight `"`, or a curly `“`
+/// closed by the next `”`. An opening mark with no close after it is skipped.
+///
+/// A straight `"` right after a letter or digit doesn't open a quote: that is
+/// an inch or seconds mark (`a 5" screen`), and taking it as an opener would
+/// pair it with the next real quote and exempt the author's own words in
+/// between. Single quotes are left out on purpose: `'` is also the
+/// apostrophe, and pairing two of them would exempt the text between two
+/// contractions.
+///
+/// Linear in `s`: once a search for a closing mark fails, no later opening
+/// mark of that kind can find one either, so it is not searched for again. A
+/// line of a million unclosed curly quotes would otherwise rescan the rest of
+/// the line from each one.
+fn double_quoted_ranges(s: &str) -> Vec<Range<usize>> {
+    const STRAIGHT: char = '"';
+    const CURLY_OPEN: char = '\u{201C}';
+    const CURLY_CLOSE: char = '\u{201D}';
+
+    let mut ranges = Vec::new();
+    let mut straight_unclosed = false;
+    let mut curly_unclosed = false;
+    let mut prev: Option<char> = None;
+    let mut i = 0;
+    while let Some(c) = s[i..].chars().next() {
+        let after_open = i + c.len_utf8();
+        let after_word = prev.is_some_and(char::is_alphanumeric);
+        prev = Some(c);
+        let (close, unclosed) = match c {
+            STRAIGHT if !straight_unclosed && !after_word => (STRAIGHT, &mut straight_unclosed),
+            CURLY_OPEN if !curly_unclosed => (CURLY_CLOSE, &mut curly_unclosed),
+            _ => {
+                i = after_open;
+                continue;
+            }
+        };
+        match s[after_open..].find(close) {
+            Some(rel) => {
+                let end = after_open + rel + close.len_utf8();
+                ranges.push(i..end);
+                i = end;
+                prev = Some(close);
+            }
+            None => {
+                *unclosed = true;
+                i = after_open;
+            }
+        }
+    }
+    ranges
 }
 
 /// Drop whitespace-delimited tokens that are bare URLs.
@@ -516,6 +676,115 @@ mod tests {
         let body = lines("one two three\n\n```\nfour five six seven\n```\n\n| a | b |\n|---|---|");
         let spans = prose_spans(&body, 1);
         assert_eq!(prose_word_count(&spans), 3);
+    }
+
+    // ---- quoted text ----------------------------------------------------
+
+    /// The text the banned-word matcher sees, spans joined.
+    fn unquoted(spans: &[ProseSpan]) -> String {
+        spans
+            .iter()
+            .map(|s| s.unquoted_text().into_owned())
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    #[test]
+    fn blockquote_text_is_quoted_whole_at_any_depth() {
+        // Split across source lines so no line restates the rule list.
+        let body = lines(concat!(
+            "plain robust\n\n> quoted tier\n>\n",
+            "> > nested tiered\n\n",
+            "after facilitate",
+        ));
+        let spans = prose_spans(&body, 1);
+        let seen = unquoted(&spans);
+        assert!(!seen.contains("tier"), "got: {seen}");
+        assert!(seen.contains("robust"), "got: {seen}");
+        assert!(seen.contains("facilitate"), "the quote ends; got: {seen}");
+    }
+
+    #[test]
+    fn straight_and_curly_double_quotes_are_quoted() {
+        let body = lines(concat!(
+            "He said \"tier\" and she said \u{201C}robust\u{201D}, ",
+            "then facilitate.",
+        ));
+        let spans = prose_spans(&body, 1);
+        let seen = unquoted(&spans);
+        assert!(!seen.contains("tier"), "got: {seen}");
+        assert!(!seen.contains("robust"), "got: {seen}");
+        assert!(seen.contains("facilitate"), "got: {seen}");
+    }
+
+    #[test]
+    fn a_quote_pairs_across_inline_markup_on_its_line() {
+        let body = lines(concat!(
+            "They wrote \"a *tier* of `code` and robust\" ",
+            "then facilitate.",
+        ));
+        let spans = prose_spans(&body, 1);
+        assert!(spans.len() > 1, "emphasis splits the line: {spans:?}");
+        let seen = unquoted(&spans);
+        assert!(!seen.contains("tier"), "got: {seen}");
+        assert!(!seen.contains("robust"), "got: {seen}");
+        assert!(seen.contains("facilitate"), "got: {seen}");
+    }
+
+    #[test]
+    fn a_lone_or_cross_line_quote_mark_quotes_nothing() {
+        // An inch sign, and a quote opened on one line and closed on the
+        // next: neither pairs on its own line, so the words stay checked.
+        let body = lines(concat!(
+            "A 5\" robust screen.\n\n",
+            "She said \"tier\nand facilitate\" later.",
+        ));
+        let spans = prose_spans(&body, 1);
+        let seen = unquoted(&spans);
+        assert!(seen.contains("robust"), "got: {seen}");
+        assert!(seen.contains("tier"), "got: {seen}");
+        assert!(seen.contains("facilitate"), "got: {seen}");
+    }
+
+    #[test]
+    fn an_inch_mark_does_not_pair_with_a_later_quote() {
+        // The inch mark follows a digit, so it opens nothing: the author's
+        // own word after it stays checked and the real quote still pairs.
+        let body = lines("A 5\" screen is robust and \"tier\" here.");
+        let spans = prose_spans(&body, 1);
+        let seen = unquoted(&spans);
+        assert!(seen.contains("robust"), "got: {seen}");
+        assert!(!seen.contains("tier"), "got: {seen}");
+    }
+
+    #[test]
+    fn quoted_text_stays_in_the_frequency_denominator() {
+        // Quoting changes what the banned-word matcher reads, never the
+        // text frequency rules count.
+        let body = lines("one \"two three\"\n\n> four five");
+        let spans = prose_spans(&body, 1);
+        assert_eq!(prose_word_count(&spans), 5);
+        assert_eq!(joined(&spans), "one \"two three\" four five");
+    }
+
+    #[test]
+    fn unquoted_text_blanks_multibyte_quotes_on_char_boundaries() {
+        let body = lines("\u{201C}r\u{e9}sum\u{e9} tier\u{201D} \u{e9}t\u{e9} robust");
+        let spans = prose_spans(&body, 1);
+        let seen = unquoted(&spans);
+        assert!(!seen.contains("tier"), "got: {seen}");
+        assert!(seen.ends_with("\u{e9}t\u{e9} robust"), "got: {seen}");
+    }
+
+    #[test]
+    fn unclosed_quote_marks_stay_linear() {
+        // Each unclosed opener once rescanned the rest of the line; a
+        // million of them must finish promptly and quote nothing.
+        let mut line = "\u{201C}".repeat(1_000_000);
+        line.push_str(" robust");
+        let spans = prose_spans(&[line], 1);
+        assert!(unquoted(&spans).ends_with("robust"));
+        assert!(spans.iter().all(|s| s.quoted.is_empty()));
     }
 
     // ---- reference_spans ------------------------------------------------

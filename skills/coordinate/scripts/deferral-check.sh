@@ -50,7 +50,9 @@
 #   decision-owed <rule>  decision-next.sh --owed dispatch names a rule that
 #                         blocks this dispatch (the DESIGN's blocking table):
 #                         before the run's first dispatch any owed rule, after
-#                         it an unrecorded write or an owed message
+#                         it an unrecorded write or an owed message; `archive`
+#                         (settled entries to move out of a full record)
+#                         blocks either way
 #   unresolved-topic      a redispatch (or any visit not from a pick) whose
 #                         unit resolves to no dispatch topic: the failed
 #                         unit can't be found (a leg no Holdings row

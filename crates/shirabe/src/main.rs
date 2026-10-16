@@ -28,6 +28,7 @@ use shirabe_validate::{check_pr_writing_style, suppressed_terms};
 mod plan_outlines;
 mod populate;
 mod pr_body_hook;
+mod pre_action;
 mod work_summary;
 
 /// The maximum accepted size of the `--custom-statuses` value, matching the
@@ -97,15 +98,35 @@ enum Commands {
     /// emit hook JSON) and the `/inflight` skill (`render`, which prints the
     /// plain block). Every subcommand exits 0 (fail-safe).
     WorkSummary(work_summary::WorkSummaryArgs),
-    /// Client-side PreToolUse hook: gate a `gh pr create` / `gh pr edit`
-    /// command against the mechanical PR-body rule
+    /// Client-side PreToolUse hook: deny a `gh pr create` / `gh pr edit`
+    /// command whose title or body breaks a PR-body rule
     /// (references/pr-body-conformance.md) before it runs. Reads a Claude Code
     /// hook JSON on stdin, reuses the `validate --pr-body` engine, and emits a
-    /// PreToolUse `deny` decision naming the findings — or nothing (allow) when
-    /// the body/title is clean or cannot be confidently extracted. Fail-safe:
-    /// always exits 0. Registered via dot-niwa; the CI `pr-body.yml` gate is
-    /// the authoritative backstop.
+    /// PreToolUse `deny` decision naming each broken rule from the registry
+    /// built into the binary, or a fail-closed deny for a pull-request command
+    /// it can't check; nothing otherwise. Always exits 0. Registered via
+    /// dot-niwa; the CI `pr-body.yml` gate remains the backstop.
     PrBodyHook,
+    /// The shirabe plugin's PreToolUse hook: deny a `gh pr create` / `gh pr
+    /// edit` breaking a PR-body rule and a `git push` breaking a commit rule
+    /// before it runs, naming each rule from the plugin's registry, and deny a
+    /// guarded command it can't check. Leaves the PR-body rules to `pr-body-hook`
+    /// when the host's settings wire it. Reads a Claude Code hook JSON on
+    /// stdin; exits 0, or 3 when `--rules` names a rule this binary doesn't
+    /// check. Run by the plugin's `hooks/pre-action-deny.sh`.
+    PreActionHook(PreActionHookArgs),
+}
+
+#[derive(clap::Args)]
+struct PreActionHookArgs {
+    /// The plugin's root directory, whose `references/rule-registry.json`
+    /// supplies the rules' summaries and text locations.
+    #[arg(long = "plugin-root", value_name = "DIR")]
+    plugin_root: std::path::PathBuf,
+    /// The rule ids the calling script expects checked, separated by
+    /// whitespace. Naming a rule this binary doesn't check exits 3.
+    #[arg(long = "rules", value_name = "IDS")]
+    rules: String,
 }
 
 #[derive(clap::Args)]
@@ -436,6 +457,9 @@ fn main() -> ExitCode {
         Some(Commands::InstallHooks(args)) => run_install_hooks_cmd(&args),
         Some(Commands::WorkSummary(args)) => work_summary::run(&args.command),
         Some(Commands::PrBodyHook) => pr_body_hook::run(),
+        Some(Commands::PreActionHook(args)) => {
+            pre_action::run_plugin(&args.plugin_root, &args.rules)
+        }
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.

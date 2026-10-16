@@ -1,0 +1,17 @@
+{
+  "description": "Pre-action denies: blocks a gh pr create or gh pr edit that breaks a PR-body rule, and a git push that would send a commit with an AI-attribution trailer, before the command runs.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

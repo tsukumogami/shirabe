@@ -294,6 +294,65 @@ fe MV1 "an operator" 2026-10-09 1 "it fails" > "$T/f.txt"
 bash "$MS" check-failure "$T/done.md" MV9 "$T/f.txt" >/dev/null 2>&1; eq "check-failure on a tag that isn't a milestone is 2" 2 $?
 bash "$MS" check-failure "$T/v1.md" MV1 "$T/f.txt" >/dev/null 2>&1; eq "  ... and on a v1 roadmap" 2 $?
 bash "$MS" check-failure "$T/done.md" MV1 "$T/f.txt" --worker x >/dev/null 2>&1; eq "check-failure takes no --worker" 64 $?
+echo "== roadmap/v3 =="
+# One roadmap written as v2 (`## Features`, `### Feature N:`) and as v3
+# (`## Milestones`, `### Milestone N:`), MV1's two clauses under Feature 1 /
+# Milestone 1, Done.
+classic() { # classic <schema> <word>
+    printf -- '---\nschema: %s\nstatus: Active\n---\n\n# ROADMAP: widgets\n\n## %ss\n\n' "$1" "$2"
+    printf '### %s 1: the plugin list\n\n**Outcome:** A maintainer lists the plugins they installed.\n\n' "$2"
+    printf '**Evidence:**\n- A reviewer runs `widgets list` and sees three names.\n- The same reviewer removes one manifest and sees it skipped.\n\n'
+    printf '**Left open:** None\n\n**Dependencies:** None\n**Status:** Done\n\n'
+    printf '### %s 2: the host serves\n\n**Evidence:**\n- An operator curls the host and gets a 200.\n\n**Dependencies:** %s 1\n**Status:** In progress\n\n## Progress\n\n- 2026-10-01: started\n' "$2" "$2"
+}
+classic roadmap/v2 Feature > "$T/c2.md"
+classic roadmap/v3 Milestone > "$T/c3.md"
+printf -- '---\nschema: roadmap/v4\n---\n\n## Milestones\n' > "$T/v4.md"
+bash "$MS" is-milestone "$T/c3.md"; eq "is-milestone: roadmap/v3 is 0" 0 $?
+bash "$MS" is-milestone "$T/c2.md"; eq "is-milestone: roadmap/v2 is 0" 0 $?
+bash "$MS" is-milestone "$T/v1.md"; eq "is-milestone: roadmap/v1 is 1" 1 $?
+bash "$MS" is-milestone "$T/v0.md"; eq "is-milestone: no schema line is 1" 1 $?
+bash "$MS" is-milestone "$T/v4.md"; eq "is-milestone: an unknown roadmap/v4 is 1" 1 $?
+bash "$MS" is-milestone "$T/none.md" 2>/dev/null; eq "is-milestone: an unreadable roadmap is 2" 2 $?
+eq "is-milestone prints nothing" "" "$(bash "$MS" is-milestone "$T/c3.md")"
+eq "the same milestone written as v2 and as v3 gives the same evidence, but for its schema" \
+    "$(bash "$MS" evidence "$T/c2.md" "Feature 2" | jq -c 'del(.schema)')" "$(bash "$MS" evidence "$T/c3.md" "Feature 2" | jq -c 'del(.schema)')"
+eq "  ... and the same for Milestone 1 asked of each" \
+    "$(bash "$MS" evidence "$T/c2.md" "Milestone 1" | jq -c 'del(.schema)')" "$(bash "$MS" evidence "$T/c3.md" "Milestone 1" | jq -c 'del(.schema)')"
+eq "  ... v3 Milestone 1: title, status, schema and two clauses" "the plugin list|Done|roadmap/v3|2" \
+    "$(bash "$MS" evidence "$T/c3.md" "Milestone 1" | jq -r '"\(.title)|\(.status)|\(.schema)|\(.evidence | length)"')"
+bash "$MS" evidence "$T/c3.md" "Feature 01" >/dev/null 2>&1; eq "Feature 01 is no Milestone 1" 2 $?
+bash "$MS" evidence "$T/c3.md" "feature 1" >/dev/null 2>&1; eq "feature 1 is no Milestone 1" 2 $?
+# Stray headings and sections of the other version.
+{ cat "$T/c3.md"; printf '\n## Features\n\n### Feature 3: under the v2 section\n\n**Evidence:**\n- one\n**Status:** Not started\n'; } > "$T/s3.md"
+sed 's/^### Milestone 2: the host serves$/### Feature 2: the host serves/' "$T/c3.md" > "$T/s3b.md"
+bash "$MS" evidence "$T/s3.md" "Feature 3" >/dev/null 2>"$T/err"; eq "v3: a ## Features section holds no milestone" 2 $?
+grep -q 'no milestone heading carries Milestone 3 under ## Milestones' "$T/err" && ok "  ... naming the heading and section it looked for" || bad "  ... naming the heading and section it looked for" "$(cat "$T/err")"
+bash "$MS" evidence "$T/s3b.md" "Feature 2" >/dev/null 2>&1; eq "v3: a ### Feature 2: heading is no milestone" 2 $?
+{ cat "$T/c2.md"; printf '\n## Milestones\n\n### Milestone 3: under the v3 section\n\n**Evidence:**\n- one\n**Status:** Not started\n'; } > "$T/s2.md"
+sed 's/^### Feature 2: the host serves$/### Milestone 2: the host serves/' "$T/c2.md" > "$T/s2b.md"
+bash "$MS" evidence "$T/s2.md" "Milestone 3" >/dev/null 2>&1; eq "v2: a ## Milestones section holds no milestone" 2 $?
+bash "$MS" evidence "$T/s2b.md" "Milestone 2" >/dev/null 2>&1; eq "v2: a ### Milestone 2: heading is no milestone" 2 $?
+# Entries naming Feature 1 checked against v3's Milestone 1, and the reverse.
+entry verified held held fits none none | sed 's/^Verdict: MV1 /Verdict: Feature 1 /' > "$T/e.txt"
+bash "$MS" check-verdict "$T/c3.md" "Milestone 1" "$T/e.txt" --today 2026-10-10 > "$T/out" 2>"$T/err"
+eq "a verdict naming Feature 1 checks against v3's Milestone 1" "0 2" "$? $(jq '.clauses | length' "$T/out")"
+entry verified held held fits none none | sed 's/^Verdict: MV1 /Verdict: Milestone 1 /' > "$T/e.txt"
+bash "$MS" check-verdict "$T/c2.md" "Feature 1" "$T/e.txt" --today 2026-10-10 >/dev/null 2>"$T/err"; eq "a verdict naming Milestone 1 checks against v2's Feature 1" 0 $?
+entry verified held held fits none none | sed 's/^Verdict: MV1 /Verdict: Feature 01 /' > "$T/e.txt"
+bash "$MS" check-verdict "$T/c3.md" "Milestone 1" "$T/e.txt" --today 2026-10-10 >/dev/null 2>"$T/err"; eq "a verdict naming Feature 01 is refused for Milestone 1" 1 $?
+grep -q 'line 1: the verdict names Feature 01, not Milestone 1' "$T/err" && ok "  ... naming the line" || bad "  ... naming the line" "$(cat "$T/err")"
+gf acme/widgets#12 "Feature 1" fits 1 > "$T/g.txt"
+bash "$MS" check-goal-fit "$T/c3.md" "Milestone 1" "$T/g.txt" > "$T/out" 2>"$T/err"; eq "a goal-fit entry naming Feature 1 checks against v3's Milestone 1" 0 $?
+gf acme/widgets#12 AB1 fits 1 > "$T/g.txt"
+bash "$MS" check-goal-fit "$T/c3.md" "Milestone 1" "$T/g.txt" >/dev/null 2>&1; eq "a goal-fit entry naming AB1 is refused for Milestone 1" 1 $?
+fe "Feature 1" "an operator" 2026-10-09 2 "the removed manifest was listed" > "$T/f.txt"
+bash "$MS" check-failure "$T/c3.md" "Milestone 1" "$T/f.txt" --today 2026-10-10 > "$T/out" 2>"$T/err"
+eq "a failure naming Feature 1 checks against v3's Done Milestone 1" "0 The same reviewer removes one manifest and sees it skipped." "$? $(jq -r .clause_text "$T/out")"
+fe "Feature 2" "an operator" 2026-10-09 1 "the host timed out" > "$T/f.txt"
+bash "$MS" check-failure "$T/c3.md" "Milestone 2" "$T/f.txt" --today 2026-10-10 >/dev/null 2>"$T/err"; eq "  ... and against v3's Milestone 2, not Done, is refused" 1 $?
+fe "feature 1" "an operator" 2026-10-09 1 "the list was empty" > "$T/f.txt"
+bash "$MS" check-failure "$T/c3.md" "Milestone 1" "$T/f.txt" --today 2026-10-10 >/dev/null 2>&1; eq "a failure naming feature 1 is refused for Milestone 1" 1 $?
 echo
 echo "milestone: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
