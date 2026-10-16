@@ -391,8 +391,9 @@ under Milestone Verdicts. `record-decision.sh --archive` posts `decisions`,
 the settled Decisions rows it moves out of the body (see the archive under
 Decisions).
 
-An entry never grows and is never rewritten, so the entries need no archive
-however long the run; only the body's Decisions section does. Write one when something happens that a successor would
+An entry comment never grows and is never rewritten, so the comments need no
+archive however long the run; only the body's Decisions section does. Write
+one when something happens that a successor would
 need the story of: what you dispatched and why, what a person told you, what
 you decided and on what evidence. On a public host the text gets the checks the
 Decisions section's text gets (no private repository, home-directory path or
