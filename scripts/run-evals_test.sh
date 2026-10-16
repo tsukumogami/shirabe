@@ -735,6 +735,38 @@ if [ "$(summary_field "$SUM" pinned session_model)" = opus ] \
 else
   fail "--summary-out session model and cost: $(cat "$SUM" 2>/dev/null)"
 fi
+# scenario_hash <name>... -- the scenario_set of these scenario names
+scenario_hash() {
+  python3 -c "
+import hashlib, sys
+print('sha256:' + hashlib.sha256('\n'.join(sorted(sys.argv[1:])).encode()).hexdigest())
+" "$@"
+}
+if [ "$(summary_field "$SUM" pinned scenario_set)" = "$(scenario_hash pinned-scenario default-scenario)" ]; then
+  pass "--summary-out: scenario_set hashes the whole suite's names when nothing narrows it"
+else
+  fail "--summary-out scenario_set, whole suite: $(cat "$SUM" 2>/dev/null)"
+fi
+rm -f "$SUM"
+EVAL_MODEL=opus run_runner grade --scenario pinned-scenario --summary-out "$SUM" pinned
+if [ "$RC" -eq 0 ] \
+  && [ "$(summary_field "$SUM" pinned scenario_set)" = "$(scenario_hash pinned-scenario)" ]; then
+  pass "--summary-out: scenario_set hashes only the selected names when a set narrows the run"
+else
+  fail "--summary-out scenario_set, narrowed (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
+# A skill that fails before its selection (here, no SKILL.md) records no set:
+# under --all it would otherwise carry the previous skill's.
+mkdir -p "$SUITE/noskill/evals"
+cp "$SUITE/pinned/evals/evals.json" "$SUITE/noskill/evals/evals.json"
+rm -f "$SUM"
+run_runner grade --summary-out "$SUM" noskill
+if [ "$(summary_field "$SUM" noskill exit_code)" = 3 ] \
+  && [ "$(summary_field "$SUM" noskill scenario_set)" = missing ]; then
+  pass "--summary-out: a skill that fails before its selection has no scenario_set"
+else
+  fail "--summary-out scenario_set after a failed prep (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
 
 rm -f "$SUM"
 run_runner plan --runs 3 --summary-out "$SUM" demo

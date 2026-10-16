@@ -96,6 +96,22 @@ class ReleaseSubsetTest(unittest.TestCase):
         self.assertEqual(rc, 1, out)
         self.assertIn("`name` can't contain a comma", out)
 
+    def test_tier_outside_one_and_two_fails(self):
+        # Every reader takes tier-2 as `tier` other than 1; a 3, a "2" or a
+        # boolean would read differently to different readers (shirabe#880).
+        for bad in (3, 0, "2", True, None):
+            entry = scenario("merge-a", tier=2, behaviour="merge-refused", release=True)
+            entry["tier"] = bad
+            rc, out = self.check([entry])
+            self.assertEqual(rc, 1, (bad, out))
+            self.assertIn("`tier` is 1 or 2 (absent means 1), not %s" % json.dumps(bad), out)
+            self.assertNotIn("behaviour", out, (bad, out))
+
+    def test_tier_one_and_two_pass(self):
+        rc, out = self.check([scenario("plan-a", tier=1),
+                              scenario("merge-a", tier=2, behaviour="merge-refused", release=True)])
+        self.assertEqual(rc, 0, out)
+
     def test_behaviour_must_be_kebab_case(self):
         rc, out = self.check([scenario("merge-a", tier=2, behaviour="Merge Refused", release=True)])
         self.assertEqual(rc, 1, out)
