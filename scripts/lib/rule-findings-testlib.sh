@@ -13,13 +13,19 @@
 #                              summary, and carries the level of its rule's
 #                              stage (or of <stage-source>'s stage, passed as
 #                              --stage-source); an empty log fails
-#   rf_test_stage_copy <dest> <id> <stage>
-#                              a scratch copy of the plugin at <dest>
-#                              (removed and made afresh) whose
-#                              registry sets <id>'s stage to <stage>, for
-#                              running a gate script with one rule at a stage
-#                              other than the real registry's; returns 1, with
-#                              the reason on stderr, when the copy's reader
+#   rf_test_stage_copy <dest> <id> <stage> <path>...
+#                              a lean scratch copy of the plugin at <dest>
+#                              (removed and made afresh) whose registry sets
+#                              <id>'s stage to <stage>, for running a gate
+#                              script with one rule at a stage other than the
+#                              real registry's. It holds links to the reader,
+#                              the library, plugin.json and each
+#                              plugin-relative <path> (the gate script and
+#                              anything else it reads), and copies of the
+#                              registry and the files its rules point at;
+#                              nothing else, and nothing copied recursively.
+#                              Returns 1, with the reason on stderr, when a
+#                              file can't be copied or the copy's reader
 #                              doesn't give <id> that stage
 #   rf_test_verify_copy <label> <copy> <log> [<stage-source>]
 #                              verify-findings on <log> with <copy>'s own
@@ -78,21 +84,53 @@ rf_test_verify_with() {
     fi
 }
 
-# rf_test_stage_copy <dest> <id> <stage>. The reader holds a guarded rule
-# below block at block unless stage_backstops covers each protected guard with
-# another file (scripts/rule-registry.sh's "Effective stage"), so below block
-# the copy also gives every guard but `none` a backstop naming the copy's
-# registry file: any existing file other than the rule's own check satisfies
-# the reader, and this copy exists only to run a suite. The stage is then read
-# back through the copy's reader, so a copy that didn't take the stage fails
-# here rather than passing a suite at the wrong stage.
+# rf_test_stage_copy <dest> <id> <stage> <path>.... Nothing is copied
+# recursively: a full copy of references/ and skills/ per case is slow and
+# loads the host, since every file written is scanned. The scripts (the
+# library, the reader and each <path>) are symlinks to the real files: each
+# finds its siblings through its own path, which stays inside <dest>, so the
+# copy's reader and registry are the ones used. Only two kinds of file are
+# real copies. The registry is one, since it is edited. The rules' text files
+# are the other, because the reader refuses a symlinked text file. Those are
+# all copied, not just <id>'s, because the gate resolves every rule its mode
+# can report before it checks anything. Retired entries may name files that
+# no longer exist; those are skipped.
+#
+# The reader holds a guarded rule below block at block unless stage_backstops
+# covers each protected guard with another file (scripts/rule-registry.sh's
+# "Effective stage"), so below block the copy also gives every guard but
+# `none` a backstop naming the copy's registry file: any existing file other
+# than the rule's own check satisfies the reader, and this copy exists only to
+# run a suite. The stage is then read back through the copy's reader, so a
+# copy that didn't take the stage fails here rather than passing a suite at
+# the wrong stage.
 rf_test_stage_copy() {
-    local d=$1 id=$2 stage=$3 reg got
+    local d=$1 id=$2 stage=$3 reg got rel
+    shift 3
     case "$stage" in
         shadow|warn|block|retired) ;;
         *) echo "rf_test_stage_copy: [$stage] is not a stage" >&2; return 1 ;;
     esac
-    rm -rf "$d"; rf_test_copy_plugin "$d" || return 1
+    rm -rf "$d"
+    mkdir -p "$d/scripts/lib" "$d/references" "$d/.claude-plugin" || return 1
+    for rel in "$RF_TEST_ROOT"/scripts/lib/*.sh; do
+        ln -s "$rel" "$d/scripts/lib/${rel##*/}" || return 1
+    done
+    ln -s "$RF_TEST_HELPER" "$d/scripts/rule-registry.sh" || return 1
+    ln -s "$RF_TEST_ROOT/.claude-plugin/plugin.json" "$d/.claude-plugin/plugin.json" || return 1
+    cp "$RF_TEST_REGISTRY" "$d/references/rule-registry.json" || return 1
+    while IFS= read -r rel; do
+        [ -f "$RF_TEST_ROOT/$rel" ] || continue
+        mkdir -p "$d/$(dirname -- "$rel")" && cp "$RF_TEST_ROOT/$rel" "$d/$rel" || return 1
+    done <<EOF
+$(jq -r '[.rules[].text.path | select(type == "string")] | unique | .[]' "$RF_TEST_REGISTRY")
+EOF
+    for rel in "$@"; do
+        [ -f "$RF_TEST_ROOT/$rel" ] || { echo "rf_test_stage_copy: no file $rel to link" >&2; return 1; }
+        # A rule's text file is already a copy, which the reader needs.
+        [ -e "$d/$rel" ] && continue
+        mkdir -p "$d/$(dirname -- "$rel")" && ln -s "$RF_TEST_ROOT/$rel" "$d/$rel" || return 1
+    done
     reg="$d/references/rule-registry.json"
     jq --arg id "$id" --arg stage "$stage" '
         .rules |= map(if .id == $id then

@@ -208,7 +208,7 @@ check_shape "--commits --session"
 # findings. Only what prints is checked here: the exit stays the script's.
 STAGE_COPY="$RF_TEST_DIR/stage-copy"
 STAGE_LOG="$RF_TEST_DIR/stage-copy.log"
-if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject warn; then
+if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject warn skills/work-on/scripts/check-branch-output.sh; then
     : > "$STAGE_LOG"
     OUT=$(cd "$REPO" && SHIRABE_FINDINGS_LOG="$STAGE_LOG" \
         "$STAGE_COPY/skills/work-on/scripts/check-branch-output.sh" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
@@ -220,7 +220,7 @@ if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject warn; then
 else
     fail "--commits: could not make a plugin copy with commit/conventional-subject at warn"
 fi
-if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject retired; then
+if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject retired skills/work-on/scripts/check-branch-output.sh; then
     : > "$STAGE_LOG"
     OUT=$(cd "$REPO" && SHIRABE_FINDINGS_LOG="$STAGE_LOG" \
         "$STAGE_COPY/skills/work-on/scripts/check-branch-output.sh" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
