@@ -15,7 +15,8 @@
 # record archiving them and staying under the guard, the rules still reading
 # its stamps from the kept line (and owing the write again without it); a
 # restarted run whose --owed reading is `archive` before anything else, which
-# then archives and finds nothing owed; --owed writing nothing; a record under
+# then archives and finds nothing owed, read over the caller's --parsed record
+# as well as its own; --owed writing nothing; a record under
 # the guard left alone; a record full of what can't move still record-full;
 # --archive's refusals; evidence, an answer and a
 # citation on an archived entry restoring it in the same write, and an edited
@@ -147,6 +148,9 @@ setup "[$FULL, $(E 50 coordinator-verdict '{verdict: "hold", reason: "the cap"}'
 B=$(body)
 eq "--owed pick on a full record with settled entries to move: archive" "archive" "$(bash "$DN" --session "$S" --owed pick 2>/dev/null)"
 eq "--owed dispatch: archive too" "archive" "$(bash "$DN" --session "$S" --owed dispatch 2>/dev/null)"
+# pick-facts.sh passes the record it already read and parsed (--parsed).
+body > "$T/p.json.md"; body | bash "$HERE/record-parse.sh" > "$T/p.json"
+eq "--owed pick over the caller's --parsed record: archive" "archive" "$(bash "$DN" --session "$S" --owed pick --parsed "$T/p.json" 2>/dev/null)"
 eq "  ... and --owed wrote nothing" "$B|0" "$(body)|$(comments)"
 to decision_next
 eq "the restarted run archives at decision_next and then owes nothing" "clear" "$(word)"
@@ -188,6 +192,8 @@ to decision_next
 eq "a small record's owed write is routed" "take 50" "$(word)"
 eq "  ... with nothing archived" "$B|0" "$(body)|$(comments)"
 eq "--owed on a small record: the rule, not archive" "take" "$(bash "$DN" --session "$S" --owed pick 2>/dev/null)"
+body > "$T/p.json.md"; body | bash "$HERE/record-parse.sh" > "$T/p.json"
+eq "  ... and over a --parsed record too" "take" "$(bash "$DN" --session "$S" --owed pick --parsed "$T/p.json" 2>/dev/null)"
 
 echo "== --archive refusals =="
 setup "[$(settled_run 1 5)]"
