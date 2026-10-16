@@ -70,6 +70,8 @@ pub enum Case {
     Stdin,
     /// Case 4: a command or variable expansion, `$'...'` or `~` in the body.
     BodyExpansion,
+    /// Case 4: short flags combined in one word (`-dt`); the word.
+    CombinedFlags(String),
     /// Case 4: an unquoted here-document whose lines hold `$` or a backquote.
     HereDocExpansion,
     /// Case 4: the body file doesn't exist.
@@ -102,6 +104,10 @@ pub enum Case {
     WorkTree(PathBuf),
     /// Case 7: a push option R4 doesn't list.
     PushOption(String),
+    /// Case 7: a push with no refspec whose configuration (`push.default`
+    /// set to `matching`, or a `remote.<name>.push` refspec) may send more
+    /// than the current branch; the setting's name.
+    PushConfig(String),
     /// Case 7: a remote that is an expansion, or a configured remote whose
     /// name isn't a plain word.
     Remote(String),
@@ -262,6 +268,16 @@ fn describe(case: &Case) -> (String, String, &'static str) {
             "the hook doesn't understand this push option, which could change what the push sends".into(),
             "run the push without it.",
         ),
+        Case::PushConfig(key) => (
+            format!("`{key}`"),
+            format!("the push names no refspec and `{key}` is set, so it may send more than the current branch"),
+            "name what to push, for example `git push origin <branch>`.",
+        ),
+        Case::CombinedFlags(flag) => (
+            format!("`{flag}`"),
+            "it combines short flags, which the hook doesn't take apart, so it can't tell which word is the title or body".into(),
+            "give each flag as a word of its own, for example `-d -t <title>`.",
+        ),
         Case::Remote(name) => (
             format!("`{name}`"),
             "the push's remote is an expansion, or a configured remote whose name isn't made of letters, digits, `.`, `_` and `-`".into(),
@@ -309,6 +325,7 @@ fn is_body_case(case: &Case) -> bool {
     matches!(
         case,
         Case::BodyFlag(_)
+            | Case::CombinedFlags(_)
             | Case::Stdin
             | Case::BodyExpansion
             | Case::HereDocExpansion
@@ -445,6 +462,8 @@ mod tests {
             (Case::TooManyCommits, "1000 commits"),
             (Case::WorkTree(p.clone()), "work tree"),
             (Case::PushOption("--new".into()), "`--new`"),
+            (Case::PushConfig("push.default".into()), "`push.default`"),
+            (Case::CombinedFlags("-dt".into()), "`-dt`"),
             (Case::Remote("fo+o".into()), "`fo+o`"),
             (Case::Git("x".into()), "git"),
             (Case::Deadline, "25 seconds"),

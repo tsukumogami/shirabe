@@ -409,6 +409,27 @@ fn a_refspec_sends_its_source() {
 }
 
 #[test]
+fn a_push_with_no_refspec_fails_closed_when_its_configuration_may_send_more() {
+    let s = Scratch::repo();
+    s.commit(CLEAN);
+    s.config("push.default", "matching");
+    for cmd in ["git push", "git push origin"] {
+        let r = assert_fail_closed(s.eval(cmd), "`push.default`");
+        assert!(r.contains("may send more than the current branch"), "{r}");
+    }
+    // A refspec says what is sent, so the setting doesn't matter.
+    assert_eq!(s.eval("git push origin main"), None);
+    s.config("push.default", "simple");
+    assert_eq!(s.eval("git push"), None);
+
+    s.config("remote.origin.push", "refs/heads/*:refs/heads/*");
+    assert_fail_closed(s.eval("git push"), "`remote.origin.push`");
+    assert_fail_closed(s.eval("git push origin"), "`remote.origin.push`");
+    assert_eq!(s.eval("git push fork"), None);
+    assert_eq!(s.eval("git push origin main"), None);
+}
+
+#[test]
 fn an_empty_refspec_pushes_the_matching_branches() {
     let s = Scratch::repo();
     s.git("work", &["checkout", "-q", "-b", "topic"]);
@@ -657,8 +678,13 @@ fn a_source_that_doesnt_resolve_or_starts_with_a_dash_fails_closed() {
     assert_fail_closed(s.eval("git push origin nosuch"), "`nosuch`");
     assert_fail_closed(s.eval("git push origin +-x"), "`-x`");
     assert_fail_closed(
-        s.eval("git push origin \"$(git branch --show-current)\""),
+        s.eval("git push origin \"$(git rev-parse --abbrev-ref HEAD)\""),
         "doesn't resolve",
+    );
+    // A substitution in the push's own words runs before it too.
+    assert_fail_closed(
+        s.eval("git push origin \"$(git branch --show-current)\""),
+        "same command",
     );
 }
 

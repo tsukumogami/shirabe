@@ -303,7 +303,11 @@ impl Level {
         let word = &s[self.start..at];
         if word.ends_with(b")\"") && word.len() >= 5 {
             let start = self.start;
-            let found = self.out.substitutions.iter().position(|sub| {
+            // Substitutions are recorded as they close, in order, so one
+            // ending just before this word's `)"` is the last one recorded:
+            // looking only at it keeps the scan linear in the command.
+            let found = self.out.substitutions.len().checked_sub(1).filter(|i| {
+                let sub = &self.out.substitutions[*i];
                 sub.span.end == at - 2
                     && sub.span.start >= start + 3
                     && &s[sub.span.start - 3..sub.span.start] == b"\"$("
@@ -920,6 +924,21 @@ mod tests {
         assert_eq!(marks, vec![false, false, false, true, false, true]);
         // Quoted, it is text; inside a word's quotes it never splits.
         assert_eq!(w("echo 'a>b' \"c<d\""), v(&[&["echo", "a>b", "c<d"]]));
+    }
+
+    #[test]
+    fn many_quoted_substitutions_tokenize_in_linear_time() {
+        // About 4 MiB of words, each one quoted substitution.
+        let cmd = "x \"$(a)\" -b\"$(b)\" ".repeat(200_000);
+        let start = std::time::Instant::now();
+        let t = tokenize(&cmd).unwrap();
+        let took = start.elapsed();
+        assert_eq!(t.substitutions.len(), 400_000);
+        let ws = &t.segments[0].words;
+        assert_eq!(ws[1].dq_substitution, Some(0));
+        assert_eq!(ws[2].dq_prefixed, Some((2, 1)));
+        assert_eq!(ws.last().unwrap().dq_prefixed, Some((2, 399_999)));
+        assert!(took < std::time::Duration::from_secs(10), "took {took:?}");
     }
 
     #[test]

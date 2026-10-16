@@ -246,7 +246,9 @@ for c in '/usr/bin/git push' 'git status && git push' 'if true; then git push; f
     expect_deny "table: $c with the trailer commit" "commit/no-ai-trailer" "$TRAILER_HASH"
 done
 
-for c in 'git commit -m x && git push' 'git checkout other && git push'; do
+for c in 'git commit -m x && git push' 'git checkout other && git push' \
+    'echo $(git commit -qm x -m \"Co-Authored-By: Claude <noreply@anthropic.com>\") && git push' \
+    'gh pr checkout 3 && git push'; do
     run_hook "$c"
     expect_deny "table: $c is the same command" "same command" "ask the user"
 done
@@ -254,6 +256,8 @@ done
 HOOK_CWD="$WORK"
 run_hook "printf 'x' > b.md && gh pr create --title \\\"feat: x\\\" -F b.md"
 expect_deny "table: a body file written earlier in the command" "same command"
+run_hook "echo \$(printf 'Adds x.' > b.md) && gh pr create -t \\\"feat: x\\\" -F b.md"
+expect_deny "a body file written in an earlier command substitution" "same command"
 run_hook 'gh pr create --title \"feat: x\" -F fifo'
 expect_deny "table: a FIFO body file" "regular file"
 run_hook 'gh pr create --title \"feat: x\"'

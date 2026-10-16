@@ -63,6 +63,9 @@ pub fn read(seg: &GhSegment, tok: &Tokenized, classified: &Classified) -> Result
         let w = &ws[i];
         // An attached value (`--flag=value`, `-bvalue`, `-b=value`);
         // otherwise the value is the next word.
+        if combined_short_flags(&w.text) {
+            return Err(Case::CombinedFlags(w.text.clone()));
+        }
         let (flag, inline) = split_flag(w);
         if let Some((_, name)) = UNREADABLE_FLAGS.iter().find(|(f, _)| *f == flag) {
             return Err(Case::BodyFlag(name.to_string()));
@@ -113,6 +116,23 @@ pub fn read(seg: &GhSegment, tok: &Tokenized, classified: &Classified) -> Result
 /// Short flags that take a value. gh's flag parser (pflag) also reads one
 /// attached: `-bVALUE` and `-b=VALUE` are `-b VALUE`.
 const SHORT_VALUED: &[&str] = &["-t", "-b", "-F", "-T"];
+
+/// gh pr create's and edit's short flags that take no value: `--draft`,
+/// `--editor`, `--fill`, `--web`.
+const SHORT_BOOLEAN: &[u8] = b"defw";
+
+/// A word that starts with a value-less short flag and goes on with more
+/// letters, as `-dt`: pflag reads it as `-d -t`, and a `-t` there takes the
+/// next word as the title. The hook doesn't take such a word apart, so it
+/// fails closed on it rather than misread what follows. A value-taking short
+/// flag's attached value (`-Bmain`, `-tfeat`) is not one.
+fn combined_short_flags(t: &str) -> bool {
+    let b = t.as_bytes();
+    b.len() >= 3
+        && b[0] == b'-'
+        && SHORT_BOOLEAN.contains(&b[1])
+        && b[2..].iter().all(u8::is_ascii_alphabetic)
+}
 
 /// A flag word as its flag and the value attached to it, if any: a long
 /// option's `--flag=value`, or a short value-taking flag's `-xVALUE` or
@@ -337,6 +357,43 @@ mod tests {
         ] {
             assert_eq!(here(cmd), Err(want), "{cmd}");
         }
+    }
+
+    #[test]
+    fn combined_short_flags_fail_closed_naming_the_word() {
+        for (cmd, word) in [
+            ("gh pr create -dt \"feat: x\" -b body", "-dt"),
+            ("gh pr create -t x -db body", "-db"),
+            ("gh pr edit 3 -wf", "-wf"),
+            ("gh pr create -t x -b y -fd", "-fd"),
+        ] {
+            assert_eq!(here(cmd), Err(Case::CombinedFlags(word.into())), "{cmd}");
+        }
+        // One flag alone, or a value-taking flag's attached value, is not.
+        let s = here("gh pr create -d -t 'feat: x' -b body -Bmain").unwrap();
+        assert_eq!(s.title.as_deref(), Some("feat: x"));
+        assert_eq!(
+            here("gh pr create -f"),
+            Err(Case::BodyFlag("--fill".into()))
+        );
+        // A flag's value is never read as flags.
+        assert!(here("gh pr create -t -dt -b body").is_ok());
+    }
+
+    #[test]
+    fn a_body_file_written_in_an_earlier_substitution_is_same_command() {
+        let d = scratch("nested");
+        std::fs::write(d.join("b.md"), "x\n\n---\n\ny\n").unwrap();
+        for cmd in [
+            "echo $(printf 'Adds x.' > b.md) && gh pr create -t \"feat: x\" -F b.md",
+            "echo `cp y b.md` && gh pr edit 3 -F b.md",
+        ] {
+            let r = submit(cmd, &d);
+            assert!(matches!(r, Err(Case::SameCommand(_))), "{cmd}: {r:?}");
+        }
+        let r = submit("echo $(date) && gh pr create -t 'feat: x' -F b.md", &d);
+        assert!(r.is_ok(), "{r:?}");
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

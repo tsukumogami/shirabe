@@ -91,6 +91,26 @@ pub struct Classified {
     /// Each top-level segment's words and the directory it runs in, for the
     /// earlier-segment check on a body file.
     segments: Vec<(Vec<Word>, Option<PathBuf>)>,
+    /// Where each top-level segment's text ends.
+    ends: Vec<usize>,
+    /// The command substitutions at the top level, unquoted here-documents'
+    /// included, each run before any segment that ends after it starts.
+    nested: Vec<Nested>,
+}
+
+/// What a command substitution's segments, at any depth, do to a guarded
+/// segment after it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct Nested {
+    /// Where it starts in the command: the substitution's own text, or a
+    /// here-document's `<<` operator.
+    start: usize,
+    /// The first head in it that rules out a later push.
+    blocker: Option<String>,
+    /// Every word in it, for the body-file check.
+    words: Vec<Word>,
+    /// The directory of the top-level segment it sits in.
+    dir: Option<PathBuf>,
 }
 
 /// What the coarse "named in the text" test finds (PRD Definitions).
@@ -201,11 +221,14 @@ enum Kind {
         /// The first leading `GIT_...` assignment.
         git_assignment: Option<String>,
     },
-    /// A wrapper head or a `$` head, and what its text names.
+    /// A wrapper head or a `$` or backquote head, and what its text names.
     Wrapper {
         head: String,
         named: Named,
     },
+    /// A command other than `git` that changes what a later push sends:
+    /// `gh pr checkout` (`co`) switches the branch.
+    ChangesPush(String),
 }
 
 fn is_assignment(t: &str) -> bool {
@@ -330,7 +353,8 @@ fn kind(seg: &Segment) -> Kind {
             .collect::<Vec<_>>()
             .join(" ")
     };
-    if head.text.starts_with('$') {
+    // A head the shell computes: `$GIT`, `$(which git)`, `` `which git` ``.
+    if head.text.starts_with('$') || head.text.starts_with('`') {
         let later: Vec<&str> = rest.iter().map(|w| w.text.as_str()).collect();
         let push = later.contains(&"push");
         let pr = later
@@ -354,25 +378,53 @@ fn kind(seg: &Segment) -> Kind {
         "gh" => {
             // gh takes `-R`/`--repo` before `pr` or between `pr` and the
             // action word, so both runs of options are skipped.
-            let (j, mut bad_option, ambiguous) = gh_options(rest, 0);
+            let (j, bad1, ambiguous) = gh_options(rest, 0);
+            let word = |p: usize| rest.get(p).map(|w| w.text.as_str());
+            // `new` is gh's built-in alias for `create`.
+            let action_at = |p: usize| match word(p) {
+                Some("create" | "new") => Some(PrAction::Create),
+                Some("edit") => Some(PrAction::Edit),
+                _ => None,
+            };
             for p in candidates(j, ambiguous) {
-                if rest.get(p).map(|w| w.text.as_str()) != Some("pr") {
+                if word(p) != Some("pr") {
                     continue;
                 }
                 let (k, bad2, ambiguous2) = gh_options(rest, p + 1);
                 for a in candidates(k, ambiguous2) {
-                    let action = match rest.get(a).map(|w| w.text.as_str()) {
-                        // `new` is gh's built-in alias for `create`.
-                        Some("create" | "new") => PrAction::Create,
-                        Some("edit") => PrAction::Edit,
-                        _ => continue,
+                    if let Some(sub @ ("checkout" | "co")) = word(a) {
+                        return Kind::ChangesPush(format!("gh pr {sub}"));
+                    }
+                    let Some(action) = action_at(a) else {
+                        continue;
                     };
-                    bad_option = bad_option.or(bad2);
                     return Kind::Gh {
                         action,
                         rest: rest[a + 1..].to_vec(),
-                        bad_option,
+                        bad_option: bad1.or(bad2),
                     };
+                }
+            }
+            // An unlisted option may take any number of words as its value,
+            // so after one, any later `pr` and any later action word after
+            // it count, and fail closed on the option.
+            let pr_at = if bad1.is_some() {
+                (j..rest.len()).find(|p| word(*p) == Some("pr"))
+            } else {
+                Some(j).filter(|p| word(*p) == Some("pr"))
+            };
+            if let Some(p) = pr_at {
+                let (_, bad2, _) = gh_options(rest, p + 1);
+                if let Some(bad) = bad1.or(bad2) {
+                    if let Some((a, action)) =
+                        (p + 1..rest.len()).find_map(|a| action_at(a).map(|act| (a, act)))
+                    {
+                        return Kind::Gh {
+                            action,
+                            rest: rest[a + 1..].to_vec(),
+                            bad_option: Some(bad),
+                        };
+                    }
                 }
             }
             Kind::Other
@@ -380,7 +432,6 @@ fn kind(seg: &Segment) -> Kind {
         "git" => {
             let mut j = 0;
             let mut bad_option = None;
-            let mut ambiguous = false;
             let mut c_dirs = Vec::new();
             while j < rest.len() {
                 let t = rest[j].text.as_str();
@@ -389,33 +440,24 @@ fn kind(seg: &Segment) -> Kind {
                         if let Some(w) = rest.get(j + 1) {
                             c_dirs.push(w.clone());
                         }
-                        ambiguous = false;
                         j += 2;
                     }
-                    "-c" => {
-                        ambiguous = false;
-                        j += 2;
-                    }
-                    "--no-pager" | "-P" => {
-                        ambiguous = false;
-                        j += 1;
-                    }
+                    "-c" => j += 2,
+                    "--no-pager" | "-P" => j += 1,
                     _ if t.starts_with('-') => {
                         bad_option.get_or_insert_with(|| t.to_string());
-                        ambiguous = !t.contains('=');
                         j += 1;
                     }
                     _ => break,
                 }
             }
-            // `git --git-dir /x push`: the unknown option may have taken the
-            // next word as its value, so `push` one word later counts too,
-            // and fails closed on the option.
-            if ambiguous
-                && rest.get(j).map(|w| w.text.as_str()) != Some("push")
-                && rest.get(j + 1).map(|w| w.text.as_str()) == Some("push")
-            {
-                j += 1;
+            // `git --git-dir /x --work-tree . push`: an unknown option may
+            // take any number of words as its value, so after one, any later
+            // `push` counts, and fails closed on the option.
+            if bad_option.is_some() && rest.get(j).map(|w| w.text.as_str()) != Some("push") {
+                if let Some(p) = (j..rest.len()).find(|p| rest[*p].text == "push") {
+                    j = p;
+                }
             }
             Kind::Git {
                 sub: rest.get(j).map(|w| w.text.clone()),
@@ -506,6 +548,71 @@ fn heredoc_runs(h: &HereDoc) -> Named {
     named
 }
 
+/// The head of a segment that rules out a later push in the same command: a
+/// wrapper or computed head, a `git` subcommand that isn't read-only, or a
+/// command such as `gh pr checkout` that switches the branch (PRD R7 case
+/// 11).
+fn push_blocker_of(k: &Kind) -> Option<String> {
+    match k {
+        Kind::Wrapper { head, .. } => Some(head.clone()),
+        Kind::ChangesPush(what) => Some(what.clone()),
+        Kind::Git { sub: Some(s), .. } if !READ_ONLY_GIT.contains(&s.as_str()) => {
+            Some(format!("git {s}"))
+        }
+        _ => None,
+    }
+}
+
+/// Gather what `tok`, a command substitution's contents, does, its own
+/// substitutions and unquoted here-documents' included.
+fn nested_effects(tok: &Tokenized, out: &mut Nested) {
+    for seg in &tok.segments {
+        out.words.extend(seg.words.iter().cloned());
+        if out.blocker.is_none() {
+            out.blocker = push_blocker_of(&kind(seg));
+        }
+    }
+    for sub in &tok.substitutions {
+        nested_effects(&sub.inner, out);
+    }
+    for h in &tok.heredocs {
+        for t in &h.substitutions {
+            nested_effects(t, out);
+        }
+    }
+}
+
+/// The top-level substitutions of `tok`, unquoted here-documents' included,
+/// with where each starts and what it does.
+fn nested_in(tok: &Tokenized) -> Vec<Nested> {
+    let mut out = Vec::new();
+    for sub in &tok.substitutions {
+        let mut n = Nested {
+            start: sub.span.start,
+            ..Nested::default()
+        };
+        nested_effects(&sub.inner, &mut n);
+        out.push(n);
+    }
+    for seg in &tok.segments {
+        for w in &seg.words {
+            let Some(h) = w.heredoc.and_then(|i| tok.heredocs.get(i)) else {
+                continue;
+            };
+            for t in &h.substitutions {
+                let mut n = Nested {
+                    start: w.span.start,
+                    ..Nested::default()
+                };
+                nested_effects(t, &mut n);
+                out.push(n);
+            }
+        }
+    }
+    out.sort_by_key(|n| n.start);
+    out
+}
+
 /// Classify a tokenized command run from `cwd`.
 pub fn classify(tok: &Tokenized, cwd: Option<&Path>) -> Classified {
     let mut c = Classified::default();
@@ -515,8 +622,13 @@ pub fn classify(tok: &Tokenized, cwd: Option<&Path>) -> Classified {
     let mut lost = String::from("the hook input gives no absolute `cwd`");
     // Heads of earlier segments that rule out a later push, first one kept.
     let mut push_blocker: Option<String> = None;
+    // Command substitutions run before the segment they sit in, so one that
+    // starts before a guarded segment ends is an earlier part of the command.
+    c.nested = nested_in(tok);
 
     for (index, seg) in tok.segments.iter().enumerate() {
+        let seg_end = seg.words.last().map_or(0, |w| w.span.end);
+        c.ends.push(seg_end);
         // Leave the groups this segment isn't in, restoring the directory each
         // had on entry; then enter the new ones.
         while let Some((g, _)) = stack.last() {
@@ -559,6 +671,9 @@ pub fn classify(tok: &Tokenized, cwd: Option<&Path>) -> Classified {
                     }));
                 }
                 push_blocker.get_or_insert(head);
+            }
+            Kind::ChangesPush(what) => {
+                push_blocker.get_or_insert(what);
             }
             Kind::Gh {
                 action,
@@ -611,6 +726,20 @@ pub fn classify(tok: &Tokenized, cwd: Option<&Path>) -> Classified {
                     ))));
                     continue;
                 }
+                // Asked for the first push only: every later one has the
+                // earlier push as its blocker.
+                let in_substitution = c
+                    .nested
+                    .iter()
+                    .take_while(|n| n.start < seg_end)
+                    .find_map(|n| n.blocker.clone());
+                if let Some(head) = in_substitution {
+                    c.items.push(fail(Case::SameCommand(format!(
+                        "a `{head}` in a command substitution that runs before the push could change what it sends, and the hook checks before either runs"
+                    ))));
+                    push_blocker = Some(head);
+                    continue;
+                }
                 let mut at = dir.clone();
                 let mut why = lost.clone();
                 for w in &c_dirs {
@@ -650,40 +779,57 @@ pub fn classify(tok: &Tokenized, cwd: Option<&Path>) -> Classified {
             }));
         }
     }
+    // Each substitution runs in the directory of the segment it sits in. Both
+    // lists are in text order, so one pass pairs them.
+    let mut at = 0;
+    for n in &mut c.nested {
+        while at < c.ends.len() && c.ends[at] <= n.start {
+            at += 1;
+        }
+        n.dir = c.segments.get(at).and_then(|s| s.1.clone());
+    }
     c
 }
 
 impl Classified {
-    /// Whether a top-level segment before `index` names the body file `file`
-    /// (absolute) given as `given`: the same word, a word resolving to the
-    /// same path from that segment's directory, or a word ending in the
-    /// file's name, alone or after `>` or `>>` (PRD R7 case 11).
+    /// Whether a part of the command run before top-level segment `index`
+    /// names the body file `file` (absolute) given as `given`: a word of an
+    /// earlier segment, or of a command substitution starting before that
+    /// segment ends, that is the same word, resolves to the same path from
+    /// its directory, or ends in the file's name, alone or after `>` or `>>`
+    /// (PRD R7 case 11).
     pub fn earlier_names_file(&self, index: usize, file: &Path, given: &str) -> bool {
         let name = file.file_name().map(|n| n.to_string_lossy().into_owned());
+        let names = |words: &[Word], dir: &Option<PathBuf>| {
+            words.iter().any(|w| {
+                let t = w
+                    .text
+                    .trim_start_matches(|c: char| c.is_ascii_digit())
+                    .trim_start_matches('&')
+                    .trim_start_matches('>');
+                if t.is_empty() {
+                    return false;
+                }
+                t == given
+                    || name.as_deref().is_some_and(|n| t.ends_with(n))
+                    || moved(
+                        dir.as_deref(),
+                        &Word {
+                            text: t.to_string(),
+                            ..w.clone()
+                        },
+                    )
+                    .is_some_and(|p| p == file)
+            })
+        };
+        let end = self.ends.get(index).copied().unwrap_or(usize::MAX);
         self.segments[..index.min(self.segments.len())]
             .iter()
-            .any(|(words, dir)| {
-                words.iter().any(|w| {
-                    let t = w
-                        .text
-                        .trim_start_matches(|c: char| c.is_ascii_digit())
-                        .trim_start_matches('&')
-                        .trim_start_matches('>');
-                    if t.is_empty() {
-                        return false;
-                    }
-                    t == given
-                        || name.as_deref().is_some_and(|n| t.ends_with(n))
-                        || moved(
-                            dir.as_deref(),
-                            &Word {
-                                text: t.to_string(),
-                                ..w.clone()
-                            },
-                        )
-                        .is_some_and(|p| p == file)
-                })
-            })
+            .any(|(words, dir)| names(words, dir))
+            || self
+                .nested
+                .iter()
+                .any(|n| n.start < end && names(&n.words, &n.dir))
     }
 }
 
@@ -817,6 +963,115 @@ mod tests {
         ] {
             assert_eq!(cl(cmd).items, vec![], "{cmd}");
         }
+    }
+
+    fn same_command(cmd: &str) -> bool {
+        fails(cmd)
+            .iter()
+            .any(|(a, c)| *a == Action::Push && matches!(c, Case::SameCommand(_)))
+    }
+
+    #[test]
+    fn a_substitution_that_runs_before_a_push_counts_as_earlier() {
+        for cmd in [
+            "echo $(git commit -qm \"x\" -m \"Co-Authored-By: Claude <noreply@anthropic.com>\") && git push",
+            "x=`git commit -m x`; git push",
+            "echo \"$(echo $(git checkout other))\"; git push",
+            "echo $(sudo ls) && git push",
+            "echo $(gh pr checkout 3) && git push",
+            "cat <<EOF && git push\n$(git commit -m x)\nEOF",
+        ] {
+            assert!(same_command(cmd), "{cmd}: {:?}", fails(cmd));
+        }
+        // Read-only commands, and substitutions after the push, don't.
+        for cmd in [
+            "echo $(git rev-parse HEAD) && git push",
+            "echo $(date) && git push",
+            "git push && echo $(git commit -m x)",
+            "cat <<'EOF' && git push\n$(git commit -m x)\nEOF",
+        ] {
+            assert!(!same_command(cmd), "{cmd}: {:?}", fails(cmd));
+            assert_eq!(pushes(cmd).len(), 1, "{cmd}");
+        }
+    }
+
+    #[test]
+    fn a_substitution_naming_the_body_file_counts_as_earlier() {
+        let file = Path::new("/work/repo/b.md");
+        for cmd in [
+            "echo $(printf 'Adds x.' > b.md) && gh pr create -t \"feat: x\" -F b.md",
+            "x=`cp y b.md`; gh pr create -t t -F b.md",
+            "echo $(echo $(tee sub/../b.md)); gh pr create -t t -F b.md",
+        ] {
+            let c = cl(cmd);
+            let g = ghs(cmd);
+            assert!(c.earlier_names_file(g[0].index, file, "b.md"), "{cmd}");
+        }
+        for cmd in [
+            "echo $(date) && gh pr create -t t -F b.md",
+            "gh pr create -t t -F b.md && echo $(cat > b.md)",
+        ] {
+            let c = cl(cmd);
+            let g = ghs(cmd);
+            assert!(!c.earlier_names_file(g[0].index, file, "b.md"), "{cmd}");
+        }
+    }
+
+    #[test]
+    fn a_backquote_head_is_wrapped() {
+        assert_eq!(
+            fails("`which git` push"),
+            vec![(Action::Push, Case::Wrapped)]
+        );
+        assert_eq!(
+            fails("`which gh` pr new -t x"),
+            vec![(Action::Pr(None), Case::Wrapped)]
+        );
+        assert_eq!(cl("`which ls` -l").items, vec![]);
+    }
+
+    #[test]
+    fn after_an_unlisted_option_any_later_guarded_word_fails_closed() {
+        for (cmd, opt) in [
+            ("git --git-dir .git --work-tree . push", "--git-dir"),
+            ("git --namespace a b c push origin", "--namespace"),
+            ("git --bare log --grep push", "--bare"),
+        ] {
+            assert_eq!(
+                fails(cmd),
+                vec![(Action::Push, Case::UnknownOption(opt.into()))],
+                "{cmd}"
+            );
+        }
+        for (cmd, opt) in [
+            ("gh --hostname h extra pr create -t x", "--hostname"),
+            ("gh pr --hostname h extra create -t x", "--hostname"),
+            ("gh --a x --b y pr new", "--a"),
+        ] {
+            assert_eq!(
+                fails(cmd),
+                vec![(
+                    Action::Pr(Some(PrAction::Create)),
+                    Case::UnknownOption(opt.into())
+                )],
+                "{cmd}"
+            );
+        }
+        assert_eq!(cl("gh --hostname h pr view 3").items, vec![]);
+        assert_eq!(cl("git --bare log").items, vec![]);
+    }
+
+    #[test]
+    fn gh_pr_checkout_before_a_push_is_the_same_command() {
+        for cmd in [
+            "gh pr checkout 3 && git push",
+            "gh pr co 3; git push",
+            "gh -R o/r pr checkout 3 && git push",
+        ] {
+            assert!(same_command(cmd), "{cmd}: {:?}", fails(cmd));
+        }
+        assert_eq!(cl("gh pr checkout 3").items, vec![]);
+        assert_eq!(pushes("gh pr view 3 && git push").len(), 1);
     }
 
     #[test]

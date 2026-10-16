@@ -715,7 +715,8 @@ pub fn check(
     for src in &argv.sources {
         ids.push(repo.resolve(src)?);
     }
-    if !argv.refspecs && !argv.branches && !argv.tags && !argv.delete {
+    let default_push = !argv.refspecs && !argv.branches && !argv.tags && !argv.delete;
+    if default_push {
         let Some(b) = current()? else {
             return Err(Case::DetachedHead);
         };
@@ -757,6 +758,23 @@ pub fn check(
         Sent::Remote(r) => format!("--remotes={r}"),
         Sent::AnyRemote => "--remotes".to_string(),
     };
+    // With no refspec git pushes what its configuration says, which is the
+    // current branch unless `push.default` is `matching` or the remote has
+    // `push` refspecs of its own; those may send more, so they fail closed.
+    if default_push {
+        if repo
+            .config("push.default")?
+            .is_some_and(|v| v.eq_ignore_ascii_case("matching"))
+        {
+            return Err(Case::PushConfig("push.default".into()));
+        }
+        if plain_name(&remote) {
+            let key = format!("remote.{remote}.push");
+            if repo.config(&key)?.is_some() {
+                return Err(Case::PushConfig(key));
+            }
+        }
+    }
 
     let max = format!("--max-count={}", MAX_COMMITS + 1);
     let mut args: Vec<&str> = vec!["rev-list", "--no-merges", &max];

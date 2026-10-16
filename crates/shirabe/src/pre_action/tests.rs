@@ -753,6 +753,29 @@ fn a_panic_or_a_hang_fails_closed_on_a_guarded_command_only() {
 }
 
 #[test]
+fn an_earlier_command_substitution_is_the_same_command() {
+    let d = std::env::temp_dir().join(format!("shirabe-nested-{}", std::process::id()));
+    std::fs::create_dir_all(&d).unwrap();
+    std::fs::write(d.join("b.md"), "Adds x.\n\n---\n\nctx\n").unwrap();
+    for (cmd, action) in [
+        (
+            "echo $(git commit -qm \"x\" -m \"Co-Authored-By: Claude <noreply@anthropic.com>\") && git push",
+            "`git push`",
+        ),
+        (
+            "echo $(printf 'Adds x.' > b.md) && gh pr create -t \"feat: x\" -F b.md",
+            "`gh pr create`",
+        ),
+    ] {
+        let r = evaluate_all(&hook_in(cmd, &d), RegistrySource::Embedded)
+            .unwrap_or_else(|| panic!("{cmd} should deny"));
+        assert_fail_closed(&r, "same command");
+        assert!(r.contains(action), "{r}");
+    }
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+#[test]
 fn attached_short_values_are_checked() {
     for (cmd, id, not) in [
         (
