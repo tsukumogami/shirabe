@@ -246,6 +246,27 @@ verdict() {
     RC=$?
 }
 
+# same_laddered_verdict <label> <session>: --verdict with the escalation
+# ladder's context (a session log where koto recorded verification_verdict
+# failing once on verification/command-failed) exits and prints on standard
+# output exactly what it does without, and adds no ::shirabe- line to stderr
+# when it printed no finding.
+same_laddered_verdict() {
+    local plain_out plain_rc log="$WORKDIR/ladder-same.jsonl"
+    verdict "$2"; plain_out=$OUT; plain_rc=$RC
+    rf_test_ladder_log "$log" verification verification_verdict verification/command-failed 1
+    OUT=$(SHIRABE_GATE_LOG="$log" SHIRABE_GATE_NAME=verification_verdict \
+        SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" \
+        "$VERDICT" --verdict --session "$2" 2>"$WORKDIR/verdict.err")
+    RC=$?
+    if [ "$RC" -eq "$plain_rc" ] && [ "$OUT" = "$plain_out" ] \
+        && { case "$OUT" in *::koto-finding::*) true ;; *) ! grep -q '^::shirabe-' "$WORKDIR/verdict.err" ;; esac; }; then
+        pass "$1: exits and prints the same with the ladder's context"
+    else
+        fail "$1: differs with the ladder's context: rc $RC vs $plain_rc, stderr $(cat "$WORKDIR/verdict.err")"
+    fi
+}
+
 # settle <session>: --verdict until it stops saying pending, for at most 40s.
 settle() {
     local n=0
@@ -304,6 +325,7 @@ start s-pass
 settle s-pass
 expect_rc "every command passes" 0
 expect_no_finding "a pass"
+same_laddered_verdict "a pass, laddered" s-pass
 [ -f "$KOTO_STUB_STORE/s-pass/verification_results.json" ] \
     && pass "a settled verdict records verification_results.json in koto context" \
     || fail "verification_results.json was not recorded"
@@ -470,6 +492,7 @@ fi
 echo '{"schema": "shirabe-verification-result/v1", "head": ' > "$RES"
 verdict s-unread
 expect_rc "a result file that does not parse" 2
+same_laddered_verdict "a result file that does not parse (undecided), laddered" s-unread
 
 # --- selection --------------------------------------------------------------------------
 

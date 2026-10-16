@@ -196,6 +196,28 @@ run() {
     RC=$?
 }
 
+# same_laddered <label> <args>...: the run with the escalation ladder's context
+# (a session log where koto recorded <panel>_verdict failing once on
+# panel/open-finding) exits and prints on standard output exactly what the run
+# without it does, and adds no ::shirabe- line to stderr when it printed no
+# finding.
+same_laddered() {
+    local label=$1 plain_out plain_rc log="$WORKDIR/ladder-same.jsonl"
+    shift
+    run "$@"; plain_out=$OUT; plain_rc=$RC
+    rf_test_ladder_log "$log" "$2" "${2}_verdict" panel/open-finding 1
+    OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" SHIRABE_GATE_LOG="$log" SHIRABE_GATE_NAME="${2}_verdict" \
+        SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status" \
+        "$SCRIPT" "$@" 2>"$WORKDIR/stderr")
+    RC=$?
+    if [ "$RC" -eq "$plain_rc" ] && [ "$OUT" = "$plain_out" ] \
+        && { case "$OUT" in *::koto-finding::*) true ;; *) ! grep -q '^::shirabe-' "$WORKDIR/stderr" ;; esac; }; then
+        pass "$label: exits and prints the same with the ladder's context"
+    else
+        fail "$label: differs with the ladder's context: rc $RC vs $plain_rc, stderr $(cat "$WORKDIR/stderr")"
+    fi
+}
+
 # packet <args>: runs review-packet.sh in the fixture, against the same koto
 # stand-in. Sets POUT (the packet path) and PRC.
 PACKET_SH="$PLUGIN_ROOT/scripts/review-packet.sh"
@@ -392,6 +414,7 @@ run --recorded scrutiny "$SESSION"
 expect_rc "--recorded once the re-verifier is recorded" 0
 run --verdict scrutiny "$SESSION"
 expect_rc "--verdict once the only blocking finding is closed" 0
+same_laddered "--verdict, laddered, on a passing panel" --verdict scrutiny "$SESSION"
 
 echo "--- script: a panel carries only when nothing is due, no fix-diff review lands, and nothing is open"
 
@@ -1040,6 +1063,7 @@ RS7_SUMMARY=$("$SCRIPT_DIR/../../../scripts/rule-registry.sh" summary rs-007)
 fixture verdict
 run --verdict scrutiny "$SESSION"
 expect_rc "--verdict with no ledger" 2
+same_laddered "--verdict, laddered, with no ledger (undecided)" --verdict scrutiny "$SESSION"
 run --plan scrutiny "$SESSION"
 run --verdict scrutiny "$SESSION"
 expect_rc "--verdict on a planned round with nothing recorded" 2
