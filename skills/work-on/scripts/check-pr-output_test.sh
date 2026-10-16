@@ -508,10 +508,8 @@ else
     fail "--pr-body: PB2+PB5 rc $RC, rules [$GOT]"
 fi
 
-# An installed shirabe older than --writing-style: clap rejects the flag (exit
-# 1, its usage hint on the last stderr line), and the gate holds and says to
-# upgrade.
-# Any other validator exit 1 holds the gate too, without the upgrade wording.
+# A validator exit 1 for any reason but the flag holds the gate, without the
+# upgrade wording.
 FAKE_SHIRABE_RC=1
 FAKE_SHIRABE_OUT=''
 run --pr-body
@@ -521,6 +519,9 @@ else
     fail "--pr-body: validator exit 1: rc $RC, stderr $(cat "$WORKDIR/stderr")"
 fi
 
+# An installed shirabe older than --writing-style: clap rejects the flag (exit
+# 1, its usage hint on the last stderr line), and the gate holds and says to
+# upgrade.
 cat > "$BIN/shirabe" <<'EOF'
 #!/usr/bin/env bash
 . "$(dirname "$0")/record.sh" shirabe "$@"
