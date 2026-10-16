@@ -22,7 +22,9 @@
 #   4. runs each scripts/*_test.sh with `bash`, from the repository root, the
 #      way the CI workflows invoke them, up to CHECK_SKILL_JOBS of them at
 #      once, the costliest first, reporting each in the order a serial run
-#      would;
+#      would. A failed suite is reported with every FAIL line in its log (and
+#      the indented lines under each), the 1-minute load when it ended, and
+#      its last 60 lines; the run opens with the load at its start;
 #   5. runs scripts/lib/check-evals-shape.py on evals/evals.json (a skill whose
 #      SKILL.md declares disable-model-invocation: true may have none);
 #   6. runs scripts/check-pipe-readers.sh over the skill's directory, which
@@ -194,6 +196,41 @@ fail() {
 show_log() {
     sed -e 's/^/    /' "${1:-$LOG}" | tail -n 60
 }
+
+# load1: the host's 1-minute load average (Linux /proc/loadavg, or macOS
+# sysctl's "{ 1.23 4.56 7.89 }"), or "unknown".
+load1() {
+    local l=""
+    if [ -r /proc/loadavg ]; then
+        read -r l _ < /proc/loadavg
+    else
+        l=$(sysctl -n vm.loadavg 2>/dev/null)
+        l=${l#\{ }
+        l=${l%% *}
+    fi
+    printf '%s\n' "${l:-unknown}"
+}
+
+# show_suite_failure <log> <load-file>: every FAIL line of a failed suite
+# with the indented detail lines under it, wherever they fall in the log, then
+# the 1-minute load when the suite ended and the log's tail. The tail alone
+# lost the failing case's name when a long suite failed early (shirabe#867),
+# and a load failure couldn't be filed without running the suite again.
+show_suite_failure() {
+    local lines
+    lines=$(awk '/^[[:space:]]*(.\[[0-9;]*m)?(FAIL|not ok)([^A-Za-z]|$)/ { print "      " $0; d = 1; next }
+                 d && /^[ \t]/ && !/^[[:space:]]*(.\[[0-9;]*m)?(ok|PASS)([^A-Za-z]|$)/ { print "      " $0; next }
+                 { d = 0 }' "$1")
+    if [ -n "$lines" ]; then
+        echo "    every FAIL line:"
+        printf '%s\n' "$lines"
+    fi
+    echo "    load when it ended: $(cat "$2" 2>/dev/null || echo unknown)"
+    echo "    the log's last 60 lines:"
+    show_log "$1"
+}
+
+echo "check-skill: $SKILL, load $(load1) at start"
 
 suites=()
 for t in "$SKILL_DIR"/scripts/*_test.sh; do
@@ -483,7 +520,7 @@ report_ready() {
         if [ "$rc" = 0 ]; then
             echo "ok: bash ${suites[$NEXT]}"
         else
-            show_log "$RUNS/$NEXT.log"
+            show_suite_failure "$RUNS/$NEXT.log" "$RUNS/$NEXT.load"
             fail "bash ${suites[$NEXT]}"
         fi
         NEXT=$((NEXT + 1))
@@ -498,15 +535,19 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
     done
     # The .rc file appears whole (written, then renamed), so a reader never
     # sees a suite as finished before its status is there.
+    # A failed suite also records the load as it ended, which a failure under
+    # load is filed with.
     ( bash "${suites[$i]}" </dev/null >"$RUNS/$i.log" 2>&1
-      echo $? > "$RUNS/$i.rc.tmp" && mv "$RUNS/$i.rc.tmp" "$RUNS/$i.rc" ) &
+      rc=$?
+      [ "$rc" = 0 ] || load1 > "$RUNS/$i.load"
+      echo "$rc" > "$RUNS/$i.rc.tmp" && mv "$RUNS/$i.rc.tmp" "$RUNS/$i.rc" ) &
 done
 wait
 report_ready
 # A suite with no status after every job has ended (its wrapper killed before
 # it could write one) is a failure, never a silent gap in the report.
 while [ "$NEXT" -lt "${#suites[@]}" ]; do
-    [ -f "$RUNS/$NEXT.log" ] && show_log "$RUNS/$NEXT.log"
+    [ -f "$RUNS/$NEXT.log" ] && show_suite_failure "$RUNS/$NEXT.log" "$RUNS/$NEXT.load"
     fail "bash ${suites[$NEXT]} (no exit status recorded)"
     NEXT=$((NEXT + 1))
     report_ready
