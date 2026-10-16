@@ -637,6 +637,12 @@ def compact_settled:
 #
 # d_archivable: a settled entry that owes nothing.
 def d_archivable: .state == "settled" and (.owed // "") == "";
+# d_parked, over the whole record: the entries a `decision` Work row parks a
+# unit on (pick's await_decision). pick-facts.sh hands the unit its entry's
+# outcome once the entry settles, so the entry stays in the body until the row
+# goes; d_archivable($parked) is d_archivable for every other entry.
+def d_parked: [(.work // [])[] | select(.kind == "decision") | .who | ltrimstr("decision ")];
+def d_archivable($parked): d_archivable and (.decision as $n | $parked | index($n) | not);
 def d_archived_line: " (settled; each kept verbatim in a decisions entry on this record)";
 def d_kept_title: "Stamps kept for run ";
 def re_kept_stamp: "^[1-9][0-9]* (report|wait|raise|hold|redirect|ask) [1-9][0-9]*(\\.[1-9][0-9]*)?( addressed)?$";

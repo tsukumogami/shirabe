@@ -66,13 +66,14 @@ E() { # E <n> <state> [jq merge]: a short entry
 settled_run() { local i out=""; for i in $(span "$1" "$2"); do out="$out${out:+, }$(SETTLED "$i")"; done; printf '%s' "$out"; }
 FULL=$(settled_run 1 46)
 
-# setup <entries-json-array> [next] [session-run]: record #7 holding them and a
-# fresh session that found it. Sets S.
+# setup <entries-json-array> [next] [session-run] [jq edit]: record #7 holding
+# them, with the edit applied to the record, and a fresh session that found it.
+# Sets S.
 setup() {
     rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
     db_init
     db '.issues += [{repo: "acme/widgets", number: 7, title: "Coordinator record: ROADMAP-feat", body: $b, state: "open", author: "coord", editor: null}]' \
-        --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "$1" --argjson n "${2:-60}" '.decisions = {next: $n, entries: $e}')" issue)"
+        --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "$1" --argjson n "${2:-60}" '.decisions = {next: $n, entries: $e}' | jq -c "${4:-.}")" issue)"
     S="coordinate-roadmap-feat-${3:-$RUN}"
     found_session "$S" "$(roadmap_vars feat)" 7
     LAST=reconcile
@@ -142,6 +143,21 @@ eq "  ... and the kept stamps" "Stamps kept for run $RUN: 52 raise 4, 53 hold 5"
 setup "[$FULL, $(SETTLED 51 '{owed: "reply"}')]"
 to decision_next
 eq "an entry owed a reply stays in the body and is routed" "reply 51|51" "$(word)|$(ids)"
+
+# A settled entry a unit is parked on stays: pick-facts.sh hands the unit its
+# outcome, and an archived entry would read as gone, with no outcome.
+PARK7='.work = [{item: "Feature 2", kind: "decision", who: "decision 7", next: "dispatch once decided", wakes: "0", updated: "2026-09-26T07:00Z"}]'
+setup "[$FULL, $(E 50 proposed)]" 60 "$RUN" "$PARK7"
+to decision_next
+eq "a settled entry a unit is parked on stays in the body" "take 50|7 50" "$(word)|$(ids)"
+eq "  ... with its outcome" "wait; reason: one upgrade @carol can review" "$(f 7 outcome)"
+eq "  ... and every other settled entry is archived" "$(span 1 6) $(span 8 46)" "$(archived)"
+[ "$(size)" -le "$GUARD" ] && ok "  ... under the guard ($(size) bytes)" || bad "  ... under the guard" "$(size) bytes"
+# Every settled entry parked: nothing can move, so the owed write is record-full.
+PARKALL=$(jq -nc --arg s "$(span 1 46)" '[$s | split(" ")[] | {item: "#\(.)", kind: "decision", who: "decision \(.)", next: "dispatch once decided", wakes: "0", updated: "2026-09-26T07:00Z"}]')
+setup "[$FULL, $(E 50 proposed)]" 60 "$RUN" ".work = $PARKALL"
+to decision_next
+eq "a full record whose settled entries all hold a parked unit is record-full" "record-full|0" "$(word)|$(comments)"
 
 echo "== --owed and a restarted run =="
 setup "[$FULL, $(E 50 coordinator-verdict '{verdict: "hold", reason: "the cap"}')]" 60 20260927T080000Z

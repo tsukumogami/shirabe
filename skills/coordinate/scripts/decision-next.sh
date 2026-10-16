@@ -67,9 +67,11 @@
 #
 # Before any rule, a record within that margin whose Decisions section holds a
 # settled entry that owes nothing (the codec's d_archivable) has those entries
-# archived (record-decision.sh --archive): their rows move to `decisions`
-# entries on the record, and the body keeps their identifiers and this run's
-# stamps on them, which the rules below read as they read a row's. The rules then read the section as it is after the move, so
+# archived (record-decision.sh --archive), except one a `decision` Work row
+# still parks a unit on (d_parked), whose outcome pick-facts.sh reads: their
+# rows move to `decisions` entries on the record, and the body keeps their
+# identifiers and this run's stamps on them, which the rules below read as they
+# read a row's. The rules then read the section as it is after the move, so
 # record-full is left only for a record that is full of what can't move. With
 # --owed the move is `archive`, ahead of every rule, blocking dispatch and pick
 # alike, so a restarted run on a full record comes here before it does anything
@@ -117,24 +119,32 @@ else
     bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
         || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
 fi
-# live_size: the live body's size in bytes, into SIZE: the --parsed body when
-# the caller passed one, otherwise the record read here.
+# live_size: the live body's size in bytes, into SIZE, and the parsed record,
+# into LIVE: the --parsed record when the caller passed one, otherwise the
+# record read here.
 live_size() {
     if [ -n "$PARSED" ]; then
         cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
+        LIVE=$PARSED
     else
         REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
             || lib_die2 "cannot read the record's number"
         rs_record "$T/live" body --json body --jq .body
         case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
+        LIVE=$T/live
     fi
     SIZE=$(wc -c < "$T/live.md" | tr -d ' ')
 }
-# The archive: settled entries leave a record within the margin.
+# The archive: settled entries leave a record within the margin, except one a
+# unit is parked on (the codec's d_parked).
 ARCHIVE=false
 if jq -e -L "$HERE" 'include "record-codec"; any(.entries[]; d_archivable)' "$T/section.json" > /dev/null; then
     live_size
-    [ "$SIZE" -gt $((60000 - 4096)) ] && ARCHIVE=true
+    if [ "$SIZE" -gt $((60000 - 4096)) ] \
+        && jq -e -L "$HERE" --slurpfile r "$LIVE" 'include "record-codec"; ($r[0] | d_parked) as $p | any(.entries[]; d_archivable($p))' \
+            "$T/section.json" > /dev/null 2>&1; then
+        ARCHIVE=true
+    fi
 fi
 if [ "$ARCHIVE" = true ]; then
     [ -z "$OWED" ] || { printf 'archive\n'; exit 0; }

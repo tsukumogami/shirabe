@@ -72,8 +72,8 @@
 #       The arrival is the latest of its kind before this visit, so a retry
 #       decision_next routes here after a write that didn't land reads it too.
 #   --archive                                      decision_next
-#       Moves every settled entry that owes nothing (the codec's d_archivable)
-#       out of the body: their rows, as the body holds them, go to `decisions`
+#       Moves every settled entry that owes nothing and holds no parked unit
+#       (the codec's d_archivable and d_parked) out of the body: their rows, as the body holds them, go to `decisions`
 #       entries on the record (record-append.sh, one per 50,000 bytes of rows),
 #       then the body is written without them, their identifiers added to the
 #       section's Archived line and this run's stamps on them to its kept
@@ -600,19 +600,20 @@ sent)
 archive)
     SIZE=$(wc -c < "$WD/live.md" | tr -d ' ')
     [ "$SIZE" -gt $((60000 - 4096)) ] || refuse "the record is $SIZE bytes, not within 4,096 bytes of the 60,000-byte budget"
-    change '[.entries[] | select(d_archivable)] as $go
-      | if ($go | length) == 0 then error("no settled entry owes nothing") else . end
+    PARKED=$(jq -c -L "$HERE" 'include "record-codec"; d_parked' "$WD/parsed.json") || lib_die2 "jq failed"
+    change '[.entries[] | select(d_archivable($parked))] as $go
+      | if ($go | length) == 0 then error("no settled entry owes nothing and holds no parked unit") else . end
       # This run'"'"'s stamps on the rows that go stay in the body; another run'"'"'s are read by no rule.
       | ([$go[] | . as $e | d_stamps[] | select(.run == $run)
           | {decision: ($e.decision | tonumber), kind, seq, addressed: (.text | startswith(d_addressed_mark))}]) as $mine
       | ((if (.kept.run // "") == $run then .kept.stamps else [] end) + $mine) as $ks
-      | .entries |= map(select(d_archivable | not))
+      | .entries |= map(select(d_archivable($parked) | not))
       | .archived = ((.archived // []) + ($go | map(.decision | tonumber)) | unique)
-      | if ($ks | length) > 0 then .kept = {run: $run, stamps: $ks} else del(.kept) end'
+      | if ($ks | length) > 0 then .kept = {run: $run, stamps: $ks} else del(.kept) end' --argjson parked "$PARKED"
     # The rows as the live body holds them, in entries of at most 50,000 bytes
     # of rows, well under record-append.sh's 60,000-byte entry.
-    SEC | jq -c -L "$HERE" --arg run "$RUN" 'include "record-codec";
-        [.entries[] | select(d_archivable)]
+    SEC | jq -c -L "$HERE" --arg run "$RUN" --argjson parked "$PARKED" 'include "record-codec";
+        [.entries[] | select(d_archivable($parked))]
         | reduce .[] as $e ([];
             ($e | render_drow) as $r
             | if length > 0 and (.[-1].bytes + ($r | utf8bytelength) + 1) <= 50000

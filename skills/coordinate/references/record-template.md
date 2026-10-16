@@ -323,7 +323,9 @@ GitHub's 65,536-byte limit.
 
 **The archive.** A settled entry doesn't stay in the body for good. When the
 record is within 4,096 bytes of that budget, `decision-next.sh` moves every
-settled entry that owes nothing out of the body before it routes anything
+settled entry that owes nothing out of the body before it routes anything,
+except one a `decision` Work row still parks a unit on, whose outcome pick
+reads when it dispatches the unit
 (`record-decision.sh --archive`): their rows go, exactly as the body held them,
 to `decisions` entries on the record (`record-append.sh`), and their
 identifiers join an `Archived:` line under `Next decision`. The current run's
@@ -342,7 +344,8 @@ Only the archiving run's stamps are kept; a later run's archive drops them,
 since no rule reads another run's. `--owed` reads the move as `archive`, ahead
 of every rule, so a run restarted on a full record archives before it picks or
 dispatches anything. `record-full` is left for a record full of what can't
-move: unsettled entries and entries owed a message. Evidence, an answer or a
+move: unsettled entries, entries owed a message and entries a unit is parked
+on. Evidence, an answer or a
 worker's citation naming an archived entry restores it first, from the latest
 unedited `decisions` entry holding its row, in the same write that records the
 arrival, and its kept stamps go back to its row. A withdrawal reaches only the
