@@ -341,7 +341,7 @@ cmd_release() {
     if LC_ALL=C grep -q -e "$MARK_OPEN" -e "$MARK_CLOSE" -e '::koto-finding::' <<<"$lines"; then
         fail "the text holds a marker line"; return 0
     fi
-    if printf '%s\n' "$lines" | LC_ALL=C tr -d '\t' | LC_ALL=C grep -q '[[:cntrl:]]'; then
+    if LC_ALL=C grep -q '[[:cntrl:]]' <<<"$(LC_ALL=C tr -d '\t' <<<"$lines")"; then
         fail "the text holds a control character"; return 0
     fi
     ref="$P#L$A-L$B@$(revision "$P" "$F")"
