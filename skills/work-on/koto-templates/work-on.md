@@ -899,6 +899,16 @@ states:
     # hold; no route reads it, so a wrong answer can hold the run but never
     # route it or lower the level.
     #
+    # A criterion the decider can't answer falls back to the agent (koto
+    # 0.20.0): the check is pending, with level_fits_facts under its
+    # output.awaiting, until `koto decider answer` records the agent's answer.
+    # That holds a shadow user here too, where an older koto passed the
+    # criterion unjudged, so the directive gives the command. The answer is
+    # the agent's, never a decider verdict: koto writes it as
+    # decider_check_answered, not as decider_checked or a ledger line, and the
+    # raise an agent fail calls for is a plain `set`, since a `veto` ledger
+    # line records only a raise the decider asked for.
+    #
     # The blocked route carries the gate's exit 1: an evidence-only route
     # shares no field with the gate routes and fails koto's exclusivity check.
     default_action:
@@ -997,10 +1007,15 @@ states:
     # in `mode: shadow`, goes on this state, carrying the trial's model-graded
     # criteria (scripts/review-shadow/criteria.json, rs-007 to rs-010) with its
     # slicers as extraction commands. koto lets no `when`, `skip_if` or
-    # context assignment read a decider check, and a shadow check never
-    # blocks, so adding it can't change which transition this state takes. It
-    # is not built yet. The same holds for review, qa_validation and
-    # light_review.
+    # context assignment read a decider check, and a shadow check is never
+    # failed, so adding it can't change which transition this state takes. It
+    # can hold the state, though: a criterion the decider can't answer is
+    # pending until the agent answers it with `koto decider answer` (koto
+    # 0.20.0), in shadow as in veto, so the slot's directive has to give that
+    # command, as review_level_check's does. Any answer then lets a shadow
+    # check through: a shadow fail, the agent's or the decider's, is only
+    # recorded. It is not built yet. The same holds for review,
+    # qa_validation and light_review.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan scrutiny "{{SESSION_NAME}}"'
       fallback: >-
@@ -2608,10 +2623,41 @@ Read the `hold:` line in the `level_floor` gate's output. It names why:
 - **the facts were gathered at another commit**: commits landed while the
   state held. Tick again; the action re-gathers them.
 
-When the `level_fits_facts` check fails, the decider judged the level too light
-for these facts. Raise it with `set ... <level> --cause veto:level_fits_facts`,
-or, when you're sure the verdict is wrong, record why with
+When the `level_fits_facts` check fails on the decider's verdict, the decider
+judged the level too light for these facts. Raise it with
+`set ... <level> --cause veto:level_fits_facts`, or, when you're sure the
+verdict is wrong, record why with
 `koto overrides record {{SESSION_NAME}} --gate level_fits_facts --rationale "<why>"`.
+A fail on your own answer (the criterion is under the output's
+`agent_answered`) is different; see below.
+
+When the `level_fits_facts` check is `pending` with `level_fits_facts` under
+its output's `awaiting` list, answer it yourself: the decider gave no verdict,
+so the question falls back to you. Judge the level against the facts in
+`review_facts.json` and the definitions in `references/review-levels.md`,
+record your answer, and tick again with nothing submitted:
+
+```bash
+koto decider answer {{SESSION_NAME}} --gate level_fits_facts --criterion level_fits_facts --answer <pass|fail|unclear>
+```
+
+The check's warning finding gives the reason the decider couldn't answer (an
+error or timeout, an unreadable answer, an over-budget slice, a spent per-call
+cap, or another tick holding the lock), the question, and what each answer
+means. This happens when the decider runs in shadow too, so the check can hold
+the run here even though a shadow check never fails it.
+
+`pass` (the level is thorough enough) and `unclear` (the facts don't say
+enough) let the check through. On `fail` (the level is too light), raise the
+level with a plain `set ... <level>`, without `--cause`, before you tick again.
+Raise first whichever mode the check runs in, since the response doesn't say:
+in veto your `fail` holds the run until the level changes, but in shadow it's
+only recorded and the next tick moves on. No `--cause`, because a `veto` line
+in the ledger means the decider asked for the raise, and this one is yours.
+The tick after the raise asks the decider about the raised level and falls
+back to you again if it still can't answer. Your answer is recorded as yours, never as the
+decider's verdict. Don't record an override to get past a waiting check, and
+answer only a criterion the response lists under `awaiting`.
 
 After a raise, tick again with nothing submitted: the action records a `check`
 line at the new level and the gate passes. `koto overrides record` on
