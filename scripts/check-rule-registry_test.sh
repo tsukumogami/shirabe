@@ -260,7 +260,9 @@ expect_problem "an unregistered RULE_IDS id" "RULE_IDS names pr-body/not-registe
 
 sed 's|^RULE_IDS="\(.*\)"$|RULE_IDS="\1" # trailing words|' \
     "$WORK/orig/skills/work-on/scripts/check-pr-output.sh" > "$S/skills/work-on/scripts/check-pr-output.sh"
-expect_problem "a malformed RULE_IDS line" "check-pr-output.sh:63: malformed RULE_IDS line"
+# The line is read from the script rather than pinned, so its header can grow.
+RULE_IDS_LINE=$(grep -n '^RULE_IDS=' "$WORK/orig/skills/work-on/scripts/check-pr-output.sh" | cut -d: -f1)
+expect_problem "a malformed RULE_IDS line" "check-pr-output.sh:$RULE_IDS_LINE: malformed RULE_IDS line"
 
 # The declared exception: RULE_IDS_ANY_ACTIVE=1 beside an rf_require_any call,
 # in panel-scope.sh only. Each case builds its alteration from the original so
