@@ -582,7 +582,7 @@ fi
 
 real_ok=0
 if [ -n "$REAL_SHIRABE" ] && [ -x "$REAL_SHIRABE" ] \
-    && "$REAL_SHIRABE" validate --help 2>/dev/null | grep -q -- '--writing-style'; then
+    && grep -q -- '--writing-style' <<<"$("$REAL_SHIRABE" validate --help 2>/dev/null)"; then
     real_ok=1
 fi
 if [ "$real_ok" -eq 0 ]; then
@@ -615,7 +615,7 @@ Part two.")
     if [ "$RC" -eq 1 ] && [ "$(finding_count)" -eq 1 ] \
         && [ "$(printf '%s' "$F" | jq -r '.rule_id')" = pr-body/banned-word ] \
         && [ "$(printf '%s' "$F" | jq -r '.rule_ref')" = "$WANT_REF" ] \
-        && printf '%s' "$F" | jq -r '.message' | grep -qF "$SUMMARY: [PB5] writing-style banned word \"leverage\" on line 3 -- Prefer the plain verb."; then
+        && grep -qF -- "$SUMMARY: [PB5] writing-style banned word \"leverage\" on line 3 -- Prefer the plain verb." <<<"$(jq -r '.message' <<<"$F")"; then
         pass "real validator: body line 3's leverage is one pr-body/banned-word finding with the summary, line, guidance and rule_ref"
     else
         fail "real validator: line-3 case rc $RC, findings [$F], stderr $(cat "$WORKDIR/stderr")"
