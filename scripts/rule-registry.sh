@@ -498,13 +498,16 @@ cmd_log_finding() {
     return 0
 }
 
-# stage_level <stage>: the finding level a stage prints at, as
-# scripts/lib/rule-findings.sh's rf_level maps it; nothing for retired.
+# stage_level <stage>: the finding level a stage prints at, nothing for
+# retired, and error for anything else. The same mapping as
+# scripts/lib/rule-findings.sh's rf_level, repeated because this reader never
+# sources the library; change both together.
 stage_level() {
     case "$1" in
-        block) printf 'error' ;;
         warn) printf 'warning' ;;
         shadow) printf 'info' ;;
+        retired) ;;
+        *) printf 'error' ;;
     esac
 }
 

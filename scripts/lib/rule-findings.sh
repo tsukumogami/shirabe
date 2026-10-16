@@ -80,8 +80,8 @@
 # findings print, not whether the check runs: the check still runs and its
 # finding is still built and validated, then printed at the stage's level, or
 # not at all at `retired`. RF_BLOCKING counts the findings that printed at
-# `block`; it is what a gate script exits on, so a rule below block reports
-# without holding the gate. The counters live in the script's main shell, so
+# `block`; it is the count for a gate script's exit to read, so a rule below
+# block can report without holding the gate. The counters live in the script's main shell, so
 # findings must be printed from it, not from a subshell or a pipeline.
 #
 # Every printed finding also goes to `scripts/rule-registry.sh log-finding`,
@@ -181,6 +181,8 @@ rf_stage() {
 # rf_level <stage>. The cache only ever holds the four stages. Anything else a
 # caller passes gets error, block's level, so a value this library doesn't know
 # never prints a finding softer than every finding printed before stages.
+# scripts/rule-registry.sh's stage_level holds the same mapping for
+# verify-findings; change both together.
 rf_level() {
     case "$1" in
         warn) printf 'warning' ;;

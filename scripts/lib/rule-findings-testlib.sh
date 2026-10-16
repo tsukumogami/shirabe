@@ -14,7 +14,8 @@
 #                              stage (or of <stage-source>'s stage, passed as
 #                              --stage-source); an empty log fails
 #   rf_test_stage_copy <dest> <id> <stage>
-#                              a scratch copy of the plugin at <dest> whose
+#                              a scratch copy of the plugin at <dest>
+#                              (removed and made afresh) whose
 #                              registry sets <id>'s stage to <stage>, for
 #                              running a gate script with one rule at a stage
 #                              other than the real registry's; returns 1, with
