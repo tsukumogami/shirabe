@@ -845,3 +845,23 @@ def parse_handoff:
     + (if $p != null and $text == predecessor_sentence then {predecessor_copy: {written: $p.w}} else {reasoning: $text} end)
     + parse_sections($parts[1:5])
     + optional_tail($opt);
+
+# ---- the listers' projections ------------------------------------------------
+# What record-holding.sh, record-state.sh, record-decision.sh and
+# roadmap-status.sh print for --list, from a parsed record. pick-facts.sh takes
+# all of them from one parse rather than running each lister, which would read
+# and parse the record once apiece (shirabe#840).
+def holdings_list: .holdings;
+def state_list: {run: (.run // []), standing: (.standing // []), work: (.work // [])};
+def decisions_list: .decisions // {next: 1, entries: []};
+# The Side effects Actions that are roadmap edits: a feature's Done
+# (roadmap-status), a milestone verdict's (milestone-done, milestone-verdict)
+# and a milestone's reopen (milestone-reopen).
+def roadmap_edit_actions: ["roadmap-status", "milestone-done", "milestone-verdict", "milestone-reopen"];
+# The pending roadmap pull requests, {unit, pull_request, attempted, action,
+# how_to_confirm}: the Target is `<TAG> [#n](URL)`.
+def pending_rows: roadmap_edit_actions as $acts
+  | [.side_effects[] | select(.action as $a | any($acts[]; . == $a))
+     | (.target | capture("^(?<unit>.+) (?<pr>\\[#[0-9]+\\]\\(https://github\\.com/[^)]+\\))$")) as $t
+     | {unit: ($t.unit // .target), pull_request: ($t.pr // ""), attempted, action, how_to_confirm}];
+def pending_list: pending_rows | map(del(.how_to_confirm));

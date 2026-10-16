@@ -236,6 +236,16 @@ build
 db '(.prs[0].body) = $b' --arg b "$(render "$(record_json discipline ci | jq -c --argjson e "[$(E 7 coordinator-verdict '"verdict": "hold", "reason": "r"'), $(E 5 escalated "$ESC")]" '.decisions = {next: 20, entries: $e}')" pr)"
 eq "--owed: a held entry and an escalated one owing nothing block nothing" "none none" "$(owed pick) $(owed dispatch)"
 eq "--owed seals nothing and writes nothing" "" "$(owed pick >/dev/null; koto context get "$S" coord/decision.json 2>/dev/null)"
+# --parsed: the record as the caller read and parsed it (pick-facts.sh's own
+# read), taken in place of reading it again (shirabe#840).
+build take
+jq -r '.prs[0].body' "$GH_DB" > "$T/rec.json.md"
+bash "$HERE/record-parse.sh" --container pr --expect-scope discipline:ci "$T/rec.json.md" > "$T/rec.json"
+reset_calls
+eq "--owed with --parsed reads the same rule" "take" "$(bash "$DN" --session "$S" --owed pick --parsed "$T/rec.json" 2>"$T/err")"
+eq "  ... and doesn't read the record again" 0 "$(grep -c '^pr view' "$GH_DB.calls")"
+bash "$DN" --session "$S" --parsed "$T/rec.json" >/dev/null 2>&1; eq "--parsed without --owed: exit 64" 64 $?
+bash "$DN" --session "$S" --owed pick --parsed "$T/none.json" >/dev/null 2>&1; eq "--parsed naming no parse: exit 64" 64 $?
 
 echo "== a raise from pick's await_decision is done when the unit is parked =="
 # parked_run <work-json>: a record holding entry 5 (escalated, owing nothing)

@@ -167,8 +167,8 @@
 # standing; the entry is still on the record, so --verdict or --reopen can
 # open the edit again from it.
 # --list prints the pending rows as a JSON array of {unit, pull_request,
-# attempted, action}; it is the one reader of these rows, which pick-facts.sh
-# marks as landed units.
+# attempted, action}, record-codec.jq pending_list, the projection pick-facts.sh
+# also takes from its own parse to mark landed units.
 #
 # Each change to the record is told as an entry with record-append.sh, kind
 # roadmap-status, after the body is written.
@@ -278,17 +278,12 @@ case $? in
 esac
 cp "$WD/parsed.json.md" "$WD/live.md"
 
-# The pending rows, {unit, pull_request, attempted, action, how_to_confirm}:
-# the Target is `<TAG> [#n](URL)`. Four Actions are roadmap edits: a
-# feature's Done (roadmap-status), a milestone verdict's (milestone-done,
-# milestone-verdict) and a milestone's reopen (milestone-reopen).
-EDIT_ACTIONS='["roadmap-status", "milestone-done", "milestone-verdict", "milestone-reopen"]'
-jq -c --argjson acts "$EDIT_ACTIONS" '[.side_effects[] | select(.action as $a | any($acts[]; . == $a))
-        | (.target | capture("^(?<unit>.+) (?<pr>\\[#[0-9]+\\]\\(https://github\\.com/[^)]+\\))$")) as $t
-        | {unit: ($t.unit // .target), pull_request: ($t.pr // ""), attempted, action, how_to_confirm}]' "$WD/parsed.json" > "$WD/pending.json" \
+# The pending rows, {unit, pull_request, attempted, action, how_to_confirm}
+# (record-codec.jq pending_rows, which pick-facts.sh reads the same way).
+jq -c -L "$HERE" 'include "record-codec"; pending_rows' "$WD/parsed.json" > "$WD/pending.json" \
     || lib_die2 "jq failed"
 if [ "$MODE" = list ]; then
-    jq -c 'map(del(.how_to_confirm))' "$WD/pending.json"
+    jq -c -L "$HERE" 'include "record-codec"; pending_list' "$WD/parsed.json"
     exit 0
 fi
 
@@ -328,7 +323,7 @@ write_record() {
 # with clear-owed also without TAG's verdict-owed and rework Work rows (a
 # confirmed verdict or reopen supersedes the rework an earlier one left).
 without_row() {
-    jq --arg t "$TAG" --argjson owed "${2:-false}" --argjson acts "$EDIT_ACTIONS" 'del(.written)
+    jq -L "$HERE" --arg t "$TAG" --argjson owed "${2:-false}" 'include "record-codec"; roadmap_edit_actions as $acts | del(.written)
         | .side_effects = [.side_effects[] | select(((.action as $a | any($acts[]; . == $a))
                                                      and (.target | startswith($t + " ["))) | not)]
         | if $owed then .work = [(.work // [])[] | select(((.kind == "verdict-owed" or .kind == "rework") and .item == $t) | not)]

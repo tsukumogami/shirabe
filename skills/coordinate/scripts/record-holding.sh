@@ -121,7 +121,8 @@ read)
     exit 0
     ;;
 list)
-    jq -c --slurpfile p "$T/parsed.json.pushed" '.holdings | map(.worker as $w | if $p[0][$w] then . + {pushed_head: $p[0][$w]} else . end)' "$T/parsed.json"
+    jq -c -L "$HERE" --slurpfile p "$T/parsed.json.pushed" \
+        'include "record-codec"; holdings_list | map(.worker as $w | if $p[0][$w] then . + {pushed_head: $p[0][$w]} else . end)' "$T/parsed.json"
     exit 0
     ;;
 pushed)
