@@ -243,10 +243,14 @@ rs_session_read() {
     esac
 }
 
-# rs_probe: the koto features the session store needs, read by feature.
+# rs_probe: the koto features the session store needs, read by feature. The
+# help text is captured whole before it is matched: piped into `grep -q` under
+# pipefail, koto could take SIGPIPE when grep stops at its match, and the
+# probe would read a feature it has as missing (shirabe#855).
 rs_probe() {
-    local prefix=false import=false
-    "$KOTO" context list --help < /dev/null 2>/dev/null | grep -q -- '--prefix' && prefix=true
+    local prefix=false import=false help
+    help=$("$KOTO" context list --help < /dev/null 2>/dev/null) || help=
+    case "$help" in *--prefix*) prefix=true ;; esac
     "$KOTO" session import --help < /dev/null > /dev/null 2>&1 && import=true
     jq -nc --argjson p "$prefix" --argjson i "$import" '{context_list_prefix: $p, session_import: $i}'
 }
