@@ -1851,8 +1851,11 @@ states:
         type: command
         command: 'test -z "{{ISSUE_NUMBER}}" || gh pr view --json body --jq .body | grep -qiE "(close[sd]?|fix(es|ed)?|resolve[sd]?)[[:space:]]+#{{ISSUE_NUMBER}}([^0-9]|$)"'
       # The pull request's title and body against the PR-body conformance
-      # rules (references/pr-body-conformance.md, PB1 to PB4), read from
-      # GitHub and checked by `shirabe validate --pr-body`, unchanged.
+      # rules (references/pr-body-conformance.md, PB1 to PB4) and the banned
+      # words of skills/writing-style/rules.yaml (PB5, pr-body/banned-word),
+      # read from GitHub and checked by `shirabe validate --pr-body
+      # --writing-style` with the plugin's own rules file. PB5 runs only at
+      # this gate and /execute's; CI's PR-body check doesn't pass the flag.
       # check-pr-output.sh exits 0 conformant, 1 a violation (one
       # ::koto-finding:: line each, rules pr-body/*), 2 could not decide. It
       # gates the created edge only, so 1 and 2 hold here: fix the body with
@@ -2901,7 +2904,9 @@ Otherwise, read `references/phases/phase-6-pr.md` for PR format, pre-PR
 verification, and push instructions.
 
 Author the title and body to the mechanical rule in `{{PR_BODY_RULES}}`, which
-`shirabe validate --pr-body` enforces in CI.
+`shirabe validate --pr-body` enforces in CI, and in the prose of both write to
+`skills/writing-style`: the gate below also holds on a banned word from its
+rules (`pr-body/banned-word`), a check that runs here, not in CI.
 
 Check if a PR already exists: `gh pr list --head {{BRANCH}}`
 
@@ -2912,8 +2917,10 @@ Push with `git push -u origin {{BRANCH}}`. `pr_precheck` read the branch and it 
 `pr_status: created` advances only when the `pr_body_conformant` gate passes. It
 runs `check-pr-output.sh --pr-body`, which reads the pull request's title and body
 from GitHub and checks them with `shirabe validate --pr-body` against the PR-body
-conformance rules. On a violation the state holds and each finding names the rule
-it breaks: fix the title or body with `gh pr edit` and submit `pr_status: created`
+conformance rules and the writing-style banned words. On a violation the state
+holds and each finding names the rule it breaks; a banned word is
+`pr-body/banned-word`, with the word, its line or the title, and what to use
+instead. Fix the title or body with `gh pr edit` and submit `pr_status: created`
 again. An exit 2 means the check could not decide (no pull
 request for the branch, `gh` or `shirabe` missing); run
 `"{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --pr-body` for the reason.

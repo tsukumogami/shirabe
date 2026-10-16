@@ -1612,6 +1612,21 @@
         "Agent says the step-3 child stops at plan_validation naming the step, and builds nothing for it",
         "Agent does NOT plan to detail step 3 or step 4 itself; the plan's owner does that before the child runs again"
       ]
+    },
+    {
+      "id": 80,
+      "name": "pr-finalization-banned-word-holds-finalization",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- the owned PR's title is \"feat: a seamless migration\". What does pr_finalization do?",
+      "expected_output": "owned_pr_body_conformant runs check-pr-output.sh --pr-body --owned, which checks the owned PR's title and body with shirabe validate --pr-body --writing-style. The banned word in the title holds pr_finalization with a pr-body/banned-word finding that says it is in the title. The agent rewrites the title in the gh pr edit this state runs, keeping to skills/writing-style, and submits finalization_status: updated again. The check runs here, not in CI.",
+      "files": [],
+      "expectations": [
+        "Agent says owned_pr_body_conformant holds pr_finalization with a pr-body/banned-word finding for the title",
+        "Agent points at skills/writing-style as the source of the banned words",
+        "Agent fixes the title with the state's gh pr edit and submits finalization_status: updated again",
+        "Agent does not claim CI enforces the banned-word check"
+      ]
     }
   ]
 }
