@@ -755,6 +755,18 @@ if [ "$RC" -eq 0 ] \
 else
   fail "--summary-out scenario_set, narrowed (rc=$RC): $(cat "$SUM" 2>/dev/null)"
 fi
+# A skill that fails before its selection (here, no SKILL.md) records no set:
+# under --all it would otherwise carry the previous skill's.
+mkdir -p "$SUITE/noskill/evals"
+cp "$SUITE/pinned/evals/evals.json" "$SUITE/noskill/evals/evals.json"
+rm -f "$SUM"
+run_runner grade --summary-out "$SUM" noskill
+if [ "$(summary_field "$SUM" noskill exit_code)" = 3 ] \
+  && [ "$(summary_field "$SUM" noskill scenario_set)" = missing ]; then
+  pass "--summary-out: a skill that fails before its selection has no scenario_set"
+else
+  fail "--summary-out scenario_set after a failed prep (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
 
 rm -f "$SUM"
 run_runner plan --runs 3 --summary-out "$SUM" demo

@@ -167,7 +167,8 @@
 #   before any result event reports none), scenario_set ("sha256:" and the
 #   hex SHA-256 of the sorted names of the scenarios selected for the skill,
 #   one per line: the release subset, a --scenario filter, or the whole suite;
-#   left out when evals.json cannot be read)
+#   left out when evals.json cannot be read or the skill failed before its
+#   selection)
 #   and exit_code. It is written when --runs stops early on
 #   3 or 4 too, and when the default selection finds nothing to run, so a caller
 #   never has to parse the report above. A summary that cannot be written turns
@@ -354,6 +355,10 @@ EVAL_NO_BASELINE=0
 # selection site reads it as EVAL_SCENARIO_SET, so the prepared directories,
 # the tier instructions and the isolation decision see the same set.
 SCENARIO_SET=""
+# 1 once resolve_scenario_set has set SCENARIO_SET for the skill being run;
+# begin_skill_tally clears it, so a skill that fails before its selection is
+# summarised with no scenario_set rather than the previous skill's.
+SCENARIO_SET_RESOLVED=0
 # How many times to repeat the selection. 1 keeps the single-run path exactly as
 # it was, aggregate reporting included only when N > 1.
 EVAL_RUNS=1
@@ -593,6 +598,7 @@ print(",".join(n for n in names if n in selected) or ",")
 PYEOF
   ) || { echo "Error: $out in $1"; return 3; }
   SCENARIO_SET="$out"
+  SCENARIO_SET_RESOLVED=1
 }
 
 prep_skill_evals() {
@@ -1944,6 +1950,7 @@ begin_skill_tally() {
   TALLY_ASSERTIONS_PASSED=0
   TALLY_ASSERTIONS_GRADED=0
   TALLY_ITER_DIRS=()
+  SCENARIO_SET_RESOLVED=0
 }
 
 tally_run() { # tally_run <exit code of run_skill_evals>
@@ -1968,7 +1975,8 @@ print(int(s['passed_assertions']), int(s['total_assertions']))
 
 record_skill_summary() { # record_skill_summary <skill> <exit code>
   [ -n "$SUMMARY_OUT" ] || return 0
-  EVAL_SCENARIO_SET="$SCENARIO_SET" EVALS_FILE="$SKILLS_DIR/$1/evals/evals.json" \
+  EVAL_SCENARIO_SET="$SCENARIO_SET" SCENARIO_SET_RESOLVED="$SCENARIO_SET_RESOLVED" \
+    EVALS_FILE="$SKILLS_DIR/$1/evals/evals.json" \
   python3 - "$SUMMARY_LINES" "$1" "$TALLY_RUNS" "$TALLY_RUNS_PASSED" \
     "$TALLY_ASSERTIONS_PASSED" "$TALLY_ASSERTIONS_GRADED" "$2" \
     ${TALLY_ITER_DIRS[@]+"${TALLY_ITER_DIRS[@]}"} <<'PYEOF'
@@ -2013,10 +2021,12 @@ for iter_dir in sys.argv[8:]:
 # (the release subset, or a --scenario filter), or the whole suite when no
 # set narrowed it. Recorded as a hash of the sorted names, so a pass rate is
 # only ever compared with one measured on the same scenarios (shirabe#879).
-# A suite that can't be read leaves the field out: an unknown set, not the
-# hash of an empty one.
+# A suite that can't be read, or a skill that failed before its selection,
+# leaves the field out: an unknown set, not the hash of an empty one.
 scenario_set = None
 try:
+    if os.environ.get("SCENARIO_SET_RESOLVED") != "1":
+        raise ValueError("no selection")
     with open(os.environ.get("EVALS_FILE", "")) as fh:
         suite = [e.get("name", "eval-%s" % e.get("id")) for e in json.load(fh).get("evals", [])
                  if isinstance(e, dict)]

@@ -36,9 +36,10 @@ merge
     same way: the newest entry, among the composed records, that has a
     pass_rate and the same models, session_model, scenario_set and number of
     runs as this run's entry. scenario_set is the summary's hash of the
-    scenarios the run selected for the skill (the release subset, chosen per
-    behaviour and replaced as scheduled runs measure the others), so a rate is
-    never compared with one measured on a different set of scenarios
+    scenarios the run selected for the skill. The release subset changes as
+    scheduled runs measure other scenarios and better picks replace the
+    provisional ones, so the set is in the key: a rate is never compared with
+    one measured on a different set of scenarios
     (shirabe#879). An entry with no scenario_set, written before the field
     existed, ran an unknown set and matches only another entry with none.
     An entry with no session_model was measured on the CLI default session
@@ -435,6 +436,7 @@ def cmd_merge(args):
             drops.append(name)
     print("record: %s" % args.out)
     for name in references:
+        # "sha256:" and the digest's first 12 hex digits name the set.
         scenarios = skills[name].get("scenario_set")
         print("new reference: %s (no earlier measurement on models %s, session model %s, "
               "%d run(s)%s)" % (name, ",".join(skills[name]["models"]) or "-",
