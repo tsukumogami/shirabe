@@ -189,7 +189,7 @@ expect_usage() {
     new_case usage
     run_exec "$EXEC" "$@"
     if [ "$RC" -ne 0 ] && [ -z "$OUT" ] && [ ! -s "$CASE/calls.log" ] \
-        && printf '%s' "$ERR" | grep -q 'usage:'; then
+        && grep -q 'usage:' <<<"$ERR"; then
         pass "usage: $label"
     else
         fail "usage: $label: exit $RC, stdout [$OUT], calls [$(cat "$CASE/calls.log")], stderr [$ERR]"
@@ -377,10 +377,10 @@ BAD_OUT=""
 while IFS= read -r line; do
     case "$line" in
         merge-called:*)
-            printf '%s\n' "$line" | grep -qE '^merge-called:(squash|merge|rebase):[0-9a-f]{40}$' || BAD_OUT="$BAD_OUT [$line]"
+            grep -qE '^merge-called:(squash|merge|rebase):[0-9a-f]{40}$' <<<"$line" || BAD_OUT="$BAD_OUT [$line]"
             ;;
         merge-refused:*)
-            printf '%s\n' "${line#merge-refused:}" | grep -qE -f "$GRAMMAR" || BAD_OUT="$BAD_OUT [$line]"
+            grep -qE -f "$GRAMMAR" <<<"${line#merge-refused:}" || BAD_OUT="$BAD_OUT [$line]"
             ;;
         *)
             BAD_OUT="$BAD_OUT [$line]"

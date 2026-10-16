@@ -5,7 +5,8 @@
 #
 # A koto stand-in stores each context key as a file; a gh stub serves canned
 # JSON per case and logs every call. Asserts the PLAN facts per mode (the next
-# command R10 and R23 name), the startable list on multi-pr, the PR on intent
+# command R10 and R23 name, and the PLAN path for a multi-pr plan/v2 step
+# plan), the startable list on multi-pr, the PR on intent
 # runs through owned-pr.sh, no gh call at all on a no-intent run, exit_record
 # error when the lookup cannot name exactly one owned PR, and stale keys
 # cleared. Needs bash, git and jq.
@@ -127,6 +128,40 @@ eq "multi-pr: startable lists the roots in PLAN order" "#20 feat: a
 #22 feat: c" "$(key r-multi startable)"
 if has r-multi pr || has r-multi exit_record; then bad "the resume stage writes no pr or exit_record"; else ok "the resume stage writes no pr or exit_record"; fi
 eq "the resume stage makes no gh call" "" "$(cat "$GHF/calls")"
+
+cat >"$R/docs/plans/PLAN-topic.md" <<'EOF'
+---
+schema: plan/v2
+status: Active
+execution_mode: multi-pr
+step_count: 2
+---
+
+# PLAN: topic
+
+## Steps
+
+### Step 1: greet prints a fixed greeting
+
+**Goal**: g.
+
+**Acceptance Criteria**:
+
+- [ ] c.
+
+**Check**: run it.
+
+**Dependencies**: None
+
+### Step 2: greet reads a config file
+
+One line naming the behaviour.
+EOF
+fixture "[]"
+run r-multi-v2 none resume
+eq "multi-pr plan/v2: exit 0" "0" "$RC"
+eq "multi-pr plan/v2: next is /work-on the PLAN path, not a step number" "/work-on docs/plans/PLAN-topic.md" "$(key r-multi-v2 next)"
+eq "multi-pr plan/v2: plan_execution_mode" "multi-pr" "$(key r-multi-v2 plan_execution_mode)"
 
 rm -f "$R/docs/plans/PLAN-topic.md"; fixture "[]"
 run r-noplan none resume

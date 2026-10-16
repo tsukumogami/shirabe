@@ -1,0 +1,35 @@
+{
+  "schema_version": "shirabe-validate/v1",
+  "summary": {
+    "outcome": "violations",
+    "errors": 3,
+    "notices": 0
+  },
+  "findings": [
+    {
+      "code": "FC04",
+      "severity": "error",
+      "message": "[FC04] missing required section '## Sequencing Rationale'",
+      "file": "coordinate-evals/ROADMAP-milestones.md",
+      "line": 1
+    },
+    {
+      "code": "FC04",
+      "severity": "error",
+      "message": "[FC04] missing required section '## Implementation Issues'",
+      "file": "coordinate-evals/ROADMAP-milestones.md",
+      "line": 1
+    },
+    {
+      "code": "FC04",
+      "severity": "error",
+      "message": "[FC04] missing required section '## Dependency Graph'",
+      "file": "coordinate-evals/ROADMAP-milestones.md",
+      "line": 1
+    }
+  ],
+  "advisory": {
+    "summary": "Draft posture: no draft-tolerable findings to flag.",
+    "notes": []
+  }
+}

@@ -64,6 +64,12 @@
 #       from that template's own path, and the compiled copy koto runs it from
 #       still hashes to template_hash. --template is for tests that run a
 #       localized copy.
+#   coord-log.sh template-hash --session S
+#       Prints the template_hash in S's header, the hash of the template koto
+#       compiled the run from, which a resume compares with the shipped
+#       template's (provenance passes a run whose plugin was rewritten in place
+#       since, so it can't tell). Exit 0; 1 the header has none; 2 S's log can't
+#       be read.
 #   coord-log.sh live-session --scope-slug SLUG [--all]
 #       Prints the one live coordinate-SLUG-* session. Exit 0; 1 none; 3 several.
 #       With --all, prints every live one, one per line. Exit 0; 1 none.
@@ -86,6 +92,12 @@
 #       Prints "<seq> <from>" for the latest entry into ST (transitioned,
 #       directed or rewound), before SEQ when given; --with-time adds the
 #       entry's timestamp as a third word. Exit 0; 1 none; 2 read failure.
+#   coord-log.sh entries --session S --states ST[,ST...]
+#       What `entry` would print for each state, in one read of the log: one
+#       line per state, in the order given, "<state> <seq> <from>" for its
+#       latest entry or "<state> 0" when the log has none (koto numbers a
+#       log's events from 1; the header carries no seq, so 0 is never one).
+#       A state name is [a-z0-9_]+. Exit 0; 2 read failure.
 #   coord-log.sh evidence --session S --state ST [--after SEQ] [--before SEQ]
 #                         [--where FIELD=VALUE]... [--has FIELD]
 #       Prints {"seq","timestamp","fields"} for the latest evidence submitted at
@@ -125,27 +137,52 @@
 # Exit 64 on usage errors, everywhere.
 set -uo pipefail
 
-HERE=$(cd "$(dirname "$0")" && pwd)
+# Every check script calls this one many times per run, so it spends no process
+# it doesn't need: its directory comes from $0 without `dirname`, and a
+# subcommand that needs another one's answer calls it in-process.
+case "$0" in */*) HERE=${0%/*}; HERE=$(cd "${HERE:-/}" && pwd) ;; *) HERE=$(pwd) ;; esac
 KOTO=${KOTO_BIN:-koto}
 
 usage() { sed -n '/^# Usage:/,/^# Exit 64/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 die() { echo "coord-log: $*" >&2; exit 2; }
 
+# sha256: the hex digest of stdin, the first word of the tool's output, taken
+# in the shell; every seal and check hashes, so a `cut` here would start one
+# more process per call.
 sha256() {
-    if command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
-    else shasum -a 256 | cut -d' ' -f1; fi
+    local h
+    if command -v sha256sum >/dev/null 2>&1; then h=$(sha256sum) || return 1
+    else h=$(shasum -a 256) || return 1; fi
+    printf '%s\n' "${h%% *}"
 }
 
 # session_log <session> -> path of the state log. The one place any script
 # finds a session's log: every other script reads it through the subcommands
 # below. A header whose schema_version isn't 1 is a format this reader doesn't
 # know, so the log is refused rather than misread.
+# FLAT_HEADER: `{"schema_version":1` then any number of `,"key":value`, where a
+# key is a string with no quote, backslash or control character and a value is
+# such a string, an integer without leading zeros, true, false or null; then
+# `}`. Every line it matches is valid JSON with no nesting.
+FLAT_HEADER='^\{"schema_version":1(,"[^"\\[:cntrl:]]*":("[^"\\[:cntrl:]]*"|-?(0|[1-9][0-9]*)|true|false|null))*\}$'
 session_log() {
-    local dir f v
+    local dir f v line=
     dir=$("$KOTO" session dir "$1") || return 1
     f="$dir/koto-$1.state.jsonl"
     [ -r "$f" ] || return 1
-    v=$(head -1 "$f" | jq -c '.schema_version') || v=unreadable
+    # A header that is a flat JSON object of plain values (no escapes, no
+    # nesting), schema_version 1 first and only once, is read without starting
+    # jq: the pattern admits only valid JSON, so jq would say 1 for it too.
+    # Anything else, koto's own nested header included, goes to jq as before,
+    # so a header jq refuses is still refused here.
+    # The case refuses a second "schema_version" after the first, since jq
+    # reads the last of duplicate keys.
+    IFS= read -r line < "$f" || true
+    if [[ $line =~ $FLAT_HEADER ]] && case "${line#*'"schema_version"'}" in *'"schema_version"'*) false ;; esac; then
+        v=1
+    else
+        v=$(printf '%s\n' "$line" | jq -c '.schema_version') || v=unreadable
+    fi
     if [ "$v" != 1 ]; then
         echo "coord-log: $1's log header has schema_version ${v:-none}; this reader knows 1" >&2
         return 1
@@ -167,7 +204,7 @@ is_entry() { # is_entry <log> <state> <seq>
 seal_hash() { printf '%s|%s|%s|%s' "$1" "$2" "$3" "$4" | sha256; }
 
 SESSION= STATE= TOKEN= FILE= KEY= SEALED= NAME= FOR= FROM= TEMPLATE= SLUG= AFTER= BEFORE=
-SCOPE= EVENT= HAS= AFTER_TIME=
+SCOPE= EVENT= HAS= AFTER_TIME= STATES=
 WHERE='[]'
 ANY=0 ALL=0 WITH_TIME=0
 CMD=${1-}
@@ -177,6 +214,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
         --state) [ $# -ge 2 ] || usage; STATE=$2; shift 2 ;;
+        --states) [ $# -ge 2 ] || usage; STATES=$2; shift 2 ;;
         --token) [ $# -ge 2 ] || usage; TOKEN=$2; shift 2 ;;
         --file) [ $# -ge 2 ] || usage; FILE=$2; shift 2 ;;
         --key) [ $# -ge 2 ] || usage; KEY=$2; shift 2 ;;
@@ -205,27 +243,18 @@ done
 
 need() { for v in "$@"; do eval "[ -n \"\${$v}\" ]" || usage; done; }
 
-case "$CMD" in
-seal)
-    need SESSION STATE
-    { [ -n "$TOKEN" ] && [ -z "$FILE$KEY" ]; } || { [ -z "$TOKEN" ] && [ -n "$FILE" ] && [ -n "$KEY" ]; } || usage
-    case "$TOKEN" in *'
-'*) usage ;; esac
-    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
-    SEQ=$(latest_entry "$LOG" "$STATE")
-    [ -n "$SEQ" ] || die "the log has no entry into $STATE"
-    if [ -n "$TOKEN" ]; then
-        printf '%s sealed:%s:%s\n' "$TOKEN" "$SEQ" "$(seal_hash "$SESSION" "$STATE" "$SEQ" "$TOKEN")"
-    else
-        [ -r "$FILE" ] || usage
-        "$KOTO" context add "$SESSION" "$KEY" --from-file "$FILE" >/dev/null || { echo "coord-log: koto context add failed" >&2; exit 66; }
-        DIGEST=$(sha256 < "$FILE")
-        printf 'sealed:%s:%s\n' "$SEQ" "$(seal_hash "$SESSION" "$STATE" "$SEQ" "$DIGEST")"
-    fi
-    ;;
-check)
+# The log this run has already read. It starts empty whatever the environment
+# holds: a reader only ever takes the log from koto, never from its caller.
+LOG=
+
+# cmd_check: the `check` subcommand, on SESSION, STATE, SEALED, KEY and ANY,
+# reading LOG when this process has read it already. It ends the process with
+# its exit status, so a caller that goes on afterwards runs it in a subshell,
+# setting the variables it reads (SESSION, STATE, SEALED, KEY, ANY) to what the
+# subcommand would have been given.
+cmd_check() {
     need SESSION STATE SEALED
-    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    [ -n "$LOG" ] || LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     case "$SEALED" in
         *' sealed:'*) BODY=${SEALED% sealed:*}; SEAL=${SEALED##* sealed:} ;;
         sealed:*) BODY=; SEAL=${SEALED#sealed:} ;;
@@ -252,22 +281,42 @@ check)
         [ -n "$BODY" ] || { echo "coord-log: a file seal needs --key" >&2; exit 1; }
         [ "$(seal_hash "$SESSION" "$STATE" "$SEQ" "$BODY")" = "$HASH" ] || { echo "coord-log: the token does not match its seal" >&2; exit 1; }
     fi
-    ;;
-capture)
+}
+
+# cmd_capture: the `capture` subcommand, on SESSION, NAME, FOR, STATE and ANY,
+# as cmd_check is for `check`.
+cmd_capture() {
     need SESSION NAME
-    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    [ -n "$LOG" ] || LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     V=$(jq -r --arg n "$NAME" --arg f "$FOR" 'select(.type == "variable_captured" and .payload.key == $n) | .payload.value
         | select($f == "" or ((split(" ") | .[1]) == $f))' "$LOG" | tail -1)
     [ -n "$V" ] || exit 1
     if [ -n "$STATE" ]; then
-        if [ "$ANY" = 1 ]; then
-            bash "$0" check --session "$SESSION" --state "$STATE" --sealed "$V" --any-visit >/dev/null || exit 1
-        else
-            bash "$0" check --session "$SESSION" --state "$STATE" --sealed "$V" >/dev/null || exit 1
-        fi
+        (SEALED=$V KEY=; cmd_check) >/dev/null || exit 1
     fi
     printf '%s\n' "$V"
+}
+
+case "$CMD" in
+seal)
+    need SESSION STATE
+    { [ -n "$TOKEN" ] && [ -z "$FILE$KEY" ]; } || { [ -z "$TOKEN" ] && [ -n "$FILE" ] && [ -n "$KEY" ]; } || usage
+    case "$TOKEN" in *'
+'*) usage ;; esac
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    SEQ=$(latest_entry "$LOG" "$STATE")
+    [ -n "$SEQ" ] || die "the log has no entry into $STATE"
+    if [ -n "$TOKEN" ]; then
+        printf '%s sealed:%s:%s\n' "$TOKEN" "$SEQ" "$(seal_hash "$SESSION" "$STATE" "$SEQ" "$TOKEN")"
+    else
+        [ -r "$FILE" ] || usage
+        "$KOTO" context add "$SESSION" "$KEY" --from-file "$FILE" >/dev/null || { echo "coord-log: koto context add failed" >&2; exit 66; }
+        DIGEST=$(sha256 < "$FILE")
+        printf 'sealed:%s:%s\n' "$SEQ" "$(seal_hash "$SESSION" "$STATE" "$SEQ" "$DIGEST")"
+    fi
     ;;
+check) cmd_check ;;
+capture) cmd_capture ;;
 directed-since)
     need SESSION FROM
     case "$FROM" in *[!0-9]*) usage ;; esac
@@ -305,9 +354,9 @@ run-facts)
     LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
     VARS=$(jq -c 'select(.type == "workflow_initialized") | .payload.variables' "$LOG" | head -1)
     [ -n "$VARS" ] || die "no workflow_initialized event"
-    FOUND=$(bash "$0" capture --session "$SESSION" --name RECORD_FIND) || exit 1
+    FOUND=$(NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture) || exit 1
     case "$FOUND" in found\ *|move\ *) ;; *) exit 1 ;; esac
-    bash "$0" check --session "$SESSION" --state record_find --sealed "$FOUND" --any-visit >/dev/null 2>&1 || exit 1
+    (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1 || exit 1
     REF=$(printf '%s' "$FOUND" | cut -d' ' -f2)
     case "$REF" in ''|*[!0-9]*) exit 1 ;; esac
     printf '%s' "$VARS" | jq -c --arg ref "$REF" '{
@@ -322,8 +371,9 @@ run-store)
     # run with no found record and a token whose seal doesn't check all read as
     # the GitHub store. The token is matched without its seal.
     need SESSION
-    FOUND=$(bash "$0" capture --session "$SESSION" --name RECORD_FIND 2>/dev/null) || { echo github; exit 0; }
-    bash "$0" check --session "$SESSION" --state record_find --sealed "$FOUND" --any-visit >/dev/null 2>&1 || { echo github; exit 0; }
+    LOG=$(session_log "$SESSION" 2>/dev/null) || { echo github; exit 0; }
+    FOUND=$({ NAME=RECORD_FIND FOR= STATE= ANY=0; cmd_capture; } 2>/dev/null) || { echo github; exit 0; }
+    (STATE=record_find SEALED=$FOUND KEY= ANY=1; cmd_check) >/dev/null 2>&1 || { echo github; exit 0; }
     case "${FOUND% sealed:*}" in "found "*" session"|"move "*) echo session ;; *) echo github ;; esac
     ;;
 provenance)
@@ -360,6 +410,13 @@ EOF
     fi
     echo "coord-log: the session was not created from $TEMPLATE" >&2
     exit 1
+    ;;
+template-hash)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    HASH=$(head -1 "$LOG" | jq -r '.template_hash // empty')
+    [ -n "$HASH" ] || { echo "coord-log: the session's header has no template_hash" >&2; exit 1; }
+    printf '%s\n' "$HASH"
     ;;
 live-session)
     need SLUG
@@ -411,6 +468,21 @@ current)
     CUR=$(jq -r 'select(.type == "transitioned" or .type == "directed_transition" or .type == "rewound") | "\(.payload.to) \(.seq)"' "$LOG" | tail -1)
     [ -n "$CUR" ] || exit 1
     printf '%s\n' "$CUR"
+    ;;
+entries)
+    # `entry` for several states in one pass, for a check script that would
+    # otherwise start this script once per state. A log jq can't read ends
+    # in a read failure (jq prints only after reading the whole log), as
+    # `entry` does under pipefail, never in a "0" that reads as no entry.
+    need SESSION STATES
+    re='^[a-z0-9_]+(,[a-z0-9_]+)*$'
+    [[ $STATES =~ $re ]] || usage
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    jq -nr --arg ss "$STATES" '($ss | split(",")) as $want
+        | reduce (inputs | select((.type == "transitioned" or .type == "directed_transition" or .type == "rewound")
+                and (.payload.to as $t | $want | index([$t]) != null))) as $e
+            ({}; .[$e.payload.to] = "\($e.seq) \($e.payload.from // "")")
+        | . as $m | $want[] | if $m[.] then "\(.) \($m[.])" else "\(.) 0" end' "$LOG" || die "cannot read $LOG"
     ;;
 entry|evidence|captures)
     if [ "$CMD" = captures ]; then need SESSION NAME; else need SESSION STATE; fi

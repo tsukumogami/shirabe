@@ -96,7 +96,7 @@ run() {
 
 stub "$MINIMUM" clean
 run
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "compile on koto $MINIMUM"; then
+if [ "$RC" -eq 0 ] && grep -q "compile on koto $MINIMUM" <<<"$OUT"; then
     pass "the minimum, with every template compiling and the mutation refused, passes"
 else
     fail "a clean run at the minimum did not pass (rc=$RC): $OUT"
@@ -104,7 +104,7 @@ fi
 
 stub 0.1.0 clean
 run
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q "want exactly the koto minimum $MINIMUM"; then
+if [ "$RC" -eq 1 ] && grep -q "want exactly the koto minimum $MINIMUM" <<<"$OUT"; then
     pass "a koto at another version is refused, naming the minimum"
 else
     fail "a koto at another version was not refused (rc=$RC): $OUT"
@@ -112,7 +112,7 @@ fi
 
 stub "$MINIMUM" broken
 run
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'E-PARSE stub refuses'; then
+if [ "$RC" -eq 1 ] && grep -q 'E-PARSE stub refuses' <<<"$OUT"; then
     pass "a declared template that does not compile fails the check and shows koto's output"
 else
     fail "a compile failure was not surfaced (rc=$RC): $OUT"
@@ -120,7 +120,7 @@ fi
 
 stub "$MINIMUM" permissive
 run
-if [ "$RC" -eq 1 ] && printf '%s' "$OUT" | grep -q 'the floor did not refuse'; then
+if [ "$RC" -eq 1 ] && grep -q 'the floor did not refuse' <<<"$OUT"; then
     pass "a koto that compiles the auto-exit mutation fails the check"
 else
     fail "a koto that let the mutation through was not caught (rc=$RC): $OUT"

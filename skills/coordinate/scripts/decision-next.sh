@@ -5,9 +5,17 @@
 #
 # Usage:
 #   decision-next.sh --session S                  route: print the sealed verdict
-#   decision-next.sh --session S --owed dispatch|pick
+#   decision-next.sh --session S --owed dispatch|pick [--parsed FILE]
 #
-# It reads the Decisions section (record-decision.sh --list), the session log
+# --parsed, with --owed only, names the record this session's caller read and
+# parsed in the same tick: rs_record's output FILE, with the body it parsed at
+# FILE.md, both readable (otherwise usage, 64). pick-facts.sh passes its own,
+# so the record is read once in the tick (shirabe#840). Nothing checks that FILE
+# is this session's record; only a caller that just read it may pass it.
+# Without --parsed the record is read here.
+#
+# It reads the Decisions section (record-decision.sh --list, or its projection
+# over the --parsed record), the session log
 # (coord-log.sh), and at discipline scope before the first dispatch the
 # previous rotation's handoff. The rules, in routing order; the first that
 # holds is the verdict:
@@ -70,16 +78,18 @@ set -uo pipefail
 
 PROG=decision-next
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= OWED= NO_SEAL=0
+SESSION= OWED= PARSED= NO_SEAL=0
 usage() { sed -n '/^# Usage:/,/^# It reads/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION=$2; shift 2 ;;
         --owed) [ $# -ge 2 ] || usage; OWED=$2; shift 2 ;;
+        --parsed) [ $# -ge 2 ] || usage; PARSED=$2; shift 2 ;;
         *) usage ;;
     esac
 done
 [ -n "$SESSION" ] || usage
+[ -z "$PARSED" ] || { [ -n "$OWED" ] && [ -r "$PARSED" ] && [ -r "$PARSED.md" ]; } || usage
 case "$OWED" in ''|dispatch|pick) ;; *) usage ;; esac
 SCOPE= NAME= REPO= REF=
 . "$HERE/record-common.sh"
@@ -90,31 +100,40 @@ trap 'rm -rf "$T"' EXIT
 CL() { bash "$HERE/coord-log.sh" "$@" --session "$SESSION"; }
 
 # The section and the log facts the rules read.
-bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
-    || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
+if [ -n "$PARSED" ]; then
+    jq -c -L "$HERE" 'include "record-codec"; decisions_list' "$PARSED" > "$T/section.json" || lib_die2 "cannot read the Decisions section"
+else
+    bash "$HERE/record-decision.sh" --session "$SESSION" --list > "$T/section.json" 2> "$T/rd.err" \
+        || { cat "$T/rd.err" >&2; lib_die2 "cannot read the Decisions section"; }
+fi
+# The latest entry into each state the rules read, 0 when none, in one read
+# of the log (coord-log.sh entries) rather than one coord-log.sh per state.
+# READS is the one list of <state>:<variable>: the request is built from it,
+# and each variable is set from its state's line only after the line was
+# found and its seq is a number, so a state added here can't be left unread,
+# and a short or garbled answer stops the run instead of reading as 0.
+READS="dispatch:DISPATCH_SEQ report_questions:RQ_SEQ decision_open:OPEN_SEQ wait:WAIT_SEQ
+classify_report:CLASSIFY_SEQ decision_answer:ANSWER_SEQ decision_evidence:EVID_SEQ decision_raise:RAISE_SEQ"
+states=
+for pair in $READS; do states="$states${states:+,}${pair%%:*}"; done
+ENTRIES=$(CL entries --states "$states") || lib_die2 "cannot read the session log"
+for pair in $READS; do
+    rest=$'\n'"$ENTRIES"
+    case "$rest" in *$'\n'"${pair%%:*} "*) ;; *) lib_die2 "cannot read the session log" ;; esac
+    rest=${rest#*$'\n'"${pair%%:*} "}
+    sq=${rest%%[ $'\n']*}
+    case "$sq" in ''|*[!0-9]*) lib_die2 "cannot read the session log" ;; esac
+    printf -v "${pair#*:}" '%s' "$sq"
+done
 DISPATCHED=false
-CL entered --state dispatch > /dev/null
-case $? in 0) DISPATCHED=true ;; 1) ;; *) lib_die2 "cannot read the session log" ;; esac
-# entry_seq <state>: the latest entry into it, 0 when none.
-entry_seq() {
-    local e
-    e=$(CL entry --state "$1")
-    case $? in 0) printf '%s' "${e%% *}" ;; 1) printf 0 ;; *) lib_die2 "cannot read the session log" ;; esac
-}
+[ "$DISPATCH_SEQ" = 0 ] || DISPATCHED=true
 # ev_json <state> [where]: the latest evidence at it, {} when none.
 ev_json() {
     local e st=$1; shift
     e=$(CL evidence --state "$st" "$@")
     case $? in 0) printf '%s' "$e" ;; 1) printf '{}' ;; *) lib_die2 "cannot read the session log" ;; esac
 }
-RQ_SEQ=$(entry_seq report_questions)
 QCAP=$(CL capture --name QUESTIONS --state report_questions 2>/dev/null) || QCAP=
-OPEN_SEQ=$(entry_seq decision_open)
-WAIT_SEQ=$(entry_seq wait)
-CLASSIFY_SEQ=$(entry_seq classify_report)
-ANSWER_SEQ=$(entry_seq decision_answer)
-EVID_SEQ=$(entry_seq decision_evidence)
-RAISE_SEQ=$(entry_seq decision_raise)
 WAIT_ANS=$(ev_json wait --where event=answer)
 TOOL_ANS=$(ev_json escalate_send --where sent=answered)
 WAIT_EVI=$(ev_json wait --where event=evidence)
@@ -142,8 +161,12 @@ if [ "$PARK" = true ]; then
     PARK_UNIT=$(printf '%s' "$PICK_EV" | jq -r '.fields.unit // "" | tostring')
     # The pick's minute: a park row older than the pick is an earlier park.
     PARK_SINCE=$(printf '%s' "$PICK_EV" | jq -r '(.timestamp // "")[0:16]')
-    bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/rs.err" \
-        || { cat "$T/rs.err" >&2; lib_die2 "cannot read the Work section"; }
+    if [ -n "$PARSED" ]; then
+        jq -c -L "$HERE" 'include "record-codec"; state_list' "$PARSED" > "$T/state.json" || lib_die2 "cannot read the Work section"
+    else
+        bash "$HERE/record-state.sh" --session "$SESSION" --list > "$T/state.json" 2> "$T/rs.err" \
+            || { cat "$T/rs.err" >&2; lib_die2 "cannot read the Work section"; }
+    fi
 else
     echo '{"work":[]}' > "$T/state.json"
 fi
@@ -239,10 +262,14 @@ fi
 case "$WORD" in
     clear|clear-report) ;;
     *)
-        REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
-            || lib_die2 "cannot read the record's number"
-        rs_record "$T/live" body --json body --jq .body
-        case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
+        if [ -n "$PARSED" ]; then
+            cp "$PARSED.md" "$T/live.md" || lib_die2 "cannot read the record"
+        else
+            REF=$(bash "$HERE/coord-log.sh" run-facts --session "$SESSION" | jq -r .ref) && [[ $REF =~ $RE_NUM ]] \
+                || lib_die2 "cannot read the record's number"
+            rs_record "$T/live" body --json body --jq .body
+            case $? in 2|4|5|12) lib_die2 "cannot read the record" ;; esac
+        fi
         SIZE=$(wc -c < "$T/live.md" | tr -d ' ')
         if [ "$SIZE" -gt $((60000 - 4096)) ]; then
             echo "$PROG: record-full: the record is $SIZE bytes, too close to the 60,000-byte budget for the owed $WORD; compact settled decisions or prune the record" >&2

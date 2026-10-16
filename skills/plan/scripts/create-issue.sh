@@ -151,7 +151,7 @@ strip_frontmatter() {
     local content="$1"
 
     # Check if file starts with ---
-    if echo "$content" | head -1 | grep -q '^---$'; then
+    if [ "$(head -1 <<<"$content")" = --- ]; then
         # Find the second --- and skip everything before it
         echo "$content" | awk '
             BEGIN { in_frontmatter=0; found_end=0 }
@@ -217,7 +217,7 @@ main() {
         fi
 
         # Fail if unresolved placeholders remain
-        if echo "$body" | grep -qE '<<ISSUE:[^>]+>>'; then
+        if grep -qE '<<ISSUE:[^>]+>>' <<<"$body"; then
             local unresolved
             unresolved=$(echo "$body" | grep -oE '<<ISSUE:[^>]+>>' | sort -u | paste -sd ', ')
             log "Error: unresolved placeholders in body: $unresolved"

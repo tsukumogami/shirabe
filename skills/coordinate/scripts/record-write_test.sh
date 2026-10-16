@@ -415,4 +415,34 @@ eq "  ... and reads back the same from either" "$(bash "$HERE/record-parse.sh" "
 eq "  ... the cell unchanged" "x \`code | pipe\` y
 line two \`\`\` z" "$(koto context get "$R6S" record/deferrals | jq -r '.[3].reason')"
 
+echo "== a pushed head (PRD R17) =="
+# A session-store holding's last pushed head lives beside its row, never in a
+# body: set by --pushed-head, kept by every later write, refused on GitHub.
+SP=coordinate-roadmap-plugin-system-20260926T160000Z
+SPN=(env RS_SOURCE=session RS_SESSION="$SP")
+seed_rm; bash "$HERE/record-parse.sh" --container issue "$T/new.md" > "$T/sp.json"; session_keys "$SP" "$T/sp.json"
+spcur() { "${SPN[@]}" bash "$HERE/record-source.sh" --scope roadmap --name plugin-system --repo "$REPO" --ref 7 --show > "$T/sp.md"; }
+HEAD1=1111111111111111111111111111111111111111
+spcur; "${SPN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/sp.md" --pushed-head feature-2 "$HEAD1" >/dev/null 2>"$T/err"
+eq "--pushed-head sets the holding's head on the session store" "0 $HEAD1" "$? $(koto context get "$SP" record/holdings | jq -r '.[0].pushed_head')"
+spcur
+grep -q "$HEAD1" "$T/sp.md" && bad "  ... and --show never prints it" "" || ok "  ... and --show never prints it"
+sed 's/| not now |/| not now, said again |/' "$T/sp.md" > "$T/sp2.md"
+"${SPN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/sp2.md" >/dev/null 2>"$T/err"
+eq "  ... a later write without it keeps it" "0 $HEAD1" "$? $(koto context get "$SP" record/holdings | jq -r '.[0].pushed_head')"
+spcur; sed 's/| feat\/x |/| feat\/y |/' "$T/sp.md" > "$T/sp3.md"
+"${SPN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/sp3.md" >/dev/null 2>"$T/err"
+eq "  ... and so does a write that changes the holding's row" "0 feat/y $HEAD1" \
+    "$? $(koto context get "$SP" record/holdings | jq -r '.[0] | "\(.branch) \(.pushed_head)"')"
+spcur; "${SPN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/sp.md" --pushed-head feature-2 "" >/dev/null 2>"$T/err"
+eq "  ... and an empty one clears it" "0 null" "$? $(koto context get "$SP" record/holdings | jq -r '.[0].pushed_head')"
+spcur; "${SPN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/sp.md" --pushed-head feature-2 abc >/dev/null 2>"$T/err"
+eq "a head that isn't 40 hex is refused" 65 $?
+"${SPN[@]}" bash "$WR" "${RM[@]}" --body-file "$T/sp.md" --pushed-head nobody "$HEAD1" >/dev/null 2>"$T/err"
+eq "a topic no holding has is refused" 65 $?
+seed_rm; rebase
+bash "$WR" "${RM[@]}" --body-file "$T/new.md" --pushed-head feature-2 "$HEAD1" >/dev/null 2>"$T/err"
+eq "--pushed-head on a GitHub record is refused" 65 $?
+eq "  ... and the body is unchanged" "$OLD" "$(body7)"
+
 done_tests record-write

@@ -4,8 +4,9 @@ The rules for each step are in `skills/coordinate/SKILL.md`. This file holds
 the mechanics three of them need when they run: the order of reads in a
 full reconcile, the issue-timeline read before dispatching an issue, and
 the shape of an escalation. Load it on the first turn after a start or
-restart, before dispatching an issue, and whenever the failure branch
-fires. The land step's table and merge confirmation are in
+restart, before dispatching an issue, whenever the failure branch fires,
+when a new decision arrives, and when a worker's report rests on a premise
+you would act on. The land step's table and merge confirmation are in
 `references/verification-checklist.md`.
 
 ## A Full Reconcile, in Order
@@ -63,9 +64,9 @@ measured, verified by reading, or inferred:
    "gone". A roster read just after an outage can't tell "gone" from "not back
    yet", so only a signal that the worker is gone, such as a message that
    bounces, makes it gone.
-4. **Re-check side effects in flight.** A merge is confirmed when the pull
-   request is merged and every file it changed has, on the default branch,
-   the content it had at the verified head, as "Confirming a Merge" in
+4. **Re-check side effects in flight.** A merge is confirmed when GitHub's
+   record shows the pull request merged from the verified head, with its
+   merge commit on the default branch, as "Confirming a Merge" in
    `references/verification-checklist.md` describes. It is the same check
    the loop's `merge_confirm` makes, so the two can't disagree. A close is confirmed when
    the target reads closed, and a teardown by two listing reads and the disk.

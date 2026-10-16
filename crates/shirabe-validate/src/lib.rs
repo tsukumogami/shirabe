@@ -64,13 +64,13 @@ pub use merge_gate::{
     check_index_visibility, coordination_pr_visibility, run_merge_gate, split_pr_arg,
     GhVisibilityResolver, MergeGateOutcome,
 };
-pub use pr_body::{check_pr_body, check_pr_title, PrBodyFinding};
+pub use pr_body::{check_pr_body, check_pr_title, is_no_heading_finding, PrBodyFinding};
 pub use repoint::{repoint_references, FileRewrite, RepointError};
 pub use report::{
     render_human, render_human_with_advisory, render_json, render_json_with_advisory,
 };
 pub use table::{
-    is_stable_table_key, parse_issue_outlines, parse_issues_table, parse_outline_acs,
+    is_stable_table_key, parse_issue_outlines, parse_issues_table, parse_outline_acs, Entry,
     NonconformingHeading, OutlineAc, OutlineBlock, OutlineGate, OutlineSection, Profile, Row,
     RowKind, Table,
 };

@@ -2,6 +2,11 @@
 # pick-facts.sh -- the check action of state pick_facts: the facts pick
 # decides on, and whether the scope is over.
 #
+# Where this header names a lister (record-holding.sh --list, record-state.sh,
+# record-decision.sh --list, roadmap-status.sh --list), the rows are that
+# lister's --list projection in record-codec.jq, taken from the one read and
+# parse of the record this script makes; the listers themselves aren't run.
+#
 # Units, in order. Roadmap scope: the items under the items section of the
 # roadmap on the host's default branch (`## Milestones` on a roadmap/v3
 # roadmap, `## Features` otherwise), in the roadmap's order, as
@@ -34,11 +39,12 @@
 #
 # Then, at either scope, the units a person assigned outside it: one per
 # Standing row of kind assignment (record-state.sh), its On the unit's id
-# (`#<n>` or `<owner/repo>#<n>`, an issue, read for its title and state and
-# done once closed; or `release <owner/repo> <tag>`, done when its row
-# ends), each carrying `assigned`, the row's id. One the scope already lists
-# isn't added again, and while any is open the roadmap isn't complete. A
-# holding covers one when its Unit cell is the id, or `<host><id>` for `#<n>`.
+# (`#<n>` or `<owner/repo>#<n>`, an issue or a pull request, read for its
+# title and state and done once closed or merged; or `release <owner/repo>
+# <tag>`, done when its row ends), each carrying `assigned`, the row's id.
+# One the scope already lists isn't added again, and while any is open the
+# roadmap isn't complete. A holding covers one when its Unit cell is the id,
+# or `<host><id>` for `#<n>`.
 #
 # Holdings come from the record (record-holding.sh --list), each marked
 # parked (a Verified head, and its pull request open and not a draft), merged
@@ -106,12 +112,15 @@
 # Exit codes: 0 a verdict was printed; 2 a read failed (the roadmap missing
 # from the default branch included); 64 usage.
 #
-# GitHub reads: gh api --method GET repos/R --jq .default_branch;
+# GitHub reads: the record once, gh issue|pr view <ref> --repo R --json body,title
+# (record-source.sh rs_record; a session store reads none, and then a
+# discipline's title is gh pr view <ref> --repo R --json title);
+# gh api --method GET repos/R --jq .default_branch;
 # gh api --method GET "repos/R/contents/<roadmap>?ref=<default>";
 # gh issue list --repo R --state open --label <name> --json number,title --limit 200;
-# gh issue view <n> --repo <repo> --json number,title,state per assigned issue;
-# gh pr view <n> --repo R --json title; record-holding.sh --list (gh issue|pr view);
-# gh pr view <n> --repo <repo> --json state,isDraft per verified holding.
+# one gh api graphql (query pickAssigned) for every assigned issue's number,
+# title and state; gh pr view <n> --repo <repo> --json state,isDraft per
+# verified holding.
 set -uo pipefail
 
 PROG=pick-facts
@@ -144,24 +153,33 @@ lib_bounds
 T=$(mktemp -d "${TMPDIR:-/tmp}/pick-facts.XXXXXX")
 trap 'rm -rf "$T"' EXIT
 
-# The holdings, through record-holding.sh (the one reader of Holdings rows).
-set -- --list
-if [ "$OVERRIDE" = 1 ]; then set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"
-else set -- "$@" --session "$SESSION"; fi
-bash "$HERE/record-holding.sh" "$@" > "$T/holdings.json" 2> "$T/holdings.err" \
-    || lib_die2 "record-holding.sh --list failed: $(lib_scrub < "$T/holdings.err")"
+# The record, read and parsed once, as the listers read it (record-source.sh
+# rs_record), with its title from the same read. The holdings, the Run,
+# Standing and Work rows, the decision entries and the pending roadmap pull
+# requests are the listers' own --list projections (record-codec.jq), taken
+# from this one parse: running record-holding.sh, record-state.sh,
+# record-decision.sh and roadmap-status.sh would read and parse the record once
+# apiece (shirabe#840).
+rs_record "$T/rec.json" json --json body,title
+case $? in
+    0) ;;
+    2) [ "$SCOPE" = roadmap ] && lib_die2 "cannot read issue #$REF: $(lib_scrub < "$T/rec.json.err")"
+       lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/rec.json.err")" ;;
+    *) lib_die2 "#$REF is not a record pick can read: $(lib_scrub < "$T/rec.json.err")" ;;
+esac
+jq -c -L "$HERE" --arg s "$SCOPE" 'include "record-codec";
+    holdings_list, state_list, decisions_list, (if $s == "roadmap" then pending_list else [] end)' "$T/rec.json" > "$T/lists" \
+    || lib_die2 "jq failed"
+# One compact line each, in this order: holdings, Run/Standing/Work, decisions,
+# pending roadmap pull requests ([] outside roadmap scope).
+{ IFS= read -r l1 && IFS= read -r l2 && IFS= read -r l3 && IFS= read -r l4; } < "$T/lists" || lib_die2 "jq failed"
+printf '%s\n' "$l1" > "$T/holdings.json"
+printf '%s\n' "$l2" > "$T/state.json"
+printf '%s\n' "$l3" > "$T/decisions.json"
+printf '%s\n' "$l4" > "$T/landed.json"
 lib_parked "$T/holdings.json" "$T/counted.json" || lib_die2 "a holding's pull request read failed"
-# The cap a person set in the record's Run section wins over the session's
-# (record-state.sh, the one reader of the stored set).
-bash "$HERE/record-state.sh" "$@" > "$T/state.json" 2> "$T/state.err" \
-    || lib_die2 "record-state.sh --list failed: $(lib_scrub < "$T/state.err")"
+# The cap a person set in the record's Run section wins over the session's.
 lib_bounds "$T/state.json"
-# The unsettled decision entries, through record-decision.sh, the one reader of the section.
-set -- --list
-if [ "$OVERRIDE" = 1 ]; then set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"
-else set -- "$@" --session "$SESSION"; fi
-bash "$HERE/record-decision.sh" "$@" > "$T/decisions.json" 2> "$T/decisions.err" \
-    || lib_die2 "record-decision.sh --list failed: $(lib_scrub < "$T/decisions.err")"
 
 VERDICT=pick
 if [ "$SCOPE" = roadmap ]; then
@@ -174,14 +192,10 @@ if [ "$SCOPE" = roadmap ]; then
         *) lib_die2 "cannot read $ROADMAP: $(lib_scrub < "$T/roadmap.md.err")" ;;
     esac
     lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
-    # The roadmap pull requests the record holds as pending (roadmap-status.sh,
-    # the one reader of those rows): a unit named by one has landed and is
-    # never offered again, though it isn't finished for its dependents until
+    # The roadmap pull requests the record holds as pending (landed.json, as
+    # roadmap-status.sh --list reads them): a unit named by one has landed and
+    # is never offered again, though it isn't finished for its dependents until
     # the roadmap says so.
-    # "$@" is still `--list` and the record's addressing, as set for
-    # record-decision.sh above.
-    bash "$HERE/roadmap-status.sh" "$@" > "$T/landed.json" 2> "$T/landed.err" \
-        || lib_die2 "roadmap-status.sh --list failed: $(lib_scrub < "$T/landed.err")"
     # covers($id; $title): a Unit cell naming the item, as its tag or as
     # `<tag>: <title>`, the tag compared by key.
     jq -c --slurpfile h "$T/counted.json" --slurpfile l "$T/landed.json" "$JQ_TAG_KEY"'
@@ -200,9 +214,15 @@ if [ "$SCOPE" = roadmap ]; then
         VERDICT=scope-complete
     fi
 else
-    gh pr view "$REF" --repo "$REPO" --json title > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
-        || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/pr.err")"
-    lib_rotation_dates "$(jq -r '.title // ""' "$T/pr.json")" || lib_die2 "the record's title is not a rotation title"
+    # The title came with the record, except from a session store, which keeps
+    # none: then it's read from the pull request.
+    TITLE=$(jq -r '.title // empty' "$T/rec.json.raw") || lib_die2 "jq failed"
+    if [ -z "$TITLE" ]; then
+        gh pr view "$REF" --repo "$REPO" --json title > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
+            || lib_die2 "cannot read pull request #$REF: $(lib_scrub < "$T/pr.err")"
+        TITLE=$(jq -r '.title // ""' "$T/pr.json") || lib_die2 "jq failed"
+    fi
+    lib_rotation_dates "$TITLE" || lib_die2 "the record's title is not a rotation title"
     [ "$ROT_END" \< "$TODAY" ] && VERDICT=rotation-over
     gh issue list --repo "$REPO" --state open --label "$NAME" --json number,title --limit 200 > "$T/issues.json" 2> "$T/issues.err" < /dev/null \
         || lib_die2 "cannot list $REPO's $NAME issues: $(lib_scrub < "$T/issues.err")"
@@ -217,28 +237,58 @@ fi
 
 # The units a person assigned (Standing rows of kind assignment), after the
 # scope's own, each once: an issue is read for its title and state, and is
-# done once closed; a release is done when its row ends.
-jq -c '[(.standing // [])[] | select(.kind == "assignment") | {id: .on, standing}]' "$T/state.json" > "$T/assigned.json" || lib_die2 "jq failed"
-: > "$T/assigned.lines"
-n=$(jq length "$T/assigned.json"); i=0
-while [ "$i" -lt "$n" ]; do
-    ID=$(jq -r --argjson i "$i" '.[$i].id' "$T/assigned.json")
-    SID=$(jq -r --argjson i "$i" '.[$i].standing' "$T/assigned.json")
-    i=$((i + 1))
-    jq -e --arg u "$ID" --arg h "$REPO" 'any(.[]; .unit == $u or ($h + .unit) == $u)' "$T/units.json" > /dev/null && continue
-    case "$ID" in
-        release\ *)
-            jq -nc --arg u "$ID" --arg s "$SID" '{unit: $u, number: null, title: "", status: "to release", done: false,
-                blocked: false, blocked_by: [], blocker_landed: false, landed: null, assigned: $s}' >> "$T/assigned.lines" ;;
-        *)
-            IREPO=${ID%%#*}; [ -n "$IREPO" ] || IREPO=$REPO
-            gh issue view "${ID##*#}" --repo "$IREPO" --json number,title,state > "$T/issue.json" 2> "$T/issue.err" < /dev/null \
-                || lib_die2 "cannot read assigned issue $ID: $(lib_scrub < "$T/issue.err")"
-            jq -c --arg u "$ID" --arg s "$SID" '{unit: $u, number, title: (.title | .[0:120]), status: (.state | ascii_downcase),
-                done: ((.state | ascii_downcase) == "closed"), blocked: false, blocked_by: [], blocker_landed: false,
-                landed: null, assigned: $s}' "$T/issue.json" >> "$T/assigned.lines" || lib_die2 "jq failed" ;;
-    esac
-done
+# done once closed; a release is done when its row ends. An issue is `#<n>`
+# in the host or `<owner/repo>#<n>`; issue is {repo, number} for one, null for
+# a release.
+jq -c --slurpfile u "$T/units.json" --arg h "$REPO" '[(.standing // [])[] | select(.kind == "assignment") | {id: .on, standing}
+    | select(.id as $i | any($u[0][]; .unit == $i or ($h + .unit) == $i) | not)
+    | . + {issue: (if (.id | startswith("release ")) then null
+                   else (.id | capture("^(?<repo>[^#]*)#(?<number>.*)$")) // {repo: "", number: ""}
+                        | .repo |= (if . == "" then $h else . end) end)}]' "$T/state.json" > "$T/assigned.json" \
+    || lib_die2 "jq failed"
+jq -r '.[] | select(.issue != null) | [.id, .issue.repo, .issue.number] | @tsv' "$T/assigned.json" > "$T/assigned.tsv" || lib_die2 "jq failed"
+# Every assigned issue in one GraphQL read rather than a gh issue view each
+# (shirabe#840): field i<k> is the k-th issue, its owner, name and number
+# passed as variables. A failed read, or an answer short of any issue (an
+# error, a null node, a number other than the one asked for), fails as a
+# failed gh issue view did: no unit is dropped, or read closed, for an issue
+# that didn't come back. Only number, title and state are asked for, through
+# issueOrPullRequest, so a row naming a pull request reads too: OPEN is open,
+# CLOSED or MERGED done.
+# k numbers the issues only (releases are skipped here and in assigned.tsv),
+# and the jq below advances its own .k on the same rows, so field i<k> is the
+# k-th issue on both sides.
+GQ=() VARS= FIELDS= k=0
+while IFS=$'\t' read -r id r num; do
+    [[ $r =~ $RE_REPO ]] && [[ $num =~ $RE_NUM ]] || lib_die2 "cannot read assigned issue $id: it names no issue"
+    VARS="$VARS, \$o$k: String!, \$r$k: String!, \$n$k: Int!"
+    FIELDS="$FIELDS i$k: repository(owner: \$o$k, name: \$r$k) { issueOrPullRequest(number: \$n$k) { ... on Issue { number title state } ... on PullRequest { number title state } } }"
+    GQ+=(-f "o$k=${r%%/*}" -f "r$k=${r#*/}" -F "n$k=$num")
+    k=$((k + 1))
+done < "$T/assigned.tsv"
+if [ "$k" -gt 0 ]; then
+    gh api graphql -f query="query pickAssigned(${VARS#, }) {$FIELDS }" "${GQ[@]}" > "$T/issues-read.json" 2> "$T/issues-read.err" < /dev/null \
+        || lib_die2 "cannot read the assigned units: $(lib_scrub < "$T/issues-read.err")"
+else
+    echo '{"data": {}}' > "$T/issues-read.json"
+fi
+jq -c --slurpfile r "$T/issues-read.json" '
+    if (($r[0].errors // []) | length) > 0 then error("the read answered with errors") else . end
+    | reduce .[] as $a ({k: 0, out: []};
+        if $a.issue == null then
+            .out += [{unit: $a.id, number: null, title: "", status: "to release", done: false,
+                      blocked: false, blocked_by: [], blocker_landed: false, landed: null, assigned: $a.standing}]
+        else (($r[0].data // {})["i\(.k)"].issueOrPullRequest // null) as $n
+            | if $n == null or ($n.number | tostring) != $a.issue.number or ($n.title | type) != "string"
+                 or (($n.state | IN("OPEN", "CLOSED", "MERGED")) | not)
+              then error("assigned unit \($a.id) did not come back") else . end
+            | .out += [{unit: $a.id, number: $n.number, title: ($n.title | .[0:120]), status: ($n.state | ascii_downcase),
+                        done: ($n.state == "CLOSED" or $n.state == "MERGED"), blocked: false, blocked_by: [], blocker_landed: false,
+                        landed: null, assigned: $a.standing}]
+            | .k += 1
+        end)
+    | .out[]' "$T/assigned.json" > "$T/assigned.lines" 2> "$T/assigned.err" \
+    || lib_die2 "cannot read the assigned units: $(lib_scrub < "$T/assigned.err")"
 jq -c -s --slurpfile u "$T/units.json" --slurpfile h "$T/counted.json" --arg r "$REPO" '$u[0] + map(. as $a
     | . + {holding: ([$h[0][] | select(.unit == $a.unit or .unit == ($r + $a.unit))][0]
                      | if . == null then null else {worker, phase} end)})' "$T/assigned.lines" > "$T/units2.json" \
@@ -253,7 +303,7 @@ bash "$HERE/pause-read.sh" --standing "$T/state.json" --units "$T/punits.json" >
 
 # Owed decision work comes before any other verdict.
 if [ -n "$SESSION" ]; then
-    OWED_RULE=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed pick) || lib_die2 "cannot read what the decisions are owed"
+    OWED_RULE=$(bash "$HERE/decision-next.sh" --session "$SESSION" --owed pick --parsed "$T/rec.json") || lib_die2 "cannot read what the decisions are owed"
     [ "$OWED_RULE" = none ] || VERDICT="decisions $OWED_RULE"
 fi
 

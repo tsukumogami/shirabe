@@ -10,6 +10,7 @@
 #
 # Usage:
 #   scripts/release-eval-check.sh --critical <a,b> --critical-runs <N>
+#       [--model <name>] [--tolerance <rate>]
 #   scripts/release-eval-check.sh --finalize
 #
 # The check (first form):
@@ -21,9 +22,18 @@
 #      what the nested eval sessions can reach, and asks the harness for the
 #      skills changed since the last tag (scripts/run-evals.sh --list-changed).
 #   4. Writes a marker naming HEAD, the last tag and the skills it measures.
-#   5. Runs scripts/run-evals.sh --runs <N> --summary-out <state>/<i>.json
-#      <skill> per selected skill: N is --critical-runs for a skill in
-#      --critical and 1 otherwise. A failing skill doesn't stop the others.
+#   5. Runs scripts/run-evals.sh --runs <N> --release-subset --no-baseline
+#      --summary-out <state>/<i>.json <skill> per selected skill: N is
+#      --critical-runs for a skill in --critical and 1 otherwise. A failing
+#      skill doesn't stop the others. --release-subset runs every tier-1
+#      scenario and, of the tier-2 ones, the one each behaviour marks
+#      "release": true; the rest rotate through scripts/scheduled-evals.py.
+#      --no-baseline runs no no-skill baseline: the record and the drop rule
+#      read with-skill rates only, and what a skill adds over the bare model
+#      is the scheduled measurement's question.
+#      With --model, each run gets EVAL_MODEL=<name>, which puts the nested
+#      session (the grader) and every scenario that names no model of its own
+#      on that model (see "Models" in run-evals.sh).
 #   6. With a non-empty last tag, downloads eval-pass-rates.json with gh into a
 #      mktemp -d directory from that release and from the older v* releases
 #      merged into HEAD, newest first, ten releases at most. A release or asset
@@ -31,10 +41,12 @@
 #      baseline (a missing baseline passes, by design); any other download
 #      failure exits 1 with gh's reason.
 #   7. Runs scripts/lib/eval-pass-rates.py merge with every record found,
-#      newest first. It composes the baseline per skill (each skill against
-#      the newest release that measured it), writes
-#      <state>/eval-pass-rates.json, prints the comparison, and decides the
-#      exit code.
+#      newest first, and --tolerance when given. Each skill is compared with
+#      the newest release that measured it on the same models and session
+#      model over the same number of runs; with none, this run's rate is a new
+#      reference for it, never a drop. A drop is a rate lower than that reference by more than the
+#      tolerance. The merge writes <state>/eval-pass-rates.json, prints the
+#      comparison, and decides the exit code.
 #
 # --finalize (the release-assets half, after the draft release exists):
 #   Refuses unless the marker names the current HEAD and RELEASE_LAST_TAG and a
@@ -73,7 +85,7 @@ SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
 REPO_RE='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 
 usage() {
-  echo "Usage: $0 --critical <a,b> --critical-runs <N>" >&2
+  echo "Usage: $0 --critical <a,b> --critical-runs <N> [--model <name>] [--tolerance <rate>]" >&2
   echo "       $0 --finalize" >&2
   exit 2
 }
@@ -89,7 +101,7 @@ fail() {
 }
 
 valid_skill() {
-  printf '%s\n' "$1" | grep -Eq "$SKILL_RE"
+  grep -Eq "$SKILL_RE" <<<"$1"
 }
 
 # --- arguments ----------------------------------------------------------------
@@ -97,8 +109,22 @@ valid_skill() {
 MODE=""
 CRITICAL=""
 CRITICAL_RUNS=""
+MODEL=""
+TOLERANCE=""
 while [ $# -gt 0 ]; do
   case "$1" in
+    --model)
+      [ $# -ge 2 ] || usage
+      MODEL="$2"
+      MODE=${MODE:-check}
+      shift 2
+      ;;
+    --tolerance)
+      [ $# -ge 2 ] || usage
+      TOLERANCE="$2"
+      MODE=${MODE:-check}
+      shift 2
+      ;;
     --finalize)
       MODE=finalize
       shift
@@ -121,12 +147,13 @@ while [ $# -gt 0 ]; do
   esac
 done
 [ -n "$MODE" ] || usage
-if [ "$MODE" = finalize ] && { [ -n "$CRITICAL" ] || [ -n "$CRITICAL_RUNS" ]; }; then
+if [ "$MODE" = finalize ] && { [ -n "$CRITICAL" ] || [ -n "$CRITICAL_RUNS" ] ||
+  [ -n "$MODEL" ] || [ -n "$TOLERANCE" ]; }; then
   usage
 fi
 if [ "$MODE" = check ]; then
   [ -n "$CRITICAL_RUNS" ] || die_usage "--critical-runs is required"
-  printf '%s\n' "$CRITICAL_RUNS" | grep -Eq '^[1-9][0-9]?$' ||
+  grep -Eq '^[1-9][0-9]?$' <<<"$CRITICAL_RUNS" ||
     die_usage "--critical-runs must be a number from 1 to 99"
   OLD_IFS=$IFS
   IFS=,
@@ -134,6 +161,16 @@ if [ "$MODE" = check ]; then
     [ -z "$name" ] || valid_skill "$name" || die_usage "--critical has an invalid skill name"
   done
   IFS=$OLD_IFS
+  # The pattern run-evals.sh holds EVAL_MODEL to: a model name that can't be
+  # read as an option.
+  if [ -n "$MODEL" ]; then
+    grep -Eq '^[A-Za-z0-9][A-Za-z0-9._:-]*$' <<<"$MODEL" ||
+      die_usage "--model must match ^[A-Za-z0-9][A-Za-z0-9._:-]*\$"
+  fi
+  if [ -n "$TOLERANCE" ]; then
+    grep -Eq '^(0(\.[0-9]+)?|1(\.0+)?)$' <<<"$TOLERANCE" ||
+      die_usage "--tolerance must be a rate from 0 to 1, such as 0.05"
+  fi
 fi
 
 # --- environment ----------------------------------------------------------------
@@ -142,10 +179,10 @@ LAST_TAG="${RELEASE_LAST_TAG:-}"
 VERSION="${RELEASE_VERSION:-}"
 CONFIRMED="${RELEASE_CONFIRMED_DROPS:-}"
 
-if [ -n "$LAST_TAG" ] && ! printf '%s\n' "$LAST_TAG" | grep -Eq "$TAG_RE"; then
+if [ -n "$LAST_TAG" ] && ! grep -Eq "$TAG_RE" <<<"$LAST_TAG"; then
   die_usage "RELEASE_LAST_TAG must be empty or v<major>.<minor>.<patch>"
 fi
-printf '%s\n' "$VERSION" | grep -Eq "$SEMVER_RE" ||
+grep -Eq "$SEMVER_RE" <<<"$VERSION" ||
   die_usage "RELEASE_VERSION must be <major>.<minor>.<patch>"
 if [ -n "$CONFIRMED" ]; then
   OLD_IFS=$IFS
@@ -182,7 +219,7 @@ read_marker_skills() {
   INDEXES=""
   while read -r tag index name; do
     [ "$tag" = skill ] || continue
-    printf '%s\n' "$index" | grep -Eq '^[0-9]+$' || fail "the state marker is malformed"
+    grep -Eq '^[0-9]+$' <<<"$index" || fail "the state marker is malformed"
     valid_skill "$name" || fail "the state marker is malformed"
     SKILLS="$SKILLS $name"
     INDEXES="$INDEXES $index"
@@ -222,7 +259,7 @@ if [ -n "$LAST_TAG" ]; then
   REPO=$(printf '%s\n' "$ORIGIN" |
     sed -n -E 's#^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+)$#\2#p' |
     sed 's/\.git$//')
-  printf '%s\n' "$REPO" | grep -Eq "$REPO_RE" ||
+  grep -Eq "$REPO_RE" <<<"$REPO" ||
     fail "cannot tell the GitHub repository from the origin remote"
 fi
 
@@ -270,7 +307,13 @@ else
     echo ""
     echo "== $name ($runs run(s)) =="
     rc=0
-    "$HARNESS" --runs "$runs" --summary-out "$STATE/$index.json" "$name" || rc=$?
+    if [ -n "$MODEL" ]; then
+      EVAL_MODEL="$MODEL" "$HARNESS" --runs "$runs" --release-subset --no-baseline \
+        --summary-out "$STATE/$index.json" "$name" || rc=$?
+    else
+      "$HARNESS" --runs "$runs" --release-subset --no-baseline \
+        --summary-out "$STATE/$index.json" "$name" || rc=$?
+    fi
     echo "== $name: harness exit $rc =="
   done
 fi
@@ -359,6 +402,9 @@ fi
 
 set -- merge --no-baseline-reason "$REASON" \
   --version "$VERSION" --last-tag "$LAST_TAG" --confirmed "$CONFIRMED" --out "$RECORD"
+if [ -n "$TOLERANCE" ]; then
+  set -- "$@" --tolerance "$TOLERANCE"
+fi
 if [ -z "$FOUND" ]; then
   set -- "$@" --previous -
 fi

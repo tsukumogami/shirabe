@@ -24,21 +24,20 @@
 #      recommendation and reason. The redirect is outside the first check:
 #      the DESIGN owes it per report, before the take (rule 5 before rule 7),
 #      and it asks no one anything.
-#   2. the same replay against a template whose wait evidence edge goes
-#      straight to escalate fails that check;
-#   3. three levels (a person, a workspace coordinator W, a roadmap
+#   2. three levels (a person, a workspace coordinator W, a roadmap
 #      coordinator R reporting to W): R's escalation opens a proposed entry at
 #      W with R's entry as its source; the person's answer settles W's entry,
 #      and W's rendered reply, relayed down as R's answer, settles R's naming
 #      the final decider; a withdrawal from R reopens W's escalated entry,
 #      W withdraws it from the person, and when W settles it nothing goes back
 #      down.
-#   4. the teardown's removed route, on teardown and teardown_inventory cut
-#      from the same template: with no instance listed, `removed` reaches
-#      teardown_handoff (the gate's exit 5) and `stopped` comes back to
-#      teardown with teardown_topic kept (exit 6); the gate without
-#      --absent-route sends both to surface (exit 2), so a coordinator on a
-#      template compiled before the route keeps its route.
+#
+# Proved elsewhere, so not here: that wait's evidence edge goes to
+# decision_evidence and not straight to escalate is pinned by
+# coordinate-template-structure_engine_test.sh; the teardown's removed route
+# is driven by teardown-pass_engine_test.sh, its routes pinned by the
+# structure suite and the gate's exits (with and without --absent-route) by
+# teardown-inventory_test.sh.
 #
 # Needs koto, jq and git; SKIPs (exit 0) without koto, which
 # run-tests.sh --engine turns into a failure.
@@ -93,7 +92,7 @@ decision_withdraw_send decision_reply decision_reply_send decision_redirect deci
 PASSTHROUGH="take_report pick_facts classify_report"
 # Stand-ins where the run stops: states this suite doesn't drive, whatever
 # their real routes (report_link, for one, loops back to report_facts).
-TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped roadmap_status milestone_reopen failure"
+TERMINAL="record_conflict rebrief surface report_link decision_apply leg_pick quiet_check merged_facts teardown rotation_close done_stopped roadmap_status milestone_reopen failure reconcile_pass"
 
 # block <state>: the state's YAML block, from its `  <state>:` line to the next state's.
 block() {
@@ -104,7 +103,7 @@ block() {
         on { print }
     ' "$STATES_FROM"
 }
-# skeleton <file> [sed program for the wait block]
+# skeleton <file>
 skeleton() {
     {
         cat <<'EOF'
@@ -161,10 +160,7 @@ states:
         when:
           gates.record_find_verdict.exit_code: 10  # found
 EOF
-        for st in $UNDER; do
-            if [ "$st" = wait ] && [ -n "${2-}" ]; then block wait | sed "$2"; else block "$st"; fi
-            echo
-        done
+        for st in $UNDER; do block "$st"; echo; done
         for st in $PASSTHROUGH; do
             next=wait
             [ "$st" = take_report ] && next=report_facts
@@ -179,14 +175,6 @@ TPL="$PR/skills/coordinate/koto-templates/coordinate.md"
 skeleton "$TPL"
 koto template compile "$TPL" >"$T/compile.err" 2>&1 || { bad "the skeleton compiles" "$(cat "$T/compile.err")"; finish; }
 ok "the skeleton compiles"
-# The variant: wait's evidence edge goes straight to escalate.
-VAR="$T/variant/coordinate.md"
-mkdir -p "$T/variant"
-skeleton "$VAR" '/^      - target: decision_evidence$/s/decision_evidence/escalate/'
-awk '/^  wait:$/,/^  report_facts:$/' "$VAR" | grep -q 'target: decision_evidence' &&
-    bad "the variant rewires wait's evidence edge" "wait still routes evidence to decision_evidence"
-koto template compile "$VAR" >"$T/compile.err" 2>&1 || { bad "the variant compiles" "$(cat "$T/compile.err")"; finish; }
-ok "the variant compiles, wait's evidence edge going to escalate"
 
 # --- the fixtures: records in the gh stand-in --------------------------------------------
 
@@ -349,7 +337,7 @@ replay_check() {
     [ ! -e "$T/$1.bad-table" ]
 }
 
-# --- 1 and 2: the niwa#330 replay --------------------------------------------------------
+# --- 1: the niwa#330 replay --------------------------------------------------------------
 
 # Entry 1 as an earlier run left it: settled, owing nothing, and so compacted
 # by the codec's compact_settled (verdict and evidence blank, options kept).
@@ -397,14 +385,7 @@ eq "replay: the messages sent are the reply, the redirect and the reply, none to
     "$(jq -r .kind "$T/$R1.sent" | tr '\n' ' ' | sed 's/ $//')"
 eq "replay: the run ends at the report's classification" classify_report "$(at "$R1")"
 
-V1=coordinate-roadmap-replay-12-20260928T100002Z
-replay "$V1" "$VAR" 12
-if replay_check "$V1"; then bad "variant: the replay's check fails when evidence goes straight to escalate" "it passed: $(visits "$V1" | tr '\n' ' ')"; else
-    ok "variant: the replay's check fails when evidence goes straight to escalate"; fi
-eq "variant: escalate is entered with no verdict before it" "wait escalate" "$(visits "$V1" | sed -n '3,4p' | tr '\n' ' ' | sed 's/ $//')"
-eq "variant: the render finds nothing routed and the run stops at record_conflict" record_conflict "$(at "$V1")"
-
-# --- 3: three levels ---------------------------------------------------------------------
+# --- 2: three levels ---------------------------------------------------------------------
 
 # W reports to a person and holds R, a coordinator, under the topic rr. R reports to W,
 # whose dispatch topic is ws.
@@ -486,95 +467,5 @@ eq "levels: nothing goes back down to R after the withdrawal" "withdrawal" \
     "$(tail -n +"$((W_BEFORE + 1))" "$T/$LW.sent" | jq -r .kind | tr '\n' ' ' | sed 's/ $//')"
 [ ! -e "$T/$LW.bad-table" ] && ok "levels: no read of W's section showed a person an escalation without its reasons" ||
     bad "levels: no read of W's section showed a person an escalation without its reasons"
-
-# --- 4. the teardown's removed route ------------------------------------------------------
-#
-# teardown and teardown_inventory cut from the shipped coordinate.md, with the
-# shipped inventory and verdict scripts, the states they lead to as
-# terminals, and a niwa that lists no instance: a retired unit whose instance
-# is already gone. `removed` reaches teardown_handoff through the inventory's
-# exit 5; `stopped` comes back to teardown through exit 6 with teardown_topic
-# kept, and a `removed` from there goes on. A template compiled before the
-# route (no --absent-route on the gate) sends both to surface, as before.
-printf '#!/usr/bin/env bash\n[ "$1" = list ] || exit 64\necho "[]"\n' > "$T/bin/niwa"
-chmod +x "$T/bin/niwa"
-mkdir -p "$T/ws/.niwa"
-: > "$T/ws/.niwa/workspace.toml"
-: > "$T/ws/.niwa/instance.json"
-TD_UNDER="teardown teardown_inventory"
-TD_ENDS="teardown_handoff promote record surface"
-# td_skeleton <file> [sed program for the teardown_inventory block]
-td_skeleton() {
-    {
-        cat <<'EOF'
----
-name: coordinate
-version: "1.0"
-description: the teardown's removed route, for decisions-replay_engine_test.sh
-initial_state: entry
-variables:
-  PLUGIN_ROOT:
-    description: plugin root
-    required: true
-states:
-  entry:
-    accepts:
-      go:
-        type: enum
-        values: [teardown]
-        required: true
-    transitions:
-      - target: teardown
-        when:
-          go: teardown
-EOF
-        block teardown; echo
-        if [ -n "${2-}" ]; then block teardown_inventory | sed "$2"; else block teardown_inventory; fi; echo
-        for st in $TD_ENDS; do printf '  %s:\n    terminal: true\n\n' "$st"; done
-        echo '---'
-        for st in entry $TD_UNDER $TD_ENDS; do printf '## %s\nStand-in.\n\n' "$st"; done
-    } > "$1"
-}
-TD="$T/td/coordinate.md"
-TD_OLD="$T/td-old/coordinate.md"
-mkdir -p "$T/td" "$T/td-old"
-td_skeleton "$TD"
-td_skeleton "$TD_OLD" 's/ --absent-route//'
-grep -q -- '--absent-route' "$TD_OLD" && bad "the pre-route variant drops --absent-route" "$(grep -- '--absent-route' "$TD_OLD")"
-for f in "$TD" "$TD_OLD"; do
-    koto template compile "$f" >"$T/compile.err" 2>&1 || { bad "the teardown skeleton compiles ($f)" "$(cat "$T/compile.err")"; finish; }
-done
-ok "the teardown skeletons compile"
-HANDOFF_LINK="https://github.com/acme/widgets/pull/600#issuecomment-1001"
-# td_run <session> <template>: a run at teardown for the retired unit w5.
-td_run() {
-    koto init "$1" $KOTO_LEGACY_ENV_ARG --template "$2" --var PLUGIN_ROOT="$PR" >/dev/null 2>"$T/init.err" ||
-        { bad "session $1 starts" "$(cat "$T/init.err")"; return 1; }
-    printf 'w5' > "$T/topic"
-    koto context add "$1" teardown_topic --from-file "$T/topic" >/dev/null
-    tick "$1" --with-data '{"go":"teardown"}'
-}
-td_say() { tick "$1" --with-data "$(jq -nc --arg w "$2" --arg h "$HANDOFF_LINK" '{teardown: $w, handoff: $h}')"; }
-
-td_run td-removed "$TD"
-td_say td-removed removed
-eq "removed: an absent instance goes on to teardown_handoff (exit 5)" teardown_handoff "$(at td-removed)"
-eq "removed: the inventory sealed it absent" absent "$(koto context get td-removed teardown_verdict | head -1)"
-
-td_run td-stopped "$TD"
-td_say td-stopped stopped
-eq "stopped: an absent instance comes back to teardown (exit 6)" teardown "$(at td-stopped)"
-eq "stopped: teardown_topic is kept" w5 "$(koto context get td-stopped teardown_topic)"
-td_say td-stopped removed
-eq "stopped, then removed: on to teardown_handoff" teardown_handoff "$(at td-stopped)"
-eq "stopped, then removed: the route went teardown, inventory, teardown, inventory, handoff" \
-    "teardown teardown_inventory teardown teardown_inventory teardown_handoff" "$(visits td-stopped | grep -vx entry | tr '\n' ' ' | sed 's/ $//')"
-
-td_run td-old-stopped "$TD_OLD"
-td_say td-old-stopped stopped
-eq "a template compiled before the route: stopped with no instance goes to surface (exit 2)" surface "$(at td-old-stopped)"
-td_run td-old-removed "$TD_OLD"
-td_say td-old-removed removed
-eq "a template compiled before the route: removed with no instance goes to surface too" surface "$(at td-old-removed)"
 
 finish

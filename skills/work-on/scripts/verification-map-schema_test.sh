@@ -51,10 +51,10 @@ Q_DEFAULT='. as $m | [$m.default[] | $m.commands[.].run | join(" ")]
         "skills/plan/scripts/plan-to-tasks_test.sh",
         "skills/work-on/scripts/run-cascade_test.sh"]'
 # A skills/** entry exists, and one of its commands runs
-# scripts/check-skill.sh once per changed skill.
+# scripts/check-skill.sh --changed once per changed skill.
 Q_SKILLS='. as $m | [$m.entries[] | select(.paths | index("skills/**"))
     | .commands[] | $m.commands[.]]
-    | any(.run == ["scripts/check-skill.sh"] and .each == "skills/*")'
+    | any(.run == ["scripts/check-skill.sh", "--changed"] and .each == "skills/*")'
 # Every command that reaches the network says whether it may run unattended.
 Q_NETWORK='[.commands[] | select(.network == true) | has("unattended")] | all'
 # Every id an entry or the default names is defined.
@@ -70,7 +70,7 @@ check() { # check <label> <query>
 
 check "the map declares schema shirabe-verification-map/v1" "$Q_SCHEMA"
 check "the default list names the three Markdown default commands" "$Q_DEFAULT"
-check "the skills/** entry runs scripts/check-skill.sh with each: skills/*" "$Q_SKILLS"
+check "the skills/** entry runs scripts/check-skill.sh --changed with each: skills/*" "$Q_SKILLS"
 check "every network: true command sets unattended explicitly" "$Q_NETWORK"
 check "every command id an entry or the default names is defined" "$Q_IDS"
 
@@ -89,6 +89,8 @@ neg "a default list missing run-cascade is refused" "$Q_DEFAULT" \
     '.default |= map(select(. != "run-cascade"))'
 neg "a check-skill without each is refused" "$Q_SKILLS" \
     '.commands["check-skill"] |= del(.each)'
+neg "a check-skill without --changed is refused" "$Q_SKILLS" \
+    '.commands["check-skill"].run = ["scripts/check-skill.sh"]'
 neg "a networked command without unattended is refused" "$Q_NETWORK" \
     '.commands["net"] = {"run": ["true"], "network": true}'
 neg "an entry naming an undefined id is refused" "$Q_IDS" \

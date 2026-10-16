@@ -21,7 +21,8 @@
 # stderr); 1 an internal failure.
 set -euo pipefail
 
-HERE=$(cd "$(dirname "$0")" && pwd)
+# This script's directory, found without starting dirname.
+case "$0" in */*) HERE=${0%/*}; HERE=$(cd "${HERE:-/}" && pwd) ;; *) HERE=$(pwd) ;; esac
 FORMAT=record
 CONTAINER=issue
 WRITTEN=
@@ -50,7 +51,7 @@ if [ "$INPUT" = - ]; then
     DATA=$(cat)
 else
     [ -e "$INPUT" ] || { echo "record-render: no such file: $INPUT" >&2; exit 64; }
-    DATA=$(cat "$INPUT")
+    DATA=$(< "$INPUT")
 fi
 
 if ! printf '%s' "$DATA" | jq empty >/dev/null; then

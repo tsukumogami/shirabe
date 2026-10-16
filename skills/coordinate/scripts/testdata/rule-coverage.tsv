@@ -127,7 +127,7 @@ C114	skills/coordinate/references/verification-checklist.md	-	A claim you can't 
 C115	skills/coordinate/koto-templates/coordinate.md	land	Take each finishing step as far as the workspace's
 C116	skills/coordinate/koto-templates/coordinate.md	surface	the order (`surfaced: merge_table`)
 C117	skills/coordinate/koto-templates/coordinate.md	land_merge	merges only at the verified head
-C118	skills/coordinate/koto-templates/coordinate.md	land_merge	by reading the changed files there, not by trusting
+C118	skills/coordinate/koto-templates/coordinate.md	land_merge	merged from the verified head,
 C119	skills/coordinate/references/verification-checklist.md	-	| Pull request | Worker | Verified at | Why this position |
 C120	skills/coordinate/koto-templates/coordinate.md	surface	back to unverified until you read it again
 C121	skills/coordinate/references/verification-checklist.md	-	report it before dispatching anything that depends on it
@@ -246,3 +246,11 @@ S4	skills/coordinate/references/record-template.md	-	a write is refused, changin
 S5	skills/coordinate/koto-templates/coordinate.md	record_move	the find acts
 S6	skills/coordinate/koto-templates/coordinate.md	record_move	a write to the GitHub body
 S7	skills/coordinate/SKILL.md	-	(`store-conflict`), and a koto without the session store
+S8	skills/coordinate/SKILL.md	-	passing provenance, is **resumed**: the opener
+S9	skills/coordinate/SKILL.md	-	**carried**: a new run opens and every `record/`
+S10	skills/coordinate/SKILL.md	-	**Moving the run to another host is an import**
+S11	skills/coordinate/SKILL.md	-	only when the operator says so
+S12	skills/coordinate/references/record-template.md	-	Only `record-state.sh --host` writes it
+S13	skills/coordinate/koto-templates/coordinate.md	reconcile	on the first tick after an import
+S14	skills/coordinate/koto-templates/coordinate.md	reconcile	reports to (`no-reports-to`)
+S15	skills/coordinate/koto-templates/coordinate.md	reconcile	the session, workspace and template it came from

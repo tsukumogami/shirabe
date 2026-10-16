@@ -58,6 +58,8 @@ PHASES="$SKILL_DIR/references/phases"
 # koto validates a variable value against ^[a-zA-Z0-9._/:@ \-]*$; a checkout
 # under a directory outside it is reached through a symlink below.
 PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
+# Round files name their runs (panel-scope.sh --record refuses one that doesn't).
+. "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -93,7 +95,7 @@ done
 LEDGER_HITS=$(grep -rn 'context remove.*review_level\|^for KEY in .*review_level' "$SKILL_DIR" --include='*.md' --include='*.sh' 2>/dev/null \
     | grep -v '_test\.sh:')
 [ -z "$LEDGER_HITS" ] && pass "no clearing site names review_level.jsonl" || fail "a clearing site names the ledger: $LEDGER_HITS"
-printf '%s\n' "$SITES" | grep -q 'phase-4d-light\.md' && pass "the light panel has its own clearing block" \
+grep -q 'phase-4d-light\.md' <<<"$SITES" && pass "the light panel has its own clearing block" \
     || fail "phase-4d-light.md has no clearing block"
 # implementation's clear_on_entry: koto clears these whenever the run comes
 # back to implementation, which is the only clearing on verification's exit-1
@@ -101,10 +103,10 @@ printf '%s\n' "$SITES" | grep -q 'phase-4d-light\.md' && pass "the light panel h
 CLEAR_ON_ENTRY=$(awk '$0 == "  implementation:" { f = 1; next } f && /^  [a-z_]+:$/ { exit } f && /^    clear_on_entry:/ { print; exit }' "$TEMPLATE")
 for k in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md \
          scrutiny_scope.json review_scope.json qa_scope.json light_scope.json; do
-    printf '%s\n' "$CLEAR_ON_ENTRY" | grep -q "$k" && pass "implementation's clear_on_entry clears $k" \
+    grep -q "$k" <<<"$CLEAR_ON_ENTRY" && pass "implementation's clear_on_entry clears $k" \
         || fail "implementation's clear_on_entry does not clear $k: [$CLEAR_ON_ENTRY]"
 done
-printf '%s\n' "$CLEAR_ON_ENTRY" | grep -q 'review_level' && fail "implementation's clear_on_entry names the ledger" \
+grep -q 'review_level' <<<"$CLEAR_ON_ENTRY" && fail "implementation's clear_on_entry names the ledger" \
     || pass "implementation's clear_on_entry leaves review_level.jsonl alone"
 
 # ==============================================================================
@@ -153,8 +155,16 @@ done
 GOT=$(jq -r '[.variables.REVIEW_LEVEL.rebind, .variables.REVIEW_FLOOR.rebind, .variables.REVIEW_CEILING.rebind]
              | map(. // false) | map(tostring) | join(",")' "$COMPILED" 2>/dev/null)
 [ "$GOT" = "true,false,false" ] && pass "only REVIEW_LEVEL is rebindable" || fail "rebind flags are [$GOT]"
+# plan_ready passes through the live offload canary's states, which add no
+# evidence, on its way to review_level_choice.
 GOT=$(jq -r '.states.analysis.transitions[] | select(.when.plan_outcome == "plan_ready") | .target' "$COMPILED" 2>/dev/null)
-[ "$GOT" = review_level_choice ] && pass "plan_ready targets review_level_choice" || fail "plan_ready targets [$GOT]"
+[ "$GOT" = offload_canary ] && pass "plan_ready targets offload_canary" || fail "plan_ready targets [$GOT]"
+GOT=$(jq -r '[.states.offload_canary.transitions[].target, .states.offload_arm_withheld.transitions[].target,
+              .states.offload_arm_preloaded.transitions[].target]
+             | map(select(. != "offload_arm_withheld" and . != "offload_arm_preloaded")) | unique | join(",")' \
+      "$COMPILED" 2>/dev/null)
+[ "$GOT" = review_level_choice ] && pass "every route out of the canary states reaches review_level_choice" \
+    || fail "the canary states route to [$GOT]"
 GOT=$(jq -r '.states.issue_type_routing.transitions[] | select(.when.issue_type == "code") | .target' "$COMPILED" 2>/dev/null)
 [ "$GOT" = review_level_check ] && pass "the code route targets review_level_check" || fail "the code route targets [$GOT]"
 GOT=$(jq -r '.states.review_level_check.gates | [.level_floor.type, .level_fits_facts.type] | join(",")' "$COMPILED" 2>/dev/null)
@@ -279,6 +289,7 @@ choose_and_implement() {
 record_round() {
     # $1 session, $2 panel, $3 round JSON
     printf '%s\n' "$3" > "$WORKDIR/round.json"
+    panel_round_runs "$1" "$2" "$WORKDIR/round.json"
     "$PS" --record "$2" "$1" "$WORKDIR/round.json" 2>"$WORKDIR/record.err" \
         || fail "$1: panel-scope.sh --record $2 failed: $(cat "$WORKDIR/record.err")"
 }

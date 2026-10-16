@@ -10,11 +10,19 @@
 #      the next find reaches reconcile;
 #   2. writes through record-write.sh and record-state.sh land in the keys and
 #      not on GitHub, and the run passes reconcile on them;
+#   2b. a second start on the same host resumes the run (PRD R12): it prints
+#      the first run's name with resumed=1, opens and cancels nothing, and the
+#      run goes on where it stood;
 #   3. each refusal the write guarantees name leaves every record/ key
 #      byte-identical: a non-owner's change (65), a body edited from an older
 #      written time (12), a state rendering past 60,000 bytes (13), a run moved
 #      with `koto next --to` (10), and a write from a run that is no longer the
-#      scope's live one (10).
+#      scope's live one (10); that run, which can't be resumed, is carried: the
+#      next start opens a new run holding every record/ key of the old one;
+#   4. a changed template carries the live run's record/ and legs/ keys into a
+#      new run and keeps the old log readable;
+#   5. on a host where no session holds the record, the find stops before
+#      reconcile as session-absent, naming the import.
 #
 # On a koto without the session store's features (`context list --prefix`,
 # `session import`), as at shirabe's minimum koto, it proves only that the start
@@ -63,22 +71,25 @@ tick() { (cd "$WD" && koto next "$S" "$@" --no-cleanup 2>"$T/tick.err"); }
 at() { tick "$@" | jq -r '.state // empty'; }
 # open_run: a fresh session of the scope from coordinate-open.sh, which takes
 # its args file away; sets S.
-open_run() {
+open_run() { # open_run [plugin-root]: the opener's output in OPEN_OUT, the session in S
+    local root=${1:-$PR}
     printf '["docs/roadmaps/ROADMAP-store.md", "--store", "session"]' > "$T/args.json"
-    S=$(cd "$WD" && bash "$PS/coordinate-open.sh" --plugin-root "$PR" "$T/args.json" 2>"$T/open.err" | sed -n 's/^session=//p')
+    OPEN_OUT=$(cd "$WD" && bash "$root/skills/coordinate/scripts/coordinate-open.sh" --plugin-root "$root" "$T/args.json" 2>"$T/open.err")
+    S=$(printf '%s\n' "$OPEN_OUT" | sed -n 's/^session=//p')
     [ -n "$S" ]
 }
+has_line() { grep -qx -- "$1" <<< "$OPEN_OUT"; }
 write() { # write <script> <args...>: a write script, run from $WD as the agent runs it, on session $S
     local s=$1; shift
     (cd "$WD" && bash "$PS/$s" --session "$S" "$@" >"$T/w.out" 2>"$T/w.err")
 }
 show() { (cd "$WD" && bash "$PS/record-source.sh" --session "$S" --show); }
-# keys <session>: every record/ key of the session, its name and a digest of
-# its content, read through real koto.
+# keys <session>: every record/ key of the session, its name and its content,
+# read through real koto (run-tests.sh's PATH has no cksum, so no digest).
 keys() {
     local k
     (cd "$WD" && koto context list "$1" --prefix record/) | jq -r '.[]' | LC_ALL=C sort | while IFS= read -r k; do
-        printf '%s %s\n' "$k" "$(cd "$WD" && koto context get "$1" "$k" | cksum)"
+        printf '%s %s\n' "$k" "$(cd "$WD" && koto context get "$1" "$k")"
     done
 }
 body_n() { jq -r --argjson n "$N" '.issues[] | select(.number == $n) | .body' "$GH_DB"; }
@@ -130,10 +141,21 @@ write record-write.sh --body-file "$T/w1.md"; eq "record-write.sh writes the rec
 eq "  ... into record/deferrals" a "$(cd "$WD" && koto context get "$S" record/deferrals | jq -r '.[0].deferral')"
 write record-state.sh --run arguments "docs/roadmaps/ROADMAP-store.md --store session" --by "the human" \
     && write record-state.sh --run cap 2 --by "the human" \
-    && write record-state.sh --run coordinator coord-test --by coord-test
-eq "record-state.sh writes the stored set" 0 $?
+    && write record-state.sh --run coordinator coord-test --by coord-test \
+    && write record-state.sh --run reports-to "the human" --by "the human"
+eq "record-state.sh writes the stored set, reports-to included" 0 $?
 eq "  ... neither touching GitHub" "$BODY" "$(body_n)"
 eq "the run passes reconcile on the keys" pick "$(at --with-data '{"reconciled":"reported"}')"
+
+echo "== 2b. a second start on this host resumes the run (PRD R12) =="
+FIRST=$S
+SESSIONS=$(koto session list | jq -r '[.[].id] | sort | join(" ")')
+sleep 1
+open_run; eq "a second start prints the first run's name" "$FIRST" "$S"
+has_line resumed=1 && ok "  ... as resumed" || bad "  ... as resumed" "$OPEN_OUT"
+grep -q '^cancelled=' <<< "$OPEN_OUT" && bad "  ... cancelling nothing" "$OPEN_OUT" || ok "  ... cancelling nothing"
+eq "  ... opening no session" "$SESSIONS" "$(koto session list | jq -r '[.[].id] | sort | join(" ")')"
+eq "  ... and the run goes on where it stood" pick "$(cd "$WD" && koto status "$S" | jq -r .current_state)"
 
 echo "== 3. each refusal leaves every key as it was =="
 current
@@ -154,13 +176,49 @@ eq "koto next --to moves the run" ask_up "$(at --to ask_up)"
 write record-write.sh --body-file "$T/w2.md"; eq "a write after koto next --to is refused" 10 $?
 grep -q 'directed transition' "$T/w.err" && ok "  ... as a directed transition" || bad "  ... as a directed transition" "$(cat "$T/w.err")"
 eq "  ... and changes no key" "$SNAP" "$(keys "$S")"
+# The run with a directed transition can't be resumed (every write from it is
+# refused), so the next start carries its keys into a new run (PRD R12).
 OLD=$S
 sleep 1
 open_run && [ "$S" != "$OLD" ] && ok "a later run of the scope opens" || bad "a later run of the scope opens" "$(cat "$T/open.err")"
+has_line "carried=$OLD" && has_line "cancelled=$OLD" && ok "  ... carrying the old run's record and cancelling it" \
+    || bad "  ... carrying the old run's record and cancelling it" "$OPEN_OUT $(cat "$T/open.err")"
+eq "  ... the new run holding every record/ key the old one did, byte for byte" "$(keys "$OLD")" "$(keys "$S")"
+eq "  ... and its find reaching reconcile on the session store" reconcile "$(at)"
+NEW=$S
 SNAP=$(keys "$OLD")
 S=$OLD
 write record-write.sh --body-file "$T/w2.md"; eq "a write from the run that is no longer live is refused" 10 $?
 grep -q 'is not the live' "$T/w.err" && ok "  ... as not the live run" || bad "  ... as not the live run" "$(cat "$T/w.err")"
 eq "  ... and changes no key" "$SNAP" "$(keys "$OLD")"
+S=$NEW
+
+echo "== 4. a changed template carries the record into a new run (PRD R12) =="
+# The plugin with a changed template: the live run, compiled from the old one,
+# isn't resumed. Its record/ and legs/ keys are carried, and its log stays
+# readable. No writer makes a legs/ key yet, so the case writes one itself.
+mkdir -p "$T/plugin2"
+cp -R "$REPO_ROOT/skills" "$REPO_ROOT/scripts" "$T/plugin2/"
+printf '\n<!-- a change to the template, for the carry case -->\n' >> "$T/plugin2/skills/coordinate/koto-templates/coordinate.md"
+printf '{"request":"req-1","leg":"deliver"}' | (cd "$WD" && koto context add "$S" legs/req-1/deliver)
+OLD=$S
+sleep 1
+open_run "$T/plugin2" && [ "$S" != "$OLD" ] && ok "a start with a changed template opens a new run" || bad "a start with a changed template opens a new run" "$(cat "$T/open.err")"
+has_line "carried=$OLD" && ok "  ... carrying the old one's record" || bad "  ... carrying the old one's record" "$OPEN_OUT $(cat "$T/open.err")"
+grep -q 'another template' "$T/open.err" && ok "  ... because koto compiled it from another template" || bad "  ... because koto compiled it from another template" "$(cat "$T/open.err")"
+eq "  ... with every record/ key" "$(keys "$OLD")" "$(keys "$S")"
+eq "  ... and its legs/ key" '{"request":"req-1","leg":"deliver"}' "$(cd "$WD" && koto context get "$S" legs/req-1/deliver)"
+[ -r "$(koto session dir "$OLD")/koto-$OLD.state.jsonl" ] && ok "  ... the old run's log kept readable" || bad "  ... the old run's log kept readable" ""
+
+echo "== 5. a host where no session holds the record (PRD R12) =="
+# Another HOME is another koto session store: nothing here holds the record,
+# and the find stops before reconcile, naming the import that would bring it.
+mkdir -p "$T/home2"
+HOME_SAVED=$HOME; export HOME="$T/home2"
+open_run && ok "a start on another host opens a run" || bad "a start on another host opens a run" "$(cat "$T/open.err")"
+eq "  ... which stops at the find" record_conflict "$(at)"
+REASON=$(cd "$WD" && koto context get "$S" coord/record_find.json | jq -r .reason)
+case "$REASON" in session-absent*--import*) ok "  ... as session-absent, naming the import" ;; *) bad "  ... as session-absent, naming the import" "$REASON" ;; esac
+export HOME="$HOME_SAVED"
 
 done_tests session-store-engine

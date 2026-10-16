@@ -15,6 +15,8 @@
 #   ref <id>              <path>#L<first>-L<last>@<revision> for an active rule
 #   summary <id>          the entry's short text
 #   text <id>             the rule's lines, first to last
+#   range <id>            "<first> <last>": the line numbers of the rule's text
+#   withhold <id>         the entry's withhold value (never or eligible)
 #   release <id>          the rule's lines between marker lines, on stderr;
 #                         always exits 0
 #   log-finding <line>    append a printed ::koto-finding:: line to
@@ -111,7 +113,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$REGISTRY" ] || REGISTRY="$ROOT/references/rule-registry.json"
 
-[ $# -eq 2 ] || die2 "usage: rule-registry.sh [--root <dir>] [--registry <file>] ref|summary|text|release|log-finding|verify-findings <arg>"
+[ $# -eq 2 ] || die2 "usage: rule-registry.sh [--root <dir>] [--registry <file>] ref|summary|text|range|withhold|release|log-finding|verify-findings <arg>"
 CMD=$1
 ARG=$2
 
@@ -282,6 +284,26 @@ cmd_text() {
     LC_ALL=C sed -n "${A},${B}p" "$F"
 }
 
+# range: the rule's first and last line numbers, for a script that leaves the
+# rule's lines out of a copy of its file (the offload canary's rendering).
+cmd_range() {
+    resolve "$1" || return $?
+    printf '%s %s\n' "$A" "$B"
+}
+
+# withhold: the entry's withhold value, printed only when it is one of the two
+# the vocabulary allows, so a caller deciding whether it may leave a rule out
+# never acts on anything else.
+cmd_withhold() {
+    local w
+    E=$(entry "$1") || return $?
+    w=$(printf '%s' "$E" | jq -r '.withhold // ""')
+    case "$w" in
+        never|eligible) printf '%s\n' "$w" ;;
+        *) echo "$PROG: rule $1 has no valid withhold value" >&2; return 2 ;;
+    esac
+}
+
 # releasable_path <relative path>: only files a skill already loads in normal
 # runs: anything under references/, and in one skill's directory its SKILL.md,
 # its references/ and its koto-templates/. A case glob's * crosses slashes, so
@@ -400,6 +422,8 @@ case "$CMD" in
     ref) cmd_ref "$ARG" ;;
     summary) cmd_summary "$ARG" ;;
     text) cmd_text "$ARG" ;;
+    range) cmd_range "$ARG" ;;
+    withhold) cmd_withhold "$ARG" ;;
     release) cmd_release "$ARG"; exit 0 ;;
     log-finding) cmd_log_finding "$ARG"; exit 0 ;;
     verify-findings) cmd_verify_findings "$ARG" ;;

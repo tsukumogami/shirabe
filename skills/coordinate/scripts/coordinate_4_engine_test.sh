@@ -15,8 +15,9 @@
 #      decision_raise, which holds until record-state.sh parks the unit on the
 #      entry it opened; escalated and sent, the run is back at pick with the
 #      unit awaiting and no slot taken, so under a cap of one another unit is
-#      dispatched beside it; dispatch-worker.sh refuses the parked unit (exit
-#      10, nothing written); the answer settles the entry, pick lists the unit
+#      dispatched beside it; a dispatch of the parked unit submitted paused
+#      goes back to wait (dispatch-worker_test.sh proves the exit 10 refusal
+#      that sends it there); the answer settles the entry, pick lists the unit
 #      answered, and its dispatch goes through, its holding row taking over
 #      the decision row.
 #  21. a feature whose deliverable is its scoping (shirabe#550): pick's scope
@@ -126,10 +127,8 @@ if open_run parked && [ "$(at)" = reconcile ] && [ "$(at --with-data '{"reconcil
     at --with-data '{"choice":"hold"}' >/dev/null
     eq "20: a second slot" pick "$(at --with-data '{"event":"resume"}')"
     eq "20: dispatching the parked unit passes the check" dispatch "$(at --with-data '{"choice":"dispatch","unit":"feat-1"}')"
-    dispatch_as_agent "$(brief feat-1 "Feature 1" deliver feat-1 executing)"
-    eq "20: and dispatch-worker.sh refuses it, exit 10" 10 "$DW_RC"
-    grep -q "decision 1 parks this unit" "$T/dw.err" && ok "20:   ... naming the entry" || bad "20:   ... naming the entry" "$(cat "$T/dw.err")"
-    eq "20:   ... with no holding written" "" "$(live_body 200 | jq -r '.holdings[] | select(.worker == "feat-1") | .worker')"
+    # dispatch-worker.sh refuses it with exit 10 and writes nothing
+    # (dispatch-worker_test.sh's "park:" cases); paused takes the run back.
     eq "20: submitted paused, back to wait" wait "$(at --with-data '{"dispatched":"paused","topic":"feat-1"}')"
     # The answer lands.
     eq "20: the person's answer reaches decision_answer" decision_answer "$(at --with-data '{"event":"answer","decision":"1","round":"1"}')"
@@ -165,7 +164,7 @@ fi
 if LAND_PHASE=scoping land_run scopemerge 211; then
     LAND_PHASE=scoping record_verified
     if [ "$(at)" = goal_fit ] && [ "$(at --with-data '{"fit":"fits","rationale":"the scoping documents land"}')" = land_merge ]; then
-        bt_merged MERGED '["docs/plans/PLAN-feat-1.md"]'; bt_blob main docs/plans/PLAN-feat-1.md aaaa; bt_blob "$H" docs/plans/PLAN-feat-1.md aaaa
+        bt_merged MERGED; bt_reach behind
         eq "21: the merge is confirmed" record "$(at --with-data '{"merge":"attempted"}')"
         rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
         (cd "$WD" && bash "$PS/record-holding.sh" --session "$S" --topic feat-1 --read) | jq -c '.pull_request = ""' > "$T/row.json"

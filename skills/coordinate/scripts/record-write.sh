@@ -35,12 +35,17 @@
 #
 # Usage:
 #   record-write.sh --session S --body-file F [--end YYYY-MM-DD] [--close]
+#                   [--pushed-head TOPIC SHA]
 #   record-write.sh [--session S] --scope roadmap|discipline --name N --repo O/R
 #                   --ref N --skip-session-checks --body-file F [...]   (tests)
 #
 # --end (discipline only) rewrites the pull request title's end date, keeping
 # the live title's start; an end before that start is refused (exit 65).
 # --close (roadmap only) writes the body, then closes the issue.
+# --pushed-head (session store only; refused on GitHub, exit 65) sets the last
+# pushed head kept beside TOPIC's holding, 40 hex, or empty to clear it; every
+# other holding keeps its own. The body has no column for it, so a GitHub
+# record never carries one. record-holding.sh is the one script that passes it.
 # The record number comes from `coord-log.sh run-facts` (the run's found
 # record); --ref replaces it only with the test override flags.
 #
@@ -63,7 +68,7 @@ set -uo pipefail
 PROG=record-write
 HERE=$(cd "$(dirname "$0")" && pwd)
 SESSION= SCOPE= NAME= REPO= REF= BODY= END=
-CLOSE=0 SKIP_CHECKS=0
+CLOSE=0 SKIP_CHECKS=0 PUSHED_SET=0 PUSHED_TOPIC= PUSHED_HEAD=
 
 usage() { sed -n '/^# Usage:/,/^# Exit codes:/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
 while [ $# -gt 0 ]; do
@@ -76,6 +81,7 @@ while [ $# -gt 0 ]; do
         --body-file) [ $# -ge 2 ] || usage; BODY=$2; shift 2 ;;
         --end) [ $# -ge 2 ] || usage; END=$2; shift 2 ;;
         --close) CLOSE=1; shift ;;
+        --pushed-head) [ $# -ge 3 ] || usage; PUSHED_SET=1; PUSHED_TOPIC=$2; PUSHED_HEAD=$3; shift 3 ;;
         --skip-session-checks) SKIP_CHECKS=1; shift ;;
         *) usage ;;
     esac
@@ -98,4 +104,7 @@ lib_write_guard
 # Sourcing the core closes the Decisions section (DECISIONS_WRITER=0), and this
 # script never opens it: only record-decision.sh does.
 . "$HERE/record-write-core.sh"
+if [ "$PUSHED_SET" = 1 ]; then
+    CORE_PUSHED_SET=1 CORE_PUSHED_TOPIC=$PUSHED_TOPIC CORE_PUSHED_HEAD=$PUSHED_HEAD
+fi
 core_write

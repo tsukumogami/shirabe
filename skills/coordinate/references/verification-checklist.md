@@ -149,16 +149,27 @@ lists every rule.
 
 ## Confirming a Merge
 
-For each file the pull request changed, compare its blob sha on the default
-branch with its blob sha at the head you verified:
+Confirm the merge from GitHub's own record, in three reads whatever the pull
+request's size: the pull request must be `MERGED`, the head GitHub merged
+must be the head you verified, and its merge commit must be on the default
+branch:
 
 ```bash
-gh pr view <n> --repo <owner/repo> --json files --jq '.files[].path'
-gh api "repos/<owner/repo>/contents/<path>?ref=<default-branch>" --jq .sha
-gh api "repos/<owner/repo>/contents/<path>?ref=<verified-head-sha>" --jq .sha
+gh pr view <n> --repo <owner/repo> --json state,headRefOid,mergeCommit
+gh api "repos/<owner/repo>" --jq .default_branch
+gh api "repos/<owner/repo>/compare/<default-branch>...<merge-commit>" --jq .status
 ```
 
-A deleted file shows as not found on the default branch, which is the
-expected result for it. A file whose blob sha on the default branch
-doesn't match the verified head's version means the merge isn't what was
-verified; report it before dispatching anything that depends on it.
+The comparison reads `behind` or `identical` when the merge commit is on the
+default branch. A head other than the one you verified (it moved after
+verification) or a merge commit that isn't on the default branch means the
+merge isn't what was verified;
+report it before dispatching anything that depends on it.
+The head pins what GitHub merged, so this confirms the merge
+itself, not what the default branch holds now: a later change to the same
+files doesn't bear on it, and a revert after the merge still reads as merged.
+The comparison is with the default branch, which is where the coordinator
+merges: a pull request merged into another base doesn't confirm here. If the
+pull request reads merged but shows no merge commit, or the comparison
+answers not found, the merge can't be confirmed yet; read again, and never
+take it as merged.

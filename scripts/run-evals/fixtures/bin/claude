@@ -90,7 +90,10 @@ write_outputs() {
   for dir in "$workspace"/*/; do
     [ -f "$dir/eval_metadata.json" ] || continue
     echo "with skill" > "$dir/with_skill/outputs/response.md"
-    echo "without skill" > "$dir/without_skill/outputs/response.md"
+    # A --no-baseline run has no without_skill/ directory to fill.
+    if [ -d "$dir/without_skill/outputs" ]; then
+      echo "without skill" > "$dir/without_skill/outputs/response.md"
+    fi
     if [ "$with_grading" = yes ] || [ "$with_grading" = first ] || [ "$with_grading" = failing ]; then
       echo '{"expectations": [{"text": "stub criterion", "passed": '"$passed"', "evidence": "stub"}]}' \
         > "$dir/with_skill/grading.json"
@@ -103,7 +106,11 @@ case "$mode" in
   plan)    cat "$here/plan-mode.jsonl" ;;
   denied)  cat "$here/all-denied.jsonl" ;;
   failed)  cat "$here/all-failed.jsonl" ;;
-  grade)   write_outputs yes; cat "$here/executed.jsonl" ;;
+  # An earlier turn's result event carries the session's cost so far, as a
+  # real session's does; the summary reads the last one that has a cost.
+  grade)   write_outputs yes
+           echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"total_cost_usd":1.25,"result":"stub turn","permission_denials":[]}'
+           cat "$here/executed.jsonl" ;;
   failgrade) write_outputs failing; cat "$here/executed.jsonl" ;;
   nograde) write_outputs no; cat "$here/executed.jsonl" ;;
   partial) write_outputs first; cat "$here/plan-mode.jsonl" ;;

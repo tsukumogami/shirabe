@@ -189,7 +189,7 @@ render_template() {
     rm -f "$tmp1" "$tmp2" "$tmp3" "$tmp4" "$tmp5" "$tmp6" "$tmp7" "$tmp8"
 
     # Validate no remaining placeholders
-    if echo "$output" | grep -qE '\{\{[A-Z_]+\}\}'; then
+    if grep -qE '\{\{[A-Z_]+\}\}' <<<"$output"; then
         local remaining
         remaining=$(echo "$output" | grep -oE '\{\{[A-Z_]+\}\}' | sort -u | tr '\n' ', ')
         json_error "Unsubstituted placeholders remaining: $remaining"

@@ -17,6 +17,19 @@ T="demo"
 BASE="$(mktemp -d)"
 trap 'rm -rf "$BASE"' EXIT
 
+# The predicate runs `shirabe validate` from PATH. A plan/v2 PLAN needs a
+# shirabe that reads plan/v2, which an older install does not, so a SHIRABE_BIN
+# given to the suite goes first on PATH for every case. The stub cases below put
+# their own directory in front of it, and the absent-validator case replaces
+# PATH outright, so both still see what they set up.
+if [ -n "${SHIRABE_BIN:-}" ]; then
+  [ -x "$SHIRABE_BIN" ] || { echo "SHIRABE_BIN is set but not executable: $SHIRABE_BIN" >&2; exit 2; }
+  mkdir -p "$BASE/shirabe-bin"
+  ln -s "$SHIRABE_BIN" "$BASE/shirabe-bin/shirabe"
+  PATH="$BASE/shirabe-bin:$PATH"
+  export PATH
+fi
+
 PASS=0
 FAIL=0
 
@@ -106,6 +119,17 @@ cp "$C/docs/plans/PLAN-$T.md" "$C/docs/prds/PRD-$T.md"
 cp "$C/docs/plans/PLAN-$T.md" "$C/docs/designs/DESIGN-$T.md"
 run "plan copied onto every path" "$C" brief 1
 
+# A PLAN is either version. A plan/v2 step plan at the canonical path is the
+# plan hop's artifact, as a plan/v1 PLAN is; any other version is not.
+C="$BASE/a9"; mkdir -p "$C/docs/plans"
+cp "$FIXTURES/PLAN-v2-steps.md" "$C/docs/plans/PLAN-$T.md"
+run "plan/v2 step plan at the plan path" "$C" plan 0
+C="$BASE/a10"; seed "$C" plan
+run "plan/v1 PLAN at the plan path" "$C" plan 0
+C="$BASE/a11"; mkdir -p "$C/docs/plans"
+sed 's/^schema: plan\/v2$/schema: plan\/v3/' "$FIXTURES/PLAN-v2-steps.md" > "$C/docs/plans/PLAN-$T.md"
+run "unknown plan version (plan/v3)" "$C" plan 1
+
 # --- limb (b): the hop is declared absorbed --------------------------------
 
 fold_into_prd() {
@@ -142,7 +166,7 @@ s = s.replace("---\nschema: prd/v1\n",
 open(p, "w").write(s)
 PY
 out="$(bash "$S" --hop brief --topic "$T" --root "$C" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "does not validate"; then
+if [ "$rc" = 1 ] && grep -q "does not validate" <<<"$out"; then
   PASS=$((PASS+1)); printf 'ok   %-46s hop=%-6s exit=1 (accurate reason)\n' "declares fold, fails validation" "brief"
 else
   FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d out=%s\n' "declares fold, fails validation" "$rc" "$out"
@@ -417,6 +441,26 @@ case "$out" in
   *)
     FAIL=$((FAIL+1)); printf 'FAIL %-46s out=%s\n' "no-verdict diagnostic is surfaced" "$out" ;;
 esac
+
+# A clean verdict followed by more output than a pipe holds (shirabe#846). The
+# verdict test must read the whole capture without a pipe: piped into an
+# early-exiting `grep -q` under pipefail, the writer is cut off once grep has
+# matched, the pipeline fails, and a clean document reads as no verdict.
+C="$BASE/c7"; seed "$C" plan
+BIG="$BASE/big-stub"; mkdir -p "$BIG"
+{
+  echo '#!/bin/sh'
+  echo 'echo "{\"outcome\": \"clean\", \"padding\": \""'
+  echo 'head -c 262144 /dev/zero | tr "\000" x'
+  echo 'echo "\"}"'
+} > "$BIG/shirabe"
+chmod +x "$BIG/shirabe"
+out="$(PATH="$BIG:$PATH" bash "$S" --hop plan --topic "$T" --root "$C" 2>&1)"; rc=$?
+if [ "$rc" = 0 ]; then
+  PASS=$((PASS+1)); printf 'ok   %-46s hop=%-6s exit=0\n' "clean verdict past a pipe's capacity" "plan"
+else
+  FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d want=0 out=%.300s\n' "clean verdict past a pipe's capacity" "$rc" "$out"
+fi
 
 echo
 echo "passed: $PASS   failed: $FAIL"

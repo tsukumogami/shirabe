@@ -1,0 +1,95 @@
+---
+schema: roadmap/v2
+status: Active
+theme: |
+  A plugin system a maintainer can install, list and find plugins in.
+scope: |
+  The loader, the registry and the search command. Publishing plugins is out.
+---
+
+# ROADMAP: Plugin loader
+
+## Status
+
+Active
+
+## Theme
+
+A plugin system a maintainer can install, list and find plugins in.
+
+## Features
+
+### Feature 1: A maintainer lists the plugins they installed
+
+**Outcome:** A maintainer who installed three plugins sees each one listed
+by name with the version it loaded.
+
+**Evidence:**
+- A reviewer, from a clean install with three sample plugins, runs the
+  list command and sees exactly those three names and versions.
+
+**Left open:** the list command's output layout.
+
+**Dependencies:** None
+**Status:** Done
+
+### Milestone 2: A maintainer finds a plugin by name
+
+**Outcome:** A maintainer finds an installed plugin by name without reading
+the plugin directory.
+
+**Evidence:**
+- A reviewer runs the find command for an installed plugin and sees its
+  path; for a missing one, a message naming it and a non-zero exit.
+
+**Left open:** the registry's storage format.
+
+**Dependencies:** Feature 1
+**Status:** In progress
+
+### AB3: A maintainer searches plugins by keyword
+
+**Outcome:** A maintainer searching for a keyword sees every installed
+plugin whose description carries it.
+
+**Evidence:**
+- A reviewer, with the three sample plugins installed, searches for a word
+  only one description carries and sees that one plugin.
+
+**Left open:** None
+
+**Dependencies:** Feature 1, acme/widgets#12
+**Status:** Not started
+
+## Milestones
+
+A section named for the roadmap/v3 items section. On a roadmap/v2 roadmap it
+is an ordinary section, and nothing in it is read as an item.
+
+### Milestone 4: Not an item here
+
+**Outcome:** Nothing; this heading sits outside the Features section.
+
+## Sequencing Rationale
+
+The list comes first because the find and search commands read what the
+loader recorded.
+
+## Progress
+
+- The list command shipped.
+
+## Implementation Issues
+
+<!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->
+
+| Feature | Issues | Dependencies | Status |
+|---------|--------|--------------|--------|
+
+## Dependency Graph
+
+<!-- Populated by `shirabe roadmap populate`. Do not fill manually. -->
+
+```mermaid
+graph TD
+```

@@ -67,6 +67,8 @@
       "id": 5,
       "name": "parity-drift-gate-intent-changing-halts",
       "tier": 2,
+      "behaviour": "drift-gate",
+      "release": true,
       "mode": "execute",
       "scenario": "drift-intent-changing",
       "env": {
@@ -88,6 +90,7 @@
       "id": 6,
       "name": "parity-drift-gate-absorbs-non-intent-changing",
       "tier": 2,
+      "behaviour": "drift-gate",
       "mode": "execute",
       "scenario": "drift-informational",
       "env": {
@@ -139,6 +142,8 @@
       "id": 9,
       "name": "parity-finalization-cascade-atomic",
       "tier": 2,
+      "behaviour": "completion-cascade",
+      "release": true,
       "mode": "execute",
       "scenario": "e2e-cascade-short",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
@@ -240,6 +245,7 @@
       "id": 15,
       "name": "e2e-execute-happy-path",
       "tier": 2,
+      "behaviour": "single-pr-orchestration",
       "mode": "execute",
       "scenario": "e2e-plan-happy",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
@@ -257,23 +263,29 @@
       "id": 16,
       "name": "e2e-execute-escalate-recovery",
       "tier": 2,
+      "behaviour": "single-pr-orchestration",
       "mode": "execute",
       "scenario": "e2e-plan-escalate",
+      "env": {
+        "KOTO_CALL_LOG": "koto-calls.log"
+      },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent initializes or resumes the execute-plan workflow, receives escalate state. Reads batch_final_view via koto context get, identifies the failed child (outline-feat-wire-auth-to-user-model) and the skipped child (outline-test-e2e-auth-flow with its dependency chain). Writes a failure_reason summary naming both children and submits it. Does not attempt to retry failed children.",
+      "expected_output": "The batch already failed: one child failed and its dependent was skipped. The agent opens or resumes the execute-diamond-test session and advances it with a bare `koto next execute-diamond-test --no-cleanup`. spawn_and_await routes the failed batch on its gate alone, and the tick chains through escalate to done_blocked, whose failure_reason already holds the gate's counts: the agent chooses no outcome and submits no evidence, since escalate accepts nothing and done_blocked is terminal. It prints the exit lines with print-exit.sh (outcome=error, step=execute:escalate, exit=abandonment-forced) and gives the forced-stop summary from batch_final_view, read with koto context get: the failed child outline-feat-wire-auth-to-user-model with its reason, CI failed: compilation error in auth_service.go:42, and the skipped child outline-test-e2e-auth-flow, skipped because outline-feat-wire-auth-to-user-model failed. It does not retry or re-spawn either child.",
       "files": [],
       "expectations": [
-        "Agent receives escalate state and attempts to read batch_final_view via koto context get",
-        "Agent identifies failed child outline-feat-wire-auth-to-user-model and its reason from batch_final_view",
-        "Agent identifies skipped child outline-test-e2e-auth-flow and its skipped_because_chain",
-        "Agent submits failure_reason field with a summary naming the failed and skipped children",
-        "Agent does NOT attempt to retry failed children (no restart loop)"
+        "Agent submits no evidence to the execute-diamond-test session after the batch fails: koto-calls.log has no `next execute-diamond-test` line carrying --with-data, and in particular no failure_reason is submitted",
+        "The exit lines printed by print-exit.sh include outcome=error, step=execute:escalate and exit=abandonment-forced",
+        "Agent reads batch_final_view with koto context get and its summary names the failed child outline-feat-wire-auth-to-user-model with its reason, CI failed: compilation error in auth_service.go:42",
+        "The summary names the skipped child outline-test-e2e-auth-flow and says it was skipped because outline-feat-wire-auth-to-user-model failed",
+        "Agent does NOT retry or re-spawn the failed or skipped child (no koto init of a child session, no restart loop)"
       ]
     },
     {
       "id": 17,
       "name": "e2e-execute-resume",
       "tier": 2,
+      "behaviour": "single-pr-orchestration",
+      "release": true,
       "mode": "execute",
       "scenario": "e2e-resume-plan",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
@@ -307,6 +319,7 @@
       "id": 19,
       "name": "e2e-execute-cascade-design-roadmap",
       "tier": 2,
+      "behaviour": "completion-cascade",
       "mode": "execute",
       "scenario": "e2e-cascade-short",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-short.md",
@@ -329,6 +342,7 @@
       "id": 20,
       "name": "e2e-execute-cascade-new-shape-plan-carries-roadmap",
       "tier": 2,
+      "behaviour": "completion-cascade",
       "mode": "execute",
       "scenario": "e2e-cascade-new-shape",
       "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-new-shape.md",
@@ -355,37 +369,10 @@
       ]
     },
     {
-      "id": 34,
-      "name": "e2e-execute-cascade-old-shape-still-reaches-the-roadmap",
-      "tier": 2,
-      "mode": "execute",
-      "scenario": "e2e-cascade-full",
-      "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
-      "expected_output": "The regression guard for a corpus authored before the upstream-legality rule. This chain is deliberately in the OLD shape: BRIEF-cascade-test-full.md names the ROADMAP in its upstream:, which shirabe validate now reports as an R11 lifetime violation. The chain walkers are unchanged and stay type-agnostic — the validator gained the opinion, not finalize-chain — so the cascade must behave exactly as it did before the rule landed. Agent runs skills/work-on/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. These fixtures are kept in the old shape on purpose and must not be migrated to the new one.",
-      "files": [
-        "skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
-        "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-full.md",
-        "skills/execute/evals/fixtures/prds/PRD-cascade-test-full.md",
-        "skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-full.md",
-        "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
-      ],
-      "expectations": [
-        "Agent runs skills/work-on/scripts/run-cascade.sh against the old-shape chain without migrating any fixture",
-        "The walk reaches the ROADMAP through BRIEF-cascade-test-full.md's upstream: field, the pre-rule route",
-        "PLAN-cascade-test-full.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
-        "DESIGN-cascade-test-full.md is MOVED to its Current folder (docs/designs/current/)",
-        "PRD-cascade-test-full.md is transitioned to Done",
-        "BRIEF-cascade-test-full.md is transitioned to Done",
-        "ROADMAP-cascade-test.md Feature 2 Status is updated to Done",
-        "ROADMAP-cascade-test.md Feature 2 Downstream references the DESIGN doc at Current",
-        "cascade_status is completed",
-        "Plan does NOT propose removing the BRIEF's upstream: field — the old shape is the evidence this scenario exists to preserve"
-      ]
-    },
-    {
       "id": 21,
       "name": "execute-ci-monitor-dirty-merge-state-routing",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-dirty",
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) whose merge state is DIRTY with no check runs, and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
@@ -580,6 +567,8 @@
       "id": 35,
       "name": "coordinated-plan-verifies-its-mode-scoped-record",
       "tier": 2,
+      "behaviour": "coordinated-run",
+      "release": true,
       "mode": "plan_only",
       "prompt": "/execute docs/plans/PLAN-multi-repo-rollout.md -- the PLAN's frontmatter carries execution_mode: coordinated.",
       "expected_output": "The enum re-validates against {single-pr, coordinated, multi-pr} and resolves to coordinated, which is the moment /execute's one mode:coordinated record becomes live: shirabe validate's --coordination-body and --merge-gate modes, the two a single-pr plan never reaches. That record was not checked at load, because the load-time preflight evaluates always records only and the PLAN had not been read yet. So right after the re-validation passes and before the loop dispatches any child, the transcript runs ${CLAUDE_PLUGIN_ROOT}/scripts/skill-preflight.sh execute --mode coordinated 2>&1 || true, keeping the guard. Silence means the coordinated surface is present. Output means the merge-last gate cannot run as declared, and it is surfaced before the first child rather than at the gate, where a whole cascade has already landed. A single-pr PLAN makes no mode call, because there is no mode:single-pr record to evaluate.",
@@ -593,33 +582,11 @@
       ]
     },
     {
-      "id": 36,
-      "name": "merge-mergeable-with-merge",
-      "tier": 2,
-      "mode": "execute",
-      "scenario": "merge-mergeable",
-      "requirements": [
-        "R19"
-      ],
-      "env": {
-        "GH_CALL_LOG": "gh-calls.log"
-      },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "Every pre-check passes. merge_readiness records mergeable:squash:<head>, merge_route routes to merge_attempt, the agent runs merge-exec.sh once, merge_confirm reads MERGED, and the run ends at the merged terminal. print-exit.sh prints outcome=merged, exit=full-run, repos=eval-org/eval-repo, and pr=https://github.com/eval-org/eval-repo/pull/42.",
-      "files": [],
-      "expectations": [
-        "gh-calls.log contains exactly one line starting `pr merge`, and it carries `--match-head-commit <expected_head>` with the sha the run recorded",
-        "The run passes merge_confirm before reaching the merged terminal",
-        "The printed exit lines include `outcome=merged`",
-        "The printed `exit=` line records `full-run`",
-        "The printed exit lines include a `pr=` line and a `repos=` line",
-        "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`"
-      ]
-    },
-    {
       "id": 37,
       "name": "merge-mergeable-without-merge",
       "tier": 2,
+      "behaviour": "ready-without-merge",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -642,6 +609,7 @@
       "id": 38,
       "name": "merge-review-required-with-merge",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-review-required",
       "requirements": [
@@ -661,33 +629,11 @@
       ]
     },
     {
-      "id": 39,
-      "name": "merge-dirty-with-merge",
-      "tier": 2,
-      "mode": "execute",
-      "scenario": "merge-dirty",
-      "requirements": [
-        "R19",
-        "R20"
-      ],
-      "env": {
-        "GH_CALL_LOG": "gh-calls.log"
-      },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "A conflicted PR under --merge. ci_monitor sees DIRTY, koto routes on owned_merge_state_clean with no evidence, and the run passes through escalate_dirty_merge_state to done_blocked, whose result is outcome=ready-awaiting-merge with reason=merge-state:DIRTY. No merge call.",
-      "files": [],
-      "expectations": [
-        "The workflow routes ci_monitor -> escalate_dirty_merge_state -> done_blocked",
-        "gh-calls.log contains no line starting `pr merge`",
-        "The printed exit lines include `outcome=ready-awaiting-merge`",
-        "The printed exit lines name `reason=merge-state:DIRTY`",
-        "The printed `exit=` line is `abandonment-forced`"
-      ]
-    },
-    {
       "id": 40,
       "name": "merge-failing-nonrequired-check",
       "tier": 2,
+      "behaviour": "ci-failure-stops",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-failing-check",
       "requirements": [
@@ -709,6 +655,7 @@
       "id": 41,
       "name": "merge-pending-past-limit",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-pending-timeout",
       "requirements": [
@@ -732,6 +679,7 @@
       "id": 42,
       "name": "merge-draft-ready-fails",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-draft-ready-fails",
       "requirements": [
@@ -753,6 +701,8 @@
       "id": 43,
       "name": "merge-call-fails",
       "tier": 2,
+      "behaviour": "merge-outcome-unconfirmed",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-call-fails",
       "requirements": [
@@ -772,32 +722,11 @@
       ]
     },
     {
-      "id": 44,
-      "name": "merge-not-observed",
-      "tier": 2,
-      "mode": "execute",
-      "scenario": "merge-not-observed",
-      "requirements": [
-        "R19",
-        "R20"
-      ],
-      "env": {
-        "GH_CALL_LOG": "gh-calls.log"
-      },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "pr merge exits 0 but every later read reports OPEN. merge_confirm records not-merged:merge-not-observed and the run ends ready-awaiting-merge; print-exit.sh adds that the PR may still be queued.",
-      "files": [],
-      "expectations": [
-        "gh-calls.log contains exactly one line starting `pr merge`",
-        "The printed exit lines name `reason=merge-not-observed`",
-        "The printed exit lines include the line saying the PR may still be queued and may merge later",
-        "No output anywhere in the run reports `outcome=merged`"
-      ]
-    },
-    {
       "id": 45,
       "name": "merge-unprotected-base",
       "tier": 2,
+      "behaviour": "merge-refused",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-unprotected",
       "requirements": [
@@ -819,6 +748,7 @@
       "id": 46,
       "name": "merge-no-checks",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-no-checks",
       "requirements": [
@@ -840,6 +770,7 @@
       "id": 47,
       "name": "merge-head-moved",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-head-moved",
       "requirements": [
@@ -861,6 +792,7 @@
       "id": 48,
       "name": "merge-review-rule-unapproved",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-review-rule",
       "requirements": [
@@ -882,6 +814,7 @@
       "id": 49,
       "name": "merge-workflow-change",
       "tier": 2,
+      "behaviour": "merge-refused",
       "mode": "execute",
       "scenario": "merge-workflow-change",
       "requirements": [
@@ -903,6 +836,8 @@
       "id": 50,
       "name": "pr-adopt-fork-pr",
       "tier": 2,
+      "behaviour": "pr-adoption",
+      "release": true,
       "mode": "execute",
       "scenario": "pr-adopt-fork",
       "requirements": [
@@ -925,6 +860,7 @@
       "id": 51,
       "name": "pr-adopt-other-author-pr",
       "tier": 2,
+      "behaviour": "pr-adoption",
       "mode": "execute",
       "scenario": "pr-adopt-other-author",
       "requirements": [
@@ -947,6 +883,7 @@
       "id": 52,
       "name": "merge-already-merged",
       "tier": 2,
+      "behaviour": "merge-outcome-unconfirmed",
       "mode": "execute",
       "scenario": "merge-already-merged",
       "requirements": [
@@ -968,6 +905,8 @@
       "id": 53,
       "name": "merge-interrupted-resumed-without-merge",
       "tier": 2,
+      "behaviour": "merge-resume",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -990,6 +929,7 @@
       "id": 54,
       "name": "merge-stopped-at-attempt-resumed-without-merge",
       "tier": 2,
+      "behaviour": "merge-resume",
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -1013,6 +953,8 @@
       "id": 55,
       "name": "merge-route-override-refused",
       "tier": 2,
+      "behaviour": "override-refused",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-pending-open",
       "requirements": [
@@ -1035,6 +977,7 @@
       "id": 56,
       "name": "merge-attempt-evidence-names-other-pr",
       "tier": 2,
+      "behaviour": "merge-outcome-unconfirmed",
       "mode": "execute",
       "scenario": "merge-other-pr-evidence",
       "requirements": [
@@ -1057,6 +1000,7 @@
       "id": 57,
       "name": "merge-resumed-with-merge",
       "tier": 2,
+      "behaviour": "merge-resume",
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -1079,6 +1023,7 @@
       "id": 58,
       "name": "stale-invocation-refused-merge-unchanged",
       "tier": 2,
+      "behaviour": "override-refused",
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -1101,6 +1046,7 @@
       "id": 59,
       "name": "merge-confirm-override-refused",
       "tier": 2,
+      "behaviour": "override-refused",
       "mode": "execute",
       "scenario": "merge-not-observed",
       "requirements": [
@@ -1122,6 +1068,7 @@
       "id": 60,
       "name": "merge-method-squash",
       "tier": 2,
+      "behaviour": "merge-performed",
       "mode": "execute",
       "scenario": "merge-method-squash",
       "requirements": [
@@ -1142,6 +1089,7 @@
       "id": 61,
       "name": "merge-method-rebase",
       "tier": 2,
+      "behaviour": "merge-performed",
       "mode": "execute",
       "scenario": "merge-method-rebase",
       "requirements": [
@@ -1162,6 +1110,7 @@
       "id": 62,
       "name": "scope-intent-continue-branch-adopted",
       "tier": 2,
+      "behaviour": "pr-adoption",
       "mode": "execute",
       "scenario": "scope-adopt",
       "requirements": [
@@ -1184,6 +1133,8 @@
       "id": 63,
       "name": "koto-leg-results",
       "tier": 2,
+      "behaviour": "caller-leg-result",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-mergeable",
       "requirements": [
@@ -1206,6 +1157,8 @@
       "id": 64,
       "name": "merge-call-flags-fixed",
       "tier": 2,
+      "behaviour": "merge-performed",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-method-squash",
       "requirements": [
@@ -1215,17 +1168,20 @@
         "GH_CALL_LOG": "gh-calls.log"
       },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "The one merge call is the fixed form merge-exec.sh makes: gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>.",
+      "expected_output": "The one merge call is the fixed form merge-exec.sh makes: gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>. merge_confirm then reads the PR merged, the run ends at the merged terminal, and print-exit.sh prints outcome=merged, exit=full-run, repos=eval-org/eval-repo and pr=https://github.com/eval-org/eval-repo/pull/42.",
       "files": [],
       "expectations": [
         "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`",
-        "The `pr merge` line is exactly `pr merge 42 --repo eval-org/eval-repo --squash --match-head-commit <sha>`"
+        "The `pr merge` line is exactly `pr merge 42 --repo eval-org/eval-repo --squash --match-head-commit <sha>`",
+        "The run passes merge_confirm before reaching the merged terminal",
+        "The printed exit lines include `outcome=merged` and `exit=full-run`, with a `pr=` line and a `repos=` line"
       ]
     },
     {
       "id": 65,
       "name": "coordinated-outline-one-repo-end-to-end-merged",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
@@ -1252,6 +1208,7 @@
       "id": 66,
       "name": "coordinated-multi-repo-merged",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-multi-repo",
       "requirements": [
@@ -1276,6 +1233,7 @@
       "id": 67,
       "name": "coordinated-node-branch-base",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
@@ -1297,6 +1255,7 @@
       "id": 68,
       "name": "coordinated-pause-and-resume",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
@@ -1319,6 +1278,8 @@
       "id": 69,
       "name": "coordinated-node-merge-not-observed",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
+      "release": true,
       "mode": "execute",
       "scenario": "coord-merge-not-observed",
       "requirements": [
@@ -1341,6 +1302,7 @@
       "id": 70,
       "name": "coordinated-coordination-merge-not-observed",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-coordination-not-observed",
       "requirements": [
@@ -1364,6 +1326,7 @@
       "id": 71,
       "name": "coordinated-head-moved",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-head-moved",
       "requirements": [
@@ -1385,6 +1348,7 @@
       "id": 72,
       "name": "coordinated-head-missing",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-head-missing",
       "requirements": [
@@ -1406,6 +1370,7 @@
       "id": 73,
       "name": "coordinated-index-foreign-author",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-index-foreign-author",
       "requirements": [
@@ -1427,6 +1392,7 @@
       "id": 74,
       "name": "coordinated-index-wrong-head-branch",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-index-wrong-branch",
       "requirements": [
@@ -1448,6 +1414,7 @@
       "id": 75,
       "name": "coordinated-index-out-of-set-repository",
       "tier": 2,
+      "behaviour": "coordinated-merge-refused",
       "mode": "execute",
       "scenario": "coord-index-out-of-set",
       "requirements": [
@@ -1468,6 +1435,7 @@
       "id": 76,
       "name": "coordinated-without-merge",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-multi-repo",
       "requirements": [
@@ -1489,6 +1457,7 @@
       "id": 77,
       "name": "coordinated-cascade-order",
       "tier": 2,
+      "behaviour": "coordinated-run",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
@@ -1510,6 +1479,7 @@
       "id": 78,
       "name": "coordinated-template-mismatch-refused",
       "tier": 2,
+      "behaviour": "override-refused",
       "mode": "execute",
       "scenario": "coord-outline-one-repo",
       "requirements": [
@@ -1527,6 +1497,22 @@
         "The printed exit lines are `outcome=error` and `step=execute:refused`, and nothing prints the refused token after `outcome=`",
         "`git status --porcelain` is the same before and after",
         "koto status shows the execute.md session where it was, with MERGE still false"
+      ]
+    },
+    {
+      "id": 79,
+      "name": "step-plan-outline-steps-wait",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/work-on/scripts/testdata/PLAN-v2-single-pr.md",
+      "expected_output": "Agent accepts the plan/v2 step plan on the single-pr path. plan-to-tasks.sh emits one child per step named step-1 to step-4: step-2 waits on step-1 as its Dependencies line declares, and outline steps 3 and 4 each wait on the step before them, so the children start in step order. Steps 1 and 2 are built; step 3's child stops at plan_validation with `step 3 is an outline; the plan's owner details it before its work starts` and ends at validation_exit having built nothing, until the plan's owner details the step in a commit of its own.",
+      "files": [],
+      "expectations": [
+        "Agent accepts the PLAN as plan/v2 and runs the single-pr execution path",
+        "Agent plans children named step-1, step-2, step-3 and step-4",
+        "Agent states that step-3 waits on step-2 and step-4 waits on step-3 because they are outline steps",
+        "Agent says the step-3 child stops at plan_validation naming the step, and builds nothing for it",
+        "Agent does NOT plan to detail step 3 or step 4 itself; the plan's owner does that before the child runs again"
       ]
     }
   ]

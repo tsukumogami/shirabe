@@ -138,6 +138,15 @@ run_check_bounded() {
     OUT=$(cat "$out")
 }
 
+# out_has <text>: whether $OUT holds <text>. grep reads a here-document, not a
+# pipe: under pipefail, a grep -q that matches and exits before printf has
+# written everything fails the writer, and with it the pipeline.
+out_has() {
+    grep -qF -- "$1" <<EOF
+$OUT
+EOF
+}
+
 claude_untouched() {
     [ ! -s "$CLAUDE_LOG" ]
 }
@@ -152,7 +161,7 @@ expect() {
         return
     fi
     for s in "$@"; do
-        if ! printf '%s\n' "$OUT" | grep -qF -- "$s"; then
+        if ! out_has "$s"; then
             fail "$name: output lacks '$s'"
             printf '%s\n' "$OUT" | sed 's/^/    /'
             return
@@ -253,7 +262,7 @@ printf 'name: ok\n' > "$ROOT/skills/demo/koto-templates/good.md"
 printf 'STUB-BAD\n' > "$ROOT/skills/demo/koto-templates/good.mermaid.md"
 run_check
 expect "*.mermaid.md is not compiled" 0 "ok: koto template compile skills/demo/koto-templates/good.md"
-if printf '%s\n' "$OUT" | grep -q 'mermaid'; then
+if out_has 'mermaid'; then
     fail "*.mermaid.md was compiled"
 else
     pass "*.mermaid.md is skipped"
@@ -265,10 +274,34 @@ printf '#!/bin/sh\nexit 1\n' > "$ROOT/skills/demo/scripts/broken_test.sh"
 printf '#!/bin/sh\nexit 1\n' > "$ROOT/skills/demo/scripts/helper.sh"
 run_check
 expect "a *_test.sh exiting 1 fails, naming it" 1 "bash skills/demo/scripts/broken_test.sh"
-if printf '%s\n' "$OUT" | grep -q 'helper.sh'; then
+if out_has 'helper.sh'; then
     fail "a script that is not *_test.sh was run"
 else
     pass "only *_test.sh scripts run"
+fi
+
+# A failing case early in a long suite: the 60-line tail no longer holds it,
+# so every FAIL line is listed, with the indented detail under it, and the
+# load is recorded at the start and as the suite ended (shirabe#867).
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+{
+    printf '#!/bin/sh\necho "ok   first case"\n'
+    printf 'echo "FAIL early case"\necho "     want [x], got [y]"\n'
+    printf 'i=0; while [ "$i" -lt 100 ]; do echo "ok   case $i"; i=$((i + 1)); done\n'
+    printf 'echo "1 failed"; exit 1\n'
+} > "$ROOT/skills/demo/scripts/long_test.sh"
+run_check
+expect "a failing suite lists every FAIL line and the load" 1 \
+    "check-skill: demo, load " "every FAIL line:" "      FAIL early case" \
+    "      " "want [x], got [y]" "load when it ended: " "the log's last 60 lines:"
+if awk '/every FAIL line:/ { s = 1; next } /load when it ended:/ { s = 0 } s && /ok   (first )?case/ { bad = 1 } END { exit !bad }' <<EOF
+$OUT
+EOF
+then
+    fail "the FAIL lines hold only failures and their detail"
+else
+    pass "the FAIL lines hold only failures and their detail"
 fi
 
 new_tree
@@ -461,6 +494,238 @@ if [ "$(ls "$MARKS" | grep -c '^pid\.')" = 4 ] && [ -z "$alive" ]; then
 else
     fail "a stopped check stops the suites it started: still alive:${alive:- none}, pid files $(ls "$MARKS" | grep -c '^pid\.')"
     for p in $alive; do kill "$p" 2>/dev/null; done
+fi
+
+# -- Launch order ----------------------------------------------------------------
+# check-skill.tsv's cost rows start the costliest suites first; a suite with no
+# row starts after them, in the glob's order. Results still print in the glob's
+# order.
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+rm -rf "$MARKS"; mkdir -p "$MARKS"
+for s in a b c d e; do
+    printf 'echo %s >> "$MARKS/started"\n' "$s" > "$ROOT/skills/demo/scripts/${s}_test.sh"
+done
+printf '# costs\ncost\tb_test.sh\t5\ncost\td_test.sh\t300\ncost\ta_test.sh\t40\n' \
+    > "$ROOT/skills/demo/check-skill.tsv"
+CHECK_SKILL_JOBS=1 run_check
+expect "suites with cost rows pass" 0 "ok: bash skills/demo/scripts/e_test.sh"
+started=$(tr '\n' ' ' < "$MARKS/started")
+if [ "$started" = "d a b c e " ]; then
+    pass "suites launch costliest first, the ones with no cost row last in the glob's order"
+else
+    fail "launch order: got [$started], want [d a b c e ]"
+fi
+order=$(printf '%s\n' "$OUT" | grep -E '^ok: bash ' | sed 's/.*scripts\///' | tr '\n' ' ')
+if [ "$order" = "a_test.sh b_test.sh c_test.sh d_test.sh e_test.sh " ]; then
+    pass "results still print in the glob's order"
+else
+    fail "results print in the glob's order: got [$order]"
+fi
+
+# -- Selecting suites by changed path (--changed) ---------------------------------
+# select_tree: skill demo with a check-skill.tsv and these scripts:
+#   lib.sh       sourced by one.sh and two.sh, so shared without a row
+#   pinned.sh    named on a shared row
+#   one.sh       run by caller.sh
+#   caller.sh    runs one.sh
+#   lonely.sh    named by the engine suite alone
+#   orphan.sh    named by no suite
+#   two.sh       named by no suite, but two_test.sh is its own
+# and suites one_test.sh (names one.sh), caller_test.sh (names caller.sh),
+# two_test.sh (names nothing), flow_engine_test.sh (names one.sh and
+# lonely.sh), and testdata/lib.sh. Each suite passes.
+select_tree() {
+    new_tree
+    local d="$ROOT/skills/demo/scripts"
+    mkdir -p "$d/testdata"
+    printf 'shared\tpinned.sh\n' > "$ROOT/skills/demo/check-skill.tsv"
+    printf 'x=1\n' > "$d/lib.sh"
+    printf 'pinned\n' > "$d/pinned.sh"
+    printf '. "$HERE/lib.sh"\n' > "$d/one.sh"
+    printf '. "$HERE/lib.sh"\n' > "$d/two.sh"
+    printf 'bash "$HERE/one.sh"\n' > "$d/caller.sh"
+    printf 'lonely\n' > "$d/lonely.sh"
+    printf 'orphan\n' > "$d/orphan.sh"
+    printf 'helper\n' > "$d/testdata/lib.sh"
+    printf '# one.sh\nexit 0\n' > "$d/one_test.sh"
+    printf '# caller.sh\nexit 0\n' > "$d/caller_test.sh"
+    printf 'exit 0\n' > "$d/two_test.sh"
+    printf '# one.sh lonely.sh\nexit 0\n' > "$d/flow_engine_test.sh"
+}
+ALL_DEMO="skills/demo/scripts/caller_test.sh skills/demo/scripts/flow_engine_test.sh skills/demo/scripts/one_test.sh skills/demo/scripts/two_test.sh"
+
+# run_list <changed paths, one per line>: --changed --list on demo; LISTED is
+# the selected suites, sorted and space-separated.
+run_list() {
+    OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" CHECK_SKILL_CHANGED="$1" \
+        "$BASH_BIN" "$CHECK_SH" --changed --list "${SKILL_ARG:-demo}" 2>&1)
+    RC=$?
+    LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+}
+
+# expect_listed <name> <want, sorted and space-separated> [<substring>]
+expect_listed() {
+    if [ "$RC" != 0 ]; then
+        fail "$1: exit $RC"; printf '%s\n' "$OUT" | sed 's/^/    /'; return
+    fi
+    if [ "$LISTED" != "$2" ]; then
+        fail "$1: selected [$LISTED], want [$2]"; printf '%s\n' "$OUT" | sed 's/^/    /'; return
+    fi
+    if [ -n "${3:-}" ] && ! out_has "$3"; then
+        fail "$1: output lacks '$3'"; printf '%s\n' "$OUT" | sed 's/^/    /'; return
+    fi
+    pass "$1"
+}
+
+select_tree
+run_list skills/demo/scripts/one.sh
+expect_listed "a one-script change selects its own suite and its caller's, no engine suite" \
+    "skills/demo/scripts/caller_test.sh skills/demo/scripts/one_test.sh" "selects 2 of 4 suites"
+if [ ! -s "$SHIRABE_LOG" ]; then
+    pass "--list runs no check"
+else
+    fail "--list ran shirabe validate"
+fi
+
+select_tree
+run_list skills/demo/scripts/caller.sh
+expect_listed "a script nothing else runs selects only the suites naming it" \
+    "skills/demo/scripts/caller_test.sh"
+
+select_tree
+run_list skills/demo/scripts/two_test.sh
+expect_listed "a changed suite selects itself" "skills/demo/scripts/two_test.sh"
+
+select_tree
+run_list skills/demo/scripts/two.sh
+expect_listed "a script's own suite is selected though it doesn't name the script" \
+    "skills/demo/scripts/two_test.sh"
+
+select_tree
+run_list skills/demo/scripts/lonely.sh
+expect_listed "a script only an engine suite names selects that engine suite" \
+    "skills/demo/scripts/flow_engine_test.sh"
+
+select_tree
+run_list "skills/demo/scripts/caller.sh
+skills/demo/scripts/two_test.sh"
+expect_listed "selections from several paths add up" \
+    "skills/demo/scripts/caller_test.sh skills/demo/scripts/two_test.sh"
+
+# Every way to reach every suite. Each case's reason must be printed too.
+for c in \
+    "skills/demo/scripts/lib.sh|is sourced by 2 files" \
+    "skills/demo/scripts/pinned.sh|is shared (check-skill.tsv)" \
+    "skills/demo/scripts/testdata/lib.sh|is shared test code" \
+    "skills/demo/check-skill.tsv|is not one of skills/demo's scripts" \
+    "skills/demo/SKILL.md|is not one of skills/demo's scripts" \
+    "scripts/check-skill.sh|is not one of skills/demo's scripts" \
+    "skills/other/x.sh|is not one of skills/demo's scripts" \
+    "skills/demo/scripts/orphan.sh|no suite names" \
+    "skills/demo/scripts/gone.sh|is deleted" \
+    "skills/demo/scripts/gone_test.sh|is deleted"; do
+    path=${c%%|*}
+    select_tree
+    run_list "skills/demo/scripts/one.sh
+$path"
+    expect_listed "a change to $path runs every suite" "$ALL_DEMO" "${c#*|}"
+done
+
+select_tree
+run_list ""
+expect_listed "no changed path runs every suite" "$ALL_DEMO" "no changed path"
+
+select_tree
+rm "$ROOT/skills/demo/check-skill.tsv"
+run_list skills/demo/scripts/one.sh
+expect_listed "a skill with no check-skill.tsv runs every suite" "$ALL_DEMO" "has no check-skill.tsv"
+
+new_tree
+run_check_args() {
+    OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" "$BASH_BIN" "$CHECK_SH" "$@" 2>&1)
+    RC=$?
+}
+run_check_args --list demo
+expect "--list without --changed is a usage error" 2 "usage:"
+run_check_args --bogus demo
+expect "an unknown option is a usage error" 2 "usage:"
+
+# --changed runs only the selected suites, the other checks as before.
+select_tree
+printf '# one.sh\nexit 1\n' > "$ROOT/skills/demo/scripts/two_test.sh"
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" \
+    CHECK_SKILL_CHANGED=skills/demo/scripts/caller.sh "$BASH_BIN" "$CHECK_SH" --changed demo 2>&1)
+RC=$?
+expect "--changed runs the selected suites and skips the rest" 0 \
+    "ok: bash skills/demo/scripts/caller_test.sh" "ok: eval shape" "check-skill: demo passed"
+if out_has 'two_test.sh'; then
+    fail "--changed ran a suite it didn't select"
+else
+    pass "  ... and an unselected failing suite doesn't run"
+fi
+
+# Without CHECK_SKILL_CHANGED, the paths come from git: the merge-base with
+# main, committed and uncommitted changes, and untracked files.
+select_tree
+(cd "$ROOT" && git init -q -b main . && git add -A \
+    && git -c user.name=t -c user.email=t@t commit -qm base \
+    && git checkout -qb topic && printf 'changed\n' >> skills/demo/scripts/caller.sh \
+    && git -c user.name=t -c user.email=t@t commit -qam change) >/dev/null 2>&1
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" \
+    "$BASH_BIN" "$CHECK_SH" --changed --list demo 2>&1)
+RC=$?
+LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+expect_listed "--changed reads the branch's commits against main" "skills/demo/scripts/caller_test.sh"
+printf 'new\n' > "$ROOT/skills/demo/scripts/untracked.sh"
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" PATH="$STUBS:$PATH" \
+    "$BASH_BIN" "$CHECK_SH" --changed --list demo 2>&1)
+RC=$?
+LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+expect_listed "  ... and counts an untracked file" "$ALL_DEMO" "untracked.sh"
+
+# -- The coordinate skill's own selection ----------------------------------------
+# Against the real skills/coordinate: a change to anything shared selects every
+# suite, and a one-script change selects only that script's suites.
+REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
+COORD_ALL=$(cd "$REPO_ROOT" && ls skills/coordinate/scripts/*_test.sh | sort | tr '\n' ' ' | sed 's/ $//')
+# run_coord_list <path>: --changed --list on the real coordinate skill.
+run_coord_list() {
+    OUT=$(cd "$REPO_ROOT" && PATH="$STUBS:$PATH" CHECK_SKILL_CHANGED="$1" \
+        "$BASH_BIN" "$CHECK_SH" --changed --list coordinate 2>&1)
+    RC=$?
+    LISTED=$(printf '%s\n' "$OUT" | grep '^skills/' | sort | tr '\n' ' ' | sed 's/ $//')
+}
+for path in \
+    skills/coordinate/scripts/dispatch-common.sh \
+    skills/coordinate/scripts/record-common.sh \
+    skills/coordinate/scripts/coord-log.sh \
+    skills/coordinate/scripts/coord-verdict.sh \
+    skills/coordinate/scripts/coordinate-open.sh \
+    skills/coordinate/scripts/record-codec.jq \
+    skills/coordinate/scripts/testdata/test-lib.sh \
+    skills/coordinate/scripts/testdata/coordinate-engine-lib.sh \
+    skills/coordinate/koto-templates/coordinate.md \
+    skills/coordinate/check-skill.tsv \
+    skills/coordinate/SKILL.md \
+    scripts/check-skill.sh \
+    scripts/lib/koto-legacy-env.sh; do
+    run_coord_list "$path"
+    expect_listed "coordinate: a change to shared $path selects all $(printf '%s\n' "$COORD_ALL" | wc -w | tr -d ' ') suites" \
+        "$COORD_ALL" "runs every suite"
+done
+run_coord_list skills/coordinate/scripts/need-check.sh
+expect_listed "coordinate: a change to need-check.sh selects only need-check_test.sh" \
+    "skills/coordinate/scripts/need-check_test.sh" "selects 1 of"
+
+# Every coordinate suite has a cost row and every cost row names a suite, so
+# a new suite can't quietly launch last.
+COSTED=$(awk -F'\t' '$1 == "cost" { print "skills/coordinate/scripts/" $2 }' \
+    "$REPO_ROOT/skills/coordinate/check-skill.tsv" | sort | tr '\n' ' ' | sed 's/ $//')
+if [ "$COSTED" = "$COORD_ALL" ]; then
+    pass "coordinate: check-skill.tsv has one cost row per suite"
+else
+    fail "coordinate: cost rows and suites differ: $(printf '%s\n' $COSTED $COORD_ALL | sort | uniq -u | tr '\n' ' ')"
 fi
 
 echo ""

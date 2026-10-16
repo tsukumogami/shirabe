@@ -1,0 +1,28 @@
+{
+  "schema_version": "shirabe-validate/v1",
+  "summary": {
+    "outcome": "violations",
+    "errors": 1,
+    "notices": 1
+  },
+  "findings": [
+    {
+      "code": "FC09",
+      "severity": "notice",
+      "message": "[FC09] Sub-check C skipped: no PR context (set GITHUB_REF=refs/pull/<n>/merge, GITHUB_REPOSITORY, or SHIRABE_PR_NUMBER)",
+      "file": "milestone-prose/ROADMAP-v2-milestone-prose.md",
+      "line": 1
+    },
+    {
+      "code": "FC21",
+      "severity": "error",
+      "message": "[FC21] milestone 'Feature 3: A maintainer updates a plugin' names 'None (lands after the upstream project's milestone 2)' in Dependencies, which is no other milestone",
+      "file": "milestone-prose/ROADMAP-v2-milestone-prose.md",
+      "line": 50
+    }
+  ],
+  "advisory": {
+    "summary": "Draft posture: no draft-tolerable findings to flag.",
+    "notes": []
+  }
+}

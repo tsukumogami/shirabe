@@ -172,12 +172,12 @@ echo
 # --- the script itself ---------------------------------------------------------
 
 CODE=$(grep -v '^[[:space:]]*#' "$SS")
-if printf '%s\n' "$CODE" | grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)'; then
+if grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)' <<<"$CODE"; then
     fail "skill-session.sh contains eval"
 else
     pass "skill-session.sh contains no eval"
 fi
-if printf '%s\n' "$CODE" | grep -q -- '--parent'; then
+if grep -q -- '--parent' <<<"$CODE"; then
     fail "skill-session.sh passes --parent somewhere"
 else
     pass "skill-session.sh never passes --parent"
@@ -185,12 +185,12 @@ fi
 NEXT_LINES=$(printf '%s\n' "$CODE" | grep -E '(koto|"\$KOTO") next ')
 if [ -z "$NEXT_LINES" ]; then
     fail "found no koto next call in skill-session.sh to check"
-elif printf '%s\n' "$NEXT_LINES" | grep -qv -- '--no-cleanup'; then
+elif grep -qv -- '--no-cleanup' <<<"$NEXT_LINES"; then
     fail "a koto next call in skill-session.sh lacks --no-cleanup: $(printf '%s\n' "$NEXT_LINES" | grep -v -- '--no-cleanup')"
 else
     pass "every koto next call in skill-session.sh carries --no-cleanup ($(printf '%s\n' "$NEXT_LINES" | wc -l | tr -d ' ') call site)"
 fi
-if printf '%s\n' "$CODE" | grep -qE 'declare -A|mapfile|readarray|local -n|declare -n'; then
+if grep -qE 'declare -A|mapfile|readarray|local -n|declare -n' <<<"$CODE"; then
     fail "skill-session.sh uses a construct above the bash 3.2 floor"
 else
     pass "skill-session.sh uses no construct above the bash 3.2 floor"

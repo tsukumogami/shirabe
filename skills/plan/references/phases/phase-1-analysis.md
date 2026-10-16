@@ -29,6 +29,41 @@ Detect the input type from the source document path:
 
 Store the `input_type` for use in subsequent steps and phases.
 
+### 1.0a Resolve the Plan Version
+
+Decide which plan version this run writes, before anything else is read or
+written. Run the resolver and copy its answer; do not apply the precedence
+yourself:
+
+```bash
+${CLAUDE_SKILL_DIR}/scripts/resolve-plan-version.sh \
+  [--plan-version=<value>] \
+  [--claude-md <repo-root>/CLAUDE.md]
+```
+
+Pass `--plan-version` with the value exactly as the run was given it, when it
+was given, and `--claude-md` when the repository root has a `CLAUDE.md`. The
+script prints one line, `v1` or `v2`: the flag wins, then a
+`## Plan Version: v1|v2` header in that CLAUDE.md (outside fenced code), then
+the default, which is `v1`.
+
+**A non-zero exit stops the run** with the script's stderr line: a value other
+than `v1` or `v2` (an empty one included), or two `## Plan Version:` headers in
+CLAUDE.md. Nothing has been written at that point and nothing is. A run given
+`--plan-version` never reads the header, so a bad header does not stop it.
+
+Store the version for every later phase:
+
+- **`v1`** -- the run is exactly the `plan/v1` run the rest of this skill
+  describes. Phases 3, 4 and 7 take their `plan/v1` paths.
+- **`v2`** -- the run writes a `plan/v2` step plan. Phase 3 decomposes into
+  steps, Phase 4 details steps 1 and 2 only, and Phase 7 writes
+  `schema: plan/v2`. Roadmap input does not apply: a roadmap plans one
+  planning issue per feature, which a step plan has no form for, so with
+  `input_type: roadmap` and `v2` stop with "a roadmap is planned with
+  `--plan-version=v1`; step plans are for designs, PRDs and topics" before
+  anything is written.
+
 ### 1.1 Validate Source Document Status
 
 Read the source document at the path provided in $ARGUMENTS and check the Status field.
@@ -132,6 +167,7 @@ the content on stdin).
 Path: <path-to-doc>
 Status: Accepted
 Input Type: <design|prd>
+Plan Version: <v1|v2>
 
 ## Scope Summary
 <1-2 sentence summary of what this design delivers>
@@ -161,6 +197,7 @@ Input Type: <design|prd>
 Path: <path-to-roadmap>
 Status: Active
 Input Type: roadmap
+Plan Version: v1
 
 ## Scope Summary
 <1-2 sentence summary from Theme and Scope>
@@ -190,6 +227,7 @@ Before proceeding:
 - [ ] Source document status is valid ("Accepted" for design/prd, "Active" for roadmap)
 - [ ] Full source document read
 - [ ] `input_type` field recorded (design, prd, or roadmap)
+- [ ] `Plan Version` recorded, copied from `resolve-plan-version.sh`
 
 ## Next Phase
 
