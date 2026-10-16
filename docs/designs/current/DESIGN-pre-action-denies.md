@@ -281,7 +281,9 @@ message from the headers at the first blank line and caps the total at
 
 Every git call runs from a fixed environment rather than the hook's: it
 keeps only `PATH` (its absolute entries, so a repository can't plant a
-`git`), `HOME`, `LANG` and `LC_*`, and sets
+`git`), `HOME`, `XDG_CONFIG_HOME` and `GIT_CONFIG_GLOBAL` (which find the
+user's global git configuration, where a `safe.directory` entry may
+live), `LANG` and `LC_*`, and sets
 `GIT_CONFIG_NOSYSTEM=1`, `GIT_NO_LAZY_FETCH=1`,
 `GIT_NO_REPLACE_OBJECTS=1`, `GIT_OPTIONAL_LOCKS=0`,
 `GIT_TERMINAL_PROMPT=0` and `GIT_PAGER=cat`. Its arguments start `-C
@@ -493,8 +495,10 @@ already holds it in memory, but only an input of at most 4 MiB is
 tokenized; a longer one is denied when the coarse test over all of it
 names a guarded action and gets no decision otherwise. The whole evaluation
 runs on a worker thread; the main thread waits 25 seconds and, when the
-worker hasn't answered, applies the coarse test to the raw input,
-prints the fail-closed deny when it names a guarded action (or nothing
+worker hasn't answered, applies the coarse test to the input's
+`tool_input.command` (to the raw input only when it doesn't parse or
+holds no command, so text in another field such as `description` can't
+deny an unguarded command), prints the fail-closed deny when it names a guarded action (or nothing
 when it doesn't) and exits, so a hang anywhere becomes a deny inside
 Claude Code's 30-second timeout, not a pass.
 
@@ -644,12 +648,16 @@ niwa host, in parallel:
   plugin fails closed even when it knows the subcommand. On anything
   else it runs the coarse test, under `LC_ALL=C`: the raw input with its
   JSON escapes `\n`, `\r`, `\t`, `\"` and `\\` turned back into
-  characters by `sed` and a backslash-newline turned into a space (a
-  newline in the command reaches the script as the two characters
-  `\n`, which would otherwise glue `git` to the word before it),
-  lowercased and split one word per line by `tr` on every character
-  outside `[a-z0-9_-]`, then read by `awk` for `gh`, a later `pr` and a
-  later `create` or `edit`, or `git` and a later `push`. That is the
+  characters by `sed` (a newline in the command reaches the script as
+  the two characters `\n`, which would otherwise glue `git` to the word
+  before it), a backslash-newline removed, as the shell joins the two
+  lines, and every `"` and `'` dropped by `tr`, since quote removal
+  doesn't split a word (`g"i"t` is `git`); then lowercased and split one
+  word per line by `tr` on every character outside `[a-z0-9_-]`, and
+  read by `awk` for `gh`, a later `pr` and a later `create` or `edit`,
+  or `git` and a later `push`. Under `PR_BODY_HOOK_DISABLE` (any
+  non-empty value but `0` or `false`) it looks for `git` and a later
+  `push` only, since the PR-body rules are off (PRD R9). That is the
   binary's own reading and takes time linear in the input; a single
   `grep -E` with `.*` between the words is quadratic on a few megabytes
   of `gh` and `pr`, and `hooks/testdata/coarse-cases.tsv` holds the two
@@ -679,15 +687,20 @@ niwa host, in parallel:
   `session_id` are ignored, and nothing is logged.
 - **`tokenize.rs`.** The quote-aware tokenizer from `pr_body_hook.rs`,
   extended: segments end at unquoted `;`, `&`, `|`, newline, `(` and `)`;
-  a backslash-newline outside quotes is removed; each segment keeps its
-  words and its byte span in the raw command; command substitutions are
+  a backslash-newline outside quotes is removed; an unquoted `<` or `>`
+  starts a redirection word, as in the shell (`push>/dev/null` is two
+  words); each segment keeps its words and its byte span in the raw
+  command, and its subshell groups (parentheses, a pipeline element
+  beside `|`, an and-or list `&` ends); command substitutions are
   recorded with their spans for the classifier to recurse into, their
-  here-documents as data; `$'` starts an opaque word the body reader
-  refuses.
+  here-documents as data, except the `$(...)` and backquotes in an
+  unquoted-delimiter here-document's lines, which the shell runs; `$'`
+  starts an opaque word the body reader refuses.
 - **`classify.rs`.** Walks segments, tracks the directory (R4's `cd`,
   `pushd`, `popd` rules, with a stack the tokenizer's parenthesis depth
   drives so a `cd` inside `( )` ends when the group closes), skips
-  `NAME=value`, redirection and reserved words before the head, and
+  `NAME=value`, redirection and reserved words before the head, drops
+  redirection words (and a bare operator's target) after it, and
   returns each
   guarded segment as `Gh(GhSegment { action, words, dir, index })` or
   `Push(PushSegment { words, dir, index })`, with `-C` paths already
@@ -916,7 +929,9 @@ timeout that Claude Code would let through.
 just created is fully agent-shaped, including `.git/config`. The push
 check therefore runs only built-in plumbing (`rev-parse`, `config`,
 `for-each-ref`, `rev-list`, `cat-file`), from a fixed
-environment, with the configuration paths that run programs switched
+environment that keeps only `PATH`'s absolute entries, `HOME`,
+`XDG_CONFIG_HOME`, `GIT_CONFIG_GLOBAL`, `LANG` and `LC_*` from the
+hook's, with the configuration paths that run programs switched
 off: the filesystem monitor, hooks, signature verification (which would
 run `gpg.program`), pagers, external diff and text conversion, and
 lazy fetches from a partial clone's promisor (which would make a

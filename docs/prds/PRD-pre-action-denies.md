@@ -172,11 +172,13 @@ These terms mean the same thing everywhere below.
   any other, or a guarded `git` segment with a leading `GIT_...=value`
   assignment (which can point git at another repository), fails closed
   under R7 case 9. Leading redirection words (`>out`, `2>&1`) are
-  skipped like assignments.
+  skipped like assignments, and a redirection word later in the segment
+  (with the target after a bare `>`, `>>`, `2>`, `<` or `&>`) is no
+  argument: `git push origin topic 2>&1` pushes `topic`.
 - **Named in the text**: the coarse test the plugin's script applies
   when the binary can't run. The raw hook input, with its JSON escapes
   `\n`, `\r`, `\t`, `\"` and `\\` turned back into the characters they
-  stand for, contains, as separate words and ignoring quotes, `gh` followed later by `pr` followed later
+  stand for and a backslash-newline removed, contains, as separate words and ignoring quotes, `gh` followed later by `pr` followed later
   by `create` or `edit`, or `git` followed later by `push`. It is a
   superset of guarded: everything guarded is named in the text, and
   some unguarded commands are too (`echo "git push"`). The same test,
@@ -228,7 +230,9 @@ These terms mean the same thing everywhere below.
   - *What it pushes.* With no refspec, the current branch; a detached
     HEAD with no refspec fails closed under R7. With refspecs, each
     refspec's source: the part before `:`, with a leading `+` removed;
-    an empty source is a deletion and sends nothing. `--all` and
+    an empty source is a deletion and sends nothing, except that `:` or
+    `+:` (an empty source and destination) pushes the matching branches
+    and is checked as `--all`. `--all` and
     `--branches` push every local branch, `--tags` every tag, `--mirror`
     every branch and tag, an annotated tag counting as the commit it
     points at; `--delete`/`-d` makes every refspec a deletion. A source
@@ -249,7 +253,9 @@ These terms mean the same thing everywhere below.
     applied in order and relative to the directory before it, then by
     `git -C <path>`. A `cd` inside parentheses lasts until the group
     closes, as in a subshell, so `(cd sub && x); git push` pushes from
-    the outer directory. A `cd` or `pushd` with no argument, `-`, or a
+    the outer directory. A pipeline element (`cd sub | x`) and a list
+    run with `&` are subshells too, so a `cd` in one moves nothing
+    after it. A `cd` or `pushd` with no argument, `-`, or a
     non-literal argument, or a `popd`, makes the directory unknown for
     every later segment; a guarded push in an unknown directory, or in a
     directory that isn't inside a git work tree, fails closed.

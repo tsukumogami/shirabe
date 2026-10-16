@@ -313,11 +313,13 @@ set to `off` in the `env` block of their Claude Code settings:
 ```
 
 `PR_BODY_HOOK_DISABLE=1` there turns off only the PR-body part and keeps the
-push check. The binary reads that switch, so on a host without the binary the
-fail-closed deny above still covers `gh pr create` and `gh pr edit`. Both switches also cover `shirabe pr-body-hook`, the older entry
-point a host can wire into its own settings. When a host does wire it, the
-plugin's hook leaves the PR-body rules to that entry point, so each broken rule
-is reported once.
+push check. The hook's script reads that switch too, so on a host without the
+binary the fail-closed deny above then covers only `git push`.
+
+Both switches also cover `shirabe pr-body-hook`, the older entry point a host
+can wire into its own settings. When a host does wire it, the plugin's hook
+leaves the PR-body rules to that entry point, so each broken rule is reported
+once.
 
 ## CLI and doc validation
 
