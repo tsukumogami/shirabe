@@ -33,9 +33,13 @@
 # "<owner/repo>#<n>". A tag and a unit compare by record-common.sh tag_key,
 # here and for landed rows and Work rows, so a holding or a row written under
 # `Feature 2` still covers the heading `Milestone 2` of a v3 roadmap, and one
-# naming `Milestone 2` covers a v2 `Feature 2`. dispatch-common.sh dc_unit_forms lists the same forms
-# from coord/pick.json for the dispatch path's check of a brief's unit;
-# pick-facts_test.sh holds the two to each other.
+# naming `Milestone 2` covers a v2 `Feature 2`. dispatch-common.sh
+# dc_unit_forms lists, from coord/pick.json, the forms the dispatch path
+# accepts for a brief's unit: the unit's own tag and `<tag>: <title>`, never
+# its Feature/Milestone twin. Each is one this rule reads as covering, so a
+# holding written through dispatch is never invisible here, while this rule
+# also reads the twin a record written before a rename names.
+# pick-facts_test.sh holds dispatch's forms to this rule.
 #
 # Then, at either scope, the units a person assigned outside it: one per
 # Standing row of kind assignment (record-state.sh), its On the unit's id

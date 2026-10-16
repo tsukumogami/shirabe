@@ -426,8 +426,10 @@ eq "v3: one naming #2, an issue, covers nothing" none "$(covered_in roadmap/v3 "
 echo "== the dispatch path's unit forms are the ones pick reads =="
 # dispatch-common.sh dc_unit_forms lists, from coord/pick.json, the Unit cells
 # the dispatch path accepts for a brief. Each must be one this script reads as
-# covering its unit, and a form it doesn't list must not be, or the two rules
-# have drifted and a holding can go invisible to pick (#493).
+# covering its unit, or the two rules have drifted and a holding can go
+# invisible to pick (#493). The converse isn't required: this script also
+# reads a unit's Feature/Milestone twin (above), which dispatch never offers
+# for a new holding.
 . "$HERE/dispatch-common.sh"
 covered_by() { # covered_by <scope> <unit-cell>: the unit pick reads the one holding as covering, or none
     if [ "$1" = roadmap ]; then
