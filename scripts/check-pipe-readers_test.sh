@@ -45,7 +45,7 @@ while IFS=$'\t' read -r kind label line; do
         bad "fine: $label" "rc=$rc out=$OUT"
     fi
 done < "$CASES"
-[ "$n" -ge 19 ] && ok "every case was read ($n)" || bad "every case was read" "only $n"
+[ "$n" -ge 20 ] && ok "every case was read ($n)" || bad "every case was read" "only $n"
 
 echo "== paths =="
 mkdir -p "$T/d/sub"

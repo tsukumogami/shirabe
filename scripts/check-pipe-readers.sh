@@ -22,15 +22,16 @@
 #   - piped straight into a reader that can stop before the end of its input:
 #     grep given -q, -l, -L or -m (alone or in a flag cluster), --quiet,
 #     --silent, --files-with-matches, --files-without-match or --max-count,
-#     or head.
+#     or head, with or without variable assignments in front of it
+#     (`LC_ALL=C grep -q`).
 # The rule applies whether or not the file sets pipefail: a function is
 # sourced into shells that do, and a script gains it later.
 #
 # Not seen, and left to review: a writer whose arguments hold a `|`, `;`, `&&`
 # or a command substitution (`echo "$(cmd)" | grep -q x`); a line that ends
-# in `|` with the reader on the next; a reader behind a prefix
-# (`LC_ALL=C grep -q`, `command grep`, `/usr/bin/grep`) or reached through a
-# variable or a function; a writer in a `{ ...; }` group; a grep whose quiet
+# in `|` with the reader on the next; a reader behind a command prefix
+# (`command grep`, `/usr/bin/grep`) or reached through a variable or a
+# function; a writer in a `{ ...; }` group; a grep whose quiet
 # flag comes after a pattern holding `|`, `;`, `&` or `)`; and writers other
 # than the three (git, jq, sed and the like). A quiet flag's spelling inside
 # a quoted pattern (`grep -c "a -m"`) can be read as the flag; that errs
@@ -90,7 +91,7 @@ SITES=$(printf '%s\n' "$LIST" | tr '\n' '\0' | xargs -0 awk '
     if (line ~ /\\$/) { held = substr(line, 1, length(line) - 1); next }
     held = ""
     if (line ~ /^[ \t]*#/) next
-    if (line ~ /(^|[;&|(){!`])[ \t]*((then|do|else|if|elif|while|until)[ \t]+)*(![ \t]*)?(printf|echo|cat)([ \t]([^|;&$`]|&[0-9-]|\$[^(|])*)?\|[ \t]*(head([ \t)]|$)|grep[ \t]([^|;&)]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) {
+    if (line ~ /(^|[;&|(){!`])[ \t]*((then|do|else|if|elif|while|until)[ \t]+)*(![ \t]*)?(printf|echo|cat)([ \t]([^|;&$`]|&[0-9-]|\$[^(|])*)?\|[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t|;&]*[ \t]+)*(head([ \t)]|$)|grep[ \t]([^|;&)]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) {
       sub(/^[ \t]+/, "", line)
       printf "%s:%d: %s\n", FILENAME, start, line
     }
