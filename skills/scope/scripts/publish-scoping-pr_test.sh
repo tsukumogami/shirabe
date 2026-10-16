@@ -375,7 +375,7 @@ WANT_STEPS='### Step 1: report export writes a one-row report as CSV
 ### Step 4: report export refuses to overwrite a file without --force'
 eq "plan/v2: the body lists every ### Step N: <title>, in order" "$WANT_STEPS" \
     "$(printf '%s\n' "$BODY" | grep '^### Step ')"
-if printf '%s\n' "$BODY" | grep -Eq '^### Step [0-9]+: *$'; then
+if grep -Eq '^### Step [0-9]+: *$' <<<"$BODY"; then
     bad "plan/v2: no step is listed with a blank title" "$BODY"
 else
     ok "plan/v2: no step is listed with a blank title"
@@ -401,7 +401,7 @@ for want in '### Step 1: $(touch PWNED) runs end to end' \
             '### Step 2: `touch PWNED` in backticks, and Fixes #1' \
             '### Step 3: --help is not an option, @octocat is not a mention' \
             '### Step 4: [31mred [0m and $(touch PWNED)'; do
-    if printf '%s\n' "$BODY" | grep -Fxq -- "$want"; then
+    if grep -Fxq -- "$want" <<<"$BODY"; then
         ok "hostile: the body holds [$want] as text"
     else
         bad "hostile: the body holds [$want] as text" "$BODY"

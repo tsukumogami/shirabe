@@ -608,6 +608,7 @@ states:
     # on 1 (a violation, with findings) or 2 (could not decide):
     #   owned_pr_body_conformant  the owned PR's title and body, through
     #                             shirabe validate --pr-body (PB1 to PB4)
+    #                             and --writing-style (PB5, banned words)
     #   settled_commits           every non-merge commit on the shared branch
     #   settled_docs_visibility   the branch's docs/ changes at the declared
     #                             visibility (R7, R8, R9)
@@ -1520,7 +1521,7 @@ Check progress at any time with `koto status {{SESSION_NAME}}`. If the tick retu
 
 Author a template-conformant PR — a conventional-commit **title** and the project's **two-part body** — and apply it in the single `gh pr edit` this state already runs, so a clean run is conformant in one pass, with no separate repair step (DESIGN R4 / D6). Do **not** mark the PR ready in this state — the DRAFT-vs-READY discipline (#117) requires the chain to be at its strict-mode passing state BEFORE `gh pr ready` fires, and the cascade in `plan_completion` performs that finalization. This state confines itself to title + body assembly.
 
-Author the title and body to the mechanical rule in `references/pr-body-conformance.md`, which owns it and is what `shirabe validate --pr-body` enforces in CI; don't shell out to another plugin's skill at runtime. For `/execute`, Part 2 is the per-child outcome table below.
+Author the title and body to the mechanical rule in `references/pr-body-conformance.md`, which owns it and is what `shirabe validate --pr-body` enforces in CI; don't shell out to another plugin's skill at runtime. Write the prose of both to `skills/writing-style`: this state's gate also holds on a banned word from its rules (`pr-body/banned-word`), which runs here and not in CI. For `/execute`, Part 2 is the per-child outcome table below.
 
 **1. Build the conventional title.** Derive `<description>` from the **validated PLAN slug** `{{PLAN_SLUG}}`, which koto validates against the template's `variables:` block at compile time and which already matches `^[a-z0-9-]+$`. NEVER interpolate raw PLAN prose (title text, body) into the title or the emitted shell — PLAN-body text is data (Security Considerations point 5); the title is built only from the validated slug.
 
@@ -1579,7 +1580,7 @@ Run this title+body edit **unconditionally** on every finalization (clean and at
 **4. Submit `updated`, and let koto check the result.** When the edit ran (`exit=0`), submit `koto next {{SESSION_NAME}} --with-data '{"finalization_status":"updated"}' --no-cleanup`. That is your record that you wrote this run's body; the run doesn't go on without it, even when the PR's existing body would pass. A PR adopted from `/scope` already carries a conformant body (its scoping description), so the checks alone can't tell that the implementation body was written. With an empty `PR_NUMBER` (the lookup found no single owned PR), tick with nothing submitted; koto's own lookup ends the run. koto runs this state's gates over the PR and the branch as they now stand:
 
 - `final_owned_pr` looks up the owned PR the same way, through `check-pr-output.sh --owned-pr`. None or several ends the run at `execute:pr-adopt`, and a failed read at `execute:status-read`, whatever the edit did.
-- `owned_pr_body_conformant` runs `shirabe validate --pr-body` on that PR's title and body (`pr-body/conventional-title`, `pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1`).
+- `owned_pr_body_conformant` runs `shirabe validate --pr-body --writing-style` on that PR's title and body (`pr-body/conventional-title`, `pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1`, `pr-body/banned-word`).
 - `settled_commits` checks every non-merge commit on the shared branch, against origin's default branch: a Conventional Commits subject and no AI-attribution trailer (`commit/conventional-subject`, `commit/no-ai-trailer`).
 - `settled_docs_visibility` checks every `docs/` document the branch changed against the repository's declared visibility (`docs/private-only-type`, `docs/visibility-vision-sections`, `docs/visibility-strategy-sections`).
 

@@ -266,15 +266,18 @@
       "behaviour": "single-pr-orchestration",
       "mode": "execute",
       "scenario": "e2e-plan-escalate",
+      "env": {
+        "KOTO_CALL_LOG": "koto-calls.log"
+      },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md",
-      "expected_output": "Agent initializes or resumes the execute-plan workflow, receives escalate state. Reads batch_final_view via koto context get, identifies the failed child (outline-feat-wire-auth-to-user-model) and the skipped child (outline-test-e2e-auth-flow with its dependency chain). Writes a failure_reason summary naming both children and submits it. Does not attempt to retry failed children.",
+      "expected_output": "The batch already failed: one child failed and its dependent was skipped. The agent opens or resumes the execute-diamond-test session and advances it with a bare `koto next execute-diamond-test --no-cleanup`. spawn_and_await routes the failed batch on its gate alone, and the tick chains through escalate to done_blocked, whose failure_reason already holds the gate's counts: the agent chooses no outcome and submits no evidence, since escalate accepts nothing and done_blocked is terminal. It prints the exit lines with print-exit.sh (outcome=error, step=execute:escalate, exit=abandonment-forced) and gives the forced-stop summary from batch_final_view, read with koto context get: the failed child outline-feat-wire-auth-to-user-model with its reason, CI failed: compilation error in auth_service.go:42, and the skipped child outline-test-e2e-auth-flow, skipped because outline-feat-wire-auth-to-user-model failed. It does not retry or re-spawn either child.",
       "files": [],
       "expectations": [
-        "Agent receives escalate state and attempts to read batch_final_view via koto context get",
-        "Agent identifies failed child outline-feat-wire-auth-to-user-model and its reason from batch_final_view",
-        "Agent identifies skipped child outline-test-e2e-auth-flow and its skipped_because_chain",
-        "Agent submits failure_reason field with a summary naming the failed and skipped children",
-        "Agent does NOT attempt to retry failed children (no restart loop)"
+        "Agent submits no evidence to the execute-diamond-test session after the batch fails: koto-calls.log has no `next execute-diamond-test` line carrying --with-data, and in particular no failure_reason is submitted",
+        "The exit lines printed by print-exit.sh include outcome=error, step=execute:escalate and exit=abandonment-forced",
+        "Agent reads batch_final_view with koto context get and its summary names the failed child outline-feat-wire-auth-to-user-model with its reason, CI failed: compilation error in auth_service.go:42",
+        "The summary names the skipped child outline-test-e2e-auth-flow and says it was skipped because outline-feat-wire-auth-to-user-model failed",
+        "Agent does NOT retry or re-spawn the failed or skipped child (no koto init of a child session, no restart loop)"
       ]
     },
     {
@@ -363,35 +366,6 @@
         "ROADMAP-cascade-test.md Feature 3 Status is updated to Done",
         "ROADMAP-cascade-test.md Feature 3 Downstream references the DESIGN doc at Current",
         "cascade_status is completed"
-      ]
-    },
-    {
-      "id": 34,
-      "name": "e2e-execute-cascade-old-shape-still-reaches-the-roadmap",
-      "tier": 2,
-      "behaviour": "completion-cascade",
-      "mode": "execute",
-      "scenario": "e2e-cascade-full",
-      "prompt": "Run the /execute plan_completion cascade for skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
-      "expected_output": "The regression guard for a corpus authored before the upstream-legality rule. This chain is deliberately in the OLD shape: BRIEF-cascade-test-full.md names the ROADMAP in its upstream:, which shirabe validate now reports as an R11 lifetime violation. The chain walkers are unchanged and stay type-agnostic — the validator gained the opinion, not finalize-chain — so the cascade must behave exactly as it did before the rule landed. Agent runs skills/work-on/scripts/run-cascade.sh --push on PLAN-cascade-test-full.md. The chain is PLAN -> DESIGN -> PRD -> BRIEF -> ROADMAP. The cascade deletes the PLAN doc, transitions DESIGN-cascade-test-full.md to Current (folder move into docs/designs/current/), transitions PRD-cascade-test-full.md to Done, transitions BRIEF-cascade-test-full.md to Done, updates ROADMAP-cascade-test.md Feature 2 entry Status to Done and Downstream to reference the DESIGN at Current. cascade_status is completed. These fixtures are kept in the old shape on purpose and must not be migrated to the new one.",
-      "files": [
-        "skills/execute/evals/fixtures/plans/PLAN-cascade-test-full.md",
-        "skills/execute/evals/fixtures/designs/DESIGN-cascade-test-full.md",
-        "skills/execute/evals/fixtures/prds/PRD-cascade-test-full.md",
-        "skills/execute/evals/fixtures/briefs/BRIEF-cascade-test-full.md",
-        "skills/execute/evals/fixtures/roadmaps/ROADMAP-cascade-test.md"
-      ],
-      "expectations": [
-        "Agent runs skills/work-on/scripts/run-cascade.sh against the old-shape chain without migrating any fixture",
-        "The walk reaches the ROADMAP through BRIEF-cascade-test-full.md's upstream: field, the pre-rule route",
-        "PLAN-cascade-test-full.md is DELETED by the cascade (git rm; the file no longer exists on disk)",
-        "DESIGN-cascade-test-full.md is MOVED to its Current folder (docs/designs/current/)",
-        "PRD-cascade-test-full.md is transitioned to Done",
-        "BRIEF-cascade-test-full.md is transitioned to Done",
-        "ROADMAP-cascade-test.md Feature 2 Status is updated to Done",
-        "ROADMAP-cascade-test.md Feature 2 Downstream references the DESIGN doc at Current",
-        "cascade_status is completed",
-        "Plan does NOT propose removing the BRIEF's upstream: field — the old shape is the evidence this scenario exists to preserve"
       ]
     },
     {
@@ -608,32 +582,6 @@
       ]
     },
     {
-      "id": 36,
-      "name": "merge-mergeable-with-merge",
-      "tier": 2,
-      "behaviour": "merge-performed",
-      "release": true,
-      "mode": "execute",
-      "scenario": "merge-mergeable",
-      "requirements": [
-        "R19"
-      ],
-      "env": {
-        "GH_CALL_LOG": "gh-calls.log"
-      },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "Every pre-check passes. merge_readiness records mergeable:squash:<head>, merge_route routes to merge_attempt, the agent runs merge-exec.sh once, merge_confirm reads MERGED, and the run ends at the merged terminal. print-exit.sh prints outcome=merged, exit=full-run, repos=eval-org/eval-repo, and pr=https://github.com/eval-org/eval-repo/pull/42.",
-      "files": [],
-      "expectations": [
-        "gh-calls.log contains exactly one line starting `pr merge`, and it carries `--match-head-commit <expected_head>` with the sha the run recorded",
-        "The run passes merge_confirm before reaching the merged terminal",
-        "The printed exit lines include `outcome=merged`",
-        "The printed `exit=` line records `full-run`",
-        "The printed exit lines include a `pr=` line and a `repos=` line",
-        "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`"
-      ]
-    },
-    {
       "id": 37,
       "name": "merge-mergeable-without-merge",
       "tier": 2,
@@ -678,31 +626,6 @@
         "gh-calls.log contains no line starting `pr merge`",
         "The printed exit lines include `outcome=ready-awaiting-merge`",
         "The printed exit lines name `reason=merge-state:BLOCKED:review=REVIEW_REQUIRED`"
-      ]
-    },
-    {
-      "id": 39,
-      "name": "merge-dirty-with-merge",
-      "tier": 2,
-      "behaviour": "merge-refused",
-      "mode": "execute",
-      "scenario": "merge-dirty",
-      "requirements": [
-        "R19",
-        "R20"
-      ],
-      "env": {
-        "GH_CALL_LOG": "gh-calls.log"
-      },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "A conflicted PR under --merge. ci_monitor sees DIRTY, koto routes on owned_merge_state_clean with no evidence, and the run passes through escalate_dirty_merge_state to done_blocked, whose result is outcome=ready-awaiting-merge with reason=merge-state:DIRTY. No merge call.",
-      "files": [],
-      "expectations": [
-        "The workflow routes ci_monitor -> escalate_dirty_merge_state -> done_blocked",
-        "gh-calls.log contains no line starting `pr merge`",
-        "The printed exit lines include `outcome=ready-awaiting-merge`",
-        "The printed exit lines name `reason=merge-state:DIRTY`",
-        "The printed `exit=` line is `abandonment-forced`"
       ]
     },
     {
@@ -796,30 +719,6 @@
         "The printed exit lines name `reason=merge-call-failed`",
         "No output anywhere in the run reports `outcome=merged`",
         "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`"
-      ]
-    },
-    {
-      "id": 44,
-      "name": "merge-not-observed",
-      "tier": 2,
-      "behaviour": "merge-outcome-unconfirmed",
-      "mode": "execute",
-      "scenario": "merge-not-observed",
-      "requirements": [
-        "R19",
-        "R20"
-      ],
-      "env": {
-        "GH_CALL_LOG": "gh-calls.log"
-      },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "pr merge exits 0 but every later read reports OPEN. merge_confirm records not-merged:merge-not-observed and the run ends ready-awaiting-merge; print-exit.sh adds that the PR may still be queued.",
-      "files": [],
-      "expectations": [
-        "gh-calls.log contains exactly one line starting `pr merge`",
-        "The printed exit lines name `reason=merge-not-observed`",
-        "The printed exit lines include the line saying the PR may still be queued and may merge later",
-        "No output anywhere in the run reports `outcome=merged`"
       ]
     },
     {
@@ -1259,6 +1158,7 @@
       "name": "merge-call-flags-fixed",
       "tier": 2,
       "behaviour": "merge-performed",
+      "release": true,
       "mode": "execute",
       "scenario": "merge-method-squash",
       "requirements": [
@@ -1268,11 +1168,13 @@
         "GH_CALL_LOG": "gh-calls.log"
       },
       "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-merge-test.md --merge --auto -- The scenario's gh shim serves an owned PR (#42 on impl/merge-test by eval-user) and logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines with print-exit.sh.",
-      "expected_output": "The one merge call is the fixed form merge-exec.sh makes: gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>.",
+      "expected_output": "The one merge call is the fixed form merge-exec.sh makes: gh pr merge <pr> --repo <repo> --<method> --match-head-commit <sha>. merge_confirm then reads the PR merged, the run ends at the merged terminal, and print-exit.sh prints outcome=merged, exit=full-run, repos=eval-org/eval-repo and pr=https://github.com/eval-org/eval-repo/pull/42.",
       "files": [],
       "expectations": [
         "No `pr merge` line in gh-calls.log contains `--admin` or `--auto`",
-        "The `pr merge` line is exactly `pr merge 42 --repo eval-org/eval-repo --squash --match-head-commit <sha>`"
+        "The `pr merge` line is exactly `pr merge 42 --repo eval-org/eval-repo --squash --match-head-commit <sha>`",
+        "The run passes merge_confirm before reaching the merged terminal",
+        "The printed exit lines include `outcome=merged` and `exit=full-run`, with a `pr=` line and a `repos=` line"
       ]
     },
     {
@@ -1611,6 +1513,21 @@
         "Agent states that step-3 waits on step-2 and step-4 waits on step-3 because they are outline steps",
         "Agent says the step-3 child stops at plan_validation naming the step, and builds nothing for it",
         "Agent does NOT plan to detail step 3 or step 4 itself; the plan's owner does that before the child runs again"
+      ]
+    },
+    {
+      "id": 80,
+      "name": "pr-finalization-banned-word-holds-finalization",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-diamond-test.md -- the owned PR's title is \"feat: a seamless migration\". What does pr_finalization do?",
+      "expected_output": "owned_pr_body_conformant runs check-pr-output.sh --pr-body --owned, which checks the owned PR's title and body with shirabe validate --pr-body --writing-style. The banned word in the title holds pr_finalization with a pr-body/banned-word finding that says it is in the title. The agent rewrites the title in the gh pr edit this state runs, keeping to skills/writing-style, and submits finalization_status: updated again. The check runs here, not in CI.",
+      "files": [],
+      "expectations": [
+        "Agent says owned_pr_body_conformant holds pr_finalization with a pr-body/banned-word finding for the title",
+        "Agent points at skills/writing-style as the source of the banned words",
+        "Agent fixes the title with the state's gh pr edit and submits finalization_status: updated again",
+        "Agent does not claim CI enforces the banned-word check"
       ]
     }
   ]

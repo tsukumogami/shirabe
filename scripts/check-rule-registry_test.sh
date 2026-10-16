@@ -99,10 +99,10 @@ expect_problem() {
         return
     fi
     run_check "$@"
-    if [ "$RC" = 1 ] && printf '%s\n' "$OUT" | grep -qF -- "$want"; then
+    if [ "$RC" = 1 ] && grep -qF -- "$want" <<<"$OUT"; then
         pass "$label"
     else
-        fail "$label" "rc=$RC, want 1 and [$want]; got: $(printf '%s' "$OUT" | head -n 5 | tr '\n' '|')"
+        fail "$label" "rc=$RC, want 1 and [$want]; got: $(head -n 5 <<<"$OUT" | tr '\n' '|')"
     fi
     reset_copy
 }
@@ -263,7 +263,9 @@ expect_problem "an unregistered RULE_IDS id" "RULE_IDS names pr-body/not-registe
 
 sed 's|^RULE_IDS="\(.*\)"$|RULE_IDS="\1" # trailing words|' \
     "$WORK/orig/skills/work-on/scripts/check-pr-output.sh" > "$S/skills/work-on/scripts/check-pr-output.sh"
-expect_problem "a malformed RULE_IDS line" "check-pr-output.sh:63: malformed RULE_IDS line"
+# The line is read from the script rather than pinned, so its header can grow.
+RULE_IDS_LINE=$(grep -n '^RULE_IDS=' "$WORK/orig/skills/work-on/scripts/check-pr-output.sh" | cut -d: -f1)
+expect_problem "a malformed RULE_IDS line" "check-pr-output.sh:$RULE_IDS_LINE: malformed RULE_IDS line"
 
 # The declared exception: RULE_IDS_ANY_ACTIVE=1 beside an rf_require_any call,
 # in panel-scope.sh only. Each case builds its alteration from the original so
@@ -404,7 +406,7 @@ exec "$SCRIPT_DIR/rule-registry.sh" "\$@"
 EOF
 chmod +x "$F/check-rule-registry.sh" "$F/rule-registry.sh"
 OUT=$("$F/check-rule-registry.sh" --root "$S" 2>&1); RC=$?
-if [ "$RC" = 2 ] && printf '%s\n' "$OUT" | grep -qF "gave no answer"; then
+if [ "$RC" = 2 ] && grep -qF "gave no answer" <<<"$OUT"; then
     pass "a release that gives no answer exits 2"
 else
     fail "a release that gives no answer exits 2" "rc=$RC: $OUT"
@@ -418,7 +420,7 @@ if [ -r "$S/skills/unreadable" ]; then
     echo "skip: an unreadable directory exits 2 (permissions don't bind here)"
 else
     run_check
-    if [ "$RC" = 2 ] && printf '%s\n' "$OUT" | grep -qF "could not read the tree"; then
+    if [ "$RC" = 2 ] && grep -qF "could not read the tree" <<<"$OUT"; then
         pass "an unreadable directory in a scanned tree exits 2"
     else
         fail "an unreadable directory in a scanned tree exits 2" "rc=$RC: $OUT"
@@ -435,7 +437,7 @@ expect_problem "an id removed relative to --base" "$TK: in the registry at the b
 git -C "$S" rm -q --cached references/rule-registry.json
 git $GIT_ID -C "$S" commit -qm "no registry"
 run_check --base HEAD
-if [ "$RC" = 0 ] && printf '%s\n' "$OUT" | grep -qF "the base has no registry"; then
+if [ "$RC" = 0 ] && grep -qF "the base has no registry" <<<"$OUT"; then
     pass "a base with no registry passes the id-removal check"
 else
     fail "a base with no registry passes the id-removal check" "rc=$RC: $OUT"
@@ -487,10 +489,10 @@ expect_adopt() {
     local label=$1 want_rc=$2 want=$3 base=${4:-$BASE}
     OUT=$("$ADOPT" --root "$A" "$base" 2>&1)
     RC=$?
-    if [ "$RC" = "$want_rc" ] && printf '%s\n' "$OUT" | grep -qF -- "$want"; then
+    if [ "$RC" = "$want_rc" ] && grep -qF -- "$want" <<<"$OUT"; then
         pass "$label"
     else
-        fail "$label" "rc=$RC, want $want_rc and [$want]; got: $(printf '%s' "$OUT" | head -n 5 | tr '\n' '|')"
+        fail "$label" "rc=$RC, want $want_rc and [$want]; got: $(head -n 5 <<<"$OUT" | tr '\n' '|')"
     fi
     reset_adopt
 }

@@ -364,7 +364,11 @@ mod tests {
         let ids: Vec<String> = reg
             .entries
             .iter()
-            .filter(|e| e.id.starts_with("pr-body/") || e.id.starts_with("commit/"))
+            // The rules the hook denies: the embedded copy carries only their
+            // texts, so a registry rule the hook doesn't check (such as
+            // pr-body/banned-word, whose text is in the writing-style rules)
+            // has nothing to compare.
+            .filter(|e| crate::pre_action::RULES.contains(&e.id.as_str()))
             .map(|e| e.id.clone())
             .collect();
         assert!(ids.len() >= 6, "{ids:?}");

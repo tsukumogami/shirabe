@@ -20,6 +20,10 @@
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 set -uo pipefail
+# check-skill validates with SHIRABE_BIN when it is set (CI sets it for some
+# suites); these fixtures exercise the stubs, so it is cleared here and set
+# only by the case that tests it.
+unset SHIRABE_BIN
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 CHECK_SH="$SCRIPT_DIR/check-skill.sh"
@@ -280,6 +284,30 @@ else
     pass "only *_test.sh scripts run"
 fi
 
+# A failing case early in a long suite: the 60-line tail no longer holds it,
+# so every FAIL line is listed, with the indented detail under it, and the
+# load is recorded at the start and as the suite ended (shirabe#867).
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+{
+    printf '#!/bin/sh\necho "ok   first case"\n'
+    printf 'echo "FAIL early case"\necho "     want [x], got [y]"\n'
+    printf 'i=0; while [ "$i" -lt 100 ]; do echo "ok   case $i"; i=$((i + 1)); done\n'
+    printf 'echo "1 failed"; exit 1\n'
+} > "$ROOT/skills/demo/scripts/long_test.sh"
+run_check
+expect "a failing suite lists every FAIL line and the load" 1 \
+    "check-skill: demo, load " "every FAIL line:" "      FAIL early case" \
+    "      " "want [x], got [y]" "load when it ended: " "the log's last 60 lines:"
+if awk '/every FAIL line:/ { s = 1; next } /load when it ended:/ { s = 0 } s && /ok   (first )?case/ { bad = 1 } END { exit !bad }' <<EOF
+$OUT
+EOF
+then
+    fail "the FAIL lines hold only failures and their detail"
+else
+    pass "the FAIL lines hold only failures and their detail"
+fi
+
 new_tree
 mkdir -p "$ROOT/skills/demo/scripts"
 printf '[ -f skills/demo/SKILL.md ] || { echo "not at the root"; exit 1; }\n' \
@@ -300,6 +328,41 @@ expect "every failure is reported, not only the first" 1 \
 new_tree
 run_check "$NOKOTO:$TOOLBIN:/usr/bin:/bin"
 expect "koto missing from PATH exits 2, naming it" 2 "not on PATH: koto"
+
+# Which shirabe validates (shirabe#860). The fixture tree here is shirabe's
+# source (crates/shirabe/Cargo.toml) with a built target/release/shirabe that
+# accepts everything, while the installed stub on PATH rejects STUB-REJECT:
+# content only the branch's validator accepts.
+branch_tree() { # branch_tree [stale]
+    new_tree
+    mkdir -p "$ROOT/crates/shirabe/src" "$ROOT/target/release" "$ROOT/skills/demo/references"
+    printf '[package]\nname = "shirabe"\n' > "$ROOT/crates/shirabe/Cargo.toml"
+    printf '[workspace]\n' > "$ROOT/Cargo.toml"
+    : > "$ROOT/crates/shirabe/src/main.rs"
+    touch -t 202001010000 "$ROOT/Cargo.toml" "$ROOT/crates/shirabe/Cargo.toml" "$ROOT/crates/shirabe/src/main.rs"
+    printf '#!/bin/sh\n[ "$1" = validate ] || exit 2\necho "branch validator" >> "$SHIRABE_LOG"\nexit 0\n' > "$ROOT/target/release/shirabe"
+    chmod +x "$ROOT/target/release/shirabe"
+    [ "${1:-}" = stale ] && touch "$ROOT/crates/shirabe/src/main.rs"
+    printf 'STUB-REJECT\n' > "$ROOT/skills/demo/references/v2.md"
+}
+branch_tree
+run_check "$STUBS:$TOOLBIN:/usr/bin:/bin"
+expect "the tree's fresh build validates what the installed release rejects" 0 \
+    "validating with $ROOT/target/release/shirabe (the tree's build)" "ok: shirabe validate"
+branch_tree stale
+run_check "$STUBS:$TOOLBIN:/usr/bin:/bin"
+expect "a stale build with no cargo falls back to the installed shirabe, and says so" 1 \
+    "validating with $STUBS/shirabe (the installed release)" "shirabe validate rejected"
+branch_tree stale
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" SHIRABE_BIN="$ROOT/target/release/shirabe" PATH="$STUBS:$TOOLBIN:/usr/bin:/bin" \
+    "$BASH_BIN" "$CHECK_SH" demo 2>&1); RC=$?
+expect "SHIRABE_BIN, when set, is the validator" 0 "validating with $ROOT/target/release/shirabe (SHIRABE_BIN)"
+new_tree
+NOSHIRABE="$WORK/stubs-noshirabe"
+mkdir -p "$NOSHIRABE"
+cp "$STUBS/koto" "$STUBS/claude" "$NOSHIRABE/"
+run_check "$NOSHIRABE:$TOOLBIN:/usr/bin:/bin"
+expect "no shirabe on PATH and none in the tree exits 2, naming it" 2 "not on PATH: shirabe"
 
 new_tree
 SKILL_ARG="../demo" run_check

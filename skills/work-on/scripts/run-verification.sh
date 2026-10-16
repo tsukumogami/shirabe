@@ -400,11 +400,11 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$SESSION" ] || { usage; exit 2; }
-printf '%s' "$SESSION" | grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._-]*$' && [ "$SESSION" != . ] && [ "$SESSION" != .. ] \
+grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._-]*$' <<<"$SESSION" && [ "$SESSION" != . ] && [ "$SESSION" != .. ] \
     || die "--session [$SESSION] is not a session name"
 if [ -n "$BASE_REF" ]; then
-    printf '%s' "$BASE_REF" | grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._/-]*$' \
-        && ! printf '%s' "$BASE_REF" | grep -q '\.\.' \
+    grep -Eq '^[A-Za-z0-9._][A-Za-z0-9._/-]*$' <<<"$BASE_REF" \
+        && ! grep -q '\.\.' <<<"$BASE_REF" \
         || die "--base-ref [$BASE_REF] is not a ref name"
 fi
 
@@ -435,7 +435,7 @@ fi
 DIRTY=$(git -C "$ROOT" status --porcelain --untracked-files=no) \
     || die "could not read the working tree's status"
 if [ -n "$DIRTY" ]; then
-    settle dirty-tree "tracked files have uncommitted changes: $(printf '%s\n' "$DIRTY" | head -n 10 | cut -c4- | tr '\n' ' ')"
+    settle dirty-tree "tracked files have uncommitted changes: $(head -n 10 <<<"$DIRTY" | cut -c4- | tr '\n' ' ')"
 fi
 
 # 3. The map, from the merge-base.

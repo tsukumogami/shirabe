@@ -10,18 +10,25 @@
 # starts `claude` or calls a model.
 #
 # For skills/<skill>/ it:
-#   1. checks shirabe, koto, python3 and git are on PATH, naming each one that
-#      is missing (exit 2);
+#   1. checks koto, python3 and git are on PATH, naming each one that is
+#      missing (exit 2);
 #   2. runs `shirabe validate` once over the skill's Markdown outside evals/
-#      and koto-templates/;
+#      and koto-templates/, with the branch's own shirabe where the tree can
+#      give one (SHIRABE_BIN, the tree's fresh target/release build, or a
+#      build of it) and the installed one otherwise, naming which (exit 2
+#      when there is none);
 #   3. runs `koto template compile` on each koto-templates/*.md that is not a
 #      *.mermaid.md;
 #   4. runs each scripts/*_test.sh with `bash`, from the repository root, the
 #      way the CI workflows invoke them, up to CHECK_SKILL_JOBS of them at
 #      once, the costliest first, reporting each in the order a serial run
-#      would;
+#      would. A failed suite is reported with every FAIL line in its log (and
+#      the indented lines under each), the 1-minute load when it ended, and
+#      its last 60 lines; the run opens with the load at its start;
 #   5. runs scripts/lib/check-evals-shape.py on evals/evals.json (a skill whose
-#      SKILL.md declares disable-model-invocation: true may have none).
+#      SKILL.md declares disable-model-invocation: true may have none);
+#   6. runs scripts/check-pipe-readers.sh over the skill's directory, which
+#      refuses a printf, echo or cat piped into grep -q or head.
 #
 # Every check runs even after one fails. Each failure is reported with the
 # file it concerns, and the run ends with the list of failures.
@@ -116,14 +123,14 @@ done
 [ "$LIST" = 0 ] || [ "$CHANGED" = 1 ] || usage
 SKILL="$1"
 
-if ! printf '%s\n' "$SKILL" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
+if ! grep -Eq '^[a-z0-9][a-z0-9-]*$' <<<"$SKILL" \
     || [ "$(printf '%s\n' "$SKILL" | wc -l | tr -d ' ')" != "1" ]; then
     echo "check-skill: invalid skill name (must match ^[a-z0-9][a-z0-9-]*\$)" >&2
     exit 2
 fi
 
 missing=""
-for tool in shirabe koto python3 git; do
+for tool in koto python3 git; do
     command -v "$tool" >/dev/null || missing="$missing $tool"
 done
 if [ -n "$missing" ]; then
@@ -143,6 +150,7 @@ for v in $(env | sed -n 's/^\(KOTO_SESSION_[A-Za-z0-9_]*\)=.*/\1/p'); do
 done
 
 cd "$ROOT" || { echo "check-skill: cannot enter $ROOT" >&2; exit 2; }
+
 SKILL_DIR="skills/$SKILL"
 if [ ! -d "$SKILL_DIR" ]; then
     echo "check-skill: no such skill: $SKILL_DIR" >&2
@@ -150,7 +158,7 @@ if [ ! -d "$SKILL_DIR" ]; then
 fi
 
 JOBS="${CHECK_SKILL_JOBS:-4}"
-if ! printf '%s\n' "$JOBS" | grep -Eq '^[1-9][0-9]?$' \
+if ! grep -Eq '^[1-9][0-9]?$' <<<"$JOBS" \
     || [ "$(printf '%s\n' "$JOBS" | wc -l | tr -d ' ')" != "1" ]; then
     echo "check-skill: CHECK_SKILL_JOBS must be a whole number from 1 to 99" >&2
     exit 2
@@ -188,6 +196,41 @@ fail() {
 show_log() {
     sed -e 's/^/    /' "${1:-$LOG}" | tail -n 60
 }
+
+# load1: the host's 1-minute load average (Linux /proc/loadavg, or macOS
+# sysctl's "{ 1.23 4.56 7.89 }"), or "unknown".
+load1() {
+    local l=""
+    if [ -r /proc/loadavg ]; then
+        read -r l _ < /proc/loadavg
+    else
+        l=$(sysctl -n vm.loadavg 2>/dev/null)
+        l=${l#\{ }
+        l=${l%% *}
+    fi
+    printf '%s\n' "${l:-unknown}"
+}
+
+# show_suite_failure <log> <load-file>: every FAIL line of a failed suite
+# with the indented detail lines under it, wherever they fall in the log, then
+# the 1-minute load when the suite ended and the log's tail. The tail alone
+# lost the failing case's name when a long suite failed early (shirabe#867),
+# and a load failure couldn't be filed without running the suite again.
+show_suite_failure() {
+    local lines
+    lines=$(awk '/^[[:space:]]*(.\[[0-9;]*m)?(FAIL|not ok)([^A-Za-z]|$)/ { print "      " $0; d = 1; next }
+                 d && /^[ \t]/ && !/^[[:space:]]*(.\[[0-9;]*m)?(ok|PASS)([^A-Za-z]|$)/ { print "      " $0; next }
+                 { d = 0 }' "$1")
+    if [ -n "$lines" ]; then
+        echo "    every FAIL line:"
+        printf '%s\n' "$lines"
+    fi
+    echo "    load when it ended: $(cat "$2" 2>/dev/null || echo unknown)"
+    echo "    the log's last 60 lines:"
+    show_log "$1"
+}
+
+echo "check-skill: $SKILL, load $(load1) at start"
 
 suites=()
 for t in "$SKILL_DIR"/scripts/*_test.sh; do
@@ -311,7 +354,7 @@ $p" ;;
                     return
                 fi
                 names=$(callers_of "$name" "$shared")
-                hits=$(printf '%s\n' "$names" | grep -lF -f - "${suites[@]}")
+                hits=$(grep -lF -f - "${suites[@]}" <<<"$names")
                 # The script's own suite counts whether or not it names it.
                 s="$SKILL_DIR/scripts/${name%.*}_test.sh"
                 [ -f "$s" ] && hits="$hits
@@ -378,6 +421,53 @@ fi
 
 echo "check-skill: $SKILL_DIR"
 
+# The shirabe that validates (shirabe#860): the branch's own wherever the
+# tree can give one, so a format newer than the installed release (a PLAN
+# schema, say) is judged by the code that ships with it rather than failing
+# on content that is correct. In order:
+#   1. SHIRABE_BIN, when set to an executable (CI builds the branch's);
+#   2. the tree's target/release/shirabe, when nothing under crates/ and no
+#      Cargo.toml or Cargo.lock is newer than it;
+#   3. a build of it (cargo build --release --locked -p shirabe), once, when
+#      the tree is shirabe's source and cargo is on PATH;
+#   4. the installed shirabe on PATH.
+# The run says which it used. A binary from 1 to 3 is also exported as
+# SHIRABE_BIN, which the suites that run shirabe read.
+resolve_shirabe() {
+    local bin="target/release/shirabe" newer
+    if [ -n "${SHIRABE_BIN:-}" ] && [ -x "$SHIRABE_BIN" ]; then
+        VALIDATOR=$SHIRABE_BIN VALIDATOR_FROM="SHIRABE_BIN"
+        return 0
+    fi
+    [ -f crates/shirabe/Cargo.toml ] || return 1
+    if [ -x "$bin" ]; then
+        newer=$(find crates Cargo.toml Cargo.lock -newer "$bin" -type f 2>/dev/null)
+        if [ -z "$newer" ]; then
+            VALIDATOR="$ROOT/$bin" VALIDATOR_FROM="the tree's build"
+            return 0
+        fi
+    fi
+    command -v cargo >/dev/null || return 1
+    echo "check-skill: building shirabe from the tree (cargo build --release --locked -p shirabe)"
+    if cargo build --release --locked -p shirabe >"$LOG" 2>&1 && [ -x "$bin" ]; then
+        VALIDATOR="$ROOT/$bin" VALIDATOR_FROM="a build of the tree"
+        return 0
+    fi
+    show_log
+    echo "check-skill: the build failed; falling back to the installed shirabe"
+    return 1
+}
+VALIDATOR="" VALIDATOR_FROM=""
+if resolve_shirabe; then
+    export SHIRABE_BIN="$VALIDATOR"
+elif command -v shirabe >/dev/null; then
+    VALIDATOR=$(command -v shirabe) VALIDATOR_FROM="the installed release"
+else
+    echo "check-skill: required tool(s) not on PATH: shirabe (and the tree builds none)" >&2
+    exit 2
+fi
+echo "check-skill: validating with $VALIDATOR ($VALIDATOR_FROM)"
+
 # 2. shirabe validate, once, over the skill's Markdown outside evals/ and
 # koto-templates/. Collected into an array so names reach the tool intact.
 md_files=()
@@ -390,7 +480,7 @@ EOF
 
 if [ ${#md_files[@]} -eq 0 ]; then
     echo "shirabe validate: no Markdown outside evals/ and koto-templates/"
-elif shirabe validate "${md_files[@]}" >"$LOG" 2>&1; then
+elif "$VALIDATOR" validate "${md_files[@]}" >"$LOG" 2>&1; then
     echo "ok: shirabe validate (${#md_files[@]} files)"
 else
     show_log
@@ -430,7 +520,7 @@ report_ready() {
         if [ "$rc" = 0 ]; then
             echo "ok: bash ${suites[$NEXT]}"
         else
-            show_log "$RUNS/$NEXT.log"
+            show_suite_failure "$RUNS/$NEXT.log" "$RUNS/$NEXT.load"
             fail "bash ${suites[$NEXT]}"
         fi
         NEXT=$((NEXT + 1))
@@ -445,15 +535,19 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
     done
     # The .rc file appears whole (written, then renamed), so a reader never
     # sees a suite as finished before its status is there.
+    # A failed suite also records the load as it ended, which a failure under
+    # load is filed with.
     ( bash "${suites[$i]}" </dev/null >"$RUNS/$i.log" 2>&1
-      echo $? > "$RUNS/$i.rc.tmp" && mv "$RUNS/$i.rc.tmp" "$RUNS/$i.rc" ) &
+      rc=$?
+      [ "$rc" = 0 ] || load1 > "$RUNS/$i.load"
+      echo "$rc" > "$RUNS/$i.rc.tmp" && mv "$RUNS/$i.rc.tmp" "$RUNS/$i.rc" ) &
 done
 wait
 report_ready
 # A suite with no status after every job has ended (its wrapper killed before
 # it could write one) is a failure, never a silent gap in the report.
 while [ "$NEXT" -lt "${#suites[@]}" ]; do
-    [ -f "$RUNS/$NEXT.log" ] && show_log "$RUNS/$NEXT.log"
+    [ -f "$RUNS/$NEXT.log" ] && show_suite_failure "$RUNS/$NEXT.log" "$RUNS/$NEXT.load"
     fail "bash ${suites[$NEXT]} (no exit status recorded)"
     NEXT=$((NEXT + 1))
     report_ready
@@ -466,6 +560,15 @@ if python3 "$SHAPE_CHECK" "$evals_json" "$SKILL_DIR/SKILL.md" >"$LOG" 2>&1; then
 else
     show_log
     fail "eval shape: $evals_json"
+fi
+
+# 6. No shell value piped into a reader that stops early (grep -q, head):
+#    under pipefail the writer can be cut off and a match read as no match.
+if bash "$SCRIPT_DIR/check-pipe-readers.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
+    echo "ok: pipe readers ($SKILL_DIR)"
+else
+    show_log
+    fail "pipe readers: $SKILL_DIR (scripts/check-pipe-readers.sh)"
 fi
 
 if [ -n "$FAILURES" ]; then
