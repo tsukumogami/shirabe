@@ -44,8 +44,9 @@ The user invoked `/brief <path>` where `<path>` resolves to a
 `docs/roadmaps/ROADMAP-*.md` file inside the repo. This is the common entry: the
 roadmap named the feature, and the brief frames it before requirements start.
 
-1. Load the upstream ROADMAP and find the feature this brief frames. Read its
-   line-item description and any sequencing rationale around it.
+1. Load the upstream ROADMAP and find the feature this brief frames: an entry
+   under `## Features`, or under `## Milestones` on a `roadmap/v3` roadmap. Read
+   its line-item description and any sequencing rationale around it.
 2. Draft a problem candidate: what problem does this feature solve for a user? A
    roadmap line item names *what* gets built; the brief names *why it matters to a
    user*. Pull the why out of the roadmap framing and state it as a problem.
