@@ -17,6 +17,13 @@
 #   text <id>             the rule's lines, first to last
 #   range <id>            "<first> <last>": the line numbers of the rule's text
 #   withhold <id>         the entry's withhold value (never or eligible)
+#   stage <id>            the effective lifecycle stage of a script-checked
+#                         entry, active or retired: shadow, warn, block or
+#                         retired (see "Effective stage" below)
+#   resolve <id>          "<ref>\t<summary>\t<stage>" on one line, the three
+#                         values ref, summary and stage print; an active entry
+#                         that is not script-checked has no stage and prints
+#                         block, so a rule outside the lifecycle keeps blocking
 #   release <id>          the rule's lines between marker lines, on stderr;
 #                         always exits 0
 #   log-finding <line>    append a printed ::koto-finding:: line to
@@ -46,9 +53,19 @@
 # GIT_CONFIG_PARAMETERS, are defense in depth the tests can't exercise. The
 # tests do show a planted clean filter not running, which --no-filters stops.
 #
-# Exit codes (ref, summary, text):
+# Effective stage. `stage` fails closed: it prints block for a script entry
+# with no stage (a registry from before the field), for a stage outside the
+# four values, and for an active entry below block whose guards include a
+# protected action that stage_backstops doesn't cover. A guard is covered by a
+# backstop whose `before` names it and whose `check` is a regular file under
+# the plugin root other than the entry's own check.path. This repeats the
+# registry check's safety rule at run time, so a registry edited without
+# passing CI still can't soften a guarded rule.
+#
+# Exit codes (ref, summary, text, stage, resolve):
 #   0  printed
-#   1  no such rule, or the rule is retired
+#   1  no such rule, or the rule is retired; for stage, no such rule or one
+#      that isn't script-checked (a retired script entry prints its stage)
 #   2  could not decide: unreadable registry, malformed id, unsafe path, or a
 #      text whose anchors do not resolve
 # verify-findings: 0 every finding checks out, 1 a finding does not, 2 could
@@ -113,7 +130,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$REGISTRY" ] || REGISTRY="$ROOT/references/rule-registry.json"
 
-[ $# -eq 2 ] || die2 "usage: rule-registry.sh [--root <dir>] [--registry <file>] ref|summary|text|range|withhold|release|log-finding|verify-findings <arg>"
+[ $# -eq 2 ] || die2 "usage: rule-registry.sh [--root <dir>] [--registry <file>] ref|summary|text|range|withhold|stage|resolve|release|log-finding|verify-findings <arg>"
 CMD=$1
 ARG=$2
 
@@ -126,6 +143,8 @@ VERSION_SHAPE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'
 RELEASE_MAX_LINES=60
 MARK_OPEN='::shirabe-rule::'
 MARK_CLOSE='::shirabe-rule-end::'
+# The guards vocabulary less `none`, as scripts/check-rule-registry.sh has it.
+PROTECTED='["pr-create","push","force-push","merge","close-issue","release","delete-branch","publish","destroy-record"]'
 
 valid_id() {
     [[ $1 =~ $ID_NAMED ]] || [[ $1 =~ $ID_RS ]]
@@ -147,11 +166,12 @@ safe_path() {
     printf '%s/%s' "$dir" "$base"
 }
 
-# entry <id>: the entry's JSON on stdout. Exit 1 unknown or retired, 2 when the
-# registry can't be read, the id is malformed, or the entry itself is (no
-# status, or two entries with the id; the check script refuses both in CI).
+# entry <id> [retired-ok]: the entry's JSON on stdout. Exit 1 unknown or
+# retired (a retired entry is printed when the second argument is given), 2
+# when the registry can't be read, the id is malformed, or the entry itself is
+# (no status, or two entries with the id; the check script refuses both in CI).
 entry() {
-    local id=$1 e n status
+    local id=$1 retired_ok=${2:-} e n status
     valid_id "$id" || { echo "$PROG: [$id] is not a rule id" >&2; return 2; }
     [ -r "$REGISTRY" ] || { echo "$PROG: cannot read $REGISTRY" >&2; return 2; }
     jq -e '.rules | type == "array"' "$REGISTRY" >/dev/null 2>&1 \
@@ -166,7 +186,8 @@ entry() {
     status=$(printf '%s' "$e" | jq -r '.status // ""')
     case "$status" in
         active) ;;
-        retired) echo "$PROG: rule $id is retired" >&2; return 1 ;;
+        retired)
+            [ -n "$retired_ok" ] || { echo "$PROG: rule $id is retired" >&2; return 1; } ;;
         *) echo "$PROG: rule $id has no valid status" >&2; return 2 ;;
     esac
     printf '%s\n' "$e"
@@ -304,6 +325,99 @@ cmd_withhold() {
     esac
 }
 
+# STAGE_JQ reads one entry and prints tagged lines, one jq pass for everything
+# `stage` and `resolve` need from it:
+#   M <summary>   empty when the summary isn't a string free of control
+#                 characters, so a tab can't split resolve's line
+#   K <kind>      script, or other for any entry not script-checked
+#   S <stage>     the stored stage, or block when it is missing or unknown
+#   C <path>      the entry's check.path, empty when it isn't path-shaped
+#   G <guard> <paths>  one line per protected guard of an active script entry
+#                 below block, with the space-separated backstop paths whose
+#                 `before` names it. Guards that aren't a list of strings give
+#                 one `?` guard with no path, so the entry stays at block.
+# Paths are filtered to the path shape here, so none carries a tab, a space or
+# a line break into the lines the shell splits.
+STAGE_JQ='
+  def path_shaped: type == "string" and test("^[A-Za-z0-9._][A-Za-z0-9._/-]*$");
+  . as $e
+  | (if ($e.summary | type) == "string"
+        and (($e.summary | explode | any(.[]; . < 32 or . == 127)) | not)
+     then $e.summary else "" end) as $summary
+  | (if ($e.check | type) == "object" and $e.check.kind == "script" then "script" else "other" end) as $kind
+  | (if ($e.stage | type) == "string" and (["shadow","warn","block","retired"] | index($e.stage)) != null
+     then $e.stage else "block" end) as $stage
+  | (if ($e.check | type) == "object" and ($e.check.path | path_shaped) then $e.check.path else "" end) as $own
+  | (if ($e.guards | type) == "array" and all($e.guards[]; type == "string")
+     then [$e.guards[] | . as $g | select(($protected | index($g)) != null)]
+     else ["?"] end) as $pg
+  | "M\t\($summary)", "K\t\($kind)", "S\t\($stage)", "C\t\($own)",
+    (select($kind == "script" and $e.status == "active" and $stage != "block")
+      | $pg[] as $g
+      | [($e.stage_backstops // []) | if type == "array" then .[] else empty end
+          | objects | select(.before == $g) | .check | select(path_shaped)] as $paths
+      | "G\t\($g)\t\($paths | join(" "))")
+'
+
+# stage_facts: reads E and sets SUMMARY, KIND and STAGE, the effective stage
+# (see "Effective stage" in the header). Returns 2 when jq can't read E.
+stage_facts() {
+    local facts line tag rest guard paths p abs own="" own_abs="" raw="" covered uncovered=0
+    facts=$(printf '%s' "$E" | jq -r --argjson protected "$PROTECTED" "$STAGE_JQ" 2>/dev/null) \
+        || { echo "$PROG: could not read the entry's stage" >&2; return 2; }
+    SUMMARY=""; KIND=""
+    while IFS= read -r line; do
+        tag=${line%%	*}
+        rest=${line#*	}
+        case "$tag" in
+            M) SUMMARY=$rest ;;
+            K) KIND=$rest ;;
+            S) raw=$rest ;;
+            C) own=$rest
+               [ -z "$own" ] || own_abs=$(safe_path "$own") || own_abs="" ;;
+            G) guard=${rest%%	*}
+               paths=${rest#*	}
+               covered=""
+               for p in $paths; do
+                   [ "$p" = "$own" ] && continue
+                   abs=$(safe_path "$p") || continue
+                   [ -n "$own_abs" ] && [ "$abs" = "$own_abs" ] && continue
+                   covered=1
+                   break
+               done
+               [ -n "$covered" ] || uncovered=1 ;;
+        esac
+    done <<EOF
+$facts
+EOF
+    STAGE=${raw:-block}
+    [ $uncovered -eq 0 ] || STAGE=block
+    return 0
+}
+
+# stage: a script entry's effective stage, active or retired. An entry that
+# isn't script-checked (a review-shadow criterion, a prose rule) has no stage.
+cmd_stage() {
+    E=$(entry "$1" retired-ok) || return $?
+    stage_facts || return $?
+    [ "$KIND" = script ] || { echo "$PROG: rule $1 is not script-checked and has no stage" >&2; return 1; }
+    printf '%s\n' "$STAGE"
+}
+
+# resolve: ref, summary and stage on one line, so a gate script's library makes
+# one call per rule. An active entry outside the lifecycle (not
+# script-checked) prints block: a rule with no stage keeps blocking, as every
+# rule did before stages existed.
+cmd_resolve() {
+    local ref
+    resolve "$1" || return $?
+    ref="$P#L$A-L$B@$(revision "$P" "$F")"
+    stage_facts || return $?
+    [ -n "$SUMMARY" ] || { echo "$PROG: rule $1 has no printable summary" >&2; return 2; }
+    [ "$KIND" = script ] || STAGE=block
+    printf '%s\t%s\t%s\n' "$ref" "$SUMMARY" "$STAGE"
+}
+
 # releasable_path <relative path>: only files a skill already loads in normal
 # runs: anything under references/, and in one skill's directory its SKILL.md,
 # its references/ and its koto-templates/. A case glob's * crosses slashes, so
@@ -424,6 +538,8 @@ case "$CMD" in
     text) cmd_text "$ARG" ;;
     range) cmd_range "$ARG" ;;
     withhold) cmd_withhold "$ARG" ;;
+    stage) cmd_stage "$ARG" ;;
+    resolve) cmd_resolve "$ARG" ;;
     release) cmd_release "$ARG"; exit 0 ;;
     log-finding) cmd_log_finding "$ARG"; exit 0 ;;
     verify-findings) cmd_verify_findings "$ARG" ;;
