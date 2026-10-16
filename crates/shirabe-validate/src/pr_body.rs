@@ -35,16 +35,21 @@
 //! `references/pr-body-conformance.md`.
 
 /// One finding from the static PR-body check. `line` is 1-based (or `1` for a
-/// title-level finding, which has no body line); `message` is an actionable
-/// "what to fix and why" string the CLI renders in any `--format`.
+/// title-level finding, which has no body line); `code` names the rule that
+/// produced it; `message` is an actionable "what to fix and why" string the
+/// CLI renders in any `--format`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PrBodyFinding {
     pub line: usize,
+    /// `"PB1"` to `"PB5"`, or `""` for a finding outside them. Set where the
+    /// finding is built, so a caller maps it to a rule-registry entry through
+    /// the entry's `aliases` instead of matching message text. The CLI
+    /// renderers don't print it.
+    pub code: &'static str,
     pub message: String,
 }
 
-/// PB4's message. Named so [`is_no_heading_finding`] matches exactly the
-/// finding PB4 produces, not any message that happens to mention a heading.
+/// PB4's message.
 const PB4_MESSAGE: &str = "Part 1 (the squash commit body, above the `---` separator) \
     contains a markdown section heading. Part 1 lands permanently on `main` as the commit \
     message and must be plain prose, not a heading-structured document; rewrite Part 1 as \
@@ -54,9 +59,10 @@ const PB4_MESSAGE: &str = "Part 1 (the squash commit body, above the `---` separ
 /// True when `f` is PB4's finding (no markdown heading in Part 1), the rule
 /// the live offload canary may leave out of a run's instructions. The
 /// pr-body hook drops it on a host that opted into the canary, leaving PB4 to
-/// the /work-on gate and CI.
+/// the /work-on gate and CI. Matched by its code, so no other finding that
+/// happens to mention a heading is dropped.
 pub fn is_no_heading_finding(f: &PrBodyFinding) -> bool {
-    f.message == PB4_MESSAGE
+    f.code == "PB4"
 }
 
 /// The Conventional Commits types accepted in a PR title (PB1). Mirrors the
@@ -78,7 +84,11 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
     // PB1 — Conventional Commits title.
     if let Some(title) = title {
         if let Some(message) = check_title(title) {
-            findings.push(PrBodyFinding { line: 1, message });
+            findings.push(PrBodyFinding {
+                line: 1,
+                code: "PB1",
+                message,
+            });
         }
     }
 
@@ -95,6 +105,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
     match separators.len() {
         0 => findings.push(PrBodyFinding {
             line: 1,
+            code: "PB2",
             message: "the PR body has no `---` separator. Add a single line that is exactly \
                       `---` between Part 1 (the squash commit body) and Part 2 (reviewer \
                       context deleted at merge); see references/pr-body-conformance.md."
@@ -108,6 +119,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
             if part1_empty {
                 findings.push(PrBodyFinding {
                     line: sep_line,
+                    code: "PB2",
                     message: "Part 1 (everything above the `---` separator) is empty. Part 1 \
                               becomes the squash commit body, so it must contain a factual \
                               description of the change; see references/pr-body-conformance.md."
@@ -126,6 +138,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
                 {
                     findings.push(PrBodyFinding {
                         line: *n,
+                        code: "PB4",
                         message: PB4_MESSAGE.to_string(),
                     });
                 }
@@ -133,6 +146,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
         }
         n => findings.push(PrBodyFinding {
             line: separators[1],
+            code: "PB2",
             message: format!(
                 "the PR body has {} top-level `---` separators; it must have exactly one. \
                  Everything from the first `---` down is deleted at merge, so a second bare \
@@ -148,6 +162,7 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
         if is_attribution_line(line) {
             findings.push(PrBodyFinding {
                 line: *n,
+                code: "PB3",
                 message: "the PR body carries an AI-attribution / co-author footer. Remove the \
                           `Co-Authored-By:` AI trailer or the \"Generated with Claude Code\" \
                           line; the org convention forbids AI attribution and co-author lines \
@@ -169,7 +184,11 @@ pub fn check_pr_body(body: &str, title: Option<&str>) -> Vec<PrBodyFinding> {
 /// scan; it does not restate PB1. Returns `Some(finding)` (with `line: 1`, the
 /// title-level line) when the title is non-conforming, `None` when it passes.
 pub fn check_pr_title(title: &str) -> Option<PrBodyFinding> {
-    check_title(title).map(|message| PrBodyFinding { line: 1, message })
+    check_title(title).map(|message| PrBodyFinding {
+        line: 1,
+        code: "PB1",
+        message,
+    })
 }
 
 /// PB1: return `Some(message)` when `title` is not a valid Conventional Commits
@@ -256,7 +275,11 @@ fn is_issue_number_scope(scope: &str) -> bool {
 /// PB3 predicate: is `line` an AI-attribution / co-author footer line?
 /// Matches the specific trailer/footer shapes rather than any mention of the
 /// words, so prose that merely discusses the convention does not trip it.
-fn is_attribution_line(line: &str) -> bool {
+///
+/// Public so a caller checking text other than a PR body, such as the
+/// pre-action hook reading outgoing commit messages, applies PB3's own rule
+/// rather than a copy of it.
+pub fn is_attribution_line(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
     let trimmed = lower.trim_start();
     if trimmed.starts_with("co-authored-by:")
@@ -380,6 +403,7 @@ pub fn check_pr_writing_style(
         for hit in hits {
             findings.push(PrBodyFinding {
                 line: 1,
+                code: "PB5",
                 message: pb5_message(rules, &hit.term, "in the title"),
             });
         }
@@ -396,6 +420,7 @@ pub fn check_pr_writing_style(
         for hit in hits {
             findings.push(PrBodyFinding {
                 line: hit.line,
+                code: "PB5",
                 message: pb5_message(rules, &hit.term, &format!("on line {}", hit.line)),
             });
         }
@@ -404,6 +429,7 @@ pub fn check_pr_writing_style(
     if truncated {
         findings.push(PrBodyFinding {
             line: 1,
+            code: "PB5",
             message: format!(
                 "[PB5] writing-style findings truncated at {PB5_FINDING_CAP} for this pull request; \
                  fix these and re-run to see the rest"
@@ -783,6 +809,57 @@ Fixes #7
                 findings
             );
         }
+    }
+
+    #[test]
+    fn each_finding_carries_its_pb_code() {
+        // The pre-action hook maps a finding to its registry entry by this
+        // code, so every arm that builds a finding must set the right one.
+        fn codes(findings: &[PrBodyFinding]) -> Vec<&'static str> {
+            findings.iter().map(|f| f.code).collect()
+        }
+        let ok = Some("fix: thing");
+        let cases: [(&str, &str, Option<&str>, &str); 6] = [
+            ("bad title", GOOD_BODY, Some("Add the pr-body mode"), "PB1"),
+            ("missing separator", "no separator here\n", ok, "PB2"),
+            ("empty Part 1", "\n\n---\n\nPart 2 only.\n", ok, "PB2"),
+            (
+                "two separators",
+                "P1.\n\n---\n\nP2.\n\n---\n\nP3.\n",
+                ok,
+                "PB2",
+            ),
+            (
+                "attribution footer",
+                "Change.\n\n---\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n",
+                ok,
+                "PB3",
+            ),
+            (
+                "heading in Part 1",
+                "## Summary\n\nProse.\n\n---\n\nFixes #1\n",
+                ok,
+                "PB4",
+            ),
+        ];
+        for (what, body, title, want) in cases {
+            let findings = check_pr_body(body, title);
+            assert_eq!(codes(&findings), vec![want], "{}: {:?}", what, findings);
+        }
+
+        // The title-only entry point builds PB1 too.
+        let title_only = check_pr_title("Add the pr-body mode").expect("bad title");
+        assert_eq!(title_only.code, "PB1");
+    }
+
+    #[test]
+    fn is_attribution_line_is_reachable_from_the_crate_root() {
+        assert!(crate::is_attribution_line(
+            "Co-Authored-By: Claude <noreply@anthropic.com>"
+        ));
+        assert!(!crate::is_attribution_line(
+            "Co-Authored-By: Jane Doe <jane@example.com>"
+        ));
     }
 
     #[test]
