@@ -224,7 +224,7 @@ if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject retired; then
     : > "$STAGE_LOG"
     OUT=$(cd "$REPO" && SHIRABE_FINDINGS_LOG="$STAGE_LOG" \
         "$STAGE_COPY/skills/work-on/scripts/check-branch-output.sh" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
-    if ! printf '%s\n' "$OUT" | grep -q '::koto-finding::' && [ ! -s "$STAGE_LOG" ]; then
+    if ! grep -q '::koto-finding::' <<<"$OUT" && [ ! -s "$STAGE_LOG" ]; then
         pass "--commits: with commit/conventional-subject at retired no finding prints or logs"
     else
         fail "--commits at retired: out [$OUT], log [$(cat "$STAGE_LOG")]"
