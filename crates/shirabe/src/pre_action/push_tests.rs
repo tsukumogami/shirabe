@@ -61,9 +61,30 @@ fn the_argv_refuses_what_it_cant_follow() {
         ("origin -x:y", Case::PushOption("-x:y".into())),
         ("origin \"$B\"", Case::Source("$B".into())),
         ("--repo=\"$R\"", Case::PushOption("--repo=$R".into())),
+        (
+            "origin 'refs/heads/*:refs/heads/*'",
+            Case::Source("refs/heads/*:refs/heads/*".into()),
+        ),
+        ("origin ma?n", Case::Source("ma?n".into())),
+        ("origin m[a]in", Case::Source("m[a]in".into())),
+        ("origin {main,topic}", Case::Source("{main,topic}".into())),
     ] {
         let ws = words(cmd);
         assert_eq!(parse(&ws).err(), Some(case), "{cmd}");
+    }
+}
+
+#[test]
+fn a_word_the_shell_would_glob_or_brace_expand_is_opaque_but_at_brace_is_not() {
+    for (w, want) in [
+        ("or*", true),
+        ("{origin,fork}", true),
+        ("{a..c}", true),
+        ("main@{u}", false),
+        ("HEAD@{1}", false),
+        ("origin", false),
+    ] {
+        assert_eq!(opaque(&words(w)[0]), want, "{w}");
     }
 }
 
@@ -105,6 +126,10 @@ fn the_batch_output_is_split_by_length_and_the_message_by_the_blank_line() {
     assert_eq!(objs, vec![obj1.as_bytes(), obj2.as_bytes()]);
     assert_eq!(message(objs[0]), "subject one\n\n0000 commit 3\nzz\n");
     assert_eq!(subject(&message(objs[0])), "subject one");
+    assert_eq!(
+        subject("\n  first line\n second line \n\nbody"),
+        "first line second line"
+    );
     assert!(message(objs[1]).lines().any(is_attribution_line));
 
     for (bad, ids) in [
@@ -136,6 +161,12 @@ fn offenders_are_listed_by_hash_and_a_cleaned_subject() {
     );
     assert!(!d[0].chars().any(char::is_control), "{:?}", d[0]);
     assert_eq!(d[0].chars().count(), "0123456789ab subject: ".len() + 72);
+
+    let d = details(&[Offender {
+        id: "a".repeat(40),
+        subject: "x\u{202e}y\u{200b}z\u{2066}w\u{feff}".into(),
+    }]);
+    assert_eq!(d[0], "aaaaaaaaaaaa subject: xyzw");
 
     for i in 0..11 {
         offenders.push(Offender {
@@ -692,6 +723,127 @@ fn a_directory_outside_a_work_tree_fails_closed() {
     assert_fail_closed(s.eval_in("git push", "no-such-dir"), "work tree");
 }
 
+/// A runner that answers from a script: each call's subcommand and first
+/// argument, and the exit code and stdout to give back.
+struct Scripted(Vec<(&'static str, i32, &'static str)>, Cell<Vec<String>>);
+
+impl GitRunner for Scripted {
+    fn run(
+        &self,
+        _: &Path,
+        args: &[&str],
+        _: Option<Vec<u8>>,
+        _: usize,
+        _: Instant,
+    ) -> Result<GitOut, GitError> {
+        let key = args[..args.len().min(3)].join(" ");
+        let mut seen = self.1.take();
+        seen.push(key.clone());
+        self.1.set(seen);
+        let (_, code, out) = self
+            .0
+            .iter()
+            .find(|(k, _, _)| key.starts_with(k))
+            .unwrap_or(&("", 1, ""));
+        Ok(GitOut {
+            code: Some(*code),
+            stdout: out.as_bytes().to_vec(),
+        })
+    }
+}
+
+#[test]
+fn a_partial_clone_is_refused_below_git_2_44_and_checked_from_it() {
+    let partial = |v: &'static str| {
+        Scripted(
+            vec![
+                ("rev-parse --show-toplevel", 0, "/w\n"),
+                ("config --get extensions.partialClone", 0, "origin\n"),
+                ("version", 0, v),
+                ("symbolic-ref", 1, ""),
+            ],
+            Cell::new(Vec::new()),
+        )
+    };
+    let seg = |cmd: &str| PushSegment {
+        words: words(cmd),
+        dir: PathBuf::from("/w"),
+        index: 0,
+    };
+    for v in [
+        "git version 2.39.5 (Apple Git-154)\n",
+        "git version 2.43.7\n",
+        "nonsense\n",
+    ] {
+        let git = partial(v);
+        match check(&seg("x"), &git, GIT_BUDGET) {
+            Err(Case::Git(why)) => assert!(why.contains("partial clone"), "{why}"),
+            other => panic!("{v}: {other:?}"),
+        }
+        assert!(
+            !git.1.take().iter().any(|c| c.starts_with("symbolic-ref")),
+            "{v}"
+        );
+    }
+    // From 2.44 the check goes on (here to the detached HEAD it scripted).
+    let git = partial("git version 2.44.0\n");
+    assert_eq!(check(&seg("x"), &git, GIT_BUDGET), Err(Case::DetachedHead));
+    // A full clone never asks for the version.
+    let git = Scripted(
+        vec![
+            ("rev-parse --show-toplevel", 0, "/w\n"),
+            ("symbolic-ref", 1, ""),
+        ],
+        Cell::new(Vec::new()),
+    );
+    assert_eq!(check(&seg("x"), &git, GIT_BUDGET), Err(Case::DetachedHead));
+    assert!(!git.1.take().iter().any(|c| c == "version"));
+}
+
+#[test]
+fn the_runner_kills_a_child_that_prints_too_much_or_runs_too_long() {
+    use std::os::unix::fs::PermissionsExt;
+    let s = Scratch::empty();
+    std::fs::create_dir_all(s.path("stub")).unwrap();
+    let stub = s.path("stub/git");
+    // The stub's PATH holds only its own directory, so it names every
+    // program by absolute path.
+    let stub_git = |body: &str| {
+        std::fs::write(&stub, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+        SystemGit::with_env([(OsString::from("PATH"), s.path("stub").into_os_string())])
+    };
+
+    let git = stub_git("exec /usr/bin/yes");
+    let start = Instant::now();
+    let far = start + Duration::from_secs(20);
+    assert_eq!(
+        git.run(&s.root, &["x"], None, 1024 * 1024, far),
+        Err(GitError::TooLarge)
+    );
+    assert!(start.elapsed() < Duration::from_secs(5));
+
+    let git = stub_git("exec /bin/sleep 5");
+    let start = Instant::now();
+    let soon = start + Duration::from_millis(300);
+    assert_eq!(
+        git.run(&s.root, &["x"], None, 1024, soon),
+        Err(GitError::Timeout)
+    );
+    assert!(start.elapsed() < Duration::from_secs(2));
+
+    // A grandchild that keeps stdout open can't hold the runner past the
+    // deadline either.
+    let git = stub_git("/bin/sleep 5 &\nexit 0");
+    let start = Instant::now();
+    let soon = start + Duration::from_millis(300);
+    assert_eq!(
+        git.run(&s.root, &["x"], None, 1024, soon),
+        Err(GitError::Timeout)
+    );
+    assert!(start.elapsed() < Duration::from_secs(2));
+}
+
 #[test]
 fn a_partial_clone_fails_closed_under_a_git_older_than_2_44() {
     let s = Scratch::repo();
@@ -872,7 +1024,14 @@ fn a_repository_configured_to_run_programs_runs_none() {
     ] {
         s.config(k, v);
     }
-    let _ = std::fs::remove_file(&marker);
+    // The configuration is live: plain git, without the check's settings,
+    // runs the repository's programs.
+    let _ = s.setup_git("work", &["status"]).output();
+    let _ = s
+        .setup_git("work", &["log", "--show-signature", "-1"])
+        .output();
+    assert!(marker.exists(), "the markers would fire against plain git");
+    std::fs::remove_file(&marker).unwrap();
     assert_trailer_deny(s.eval("git push"), &id);
     assert_trailer_deny(s.eval("git push --tags --all"), &id);
     assert!(

@@ -321,8 +321,8 @@ pub struct Offender {
 }
 
 /// The deny's details for `offenders` (PRD R5): each as its 12-character
-/// hash and `subject: ` with its subject, control characters removed and
-/// cut to 72 characters, at most 10, then `and <n> more`.
+/// hash and `subject: ` with its subject, control characters (and the
+/// format characters [`hidden`] names) removed and cut to 72 characters, at most 10, then `and <n> more`.
 pub fn details(offenders: &[Offender]) -> Vec<String> {
     let mut out: Vec<String> = offenders
         .iter()
@@ -331,7 +331,7 @@ pub fn details(offenders: &[Offender]) -> Vec<String> {
             let subject: String = o
                 .subject
                 .chars()
-                .filter(|c| !c.is_control())
+                .filter(|c| !hidden(*c))
                 .take(MAX_SUBJECT)
                 .collect();
             let hash: String = o.id.chars().take(12).collect();
@@ -360,9 +360,32 @@ struct Argv<'a> {
     delete: bool,
 }
 
-/// A word the shell would change before git sees it.
+/// A word the shell would change before git sees it: an expansion,
+/// `$'...'`, a leading `~`, a glob character, or a brace list or sequence.
+/// The tokenizer doesn't record which characters were quoted, so a glob or
+/// brace character counts wherever it is; a refspec glob would fail to
+/// resolve anyway. `@{u}` holds no `,` or `..` and the shell leaves it.
 fn opaque(w: &Word) -> bool {
-    w.expansion || w.ansi_c || w.tilde
+    let t = w.text.as_str();
+    let brace = t
+        .split_once('{')
+        .is_some_and(|(_, rest)| rest.contains(',') || rest.contains(".."));
+    w.expansion || w.ansi_c || w.tilde || t.contains(['*', '?', '[']) || brace
+}
+
+/// A character a deny must not pass on from a commit subject: a control
+/// character, or a format character that reorders or hides text (bidi
+/// controls, zero-width characters, the byte-order mark).
+fn hidden(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{061c}'
+                | '\u{200b}'..='\u{200f}'
+                | '\u{202a}'..='\u{202e}'
+                | '\u{2060}'..='\u{2069}'
+                | '\u{feff}'
+        )
 }
 
 /// Parse the words after `push` against R4's option list.
@@ -574,6 +597,9 @@ impl Repo<'_> {
                 "--format=%(refname)",
                 &format!("refs/remotes/{name}/"),
             ])?;
+            // A plain name with tracking refs is checked against them even
+            // when no remote by that name is configured (stale refs): that
+            // checks more commits than the any-remote fallback, never fewer.
             return Ok(if refs.trim().is_empty() {
                 Sent::AnyRemote
             } else {
@@ -594,7 +620,10 @@ impl Repo<'_> {
 
 /// Check one push: the outgoing non-merge commits carrying an
 /// AI-attribution line, in `rev-list` order, or the case that makes it
-/// uncheckable. The git calls share `budget`.
+/// uncheckable. The git calls share `budget`. The classifier hands over at
+/// most one push per command (a later push is a same-command case, since
+/// the first changes the tracking refs it reads), so this is the call's
+/// whole git budget.
 pub fn check(
     seg: &PushSegment,
     git: &dyn GitRunner,
@@ -684,6 +713,9 @@ pub fn check(
     args.extend(ids.iter().map(String::as_str));
     args.push("--not");
     args.push(&not);
+    // No paths: an id that is also a file name in the work tree isn't
+    // ambiguous.
+    args.push("--");
     let listing = repo.text(&args)?;
     let commits: Vec<&str> = listing.lines().collect();
     if let Some(bad) = commits.iter().find(|c| !hex_id(c)) {
