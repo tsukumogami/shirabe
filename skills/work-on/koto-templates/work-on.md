@@ -2619,35 +2619,41 @@ Read the `hold:` line in the `level_floor` gate's output. It names why:
 - **the facts were gathered at another commit**: commits landed while the
   state held. Tick again; the action re-gathers them.
 
-When the `level_fits_facts` check fails, the decider judged the level too light
-for these facts. Raise it with `set ... <level> --cause veto:level_fits_facts`,
-or, when you're sure the verdict is wrong, record why with
+When the `level_fits_facts` check fails on the decider's verdict, the decider
+judged the level too light for these facts. Raise it with
+`set ... <level> --cause veto:level_fits_facts`, or, when you're sure the
+verdict is wrong, record why with
 `koto overrides record {{SESSION_NAME}} --gate level_fits_facts --rationale "<why>"`.
+A fail on your own answer (the criterion is under the output's
+`agent_answered`) is different; see below.
 
 When the `level_fits_facts` check is `pending` with `level_fits_facts` under
-its output's `awaiting` list, the decider gave no verdict (it errored or timed
-out, its answer couldn't be read, the slice was over budget, the per-call cap
-was spent, or another tick held the lock) and the question falls back to you. That happens
-when the decider runs in shadow too, so the check can hold the run here even
-though a shadow check never fails it. Its warning finding repeats the question
-and what each answer means. Judge the level yourself against the facts in
-`review_facts.json` and the definitions in `references/review-levels.md`, then
-record your answer and tick again with nothing submitted:
+its output's `awaiting` list, answer it yourself: the decider gave no verdict,
+so the question falls back to you. Judge the level against the facts in
+`review_facts.json` and the definitions in `references/review-levels.md`,
+record your answer, and tick again with nothing submitted:
 
 ```bash
 koto decider answer {{SESSION_NAME}} --gate level_fits_facts --criterion level_fits_facts --answer <pass|fail|unclear>
 ```
 
+The check's warning finding gives the reason the decider couldn't answer (an
+error or timeout, an unreadable answer, an over-budget slice, a spent per-call
+cap, or another tick holding the lock), the question, and what each answer
+means. This happens when the decider runs in shadow too, so the check can hold
+the run here even though a shadow check never fails it.
+
 `pass` (the level is thorough enough) and `unclear` (the facts don't say
 enough) let the check through. On `fail` (the level is too light), raise the
-level with a plain `set ... <level>` before you tick, without `--cause`: a
+level with a plain `set ... <level>`, without `--cause`, and tick again: a
 `veto` line in the ledger means the decider asked for the raise, and this one
-is yours. In veto your `fail` holds the run until the level changes; in shadow
-it's only recorded, so the raise is what acts on it. The next tick asks the
-decider about the raised level and falls back to you again if it still can't
-answer. Your answer is recorded as yours, never as the decider's verdict.
-Don't record an override to get past a waiting check, and answer only a
-criterion the response lists under `awaiting`.
+is yours. In veto your `fail` holds the run until the level changes, whether
+you raise before or after the tick that shows it; in shadow it's only
+recorded and the next tick moves on, so raise before you tick. The tick after
+the raise asks the decider about the raised level and falls back to you again
+if it still can't answer. Your answer is recorded as yours, never as the
+decider's verdict. Don't record an override to get past a waiting check, and
+answer only a criterion the response lists under `awaiting`.
 
 After a raise, tick again with nothing submitted: the action records a `check`
 line at the new level and the gate passes. `koto overrides record` on

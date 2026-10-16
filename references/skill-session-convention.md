@@ -16,7 +16,7 @@ and skills run inline read each other's files. The decisions behind it, and
 the alternatives they rejected, are in
 `docs/designs/current/DESIGN-resume-convention.md`.
 
-It describes koto 0.20.0 and later, shirabe's koto minimum
+It describes koto 0.15.0 and later. shirabe's koto minimum is 0.20.0
 (`scripts/assert-koto-floor.sh`).
 
 ## The pieces
