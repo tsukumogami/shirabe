@@ -658,18 +658,31 @@ test_image_recipe() {
 }
 
 # The registry is one list per suite under scripts/bash-floor/ (shirabe#907).
-# Each list has to say which workflow runs it and name at least one script, or
-# a suite can sit in the registry while nothing floor-checks it.
+# Each list has to say which workflow runs it and name at least one script,
+# and every line has to be a comment, a known directive or a script that
+# exists: a misspelled directive would otherwise read as a script path the
+# floor never runs, and a suite could sit in the registry while nothing
+# floor-checks it.
 test_every_list_names_a_workflow_and_scripts() {
-    local name="every suite list names an existing workflow and a script"
-    local list suite wf n bad=""
+    local name="every suite list names an existing workflow, its scripts, and nothing else"
+    local list suite wf n line t listing bad=""
 
+    listing=$($RUNNER --list)
     for list in "$SCRIPT_DIR"/bash-floor/*.list; do
         suite=$(basename "$list" .list)
-        wf=$(awk 'sub(/^workflow:[[:space:]]*/, "") { print; exit }' "$list")
+        wf=$(awk -v s="  $suite" '$0 == s { getline; sub(/^ *from /, ""); print; exit }' <<<"$listing")
         [ -n "$wf" ] && [ -f "$SCRIPT_DIR/../$wf" ] || bad="$bad $suite(workflow:${wf:-none})"
         n=$($RUNNER --scripts "$suite" | grep -c .) || n=0
         [ "$n" -gt 0 ] || bad="$bad $suite(no scripts)"
+        while IFS= read -r line || [ -n "$line" ]; do
+            t=$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+            case "$t" in
+                ''|'#'*|'needs: shirabe') ;;
+                workflow:*) ;;
+                *:*) bad="$bad $suite(unknown directive: $t)" ;;
+                *) [ -f "$SCRIPT_DIR/../$t" ] || bad="$bad $suite(no such script: $t)" ;;
+            esac
+        done < "$list"
     done
     if [ -n "$bad" ]; then
         fail "$name" "$bad"
@@ -678,9 +691,31 @@ test_every_list_names_a_workflow_and_scripts() {
     fi
 }
 
+# A list edit re-runs its suite's floor only through the workflow's path
+# filter, so every workflow that runs a suite on the macOS floor has to name
+# that suite's list in its paths.
+test_every_macos_workflow_names_its_list() {
+    local name="every workflow that runs a suite on the macOS floor filters on its list"
+    local wf suite missing=""
+
+    for wf in "$SCRIPT_DIR"/../.github/workflows/*.yml; do
+        for suite in $(sed -n 's/.*check-bash-floor\.sh --backend system \([a-z0-9-]*\).*/\1/p' "$wf"); do
+            grep -qF "'scripts/bash-floor/$suite.list'" "$wf" || missing="$missing $(basename "$wf"):$suite"
+        done
+    done
+    if [ -n "$missing" ]; then
+        fail "$name" "no list in the paths filter:$missing"
+    else
+        pass "$name"
+    fi
+}
+
 # Every suite a workflow hands the runner has to have a list. A list that is
 # renamed or removed would otherwise fail only when that workflow next runs,
-# and a suite would drop off the floor until then.
+# and a suite would drop off the floor until then. It reads the one-line form
+# every workflow uses today (`check-bash-floor.sh --backend <b> <suite>`) and
+# the docker matrix in check-bash-floor.yml; a call written another way is not
+# seen, and check-macos-floor-legs.sh is what catches a leg that skips the runner.
 test_every_floor_call_names_a_list() {
     local name="every suite a workflow runs on the floor has a list"
     local calls suite missing=""
@@ -722,6 +757,7 @@ test_list_names_every_suite
 test_registry_scripts_exist
 test_machine_readable_registry
 test_every_list_names_a_workflow_and_scripts
+test_every_macos_workflow_names_its_list
 test_every_floor_call_names_a_list
 test_suite_name_is_not_a_path
 test_unknown_suite_is_refused

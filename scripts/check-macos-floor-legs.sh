@@ -252,7 +252,7 @@ for job_name, job in (wf.get("jobs") or {}).items():
             violations.append((job_name, name, script,
                 "runs on Linux in this job but is in none of its floor suites ("
                 + ", ".join(sorted(floor_suites)) + "), so the macOS leg never runs it "
-                "on 3.2; add it to the suite in scripts/check-bash-floor.sh"))
+                "on 3.2; add it to the suite's list, scripts/bash-floor/<suite>.list"))
 
 for job_name, name, command, why in violations:
     print(f"{label}: job {job_name}: step \"{name}\": {command}")

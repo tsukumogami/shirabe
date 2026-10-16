@@ -124,9 +124,11 @@ mktempdir() {
 # drift apart. A list is one entry per line: `workflow: <path>`, the workflow
 # whose macOS leg runs the suite; `needs: shirabe` when the suite runs the
 # shirabe binary; a `#` comment; or a script's path from the repository root.
-# The lists live outside this script so that adding a script to a suite edits
-# only that suite's list, and each workflow's path filter names its own list:
-# a change to one list re-runs one floor, not all of them (shirabe#907).
+# Any other line is an error check-bash-floor_test.sh reports, rather than a
+# script the floor silently never runs. The lists live outside this script so
+# that adding a script to a suite edits only that suite's list, and each
+# workflow's path filter names its own list, which the test also checks: a
+# change to one list re-runs one floor, not all of them (shirabe#907).
 #
 # Exemptions - shell that CI runs and this deliberately does not floor-check:
 #
@@ -207,7 +209,8 @@ suite_scripts() {
         return 0
     fi
     list=$(suite_list "$1") || return 1
-    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' -e '/^workflow:/d' -e '/^needs:/d' "$list"
+    sed -e '/^[[:space:]]*#/d' -e '/^[[:space:]]*$/d' -e '/^[[:space:]]*workflow:/d' -e '/^[[:space:]]*needs:/d' \
+        -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$list"
 }
 
 suite_workflow() {
@@ -217,7 +220,7 @@ suite_workflow() {
         return 0
     fi
     list=$(suite_list "$1") || return 0
-    awk 'sub(/^workflow:[[:space:]]*/, "") { print; exit }' "$list"
+    awk 'sub(/^[[:space:]]*workflow:[[:space:]]*/, "") { sub(/[[:space:]]*$/, ""); print; exit }' "$list"
 }
 
 # A suite whose harnesses run `shirabe` for real rather than emulating it says
@@ -226,7 +229,7 @@ suite_workflow() {
 suite_needs_shirabe() {
     local list
     list=$(suite_list "$1") || return 1
-    grep -qx 'needs: shirabe' "$list"
+    grep -Eq '^[[:space:]]*needs:[[:space:]]*shirabe[[:space:]]*$' "$list"
 }
 
 list_suites() {
