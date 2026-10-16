@@ -294,7 +294,8 @@ that checks a Bash command before it runs. It denies a `gh pr create` or
 separator, no AI-attribution line, no heading in Part 1), and a `git push`
 that would send a commit with an AI-attribution trailer. The deny names each
 broken rule and where its full text is, so the agent can fix the command and
-run it again.
+run it again. On a host opted into the live offload canary it lets the
+Part 1 heading rule through, as `docs/guides/offload-live-canary.md` explains.
 
 The checking is done by the `shirabe` binary, so install it with `install.sh`
 (see [Local install](#local-install)); the hook looks for it on `PATH`, then at
