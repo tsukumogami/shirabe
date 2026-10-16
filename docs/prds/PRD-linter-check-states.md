@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   A /work-on or /execute run publishes a pull request whose title and body
   become the commit message on main and the record reviewers read, and no
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 Absorbed [BRIEF-linter-check-states](docs/briefs/BRIEF-linter-check-states.md); carried in Absorbed Brief.
 
@@ -240,7 +240,7 @@ match only when listed (`tier` and `tiered` are separate entries).
 Gate cases run `check-pr-output.sh --pr-body` with its suite's stand-in `gh`;
 "the real validator" is a `shirabe` built from the same commit.
 
-- [ ] `docs/designs/DESIGN-linter-check-states.md` (or its `current/` path) has a decision naming Vale and commitlint as
+- [ ] `docs/designs/current/DESIGN-linter-check-states.md` (or its `current/` path) has a decision naming Vale and commitlint as
       one alternative and `shirabe validate` as another, stating what each
       would add and the reasons for the choice.
 - [ ] Body line 3 (in Part 1) contains `leverage`; with the real validator the
