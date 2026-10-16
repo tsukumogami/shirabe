@@ -58,6 +58,7 @@ there yet.
 - [ ] `RF_FULL_TEXT_AT=2` and `RF_EXIT_AT=3` are defined once, and the library header documents the ladder.
 - [ ] A fixture whose prior event has `rule_counts[<id>]` of `{"visit": 1, "session": 2}` (a later visit) gives count 3, not 2: the reader uses `session`.
 - [ ] Probe tests in `scripts/rule-registry_test.sh` cover counts 1, 2 and 3, two rules, another gate, state or rule, the state read from the latest transition, a count claimed outside the log, each read failure, a state outside the exit table, a tie at count 3, and the no-context case.
+- [ ] For a rule `release` refuses, `rf_deliver` passes `release`'s refusal line through and then prints `rule-findings: <id>'s full text is at <rule_ref>`, the reference `rf_require` resolved.
 - [ ] A test lists the rules each `/work-on` gate script can report that `release` refuses (`pr-body/banned-word`, `pr-body/conformance`, `docs/private-only-type`, `docs/visibility-vision-sections`, `docs/visibility-strategy-sections`) and fails when that set changes.
 - [ ] The library tests pass under bash 3.2.
 

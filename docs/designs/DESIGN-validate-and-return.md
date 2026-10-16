@@ -266,6 +266,8 @@ rf_deliver:
   read failed                               -> each id: count 2
   for each id in RF_REPORTED (printed order):
     count >= RF_FULL_TEXT_AT                -> rule-registry.sh release <id>
+      release printed no ::shirabe-rule:: block -> one line:
+        rule-findings: <id>'s full text is at <rule_ref>
   if read succeeded and the state is in SHIRABE_GATE_EXITS:
     top <- first id with the highest count
     count(top) >= RF_EXIT_AT                -> print the notice line

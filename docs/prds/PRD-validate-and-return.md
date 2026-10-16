@@ -158,7 +158,9 @@ gate prints today: its message starts with the registry summary.
 gate also runs `scripts/rule-registry.sh release <id>` once in that gate run,
 which prints the rule's full text between its marker lines on standard error.
 For a rule `release` refuses, that is `release`'s one-line refusal naming the
-rule, and the finding's `rule_ref` stays the pointer to the text. The rules a
+rule, followed by one line giving the rule's anchored reference (its
+`rule_ref`, `<path>#L<first>-L<last>@<revision>`), so the agent still gets the
+file and line range to read. The rules a
 `/work-on` gate can report that `release` refuses today are
 `pr-body/banned-word`, `pr-body/conformance`, `docs/private-only-type`,
 `docs/visibility-vision-sections` and `docs/visibility-strategy-sections`.
@@ -279,7 +281,7 @@ Ladder (a test drives a gate script with a fixture koto log):
   header, and a log with no transition: each failing run releases every
   reported rule and prints no notice (R9).
 - [ ] At count 2 for each of the five unreleasable rules, the run prints
-  `release`'s refusal line for it and the finding keeps its `rule_ref`; a test
+  `release`'s refusal line for it, then a line carrying its `rule_ref`; a test
   fails if that set changes for a `/work-on` gate (R4).
 - [ ] For passing, violating and undecided runs, exit status and standard
   output are byte-identical with and without the ladder context (R7).
