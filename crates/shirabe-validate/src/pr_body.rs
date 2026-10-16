@@ -348,7 +348,8 @@ pub const PB5_FINDING_CAP: usize = 50;
 /// matching is FC10's own, through
 /// [`crate::checks::banned_terms_in_spans`] over [`crate::prose::prose_spans`]:
 /// code, table cells, link destinations, bare URLs and HTML comments are not
-/// prose, and whatever else that path comes to exclude is excluded here too.
+/// prose, quoted text (blockquotes and paired double quotes) is not matched,
+/// and whatever else that path comes to exclude is excluded here too.
 ///
 /// The title is checked first, as a one-line document, after
 /// [`strip_conventional_prefix`] removes its `type(scope)!: ` prefix; then the
@@ -1027,9 +1028,10 @@ words:
     #[test]
     fn pb5_reports_exactly_what_fc10_reports_for_the_same_text() {
         // PB5 applies no span filter of its own: it shares FC10's prose
-        // scoping and matcher, so an exclusion added there (skipping quoted
-        // text, say) reaches both. Blockquotes and double-quoted phrases are
-        // in this body on purpose.
+        // scoping and matcher, so an exclusion added there reaches both.
+        // Each quoted form (blockquote, straight and curly double quotes, a
+        // quote around emphasis, inline and fenced code) carries a banned
+        // word, and lines 1 and 15 carry them plain.
         let lines: Vec<&str> = vec![
             "Plain leverage here.",
             "",
@@ -1042,6 +1044,14 @@ words:
             "| tiered | x |",
             "|--------|---|",
             "| robust | y |",
+            "",
+            "She wrote \u{201C}a tiered plan\u{201D} and \"a *seamless* fit\".",
+            "",
+            "Unquoted robust, then \"leverage\" quoted.",
+            "",
+            "```",
+            "seamless",
+            "```",
         ];
         let body = lines.join("\n");
         let rules = pb5_rules();
@@ -1060,7 +1070,11 @@ words:
             .collect();
         let pr = pb5_terms(&check_pr_writing_style(&body, None, &rules, &[]));
         assert_eq!(pr, fc10);
-        assert!(!pr.is_empty());
+        assert_eq!(
+            pr,
+            vec![(1, "leverage".to_string()), (15, "robust".to_string())],
+            "only the unquoted words fire, in both checks"
+        );
     }
 
     #[test]

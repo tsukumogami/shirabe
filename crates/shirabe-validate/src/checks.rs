@@ -3525,8 +3525,12 @@ pub struct TermHit {
 ///
 /// FC10 (documents) and PB5 (pull request titles and bodies) both call it,
 /// over spans `prose::prose_spans` produced, so what counts as prose and how
-/// a term matches are decided once. A change to either, such as skipping
-/// quoted text, reaches both checks.
+/// a term matches are decided once. A change to either reaches both checks.
+///
+/// Quoted text is not matched: each span is read through
+/// [`crate::prose::ProseSpan::unquoted_text`], which blanks blockquote text
+/// and paired double quotes, because a verbatim quotation is not the
+/// author's to reword (see the "Quoted text" section of `prose`).
 ///
 /// Matching is case-insensitive and whole-word: a hit is preceded and
 /// followed by a non-alphanumeric, non-underscore byte or by the span's
@@ -3547,10 +3551,11 @@ pub fn banned_terms_in_spans(
     let terms = rules.all_terms();
 
     for span in spans {
-        if span.text.trim().is_empty() {
+        let visible = span.unquoted_text();
+        if visible.trim().is_empty() {
             continue;
         }
-        let lower = span.text.to_lowercase();
+        let lower = visible.to_lowercase();
         for banned in &terms {
             if suppressed.contains(banned) {
                 continue;
@@ -8486,6 +8491,80 @@ words:
             "declaring `tier` must not disable the other rules; got {suppressed:?}"
         );
         assert!(suppressed[0].message.contains("robust"));
+    }
+
+    /// FC10's findings as (line, term).
+    fn fc10_terms(errs: &[ValidationError]) -> Vec<(usize, String)> {
+        errs.iter()
+            .map(|e| (e.line, e.message.split('"').nth(1).unwrap().to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn check_writing_style_skips_quoted_text_and_still_reports_the_word_unquoted() {
+        // Each quoted form carries the word, and line 12 carries it plain:
+        // only line 12 and the unquoted half of line 14 fire.
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body(
+            "t.md",
+            &[
+                "> The owner ruled: we leverage the cache.",
+                "",
+                "The reviewer wrote \"leverage it\" on the PR.",
+                "",
+                "The reviewer wrote \u{201C}leverage it\u{201D} on the PR.",
+                "",
+                "Run `leverage` to see.",
+                "",
+                "```",
+                "leverage",
+                "```",
+                "We leverage the cache.",
+                "",
+                "Quoted \"leverage\" here, robust there.",
+            ],
+        );
+        let errs = check_writing_style_with(&doc, &rules, &[]);
+        assert_eq!(
+            fc10_terms(&errs),
+            vec![(12, "leverage".to_string()), (14, "robust".to_string())],
+            "got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn check_writing_style_vocabulary_still_suppresses_alongside_quotes() {
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let doc = doc_with_body("t.md", &["Tier 1 is \"robust\", tier 2 is robust."]);
+        assert_eq!(
+            fc10_terms(&check_writing_style_with(&doc, &rules, &[])),
+            vec![
+                (1, "robust".to_string()),
+                (1, "tier".to_string()),
+                (1, "tier".to_string())
+            ]
+        );
+        assert_eq!(
+            fc10_terms(&check_writing_style_with(
+                &doc,
+                &rules,
+                &["tier".to_string()]
+            )),
+            vec![(1, "robust".to_string())]
+        );
+    }
+
+    #[test]
+    fn frequency_rule_still_counts_em_dashes_in_quoted_text() {
+        // The quote exemption is the banned-word matcher's; em-dash density
+        // reads the whole prose text, so a dense blockquote still fires.
+        let rules = crate::rules::cached_rules().expect("rule source resolves in tests");
+        let filler = vec!["word"; 400].join(" ");
+        let dashes = format!("> {}", ["a — b"; 12].join(" "));
+        let doc = doc_with_body("t.md", &[&filler, "", &dashes]);
+        let errs = check_prose_frequency(&doc, &rules);
+        assert_eq!(errs.len(), 1, "got {errs:?}");
+        assert_eq!(errs[0].line, 3);
     }
 
     #[test]

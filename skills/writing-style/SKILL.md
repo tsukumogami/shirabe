@@ -31,6 +31,12 @@ A repository can declare terms of art the rules must not fire on, through a
 declaration when you draft in it: shirabe declares `tier`, `journey`, and
 `underscore` because those are its own vocabulary, not tells.
 
+Quoted text is exempt from the banned words: a blockquote, double quotes
+that pair on one line, and inline or fenced code. A verbatim quotation, such
+as an owner's ruling or a reviewer's comment, belongs to whoever said it, so
+quote it exactly. The exemption covers quotation, not your own prose: don't
+wrap your own words in quotes or a blockquote to get past the check.
+
 ## What no matcher reaches
 
 The `judgment_only` section of the rule source holds what no matcher
