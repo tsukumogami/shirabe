@@ -75,8 +75,9 @@ measured, verified by reading, or inferred:
    through the record feature's disposal check; SKILL.md's record section says
    when each must be disposed of.
 
-After the report is up, read the scope. For a roadmap, read its Features section (its Milestones section on a roadmap/v3 one) from the
-default branch (each feature's status and dependencies). For a discipline,
+After the report is up, read the scope. For a roadmap, read its Features section from the
+default branch, its Milestones section on a roadmap/v3 one (each feature's or
+milestone's status and dependencies). For a discipline,
 list the open issues and failing checks in its
 area. The pick that follows works from both.
 
