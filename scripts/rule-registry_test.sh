@@ -403,7 +403,7 @@ chmod +x "$A/probe2.sh"
 
 # A gate script that prints one finding per argument and then delivers. The
 # library is an installed-style copy, so release reads the t/ fixtures: t/multi
-# and t/single release, t/long (over 60 lines) and t/docs (a docs/ path) don't.
+# and t/single release, t/long (longer than release allows) and t/docs (a docs/ path) don't.
 L="$T/ladder"; make_root "$L" 1.2.3
 mkdir -p "$L/scripts/lib"
 cp "$REPO_ROOT/scripts/lib/rule-findings.sh" "$L/scripts/lib/rule-findings.sh"

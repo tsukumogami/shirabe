@@ -83,12 +83,15 @@
 #
 #   SHIRABE_GATE_LOG    the session log, {{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl
 #   SHIRABE_GATE_NAME   the gate's name in the template
-#   SHIRABE_GATE_EXITS  "<state>:<status field> ...", the states with a named exit
+#   SHIRABE_GATE_EXITS  "<state>:<status field> ...", the states with a named exit;
+#                       a status field is lowercase letters and `_` only, and
+#                       an entry with any other field offers no exit
 #
 # The state is read from the log (the last transition's `to`), never from the
 # command. Without SHIRABE_GATE_LOG and SHIRABE_GATE_NAME, rf_deliver does
 # nothing and the script prints what it always printed. With them, a log the
-# ladder can't read puts every reported rule at count 2 and offers no exit.
+# ladder can't read puts every reported rule at RF_FULL_TEXT_AT and offers no
+# exit.
 # rf_deliver writes only to standard error and always returns 0, so it never
 # changes a gate's exit status, its standard output or the findings koto records.
 # DESIGN-validate-and-return.md has the reasoning.
@@ -212,7 +215,10 @@ rf_exit_field() {
 # state. The header is line 1 and, unlike every event, carries no `seq`
 # (koto's session-feed contract), which is how a log cut from the middle or an
 # event file passed by mistake is told from a real one. jq's own message can
-# quote the log, so it is discarded with its file.
+# quote the log, so it goes to a file that is removed unread; not /dev/null,
+# because scripts/check-tool-diagnostic-discards.sh refuses discarding a
+# declared tool's diagnostics there. A temporary file that can't be made is
+# reported like a log that can't be read.
 rf_ladder_counts() {
     local log=${SHIRABE_GATE_LOG:-} err out rc
     [ -n "$log" ] && [ -n "${SHIRABE_GATE_NAME:-}" ] && [ -f "$log" ] && [ -r "$log" ] || return 1
@@ -265,6 +271,11 @@ rf_deliver() {
             top_id=$id
         fi
         [ "$count" -ge "$RF_FULL_TEXT_AT" ] || continue
+        # release writes only to standard error and always exits 0: its
+        # ::shirabe-rule:: marker line first when it printed the text, its one
+        # `could not release` line otherwise (references/rule-registry.md,
+        # "Delivering a rule when it applies"). The marker is how the two are
+        # told apart.
         released=$("$RF_HELPER" release "$id" 2>&1 </dev/null)
         [ -z "$released" ] || printf '%s\n' "$released" >&2
         case "$released" in
