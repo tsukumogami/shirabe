@@ -181,11 +181,14 @@ handled as the design says, and print the dispute hint before failing.
 **Type**: code
 **Files**: `skills/work-on/scripts/check-pr-output.sh`, `skills/work-on/scripts/check-branch-output.sh`, `skills/work-on/scripts/check-verification.sh`, `skills/work-on/scripts/panel-scope.sh`, `skills/scope/scripts/check-hop-document.sh`
 
-### Issue 5: feat(registry): figures reader over koto journal lines
+### Issue 5: feat(registry): reference reader for the lifecycle figures
 
-**Goal**: `scripts/rule-lifecycle.sh figures [--json] [<file>...]` prints each
-script rule's evaluations, fires by level, passes, disputes by source,
-unconverged visits, window days and the criterion met.
+**Goal**: `scripts/rule-lifecycle.sh figures [--json] [<file>...]`, a
+fixture-tested reference implementation of the figure definitions for tests
+and single-host spot checks (never the source of a stage decision, which
+comes from log queries over the exported journal), prints each script rule's
+evaluations, fires by level, passes, disputes by source, unconverged visits,
+window days and the criterion met.
 
 **Acceptance Criteria**:
 - [ ] Given fixture journal lines and a test registry, the output matches
@@ -252,9 +255,15 @@ safety rule, figures, thresholds and dispute path, and
 **Acceptance Criteria**:
 - [ ] `references/check-lifecycle.md` names all four stages with their gate
       behaviour and level, lists every allowed transition, states the safety
-      rule with the protected-action list, defines each figure by journal
-      record kind and field (with the nested names a log backend shows, such
-      as `koto.check.name`), gives the threshold table from the PRD
+      rule with the protected-action list, defines each figure (evaluations,
+      fires by level, passes, disputes by source, unconverged visits, window)
+      by record kind, filter fields, grouping and join in the exported
+      `koto.*` names, in both the flat form and the nested form a log backend
+      shows (`koto.check.name` on `check_evaluated`), says the figures a
+      stage-change pull request quotes come from log queries over the
+      exported journal, names `scripts/rule-lifecycle.sh figures` as the
+      definitions' tested reference for single-host spot checks only, gives
+      the threshold table from the PRD
       (`docs/prds/PRD-check-lifecycle.md`) with the same four criteria and
       bounds, and documents
       `scripts/rule-dispute.sh` and `scripts/rule-lifecycle.sh figures`.

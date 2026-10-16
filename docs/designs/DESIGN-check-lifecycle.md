@@ -16,8 +16,10 @@ decision: |
   (block error, warn warning, shadow info, retired nothing) and counts only
   block findings toward the exit. The registry check validates the fields,
   the safety rule and the gate names, and compares stages with the merge
-  base for transitions. A jq reader turns koto journal lines into per-rule
-  figures and the criterion met. A companion koto change journals every
+  base for transitions. The lifecycle reference defines every figure in the
+  exported journal's field names, so a log query computes it, and a jq reader
+  implements the same definitions as a fixture-tested reference for tests and
+  single-host spot checks. A companion koto change journals every
   finding as `check_finding`, puts a passing check's warnings on the
   response as `advisories`, and adds `koto disputes record`, journaled as
   `check_disputed`. shirabe ships a dispute wrapper that falls back to a koto
@@ -97,8 +99,11 @@ separate pull request (R12 to R15), and requires shirabe to work on koto
 - **Existing meanings hold.** `status`, `level`, `backstop`, `withhold`,
   `deny` and koto's `check_rule` keep their meaning, so readers and the
   pre-action hook see no change.
-- **Countable from the journal alone.** Every figure has to come from journal
-  lines koto writes during real runs; nothing runs outside a session (R25).
+- **Read from the exported journal.** Every figure a stage change cites comes
+  from log queries over the journal fields koto exports during real runs,
+  across every host that sends them; nothing runs outside a session (R25). A
+  reading from one host's journal sees that host alone, so it can check a
+  definition but can't decide a promotion (R18).
 - **Safe on koto 0.20.0.** A shirabe release with stages must not hold a run
   that today's shirabe wouldn't, on a koto without the companion change.
 - **Bash 3.2 and jq.** Scripts keep the macOS floor; the registry check and
@@ -214,25 +219,37 @@ untestable locally. Rejected.
 
 Resolved inline.
 
-The PRD wants the criteria as thresholds over journal records and a reader
-that prints the figures. Key assumption: the reader is given koto's own line
-format (one flat JSON object per line with dotted keys), as the host journal
-and an export in that format both are.
+The PRD wants the criteria as thresholds over journal records, with the
+figures a stage change cites computed by log queries over the exported
+fields (R18), and a reference reader (R19). Key assumptions: the export
+carries every host's journal records with their `koto.*` fields, nesting a
+name that has children (`koto.check` on `check_evaluated` arrives as
+`koto.check.name`); the reader is given koto's own line format (one flat JSON
+object per line with dotted keys).
 
-#### Chosen: `scripts/rule-lifecycle.sh figures`, a jq reader, plus definitions
+#### Chosen: field-level definitions in exported names, plus a reference reader
 
-A bash script with one jq program reads journal lines and the registry and
-prints one line (or JSON object) per script rule. `references/check-lifecycle.md`
-defines each figure field by field, so the same figure can be computed by a
-query in a log backend.
+`references/check-lifecycle.md` defines each figure field by field in the
+exported `koto.*` names, both the flat form and the nested form a log backend
+shows, so the measurement owners can write each one as a log query, and those
+queries are what a stage-change pull request quotes.
+`scripts/rule-lifecycle.sh figures`, a bash script with one jq program,
+implements the same definitions over koto's line format; its fixtures pin
+every threshold boundary, which is how the definitions are tested, and it
+serves spot checks on one host. It never decides a promotion.
 
 #### Alternatives Considered
 
-**Documented queries only**: nothing tests them, and thresholds drift from
-the text. Rejected.
+**Definitions with no reference implementation**: nothing tests them, and
+the thresholds drift from the text. Rejected.
 
-**A `shirabe` Rust subcommand**: typed, but a threshold change would need a
-binary release, and every other registry reader is a script. Rejected.
+**The reader as the source of stage decisions**: simplest to run, but it sees
+one host's journal, so its figures miss every run elsewhere. Rejected; it
+stays a reference.
+
+**A `shirabe` Rust subcommand for the reference**: typed, but a threshold
+change would need a binary release, and every other registry reader is a
+script. Rejected.
 
 ### Decision 5: What koto adds
 
@@ -278,8 +295,9 @@ rule without a declared backstop, and `gates` ties each rule to the
 evaluations that measure it. The library turns that stage into the finding's
 level and decides whether the finding counts, so the five gate scripts change
 only where their exit logic is unusual. koto's companion change makes every
-finding countable and every warning visible, and the reader turns journal
-lines into figures and a criterion, which a stage-change pull request quotes.
+finding countable and every warning visible, the reference defines each
+figure in the exported field names so log queries can compute it, and a
+stage-change pull request quotes those queries' figures.
 On koto 0.20.0 the shirabe half is safe on its own: block behaves as before,
 a gentle finding exits 0 and is dropped by koto, and a dispute is kept in the
 session as a decision.
@@ -458,11 +476,16 @@ state=<state> by=<by>: <reason>"}` built by jq and prints
 a shell string.
 
 **`references/check-lifecycle.md`** states the stages and their gate
-behaviour, the transitions, the safety rule, the figures field by field (with
-the nested names a log backend gives them, such as `koto.check.name` on
-`check_evaluated`), the thresholds, the dispute path, and how to run the
-reader for a stage-change pull request. `references/rule-registry.md`
-describes the four fields and links it.
+behaviour, the transitions, the safety rule, the thresholds and the dispute
+path, and defines each figure field by field in the exported names: the
+record kind, the fields it filters and groups on, and the join, in both the
+flat form and the nested form a log backend shows (`koto.check.name` on
+`check_evaluated`, `koto.check` on `check_finding`). Those definitions are
+what the measurement owners turn into log queries, and the figures a
+stage-change pull request quotes come from those queries. It names
+`rule-lifecycle.sh figures` as the definitions' tested reference, for spot
+checks on one host only. `references/rule-registry.md` describes the four
+fields and links it.
 
 **koto (separate pull request in `tsukumogami/koto`)**:
 
@@ -528,8 +551,8 @@ companion change, every finding also lands as a `check_finding` record, and a
 passing check's warnings land on the response as `advisories`. An agent that
 disagrees runs `rule-dispute.sh`, which records a `finding_disputed` event and
 a `check_disputed` record, or a koto decision on older koto. Later, someone
-preparing a stage change runs `rule-lifecycle.sh figures` over the host's
-journal (or lines exported in koto's format), reads the rule's figures and
+preparing a stage change runs the log queries written from the reference's
+definitions over the exported journal, reads the rule's figures and
 criterion, and opens a registry pull request changing `stage` and
 `stage_since` with that output in the body. The registry check holds the pull
 request to R4 and R5.

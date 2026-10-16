@@ -24,6 +24,13 @@ In Progress
 
 Absorbed [BRIEF-check-lifecycle](docs/briefs/BRIEF-check-lifecycle.md); carried in Absorbed Brief.
 
+Amended after acceptance: the figures a stage change cites come from log
+queries over the exported journal fields, which one host's journal can't
+stand in for. R18 now asks for those figures, R21's reference defines each
+figure in the exported field names, and R19's reader is a fixture-tested
+reference implementation of the definitions for tests and single-host spot
+checks, not the source of a stage decision.
+
 ## Absorbed Brief
 
 The feature exists because a deterministic check in shirabe either blocks
@@ -113,8 +120,9 @@ wrong, with no way to say so that anyone will later count.
 - As an agent passing a gate whose check reported a warn-stage finding, I want
   that finding on the response that advanced me, so that I can fix the small
   issue or carry on without the run waiting on it.
-- As a reviewer of a stage-change pull request, I want the figures reader's
-  output for the rule in the pull request, so that I can check the change
+- As a reviewer of a stage-change pull request, I want the rule's figures,
+  computed by log queries over the exported journal, in the pull request, so
+  that I can check the change
   against the criterion it claims instead of taking it on trust.
 - As an adopter running shirabe on a koto that predates the journal changes, I
   want block-stage checks to behave exactly as today and gentler stages never
@@ -292,9 +300,13 @@ dates, `YYYY-MM-DD`.
 - **R18. Stage changes are reviewed changes.** Nothing changes a stage
   automatically. A stage changes only through a pull request to the registry
   that a person or a coordinator session reviews, and the pull request carries
-  the figures reader's output for the rule. This is a process rule; no check
-  enforces the pull request's content.
-- **R19. A figures reader.** `scripts/rule-lifecycle.sh figures [--json]
+  the rule's figures as log queries over the exported journal fields compute
+  them, following R21's definitions. A reading from one host's journal can't
+  stand in for them, since it sees that host alone. This is a process rule; no
+  check enforces the pull request's content.
+- **R19. A reference reader.** A fixture-tested reference implementation of
+  R16's and R17's definitions, used in tests and for spot checks on one host,
+  and never the source of a stage decision: `scripts/rule-lifecycle.sh figures [--json]
   [<journal-file>...]` reads koto journal lines (koto's line format, one JSON
   object per line) from the named files or standard input, reads each rule's
   `stage`, `stage_since` and `gates` from the registry beside it, ignores
@@ -318,7 +330,10 @@ dates, `YYYY-MM-DD`.
 - **R21. Where the lifecycle is written down.** `references/check-lifecycle.md`
   states the stages, the transitions, the safety rule, the figures, the
   thresholds and the dispute path, and `references/rule-registry.md` describes
-  the new fields and links it.
+  the new fields and links it. Each figure is defined field by field in the
+  exported `koto.*` names, including the nested form a log backend gives a
+  name that has children (`koto.check` on an evaluation record arrives as
+  `koto.check.name`), so a log query can be written from the definition alone.
 
 ### Non-functional
 
@@ -481,8 +496,8 @@ dates, `YYYY-MM-DD`.
   this feature defines the figures and ships a reader over journal lines.
 - **Offline runs.** No evaluation harness run or job that recomputes figures
   outside a session.
-- **Automatic stage changes.** The figures reader reports; a person changes
-  the stage.
+- **Automatic stage changes.** Log queries report the figures; a person
+  changes the stage.
 - **koto's override path.** An override moves past a gate as it does today; a
   dispute is a separate record that moves nothing.
 - **Moving any existing rule.** Every rule starts at `block` or `retired`;
