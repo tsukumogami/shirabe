@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Draft
+status: Accepted
 problem: |
   An agent whose fix to a gate-checked rule doesn't land sees the same one-line
   registry summary on every failure. Only PB4 ever returns its full text, by a
@@ -20,7 +20,7 @@ upstream: docs/briefs/BRIEF-validate-and-return.md
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
