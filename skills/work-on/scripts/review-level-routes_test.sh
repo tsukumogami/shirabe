@@ -95,7 +95,7 @@ done
 LEDGER_HITS=$(grep -rn 'context remove.*review_level\|^for KEY in .*review_level' "$SKILL_DIR" --include='*.md' --include='*.sh' 2>/dev/null \
     | grep -v '_test\.sh:')
 [ -z "$LEDGER_HITS" ] && pass "no clearing site names review_level.jsonl" || fail "a clearing site names the ledger: $LEDGER_HITS"
-grep -q 'phase-4d-light\.md' <<<"$SITES" && pass "the light panel has its own clearing block" \
+printf '%s\n' "$SITES" | grep -q 'phase-4d-light\.md' && pass "the light panel has its own clearing block" \
     || fail "phase-4d-light.md has no clearing block"
 # implementation's clear_on_entry: koto clears these whenever the run comes
 # back to implementation, which is the only clearing on verification's exit-1
@@ -103,10 +103,10 @@ grep -q 'phase-4d-light\.md' <<<"$SITES" && pass "the light panel has its own cl
 CLEAR_ON_ENTRY=$(awk '$0 == "  implementation:" { f = 1; next } f && /^  [a-z_]+:$/ { exit } f && /^    clear_on_entry:/ { print; exit }' "$TEMPLATE")
 for k in scrutiny_results.json review_results.json qa_results.json light_results.json summary.md \
          scrutiny_scope.json review_scope.json qa_scope.json light_scope.json; do
-    grep -q "$k" <<<"$CLEAR_ON_ENTRY" && pass "implementation's clear_on_entry clears $k" \
+    printf '%s\n' "$CLEAR_ON_ENTRY" | grep -q "$k" && pass "implementation's clear_on_entry clears $k" \
         || fail "implementation's clear_on_entry does not clear $k: [$CLEAR_ON_ENTRY]"
 done
-grep -q 'review_level' <<<"$CLEAR_ON_ENTRY" && fail "implementation's clear_on_entry names the ledger" \
+printf '%s\n' "$CLEAR_ON_ENTRY" | grep -q 'review_level' && fail "implementation's clear_on_entry names the ledger" \
     || pass "implementation's clear_on_entry leaves review_level.jsonl alone"
 
 # ==============================================================================

@@ -55,7 +55,7 @@ expect() { # expect <rc> <label>
 
 # The script's own floor, read from its one definition.
 DEFAULT_FLOOR=$("$BASH_BIN" "$ASSERT" --print-floor 2>/dev/null)
-if grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$DEFAULT_FLOOR"; then
+if printf '%s' "$DEFAULT_FLOOR" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     pass "the script defines its floor in one place ($DEFAULT_FLOOR)"
 else
     fail "cannot read the floor from $ASSERT: [$DEFAULT_FLOOR]"
@@ -124,7 +124,7 @@ expect 1 "a floor that is not MAJOR.MINOR.PATCH is refused"
 # The manifest tracks a koto major version: `tsuku install` resolves "0" to the
 # newest 0.x, so it never downgrades a newer koto the way an exact pin would.
 PIN=$(sed -n 's/^[[:space:]]*"tsukumogami\/koto"[[:space:]]*=[[:space:]]*"\([^"]*\)".*$/\1/p' "$REPO/.tsuku.toml" | head -1)
-if grep -Eq '^[0-9]+$' <<<"$PIN"; then
+if printf '%s' "$PIN" | grep -Eq '^[0-9]+$'; then
     pass "the committed .tsuku.toml tracks a koto major version ($PIN)"
 else
     fail "the committed .tsuku.toml must track a koto major version such as \"0\", not [$PIN]"

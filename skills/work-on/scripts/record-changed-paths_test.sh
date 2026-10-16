@@ -259,7 +259,7 @@ run --base s-ren
 run --write s-ren
 lines=$(path_lines)
 if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$lines" | wc -l | tr -d ' ')" = 1 ] \
-    && grep -qE "^R[0-9]*	src/a.go	src/renamed.go$" <<<"$lines"; then
+    && printf '%s\n' "$lines" | grep -qE "^R[0-9]*	src/a.go	src/renamed.go$"; then
     pass "a rename is one R line naming both paths, not a delete plus an add"
 else
     fail "rename: rc $RC, lines [$lines]"
@@ -290,7 +290,7 @@ run --base s-ce
 many_files 200 f
 run --write s-ce
 if [ "$RC" -eq 0 ] && [ "$(path_lines | grep -c '^A	')" = 200 ] \
-    && ! grep -q 'more paths' <<<"$PATHS"; then
+    && ! printf '%s\n' "$PATHS" | grep -q 'more paths'; then
     pass "exactly 200 paths: all kept, no trailer"
 else
     fail "200 paths: rc $RC, last [$(printf '%s\n' "$PATHS" | tail -1)]"

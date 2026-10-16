@@ -203,12 +203,12 @@ fi
 # --- static: no force, an explicit refspec ------------------------------------
 
 CODE=$(grep -v '^[[:space:]]*#' "$PAR")
-if grep -Eq -- '--force|--force-with-lease| -f |"\+' <<<"$CODE"; then
+if printf '%s' "$CODE" | grep -Eq -- '--force|--force-with-lease| -f |"\+'; then
     fail "push-and-record.sh carries a force option"
 else
     pass "no force option anywhere in the script"
 fi
-if grep -q 'git push --set-upstream "$REMOTE" "HEAD:refs/heads/$BRANCH"' <<<"$CODE"; then
+if printf '%s' "$CODE" | grep -q 'git push --set-upstream "$REMOTE" "HEAD:refs/heads/$BRANCH"'; then
     pass "the push names the explicit HEAD:refs/heads/<branch> refspec"
 else
     fail "the push is not the explicit-refspec form"

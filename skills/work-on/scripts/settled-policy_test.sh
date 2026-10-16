@@ -122,8 +122,8 @@ cap_in() {
     body=$(directive_of "$state")
     # Prose wraps anywhere, so the phrases are matched on the joined text.
     joined=$(printf '%s\n' "$body" | tr '\n' ' ')
-    if grep -qF -- "$text" <<<"$joined" \
-        && grep -qF -- "$note" <<<"$joined"; then
+    if printf '%s\n' "$joined" | grep -qF -- "$text" \
+        && printf '%s\n' "$joined" | grep -qF -- "$note"; then
         pass "$state states its cap once, as temporary"
     else
         fail "$state directive lacks its cap ($text) or the temporary note"

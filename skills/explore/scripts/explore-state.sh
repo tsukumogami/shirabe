@@ -166,7 +166,7 @@ cmd_resume_phase() {
     fi
     if key_exists "$s" work/findings.md; then
         findings=$("$KOTO" context get "$s" work/findings.md) || { say "cannot read work/findings.md"; exit 1; }
-        if grep -qxF '## Decision: Crystallize' <<<"$findings"; then
+        if printf '%s\n' "$findings" | grep -qxF '## Decision: Crystallize'; then
             printf '4\n'
         else
             printf '3\n'
@@ -174,7 +174,7 @@ cmd_resume_phase() {
         return 0
     fi
     leads=$(list_keys "$s" research/) || exit 1
-    if grep -Eq '^research/r[0-9]+_lead-.*\.md$' <<<"$leads"; then
+    if printf '%s\n' "$leads" | grep -Eq '^research/r[0-9]+_lead-.*\.md$'; then
         printf '3\n'
         return 0
     fi
@@ -265,7 +265,7 @@ cmd_finish_handoff() {
     for k in handoff/scope.md handoff/charter.md; do
         key_exists "$s" "$k" || continue
         content=$("$KOTO" context get "$s" "$k") || { say "cannot read $k"; exit 1; }
-        if grep -q '[^[:space:]]' <<<"$content"; then
+        if printf '%s' "$content" | grep -q '[^[:space:]]'; then
             printf 'handoff=%s\n' "$k"
             found=1
         fi

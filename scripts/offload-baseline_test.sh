@@ -196,7 +196,7 @@ expect_pin_fails() {
 # -- verify-pin ---------------------------------------------------------------
 
 run verify-pin --pin "$GOOD_PIN"
-if [ "$STATUS" -eq 0 ] && ! grep -q skipped <<<"$ERR"; then
+if [ "$STATUS" -eq 0 ] && ! printf '%s' "$ERR" | grep -q skipped; then
     pass "verify-pin: a correct pin passes, koto hashes compared"
 else
     fail "verify-pin: a correct pin passes" "status $STATUS, stderr: $ERR"

@@ -72,7 +72,7 @@ case "$1 $2" in
              !sep && /[^[:space:]]/ { text = 1 }
              END { exit !(sep == 1 && text) }' "$3" || exit 2
         if [ "${4:-}" = --pr-title ]; then
-            grep -Eq '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\([^)]+\))?!?: .' <<<"${5:-}" || exit 2
+            printf '%s' "${5:-}" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\([^)]+\))?!?: .' || exit 2
         fi
         exit 0
         ;;

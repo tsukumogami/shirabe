@@ -172,7 +172,7 @@ pass "execute-coordinated.md compiles"
 # a `..` segment and shell-active characters. Read from the compiled template
 # and run as an ERE, which its plain classes are.
 PLAN_DOC_PATTERN=$(jq -r '.variables.PLAN_DOC.pattern // ""' "$SHIPPED")
-plan_doc_ok() { grep -Eq -- "$PLAN_DOC_PATTERN" <<<"$1"; }
+plan_doc_ok() { printf '%s' "$1" | grep -Eq -- "$PLAN_DOC_PATTERN"; }
 for good in 'docs/plans/PLAN-x.md' '/home/u/ws/tsuku+shirabe_1/public/shirabe/docs/plans/PLAN-x.md' 'docs/plans/PLAN-a+b.md'; do
     if plan_doc_ok "$good"; then
         pass "PLAN_DOC's pattern admits $good"
@@ -190,7 +190,7 @@ done
 FAILED=$(run_checks "$SHIPPED")
 for entry in "${CHECKS[@]}" "PLUGIN_ROOT carries execute.md's absolute-path pattern|"; do
     label="${entry%%|*}"
-    if grep -qxF "$label" <<<"$FAILED"; then fail "$label"; else pass "$label"; fi
+    if printf '%s\n' "$FAILED" | grep -qxF "$label"; then fail "$label"; else pass "$label"; fi
 done
 
 # --- each check bites -------------------------------------------------------------
@@ -210,7 +210,7 @@ mutate() { # mutate <label> <expected failing check> <perl substitution>
         return
     fi
     failed=$(run_checks "$json")
-    if grep -qxF "$want" <<<"$failed"; then
+    if printf '%s\n' "$failed" | grep -qxF "$want"; then
         pass "the check fails on a copy with $label"
     else
         fail "a copy with $label passed [$want]"

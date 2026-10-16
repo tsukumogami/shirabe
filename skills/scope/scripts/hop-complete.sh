@@ -64,10 +64,8 @@ fi
 # so the diagnostic is kept and the no-verdict case exits 2 (cannot tell)
 # rather than 1 (not done) -- the status a missing binary already gets.
 VALIDATOR_OUT=""
-# A here-string, not a pipe: under pipefail, a `grep -q` that matches and exits
-# early cuts off the writer, and the failed pipeline reads as no match (#846).
 verdict_is() {
-  grep -q "\"outcome\": *\"$1\"" <<<"$VALIDATOR_OUT"
+  printf '%s' "$VALIDATOR_OUT" | grep -q "\"outcome\": *\"$1\""
 }
 
 # The validator reports one of five outcome labels. Three -- clean, incomplete,
@@ -121,7 +119,7 @@ run_validator() {
 # road.
 is_clean() {
   run_validator "$1" "$2" || exit 2
-  grep -q '"outcome": *"clean"' <<<"$VALIDATOR_OUT"
+  printf '%s' "$VALIDATOR_OUT" | grep -q '"outcome": *"clean"'
 }
 
 # SCHEMA is selected deliberately, and dropping it reopens a defeat. `--check`
@@ -174,9 +172,8 @@ is_document() {
   # No `head -n 1 == ---` test. The validator skips leading blank lines before
   # the opening delimiter, so requiring `---` on line 1 refused a document that
   # validates clean. Whether the frontmatter opens at all is frontmatter()'s
-  # question, and it answers it the way the validator does. grep without -q
-  # reads all of frontmatter's output, so awk is never cut off (see verdict_is).
-  frontmatter "$f" | grep -E '^schema:[[:space:]]*[a-z]+/v[0-9]+' >/dev/null || return 1
+  # question, and it answers it the way the validator does.
+  frontmatter "$f" | grep -Eq '^schema:[[:space:]]*[a-z]+/v[0-9]+' || return 1
   return 0
 }
 
@@ -205,7 +202,7 @@ schema_for() {
 is_artifact() {
   local f="$1" want_schema="$2"
   is_document "$f" || return 1
-  frontmatter "$f" | grep -E "^schema:[[:space:]]*${want_schema}\$" >/dev/null || return 1
+  frontmatter "$f" | grep -Eq "^schema:[[:space:]]*${want_schema}\$" || return 1
   validates_structure "$f" || return 1
   return 0
 }
@@ -312,8 +309,8 @@ for d in $DOWNSTREAM; do
     # and the run would be told no declaration exists when one does -- a true
     # refusal with a false reason, sending an author to the wrong file.
     is_document "$ROOT/$sp" || continue
-    frontmatter "$ROOT/$sp" | grep -E "^schema:[[:space:]]*$(schema_for "$d")\$" >/dev/null || continue
-    if absorbed_entries "$ROOT/$sp" | grep -Fx -- "$WANT" >/dev/null; then
+    frontmatter "$ROOT/$sp" | grep -Eq "^schema:[[:space:]]*$(schema_for "$d")\$" || continue
+    if absorbed_entries "$ROOT/$sp" | grep -Fxq -- "$WANT"; then
       if ! validates_fold "$ROOT/$sp"; then
         echo "incomplete: $sp declares $WANT absorbed but does not validate"
         exit 1

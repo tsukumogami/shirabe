@@ -107,7 +107,7 @@ n=$(printf '%s\n' "$PC_ACCEPTS" | grep -c 'cascade_status')
 m=$(grep -c -E '^ +cascade_status: ' "$TEMPLATE")
 [ "$n" -eq 0 ] && [ "$m" -eq 0 ] && pass "plan_completion accepts no cascade_status, and no edge names one (counts $n, $m)" \
     || fail "cascade_status is still accepted ($n) or routed on ($m)"
-grep -q '^      cascade_detail:$' <<<"$PC_ACCEPTS" \
+printf '%s\n' "$PC_ACCEPTS" | grep -q '^      cascade_detail:$' \
     && pass "plan_completion still accepts cascade_detail" \
     || fail "plan_completion no longer accepts cascade_detail"
 
@@ -189,7 +189,7 @@ for pair in orchestrator_setup:setup_owned_pr pr_finalization:final_owned_pr \
                 FAKE_OWNED_RC="$mode" sh -c "$(render "$cmd")" 2>/dev/null)
         fi
         RC=$?
-        if [ "$RC" -ne 0 ] && ! grep -q '::koto-finding::' <<<"$OUT"; then
+        if [ "$RC" -ne 0 ] && ! printf '%s' "$OUT" | grep -q '::koto-finding::'; then
             pass "$g failing (exit $RC, owned-pr.sh $mode) prints no finding"
         else
             fail "$g with owned-pr.sh $mode: exit $RC, stdout [$OUT]"
@@ -322,7 +322,7 @@ drive() {
 }
 
 expect() {
-    if [ "$STATE" = "$2" ]; then pass "$1 -> $STATE"; else fail "$1: want $2, got $STATE ($(head -c 300 <<<"$RESP"))"; fi
+    if [ "$STATE" = "$2" ]; then pass "$1 -> $STATE"; else fail "$1: want $2, got $STATE ($(printf '%s' "$RESP" | head -c 300))"; fi
 }
 
 # expect_step <label> <step>: the run ended at done_blocked with that step.
@@ -332,7 +332,7 @@ expect_step() {
     if [ "$STATE" = done_blocked ] && [ "$got" = "$2" ]; then
         pass "$1 -> done_blocked, step $2"
     else
-        fail "$1: want done_blocked with step $2, got $STATE with step [$got] ($(head -c 300 <<<"$RESP"))"
+        fail "$1: want done_blocked with step $2, got $STATE with step [$got] ($(printf '%s' "$RESP" | head -c 300))"
     fi
 }
 
@@ -342,7 +342,7 @@ holds() {
     if [ "$STATE" = "$2" ] && { [ -z "${3:-}" ] || printf '%s' "$RESP" | jq -e --arg g "$3" '[.blocking_conditions[]? | select(.name == $g)] | length > 0' >/dev/null 2>&1; }; then
         pass "$1 holds at $2${3:+ naming $3}"
     else
-        fail "$1: want a hold at $2${3:+ naming $3}, got $STATE ($(head -c 300 <<<"$RESP"))"
+        fail "$1: want a hold at $2${3:+ naming $3}, got $STATE ($(printf '%s' "$RESP" | head -c 300))"
     fi
 }
 

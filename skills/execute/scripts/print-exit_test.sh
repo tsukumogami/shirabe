@@ -221,7 +221,7 @@ FILE="${TMPDIR:-/tmp}/print-exit-test.$$.json"
 printf '%s' "$BARE" > "$FILE"
 got=$(bash "$PRINT" "$FILE")
 rm -f "$FILE"
-[ "$(head -1 <<<"$got")" = "outcome=merged" ] && pass "reads a file argument" || fail "file argument: [$got]"
+[ "$(printf '%s' "$got" | head -1)" = "outcome=merged" ] && pass "reads a file argument" || fail "file argument: [$got]"
 
 # --- values that fail their pattern are dropped -------------------------------
 

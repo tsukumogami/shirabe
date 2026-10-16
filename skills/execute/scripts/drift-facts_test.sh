@@ -200,8 +200,8 @@ case "$FACTS" in
     '{"route":"none",'*) pass "compact JSON starting {\"route\":\"none\"," ;;
     *) fail "facts should start with {\"route\":\"none\",; got ${FACTS:0:40}" ;;
 esac
-if grep -q '^# PLAN: t$' <<<"$INTENT" && grep -q 'Touches `src/a.go`' <<<"$INTENT" \
-    && grep -q -- '- Issue 1: feat: a -- Change a.' <<<"$INTENT"; then
+if printf '%s' "$INTENT" | grep -q '^# PLAN: t$' && printf '%s' "$INTENT" | grep -q 'Touches `src/a.go`' \
+    && printf '%s' "$INTENT" | grep -q -- '- Issue 1: feat: a -- Change a.'; then
     pass "plan_intent.md carries the title, Scope Summary, and outline goals"
 else
     fail "plan_intent.md: $INTENT"
@@ -233,7 +233,7 @@ if [ "$RC" -eq 0 ] && [ "$(jf .route)" = '"judge"' ] \
 else
     fail "overlap: rc $RC, facts $FACTS"
 fi
-if grep -q 'SECRET-SUBJECT\|UNIQUE-DIFF-TEXT' <<<"$FACTS"; then
+if printf '%s' "$FACTS" | grep -q 'SECRET-SUBJECT\|UNIQUE-DIFF-TEXT'; then
     fail "facts carry a commit subject or diff text: $FACTS"
 else
     pass "facts carry no commit subject and no diff text"
@@ -345,7 +345,7 @@ if [ "$RC" -eq 0 ] && [ "$fbytes" -le 8192 ] && [ "$(jf .truncated)" = true ] &&
 else
     fail "truncation: rc $RC, $fbytes bytes, truncated $(jf .truncated), route $(jf .route)"
 fi
-if [ "$ibytes" -le 8192 ] && grep -q 'plan intent truncated' <<<"$INTENT"; then
+if [ "$ibytes" -le 8192 ] && printf '%s' "$INTENT" | grep -q 'plan intent truncated'; then
     pass "plan_intent.md is cut to $ibytes bytes and marked"
 else
     fail "plan_intent.md is $ibytes bytes"
@@ -424,7 +424,7 @@ Edits `src/b.go`.'
 upstream 'printf a4 >> src/a.go' 'touch a'
 run
 if [ "$(jf .referenced_paths)" = '["docs/guide.md","docs/plans/PLAN-t.md","src/b.go"]' ] && [ "$(jf .route)" = '"none"' ] \
-    && grep -q -- '- owner/other:src/a.go' <<<"$INTENT"; then
+    && printf '%s' "$INTENT" | grep -q -- '- owner/other:src/a.go'; then
     pass "a cross-repo upstream is skipped as a reference and still listed in the intent"
 else
     fail "cross-repo: facts $FACTS"
@@ -542,14 +542,14 @@ for want in '- Step 1: report export writes a one-row report as CSV -- The expor
             '- Step 2: report export keeps only the columns named by --columns -- `--columns` narrows the CSV to the named columns, in the order given.' \
             '- Step 3: report export writes to standard output when the path is - -- An output path of `-` sends the CSV to standard output instead of a file.' \
             '- Step 4: report export refuses to overwrite a file without --force -- An existing output file stops the export unless `--force` is given.'; do
-    grep -Fxq -- "$want" <<<"$INTENT" || v2_missing="$v2_missing [$want]"
+    printf '%s\n' "$INTENT" | grep -Fxq -- "$want" || v2_missing="$v2_missing [$want]"
 done
 if [ -z "$v2_missing" ]; then
     pass "plan/v2: plan_intent.md has each step's goal, or its outline line"
 else
     fail "plan/v2: plan_intent.md lacks$v2_missing in: $INTENT"
 fi
-if grep -Eq '^- Step [0-9]+: .* -- *$' <<<"$INTENT"; then
+if printf '%s\n' "$INTENT" | grep -Eq '^- Step [0-9]+: .* -- *$'; then
     fail "plan/v2: a step shows a missing goal: $INTENT"
 else
     pass "plan/v2: no step shows a missing goal"
@@ -615,12 +615,12 @@ if [ "$RC" -eq 0 ] && [ -n "$FACTS" ]; then
 else
     fail "plan/v1 with step prose: rc $RC, stderr $(cat "$WORKDIR/stderr")"
 fi
-if grep -Fxq -- '- Issue 1: feat: add the schema -- Add the schema reader.' <<<"$INTENT"; then
+if printf '%s\n' "$INTENT" | grep -Fxq -- '- Issue 1: feat: add the schema -- Add the schema reader.'; then
     pass "plan/v1 with step prose: the issue's goal is listed"
 else
     fail "plan/v1 with step prose: plan_intent.md lacks the issue goal: $INTENT"
 fi
-if grep -q '^- Step ' <<<"$INTENT"; then
+if printf '%s\n' "$INTENT" | grep -q '^- Step '; then
     fail "plan/v1 with step prose: a Step line was added: $INTENT"
 else
     pass "plan/v1 with step prose: no Step line is added"
@@ -648,7 +648,7 @@ for want in '- Step 1: $(touch PWNED) runs end to end -- The title carries a com
             '- Step 2: `touch PWNED` in backticks, and Fixes #1 -- The title carries backticks and a closing keyword that stay text.' \
             '- Step 3: --help is not an option, @octocat is not a mention -- A title that starts with two dashes and names a user stays a title.' \
             "- Step 4: ${ESC}[31mred${ESC}[0m and \$(touch PWNED) -- A title carrying an ANSI escape stays text."; do
-    grep -Fxq -- "$want" <<<"$INTENT" || hostile_missing="$hostile_missing [$want]"
+    printf '%s\n' "$INTENT" | grep -Fxq -- "$want" || hostile_missing="$hostile_missing [$want]"
 done
 if [ -z "$hostile_missing" ]; then
     pass "hostile titles: plan_intent.md holds each title as text"
@@ -671,8 +671,8 @@ judge_facts=$FACTS
 recorded_pat=$(awk '/drift_facts_recorded:/ { f = 1 } f && /pattern:/ { sub(/^[^\047]*\047/, ""); sub(/\047[^\047]*$/, ""); print; exit }' "$TEMPLATE")
 clear_pat=$(awk '/drift_clear:/ { f = 1 } f && /pattern:/ { sub(/^[^\047]*\047/, ""); sub(/\047[^\047]*$/, ""); print; exit }' "$TEMPLATE")
 if [ -n "$recorded_pat" ] && [ -n "$clear_pat" ] \
-    && grep -Eq "$recorded_pat" <<<"$none_facts" && grep -Eq "$recorded_pat" <<<"$judge_facts" \
-    && grep -Eq "$clear_pat" <<<"$none_facts" && ! grep -Eq "$clear_pat" <<<"$judge_facts"; then
+    && printf '%s' "$none_facts" | grep -Eq "$recorded_pat" && printf '%s' "$judge_facts" | grep -Eq "$recorded_pat" \
+    && printf '%s' "$none_facts" | grep -Eq "$clear_pat" && ! printf '%s' "$judge_facts" | grep -Eq "$clear_pat"; then
     pass "drift_facts_recorded matches both routes; drift_clear matches none and not judge"
 else
     fail "gate patterns [$recorded_pat] [$clear_pat] against [${none_facts:0:30}] [${judge_facts:0:30}]"

@@ -144,7 +144,7 @@ else
 fi
 
 CHAIN=$(grep -n 'run-id.sh carry "$LIVE_FILE"' "$E" | head -1)
-if grep -q '&&' <<<"$CHAIN" && grep -q -- '--jq .body > "$LIVE_FILE" \\$' "$E"; then
+if printf '%s' "$CHAIN" | grep -q '&&' && grep -q -- '--jq .body > "$LIVE_FILE" \\$' "$E"; then
     pass "pr_finalization chains the read, the carry, and the edit, so a failed read never edits"
 else
     fail "pr_finalization's read, carry, and edit are not chained with &&"

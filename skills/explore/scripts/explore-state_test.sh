@@ -179,12 +179,12 @@ echo
 # --- the script itself -------------------------------------------------------------------
 
 CODE=$(grep -v '^[[:space:]]*#' "$ES")
-if grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)' <<<"$CODE"; then
+if printf '%s\n' "$CODE" | grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)'; then
     fail "explore-state.sh contains eval"
 else
     pass "explore-state.sh contains no eval"
 fi
-if grep -qE 'declare -A|mapfile|readarray|local -n|declare -n' <<<"$CODE"; then
+if printf '%s\n' "$CODE" | grep -qE 'declare -A|mapfile|readarray|local -n|declare -n'; then
     fail "explore-state.sh uses a bash 4 construct"
 else
     pass "explore-state.sh uses no bash 4 construct"
@@ -660,8 +660,8 @@ GENERIC=$(awk '/Agent prompt template/ {s=1} s && /^```/ {n++; if (n == 2) exit;
 ADVERSARIAL=$(awk '/^### Adversarial Lead Agent Prompt Template/ {s=1; next} /^## Quality Checklist/ {s=0} s && /^```/ {f = !f; next} s && f' "$PH/phase-1-scope.md")
 if [ -z "$GENERIC" ]; then fail "could not read the generic lead prompt from phase-2-discover.md"; fi
 if [ -z "$ADVERSARIAL" ]; then fail "could not read the adversarial lead prompt from phase-1-scope.md"; fi
-if grep -qi 'koto' <<<"$GENERIC"; then fail "the generic research-lead prompt names koto"; else pass "the generic research-lead prompt names no koto command"; fi
-if grep -qi 'koto' <<<"$ADVERSARIAL"; then fail "the adversarial lead's prompt names koto"; else pass "the adversarial lead's prompt names no koto command"; fi
+if printf '%s\n' "$GENERIC" | grep -qi 'koto'; then fail "the generic research-lead prompt names koto"; else pass "the generic research-lead prompt names no koto command"; fi
+if printf '%s\n' "$ADVERSARIAL" | grep -qi 'koto'; then fail "the adversarial lead's prompt names koto"; else pass "the adversarial lead's prompt names no koto command"; fi
 if fenced "$PH/phase-2-discover.md" | grep -qi 'koto'; then fail "a fenced block in Phase 2 names koto"; else pass "no fenced block in Phase 2 names koto"; fi
 case "$GENERIC" in
     *'r<N>_lead-<name>.md'*) pass "the generic prompt pins output to a file r<N>_lead-<name>.md" ;;
@@ -676,7 +676,7 @@ esac
 PROV=$(awk '/^## Provenance$/ {p=1; next} /^## / {if (p) exit} p' "$PH/phase-5-produce-handoff.md")
 if [ -z "$PROV" ]; then
     fail "could not read the handoff provenance"
-elif grep -qE 'work/|research/|koto|wip/' <<<"$PROV"; then
+elif printf '%s\n' "$PROV" | grep -qE 'work/|research/|koto|wip/'; then
     fail "the handoff provenance points at a key or a staging path"
 else
     pass "the handoff provenance points at no key"

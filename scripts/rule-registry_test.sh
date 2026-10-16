@@ -103,7 +103,7 @@ run() { # run <root> <args...>: the copied script, stdout and stderr kept apart
 # --- the real registry, read from shirabe's own checkout ---------------------
 
 out=$("$SUT" ref commit/conventional-subject) && rc=0 || rc=$?
-if [ $rc -eq 0 ] && grep -Eq '^references/pr-body-conformance\.md#L[0-9]+-L[0-9]+@([0-9a-f]{12}|worktree)$' <<<"$out"; then
+if [ $rc -eq 0 ] && printf '%s' "$out" | grep -Eq '^references/pr-body-conformance\.md#L[0-9]+-L[0-9]+@([0-9a-f]{12}|worktree)$'; then
     pass "ref on the real registry prints path#La-Lb@revision"
 else
     fail "ref on the real registry" "rc=$rc out=[$out]"
@@ -267,7 +267,7 @@ expect_release_refused() { # <label> <id> [registry]
         run "$I" release "$id"
     fi
     if [ $RC -eq 0 ] && [ -z "$OUT" ] && [ "$(printf '%s\n' "$ERR" | wc -l | tr -d ' ')" = 1 ] \
-       && grep -q "^rule-registry: could not release $id: " <<<"$ERR"; then
+       && printf '%s' "$ERR" | grep -q "^rule-registry: could not release $id: "; then
         pass "release refuses $label with one notice line and exit 0"
     else
         fail "release $label" "rc=$RC out=[$OUT] err=[$ERR]"
@@ -281,13 +281,13 @@ expect_release_refused "an unknown id" t/none
 expect_release_refused "a nested SKILL.md that is not a skill's own" t/nested
 
 run "$I" release t/docs
-if grep -q "^rule-registry: could not release t/docs: docs/notes.md is not a file a skill loads$" <<<"$ERR"; then
+if printf '%s' "$ERR" | grep -q "^rule-registry: could not release t/docs: docs/notes.md is not a file a skill loads$"; then
     pass "release names its reason"
 else
     fail "release reason" "err=[$ERR]"
 fi
 run "$I" release t/dup
-if grep -q "^rule-registry: could not release t/dup: rule t/dup: its first anchor is not on exactly one line" <<<"$ERR"; then
+if printf '%s' "$ERR" | grep -q "^rule-registry: could not release t/dup: rule t/dup: its first anchor is not on exactly one line"; then
     pass "release passes the reader's own reason through"
 else
     fail "release reader reason" "err=[$ERR]"
@@ -371,8 +371,8 @@ rf_finding "$1" "a finding under its own rule"
 PROBE
 chmod +x "$A/probe.sh"
 OUT=$("$A/probe.sh" t/single 2>"$T/err"); RC=$?
-if [ $RC -eq 0 ] && grep -q '"rule_id":"t/single"' <<<"$OUT" \
-    && grep -q '"message":"Single-line rule: a finding under its own rule"' <<<"$OUT"; then
+if [ $RC -eq 0 ] && printf '%s' "$OUT" | grep -q '"rule_id":"t/single"' \
+    && printf '%s' "$OUT" | grep -q '"message":"Single-line rule: a finding under its own rule"'; then
     pass "rf_require_any resolves an active id that is not in RULE_IDS"
 else
     fail "rf_require_any active" "rc=$RC out=[$OUT] err=[$(cat "$T/err")]"

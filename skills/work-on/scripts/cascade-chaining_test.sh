@@ -191,12 +191,12 @@ tick_from_start() {
 D1=$(mktemp -d); TMPS+=("$D1")
 OUT1=$(tick_from_start "$D1" "cascade-chain-shipped-$$" 0 "$CASCADE_RUN" || true)
 
-if grep -q '"state":"cascade_run"' <<<"$OUT1"; then
+if echo "$OUT1" | grep -q '"state":"cascade_run"'; then
     pass "shipped shape: one tick stops at cascade_run (agent sees the directive)"
-elif grep -qE '"state":"done(_blocked)?"' <<<"$OUT1"; then
+elif echo "$OUT1" | grep -qE '"state":"done(_blocked)?"'; then
     fail "shipped shape: one tick chained past cascade_run to a terminal — the cascade would never run"
 else
-    fail "shipped shape: unexpected tick result: $(head -c 300 <<<"$OUT1")"
+    fail "shipped shape: unexpected tick result: $(echo "$OUT1" | head -c 300)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -219,12 +219,12 @@ MUTATED=$(echo "$CASCADE_RUN" | awk '
 D2=$(mktemp -d); TMPS+=("$D2")
 OUT2=$(tick_from_start "$D2" "cascade-chain-mutated-$$" 0 "$MUTATED" || true)
 
-if grep -qE '"state":"done"|"action":"done"' <<<"$OUT2"; then
+if echo "$OUT2" | grep -qE '"state":"done"|"action":"done"'; then
     pass "all-unconditional mutation chains through to a terminal — the defect is detectable"
-elif grep -q '"state":"cascade_run"' <<<"$OUT2"; then
+elif echo "$OUT2" | grep -q '"state":"cascade_run"'; then
     fail "all-unconditional mutation still stopped at cascade_run — this test no longer detects the defect it exists for"
 else
-    fail "mutation case: unexpected tick result: $(head -c 300 <<<"$OUT2")"
+    fail "mutation case: unexpected tick result: $(echo "$OUT2" | head -c 300)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -237,12 +237,12 @@ fi
 D3=$(mktemp -d); TMPS+=("$D3")
 OUT3=$(tick_from_start "$D3" "cascade-chain-noanchor-$$" 1 "$CASCADE_RUN" || true)
 
-if grep -q '"state":"cascade_run"' <<<"$OUT3"; then
+if echo "$OUT3" | grep -q '"state":"cascade_run"'; then
     fail "no-anchor path stopped at cascade_run — R3 violated, the agent learns a cascade exists"
-elif grep -qE '"state":"done"|"action":"done"' <<<"$OUT3"; then
+elif echo "$OUT3" | grep -qE '"state":"done"|"action":"done"'; then
     pass "no-anchor path reaches a terminal without stopping at cascade_run (R3 holds)"
 else
-    fail "no-anchor case: unexpected tick result: $(head -c 300 <<<"$OUT3")"
+    fail "no-anchor case: unexpected tick result: $(echo "$OUT3" | head -c 300)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -256,12 +256,12 @@ fi
 D4=$(mktemp -d); TMPS+=("$D4")
 OUT4=$(tick_from_start "$D4" "cascade-chain-undecided-$$" 2 "$CASCADE_RUN" || true)
 
-if grep -q '"state":"done_blocked"' <<<"$OUT4"; then
+if echo "$OUT4" | grep -q '"state":"done_blocked"'; then
     pass "could-not-decide stops at done_blocked (uncertainty is not treated as absence)"
-elif grep -qE '"state":"done"|"action":"done"' <<<"$OUT4"; then
+elif echo "$OUT4" | grep -qE '"state":"done"|"action":"done"'; then
     fail "could-not-decide routed to done — an owed cascade would be skipped in silence"
 else
-    fail "undecided case: unexpected tick result: $(head -c 300 <<<"$OUT4")"
+    fail "undecided case: unexpected tick result: $(echo "$OUT4" | head -c 300)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -278,14 +278,14 @@ fi
 D5=$(mktemp -d); TMPS+=("$D5")
 OUT5=$(tick_from_start "$D5" "cascade-chain-noroot-$$" real "$CASCADE_RUN" || true)
 
-if grep -q '"state":"done_blocked"' <<<"$OUT5"; then
+if echo "$OUT5" | grep -q '"state":"done_blocked"'; then
     pass "shipped gate with an unresolved plugin root fails closed to done_blocked"
-elif grep -qE '"state":"done"|"action":"done"' <<<"$OUT5"; then
+elif echo "$OUT5" | grep -qE '"state":"done"|"action":"done"'; then
     fail "shipped gate with an unresolved plugin root routed to done — a cascade would be skipped because a path was wrong"
-elif grep -q '"state":"cascade_entry"' <<<"$OUT5"; then
+elif echo "$OUT5" | grep -q '"state":"cascade_entry"'; then
     fail "shipped gate with an unresolved plugin root held at cascade_entry with no route — the fail-closed guard is gone"
 else
-    fail "no-root case: unexpected tick result: $(head -c 300 <<<"$OUT5")"
+    fail "no-root case: unexpected tick result: $(echo "$OUT5" | head -c 300)"
 fi
 
 echo

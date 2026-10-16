@@ -147,7 +147,7 @@ lookup() {
                 return 3
             fi
             if [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] \
-                && grep -Eq "$RE_URL" <<<"$out"; then
+                && printf '%s' "$out" | grep -Eq "$RE_URL"; then
                 URL=$out
                 return 0
             fi

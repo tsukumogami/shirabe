@@ -223,12 +223,12 @@ echo
 # --- the script itself -------------------------------------------------------------------
 
 CODE=$(grep -v '^[[:space:]]*#' "$RS")
-if grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)' <<<"$CODE"; then
+if printf '%s\n' "$CODE" | grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)'; then
     fail "release-state.sh contains eval"
 else
     pass "release-state.sh contains no eval"
 fi
-if grep -qE 'declare -A|mapfile|readarray|local -n|declare -n' <<<"$CODE"; then
+if printf '%s\n' "$CODE" | grep -qE 'declare -A|mapfile|readarray|local -n|declare -n'; then
     fail "release-state.sh uses a bash 4 construct"
 else
     pass "release-state.sh uses no bash 4 construct"

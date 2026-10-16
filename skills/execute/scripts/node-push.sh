@@ -498,7 +498,7 @@ node_type() {
     local mb files
     mb=$(git merge-base HEAD "refs/remotes/$REMOTE/$1") || { echo feat; return 0; }
     files=$(git diff --name-only "$mb" HEAD) || { echo feat; return 0; }
-    if [ -n "$files" ] && ! grep -Ev '^docs/|^[^/]+\.md$' <<<"$files" | grep . >/dev/null; then
+    if [ -n "$files" ] && ! printf '%s\n' "$files" | grep -Ev '^docs/|^[^/]+\.md$' | grep -q .; then
         echo docs
     else
         echo feat

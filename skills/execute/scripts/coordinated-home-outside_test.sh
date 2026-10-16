@@ -133,7 +133,7 @@ while [ "$step" -lt 20 ]; do
             node="${ACTION#merge:}"
             out=$(cd "$HOMEDIR" && bash "$SCRIPT_DIR/coord-merge.sh" --session "$S" --slug "$CT_SLUG" \
                 --home-repo "$(ctx home_repo)" --coord-branch "$(ctx coord_branch)" --node "$node" 2>>"$CASE/merge.err")
-            grep -qx merged <<<"$out" || { fail "coord-merge.sh $node: [$out] $(tail -2 "$CASE/merge.err")"; break; }
+            printf '%s\n' "$out" | grep -qx merged || { fail "coord-merge.sh $node: [$out] $(tail -2 "$CASE/merge.err")"; break; }
             ;;
         cascade)
             (cd "$HOMEDIR" && bash "$SCRIPT_DIR/node-push.sh" order --slug "$CT_SLUG" --home-repo "$(ctx home_repo)" \
@@ -160,7 +160,7 @@ while [ "$step" -lt 20 ]; do
         merge-coordination)
             out=$(cd "$HOMEDIR" && bash "$SCRIPT_DIR/coord-merge.sh" --session "$S" --slug "$CT_SLUG" \
                 --home-repo "$(ctx home_repo)" --coord-branch "$(ctx coord_branch)" --node coordination 2>>"$CASE/merge.err")
-            grep -qx merged <<<"$out" || { fail "coord-merge.sh coordination: [$out] $(tail -2 "$CASE/merge.err")"; break; }
+            printf '%s\n' "$out" | grep -qx merged || { fail "coord-merge.sh coordination: [$out] $(tail -2 "$CASE/merge.err")"; break; }
             ;;
         *) break ;;
     esac
@@ -187,13 +187,13 @@ WRITES=$(grep -E '^pr (create|edit|ready|merge|close)' "$GH_CALL_LOG" || true)
 HOME_WRITES=$(printf '%s\n' "$WRITES" | grep -F -- "--repo $HOME_REPO" || true)
 if [ -z "$HOME_WRITES" ]; then
     fail "no write reached the home repository; the coordination PR was never edited"
-elif grep -Eqv '^pr (edit|ready|merge) 10 ' <<<"$HOME_WRITES"; then
+elif printf '%s\n' "$HOME_WRITES" | grep -Eqv '^pr (edit|ready|merge) 10 '; then
     fail "a write to the home repository other than the coordination PR's: $(printf '%s\n' "$HOME_WRITES" | grep -Ev '^pr (edit|ready|merge) 10 ' | head -1)"
 else
     pass "every write to $HOME_REPO is an edit, ready, or merge of the coordination PR ($(printf '%s\n' "$HOME_WRITES" | grep -c .) calls)"
 fi
 for verb in edit ready merge; do
-    if grep -Eq "^pr $verb 10 " <<<"$HOME_WRITES"; then
+    if printf '%s\n' "$HOME_WRITES" | grep -Eq "^pr $verb 10 "; then
         pass "the coordination PR was reached by pr $verb"
     else
         fail "the coordination PR was never reached by pr $verb"
@@ -229,7 +229,7 @@ NODE_REFS=$(git ls-remote --heads "$NODEDIR.origin.git" | awk '{print $2}' | sor
 # --- the index --------------------------------------------------------------------
 
 BODY=$(jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .body' "$DB")
-if grep -Eq '^- coordination \| acme/repo-a:[^#]*#10 \| ' <<<"$BODY" \
+if printf '%s\n' "$BODY" | grep -Eq '^- coordination \| acme/repo-a:[^#]*#10 \| ' \
     && [ "$(printf '%s\n' "$BODY" | grep -Ec '^- pr-repo-b-(core|cli) \| acme/repo-b:')" -eq 2 ]; then
     pass "the index names acme/repo-a for the coordination entry and acme/repo-b for both nodes"
 else

@@ -200,7 +200,7 @@ expect_usage() {
     new_case "usage"
     run_verdict "$@"
     if [ "$RC" -ne 0 ] && [ -z "$OUT" ] && [ ! -s "$CASE/calls.log" ] \
-        && grep -q 'usage:' <<<"$ERR"; then
+        && printf '%s' "$ERR" | grep -q 'usage:'; then
         pass "usage: $label"
     else
         fail "usage: $label: exit $RC, stdout [$OUT], calls [$(cat "$CASE/calls.log")], stderr [$ERR]"
@@ -492,7 +492,7 @@ expect "confirm: MERGED on the first read" "merged" "${CONFIRM_ARGS[@]}"
 new_case confirm-wide
 EXTRA_ENV="MERGE_CONFIRM_WAIT_SECS=25"
 expect "confirm: a wider window is ignored" "merged" "${CONFIRM_ARGS[@]}"
-grep -q 'ignoring MERGE_CONFIRM_WAIT_SECS' <<<"$ERR" && pass "confirm window 25 refused with a diagnostic" \
+printf '%s' "$ERR" | grep -q 'ignoring MERGE_CONFIRM_WAIT_SECS' && pass "confirm window 25 refused with a diagnostic" \
     || fail "confirm window 25 was not refused: $ERR"
 EXTRA_ENV=""
 

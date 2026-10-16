@@ -80,7 +80,7 @@ if [ "$(merges)" -eq 1 ] && [ "$MLINE" = "pr merge 11 --repo $CT_REPO --squash -
 else
     fail "the merge calls: [$MLINE]"
 fi
-if grep -Eq -- '--admin|--auto' <<<"$MLINE"; then fail "the merge carries --admin or --auto"; else pass "no --admin or --auto"; fi
+if printf '%s' "$MLINE" | grep -Eq -- '--admin|--auto'; then fail "the merge carries --admin or --auto"; else pass "no --admin or --auto"; fi
 [ -z "$(attempts)" ] && pass "a landed merge records no attempt" || fail "recorded [$(attempts)]"
 
 # --- accepted but still OPEN ------------------------------------------------------

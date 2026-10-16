@@ -37,7 +37,7 @@ lint() { # lint <workflow>...
     OUT=$(CHECK_MACOS_FLOOR_RUNNER="$FIXTURES/bin/check-bash-floor.sh" "$LINT" "$@" 2>&1) || RC=$?
 }
 
-has() { grep -qF -- "$1" <<<"$OUT"; }
+has() { printf '%s' "$OUT" | grep -qF -- "$1"; }
 count() { printf '%s\n' "$OUT" | grep -c -- "$1"; }
 
 lint "$FIXTURES/clean.yml"

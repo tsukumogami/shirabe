@@ -73,7 +73,7 @@ eq "exit 0" "0" "$RC"
 eq "exactly the two roots, in PLAN order" "#7 feat: first root
 #2 feat: second root outcome=merged" "$OUT"
 eq "two lines, no more" "2" "$(printf '%s\n' "$OUT" | wc -l | tr -d ' ')"
-if grep -q '^outcome=' <<<"$OUT"; then
+if printf '%s\n' "$OUT" | grep -q '^outcome='; then
     bad "no line starts with outcome=" "$OUT"
 else
     ok "no line starts with outcome="
@@ -169,7 +169,7 @@ else
     eq "plan/v2: exit 0" "0" "$RC"
     eq "plan/v2: step 1 alone, with its ### Step 1: title" \
         "#1 report export writes a one-row report as CSV" "$OUT"
-    if grep -Eq '^#[0-9]+ *$' <<<"$OUT"; then
+    if printf '%s\n' "$OUT" | grep -Eq '^#[0-9]+ *$'; then
         bad "plan/v2: no step is listed with an empty title" "$OUT"
     else
         ok "plan/v2: no step is listed with an empty title"

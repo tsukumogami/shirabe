@@ -202,10 +202,10 @@ GOOD_EVIDENCE='{"pre_pr_status":"recorded","cleanup_done":"removed","design_diag
 
 # Case 1 — everything in order reaches the pull-request path.
 OUT=$(land "prepr-ok-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"pr_precheck"' <<<"$OUT"; then
+if echo "$OUT" | grep -q '"state":"pr_precheck"'; then
     pass "a complete record reaches pr_precheck"
 else
-    fail "complete record: expected pr_precheck, got: $(head -c 300 <<<"$OUT")"
+    fail "complete record: expected pr_precheck, got: $(echo "$OUT" | head -c 300)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -215,22 +215,22 @@ fi
 OUT=$(land "prepr-placeholder-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: done
 design_diagram: docs/designs/DESIGN-thing.md' "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT"; then
+if echo "$OUT" | grep -q '"state":"done_blocked"'; then
     pass "a placeholder where the cleanup commit belongs fails the state"
-elif grep -q '"state":"pr_precheck"' <<<"$OUT"; then
+elif echo "$OUT" | grep -q '"state":"pr_precheck"'; then
     fail "a placeholder cleanup referent satisfied the state — the obligation is unenforced in substance"
 else
-    fail "placeholder case: unexpected result: $(head -c 300 <<<"$OUT")"
+    fail "placeholder case: unexpected result: $(echo "$OUT" | head -c 300)"
 fi
 
 # Case 3 — the same for the diagram: "yes" is neither a path nor a stated reason.
 OUT=$(land "prepr-diagram-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: @HEAD@
 design_diagram: yes' "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT"; then
+if echo "$OUT" | grep -q '"state":"done_blocked"'; then
     pass "a placeholder where the diagram referent belongs fails the state"
 else
-    fail "diagram placeholder: expected done_blocked, got: $(head -c 300 <<<"$OUT")"
+    fail "diagram placeholder: expected done_blocked, got: $(echo "$OUT" | head -c 300)"
 fi
 
 # Case 4 — not-applicable is accepted, but only WITH a reason after it. An
@@ -240,57 +240,57 @@ OUT=$(land "prepr-na-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" \
     'cleanup_commit: @HEAD@
 design_diagram: not-applicable: no design document is touched' \
     '{"pre_pr_status":"recorded","cleanup_done":"none_found","design_diagram":"not_applicable"}' || true)
-if grep -q '"state":"pr_precheck"' <<<"$OUT"; then
+if echo "$OUT" | grep -q '"state":"pr_precheck"'; then
     pass "not-applicable with a stated reason is accepted"
 else
-    fail "not-applicable case: expected pr_precheck, got: $(head -c 300 <<<"$OUT")"
+    fail "not-applicable case: expected pr_precheck, got: $(echo "$OUT" | head -c 300)"
 fi
 
 # Case 5 — a summary without the required section stops the run.
 OUT=$(land "prepr-summary-$$" "feat(work-on): add a thing" '# Summary
 
 Some prose and no sections.' "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT"; then
+if echo "$OUT" | grep -q '"state":"done_blocked"'; then
     pass "a summary missing its required section fails the state"
 else
-    fail "summary case: expected done_blocked, got: $(head -c 300 <<<"$OUT")"
+    fail "summary case: expected done_blocked, got: $(echo "$OUT" | head -c 300)"
 fi
 
 # Case 6 — a tip commit that is not a Conventional Commits subject stops the run.
 OUT=$(land "prepr-subject-$$" "fixed some stuff" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT" && grep -q 'not a Conventional Commits subject' <<<"$OUT"; then
+if echo "$OUT" | grep -q '"state":"done_blocked"' && echo "$OUT" | grep -q 'not a Conventional Commits subject'; then
     pass "a non-conventional commit subject fails the state"
 else
-    fail "subject case: expected done_blocked on the commit rung, got: $(head -c 300 <<<"$OUT")"
+    fail "subject case: expected done_blocked on the commit rung, got: $(echo "$OUT" | head -c 300)"
 fi
 
 # Case 6b — the gate reads every commit the run made, not only the tip: a
 # conventional tip over a non-conventional earlier commit still stops the run.
 OUT=$(land "prepr-early-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" \
     "wip stuff" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT" && grep -q 'not a Conventional Commits subject' <<<"$OUT"; then
+if echo "$OUT" | grep -q '"state":"done_blocked"' && echo "$OUT" | grep -q 'not a Conventional Commits subject'; then
     pass "a non-conventional commit below a conventional tip fails the state"
 else
-    fail "earlier-commit case: expected done_blocked on the commit rung, got: $(head -c 300 <<<"$OUT")"
+    fail "earlier-commit case: expected done_blocked on the commit rung, got: $(echo "$OUT" | head -c 300)"
 fi
 
 # Case 6c — an AI-attribution trailer on a commit stops the run too.
 OUT=$(land "prepr-trailer-$$" "feat(work-on): add a thing
 
 Co-Authored-By: Claude <noreply@anthropic.com>" "$GOOD_SUMMARY" "$GOOD_PREPR" "$GOOD_EVIDENCE" || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT" && grep -q 'AI-attribution trailer' <<<"$OUT"; then
+if echo "$OUT" | grep -q '"state":"done_blocked"' && echo "$OUT" | grep -q 'AI-attribution trailer'; then
     pass "an AI-attribution trailer fails the state"
 else
-    fail "trailer case: expected done_blocked on the commit rung, got: $(head -c 300 <<<"$OUT")"
+    fail "trailer case: expected done_blocked on the commit rung, got: $(echo "$OUT" | head -c 300)"
 fi
 
 # Case 7 — blocked is a first-class answer, not something to fake a referent for.
 OUT=$(land "prepr-blocked-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" \
     '{"pre_pr_status":"blocked","cleanup_done":"none_found","design_diagram":"not_applicable"}' || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT"; then
+if echo "$OUT" | grep -q '"state":"done_blocked"'; then
     pass "an explicitly blocked run stops without opening a pull request"
 else
-    fail "blocked case: expected done_blocked, got: $(head -c 300 <<<"$OUT")"
+    fail "blocked case: expected done_blocked, got: $(echo "$OUT" | head -c 300)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -305,9 +305,9 @@ fi
 referent_case() {
     local label="$1" want="$2" why="$3" prepr="$4"
     OUT=$(land "prepr-$label-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$prepr" "$GOOD_EVIDENCE" || true)
-    if ! grep -q "\"state\":\"$want\"" <<<"$OUT"; then
-        fail "$label: expected $want, got: $(head -c 300 <<<"$OUT")"
-    elif [[ "$why" != - ]] && ! grep -qF "$why" <<<"$OUT"; then
+    if ! echo "$OUT" | grep -q "\"state\":\"$want\""; then
+        fail "$label: expected $want, got: $(echo "$OUT" | head -c 300)"
+    elif [[ "$why" != - ]] && ! echo "$OUT" | grep -qF "$why"; then
         fail "$label: reached $want on another rung; expected a failure_reason naming [$why], got: $(echo "$OUT" | tail -n 1 | head -c 300)"
     else
         pass "$label: reaches $want"
@@ -329,7 +329,7 @@ design_diagram: docs/designs/DESIGN-missing.md'
 # Case 12 — the evidence is required. Submitting none must not advance, since the
 # state would otherwise be satisfied by silence.
 OUT=$(land "prepr-empty-$$" "feat(work-on): add a thing" "$GOOD_SUMMARY" "$GOOD_PREPR" '{}' || true)
-if grep -qE '"state":"pr_precheck"|"state":"done_blocked"' <<<"$OUT"; then
+if echo "$OUT" | grep -qE '"state":"pr_precheck"|"state":"done_blocked"'; then
     fail "a submission with no evidence advanced"
 else
     pass "a submission with no evidence does not advance"

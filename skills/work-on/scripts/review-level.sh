@@ -375,9 +375,7 @@ rebind() {
     reply=$(koto init "$1" --template "$TEMPLATE" --attach-live "${@:3}" 2>"$WORK/rebind.err")
     local rc=$?
     if [ "$rc" -ne 0 ]; then
-        local err
-        err=$(head -c 400 "$WORK/rebind.err")
-        REBIND_ERR="koto init --attach-live exited $rc: ${reply:0:400} $err"
+        REBIND_ERR="koto init --attach-live exited $rc: $(printf '%s' "$reply" | head -c 400) $(head -c 400 "$WORK/rebind.err")"
         return 1
     fi
     if printf '%s' "$reply" | jq -e --arg l "$2" \
@@ -386,7 +384,7 @@ rebind() {
         >/dev/null; then
         return 0
     fi
-    REBIND_ERR="koto did not report REVIEW_LEVEL rebound to [$2]: ${reply:0:400}"
+    REBIND_ERR="koto did not report REVIEW_LEVEL rebound to [$2]: $(printf '%s' "$reply" | head -c 400)"
     return 1
 }
 

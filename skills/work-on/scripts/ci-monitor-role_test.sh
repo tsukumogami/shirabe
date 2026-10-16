@@ -188,10 +188,10 @@ land() {
 # ---------------------------------------------------------------------------
 D1=$(mktemp -d); TMPS+=("$D1")
 OUT1=$(land "$D1" "ci-role-root-$$" "$CI_MONITOR" '' 0 0 0 || true)
-if grep -q '"state":"cascade_entry"' <<<"$OUT1"; then
+if echo "$OUT1" | grep -q '"state":"cascade_entry"'; then
     pass "a root with passing CI routes to cascade_entry with no evidence"
 else
-    fail "root case: expected cascade_entry, got: $(head -c 200 <<<"$OUT1")"
+    fail "root case: expected cascade_entry, got: $(echo "$OUT1" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -200,12 +200,12 @@ fi
 # ---------------------------------------------------------------------------
 D2=$(mktemp -d); TMPS+=("$D2")
 OUT2=$(land "$D2" "ci-role-child-$$" "$CI_MONITOR" '' 0 0 1 || true)
-if grep -q '"state":"cascade_entry"' <<<"$OUT2"; then
+if echo "$OUT2" | grep -q '"state":"cascade_entry"'; then
     fail "a child reached cascade_entry — it would cascade a PLAN its siblings are still using"
-elif grep -qE '"state":"done"|"action":"done"' <<<"$OUT2"; then
+elif echo "$OUT2" | grep -qE '"state":"done"|"action":"done"'; then
     pass "a child with passing CI stops at done, never reaching cascade_entry"
 else
-    fail "child case: expected done, got: $(head -c 200 <<<"$OUT2")"
+    fail "child case: expected done, got: $(echo "$OUT2" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -243,10 +243,10 @@ LEGACY_CI_MONITOR='  ci_monitor:
       - target: done'
 D3=$(mktemp -d); TMPS+=("$D3")
 OUT3=$(land "$D3" "ci-role-legacy-$$" "$LEGACY_CI_MONITOR" '{"ci_outcome":"passing"}' || true)
-if grep -q '"state":"cascade_entry"' <<<"$OUT3"; then
+if echo "$OUT3" | grep -q '"state":"cascade_entry"'; then
     pass "the pre-split state sends a child to cascade_entry — the split is load-bearing"
 else
-    fail "control case: the pre-split state did not reach cascade_entry, so Case 2 proves nothing: $(head -c 200 <<<"$OUT3")"
+    fail "control case: the pre-split state did not reach cascade_entry, so Case 2 proves nothing: $(echo "$OUT3" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -256,12 +256,12 @@ fi
 # ---------------------------------------------------------------------------
 D4=$(mktemp -d); TMPS+=("$D4")
 OUT4=$(land "$D4" "ci-role-fixed-$$" "$CI_MONITOR" '{"ci_outcome":"failing_fixed"}' 1 0 0 || true)
-if grep -qE '"state":"done"|"action":"done"' <<<"$OUT4"; then
+if echo "$OUT4" | grep -qE '"state":"done"|"action":"done"'; then
     fail "failing_fixed reached done — a fix nobody re-checked ended the run"
-elif grep -q '"advanced":true' <<<"$OUT4" && grep -q '"state":"ci_monitor"' <<<"$OUT4"; then
+elif echo "$OUT4" | grep -q '"advanced":true' && echo "$OUT4" | grep -q '"state":"ci_monitor"'; then
     pass "failing_fixed on red CI returns to ci_monitor"
 else
-    fail "failing_fixed case: expected ci_monitor, got: $(head -c 200 <<<"$OUT4")"
+    fail "failing_fixed case: expected ci_monitor, got: $(echo "$OUT4" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -271,12 +271,12 @@ fi
 # ---------------------------------------------------------------------------
 D4B=$(mktemp -d); TMPS+=("$D4B")
 OUT4B=$(land "$D4B" "ci-role-red-$$" "$CI_MONITOR" '' 1 0 1 || true)
-if grep -qE '"state":"done"|"action":"done"' <<<"$OUT4B"; then
+if echo "$OUT4B" | grep -qE '"state":"done"|"action":"done"'; then
     fail "red CI reached done — the run reported success on failing checks"
-elif grep -q '"state":"ci_monitor"' <<<"$OUT4B" && grep -q '"name":"ci_passing"' <<<"$OUT4B"; then
+elif echo "$OUT4B" | grep -q '"state":"ci_monitor"' && echo "$OUT4B" | grep -q '"name":"ci_passing"'; then
     pass "red CI holds ci_monitor, naming the ci_passing gate"
 else
-    fail "red-CI case: expected a hold on ci_passing, got: $(head -c 200 <<<"$OUT4B")"
+    fail "red-CI case: expected a hold on ci_passing, got: $(echo "$OUT4B" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -297,17 +297,17 @@ fi
 # ---------------------------------------------------------------------------
 D5=$(mktemp -d); TMPS+=("$D5")
 OUT5=$(land "$D5" "ci-role-unresolvable-$$" "$CI_MONITOR" '{"ci_outcome":"failing_unresolvable","rationale":"upstream outage"}' 1 0 1 || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT5"; then
+if echo "$OUT5" | grep -q '"state":"done_blocked"'; then
     pass "failing_unresolvable on red CI routes to done_blocked"
 else
-    fail "unresolvable case: expected done_blocked, got: $(head -c 200 <<<"$OUT5")"
+    fail "unresolvable case: expected done_blocked, got: $(echo "$OUT5" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
 # Case 6 — the root-or-child answer is the gate's, never the agent's: the
 # state accepts no field for it.
 # ---------------------------------------------------------------------------
-if grep -q 'session_role' <<<"$CI_MONITOR"; then
+if printf '%s\n' "$CI_MONITOR" | grep -q 'session_role'; then
     fail "ci_monitor still accepts a role field; the is_root gate is the only source"
 else
     pass "ci_monitor accepts no role field; is_root decides"
@@ -324,21 +324,21 @@ fi
 # ---------------------------------------------------------------------------
 D7=$(mktemp -d); TMPS+=("$D7")
 OUT7=$(land "$D7" "ci-role-dirty-$$" "$CI_MONITOR" '' 0 1 0 || true)
-if grep -q '"state":"done_blocked"' <<<"$OUT7"; then
+if echo "$OUT7" | grep -q '"state":"done_blocked"'; then
     pass "a DIRTY pull request blocks even with the CI gate passing"
-elif grep -q '"state":"cascade_entry"' <<<"$OUT7"; then
+elif echo "$OUT7" | grep -q '"state":"cascade_entry"'; then
     fail "a DIRTY pull request reached the cascade — it would finalize a chain on a conflicted PR"
 else
-    fail "dirty case: expected done_blocked, got: $(head -c 200 <<<"$OUT7")"
+    fail "dirty case: expected done_blocked, got: $(echo "$OUT7" | head -c 200)"
 fi
 
 # Case 7b — and a clean one still passes, so Case 7 is not blocking everything.
 D7B=$(mktemp -d); TMPS+=("$D7B")
 OUT7B=$(land "$D7B" "ci-role-clean-$$" "$CI_MONITOR" '' 0 0 0 || true)
-if grep -q '"state":"cascade_entry"' <<<"$OUT7B"; then
+if echo "$OUT7B" | grep -q '"state":"cascade_entry"'; then
     pass "a clean merge state still reaches the cascade"
 else
-    fail "clean case: expected cascade_entry, got: $(head -c 200 <<<"$OUT7B")"
+    fail "clean case: expected cascade_entry, got: $(echo "$OUT7B" | head -c 200)"
 fi
 
 # ---------------------------------------------------------------------------
@@ -360,7 +360,7 @@ for root_exit in $PLAN_RUN_ROLES; do
     RUN_N=$((RUN_N + 1))
     D=$(mktemp -d); TMPS+=("$D")
     OUT=$(land "$D" "ci-role-plan-${RUN_N}-$$" "$CI_MONITOR" '' 0 0 "$root_exit" || true)
-    if grep -q '"state":"cascade_entry"' <<<"$OUT"; then
+    if echo "$OUT" | grep -q '"state":"cascade_entry"'; then
         CASCADE_COUNT=$((CASCADE_COUNT + 1))
     fi
 done
@@ -497,7 +497,7 @@ ROLE_PARENT
         [[ "$err" == *"session-role: broken"* ]] && pass "the is_root gate keeps session-role.sh's stderr" \
             || fail "the is_root gate discarded session-role.sh's stderr: [$err]"
         # And the template: no edge names is_root's exit 2.
-        if grep -q 'gates\.is_root\.exit_code: 2' <<<"$CI_MONITOR"; then
+        if printf '%s\n' "$CI_MONITOR" | grep -q 'gates\.is_root\.exit_code: 2'; then
             fail "a ci_monitor edge routes is_root exit 2; an undecided role must hold"
         else
             pass "no ci_monitor edge routes is_root exit 2, so an undecided role holds"

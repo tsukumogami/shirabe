@@ -61,7 +61,7 @@ cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
 trap cleanup EXIT
 
 MINIMUM=$("$BASH_BIN" "$ASSERT" --print-floor 2>/dev/null)
-if grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$MINIMUM"; then
+if printf '%s' "$MINIMUM" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     pass "the koto minimum reads through assert-koto-floor.sh --print-floor ($MINIMUM)"
 else
     fail "assert-koto-floor.sh --print-floor did not print a MAJOR.MINOR.PATCH: [$MINIMUM]"

@@ -177,7 +177,7 @@ scan_line_classes() {
         id="${entry%%|*}"
         rest="${entry#*|}"
         re="${rest#*|}"
-        grep -qE -- "$re" <<<"$1" && printf '%s\n' "$id"
+        printf '%s' "$1" | grep -qE -- "$re" && printf '%s\n' "$id"
     done
     return 0
 }
@@ -201,10 +201,10 @@ if [ -n "$allow_file" ] && [ -f "$allow_file" ]; then
         case "$a_file" in
             stdin|-) die "allow file line $lineno: a record never covers stdin; only a named file can carry a deferral" ;;
         esac
-        grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*#[0-9]+$' <<<"$a_issue" \
+        printf '%s' "$a_issue" | grep -qE '^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*#[0-9]+$' \
             || die "allow file line $lineno: issue must be owner/repo#N, got '$a_issue'"
         hit=$(scan_line_classes "$rec")
-        [ -z "$hit" ] || die "allow file line $lineno: the record itself matches class '$(head -1 <<<"$hit")'; an allow record may quote the rule, never the content"
+        [ -z "$hit" ] || die "allow file line $lineno: the record itself matches class '$(printf '%s' "$hit" | head -1)'; an allow record may quote the rule, never the content"
         if grep -qF "$a_id	$a_file	" "$allow"; then
             die "allow file line $lineno: duplicate record for class '$a_id' and file '$a_file'"
         fi

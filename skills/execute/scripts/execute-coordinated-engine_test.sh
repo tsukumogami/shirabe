@@ -228,9 +228,9 @@ fi
 expect_terminal pausedm paused_awaiting_merges outcome=paused-awaiting-merges \
     "resume=/execute docs/plans/PLAN-pausedm.md --merge" reason=merge-not-observed
 OUT=$(k status execute-pausedm | bash "$SCRIPT_DIR/print-exit.sh")
-if grep -qx "pr=https://github.com/acme/repo-a/pull/11 waiting=human reason=merge-not-observed" <<<"$OUT" \
-    && grep -qx "resume=/execute docs/plans/PLAN-pausedm.md --merge" <<<"$OUT" \
-    && grep -qx "outcome=paused-awaiting-merges" <<<"$OUT" && grep -qx "repos=acme/repo-a" <<<"$OUT"; then
+if printf '%s\n' "$OUT" | grep -qx "pr=https://github.com/acme/repo-a/pull/11 waiting=human reason=merge-not-observed" \
+    && printf '%s\n' "$OUT" | grep -qx "resume=/execute docs/plans/PLAN-pausedm.md --merge" \
+    && printf '%s\n' "$OUT" | grep -qx "outcome=paused-awaiting-merges" && printf '%s\n' "$OUT" | grep -qx "repos=acme/repo-a"; then
     pass "print-exit.sh renders the pause: one pr= line per unmerged PR, repos=, and resume= with --merge"
 else
     fail "the pause's exit lines: [$OUT]"
@@ -254,7 +254,7 @@ ct_write_db
 open_run error true && finish error "error:execute:pr-adopt"
 expect_terminal error done_blocked outcome=error step=execute:pr-adopt
 OUT=$(k status execute-error | bash "$SCRIPT_DIR/print-exit.sh")
-if grep -qx 'outcome=error' <<<"$OUT" && grep -qx 'step=execute:pr-adopt' <<<"$OUT"; then
+if printf '%s\n' "$OUT" | grep -qx 'outcome=error' && printf '%s\n' "$OUT" | grep -qx 'step=execute:pr-adopt'; then
     pass "print-exit.sh renders outcome=error with its step= line"
 else
     fail "the error's exit lines: [$OUT]"
@@ -286,9 +286,9 @@ else
     fail "the run did not pass through coord_merge_confirm"
 fi
 OUT=$(k status execute-cno | bash "$SCRIPT_DIR/print-exit.sh")
-if grep -q 'outcome=merged' <<<"$OUT"; then
+if printf '%s\n' "$OUT" | grep -q 'outcome=merged'; then
     fail "outcome=merged printed for a merge that was not observed"
-elif grep -q '^note=the PR may still be queued' <<<"$OUT"; then
+elif printf '%s\n' "$OUT" | grep -q '^note=the PR may still be queued'; then
     pass "no outcome=merged anywhere, and the may-still-be-queued line is printed"
 else
     fail "the exit lines lack the may-still-be-queued note: [$OUT]"
@@ -413,12 +413,12 @@ else
         && [ -n "$(printf '%s' "$P" | jq -r '.resume // ""')" ] && [ -n "$(printf '%s' "$P" | jq -r '.waiting // ""')" ]; then
         pass "the execute leg's promoted payload carries outcome, pr, repos, resume, and waiting"
     else
-        fail "the leg's payload: $P; leg: $(head -c 800 <<<"$LEG")"
+        fail "the leg's payload: $P; leg: $(printf '%s' "$LEG" | head -c 800)"
     fi
-    if grep -q '"execute-coordinated.md"' <<<"$LEG" && grep -q '"promoted"' <<<"$LEG"; then
+    if printf '%s' "$LEG" | grep -q '"execute-coordinated.md"' && printf '%s' "$LEG" | grep -q '"promoted"'; then
         pass "the leg was promoted from a session built from execute-coordinated.md"
     else
-        fail "the leg's template or source: $(head -c 800 <<<"$LEG")"
+        fail "the leg's template or source: $(printf '%s' "$LEG" | head -c 800)"
     fi
 fi
 

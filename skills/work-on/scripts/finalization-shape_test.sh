@@ -107,7 +107,7 @@ submit() {
     NEXT_STATE=$(printf '%s' "$NEXT_RESPONSE" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
 }
 put() { printf '%s\n' "$3" | koto context add "$1" "$2" >/dev/null 2>&1; }
-names_gate() { grep -q "\"name\":\"$1\"" <<<"$NEXT_RESPONSE"; }
+names_gate() { printf '%s' "$NEXT_RESPONSE" | grep -q "\"name\":\"$1\""; }
 # Round files name their runs (panel-scope.sh --record refuses one that doesn't).
 . "$PLUGIN_ROOT/scripts/lib/panel-round-testlib.sh"
 

@@ -173,12 +173,12 @@ echo
 # --- the script itself -------------------------------------------------------------------
 
 CODE=$(grep -v '^[[:space:]]*#' "$CS")
-if grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)' <<<"$CODE"; then
+if printf '%s\n' "$CODE" | grep -qE '(^|[^A-Za-z_])eval([^A-Za-z_]|$)'; then
     fail "comp-state.sh contains eval"
 else
     pass "comp-state.sh contains no eval"
 fi
-if grep -qE 'declare -A|mapfile|readarray|local -n|declare -n' <<<"$CODE"; then
+if printf '%s\n' "$CODE" | grep -qE 'declare -A|mapfile|readarray|local -n|declare -n'; then
     fail "comp-state.sh uses a bash 4 construct"
 else
     pass "comp-state.sh uses no bash 4 construct"
