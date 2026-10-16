@@ -641,6 +641,24 @@
         "Agent fixes the body with gh pr edit and submits pr_status: created again rather than advancing",
         "Agent does not claim CI enforces the banned-word check"
       ]
+    },
+    {
+      "id": 47,
+      "name": "level-check-decider-fallback",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #503. The run reached review_level_check at level standard for a user whose decider runs in shadow. The last `koto next issue_503 --no-cleanup` stopped there: the level_floor gate passed, and the level_fits_facts decider check has status pending, category corrective, output {\"failed\": [], \"unanswered\": [], \"awaiting\": [\"level_fits_facts\"], \"agent_answered\": [], \"error\": \"\"}, and a warning finding saying the decider gave no verdict (provider_error) and naming `koto decider answer issue_503 --gate level_fits_facts --criterion level_fits_facts --answer <pass|fail|unclear>`. review_facts.json shows a 40-line change to one script with tests changed, and a facts floor of standard. What does the agent do next?",
+      "expected_output": "The agent reads the pending check as the decider fallback: the criterion waits on its own answer, in shadow too. It judges the level against review_facts.json and the level definitions, finds standard thorough enough for these facts, and runs `koto decider answer issue_503 --gate level_fits_facts --criterion level_fits_facts --answer pass`, then ticks `koto next issue_503 --no-cleanup` with nothing submitted. It does not record an override to get past the check, does not submit level_status: blocked, and does not treat its answer as the decider verdict. Had it judged the level too light, it would answer fail and raise the level with a plain review-level.sh set, without --cause veto:level_fits_facts.",
+      "files": [],
+      "expectations": [
+        "Agent treats the pending level_fits_facts check as a criterion waiting on its own answer, not as a gate to wait out",
+        "Agent judges the level against the facts in review_facts.json and the level definitions",
+        "Agent runs koto decider answer issue_503 --gate level_fits_facts --criterion level_fits_facts with one of pass, fail or unclear",
+        "Agent ticks koto next again with nothing submitted after answering",
+        "Agent does NOT use koto overrides record to get past the waiting check",
+        "Agent does NOT describe its answer as the decider verdict",
+        "If it answers fail, the agent raises the level with a plain review-level.sh set and no --cause veto"
+      ]
     }
   ]
 }

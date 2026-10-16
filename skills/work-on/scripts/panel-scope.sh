@@ -176,7 +176,9 @@
 # review. A decider's verdict is an entry of its own,
 # {"decider": {"state", "visit_seq", "gate", "rule_id", "declaration_hash",
 # "input_sha256", "outcome"}}, accepted only when koto's session log holds a
-# decider_checked event with those fields that no earlier entry used.
+# decider_checked event with those fields that no earlier entry used. The
+# agent's answer to a criterion the decider couldn't grade is a
+# decider_check_answered event, never decider_checked, so it can't back one.
 #
 # Each finding's id is the first 16 hex characters of `git hash-object` over
 # its panel, raiser kind and name, path and whitespace-collapsed summary, so a
