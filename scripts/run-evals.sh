@@ -164,7 +164,11 @@
 #   run's total_cost_usd, from the last result event in its
 #   runner_session.jsonl that carries one: a session's result events carry
 #   its cost so far), cost_runs (how many runs reported one; a run cut short
-#   before any result event reports none) and exit_code. It is written when --runs stops early on
+#   before any result event reports none), scenario_set ("sha256:" and the
+#   hex SHA-256 of the sorted names of the scenarios selected for the skill,
+#   one per line: the release subset, a --scenario filter, or the whole suite;
+#   left out when evals.json cannot be read)
+#   and exit_code. It is written when --runs stops early on
 #   3 or 4 too, and when the default selection finds nothing to run, so a caller
 #   never has to parse the report above. A summary that cannot be written turns
 #   an exit 0 into 2, so a caller never reads success with no summary behind it.
@@ -1964,10 +1968,11 @@ print(int(s['passed_assertions']), int(s['total_assertions']))
 
 record_skill_summary() { # record_skill_summary <skill> <exit code>
   [ -n "$SUMMARY_OUT" ] || return 0
+  EVAL_SCENARIO_SET="$SCENARIO_SET" EVALS_FILE="$SKILLS_DIR/$1/evals/evals.json" \
   python3 - "$SUMMARY_LINES" "$1" "$TALLY_RUNS" "$TALLY_RUNS_PASSED" \
     "$TALLY_ASSERTIONS_PASSED" "$TALLY_ASSERTIONS_GRADED" "$2" \
     ${TALLY_ITER_DIRS[@]+"${TALLY_ITER_DIRS[@]}"} <<'PYEOF'
-import glob, json, os, sys
+import glob, hashlib, json, os, sys
 
 out, name = sys.argv[1], sys.argv[2]
 runs, runs_passed, a_passed, a_graded, exit_code = (int(v) for v in sys.argv[3:8])
@@ -2004,6 +2009,22 @@ for iter_dir in sys.argv[8:]:
             continue
         if isinstance(model, str) and model:
             models.add(model)
+# The scenarios this run selected for the skill, by name: the scenario set
+# (the release subset, or a --scenario filter), or the whole suite when no
+# set narrowed it. Recorded as a hash of the sorted names, so a pass rate is
+# only ever compared with one measured on the same scenarios (shirabe#879).
+# A suite that can't be read leaves the field out: an unknown set, not the
+# hash of an empty one.
+scenario_set = None
+try:
+    with open(os.environ.get("EVALS_FILE", "")) as fh:
+        suite = [e.get("name", "eval-%s" % e.get("id")) for e in json.load(fh).get("evals", [])
+                 if isinstance(e, dict)]
+    chosen = [n for n in os.environ.get("EVAL_SCENARIO_SET", "").split(",") if n]
+    names = [n for n in suite if n in chosen] if os.environ.get("EVAL_SCENARIO_SET", "") else suite
+    scenario_set = "sha256:" + hashlib.sha256("\n".join(sorted(names)).encode()).hexdigest()
+except (OSError, ValueError, AttributeError):
+    pass
 entry = {
     "runs": runs,
     "runs_passed": runs_passed,
@@ -2015,6 +2036,8 @@ entry = {
     "cost_runs": cost_runs,
     "exit_code": exit_code,
 }
+if scenario_set is not None:
+    entry["scenario_set"] = scenario_set
 with open(out, "a") as fh:
     fh.write(json.dumps({"skill": name, "entry": entry}) + "\n")
 PYEOF

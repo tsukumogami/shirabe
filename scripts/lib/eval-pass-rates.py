@@ -34,9 +34,15 @@ merge
     its value. No usable record at all means "no baseline".
   - A selected skill is compared only with an earlier measurement taken the
     same way: the newest entry, among the composed records, that has a
-    pass_rate and the same models, session_model and number of runs as this
-    run's entry. An entry with no session_model was measured on the CLI
-    default session model and reads as session_model "default". The number of
+    pass_rate and the same models, session_model, scenario_set and number of
+    runs as this run's entry. scenario_set is the summary's hash of the
+    scenarios the run selected for the skill (the release subset, chosen per
+    behaviour and replaced as scheduled runs measure the others), so a rate is
+    never compared with one measured on a different set of scenarios
+    (shirabe#879). An entry with no scenario_set, written before the field
+    existed, ran an unknown set and matches only another entry with none.
+    An entry with no session_model was measured on the CLI default session
+    model and reads as session_model "default". The number of
     runs is in the key because a rate pooled over three runs and a one-run
     rate carry different noise. The tolerance is not in the key: it changes
     how a rate is judged, not the rate. When the skill has no such entry,
@@ -71,6 +77,7 @@ SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 TAG_RE = re.compile(r"^v[0-9]+\.[0-9]+\.[0-9]+$")
 SKILL_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+SCENARIO_SET_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 COUNT_FIELDS = ("runs", "runs_passed", "assertions_passed", "assertions_graded")
 # The session model of an entry measured without an explicit EVAL_MODEL: the
@@ -120,10 +127,23 @@ def session_model_of(entry, where):
     return value
 
 
+def scenario_set_of(entry, where):
+    """The entry's scenario_set, None when it has none (written before the field existed)."""
+    if "scenario_set" not in entry:
+        return None
+    value = entry["scenario_set"]
+    if not isinstance(value, str) or not SCENARIO_SET_RE.match(value):
+        raise Invalid("%s.scenario_set is not a sha256: digest" % where)
+    return value
+
+
 def measured_the_same_way(a, b):
-    """True when two entries ran on the same scenario models, session model and run count."""
+    """True when two entries ran the same scenarios on the same scenario models,
+    session model and run count. An entry with no scenario_set ran an unknown
+    set, which matches only another entry with none."""
     return (sorted(set(a["models"])) == sorted(set(b["models"]))
             and a.get("session_model", DEFAULT_SESSION) == b.get("session_model", DEFAULT_SESSION)
+            and a.get("scenario_set") == b.get("scenario_set")
             and a["runs"] == b["runs"])
 
 
@@ -142,6 +162,9 @@ def clean_record_entry(entry, where):
     session_model = session_model_of(entry, where)
     if "session_model" in entry:
         out["session_model"] = session_model
+    scenario_set = scenario_set_of(entry, where)
+    if scenario_set is not None:
+        out["scenario_set"] = scenario_set
     has_rate = "pass_rate" in entry
     has_exit = "exit_code" in entry
     if has_rate and has_exit:
@@ -276,6 +299,7 @@ def load_summaries(paths):
                 check_counts(entry, "skills.%s" % name)
                 check_models(entry.get("models"), "skills.%s" % name)
                 session_model_of(entry, "skills.%s" % name)
+                scenario_set_of(entry, "skills.%s" % name)
                 code = entry.get("exit_code")
                 if isinstance(code, bool) or code not in (0, 1) + INFRA_EXITS:
                     raise Invalid("skills.%s.exit_code is not 0 to 4" % name)
@@ -295,6 +319,8 @@ def measured_entry(summary, version):
     entry = {field: summary[field] for field in COUNT_FIELDS}
     entry["models"] = sorted(set(summary["models"]))
     entry["session_model"] = summary.get("session_model", DEFAULT_SESSION)
+    if "scenario_set" in summary:
+        entry["scenario_set"] = summary["scenario_set"]
     entry["measured_at"] = version
     code = summary["exit_code"]
     if code in (0, 1) and summary["assertions_graded"] > 0:
@@ -409,9 +435,11 @@ def cmd_merge(args):
             drops.append(name)
     print("record: %s" % args.out)
     for name in references:
+        scenarios = skills[name].get("scenario_set")
         print("new reference: %s (no earlier measurement on models %s, session model %s, "
-              "%d run(s))" % (name, ",".join(skills[name]["models"]) or "-",
-                              skills[name]["session_model"], skills[name]["runs"]))
+              "%d run(s)%s)" % (name, ",".join(skills[name]["models"]) or "-",
+                                skills[name]["session_model"], skills[name]["runs"],
+                                ", scenario set %s" % scenarios[:19] if scenarios else ""))
 
     if infra:
         print("")

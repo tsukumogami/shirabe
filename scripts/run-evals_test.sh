@@ -735,6 +735,25 @@ if [ "$(summary_field "$SUM" pinned session_model)" = opus ] \
 else
   fail "--summary-out session model and cost: $(cat "$SUM" 2>/dev/null)"
 fi
+# scenario_hash <name>... -- the scenario_set of these scenario names
+scenario_hash() {
+  python3 -c "
+import hashlib, sys
+print('sha256:' + hashlib.sha256('\n'.join(sorted(sys.argv[1:])).encode()).hexdigest())
+" "$@"
+}
+if [ "$(summary_field "$SUM" pinned scenario_set)" = "$(scenario_hash pinned-scenario default-scenario)" ]; then
+  pass "--summary-out: scenario_set hashes the whole suite's names when nothing narrows it"
+else
+  fail "--summary-out scenario_set, whole suite: $(cat "$SUM" 2>/dev/null)"
+fi
+rm -f "$SUM"
+run_runner grade --release-subset --summary-out "$SUM" subset
+if [ "$(summary_field "$SUM" subset scenario_set)" = "$(scenario_hash plan-a merge-a resume-a)" ]; then
+  pass "--summary-out: scenario_set hashes the release subset's names, not the suite's"
+else
+  fail "--summary-out scenario_set, release subset (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+fi
 
 rm -f "$SUM"
 run_runner plan --runs 3 --summary-out "$SUM" demo

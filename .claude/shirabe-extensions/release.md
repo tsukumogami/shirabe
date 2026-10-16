@@ -22,8 +22,10 @@ It runs the with-skill agent only, with no no-skill baseline: the release
 decision reads with-skill rates, and the baseline, which measures what the
 skill adds, stays with the scheduled runs. It compares each
 skill's pass rate with the newest earlier release whose `eval-pass-rates.json`
-asset measured that skill the same way: on the same scenario models and
-session model, over the same number of runs. It
+asset measured that skill the same way: the same scenarios, on the same
+scenario models and session model, over the same number of runs. A scenario
+added to the release subset, or one that leaves it, starts a new reference
+rather than reading as a drop. It
 reads the asset from the last tag and up to nine releases before it, so a
 release that measured only some skills still leaves a baseline for the rest. A
 skill that hasn't changed since the last tag doesn't run, the critical ones
