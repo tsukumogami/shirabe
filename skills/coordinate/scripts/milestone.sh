@@ -8,6 +8,7 @@
 #
 # Usage:
 #   milestone.sh schema ROADMAP
+#   milestone.sh is-milestone ROADMAP
 #   milestone.sh evidence ROADMAP TAG
 #   milestone.sh check-verdict ROADMAP TAG ENTRY [--worker TOPIC] [--today YYYY-MM-DD]
 #   milestone.sh progress-has ROADMAP TEXT
@@ -17,15 +18,35 @@
 # schema prints the frontmatter's `schema:` value, or roadmap/v1 when the
 # frontmatter names none (a roadmap with no schema line is a version 1 one).
 #
+# is-milestone exits 0 when ROADMAP is a milestone roadmap, roadmap/v2 or
+# roadmap/v3, and 1 when it is any other version; it prints nothing. Every
+# script that asks whether a roadmap has milestones asks it here, never by
+# comparing the schema itself.
+#
+# The two milestone versions read alike but for two words, which the schema
+# chooses: a roadmap/v3 roadmap lists its milestones under `## Milestones`
+# with classic headings `### Milestone <N>: <title>`, and a roadmap/v2 one
+# under `## Features` with `### Feature <N>: <title>`; prefix tags (`AB1`,
+# `AB10b`) are the same in both. Only the version's own section and word
+# are read, so `## Features` or `### Feature 3:` on v3 (and `## Milestones`
+# or `### Milestone 3:` on v2) holds no milestone.
+#
+# A TAG and the tag an entry names compare by their key (ms_tag_key):
+# `Feature <N>` and `Milestone <N>` are one tag, so an entry or a record
+# written under `Feature 2` still names the heading `### Milestone 2:`; any
+# other tag compares as written (`AB1` is never `Milestone 1`, and
+# `Feature 03` is never `Milestone 3`).
+#
 # evidence prints {tag, title, status, schema, evidence: [clause, ...]} for
-# the milestone whose heading is `### TAG: <title>` under `## Features`: each
-# clause is a `- ` line at column 0 below `**Evidence:**`, its indented
-# wrapped lines joined with one space, and the field ends at a blank line, the
-# next field line, a heading or a column-0 line that isn't a clause, as the
-# validator reads it. It exits 2 when TAG isn't a milestone with Evidence: the
-# roadmap isn't roadmap/v2, no heading carries TAG, its block has no clause,
-# or the block holds something the reader can't classify (a tab or a code
-# fence).
+# the milestone whose heading is `### TAG: <title>` under the version's items
+# section (TAG as the version spells it: `Milestone 2` on v3 for a TAG of
+# `Feature 2`): each clause is a `- ` line at column 0 below `**Evidence:**`,
+# its indented wrapped lines joined with one space, and the field ends at a
+# blank line, the next field line, a heading or a column-0 line that isn't a
+# clause, as the validator reads it. `tag` is TAG as given. It exits 2 when
+# TAG isn't a milestone with Evidence: the roadmap isn't roadmap/v2 or
+# roadmap/v3, no heading carries TAG, its block has no clause, or the block
+# holds something the reader can't classify (a tab or a code fence).
 #
 # check-verdict checks ENTRY, a verdict entry, against TAG's milestone in
 # ROADMAP, the roadmap at the commit the entry's Source line names. The entry
@@ -95,7 +116,8 @@
 # what_was_seen}.
 #
 # Exit codes: 0 pass (or found); 1 the check failed (the entry checks: the
-# entry; progress-has: TEXT is not there); 2 a file
+# entry; progress-has: TEXT is not there; is-milestone: not a milestone
+# roadmap); 2 a file
 # couldn't be read, or TAG isn't a milestone with Evidence; 64 usage.
 set -uo pipefail
 
@@ -106,7 +128,7 @@ die2() { echo "$PROG: $*" >&2; exit 2; }
 # An entry is at most this many bytes (roadmap-status.sh --verdict holds the
 # entry file to the same cap).
 ENTRY_MAX=16384
-RE_TAG='^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
+RE_TAG='^(Feature [0-9]+|Milestone [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$'
 RE_ROADMAP_PATH='^docs/roadmaps/([A-Za-z0-9._-]+/)*ROADMAP-[A-Za-z0-9._-]+\.md$'
 
 # schema_of <file>: the frontmatter's schema value, or roadmap/v1.
@@ -117,15 +139,41 @@ schema_of() {
         fm && /^schema:/ { s = $0; sub(/^schema:[ \t]*/, "", s); sub(/[ \t]+$/, "", s); gsub(/^["\x27]|["\x27]$/, "", s); print s; exit }'
 }
 
+# is_milestone_schema <schema>: 0 for roadmap/v2 and roadmap/v3.
+is_milestone_schema() { case "$1" in roadmap/v2|roadmap/v3) return 0 ;; *) return 1 ;; esac; }
+
+# words_of <schema>: SECTION and WORD, the version's items section and the
+# word of its classic headings.
+words_of() {
+    if [ "$1" = roadmap/v3 ]; then SECTION=Milestones WORD=Milestone; else SECTION=Features WORD=Feature; fi
+}
+
+# ms_tag_key <tag>: the tag's key, `ms:<N>` for exactly `Feature <N>` or
+# `Milestone <N>` (the digits as written), the tag itself otherwise.
+# record-common.sh's jq tag_key is the same rule.
+ms_tag_key() {
+    local re='^(Feature|Milestone) ([0-9]+)$'
+    if [[ $1 =~ $re ]]; then printf 'ms:%s' "${BASH_REMATCH[2]}"; else printf '%s' "$1"; fi
+}
+
+# ms_heading <tag>: TAG as the version read by words_of spells its heading:
+# `<WORD> <N>` for a TAG keyed `ms:<N>`, TAG itself otherwise.
+ms_heading() {
+    local re='^(Feature|Milestone) ([0-9]+)$'
+    if [[ $1 =~ $re ]]; then printf '%s %s' "$WORD" "${BASH_REMATCH[2]}"; else printf '%s' "$1"; fi
+}
+
 # block_of <file> <tag>: TAG's milestone as tab-separated lines, `title`,
 # `status` and one `evidence` line per clause; exit 3 when the block holds a
-# tab or a code fence, 4 when no heading carries TAG.
+# tab or a code fence, 4 when no heading carries TAG. The heading is TAG as
+# ms_heading spells it, under SECTION; call words_of first. Both reach awk
+# through the environment.
 block_of() {
-    tr -d '\r' < "$1" | MS_TAG="$2" LC_ALL=C awk '
-        BEGIN { tag = ENVIRON["MS_TAG"]; head = "### " tag ": " }
+    tr -d '\r' < "$1" | MS_TAG="$(ms_heading "$2")" MS_SECTION="$SECTION" LC_ALL=C awk '
+        BEGIN { tag = ENVIRON["MS_TAG"]; head = "### " tag ": "; sect = "## " ENVIRON["MS_SECTION"] }
         # flush: the clause being read, if any, and the Evidence field ends.
         function flush() { if (have) print "evidence\t" clause; have = 0; inev = 0 }
-        /^## / { infeat = ($0 ~ /^## Features[ \t]*$/); if (inblock) { flush(); inblock = 0; done = 1 } next }
+        /^## / { s = $0; sub(/[ \t]+$/, "", s); infeat = (s == sect); if (inblock) { flush(); inblock = 0; done = 1 } next }
         !infeat || done { next }
         /^### / {
             if (inblock) { flush(); inblock = 0; done = 1; next }
@@ -162,12 +210,13 @@ milestone_json() {
     [ -r "$1" ] || die2 "cannot read $1"
     sch=$(schema_of "$1")
     [ -n "$sch" ] || sch=roadmap/v1
-    [ "$sch" = roadmap/v2 ] || die2 "$1 is a $sch roadmap; only a roadmap/v2 roadmap has milestones"
+    is_milestone_schema "$sch" || die2 "$1 is a $sch roadmap; only a roadmap/v2 or roadmap/v3 roadmap has milestones"
+    words_of "$sch"
     lines=$(block_of "$1" "$2"); rc=$?
     case $rc in
         0) ;;
         3) die2 "$2's block holds a tab or a code fence, which the Evidence reader can't classify" ;;
-        4) die2 "no milestone heading carries $2 under ## Features" ;;
+        4) die2 "no milestone heading carries $(ms_heading "$2") under ## $SECTION" ;;
         *) die2 "cannot read $1" ;;
     esac
     printf '%s\n' "$lines" | jq -R -s -c --arg t "$2" --arg s "$sch" '
@@ -186,6 +235,13 @@ schema)
     S=$(schema_of "$1")
     printf '%s\n' "${S:-roadmap/v1}"
     exit 0
+    ;;
+is-milestone)
+    [ $# -eq 1 ] || usage
+    [ -r "$1" ] || die2 "cannot read $1"
+    S=$(schema_of "$1")
+    is_milestone_schema "$S"
+    exit $?
     ;;
 evidence)
     [ $# -eq 2 ] || usage
@@ -220,7 +276,7 @@ while [ $# -gt 0 ]; do
         *) usage ;;
     esac
 done
-[[ $TAG =~ $RE_TAG ]] || { echo "$PROG: $TAG is not a milestone's heading tag (Feature 7, ED1, AB10b)" >&2; exit 64; }
+[[ $TAG =~ $RE_TAG ]] || { echo "$PROG: $TAG is not a milestone's heading tag (Milestone 7, Feature 7, ED1, AB10b)" >&2; exit 64; }
 if [ "$CMD" != check-goal-fit ]; then
     [ -n "$TODAY" ] || TODAY=$(date -u +%Y-%m-%d)
     [[ $TODAY =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || usage
@@ -258,7 +314,7 @@ if [ "$CMD" = check-goal-fit ]; then
     GF_PR=${BASH_REMATCH[1]} GF_TAG=${BASH_REMATCH[2]}
     RE_PR_REF='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*$'
     [[ $GF_PR =~ $RE_PR_REF ]] || fail "line 1: the pull request is owner/repo#n, read [${GF_PR:0:80}]"
-    [ "$GF_TAG" = "$TAG" ] || fail "line 1: the entry names ${GF_TAG:0:80}, not $TAG"
+    [ "$(ms_tag_key "$GF_TAG")" = "$(ms_tag_key "$TAG")" ] || fail "line 1: the entry names ${GF_TAG:0:80}, not $TAG"
     shape 2 "Fit: <fits|fits with follow-ups|gap>" '^Fit: (fits|fits with follow-ups|gap)$'
     GF_FIT=${BASH_REMATCH[1]}
     shape 3 "Clauses: <n, n | advances none>" '^Clauses: (.+)$'
@@ -287,7 +343,7 @@ fi
 if [ "$CMD" = check-failure ]; then
     shape 1 "Failure: <tag>" '^Failure: (.+)$'
     F_TAG=${BASH_REMATCH[1]}
-    [ "$F_TAG" = "$TAG" ] || fail "line 1: the entry names ${F_TAG:0:80}, not $TAG"
+    [ "$(ms_tag_key "$F_TAG")" = "$(ms_tag_key "$TAG")" ] || fail "line 1: the entry names ${F_TAG:0:80}, not $TAG"
     F_STATUS=$(printf '%s' "$MS" | jq -r .status)
     case "$F_STATUS" in
         Done*) ;;
@@ -320,7 +376,7 @@ fi
 
 shape 1 "Verdict: <tag> -- <verdict>" '^Verdict: (.+) -- (changes needed|verified with follow-ups|verified)$'
 V_TAG=${BASH_REMATCH[1]} VERDICT=${BASH_REMATCH[2]}
-[ "$V_TAG" = "$TAG" ] || fail "line 1: the verdict names $V_TAG, not $TAG"
+[ "$(ms_tag_key "$V_TAG")" = "$(ms_tag_key "$TAG")" ] || fail "line 1: the verdict names $V_TAG, not $TAG"
 shape 2 "Checked by: <who>" '^Checked by: (.+)$'
 BY=${BASH_REMATCH[1]}
 RE_BY='^[A-Za-z0-9][A-Za-z0-9 ._-]{0,59}$'

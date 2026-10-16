@@ -214,8 +214,8 @@ pause, a go-ahead (a release or another step allowed once), a relayed approval,
 a standing answer. Owner is the person who decided it; Relayed by is who
 carried it to you, blank when they told you directly. A pause names its
 scope in On, `all` (the whole coordinator) or one unit as pick lists it
-(`Feature 2`, `ED1`, `#12`, `owner/repo#12`), and its resume condition in
-Until: `lifted` (a person's resume ends it), `time <YYYY-MM-DDTHH:MMZ>` in UTC,
+(`Feature 2`, `Milestone 2`, `ED1`, `#12`, `owner/repo#12`), and its resume
+condition in Until: `lifted` (a person's resume ends it), `time <YYYY-MM-DDTHH:MMZ>` in UTC,
 `merged owner/repo#n` or `tag owner/repo <tag>`. pick, the dispatch check, the
 land check and the merge read every pause live (`scripts/pause-read.sh`) and
 refuse what one holds; a pause whose condition reads met holds nothing, and
@@ -465,7 +465,7 @@ unmerged is cleared with `--drop "<tag>" --reason "<why>"`. The skill never
 merges the roadmap pull request.
 
 All of this is a feature roadmap's. The script reads the roadmap's
-frontmatter first, and on a milestone roadmap (`schema: roadmap/v2`) the same
+frontmatter first, and on a milestone roadmap (`schema: roadmap/v2` or `roadmap/v3`) the same
 `--unit` call opens nothing and marks the milestone's verdict owed, as the
 next section says.
 

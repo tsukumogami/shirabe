@@ -11,7 +11,7 @@
 # owner/repo, a --reports-to topic that isn't a topic) are refused with no new
 # session and the live run left alone; --reports-to sets REPORTS_TO, empty
 # without it; ROADMAP_FORM is feature for a roadmap not in the working tree
-# and milestone for a roadmap/v2 one there; a
+# and milestone for a roadmap/v2 or roadmap/v3 one there; a
 # second valid invocation cancels the first run without deleting its log.
 # On two simulated hosts sharing koto's cloud backend (testdata/cloud-hosts.sh
 # over testdata/fake-s3.py): a plain session imported on host B arrives with
@@ -82,6 +82,12 @@ printf -- '---\nschema: roadmap/v2\nstatus: Active\n---\n\n# ROADMAP: milestones
 OUT=$(open_ '["docs/roadmaps/ROADMAP-milestones.md"]'); eq "a milestone roadmap's run opens" 0 $?
 S3=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
 eq "  ... with ROADMAP_FORM milestone" milestone "$(var "$S3" ROADMAP_FORM)"
+# So does a roadmap/v3 one, the milestone roadmap that lists its milestones
+# under `## Milestones`.
+printf -- '---\nschema: roadmap/v3\nstatus: Active\n---\n\n# ROADMAP: milestones v3\n' > docs/roadmaps/ROADMAP-milestones-v3.md
+OUT=$(open_ '["docs/roadmaps/ROADMAP-milestones-v3.md"]'); eq "a roadmap/v3 roadmap's run opens" 0 $?
+S4=$(printf '%s\n' "$OUT" | sed -n 's/^session=//p')
+eq "  ... with ROADMAP_FORM milestone" milestone "$(var "$S4" ROADMAP_FORM)"
 
 # --- two hosts on koto's cloud backend -----------------------------------------
 # Hosts A and B share a bucket served by testdata/fake-s3.py; each has its own
