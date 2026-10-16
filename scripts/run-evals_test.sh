@@ -96,7 +96,7 @@ else
 fi
 
 classify verdict "$FIXTURES/executed.jsonl"
-if printf '%s' "$(field result_text)" | grep -q "^I ran iteration 2"; then
+if grep -q "^I ran iteration 2" <<<"$(field result_text)"; then
   pass "real graded run: the final message is the last of its three result messages"
 else
   fail "executed transcript final message: $(field result_text)"
@@ -173,9 +173,9 @@ fi
 
 classify report "$FIXTURES/plan-mode.jsonl" acceptEdits
 if [ "$RC" -eq 4 ] \
-  && printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE" \
-  && printf '%s' "$OUT" | grep -q "Permission mode in effect: plan" \
-  && printf '%s' "$OUT" | grep -q "Permission mode requested: acceptEdits"; then
+  && grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT" \
+  && grep -q "Permission mode in effect: plan" <<<"$OUT" \
+  && grep -q "Permission mode requested: acceptEdits" <<<"$OUT"; then
   pass "report on plan-mode: exit 4, named failure, mode in effect and mode requested"
 else
   fail "report on plan-mode (rc=$RC): $OUT"
@@ -189,7 +189,7 @@ else
 fi
 
 classify report "$FIXTURES/executed.jsonl" dontAsk
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "ran in permission mode acceptEdits, not the dontAsk"; then
+if [ "$RC" -eq 0 ] && grep -q "ran in permission mode acceptEdits, not the dontAsk" <<<"$OUT"; then
   pass "report on executed in another mode: exit 0, with a note naming both modes"
 else
   fail "report on a mode mismatch (rc=$RC): $OUT"
@@ -206,9 +206,9 @@ else
   fail "agent-stopped verdict (rc=$RC): $OUT"
 fi
 classify report "$FIXTURES/agent-stopped.jsonl" acceptEdits
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "EVAL AGENT DID NOT FINISH" \
-  && printf '%s' "$OUT" | grep -q "Did not finish: With-skill execute eval run (status: stopped)" \
-  && ! printf '%s' "$OUT" | grep -q "Did not finish: Baseline"; then
+if [ "$RC" -eq 0 ] && grep -q "EVAL AGENT DID NOT FINISH" <<<"$OUT" \
+  && grep -q "Did not finish: With-skill execute eval run (status: stopped)" <<<"$OUT" \
+  && ! grep -q "Did not finish: Baseline" <<<"$OUT"; then
   pass "report on a stopped agent: exit 0, named failure, the stopped agent and its status"
 else
   fail "report on a stopped agent (rc=$RC): $OUT"
@@ -231,8 +231,8 @@ fi
 # unfinished, for a run where some scenarios graded: the unfinished agents
 # alone, never the did-not-execute claim, and nothing when all completed.
 classify unfinished "$FIXTURES/agent-stopped.jsonl"
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "Did not finish: With-skill execute eval run (status: stopped)" \
-  && ! printf '%s' "$OUT" | grep -q "DID NOT EXECUTE"; then
+if [ "$RC" -eq 0 ] && grep -q "Did not finish: With-skill execute eval run (status: stopped)" <<<"$OUT" \
+  && ! grep -q "DID NOT EXECUTE" <<<"$OUT"; then
   pass "unfinished on a stopped agent: exit 0, the agent and its status only"
 else
   fail "unfinished on a stopped agent (rc=$RC): $OUT"
@@ -245,14 +245,14 @@ else
 fi
 
 classify report "$T/missing.jsonl" acceptEdits
-if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE"; then
+if [ "$RC" -eq 2 ] && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT"; then
   pass "report on a missing transcript: exit 2, no not-executed claim"
 else
   fail "report on a missing transcript (rc=$RC): $OUT"
 fi
 
 classify result-text "$FIXTURES/plan-mode.jsonl"
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "started in plan mode"; then
+if [ "$RC" -eq 0 ] && grep -q "started in plan mode" <<<"$OUT"; then
   pass "result-text prints the session's final message"
 else
   fail "result-text (rc=$RC): $OUT"
@@ -327,8 +327,8 @@ arg_after() {
 
 run_runner plan demo
 if [ "$RC" -eq 4 ] \
-  && printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE" \
-  && printf '%s' "$OUT" | grep -q "Permission mode in effect: plan"; then
+  && grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT" \
+  && grep -q "Permission mode in effect: plan" <<<"$OUT"; then
   pass "runner: a session that only planned exits 4 and names the mode in effect"
 else
   fail "runner, plan-mode session (rc=$RC): $OUT"
@@ -373,22 +373,22 @@ else
 fi
 
 run_runner failed demo
-if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE"; then
+if [ "$RC" -eq 2 ] && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT"; then
   pass "runner: a session whose commands all ran and failed stays exit 2, not 4"
 else
   fail "runner, all-failed session (rc=$RC): $OUT"
 fi
 
 run_runner denied demo
-if [ "$RC" -eq 4 ] && printf '%s' "$OUT" | grep -q "Permission denials: 3"; then
+if [ "$RC" -eq 4 ] && grep -q "Permission denials: 3" <<<"$OUT"; then
   pass "runner: a session whose every call was denied exits 4"
 else
   fail "runner, all-denied session (rc=$RC): $OUT"
 fi
 
 run_runner nograde demo
-if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE" \
-  && printf '%s' "$OUT" | grep -q "ZERO-GRADED SCENARIOS"; then
+if [ "$RC" -eq 2 ] && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT" \
+  && grep -q "ZERO-GRADED SCENARIOS" <<<"$OUT"; then
   pass "runner: a session that executed but graded nothing stays exit 2, not 4"
 else
   fail "runner, executed-but-ungraded (rc=$RC): $OUT"
@@ -398,8 +398,8 @@ fi
 # grade on disk means the session ran, so even a plan-mode-looking transcript
 # must not turn that into "no scenario ran".
 run_runner partial pair
-if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE" \
-  && printf '%s' "$OUT" | grep -q "Evals graded:   1"; then
+if [ "$RC" -eq 2 ] && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT" \
+  && grep -q "Evals graded:   1" <<<"$OUT"; then
   pass "runner: a partly graded run stays exit 2 whatever the transcript says"
 else
   fail "runner, partly graded (rc=$RC): $OUT"
@@ -409,17 +409,17 @@ fi
 # runner names it through the classifier's unfinished command: the agent and
 # its status, never the did-not-execute claim.
 run_runner partial-stopped pair
-if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "EVAL AGENT DID NOT FINISH" \
-  && printf '%s' "$OUT" | grep -q "Did not finish: With-skill execute eval run (status: stopped)" \
-  && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE"; then
+if [ "$RC" -eq 2 ] && grep -q "EVAL AGENT DID NOT FINISH" <<<"$OUT" \
+  && grep -q "Did not finish: With-skill execute eval run (status: stopped)" <<<"$OUT" \
+  && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT"; then
   pass "runner: a partly graded run with a stopped agent names the agent and stays exit 2"
 else
   fail "runner, partly graded with a stopped agent (rc=$RC): $OUT"
 fi
 
 run_runner grade demo
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "All assertions passed." \
-  && printf '%s' "$OUT" | grep -q "I ran iteration 2 of the writing-style evals"; then
+if [ "$RC" -eq 0 ] && grep -q "All assertions passed." <<<"$OUT" \
+  && grep -q "I ran iteration 2 of the writing-style evals" <<<"$OUT"; then
   pass "runner: a graded run exits 0 and prints the session's final message"
 else
   fail "runner, graded session (rc=$RC): $OUT"
@@ -434,7 +434,7 @@ else
 fi
 
 run_runner plan --runs 3 demo
-if [ "$RC" -eq 4 ] && printf '%s' "$OUT" | grep -q "Stopping after run 1: the nested session did not execute"; then
+if [ "$RC" -eq 4 ] && grep -q "Stopping after run 1: the nested session did not execute" <<<"$OUT"; then
   pass "runner: --runs stops at the first not-executed run"
 else
   fail "runner, --runs on a not-executed session (rc=$RC): $OUT"
@@ -450,7 +450,7 @@ fi
 # --prep-only and --validate are what skills PRs use in the meantime; neither
 # may start a session.
 run_runner plan --prep-only demo
-if [ "$RC" -eq 0 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "Workspace ready."; then
+if [ "$RC" -eq 0 ] && [ ! -e "$LOG/args" ] && grep -q "Workspace ready." <<<"$OUT"; then
   pass "--prep-only prepares a workspace and starts no session"
 else
   fail "--prep-only (rc=$RC, session started: $([ -e "$LOG/args" ] && echo yes || echo no)): $OUT"
@@ -462,7 +462,7 @@ echo x > "$latest/demo-scenario/with_skill/outputs/response.md"
 echo x > "$latest/demo-scenario/without_skill/outputs/response.md"
 echo '{"expectations": [{"text": "stub criterion", "passed": true}]}' > "$latest/demo-scenario/with_skill/grading.json"
 run_runner plan --validate demo
-if [ "$RC" -eq 0 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "All assertions passed."; then
+if [ "$RC" -eq 0 ] && [ ! -e "$LOG/args" ] && grep -q "All assertions passed." <<<"$OUT"; then
   pass "--validate grades the latest iteration and starts no session"
 else
   fail "--validate (rc=$RC): $OUT"
@@ -470,7 +470,7 @@ fi
 
 rm -f "$latest/demo-scenario/with_skill/grading.json"
 run_runner plan --validate demo
-if [ "$RC" -eq 2 ] && ! printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE"; then
+if [ "$RC" -eq 2 ] && ! grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT"; then
   pass "--validate on an ungraded iteration stays exit 2 (it has no session to classify)"
 else
   fail "--validate ungraded (rc=$RC): $OUT"
@@ -582,7 +582,7 @@ prepared_scenarios() {
 }
 run_runner plan --release-subset --prep-only subset
 if [ "$RC" -eq 0 ] && [ "$(prepared_scenarios)" = "merge-a plan-a resume-a " ] \
-  && printf '%s\n' "$OUT" | grep -q 'Selection:  the release subset'; then
+  && grep -q 'Selection:  the release subset' <<<"$OUT"; then
   pass "--release-subset: every tier-1 scenario and the tier-2 ones marked release"
 else
   fail "--release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
@@ -600,7 +600,7 @@ else
   fail "--scenario with --release-subset (rc=$RC): prepared=[$(prepared_scenarios)] $OUT"
 fi
 run_runner plan --scenario merge-b,nope --prep-only subset
-if [ "$RC" -eq 3 ] && printf '%s\n' "$OUT" | grep -q "no eval named 'nope'"; then
+if [ "$RC" -eq 3 ] && grep -q "no eval named 'nope'" <<<"$OUT"; then
   pass "--scenario: a name the suite lacks is refused, and named"
 else
   fail "--scenario unknown name (rc=$RC): $OUT"
@@ -633,8 +633,8 @@ fi
 # --validate takes no run options; the iteration's missing without_skill/ is
 # what tells it the baseline was never run.
 run_runner plan --validate demo
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "All assertions passed." \
-  && ! printf '%s' "$OUT" | grep -q "without_skill"; then
+if [ "$RC" -eq 0 ] && grep -q "All assertions passed." <<<"$OUT" \
+  && ! grep -q "without_skill" <<<"$OUT"; then
   pass "--validate on a no-baseline iteration checks the with-skill side only"
 else
   fail "--validate no-baseline (rc=$RC): $OUT"
@@ -669,7 +669,7 @@ else
 fi
 
 EVAL_MODEL="-x" run_runner grade demo
-if [ "$RC" -eq 3 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "EVAL_MODEL must match"; then
+if [ "$RC" -eq 3 ] && [ ! -e "$LOG/args" ] && grep -q "EVAL_MODEL must match" <<<"$OUT"; then
   pass "model: an EVAL_MODEL that does not match the pattern is refused before any session"
 else
   fail "EVAL_MODEL=-x (rc=$RC): $OUT"
@@ -685,7 +685,7 @@ cat > "$SUITE/badmodel/evals/evals.json" <<'EOF'
 EOF
 run_runner grade badmodel
 if [ "$RC" -eq 3 ] && [ ! -e "$LOG/args" ] && [ ! -d "$SUITE/badmodel/evals/workspace/iteration-1" ] \
-  && printf '%s' "$OUT" | grep -q "bad-scenario declares a model that does not match"; then
+  && grep -q "bad-scenario declares a model that does not match" <<<"$OUT"; then
   pass "model: a scenario model that does not match the pattern refuses the suite, exit 3, no iteration"
 else
   fail "scenario model refused (rc=$RC): $OUT"
@@ -810,7 +810,7 @@ run_select() { # run_select <stub-mode> <runner args...>
 }
 
 run_select grade --list-changed
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "No v\* tag found" \
+if [ "$RC" -eq 0 ] && grep -q "No v\* tag found" <<<"$OUT" \
   && [ "$(printf '%s\n' "$OUT" | grep -v '^No v' | tr '\n' ' ')" = "alpha beta gamma " ] \
   && [ ! -e "$LOG/args" ]; then
   pass "selection: with no v* tag every skill with evals is selected, and the note says so"
@@ -820,7 +820,7 @@ fi
 
 git_t tag v0.1.0
 run_select grade
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "No skill with evals changed since v0.1.0." \
+if [ "$RC" -eq 0 ] && grep -q "No skill with evals changed since v0.1.0." <<<"$OUT" \
   && [ "$(git -C "$REPO" rev-parse HEAD)" = "$(git -C "$REPO" rev-parse 'v0.1.0^{commit}')" ] \
   && [ ! -e "$LOG/args" ]; then
   pass "selection: a run on the tagged commit selects nothing, says so, exits 0 and starts no session"
@@ -855,11 +855,11 @@ else
 fi
 
 run_select grade
-if [ "$RC" -eq 0 ] && printf '%s' "$OUT" | grep -q "Skills with evals changed since v0.1.0: alpha beta" \
-  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: alpha ===" \
-  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: beta ===" \
-  && ! printf '%s' "$OUT" | grep -q "Preparing evals for skill: gamma" \
-  && printf '%s' "$OUT" | grep -q "All skills passed."; then
+if [ "$RC" -eq 0 ] && grep -q "Skills with evals changed since v0.1.0: alpha beta" <<<"$OUT" \
+  && grep -q "=== Preparing evals for skill: alpha ===" <<<"$OUT" \
+  && grep -q "=== Preparing evals for skill: beta ===" <<<"$OUT" \
+  && ! grep -q "Preparing evals for skill: gamma" <<<"$OUT" \
+  && grep -q "All skills passed." <<<"$OUT"; then
   pass "selection: no skill name prints the selection and runs it through the --all loop"
 else
   fail "selection, default run (rc=$RC): $OUT"
@@ -889,13 +889,13 @@ OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$SHALLOW" RUN_EVALS_SKILLS_DIR="$SHALLOW/s
   TMPDIR="$T" bash "$RUNNER" 2>&1) || RC=$?
 if [ "$RC" -eq 0 ] && [ "$(git -C "$SHALLOW" rev-parse --is-shallow-repository)" = true ] \
   && [ -z "$(git -C "$SHALLOW" tag -l)" ] \
-  && printf '%s' "$OUT" | grep -q "No v\* tag found" \
-  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: alpha ===" \
-  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: beta ===" \
-  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: delta ===" \
-  && printf '%s' "$OUT" | grep -q "=== Preparing evals for skill: gamma ===" \
-  && ! printf '%s' "$OUT" | grep -q "Preparing evals for skill: noevals" \
-  && printf '%s' "$OUT" | grep -q "All skills passed."; then
+  && grep -q "No v\* tag found" <<<"$OUT" \
+  && grep -q "=== Preparing evals for skill: alpha ===" <<<"$OUT" \
+  && grep -q "=== Preparing evals for skill: beta ===" <<<"$OUT" \
+  && grep -q "=== Preparing evals for skill: delta ===" <<<"$OUT" \
+  && grep -q "=== Preparing evals for skill: gamma ===" <<<"$OUT" \
+  && ! grep -q "Preparing evals for skill: noevals" <<<"$OUT" \
+  && grep -q "All skills passed." <<<"$OUT"; then
   pass "selection: a shallow clone with no tags runs every skill with evals"
 else
   fail "selection, shallow clone (rc=$RC): $OUT"
@@ -906,8 +906,8 @@ mkdir -p "$T/not-a-repo"
 RC=0
 OUT=$(cd "$T" && RUN_EVALS_REPO_ROOT="$T/not-a-repo" RUN_EVALS_SKILLS_DIR="$REPO/skills" \
   PATH="$FIXTURES/bin:$PATH" GIT_CEILING_DIRECTORIES="$T" bash "$RUNNER" --list-changed 2>&1) || RC=$?
-if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "is not a git repository" \
-  && ! printf '%s' "$OUT" | grep -q "No v\* tag found"; then
+if [ "$RC" -eq 2 ] && grep -q "is not a git repository" <<<"$OUT" \
+  && ! grep -q "No v\* tag found" <<<"$OUT"; then
   pass "selection: a repository root git cannot read exits 2 instead of selecting everything"
 else
   fail "selection, unreadable root (rc=$RC): $OUT"
@@ -1104,7 +1104,7 @@ else
   fail "koto, bare KOTO_BIN (rc=$RC): seen=[$(tr '\n' ' ' < "$KOTO_SEEN" 2>/dev/null)] -- $OUT"
 fi
 koto_run "$T/koto-probe.sh" KOTO_BIN="$T/no-such-koto" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
-if [ "$RC" -eq 2 ] && [ ! -e "$LOG/args" ] && printf '%s' "$OUT" | grep -q "KOTO_BIN \[$T/no-such-koto\] names no executable koto"; then
+if [ "$RC" -eq 2 ] && [ ! -e "$LOG/args" ] && grep -q "KOTO_BIN \[$T/no-such-koto\] names no executable koto" <<<"$OUT"; then
   pass "koto: a KOTO_BIN naming nothing stops the run before any session, exit 2"
 else
   fail "koto, KOTO_BIN naming nothing (rc=$RC): $OUT"
@@ -1120,8 +1120,8 @@ printf 'cwd = "%s/checkout"\n' "$TMPDIR" > "$HOME/.koto/sessions/leak/state.toml
 EOF
 chmod +x "$T/koto-leak.sh"
 koto_run "$T/koto-leak.sh" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
-if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q "EVAL RUN REACHED \$HOME/.koto" \
-  && printf '%s' "$OUT" | grep -q "$FAKE_HOME/.koto/sessions/leak/state.toml"; then
+if [ "$RC" -eq 2 ] && grep -q "EVAL RUN REACHED \$HOME/.koto" <<<"$OUT" \
+  && grep -q "$FAKE_HOME/.koto/sessions/leak/state.toml" <<<"$OUT"; then
   pass "koto: a run that wrote into \$HOME/.koto exits 2 and names the file"
 else
   fail "koto tripwire (rc=$RC): $OUT"
@@ -1129,8 +1129,8 @@ fi
 # A run that also classified as not executed keeps its 4, which outranks the
 # tripwire's 2; the tripwire still names the file.
 koto_run "$T/koto-leak.sh" PATH="$FIXTURES/bin:$T/fake-koto:$PATH" STUB_CLAUDE_MODE=plan
-if [ "$RC" -eq 4 ] && printf '%s' "$OUT" | grep -q "NESTED SESSION DID NOT EXECUTE" \
-  && printf '%s' "$OUT" | grep -q "EVAL RUN REACHED \$HOME/.koto"; then
+if [ "$RC" -eq 4 ] && grep -q "NESTED SESSION DID NOT EXECUTE" <<<"$OUT" \
+  && grep -q "EVAL RUN REACHED \$HOME/.koto" <<<"$OUT"; then
   pass "koto: the tripwire on a run that did not execute leaves its exit 4"
 else
   fail "koto tripwire on a not-executed run (rc=$RC): $OUT"
@@ -1143,7 +1143,7 @@ printf 'cwd = "/elsewhere"\n' > "$HOME/.koto/sessions/other/state.toml"
 EOF
 chmod +x "$T/koto-other.sh"
 koto_run "$T/koto-other.sh" PATH="$FIXTURES/bin:$T/fake-koto:$PATH"
-if [ "$RC" -eq 0 ] && ! printf '%s' "$OUT" | grep -q "EVAL RUN REACHED"; then
+if [ "$RC" -eq 0 ] && ! grep -q "EVAL RUN REACHED" <<<"$OUT"; then
   pass "koto: another session's write to \$HOME/.koto during the run does not trip it"
 else
   fail "koto tripwire, unrelated write (rc=$RC): $OUT"

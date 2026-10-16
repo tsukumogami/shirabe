@@ -19,9 +19,13 @@
 #   4. runs each scripts/*_test.sh with `bash`, from the repository root, the
 #      way the CI workflows invoke them, up to CHECK_SKILL_JOBS of them at
 #      once, the costliest first, reporting each in the order a serial run
-#      would;
+#      would. A failed suite is reported with every FAIL line in its log (and
+#      the indented lines under each), the 1-minute load when it ended, and
+#      its last 60 lines; the run opens with the load at its start;
 #   5. runs scripts/lib/check-evals-shape.py on evals/evals.json (a skill whose
-#      SKILL.md declares disable-model-invocation: true may have none).
+#      SKILL.md declares disable-model-invocation: true may have none);
+#   6. runs scripts/check-pipe-readers.sh over the skill's directory, which
+#      refuses a printf, echo or cat piped into grep -q or head.
 #
 # Every check runs even after one fails. Each failure is reported with the
 # file it concerns, and the run ends with the list of failures.
@@ -116,7 +120,7 @@ done
 [ "$LIST" = 0 ] || [ "$CHANGED" = 1 ] || usage
 SKILL="$1"
 
-if ! printf '%s\n' "$SKILL" | grep -Eq '^[a-z0-9][a-z0-9-]*$' \
+if ! grep -Eq '^[a-z0-9][a-z0-9-]*$' <<<"$SKILL" \
     || [ "$(printf '%s\n' "$SKILL" | wc -l | tr -d ' ')" != "1" ]; then
     echo "check-skill: invalid skill name (must match ^[a-z0-9][a-z0-9-]*\$)" >&2
     exit 2
@@ -150,7 +154,7 @@ if [ ! -d "$SKILL_DIR" ]; then
 fi
 
 JOBS="${CHECK_SKILL_JOBS:-4}"
-if ! printf '%s\n' "$JOBS" | grep -Eq '^[1-9][0-9]?$' \
+if ! grep -Eq '^[1-9][0-9]?$' <<<"$JOBS" \
     || [ "$(printf '%s\n' "$JOBS" | wc -l | tr -d ' ')" != "1" ]; then
     echo "check-skill: CHECK_SKILL_JOBS must be a whole number from 1 to 99" >&2
     exit 2
@@ -188,6 +192,41 @@ fail() {
 show_log() {
     sed -e 's/^/    /' "${1:-$LOG}" | tail -n 60
 }
+
+# load1: the host's 1-minute load average (Linux /proc/loadavg, or macOS
+# sysctl's "{ 1.23 4.56 7.89 }"), or "unknown".
+load1() {
+    local l=""
+    if [ -r /proc/loadavg ]; then
+        read -r l _ < /proc/loadavg
+    else
+        l=$(sysctl -n vm.loadavg 2>/dev/null)
+        l=${l#\{ }
+        l=${l%% *}
+    fi
+    printf '%s\n' "${l:-unknown}"
+}
+
+# show_suite_failure <log> <load-file>: every FAIL line of a failed suite
+# with the indented detail lines under it, wherever they fall in the log, then
+# the 1-minute load when the suite ended and the log's tail. The tail alone
+# lost the failing case's name when a long suite failed early (shirabe#867),
+# and a load failure couldn't be filed without running the suite again.
+show_suite_failure() {
+    local lines
+    lines=$(awk '/^[[:space:]]*(.\[[0-9;]*m)?(FAIL|not ok)([^A-Za-z]|$)/ { print "      " $0; d = 1; next }
+                 d && /^[ \t]/ && !/^[[:space:]]*(.\[[0-9;]*m)?(ok|PASS)([^A-Za-z]|$)/ { print "      " $0; next }
+                 { d = 0 }' "$1")
+    if [ -n "$lines" ]; then
+        echo "    every FAIL line:"
+        printf '%s\n' "$lines"
+    fi
+    echo "    load when it ended: $(cat "$2" 2>/dev/null || echo unknown)"
+    echo "    the log's last 60 lines:"
+    show_log "$1"
+}
+
+echo "check-skill: $SKILL, load $(load1) at start"
 
 suites=()
 for t in "$SKILL_DIR"/scripts/*_test.sh; do
@@ -311,7 +350,7 @@ $p" ;;
                     return
                 fi
                 names=$(callers_of "$name" "$shared")
-                hits=$(printf '%s\n' "$names" | grep -lF -f - "${suites[@]}")
+                hits=$(grep -lF -f - "${suites[@]}" <<<"$names")
                 # The script's own suite counts whether or not it names it.
                 s="$SKILL_DIR/scripts/${name%.*}_test.sh"
                 [ -f "$s" ] && hits="$hits
@@ -430,7 +469,7 @@ report_ready() {
         if [ "$rc" = 0 ]; then
             echo "ok: bash ${suites[$NEXT]}"
         else
-            show_log "$RUNS/$NEXT.log"
+            show_suite_failure "$RUNS/$NEXT.log" "$RUNS/$NEXT.load"
             fail "bash ${suites[$NEXT]}"
         fi
         NEXT=$((NEXT + 1))
@@ -445,15 +484,19 @@ for i in "${ORDER[@]+"${ORDER[@]}"}"; do
     done
     # The .rc file appears whole (written, then renamed), so a reader never
     # sees a suite as finished before its status is there.
+    # A failed suite also records the load as it ended, which a failure under
+    # load is filed with.
     ( bash "${suites[$i]}" </dev/null >"$RUNS/$i.log" 2>&1
-      echo $? > "$RUNS/$i.rc.tmp" && mv "$RUNS/$i.rc.tmp" "$RUNS/$i.rc" ) &
+      rc=$?
+      [ "$rc" = 0 ] || load1 > "$RUNS/$i.load"
+      echo "$rc" > "$RUNS/$i.rc.tmp" && mv "$RUNS/$i.rc.tmp" "$RUNS/$i.rc" ) &
 done
 wait
 report_ready
 # A suite with no status after every job has ended (its wrapper killed before
 # it could write one) is a failure, never a silent gap in the report.
 while [ "$NEXT" -lt "${#suites[@]}" ]; do
-    [ -f "$RUNS/$NEXT.log" ] && show_log "$RUNS/$NEXT.log"
+    [ -f "$RUNS/$NEXT.log" ] && show_suite_failure "$RUNS/$NEXT.log" "$RUNS/$NEXT.load"
     fail "bash ${suites[$NEXT]} (no exit status recorded)"
     NEXT=$((NEXT + 1))
     report_ready
@@ -466,6 +509,15 @@ if python3 "$SHAPE_CHECK" "$evals_json" "$SKILL_DIR/SKILL.md" >"$LOG" 2>&1; then
 else
     show_log
     fail "eval shape: $evals_json"
+fi
+
+# 6. No shell value piped into a reader that stops early (grep -q, head):
+#    under pipefail the writer can be cut off and a match read as no match.
+if bash "$SCRIPT_DIR/check-pipe-readers.sh" "$SKILL_DIR" >"$LOG" 2>&1; then
+    echo "ok: pipe readers ($SKILL_DIR)"
+else
+    show_log
+    fail "pipe readers: $SKILL_DIR (scripts/check-pipe-readers.sh)"
 fi
 
 if [ -n "$FAILURES" ]; then

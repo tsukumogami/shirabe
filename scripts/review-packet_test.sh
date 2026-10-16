@@ -233,7 +233,7 @@ mkdir -p "$STORE3"
 echo 0123456789abcdef0123456789abcdef01234567 > "$STORE3/impl_base"
 run "$STORE3" code --session s
 if [ "$CODE" -eq 0 ] && grep -q "^base: $MAIN_SHA (merge-base with main)\$" "$OUT" \
-    && printf '%s' "$ERR" | grep -q 'is not a commit here'; then
+    && grep -q 'is not a commit here' <<<"$ERR"; then
     pass "code: a stale impl_base falls back with a diagnostic"
 else
     fail "code: stale impl_base: exit $CODE, stderr: $ERR"
@@ -274,8 +274,8 @@ else
     GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
         run "$STORE" code --session outline-child --issue 1
     if [ "$CODE" -eq 67 ] && [ ! -s "$ROOT/gh.log" ] \
-        && printf '%s' "$ERR" | grep -q 'plan-outline child' \
-        && printf '%s' "$ERR" | grep -q -- '--criteria <file>'; then
+        && grep -q 'plan-outline child' <<<"$ERR" \
+        && grep -q -- '--criteria <file>' <<<"$ERR"; then
         pass "code: --issue for a plan-outline child is refused (exit 67) with no gh call"
     else
         fail "code: plan-outline --issue: exit $CODE, gh calls: $(cat "$ROOT/gh.log" 2>/dev/null), stderr: $ERR"
@@ -318,7 +318,7 @@ else
     GH_LOG="$ROOT/gh.log" KOTO_SESSIONS="$ROOT/sessions" GH_BODY="$BODY" \
         run "$STORE" code --session new-format --issue 12
     if [ "$CODE" -eq 0 ] && grep -qx 'issue view 12 --json body -q .body' "$ROOT/gh.log" \
-        && printf '%s' "$ERR" | grep -q 'schema_version 2; this reader knows 1'; then
+        && grep -q 'schema_version 2; this reader knows 1' <<<"$ERR"; then
         pass "code: an unknown log schema reads its issue and warns that the check is off"
     else
         fail "code: unknown schema: exit $CODE, stderr: $ERR"
@@ -425,7 +425,7 @@ else
     if [ "$CODE" -eq 0 ] \
         && grep -q "^fix diff from: $MAIN_SHA (fallback: the scope has no fix_diff_from; impl_base)\$" "$OUT" \
         && grep -q '	b.txt$' "$OUT" && grep -q '	c.txt$' "$OUT" \
-        && printf '%s' "$ERR" | grep -q 'falls back to the code packet'; then
+        && grep -q 'falls back to the code packet' <<<"$ERR"; then
         pass "recheck: a missing fix_diff_from falls back to impl_base, labelled"
     else
         fail "recheck: missing fix_diff_from: exit $CODE, stderr: $ERR"
@@ -492,21 +492,21 @@ else
             && pass "recheck: the re-verifier's header names the fix-diff review and where its range starts" \
             || fail "recheck: re-verifier header: $(sed -n 1,9p "$OUT")"
         FIND=$(section_of "Findings to re-verify, by id" "$OUT")
-        printf '%s\n' "$FIND" | grep -q '"id": "0123456789abcdef"' \
-            && printf '%s\n' "$FIND" | grep -q '"summary": "c.txt says more"' \
-            && printf '%s\n' "$FIND" | grep -q '"raiser": "intent"' \
-            && printf '%s\n' "$FIND" | grep -q '"path": "c.txt"' \
-            && printf '%s\n' "$FIND" | grep -q '"lines": "1"' \
+        grep -q '"id": "0123456789abcdef"' <<<"$FIND" \
+            && grep -q '"summary": "c.txt says more"' <<<"$FIND" \
+            && grep -q '"raiser": "intent"' <<<"$FIND" \
+            && grep -q '"path": "c.txt"' <<<"$FIND" \
+            && grep -q '"lines": "1"' <<<"$FIND" \
             && pass "recheck: each due finding is listed by id, with its text, location and raiser" \
             || fail "recheck: re-verifier findings: $FIND"
         CRIT=$(section_of "Every panel's blocking criteria" "$OUT")
-        printf '%s\n' "$CRIT" | grep -q '^### Scrutiny$' && printf '%s\n' "$CRIT" | grep -q '^- \*\*Completeness reviewer\*\*' \
-            && printf '%s\n' "$CRIT" | grep -q '^### Review$' && printf '%s\n' "$CRIT" | grep -q '^- \*\*Maintainer reviewer\*\*' \
-            && printf '%s\n' "$CRIT" | grep -q '^### QA$' && printf '%s\n' "$CRIT" | grep -q 'acceptance criteria' \
+        grep -q '^### Scrutiny$' <<<"$CRIT" && grep -q '^- \*\*Completeness reviewer\*\*' <<<"$CRIT" \
+            && grep -q '^### Review$' <<<"$CRIT" && grep -q '^- \*\*Maintainer reviewer\*\*' <<<"$CRIT" \
+            && grep -q '^### QA$' <<<"$CRIT" && grep -q 'acceptance criteria' <<<"$CRIT" \
             && pass "recheck: a fix-diff review carries the scrutiny, review and QA criteria, from the phase files" \
             || fail "recheck: fix-review criteria: $CRIT"
         RANGE=$(section_of "Changed paths (fix-diff review" "$OUT")
-        printf '%s\n' "$RANGE" | grep -q '^A	c.txt$' && ! printf '%s\n' "$RANGE" | grep -q 'b.txt' \
+        grep -q '^A	c.txt$' <<<"$RANGE" && ! grep -q 'b.txt' <<<"$RANGE" \
             && pass "recheck: the review range's paths run from review_from" \
             || fail "recheck: review range: $RANGE"
         rm -f "$OUT"
@@ -539,7 +539,7 @@ else
         "$HEAD_SHA" > "$RS/scrutiny_scope.json"
     GH_BODY="$BODY" run "$RS" code --session s --issue 12 --panel scrutiny --seat completeness
     OWN=$( [ "$CODE" -eq 0 ] && section_of "Your unclosed findings, by id" "$OUT")
-    if printf '%s\n' "$OWN" | grep -q '"id": "fedcba9876543210"' && printf '%s\n' "$OWN" | grep -q '"summary": "b.txt is wrong"' \
+    if grep -q '"id": "fedcba9876543210"' <<<"$OWN" && grep -q '"summary": "b.txt is wrong"' <<<"$OWN" \
         && grep -q '^## Diff$' "$OUT"; then
         pass "code: a full-round seat's packet lists its unclosed findings by id"
     else
@@ -567,9 +567,9 @@ else
     # re-check records the seat as passed.
     PROMPT=$(awk '/^## The re-check prompt/ { on = 1; next } on && /^## / { exit } on { print }' \
         "$SCRIPT_DIR/../references/review-seat-commissioning.md")
-    printf '%s\n' "$PROMPT" | grep -q 'by id' && printf '%s\n' "$PROMPT" | grep -q '`holds`' \
-        && printf '%s\n' "$PROMPT" | grep -q '`reverified`' && printf '%s\n' "$PROMPT" | grep -q 'reason' \
-        && ! printf '%s\n' "$PROMPT" | grep -q 'records this seat as passed' \
+    grep -q 'by id' <<<"$PROMPT" && grep -q '`holds`' <<<"$PROMPT" \
+        && grep -q '`reverified`' <<<"$PROMPT" && grep -q 'reason' <<<"$PROMPT" \
+        && ! grep -q 'records this seat as passed' <<<"$PROMPT" \
         && pass "the re-check prompt asks for holds or reverified by id, with a reason" \
         || fail "the re-check prompt: $PROMPT"
 
@@ -577,7 +577,7 @@ else
     # this kind refuses it rather than build a narrower one.
     scope "$RS" scrutiny intent ",\"fix_diff_from\":\"$FIRST_SHA\""
     run "$RS" recheck --session s --panel scrutiny --seat other
-    [ "$CODE" -eq 64 ] && printf '%s' "$ERR" | grep -q 'not recheck: commission it with the code packet' \
+    [ "$CODE" -eq 64 ] && grep -q 'not recheck: commission it with the code packet' <<<"$ERR" \
         && pass "recheck: a kept seat: exit 64" || fail "recheck: kept seat: exit $CODE"
     run "$RS" recheck --session s --panel scrutiny --seat completeness
     [ "$CODE" -eq 64 ] && pass "recheck: a seat not in the scope: exit 64" || fail "recheck: absent seat: exit $CODE"
@@ -658,9 +658,9 @@ for site in $SITES; do
             *) fail "spawn site $site: model [$m] is not in ALLOWED_MODELS" ;;
         esac
     done
-    printf '%s\n' "$line" | grep -q '[0-9][0-9]*-call budget' \
+    grep -q '[0-9][0-9]*-call budget' <<<"$line" \
         || fail "spawn site $site: names no call budget"
-    printf '%s\n' "$line" | grep -q 'scripts/review-packet.sh' \
+    grep -q 'scripts/review-packet.sh' <<<"$line" \
         || fail "spawn site $site: does not give the packet command"
 done
 pass "spawn sites: every listed site checked"
@@ -677,7 +677,7 @@ phase-4d-light.md:light
 for entry in $RECHECK_SITES; do
     site="skills/work-on/references/phases/${entry%%:*}"
     line=$(grep '^\*\*Seat commissioning\*\*' "$REPO_ROOT/$site" 2>/dev/null)
-    printf '%s\n' "$line" | grep -q "scripts/review-packet.sh\" recheck --session <WF> --panel ${entry#*:} --seat " \
+    grep -q "scripts/review-packet.sh\" recheck --session <WF> --panel ${entry#*:} --seat " <<<"$line" \
         && pass "spawn site $site: gives the recheck packet for panel ${entry#*:}" \
         || fail "spawn site $site: no recheck packet command for panel ${entry#*:}"
 done
@@ -695,8 +695,8 @@ phase-4-implementation.md
 for entry in $CODE_SITES; do
     site="skills/work-on/references/phases/$entry"
     line=$(grep '^\*\*Seat commissioning\*\*' "$REPO_ROOT/$site" 2>/dev/null)
-    printf '%s\n' "$line" | grep -q -- '`--criteria <file>` in place of `--issue <N>`' \
-        && printf '%s\n' "$line" | grep -q 'plan-outline child' \
+    grep -q -- '`--criteria <file>` in place of `--issue <N>`' <<<"$line" \
+        && grep -q 'plan-outline child' <<<"$line" \
         && pass "spawn site $site: gives --criteria for a plan-outline child" \
         || fail "spawn site $site: no --criteria form for a run with no GitHub issue"
 done

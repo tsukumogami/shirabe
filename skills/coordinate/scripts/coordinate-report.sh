@@ -14,6 +14,9 @@
 #   host=<owner/repo>
 #   record=<https://github.com/<owner>/<repo>/(issues|pull)/<n>>
 #   events=<n>                 (with --session)
+#   source_workspace=<path>, source_session=<session>, template_hash=<64 hex>
+#                              (with --session, for a run imported from another
+#                              host: record/host's import facts)
 # Exit codes: 0 printed; 64 usage; 65 the input carries no result.
 set -uo pipefail
 
@@ -45,5 +48,14 @@ emit host '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$'
 emit record '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(issues|pull)/[0-9]+$'
 if [ -n "$SESSION" ]; then
     N=$(bash "$HERE/coord-log.sh" count --session "$SESSION" 2>/dev/null) && printf 'events=%s\n' "$N"
+    # An imported run names where its state came from (PRD R14), so the next
+    # import, or a person reading the close, can find the source.
+    # emit reads PAYLOAD, so the host facts take its place from here on.
+    PAYLOAD=$(bash "$HERE/record-source.sh" --session "$SESSION" --host 2>/dev/null) || PAYLOAD='{}'
+    if [ -n "$(printf '%s' "$PAYLOAD" | jq -r '.source_session // empty' 2>/dev/null)" ]; then
+        emit source_workspace '^/[^[:cntrl:]]*$'
+        emit source_session '^coordinate-[a-z0-9-]+-[0-9]{8}T[0-9]{6}Z$'
+        emit template_hash '^[0-9a-f]{64}$'
+    fi
 fi
 exit 0
