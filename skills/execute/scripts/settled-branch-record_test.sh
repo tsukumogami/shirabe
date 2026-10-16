@@ -223,7 +223,7 @@ make_repo "$DETACHED" 'some/branch'
 new_session detached-probe "$DETACHED"
 err=$(cd "$DETACHED" && "$RECORDER" detached-probe 2>&1 >/dev/null)
 rc=$?
-if [ "$rc" -eq 64 ] && printf '%s' "$err" | grep -q 'HEAD is detached'; then
+if [ "$rc" -eq 64 ] && grep -q 'HEAD is detached' <<<"$err"; then
     pass "detached HEAD refused with exit 64 and a diagnostic naming it"
 else
     fail "detached HEAD should exit 64; got $rc, stderr [$err]"
@@ -239,7 +239,7 @@ make_repo "$BADREPO" 'br@nch'
 new_session guard-probe "$BADREPO"
 err=$(cd "$BADREPO" && "$RECORDER" guard-probe 2>&1 >/dev/null)
 rc=$?
-if [ "$rc" -eq 65 ] && printf '%s' "$err" | grep -q 'refusing branch name'; then
+if [ "$rc" -eq 65 ] && grep -q 'refusing branch name' <<<"$err"; then
     pass "unsafe branch name refused with exit 65, before it is stored"
 else
     fail "unsafe branch name should exit 65; got $rc, stderr [$err]"
@@ -262,7 +262,7 @@ make_repo "$MAINREPO" 'main'
 new_session default-probe "$MAINREPO"
 err=$(cd "$MAINREPO" && "$RECORDER" default-probe 2>&1 >/dev/null)
 rc=$?
-if [ "$rc" -eq 66 ] && printf '%s' "$err" | grep -q 'refusing to record the default branch'; then
+if [ "$rc" -eq 66 ] && grep -q 'refusing to record the default branch' <<<"$err"; then
     pass "the default branch is refused with exit 66 -- the case a pattern cannot catch"
 else
     fail "default branch should exit 66; got $rc, stderr [$err]"
@@ -277,7 +277,7 @@ fi
 
 err=$(cd "$REPO" && "$RECORDER" 2>&1 >/dev/null)
 rc=$?
-if [ "$rc" -eq 67 ] && printf '%s' "$err" | grep -q 'no koto session name given'; then
+if [ "$rc" -eq 67 ] && grep -q 'no koto session name given' <<<"$err"; then
     pass "missing session argument refused with exit 67"
 else
     fail "missing session argument should exit 67; got $rc, stderr [$err]"
@@ -337,12 +337,12 @@ if [ "$NEXT_STATE" = "settled_branch_record" ]; then
 else
     fail "expected to hold at settled_branch_record, got [$NEXT_STATE]"
 fi
-if printf '%s' "$NEXT_RESPONSE" | grep -q '"__action__"'; then
+if grep -q '"__action__"' <<<"$NEXT_RESPONSE"; then
     pass "the blocked response names the action as the failing condition"
 else
     fail "the blocked response should carry the __action__ condition; got: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-200)"
 fi
-if printf '%s' "$NEXT_RESPONSE" | grep -q 'refusing branch name'; then
+if grep -q 'refusing branch name' <<<"$NEXT_RESPONSE"; then
     pass "the script's own diagnostic reaches the agent on the failure path"
 else
     fail "the action's stderr should reach the agent; got: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-300)"
@@ -411,7 +411,7 @@ else
     fi
     # An assignment, not the string: the block's own comment explains why the
     # fallback is gone, and a bare `grep impl/` matches that explanation.
-    if printf '%s' "$TICK1" | grep -qE '^[^#]*SETTLED_BRANCH=.*impl/'; then
+    if grep -qE '^[^#]*SETTLED_BRANCH=.*impl/' <<<"$TICK1"; then
         fail "tick 1 still assigns an impl/<slug> fallback; the gate is what makes the value present"
     else
         pass "tick 1 assigns no impl/<slug> fallback -- the gate guarantees the value"

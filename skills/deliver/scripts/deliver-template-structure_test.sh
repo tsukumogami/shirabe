@@ -189,7 +189,7 @@ run_checks() { # run_checks <json> -> the labels that fail
 FAILED=$(run_checks "$JSON")
 for entry in "${CHECKS[@]}"; do
     label="${entry%%|*}"
-    if printf '%s\n' "$FAILED" | grep -qxF "$label"; then fail "$label"; else pass "$label"; fi
+    if grep -qxF "$label" <<<"$FAILED"; then fail "$label"; else pass "$label"; fi
 done
 
 # --- each compiled check bites ----------------------------------------------------------
@@ -205,7 +205,7 @@ mutate() { # mutate <label> <check label> <perl substitution>
         return
     fi
     failed=$(run_checks "$json")
-    if printf '%s\n' "$failed" | grep -qxF "$2"; then pass "the check fails on a copy with $1"; else fail "a copy with $1 passed [$2]"; fi
+    if grep -qxF "$2" <<<"$failed"; then pass "the check fails on a copy with $1"; else fail "a copy with $1 passed [$2]"; fi
 }
 mutate "an overridable scope_leg" \
     "scope_leg is a non-overridable request-leg gate on REQ's scope leg" \

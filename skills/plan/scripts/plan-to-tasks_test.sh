@@ -1012,7 +1012,7 @@ FIXTURE
     output=$("$PARSER_SCRIPT" "$TEST_DIR/plan-long-name.md" 2>/dev/null)
 
     # Assert: script emits a truncation warning to stderr
-    if echo "$stderr_output" | grep -qi "truncat"; then
+    if grep -qi "truncat" <<<"$stderr_output"; then
         pass "$name (truncation warning emitted)"
     else
         fail "$name" "expected truncation warning on stderr, got: $stderr_output"
@@ -1742,14 +1742,14 @@ FIXTURE
     local stderr_out
     stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-asymmetric.md" 2>&1 >/dev/null) || true
 
-    if echo "$stderr_out" | grep -q "asymmetric empty-deps"; then
+    if grep -q "asymmetric empty-deps" <<<"$stderr_out"; then
         pass "$name (warning fired)"
     else
         fail "$name" "expected 'asymmetric empty-deps' in stderr, got: $stderr_out"
     fi
 
     # AC2.2: the warning text names BOTH colon placements as the likely cause.
-    if echo "$stderr_out" | grep -q '\*\*Dependencies\*\*:' && echo "$stderr_out" | grep -q '\*\*Dependencies:\*\*'; then
+    if grep -q '\*\*Dependencies\*\*:' <<<"$stderr_out" && grep -q '\*\*Dependencies:\*\*' <<<"$stderr_out"; then
         pass "$name (warning text names both colon placements, AC2.2)"
     else
         fail "$name" "warning text does not name both colon placements: $stderr_out"
@@ -1812,7 +1812,7 @@ FIXTURE
     local stderr_out
     stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-all-empty.md" 2>&1 >/dev/null) || true
 
-    if echo "$stderr_out" | grep -q "asymmetric empty-deps"; then
+    if grep -q "asymmetric empty-deps" <<<"$stderr_out"; then
         fail "$name" "warning fired on all-empty-deps fixture (expected suppression): $stderr_out"
     else
         pass "$name (no warning, as expected for symmetric all-empty)"
@@ -1864,7 +1864,7 @@ FIXTURE
     local stderr_out
     stderr_out=$("$PARSER_SCRIPT" "$TEST_DIR/plan-single-issue.md" 2>&1 >/dev/null) || true
 
-    if echo "$stderr_out" | grep -q "asymmetric empty-deps"; then
+    if grep -q "asymmetric empty-deps" <<<"$stderr_out"; then
         fail "$name" "warning fired on single-issue fixture (expected suppression): $stderr_out"
     else
         pass "$name (no warning, as expected for single-issue PLAN)"
@@ -2115,7 +2115,7 @@ FIXTURE
     # repo-y (proving the seam split, not a cycle).
     local y_deps
     y_deps=$(echo "$output" | jq -r '.[] | select(.name=="pr-repo-y-default") | .waits_on[]') || true
-    if echo "$y_deps" | grep -q '^pr-repo-x-default-i1$'; then
+    if grep -q '^pr-repo-x-default-i1$' <<<"$y_deps"; then
         pass "$name (repo-y waits on repo-x split half i1)"
     else
         fail "$name" "repo-y should wait on pr-repo-x-default-i1; got: $y_deps"
@@ -2123,7 +2123,7 @@ FIXTURE
 
     local x3_deps
     x3_deps=$(echo "$output" | jq -r '.[] | select(.name=="pr-repo-x-default-i3") | .waits_on[]') || true
-    if echo "$x3_deps" | grep -q '^pr-repo-y-default$'; then
+    if grep -q '^pr-repo-y-default$' <<<"$x3_deps"; then
         pass "$name (repo-x split half i3 waits on repo-y)"
     else
         fail "$name" "pr-repo-x-default-i3 should wait on pr-repo-y-default; got: $x3_deps"
@@ -2307,8 +2307,8 @@ FIXTURE
     # about atomicity across PR groups / compatible-intermediate sequence).
     local diag="" drc=0
     diag=$("$PARSER_SCRIPT" "$TEST_DIR/plan-atomic-pr.md" 2>&1 >/dev/null) || drc=$?
-    if echo "$diag" | grep -qi "atomicity across PR groups" \
-        && echo "$diag" | grep -qi "compatible-intermediate sequence"; then
+    if grep -qi "atomicity across PR groups" <<<"$diag" \
+        && grep -qi "compatible-intermediate sequence" <<<"$diag"; then
         pass "$name (diagnostic carries reshaping guidance)"
     else
         fail "$name" "diagnostic missing reshaping guidance; got: $diag"
@@ -2730,13 +2730,13 @@ FIXTURE
     fi
     pass "$name (non-zero exit)"
 
-    if echo "$stderr_out" | grep -q "name no sibling outline"; then
+    if grep -q "name no sibling outline" <<<"$stderr_out"; then
         pass "$name (message names the defect)"
     else
         fail "$name" "expected 'name no sibling outline' in stderr, got: $stderr_out"
     fi
 
-    if echo "$stderr_out" | grep -q "issue 2"; then
+    if grep -q "issue 2" <<<"$stderr_out"; then
         pass "$name (message names the offending outline)"
     else
         fail "$name" "expected the offending outline number in stderr, got: $stderr_out"
@@ -2858,13 +2858,13 @@ FIXTURE
         fail "$name" "expected exit 2, got $rc"
     fi
 
-    if echo "$stderr_out" | grep -q "no issue outlines"; then
+    if grep -q "no issue outlines" <<<"$stderr_out"; then
         pass "$name (existing no-outlines message preserved)"
     else
         fail "$name" "expected 'no issue outlines' in stderr, got: $stderr_out"
     fi
 
-    if echo "$stderr_out" | grep -q "1. feat: foundation"; then
+    if grep -q "1. feat: foundation" <<<"$stderr_out"; then
         pass "$name (names the headings it found instead)"
     else
         fail "$name" "expected the stray heading text in stderr, got: $stderr_out"
@@ -2946,7 +2946,7 @@ FIXTURE
         fail "$name" "expected a non-zero exit with no binary available"
     fi
 
-    if echo "$stderr_out" | grep -q "shirabe binary not found"; then
+    if grep -q "shirabe binary not found" <<<"$stderr_out"; then
         pass "$name (message names the missing binary)"
     else
         fail "$name" "expected 'shirabe binary not found' in stderr, got: $stderr_out"
@@ -3016,7 +3016,7 @@ STUB
         fail "$name" "expected a non-zero exit on an unknown envelope schema"
     fi
 
-    if echo "$stderr_out" | grep -q "unrecognized outline envelope"; then
+    if grep -q "unrecognized outline envelope" <<<"$stderr_out"; then
         pass "$name (message names the skew)"
     else
         fail "$name" "expected 'unrecognized outline envelope' in stderr, got: $stderr_out"
@@ -3367,7 +3367,7 @@ assert_outline_refusal() {
     local out="" err="" rc=0
     err=$("$PARSER_SCRIPT" "$path" 2>&1 >/dev/null) || rc=$?
     out=$("$PARSER_SCRIPT" "$path" 2>/dev/null) || true
-    if [[ $rc -eq $want && -z "$out" ]] && echo "$err" | grep -qF -- "$pattern"; then
+    if [[ $rc -eq $want && -z "$out" ]] && grep -qF -- "$pattern" <<<"$err"; then
         pass "$name (exit $want, empty stdout, names the defect)"
     else
         fail "$name" "expected exit $want, empty stdout, stderr containing '$pattern'; got rc=$rc stdout=$out stderr=$err"
@@ -3480,8 +3480,8 @@ STUB
     local rc=0 out="" err=""
     err=$(SHIRABE_BIN="$TEST_DIR/old-shirabe" "$PARSER_SCRIPT" "$TEST_DIR/plan-skew.md" 2>&1 >/dev/null) || rc=$?
     out=$(SHIRABE_BIN="$TEST_DIR/old-shirabe" "$PARSER_SCRIPT" "$TEST_DIR/plan-skew.md" 2>/dev/null) || true
-    if [[ $rc -eq 1 && -z "$out" ]] && echo "$err" | grep -q "out of step; rebuild or reinstall" \
-        && ! echo "$err" | grep -q "missing a Repo/Group"; then
+    if [[ $rc -eq 1 && -z "$out" ]] && grep -q "out of step; rebuild or reinstall" <<<"$err" \
+        && ! grep -q "missing a Repo/Group" <<<"$err"; then
         pass "$name (exit 1 with rebuild guidance)"
     else
         fail "$name" "expected exit 1 and rebuild guidance; got rc=$rc stderr=$err"
@@ -3753,7 +3753,7 @@ test_plan_v2_hostile_titles() {
         fail "$name" "expected $want, got $got"
     elif [[ -e "$TEST_DIR/PWNED" || -e "$SCRIPT_DIR/PWNED" || -e "$REPO_ROOT/PWNED" ]]; then
         fail "$name" "a PWNED file appeared"
-    elif printf '%s' "$output" | grep -q 'PWNED'; then
+    elif grep -q 'PWNED' <<<"$output"; then
         fail "$name" "title text reached the task list: $output"
     else
         pass "$name"
