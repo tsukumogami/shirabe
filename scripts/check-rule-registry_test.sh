@@ -286,8 +286,11 @@ expect_problem "a malformed any-active marker" "malformed RULE_IDS_ANY_ACTIVE li
 # RULE_IDS=$(...) line is not a declaration: the unaltered copy carries it and
 # passes.
 HK=hooks/pre-action-deny.sh
+# The line the checker names, read from the script so an edit above it
+# doesn't break these cases.
+HKL="$HK:$(grep -n '^RULE_IDS="' "$WORK/orig/$HK" | cut -d: -f1)"
 sed 's#^\(RULE_IDS="pr-body/conventional-title\)#\1 pr-body/not-registered#' "$WORK/orig/$HK" > "$S/$HK"
-expect_problem "an unregistered RULE_IDS id in a hook script" "$HK:42: RULE_IDS names pr-body/not-registered, which is not"
+expect_problem "an unregistered RULE_IDS id in a hook script" "$HKL: RULE_IDS names pr-body/not-registered, which is not"
 
 # ---------------------------------------------------------------- hook links
 
@@ -298,6 +301,9 @@ expect_problem "a deny that is not an object" "$G: deny is not an object"
 
 reg "$(sel $G).deny = {\"before\": [\"pr-create\"]}"
 expect_problem "a deny with no hook" "$G: deny.hook is not a path"
+
+reg "$(sel $G).deny.befor = [\"pr-create\"]"
+expect_problem "a deny with an unknown field" "$G: deny has a field other than hook and before: befor"
 
 reg "$(sel $G).deny.hook = \"../outside.sh\""
 expect_problem "a deny naming an unsafe path" "$G: deny.hook [../outside.sh] is unsafe"
@@ -318,10 +324,10 @@ reg "$(sel $P).deny.before = [\"none\"]"
 expect_problem "a deny before none" "$P: deny.before \"none\" is not a protected action"
 
 reg "del($(sel $P).deny)"
-expect_problem "a hook's RULE_IDS id with no deny" "$HK:42: RULE_IDS names $P, whose registry entry has no deny naming $HK"
+expect_problem "a hook's RULE_IDS id with no deny" "$HKL: RULE_IDS names $P, whose registry entry has no deny naming $HK"
 
 reg "$(sel $P).deny.hook = \"skills/work-on/scripts/check-branch-output.sh\""
-expect_problem "a deny naming another script" "$HK:42: RULE_IDS names $P, whose registry entry has no deny naming $HK"
+expect_problem "a deny naming another script" "$HKL: RULE_IDS names $P, whose registry entry has no deny naming $HK"
 
 reg "$(sel commit/conventional-subject).deny = {\"hook\": \"$HK\", \"before\": [\"push\"]}"
 expect_problem "a deny whose script does not list the id" "commit/conventional-subject: deny names $HK, whose RULE_IDS line does not list it"

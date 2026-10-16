@@ -45,9 +45,10 @@
 #      release rules (path, 60 lines, no marker), so CI fails before a run does
 #  11  id removal (--base <ref>): every id in the registry at <ref> is still
 #      in it; a base with no registry passes
-#  12  hook links: a `deny` is an object whose hook is a safe relative path
-#      to an existing file and whose before is a non-empty list of protected
-#      actions (the guards vocabulary less `none`); every id on a RULE_IDS
+#  12  hook links: a `deny` is an object of hook and before only, whose hook
+#      is a safe relative path to an existing file and whose before is a
+#      non-empty list of protected actions (the guards vocabulary less
+#      `none`); every id on a RULE_IDS
 #      line under hooks/ has a `deny` naming that script, and every `deny`
 #      names a script whose RULE_IDS line lists the id
 #
@@ -197,6 +198,7 @@ jqf "$TMP/shape" -r --argjson protected "$PROTECTED" '
         (select($e.guards | strs) | $e.guards
           | if length == 0 then "\($n): guards is empty; use [\"none\"]"
             elif index("none") != null and length > 1 then "\($n): none is mixed with other guards"
+            # $g, not the dot: inside `$protected | index(...)` the dot is the list.
             else (.[] | . as $g | select($g != "none" and ($protected | index($g)) == null) | "\($n): guard \(tojson) is not in the vocabulary")
             end),
         (select(($e.guards | strs) and any($e.guards[]; . != "none") and $e.withhold == "eligible")
@@ -636,6 +638,7 @@ jqf "$TMP/deny-shape" -r --argjson protected "$PROTECTED" '
   .rules[] | objects | select(has("deny"))
   | (if (.id | type) == "string" then .id else "an entry" end) as $n | .deny
   | if type != "object" then "\($n): deny is not an object"
+    elif (keys - ["hook", "before"]) != [] then "\($n): deny has a field other than hook and before: \(keys - ["hook", "before"] | join(", "))"
     elif (.hook | type) != "string" or .hook == "" then "\($n): deny.hook is not a path"
     elif (.before | type) != "array" or (.before | length) == 0 then "\($n): deny.before is not a non-empty list"
     # Bind each action before the lookup: inside `$protected | index(.)` the
