@@ -84,6 +84,18 @@ enforces them offline (no `gh`, no network).
   conflicting with PB2, and an `===` underline is left out to keep the check
   to the single common shape.
   Prose commit bodies essentially never use setext.
+- **PB5 — no banned writing-style word (workflow gate only).** With
+  `--writing-style <rules-file>`, the title and both parts of the body are
+  checked against the banned words in `skills/writing-style/rules.yaml`, the
+  list FC10 checks documents against, by the same matcher: inline and fenced
+  code, table cells, link destinations, bare URLs and HTML comments are not
+  prose; a title's `type(scope): ` prefix is skipped; and a term the
+  repository declares under `## Prose Vocabulary:` is allowed. Each finding
+  names the word, its body line or the title, and what the rules suggest
+  instead. The /work-on and /execute pull request gate passes the flag with
+  the plugin's own rules file and reports PB5 as `pr-body/banned-word`; CI
+  and the PreToolUse hook below don't, so PB5 is enforced at the workflow
+  gate only. The rule's one home is `rules.yaml`; it isn't restated here.
 
 The structural checks (PB2, PB3) scan the body with fenced code blocks
 removed, so a `---` or a `Co-Authored-By:` line shown inside an example

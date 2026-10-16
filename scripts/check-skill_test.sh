@@ -20,6 +20,10 @@
 # bash 3.2 floor: no associative arrays, no namerefs, no mapfile.
 
 set -uo pipefail
+# check-skill validates with SHIRABE_BIN when it is set (CI sets it for some
+# suites); these fixtures exercise the stubs, so it is cleared here and set
+# only by the case that tests it.
+unset SHIRABE_BIN
 
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 CHECK_SH="$SCRIPT_DIR/check-skill.sh"
@@ -324,6 +328,41 @@ expect "every failure is reported, not only the first" 1 \
 new_tree
 run_check "$NOKOTO:$TOOLBIN:/usr/bin:/bin"
 expect "koto missing from PATH exits 2, naming it" 2 "not on PATH: koto"
+
+# Which shirabe validates (shirabe#860). The fixture tree here is shirabe's
+# source (crates/shirabe/Cargo.toml) with a built target/release/shirabe that
+# accepts everything, while the installed stub on PATH rejects STUB-REJECT:
+# content only the branch's validator accepts.
+branch_tree() { # branch_tree [stale]
+    new_tree
+    mkdir -p "$ROOT/crates/shirabe/src" "$ROOT/target/release" "$ROOT/skills/demo/references"
+    printf '[package]\nname = "shirabe"\n' > "$ROOT/crates/shirabe/Cargo.toml"
+    printf '[workspace]\n' > "$ROOT/Cargo.toml"
+    : > "$ROOT/crates/shirabe/src/main.rs"
+    touch -t 202001010000 "$ROOT/Cargo.toml" "$ROOT/crates/shirabe/Cargo.toml" "$ROOT/crates/shirabe/src/main.rs"
+    printf '#!/bin/sh\n[ "$1" = validate ] || exit 2\necho "branch validator" >> "$SHIRABE_LOG"\nexit 0\n' > "$ROOT/target/release/shirabe"
+    chmod +x "$ROOT/target/release/shirabe"
+    [ "${1:-}" = stale ] && touch "$ROOT/crates/shirabe/src/main.rs"
+    printf 'STUB-REJECT\n' > "$ROOT/skills/demo/references/v2.md"
+}
+branch_tree
+run_check "$STUBS:$TOOLBIN:/usr/bin:/bin"
+expect "the tree's fresh build validates what the installed release rejects" 0 \
+    "validating with $ROOT/target/release/shirabe (the tree's build)" "ok: shirabe validate"
+branch_tree stale
+run_check "$STUBS:$TOOLBIN:/usr/bin:/bin"
+expect "a stale build with no cargo falls back to the installed shirabe, and says so" 1 \
+    "validating with $STUBS/shirabe (the installed release)" "shirabe validate rejected"
+branch_tree stale
+OUT=$(cd "$WORK" && CHECK_SKILL_ROOT="$ROOT" SHIRABE_BIN="$ROOT/target/release/shirabe" PATH="$STUBS:$TOOLBIN:/usr/bin:/bin" \
+    "$BASH_BIN" "$CHECK_SH" demo 2>&1); RC=$?
+expect "SHIRABE_BIN, when set, is the validator" 0 "validating with $ROOT/target/release/shirabe (SHIRABE_BIN)"
+new_tree
+NOSHIRABE="$WORK/stubs-noshirabe"
+mkdir -p "$NOSHIRABE"
+cp "$STUBS/koto" "$STUBS/claude" "$NOSHIRABE/"
+run_check "$NOSHIRABE:$TOOLBIN:/usr/bin:/bin"
+expect "no shirabe on PATH and none in the tree exits 2, naming it" 2 "not on PATH: shirabe"
 
 new_tree
 SKILL_ARG="../demo" run_check
