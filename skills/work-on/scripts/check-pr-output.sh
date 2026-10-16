@@ -17,8 +17,9 @@
 #       script's location, never one from the repository under review or from
 #       SHIRABE_RULES, so PB5's banned words are the ones the plugin shipped.
 #       The title reaches the validator as one argument and the body as a
-#       mktemp file; nothing in either is evaluated. Without --owned the pull request is the checked-out
-#       branch's; with --owned it is the one owned-pr.sh resolves from the
+#       mktemp file; nothing in either is evaluated. Without --owned the pull
+#       request is the checked-out branch's; with --owned it is the one
+#       owned-pr.sh resolves from the
 #       arguments that follow, and anything but exactly one owned pull request
 #       is exit 2.
 #       Validator exit 0 -> 0, 2 -> 1, and 1, 3, 4 -> 2. An installed shirabe

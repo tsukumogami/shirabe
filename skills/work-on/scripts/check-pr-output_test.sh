@@ -66,6 +66,8 @@ for a in "$@"; do
     printf '%s' "$a" > "$LOG/$tool/arg.$i"
 done
 printf '%s\n' "$i" > "$LOG/$tool/argc"
+# One line per call, appended, so a case can count calls.
+printf 'call\n' >> "$LOG/$tool/calls"
 EOF
 
 # gh pr view [<url>] --json title,body: FAKE_GH_OWNED_JSON for a URL,
@@ -456,11 +458,10 @@ else
     fail "--pr-body: with SHIRABE_RULES and a local rules.yaml, --writing-style got [$(arg_after shirabe --writing-style)]"
 fi
 
-# The stand-ins overwrite their record on each call, so a fresh record holding
-# one argc line per tool means one call each.
+# Each stand-in appends one line to its `calls` file per call.
 rm -rf "$LOG/gh" "$LOG/shirabe"
 run --pr-body
-calls() { grep -c . "$LOG/$1/argc" 2>/dev/null || echo 0; }
+calls() { grep -c . "$LOG/$1/calls" 2>/dev/null || echo 0; }
 if [ "$(calls gh)" -eq 1 ] && [ "$(calls shirabe)" -eq 1 ]; then
     pass "--pr-body: one gh pr view and one validator run per evaluation"
 else
@@ -510,6 +511,16 @@ fi
 # An installed shirabe older than --writing-style: clap rejects the flag (exit
 # 1, its usage hint on the last stderr line), and the gate holds and says to
 # upgrade.
+# Any other validator exit 1 holds the gate too, without the upgrade wording.
+FAKE_SHIRABE_RC=1
+FAKE_SHIRABE_OUT=''
+run --pr-body
+if [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ] && ! grep -q 'predates' "$WORKDIR/stderr"; then
+    pass "--pr-body: a validator exit 1 for another reason holds the gate (2) without the upgrade message"
+else
+    fail "--pr-body: validator exit 1: rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+
 cat > "$BIN/shirabe" <<'EOF'
 #!/usr/bin/env bash
 . "$(dirname "$0")/record.sh" shirabe "$@"
@@ -669,6 +680,13 @@ fi
 FAKE_SHIRABE_RC=2
 FAKE_SHIRABE_OUT=$(msg_json "$PB3")
 rf_test_refusals "--pr-body" skills/work-on/scripts/check-pr-output.sh pr-body/no-ai-trailer --pr-body
+# The log verify-findings checks holds the PB5 findings printed above, so the
+# new rule is among the ones it verifies.
+if grep -q '"rule_id":"pr-body/banned-word"' "$SHIRABE_FINDINGS_LOG"; then
+    pass "--pr-body: the verified findings log includes pr-body/banned-word findings"
+else
+    fail "--pr-body: no pr-body/banned-word finding in $SHIRABE_FINDINGS_LOG"
+fi
 rf_test_verify "--pr-body"
 
 echo
