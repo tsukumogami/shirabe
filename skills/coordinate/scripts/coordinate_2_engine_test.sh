@@ -110,9 +110,14 @@ fi
 rm -rf "$GH_BOARD_DIR" && mkdir -p "$GH_BOARD_DIR"
 # ---- 19. a checkpoint report is progress --------------------------------------
 echo "== 19. a checkpoint report is progress, on either return path =="
+# feat-2's leg is a request this host's store holds, open, as a dispatch opens
+# it: a leg naming a request the store lacks is one an import left, which the
+# handover gate holds at reconcile until it has an end (leg-unclassified).
+PREQ=$(koto request create --role deliver --template deliver.md --inputs '{"TOPIC":"feat-2"}' \
+    --requested-by coord --coordinator-of-record coordinate-feat-2 | jq -r .request_id)
 PROG_ROWS() {
     jq -nc --argjson a "$(holding feat-1 '{"unit": "Feature 1", "branch": "", "verified_head": "", "pull_request": "", "return_path": "message"}')" \
-        --argjson b "$(holding feat-2 '{"unit": "Feature 2", "branch": "", "verified_head": "", "pull_request": "", "return_path": "leg req-x:deliver"}')" '[$a, $b]'
+        --argjson b "$(holding feat-2 "$(jq -nc --arg rp "leg $PREQ:deliver" '{unit: "Feature 2", branch: "", verified_head: "", pull_request: "", return_path: $rp}')")" '[$a, $b]'
 }
 db '.prs = [{repo: "acme/widgets", number: 12, title: "feat", body: "", state: "OPEN", isDraft: false,
     isCrossRepository: false, baseRefName: "main", headRefName: "feat/w-head", headRefOid: $h, author: "alice",
@@ -164,7 +169,7 @@ if to_pick progressleg "$(record_json roadmap progressleg | jq -c --argjson h "$
     eq "19 leg link: its checkpoint naming its pull request goes to report_link" report_link \
         "$(at --with-data '{"event":"progress","unit":"feat-2","report":"Checkpoint 2: PR is up.","pull_request":"acme/widgets#12"}')"
     write_as_agent holding-link.sh
-    eq "19 leg link: holding-link.sh writes it onto the leg-bound holding" "[#12](https://github.com/acme/widgets/pull/12) leg req-x:deliver" \
+    eq "19 leg link: holding-link.sh writes it onto the leg-bound holding" "[#12](https://github.com/acme/widgets/pull/12) leg $PREQ:deliver" \
         "$(live_body 193 | jq -r '.holdings[] | select(.worker == "feat-2") | "\(.pull_request) \(.return_path)"')"
     eq "19 leg: and its leg was never read" 0 "$(entered wait_leg)"
 else
