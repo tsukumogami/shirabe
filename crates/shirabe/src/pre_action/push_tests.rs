@@ -41,6 +41,15 @@ fn the_argv_names_the_remote_and_the_sources() {
 
     let ws = words("--push-option x origin main");
     assert_eq!(parse(&ws).unwrap().sources, vec!["main"]);
+
+    // `:` and `+:` push the matching branches, checked as every branch.
+    for spec in [":", "+:"] {
+        let ws = words(&format!("origin {spec}"));
+        let a = parse(&ws).unwrap();
+        assert!(a.branches && a.refspecs && a.sources.is_empty(), "{spec}");
+    }
+    let ws = words("origin --delete :");
+    assert!(!parse(&ws).unwrap().branches);
 }
 
 #[test]
@@ -397,6 +406,43 @@ fn a_refspec_sends_its_source() {
     assert_eq!(s.eval("git push origin :topic"), None);
     assert_eq!(s.eval("git push origin --delete topic"), None);
     assert_eq!(s.eval("git push origin -d main"), None);
+}
+
+#[test]
+fn an_empty_refspec_pushes_the_matching_branches() {
+    let s = Scratch::repo();
+    s.git("work", &["checkout", "-q", "-b", "topic"]);
+    let id = s.commit(TRAILER);
+    s.git("work", &["checkout", "-q", "main"]);
+    assert_trailer_deny(s.eval("git push origin :"), &id);
+    assert_trailer_deny(s.eval("git push origin +:"), &id);
+    let s = Scratch::repo();
+    s.commit(CLEAN);
+    assert_eq!(s.eval("git push origin :"), None);
+}
+
+/// Example-table rows: a redirection on a push is no refspec.
+#[test]
+fn a_redirected_push_is_checked_like_any_other() {
+    let s = Scratch::repo();
+    s.git("work", &["checkout", "-q", "-b", "topic"]);
+    s.commit(CLEAN);
+    let cmds = [
+        "git push origin topic 2>&1",
+        "git push origin topic > log",
+        "git push -u origin topic 2>&1",
+        "git push origin HEAD >/dev/null",
+        "git push>/dev/null",
+        "cd . 2>/dev/null && git push origin topic",
+    ];
+    for cmd in cmds {
+        assert_eq!(s.eval(cmd), None, "clean: {cmd}");
+    }
+    let id = s.commit(TRAILER);
+    for cmd in cmds {
+        assert_trailer_deny(s.eval(cmd), &id);
+    }
+    assert!(!s.path("work/log").exists(), "the check writes nothing");
 }
 
 #[test]
@@ -1034,15 +1080,18 @@ fn a_repository_configured_to_run_programs_runs_none() {
 }
 
 #[test]
-fn the_runner_keeps_only_path_home_lang_and_lc_and_adds_the_fixed_variables() {
+fn the_runner_keeps_only_path_home_the_global_config_lang_and_lc_and_adds_the_fixed_variables() {
     let g = SystemGit::with_env(
         [
             ("PATH", "relative/bin:/usr/bin:.:/bin"),
             ("HOME", "/h"),
+            ("XDG_CONFIG_HOME", "/h/.cfg"),
+            ("GIT_CONFIG_GLOBAL", "/x"),
             ("LANG", "C"),
             ("LC_ALL", "C"),
             ("GIT_DIR", "/elsewhere"),
-            ("GIT_CONFIG_GLOBAL", "/x"),
+            ("GIT_CONFIG", "/y"),
+            ("GIT_CONFIG_SYSTEM", "/z"),
             ("LEAK", "1"),
         ]
         .map(|(k, v)| (OsString::from(k), OsString::from(v))),
@@ -1056,6 +1105,8 @@ fn the_runner_keeps_only_path_home_lang_and_lc_and_adds_the_fixed_variables() {
         keys,
         vec![
             "HOME=/h",
+            "XDG_CONFIG_HOME=/h/.cfg",
+            "GIT_CONFIG_GLOBAL=/x",
             "LANG=C",
             "LC_ALL=C",
             "PATH=/usr/bin:/bin",

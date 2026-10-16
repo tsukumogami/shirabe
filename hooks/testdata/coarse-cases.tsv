@@ -23,7 +23,6 @@ named	git -C a push
 named	/usr/bin/git push
 named	sudo git push
 named	echo \"git push\"
-named	echo \"gh\"\"pr\"\"create\"
 named	x;git push
 named	(git push)
 named	cd repo\ngit push
@@ -35,6 +34,12 @@ named	git commit -m \"push\"
 named	git log --grep push
 named	gh issue create --title pr --body edit
 named	echo \\\\\ngit push
+# Quotes are dropped, not read as separators: the shell runs `git push`.
+named	g\"i\"t push
+named	gi't' pu\"sh\"
+# A backslash-newline joins the lines with nothing between them.
+named	gi\\\nt push
+named	git pu\\\nsh
 clear	ls
 clear	git status
 clear	git commit -m x
@@ -48,6 +53,10 @@ clear	github pr create
 clear	ghpr create
 clear	gh pr creates
 clear	npm push
+# One word to the shell once its quotes are removed.
+clear	echo \"gh\"\"pr\"\"create\"
+clear	echo \"git\"push
+clear	cd x\\\ngit push
 # A literal backslash and `n` in the command: `\\n` is not a newline, so `n`
 # glues to `git`.
 clear	echo a\\ngit push

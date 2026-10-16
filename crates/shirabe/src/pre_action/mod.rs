@@ -63,9 +63,14 @@ pub const PR_RULES: &[&str] = &[
 /// The rule checked on `git push`.
 pub const PUSH_RULES: &[&str] = &["commit/no-ai-trailer"];
 
-/// Every rule the evaluator checks, in the order the plugin script's
-/// `RULE_IDS` line lists them. The plugin's entry point compares its
-/// `--rules` list with it.
+/// Every rule the evaluator checks: [`PR_RULES`] followed by [`PUSH_RULES`],
+/// which a test holds it to. The plugin's entry point checks that every id
+/// on its `--rules` list is here, in any order.
+///
+/// A new rule is added in four places: the plugin script's `RULE_IDS` line
+/// (hooks/pre-action-deny.sh), this table, [`PR_RULES`] or [`PUSH_RULES`],
+/// and the rule's `deny` field in references/rule-registry.json. Tests and
+/// scripts/check-rule-registry.sh hold the four to each other.
 pub const RULES: &[&str] = &[
     "pr-body/conventional-title",
     "pr-body/one-separator",
@@ -237,9 +242,9 @@ fn read_stdin() -> String {
 
 /// Run `eval` on a worker thread and wait at most `deadline`. A worker that
 /// panics or hasn't answered in time becomes the fail-closed deny when the
-/// coarse test over the raw input names a guarded action `rules` keeps, and
-/// no decision otherwise, so neither a crash nor a hang is the silent pass
-/// niwa's `|| exit 0` would make it.
+/// coarse test names a guarded action `rules` keeps, and no decision
+/// otherwise, so neither a crash nor a hang is the silent pass niwa's `||
+/// exit 0` would make it.
 pub fn decide<F>(input: String, rules: RuleSet, deadline: Duration, eval: F) -> Option<String>
 where
     F: FnOnce(&str) -> Option<String> + Send + 'static,
@@ -253,12 +258,28 @@ where
     match rx.recv_timeout(deadline) {
         Ok(reason) => reason,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-            segment_less(named_in_raw_input(&input), rules, Case::Deadline)
+            segment_less(named_in_input(&input), rules, Case::Deadline)
         }
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            segment_less(named_in_raw_input(&input), rules, Case::Crash)
+            segment_less(named_in_input(&input), rules, Case::Crash)
         }
     }
+}
+
+/// The coarse test for the crash and deadline fallbacks: on the input's
+/// `tool_input.command` when the input parses and holds one, so text
+/// elsewhere in it (a `description` saying "git push later") can't deny an
+/// unguarded command; on the raw input when it doesn't, or is past
+/// [`MAX_INPUT`].
+fn named_in_input(input: &str) -> Named {
+    if input.len() <= MAX_INPUT {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
+            if let Some(command) = v.pointer("/tool_input/command").and_then(|c| c.as_str()) {
+                return named_in_text(command);
+            }
+        }
+    }
+    named_in_raw_input(input)
 }
 
 /// A case that belongs to no segment: one paragraph per guarded action

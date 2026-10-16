@@ -8,7 +8,7 @@
 # stands in for it when it can't run. It denies a `gh pr create` or `gh pr
 # edit` breaking a PR-body rule and a `git push` that would send a commit with
 # an AI-attribution trailer, and gives no decision on anything else
-# (docs/designs/DESIGN-pre-action-denies.md).
+# (docs/designs/current/DESIGN-pre-action-denies.md).
 #
 # What it does, in order:
 #   1. Reads stdin once. SHIRABE_PRE_ACTION_HOOK=off, exactly, gives no
@@ -26,7 +26,9 @@
 #      kill, other output, `allow` or `ask`) is a binary that can't run, and
 #      the coarse test decides: a command whose text names `gh` ... `pr` ...
 #      `create`|`edit` or `git` ... `push` gets a fixed deny naming the
-#      binary, and every other command gets no decision.
+#      binary, and every other command gets no decision. Under
+#      PR_BODY_HOOK_DISABLE (non-empty, not 0 or false) the PR-body rules
+#      are off, so only `git` ... `push` is denied.
 #
 # Security: the input is attacker-shaped. It is never evaluated, never
 # interpolated into the output, and reaches the binary through a pipe, not a
@@ -36,9 +38,9 @@
 #
 # Requires bash 3.2 and POSIX sed, tr and awk; no jq. Always exits 0.
 
-# The rules this hook denies, in registry order. scripts/check-rule-registry.sh
+# The rules this hook denies, in any order: scripts/check-rule-registry.sh
 # reads this line against the registry's `deny` fields, and the binary checks
-# it against its own table.
+# that every id on it is in its own table.
 RULE_IDS="pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/conformance commit/no-ai-trailer"
 
 # How long the binary may run before the watchdog kills it. Its own deadline
@@ -106,15 +108,18 @@ run_shirabe() {
 
 # The coarse "named in the text" test (PRD Definitions), on the raw input:
 # true when it names `gh`, later `pr`, later `create` or `edit`, or `git`,
-# later `push`, as separate words, ignoring case and quotes.
+# later `push`, as separate words, ignoring case and quotes. With the
+# argument `push`, only `git` ... `push` counts.
 #
 # The command reaches this script as a JSON string, so its escapes are turned
 # back into characters first: without that, a newline in the command is the
 # two characters `\n` and glues `git` to the word before it. A backslash-
-# newline is read as a space, as the shell joins the two lines. Escaped
-# backslashes are set aside first, so `\\n` stays a backslash and an `n`. A
-# decoded newline is written as a space: like every character outside
-# [a-z0-9_-], it only separates words.
+# newline is removed, as the shell joins the two lines (`gi\` newline `t` is
+# `git`). Escaped backslashes are set aside first, so `\\n` stays a backslash
+# and an `n`. A decoded newline is written as a space: like every character
+# outside [a-z0-9_-], it only separates words. Then every `"` and `'` is
+# dropped, since the shell removes quotes without splitting a word: `g"i"t`
+# is `git`.
 #
 # The text is then lowercased and split one word per line, and awk looks for
 # the words in order. That is the binary's own reading (named_in_text) and
@@ -127,30 +132,42 @@ run_shirabe() {
 # backslashes become the placeholder first, so no later expression can read
 # the second backslash of `\\` as the start of an escape; an escaped
 # backslash before `\n` is the backslash-newline; the placeholder goes back
-# to a backslash last.
+# to a backslash last. The quotes are dropped after `\"` is decoded, so its
+# backslash goes with it.
 names_guarded() {
-    local sep tab cr
+    local sep tab cr only_push=0
+    [ "${1-}" = push ] && only_push=1
     sep=$(printf '\001')
     tab=$(printf '\t')
     cr=$(printf '\r')
     printf '%s' "$INPUT" | LC_ALL=C sed \
         -e "s/\\\\\\\\/$sep/g" \
-        -e "s/$sep\\\\n/ /g" \
+        -e "s/$sep\\\\n//g" \
         -e 's/\\n/ /g' \
         -e "s/\\\\r/$cr/g" \
         -e "s/\\\\t/$tab/g" \
         -e 's/\\"/"/g' \
         -e "s/$sep/\\\\/g" |
+        LC_ALL=C tr -d "\"'" |
         LC_ALL=C tr 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' 'abcdefghijklmnopqrstuvwxyz' |
         LC_ALL=C tr -cs 'a-z0-9_-' '\n' |
-        LC_ALL=C awk '
-            $0 == "gh" { gh = 1; next }
+        LC_ALL=C awk -v only_push="$only_push" '
+            !only_push && $0 == "gh" { gh = 1; next }
             gh && $0 == "pr" { pr = 1; next }
             pr && ($0 == "create" || $0 == "edit") { found = 1; exit }
             $0 == "git" { git = 1; next }
             git && $0 == "push" { found = 1; exit }
             END { exit !found }
         '
+}
+
+# PR_BODY_HOOK_DISABLE with any non-empty value but 0 or false turns the
+# PR-body rules off (PRD R9), the binary's pr_body_disabled reading.
+pr_body_disabled() {
+    case "${PR_BODY_HOOK_DISABLE-}" in
+        "" | 0 | false) return 1 ;;
+    esac
+    return 0
 }
 
 # The fixed deny for a command the binary couldn't check. Constant text and
@@ -179,6 +196,9 @@ if [ -n "$BIN" ]; then
     # order: two or more lines fall to the coarse test before the prefix arm
     # can match their first line, and the deny must end the way serde_json
     # ends it (`"}}`), so a line cut short or with text after it doesn't pass.
+    # Any other status falls to the coarse test below. Exit 3 is the version
+    # handshake failing: the binary is older than the plugin and doesn't
+    # check a rule on RULE_IDS.
     if [ "$STATUS" = "0" ]; then
         case "$OUTPUT" in
             "")
@@ -194,7 +214,11 @@ if [ -n "$BIN" ]; then
     fi
 fi
 
-if names_guarded; then
+if pr_body_disabled; then
+    if names_guarded push; then
+        print_binary_deny
+    fi
+elif names_guarded; then
     print_binary_deny
 fi
 exit 0

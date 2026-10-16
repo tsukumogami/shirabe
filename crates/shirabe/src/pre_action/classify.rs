@@ -3,7 +3,8 @@
 //!
 //! It walks a tokenized command's segments in order. For each it skips the
 //! leading `NAME=value`, redirection and reserved words, takes the head by its
-//! last path component, and returns a guarded segment as [`GhSegment`] or
+//! last path component, drops the redirection words that follow it (and a
+//! bare operator's target), and returns a guarded segment as [`GhSegment`] or
 //! [`PushSegment`] with the directory it runs in. A guarded segment it can't
 //! check becomes a [`FailClosed`] case instead: an unlisted global option, a
 //! `GIT_...=` assignment on a push, a wrapped guarded command (a wrapper head,
@@ -15,12 +16,14 @@
 //! The directory starts at the input's `cwd` and moves through `cd` and
 //! `pushd` with one literal argument; `cd` with none, `-` or a non-literal
 //! one, or a `popd`, makes it unknown. A `cd` inside parentheses ends when the
-//! group closes, as in a subshell.
+//! group closes, as in a subshell, and so does one in a pipeline element
+//! (`cd sub | x`) or in an and-or list ended by `&`: the tokenizer gives
+//! those a group of their own.
 
 use std::path::{Component, Path, PathBuf};
 
 use super::reason::{Action, Case, FailClosed, PrAction};
-use super::tokenize::{Segment, Tokenized, Word};
+use super::tokenize::{HereDoc, Segment, Tokenized, Word};
 
 /// Heads that run another command (PRD Definitions, wrapped guarded command).
 const WRAPPERS: &[&str] = &[
@@ -111,11 +114,17 @@ impl Named {
     }
 }
 
-/// The coarse test: lowercased and split into words of `[a-z0-9_-]`, the
-/// text has `gh`, later `pr`, later `create` or `edit`; or `git`, later
-/// `push`. Quotes and every other character only separate words.
+/// The coarse test: with its `"` and `'` characters dropped (the shell
+/// removes quotes without splitting, so `g"i"t` is `git`), lowercased and
+/// split into words of `[a-z0-9_-]`, the text has `gh`, later `pr`, later
+/// `create` or `edit`; or `git`, later `push`. Every other character only
+/// separates words.
 pub fn named_in_text(text: &str) -> Named {
-    let lower = text.to_ascii_lowercase();
+    let lower: String = text
+        .chars()
+        .filter(|c| *c != '"' && *c != '\'')
+        .map(|c| c.to_ascii_lowercase())
+        .collect();
     let toks: Vec<&str> = lower
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
         .filter(|t| !t.is_empty())
@@ -137,8 +146,8 @@ pub fn named_in_text(text: &str) -> Named {
 }
 
 /// The coarse test on the raw hook input, its JSON escapes `\n`, `\r`, `\t`,
-/// `\"` and `\\` decoded and a backslash-newline read as a space, the way the
-/// plugin's script reads it.
+/// `\"` and `\\` decoded and a backslash-newline removed (the shell joins the
+/// two lines), the way the plugin's script reads it.
 pub fn named_in_raw_input(raw: &str) -> Named {
     let mut out = String::with_capacity(raw.len());
     let mut chars = raw.chars();
@@ -160,7 +169,7 @@ pub fn named_in_raw_input(raw: &str) -> Named {
             None => out.push('\\'),
         }
     }
-    named_in_text(&out.replace("\\\n", " "))
+    named_in_text(&out.replace("\\\n", ""))
 }
 
 /// How a segment reads once its leading words are skipped.
@@ -205,18 +214,40 @@ fn is_assignment(t: &str) -> bool {
 }
 
 /// A redirection word, and whether its target is the next word (`>`, `2>`,
-/// `>>`, `<`, `&>` alone).
+/// `>>`, `<`, `&>`, `<<<` alone).
 fn redirection(w: &Word) -> Option<bool> {
     if w.heredoc.is_some() {
         return Some(false);
     }
+    if !w.redirect {
+        return None;
+    }
     let t = w.text.as_str();
     let rest = t.trim_start_matches(|c: char| c.is_ascii_digit());
-    let op_len = ["&>>", "&>", ">>", ">&", "<&", ">|", "<>", ">", "<"]
+    let op_len = ["<<<", "&>>", "&>", ">>", ">&", "<&", ">|", "<>", ">", "<"]
         .iter()
         .find(|op| rest.starts_with(*op))
         .map(|op| op.len())?;
     Some(rest.len() == op_len)
+}
+
+/// `ws` without its redirection words and the target word after a bare
+/// operator, wherever they stand: `git push origin topic 2>&1` pushes
+/// `origin topic`, and `cd sub 2>/dev/null` moves to `sub`.
+fn without_redirections(ws: &[Word]) -> Vec<Word> {
+    let mut out = Vec::with_capacity(ws.len());
+    let mut i = 0;
+    while i < ws.len() {
+        match redirection(&ws[i]) {
+            Some(true) => i += 2,
+            Some(false) => i += 1,
+            None => {
+                out.push(ws[i].clone());
+                i += 1;
+            }
+        }
+    }
+    out
 }
 
 fn basename(t: &str) -> &str {
@@ -273,13 +304,10 @@ fn kind(seg: &Segment) -> Kind {
                 git_assignment = Some(t.split('=').next().unwrap_or(t).to_string() + "=");
             }
             i += 1;
-        } else if ws[i].bare || ws[i].heredoc.is_some() {
-            match redirection(&ws[i]) {
-                Some(true) => i += 2,
-                Some(false) => i += 1,
-                None if RESERVED.contains(&t) => i += 1,
-                None => break,
-            }
+        } else if let Some(takes_next) = redirection(&ws[i]) {
+            i += if takes_next { 2 } else { 1 };
+        } else if ws[i].bare && RESERVED.contains(&t) {
+            i += 1;
         } else {
             break;
         }
@@ -287,7 +315,8 @@ fn kind(seg: &Segment) -> Kind {
     let Some(head) = ws.get(i) else {
         return Kind::Other;
     };
-    let rest = &ws[i + 1..];
+    let args = without_redirections(&ws[i + 1..]);
+    let rest = args.as_slice();
     let text_of = |ws: &[Word]| {
         ws.iter()
             .map(|w| w.text.as_str())
@@ -425,6 +454,13 @@ fn moved(dir: Option<&Path>, w: &Word) -> Option<PathBuf> {
     }
 }
 
+impl std::ops::BitOrAssign for Named {
+    fn bitor_assign(&mut self, other: Named) {
+        self.pr |= other.pr;
+        self.push |= other.push;
+    }
+}
+
 /// Whether `tok` (a command substitution's contents) holds a guarded or a
 /// wrapped guarded segment, and what it names.
 fn holds_guarded(tok: &Tokenized) -> Named {
@@ -433,17 +469,31 @@ fn holds_guarded(tok: &Tokenized) -> Named {
         match kind(seg) {
             Kind::Gh { .. } => named.pr = true,
             Kind::Git { sub, .. } if sub.as_deref() == Some("push") => named.push = true,
-            Kind::Wrapper { named: n, .. } => {
-                named.pr |= n.pr;
-                named.push |= n.push;
-            }
+            Kind::Wrapper { named: n, .. } => named |= n,
             _ => {}
         }
     }
     for sub in &tok.substitutions {
-        let n = holds_guarded(&sub.inner);
-        named.pr |= n.pr;
-        named.push |= n.push;
+        named |= holds_guarded(&sub.inner);
+    }
+    for h in &tok.heredocs {
+        named |= heredoc_runs(h);
+    }
+    named
+}
+
+/// What the commands an unquoted-delimiter here-document's lines run name:
+/// the shell expands `$(...)` and backquotes there, so a guarded segment in
+/// one is a wrapped guarded command. A substitution that never closes can't
+/// be split, so the coarse test reads the lines instead. A quoted delimiter
+/// leaves the lines data, and names nothing.
+fn heredoc_runs(h: &HereDoc) -> Named {
+    let mut named = Named::default();
+    for sub in &h.substitutions {
+        named |= holds_guarded(sub);
+    }
+    if h.unterminated_substitution {
+        named |= named_in_text(&h.body);
     }
     named
 }
@@ -577,9 +627,15 @@ pub fn classify(tok: &Tokenized, cwd: Option<&Path>) -> Classified {
     }
 
     // A guarded or wrapped guarded segment inside a command substitution,
-    // anywhere in the command, is a wrapped guarded command.
-    for sub in &tok.substitutions {
-        for action in holds_guarded(&sub.inner).actions() {
+    // anywhere in the command, unquoted here-documents included, is a
+    // wrapped guarded command.
+    let nested = tok
+        .substitutions
+        .iter()
+        .map(|sub| holds_guarded(&sub.inner))
+        .chain(tok.heredocs.iter().map(heredoc_runs));
+    for named in nested {
+        for action in named.actions() {
             c.items.push(Item::Fail(FailClosed {
                 action,
                 case: Case::Wrapped,
@@ -723,6 +779,109 @@ mod tests {
     fn a_here_document_inside_a_substitution_is_data() {
         let cmd = "git commit -m \"$(cat <<'EOF'\nthen git push\nEOF\n)\"";
         assert_eq!(cl(cmd).items, vec![]);
+        // Unquoted, its plain lines are data too.
+        let cmd = "git commit -m \"$(cat <<EOF\nthen git push\nEOF\n)\"";
+        assert_eq!(cl(cmd).items, vec![]);
+    }
+
+    #[test]
+    fn a_substitution_in_an_unquoted_here_document_is_wrapped() {
+        for cmd in [
+            "cat <<EOF\nIt's $(git push) now\nEOF",
+            "cat <<EOF\n`git push`\nEOF",
+            "git commit -m \"$(cat <<EOF\nmsg $(git push)\nEOF\n)\"",
+            "cat <<EOF\n$(echo x; sudo git push)\nEOF",
+            "cat <<EOF\n$(git push\nEOF",
+        ] {
+            assert_eq!(fails(cmd), vec![(Action::Push, Case::Wrapped)], "{cmd}");
+        }
+        assert_eq!(
+            fails("cat <<-END\n\t$(gh pr create --title x)\n\tEND"),
+            vec![(Action::Pr(None), Case::Wrapped)]
+        );
+        // A quoted delimiter, or an escaped `$`, keeps the lines data.
+        for cmd in [
+            "cat <<'EOF'\n$(git push)\nEOF",
+            "cat <<\"EOF\"\n`git push`\nEOF",
+            "cat <<\\EOF\n$(git push)\nEOF",
+            "cat <<EOF\n\\$(git push)\nEOF",
+            "cat <<EOF\n$(date) git push\nEOF",
+        ] {
+            assert_eq!(cl(cmd).items, vec![], "{cmd}");
+        }
+    }
+
+    #[test]
+    fn redirection_words_are_no_arguments() {
+        let texts = |p: &PushSegment| p.words.iter().map(|w| w.text.clone()).collect::<Vec<_>>();
+        for (cmd, want) in [
+            (
+                "git push -u origin feature 2>&1",
+                vec!["-u", "origin", "feature"],
+            ),
+            ("git push origin HEAD >/dev/null", vec!["origin", "HEAD"]),
+            ("git push origin topic > log", vec!["origin", "topic"]),
+            ("git push origin 2> err topic", vec!["origin", "topic"]),
+            (
+                "git push >>log origin <in topic &>x",
+                vec!["origin", "topic"],
+            ),
+            ("git 2>/dev/null push origin", vec!["origin"]),
+            ("git push>/dev/null", vec![]),
+            ("git push<<<x", vec![]),
+            ("git push<<EOF\nbody\nEOF", vec![]),
+        ] {
+            let p = pushes(cmd);
+            assert_eq!(p.len(), 1, "{cmd}");
+            assert_eq!(texts(&p[0]), want, "{cmd}");
+            assert_eq!(fails(cmd), vec![], "{cmd}");
+        }
+        // A quoted `>` is an argument.
+        assert_eq!(
+            texts(&pushes("git push origin '>' x")[0]),
+            vec!["origin", ">", "x"]
+        );
+        assert_eq!(
+            pushes("cd sub 2>/dev/null && git push")[0].dir,
+            PathBuf::from("/work/repo/sub")
+        );
+        assert_eq!(
+            pushes("cd >/dev/null sub && git push")[0].dir,
+            PathBuf::from("/work/repo/sub")
+        );
+        let g = ghs("gh pr create --title x 2>&1 --body y >out");
+        let words: Vec<&str> = g[0].words.iter().map(|w| w.text.as_str()).collect();
+        assert_eq!(words, vec!["--title", "x", "--body", "y"]);
+        assert_eq!(ghs("gh pr create>/dev/null").len(), 1);
+        assert_eq!(ghs("gh 2>&1 pr edit 3").len(), 1);
+    }
+
+    #[test]
+    fn a_cd_in_a_pipeline_or_a_background_list_moves_nothing_after_it() {
+        for cmd in [
+            "cd sub | cat; git push",
+            "cd sub & git push",
+            "ls | cd sub && git push",
+            "cd sub && ls & git push",
+            "cd sub |\ncat\ngit push",
+            "pushd sub | cat; git push",
+        ] {
+            assert_eq!(pushes(cmd)[0].dir, PathBuf::from(CWD), "{cmd}");
+        }
+        for cmd in ["popd | cat; git push", "cd \"$X\" & git push"] {
+            assert_eq!(pushes(cmd)[0].dir, PathBuf::from(CWD), "{cmd}");
+            assert_eq!(fails(cmd), vec![], "{cmd}");
+        }
+        // `;`, `&&`, `||` and newlines carry it on.
+        for cmd in [
+            "cd sub; git push",
+            "cd sub && git push",
+            "cd sub || git push",
+            "cd sub\ngit push",
+            "cd sub && git push &",
+        ] {
+            assert_eq!(pushes(cmd)[0].dir, PathBuf::from("/work/repo/sub"), "{cmd}");
+        }
     }
 
     #[test]
@@ -972,8 +1131,18 @@ mod tests {
             assert_eq!(named_in_text(t), Named::default(), "{t}");
         }
         assert!(named_in_raw_input(r#"{"command":"cd repo\ngit push"}"#).push);
-        assert!(named_in_raw_input("cd x\\\ngit push").push);
+        // A backslash-newline joins the lines with nothing between them.
+        assert!(!named_in_raw_input("cd x\\\ngit push").push);
+        assert!(named_in_raw_input(r#"{"command":"gi\\\nt push"}"#).push);
+        assert!(named_in_raw_input(r#"{"command":"git \\\npush"}"#).push);
         assert!(!named_in_raw_input(r#"{"command":"echo a\\ngit"}"#).push);
+        // Quotes are dropped, not read as separators.
+        assert!(named_in_text("g\"i\"t pu'sh'").push);
+        assert!(named_in_raw_input(r#"{"command":"g\"i\"t push"}"#).push);
+        assert_eq!(
+            named_in_text("echo \"gh\"\"pr\"\"create\""),
+            Named::default()
+        );
     }
 
     /// This side of the table both coarse tests answer: every row of

@@ -4,8 +4,15 @@
 //! lose a guarded command in it, and evaluates nothing. A command becomes
 //! segments: the pieces between unquoted `;`, `&`, `|`, newline, `(` and `)`
 //! (PRD Definitions). Each segment holds its words after quote removal and the
-//! parenthesis groups it sits in, so the classifier can end a `cd` when its
-//! subshell closes.
+//! subshell groups it sits in, so the classifier can end a `cd` when its
+//! subshell closes. A parenthesis group is one; so is a pipeline element next
+//! to an unquoted `|`, and an and-or list ended by `&`, which the shell runs
+//! in subshells too: `cd sub | x` and `cd sub &` move nothing for later
+//! segments, while `;`, `&&`, `||` and a newline carry the directory on.
+//!
+//! An unquoted `<` or `>` starts a redirection word, as in the shell, so
+//! `push>/dev/null` is `push` and `>/dev/null`; a file-descriptor number just
+//! before it stays with it (`2>&1`). The word is marked [`Word::redirect`].
 //!
 //! Command substitutions (`$(...)` and backquotes, outside single quotes) are
 //! scanned as commands of their own, one recursion level each, and recorded
@@ -14,7 +21,9 @@
 //! consumed as data at the newline that follows its operator and recorded
 //! apart, never split into segments: `git commit -m "$(cat <<'EOF' ... git
 //! push ... EOF)"` holds no `git push` segment, and an apostrophe on one of
-//! its lines can't unbalance the outer command.
+//! its lines can't unbalance the outer command. With an unquoted delimiter
+//! the shell still expands `$(...)` and backquotes in those lines, so those
+//! are scanned as commands and recorded on the [`HereDoc`].
 //!
 //! Not a full shell parser. `case` patterns, arithmetic and functions are read
 //! loosely; what matters is that a quote or a here-document never makes a
@@ -44,15 +53,20 @@ pub struct Word {
     /// The word is exactly one double-quoted command substitution,
     /// `"$(...)"`; the index into [`Tokenized::substitutions`].
     pub dq_substitution: Option<usize>,
+    /// Starts with an unquoted redirection operator, after an optional
+    /// file-descriptor number: `>out`, `2>&1`, `&>`, `<`.
+    pub redirect: bool,
 }
 
 /// The words between two unquoted separators.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Segment {
     pub words: Vec<Word>,
-    /// The parenthesis groups enclosing the segment, outermost first. Each id
-    /// is unique within one [`Tokenized`], so two sibling groups at the same
-    /// depth never look like one.
+    /// The subshell groups enclosing the segment, outermost first: its
+    /// parenthesis groups, its pipeline element when a `|` is beside it, and
+    /// its and-or list when `&` ends it. Each id is unique within one
+    /// [`Tokenized`], so two sibling groups at the same depth never look like
+    /// one.
     pub groups: Vec<usize>,
 }
 
@@ -77,6 +91,12 @@ pub struct HereDoc {
     pub body: String,
     /// A line equal to the delimiter ended it (rather than the end of input).
     pub terminated: bool,
+    /// With an unquoted delimiter, the `$(...)` and backquoted commands in
+    /// the lines, which the shell runs; empty for a quoted one.
+    pub substitutions: Vec<Tokenized>,
+    /// With an unquoted delimiter, a `$(` or backquote in the lines that
+    /// never closes.
+    pub unterminated_substitution: bool,
 }
 
 /// A tokenized command.
@@ -114,6 +134,31 @@ struct Scanner<'a> {
     i: usize,
 }
 
+/// A separator between segments, as far as subshells go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Sep {
+    /// `;` or a newline.
+    Seq,
+    /// `&&` or `||`.
+    AndOr,
+    /// `|` or `|&`.
+    Pipe,
+    /// `&`.
+    Background,
+    /// A `)` closing a group, or the end of the text.
+    End,
+}
+
+/// Where, at one parenthesis depth, the current pipeline element and and-or
+/// list start (indexes into `Tokenized::segments`), and whether a `|` came
+/// before the element.
+#[derive(Clone, Copy, Default)]
+struct Marks {
+    element: usize,
+    list: usize,
+    piped: bool,
+}
+
 /// The state of one recursion level: the segment and word being built.
 struct Level {
     out: Tokenized,
@@ -127,6 +172,12 @@ struct Level {
     /// Here-documents whose lines start at the next newline, with their
     /// indexes in `out.heredocs`.
     pending: Vec<usize>,
+    /// One per open parenthesis depth, the outermost (no group) first.
+    marks: Vec<Marks>,
+    /// The last separator, and whether a segment was pushed since: a
+    /// newline straight after `|`, `&&` or `||` continues the command.
+    last_sep: Sep,
+    pushed_since_sep: bool,
 }
 
 impl Level {
@@ -144,6 +195,55 @@ impl Level {
             groups: Vec::new(),
             next_group: 0,
             pending: Vec::new(),
+            marks: vec![Marks::default()],
+            last_sep: Sep::End,
+            pushed_since_sep: false,
+        }
+    }
+
+    /// Put the segments from `from` on in a new subshell group at depth
+    /// `depth`: inside the parenthesis groups they all share, outside any
+    /// group they open themselves.
+    fn subshell(&mut self, from: usize, depth: usize) {
+        if from >= self.out.segments.len() {
+            return;
+        }
+        let id = self.next_group;
+        self.next_group += 1;
+        for s in &mut self.out.segments[from..] {
+            let at = depth.min(s.groups.len());
+            s.groups.insert(at, id);
+        }
+    }
+
+    /// A separator at the current depth: the pipeline element it ends runs
+    /// in a subshell when a `|` is on either side of it, and the and-or list
+    /// `&` ends runs in one.
+    fn separator(&mut self, sep: Sep) {
+        let depth = self.marks.len() - 1;
+        let m = self.marks[depth];
+        if m.piped || sep == Sep::Pipe {
+            self.subshell(m.element, depth);
+        }
+        if sep == Sep::Background {
+            self.subshell(m.list, depth);
+        }
+        let len = self.out.segments.len();
+        let m = &mut self.marks[depth];
+        m.element = len;
+        m.piped = sep == Sep::Pipe;
+        if matches!(sep, Sep::Seq | Sep::Background | Sep::End) {
+            m.list = len;
+        }
+        self.last_sep = sep;
+        self.pushed_since_sep = false;
+    }
+
+    /// The end of the text this level scans: every open depth ends.
+    fn finish(&mut self) {
+        while !self.marks.is_empty() {
+            self.separator(Sep::End);
+            self.marks.pop();
         }
     }
 
@@ -182,15 +282,72 @@ impl Level {
         self.in_word = false;
     }
 
-    fn end_segment(&mut self, s: &[u8], at: usize) {
+    /// End the segment being built; whether it had words and was kept.
+    fn end_segment(&mut self, s: &[u8], at: usize) -> bool {
         self.end_word(s, at);
-        if !self.words.is_empty() {
-            self.out.segments.push(Segment {
-                words: std::mem::take(&mut self.words),
-                groups: self.groups.clone(),
-            });
+        if self.words.is_empty() {
+            return false;
+        }
+        self.out.segments.push(Segment {
+            words: std::mem::take(&mut self.words),
+            groups: self.groups.clone(),
+        });
+        self.pushed_since_sep = true;
+        true
+    }
+
+    /// At an unquoted `<` or `>` at byte `at`: a redirection operator. It
+    /// ends the word before it, unless that word so far is only a
+    /// file-descriptor number or the operator's own first characters (`2>`,
+    /// `>>`, `&>`, `<>`), and the word it is in is a redirection word.
+    fn redirection(&mut self, s: &[u8], at: usize) {
+        let digits = self.cur.iter().take_while(|b| b.is_ascii_digit()).count();
+        let ops = &self.cur[digits..];
+        let keep = self.in_word
+            && self.word.bare
+            && (ops.is_empty() || (self.word.redirect && ops.iter().all(|b| b"<>&|".contains(b))));
+        if !keep {
+            self.end_word(s, at);
+        }
+        self.begin(at);
+        self.word.redirect = true;
+    }
+}
+
+/// The `$(...)` and backquoted commands in an unquoted-delimiter
+/// here-document's lines, where only a backslash quotes, and whether one of
+/// them never closes.
+fn heredoc_expansions(body: &[u8]) -> (Vec<Tokenized>, bool) {
+    let mut subs = Vec::new();
+    let mut i = 0;
+    while i < body.len() {
+        match body[i] {
+            b'\\' => i += 2,
+            b'$' if body.get(i + 1) == Some(&b'(') => {
+                let mut sc = Scanner { s: body, i: i + 2 };
+                match sc.scan(End::Paren) {
+                    Ok(t) => {
+                        subs.push(t);
+                        i = sc.i;
+                    }
+                    Err(Unterminated) => return (subs, true),
+                }
+            }
+            b'`' => {
+                let mut sc = Scanner { s: body, i };
+                let mut lv = Level::new();
+                match sc.backquote(&mut lv) {
+                    Ok(()) => {
+                        subs.extend(lv.out.substitutions.into_iter().map(|s| s.inner));
+                        i = sc.i;
+                    }
+                    Err(Unterminated) => return (subs, true),
+                }
+            }
+            _ => i += 1,
         }
     }
+    (subs, false)
 }
 
 impl<'a> Scanner<'a> {
@@ -206,6 +363,7 @@ impl<'a> Scanner<'a> {
                     return Err(Unterminated);
                 }
                 lv.end_segment(self.s, self.i);
+                lv.finish();
                 return Ok(lv.out);
             };
             match c {
@@ -257,48 +415,90 @@ impl<'a> Scanner<'a> {
                     }
                 }
                 b'\n' => {
-                    lv.end_segment(self.s, self.i);
+                    let pushed = lv.end_segment(self.s, self.i);
+                    // `a |`, `a &&` or `a ||` at a line's end goes on on
+                    // the next line.
+                    let continued = !pushed
+                        && !lv.pushed_since_sep
+                        && matches!(lv.last_sep, Sep::Pipe | Sep::AndOr);
+                    if !continued {
+                        lv.separator(Sep::Seq);
+                    }
                     self.i += 1;
                     self.heredoc_lines(&mut lv, end);
                 }
                 b'&' | b'|' | b';' => {
-                    // `>&`, `<&`, `&>` and `>|` are redirections, not
-                    // separators: `2>&1` stays one word.
-                    let redirect = (lv.in_word
+                    // `>&`, `<&` and `>|` continue a redirection operator,
+                    // so `2>&1` stays one word; `&>` starts one.
+                    let continues = lv.in_word
+                        && lv.word.redirect
                         && c != b';'
-                        && matches!(lv.cur.last(), Some(b'>') | Some(b'<')))
-                        || (c == b'&' && self.peek(1) == Some(b'>'));
-                    if redirect {
-                        lv.begin(self.i);
+                        && matches!(lv.cur.last(), Some(b'>') | Some(b'<'));
+                    if continues {
                         lv.cur.push(c);
+                        self.i += 1;
+                    } else if c == b'&' && self.peek(1) == Some(b'>') {
+                        lv.end_word(self.s, self.i);
+                        lv.begin(self.i);
+                        lv.word.redirect = true;
+                        lv.cur.push(c);
+                        self.i += 1;
                     } else {
+                        let (sep, len) = match (c, self.peek(1)) {
+                            (b'&', Some(b'&')) | (b'|', Some(b'|')) => (Sep::AndOr, 2),
+                            (b'|', Some(b'&')) => (Sep::Pipe, 2),
+                            (b'|', _) => (Sep::Pipe, 1),
+                            (b'&', _) => (Sep::Background, 1),
+                            _ => (Sep::Seq, 1),
+                        };
                         lv.end_segment(self.s, self.i);
+                        lv.separator(sep);
+                        self.i += len;
                     }
-                    self.i += 1;
                 }
                 b'(' => {
                     lv.end_segment(self.s, self.i);
                     lv.groups.push(lv.next_group);
                     lv.next_group += 1;
+                    let len = lv.out.segments.len();
+                    lv.marks.push(Marks {
+                        element: len,
+                        list: len,
+                        piped: false,
+                    });
                     self.i += 1;
                 }
                 b')' => {
                     lv.end_segment(self.s, self.i);
                     self.i += 1;
-                    if lv.groups.pop().is_none() && end == End::Paren {
-                        return Ok(lv.out);
+                    if lv.groups.is_empty() {
+                        if end == End::Paren {
+                            lv.finish();
+                            return Ok(lv.out);
+                        }
+                        // A stray `)`, as after a `case` pattern.
+                        lv.separator(Sep::End);
+                    } else {
+                        lv.separator(Sep::End);
+                        lv.groups.pop();
+                        lv.marks.pop();
                     }
                 }
                 b'<' if self.peek(1) == Some(b'<') => {
                     if self.peek(2) == Some(b'<') {
-                        // `<<<`, a here-string: an ordinary word.
-                        lv.begin(self.i);
+                        // `<<<`, a here-string: a redirection word.
+                        lv.redirection(self.s, self.i);
                         lv.cur.extend_from_slice(b"<<<");
                         self.i += 3;
                     } else {
                         lv.end_word(self.s, self.i);
                         self.heredoc_operator(&mut lv);
                     }
+                }
+                b'<' | b'>' => {
+                    lv.redirection(self.s, self.i);
+                    lv.cur.push(c);
+                    self.i += 1;
                 }
                 b' ' | b'\t' | b'\r' => {
                     lv.end_word(self.s, self.i);
@@ -504,7 +704,8 @@ impl<'a> Scanner<'a> {
                     if let Some(n) = self.peek(1) {
                         delim.push(n);
                     }
-                    self.i += 2;
+                    // A command ending in `<<\` has nothing to escape.
+                    self.i = (self.i + 2).min(self.s.len());
                 }
                 b' ' | b'\t' | b'\n' | b';' | b'&' | b'|' | b'(' | b')' | b'<' | b'>' => break,
                 _ => {
@@ -520,6 +721,8 @@ impl<'a> Scanner<'a> {
             strip_tabs,
             body: String::new(),
             terminated: false,
+            substitutions: Vec::new(),
+            unterminated_substitution: false,
         });
         lv.pending.push(idx);
         lv.words.push(Word {
@@ -567,6 +770,11 @@ impl<'a> Scanner<'a> {
                 body.extend_from_slice(line);
                 body.push(b'\n');
                 self.i += (len + 1).min(rest.len());
+            }
+            if !lv.out.heredocs[idx].quoted {
+                let (subs, unterminated) = heredoc_expansions(&body);
+                lv.out.heredocs[idx].substitutions = subs;
+                lv.out.heredocs[idx].unterminated_substitution = unterminated;
             }
             lv.out.heredocs[idx].body = String::from_utf8_lossy(&body).into_owned();
         }
@@ -644,6 +852,85 @@ mod tests {
         assert_eq!(w("git push 2>&1"), v(&[&["git", "push", "2>&1"]]));
         assert_eq!(w("cmd &>out"), v(&[&["cmd", "&>out"]]));
         assert_eq!(w("cmd >|out"), v(&[&["cmd", ">|out"]]));
+    }
+
+    #[test]
+    fn an_unquoted_angle_bracket_starts_a_redirection_word() {
+        assert_eq!(
+            w("git push>/dev/null"),
+            v(&[&["git", "push", ">/dev/null"]])
+        );
+        assert_eq!(w("a 2>x"), v(&[&["a", "2>x"]]));
+        // A digit is a file descriptor only when it is the whole word so far.
+        assert_eq!(w("a2>x"), v(&[&["a2", ">x"]]));
+        assert_eq!(w("x&>out"), v(&[&["x", "&>out"]]));
+        assert_eq!(w("a>b>c"), v(&[&["a", ">b", ">c"]]));
+        assert_eq!(w("a>>b <c"), v(&[&["a", ">>b", "<c"]]));
+        assert_eq!(w("\"a\">b"), v(&[&["a", ">b"]]));
+        assert_eq!(w("cat<<<x"), v(&[&["cat", "<<<x"]]));
+        assert_eq!(w("a 2>&1|b"), v(&[&["a", "2>&1"], &["b"]]));
+        let t = tokenize("echo '>' \\> > out 2>&1").unwrap();
+        let marks: Vec<bool> = t.segments[0].words.iter().map(|w| w.redirect).collect();
+        assert_eq!(marks, vec![false, false, false, true, false, true]);
+        // Quoted, it is text; inside a word's quotes it never splits.
+        assert_eq!(w("echo 'a>b' \"c<d\""), v(&[&["echo", "a>b", "c<d"]]));
+    }
+
+    #[test]
+    fn a_command_ending_in_a_here_document_backslash_tokenizes() {
+        let t = tokenize("cat <<\\").unwrap();
+        assert_eq!(words(&t), v(&[&["cat", "<<\\"]]));
+        assert!(t.heredocs[0].quoted);
+        assert!(tokenize("cat <<").is_ok());
+        assert!(tokenize("cat <<-\\").is_ok());
+    }
+
+    #[test]
+    fn pipeline_elements_and_background_lists_are_subshell_groups() {
+        let groups = |cmd: &str| -> Vec<Vec<usize>> {
+            tokenize(cmd)
+                .unwrap()
+                .segments
+                .iter()
+                .map(|s| s.groups.clone())
+                .collect()
+        };
+        // `;`, `&&`, `||` and newlines make no group.
+        assert_eq!(groups("cd a; b && c || d\ne"), vec![Vec::<usize>::new(); 5]);
+        // Each element of a pipeline gets one.
+        assert_eq!(groups("cd a | b; c"), vec![vec![0], vec![1], vec![]]);
+        assert_eq!(groups("a | cd b && c"), vec![vec![0], vec![1], vec![]]);
+        assert_eq!(groups("a |& b"), vec![vec![0], vec![1]]);
+        // A pipe at a line's end carries on to the next line.
+        assert_eq!(groups("a |\ncd b\nc"), vec![vec![0], vec![1], vec![]]);
+        // An and-or list `&` ends gets one around all of it.
+        assert_eq!(groups("cd a & b"), vec![vec![0], vec![]]);
+        assert_eq!(groups("cd a && b & c"), vec![vec![0], vec![0], vec![]]);
+        // Inside the parenthesis groups it sits in, outside the ones it opens.
+        assert_eq!(
+            groups("(cd a | b); c"),
+            vec![vec![0, 1], vec![0, 2], vec![]]
+        );
+        assert_eq!(groups("cd a && (b) & c"), vec![vec![1], vec![1, 0], vec![]]);
+        // `2>&1` and `&>` are no separators.
+        assert_eq!(groups("cd a 2>&1 &>x; b"), vec![Vec::<usize>::new(); 2]);
+    }
+
+    #[test]
+    fn an_unquoted_here_document_records_its_command_substitutions() {
+        let t = tokenize("cat <<EOF\nIt's $(git push) and `gh pr create`\n\\$(no)\nEOF").unwrap();
+        let h = &t.heredocs[0];
+        assert!(!h.quoted && !h.unterminated_substitution);
+        let subs: Vec<Vec<Vec<String>>> = h.substitutions.iter().map(words).collect();
+        assert_eq!(
+            subs,
+            vec![v(&[&["git", "push"]]), v(&[&["gh", "pr", "create"]])]
+        );
+        // A quoted delimiter keeps the lines pure data.
+        let t = tokenize("cat <<'EOF'\n$(git push)\nEOF").unwrap();
+        assert!(t.heredocs[0].substitutions.is_empty());
+        let t = tokenize("cat <<EOF\n$(git push\nEOF").unwrap();
+        assert!(t.heredocs[0].unterminated_substitution);
     }
 
     #[test]

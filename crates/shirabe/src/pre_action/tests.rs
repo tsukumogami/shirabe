@@ -753,6 +753,35 @@ fn a_panic_or_a_hang_fails_closed_on_a_guarded_command_only() {
 }
 
 #[test]
+fn the_fallback_reads_the_command_not_the_rest_of_the_input() {
+    let boom = |_: &str| -> Option<String> { panic!("boom") };
+    let slow = |_: &str| -> Option<String> {
+        std::thread::sleep(Duration::from_secs(5));
+        None
+    };
+    let short = Duration::from_millis(100);
+    let described = serde_json::json!({
+        "tool_name": "Bash",
+        "tool_input": { "command": "ls", "description": "list files, git push later, then gh pr create" },
+    })
+    .to_string();
+    for eval in [boom, slow] {
+        for rules in [RuleSet::All, RuleSet::PrBodyOnly, RuleSet::PushOnly] {
+            assert_eq!(decide(described.clone(), rules, short, eval), None);
+        }
+        // A guarded command still fails closed.
+        let guarded = serde_json::json!({
+            "tool_name": "Bash",
+            "tool_input": { "command": "g\"i\"t push", "description": "ls" },
+        })
+        .to_string();
+        assert!(decide(guarded, RuleSet::All, short, eval).is_some());
+        // Input that doesn't parse is read raw.
+        assert!(decide("not json: git push".into(), RuleSet::All, short, eval).is_some());
+    }
+}
+
+#[test]
 fn the_deadline_runner_keeps_the_plugins_rule_sets() {
     let boom = |_: &str| -> Option<String> { panic!("boom") };
     let slow = |_: &str| -> Option<String> {

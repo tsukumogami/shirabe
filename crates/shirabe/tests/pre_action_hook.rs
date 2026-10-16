@@ -511,9 +511,13 @@ fn every_git_child_runs_plumbing_only_from_the_fixed_environment() {
             g = real_git().display()
         ),
     );
+    let xdg = format!("{}/.config", h.dir("home"));
+    let global = format!("{}/gitconfig", h.dir("home"));
     let env = with(&[
         ("PATH", &format!("relative/bin:{stub}:/usr/bin:/bin")),
         ("HOME", &h.dir("home")),
+        ("XDG_CONFIG_HOME", &xdg),
+        ("GIT_CONFIG_GLOBAL", &global),
         ("LANG", "C"),
         ("LC_ALL", "C"),
         ("GIT_DIR", "/nonexistent"),
@@ -578,7 +582,11 @@ fn every_git_child_runs_plumbing_only_from_the_fixed_environment() {
         vars.sort();
         let home = format!("HOME={}", h.dir("home"));
         let path = format!("PATH={stub}:/usr/bin:/bin");
+        let xdg = format!("XDG_CONFIG_HOME={xdg}");
+        let global = format!("GIT_CONFIG_GLOBAL={global}");
         let mut want = vec![
+            xdg.as_str(),
+            global.as_str(),
             "GIT_CONFIG_NOSYSTEM=1",
             "GIT_NO_LAZY_FETCH=1",
             "GIT_NO_REPLACE_OBJECTS=1",

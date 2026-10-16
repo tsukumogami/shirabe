@@ -82,7 +82,7 @@ mode=$(git -C "$REPO_ROOT" ls-files -s hooks/pre-action-deny.sh | cut -d' ' -f1)
     || fail "script mode" "git ls-files -s gives [$mode]"
 
 [ "$RULE_IDS" = "pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/conformance commit/no-ai-trailer" ] \
-    && pass "RULE_IDS lists the six rules in registry order" \
+    && pass "RULE_IDS lists the six rules" \
     || fail "RULE_IDS" "[$RULE_IDS]"
 
 # -- the environment -----------------------------------------------------------
@@ -297,6 +297,19 @@ for c in 'git push origin --delete topic' 'git push origin :topic'; do
     run_hook "$c"
     expect_none "table: $c gives no decision"
 done
+# A redirection is no refspec, with or without a space before it; `:` pushes
+# the matching branches.
+for c in 'git push origin topic 2>&1' 'git push origin topic > log' 'git push>/dev/null' \
+    'cd sub 2>/dev/null && git push' 'git push origin :'; do
+    run_hook "$c"
+    expect_deny "redirected: $c with the trailer commit" "commit/no-ai-trailer" "$TRAILER_HASH"
+done
+HOOK_CWD="$R/clean"
+for c in 'git push origin HEAD >/dev/null' 'git push -u origin main 2>&1' 'git push>/dev/null'; do
+    run_hook "$c"
+    expect_none "redirected: $c with only clean commits gives no decision"
+done
+HOOK_CWD="$TR"
 run_hook 'cd \"$DIR\" && git push'
 expect_deny "table: cd to a variable directory" "directory"
 run_hook 'git push --some-new-option'
@@ -516,6 +529,24 @@ for v in '' 0 false; do
     run_hook "$BAD_CREATE" "PR_BODY_HOOK_DISABLE=$v"
     expect_deny "PR_BODY_HOOK_DISABLE=[$v]: the bad-body create is denied" "pr-body/one-separator"
 done
+# With no binary the script's coarse test honours it too: only a command
+# naming `git` ... `push` is denied.
+HOOK_PATH="$P_NONE"
+for v in 1 yes; do
+    run_hook "$BAD_CREATE" "PR_BODY_HOOK_DISABLE=$v"
+    expect_none "PR_BODY_HOOK_DISABLE=$v, no binary: the create gives no decision"
+    run_hook 'gh pr edit 3 --title x' "PR_BODY_HOOK_DISABLE=$v"
+    expect_none "PR_BODY_HOOK_DISABLE=$v, no binary: the edit gives no decision"
+    run_hook "$TRAILER_PUSH" "PR_BODY_HOOK_DISABLE=$v"
+    expect_binary_deny "PR_BODY_HOOK_DISABLE=$v, no binary: git push is still denied"
+    run_hook 'gh pr create --title t --body b && git push' "PR_BODY_HOOK_DISABLE=$v"
+    expect_binary_deny "PR_BODY_HOOK_DISABLE=$v, no binary: a create and a push is denied"
+done
+for v in '' 0 false; do
+    run_hook "$BAD_CREATE" "PR_BODY_HOOK_DISABLE=$v"
+    expect_binary_deny "PR_BODY_HOOK_DISABLE=[$v], no binary: the create is denied"
+done
+HOOK_PATH="$P_REPO"
 
 # -- the canary's PB4 exception ------------------------------------------------
 

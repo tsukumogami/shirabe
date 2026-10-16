@@ -185,9 +185,12 @@ impl SystemGit {
     }
 
     /// From `vars`: it keeps only `PATH` (its absolute entries, so a
-    /// repository can't plant a `git`), `HOME`, `LANG` and `LC_*`, and adds
+    /// repository can't plant a `git`), `HOME`, `XDG_CONFIG_HOME` and
+    /// `GIT_CONFIG_GLOBAL` (where the user's global git configuration, and a
+    /// `safe.directory` in it, is found), `LANG` and `LC_*`, and adds
     /// [`FIXED_ENV`].
     pub fn with_env(vars: impl IntoIterator<Item = (OsString, OsString)>) -> Self {
+        const KEPT: &[&str] = &["HOME", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL", "LANG"];
         let mut env = Vec::new();
         let mut dirs: Vec<PathBuf> = Vec::new();
         for (k, v) in vars {
@@ -195,7 +198,7 @@ impl SystemGit {
                 dirs = std::env::split_paths(&v)
                     .filter(|p| p.is_absolute())
                     .collect();
-            } else if k == "HOME" || k == "LANG" || k.to_string_lossy().starts_with("LC_") {
+            } else if KEPT.iter().any(|kept| k == *kept) || k.to_string_lossy().starts_with("LC_") {
                 env.push((k, v));
             }
         }
@@ -382,7 +385,8 @@ struct Argv<'a> {
     remote: Option<&'a Word>,
     /// `--repo=<remote>`, used when there is no positional remote.
     repo: Option<String>,
-    /// Each refspec's source; an empty one is a deletion and isn't listed.
+    /// Each refspec's source; an empty one is a deletion and isn't listed,
+    /// and `:` alone sets `branches`.
     sources: Vec<String>,
     /// The push named refspecs, deletions included.
     refspecs: bool,
@@ -458,8 +462,17 @@ fn parse(words: &[Word]) -> Result<Argv<'_>, Case> {
             return Err(Case::Source(w.text.clone()));
         }
         let spec = w.text.strip_prefix('+').unwrap_or(&w.text);
+        if a.delete {
+            continue;
+        }
+        // `:` and `+:` push the matching branches, not a deletion; every
+        // local branch is checked, as for `--all`.
+        if spec == ":" {
+            a.branches = true;
+            continue;
+        }
         let src = spec.split_once(':').map_or(spec, |(s, _)| s);
-        if src.is_empty() || a.delete {
+        if src.is_empty() {
             continue;
         }
         if src.starts_with('-') {
