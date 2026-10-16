@@ -14,12 +14,42 @@ goals: |
   evaluations and disputes can be counted from koto's journal, and
   promotion, demotion and retirement follow stated thresholds over those
   counts, applied by a reviewed registry change.
-upstream: docs/briefs/BRIEF-check-lifecycle.md
+absorbed:
+  - docs/briefs/BRIEF-check-lifecycle.md
 ---
 
 ## Status
 
 Accepted
+
+Absorbed [BRIEF-check-lifecycle](docs/briefs/BRIEF-check-lifecycle.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists because a deterministic check in shirabe either blocks
+every run or doesn't exist. A new check is trusted with real runs before
+anyone knows how often it fires or how often it's wrong, an old one keeps
+blocking after it stops catching anything, and koto's exported journal
+can't tell which is which, because it records only the error rules of a
+failing check. This document's Problem Statement states that in full.
+
+The outcome the brief asked for has three people on the receiving end. A
+maintainer adds a check at a stage that can't hurt a run, reads its fires,
+passes and disputes from the journal, and moves it up, down or out through
+a reviewed registry change. A coordinator retires checks that went quiet
+without a check guarding a push, a merge or a pull request losing its
+protection. An agent sees a gentle finding without being held by it, and
+says a finding is wrong on the record without getting past the gate by
+saying so.
+
+It framed four journeys, which the User Stories carry: introducing a check
+at shadow and promoting it on its figures; retiring a quiet block-stage
+check, refused for a guarded rule without a backstop; disputing a wrong
+finding while the run stays held; and reading a warning on the response
+that advanced the run. Its boundary is this document's Out of Scope:
+model-graded criteria, withhold eligibility, dashboards, offline runs,
+automatic stage changes and koto's override path stay out, and the
+companion koto change that makes the gentler stages visible is in.
 
 ## Problem Statement
 
