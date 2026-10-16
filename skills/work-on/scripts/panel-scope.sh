@@ -581,6 +581,7 @@ if [ "$MODE" = "--verdict" ] || [ "$MODE" = "--open-count" ]; then
     done <<EOF
 $findings
 EOF
+    rf_deliver
     exit 1
 fi
 

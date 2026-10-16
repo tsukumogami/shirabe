@@ -519,6 +519,153 @@ else
     fail "pr_status: shared with SHARED_BRANCH unset: want pr_creation, got $STATE ($(head -c 300 <<<"$RESP"))"
 fi
 
+# The named check exit (DESIGN-validate-and-return.md): pr_creation,
+# finalization and pr_precheck accept check_unsatisfiable only while their
+# registry gate exits 1, route it to check_exit (a stub terminal here), and set
+# failure_reason on that edge. With the gate at 0 or 2 the submission holds.
+# drive names each session og-$N, which is how the failure_reason reads below
+# find the session the case just drove.
+SEED_SUMMARY=1
+for spec in \
+    "finalization|check-branch-output.sh--commits|commit_convention|finalization_status" \
+    "pr_precheck|check-branch-output.sh--docs-visibility|branch_docs_visibility|precheck_status" \
+    "pr_creation|check-pr-output.sh--pr-body|pr_body_conformant|pr_status"; do
+    IFS='|' read -r st key gate field <<EOF
+$spec
+EOF
+    data="{\"$field\":\"check_unsatisfiable\",\"check_exit_reason\":\"the rule is wrong for this change\"}"
+    reset_rc; set_rc "$key" 1
+    drive "$st" "" "$data" on_feature_branch_pr=0 closing_keyword=0
+    expect "check_unsatisfiable at $st with $gate at 1" check_exit
+    reason=$(cd "$REPO" && koto context get "og-$N" failure_reason 2>/dev/null)
+    [ "$reason" = "check_exit at $st: $gate could not be satisfied: the rule is wrong for this change" ] \
+        && pass "check_unsatisfiable at $st sets failure_reason naming the state, the gate and the reason" \
+        || fail "check_unsatisfiable at $st: failure_reason [$reason]"
+    reset_rc; set_rc "$key" 1
+    drive "$st" "" "{\"$field\":\"check_unsatisfiable\",\"check_exit_reason\":\"\"}" \
+        on_feature_branch_pr=0 closing_keyword=0
+    expect "check_unsatisfiable at $st with an empty reason" check_exit
+    reason=$(cd "$REPO" && koto context get "og-$N" failure_reason 2>/dev/null)
+    case "$reason" in
+        "check_exit at $st: $gate could not be satisfied: "*) pass "an empty reason at $st still names the state and the gate" ;;
+        *) fail "empty reason at $st: failure_reason [$reason]" ;;
+    esac
+    # With the gate at 2 the submission holds the state. With it at 0,
+    # finalization and pr_creation hold too (check_unsatisfiable matches no
+    # passing edge); pr_precheck advances on its own before any evidence,
+    # because its passing edge takes none, so there it goes to pr_creation.
+    for rc in 0 2; do
+        reset_rc; set_rc "$key" "$rc"
+        if [ "$st" = pr_precheck ] && [ "$rc" = 0 ]; then
+            drive "$st" "" "" on_feature_branch_pr=0 closing_keyword=0
+            expect "pr_precheck with $gate at 0 passes before any exit can be taken" pr_creation
+        else
+            drive "$st" "" "$data" on_feature_branch_pr=0 closing_keyword=0
+            expect "check_unsatisfiable at $st with $gate at $rc holds" "$st"
+        fi
+    done
+done
+SEED_SUMMARY=
+reset_rc
+
+# The exit's shape in the compiled template: every check_unsatisfiable edge
+# goes to check_exit and nowhere else, check_exit's one edge goes to
+# done_blocked, and the exit table every laddered gate carries names exactly
+# the states that have a check_unsatisfiable edge, each with its status field.
+COMPILED=$(koto template compile "$TEMPLATE" 2>/dev/null)
+if [ -n "$COMPILED" ] && [ -f "$COMPILED" ]; then
+    bad=$(jq -r '.states | to_entries[] | .key as $s | .value.transitions[]?
+        | select((.when // {}) | to_entries | map(select(.value == "check_unsatisfiable")) | length > 0)
+        | select(.target != "check_exit") | "\($s)->\(.target)"' "$COMPILED")
+    [ -z "$bad" ] && pass "every check_unsatisfiable edge targets check_exit" || fail "check_unsatisfiable edges elsewhere: $bad"
+    exits=$(jq -r '.states.check_exit.transitions | map(.target) | join(" ")' "$COMPILED")
+    [ "$exits" = done_blocked ] && pass "check_exit's only edge is to done_blocked" || fail "check_exit targets [$exits]"
+    have=$(jq -r '.states | to_entries[] | .key as $s | .value.transitions[]?
+        | (.when // {}) | to_entries[] | select(.value == "check_unsatisfiable") | "\($s):\(.key)"' "$COMPILED" | sort -u | tr '\n' ' ')
+    table=$(grep -o 'SHIRABE_GATE_EXITS="[^"]*"' "$TEMPLATE" | sort -u)
+    [ "$(printf '%s\n' "$table" | wc -l | tr -d ' ')" = 1 ] \
+        && pass "every laddered gate carries the same exit table" || fail "exit tables differ: $table"
+    table=${table#SHIRABE_GATE_EXITS=\"}; table=${table%\"}
+    want=$(printf '%s\n' $table | sort -u | tr '\n' ' ')
+    [ "$have" = "$want" ] && pass "the exit table names exactly the states with a check_unsatisfiable edge ($want)" \
+        || fail "exit table [$want] vs check_unsatisfiable edges [$have]"
+else
+    fail "could not compile $TEMPLATE for the exit's shape"
+fi
+
+# The ladder's context is on every gate that prints registry findings, and the
+# three commit_convention copies stay identical (finalization-shape_test.sh
+# compares them compiled).
+for g in pr_body_conformant commit_convention branch_docs_visibility verification_verdict \
+         scrutiny_verdict review_verdict qa_verdict light_verdict; do
+    n=$(awk -v g="      $g:" '$0 == g { f = 1; next } f && /^        command:/ { print; f = 0 }' "$TEMPLATE" \
+        | grep -c "SHIRABE_GATE_LOG=\"{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl\" SHIRABE_GATE_NAME=$g SHIRABE_GATE_EXITS=")
+    want=1; [ "$g" = commit_convention ] && want=3
+    [ "$n" = "$want" ] && pass "$g carries the ladder's context ($n)" || fail "$g: ladder context on $n command(s), want $want"
+done
+[ "$(awk '/^      commit_convention:$/ { f = 1; next } f && /^        command:/ { print; f = 0 }' "$TEMPLATE" | sort -u | wc -l | tr -d ' ')" = 1 ] \
+    && pass "the three commit_convention commands are byte-identical" || fail "commit_convention commands differ"
+
+# One real run of the ladder through koto: the shipped pr_creation state, a gate
+# script that prints a PB4 finding through the real findings library and the
+# real registry, and the session's own log. koto's recorded count and the rung
+# the gate printed agree on every evaluation, and the exit is a state_entered
+# record in koto's run journal.
+LAD_ROOT="$WORKDIR/ladder-plugin"
+mkdir -p "$LAD_ROOT/skills/work-on/scripts"
+cat > "$LAD_ROOT/skills/work-on/scripts/check-pr-output.sh" <<EOF
+#!/usr/bin/env bash
+undecided() { echo "undecided: \$*" >&2; exit 2; }
+# Indented so check-rule-registry.sh, which reads RULE_IDS lines that start a
+# line, doesn't take this stub for a real gate script.
+  RULE_IDS="pr-body/no-heading-in-part1"
+. "$SKILL_DIR/../../scripts/lib/rule-findings.sh" || undecided "no library"
+rf_require pr-body/no-heading-in-part1
+rf_finding pr-body/no-heading-in-part1 "Part 1 has a heading"
+rf_deliver
+exit 1
+EOF
+chmod +x "$LAD_ROOT/skills/work-on/scripts/check-pr-output.sh"
+N=$((N + 1)); LDIR="$WORKDIR/f$N"; LS="og-$N"; mkdir -p "$LDIR"
+build "$LDIR" pr_creation closing_keyword=0
+(cd "$REPO" && koto init "$LS" --template "$LDIR/fixture.md" --var PLUGIN_ROOT="$LAD_ROOT" --var ISSUE_NUMBER=7) >"$LDIR/init.out" 2>&1 \
+    || fail "ladder run: koto init failed: $(head -c 300 "$LDIR/init.out")"
+LLOG="$(cd "$REPO" && koto session dir "$LS")/koto-$LS.state.jsonl"
+# tick <evidence-or-empty>: one koto next; LERR is the PR-body gate's stderr,
+# LCOUNT the session count koto recorded for PB4 on that evaluation.
+tick() {
+    if [ -n "$1" ]; then
+        RESP=$(cd "$REPO" && koto next "$LS" --with-data "$1" --no-cleanup 2>/dev/null)
+    else
+        RESP=$(cd "$REPO" && koto next "$LS" --no-cleanup 2>/dev/null)
+    fi
+    LERR=$(printf '%s' "$RESP" | jq -r '[.blocking_conditions[]? | select(.name == "pr_body_conformant") | .failure.captured.stderr][0] // ""')
+    LCOUNT=$(jq -R -n -r '[inputs | fromjson? | select(.type == "gate_evaluated" and .payload.gate == "pr_body_conformant")
+        | .payload.rule_counts["pr-body/no-heading-in-part1"].session] | last // 0' < "$LLOG")
+}
+CREATED='{"pr_status":"created","pr_url":"https://github.com/o/r/pull/1"}'
+tick ""
+[ "$LCOUNT" = 1 ] && ! grep -q '^::shirabe-rule::' <<<"$LERR" \
+    && pass "ladder run: koto's count 1, summary only" || fail "ladder run tick 1: count $LCOUNT, stderr [$LERR]"
+tick "$CREATED"
+[ "$LCOUNT" = 2 ] && [ "$(grep -c '^::shirabe-rule::{"rule_id":"pr-body/no-heading-in-part1"' <<<"$LERR")" = 1 ] \
+    && ! grep -q '^::shirabe-check-exit::' <<<"$LERR" \
+    && pass "ladder run: koto's count 2, PB4's text released" || fail "ladder run tick 2: count $LCOUNT, stderr [$LERR]"
+tick "$CREATED"
+[ "$LCOUNT" = 3 ] && grep -q '^::shirabe-check-exit::{"rule_id":"pr-body/no-heading-in-part1","count":3,"state":"pr_creation","submit":{"pr_status":"check_unsatisfiable"' <<<"$LERR" \
+    && pass "ladder run: koto's count 3, the exit offered" || fail "ladder run tick 3: count $LCOUNT, stderr [$LERR]"
+tick '{"pr_status":"check_unsatisfiable","check_exit_reason":"PB4 cannot be met here"}'
+STATE=$(printf '%s' "$RESP" | jq -r '.state // "none"')
+expect "ladder run: taking the exit" check_exit
+# koto's run journal: <base>/_run_journal.jsonl for a redirected store, and
+# ~/.koto/_run_journal.jsonl for the default one (koto's docs/reference/run-journal.md).
+# HOME is this suite's temporary home (above), so either way it is this run's.
+LJOURNAL="${KOTO_SESSIONS_BASE:-$HOME/.koto}/_run_journal.jsonl"
+if [ -f "$LJOURNAL" ] && jq -R -n -e --arg s "$LS" '[inputs | fromjson? | select(.kind == "state_entered" and .session == $s and .["koto.state"] == "check_exit")] | length == 1' < "$LJOURNAL" >/dev/null; then
+    pass "ladder run: the run journal records the exit as state_entered check_exit"
+else
+    fail "ladder run: no state_entered check_exit in $LJOURNAL"
+fi
 # The panels (gate 6): <panel>_verdict decides the pass. Each case starts with
 # <panel>_carried at 1, the path where seats ran, unless it says otherwise;
 # the fake recorded, has_commits and level_unchanged gates pass.

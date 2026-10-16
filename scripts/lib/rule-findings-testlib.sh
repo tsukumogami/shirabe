@@ -22,6 +22,16 @@
 #                              <id>'s first anchor no longer resolves, and when
 #                              scripts/lib/rule-findings.sh is missing; <arg>...
 #                              must name a mode that reports <id>
+#   rf_test_ladder_log <file> <state> <gate> [<rule> <session>]...
+#                              write a koto session log for the escalation
+#                              ladder: the header, a transition into <state>,
+#                              and one failed gate_evaluated of <gate> in
+#                              <state> per <rule> <session> pair, recording
+#                              rule_counts[<rule>].session = <session>; the
+#                              gate run against it with SHIRABE_GATE_LOG=<file>
+#                              and SHIRABE_GATE_NAME=<gate> sees count
+#                              <session> + 1 for <rule>; visit is written equal
+#                              to session because the ladder reads session only
 #
 # Needs bash, jq, grep, awk. Written for the bash 3.2 floor.
 
@@ -132,4 +142,20 @@ rf_test_refusals() {
     [ $rc -eq 2 ] && pass "$label: a missing scripts/lib/rule-findings.sh exits 2" \
         || fail "$label: missing library exited $rc, want 2"
     rm -rf "$p" "$tmp"
+}
+
+# rf_test_ladder_log <file> <state> <gate> [<rule> <session>]...
+rf_test_ladder_log() {
+    local f=$1 state=$2 gate=$3 seq=2
+    shift 3
+    printf '%s\n' '{"schema_version":1,"workflow":"w","template_hash":"h","created_at":"2026-10-16T00:00:00Z"}' > "$f" || return 1
+    printf '{"seq":1,"timestamp":"t","type":"transitioned","payload":{"from":"start","to":"%s"}}\n' "$state" >> "$f"
+    while [ $# -ge 2 ]; do
+        jq -cn --argjson seq "$seq" --arg state "$state" --arg gate "$gate" --arg rule "$1" --argjson n "$2" \
+            '{seq: $seq, timestamp: "t", type: "gate_evaluated",
+              payload: {state: $state, gate: $gate, outcome: "failed", attempt: $seq, visit_attempt: $seq,
+                        rule_counts: {($rule): {visit: $n, session: $n}}}}' >> "$f" || return 1
+        seq=$((seq + 1))
+        shift 2
+    done
 }
