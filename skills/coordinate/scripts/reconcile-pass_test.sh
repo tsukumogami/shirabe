@@ -540,8 +540,7 @@ record "[]"
 pass
 echo session > "$CASE/store"
 get --check; check "on the session store, a run never imported reads its report" $?
-IH=$(printf 'ab%.0s' $(seq 32))
-jq -nc --arg h "$IH" '{source_workspace: "/srv/ws-a", source_session: "coordinate-roadmap-plugin-system-20260927T000000Z", template_hash: $h, friction: "/srv/ws-a/f.md"}' \
+jq -nc '{source_workspace: "/srv/ws-a", source_session: "coordinate-roadmap-plugin-system-20260927T000000Z", friction: "/srv/ws-a/f.md"}' \
     > "$CASE/ctx/record%host"
 get --check; [ $? = 3 ]; check "a report sealed before the run was imported here is refused with 3" $?
 get --md > /dev/null; [ $? = 3 ]; check "  ... in every mode" $?
@@ -555,6 +554,32 @@ get --check; check "a GitHub record has no import facts to compare" $?
 if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
     ok "the reader takes no sealed token and reads the capture from the log itself"
 else bad "the reader takes no sealed token and reads the capture from the log itself"; fi
+
+echo "== koto calls per tick (shirabe#844) =="
+# On koto's cloud backend each context call costs seconds against the action's
+# 30-second cap, so the pass's own koto calls per tick are pinned: one listing
+# of reconcile/, a remove only for a key that is there, and the writes the
+# tick's outcome needs. The pass's helpers here are stand-ins that don't call
+# koto, so every `koto` line in the log is the pass's own.
+kcalls() { grep -c '^koto ' "$CASE/log" || true; }
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]: $(grep '^koto ' "$CASE/log")"; fi; }
+new_case calls
+record "[$(hold no-pr "")]"
+# The worker isn't in the first listing read, so the visit ends pending until
+# the second read, 30 seconds on.
+printf '%s\n' '{"kind":"host","status":"ok","state":"missed","reads":1,"read_at":"t"}' > "$CASE/check.host.1"
+: > "$CASE/log"; pass
+case "$LINE" in pending:7:*) ok "a visit's first tick ends pending" ;; *) bad "a visit's first tick ends pending" "$LINE" ;; esac
+eq "  ... in two koto calls: the listing and its progress" 2 "$(kcalls)"
+grep -q '^koto context remove' "$CASE/log" && bad "  ... and removes no key that isn't there" "$(cat "$CASE/log")" || ok "  ... and removes no key that isn't there"
+tick 31; : > "$CASE/log"; pass
+case "$LINE" in "reconciled "*) ok "the next tick seals" ;; *) bad "the next tick seals" "$LINE" ;; esac
+eq "  ... in five: the listing, progress removed, the report and its rendering, the read back" 5 "$(kcalls)"
+: > "$CASE/log"; pass
+eq "a tick in a sealed visit makes three: the listing and the report put back" 3 "$(kcalls)"
+echo 8 > "$CASE/visit"; : > "$CASE/log"; pass
+case "$LINE" in "reconciled "*" sealed:8:"*) ok "a new visit reads again and seals" ;; *) bad "a new visit reads again and seals" "$LINE" ;; esac
+eq "  ... in six: the listing, the old report's two keys removed, the new one's two written and read back" 6 "$(kcalls)"
 
 echo "== the clock =="
 # #481: the stand-ins advance the clock while the pass reads it. Four writers

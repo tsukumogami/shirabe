@@ -22,8 +22,14 @@
 #
 # Context keys written (all under reconcile/): progress (while pending),
 # refusal (when blocked), report.json, report.md, reasoning.md (when the
-# predecessor left reasoning). progress and refusal are cleared at the start
-# of every pass; a new visit removes the rest.
+# predecessor left reasoning). A pass leaves progress only when it ends
+# pending and refusal only when it ends blocked; a new visit removes the rest.
+#
+# koto's cost is per call, and on its cloud backend a context call takes
+# seconds against the 30-second cap on this action (shirabe#844). So the pass
+# lists its reconcile/ keys once, removes only a key that is there, and makes
+# no other context call it can do without: a tick of a pending visit makes
+# two, the sealing tick five at most. reconcile-pass_test.sh pins the counts.
 #
 # The pass writes the record in one case only: a holding left `dispatching`
 # whose worker the listing finds (and whose leg, when it has one, is bound or
@@ -119,8 +125,26 @@ iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 say() { printf '%s\n' "$1" >&3; exit 0; }
 die() { echo "reconcile-pass: $1" >&2; exit 1; }
 
-ctx_put() { koto context add "$SESSION" "$1" --from-file "$2" >/dev/null || die "koto context add $1 failed"; }
-ctx_rm() { koto context remove "$SESSION" "$1" >/dev/null 2>&1 || true; }
+# HAVE: the reconcile/ keys the session holds, space-separated with a space at
+# each end, from the one listing a pass makes and kept current by the pass's
+# own adds and removes.
+HAVE=" "
+list_keys() {
+    local out names
+    out=$(koto context list "$SESSION" --prefix reconcile/ < /dev/null 2>/dev/null) || die "koto context list failed"
+    names=$(jq -r '.[]' <<< "$out" 2>/dev/null) || die "koto context list printed no JSON array"
+    HAVE=" $(printf '%s ' $names)"
+}
+has_key() { case "$HAVE" in *" $1 "*) return 0 ;; esac; return 1; }
+ctx_put() {
+    koto context add "$SESSION" "$1" --from-file "$2" >/dev/null || die "koto context add $1 failed"
+    has_key "$1" || HAVE="$HAVE$1 "
+}
+ctx_rm() {
+    has_key "$1" || return 0
+    koto context remove "$SESSION" "$1" >/dev/null 2>&1 || true
+    HAVE=${HAVE/ $1 / }
+}
 ctx_rm_all() { local k; for k in progress refusal report.json report.md reasoning.md; do ctx_rm "reconcile/$k"; done; }
 
 T0=$(now) || exit 1
@@ -133,8 +157,10 @@ trap 'rm -rf "$T"' EXIT
 R="$T/reads"
 mkdir -p "$R" || die "can't create the reads directory"
 
+list_keys
+# A refusal belongs to the pass that wrote it; progress stays until this pass
+# says pending again (rewriting it), seals or blocks.
 ctx_rm reconcile/refusal
-ctx_rm reconcile/progress
 
 # The visit: the sequence number of the latest entry into this state.
 PROBE=$("${RUNBASH[@]}" "$RD_COORD_LOG" seal --session "$SESSION" --state "$STATE" --token visit) \
@@ -175,6 +201,7 @@ if [ -f "$WORK" ]; then
         ctx_put reconcile/report.json "$W/report.json"
         ctx_put reconcile/report.md "$W/report.md"
         [ -f "$W/reasoning.md" ] && ctx_put reconcile/reasoning.md "$W/reasoning.md"
+        ctx_rm reconcile/progress
         say "$LAST"
     elif ! [[ $LAST =~ ^pending:$VISIT:[0-9]+:([0-9a-f]{64})$ ]] || [ "${BASH_REMATCH[1]}" != "$WSHA" ]; then
         # Edited since the last logged pass, or left by a pass that never
@@ -200,6 +227,7 @@ if [ -z "$WJ" ]; then
         [ -n "$REASON" ] || REASON="the record could not be read"
         printf 'case: %s\nreason: %s\n' "$CASE" "$REASON" > "$T/refusal"
         ctx_put reconcile/refusal "$T/refusal"
+        ctx_rm reconcile/progress
         say "blocked:$CASE"
     fi
     RUN_START=$("${RUNBASH[@]}" "$RD_COORD_LOG" run-start --session "$SESSION") || die "the run's start can't be read"
@@ -454,6 +482,7 @@ jq -c --arg at "$(iso)" '
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" json < "$T/facts.json" > "$W/report.json" || die "the report could not be built"
 "${RUNBASH[@]}" "$HERE/reconcile-report.sh" md < "$W/report.json" > "$W/report.md" || die "the report could not be rendered"
 DIGEST=$(rd_sha256 < "$W/report.json")
+ctx_rm reconcile/progress
 ctx_put reconcile/report.json "$W/report.json"
 ctx_put reconcile/report.md "$W/report.md"
 if [ "$(wj -r '.record.reasoning // empty')" = present ] && [ -f "$W/reasoning.md" ]; then

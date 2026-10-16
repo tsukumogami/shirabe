@@ -45,8 +45,11 @@ shirabe	validate	--pr-body,--pr-title,--format	always
 # roadmap-status.sh regenerates a roadmap's generated sections after it
 # writes a landed feature's Status and Delivered line.
 shirabe	roadmap populate	-	always
-# The reconcile pass. reconcile-pass.sh clears and writes its reconcile/ keys,
-# and reconcile-check.sh stops a read's children at its deadline with pkill.
+# The reconcile pass. reconcile-pass.sh lists its reconcile/ keys once a pass
+# (`context list --prefix`, in koto's minimum), removes only those present and
+# writes the rest, and reconcile-check.sh stops a read's children at its
+# deadline with pkill. The dispatch path lists a run's legs/ keys the same way.
+koto	context list	--prefix	always
 # It also reads a request leg and the workspace manager's listing, declared
 # below with the dispatch path's records.
 koto	context remove	-	always
@@ -87,10 +90,10 @@ koto	context exists	-	always
 # naming it, before any key is written. The records are mode:session-store,
 # never checked at load, so a run on the GitHub store keeps shirabe's koto
 # minimum; the probe is the check that runs. The session store's other calls
-# (`context exists`, `context remove`, `session list`) are declared above.
+# (`context exists`, `context remove`, `session list`) are declared above, and
+# so is `context list --prefix`, which every run makes on either store.
 # `session import` has one call site, coordinate-open.sh --import, which asks
 # the probe first, compiles the shipped template (`template compile`, declared
 # above, so koto finds the run's template in this host's cache), and passes
 # --from always and --trust-template only when the operator gave it.
-koto	context list	--prefix	mode:session-store
 koto	session import	--from,--trust-template	mode:session-store
