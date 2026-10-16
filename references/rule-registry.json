@@ -133,7 +133,13 @@
         "references/pr-body-conformance.md#L57-L60"
       ],
       "aliases": [],
-      "notes": "Shares its text and baseline key with pr-body/no-ai-trailer; PB3's predicate is applied to commit trailers."
+      "notes": "Shares its text and baseline key with pr-body/no-ai-trailer; PB3's predicate is applied to commit trailers.",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "push"
+        ]
+      }
     },
     {
       "id": "docs/absorbed-declaration",
@@ -896,7 +902,13 @@
         "references/pr-body-conformance.md#L34-L79"
       ],
       "aliases": [],
-      "notes": "The catch-all for a validator message no narrower pr-body rule matches; its text contains PB1 to PB4."
+      "notes": "The catch-all for a validator message no narrower pr-body rule matches; its text contains PB1 to PB4.",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
+      }
     },
     {
       "id": "pr-body/conventional-title",
@@ -931,7 +943,13 @@
       "aliases": [
         "PB1"
       ],
-      "notes": "Shares its text with commit/conventional-subject."
+      "notes": "Shares its text with commit/conventional-subject.",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
+      }
     },
     {
       "id": "pr-body/no-ai-trailer",
@@ -966,7 +984,13 @@
       "aliases": [
         "PB3"
       ],
-      "notes": "Shares its text and baseline key with commit/no-ai-trailer."
+      "notes": "Shares its text and baseline key with commit/no-ai-trailer.",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
+      }
     },
     {
       "id": "pr-body/no-heading-in-part1",
@@ -1004,6 +1028,12 @@
       "backstop": {
         "before": "merge",
         "check": ".github/workflows/validate-pr-body.yml"
+      },
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
       }
     },
     {
@@ -1039,7 +1069,13 @@
       "aliases": [
         "PB2"
       ],
-      "notes": ""
+      "notes": "",
+      "deny": {
+        "hook": "hooks/pre-action-deny.sh",
+        "before": [
+          "pr-create"
+        ]
+      }
     },
     {
       "id": "prose/banned-word",
