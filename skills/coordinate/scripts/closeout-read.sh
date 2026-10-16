@@ -41,11 +41,13 @@
 #                      isn't confirmed (roadmap-status.sh); the reason names
 #                      it, `verdict-owed <tag>`, and the detail's blocker is
 #                      its row (docs/designs/DESIGN-milestone-verdicts.md)
-#   features-open <n>  a feature under `## Features` doesn't read Done,
-#                      Shipped or Dropped (annotated or not, as in
-#                      `Done -- shipped in #12`, as lib_roadmap_features
-#                      reads it), the roadmap lists no feature, or it is
-#                      missing
+#   features-open <n>  an item under the roadmap's items section
+#                      (`## Milestones` on roadmap/v3, `## Features`
+#                      otherwise) doesn't read Done, Shipped or Dropped
+#                      (annotated or not, as in `Done -- shipped in #12`, as
+#                      lib_roadmap_features reads it), the roadmap lists no
+#                      item, or it is missing; on v3 the reason names
+#                      milestones
 #   holdings <n>       Holdings isn't empty
 #   side-effects <n>   Side effects in flight isn't empty; a milestone's
 #                      pending reopen edit (roadmap-status.sh --reopen) is
@@ -170,13 +172,16 @@ if [ "$SCOPE" = roadmap ]; then
         finish "verdict-owed $REF"
     fi
     lib_roadmap_features "$T/roadmap.md" > "$T/features.json" || lib_die2 "cannot parse the roadmap's features"
+    # RM_SECTION and RM_WORD, from the reader: the item is a milestone on v3.
+    ITEM=feature
+    [ "$RM_WORD" = Milestone ] && ITEM=milestone
     if [ "$(jq length "$T/features.json")" -eq 0 ]; then
-        REASON="the roadmap lists no feature under ## Features"; finish "features-open $REF"
+        REASON="the roadmap lists no $ITEM under ## $RM_SECTION"; finish "features-open $REF"
     fi
     OPEN=$(jq -c '[.[] | select(.done | not)]' "$T/features.json")
     if [ "$(printf '%s' "$OPEN" | jq length)" -gt 0 ]; then
         BLOCKER=$(printf '%s' "$OPEN" | jq -c '.[0] | {id, title, status}')
-        REASON="$(printf '%s' "$OPEN" | jq length) feature(s) not Done, Shipped or Dropped"
+        REASON="$(printf '%s' "$OPEN" | jq length) $ITEM(s) not Done, Shipped or Dropped"
         finish "features-open $REF"
     fi
     if [ "$(jq '.holdings | length' "$T/parsed.json")" -gt 0 ]; then

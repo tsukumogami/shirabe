@@ -231,7 +231,8 @@ one definition of each rule and nothing to drift. Run `shirabe validate
 ### Out of Scope
 - Each exclusion is deliberate and explained
 - Helps prevent scope creep during implementation
-- References future work when applicable ("deferred to Feature N")
+- References future work when applicable ("deferred to Milestone N", or
+  "Feature N" on a roadmap older than `roadmap/v3`)
 
 ### Common Pitfalls
 - Too broad ("Improve the app") -- narrow to a specific capability or user need

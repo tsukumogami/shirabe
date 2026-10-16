@@ -124,7 +124,8 @@ Identify and document:
 Identify and document:
 
 - **Scope Summary**: 1-2 sentence summary from the roadmap's Theme and Scope
-- **Features**: List each feature from the Features section with:
+- **Features**: List each feature from the Features section (the Milestones
+  section on a `roadmap/v3` roadmap, whose items are milestones) with:
   - Feature name
   - Brief description (1-2 sentences)
   - `needs_label`: the `needs-*` label this feature requires (needs-prd, needs-design,

@@ -358,11 +358,11 @@ def rework_cap:
   if utf8bytelength <= 600 then .
   else (explode | until((implode | utf8bytelength) <= 597; .[:-1]) | implode) + "..." end;
 # A milestone's heading tag, as a verdict-owed row's Item names it: the
-# heading-tag grammar roadmap-status.sh takes (`Feature 7`, `ED1`, `AB10b`).
-def re_heading_tag: "^(Feature [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$";
+# heading-tag grammar roadmap-status.sh takes (`Feature 7`, `Milestone 7`, `ED1`, `AB10b`).
+def re_heading_tag: "^(Feature [0-9]+|Milestone [0-9]+|[A-Za-z]+[0-9]+[a-z]?)$";
 def s_text_cols: {run: ["value", "set_by"], standing: ["what", "owner", "relayed_by"], work: ["item", "who", "next"]};
 # A unit as pick lists it: a roadmap feature's heading tag or an issue.
-def re_unit: "^(Feature [1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*)$";
+def re_unit: "^(Feature [1-9][0-9]*|Milestone [1-9][0-9]*|[A-Za-z]+[1-9][0-9]*|#[1-9][0-9]*|[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+#[1-9][0-9]*)$";
 # A pause's resume condition: the merge policy's hold conditions and a time.
 def pause_until_ok:
   . == "lifted"
@@ -385,7 +385,7 @@ def check_scell($sk; $key; $private):
     elif $sk == "standing" and $key == "kind" then (if any(standing_kinds[]; . == $v) then . else refuse("standing.kind: not one of \(standing_kinds | join(", "))") end)
     elif $sk == "work" and $key == "kind" then (if any(work_kinds[]; . == $v) then . else refuse("work.kind: not holding, local-agent, decision, follow-up, verdict-owed or rework") end)
     elif $sk == "work" and $key == "wakes" then (if test("^(0|[1-9][0-9]{0,5})$") then . else refuse("work.wakes: not a count") end)
-    elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) or test(re_assigned) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)") end)
+    elif $sk == "standing" and $key == "on" then (if . == "all" or test(re_unit) or test(re_assigned) then . else refuse("standing.on: not `all` or a unit (`Feature 2`, `Milestone 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)") end)
     elif $sk == "standing" and $key == "until" then (if pause_until_ok then . else refuse("standing.until: not `lifted`, `time <YYYY-MM-DDTHH:MMZ>`, `merged owner/repo#n` or `tag owner/repo <tag>`") end)
     else . end
   | if ($v != "") and $sk == "standing" and ($key == "on" or $key == "until") then
@@ -421,16 +421,16 @@ def check_srow($sec; $private):
        else . end)
     elif $sec.key == "work" and .kind == "holding" then (.who | check_worker) as $_ | .
     elif $sec.key == "work" and (.kind == "decision" or .kind == "follow-up") then
-      (if ((.item | test(re_unit)) or (.item | test(re_assigned))) | not then refuse("work.item: a \(.kind) row's Item is a unit as pick lists it (`Feature 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)")
+      (if ((.item | test(re_unit)) or (.item | test(re_assigned))) | not then refuse("work.item: a \(.kind) row's Item is a unit as pick lists it (`Feature 2`, `Milestone 2`, `ED1`, `#12`, `owner/repo#12`, `release owner/repo <tag>`)")
        elif .kind == "decision" and (.who | test("^decision [1-9][0-9]*$") | not) then refuse("work.who: a decision row's Who is `decision <n>`")
        elif .kind == "follow-up" and (.who | test(re_pr_ref) | not) then refuse("work.who: a follow-up row's Who is the pull request that landed its scoping, `owner/repo#n`")
        else . end)
     elif $sec.key == "work" and .kind == "verdict-owed" then
-      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a verdict-owed row's Item is a milestone's heading tag (`Feature 2`, `MV1`, `AB10b`)")
+      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a verdict-owed row's Item is a milestone's heading tag (`Feature 2`, `Milestone 2`, `MV1`, `AB10b`)")
        elif (.next | test("^verdict owed since [0-9]{4}-[0-9]{2}-[0-9]{2}$") | not) then refuse("work.next: a verdict-owed row's Next step is `verdict owed since YYYY-MM-DD`")
        else (.who | check_worker) as $_ | . end)
     elif $sec.key == "work" and .kind == "rework" then
-      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a rework row's Item is a milestone's heading tag (`Feature 2`, `MV1`, `AB10b`)")
+      (if (.item | test(re_heading_tag) | not) then refuse("work.item: a rework row's Item is a milestone's heading tag (`Feature 2`, `Milestone 2`, `MV1`, `AB10b`)")
        elif (.who | test("^(verdict|failure) [1-9][0-9]*$") | not) then refuse("work.who: a rework row's Who is `verdict <id>` or `failure <id>`, the record comment holding its verdict or failure entry")
        elif (.next | rework_problem) != null then refuse("work.next: a rework row's text is one paragraph of at most 600 bytes with no URL or markdown link: \(.next | rework_problem)")
        else . end)

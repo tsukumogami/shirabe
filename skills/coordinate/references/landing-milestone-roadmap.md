@@ -1,7 +1,11 @@
 # Landing on a Milestone Roadmap
 
 Read from `merge_confirm` and `merged_facts` when the run's roadmap is a
-milestone roadmap (`schema: roadmap/v2`).
+milestone roadmap (`schema: roadmap/v2` or `roadmap/v3`). The two read the
+same: a v3 roadmap lists its milestones under `## Milestones` with
+`### Milestone N:` headings where v2 has `## Features` and `### Feature N:`,
+and a record that names a unit `Feature N` still matches the heading
+`Milestone N`.
 
 A merge never sets a milestone's status. Don't dispatch a worker for a
 pull request that changes a milestone's Status or Delivered line, and don't

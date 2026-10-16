@@ -20,7 +20,9 @@
 # Shipped or Dropped (an annotated `Done -- shipped in #12` and
 # `Shipped (#34)` included) and a clear record; the roadmap read from the default branch; the sealed
 # token and coord/closeout.json naming the first blocker; every token in
-# koto's capture alphabet.
+# koto's capture alphabet. On a roadmap/v3 roadmap an open `### Milestone N:`
+# blocks, named in the detail with a reason that counts milestones, all Done
+# or Dropped is ready, and a `## Features` section there lists none.
 #
 # Runs in a localized plugin tree whose board-verdict.sh is a stand-in that
 # prints $BOARD_OUT.
@@ -288,5 +290,30 @@ log_to "$S" roadmap_blocked roadmap_close
 OUT=$(bash "$CR" --session "$S" 2>"$T/err")
 eq "a verdict owed reads through the session too" "verdict-owed 7" "${OUT% sealed:*}"
 eq "  ... and coord/closeout.json's blocker is its row" "Feature 2 verdict owed since 2026-09-26" "$(jq -r '"\(.blocker.item) \(.blocker.next)"' "$KOTO_STORE/context/$S/coord/closeout.json")"
+
+echo "== roadmap/v3: open milestones =="
+# roadmap3 <status1> <status2> <status3>: the roadmap as roadmap/v3, its items
+# under `## Milestones` headed `### Milestone N:`.
+roadmap3() {
+    roadmap "$@" | awk 'NR == 1 { print; print "schema: roadmap/v3"; next } { print }' \
+        | sed -e 's/^## Features$/## Milestones/' -e 's/^### Feature \([0-9]\)/### Milestone \1/'
+}
+cr_detail() { jq -r "$1" "$KOTO_STORE/context/$S/coord/closeout.json"; }
+rm_seed "$CLEAR"; file_at main "$RP" "$(roadmap3 Done 'In progress' Done)"
+log_to "$S" roadmap_blocked roadmap_close
+OUT=$(bash "$CR" --session "$S" 2>"$T/err")
+eq "v3: a milestone not Done is features-open" "features-open 7" "${OUT% sealed:*}"
+eq "  ... coord/closeout.json names the open milestone and counts milestones" "Milestone 2 In progress|1 milestone(s) not Done, Shipped or Dropped" \
+    "$(cr_detail '"\(.blocker.id) \(.blocker.status)|\(.reason)"')"
+file_at main "$RP" "$(roadmap3 Done 'Done -- shipped in #12' Dropped)"
+eq "v3: every milestone Done or Dropped and a clear record is ready" "ready 7" "$(rm_read)"
+file_at main "$RP" "$(printf -- '---\nschema: roadmap/v3\n---\n\n## Features\n\n### Feature 1: Loader\n**Status:** In progress\n\n## Milestones\n\nNone yet.\n')"
+log_to "$S" roadmap_blocked roadmap_close
+OUT=$(bash "$CR" --session "$S" 2>"$T/err")
+eq "v3: a ## Features section is no milestone, so none is listed" "features-open 7|the roadmap lists no milestone under ## Milestones" "${OUT% sealed:*}|$(cr_detail .reason)"
+file_at main "$RP" "$(roadmap Done Done 'Not started')"
+log_to "$S" roadmap_blocked roadmap_close
+bash "$CR" --session "$S" >/dev/null 2>"$T/err"
+eq "v1: the reason still counts features" "1 feature(s) not Done, Shipped or Dropped" "$(cr_detail .reason)"
 
 done_tests closeout-read
