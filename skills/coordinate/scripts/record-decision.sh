@@ -611,7 +611,11 @@ archive)
       | .archived = ((.archived // []) + ($go | map(.decision | tonumber)) | unique)
       | if ($ks | length) > 0 then .kept = {run: $run, stamps: $ks} else del(.kept) end' --argjson parked "$PARKED"
     # The rows as the live body holds them, in entries of at most 50,000 bytes
-    # of rows, well under record-append.sh's 60,000-byte entry.
+    # of rows, well under record-append.sh's 60,000-byte entry. SEC still reads
+    # parsed.json, which change leaves as it was. The entries go up before the
+    # body is written: a post that fails leaves the body whole, and a write that
+    # fails after it leaves only a duplicate entry, which restore never minds,
+    # since it reads the latest unedited one holding a row.
     SEC | jq -c -L "$HERE" --arg run "$RUN" --argjson parked "$PARKED" 'include "record-codec";
         [.entries[] | select(d_archivable($parked))]
         | reduce .[] as $e ([];

@@ -621,7 +621,7 @@ entry the workflow routed. The states and checks, all in the template:
   while anything that blocks a dispatch is owed; nothing blocks `wait`. On a
   record within 4 KB of its budget it first archives every settled entry that
   owes nothing (`record-decision.sh --archive`), so a long run never stalls on
-  a full record; evidence or a citation naming an archived entry brings it
+  a full record; evidence, an answer or a citation naming an archived entry brings it
   back. `record-full` is left for a record full of what can't move.
 - **The verdict.** At `decision_verdict` you settle it, escalate it or hold it
   with what it waits on. For a question that isn't obviously answerable, run

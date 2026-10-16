@@ -387,10 +387,12 @@ scope's, stamps the entry from the host clock in UTC to the second, and posts:
 The record's other writers post their own kinds with `--kind`, which takes
 the place of `entry` in both lines. The milestone steps post three:
 `milestone-verdict`, `goal-fit` and `milestone-failure`, whose lines are
-under Milestone Verdicts.
+under Milestone Verdicts. `record-decision.sh --archive` posts `decisions`,
+the settled Decisions rows it moves out of the body (see the archive under
+Decisions).
 
-An entry never grows and is never rewritten, so the record needs no archive
-however long the run. Write one when something happens that a successor would
+An entry never grows and is never rewritten, so the entries need no archive
+however long the run; only the body's Decisions section does. Write one when something happens that a successor would
 need the story of: what you dispatched and why, what a person told you, what
 you decided and on what evidence. On a public host the text gets the checks the
 Decisions section's text gets (no private repository, home-directory path or

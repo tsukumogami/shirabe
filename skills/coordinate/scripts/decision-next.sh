@@ -136,7 +136,9 @@ live_size() {
     SIZE=$(wc -c < "$T/live.md" | tr -d ' ')
 }
 # The archive: settled entries leave a record within the margin, except one a
-# unit is parked on (the codec's d_parked).
+# unit is parked on (the codec's d_parked). The plain d_archivable is only a
+# pre-filter, so a section with nothing settled never reads the live record;
+# d_archivable($p) decides.
 ARCHIVE=false
 if jq -e -L "$HERE" 'include "record-codec"; any(.entries[]; d_archivable)' "$T/section.json" > /dev/null; then
     live_size

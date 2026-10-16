@@ -2527,8 +2527,9 @@ parse or whose rotation closed without merging, or a record check that found a
 record too full for the next decision write (`record-full`: the record is near
 GitHub's size limit with nothing left that can move, since decision-next.sh
 has already archived every settled entry it could; the way out, as the script
-says, is to prune the record, which is the human's call), and a message the workflow refused to render (`refused`: the entry no
-longer owes it as recorded, so the record changed underneath). Don't pick among
+says, is to prune the record, which is the human's call), and a message the
+workflow refused to render (`refused`: the entry no longer owes it as
+recorded, so the record changed underneath). Don't pick among
 candidates and don't repair a record by hand: the human decides. A pull request
 on the record's branch that isn't a record is a scope question.
 
