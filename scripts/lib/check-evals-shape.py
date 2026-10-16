@@ -10,6 +10,8 @@ skill. It checks the file the eval harness reads without running it:
   - every entry under `evals` has a non-empty `name` and a non-empty `prompt`;
   - every entry has at least one of `expectations` or `assertions` as a
     non-empty list. Both shapes are in use across the suites;
+  - `tier`, when present, is 1 or 2; every reader takes tier-2 as any tier
+    other than 1, so no other value is let through;
   - every tier-2 entry (`tier` other than 1) names the behaviour it exercises
     in `behaviour`, a kebab-case slug, and each behaviour has exactly one entry
     with `"release": true`: the scenario the release eval check runs for it
@@ -90,12 +92,24 @@ def check(path):
             problems.append("%s: `name` can't contain a comma" % where)
         if not non_empty_string(entry.get("prompt")):
             problems.append("%s: missing or empty `prompt`" % where)
+        if not tier_ok(entry):
+            # Every reader takes tier-2 as `tier` other than 1 (scripts/run-evals.sh,
+            # scripts/scheduled-evals.py, the release subset below), so a tier of
+            # 3 or "2" would be read as tier-2 by some and not others: refuse it.
+            problems.append("%s: `tier` is 1 or 2 (absent means 1), not %s"
+                            % (where, json.dumps(entry.get("tier"))))
         if not (non_empty_list(entry.get("expectations"))
                 or non_empty_list(entry.get("assertions"))):
             problems.append(
                 "%s: needs a non-empty `expectations` or `assertions` list" % where)
     problems.extend(check_release_subset(path, evals))
     return problems
+
+
+def tier_ok(entry):
+    """`tier` is absent, 1 or 2; a boolean is neither, though Python's True == 1."""
+    tier = entry.get("tier", 1)
+    return not isinstance(tier, bool) and tier in (1, 2)
 
 
 def check_release_subset(path, evals):
@@ -106,6 +120,8 @@ def check_release_subset(path, evals):
         if not isinstance(entry, dict):
             continue
         where = "%s: %s" % (path, label(index, entry))
+        if not tier_ok(entry):
+            continue  # refused above; its release keys would only repeat it
         tier2 = entry.get("tier", 1) != 1
         behaviour = entry.get("behaviour")
         if "release" in entry and entry["release"] is not True:
