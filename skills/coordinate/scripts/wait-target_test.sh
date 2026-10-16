@@ -294,6 +294,10 @@ printf '{"path":"none"}\n' >"$ST/ctx/wait_target"
 eq  "source: a leg report with no leg read goes to the human" 3 "$(src gamma leg)"
 eq  "source: a leg report for a topic with no holding goes to the human" 3 "$(src nobody leg)"
 eq  "source: a message for a message-path worker is admitted" 0 "$(src beta message)"
+jq -c 'map(if .worker == "beta" then .dispatch_status = "stranded" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
+eq  "source: a message for a stranded worker is refused" 1 "$(src beta message)"
+eq  "source: so is its progress" 1 "$(src beta progress)"
+jq -c 'map(if .worker == "beta" then .dispatch_status = "dispatched" else . end)' "$ST/rows.json" >"$ST/rows.x" && mv "$ST/rows.x" "$ST/rows.json"
 req req_g execute open
 eq  "source: a message for a leg-bound worker is refused" 1 "$(src gamma message)"
 # PRD R16: once the leg is read or can't be watched from here, a message is

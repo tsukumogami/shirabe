@@ -971,6 +971,7 @@ imp_setup
 # The listing names the leg being re-legged too, as a store that did hold it
 # would: it is never abandoned.
 printf '{"requests":[{"request_id":"req_7","coordinator_of_record":"coordinate-plugin-api","request_state":"open"},{"request_id":"req_9","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+jq -nc '{request_id: "req_7", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: null}}}' >"$ST/requests/req_7.json"
 run --releg-imported plugin-api >/dev/null 2>&1; eq "crash: killed before releg-pending, a re-run finishes: exit 0" 0 "$?"
 has "  ... abandoning the request the interrupted run left" "$(calls)" "koto request abandon-request req_7"
 lacks "  ... and never the request being re-legged" "$(calls)" "koto request abandon-request req_9"
@@ -1033,6 +1034,10 @@ imp_setup
 jq -nc '{request_id: "req_5", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: "deliver-plugin-api"}}}' >"$ST/requests/req_5.json"
 printf '{"requests":[{"request_id":"req_5","coordinator_of_record":"coordinate-other","request_state":"open"}]}\n' >"$ST/open_requests.json"
 run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: a child bound to another leg here is 9" 9 "$?"
+untouched "  ... nothing done"
+imp_setup
+printf '{"requests":[{"request_id":"req_6","coordinator_of_record":"coordinate-other","request_state":"open"}]}\n' >"$ST/open_requests.json"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "refused: an open request whose binding can't be read stops the re-leg: 2" 2 "$?"
 untouched "  ... nothing done"
 imp_setup
 jq -nc '{request_id: "req_9", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: null}}}' >"$ST/requests/req_9.json"

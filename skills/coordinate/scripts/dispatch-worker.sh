@@ -516,8 +516,11 @@ rebind() {
 
 # --- --releg-imported -------------------------------------------------------------------------
 
-# request_view <request>: koto's record of a request on this host. Returns 0
-# read, 1 this host's store doesn't hold it, 2 a failed read.
+# request_view <request>: koto's record of a request on this host, into VIEW.
+# Returns 0 read, 1 this host's store doesn't hold it, 2 a failed read. koto
+# answers a request its store doesn't hold with exit 2 (request_not_found),
+# the code reconcile-check.sh's leg read and record-handover.sh read the
+# same way.
 request_view() {
     local rc
     VIEW=$("$KOTO" request get "$1" </dev/null)
@@ -539,14 +542,18 @@ child_facts() {
              variables: ([.[] | select(.type == "workflow_initialized")][0].payload.variables // {})}' "$log"
 }
 
-# bound_elsewhere <session> <except-request>: 0 when the session is bound to an
-# open leg of any open request on this host other than <except-request>.
+# bound_elsewhere <session> <pending-request> <relegged-request>: 0 when the
+# session is bound to an open leg of any open request on this host other than
+# this re-leg's own two (the pending new one, and the old one, which this
+# host's store doesn't hold anyway). A
+# request it can't read stops the run (exit 2) rather than being passed
+# over: binding a session a second time is the one thing a re-leg must not do.
 bound_elsewhere() {
     local list r v
     list=$("$KOTO" request list --state open </dev/null) || die 2 "koto request list failed"
     while IFS= read -r r; do
-        [ -n "$r" ] && [ "$r" != "$2" ] || continue
-        v=$("$KOTO" request get "$r" </dev/null) || continue
+        [ -n "$r" ] && [ "$r" != "$2" ] && [ "$r" != "$3" ] || continue
+        v=$("$KOTO" request get "$r" </dev/null) || die 2 "cannot read request $r to check what $1 is bound to"
         jq -e --arg c "$1" '(.request // .) | [.legs[]? | select(.disposition == "open" and .bound_child == $c)] | length > 0' <<<"$v" >/dev/null &&
             return 0
     done <<EOF
@@ -634,7 +641,7 @@ if [ -n "$IMPORTED" ]; then
     esac
     jq -e --argjson in "$INPUTS" '.variables as $v | all($in | to_entries[]; $v[.key] == .value)' <<<"$FACTS" >/dev/null ||
         die 9 "the child $CHILD's variables differ from the declaration $INPUTS"
-    if bound_elsewhere "$CHILD" "$NEW"; then
+    if bound_elsewhere "$CHILD" "$NEW" "$REQ"; then
         die 9 "the child $CHILD is bound to another leg on this host: $TOPIC can't be re-legged"
     fi
 

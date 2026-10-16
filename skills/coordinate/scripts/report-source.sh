@@ -8,7 +8,9 @@
 # the leg the record names. The gate reads the reporting topic's holding from
 # the record: a message report is admitted for a holding whose return path is
 # `message`, or whose leg is spent for reporting (its key reads taken or
-# unwatchable, or this host's store doesn't hold its request: PRD R16); a leg
+# unwatchable, koto's own record of the leg holds the result the worker's
+# session promoted, or this host's store doesn't hold its request: PRD R16);
+# nothing is admitted for a stranded holding; a leg
 # report only when the holding's return path is the
 # leg the wait state read (wait_target), which wait_leg's gate admitted on a
 # promoted result, and only when koto's own record of the leg holds a
@@ -30,8 +32,8 @@
 # Exit codes (overridable: false on the gate):
 #   0  the report may stand for its worker
 #   1  refused message: a message for a leg-bound worker whose leg is still
-#      watched here, or no holding for the topic (a progress report with no
-#      holding too)
+#      watched here, a stranded holding, or no holding for the topic (a
+#      progress report with no holding, or a stranded one, too)
 #   2  a read failed, the record refused the read, or an input is malformed
 #   3  refused leg report: no holding for the topic, a leg other than the
 #      one the record names, or a report that isn't the promoted result koto
@@ -78,6 +80,14 @@ case "$?" in
     *) printf '%s: the record could not be read for %s\n' "$PROG" "$TOPIC" >&2; exit 2 ;;
 esac
 RP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')")
+
+# A stranded holding's unit is going out again under a new topic
+# (record-holding.sh --strand): nothing its old worker sends stands for it,
+# before the row is retired as after.
+if [ "$(jq -r '.dispatch_status // "" | strings' <<<"$ROW")" = stranded ]; then
+    printf '%s: %s is stranded; its unit is dispatched again under a new topic\n' "$PROG" "$TOPIC" >&2
+    exit "$REFUSED"
+fi
 
 # Progress is never a result: any holding's worker may send it.
 [ "$SOURCE" = progress ] && exit 0

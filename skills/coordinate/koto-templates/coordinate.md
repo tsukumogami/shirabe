@@ -3205,8 +3205,9 @@ A report is admitted only when it has text and when it may stand for its
 worker: a message for a worker on the message path, a leg result for the leg
 the record names, or a progress report from any worker with a holding. A message for a leg-bound worker goes back to the hub; read
 that worker's leg instead. Once that leg is read (its `legs/` key reads
-`taken`), or can't be watched from this host (`unwatchable`, or a request
-this host's store doesn't hold), a message is the only way the worker can
+`taken`, or koto's own record of the leg holds the worker's promoted result),
+or can't be watched from this host (`unwatchable`, or a request this host's
+store doesn't hold), a message is the only way the worker can
 report, so it stands as a message report from `worker <topic>`, questions
 included. A leg report must be exactly the result koto holds
 for that leg, promoted by the worker's own session; the gate reads the leg

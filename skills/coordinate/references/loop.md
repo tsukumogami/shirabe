@@ -70,7 +70,8 @@ measured, verified by reading, or inferred:
    with `scripts/reconcile-legs.sh`: the worker's own session, if it came here
    with the coordinator's and is bound to nothing, is attached to a new request
    on this host and the holding names it; any other worker moves to the
-   message path, and its `legs/` key reads unwatchable. The report says which,
+   message path, and its `legs/` key, when it has one, reads unwatchable. The
+   report says which,
    under "Changed since then", and `record-handover.sh` holds the run at
    `reconcile` (`leg-unclassified`) until each such leg has its end.
 5. **Re-check side effects in flight.** A merge is confirmed when GitHub's

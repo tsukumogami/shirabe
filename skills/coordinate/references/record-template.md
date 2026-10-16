@@ -430,12 +430,15 @@ and an import brings them all from the other host.
 Each worker leg is a key of the coordinator's session on either store,
 `legs/<request>/<leg>`: the worker's topic, the leg's templates and pinned
 inputs, the bound session's name once one attaches, and its result once read.
-`dispatch-worker.sh` writes it (`open`, `replaced`, `spent`) and
-`wait-target.sh` adds the child and the end (`taken` with the result, or
-`spent`). After an import `reconcile-legs.sh` gives a leg whose request this
-host's store doesn't hold its end: `relegged` (naming the new request, whose
-own key reads `open` from the old one) or `unwatchable`. A record on GitHub
-never shows them.
+`dispatch-worker.sh` writes it at dispatch (`open`) and when a new leg
+replaces it (`replaced`) or a launch fails (`spent`); `wait-target.sh` adds
+the child and the end (`taken` with the result, or `spent`). After an import,
+a leg whose request this host's store doesn't hold gets its end from
+`reconcile-legs.sh`: re-legged by `dispatch-worker.sh --releg-imported`, which
+marks the old key `releg-pending` and then `relegged`, naming the new request,
+and writes the new request's key `open` with `from` naming the old one; or
+`unwatchable`, its holding moved to message. dispatch-common.sh lists the
+states and their meaning. A record on GitHub never shows them.
 
 A coordinator's state lives outside its session and outside any directory the
 workspace manager converges, and what must outlive the host lives on GitHub,

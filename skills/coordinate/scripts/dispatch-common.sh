@@ -113,14 +113,13 @@
 #       whichever store the record is on, so an import or a carry moves a
 #       run's legs with its session.
 #
-#   dc_leg_list <session>
-#       Prints every leg key's name, one per line. Returns 2 when the listing
-#       fails.
-#
 #   dc_leg_get <session> <request> <leg>
 #       Prints the leg key's JSON object. Returns 0 read, 1 no such key, 2 a
 #       failed read or a value that isn't a JSON object. Presence comes from
-#       a listing, so an absent key and a failed read stay apart.
+#       a listing, so an absent key and a failed read stay apart: `context
+#       get` fails the same way for both, and `context exists` on koto's
+#       cloud backend retries an absent key's 404 for about a second
+#       (record-source.sh rs_list).
 #
 #   dc_leg_put <session> <request> <leg> <json>
 #       Writes the leg key whole. Returns 0, or 2 when the value isn't a JSON
@@ -135,7 +134,7 @@
 #     taken          wait-target.sh read its result, kept beside it
 #     spent          it ended with no result its worker promoted
 #     replaced       a new leg replaced it on this host (--releg, an
-#                    execution sent, a re-leg after an import)
+#                    execution sent)
 #     releg-pending  an import's re-leg opened new_request and hasn't finished
 #     relegged       the re-leg finished: the holding names new_request
 #     unwatchable    after an import its worker can't be watched from this
@@ -423,12 +422,6 @@ dc_rp_to_row() {
 DC_RE_LEG_STATE='^(open|taken|spent|replaced|releg-pending|relegged|unwatchable)$'
 
 dc_leg_key() { printf 'legs/%s/%s\n' "$1" "$2"; }
-
-dc_leg_list() {
-    local out
-    out=$("${KOTO:-koto}" context list "$1" --prefix legs/ </dev/null) || return 2
-    jq -r 'if type == "array" then .[] else error("not an array") end' <<<"$out" || return 2
-}
 
 dc_leg_get() {
     local key out
