@@ -52,11 +52,10 @@
 # and any path that selects every suite settles the run:
 #   - nothing changed, or no merge-base: every suite;
 #   - a path under any skill's evals/ (skills/<name>/evals/): the suites
-#     that can read it, which are those that name evals, directly or through
-#     one of the skill's scripts/*.sh and *.jq files that does, and those
-#     that list files (find, grep -r, git ls-files). The eval harness reads
-#     evals/, the script suites mostly don't, so a change to it alone runs
-#     few suites, or none;
+#     that can read it (evals_readers: those that name evals directly or
+#     through a helper, and those that walk the tree). The eval harness
+#     reads evals/, the script suites mostly don't, so a change to it alone
+#     runs few suites, or none;
 #   - any other path outside skills/<skill>/: every suite;
 #   - a path under a subdirectory of scripts/ (testdata, test libraries):
 #     every suite;
@@ -313,17 +312,29 @@ callers_of() {
     done
 }
 
+# A path under a skill's evals/: skills/<name>/evals/...
+EVALS_PATH_RE='^skills/[^/]*/evals/'
+
 # evals_readers: the suites that can read a skill's evals/ (shirabe#851), one
-# per line: those that name evals, directly or through one of the skill's
-# scripts/*.sh and *.jq files that does, and those that list files (find,
-# grep -r, git ls-files), which read whatever the tree holds.
+# per line. That's those that name evals, directly or through a helper (any
+# file under the skill's scripts/ that isn't a suite) that names evals or names
+# such a helper, two levels in all; and those that walk the tree (find, ls -R,
+# cp -r, grep -r or --recursive, git grep, git ls-files, rg), which read
+# whatever it holds. Unlike the rules for scripts, this one can't fall back to
+# every suite when it misses: a suite that reaches evals/ some other way (a
+# third-level helper, a path built at run time) is left out. Matching errs
+# toward selecting more.
 evals_readers() {
-    local helpers
-    helpers=$(grep -lF evals "$SKILL_DIR"/scripts/*.sh "$SKILL_DIR"/scripts/*.jq 2>/dev/null \
-        | grep -v '_test\.sh$' | sed 's|.*/||')
+    local walk h1 h2
+    walk='evals|(^|[^A-Za-z0-9_-])(find|rg|git grep)[[:space:]]|(^|[^A-Za-z0-9_-])grep([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*[rR][A-Za-z]*([[:space:]]|$)|grep[[:space:]].*--recursive|ls-files|(^|[^A-Za-z0-9_-])ls[[:space:]]+-[A-Za-z]*R|(^|[^A-Za-z0-9_-])cp[[:space:]]+-[A-Za-z]*[rRa]'
+    h1=$(find "$SKILL_DIR/scripts" -type f ! -name '*_test.sh' -exec grep -lF evals {} + 2>/dev/null \
+        | sed 's|.*/||' | sort -u)
+    h2=""
+    [ -z "$h1" ] || h2=$(find "$SKILL_DIR/scripts" -type f ! -name '*_test.sh' \
+        -exec grep -lF -f <(printf '%s\n' "$h1") {} + 2>/dev/null | sed 's|.*/||' | sort -u)
     {
-        grep -lE 'evals|find |grep -[A-Za-z]*r|ls-files' "${suites[@]}"
-        [ -z "$helpers" ] || grep -lF -f - "${suites[@]}" <<<"$helpers"
+        grep -lE "$walk" "${suites[@]}"
+        [ -z "$h1$h2" ] || printf '%s\n%s\n' "$h1" "$h2" | sed '/^$/d' | grep -lF -f - "${suites[@]}"
     } | sort -u
 }
 
@@ -339,7 +350,7 @@ select_suites() {
         # Without the file, a change only to evals/ still selects, since the
         # rule needs none of its rows.
         if [ ${#suites[@]} -gt 0 ] && paths=$(changed_paths) && [ -n "$paths" ] \
-            && ! grep -qv '^skills/[^/]*/evals/' <<<"$paths"; then
+            && ! grep -qv "$EVALS_PATH_RE" <<<"$paths"; then
             SELECTED=$(evals_readers)
             return
         fi
@@ -372,7 +383,9 @@ select_suites() {
                 SELECTED="$SELECTED
 $p" ;;
             skills/*/evals/*)
-                if ! grep -q '^skills/[^/]*/evals/' <<<"$p"; then
+                # A case `*` crosses `/`, so skills/x/scripts/evals/y lands
+                # here too; it isn't an evals path and runs every suite.
+                if ! grep -q "$EVALS_PATH_RE" <<<"$p"; then
                     ALL_REASON="$p is not one of $SKILL_DIR's scripts"; return
                 fi
                 [ -n "$READERS_DONE" ] || { READERS=$(evals_readers); READERS_DONE=1; }

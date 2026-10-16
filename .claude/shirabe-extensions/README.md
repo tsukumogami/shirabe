@@ -53,8 +53,8 @@ and **fails closed** (never reads as "verified").
 ### `--changed`: the suites a change touches
 
 A skill opts in with a `check-skill.tsv` beside its `SKILL.md`; a skill without one runs
-every suite under `--changed` too, short of a change only to `evals/` (below). `skills/coordinate/check-skill.tsv` is the only one
-today. For an opted-in skill, `--changed` diffs the branch against its merge-base with the
+every suite under `--changed` too, short of a change only to `evals/` (below).
+`skills/coordinate/check-skill.tsv` is the only one today. For an opted-in skill, `--changed` diffs the branch against its merge-base with the
 default branch, the gate's own base, and classifies each changed path:
 
 - a suite (`scripts/<name>_test.sh`) runs itself;
@@ -64,10 +64,15 @@ default branch, the gate's own base, and classifies each changed path:
   unit suite names any of them, so a script that only an engine suite tests still gets
   tested;
 - a path under any skill's `evals/` runs the suites that can read it: those that name
-  `evals`, directly or through one of the skill's scripts that does, and those that list
-  files (`find`, `grep -r`, `git ls-files`). The eval harness is what reads `evals/`, so
-  a change to it alone runs few suites or none. This holds for a skill without
-  `check-skill.tsv` too, when every changed path is under an `evals/`;
+  `evals`, directly or through a helper under the skill's `scripts/` that names it or
+  names such a helper (two levels), and those that walk the tree (`find`, `ls -R`,
+  `cp -r`, `grep -r` or `--recursive`, `git grep`, `git ls-files`, `rg`). The eval harness
+  is what reads `evals/`, so a change to it alone runs few suites or none. This holds for
+  a skill without `check-skill.tsv` too, when every changed path is under an `evals/`.
+  Not "no suite", as one might expect: some suites run the eval shims under
+  `evals/fixtures/` or read `evals.json`. Unlike the rules for scripts, a miss here
+  can't fall back to every suite, so a suite that reaches `evals/` another way (a third
+  helper in a chain, a path built at run time) isn't run locally; CI still runs it;
 - everything else runs every suite: a shared script, anything under a subdirectory of
   `scripts/` (testdata and the test libraries), a koto template, the skill's Markdown and
   data files, `check-skill.tsv` itself, a deleted file, and any other path outside the
