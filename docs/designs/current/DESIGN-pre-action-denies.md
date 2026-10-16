@@ -471,7 +471,7 @@ such as `nice`, `ssh`, `docker` and `mise`, and the interpreters
 `python`, `python3`, `perl`, `ruby` and `node`) and whose own text
 passes the coarse "named in the text" test, and a segment whose head
 starts with `$` and that has a later word `push` or `pr` followed by
-`create` or `edit` (`$G push` names no `git` for the coarse test to
+`create`, `new` or `edit` (`$G push` names no `git` for the coarse test to
 find). All are fail-closed cases.
 
 Before a guarded segment the classifier looks at every earlier segment
@@ -654,7 +654,7 @@ niwa host, in parallel:
   lines, and every `"` and `'` dropped by `tr`, since quote removal
   doesn't split a word (`g"i"t` is `git`); then lowercased and split one
   word per line by `tr` on every character outside `[a-z0-9_-]`, and
-  read by `awk` for `gh`, a later `pr` and a later `create` or `edit`,
+  read by `awk` for `gh`, a later `pr` and a later `create`, `new` or `edit`,
   or `git` and a later `push`. Under `PR_BODY_HOOK_DISABLE` (any
   non-empty value but `0` or `false`) it looks for `git` and a later
   `push` only, since the PR-body rules are off (PRD R9). That is the
@@ -695,7 +695,10 @@ niwa host, in parallel:
   recorded with their spans for the classifier to recurse into, their
   here-documents as data, except the `$(...)` and backquotes in an
   unquoted-delimiter here-document's lines, which the shell runs; `$'`
-  starts an opaque word the body reader refuses.
+  starts an opaque word the body reader refuses. Substitutions nest at
+  most 64 deep, each level a recursion; deeper input is refused like an
+  unterminated quote, so no command can overflow the stack and abort
+  the process.
 - **`classify.rs`.** Walks segments, tracks the directory (R4's `cd`,
   `pushd`, `popd` rules, with a stack the tokenizer's parenthesis depth
   drives so a `cd` inside `( )` ends when the group closes), skips
@@ -709,7 +712,10 @@ niwa host, in parallel:
   segment that changes what the guarded one checks (Decision 6). Heads
   compare by their last path component.
 - **`body.rs`.** Reads `--title`/`-t` and `--body`/`-b`/`--body=`,
-  `--body-file`/`-F`/`--body-file=`; detects the here-document form in
+  `--body-file`/`-F`/`--body-file=`, and a short flag's attached value
+  (`-tVALUE`, `-b=VALUE`, `-FPATH`) the way gh's flag parser reads it;
+  detects the here-document form, given as a word of its own or after
+  `--body=` or `-b`, in
   the segment's raw span (`$(cat <<` followed by an optional `-`, a
   delimiter quoted with `'` or `"` or bare, a newline, lines, a line equal
   to the delimiter, `)`), returns its lines byte for byte, and refuses an

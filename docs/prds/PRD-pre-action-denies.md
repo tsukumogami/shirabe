@@ -162,7 +162,8 @@ These terms mean the same thing everywhere below.
   body in that form is one R6 can't read.
 - **Guarded command**: a segment whose head is `gh`, whose first word
   after `gh` that doesn't start with `-` is `pr`, and whose next word is
-  `create` or `edit`, where `-R <value>` and `--repo <value>` count as one
+  `create`, `new` or `edit` (`new` is gh's built-in alias for `create`
+  and is read as `create` everywhere below), where `-R <value>` and `--repo <value>` count as one
   option with its value; or a segment whose head is `git` and whose first
   word after `git` that doesn't start with `-` is `push`, where `-C
   <path>` and `-c <name=value>` count as one option with its value. A
@@ -178,8 +179,9 @@ These terms mean the same thing everywhere below.
 - **Named in the text**: the coarse test the plugin's script applies
   when the binary can't run. The raw hook input, with its JSON escapes
   `\n`, `\r`, `\t`, `\"` and `\\` turned back into the characters they
-  stand for and a backslash-newline removed, contains, as separate words and ignoring quotes, `gh` followed later by `pr` followed later
-  by `create` or `edit`, or `git` followed later by `push`. It is a
+  stand for and a backslash-newline removed, contains, as separate
+  words and ignoring quotes, `gh` followed later by `pr` followed later
+  by `create`, `new` or `edit`, or `git` followed later by `push`. It is a
   superset of guarded: everything guarded is named in the text, and
   some unguarded commands are too (`echo "git push"`). The same test,
   applied to one segment's text, decides a wrapped guarded command.
@@ -189,11 +191,13 @@ These terms mean the same thing everywhere below.
   `podman`, `mise`, `nix`, `python`, `python3`, `perl`, `ruby` or
   `node`, and whose text names a guarded action; a segment whose head
   starts with `$` and that has a later word `push`, or `pr` followed by
-  `create` or `edit`; or a command substitution (`$(...)` or backquotes, outside
+  `create`, `new` or `edit`; or a command substitution (`$(...)` or backquotes, outside
   single quotes) anywhere in the command whose own text, split into
   segments the same way, holds a guarded or wrapped guarded segment. A
   here-document's lines are data, not commands, so `git commit -m
-  "$(cat <<'EOF' ... git push ... EOF)"` holds none.
+  "$(cat <<'EOF' ... git push ... EOF)"` holds none; with an unquoted
+  delimiter the shell still runs a `$(...)` or backquotes in them, and
+  those count as command substitutions.
 
 ### Functional
 
@@ -287,7 +291,9 @@ These terms mean the same thing everywhere below.
 - **R6. Read the body the way agents write it.** The hook reads the
   title from `--title`/`-t` and the body from `--body`/`-b` (as `--body
   <v>`, `--body=<v>` or `-b <v>`) and `--body-file`/`-F` (as `-F <p>` or
-  `--body-file=<p>`), with a relative path resolved against the
+  `--body-file=<p>`); a short flag's value may also be attached, as gh
+  reads it (`-t<v>`, `-t=<v>`, `-b<v>`, `-b=<v>`, `-F<p>`, `-F=<p>`).
+  A relative path is resolved against the
   directory R4 determines for that segment and the file read when the
   hook runs. A body of the form `$(cat <<'EOF' ... EOF)`, or with the
   delimiter double-quoted, is read as the here-document's lines exactly
@@ -305,7 +311,9 @@ These terms mean the same thing everywhere below.
   2. the hook input isn't valid JSON, or has no `tool_input.command`
      string, while its raw text names a guarded action (otherwise no
      decision);
-  3. the command has an unterminated quote;
+  3. the command has an unterminated quote, or nests command
+     substitutions more than 64 deep, while its text names a guarded
+     action;
   4. a pull-request command's body is in a form R6 can't read: stdin
      (`-F -`), `--fill`, `--fill-first`, `--fill-verbose`, `--web`,
      `--editor`, `--template`, a command or variable expansion, `$'...'`,
@@ -338,7 +346,7 @@ These terms mean the same thing everywhere below.
   wrong. It doesn't name the off switch: the switch is for the person
   running the host and is documented in the plugin's README, and a
   reason that names it invites the agent to turn the check off. The
-  case is named by these words: 1 `binary`; 2 `hook input`; 3 `quote`;
+  case is named by these words: 1 `binary`; 2 `hook input`; 3 `quote` or `nested`;
   4 the body form (`--fill`, `stdin`, the path, `regular file`, `1 MiB`,
   `no body`); 5 `title`; 6 the rule id; 7 `HEAD`, the unresolved
   source, `1000 commits`, `directory`, `work tree` or the option; 8
@@ -455,6 +463,7 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
 | `gh pr create --title "feat: x" --body "$(cat <<'EOF' ... EOF)"` with bad lines | deny, `pr-body/one-separator` |
 | `gh pr create --title "feat: x" --body "$BODY"` | deny, fail-closed (body form) |
 | `gh pr create --fill` | deny, fail-closed (body form) |
+| `gh pr new --title "feat: x" --body <bad>` | deny, `pr-body/one-separator` |
 | `gh pr edit 12 --title "bad title"` | deny, `pr-body/conventional-title` only |
 | `gh pr edit 12 --body <bad>` | deny, `pr-body/one-separator`, no title check |
 | `gh pr edit 12 --add-label x` | no decision |
@@ -671,6 +680,14 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
   tool, and a wrapped command whose text hides the guarded action (a
   shell function, an alias, `git -c alias.x=push x`). CI and the gates
   remain the backstop for all of them.
+- With the binary present, the hook doesn't see a guarded action in a
+  shell fed a script on stdin (`bash <<'EOF'`, `echo "git push" | sh`,
+  `ssh host <<'EOF'`), in a shell function defined earlier in the
+  command, or behind a `cd` in a brace group that's part of a pipeline
+  (the group runs in a subshell, which the hook doesn't track). An
+  arithmetic `((... << ...))` is read as a here-document. The coarse
+  test treats a backslash inside a word as a separator, so `g\it push`
+  isn't named in the text.
 - The hook guards against an agent's mistakes, not against an agent set
   on getting past it. An agent that can write the user's settings,
   `PATH`, the binary or the repository's refs can defeat it: a forged
