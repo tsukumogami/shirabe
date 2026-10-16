@@ -13,7 +13,8 @@ goals: |
   second, and from the third a named exit that ends the run blocked. The exit
   is countable per rule in exported koto events and never passes a gate, and
   the canary's PB4 path runs on the same ladder.
-upstream: docs/briefs/BRIEF-validate-and-return.md
+absorbed:
+  - docs/briefs/BRIEF-validate-and-return.md
 ---
 
 # PRD: Validate-and-Return on koto Gates
@@ -21,6 +22,42 @@ upstream: docs/briefs/BRIEF-validate-and-return.md
 ## Status
 
 Accepted
+
+The completeness, clarity and testability reviewers passed it, completeness on
+a second round. The downstream DESIGN owns the approach.
+
+Absorbed [BRIEF-validate-and-return](docs/briefs/BRIEF-validate-and-return.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists so a rule's text reaches an agent when the agent breaks it,
+in proportion to how badly its fixes are going, and so a check nobody can pass
+stops a run on the record instead of looping. The brief framed three gaps: a
+gate's text never grows past the summary, the one rule that returns its full
+text (PB4, for the live canary) does it by special case, and a check that
+can't be satisfied ends the run unrecorded or not at all. This document's
+Problem Statement states all three in full.
+
+The outcome it set: an agent gets more help each time, decided by koto's count
+rather than its own; taking the exit ends the run as blocked and never moves it
+past the gate; a withheld rule needs no release code of its own; and a
+maintainer can read, per rule and from exported events, how often it failed,
+reached its full text and ended a run. Goals and User Stories carry that
+outcome.
+
+Its journeys were a canary run's agent fixing PB4 on the second try, an agent
+taking the exit after repeated commit-subject failures, and a maintainer
+reading which rules end runs, plus two boundary cases kept as they are: a rule
+fixed on the first try sees one summary, and a gate script run from a shell
+outside a session prints today's output. User Stories and R3, R8 and R11 carry
+them.
+
+Its scope boundary put the escalating text for every `/work-on` output gate,
+the exit at the three holding gates, PB4's move onto the ladder and the
+registry reference in; and registry changes, an exit that passes a gate, an
+exit at the non-holding states, the check lifecycle, decider checks,
+`/execute`'s and `/scope`'s gates and any koto change out. Requirements and
+Out of Scope carry it.
 
 ## Problem Statement
 
