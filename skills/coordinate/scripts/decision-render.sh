@@ -152,9 +152,9 @@ jq -r --arg k "$KIND" --arg t "$TARGET" --arg run "$RUN" --arg rep "$REP" --slur
     else "" end
   else
     if any(d_stamps[]; of_report) | not then "entry \(.decision) holds nothing from report \($rep) of this run"
-    elif any($sec[0].entries[] | d_stamps[]; of_report and (.text | startswith(d_addressed_mark))) | not
+    elif any($sec[0] | d_section_stamps[]; of_report and (.text | startswith(d_addressed_mark))) | not
       then "report \($rep) asked no one but the coordinator"
-    elif any($sec[0].entries[] | d_stamps[]; .run == $run and .kind == "redirect" and .seq == $rep) then "report \($rep) has had its redirect"
+    elif any($sec[0] | d_section_stamps[]; .run == $run and .kind == "redirect" and .seq == $rep) then "report \($rep) has had its redirect"
     else "" end
   end' -L "$HERE" "$T/entry.json" > "$T/why" 2> "$T/jq.err" || { cat "$T/jq.err" >&2; lib_die2 "cannot check entry $N"; }
 [ -s "$T/why" ] && [ "$(cat "$T/why")" != "" ] && refuse "$(cat "$T/why")"
