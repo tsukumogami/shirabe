@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   shirabe's deterministic gate checks have one behaviour: an error finding
   that holds the run. A maintainer can't introduce a check without trusting
@@ -20,7 +20,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 Absorbed [BRIEF-check-lifecycle](docs/briefs/BRIEF-check-lifecycle.md); carried in Absorbed Brief.
 
