@@ -202,6 +202,38 @@ else
 fi
 check_shape "--commits --session"
 
+# The same branch against scratch copies of the plugin with the rule at warn
+# and at retired. The copies' findings go to a log of their own, verified
+# against each copy's registry, so the suite's log keeps only real-registry
+# findings. Only what prints is checked here: the exit stays the script's.
+STAGE_COPY="$RF_TEST_DIR/stage-copy"
+STAGE_LOG="$RF_TEST_DIR/stage-copy.log"
+if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject warn; then
+    : > "$STAGE_LOG"
+    OUT=$(cd "$REPO" && SHIRABE_FINDINGS_LOG="$STAGE_LOG" \
+        "$STAGE_COPY/skills/work-on/scripts/check-branch-output.sh" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
+    LEVELS=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '"\(.rule_id)=\(.level)"' | tr '\n' ' ')
+    [ "$LEVELS" = "commit/conventional-subject=warning " ] \
+        && pass "--commits: with commit/conventional-subject at warn the finding prints at warning" \
+        || fail "--commits at warn: findings [$LEVELS], stderr: $(cat "$WORKDIR/stderr")"
+    rf_test_verify_copy "--commits at warn" "$STAGE_COPY" "$STAGE_LOG"
+else
+    fail "--commits: could not make a plugin copy with commit/conventional-subject at warn"
+fi
+if rf_test_stage_copy "$STAGE_COPY" commit/conventional-subject retired; then
+    : > "$STAGE_LOG"
+    OUT=$(cd "$REPO" && SHIRABE_FINDINGS_LOG="$STAGE_LOG" \
+        "$STAGE_COPY/skills/work-on/scripts/check-branch-output.sh" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
+    if ! printf '%s\n' "$OUT" | grep -q '::koto-finding::' && [ ! -s "$STAGE_LOG" ]; then
+        pass "--commits: with commit/conventional-subject at retired no finding prints or logs"
+    else
+        fail "--commits at retired: out [$OUT], log [$(cat "$STAGE_LOG")]"
+    fi
+else
+    fail "--commits: could not make a plugin copy with commit/conventional-subject at retired"
+fi
+rm -rf "$STAGE_COPY" "$STAGE_LOG"
+
 # A control character in a commit subject is replaced in the finding's message,
 # so the finding stays one line koto can parse.
 fixture control

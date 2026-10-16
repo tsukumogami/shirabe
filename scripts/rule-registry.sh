@@ -29,8 +29,13 @@
 #   log-finding <line>    append a printed ::koto-finding:: line to
 #                         $SHIRABE_FINDINGS_LOG when that names a safe file;
 #                         always exits 0
-#   verify-findings <log> check every logged finding's rule_id, rule_ref and
-#                         summary prefix; a log with no findings fails
+#   verify-findings [--stage-source <id>] <log>
+#                         check every logged finding's rule_id, rule_ref,
+#                         summary prefix and level: the level must be the one
+#                         its rule's stage prints at (block error, warn
+#                         warning, shadow info), or <id>'s stage when given,
+#                         and nothing may be logged at retired; a log with no
+#                         findings fails
 #
 # --root and --registry exist for the tests, which point the script at a
 # scratch plugin copy. No gate script passes them.
@@ -69,7 +74,8 @@
 #   2  could not decide: unreadable registry, malformed id, unsafe path, or a
 #      text whose anchors do not resolve
 # verify-findings: 0 every finding checks out, 1 a finding does not, 2 could
-# not read the log or the registry.
+# not read the log or the registry, or could not resolve the --stage-source
+# rule.
 
 set -u
 
@@ -130,6 +136,13 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$REGISTRY" ] || REGISTRY="$ROOT/references/rule-registry.json"
 
+# verify-findings alone takes an option of its own, before its log.
+STAGE_SOURCE=""
+if [ "${1-}" = verify-findings ] && [ "${2-}" = --stage-source ]; then
+    [ $# -eq 4 ] || die2 "usage: rule-registry.sh [--root <dir>] [--registry <file>] verify-findings [--stage-source <id>] <log>"
+    STAGE_SOURCE=$3
+    set -- "$1" "$4"
+fi
 [ $# -eq 2 ] || die2 "usage: rule-registry.sh [--root <dir>] [--registry <file>] ref|summary|text|range|withhold|stage|resolve|release|log-finding|verify-findings <arg>"
 CMD=$1
 ARG=$2
@@ -485,14 +498,31 @@ cmd_log_finding() {
     return 0
 }
 
+# stage_level <stage>: the finding level a stage prints at, as
+# scripts/lib/rule-findings.sh's rf_level maps it; nothing for retired.
+stage_level() {
+    case "$1" in
+        block) printf 'error' ;;
+        warn) printf 'warning' ;;
+        shadow) printf 'info' ;;
+    esac
+}
+
 # verify-findings: every logged finding names an active rule, carries the
-# rule_ref ref computes for it, and starts its message with the rule's summary.
-# A log with no findings fails: a suite that meant to check its findings and
-# logged none has checked nothing.
+# rule_ref ref computes for it, starts its message with the rule's summary, and
+# carries the level its rule's stage prints at. With --stage-source, the stage
+# is that rule's for every finding: panel-scope.sh prints findings under the
+# rules they cite at panel/open-finding's stage. A log with no findings fails:
+# a suite that meant to check its findings and logged none has checked nothing.
 cmd_verify_findings() {
-    local log=$1 problems=0 n=0 line json id ref msg want summary
+    local log=$1 problems=0 n=0 line json id ref msg want summary got rest stage level want_level src="" tab
+    tab=$(printf '\t')
     [ -r "$log" ] || die2 "cannot read findings log $log"
     [ -r "$REGISTRY" ] || die2 "cannot read $REGISTRY"
+    if [ -n "$STAGE_SOURCE" ]; then
+        got=$(cmd_resolve "$STAGE_SOURCE" 2>&1) || die2 "cannot resolve the stage source $STAGE_SOURCE: $got"
+        src=${got##*"$tab"}
+    fi
     while IFS= read -r line || [ -n "$line" ]; do
         case "$line" in
             '::koto-finding::'*) json=${line#::koto-finding::} ;;
@@ -503,20 +533,33 @@ cmd_verify_findings() {
         id=$(printf '%s' "$json" | jq -r '.rule_id // empty' 2>/dev/null)
         ref=$(printf '%s' "$json" | jq -r '.rule_ref // empty' 2>/dev/null)
         msg=$(printf '%s' "$json" | jq -r '.message // empty' 2>/dev/null)
+        level=$(printf '%s' "$json" | jq -r '.level // empty' 2>/dev/null)
         if [ -z "$id" ]; then
             echo "finding without rule_id: $json"; problems=$((problems + 1)); continue
         fi
-        if ! want=$(cmd_ref "$id" 2>&1); then
-            echo "finding $id: $want"; problems=$((problems + 1)); continue
+        # One resolve gives the ref, summary and stage, as the library reads
+        # them.
+        if ! got=$(cmd_resolve "$id" 2>&1); then
+            echo "finding $id: $got"; problems=$((problems + 1)); continue
         fi
+        want=${got%%"$tab"*}
+        rest=${got#*"$tab"}
+        summary=${rest%%"$tab"*}
+        stage=${rest#*"$tab"}
+        [ -z "$src" ] || stage=$src
         if [ "$ref" != "$want" ]; then
             echo "finding $id: rule_ref [$ref] is not [$want]"; problems=$((problems + 1))
         fi
-        summary=$(cmd_summary "$id" 2>/dev/null)
         case "$msg" in
             "$summary: "*) ;;
             *) echo "finding $id: message does not start with the rule's summary [$summary]"; problems=$((problems + 1)) ;;
         esac
+        want_level=$(stage_level "$stage")
+        if [ -z "$want_level" ]; then
+            echo "finding $id: logged at stage $stage, which prints nothing"; problems=$((problems + 1))
+        elif [ "$level" != "$want_level" ]; then
+            echo "finding $id: level [$level] is not [$want_level], the level of stage $stage"; problems=$((problems + 1))
+        fi
     done < "$log"
     if [ $n -eq 0 ]; then
         echo "$PROG: $log holds no findings" >&2

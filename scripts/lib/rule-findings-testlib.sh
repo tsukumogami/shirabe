@@ -6,10 +6,24 @@
 #                              SHIRABE_FINDINGS_LOG, so every finding the suite's
 #                              runs print is appended there (rule-findings.sh
 #                              passes each to rule-registry.sh log-finding)
-#   rf_test_verify <label>     rule-registry.sh verify-findings on that log: every
+#   rf_test_verify <label> [<stage-source>]
+#                              rule-registry.sh verify-findings on that log: every
 #                              logged finding names an active rule, carries the
-#                              ref the reader computes, and starts with the
-#                              rule's summary; an empty log fails
+#                              ref the reader computes, starts with the rule's
+#                              summary, and carries the level of its rule's
+#                              stage (or of <stage-source>'s stage, passed as
+#                              --stage-source); an empty log fails
+#   rf_test_stage_copy <dest> <id> <stage>
+#                              a scratch copy of the plugin at <dest> whose
+#                              registry sets <id>'s stage to <stage>, for
+#                              running a gate script with one rule at a stage
+#                              other than the real registry's; returns 1, with
+#                              the reason on stderr, when the copy's reader
+#                              doesn't give <id> that stage
+#   rf_test_verify_copy <label> <copy> <log> [<stage-source>]
+#                              verify-findings on <log> with <copy>'s own
+#                              reader, so findings a copy printed are checked
+#                              against the copy's registry and refs
 #   rf_test_expected_range <id>
 #                              <path>#L<a>-L<b> for the rule, found with grep -F
 #                              on its anchors: a second way to the range, so a
@@ -41,13 +55,56 @@ rf_test_setup() {
 }
 
 rf_test_verify() {
+    rf_test_verify_with "$1" "$RF_TEST_HELPER" "$SHIRABE_FINDINGS_LOG" "${2-}"
+}
+
+rf_test_verify_copy() {
+    rf_test_verify_with "$1" "$2/scripts/rule-registry.sh" "$3" "${4-}"
+}
+
+# rf_test_verify_with <label> <reader> <log> [<stage-source>]
+rf_test_verify_with() {
     local out rc
-    out=$("$RF_TEST_HELPER" verify-findings "$SHIRABE_FINDINGS_LOG" 2>&1); rc=$?
+    if [ -n "${4-}" ]; then
+        out=$("$2" verify-findings --stage-source "$4" "$3" 2>&1); rc=$?
+    else
+        out=$("$2" verify-findings "$3" 2>&1); rc=$?
+    fi
     if [ $rc -eq 0 ]; then
-        pass "$1: every finding printed names a registered rule, its computed rule_ref and its summary"
+        pass "$1: every finding printed names a registered rule, its computed rule_ref, its summary and its stage's level"
     else
         fail "$1: findings log verification: $out"
     fi
+}
+
+# rf_test_stage_copy <dest> <id> <stage>. The reader holds a guarded rule
+# below block at block unless stage_backstops covers each protected guard with
+# another file (scripts/rule-registry.sh's "Effective stage"), so below block
+# the copy also gives every guard but `none` a backstop naming the copy's
+# registry file: any existing file other than the rule's own check satisfies
+# the reader, and this copy exists only to run a suite. The stage is then read
+# back through the copy's reader, so a copy that didn't take the stage fails
+# here rather than passing a suite at the wrong stage.
+rf_test_stage_copy() {
+    local d=$1 id=$2 stage=$3 reg got
+    case "$stage" in
+        shadow|warn|block|retired) ;;
+        *) echo "rf_test_stage_copy: [$stage] is not a stage" >&2; return 1 ;;
+    esac
+    rm -rf "$d"; rf_test_copy_plugin "$d" || return 1
+    reg="$d/references/rule-registry.json"
+    jq --arg id "$id" --arg stage "$stage" '
+        .rules |= map(if .id == $id then
+            .stage = $stage
+            | if $stage == "block" then del(.stage_backstops)
+              else .stage_backstops = [(.guards // [])[] | select(. != "none")
+                                       | {before: ., check: "references/rule-registry.json"}]
+              end
+          else . end)' "$reg" > "$reg.tmp" && mv "$reg.tmp" "$reg" || return 1
+    got=$("$d/scripts/rule-registry.sh" stage "$id" 2>&1) || {
+        echo "rf_test_stage_copy: the copy's reader has no stage for $id: $got" >&2; return 1; }
+    [ "$got" = "$stage" ] || {
+        echo "rf_test_stage_copy: the copy's reader gives $id stage [$got], not [$stage]" >&2; return 1; }
 }
 
 rf_test_expected_range() {

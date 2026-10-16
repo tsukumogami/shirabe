@@ -482,6 +482,182 @@ run "$S" resolve s/gone
 run "$S" resolve s/none
 [ $RC -eq 1 ] && pass "resolve fails for an id with no entry" || fail "resolve unknown id" "rc=$RC"
 
+# --- the library resolves once per rule -----------------------------------------
+
+# A stub reader that logs every call: the library resolves each id with one
+# `resolve` call, never with separate ref and summary calls, and rf_require_any
+# skips an id already resolved.
+L="$T/stub"; mkdir -p "$L/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/rule-findings.sh" "$L/scripts/lib/rule-findings.sh"
+cat > "$L/scripts/rule-registry.sh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$STUB_LOG"
+case "$1:${STUB_SHAPE:-}" in
+    resolve:) printf 'references/r.md#L1-L1@v0.0.0\tSummary of %s\tblock\n' "$2" ;;
+    resolve:two) printf 'references/r.md#L1-L1@v0.0.0\tSummary of %s\n' "$2" ;;
+    resolve:four) printf 'references/r.md#L1-L1@v0.0.0\tSummary of %s\tblock\textra\n' "$2" ;;
+    resolve:loud) printf 'references/r.md#L1-L1@v0.0.0\tSummary of %s\tloud\n' "$2" ;;
+    log-finding:*) ;;
+    *) exit 1 ;;
+esac
+STUB
+chmod +x "$L/scripts/rule-registry.sh"
+cat > "$L/probe.sh" <<'PROBE'
+#!/usr/bin/env bash
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="t/a t/b"
+  RULE_IDS_ANY_ACTIVE=1
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+rf_require t/a t/b
+rf_require_any t/c t/a t/c
+printf '%s|%s|%s\n' "$(rf_ref t/c)" "$(rf_summary t/c)" "$(rf_stage t/c)"
+PROBE
+chmod +x "$L/probe.sh"
+: > "$T/stub.log"
+OUT=$(STUB_LOG="$T/stub.log" "$L/probe.sh" 2>"$T/err"); RC=$?
+calls=$(tr '\n' ',' < "$T/stub.log")
+if [ $RC -eq 0 ] && [ "$calls" = "resolve t/a,resolve t/b,resolve t/c," ] \
+    && [ "$OUT" = "references/r.md#L1-L1@v0.0.0|Summary of t/c|block" ]; then
+    pass "rf_require and rf_require_any make one resolve call per id and cache its ref, summary and stage"
+else
+    fail "one resolve per id" "rc=$RC calls=[$calls] out=[$OUT] err=[$(cat "$T/err")]"
+fi
+for shape in two four loud; do
+    : > "$T/stub.log"
+    STUB_SHAPE=$shape STUB_LOG="$T/stub.log" "$L/probe.sh" >/dev/null 2>"$T/err"; RC=$?
+    [ $RC -eq 2 ] && pass "rf_require refuses a resolve line of shape [$shape]" \
+        || fail "resolve shape $shape" "rc=$RC err=[$(cat "$T/err")]"
+done
+
+# --- the library applies the stage ----------------------------------------------
+
+# The library run against the stage registry's reader: s/block, s/covered,
+# s/shadow and s/quiet resolve to block, warn, shadow and retired.
+mkdir -p "$S/scripts/lib"
+cp "$REPO_ROOT/scripts/lib/rule-findings.sh" "$S/scripts/lib/rule-findings.sh"
+cat > "$S/probe.sh" <<'PROBE'
+#!/usr/bin/env bash
+# probe.sh find <id>...            rf_finding for each id
+# probe.sh emit <id> [<stage-id>]  rf_emit of a finding for <id>
+# probe.sh stage <id>              rf_stage and rf_level
+# probe.sh hint                    rf_dispute_hint
+undecided() { echo "undecided: $*" >&2; exit 2; }
+  RULE_IDS="s/block s/covered s/shadow s/quiet"
+. "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
+mode=$1; shift
+case "$mode" in
+    find)
+        rf_require s/block s/covered s/shadow s/quiet
+        for id in "$@"; do
+            rf_finding "$id" "detail"
+            echo "counted=$RF_COUNTED"
+        done ;;
+    emit)
+        rf_require s/block s/covered s/shadow s/quiet
+        ref=$(rf_ref "$1") || exit 2
+        sum=$(rf_summary "$1") || exit 2
+        json=$(jq -cn --arg id "$1" --arg ref "$ref" --arg m "$sum: built by the script" \
+            '{rule_id: $id, level: "error", message: $m, rule_ref: $ref}')
+        rf_emit "$json" ${2+"$2"}
+        echo "counted=$RF_COUNTED" ;;
+    stage)
+        rf_require "$1"
+        s=$(rf_stage "$1") || exit 2
+        l=$(rf_level "$s"); echo "stage=$s level=$l rc=$?" ;;
+    hint)
+        rf_dispute_hint ;;
+esac
+echo "blocking=$RF_BLOCKING"
+PROBE
+chmod +x "$S/probe.sh"
+mkdir -p "$T/tmpdir"
+LOGF="$T/tmpdir/stage.log"
+probe() { : > "$LOGF"; OUT=$(SHIRABE_FINDINGS_LOG="$LOGF" TMPDIR="$T/tmpdir" "$S/probe.sh" "$@" 2>"$T/err"); RC=$?; ERR=$(cat "$T/err"); }
+levels() { printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '.level' | tr '\n' ' ' | sed 's/ $//'; }
+
+probe find s/block
+[ $RC -eq 0 ] && [ "$(levels)" = error ] && grep -qx 'counted=1' <<<"$OUT" && grep -qx 'blocking=1' <<<"$OUT" \
+    && pass "rf_finding prints a block rule's finding at error, counts it and sets RF_COUNTED to 1" \
+    || fail "rf_finding block" "rc=$RC out=[$OUT] err=[$ERR]"
+probe find s/covered
+[ $RC -eq 0 ] && [ "$(levels)" = warning ] && grep -qx 'counted=0' <<<"$OUT" && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_finding prints a warn rule's finding at warning without counting it" \
+    || fail "rf_finding warn" "rc=$RC out=[$OUT] err=[$ERR]"
+probe find s/shadow
+[ $RC -eq 0 ] && [ "$(levels)" = info ] && grep -qx 'counted=0' <<<"$OUT" && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_finding prints a shadow rule's finding at info without counting it" \
+    || fail "rf_finding shadow" "rc=$RC out=[$OUT] err=[$ERR]"
+probe find s/quiet
+[ $RC -eq 0 ] && ! grep -q '::koto-finding::' <<<"$OUT" && [ ! -s "$LOGF" ] \
+    && grep -qx 'counted=0' <<<"$OUT" && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_finding prints and logs nothing for a retired rule and doesn't count it" \
+    || fail "rf_finding retired" "rc=$RC out=[$OUT] log=[$(cat "$LOGF")] err=[$ERR]"
+probe find s/block s/covered s/quiet s/block s/shadow
+[ $RC -eq 0 ] && [ "$(levels)" = "error warning error info" ] && grep -qx 'blocking=2' <<<"$OUT" \
+    && [ "$(grep -c '^::koto-finding::' "$LOGF")" = 4 ] \
+    && pass "RF_BLOCKING counts only the block findings of a mixed run, and the log holds every printed one" \
+    || fail "rf_finding mixed" "rc=$RC out=[$OUT] err=[$ERR]"
+run "$S" verify-findings "$LOGF"
+[ $RC -eq 0 ] && pass "verify-findings accepts findings printed at their rules' stages" \
+    || fail "verify-findings stages" "rc=$RC out=[$OUT] err=[$ERR]"
+
+probe emit s/shadow
+[ $RC -eq 0 ] && [ "$(levels)" = info ] && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_emit sets a built finding's level from its own rule's stage" \
+    || fail "rf_emit own stage" "rc=$RC out=[$OUT] err=[$ERR]"
+probe emit s/shadow s/block
+[ $RC -eq 0 ] && [ "$(levels)" = error ] && grep -qx 'counted=1' <<<"$OUT" && grep -qx 'blocking=1' <<<"$OUT" \
+    && pass "rf_emit with a stage source prints at that rule's stage and counts a block" \
+    || fail "rf_emit stage source block" "rc=$RC out=[$OUT] err=[$ERR]"
+run "$S" verify-findings "$LOGF"
+[ $RC -eq 1 ] && pass "verify-findings without --stage-source refuses a finding printed at another rule's stage" \
+    || fail "verify-findings no stage source" "rc=$RC out=[$OUT]"
+run "$S" verify-findings --stage-source s/block "$LOGF"
+[ $RC -eq 0 ] && pass "verify-findings --stage-source checks the level against that rule's stage" \
+    || fail "verify-findings stage source" "rc=$RC out=[$OUT] err=[$ERR]"
+probe emit s/block s/quiet
+[ $RC -eq 0 ] && ! grep -q '::koto-finding::' <<<"$OUT" && [ ! -s "$LOGF" ] && grep -qx 'blocking=0' <<<"$OUT" \
+    && pass "rf_emit with a retired stage source prints, logs and counts nothing" \
+    || fail "rf_emit stage source retired" "rc=$RC out=[$OUT] err=[$ERR]"
+probe emit s/block s/partial
+[ $RC -eq 2 ] && ! grep -q '::koto-finding::' <<<"$OUT" \
+    && pass "rf_emit refuses a stage source the run did not resolve" \
+    || fail "rf_emit unresolved stage source" "rc=$RC out=[$OUT]"
+
+for pair in s/block:error s/covered:warning s/shadow:info; do
+    probe stage "${pair%%:*}"
+    [ $RC -eq 0 ] && grep -q "level=${pair#*:} rc=0" <<<"$OUT" \
+        && pass "rf_stage and rf_level give ${pair%%:*} the level ${pair#*:}" || fail "rf_level ${pair%%:*}" "rc=$RC out=[$OUT] err=[$ERR]"
+done
+probe stage s/quiet
+[ $RC -eq 0 ] && grep -q "stage=retired level= rc=1" <<<"$OUT" \
+    && pass "rf_level prints nothing and fails for retired" || fail "rf_level retired" "rc=$RC out=[$OUT] err=[$ERR]"
+
+probe hint
+want="probe.sh: to dispute a finding you believe is wrong, run $S/scripts/rule-dispute.sh --session <session> --gate <gate> --rule <rule-id> --reason <why>; the session and gate are in the koto response"
+[ $RC -eq 0 ] && [ "$ERR" = "$want" ] && [ "$OUT" = "blocking=0" ] \
+    && pass "rf_dispute_hint prints one standard-error line naming rule-dispute.sh with its placeholders" \
+    || fail "rf_dispute_hint" "rc=$RC err=[$ERR] out=[$OUT]"
+
+# verify-findings on levels, with hand-written logs.
+sref=$("$S/scripts/rule-registry.sh" ref s/covered)
+qref=$("$S/scripts/rule-registry.sh" ref s/quiet)
+printf '%s\n' "::koto-finding::{\"rule_id\":\"s/covered\",\"level\":\"error\",\"message\":\"Every guard backed: x\",\"rule_ref\":\"$sref\"}" > "$T/wrong-level.log"
+run "$S" verify-findings "$T/wrong-level.log"
+[ $RC -eq 1 ] && grep -q 'level \[error\] is not \[warning\]' <<<"$OUT" \
+    && pass "verify-findings refuses a warn rule's finding logged at error" || fail "verify-findings wrong level" "rc=$RC out=[$OUT]"
+printf '%s\n' "::koto-finding::{\"rule_id\":\"s/covered\",\"message\":\"Every guard backed: x\",\"rule_ref\":\"$sref\"}" > "$T/no-level.log"
+run "$S" verify-findings "$T/no-level.log"
+[ $RC -eq 1 ] && pass "verify-findings refuses a finding with no level" || fail "verify-findings no level" "rc=$RC out=[$OUT]"
+printf '%s\n' "::koto-finding::{\"rule_id\":\"s/quiet\",\"level\":\"error\",\"message\":\"Retired check, guard backed: x\",\"rule_ref\":\"$qref\"}" > "$T/retired.log"
+run "$S" verify-findings "$T/retired.log"
+[ $RC -eq 1 ] && grep -q 'stage retired' <<<"$OUT" \
+    && pass "verify-findings refuses any finding logged under a retired stage" || fail "verify-findings retired" "rc=$RC out=[$OUT]"
+run "$S" verify-findings --stage-source s/none "$T/wrong-level.log"
+[ $RC -eq 2 ] && pass "verify-findings exits 2 for a stage source that doesn't resolve" || fail "verify-findings bad source" "rc=$RC"
+run "$S" verify-findings --stage-source s/block
+[ $RC -eq 2 ] && pass "verify-findings --stage-source without a log is a usage error" || fail "verify-findings usage" "rc=$RC"
+
 # --- the real registry's shape -----------------------------------------------
 
 REG="$REPO_ROOT/references/rule-registry.json"
