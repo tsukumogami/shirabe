@@ -48,6 +48,7 @@ the ROADMAP through the PLAN's own second upstream entry.
 
 **IN:** the BRIEF node of the new-shape cascade fixture chain.
 
-**OUT:** the old-shape chain, which is kept frozen in
-`BRIEF-cascade-test-full.md` as the evidence that a pre-existing corpus still
-cascades.
+**OUT:** the old-shape chain in `BRIEF-cascade-test-full.md`, kept in its old
+shape. No eval runs it any more: the evidence that a pre-existing corpus still
+cascades is Scenario 6 of `skills/work-on/scripts/run-cascade_test.sh`, which
+builds the same chain itself.

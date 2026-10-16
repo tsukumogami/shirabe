@@ -570,7 +570,7 @@ cmd_open() {
     # covers a koto-open that died before its own cleanup ran.
     [ -d "$dir" ] && rm -rf -- "$dir"
 
-    first=$(printf '%s\n' "$out" | head -1)
+    first=$(head -1 <<<"$out")
     case "$first" in
         opened=new|opened=replaced)
             if ! tick "$s" || [ "$(printf '%s' "$TICK_OUT" | jq -r '.state // ""' 2>/dev/null)" != "open" ]; then

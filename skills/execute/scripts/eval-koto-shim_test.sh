@@ -20,6 +20,8 @@
 #     unmatched without it
 #   evidence no fixture answers fails as no match
 #   the drift-intent-changing assignment is the one execute.md makes
+#   e2e-plan-escalate's terminal and failure_reason are the ones execute.md
+#     writes when a failed batch chains through escalate
 #   the older work-on arm still answers
 #   a koto-passthrough scenario goes to EVAL_KOTO_WRAPPER ahead of PATH, and
 #     refuses when that wrapper is missing
@@ -83,7 +85,7 @@ resp=$(k "$SC" "$LOG" next "$WF" --with-data @"$EVIDENCE" --no-cleanup)
 if [ "$(printf '%s' "$resp" | jq -r '"\(.action) \(.state) \(.result.status)"')" = "done done_blocked failure" ]; then
     pass "impact intent-changing (@file) answers the done_blocked terminal"
 else
-    fail "the intent-changing tick answered [$(printf '%s' "$resp" | head -c 200)]"
+    fail "the intent-changing tick answered [$(head -c 200 <<<"$resp")]"
 fi
 
 got=$(k "$SC" "$LOG" status "$WF" | jq -c '{current_state, is_terminal, outcome: .result.payload.outcome, step: .result.payload.step}')
@@ -254,7 +256,7 @@ if [ "$(printf '%s' "$resp" | jq -r .state)" = spawn_and_await ] \
     && printf '%s' "$resp" | jq -r .directive | grep -q 'PLAN-diamond-test.md'; then
     pass "drift-informational: impact informational answers spawn_and_await for the diamond PLAN"
 else
-    fail "drift-informational answered [$(printf '%s' "$resp" | head -c 200)]"
+    fail "drift-informational answered [$(head -c 200 <<<"$resp")]"
 fi
 [ "$(k drift-informational "$LOG4" status "$WF" | jq -r .current_state)" = spawn_and_await ] \
     && pass "drift-informational: status reports spawn_and_await" \
@@ -288,6 +290,39 @@ k drift-intent-changing "$LOG5" init "$WF" --template x --attach-live --replace-
 [ "$(k drift-intent-changing "$LOG5" status "$WF" | jq -r .current_state)" = worktree_discipline_check ] \
     && pass "init --replace-terminal on a live session keeps it" \
     || fail "init on a live session dropped its state"
+
+# --- e2e-plan-escalate: the batch-failure terminal ----------------------------
+#
+# The batch already failed, so the bare tick chains spawn_and_await -> escalate
+# -> done_blocked. The fixture's terminal and its failure_reason are the ones
+# execute.md writes on that route, with the counts batch_final_view gives.
+LOG6="$WORK/escalate.log"
+k e2e-plan-escalate "$LOG6" init "$WF" --template x --replace-terminal >/dev/null
+tick=$(k e2e-plan-escalate "$LOG6" next "$WF" --no-cleanup)
+escalate=$(awk '/^  escalate:$/ { on = 1; next } on && /^  [a-z_]+:$/ { exit } on' "$TEMPLATE")
+tpl_outcome=$(printf '%s\n' "$escalate" | sed -n 's/^ *outcome: *//p')
+tpl_step=$(printf '%s\n' "$escalate" | sed -n 's/^ *step: *"\(.*\)"$/\1/p')
+got=$(printf '%s' "$tick" | jq -c '[.action, .state, .result.status, .result.payload.outcome, .result.payload.step]')
+exp=$(jq -cn --arg o "$tpl_outcome" --arg s "$tpl_step" '["done", "done_blocked", "failure", $o, $s]')
+[ -n "$tpl_outcome" ] && [ "$got" = "$exp" ] \
+    && pass "e2e-plan-escalate: the bare tick lands on done_blocked with escalate's outcome and step" \
+    || fail "e2e-plan-escalate tick $got, template gives $exp"
+
+reason_tpl=$(sed -n 's/^ *failure_reason: "\(spawn_and_await: .*\)"$/\1/p' "$TEMPLATE")
+counts=$(jq -r '[([.children[] | select(.outcome == "failure")] | length),
+                 ([.children[] | select(.outcome == "skipped")] | length)] | "\(.[0]) \(.[1])"' \
+    "$FIXTURES/scenarios/e2e-plan-escalate/koto-context-batch-final-view.json")
+want=$(printf '%s' "$reason_tpl" | sed -e "s/\${gates.batch_done.failed}/${counts% *}/" \
+    -e "s/\${gates.batch_done.skipped}/${counts#* }/" -e 's/${gates.batch_done.spawn_failed}/0/')
+got=$(k e2e-plan-escalate "$LOG6" context get "$WF" failure_reason)
+[ -n "$reason_tpl" ] && [ "$got" = "$want" ] \
+    && pass "e2e-plan-escalate: failure_reason is spawn_and_await's, with the batch view's counts" \
+    || fail "e2e-plan-escalate failure_reason [$got], template gives [$want]"
+
+out=$(k e2e-plan-escalate "$LOG6" next "$WF" --with-data '{"failure_reason":"x"}' --no-cleanup)
+[ "$(printf '%s' "$out" | jq -r .error.code)" = terminal_state ] \
+    && pass "e2e-plan-escalate: evidence after the terminal is refused" \
+    || fail "e2e-plan-escalate accepted evidence: $out"
 
 # --- the older work-on arm ---------------------------------------------------
 

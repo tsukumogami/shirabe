@@ -134,7 +134,7 @@ refused_case() {
     eq "$label: koto exits 2" "2" "$RC"
     has "$label: prints outcome=error" "outcome=error" "$STDOUT"
     has "$label: prints step=scope:refused" "step=scope:refused" "$STDOUT"
-    if printf '%s\n' "$STDOUT" | grep -qx 'outcome=refused'; then
+    if grep -qx 'outcome=refused' <<<"$STDOUT"; then
         bad "$label: never prints outcome=refused" "$STDOUT"
     else
         ok "$label: never prints outcome=refused"

@@ -552,7 +552,7 @@ scenario_plan_roadmap_no_design() {
     downstream=$(grep -m1 '^\*\*Downstream:\*\*' \
         "$repo/docs/roadmaps/ROADMAP-cascade-test.md" || true)
 
-    if printf '%s' "$downstream" | grep -qE 'PLAN-|DESIGN-'; then
+    if grep -qE 'PLAN-|DESIGN-' <<<"$downstream"; then
         fail "$scenario: roadmap Downstream points at a deleted artifact: $downstream"
         ok=false
     else
@@ -847,6 +847,36 @@ scenario_brief_with_upstream() {
     assert_json "$scenario" "$output" \
         '[.steps[] | select(.action == "update_roadmap_feature" and .status == "ok")] | length == 1' \
         "walk reaches ROADMAP (update_roadmap_feature ok)" || ok=false
+
+    # The rest of the old-shape chain, and the roadmap text the walk leaves.
+    # The BRIEF names the ROADMAP on purpose: it is the shape a corpus written
+    # before the upstream-legality rule still has, and this scenario is the
+    # only check that such a corpus still cascades. (The execute eval fixtures
+    # of the same name keep that shape too, but no eval runs them.)
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "delete_plan" and .status == "ok")] | length == 1' \
+        "delete_plan ok" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_design" and .status == "ok")] | length == 1' \
+        "transition_design ok" || ok=false
+
+    assert_json "$scenario" "$output" \
+        '[.steps[] | select(.action == "transition_prd" and .status == "ok")] | length == 1' \
+        "transition_prd ok" || ok=false
+
+    assert_shell "$scenario" "$([[ ! -e docs/plans/PLAN-cascade-test-full.md && -f docs/designs/current/DESIGN-cascade-test-full.md ]] && echo true || echo false)" \
+        "the PLAN is deleted and the DESIGN moved to docs/designs/current/" || ok=false
+
+    local feature_status feature_downstream
+    feature_status=$(awk '/^### Feature 2:/ { f = 1; next } f && /^\*\*Status:\*\*/ { print; exit }' \
+        docs/roadmaps/ROADMAP-cascade-test.md)
+    feature_downstream=$(awk '/^### Feature 2:/ { f = 1; next } f && /^\*\*Downstream:\*\*/ { print; exit }' \
+        docs/roadmaps/ROADMAP-cascade-test.md)
+    assert_shell "$scenario" "$([[ "$feature_status" == "**Status:** Done" ]] && echo true || echo false)" \
+        "Feature 2's Status was written Done" "$feature_status" || ok=false
+    assert_shell "$scenario" "$([[ "$feature_downstream" == "**Downstream:** DESIGN-cascade-test-full.md (Current)" ]] && echo true || echo false)" \
+        "Feature 2's Downstream names the DESIGN at Current" "$feature_downstream" || ok=false
 
     [[ "$ok" == "true" ]] && pass "$scenario" || true
 
@@ -2101,7 +2131,7 @@ EOF
     local head_changes
     head_changes=$(git show --name-status --format= HEAD)
     assert_shell "$scenario" \
-        "$(printf '%s' "$head_changes" | grep -q '^D[[:space:]]*docs/plans/PLAN-no-upstream.md$' && echo true || echo false)" \
+        "$(grep -q '^D[[:space:]]*docs/plans/PLAN-no-upstream.md$' <<<"$head_changes" && echo true || echo false)" \
         "the new HEAD commit deletes the PLAN" "git show --name-status HEAD: $head_changes" || ok=false
 
     # The push actually reached the bare origin. Guards a half-fix that commits

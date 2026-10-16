@@ -118,7 +118,7 @@ new_case found-roadmap
 serve facts 1 "$FACTS_RM"; serve issue-view 1 "$OPEN"; serve parse-record 1 "$ROADMAP_JSON"
 capture --session coordinate-plugin-system-20260926T120000Z
 expect "a roadmap record is read from its issue, with each row sourced to the record" \
-    '.status == "found" and .scope == {kind: "roadmap", name: "plugin-system", repo: "acme/widgets"} and .record.written == "2026-09-26T12:00:00Z" and .record.source == "record" and .record.handoff_date == null and (.holdings | length) == 1 and .holdings[0].source == "record" and .holdings[0].row.verified_head == "'$SHA'" and .deferrals[0].row.deferral == "flaky test" and .deferrals[0].source == "record" and .side_effects[0].row.action == "merge" and .unparseable == [] and .reasoning == null'
+    '.status == "found" and .scope == {kind: "roadmap", name: "plugin-system", repo: "acme/widgets"} and .record.written == "2026-09-26T12:00:00Z" and .record.source == "record" and .record.handoff_date == null and .record.import == null and (.holdings | length) == 1 and .holdings[0].source == "record" and .holdings[0].row.verified_head == "'$SHA'" and .deferrals[0].row.deferral == "flaky test" and .deferrals[0].source == "record" and .side_effects[0].row.action == "merge" and .unparseable == [] and .reasoning == null'
 grep -q "issue view 40 --repo $R --json state,body" "$CASE/log" && ok "the body is read live from the issue the run found" || bad "the body is read live from the issue the run found" "$(cat "$CASE/log")"
 grep -q -- "--container issue --expect-scope roadmap:plugin-system" "$CASE/log" && ok "the parser is told the container and the scope it must match" || bad "the parser is told the container and the scope it must match" "$(cat "$CASE/log")"
 

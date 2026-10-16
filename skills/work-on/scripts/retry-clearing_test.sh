@@ -349,13 +349,13 @@ check_panel_holds() {
     else
         fail "$3: nothing recorded, $4 present -> expected to hold, got [$NEXT_STATE]"
     fi
-    if printf '%s' "$NEXT_RESPONSE" | grep -q "\"name\":\"$6\""; then
+    if grep -q "\"name\":\"$6\"" <<<"$NEXT_RESPONSE"; then
         pass "$3: the hold names $6 as the failing condition"
     else
         fail "$3: expected the response to name $6; got: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-160)"
     fi
     submit "$1" "{\"$5\":\"passed\"}"
-    if printf '%s' "$NEXT_RESPONSE" | grep -q '"invalid_submission"'; then
+    if grep -q '"invalid_submission"' <<<"$NEXT_RESPONSE"; then
         pass "$3: $5: passed is refused as evidence"
     else
         fail "$3: $5: passed was not refused; got: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-160)"
@@ -405,7 +405,7 @@ if [ "$NEXT_STATE" = "analysis" ]; then
 else
     fail "analysis: plan.md cleared + plan_ready -> expected to hold, got [$NEXT_STATE]"
 fi
-if printf '%s' "$NEXT_RESPONSE" | grep -q '"name":"plan_artifact"'; then
+if grep -q '"name":"plan_artifact"' <<<"$NEXT_RESPONSE"; then
     pass "analysis: the blocked submission names plan_artifact"
 else
     fail "analysis: expected the response to name plan_artifact"
@@ -441,7 +441,7 @@ else
 fi
 # summary_shape fails too once the key is gone, so the hold alone no longer
 # isolates summary_exists; the response has to name it.
-if printf '%s' "$NEXT_RESPONSE" | grep -q '"name":"summary_exists"'; then
+if grep -q '"name":"summary_exists"' <<<"$NEXT_RESPONSE"; then
     pass "finalization: the held submission names summary_exists"
 else
     fail "finalization: expected summary_exists named; got: $(printf '%s' "$NEXT_RESPONSE" | cut -c1-160)"
@@ -607,7 +607,7 @@ if [ "$NEXT_STATE" = "qa_validation" ]; then
     pass "after a qa retry, scrutiny and review carry and the run stops at qa_validation"
     seed consequence qa_results.json
     tick_bare consequence
-    if [ "$NEXT_STATE" = "qa_validation" ] && printf '%s' "$NEXT_RESPONSE" | grep -q '"name":"qa_verdict"'; then
+    if [ "$NEXT_STATE" = "qa_validation" ] && grep -q '"name":"qa_verdict"' <<<"$NEXT_RESPONSE"; then
         pass "after a qa retry, qa_validation holds on qa_verdict -- a results key changes nothing"
     else
         fail "after a qa retry, qa_validation went to [$NEXT_STATE] with no re-check recorded"
@@ -898,19 +898,19 @@ else
         fail "broken store: the block exited 0 -- a failed removal presented as success"
     fi
 
-    if printf '%s' "$out" | grep -q 'scrutiny_results.json'; then
+    if grep -q 'scrutiny_results.json' <<<"$out"; then
         pass "broken store: the diagnostic reaches stdout and names the key"
     else
         fail "broken store: expected the key on stdout with stderr discarded; got: [$out]"
     fi
 
-    if printf '%s' "$out" | grep -q 'blocking_escalate'; then
+    if grep -q 'blocking_escalate' <<<"$out"; then
         pass "broken store: the diagnostic names blocking_escalate as the way out"
     else
         fail "broken store: the diagnostic must name the escalate outcome; got: [$out]"
     fi
 
-    if printf '%s' "$out" | grep -q 'Do NOT submit'; then
+    if grep -q 'Do NOT submit' <<<"$out"; then
         pass "broken store: the diagnostic names the outcome not to submit"
     else
         fail "broken store: the diagnostic must say which outcome not to submit; got: [$out]"
@@ -979,7 +979,7 @@ else
         fail "unreadable store: block exited 0 -- it trusted exists, which cannot see the surviving key"
     fi
 
-    if printf '%s' "$out" | grep -q 'scrutiny_results.json'; then
+    if grep -q 'scrutiny_results.json' <<<"$out"; then
         pass "unreadable store: the diagnostic reaches stdout and names the key"
     else
         fail "unreadable store: expected a diagnostic naming the key; got: [$out]"
@@ -1074,15 +1074,15 @@ fi
 
 # Each first line must actually name its own phase's field, or the identity
 # assertion above could be satisfied by three copies of one file.
-case "$(printf '%s\n' "$SCRUTINY_BLOCK" | head -1)" in
+case "$(head -1 <<<"$SCRUTINY_BLOCK")" in
     *scrutiny_outcome*) pass "phase-4a's block names scrutiny_outcome" ;;
     *) fail "phase-4a's block should name scrutiny_outcome on its first line" ;;
 esac
-case "$(printf '%s\n' "$REVIEW_BLOCK" | head -1)" in
+case "$(head -1 <<<"$REVIEW_BLOCK")" in
     *review_outcome*) pass "phase-4b's block names review_outcome" ;;
     *) fail "phase-4b's block should name review_outcome on its first line" ;;
 esac
-case "$(printf '%s\n' "$QA_BLOCK" | head -1)" in
+case "$(head -1 <<<"$QA_BLOCK")" in
     *qa_outcome*) pass "phase-4c's block names qa_outcome" ;;
     *) fail "phase-4c's block should name qa_outcome on its first line" ;;
 esac
