@@ -285,7 +285,8 @@ drift apart.
 
 Both parts of the body are checked, on purpose: Part 2 is still prose
 shirabe publishes on the pull request. A reviewer note that needs to quote a
-banned word puts it in inline code, which is never matched.
+banned word puts it in double quotes, a blockquote or inline code, none of
+which is matched.
 
 Without the flag nothing changes: `check_pr_body` and the default output are
 untouched, and the flag declares `requires = "pr_body"` like `--pr-title`.

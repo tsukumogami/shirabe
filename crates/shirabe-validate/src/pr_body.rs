@@ -1030,8 +1030,9 @@ words:
         // PB5 applies no span filter of its own: it shares FC10's prose
         // scoping and matcher, so an exclusion added there reaches both.
         // Each quoted form (blockquote, straight and curly double quotes, a
-        // quote around emphasis, inline and fenced code) carries a banned
-        // word, and lines 1 and 15 carry them plain.
+        // quote around emphasis) and each non-prose form (inline and fenced
+        // code, table cells) carries a banned word, and lines 1 and 15 carry
+        // them plain.
         let lines: Vec<&str> = vec![
             "Plain leverage here.",
             "",
