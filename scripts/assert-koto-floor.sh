@@ -97,7 +97,7 @@ semver_ge() {
 }
 
 FLOOR="${FLOOR#v}"
-if ! printf '%s' "$FLOOR" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+if ! grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' <<<"$FLOOR"; then
     echo "assert-koto-floor: the floor \"$FLOOR\" is not a MAJOR.MINOR.PATCH version" >&2
     exit 1
 fi

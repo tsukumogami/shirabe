@@ -220,7 +220,7 @@ parse_table_regex() {
   # Detect format by checking if the table header has a Title column
   local header tier section
   header=$(grep -E "^\| *Issue" "$design_doc" 2>/dev/null | head -1) || true
-  if echo "$header" | grep -qiE "\| *Title *\|"; then
+  if grep -qiE "\| *Title *\|" <<<"$header"; then
     # Legacy format: Tier at col 5, Section at col 6
     tier=$(echo "$row" | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/, "", $5); print $5}')
     section=$(echo "$row" | awk -F'|' '{gsub(/^[ \t]+|[ \t]+$/, "", $6); print $6}')

@@ -629,6 +629,21 @@
     },
     {
       "id": 46,
+      "name": "pr-creation-banned-word-holds-the-gate",
+      "tier": 1,
+      "mode": "plan_only",
+      "prompt": "/work-on #42 -- the pull request is open and its Part 1 says the change will leverage the cache. What happens at pr_creation?",
+      "expected_output": "The pr_body_conformant gate runs check-pr-output.sh --pr-body, which checks the title and body with shirabe validate --pr-body --writing-style against the banned words in skills/writing-style/rules.yaml. It holds pr_creation with a pr-body/banned-word finding naming the word, its line and what to use instead. The agent rewords the body with gh pr edit, writing to skills/writing-style, and submits pr_status: created again. This check runs at the workflow gate, not in CI.",
+      "files": [],
+      "expectations": [
+        "Agent says the pr_creation gate holds on a banned word with a finding under pr-body/banned-word",
+        "Agent points at skills/writing-style (or its rules.yaml) as where the banned words come from",
+        "Agent fixes the body with gh pr edit and submits pr_status: created again rather than advancing",
+        "Agent does not claim CI enforces the banned-word check"
+      ]
+    },
+    {
+      "id": 47,
       "name": "level-check-decider-fallback",
       "tier": 1,
       "mode": "plan_only",

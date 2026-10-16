@@ -18,7 +18,9 @@
 #     links it, its head is not from a fork, and its head branch agrees with a
 #     Branch cell already set (exit 65 otherwise, naming why).
 # The Branch written is the pull request's headRefName as GitHub reports it,
-# never text from the report. The row is written with record-holding.sh, which
+# never text from the report. On the session store the holding's pushed head
+# is written too, the headRefOid GitHub reports (PRD R17); it stays beside the
+# row and never reaches GitHub. The row is written with record-holding.sh, which
 # re-reads the record and checks provenance and directed transitions before
 # record-write.sh writes it. A holding that already links the pull request is
 # left as it is (exit 0), so running it again is safe; one that links another
@@ -40,7 +42,7 @@
 # reason on stderr.
 #
 # GitHub reads: record-holding.sh --list;
-# gh pr view <n> --repo <repo> --json headRefName,isCrossRepository,url (the link
+# gh pr view <n> --repo <repo> --json headRefName,headRefOid,isCrossRepository,url (the link
 # names the repository as that URL spells it).
 # GitHub writes: only through record-holding.sh (record-write.sh).
 set -uo pipefail
@@ -127,7 +129,7 @@ fi
 lib_in_scope "$PR_REPO" "$T/all.json" || refuse "$PR_REPO is neither the host nor the repository of any holding"
 ! lib_pr_held "$PR_REPO" "$NUM" "$TOPIC" "$T/all.json" || refuse "another holding links $PR_REPO#$NUM"
 
-gh pr view "$NUM" --repo "$PR_REPO" --json headRefName,isCrossRepository,url > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
+gh pr view "$NUM" --repo "$PR_REPO" --json headRefName,headRefOid,isCrossRepository,url > "$T/pr.json" 2> "$T/pr.err" < /dev/null \
     || lib_die2 "cannot read $PR_REPO#$NUM: $(lib_scrub < "$T/pr.err")"
 [ "$(jq -r '.isCrossRepository' "$T/pr.json")" = false ] || refuse "$PR_REPO#$NUM's head is in another repository"
 # The link names the repository as GitHub spells it, whatever case the report used.
@@ -140,4 +142,11 @@ HEAD_BR=$(jq -r '.headRefName // ""' "$T/pr.json")
 
 jq --arg b "$HEAD_BR" --arg p "[#$NUM](https://github.com/$PR_REPO/pull/$NUM)" '.branch = $b | .pull_request = $p' \
     "$T/row.json" > "$T/next.json" || lib_die2 "jq failed"
+# On the session store the holding also keeps the head just read (PRD R17);
+# a GitHub record has no place for it.
+if [ "$(rs_source)" = session ]; then
+    HEAD_SHA=$(jq -r '.headRefOid // ""' "$T/pr.json")
+    [[ $HEAD_SHA =~ ^[0-9a-f]{40}$ ]] || lib_die2 "$PR_REPO#$NUM's head commit as GitHub reports it is not a sha"
+    jq --arg h "$HEAD_SHA" '.pushed_head = $h' "$T/next.json" > "$T/next.json.t" && mv "$T/next.json.t" "$T/next.json" || lib_die2 "jq failed"
+fi
 hold --topic "$TOPIC" --row-file "$T/next.json"

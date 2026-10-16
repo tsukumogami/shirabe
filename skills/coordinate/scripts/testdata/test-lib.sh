@@ -66,12 +66,14 @@ session_keys() {
         jq -c --arg f "$field" '.[$f]' "$f" | koto context add "$s" "record/$key"
     done
 }
-# session_snapshot <session>: one line per record/ key, its name and content
-# digest, so a test can show a refused write changed no key.
+# session_snapshot <session>: one line per record/ key, its name and its
+# content as hex bytes, so a test can show a refused write changed no key.
+# Hex from od, not a cksum digest: run-tests.sh's PATH has no cksum, and an
+# empty digest would make every snapshot compare equal.
 session_snapshot() {
     local d="$KOTO_STORE/context/$1/record"
     [ -d "$d" ] || { echo none; return; }
-    (cd "$d" && find . -type f | LC_ALL=C sort | while read -r f; do printf '%s %s\n' "$f" "$(cksum < "$f")"; done)
+    (cd "$d" && find . -type f | LC_ALL=C sort | while read -r f; do printf '%s %s\n' "$f" "$(od -An -tx1 < "$f" | tr -d ' \n')"; done)
 }
 
 record_json() { # record_json <roadmap|discipline> <name>: an empty record

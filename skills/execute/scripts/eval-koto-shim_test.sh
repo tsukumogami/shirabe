@@ -85,7 +85,7 @@ resp=$(k "$SC" "$LOG" next "$WF" --with-data @"$EVIDENCE" --no-cleanup)
 if [ "$(printf '%s' "$resp" | jq -r '"\(.action) \(.state) \(.result.status)"')" = "done done_blocked failure" ]; then
     pass "impact intent-changing (@file) answers the done_blocked terminal"
 else
-    fail "the intent-changing tick answered [$(printf '%s' "$resp" | head -c 200)]"
+    fail "the intent-changing tick answered [$(head -c 200 <<<"$resp")]"
 fi
 
 got=$(k "$SC" "$LOG" status "$WF" | jq -c '{current_state, is_terminal, outcome: .result.payload.outcome, step: .result.payload.step}')
@@ -256,7 +256,7 @@ if [ "$(printf '%s' "$resp" | jq -r .state)" = spawn_and_await ] \
     && printf '%s' "$resp" | jq -r .directive | grep -q 'PLAN-diamond-test.md'; then
     pass "drift-informational: impact informational answers spawn_and_await for the diamond PLAN"
 else
-    fail "drift-informational answered [$(printf '%s' "$resp" | head -c 200)]"
+    fail "drift-informational answered [$(head -c 200 <<<"$resp")]"
 fi
 [ "$(k drift-informational "$LOG4" status "$WF" | jq -r .current_state)" = spawn_and_await ] \
     && pass "drift-informational: status reports spawn_and_await" \

@@ -109,5 +109,38 @@ else
     echo "SKIP: no koto with --koto-leg on PATH -- the at-floor case did not run"
 fi
 
+# The PR gate's validator flag. Both /work-on (pr_creation) and /execute
+# (pr_finalization) run check-pr-output.sh, which passes --writing-style, so
+# both skills' always records declare it, and a shirabe whose `validate
+# --help` predates it is named at load.
+for skill in work-on execute; do
+    FLAGS=$(awk -F'\t' '$1 == "shirabe" && $2 == "validate" && $4 == "always" { print $3 }' \
+        "$REPO/skills/$skill/requires.tsv")
+    for f in --pr-body --pr-title --writing-style; do
+        case ",$FLAGS," in
+            *",$f,"*) ok "$skill's always shirabe validate record declares $f" ;;
+            *) bad "$skill's always shirabe validate record declares $f" "[$FLAGS]" ;;
+        esac
+    done
+done
+mkdir -p "$T/shbin"
+cat >"$T/shbin/shirabe" <<'OLDSHIRABE'
+#!/usr/bin/env bash
+case "$*" in
+    "validate --help") printf 'Usage: shirabe validate [OPTIONS] [FILES]...\n\nOptions:\n      --format <FORMAT>\n      --check <CHECK>\n      --visibility <V>\n      --lifecycle <ROOT>\n      --mode <MODE>\n      --lifecycle-chain <DOC>\n      --allow-untracked-acs\n      --merge-gate\n      --pr <PR>\n      --upstream <U>\n      --coordination-body <FILE>\n      --pr-body <FILE>\n      --pr-title <STRING>\n  -h, --help\n' ;;
+    *"--help") printf 'Usage: shirabe %s\n\nCommands:\n  validate\n  transition\n  finalize-chain\n\nOptions:\n  -h, --help\n' "$1" ;;
+    "--version"|"-V") printf 'shirabe 0.26.0\n' ;;
+    *) exit 2 ;;
+esac
+OLDSHIRABE
+chmod +x "$T/shbin/shirabe"
+for skill in work-on execute; do
+    OUT=$(cd "$T/cwd" && PATH="$T/shbin:$PATH" bash "$PREFLIGHT" "$skill" 2>&1)
+    case "$OUT" in
+        *--writing-style*) ok "load-time preflight for $skill on a shirabe without --writing-style names it" ;;
+        *) bad "load-time preflight for $skill on a shirabe without --writing-style names it" "$OUT" ;;
+    esac
+done
+
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

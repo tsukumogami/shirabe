@@ -38,6 +38,7 @@ on:
       - 'scripts/lib/rule-findings-testlib.sh'
       - 'scripts/lib/panel-round-testlib.sh'
       - 'references/pr-body-conformance.md'
+      - 'skills/writing-style/rules.yaml'
       - 'references/wip-hygiene.md'
       - 'docs/guides/doc-validation.md'
       - 'crates/**'
@@ -68,6 +69,7 @@ on:
       - 'scripts/lib/rule-findings-testlib.sh'
       - 'scripts/lib/panel-round-testlib.sh'
       - 'references/pr-body-conformance.md'
+      - 'skills/writing-style/rules.yaml'
       - 'references/wip-hygiene.md'
       - 'docs/guides/doc-validation.md'
       - 'crates/**'
@@ -306,6 +308,10 @@ jobs:
 
       - name: Run PR output gate tests (Linux)
         if: runner.os == 'Linux'
+        # The PB5 cases run against the validator built above, and fail
+        # rather than skip without it.
+        env:
+          CHECK_PR_OUTPUT_REQUIRE_SHIRABE: '1'
         run: skills/work-on/scripts/check-pr-output_test.sh
 
       # The live offload canary: the draw against a scratch plugin root whose

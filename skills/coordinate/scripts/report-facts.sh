@@ -48,7 +48,9 @@
 #
 # Exit codes: 0 a verdict was printed; 2 a read failed; 64 usage.
 #
-# GitHub reads: record-holding.sh --read and --list (gh issue|pr view);
+# GitHub reads: record-holding.sh --read and --list (gh issue|pr view); on the
+# session store, record-holding.sh --pushed-head writes a changed head (no GitHub
+# write: the head is kept beside the row in the session);
 # gh pr view <n> --repo <repo> --json number,state,isDraft,headRefOid,headRefName,isCrossRepository,mergeStateStatus,url
 # koto reads: on the leg path with Pull request empty, koto request get <request>.
 set -uo pipefail
@@ -149,5 +151,17 @@ PRVIEW=$(jq -c '{state, isDraft, headRefOid, mergeStateStatus, isCrossRepository
 [ "$(printf '%s' "$PRVIEW" | jq -r '.isCrossRepository')" = false ] || finish "refused $TOPIC fork-head"
 if [ -n "$BR" ] && [ "$(printf '%s' "$PRVIEW" | jq -r '.headRefName // ""')" != "$BR" ]; then
     finish "refused $TOPIC branch-mismatch"
+fi
+# On the session store a holding keeps the head this read saw (PRD R17). This
+# script is a check and writes nothing itself: record-holding.sh writes it in
+# its own process, its output kept off the verdict line, and a write that fails
+# or is refused is named on stderr and changes no verdict. A link's head is
+# written by holding-link.sh with the link.
+if [ "$WORD" = holding ] && [ "$(rs_source)" = session ]; then
+    NEWH=$(printf '%s' "$PRVIEW" | jq -r '.headRefOid // ""')
+    if [[ $NEWH =~ ^[0-9a-f]{40}$ ]] && [ "$NEWH" != "$(printf '%s' "$ROW" | jq -r '.pushed_head // ""')" ]; then
+        hold --topic "$TOPIC" --pushed-head "$NEWH" > "$T/push.out" 2> "$T/push.err" \
+            || echo "$PROG: $TOPIC's pushed head $NEWH wasn't kept: $(lib_scrub < "$T/push.err" | head -1)" >&2
+    fi
 fi
 finish "$WORD $LINK_NUM $TOPIC"

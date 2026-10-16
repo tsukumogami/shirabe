@@ -230,7 +230,7 @@ STALE_CMD=$(gate_command staleness_check staleness_fresh)
 
 OUT=$(cd "$WORKDIR/repo" && sh -c "$(render "$IS_ROOT_CMD")" 2>/dev/null)
 RC=$?
-if [ "$RC" -ne 0 ] && ! printf '%s' "$OUT" | grep -q '::koto-finding::'; then
+if [ "$RC" -ne 0 ] && ! grep -q '::koto-finding::' <<<"$OUT"; then
     pass "is_root failing (exit $RC, an unknown session) prints no finding"
 else
     fail "is_root: exit $RC, stdout [$OUT]"
@@ -239,10 +239,10 @@ fi
 for mode in stale fail; do
     OUT=$(cd "$WORKDIR/repo" && env PATH="$STUB:$PATH" FAKE_GH_MODE="$mode" sh -c "$(render "$STALE_CMD")" 2>/dev/null)
     RC=$?
-    if [ "$RC" -ne 0 ] && [ -n "$OUT" ] && ! printf '%s' "$OUT" | grep -q '::koto-finding::'; then
+    if [ "$RC" -ne 0 ] && [ -n "$OUT" ] && ! grep -q '::koto-finding::' <<<"$OUT"; then
         pass "staleness_fresh failing (exit $RC, gh $mode) prints its report and no finding"
     else
-        fail "staleness_fresh with gh $mode: exit $RC, stdout [$(printf '%s' "$OUT" | head -c 200)]"
+        fail "staleness_fresh with gh $mode: exit $RC, stdout [$(head -c 200 <<<"$OUT")]"
     fi
 done
 
@@ -376,7 +376,7 @@ drive() {
 }
 
 expect() {
-    if [ "$STATE" = "$2" ]; then pass "$1 -> $STATE"; else fail "$1: want $2, got $STATE ($(printf '%s' "$RESP" | head -c 300))"; fi
+    if [ "$STATE" = "$2" ]; then pass "$1 -> $STATE"; else fail "$1: want $2, got $STATE ($(head -c 300 <<<"$RESP"))"; fi
 }
 
 # holds <label> <state> <gate>: the run stayed in <state> and the response
@@ -385,7 +385,7 @@ holds() {
     if [ "$STATE" = "$2" ] && printf '%s' "$RESP" | jq -e --arg g "$3" '[.blocking_conditions[]? | select(.name == $g)] | length > 0' >/dev/null 2>&1; then
         pass "$1 holds at $2 naming $3"
     else
-        fail "$1: want a hold at $2 naming $3, got $STATE ($(printf '%s' "$RESP" | head -c 300))"
+        fail "$1: want a hold at $2 naming $3, got $STATE ($(head -c 300 <<<"$RESP"))"
     fi
 }
 
@@ -417,7 +417,7 @@ drive verification "" ""
 if [ "$STATE" = verification ] && printf '%s' "$RESP" | jq -e '[.blocking_conditions[]? | select(.name == "verification_verdict" and .status == "pending")] | length > 0' >/dev/null 2>&1; then
     pass "verification_verdict exit 75 leaves the state waiting (pending)"
 else
-    fail "verification_verdict exit 75: want a pending wait at verification, got $STATE ($(printf '%s' "$RESP" | head -c 300))"
+    fail "verification_verdict exit 75: want a pending wait at verification, got $STATE ($(head -c 300 <<<"$RESP"))"
 fi
 drive verification "" '{"verification_status":"blocked","detail":"the runner cannot start"}'
 expect "verification_status: blocked while pending" done_blocked
@@ -458,7 +458,7 @@ expect "ci_outcome: failing_fixed on red CI" ci_monitor
 if printf '%s' "$RESP" | jq -e '.advanced == true' >/dev/null 2>&1; then
     pass "failing_fixed re-enters ci_monitor (advanced)"
 else
-    fail "failing_fixed did not re-enter ci_monitor: $(printf '%s' "$RESP" | head -c 200)"
+    fail "failing_fixed did not re-enter ci_monitor: $(head -c 200 <<<"$RESP")"
 fi
 drive ci_monitor "" '{"ci_outcome":"failing_unresolvable","rationale":"upstream outage"}' ci_passing=1 merge_state_clean=0
 expect "ci_outcome: failing_unresolvable on red CI" done_blocked
@@ -516,7 +516,7 @@ if [ "$STATE" = done ]; then
 elif [ "$STATE" = pr_creation ]; then
     pass "pr_status: shared on a root run (SHARED_BRANCH unset) stays at pr_creation"
 else
-    fail "pr_status: shared with SHARED_BRANCH unset: want pr_creation, got $STATE ($(printf '%s' "$RESP" | head -c 300))"
+    fail "pr_status: shared with SHARED_BRANCH unset: want pr_creation, got $STATE ($(head -c 300 <<<"$RESP"))"
 fi
 
 # The panels (gate 6): <panel>_verdict decides the pass. Each case starts with
@@ -561,7 +561,7 @@ panel_routes() {
                 if [ "$STATE" = "$target" ] || [ "$STATE" = "$st" ]; then
                     pass "$st: ${p}_verdict exit 0 refuses $v (went to $STATE)"
                 else
-                    fail "$st: ${p}_verdict exit 0 with $v: got $STATE ($(printf '%s' "$RESP" | head -c 300))"
+                    fail "$st: ${p}_verdict exit 0 with $v: got $STATE ($(head -c 300 <<<"$RESP"))"
                 fi ;;
         esac
     done

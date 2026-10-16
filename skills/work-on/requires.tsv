@@ -93,7 +93,8 @@
 # in step with the script by hand.
 #
 # The output gates call `shirabe validate` themselves: check-pr-output.sh with
-# --pr-body, --pr-title and --format at pr_creation's pr_body_conformant gate,
+# --pr-body, --pr-title, --format and --writing-style at pr_creation's
+# pr_body_conformant gate (an older shirabe without --writing-style holds it),
 # and check-branch-output.sh with --visibility and --format at pr_precheck's
 # branch_docs_visibility gate. Their error messages quote `tail -n 1` of the
 # validator's stderr on the same line as the word shirabe, which the scan reads
@@ -144,7 +145,7 @@ koto	decisions record	--with-data	always
 koto	overrides list	-	always
 koto	overrides record	--gate,--rationale	always
 koto	decider answer	--gate,--criterion,--answer	always
-shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--visibility	always
+shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--writing-style,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always
 gh	-	-	always

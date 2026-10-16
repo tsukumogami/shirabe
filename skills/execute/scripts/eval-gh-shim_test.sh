@@ -417,7 +417,7 @@ SEED_ERR=$(cd "$REPO" && env EVAL_SCENARIO=model EVAL_SCENARIO_DIR="$MODEL" GH_C
     PATH="$SHIM_BIN:$PATH" gh pr view 10 --repo "$R" --json state 2>&1 >/dev/null)
 RC=$?
 if [ "$RC" -eq 1 ] && [ ! -e "$LOG.d/db.json" ] && ! grep -q tmp <<< "$(ls "$LOG.d")" \
-    && printf '%s' "$SEED_ERR" | grep -q "could not seed the database from $MODEL/gh/db.json"; then
+    && grep -q "could not seed the database from $MODEL/gh/db.json" <<<"$SEED_ERR"; then
     pass "seed: a db.json jq can't read fails the first call by name and leaves no database"
 else
     fail "seed: unreadable db.json rc=$RC err=[$SEED_ERR] state=[$(ls "$LOG.d" 2>/dev/null | tr '\n' ' ')]"
@@ -495,7 +495,7 @@ if [ -n "$SHIRABE_FOR_OUTLINES" ] && "$SHIRABE_FOR_OUTLINES" plan outlines --hel
     scenario_next coord-index-wrong-branch coord-outline-test eval-org/eval-repo true error:execute:pr-adopt
     scenario_next coord-index-out-of-set coord-outline-test eval-org/eval-repo true error:execute:write-set
     # shellcheck disable=SC2086
-    if cat $SCENARIO_LOGS | grep -q '^issue'; then
+    if grep -q '^issue' $SCENARIO_LOGS; then
         fail "a coordinated scenario made a gh issue call"
     else
         pass "no coordinated scenario makes a gh issue call"

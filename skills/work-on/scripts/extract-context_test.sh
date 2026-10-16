@@ -127,7 +127,7 @@ OUT=$(cd "$RUN" && KOTO_BIN="$STUBS/koto" PATH="$BIN:$STUBS:/usr/bin:/bin" "$BAS
 JSON=$(printf '%s\n' "$OUT" | sed -n '/^{/,$p')
 OUT="$JSON"
 check_failed_json "a koto context add that fails"
-if printf '%s' "$(cd "$RUN" && KOTO_BIN="$STUBS/koto" PATH="$BIN:$STUBS:/usr/bin:/bin" "$BASH" "$SCRIPT" 123 --session some-session 2>/dev/null)" | grep -q 'Context stored'; then
+if grep -q 'Context stored' <<<"$(cd "$RUN" && KOTO_BIN="$STUBS/koto" PATH="$BIN:$STUBS:/usr/bin:/bin" "$BASH" "$SCRIPT" 123 --session some-session 2>/dev/null)"; then
     fail "a koto context add that fails: the 'Context stored' banner printed anyway"
 else
     pass "a koto context add that fails: no 'Context stored' banner"

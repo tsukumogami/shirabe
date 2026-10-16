@@ -88,5 +88,9 @@ koto	context exists	-	always
 # never checked at load, so a run on the GitHub store keeps shirabe's koto
 # minimum; the probe is the check that runs. The session store's other calls
 # (`context exists`, `context remove`, `session list`) are declared above.
+# `session import` has one call site, coordinate-open.sh --import, which asks
+# the probe first, compiles the shipped template (`template compile`, declared
+# above, so koto finds the run's template in this host's cache), and passes
+# --from always and --trust-template only when the operator gave it.
 koto	context list	--prefix	mode:session-store
 koto	session import	--from,--trust-template	mode:session-store

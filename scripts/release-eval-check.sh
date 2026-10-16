@@ -101,7 +101,7 @@ fail() {
 }
 
 valid_skill() {
-  printf '%s\n' "$1" | grep -Eq "$SKILL_RE"
+  grep -Eq "$SKILL_RE" <<<"$1"
 }
 
 # --- arguments ----------------------------------------------------------------
@@ -153,7 +153,7 @@ if [ "$MODE" = finalize ] && { [ -n "$CRITICAL" ] || [ -n "$CRITICAL_RUNS" ] ||
 fi
 if [ "$MODE" = check ]; then
   [ -n "$CRITICAL_RUNS" ] || die_usage "--critical-runs is required"
-  printf '%s\n' "$CRITICAL_RUNS" | grep -Eq '^[1-9][0-9]?$' ||
+  grep -Eq '^[1-9][0-9]?$' <<<"$CRITICAL_RUNS" ||
     die_usage "--critical-runs must be a number from 1 to 99"
   OLD_IFS=$IFS
   IFS=,
@@ -164,11 +164,11 @@ if [ "$MODE" = check ]; then
   # The pattern run-evals.sh holds EVAL_MODEL to: a model name that can't be
   # read as an option.
   if [ -n "$MODEL" ]; then
-    printf '%s\n' "$MODEL" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._:-]*$' ||
+    grep -Eq '^[A-Za-z0-9][A-Za-z0-9._:-]*$' <<<"$MODEL" ||
       die_usage "--model must match ^[A-Za-z0-9][A-Za-z0-9._:-]*\$"
   fi
   if [ -n "$TOLERANCE" ]; then
-    printf '%s\n' "$TOLERANCE" | grep -Eq '^(0(\.[0-9]+)?|1(\.0+)?)$' ||
+    grep -Eq '^(0(\.[0-9]+)?|1(\.0+)?)$' <<<"$TOLERANCE" ||
       die_usage "--tolerance must be a rate from 0 to 1, such as 0.05"
   fi
 fi
@@ -179,10 +179,10 @@ LAST_TAG="${RELEASE_LAST_TAG:-}"
 VERSION="${RELEASE_VERSION:-}"
 CONFIRMED="${RELEASE_CONFIRMED_DROPS:-}"
 
-if [ -n "$LAST_TAG" ] && ! printf '%s\n' "$LAST_TAG" | grep -Eq "$TAG_RE"; then
+if [ -n "$LAST_TAG" ] && ! grep -Eq "$TAG_RE" <<<"$LAST_TAG"; then
   die_usage "RELEASE_LAST_TAG must be empty or v<major>.<minor>.<patch>"
 fi
-printf '%s\n' "$VERSION" | grep -Eq "$SEMVER_RE" ||
+grep -Eq "$SEMVER_RE" <<<"$VERSION" ||
   die_usage "RELEASE_VERSION must be <major>.<minor>.<patch>"
 if [ -n "$CONFIRMED" ]; then
   OLD_IFS=$IFS
@@ -219,7 +219,7 @@ read_marker_skills() {
   INDEXES=""
   while read -r tag index name; do
     [ "$tag" = skill ] || continue
-    printf '%s\n' "$index" | grep -Eq '^[0-9]+$' || fail "the state marker is malformed"
+    grep -Eq '^[0-9]+$' <<<"$index" || fail "the state marker is malformed"
     valid_skill "$name" || fail "the state marker is malformed"
     SKILLS="$SKILLS $name"
     INDEXES="$INDEXES $index"
@@ -259,7 +259,7 @@ if [ -n "$LAST_TAG" ]; then
   REPO=$(printf '%s\n' "$ORIGIN" |
     sed -n -E 's#^(https://github\.com/|git@github\.com:|ssh://git@github\.com/)([^/]+/[^/]+)$#\2#p' |
     sed 's/\.git$//')
-  printf '%s\n' "$REPO" | grep -Eq "$REPO_RE" ||
+  grep -Eq "$REPO_RE" <<<"$REPO" ||
     fail "cannot tell the GitHub repository from the origin remote"
 fi
 

@@ -292,7 +292,7 @@ directive "$ROOT" --var SHARED_BRANCH=impl/plan; SHARED=$D
 directive "$T/root-failing"; FAILED=$D
 directive "$T/root-missing"; MISSING=$D
 
-printf '%s' "$OFF" | grep -qF 'ROOT/references/pr-body-conformance.md' \
+grep -qF 'ROOT/references/pr-body-conformance.md' <<<"$OFF" \
     && pass "a canary-off run's pr_creation directive names the real conformance text" \
     || fail "the off directive does not name the real conformance text: $OFF"
 same=1
@@ -309,8 +309,8 @@ if [ -n "$RENDERED" ] && [ -f "$RENDERED" ]; then
         grep -qF -- "$FIRST" "$f" && leak=1
         grep -qF -- "$RULE" "$f" && leak=1
     done
-    printf '%s' "$WDIR" | grep -qF -- "$FIRST" && leak=1
-    printf '%s' "$WDIR" | grep -qF -- "$RULE" && leak=1
+    grep -qF -- "$FIRST" <<<"$WDIR" && leak=1
+    grep -qF -- "$RULE" <<<"$WDIR" && leak=1
     [ $leak -eq 0 ] && pass "the withheld directive, phase-6-pr.md and the rendering carry neither PB4's first anchor nor $RULE" \
         || fail "PB4 leaks into the withheld run's instructions"
 else

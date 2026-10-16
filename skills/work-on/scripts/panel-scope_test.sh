@@ -761,7 +761,7 @@ jq -e --arg id "$FRID" '.findings[$id] | .raiser == {kind: "reviewer", name: "fi
     || fail "fix-review finding $(jq -c --arg id "$FRID" '.findings[$id]' "$SHIM_STORE/$SESSION/verdict_ledger.json")"
 run --verdict scrutiny "$SESSION"
 expect_rc "--verdict with an open fix-review finding" 1
-printf '%s\n' "$OUT" | grep -q 'scrutiny/fix-review: the fix broke line 45' \
+grep -q 'scrutiny/fix-review: the fix broke line 45' <<<"$OUT" \
     && pass "the gate names the fix-review raiser" || fail "verdict printed: $OUT"
 run --plan review "$SESSION"
 [ "$(spawned review)" = 0 ] && pass "the next panel plans no fix-diff review once one is recorded" \
