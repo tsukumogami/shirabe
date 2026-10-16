@@ -323,25 +323,30 @@ GitHub's 65,536-byte limit.
 
 **The archive.** A settled entry doesn't stay in the body for good. When the
 record is within 4,096 bytes of that budget, `decision-next.sh` moves every
-settled entry that owes nothing and carries no stamp of the current run out of
-the body before it routes anything (`record-decision.sh --archive`): their rows
-go, exactly as the body held them, to `decisions` entries on the record
-(`record-append.sh`), and their identifiers join an `Archived:` line under
-`Next decision`:
+settled entry that owes nothing out of the body before it routes anything
+(`record-decision.sh --archive`): their rows go, exactly as the body held them,
+to `decisions` entries on the record (`record-append.sh`), and their
+identifiers join an `Archived:` line under `Next decision`. The current run's
+own entries move too, but their stamps stay, on one line, because the replay
+guard and the unrecorded and redirect rules read a stamp's kind, sequence and
+entry, and whether it marks a question addressed to a person, and never the
+rest of the row:
 
 ```markdown
 Archived: 1-12, 14, 17-30 (settled; each kept verbatim in a decisions entry on this record)
+
+Stamps kept for run 20261015T080000Z: 17 raise 41, 18 report 52.1 addressed, 18 redirect 52
 ```
 
-`--owed` reads the move as `archive`, ahead of every rule, so a run restarted on
-a full record archives before it picks or dispatches anything. `record-full`
-is left for a record full of what can't move: unsettled entries, entries owed
-a message, and the current run's own stamps, which `decision-next.sh` reads to
-tell whether the run's writes landed. Evidence, an answer or a worker's
-citation naming an archived entry restores it first, from the latest unedited
-`decisions` entry holding its row, in the same write that records the arrival.
-A withdrawal reaches only the entries in the body. `Next decision` is
-unchanged by either move.
+Only the archiving run's stamps are kept; a later run's archive drops them,
+since no rule reads another run's. `--owed` reads the move as `archive`, ahead
+of every rule, so a run restarted on a full record archives before it picks or
+dispatches anything. `record-full` is left for a record full of what can't
+move: unsettled entries and entries owed a message. Evidence, an answer or a
+worker's citation naming an archived entry restores it first, from the latest
+unedited `decisions` entry holding its row, in the same write that records the
+arrival, and its kept stamps go back to its row. A withdrawal reaches only the
+entries in the body. `Next decision` is unchanged by either move.
 
 The declaration line is for readers. It is deliberately different from the
 `This is a **coordination PR**` marker that `/execute` uses, so no gate

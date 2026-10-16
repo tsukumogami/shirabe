@@ -66,10 +66,10 @@
 #                       the core would refuse
 #
 # Before any rule, a record within that margin whose Decisions section holds a
-# settled entry that owes nothing and carries no stamp of this run (the codec's
-# d_archivable) has those entries archived (record-decision.sh --archive): their
-# rows move to `decisions` entries on the record and the body keeps their
-# identifiers. The rules then read the section as it is after the move, so
+# settled entry that owes nothing (the codec's d_archivable) has those entries
+# archived (record-decision.sh --archive): their rows move to `decisions`
+# entries on the record, and the body keeps their identifiers and this run's
+# stamps on them, which the rules below read as they read a row's. The rules then read the section as it is after the move, so
 # record-full is left only for a record that is full of what can't move. With
 # --owed the move is `archive`, ahead of every rule, blocking dispatch and pick
 # alike, so a restarted run on a full record comes here before it does anything
@@ -132,7 +132,7 @@ live_size() {
 }
 # The archive: settled entries leave a record within the margin.
 ARCHIVE=false
-if jq -e -L "$HERE" --arg run "$RUN" 'include "record-codec"; any(.entries[]; d_archivable($run))' "$T/section.json" > /dev/null; then
+if jq -e -L "$HERE" 'include "record-codec"; any(.entries[]; d_archivable)' "$T/section.json" > /dev/null; then
     live_size
     [ "$SIZE" -gt $((60000 - 4096)) ] && ARCHIVE=true
 fi
@@ -237,7 +237,7 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
   include "record-codec";
   .entries as $es
   | (.archived // []) as $archived
-  | [$es[] | d_stamps[] | select(.run == $run)] as $mine
+  | [d_section_stamps[] | select(.run == $run)] as $mine
   # A raise from pick is done when the unit it named has its decision row,
   # on a new entry or on one already open, written since that pick.
   | ($park and (any(($st[0].work // [])[]; .kind == "decision" and (.updated // "")[0:16] >= $since
@@ -267,10 +267,9 @@ NEXT=$(jq -r -L "$HERE" --arg run "$RUN" --argjson carry "$CARRY" --arg qcap "$Q
   # Rule 5: the reports of this run that addressed someone and have no redirect.
   | ([$mine[] | select(.kind == "report") | .seq | split(".")[0]] | unique) as $reports
   | ([ $reports[] as $r
-       | select(any($es[] | d_stamps[]; .run == $run and .kind == "report" and (.seq | split(".")[0]) == $r
-                  and (.text | startswith(d_addressed_mark))))
+       | select(any($mine[]; .kind == "report" and (.seq | split(".")[0]) == $r and (.text | startswith(d_addressed_mark))))
        | select(any($mine[]; .kind == "redirect" and .seq == $r) | not)
-       | {r: $r, n: ([$es[] | select(any(d_stamps[]; .run == $run and .kind == "report" and (.seq | split(".")[0]) == $r)) | .decision | tonumber] | min)} ]
+       | {r: $r, n: ([$mine[] | select(.kind == "report" and (.seq | split(".")[0]) == $r) | .decision | tonumber] | min)} ]
      | sort_by(.n) | first) as $redir
   | if $carry then "carry"
     elif $to_open and ($qseq != "") and (report_stamped($qseq) | not) then "unrecorded-open"

@@ -72,13 +72,14 @@
 #       The arrival is the latest of its kind before this visit, so a retry
 #       decision_next routes here after a write that didn't land reads it too.
 #   --archive                                      decision_next
-#       Moves every settled entry that owes nothing and carries no stamp of
-#       this run (the codec's d_archivable) out of the body: their rows, as the
-#       body holds them, go to `decisions` entries on the record
-#       (record-append.sh, one per 50,000 bytes of rows), then the body is
-#       written without them, their identifiers added to the section's
-#       Archived line. Refused unless the record is within 4,096 bytes of the
-#       60,000-byte budget and something can move. decision-next.sh runs it
+#       Moves every settled entry that owes nothing (the codec's d_archivable)
+#       out of the body: their rows, as the body holds them, go to `decisions`
+#       entries on the record (record-append.sh, one per 50,000 bytes of rows),
+#       then the body is written without them, their identifiers added to the
+#       section's Archived line and this run's stamps on them to its kept
+#       stamps, which the replay guard reads as it reads a row's. Refused
+#       unless the record is within 4,096 bytes of the 60,000-byte budget and
+#       something can move. decision-next.sh runs it
 #       before it routes, so no owed write parks at record-full while settled
 #       entries could leave (shirabe#827).
 #   --sent [--route tool|message]                  a *_send state
@@ -318,8 +319,8 @@ def release:
       else .entries |= map(if .decision == ($q | tostring) then
           (if (escalation_problems($t) | length) == 0 then escalate_now else .verdict = "" end) else . end) end
   end;
-def stamped($kind; $seq): any(.entries[] | d_stamps[]; .run == $run and .kind == $kind and .seq == $seq);
-def stamped_report($seq): any(.entries[] | d_stamps[]; .run == $run and .kind == "report" and (.seq | split(".")[0]) == $seq);
+def stamped($kind; $seq): any(d_section_stamps[]; .run == $run and .kind == $kind and .seq == $seq);
+def stamped_report($seq): any(d_section_stamps[]; .run == $run and .kind == "report" and (.seq | split(".")[0]) == $seq);
 # A routed entry missing from the live record (edited by hand since the route)
 # is a refusal, never an empty result: an empty program output would be written
 # as no section at all.
@@ -377,7 +378,11 @@ restore() {
               // error("entry \($n) is archived, and no decisions entry on the record holds it")) as $e
             | .decisions.entries += [$e] | .decisions.archived -= [$n])
         | .decisions.entries |= sort_by(.decision | tonumber)
-        | if .decisions.archived == [] then del(.decisions.archived) else . end' "$WD/parsed.json" > "$WD/restored.json" 2> "$WD/jq.err" \
+        | if .decisions.archived == [] then del(.decisions.archived) else . end
+        # The row it comes back with carries its stamps, so the kept ones go.
+        | if .decisions.kept == null then .
+          else .decisions.kept.stamps |= map(select(.decision as $k | $ids | index($k) | not))
+            | if .decisions.kept.stamps == [] then del(.decisions.kept) else . end end' "$WD/parsed.json" > "$WD/restored.json" 2> "$WD/jq.err" \
         || refuse "$(sed -n 's/^jq: error ([^)]*): //p' "$WD/jq.err" | head -1)"
     mv "$WD/restored.json" "$WD/parsed.json"
 }
@@ -595,13 +600,19 @@ sent)
 archive)
     SIZE=$(wc -c < "$WD/live.md" | tr -d ' ')
     [ "$SIZE" -gt $((60000 - 4096)) ] || refuse "the record is $SIZE bytes, not within 4,096 bytes of the 60,000-byte budget"
-    change '[.entries[] | select(d_archivable($run)) | .decision | tonumber] as $ids
-      | if ($ids | length) == 0 then error("no settled entry owes nothing and carries no stamp of this run") else . end
-      | .entries |= map(select(d_archivable($run) | not)) | .archived = ((.archived // []) + $ids | unique)'
+    change '[.entries[] | select(d_archivable)] as $go
+      | if ($go | length) == 0 then error("no settled entry owes nothing") else . end
+      # This run'"'"'s stamps on the rows that go stay in the body; another run'"'"'s are read by no rule.
+      | ([$go[] | . as $e | d_stamps[] | select(.run == $run)
+          | {decision: ($e.decision | tonumber), kind, seq, addressed: (.text | startswith(d_addressed_mark))}]) as $mine
+      | ((if (.kept.run // "") == $run then .kept.stamps else [] end) + $mine) as $ks
+      | .entries |= map(select(d_archivable | not))
+      | .archived = ((.archived // []) + ($go | map(.decision | tonumber)) | unique)
+      | if ($ks | length) > 0 then .kept = {run: $run, stamps: $ks} else del(.kept) end'
     # The rows as the live body holds them, in entries of at most 50,000 bytes
     # of rows, well under record-append.sh's 60,000-byte entry.
     SEC | jq -c -L "$HERE" --arg run "$RUN" 'include "record-codec";
-        [.entries[] | select(d_archivable($run))]
+        [.entries[] | select(d_archivable)]
         | reduce .[] as $e ([];
             ($e | render_drow) as $r
             | if length > 0 and (.[-1].bytes + ($r | utf8bytelength) + 1) <= 50000

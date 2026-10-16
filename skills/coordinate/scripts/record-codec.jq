@@ -627,12 +627,26 @@ def compact_settled:
 # ascending, rendered as ranges; an empty list is no line and no key, so a
 # record that never archived keeps its bytes.
 #
-# d_archivable($run): a settled entry that owes nothing and carries no stamp of
-# run $run. A stamp of the current run stays in the body, where decision-next.sh
-# reads it to tell whether the run's own writes landed.
-def d_archivable($run):
-  .state == "settled" and (.owed // "") == "" and (any(d_stamps[]; .run == $run) | not);
+# The stamps of the run that archived are all that stays of its own entries:
+# the replay guard (record-decision.sh) and the unrecorded and redirect rules
+# (decision-next.sh) read a stamp's run, kind and sequence, the entry it is on
+# and whether its line is the addressed mark, and nothing else of the row.
+# `kept` holds them, {run, stamps: [{decision, kind, seq, addressed}]}, rendered
+# on one line after Archived; only the latest archiving run's stamps are kept,
+# since no rule reads another run's.
+#
+# d_archivable: a settled entry that owes nothing.
+def d_archivable: .state == "settled" and (.owed // "") == "";
 def d_archived_line: " (settled; each kept verbatim in a decisions entry on this record)";
+def d_kept_title: "Stamps kept for run ";
+def re_kept_stamp: "^[1-9][0-9]* (report|wait|raise|hold|redirect|ask) [1-9][0-9]*(\\.[1-9][0-9]*)?( addressed)?$";
+# d_section_stamps: every stamp a Decisions section holds, in its rows and kept,
+# each {run, kind, seq, text, decision}; a kept stamp's text is the addressed
+# mark or empty.
+def d_section_stamps:
+  [(.entries // [])[] | . as $e | d_stamps[] | . + {decision: $e.decision}]
+  + (if .kept == null then [] else .kept.run as $r
+       | [.kept.stamps[] | {run: $r, kind, seq, text: (if .addressed then d_addressed_mark else "" end), decision: (.decision | tostring)}] end);
 def d_ranges:
   reduce .[] as $n ([]; if length > 0 and .[-1][1] + 1 == $n then .[-1][1] = $n else . + [[$n, $n]] end)
   | map(if .[0] == .[1] then "\(.[0])" else "\(.[0])-\(.[1])" end) | join(", ");
@@ -681,11 +695,18 @@ def check_drow($private):
 def check_decisions($d; $private):
   if $d == null then null
   elif ($d | type) != "object" then refuse("decisions: not an object")
-  elif (($d | keys) - ["entries", "next", "archived"]) != [] then refuse("decisions.\((($d | keys) - ["entries", "next", "archived"])[0]): not a field of this section")
+  elif (($d | keys) - ["entries", "next", "archived", "kept"]) != [] then refuse("decisions.\((($d | keys) - ["entries", "next", "archived", "kept"])[0]): not a field of this section")
   elif ($d.next | type) != "number" or $d.next < 1 or $d.next > 999999 or ($d.next | floor) != $d.next then refuse("decisions.next: not a positive integer below a million")
   elif (($d.entries // []) | type) != "array" then refuse("decisions.entries: not a list")
   elif (($d.archived // []) | type) != "array" or any(($d.archived // [])[]; type != "number" or . < 1 or floor != .)
     then refuse("decisions.archived: not a list of identifiers")
+  elif $d.kept != null and (($d.kept | type) != "object" or ($d.kept | keys) != ["run", "stamps"]
+      or ($d.kept.run | type) != "string" or ($d.kept.run | test("^[0-9]{8}T[0-9]{6}Z$") | not)
+      or ($d.kept.stamps | type) != "array" or ($d.kept.stamps | length) == 0
+      or any($d.kept.stamps[]; type != "object" or keys != ["addressed", "decision", "kind", "seq"]
+             or (.decision | type) != "number" or (.addressed | type) != "boolean"
+             or ("\(.decision) \(.kind) \(.seq)" | test(re_kept_stamp) | not)))
+    then refuse("decisions.kept: not {run, stamps: [{decision, kind, seq, addressed}]}")
   else
     ($d.entries // [] | map(check_drow($private))) as $rows
     | ($rows | map(.decision | tonumber)) as $ids
@@ -694,9 +715,13 @@ def check_decisions($d; $private):
       elif any($ids[]; . >= $d.next) then refuse("decisions: an identifier at or above Next decision (\($d.next))")
       elif any($arch[]; . >= $d.next) then refuse("decisions.archived: an identifier at or above Next decision (\($d.next))")
       elif any($arch[]; . as $a | $ids | index($a)) then refuse("decisions.archived: an identifier the body still holds")
+      elif $d.kept != null and any($d.kept.stamps[]; .decision as $k | $arch | index($k) | not)
+        then refuse("decisions.kept: a stamp of an entry that isn't archived")
       # floor: a number written 7.0 or 7e0 renders as 7, the one form the
       # parser reads back.
-      else {next: ($d.next | floor), entries: $rows} + (if ($arch | length) > 0 then {archived: $arch} else {} end) end
+      else {next: ($d.next | floor), entries: $rows}
+        + (if ($arch | length) > 0 then {archived: $arch} else {} end)
+        + (if $d.kept != null then {kept: $d.kept} else {} end) end
   end;
 
 def render_decisions($d):
@@ -704,6 +729,8 @@ def render_decisions($d):
   else
     "\n\n## \(decisions_title)\n\nNext decision: \($d.next)\n\n"
     + (if ($d.archived // []) == [] then "" else "Archived: \($d.archived | d_ranges)\(d_archived_line)\n\n" end)
+    + (if $d.kept == null then ""
+       else "\(d_kept_title)\($d.kept.run): \($d.kept.stamps | map("\(.decision) \(.kind) \(.seq)\(if .addressed then " addressed" else "" end)") | join(", "))\n\n" end)
     + if ($d.entries | length) == 0 then "None."
       else d_header + ($d.entries | map("\n" + render_drow) | join("")) end
   end;
@@ -719,7 +746,16 @@ def parse_decisions($p):
         then refuse("Decisions: `Archived:` names identifiers as ascending ranges, `1-12, 14`")
         else {ids: ($c.ids | rtrimstr(d_archived_line)), rest: $c.rest} end
     else null end) as $a
-  | ($a.rest // $m.rest) as $rest
+  | ($a.rest // $m.rest) as $r1
+  | (if $r1 | startswith(d_kept_title) then
+      ($r1 | capture("^" + d_kept_title + "(?<run>[0-9]{8}T[0-9]{6}Z): (?<st>[^\n]*)\n\n(?<rest>[\\s\\S]*)$")
+        // refuse("Decisions: a `\(d_kept_title)<run>: ...` line that doesn't read")) as $c
+      | {run: $c.run, rest: $c.rest, stamps: ($c.st | split(", ") | map(
+          if test(re_kept_stamp) then split(" ") as $w
+            | {decision: ($w[0] | tonumber), kind: $w[1], seq: $w[2], addressed: (($w | length) == 4)}
+          else refuse("Decisions: a kept stamp that isn't `<entry> <kind> <seq>[ addressed]`") end))}
+    else null end) as $k
+  | ($k.rest // $r1) as $rest
   | {next: ($m.n | tonumber), entries:
       (if $rest == "None." then []
        else ($rest | split("\n")) as $lines
@@ -728,7 +764,8 @@ def parse_decisions($p):
          else $lines[2:] | map(parse_drow)
          end
        end)}
-  + (if $a == null then {} else {archived: ($a.ids | d_unranges)} end);
+  + (if $a == null then {} else {archived: ($a.ids | d_unranges)} end)
+  + (if $k == null then {} else {kept: {run: $k.run, stamps: $k.stamps}} end);
 
 def scope_text($s):
   if ($s | type) != "object" then refuse("scope: missing")

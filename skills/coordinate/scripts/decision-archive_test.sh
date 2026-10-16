@@ -8,14 +8,19 @@
 # whose next owed write is routed and succeeds with the body under the guard;
 # every archived row readable verbatim from the record's `decisions` entries,
 # through record-append.sh's escaping (`@`, `&`, `|`, `<`, a backslash, a line
-# break); what stays in the body (an unsettled entry, one owed a reply, one
-# whose Source or an Evidence line carries this run's stamp); Next decision and
-# the Written: line; a restarted run whose --owed reading is `archive` before
-# anything else, which then archives and finds nothing owed; --owed writing
-# nothing; a record under the guard left alone; a record full of what can't
-# move still record-full; --archive's refusals; evidence, an answer and a
+# break); what stays in the body (an unsettled entry, one owed a reply) and
+# what leaves (a settled entry whose Source or Evidence carries this run's
+# stamp, the stamp itself kept on the section's kept-stamps line); Next
+# decision and the Written: line; a run whose own settled entries fill the
+# record archiving them and staying under the guard, the rules still reading
+# its stamps from the kept line (and owing the write again without it); a
+# restarted run whose --owed reading is `archive` before anything else, which
+# then archives and finds nothing owed; --owed writing nothing; a record under
+# the guard left alone; a record full of what can't move still record-full;
+# --archive's refusals; evidence, an answer and a
 # citation on an archived entry restoring it in the same write, and an edited
-# archive entry never restoring one; the Archived line's grammar in the codec;
+# archive entry never restoring one, and a restored entry's kept stamps going
+# back to its row; the Archived and kept-stamps lines' grammar in the codec;
 # the archive on the session store.
 #
 # Usage: bash skills/coordinate/scripts/decision-archive_test.sh
@@ -85,6 +90,7 @@ ent() { sec | jq -c --arg n "$1" '.entries[] | select(.decision == $n)'; }
 f() { ent "$1" | jq -r --arg f "$2" '.[$f] // ""'; }
 ids() { sec | jq -r '[.entries[].decision] | join(" ")'; }
 archived() { sec | jq -r '(.archived // []) | map(tostring) | join(" ")'; }
+kept() { body | grep '^Stamps kept for run ' ; }
 comments() { jq -r '[(.comments // [])[]] | length' "$GH_DB"; }
 rd() { OUT=$(bash "$RD" --session "$S" "$@" 2>"$T/err"); RC=$?; }
 dn() { OUT=$(bash "$DN" --session "$S" "$@" 2>"$T/err"); RC=$?; }
@@ -105,14 +111,15 @@ setup "[$FULL, $STAY]"
 BEFORE_SIZE=$(size)
 [ "$BEFORE_SIZE" -gt "$GUARD" ] && [ "$BEFORE_SIZE" -le 60000 ] && ok "the fixture is past the guard and under the budget ($BEFORE_SIZE bytes)" \
     || bad "the fixture is past the guard and under the budget" "$BEFORE_SIZE bytes"
-sec | jq -c '.entries[] | select((.decision | tonumber) <= 46)' > "$T/before.jsonl"
+sec | jq -c '.entries[] | select(.state == "settled" and (.owed // "") == "")' > "$T/before.jsonl"
 WRITTEN_BEFORE=$(body | grep '^Written: ')
 to decision_next
 eq "the owed take is routed, not record-full" "take 50" "$(word)"
 [ "$(size)" -le "$GUARD" ] && ok "  ... the body is under the guard after the archive ($(size) bytes)" || bad "  ... the body is under the guard after the archive" "$(size) bytes"
-eq "  ... the settled entries left; the rest stay" "50 52 53" "$(ids)"
-eq "  ... the Archived line names them" "$(span 1 46)" "$(archived)"
-body | grep -qx "Archived: 1-46 (settled; each kept verbatim in a decisions entry on this record)" \
+eq "  ... the settled entries left, this run's too; the unsettled one stays" "50" "$(ids)"
+eq "  ... the Archived line names them" "$(span 1 46) 52 53" "$(archived)"
+eq "  ... this run's stamps on them stay, and no other run's" "Stamps kept for run $RUN: 52 raise 4, 53 hold 5" "$(kept)"
+body | grep -qx "Archived: 1-46, 52-53 (settled; each kept verbatim in a decisions entry on this record)" \
     && ok "  ... rendered as ranges in the body" || bad "  ... rendered as ranges in the body" "$(body | grep '^Archived' )"
 eq "  ... Next decision unchanged" 60 "$(sec | jq .next)"
 [ "$(body | grep '^Written: ')" != "$WRITTEN_BEFORE" ] && ok "  ... the write core stamped its own Written: time" || bad "  ... the write core stamped its own Written: time" "$WRITTEN_BEFORE"
@@ -127,7 +134,8 @@ route "take 50" decision_take
 rd --take
 wrote "the next owed decision write succeeds"
 [ "$(size)" -le "$GUARD" ] && ok "  ... and leaves the body under the guard" || bad "  ... and leaves the body under the guard" "$(size) bytes"
-eq "  ... the Archived line kept through the write" "$(span 1 46)" "$(archived)"
+eq "  ... the Archived line kept through the write" "$(span 1 46) 52 53" "$(archived)"
+eq "  ... and the kept stamps" "Stamps kept for run $RUN: 52 raise 4, 53 hold 5" "$(kept)"
 
 # An entry owed a message stays, and its message is routed first.
 setup "[$FULL, $(SETTLED 51 '{owed: "reply"}')]"
@@ -144,13 +152,34 @@ to decision_next
 eq "the restarted run archives at decision_next and then owes nothing" "clear" "$(word)"
 [ "$(size)" -le "$GUARD" ] && ok "  ... under the guard" || bad "  ... under the guard" "$(size) bytes"
 eq "  ... and --owed is none after" "none" "$(bash "$DN" --session "$S" --owed pick 2>/dev/null)"
-# An earlier run's settled entries carrying this run's stamps are this run's.
-setup "[$FULL]" 60 "$OLD"
+
+echo "== a run whose own settled entries fill the record =="
+# Every entry is this run's, and the latest evidence arrival and the latest
+# raise visit were recorded on two of them: the rules read those stamps.
+setup "[]" 1
+to wait; log_evidence "$S" wait '{"event":"evidence","decision":"45"}'
+W=$(bash "$CL" evidence --session "$S" --state wait | jq -r .seq)
+to decision_evidence; to decision_next; to decision_raise
+RSQ=$(bash "$CL" current --session "$S" | cut -d" " -f2)
+OWN="${FULL//$OLD/$RUN}"
+OWN=$(printf '[%s]' "$OWN" | jq -c --arg run "$RUN" --arg w "$W" --arg r "$RSQ" 'map(
+    if .decision == "45" then .evidence += "\n2026-09-26T09:10Z dispatcher [\($run) wait \($w)]: the format slipped"
+    elif .decision == "46" then .source = "self [\($run) raise \($r)]" else . end)')
+db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "$OWN" '.decisions = {next: 60, entries: $e}')" issue)"
 to decision_next
-eq "a record full of this run's own settled entries: nothing owed, clear" "clear" "$(word)"
+eq "a full record of this run's own settled entries: nothing owed after the archive" "clear" "$(word)"
+[ "$(size)" -le "$GUARD" ] && ok "  ... under the guard ($(size) bytes)" || bad "  ... under the guard" "$(size) bytes"
+eq "  ... every entry left the body" "" "$(ids)"
+case "$(kept)" in *"45 wait $W"*"46 raise $RSQ"*) ok "  ... the stamps the rules read are kept" ;; *) bad "  ... the stamps the rules read are kept" "$(kept)" ;; esac
+NOKEPT=$(body | bash "$HERE/record-parse.sh" | jq -c 'del(.decisions.kept)')
+db '.issues[0].body = $b' --arg b "$(render "$(printf '%s' "$NOKEPT" | jq -c 'del(.written)')" issue "$(printf '%s' "$NOKEPT" | jq -r .written)")"
+eq "  ... and without the kept line the evidence would be owed again: the rules read it" "unrecorded-evidence" "$(word)"
+# A record full of what can't move is still record-full.
+REPLY=; for i in $(span 1 46); do REPLY="$REPLY${REPLY:+, }$(SETTLED "$i" '{owed: "reply"}')"; done
+setup "[$REPLY]"
+to decision_next
+eq "a full record whose entries all owe a reply is still record-full" "record-full" "$(word)"
 eq "  ... nothing moved, nothing posted" "0" "$(comments)"
-db '.issues[0].body = $b' --arg b "$(render "$(record_json roadmap feat | jq -c --argjson e "[$FULL, $(E 50 proposed "{source: \"self [$OLD raise 99]\"}")]" '.decisions = {next: 60, entries: $e}')" issue)"
-eq "  ... and with a write owed, record-full" "record-full" "$(word)"
 
 echo "== a record under the guard =="
 setup "[$(settled_run 1 5), $(E 50 proposed)]"
@@ -165,7 +194,7 @@ setup "[$(settled_run 1 5)]"
 to decision_next
 rd --archive
 eq "--archive under the guard is refused, the body untouched" "65|0" "$RC|$(comments)"
-setup "[$FULL]" 60 "$OLD"
+setup "[$REPLY]"
 to decision_next
 rd --archive
 eq "--archive with nothing that can move is refused" "65|0" "$RC|$(comments)"
@@ -189,6 +218,14 @@ eq "  ... its question and options as they were" "$(printf '%s' "$ORIG" | jq -c 
 eq "  ... its old outcome kept as evidence, the new evidence last" "previous outcome|dispatcher" \
     "$(f 7 evidence | sed -n 2p | cut -d' ' -f2-3)|$(f 7 evidence | tail -1 | cut -d' ' -f2)"
 eq "  ... and it left the Archived line" "$(span 1 6) $(span 8 46)" "$(archived)"
+# A restored entry of this run takes its stamps back from the kept line.
+setup "[$FULL, $STAY]"
+to decision_next; word > /dev/null
+arrive decision_evidence '{"event":"evidence","decision":"52"}'
+rd --evidence --source dispatcher --text "reopened"
+wrote "--evidence on an archived entry of this run writes"
+eq "  ... its row is back with its own stamp" "self [$RUN raise 4]" "$(f 52 source)"
+eq "  ... and the kept line holds only the other entry's" "Stamps kept for run $RUN: 53 hold 5" "$(kept)"
 # An answer re-sent for an archived entry's round adds its stamped line.
 setup "[$FULL, $(E 50 proposed)]"
 to decision_next; word > /dev/null
@@ -238,6 +275,18 @@ sed 's/ (settled; each kept/ (kept/' "$T/r.md" > "$T/bad2.md"
 bash "$HERE/record-parse.sh" "$T/bad2.md" > /dev/null 2>&1
 [ $? -ne 0 ] && ok "an Archived line with other words is refused" || bad "an Archived line with other words is refused" ""
 
+K=$(printf '%s' "$J" | jq -c '.decisions.kept = {run: "20260926T080000Z", stamps: [{decision: 2, kind: "raise", seq: "4", addressed: false}, {decision: 5, kind: "report", seq: "7.1", addressed: true}]}')
+rt "$K" > "$T/k.md"
+eq "kept stamps render on one line after Archived" "Stamps kept for run 20260926T080000Z: 2 raise 4, 5 report 7.1 addressed" "$(grep '^Stamps kept' "$T/k.md")"
+eq "  ... and parse back" "$(printf '%s' "$K" | jq -cS .decisions.kept)" "$(bash "$HERE/record-parse.sh" "$T/k.md" | jq -cS .decisions.kept)"
+rt "$(printf '%s' "$K" | jq -c '.decisions.kept.stamps[0].decision = 9')" > /dev/null
+eq "a kept stamp of an entry that isn't archived is refused" "1" "$([ -s "$T/err" ] && echo 1)"
+rt "$(printf '%s' "$K" | jq -c '.decisions.kept.stamps[0].kind = "forged"')" > /dev/null
+eq "a kept stamp of another kind is refused" "1" "$([ -s "$T/err" ] && echo 1)"
+sed 's/^Stamps kept for run 20260926T080000Z: 2 raise 4/Stamps kept for run 20260926T080000Z: 2 raise/' "$T/k.md" > "$T/bad3.md"
+bash "$HERE/record-parse.sh" "$T/bad3.md" > /dev/null 2>&1
+[ $? -ne 0 ] && ok "a kept stamp missing its sequence is refused" || bad "a kept stamp missing its sequence is refused" ""
+
 echo "== the session store =="
 setup "[$FULL, $(E 50 proposed)]"
 rm -rf "$KOTO_STORE/sessions" "$KOTO_STORE/context"; mkdir -p "$KOTO_STORE/sessions"
@@ -251,6 +300,6 @@ eq "on the session store the owed take is routed" "take 50" "$(word)"
 eq "  ... the archive is a session entry, the GitHub body and comments untouched" "decisions|$B|0" \
     "$(koto context list "$S" --prefix record/entries/ | jq -r '.[0]' | xargs -I{} koto context get "$S" {} | jq -r .kind)|$(body)|$(comments)"
 eq "  ... the section's Archived line in record/decisions" "46" "$(koto context get "$S" record/decisions | jq '.archived | length')"
-eq "  ... and the rows read back verbatim" "$(jq -cS . "$T/before.jsonl")" "$(archive_rows | jq -cS .)"
+eq "  ... and the rows read back verbatim" "$(jq -cS 'select((.decision | tonumber) <= 46)' "$T/before.jsonl")" "$(archive_rows | jq -cS .)"
 
 done_tests decision-archive
