@@ -657,7 +657,7 @@ write_decl "$ROOT" "ordering" \
     'koto\t-\t-\talways' \
     'shirabe\t-\t-\talways'
 run_preflight "$ROOT" "ordering" "$DRV:$OSPATH_LINUX" "$TOOLROOT"
-FIRST_LINE=$(printf '%s\n' "$RUN_OUT" | head -1)
+FIRST_LINE=$(head -1 <<<"$RUN_OUT")
 assert_eq "the off-PATH block sorts ahead of the absent block" \
     "shirabe /ordering: prerequisite not met, and nothing needs installing." "$FIRST_LINE"
 assert_has "the absent block is still emitted, after it" \

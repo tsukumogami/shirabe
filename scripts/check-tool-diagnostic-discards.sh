@@ -220,9 +220,9 @@ names_declared_tool() {
   local probe
   probe=$(printf '%s\n' "$1" \
     | sed -E 's/command -v ("?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?|[A-Za-z0-9_.-]*)//g')
-  printf '%s\n' "$probe" | grep -qE "$TOOL_RE" && return 0
+  grep -qE "$TOOL_RE" <<<"$probe" && return 0
   [ -n "$VAR_RE" ] || return 1
-  printf '%s\n' "$probe" | grep -qE "$VAR_RE"
+  grep -qE "$VAR_RE" <<<"$probe"
 }
 
 # ---------------------------------------------------------------------------

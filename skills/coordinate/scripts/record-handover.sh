@@ -12,8 +12,13 @@
 # coordinator (the current address, or null), told (who has been told it),
 # workers (one per live holding: unit, worker, phase, told, next), work (every
 # Work row, local agents included), standing (every Standing row), holds (the
-# Holds section as it stands) and gaps. A gap is {gap, fix}:
+# Holds section as it stands) and gaps. On the session store it also prints
+# the crash set (PRD R17): each worker's pushed_head when kept, reports_to (the
+# row, or null), rules and briefs
+# (their rows' values), friction, and host (record/host). A gap is {gap, fix}:
 #   no-arguments | no-cap | no-coordinator   a Run row is missing
+#   no-reports-to                            the session store's reports-to
+#                                            row is missing
 #   no-next-step <unit>                      a live holding has no Work row
 #   not-told <worker>                        a live holding's Worker has no
 #                                            `told` row for the current address
@@ -79,8 +84,17 @@ case $? in
     12) lib_die2 "$(lib_scrub < "$WD/parsed.json.err")" ;;
     *) lib_die2 "record-parse.sh failed" ;;
 esac
+# On the session store the crash set and record/host are part of what a
+# replacement continues from (PRD R17).
+STORE=$(rs_source)
+if [ "$STORE" = session ]; then
+    rs_host "${RS_SESSION:-$SESSION}" "$WD/host.json" || lib_die2 "cannot read record/host: $(lib_scrub < "$WD/host.json.err")"
+else
+    echo '{}' > "$WD/host.json"
+fi
+[ -s "$WD/parsed.json.pushed" ] || echo '{}' > "$WD/parsed.json.pushed"
 
-jq -c '
+jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" '
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
     (.run // []) as $run
     | ([$run[] | select(.key == "told") | .value]) as $told
@@ -91,10 +105,17 @@ jq -c '
        workers: [$live[] | {unit, worker, phase, told: (.worker as $w | $told | index($w) != null),
                             next: ($work[.unit].next // null)}],
        work: (.work // []), standing: (.standing // []), holds: (.holds // [])}
+    | if $store == "session" then
+        .workers |= map(.worker as $w | if $pushed[0][$w] then . + {pushed_head: $pushed[0][$w]} else . end)
+        | . + {reports_to: ([$run[] | select(.key == "reports-to") | .value][0]), rules: [$run[] | select(.key == "rules") | .value],
+             briefs: [$run[] | select(.key == "briefs") | .value], friction: ([$run[] | select(.key == "friction") | .value][0]),
+             host: $host[0]}
+      else . end
     | .gaps = ([
         (if .arguments == null then {gap: "no-arguments", fix: "record-state.sh --run arguments \"<the arguments this run was started with>\" --by <who>"} else empty end),
         (if .cap == null then {gap: "no-cap", fix: "record-state.sh --run cap <n> --by <who set it>"} else empty end),
         (if .coordinator == null then {gap: "no-coordinator", fix: "record-state.sh --run coordinator <your address> --by <you>"} else empty end),
+        (if $store == "session" and .reports_to == null then {gap: "no-reports-to", fix: "record-state.sh --run reports-to \"<role>[ at <address>]\" --by <who>"} else empty end),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "record-state.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
         (if .coordinator != null then (.workers[] | select(.told | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then record-state.sh --told \(.worker) --by <you>"}) else empty end)
       ])' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"

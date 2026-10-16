@@ -167,12 +167,12 @@ expect_fail() {
         fail "$name" "want rc 1, got rc $RC, output [$OUT]"
         return
     fi
-    if ! printf '%s\n' "$OUT" | grep -Fq "FAIL: $TPL_REL state ask field pick:"; then
+    if ! grep -Fq "FAIL: $TPL_REL state ask field pick:" <<<"$OUT"; then
         fail "$name" "the failure does not name the template, state, and field: [$OUT]"
         return
     fi
     for s in "$@"; do
-        if ! printf '%s\n' "$OUT" | grep -Fq -- "$s"; then
+        if ! grep -Fq -- "$s" <<<"$OUT"; then
             fail "$name" "output lacks [$s]: [$OUT]"
             return
         fi
@@ -186,7 +186,7 @@ new_tree
 fixture 10 10 20
 run_check
 expect_pass "exactly 10 cases per value and 40 in all passes"
-if printf '%s\n' "$OUT" | grep -Fq '40 cases (a=10 b=10 unclear=20)'; then
+if grep -Fq '40 cases (a=10 b=10 unclear=20)' <<<"$OUT"; then
     pass "the passing run reports the counts per label"
 else
     fail "the passing run reports the counts per label" "[$OUT]"
@@ -196,7 +196,7 @@ new_tree
 fixture 9 10 21
 run_check
 expect_fail "9 cases of one value fails, even at 40 in all" "has 9 case(s) labelled a" "at least 10"
-if printf '%s\n' "$OUT" | grep -q 'in all'; then
+if grep -q 'in all' <<<"$OUT"; then
     fail "9 cases of one value fails on that value alone" "the total was reported too: [$OUT]"
 else
     pass "9 cases of one value fails on that value alone"
@@ -206,7 +206,7 @@ new_tree
 fixture 10 10 19
 run_check
 expect_fail "39 cases in all fails, even with 10 per value" "has 39 case(s) in all" "at least 40"
-if printf '%s\n' "$OUT" | grep -q 'labelled'; then
+if grep -q 'labelled' <<<"$OUT"; then
     fail "39 cases in all fails on the total alone" "a value was reported too: [$OUT]"
 else
     pass "39 cases in all fails on the total alone"

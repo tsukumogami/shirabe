@@ -64,6 +64,12 @@
 #       from that template's own path, and the compiled copy koto runs it from
 #       still hashes to template_hash. --template is for tests that run a
 #       localized copy.
+#   coord-log.sh template-hash --session S
+#       Prints the template_hash in S's header, the hash of the template koto
+#       compiled the run from, which a resume compares with the shipped
+#       template's (provenance passes a run whose plugin was rewritten in place
+#       since, so it can't tell). Exit 0; 1 the header has none; 2 S's log can't
+#       be read.
 #   coord-log.sh live-session --scope-slug SLUG [--all]
 #       Prints the one live coordinate-SLUG-* session. Exit 0; 1 none; 3 several.
 #       With --all, prints every live one, one per line. Exit 0; 1 none.
@@ -404,6 +410,13 @@ EOF
     fi
     echo "coord-log: the session was not created from $TEMPLATE" >&2
     exit 1
+    ;;
+template-hash)
+    need SESSION
+    LOG=$(session_log "$SESSION") || die "no readable log for $SESSION"
+    HASH=$(head -1 "$LOG" | jq -r '.template_hash // empty')
+    [ -n "$HASH" ] || { echo "coord-log: the session's header has no template_hash" >&2; exit 1; }
+    printf '%s\n' "$HASH"
     ;;
 live-session)
     need SLUG
