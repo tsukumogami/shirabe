@@ -10,14 +10,22 @@
 #   --pr-body [--owned <owned-pr.sh arguments>]
 #       Reads the pull request's title and body with `gh pr view --json
 #       title,body` and runs
-#       `shirabe validate --pr-body <file> --pr-title <title> --format json`
-#       (references/pr-body-conformance.md, PB1 to PB4). The title reaches the
-#       validator as one argument and the body as a mktemp file; nothing in
-#       either is evaluated. Without --owned the pull request is the checked-out
-#       branch's; with --owned it is the one owned-pr.sh resolves from the
+#       `shirabe validate --pr-body <file> --pr-title <title> --format json
+#        --writing-style <rules>`
+#       (references/pr-body-conformance.md, PB1 to PB5). <rules> is always this
+#       plugin's own skills/writing-style/rules.yaml, resolved from this
+#       script's location, never one from the repository under review or from
+#       SHIRABE_RULES, so PB5's banned words are the ones the plugin shipped.
+#       The title reaches the validator as one argument and the body as a
+#       mktemp file; nothing in either is evaluated. Without --owned the pull
+#       request is the checked-out branch's; with --owned it is the one
+#       owned-pr.sh resolves from the
 #       arguments that follow, and anything but exactly one owned pull request
 #       is exit 2.
-#       Validator exit 0 -> 0, 2 -> 1, and 1, 3, 4 -> 2.
+#       Validator exit 0 -> 0, 2 -> 1, and 1, 3, 4 -> 2. An installed shirabe
+#       older than --writing-style rejects the flag with exit 1, so the gate
+#       holds (2) and says to upgrade; preflight (requires.tsv) reports the
+#       same gap when the skill loads.
 #
 #   --owned-pr <owned-pr.sh arguments>
 #       Runs skills/execute/scripts/owned-pr.sh with the arguments, bounded in
@@ -51,6 +59,7 @@
 #   PB2 (separator, Part 1)  pr-body/one-separator
 #   PB3 (AI attribution)     pr-body/no-ai-trailer
 #   PB4 (heading in Part 1)  pr-body/no-heading-in-part1
+#   PB5 (banned word)        pr-body/banned-word
 #   anything else            pr-body/conformance
 # The rules are entries of references/rule-registry.json; scripts/lib/rule-findings.sh
 # resolves each one's reference and summary through scripts/rule-registry.sh.
@@ -60,7 +69,7 @@
 set -u
 
 HERE=$(cd "$(dirname "$0")" && pwd)
-RULE_IDS="pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/conformance"
+RULE_IDS="pr-body/conventional-title pr-body/one-separator pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/banned-word pr-body/conformance"
 # Seconds owned-pr.sh may run. koto stops a gate command at 30 seconds; this
 # stays under it so the answer is this script's 2, not koto's timeout.
 OWNED_PR_TIMEOUT=${CHECK_PR_OUTPUT_OWNED_TIMEOUT:-20}
@@ -147,7 +156,7 @@ lookup() {
                 return 3
             fi
             if [ "$(printf '%s\n' "$out" | wc -l | tr -d ' ')" = 1 ] \
-                && printf '%s' "$out" | grep -Eq "$RE_URL"; then
+                && grep -Eq "$RE_URL" <<<"$out"; then
                 URL=$out
                 return 0
             fi
@@ -166,9 +175,11 @@ lookup() {
 }
 
 # rule_for_message <message>: the pr-body rule the validator's message names.
-# PB4's message mentions the separator too, so it is matched first.
+# PB5's messages carry a fixed prefix and can name the title, so they are
+# matched first; PB4's message mentions the separator too, so it comes next.
 rule_for_message() {
     case "$1" in
+        "[PB5] "*) echo pr-body/banned-word ;;
         *"markdown section heading"*) echo pr-body/no-heading-in-part1 ;;
         *"AI-attribution"*) echo pr-body/no-ai-trailer ;;
         "PR title "*) echo pr-body/conventional-title ;;
@@ -179,10 +190,16 @@ rule_for_message() {
 
 check_pr_body() {
     require_rules pr-body/conventional-title pr-body/one-separator \
-        pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/conformance
+        pr-body/no-ai-trailer pr-body/no-heading-in-part1 pr-body/banned-word \
+        pr-body/conformance
     for tool in gh jq shirabe; do
         command -v "$tool" >/dev/null 2>&1 || undecided "$tool is not on PATH"
     done
+    rules_dir=$(cd "$HERE/../../writing-style" 2>/dev/null && pwd -P) \
+        || undecided "this plugin's skills/writing-style directory is missing"
+    rules_file="$rules_dir/rules.yaml"
+    [ -f "$rules_file" ] && [ -r "$rules_file" ] \
+        || undecided "this plugin's writing-style rules are missing: $rules_file"
     make_work
     if [ "$OWNED" = 1 ]; then
         lookup "$@"
@@ -199,7 +216,9 @@ check_pr_body() {
     title=$(jq -r '.title' "$WORK/pr.json")
     jq -j '.body' "$WORK/pr.json" > "$WORK/body.md"
 
+    # --writing-style goes last so the earlier arguments keep their positions.
     shirabe validate --pr-body "$WORK/body.md" --pr-title "$title" --format json \
+        --writing-style "$rules_file" \
         > "$WORK/out" 2> "$WORK/err" < /dev/null
     rc=$?
     case "$rc" in
@@ -208,7 +227,13 @@ check_pr_body() {
             exit 0
             ;;
         2) ;;
-        *) undecided "shirabe validate --pr-body exited $rc: $(tail -n 1 "$WORK/err")" ;;
+        *)
+            # clap's last line is its usage hint, so the whole stderr is read.
+            if grep -qF -- "unexpected argument '--writing-style'" "$WORK/err"; then
+                undecided "the installed shirabe predates the PR writing-style check (--writing-style); upgrade shirabe"
+            fi
+            undecided "shirabe validate --pr-body exited $rc: $(tail -n 1 "$WORK/err")"
+            ;;
     esac
     pb4=0
     if jq -r '.findings[].message' "$WORK/out" > "$WORK/messages" \

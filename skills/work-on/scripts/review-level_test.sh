@@ -578,7 +578,7 @@ NAMED=$(cat "$PLUGIN_DIR"/skills/*/koto-templates/*.md \
 N=$(printf '%s\n' "$NAMED" | grep -c .)
 [ "$N" -ge 40 ] && pass "the templates' commands name $N scripts" || fail "found only $N scripts in template commands"
 for want in skills/work-on/scripts/review-level.sh skills/work-on/scripts/panel-scope.sh; do
-    printf '%s\n' "$NAMED" | grep -qxF "$want" && pass "the extraction finds $want" || fail "the extraction misses $want"
+    grep -qxF "$want" <<<"$NAMED" && pass "the extraction finds $want" || fail "the extraction misses $want"
 done
 # shellcheck disable=SC2086
 UNCOVERED=$(cd "$PLUGIN_DIR" && "$SCRIPT" classify $NAMED | awk -F'\t' '$2 !~ /(^|,)engine(,|$)/ { print $1 }')

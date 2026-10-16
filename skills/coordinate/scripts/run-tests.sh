@@ -8,8 +8,10 @@
 # that reached the real GitHub or the real koto instead of its own stand-ins
 # fails loudly rather than passing on a network read, and a script that calls
 # an undeclared tool fails with "command not found". Engine suites
-# (*_engine_test.sh), which drive real koto on purpose, get the real koto;
-# they are selected with --engine.
+# (*_engine_test.sh), which drive real koto on purpose, get the real koto and
+# python3, which runs the fake S3 server (testdata/fake-s3.py) the cloud
+# suites share a bucket through; they are selected with --engine. An engine
+# suite skips without either, and --engine fails a suite that skipped.
 #
 # Usage: bash skills/coordinate/scripts/run-tests.sh [--engine]
 # Exit codes: 0 every suite passed; 1 a suite failed.
@@ -34,9 +36,10 @@ mkdir cp mv ln chmod date basename dirname printf test true false dd od xargs te
 touch ls base64 sha256sum shasum sleep find expr id uname readlink realpath"
 mkdir -p "$T/path"
 DECLARED=$(awk -F'\t' '!/^#/ && NF > 1 { print $1 }' "$HERE/../requires.tsv" | sort -u)
-# Engine suites need the real koto even when requires.tsv doesn't name it.
+# Engine suites need the real koto even when requires.tsv doesn't name it, and
+# python3 for the fake S3 server; no shipped script uses python3.
 EXTRA=
-[ "$ENGINE" = 1 ] && EXTRA=koto
+[ "$ENGINE" = 1 ] && EXTRA="koto python3"
 for tool in $COMMON $DECLARED $EXTRA; do
     [ -e "$T/stubs/$tool" ] && continue
     p=$(command -v "$tool" 2>/dev/null) || continue

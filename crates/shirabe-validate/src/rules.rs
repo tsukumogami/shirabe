@@ -9,20 +9,21 @@
 //!
 //! ## Resolution
 //!
-//! Flag, then environment, then an ancestor walk:
+//! [`resolve_rules_path`] takes an explicit path, then the environment, then
+//! an ancestor walk:
 //!
-//! 1. `--rules <path>` (the CI reusable workflow passes a path into its
-//!    `.shirabe-src/` checkout, so the rules and the binary come from one
-//!    commit).
-//! 2. `SHIRABE_RULES` (the test harness sets this, because the parity tests
-//!    run with cwd inside `tests/fixtures/golden/corpus`, where the walk
-//!    would escape the crate).
+//! 1. An explicit path. `shirabe validate --pr-body --writing-style <path>`
+//!    passes one; nothing else does.
+//! 2. `SHIRABE_RULES`.
 //! 3. An ancestor walk from the working directory for
 //!    `skills/writing-style/rules.yaml`.
 //!
-//! A missing or unparseable source is a tool error. The validator never
-//! proceeds over an empty rule set: a checking surface that reports success
-//! because its rules failed to load is the failure mode this whole
+//! The two callers treat failure differently. The document checks (FC10) go
+//! through [`cached_rules`], which resolves with no explicit path and turns a
+//! missing or unparseable source into no rules at all, so they check no word
+//! and say nothing. `--writing-style` loads its path directly and makes a
+//! missing, unparseable or empty source a tool error, because a check that
+//! reports success when its rules did not load is the failure this whole
 //! capability exists to end.
 
 use std::collections::BTreeSet;
@@ -371,9 +372,10 @@ pub fn set_rules(rules: Rules) -> bool {
 
 /// The resolved rule source, or `None` when resolution failed.
 ///
-/// Callers that need the failure *reason* (the CLI, which turns it into a
-/// tool error) call `resolve_rules_path` and `load_rules` directly. This
-/// accessor exists for check functions, which have no error channel.
+/// The reason is dropped: the document checks that read this accessor have
+/// no error channel, and they check no word when it is `None`. A caller that
+/// must not pass silently (`--pr-body --writing-style <file>`) calls
+/// `resolve_rules_path` and `load_rules` itself and reports the error.
 pub fn cached_rules() -> Option<Rules> {
     RULES_CACHE
         .get_or_init(|| {

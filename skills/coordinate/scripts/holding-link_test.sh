@@ -183,4 +183,37 @@ link; eq "a failed pull request read exits 2" 2 "$RC"
 db '.fail = []'
 bash "$HL" "${W_RM[@]}" >/dev/null 2>&1; eq "no session is a usage error" 64 $?
 
+echo "== the session store: the pushed head (PRD R17) =="
+seed "$HOLD"
+jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB" | bash "$HERE/record-parse.sh" \
+    | jq -c '.run = [{key: "store", value: "session", set_by: "alice", set: "2026-09-26T08:00Z"}]' > "$T/ss.json"
+BODY=$(jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB")
+N=$((N + 1)); S="coordinate-roadmap-plugin-system-20260926T0800$(printf '%02d' "$N")Z"
+found_session "$S" "$(roadmap_vars plugin-system)" "7 session"; log_to "$S" reconcile wait
+session_keys "$S" "$T/ss.json"
+log_evidence "$S" wait "$(jq -nc '{event: "report", unit: "zeta", report: "PR is up", pull_request: "https://github.com/acme/widgets/pull/20"}')"
+facts
+OUT=$(env RS_SOURCE=session RS_SESSION="$S" bash "$HL" --session "$S" "${W_RM[@]}" 2>"$T/err"); RC=$?
+eq "a link on the session store is written" 0 "$RC"
+eq "  ... into the session's holding, with the head GitHub reports" "feat/zeta-work $SHA_HEAD" \
+    "$(koto context get "$S" record/holdings | jq -r '.[] | select(.worker == "zeta") | "\(.branch) \(.pushed_head)"')"
+eq "  ... and the GitHub body unchanged" "$BODY" "$(jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB")"
+# A later report on the linked pull request: report-facts.sh keeps the head it
+# reads when it moved. Its write goes through record-holding.sh, so a refused
+# write (here: this test's earlier runs are still live) changes no verdict.
+NEWH=3333333333333333333333333333333333333333
+db '(.prs[] | select(.number == 20)).headRefOid = $h' --arg h "$NEWH"
+log_to "$S" report_link wait
+log_evidence "$S" wait "$(jq -nc '{event: "report", unit: "zeta", report: "pushed again", pull_request: ""}')"
+log_to "$S" wait report_facts
+CAP=$(bash "$RF" --session "$S" 2>"$T/rf.err")
+eq "report_facts reads the holding's pull request" "holding 20 zeta" "${CAP% sealed:*}"
+grep -q "pushed head $NEWH wasn't kept" "$T/rf.err" && ok "  ... a refused head write is named on stderr, the verdict unchanged" \
+    || bad "  ... a refused head write is named on stderr, the verdict unchanged" "$(cat "$T/rf.err")"
+for d in "$KOTO_STORE"/sessions/*/; do o=$(basename "$d"); [ "$o" = "$S" ] || log_end "$o"; done
+CAP=$(bash "$RF" --session "$S" 2>"$T/rf.err")
+eq "  ... and with this run the live one, the head it read is kept" "holding 20 zeta|$NEWH" \
+    "${CAP% sealed:*}|$(koto context get "$S" record/holdings | jq -r '.[] | select(.worker == "zeta") | .pushed_head')"
+eq "  ... the GitHub body still unchanged" "$BODY" "$(jq -r '.issues[] | select(.number == 7) | .body' "$GH_DB")"
+
 done_tests holding-link

@@ -166,7 +166,7 @@ s = s.replace("---\nschema: prd/v1\n",
 open(p, "w").write(s)
 PY
 out="$(bash "$S" --hop brief --topic "$T" --root "$C" 2>&1)"; rc=$?
-if [ "$rc" = 1 ] && printf '%s' "$out" | grep -q "does not validate"; then
+if [ "$rc" = 1 ] && grep -q "does not validate" <<<"$out"; then
   PASS=$((PASS+1)); printf 'ok   %-46s hop=%-6s exit=1 (accurate reason)\n' "declares fold, fails validation" "brief"
 else
   FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d out=%s\n' "declares fold, fails validation" "$rc" "$out"
@@ -441,6 +441,26 @@ case "$out" in
   *)
     FAIL=$((FAIL+1)); printf 'FAIL %-46s out=%s\n' "no-verdict diagnostic is surfaced" "$out" ;;
 esac
+
+# A clean verdict followed by more output than a pipe holds (shirabe#846). The
+# verdict test must read the whole capture without a pipe: piped into an
+# early-exiting `grep -q` under pipefail, the writer is cut off once grep has
+# matched, the pipeline fails, and a clean document reads as no verdict.
+C="$BASE/c7"; seed "$C" plan
+BIG="$BASE/big-stub"; mkdir -p "$BIG"
+{
+  echo '#!/bin/sh'
+  echo 'echo "{\"outcome\": \"clean\", \"padding\": \""'
+  echo 'head -c 262144 /dev/zero | tr "\000" x'
+  echo 'echo "\"}"'
+} > "$BIG/shirabe"
+chmod +x "$BIG/shirabe"
+out="$(PATH="$BIG:$PATH" bash "$S" --hop plan --topic "$T" --root "$C" 2>&1)"; rc=$?
+if [ "$rc" = 0 ]; then
+  PASS=$((PASS+1)); printf 'ok   %-46s hop=%-6s exit=0\n' "clean verdict past a pipe's capacity" "plan"
+else
+  FAIL=$((FAIL+1)); printf 'FAIL %-46s exit=%d want=0 out=%.300s\n' "clean verdict past a pipe's capacity" "$rc" "$out"
+fi
 
 echo
 echo "passed: $PASS   failed: $FAIL"

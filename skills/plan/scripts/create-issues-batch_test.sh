@@ -75,7 +75,7 @@ MANIFEST
         --dry-run 2>&1 >/dev/null) || true
 
     # The create-issue.sh dry-run should show merged labels
-    if echo "$stderr_output" | grep -q 'Labels: priority:high,needs-design'; then
+    if grep -q 'Labels: priority:high,needs-design' <<<"$stderr_output"; then
         pass "$name"
     else
         fail "$name" "Expected 'Labels: priority:high,needs-design' in output. Got: $(echo "$stderr_output" | grep 'Labels:')"
@@ -109,7 +109,7 @@ MANIFEST
         --manifest "$TEST_DIR/manifest.json" \
         --dry-run 2>&1 >/dev/null) || true
 
-    if echo "$stderr_output" | grep -q 'Labels: needs-prd'; then
+    if grep -q 'Labels: needs-prd' <<<"$stderr_output"; then
         pass "$name"
     else
         fail "$name" "Expected 'Labels: needs-prd' in output. Got: $(echo "$stderr_output" | grep 'Labels:')"
@@ -143,14 +143,14 @@ MANIFEST
         --labels "priority:high" \
         --dry-run 2>&1 >/dev/null) || true
 
-    if echo "$stderr_output" | grep -q 'Labels: priority:high'; then
+    if grep -q 'Labels: priority:high' <<<"$stderr_output"; then
         pass "$name"
     else
         fail "$name" "Expected 'Labels: priority:high' in output. Got: $(echo "$stderr_output" | grep 'Labels:')"
     fi
 
     # Should NOT log a per-issue label line
-    if echo "$stderr_output" | grep -q 'Per-issue label:'; then
+    if grep -q 'Per-issue label:' <<<"$stderr_output"; then
         fail "$name (no per-issue log)" "Should not log per-issue label when needs_label is absent"
     else
         pass "$name (no per-issue log)"
@@ -183,7 +183,7 @@ MANIFEST
         --manifest "$TEST_DIR/manifest.json" \
         --dry-run 2>&1 >/dev/null) || true
 
-    if echo "$stderr_output" | grep -q 'Labels: <none>'; then
+    if grep -q 'Labels: <none>' <<<"$stderr_output"; then
         pass "$name"
     else
         fail "$name" "Expected 'Labels: <none>' in output. Got: $(echo "$stderr_output" | grep 'Labels:')"
@@ -240,7 +240,7 @@ MANIFEST
     # Issue 1: only global labels
     local issue1_labels
     issue1_labels=$(echo "$stderr_output" | grep -A5 'Creating issue 1:' | grep 'Labels:' | head -1)
-    if echo "$issue1_labels" | grep -q 'Labels: repo:tsuku$'; then
+    if grep -q 'Labels: repo:tsuku$' <<<"$issue1_labels"; then
         pass "$name (issue 1: global only)"
     else
         fail "$name (issue 1: global only)" "Expected 'Labels: repo:tsuku'. Got: $issue1_labels"
@@ -249,7 +249,7 @@ MANIFEST
     # Issue 2: global + needs-design
     local issue2_labels
     issue2_labels=$(echo "$stderr_output" | grep -A5 'Creating issue 2:' | grep 'Labels:' | head -1)
-    if echo "$issue2_labels" | grep -q 'Labels: repo:tsuku,needs-design'; then
+    if grep -q 'Labels: repo:tsuku,needs-design' <<<"$issue2_labels"; then
         pass "$name (issue 2: merged)"
     else
         fail "$name (issue 2: merged)" "Expected 'Labels: repo:tsuku,needs-design'. Got: $issue2_labels"
@@ -258,7 +258,7 @@ MANIFEST
     # Issue 3: global + needs-prd
     local issue3_labels
     issue3_labels=$(echo "$stderr_output" | grep -A5 'Creating issue 3:' | grep 'Labels:' | head -1)
-    if echo "$issue3_labels" | grep -q 'Labels: repo:tsuku,needs-prd'; then
+    if grep -q 'Labels: repo:tsuku,needs-prd' <<<"$issue3_labels"; then
         pass "$name (issue 3: merged)"
     else
         fail "$name (issue 3: merged)" "Expected 'Labels: repo:tsuku,needs-prd'. Got: $issue3_labels"
@@ -292,7 +292,7 @@ MANIFEST
         --manifest "$TEST_DIR/manifest.json" \
         --dry-run 2>&1 >/dev/null) || true
 
-    if echo "$stderr_output" | grep -q 'Per-issue label: needs-spike'; then
+    if grep -q 'Per-issue label: needs-spike' <<<"$stderr_output"; then
         pass "$name"
     else
         fail "$name" "Expected 'Per-issue label: needs-spike' in batch output"
@@ -308,7 +308,7 @@ test_help_mentions_needs_label() {
     local stderr_output
     stderr_output=$("$BATCH_SCRIPT" --help 2>&1 || true)
 
-    if echo "$stderr_output" | grep -q 'needs_label'; then
+    if grep -q 'needs_label' <<<"$stderr_output"; then
         pass "$name"
     else
         fail "$name" "Help text does not mention needs_label"

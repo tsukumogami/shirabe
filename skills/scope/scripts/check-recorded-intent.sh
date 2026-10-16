@@ -98,7 +98,7 @@ if [ "$HAVE" -eq 0 ]; then
         0)
             PRIOR=$("$KOTO" context get "$SESSION" work/prior-run.md 2>/dev/null) \
                 || die "key work/prior-run.md of $SESSION cannot be read"
-            if printf '%s\n' "$PRIOR" | grep -Eq '^step:[[:space:]]*["'"'"']?scope:(push|pr-create)'; then
+            if grep -Eq '^step:[[:space:]]*["'"'"']?scope:(push|pr-create)' <<<"$PRIOR"; then
                 HAVE=1
             fi
             ;;

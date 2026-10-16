@@ -28,7 +28,10 @@
 #   scope          {kind: roadmap|discipline, name, repo}
 #   record         {written: <ISO time the record says it was written>,
 #                   source: record|handoff|"record and handoff",
-#                   handoff_date: <date>|null}
+#                   handoff_date: <date>|null,
+#                   import: optional, null or {source_session,
+#                   source_workspace, template_hash} for a run imported
+#                   from another host (record/host)}
 #   reconciled_at  <ISO time the pass finished>
 #   plugin_root    optional: inside|outside|unknown, where the scripts that
 #                  ran sit relative to the repository being worked on
@@ -85,7 +88,9 @@
 #
 # Output: coordinate-reconcile-report/v1
 #
-#   header         {scope, written, reconciled_at, source, handoff_date}
+#   header         {scope, written, reconciled_at, source, handoff_date,
+#                   import (null, or the import facts; the text gives them one
+#                   sentence), repo, plugin_root}
 #   changes[]      {topic, what, recorded, live, written, grade}
 #   holdings[]     {topic, unit, phase, phase_flag, state, merge_state,
 #                   board, leg, next, next_code, source, read_at,
@@ -324,6 +329,11 @@ def changes_of($written):
     header: {scope: (($in.scope.kind // "") + " " + ($in.scope.name // "")), written: $w,
              reconciled_at: $in.reconciled_at, source: ($in.record.source // "record"),
              handoff_date: ($in.record.handoff_date // null),
+             import: ($in.record.import // null
+                      | if type == "object" and ((.source_session // null) | type) == "string" and .source_session != ""
+                        then {source_session, source_workspace: (.source_workspace // "" | tostring),
+                              template_hash: (.template_hash // "" | tostring)}
+                        else null end),
              repo: ($in.scope.repo // null),
              plugin_root: (if ($in.plugin_root == "inside" or $in.plugin_root == "outside") then $in.plugin_root else null end)},
     changes: [$in.holdings[]? | select(.refused == null) | changes_of($w)[]],
@@ -483,6 +493,12 @@ def code: "`" + . + "`";
   + (if .header.source == "handoff" then " Rows as written by the previous rotation\($on)."
      elif .header.source == "record and handoff" then " Rows marked as the previous rotation'"'"'s are as it wrote them\($on)."
      else "" end)
+  + (.header.import as $im
+     | if ($im | type) != "object" or ($im.source_session | type) != "string" or $im.source_session == "" then ""
+       else " This run was imported from session \($im.source_session | code)"
+         + (if ($im.source_workspace | type) == "string" and $im.source_workspace != "" then " in workspace \($im.source_workspace | code)" else "" end)
+         + (if ($im.template_hash | type) == "string" and $im.template_hash != "" then ", compiled from template \($im.template_hash | code)" else "" end)
+         + "." end)
   + (if .header.plugin_root == "inside" then " The reconcile scripts ran from inside the repository being worked on."
      elif .header.plugin_root == "outside" then " The reconcile scripts ran from outside the repository being worked on."
      else "" end),

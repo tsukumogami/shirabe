@@ -137,7 +137,7 @@ for bad in 0 01 1000 a "" "1;ls" "-1" "1 2"; do
     # The plan does not exist: a refusal naming the step rule shows the step
     # was checked first.
     run "$REPO" docs/plans/no-such-plan.md "$bad"
-    if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF 'step must match ^[1-9][0-9]{0,2}$'; then
+    if [ "$RC" -eq 2 ] && grep -qF 'step must match ^[1-9][0-9]{0,2}$' <<<"$ERR"; then
         pass "step [$bad] is refused naming the rule"
     else
         fail "step [$bad]: exit $RC, err [$ERR]"
@@ -155,7 +155,7 @@ ln -s "$OUTSIDE/missing.md" "$REPO/docs/plans/PLAN-dangling.md"
 # path_refused <label> <dir> <plan> <expected message fragment>
 path_refused() {
     run "$2" "$3" 1
-    if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF "$4"; then
+    if [ "$RC" -eq 2 ] && grep -qF "$4" <<<"$ERR"; then
         pass "$1 is refused: $ERR"
     else
         fail "$1: exit $RC, out [$OUT], err [$ERR]"
@@ -185,7 +185,7 @@ path_refused "a file with no frontmatter" "$REPO" README.md "not a plan/v1 or pl
 path_refused "a plan/v3 file" "$REPO" docs/plans/PLAN-v3.md "not a plan/v1 or plan/v2 PLAN"
 
 run "$REPO" docs/plans/PLAN-v2-single-pr.md 9
-[ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF "the plan has no step 9" \
+[ "$RC" -eq 2 ] && grep -qF "the plan has no step 9" <<<"$ERR" \
     && pass "a step the plan does not have is refused" || fail "step 9: exit $RC, err [$ERR]"
 
 # No shirabe anywhere: a PATH holding only git and jq beside the system dirs.
@@ -196,14 +196,14 @@ ln -s "$(command -v git)" "$TOOLS/git"
 OUT=$(cd "$REPO" && env -u SHIRABE_BIN PATH="$TOOLS:/usr/bin:/bin" "$CHECK" docs/plans/PLAN-v2-single-pr.md 1 2>"$WORKDIR/stderr")
 RC=$?
 ERR=$(cat "$WORKDIR/stderr")
-[ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF "shirabe binary not found" \
+[ "$RC" -eq 2 ] && grep -qF "shirabe binary not found" <<<"$ERR" \
     && pass "a missing shirabe is refused saying so" || fail "no shirabe: exit $RC, err [$ERR]"
 
 printf 'not executable\n' > "$WORKDIR/not-exec"
 OUT=$(cd "$REPO" && SHIRABE_BIN="$WORKDIR/not-exec" "$CHECK" docs/plans/PLAN-v2-single-pr.md 1 2>"$WORKDIR/stderr")
 RC=$?
 ERR=$(cat "$WORKDIR/stderr")
-[ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF "SHIRABE_BIN is set but is not an executable file" \
+[ "$RC" -eq 2 ] && grep -qF "SHIRABE_BIN is set but is not an executable file" <<<"$ERR" \
     && pass "a SHIRABE_BIN that cannot run is refused" || fail "non-executable SHIRABE_BIN: exit $RC, err [$ERR]"
 
 # A shirabe from before plan/v2, which refuses the file the way 0.25.0 does.
@@ -216,8 +216,8 @@ chmod +x "$WORKDIR/old-shirabe"
 OUT=$(cd "$REPO" && SHIRABE_BIN="$WORKDIR/old-shirabe" "$CHECK" docs/plans/PLAN-v2-single-pr.md 1 2>"$WORKDIR/stderr")
 RC=$?
 ERR=$(cat "$WORKDIR/stderr")
-if [ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF "could not read the plan" \
-    && printf '%s' "$ERR" | grep -qF "docs/plans/PLAN-v2-single-pr.md is not a PLAN document"; then
+if [ "$RC" -eq 2 ] && grep -qF "could not read the plan" <<<"$ERR" \
+    && grep -qF "docs/plans/PLAN-v2-single-pr.md is not a PLAN document" <<<"$ERR"; then
     pass "a shirabe that cannot read plan/v2 is refused, quoting what it said"
 else
     fail "old shirabe: exit $RC, err [$ERR]"
@@ -263,13 +263,13 @@ run "$REPO" --task o-feat-some-slug docs/plans/no-such-plan.md
     && pass "--task with a plan/v1 task name passes without reading the plan" \
     || fail "--task plan/v1 name: exit $RC, out [$OUT], err [$ERR]"
 run "$REPO" --task step-01 docs/plans/PLAN-v2-single-pr.md
-[ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF 'step must match' \
+[ "$RC" -eq 2 ] && grep -qF 'step must match' <<<"$ERR" \
     && pass "--task step-01 is refused naming the rule" || fail "--task step-01: exit $RC, err [$ERR]"
 run "$REPO" --task step-1
-[ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF usage \
+[ "$RC" -eq 2 ] && grep -qF usage <<<"$ERR" \
     && pass "--task with no plan is a usage refusal" || fail "--task no plan: exit $RC, err [$ERR]"
 run "$REPO" docs/plans/PLAN-v2-single-pr.md
-[ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF usage \
+[ "$RC" -eq 2 ] && grep -qF usage <<<"$ERR" \
     && pass "a missing step argument is a usage refusal" || fail "no step: exit $RC, err [$ERR]"
 
 cp "$REPO_ROOT/crates/shirabe-validate/tests/fixtures/PLAN-v1-five-layer.md" "$REPO/docs/plans/PLAN-v1.md"
@@ -277,7 +277,7 @@ run "$REPO" docs/plans/PLAN-v1.md 1
 [ "$RC" -eq 0 ] && [ "$OUT" = "issue 1 is detailed" ] \
     && pass "a plan/v1 issue is detailed" || fail "plan/v1 issue 1: exit $RC, out [$OUT], err [$ERR]"
 run "$REPO" docs/plans/PLAN-v1.md 99
-[ "$RC" -eq 2 ] && printf '%s' "$ERR" | grep -qF "the plan has no issue 99" \
+[ "$RC" -eq 2 ] && grep -qF "the plan has no issue 99" <<<"$ERR" \
     && pass "a plan/v1 issue the plan does not have is refused" || fail "plan/v1 issue 99: exit $RC, err [$ERR]"
 
 # --- engine cases --------------------------------------------------------------
