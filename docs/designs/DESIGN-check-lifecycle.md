@@ -335,10 +335,14 @@ retired` on the two `status: retired` ones, `stage_since` to the date the
 change lands, and `gates` from each entry's `timing` states and the templates'
 command gates that run its script.
 
-**`scripts/rule-registry.sh`** gains `stage <id>`, printing the entry's stage
-for an active or a `status: retired` entry, `block` for a script entry that
-has none (an older registry), and failing for an id with no entry or a
-non-script entry. `verify-findings` also fails a finding whose level isn't the
+**`scripts/rule-registry.sh`** gains `stage <id>`, printing the entry's
+effective stage for an active or a `status: retired` entry, and failing for an
+id with no entry or a non-script entry. It fails closed: it prints `block` for
+a script entry with no stage (an older registry), for a stage outside the four
+values, and for an active entry whose guards include a protected action and
+whose stage isn't `block` while `stage_backstops` doesn't cover every such
+guard. That repeats the registry check's safety rule at run time, so a
+registry edited without passing CI still can't soften a guarded rule. `verify-findings` also fails a finding whose level isn't the
 one its rule's stage maps to.
 
 **`scripts/lib/rule-findings.sh`**:
@@ -570,16 +574,35 @@ arbitrary strings out of the session's dispute records. A dispute changes no
 gate outcome in koto, so an agent can't use it to get past a check; at worst
 it skews one rule's dispute figure, which a reviewer reads with its source.
 
-**The safety rule itself.** The registry check is what keeps a guarded rule
-at `block`. It runs in CI on every pull request touching the registry, and
-the existing withhold rules are untouched, so this feature can't make a rule
-withholdable. `stage_backstops` paths are checked to exist and to differ from
-the rule's own check; whether a named check really blocks the action is a
-reviewer's call recorded in `notes`, and the reference says so.
+**The safety rule itself.** Two layers keep a guarded rule at `block`. The
+registry check runs in CI on every pull request touching the registry and
+refuses an unbacked softening. `rule-registry.sh stage` repeats the rule at
+run time and fails closed, so an unknown stage, a missing stage, or a guarded
+rule below `block` without full backstops all behave as `block` in the gate.
+That matters because a gate reads the registry from the plugin root it runs
+from: for an adopter that's the installed plugin, but a working copy of
+shirabe running its own scripts reads the working tree, which an agent can
+edit before a pull request exists. The existing withhold rules are
+untouched, so this feature can't make a rule withholdable.
+
+What the checks can't prove is stated rather than hidden. A
+`stage_backstops` path is checked to exist and to differ from the rule's own
+check; whether that check really blocks the action is a reviewer's call,
+recorded in `notes`. Retiring a rule's `status` is the registry's existing
+path for a rule that no longer applies, which removes its id from every
+`RULE_IDS` line; it isn't a stage change and needs no backstop, so it stays a
+reviewed registry change like any other. Stage changes to the registry should
+get a person's review, which the reference asks for.
+
+**Dispute source.** `--by person` is what the caller says. A dispute moves
+nothing, so a false source skews one figure, which the reader shows split by
+source; the thresholds treat both alike for that reason.
 
 **The figures reader** reads files it's given and the registry, writes
 nothing and makes no network call. Journal lines hold content hashes on
-`context_reads` records, which the reader ignores.
+`context_reads` records, which the reader ignores. The dispute reason lives
+in the session log, which koto doesn't send anywhere; a tool that copies
+session logs off the host would carry it, bounded at 1,000 bytes.
 
 ## Consequences
 
