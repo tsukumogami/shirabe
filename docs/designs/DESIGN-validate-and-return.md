@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Accepted
+status: Planned
 problem: |
   A /work-on output gate that fails on a registry rule prints the rule's
   one-line summary however many times the rule fails. Only PB4 returns its
@@ -36,7 +36,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Accepted
+Planned
 
 ## Context and Problem Statement
 
