@@ -203,6 +203,13 @@ cat > "$SC/reconcile-settle.sh" <<'STUB'
 echo "$*" >> "$STUB_DIR/settles"
 cat "$STUB_DIR/settle.out" 2>/dev/null || echo '{"kind":"settle","status":"ok","settled":true,"reason":"","read_at":"t"}'
 STUB
+# The legs classification, the pass's other write: logs its arguments to
+# <case>/legs and prints <case>/legs.out, else a re-legged fact.
+cat > "$SC/reconcile-legs.sh" <<'STUB'
+#!/usr/bin/env bash
+echo "$*" >> "$STUB_DIR/legs"
+cat "$STUB_DIR/legs.out" 2>/dev/null || echo '{"kind":"legs","status":"ok","outcome":"relegged","now":"leg req_9:deliver","reason":"","read_at":"t"}'
+STUB
 chmod +x "$SC"/*.sh "$T/bin/koto" "$T/bin/git"
 
 SESSION=coordinate-plugin-system-20260927T000000Z
@@ -554,6 +561,34 @@ get --check; check "a GitHub record has no import facts to compare" $?
 if ! grep -v '^[[:space:]]*#' "$G" | grep -q -- '--sealed' && grep -q 'capture --session "$SESSION" --name RECONCILE_SEAL' "$G"; then
     ok "the reader takes no sealed token and reads the capture from the log itself"
 else bad "the reader takes no sealed token and reads the capture from the log itself"; fi
+
+echo "== a leg this host's store doesn't hold (PRD R15) =="
+new_case legs
+record "[$(hold legged "$PR12" '{"return_path": "leg req_1:deliver"}'),$(hold watched "" '{"return_path": "leg req_2:deliver", "branch": ""}')]"
+printf '%s\n' '{"kind":"leg","status":"not_verified","reason":"request not found on this host","read_at":"t"}' > "$CASE/check.leg.leg_req_1_deliver.1"
+pass
+while case "$LINE" in pending:*) true ;; *) false ;; esac; do tick 31; pass; done
+case "$LINE" in "reconciled "*) ok "the visit seals" ;; *) bad "the visit seals" "$LINE $(cat "$CASE/stderr")" ;; esac
+eq() { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
+eq "the legs classification runs once, for the holding whose request isn't here" \
+    "--session $SESSION --topic legged --return-path leg req_1:deliver" "$(cat "$CASE/legs" 2>/dev/null)"
+ctx reconcile/report.json | jq -e '[.changes[] | select(.topic == "legged" and .what == "leg relegged" and .live == "leg req_9:deliver")] | length == 1' >/dev/null
+check "its re-leg is reported under Changed since then" $? "$(ctx reconcile/report.json | jq -c .changes)"
+grep -q 're-legged: its session came here with the import' <<< "$(ctx reconcile/report.md)"; check "  ... in the rendered report" $?
+new_case legs-unwatchable
+record "[$(hold legged "$PR12" '{"return_path": "leg req_1:deliver"}')]"
+printf '%s\n' '{"kind":"leg","status":"not_verified","reason":"request not found on this host","read_at":"t"}' > "$CASE/check.leg.leg_req_1_deliver.1"
+printf '%s\n' '{"kind":"legs","status":"ok","outcome":"unwatchable","now":"message","reason":"x","read_at":"t"}' > "$CASE/legs.out"
+pass
+while case "$LINE" in pending:*) true ;; *) false ;; esac; do tick 31; pass; done
+grep -q 'reports by message: its leg `leg req_1:deliver` cannot be watched from this host' <<< "$(ctx reconcile/report.md)"
+check "an unwatchable leg is reported, naming the move to message" $? "$(ctx reconcile/report.md)"
+new_case legs-dispatching
+record "[$(hold early "" '{"return_path": "leg req_1:deliver", "dispatch_status": "dispatching", "branch": ""}')]"
+printf '%s\n' '{"kind":"leg","status":"not_verified","reason":"request not found on this host","read_at":"t"}' > "$CASE/check.leg.leg_req_1_deliver.1"
+pass
+while case "$LINE" in pending:*) true ;; *) false ;; esac; do tick 31; pass; done
+[ -e "$CASE/legs" ] && bad "a holding still dispatching gets no legs classification" "$(cat "$CASE/legs")" || ok "a holding still dispatching gets no legs classification"
 
 echo "== koto calls per tick (shirabe#844) =="
 # On koto's cloud backend each context call costs seconds against the action's

@@ -31,10 +31,14 @@
 # no other context call it can do without: a tick of a pending visit makes
 # two, the sealing tick five at most. reconcile-pass_test.sh pins the counts.
 #
-# The pass writes the record in one case only: a holding left `dispatching`
+# The pass writes the record in two cases only. A holding left `dispatching`
 # whose worker the listing finds (and whose leg, when it has one, is bound or
-# resolved) is rewritten `dispatched` by reconcile-settle.sh, launched like a
-# re-check once those facts are in, and reported under "Changed since then".
+# resolved) is rewritten `dispatched` by reconcile-settle.sh. A dispatched
+# holding whose leg's request this host's store doesn't hold (the run was
+# imported here) gets its leg an end from reconcile-legs.sh: re-legged when
+# the worker's session came along unbound, else moved to the message path
+# (PRD R15). Each is launched like a re-check once the facts it needs are
+# in, and reported under "Changed since then".
 # A deferral's carry is judged against the chain start (coord-log.sh
 # chain-start), so a restart doesn't re-decide what the run it replaced
 # carried.
@@ -287,7 +291,15 @@ plan() {
                        else empty end)
                   else empty end)
                end),
-              (if (($h.return_path // "") | startswith("leg ")) then {id: "\($p).leg", sub: "leg", args: ["--return-path", $h.return_path], natural: 8} else empty end)),
+              (if (($h.return_path // "") | startswith("leg ")) then {id: "\($p).leg", sub: "leg", args: ["--return-path", $h.return_path], natural: 8} else empty end),
+              # A dispatched holding whose leg the request store of this host
+              # does not hold (the run was imported here) gets its leg an end:
+              # re-legged, or moved to the message path (reconcile-legs.sh).
+              (if ($h.dispatch_status // "") == "dispatched" and (($h.return_path // "") | startswith("leg "))
+                  and ($f["\($p).leg"].status // "") == "not_verified"
+                  and ($f["\($p).leg"].reason // "") == "request not found on this host" then
+                 {id: "\($p).legs", sub: "legs", args: ["--session", $session, "--topic", $h.worker, "--return-path", $h.return_path], natural: 20}
+               else empty end)),
           ($rec.side_effects | to_entries[] | .key as $j | .value.row as $s | "s\($j)" as $p
             | ($s.target | target) as $t
             | (($s.action // "") | ascii_downcase) as $a
@@ -381,10 +393,12 @@ launch() {
         exec 3>&-
         args=()
         while IFS= read -r a; do args+=("$a"); done < "$R/$id.args"
-        # The settle is the pass's one write, in a script of its own; every
-        # other read is a re-check.
+        # The settle and the legs classification are the pass's writes, each
+        # in a script of its own; every other read is a re-check.
         if [ "$sub" = settle ]; then
             RECONCILE_READ_DEADLINE=$d "${RUNBASH[@]}" "$HERE/reconcile-settle.sh" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
+        elif [ "$sub" = legs ]; then
+            RECONCILE_READ_DEADLINE=$d "${RUNBASH[@]}" "$HERE/reconcile-legs.sh" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
         else
             RECONCILE_READ_DEADLINE=$d RECONCILE_BOARD_DEADLINE=$bd \
                 "${RUNBASH[@]}" "$HERE/reconcile-check.sh" "$sub" ${args[@]+"${args[@]}"} > "$R/$id.out" 2> "$R/$id.err" < /dev/null
@@ -415,10 +429,13 @@ while :; do
         tn=$(now) || exit 1
         el=$((tn - T0))
         left=$((READS_END - el))
-        # A write is never clipped: the settle starts only when its whole
-        # budget fits, else in a later pass, which starts with it.
+        # A write is never clipped: the settle and the legs classification
+        # start only when their whole budget fits, else in a later pass,
+        # which starts with them.
         whole=1
-        [ "$(printf '%s' "$spec" | jq -r .sub)" = settle ] && [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0
+        case "$(printf '%s' "$spec" | jq -r .sub)" in
+            settle | legs) [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0 ;;
+        esac
         if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ] && [ "$whole" = 1 ]; then
             launch "$spec" "$left"
             ready=$((ready - 1))
@@ -459,7 +476,7 @@ jq -c --arg at "$(iso)" '
           elif $f["\($p).host1"] != null then ($f["\($p).host1"] | strip) else null end) as $host
        | {source: .value.source, row: .value.row, refused: null,
           facts: ([get("\($p).pr"), get("\($p).board.v"), get("\($p).board.l"), get("\($p).branch"),
-                   get("\($p).appeared"), get("\($p).files"), get("\($p).leg"), get("\($p).settle")]
+                   get("\($p).appeared"), get("\($p).files"), get("\($p).leg"), get("\($p).settle"), get("\($p).legs")]
                   + (if $host == null then [] else [$host | del(.path)] end)
                   + (if $f["\($p).inv"] != null then [get("\($p).inv")]
                      elif $host != null and $host.status == "ok" and $host.state == "missed" then

@@ -20,6 +20,11 @@
 #   no-reports-to                            the session store's reports-to
 #                                            row is missing
 #   no-next-step <unit>                      a live holding has no Work row
+#   leg-unclassified <worker>                a live holding's leg names a
+#                                            request this host's store
+#                                            doesn't hold (the run was
+#                                            imported here), and the leg has
+#                                            no end yet (PRD R15)
 #   not-told <worker>                        a live holding's Worker has no
 #                                            `told` row for the current address
 # A live holding is one dispatched and not merged: a row whose Dispatch status
@@ -36,6 +41,7 @@
 # 2 a read failed; 10 the run has no found record, or the target isn't a
 # canonical record of this scope; 64 usage.
 #
+# koto reads: koto request get <request> for each live holding on a leg.
 # GitHub reads: gh issue view N --repo R --json body | gh pr view N --repo R
 # --json body.
 set -uo pipefail
@@ -94,7 +100,28 @@ else
 fi
 [ -s "$WD/parsed.json.pushed" ] || echo '{}' > "$WD/parsed.json.pushed"
 
-jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" '
+# A live holding on a leg whose request this host's store doesn't hold (the run
+# was imported here) has no end yet: the gap holds until reconcile-legs.sh
+# re-legs it or moves it to the message path (PRD R15). koto exits 2 for a
+# request its store doesn't hold; any other failed read is a failed read.
+: > "$WD/unclassified"
+while IFS='	' read -r w rp; do
+    [ -n "$w" ] || continue
+    "${KOTO:-${KOTO_BIN:-koto}}" request get "${rp%%:*}" < /dev/null > /dev/null 2>&1
+    case $? in
+        0) ;;
+        2) printf '%s\t%s\n' "$w" "$rp" >> "$WD/unclassified" ;;
+        *) lib_die2 "cannot read request ${rp%%:*} of $w's leg" ;;
+    esac
+done <<EOF
+$(jq -r '.holdings[] | select(.dispatch_status == "dispatched")
+    | select(((.verified_head // "") != "" and (.pull_request // "") == "") | not)
+    | select((.return_path // "") | startswith("leg ")) | [.worker, (.return_path | ltrimstr("leg "))] | @tsv' "$WD/parsed.json")
+EOF
+jq -R -s 'split("\n") | map(select(. != "") | split("\t") | {worker: .[0], leg: .[1]})' "$WD/unclassified" > "$WD/unclassified.json" \
+    || lib_die2 "jq failed"
+
+jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "$WD/parsed.json.pushed" --slurpfile unc "$WD/unclassified.json" '
     def runval($k): [(.run // [])[] | select(.key == $k) | .value][0];
     (.run // []) as $run
     | ([$run[] | select(.key == "told") | .value]) as $told
@@ -117,6 +144,7 @@ jq -c --arg store "$STORE" --slurpfile host "$WD/host.json" --slurpfile pushed "
         (if .coordinator == null then {gap: "no-coordinator", fix: "record-state.sh --run coordinator <your address> --by <you>"} else empty end),
         (if $store == "session" and .reports_to == null then {gap: "no-reports-to", fix: "record-state.sh --run reports-to \"<role>[ at <address>]\" --by <who>"} else empty end),
         (.workers[] | select(.next == null) | {gap: "no-next-step \(.unit)", fix: "record-state.sh --work \"\(.unit)\" --kind holding --who \(.worker) --next \"<what happens next>\""}),
+        ($unc[0][] | {gap: "leg-unclassified \(.worker)", fix: "reconcile-legs.sh --session <this run> --topic \(.worker) --return-path \"leg \(.leg)\" (the reconcile pass runs it; run it by hand when the pass reported it not verified)"}),
         (if .coordinator != null then (.workers[] | select(.told | not) | {gap: "not-told \(.worker)", fix: "send \(.worker) a line naming the address, then record-state.sh --told \(.worker) --by <you>"}) else empty end)
       ])' "$WD/parsed.json" > "$WD/out.json" || lib_die2 "jq failed"
 
