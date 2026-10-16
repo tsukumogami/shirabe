@@ -143,6 +143,19 @@ work.
    exits 3) and has you tick `moved`. The check reads the run's own keys, so it
    survives a restart.
 
+   Every worker's leg is a key of the coordinator's own session,
+   `legs/<request>/<leg>`, on either store: the dispatch writes it, and the
+   wait records the worker's session once it attaches and the leg's result
+   once it's read. So an import brings the legs, but not their requests, which
+   stay in the old host's request store. The reconcile on the new host gives
+   each such leg an end (`scripts/reconcile-legs.sh`): a worker whose session
+   came along, bound to nothing, is attached to a new request here
+   (`dispatch-worker.sh --releg-imported`) and its holding names the new leg;
+   any other worker (left on the old host, bound elsewhere, or dispatched
+   before leg keys existed) moves to the message path, and the handover gate's
+   told rule has you send it your address. The gate holds while a leg has no
+   end (`leg-unclassified <worker>`).
+
 3. **Tick.** Call `koto next <session> --no-cleanup`, do what the directive says,
    submit the evidence it asks for, and repeat. **Every `koto next` carries
    `--no-cleanup`, on every tick**: the flag keeps the run's log readable after
@@ -354,7 +367,10 @@ states never ask you to do these steps by hand.
 - **Wait.** A message report goes through the hub; a leg-bound worker's result
   is read from its leg by `scripts/wait-target.sh`, once. Both pass
   `take_report`, where `scripts/report-source.sh` refuses a message standing
-  in for a leg-bound worker. A leg spent before its worker reported
+  in for a leg-bound worker whose leg is still watched here. Once its leg is
+  read, or can't be watched from this host, a message is how that worker
+  reports, so it stands, and its questions open decisions as any message's
+  do. A leg spent before its worker reported
   (cancelled, refused at the entry point's preflight, abandoned or missing)
   goes to `leg_spent`, where `scripts/dispatch-worker.sh --releg` replaces it
   for the same holding, keeping the worker, or the human takes it. A
@@ -823,7 +839,13 @@ milestone roadmap ends is left to the roadmap's own lifecycle.
   with the imported run left here; the next plain start carries its record into
   a new run on this host's plugin, and that run reconciles here.
 - **One topic per worker.** A unit dispatched again after a failure takes a new
-  topic: the dispatch script refuses a topic whose session is still live.
+  topic: the dispatch script refuses a topic whose session is still live. A
+  worker on the message path that went quiet past the second silence, whose
+  unit you choose to dispatch again, is marked stranded first
+  (`record-holding.sh --strand <topic>`, refused for a leg-bound worker); the
+  new topic's brief names the old branch and last pushed head, and the
+  stranded row is retired once the new worker is dispatched, so a late report
+  from the old topic matches no holding.
 - **A worker launched outside the dispatch script can't be adopted.** The
   dispatch script refuses a topic whose session is already live, so a worker
   started by hand never gets a holding through it. Stop that worker's session

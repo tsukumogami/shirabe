@@ -117,7 +117,10 @@ holding a verified pull request whose merge a hold in the record stops (`held`).
 A row leaves Side effects in flight once confirmed. Reversals only grow.
 A Holdings row outlives its pull request's merge: a confirmed merge blanks
 its Pull request cell and keeps its Verified head, and the row goes when the
-worker is torn down.
+worker is torn down. A message-path worker whose unit you dispatch again
+after it went quiet is `stranded` (`record-holding.sh --strand`); its row
+goes once the unit's new worker is dispatched (`--retire`, which
+dispatch-worker.sh runs).
 
 A deferral is disposed of when its Disposition reads `filed #<n>`,
 `closed: <reason>`, or `carried <time>: <reason>` with a time at or after the
@@ -423,6 +426,16 @@ links a pull request and by the report check when a report reads a new head;
 the rendered body never shows it. The keys move with the session: a resume
 keeps them, a carry copies every `record/` and `legs/` key into the new run,
 and an import brings them all from the other host.
+
+Each worker leg is a key of the coordinator's session on either store,
+`legs/<request>/<leg>`: the worker's topic, the leg's templates and pinned
+inputs, the bound session's name once one attaches, and its result once read.
+`dispatch-worker.sh` writes it (`open`, `replaced`, `spent`) and
+`wait-target.sh` adds the child and the end (`taken` with the result, or
+`spent`). After an import `reconcile-legs.sh` gives a leg whose request this
+host's store doesn't hold its end: `relegged` (naming the new request, whose
+own key reads `open` from the old one) or `unwatchable`. A record on GitHub
+never shows them.
 
 A coordinator's state lives outside its session and outside any directory the
 workspace manager converges, and what must outlive the host lives on GitHub,

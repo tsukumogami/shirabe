@@ -74,6 +74,12 @@ koto	request abandon-request	--rationale	always
 koto	request list	--coordinator-of-record,--state	always
 koto	request get	-	always
 koto	context exists	-	always
+# After an import, dispatch-worker.sh --releg-imported (run by
+# reconcile-legs.sh in the reconcile pass) attaches a worker's own session,
+# which came along bound to no leg, to a new request on this host with
+# `koto request attach --session`; koto checks the session against the leg's
+# template and inputs. koto's minimum has the verb.
+koto	request attach	--session	always
 #
 # Citations, not calls: SKILL.md and coordinate.md tell the coordinator never
 # to use `koto next --to` (koto#251: koto 0.14.0 and later refuse it past a failing check).

@@ -64,14 +64,23 @@ measured, verified by reading, or inferred:
    "gone". A roster read just after an outage can't tell "gone" from "not back
    yet", so only a signal that the worker is gone, such as a message that
    bounces, makes it gone.
-4. **Re-check side effects in flight.** A merge is confirmed when GitHub's
+4. **Each worker's leg.** For a holding on a request leg it reads the leg from
+   koto's request store. After an import that store doesn't hold the leg's
+   request, which stayed on the old host, so the pass gives the leg an end
+   with `scripts/reconcile-legs.sh`: the worker's own session, if it came here
+   with the coordinator's and is bound to nothing, is attached to a new request
+   on this host and the holding names it; any other worker moves to the
+   message path, and its `legs/` key reads unwatchable. The report says which,
+   under "Changed since then", and `record-handover.sh` holds the run at
+   `reconcile` (`leg-unclassified`) until each such leg has its end.
+5. **Re-check side effects in flight.** A merge is confirmed when GitHub's
    record shows the pull request merged from the verified head, with its
    merge commit on the default branch, as "Confirming a Merge" in
    `references/verification-checklist.md` describes. It is the same check
    the loop's `merge_confirm` makes, so the two can't disagree. A close is confirmed when
    the target reads closed, and a teardown by two listing reads and the disk.
    Any other side effect is reported as not re-checked.
-5. **Read the deferrals.** List every row for the report, disposed or not,
+6. **Read the deferrals.** List every row for the report, disposed or not,
    through the record feature's disposal check; SKILL.md's record section says
    when each must be disposed of.
 
