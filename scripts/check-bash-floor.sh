@@ -167,7 +167,7 @@ mktempdir() {
 # provisioned host), so `all` on Linux reports it red; its floor run is the
 # macOS leg, on the system backend.
 
-SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry skill-session comp release explore"
+SUITES="plan execute work-on preflight templates template-consistency koto-open deliver scope coordinate coordinate-reconcile offload-baseline review-packet check-skill rule-registry skill-session comp release explore hooks"
 
 suite_scripts() {
     case "$1" in
@@ -550,6 +550,14 @@ suite_scripts() {
             # and the phase files, so the prose cases run on 3.2.
             echo "skills/explore/scripts/explore-state_test.sh"
             ;;
+        hooks)
+            # The plugin's pre-action hook, end to end. The script runs on
+            # every host's /bin/bash, so it is the floor's first customer. Its
+            # suite runs a real shirabe (from SHIRABE_BIN or target/release)
+            # and stand-in ones, scratch git repositories, and the hook's own
+            # PATH of bash, sh, cat, sed, tr, awk, sleep and git.
+            echo "hooks/pre-action-deny_test.sh"
+            ;;
         canary)
             # Not a suite: the #283 regression kept as a fixture. It is
             # expected to FAIL on the floor and to pass under bash 4+, which is
@@ -593,15 +601,17 @@ suite_workflow() {
         comp)                 echo ".github/workflows/check-comp-scripts.yml" ;;
         release)              echo ".github/workflows/check-release-scripts.yml" ;;
         explore)              echo ".github/workflows/check-explore-scripts.yml" ;;
+        hooks)                echo ".github/workflows/build-and-test.yml" ;;
         canary)               echo "(fixture, not a CI suite)" ;;
     esac
 }
 
-# The plan and execute harnesses run `shirabe` for real rather than emulating
-# it, so a floor run has to hand them a binary the floor container can execute.
+# The plan, execute and hooks harnesses run `shirabe` for real rather than
+# emulating it, so a floor run has to hand them a binary the floor container
+# can execute.
 suite_needs_shirabe() {
     case "$1" in
-        plan|execute) return 0 ;;
+        plan|execute|hooks) return 0 ;;
         *)            return 1 ;;
     esac
 }

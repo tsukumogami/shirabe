@@ -1,0 +1,53 @@
+# The coarse "named in the text" test, case by case (PRD Definitions).
+#
+# Each row is the expected answer, a tab, and a command written as the JSON
+# string value Claude Code sends, escapes included. `named` means the text
+# names `gh` ... `pr` ... `create`|`edit` or `git` ... `push`; `clear` means
+# it doesn't.
+#
+# Two classifiers read this file and must agree with it: the plugin script's
+# sed and grep test, which hooks/pre-action-deny_test.sh runs with no shirabe
+# binary (a `named` row is then denied, a `clear` one gets no decision), and
+# the binary's named_in_raw_input, which a unit test in
+# crates/shirabe/src/pre_action/classify.rs runs. Both read the row inside
+# {"tool_name":"Bash","tool_input":{"command":"<row>"}}.
+named	gh pr create
+named	gh pr edit 12 --title x
+named	GH PR CREATE
+named	gh -R o/r pr create
+named	gh x pr y create
+named	git push
+named	git -C a push
+named	/usr/bin/git push
+named	sudo git push
+named	echo \"git push\"
+named	echo \"gh\"\"pr\"\"create\"
+named	x;git push
+named	(git push)
+named	cd repo\ngit push
+named	cd repo\r\ngit push
+named	ls\tgit\tpush
+named	gh pr \\\ncreate
+named	git\npush
+named	git commit -m \"push\"
+named	git log --grep push
+named	gh issue create --title pr --body edit
+named	echo \\\\\ngit push
+clear	ls
+clear	git status
+clear	git commit -m x
+clear	gh pr view 3
+clear	gh pr
+clear	gh create pr
+clear	git pushx
+clear	git-push
+clear	push git
+clear	github pr create
+clear	ghpr create
+clear	gh pr creates
+clear	npm push
+# A literal backslash and `n` in the command: `\\n` is not a newline, so `n`
+# glues to `git`.
+clear	echo a\\ngit push
+# JSON.stringify never escapes a letter, so the escape for `g` is not decoded.
+clear	\u0067it push

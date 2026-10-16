@@ -975,4 +975,31 @@ mod tests {
         assert!(named_in_raw_input("cd x\\\ngit push").push);
         assert!(!named_in_raw_input(r#"{"command":"echo a\\ngit"}"#).push);
     }
+
+    /// The plugin script's coarse test and this one answer every row of
+    /// `hooks/testdata/coarse-cases.tsv` alike; hooks/pre-action-deny_test.sh
+    /// runs the script's side.
+    #[test]
+    fn the_coarse_test_agrees_with_the_plugin_script() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../hooks/testdata/coarse-cases.tsv");
+        let table = std::fs::read_to_string(&path).expect("coarse-cases.tsv");
+        let mut rows = 0;
+        for line in table.lines() {
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let (want, command) = line.split_once('\t').expect("answer, tab, command");
+            let input = format!(r#"{{"tool_name":"Bash","tool_input":{{"command":"{command}"}}}}"#);
+            let named = named_in_raw_input(&input);
+            let got = if named.pr || named.push {
+                "named"
+            } else {
+                "clear"
+            };
+            assert_eq!(got, want, "{command}");
+            rows += 1;
+        }
+        assert!(rows > 0, "no rows in {}", path.display());
+    }
 }
