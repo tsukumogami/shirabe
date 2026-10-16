@@ -280,6 +280,30 @@ else
     pass "only *_test.sh scripts run"
 fi
 
+# A failing case early in a long suite: the 60-line tail no longer holds it,
+# so every FAIL line is listed, with the indented detail under it, and the
+# load is recorded at the start and as the suite ended (shirabe#867).
+new_tree
+mkdir -p "$ROOT/skills/demo/scripts"
+{
+    printf '#!/bin/sh\necho "ok   first case"\n'
+    printf 'echo "FAIL early case"\necho "     want [x], got [y]"\n'
+    printf 'i=0; while [ "$i" -lt 100 ]; do echo "ok   case $i"; i=$((i + 1)); done\n'
+    printf 'echo "1 failed"; exit 1\n'
+} > "$ROOT/skills/demo/scripts/long_test.sh"
+run_check
+expect "a failing suite lists every FAIL line and the load" 1 \
+    "check-skill: demo, load " "every FAIL line:" "      FAIL early case" \
+    "      " "want [x], got [y]" "load when it ended: " "the log's last 60 lines:"
+if awk '/every FAIL line:/ { s = 1; next } /load when it ended:/ { s = 0 } s && /ok   (first )?case/ { bad = 1 } END { exit !bad }' <<EOF
+$OUT
+EOF
+then
+    fail "the FAIL lines hold only failures and their detail"
+else
+    pass "the FAIL lines hold only failures and their detail"
+fi
+
 new_tree
 mkdir -p "$ROOT/skills/demo/scripts"
 printf '[ -f skills/demo/SKILL.md ] || { echo "not at the root"; exit 1; }\n' \
