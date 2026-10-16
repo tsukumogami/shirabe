@@ -237,10 +237,43 @@ echo "== 9. every wait event reaches its spoke =="
 # wait the legitimate way (pick -> hold). No `koto next --to` is used: koto
 # 0.13 only directs along a declared edge, and most spokes have none back to
 # wait.
+#
+# Only the events no other engine test drives from wait to the state it lands
+# in are driven here (shirabe#841). The others, each with its cover:
+#   report      coordinate_2_engine_test.sh, dispatch-path_engine_test.sh
+#   progress    dispatch-path_engine_test.sh ("progress, leg")
+#   leg         dispatch-path_engine_test.sh, coordinate_3_engine_test.sh
+#   quiet       coordinate_2_engine_test.sh, coordinate_4_engine_test.sh
+#   decision    writeback_engine_test.sh ("the next pick is reached")
+#   merged      coordinate_4_engine_test.sh, milestone-verdict_engine_test.sh
+#   retire      dispatch-path_engine_test.sh ("retire arrives at teardown")
+#   answer      coordinate_3_engine_test.sh, decisions-replay_engine_test.sh
+#   landed      writeback_engine_test.sh ("landed goes to roadmap_status")
+#   failure     milestone-verdict_engine_test.sh ("failure reaches milestone_reopen")
+#   resume      pause_engine_test.sh, milestone-verdict_engine_test.sh
+#   redispatch  pause_engine_test.sh ("taken up through the failure branch")
+#   moved       handover_engine_test.sh ("the moved tick takes it through a full reconcile")
+# evidence and raise stay here: coordinate-template-structure_engine_test.sh
+# pins their wait edges and decisions-replay_engine_test.sh drives them inside
+# its replay loop, but no test ticks one from wait and asserts the state it
+# lands in. deferral and end have no other driver at all. An event wait gains
+# later is in neither list and fails until it is put in one.
+KEEP="deferral end evidence raise"
+COVERED="report progress leg quiet decision merged retire answer landed failure resume redispatch moved"
 J=$(koto template compile "$TPL" 2>/dev/null)
 if [ -n "$J" ] && [ -r "$J" ]; then
-    EVENTS=$(jq -r '.states.wait.accepts.event.values[]' "$J")
-    [ -n "$EVENTS" ] || bad "9: wait accepts an event enum" "none in the compiled template"
+    ALL=$(jq -r '.states.wait.accepts.event.values[]' "$J")
+    [ -n "$ALL" ] || bad "9: wait accepts an event enum" "none in the compiled template"
+    EVENTS=
+    for ev in $ALL; do
+        case " $KEEP " in *" $ev "*) EVENTS="$EVENTS $ev"; continue ;; esac
+        case " $COVERED " in *" $ev "*) continue ;; esac
+        bad "9: event $ev is driven here or names its cover" "add it to KEEP, or to COVERED with the test that drives it"
+    done
+    ALL1=" "$(printf '%s ' $ALL)
+    for ev in $KEEP $COVERED; do
+        case "$ALL1" in *" $ev "*) ;; *) bad "9: listed event $ev is one wait accepts" "remove it from KEEP or COVERED" ;; esac
+    done
     # Record numbers from 901 up, one per event, clear of every other case's
     # record however many events wait accepts.
     n=900
