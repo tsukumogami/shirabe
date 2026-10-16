@@ -175,7 +175,7 @@ case "$MODE" in
             echo "$PROG: the body already names another run" >&2
             exit 65
         fi
-        if ! marker_lines "$2" | grep -qxF "$(marker_line "$1")"; then
+        if ! marker_lines "$2" | grep -xF "$(marker_line "$1")" >/dev/null; then
             { printf '\n'; marker_line "$1"; printf '\n'; } >> "$2" \
                 || { echo "$PROG: could not write $2" >&2; exit 74; }
         fi

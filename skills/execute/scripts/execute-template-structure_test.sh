@@ -153,7 +153,7 @@ fi
 FAILED=$(run_checks "$SHIPPED")
 for entry in "${CHECKS[@]}" "PLUGIN_ROOT carries the absolute-path pattern|"; do
     label="${entry%%|*}"
-    if printf '%s\n' "$FAILED" | grep -qxF "$label"; then
+    if grep -qxF "$label" <<<"$FAILED"; then
         fail "$label"
     else
         pass "$label"
@@ -221,7 +221,7 @@ mutate() { # mutate <label> <expected failing check> <perl substitution>
         return
     fi
     failed=$(run_checks "$json")
-    if printf '%s\n' "$failed" | grep -qxF "$want"; then
+    if grep -qxF "$want" <<<"$failed"; then
         pass "the check fails on a copy with $label"
     else
         fail "a copy with $label passed [$want]"
