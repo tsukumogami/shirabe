@@ -23,6 +23,7 @@ on:
       # The macOS leg runs the `preflight` suite through the floor runner, and
       # that suite also carries the injection and discard checks' harnesses.
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/preflight.list'
       - 'scripts/check-skill-injection.sh'
       - 'scripts/check-skill-injection_test.sh'
       - 'scripts/check-tool-diagnostic-discards.sh'

@@ -19,6 +19,7 @@ on:
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/execute.list'
       # The engine-backed suites run the newest koto 0.x, checked against the floor.
       - '.tsuku.toml'
       - 'scripts/assert-koto-floor.sh'

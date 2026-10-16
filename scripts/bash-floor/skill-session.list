@@ -1,0 +1,7 @@
+workflow: .github/workflows/check-skill-session.yml
+# The skill-session convention's shared script. Its stand-in cases
+# need only jq and git, so they execute on the floor wherever it
+# runs; its engine cases skip without koto, which the macOS runner
+# lacks, and a developer running this locally with koto gets them
+# on 3.2 as well.
+scripts/skill-session_test.sh

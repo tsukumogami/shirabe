@@ -21,6 +21,7 @@ on:
       # The macOS leg reaches bash 3.2 through the runner, so a change to it
       # has to re-run this suite.
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/review-packet.list'
 
 permissions:
   contents: read

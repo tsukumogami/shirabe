@@ -22,6 +22,9 @@ on:
       - 'references/**'
       - 'skills/**'
       - 'scripts/**'
+      # Inside scripts/** already; named so every floor workflow names its own
+      # list (check-bash-floor_test.sh).
+      - 'scripts/bash-floor/rule-registry.list'
       - 'hooks/**'
       - 'crates/**'
       - 'docs/guides/**'

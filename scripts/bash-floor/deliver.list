@@ -1,0 +1,10 @@
+workflow: .github/workflows/check-deliver-scripts.yml
+# The report, the probes, the mode map, and the eval gh shim. They
+# drive test-local gh and koto stand-ins and need only bash, git
+# and jq, so every case runs on 3.2. The engine
+# suites stay on the Linux job that installs koto.
+scripts/plan-mode_test.sh
+skills/deliver/scripts/deliver-report_test.sh
+skills/deliver/scripts/deliver-probe_test.sh
+skills/deliver/scripts/eval-gh-shim_test.sh
+skills/deliver/scripts/deliver-requires_test.sh
