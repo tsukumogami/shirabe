@@ -521,34 +521,27 @@ fi
 
 # An installed shirabe older than --writing-style: clap rejects the flag (exit
 # 1, its usage hint on the last stderr line), and the gate holds and says to
-# upgrade.
-cat > "$BIN/shirabe" <<'EOF'
+# upgrade. That validator lives in its own directory, put ahead of $BIN for
+# this one run, so the suite's stand-in is never rewritten. The message is the
+# one clap prints today; the gate matches on it, so a clap upgrade that
+# rewords it would show up here first.
+OLDSH="$WORKDIR/oldsh"
+mkdir -p "$OLDSH"
+cat > "$OLDSH/shirabe" <<'EOF'
 #!/usr/bin/env bash
-. "$(dirname "$0")/record.sh" shirabe "$@"
 echo "error: unexpected argument '--writing-style' found" >&2
 echo "" >&2
 echo "For more information, try '--help'." >&2
 exit 1
 EOF
-chmod +x "$BIN/shirabe"
-run --pr-body
+chmod +x "$OLDSH/shirabe"
+OUT=$(PATH="$OLDSH:$PATH" "$CHECK" --pr-body 2>"$WORKDIR/stderr")
+RC=$?
 if [ "$RC" -eq 2 ] && [ "$(finding_count)" -eq 0 ] && grep -q 'predates the PR writing-style check' "$WORKDIR/stderr"; then
     pass "--pr-body: a shirabe that rejects --writing-style holds the gate (2), no finding, and names the upgrade"
 else
     fail "--pr-body: old shirabe: rc $RC, stderr $(cat "$WORKDIR/stderr")"
 fi
-cat > "$BIN/shirabe" <<'EOF'
-#!/usr/bin/env bash
-. "$(dirname "$0")/record.sh" shirabe "$@"
-prev=""
-for a in "$@"; do
-    [ "$prev" != --pr-body ] || cp "$a" "$LOG/shirabe/body"
-    prev=$a
-done
-printf '%s\n' "${FAKE_SHIRABE_OUT-}"
-exit "${FAKE_SHIRABE_RC:-0}"
-EOF
-chmod +x "$BIN/shirabe"
 
 # No shirabe on PATH at all.
 NOSH="$WORKDIR/nosh"
