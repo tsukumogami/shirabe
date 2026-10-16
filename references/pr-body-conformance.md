@@ -89,7 +89,9 @@ enforces them offline (no `gh`, no network).
   checked against the banned words in `skills/writing-style/rules.yaml`, the
   list FC10 checks documents against, by the same matcher: inline and fenced
   code, table cells, link destinations, bare URLs and HTML comments are not
-  prose; a title's `type(scope): ` prefix is skipped; and a term the
+  prose; quoted text (a blockquote, or double quotes that pair on one line)
+  isn't checked, since a verbatim quotation isn't the author's to reword;
+  a title's `type(scope): ` prefix is skipped; and a term the
   repository declares under `## Prose Vocabulary:` is allowed. Each finding
   names the word, its body line or the title, and what the rules suggest
   instead. The /work-on and /execute pull request gate passes the flag with

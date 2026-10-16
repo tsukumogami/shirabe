@@ -1077,7 +1077,7 @@
       "aliases": [
         "FC10"
       ],
-      "notes": "The validator reports FC10 as a notice; check-hop-document.sh raises its banned-word and truncation findings to blocking at /scope's hops and leaves its em-dash-density finding a notice. Shares its text and baseline key with pr-body/banned-word, the same words checked on pull request titles and bodies."
+      "notes": "The validator reports FC10 as a notice; check-hop-document.sh raises its banned-word and truncation findings to blocking at /scope's hops and leaves its em-dash-density finding a notice. Shares its text and baseline key with pr-body/banned-word, the same words checked on pull request titles and bodies. Quoted text (a blockquote, or double quotes that pair on one line) is exempt in both, because a verbatim quotation is not the author's to reword."
     },
     {
       "id": "rs-001",
