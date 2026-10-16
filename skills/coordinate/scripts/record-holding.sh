@@ -5,6 +5,8 @@
 #
 # Usage:
 #   record-holding.sh --session S --topic T --row-file F    write the row
+#   record-holding.sh --session S --topic T --pushed-head SHA
+#                                                           set its pushed head
 #   record-holding.sh --session S --topic T --read          print the row
 #   record-holding.sh --session S --list                    print every row
 #   ... [--scope roadmap|discipline --name N --repo O/R --ref N
@@ -29,6 +31,13 @@
 # waiting for teardown (record-common.sh lib_row_merged): only the cleared
 # cell after a confirmed merge writes that pair, so no other write may.
 #
+# On the session store a holding also keeps its last pushed head, the pull
+# request's head as a report or a link last read it (PRD R17): 40 hex, never in
+# the body, so never on GitHub. --pushed-head sets it, or clears it with an
+# empty SHA, and changes nothing else; a row file may carry it as `pushed_head`.
+# --read and --list print it on the session store. On a GitHub record either
+# is refused (65).
+#
 # Exit codes: 0 written (prints the URL) or printed; 1 no row for the topic
 # (--read only); 2 a read failed; 10 refused (the target isn't an open record
 # of this scope, provenance, or a directed transition); 12 the record changed
@@ -43,7 +52,7 @@ set -uo pipefail
 
 PROG=record-holding
 HERE=$(cd "$(dirname "$0")" && pwd)
-SESSION= SCOPE= NAME= REPO= REF= TOPIC= ROWFILE= MODE=
+SESSION= SCOPE= NAME= REPO= REF= TOPIC= ROWFILE= MODE= PUSHED=
 SKIP_CHECKS=0
 
 usage() { sed -n '/^# Usage:/,/^# The session gives/p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 64; }
@@ -56,6 +65,7 @@ while [ $# -gt 0 ]; do
         --ref) [ $# -ge 2 ] || usage; REF=$2; shift 2 ;;
         --topic) [ $# -ge 2 ] || usage; TOPIC=$2; shift 2 ;;
         --row-file) [ $# -ge 2 ] || usage; [ -z "$MODE" ] || usage; MODE=write; ROWFILE=$2; shift 2 ;;
+        --pushed-head) [ $# -ge 2 ] || usage; [ -z "$MODE" ] || usage; MODE=pushed; PUSHED=$2; shift 2 ;;
         --read) [ -z "$MODE" ] || usage; MODE=read; shift ;;
         --list) [ -z "$MODE" ] || usage; MODE=list; shift ;;
         --skip-session-checks) SKIP_CHECKS=1; shift ;;
@@ -64,7 +74,7 @@ while [ $# -gt 0 ]; do
 done
 case "$MODE" in
     write) [ -n "$TOPIC" ] && [ -r "$ROWFILE" ] || usage ;;
-    read) [ -n "$TOPIC" ] || usage ;;
+    pushed|read) [ -n "$TOPIC" ] || usage ;;
     list) [ -z "$TOPIC" ] || usage ;;
     *) usage ;;
 esac
@@ -99,26 +109,42 @@ case $? in
 esac
 cp "$T/parsed.json.md" "$T/live.md"
 
+# Each holding's pushed head, {worker: sha}, kept beside the row on the session
+# store only (the seam's <out>.pushed); {} on GitHub.
+[ -s "$T/parsed.json.pushed" ] || echo '{}' > "$T/parsed.json.pushed"
 case "$MODE" in
 read)
-    ROW=$(jq -c --arg t "$TOPIC" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/parsed.json")
+    ROW=$(jq -c --arg t "$TOPIC" --slurpfile p "$T/parsed.json.pushed" \
+        '[.holdings[] | select(.worker == $t) | if $p[0][$t] then . + {pushed_head: $p[0][$t]} else . end][0] // empty' "$T/parsed.json")
     [ -n "$ROW" ] || exit 1
     printf '%s\n' "$ROW"
     exit 0
     ;;
 list)
-    jq -c -L "$HERE" 'include "record-codec"; holdings_list' "$T/parsed.json"
+    jq -c -L "$HERE" --slurpfile p "$T/parsed.json.pushed" \
+        'include "record-codec"; holdings_list | map(.worker as $w | if $p[0][$w] then . + {pushed_head: $p[0][$w]} else . end)' "$T/parsed.json"
     exit 0
     ;;
+pushed)
+    jq -e --arg t "$TOPIC" 'any(.holdings[]; .worker == $t)' "$T/parsed.json" > /dev/null \
+        || { echo "$PROG: refused: no holding's Worker is $TOPIC" >&2; exit 65; }
+    jq 'del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    ;;
+write)
+    jq -e 'type == "object"' "$ROWFILE" > /dev/null 2>&1 || { echo "$PROG: refused: the row file is not a JSON object" >&2; exit 65; }
+    W=$(jq -r '.worker // ""' "$ROWFILE")
+    [ "$W" = "$TOPIC" ] || { echo "$PROG: refused: the row's worker ($W) is not the topic $TOPIC" >&2; exit 65; }
+    # A pushed head in the row goes beside it, through record-write.sh, never
+    # into the body.
+    if jq -e 'has("pushed_head")' "$ROWFILE" > /dev/null; then
+        MODE=pushed PUSHED=$(jq -r '.pushed_head | tostring' "$ROWFILE")
+    fi
+    jq --slurpfile row "$ROWFILE" --arg t "$TOPIC" '($row[0] | del(.pushed_head)) as $r
+        | if any(.holdings[]; .worker == $t)
+        then .holdings |= map(if .worker == $t then $r else . end)
+        else .holdings += [$r] end | del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    ;;
 esac
-
-jq -e 'type == "object"' "$ROWFILE" > /dev/null 2>&1 || { echo "$PROG: refused: the row file is not a JSON object" >&2; exit 65; }
-W=$(jq -r '.worker // ""' "$ROWFILE")
-[ "$W" = "$TOPIC" ] || { echo "$PROG: refused: the row's worker ($W) is not the topic $TOPIC" >&2; exit 65; }
-jq --slurpfile row "$ROWFILE" --arg t "$TOPIC" '
-    if any(.holdings[]; .worker == $t)
-    then .holdings |= map(if .worker == $t then $row[0] else . end)
-    else .holdings += $row end | del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
 if lib_dispatched; then
     lib_drop_disposed "$T/next.json" "$T/dropped.json"
     mv "$T/dropped.json" "$T/next.json"
@@ -130,6 +156,7 @@ bash "$HERE/record-render.sh" --container "$CONTAINER" --written "$(jq -r '.writ
     || { echo "$PROG: refused:" >&2; lib_scrub < "$T/render.err" >&2; echo >&2; exit 65; }
 
 set -- --body-file "$T/body.md"
+[ "$MODE" = pushed ] && set -- "$@" --pushed-head "$TOPIC" "$PUSHED"
 [ -n "$SESSION" ] && set -- "$@" --session "$SESSION"
 if [ "$OVERRIDE" = 1 ]; then
     set -- "$@" --scope "$SCOPE" --name "$NAME" --repo "$REPO" --ref "$REF"

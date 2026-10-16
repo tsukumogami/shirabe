@@ -100,4 +100,25 @@ bash "$H" "${DH[@]}" --skip-session-checks --topic beta --row-file "$T/beta.json
 eq "the pull request's body holds the row" "beta" "$(bash "$H" "${DH[@]}" --list | jq -r 'map(.worker) | join(" ")')"
 grep -q '^pr edit 22' "$GH_DB.calls" && ok "the discipline write is a pr edit" || bad "the discipline write is a pr edit" "$(calls)"
 
+echo "== a pushed head on the session store (PRD R17) =="
+SH=coordinate-roadmap-plugin-system-20260926T180000Z
+SEN=(env RS_SOURCE=session RS_SESSION="$SH")
+HEAD1=1111111111111111111111111111111111111111
+HEAD2=2222222222222222222222222222222222222222
+REC=$(record_json roadmap plugin-system | jq -c --argjson a "$(holding alpha)" --argjson b "$(holding beta '{"unit": "Feature 3"}')" \
+    '.holdings = [$a, $b] | .run = [{key: "store", value: "session", set_by: "alice", set: "2026-09-26T08:00Z"}]')
+seed "$REC"; render "$REC" issue 2026-09-26T08:00:00Z | bash "$HERE/record-parse.sh" --container issue > "$T/sh.json"; session_keys "$SH" "$T/sh.json"
+reset_calls
+"${SEN[@]}" bash "$H" "${W_RM[@]}" --topic alpha --pushed-head "$HEAD1" >/dev/null 2>"$T/err"; eq "--pushed-head sets alpha's head" 0 $?
+eq "  ... --read prints it" "$HEAD1" "$("${SEN[@]}" bash "$H" "${RM[@]}" --topic alpha --read | jq -r .pushed_head)"
+eq "  ... --list prints it beside its row only" "$HEAD1|null" "$("${SEN[@]}" bash "$H" "${RM[@]}" --list | jq -r 'map(.pushed_head) | map(tostring) | join("|")')"
+grep -qE '^(issue|pr) edit' "$GH_DB.calls" && bad "  ... and GitHub is never edited" "$(calls)" || ok "  ... and GitHub is never edited"
+"${SEN[@]}" bash "$H" "${RM[@]}" --topic beta --read | jq -c 'del(.pushed_head) | .pushed_head = $h' --arg h "$HEAD2" > "$T/beta-row.json"
+"${SEN[@]}" bash "$H" "${W_RM[@]}" --topic beta --row-file "$T/beta-row.json" >/dev/null 2>"$T/err"; eq "a row file may carry pushed_head" 0 $?
+eq "  ... which lands beside the row, alpha's kept" "$HEAD1|$HEAD2" "$(koto context get "$SH" record/holdings | jq -r 'map(.pushed_head) | join("|")')"
+"${SEN[@]}" bash "$H" "${W_RM[@]}" --topic alpha --pushed-head nothex >/dev/null 2>"$T/err"; eq "a malformed head is refused" 65 $?
+"${SEN[@]}" bash "$H" "${W_RM[@]}" --topic gamma --pushed-head "$HEAD1" >/dev/null 2>"$T/err"; eq "a topic with no holding is refused" 65 $?
+seed "$REC"
+bash "$H" "${W_RM[@]}" --topic alpha --pushed-head "$HEAD1" >/dev/null 2>"$T/err"; eq "--pushed-head on a GitHub record is refused" 65 $?
+
 done_tests record-holding

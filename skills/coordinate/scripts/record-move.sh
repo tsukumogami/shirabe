@@ -39,7 +39,7 @@
 #
 # GitHub calls: the reads and writes of record-source.sh's rs_record, the write
 # core (record-write-core.sh) and record-append.sh; nothing else.
-# koto calls: context exists (record/meta), session list, and the write core's.
+# koto calls: context list --prefix and context get (record/meta), session list, and the write core's.
 set -uo pipefail
 
 PROG=record-move
