@@ -556,13 +556,18 @@ EOF
         "check_exit at $st: $gate could not be satisfied: "*) pass "an empty reason at $st still names the state and the gate" ;;
         *) fail "empty reason at $st: failure_reason [$reason]" ;;
     esac
+    # With the gate at 2 the submission holds the state. With it at 0,
+    # finalization and pr_creation hold too (check_unsatisfiable matches no
+    # passing edge); pr_precheck advances on its own before any evidence,
+    # because its passing edge takes none, so there it goes to pr_creation.
     for rc in 0 2; do
         reset_rc; set_rc "$key" "$rc"
-        drive "$st" "" "$data" on_feature_branch_pr=0 closing_keyword=0
-        if [ "$STATE" != check_exit ] && [ "$STATE" != done_blocked ]; then
-            pass "check_unsatisfiable at $st with $gate at $rc does not take the exit ($STATE)"
+        if [ "$st" = pr_precheck ] && [ "$rc" = 0 ]; then
+            drive "$st" "" "" on_feature_branch_pr=0 closing_keyword=0
+            expect "pr_precheck with $gate at 0 passes before any exit can be taken" pr_creation
         else
-            fail "check_unsatisfiable at $st with $gate at $rc reached $STATE"
+            drive "$st" "" "$data" on_feature_branch_pr=0 closing_keyword=0
+            expect "check_unsatisfiable at $st with $gate at $rc holds" "$st"
         fi
     done
 done
@@ -658,6 +663,7 @@ STATE=$(printf '%s' "$RESP" | jq -r '.state // "none"')
 expect "ladder run: taking the exit" check_exit
 # koto's run journal: <base>/_run_journal.jsonl for a redirected store, and
 # ~/.koto/_run_journal.jsonl for the default one (koto's docs/reference/run-journal.md).
+# HOME is this suite's temporary home (above), so either way it is this run's.
 LJOURNAL="${KOTO_SESSIONS_BASE:-$HOME/.koto}/_run_journal.jsonl"
 if [ -f "$LJOURNAL" ] && jq -R -n -e --arg s "$LS" '[inputs | fromjson? | select(.kind == "state_entered" and .session == $s and .["koto.state"] == "check_exit")] | length == 1' < "$LJOURNAL" >/dev/null; then
     pass "ladder run: the run journal records the exit as state_entered check_exit"

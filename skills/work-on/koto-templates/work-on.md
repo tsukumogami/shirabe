@@ -1964,7 +1964,11 @@ states:
   # The named exit's marker state. It passes straight through to done_blocked;
   # its name is what carries a run that took the exit to an exporter such as
   # Datadog (koto's state_entered event has it in koto.state, and no evidence
-  # value is ever exported). failure_reason was set on the edge into it.
+  # value is ever exported). failure_reason was set on the edge into it. koto's
+  # compiler warns (W5) that this edge into done_blocked writes no
+  # failure_reason; that is expected: an assignment here would resolve to an
+  # empty value and overwrite the reason the edge in set, as the warning's own
+  # remedy says for a path through an auto-advancing state.
   check_exit:
     transitions:
       - target: done_blocked
