@@ -4,7 +4,9 @@
 //!
 //! It parses the words after `push` against R4's option list (anything else
 //! fails closed), resolves the remote and the sources, and reads the
-//! outgoing commits with two bounded plumbing calls:
+//! outgoing commits with two bounded plumbing calls, after a few small
+//! ones (`rev-parse`, `config`, `symbolic-ref`, `for-each-ref`) that find
+//! the repository, the sources and the remote:
 //!
 //! ```text
 //! git rev-list --no-merges --max-count=1001 <ids...> --not --remotes=<remote>
@@ -41,7 +43,9 @@ use super::tokenize::Word;
 /// otherwise.
 pub const GIT_BUDGET: Duration = Duration::from_secs(20);
 
-/// More outgoing commits than this fail closed rather than get walked.
+/// More outgoing commits than this fail closed rather than get their
+/// messages read. `rev-list` is asked for one more, so 1,001 ids says the
+/// bound is passed without listing the rest.
 pub const MAX_COMMITS: usize = 1000;
 
 /// The most commit-object bytes `cat-file` may return.
@@ -166,7 +170,11 @@ pub trait GitRunner {
 /// The real runner: the first executable `git` on the absolute `PATH`
 /// entries, run from a fixed environment.
 pub struct SystemGit {
-    git: Option<PathBuf>,
+    /// The absolute `PATH` entries `git` is looked for in.
+    dirs: Vec<PathBuf>,
+    /// The `git` found there, looked for on the first call only, so an
+    /// evaluation with no push stats nothing.
+    git: std::sync::OnceLock<Option<PathBuf>>,
     env: Vec<(OsString, OsString)>,
 }
 
@@ -191,14 +199,17 @@ impl SystemGit {
                 env.push((k, v));
             }
         }
-        let git = dirs.iter().map(|d| d.join("git")).find(|p| executable(p));
         if let Ok(path) = std::env::join_paths(&dirs) {
             env.push(("PATH".into(), path));
         }
         for (k, v) in FIXED_ENV {
             env.push(((*k).into(), (*v).into()));
         }
-        SystemGit { git, env }
+        SystemGit {
+            dirs,
+            git: std::sync::OnceLock::new(),
+            env,
+        }
     }
 }
 
@@ -219,7 +230,16 @@ impl GitRunner for SystemGit {
         limit: usize,
         deadline: Instant,
     ) -> Result<GitOut, GitError> {
-        let git = self.git.as_ref().ok_or(GitError::NotFound)?;
+        let git = self
+            .git
+            .get_or_init(|| {
+                self.dirs
+                    .iter()
+                    .map(|d| d.join("git"))
+                    .find(|p| executable(p))
+            })
+            .as_ref()
+            .ok_or(GitError::NotFound)?;
         let mut child = Command::new(git)
             .env_clear()
             .envs(self.env.iter().map(|(k, v)| (k, v)))
@@ -253,6 +273,10 @@ impl GitRunner for SystemGit {
                 let _ = tx.send(read.map(|_| buf));
             });
         }
+        // Poll rather than wait: `wait` can't be given a deadline, and a
+        // child is done only when it has exited and its stdout has been read
+        // to the end, which arrive in either order. Output past `limit` ends
+        // it early, since a child blocked on a full pipe would never exit.
         let mut status = None;
         let mut stdout = None;
         loop {
@@ -302,8 +326,15 @@ impl GitRunner for SystemGit {
 /// The push check's budget: `SHIRABE_PRE_ACTION_GIT_TIMEOUT` when it is a
 /// whole number of seconds above zero, else [`GIT_BUDGET`].
 pub fn git_budget() -> Duration {
-    std::env::var("SHIRABE_PRE_ACTION_GIT_TIMEOUT")
-        .ok()
+    budget_from(
+        std::env::var("SHIRABE_PRE_ACTION_GIT_TIMEOUT")
+            .ok()
+            .as_deref(),
+    )
+}
+
+fn budget_from(value: Option<&str>) -> Duration {
+    value
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|s| *s > 0)
         .map(Duration::from_secs)
@@ -608,7 +639,8 @@ impl Repo<'_> {
         }
         // Outside the plain-name pattern: a URL or a path, unless a remote
         // by that name is configured, whose name would be a glob in
-        // `--remotes=`.
+        // `--remotes=`. A control character can't be part of a config key,
+        // so that lookup can't tell; it fails closed instead.
         if name.chars().any(char::is_control)
             || self.config(&format!("remote.{name}.url"))?.is_some()
         {
@@ -682,6 +714,11 @@ pub fn check(
         return Ok(Vec::new());
     }
 
+    // Where it pushes, in git's order and PRD R4's: the positional word,
+    // `--repo=`, then the branch's `pushRemote`, `remote.pushDefault`, the
+    // branch's `remote`, and `origin`. An expanded `--repo=` word was refused
+    // with the options in `parse`; the positional word is refused here, and
+    // only when the push sends something.
     let remote = match (argv.remote, &argv.repo) {
         (Some(w), _) if opaque(w) => return Err(Case::Remote(w.text.clone())),
         (Some(w), _) => w.text.clone(),

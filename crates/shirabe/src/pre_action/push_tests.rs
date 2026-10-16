@@ -181,18 +181,10 @@ fn offenders_are_listed_by_hash_and_a_cleaned_subject() {
 
 #[test]
 fn the_budget_variable_is_whole_seconds() {
-    // Read through the same parse the variable takes, without setting it
-    // for the whole test process.
-    let parse = |v: &str| {
-        v.parse::<u64>()
-            .ok()
-            .filter(|s| *s > 0)
-            .map(Duration::from_secs)
-            .unwrap_or(GIT_BUDGET)
-    };
-    assert_eq!(parse("1"), Duration::from_secs(1));
-    assert_eq!(parse("0"), GIT_BUDGET);
-    assert_eq!(parse("x"), GIT_BUDGET);
+    assert_eq!(budget_from(Some("1")), Duration::from_secs(1));
+    for v in [None, Some("0"), Some("x"), Some("-1"), Some("")] {
+        assert_eq!(budget_from(v), GIT_BUDGET, "{v:?}");
+    }
     assert_eq!(GIT_BUDGET, Duration::from_secs(20));
 }
 
