@@ -17,7 +17,7 @@
 # without --from-file), `context get S K`, `context exists S K` (exit 1 when
 # absent), `context remove S K`, `context list [--prefix P] S` (a JSON array of
 # keys; with KOTO_NO_LIST_PREFIX set, --prefix is refused as an older koto would,
-# and KOTO_LIST_HIDE=<k> leaves out the k highest keys, a list another writer
+# and KOTO_LIST_HIDE=<k> leaves out the k highest keys of a record/entries/ listing, a list another writer
 # has since added to), `context list --help` and `session import --help` (the
 # session store's feature probe: both features only with KOTO_FEATURES=1),
 # and `template compile P`, which
@@ -89,10 +89,14 @@ case "${1:-} ${2:-}" in
         done
         d="$KOTO_STORE/context/$s"
         if [ -d "$d" ]; then
-            # KOTO_LIST_HIDE=<k> leaves the k highest matching keys out, as a list
-            # read just before another writer added them would.
+            # KOTO_LIST_HIDE=<k> leaves the k highest keys out of the
+            # record/entries/ listing, as a list read just before another writer
+            # added them would; every other listing, a single key's included, is
+            # whole.
+            h=${KOTO_LIST_HIDE:-0}
+            [ "$p" = record/entries/ ] || h=0
             (cd "$d" && find . -type f | sed 's|^\./||') | LC_ALL=C sort \
-                | jq -R -s -c --arg p "$p" --argjson h "${KOTO_LIST_HIDE:-0}" \
+                | jq -R -s -c --arg p "$p" --argjson h "$h" \
                     'split("\n") | map(select(. != "" and startswith($p))) | .[0:(length - $h | if . < 0 then 0 else . end)]'
         else
             echo '[]'

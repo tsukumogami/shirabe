@@ -349,7 +349,7 @@ write_decl "$ROOT" "ordering" \
     'koto\tversion\t-\talways'
 RUN_ROOTS="$TOOLROOT"
 run_preflight "$ROOT" "ordering" "block ordering"
-FIRST_LINE=$(printf '%s\n' "$OUT" | head -1)
+FIRST_LINE=$(head -1 <<<"$OUT")
 if [ "$FIRST_LINE" = "shirabe /ordering: prerequisite not met, and nothing needs installing." ]; then
     pass "the off-PATH block sorts ahead of the absent block"
 else

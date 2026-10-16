@@ -831,6 +831,41 @@
       "notes": ""
     },
     {
+      "id": "pr-body/banned-word",
+      "status": "active",
+      "summary": "The pull request title or body uses a word the writing-style rules ban",
+      "text": {
+        "path": "skills/writing-style/rules.yaml",
+        "first": "# Banned words, grouped by the category the guidance uses.",
+        "last": "- Moreover"
+      },
+      "check": {
+        "kind": "script",
+        "path": "skills/work-on/scripts/check-pr-output.sh",
+        "mode": "--pr-body"
+      },
+      "fixtures": [
+        "skills/work-on/scripts/check-pr-output_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:pr_creation",
+        "execute:pr_finalization"
+      ],
+      "guards": [
+        "pr-create",
+        "publish"
+      ],
+      "withhold": "never",
+      "baseline_keys": [
+        "skills/writing-style/rules.yaml#L17-L89"
+      ],
+      "aliases": [
+        "PB5"
+      ],
+      "notes": "Shares its text and baseline key with prose/banned-word: the same banned words, checked on pull request titles and bodies by shirabe validate --pr-body --writing-style rather than on documents. The gate passes the plugin's own rules.yaml."
+    },
+    {
       "id": "pr-body/conformance",
       "status": "active",
       "summary": "The pull request body breaks the PR-body conformance rules",
@@ -1042,7 +1077,7 @@
       "aliases": [
         "FC10"
       ],
-      "notes": "The validator reports FC10 as a notice; check-hop-document.sh raises its banned-word and truncation findings to blocking at /scope's hops and leaves its em-dash-density finding a notice."
+      "notes": "The validator reports FC10 as a notice; check-hop-document.sh raises its banned-word and truncation findings to blocking at /scope's hops and leaves its em-dash-density finding a notice. Shares its text and baseline key with pr-body/banned-word, the same words checked on pull request titles and bodies."
     },
     {
       "id": "rs-001",

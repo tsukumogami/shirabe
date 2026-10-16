@@ -625,6 +625,7 @@ anchors, with a revision suffix, and follows the text when it moves):
 | 2, 13 | a path under `wip/` in the tree | `branch/no-wip-files` | `references/wip-hygiene.md#L14-L16` |
 | 3, 14 | R7, R8 or R9 on a changed document | `docs/visibility-vision-sections`, `docs/visibility-strategy-sections`, `docs/private-only-type` | `docs/guides/doc-validation.md#L22-L27` |
 | 4, 11 | PB1, PB2, PB3, PB4 | `pr-body/conventional-title`, `pr-body/one-separator`, `pr-body/no-ai-trailer`, `pr-body/no-heading-in-part1` (chosen by the validator's message; an unrecognized message is `pr-body/conformance`) | `references/pr-body-conformance.md` `#L40-L50`, `#L51-L56`, `#L57-L60`, `#L61-L75`; `#L34-L80` |
+| 4, 11 | PB5, a banned writing-style word (added later, with `--writing-style`; see `DESIGN-linter-check-states.md`) | `pr-body/banned-word` (a message starting `[PB5] `, matched first) | `skills/writing-style/rules.yaml`, the `words:` block |
 | 5 | a command failed | `verification/command-failed` | `skills/work-on/references/verification-map.md#L28-L44` |
 | 5 | no map, or nothing selected | `verification/no-map` | same |
 | 5 | a map that does not parse | `verification/bad-map` | same |

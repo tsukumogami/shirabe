@@ -98,7 +98,7 @@ render() {
     out=$(LC_ALL=C awk -v a="$a" -v b="$b" 'NR < a || NR > b' "$conf") || return 1
     # The rendering must not name the rule it leaves out, or it would hand the
     # withheld run what the canary is withholding.
-    if printf '%s\n' "$out" | grep -qiE 'PB4|heading|no-heading-in-part1'; then
+    if grep -qiE 'PB4|heading|no-heading-in-part1' <<<"$out"; then
         return 1
     fi
     printf '%s\n' "$out" | write_file "$dir" pr-body-conformance.md

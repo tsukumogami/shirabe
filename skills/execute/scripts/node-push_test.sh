@@ -111,8 +111,8 @@ REAL_SHIRABE="${SHIRABE_BIN:-$(command -v shirabe 2>/dev/null || true)}"
 # The push itself, read from the script: the explicit refspec, never a force.
 PUSH_LINES=$(grep -v '^[[:space:]]*#' "$PUSH" | grep 'git push')
 if [ "$(printf '%s\n' "$PUSH_LINES" | grep -c .)" -eq 1 ] \
-    && printf '%s' "$PUSH_LINES" | grep -qF 'git push "$REMOTE" "HEAD:refs/heads/$BRANCH"' \
-    && ! printf '%s' "$PUSH_LINES" | grep -Eq -- '--force|-f( |$)|\+HEAD'; then
+    && grep -qF 'git push "$REMOTE" "HEAD:refs/heads/$BRANCH"' <<<"$PUSH_LINES" \
+    && ! grep -Eq -- '--force|-f( |$)|\+HEAD' <<<"$PUSH_LINES"; then
     pass "the one push is git push <remote> HEAD:refs/heads/<branch>, never forced"
 else
     fail "the push lines are: $PUSH_LINES"
@@ -202,10 +202,10 @@ else
 fi
 CREATES=$(ct_calls | grep -c '^pr create')
 CREATE=$(ct_calls | grep '^pr create')
-if [ "$CREATES" -eq 1 ] && printf '%s' "$CREATE" | grep -q -- '--draft' \
-    && printf '%s' "$CREATE" | grep -q -- "--title feat(t): $CT_CORE" \
-    && printf '%s' "$CREATE" | grep -q -- '--body-file' \
-    && printf '%s' "$CREATE" | grep -q -- '--base main' && printf '%s' "$CREATE" | grep -q -- "--head impl/t-$CT_CORE"; then
+if [ "$CREATES" -eq 1 ] && grep -q -- '--draft' <<<"$CREATE" \
+    && grep -q -- "--title feat(t): $CT_CORE" <<<"$CREATE" \
+    && grep -q -- '--body-file' <<<"$CREATE" \
+    && grep -q -- '--base main' <<<"$CREATE" && grep -q -- "--head impl/t-$CT_CORE" <<<"$CREATE"; then
     pass "one draft PR titled feat(t): $CT_CORE against main, body through --body-file"
 else
     fail "the pr create calls: [$CREATE]"
@@ -294,8 +294,8 @@ ct_write_db
 fresh_repo marker-fresh
 push_node --run-id "$MINE"
 NBODY=$(db_pr 50 | jq -r '.body')
-if [ "$RC" -eq 0 ] && printf '%s\n' "$NBODY" | grep -qxF "<!-- shirabe-run: $MINE -->" \
-    && printf '%s' "$NBODY" | grep -q "Work items: 1,2"; then
+if [ "$RC" -eq 0 ] && grep -qxF "<!-- shirabe-run: $MINE -->" <<<"$NBODY" \
+    && grep -q "Work items: 1,2" <<<"$NBODY"; then
     pass "--run-id: the node PR it opens carries the run's marker line"
 else
     fail "marker-fresh: rc=$RC body [$NBODY]"
@@ -721,14 +721,14 @@ vis_push() {
 pushed() { [ -n "$(git -C "$NREPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ]; }
 
 vis_push vis-pub-pub public public
-if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -qxF "Coordination PR: https://github.com/acme/repo-a/pull/10"; then
+if [ "$RC" -eq 0 ] && pushed && grep -qxF "Coordination PR: https://github.com/acme/repo-a/pull/10" <<<"$NBODY"; then
     pass "public home, public node: pushed, and the node PR links the coordination PR"
 else
     fail "public over public: rc=$RC body=[$NBODY] $(tail -2 "$CASE/stderr")"
 fi
 
 vis_push vis-priv-pub private public
-if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -q "Work items: 1,2"; then
+if [ "$RC" -eq 0 ] && pushed && grep -q "Work items: 1,2" <<<"$NBODY"; then
     pass "private home, public node: pushed, and the node PR opened"
 else
     fail "private over public: rc=$RC body=[$NBODY] $(tail -2 "$CASE/stderr")"
@@ -742,7 +742,7 @@ db_body | grep -q -- "- $CT_CORE | acme/repo-b:docs/plans/PLAN-t.md#" \
     || fail "private over public: the index line is missing"
 
 vis_push vis-priv-priv private private
-if [ "$RC" -eq 0 ] && pushed && printf '%s' "$NBODY" | grep -qxF "Coordination PR: https://github.com/acme/repo-a/pull/10"; then
+if [ "$RC" -eq 0 ] && pushed && grep -qxF "Coordination PR: https://github.com/acme/repo-a/pull/10" <<<"$NBODY"; then
     pass "private home, private node: pushed, and the node PR links the coordination PR"
 else
     fail "private over private: rc=$RC body=[$NBODY] $(tail -2 "$CASE/stderr")"

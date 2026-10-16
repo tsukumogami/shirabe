@@ -161,8 +161,8 @@ while [[ -n "$NEXT" ]]; do
 
     # Fact 3, per document: the finalization commit must CONTAIN it. A rename
     # reaches diff-tree as its old and new paths, so either satisfies this.
-    if ! printf '%s\n' "$COMMIT_PATHS" | grep -qxF "$RESOLVED" &&
-       ! printf '%s\n' "$COMMIT_PATHS" | grep -qxF "$DECLARED"; then
+    if ! grep -qxF "$RESOLVED" <<<"$COMMIT_PATHS" &&
+       ! grep -qxF "$DECLARED" <<<"$COMMIT_PATHS"; then
         die "$RESOLVED is at '$WANT' on disk but is ABSENT from commit $FINAL_SHA"
         die "the transition was made in the working tree and never staged."
         exit 5
