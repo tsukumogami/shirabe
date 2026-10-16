@@ -59,6 +59,9 @@ RULE_IDS=$(sed -n 's/^RULE_IDS="\(.*\)"$/\1/p' "$SCRIPT_DIR/pre-action-deny.sh")
 
 # -- the declaration -----------------------------------------------------------
 
+# No jq here, so these read hooks.json line by line: they expect its layout of
+# one `"key": value` pair per line, which the file keeps.
+
 HOOK_CMD=$(sed -n 's/^ *"command": "\(.*\)",\{0,1\}$/\1/p' "$HOOKS_JSON" | sed 's/\\"/"/g')
 
 [ "$HOOK_CMD" = 'bash "${CLAUDE_PLUGIN_ROOT}/hooks/pre-action-deny.sh"' ] \
@@ -336,19 +339,21 @@ for id in $RULE_IDS; do
         *) fail "no binary: the deny lists $id" "[$OUT]" ;;
     esac
 done
-expected_reason='shirabe could not check this command (binary: the shirabe binary is missing, older than this plugin, or failed to run), so it is denied.\nIt names `gh pr create`, `gh pr edit` or `git push`, which are guarded by: pr-body/conventional-title, pr-body/one-separator, pr-body/no-ai-trailer, pr-body/no-heading-in-part1, pr-body/conformance, commit/no-ai-trailer.\nFix: ask the user to install or update the shirabe binary with `curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/main/install.sh | sh`, then run the command again.\nIf you believe this deny is wrong, ask the user.'
+expected_reason='shirabe could not check this command (binary: the shirabe binary is missing, older than this plugin, or failed to run), so it is denied.\nIt names `gh pr create`, `gh pr edit` or `git push`, which are guarded by: '"${RULE_IDS// /, }"'.\nFix: ask the user to install or update the shirabe binary with `curl -fsSL https://raw.githubusercontent.com/tsukumogami/shirabe/main/install.sh | sh`, then run the command again.\nIf you believe this deny is wrong, ask the user.'
 [ "$OUT" = "$DENY_PREFIX\"permissionDecisionReason\":\"$expected_reason\"}}" ] \
     && pass "no binary: the deny is the fixed text" \
     || fail "no binary: the fixed deny" "[$OUT]"
 
 # The coarse test, row by row: a named command is denied, a clear one isn't.
+# HOOK_PATH is still the no-binary one.
+TAB=$(printf '\t')
 rows=0
 while IFS= read -r line; do
     case "$line" in
         ""|"#"*) continue ;;
     esac
-    want=${line%%	*}
-    cmd=${line#*	}
+    want=${line%%"$TAB"*}
+    cmd=${line#*"$TAB"}
     rows=$((rows + 1))
     run_hook_raw "{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"$cmd\"}}"
     case "$want:$OUT" in
@@ -359,7 +364,8 @@ done < "$TSV"
 [ "$rows" -gt 0 ] && pass "no binary: the script answers the $rows rows of coarse-cases.tsv" \
     || fail "coarse-cases.tsv" "no rows"
 
-# ~/.shirabe/bin/shirabe, where install.sh puts it, when PATH has none.
+# ~/.shirabe/bin/shirabe, where install.sh puts it, when PATH (still the
+# no-binary one) has none.
 INSTALLED_HOME="$T/installed-home"
 mkdir -p "$INSTALLED_HOME/.shirabe/bin"
 ln -s "$SHIRABE" "$INSTALLED_HOME/.shirabe/bin/shirabe"
@@ -382,8 +388,9 @@ echo "error: unrecognized subcommand 'pre-action-hook'" >&2
 exit 2
 EOF
 make_stub fewer <<'EOF'
-# Knows the subcommand but checks five of the six rules, as a binary older
-# than the plugin would.
+# Knows the subcommand but checks the PR-body rules only, as a binary older
+# than the plugin would; the real binary's own exit 3 on an unknown rule is
+# tested in crates/shirabe/tests/pre_action_hook.rs.
 [ "$1" = pre-action-hook ] || exit 2
 cat >/dev/null
 rules=""
@@ -478,17 +485,18 @@ expect_binary_deny "a shirabe on a relative PATH entry is skipped"
 
 # -- the off switches ----------------------------------------------------------
 
+# SHIRABE_PRE_ACTION_HOOK=off, exactly, is the host's switch for the whole
+# hook. PR_BODY_HOOK_DISABLE, the legacy entry point's switch, turns off only
+# the PR-body rules, on both entry points (PRD R9).
 defaults
-for v in off; do
-    run_hook "$BAD_CREATE" "SHIRABE_PRE_ACTION_HOOK=$v"
-    expect_none "SHIRABE_PRE_ACTION_HOOK=off: the bad-body create gives no decision"
-    run_hook "$TRAILER_PUSH" "SHIRABE_PRE_ACTION_HOOK=$v"
-    expect_none "SHIRABE_PRE_ACTION_HOOK=off: the trailer push gives no decision"
-    HOOK_PATH="$P_NONE"
-    run_hook "$BAD_CREATE" "SHIRABE_PRE_ACTION_HOOK=$v"
-    expect_none "SHIRABE_PRE_ACTION_HOOK=off: the missing-binary create gives no decision"
-    HOOK_PATH="$P_REPO"
-done
+run_hook "$BAD_CREATE" "SHIRABE_PRE_ACTION_HOOK=off"
+expect_none "SHIRABE_PRE_ACTION_HOOK=off: the bad-body create gives no decision"
+run_hook "$TRAILER_PUSH" "SHIRABE_PRE_ACTION_HOOK=off"
+expect_none "SHIRABE_PRE_ACTION_HOOK=off: the trailer push gives no decision"
+HOOK_PATH="$P_NONE"
+run_hook "$BAD_CREATE" "SHIRABE_PRE_ACTION_HOOK=off"
+expect_none "SHIRABE_PRE_ACTION_HOOK=off: the missing-binary create gives no decision"
+HOOK_PATH="$P_REPO"
 for v in on OFF 'off ' 0; do
     run_hook "$BAD_CREATE" "SHIRABE_PRE_ACTION_HOOK=$v"
     expect_deny "SHIRABE_PRE_ACTION_HOOK=[$v]: the bad-body create is denied" "pr-body/one-separator"
@@ -530,6 +538,10 @@ run_hook "gh pr create --title \\\"feat: x\\\" --body $PB4_ONLY"
 expect_deny "no canary: PB4 is denied" "pr-body/no-heading-in-part1"
 
 # -- wired twice: niwa's pr-body-hook line in the user's settings --------------
+
+# When the host's settings run `shirabe pr-body-hook` too, the plugin hook
+# leaves the PR-body rules to it and keeps the push (PRD R12), so each broken
+# rule is reported once between the two.
 
 NIWA_LINE='command -v shirabe >/dev/null 2>&1 || exit 0; shirabe pr-body-hook 2>/dev/null || exit 0'
 WIRED_HOME="$T/wired-home"

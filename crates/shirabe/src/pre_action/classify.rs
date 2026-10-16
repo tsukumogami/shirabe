@@ -976,11 +976,13 @@ mod tests {
         assert!(!named_in_raw_input(r#"{"command":"echo a\\ngit"}"#).push);
     }
 
-    /// The plugin script's coarse test and this one answer every row of
-    /// `hooks/testdata/coarse-cases.tsv` alike; hooks/pre-action-deny_test.sh
-    /// runs the script's side.
+    /// This side of the table both coarse tests answer: every row of
+    /// `hooks/testdata/coarse-cases.tsv` gets its expected answer from
+    /// `named_in_raw_input`. hooks/pre-action-deny_test.sh runs the plugin
+    /// script's side. The rows are JSON string values, escapes included, so
+    /// they go into the document as written.
     #[test]
-    fn the_coarse_test_agrees_with_the_plugin_script() {
+    fn named_in_raw_input_answers_coarse_cases_tsv() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../hooks/testdata/coarse-cases.tsv");
         let table = std::fs::read_to_string(&path).expect("coarse-cases.tsv");

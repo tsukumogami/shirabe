@@ -3,12 +3,14 @@
 # Each row is the expected answer, a tab, and a command written as the JSON
 # string value Claude Code sends, escapes included. `named` means the text
 # names `gh` ... `pr` ... `create`|`edit` or `git` ... `push`; `clear` means
-# it doesn't.
+# it doesn't. The test is a superset of guarded on purpose, so some rows the
+# binary would give no decision with its full classifier (`git log --grep
+# push`, `gh issue create --title pr --body edit`) are `named` here.
 #
 # Two classifiers read this file and must agree with it: the plugin script's
-# sed and grep test, which hooks/pre-action-deny_test.sh runs with no shirabe
-# binary (a `named` row is then denied, a `clear` one gets no decision), and
-# the binary's named_in_raw_input, which a unit test in
+# names_guarded (sed, tr and awk), which hooks/pre-action-deny_test.sh runs
+# with no shirabe binary (a `named` row is then denied, a `clear` one gets no
+# decision), and the binary's named_in_raw_input, which a unit test in
 # crates/shirabe/src/pre_action/classify.rs runs. Both read the row inside
 # {"tool_name":"Bash","tool_input":{"command":"<row>"}}.
 named	gh pr create

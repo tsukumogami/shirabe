@@ -551,11 +551,12 @@ suite_scripts() {
             echo "skills/explore/scripts/explore-state_test.sh"
             ;;
         hooks)
-            # The plugin's pre-action hook, end to end. The script runs on
-            # every host's /bin/bash, so it is the floor's first customer. Its
-            # suite runs a real shirabe (from SHIRABE_BIN or target/release)
-            # and stand-in ones, scratch git repositories, and the hook's own
-            # PATH of bash, sh, cat, sed, tr, awk, sleep and git.
+            # The plugin's pre-action hook, end to end. Claude Code runs the
+            # script before every Bash call, under whatever bash the host
+            # has, macOS's 3.2 included. Its suite runs a real shirabe (from
+            # SHIRABE_BIN or target/release) and stand-in ones, scratch git
+            # repositories, and the hook's own PATH of bash, sh, cat, sed,
+            # tr, awk, sleep and git.
             echo "hooks/pre-action-deny_test.sh"
             ;;
         canary)

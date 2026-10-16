@@ -22,7 +22,7 @@
 #      --rules list is the version handshake: a binary that doesn't check
 #      every rule on it exits non-zero.
 #   4. Passes the binary's answer through only when it exited 0 and printed
-#      nothing or one deny line. Anything else (no binary, a non-zero exit, a
+#      nothing or one complete deny line. Anything else (no binary, a non-zero exit, a
 #      kill, other output, `allow` or `ask`) is a binary that can't run, and
 #      the coarse test decides: a command whose text names `gh` ... `pr` ...
 #      `create`|`edit` or `git` ... `push` gets a fixed deny naming the
@@ -88,7 +88,9 @@ find_shirabe() {
 # wait for that child instead of the watchdog. Each kill also names the
 # process itself, in case its group was never set up: bash sets a job's group
 # from the parent and the child both, and on a rare race the child's call
-# fails (it says so on stderr, which the caller discards).
+# fails (it says so on stderr, which the caller discards). The caller runs
+# this in a command substitution, so `set -m` ends with that subshell and
+# never reaches the rest of the script.
 run_shirabe() {
     local bin="$1" job dog status
     set -m
@@ -120,6 +122,12 @@ run_shirabe() {
 # quadratic on a few megabytes of `gh` and `pr`, which would push a run past
 # Claude Code's 30 seconds. hooks/testdata/coarse-cases.tsv holds both to the
 # same answers.
+#
+# The sed expressions run in order, and the order matters: escaped
+# backslashes become the placeholder first, so no later expression can read
+# the second backslash of `\\` as the start of an escape; an escaped
+# backslash before `\n` is the backslash-newline; the placeholder goes back
+# to a backslash last.
 names_guarded() {
     local sep tab cr
     sep=$(printf '\001')
@@ -167,6 +175,10 @@ if [ -n "$BIN" ]; then
     OUTPUT=${RESULT%$'\n'*}
     # One trailing newline is the binary's println.
     OUTPUT=${OUTPUT%$'\n'}
+    # Only an empty answer or a single deny line passes. The arms are tried in
+    # order: two or more lines fall to the coarse test before the prefix arm
+    # can match their first line, and the deny must end the way serde_json
+    # ends it (`"}}`), so a line cut short or with text after it doesn't pass.
     if [ "$STATUS" = "0" ]; then
         case "$OUTPUT" in
             "")
