@@ -291,7 +291,7 @@ These terms mean the same thing everywhere below.
 - **R7. Fail closed on guarded actions.** On a guarded command the hook
   denies when it can't decide. Each of these is a case:
   1. the shirabe binary isn't found (the hook looks on `PATH`, then at
-     `~/.shirabe/bin/shirabe`, where `install.sh` puts it), or doesn't
+     `$HOME/.shirabe/bin/shirabe`, where `install.sh` puts it), or doesn't
      know the hook: it exits non-zero, crashes, runs past 26 seconds,
      prints anything other than nothing or one deny decision, or
      doesn't check every rule on the script's `RULE_IDS` line (a binary
@@ -369,7 +369,7 @@ These terms mean the same thing everywhere below.
   is the copy built into the binary, and its pointer names the file by
   its repository-relative path.
 - **R12. One deny where both are wired.** The host wires the legacy
-  entry point when `~/.claude/settings.json`, or `.claude/settings.json`
+  entry point when `$HOME/.claude/settings.json`, or `.claude/settings.json`
   or `.claude/settings.local.json` under `$CLAUDE_PROJECT_DIR`, has a
   `hooks.PreToolUse` entry whose `matcher` is absent, empty, `*` or
   `Bash` and that holds a `command` hook one of whose segments is the
@@ -518,7 +518,7 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
 - [ ] Malformed hook input whose raw text doesn't name a guarded action
       gives no decision; malformed input naming `git push` is denied
       (R7).
-- [ ] With the binary removed from PATH and from `~/.shirabe/bin`, `ls`,
+- [ ] With the binary removed from PATH and from `$HOME/.shirabe/bin`, `ls`,
       `git status`, `git commit -m x` and `gh pr view 3` give no
       decision, and `gh pr create --title t --body b` and `echo "git
       push"` are denied with a reason naming the binary (R8).
@@ -549,7 +549,7 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
       `unreadable_body_file_is_allowed`, `body_file_dash_stdin_is_allowed`
       and `unterminated_quote_segment_is_allowed`), which now deny; its deny for a bad
       body has the R5 shape with the repository-relative path (R11).
-- [ ] With niwa's wiring line in each of `~/.claude/settings.json`, the
+- [ ] With niwa's wiring line in each of `$HOME/.claude/settings.json`, the
       project's `.claude/settings.json` and its
       `.claude/settings.local.json` (one test each), the plugin's hook
       gives no decision on the bad-body create and on the `--fill`
@@ -560,7 +560,7 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
       pr-body-hook`; one whose matcher is `Edit`; one that sets
       `disableAllHooks`; the wiring in a `.claude/settings.json` under
       `cwd` with `CLAUDE_PROJECT_DIR` unset; the wiring when `shirabe`
-      is only at `~/.shirabe/bin` and not on `PATH`. Run on the same input, the
+      is only at `$HOME/.shirabe/bin` and not on `PATH`. Run on the same input, the
       two entry points report the broken rule once between them (R12).
 - [ ] Every rule on the hook script's `RULE_IDS` line carries the `deny`
       field and the shipped registry passes

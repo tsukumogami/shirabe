@@ -299,7 +299,7 @@ Part 1 heading rule through, as `docs/guides/offload-live-canary.md` explains.
 
 The checking is done by the `shirabe` binary, so install it with `install.sh`
 (see [Local install](#local-install)); the hook looks for it on `PATH`, then at
-`~/.shirabe/bin/shirabe`. Without the binary, or with one older than the
+`$HOME/.shirabe/bin/shirabe`. Without the binary, or with one older than the
 plugin, the hook fails closed: it denies every command that names
 `gh pr create`, `gh pr edit` or `git push`, with the install command in the
 reason, and lets everything else through. A guarded command it can't see

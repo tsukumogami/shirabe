@@ -125,7 +125,7 @@ command the plugin declares and the binary.
 
 Key assumptions:
 
-- The shirabe binary is on `PATH` or at `~/.shirabe/bin/shirabe`, where
+- The shirabe binary is on `PATH` or at `$HOME/.shirabe/bin/shirabe`, where
   `install.sh` installs it, on any host that runs shirabe's skills.
 - An older binary rejects an unknown subcommand with a non-zero exit
   (clap exits 2), which the wrapper can observe.
@@ -139,7 +139,7 @@ to start, which Claude Code would treat as a pass. The script reads stdin once i
 returns at once with no decision when `SHIRABE_PRE_ACTION_HOOK` is
 `off`, finds the binary (each absolute directory on `PATH`, skipping
 relative entries so a repository can't plant one, then
-`~/.shirabe/bin/shirabe`), and pipes the input with `printf '%s'` into
+`$HOME/.shirabe/bin/shirabe`), and pipes the input with `printf '%s'` into
 `shirabe pre-action-hook --plugin-root "$CLAUDE_PLUGIN_ROOT"`. A pipe,
 not a here-string: bash 3.2 to 5.0 back a here-string with a temporary
 file, which would write to disk and fail when `TMPDIR` isn't writable.
@@ -332,7 +332,7 @@ processes. R12 requires one report per broken rule.
 Key assumptions:
 
 - niwa wires the legacy hook as a PreToolUse command in a settings file
-  Claude Code reads: `~/.claude/settings.json`, or `.claude/settings.json`
+  Claude Code reads: `$HOME/.claude/settings.json`, or `.claude/settings.json`
   or `.claude/settings.local.json` under the project directory.
 - `CLAUDE_PROJECT_DIR` is set in a hook's environment when Claude Code
   knows the project directory.
@@ -340,7 +340,7 @@ Key assumptions:
 #### Chosen: The plugin hook reads the settings and yields the PR-body rules
 
 On a guarded `gh pr` command, the plugin hook reads
-`~/.claude/settings.json` and, when `CLAUDE_PROJECT_DIR` is set, the
+`$HOME/.claude/settings.json` and, when `CLAUDE_PROJECT_DIR` is set, the
 project's `.claude/settings.json` and `.claude/settings.local.json`,
 parses each with `serde_json`, and looks for a `hooks.PreToolUse` entry
 whose `matcher` is absent, empty, `*` or `Bash` and that holds a
@@ -352,7 +352,7 @@ a line isn't wiring. A file that sets `disableAllHooks` counts as not
 wiring it. The wired command runs `shirabe` from `PATH` and exits 0
 when `command -v shirabe` fails, so the plugin hook also requires that
 `shirabe` resolve through an absolute `PATH` entry; a binary found only
-at `~/.shirabe/bin` means the wired command would do nothing. When all
+at `$HOME/.shirabe/bin` means the wired command would do nothing. When all
 of that holds, the plugin hook skips the PR-body rules and their
 fail-closed cases for that call; the legacy entry point, now the same
 evaluator, reports them in the same shape. What it can't cover is that
@@ -605,7 +605,7 @@ deliberately cruder and used only when the precise one can't run.
 Claude Code (PreToolUse, matcher Bash, timeout 30)
   -> hooks/pre-action-deny.sh            bash 3.2, no jq
        SHIRABE_PRE_ACTION_HOOK=off ? -> no decision
-       find shirabe (PATH, ~/.shirabe/bin/shirabe)
+       find shirabe (PATH, $HOME/.shirabe/bin/shirabe)
        run: shirabe pre-action-hook --plugin-root "$CLAUDE_PLUGIN_ROOT"
          ok (exit 0, empty or one deny line) -> print it
          else -> coarse test on raw input
@@ -629,7 +629,7 @@ niwa host, in parallel:
   `timeout: 30`. No `onFailure`.
 - **`hooks/pre-action-deny.sh`.** Reads stdin into a variable (`cat`),
   checks the off switch, finds the binary on the absolute `PATH`
-  entries or at `~/.shirabe/bin/shirabe`, pipes the saved input into
+  entries or at `$HOME/.shirabe/bin/shirabe`, pipes the saved input into
   `shirabe pre-action-hook --plugin-root <root> --rules "<its RULE_IDS
   line>"`, and checks its exit status and that its output is empty or
   one line starting with the exact deny prefix and ending with `"}}`.
