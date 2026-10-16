@@ -83,6 +83,12 @@ eq "  ... the holding reports by message" message "$(live | jq -r '.holdings[] |
 eq "  ... nothing else in it changed" "$(legged | jq -c '.return_path = "message"')" "$(live | jq -c '.holdings[] | select(.worker == "plugin-api")')"
 eq "  ... the other holding is untouched" "$(holding other)" "$(live | jq -c '.holdings[] | select(.worker == "other")')"
 eq "  ... and the leg key reads unwatchable" unwatchable "$(jq -r .state "$(KEYDIR)/deliver")"
+seed "[$(legged)]"; mkkey; gone
+jq -c '.state = "releg-pending" | .new_request = "req_8"' "$(KEYDIR)/deliver" > "$T/k" && mv "$T/k" "$(KEYDIR)/deliver"
+OUT=$(RELEG_RC=9 classify); rc=$?
+eq "a leg left pending by an earlier re-leg, refused now, is unwatchable" "0 unwatchable" "$rc $(printf '%s' "$OUT" | jq -r .outcome)"
+grep -q '^request abandon-request req_8 ' "$KOTO_STORE/calls" && ok "  ... and its pending request is abandoned" || bad "  ... and its pending request is abandoned" "$(grep request "$KOTO_STORE/calls")"
+eq "  ... and the key names no pending request" "unwatchable null" "$(jq -r '"\(.state) \(.new_request)"' "$(KEYDIR)/deliver")"
 seed "[$(legged)]"; rm -rf "$(KEYDIR)"; gone
 OUT=$(RELEG_RC=9 classify); rc=$?
 eq "a holding dispatched before leg keys is unwatchable" "0 unwatchable" "$rc $(printf '%s' "$OUT" | jq -r .outcome)"

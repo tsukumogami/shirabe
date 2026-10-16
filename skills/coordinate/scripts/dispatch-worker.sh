@@ -47,8 +47,9 @@
 # The run, in order, under a per-topic lock:
 #
 #   1. Read the topic's holding. `dispatched`: print already-dispatched, exit
-#      0. `dispatch-failed`: exit 3 (a failed topic is re-dispatched under a
-#      new topic, by the coordinator's choice). `dispatching`: an earlier run
+#      0. `dispatch-failed` or `stranded`: exit 3 (such a topic is
+#      re-dispatched under a new topic, by the coordinator's choice).
+#      `dispatching`: an earlier run
 #      stopped partway. When `niwa list --json` shows the topic's session, go
 #      to step 7 and confirm; otherwise re-check and re-render the brief
 #      (steps 3 and 4, reusing the recorded return path, so no second leg) and
@@ -176,7 +177,7 @@
 #      execution's, or a /shirabe:deliver or /shirabe:scope brief for a unit
 #      whose scoping landed (pick's follow_up); nothing written
 #   2  usage, mismatched topic, no workspace root, a failed read or write
-#   3  the topic already failed; dispatch under a new topic
+#   3  the topic already failed or is stranded; dispatch under a new topic
 #   4  the launch failed; the row says dispatch-failed
 #   5  a live session already uses the topic
 #   6  the launch outcome is unknown; the row stays dispatching

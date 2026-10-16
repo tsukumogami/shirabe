@@ -122,7 +122,14 @@ case $? in
 esac
 KEY=$(dc_leg_get "$SESSION" "$REQ" "$LEG")
 if [ $? = 0 ]; then
-    dc_leg_put "$SESSION" "$REQ" "$LEG" "$(jq -c '.state = "unwatchable"' <<< "$KEY")" \
+    # A re-leg an earlier run left pending opened a request this host holds;
+    # nothing will bind it now, so it is abandoned with the leg's end.
+    PENDING=$(jq -r '.new_request // "" | strings' <<< "$KEY")
+    if [ -n "$PENDING" ] && [[ $PENDING =~ $DC_RE_REQ ]]; then
+        "$KOTO" request abandon-request "$PENDING" --rationale "the leg of $TOPIC ended unwatchable" < /dev/null > /dev/null \
+            || echo "$PROG: the pending request $PENDING could not be abandoned" >&2
+    fi
+    dc_leg_put "$SESSION" "$REQ" "$LEG" "$(jq -c '.state = "unwatchable" | del(.new_request)' <<< "$KEY")" \
         || echo "$PROG: the leg key for $SPEC could not be marked unwatchable" >&2
 fi
 fact unwatchable message "${WHY:-its worker cannot be watched from this host}"

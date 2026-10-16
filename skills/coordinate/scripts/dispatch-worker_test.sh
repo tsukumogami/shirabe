@@ -900,25 +900,25 @@ stranded_row() {
         dispatch_status: "stranded", return_path: "message", worker: "plugin-api", repo: "acme/widgets", branch: "feat/plugin-api",
         verified_head: "", dispatched: "2026-10-01", pull_request: "", pushed_head: $h}' >"$ST/rows/plugin-api.json"
 }
-reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "plugin-api-2"')" plugin-api-2
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch"')" relaunch
 stranded_row
-export NIWA_NAME=plugin_api_2-1a2b3c4d
+export NIWA_NAME=relaunch-1a2b3c4d
 OUT=$(run 2>"$T/st.err"); RC=$?
-eq  "stranded: the unit is dispatched under a new topic" "0 session=plugin_api_2-1a2b3c4d" "$RC $OUT"
-has "stranded: the new brief names the old branch and last pushed head" "$(cat "$W/.niwa/dispatch-briefs/plugin-api-2.md")" \
+eq  "stranded: the unit is dispatched under a new topic" "0 session=relaunch-1a2b3c4d" "$RC $OUT"
+has "stranded: the new brief names the old branch and last pushed head" "$(cat "$W/.niwa/dispatch-briefs/relaunch.md")" \
     "This unit was held by worker plugin-api, which was stranded: continue from its branch \`feat/plugin-api\`, last pushed head \`$PUSHED\`, rather than starting over."
 [ -f "$ST/rows/plugin-api.json" ] && bad "stranded: the stranded row is retired" "$(cat "$ST/rows/plugin-api.json")" || ok "stranded: the stranded row is retired"
 RET=$(grep -n 'record retire plugin-api' "$ST/calls.log" | cut -d: -f1)
-DONE=$(grep -n 'record write plugin-api-2 dispatched' "$ST/calls.log" | tail -1 | cut -d: -f1)
+DONE=$(grep -n 'record write relaunch dispatched' "$ST/calls.log" | tail -1 | cut -d: -f1)
 if [ -n "$RET" ] && [ -n "$DONE" ] && [ "$RET" -gt "$DONE" ]; then ok "  ... after the new holding reads dispatched"; else bad "  ... after the new holding reads dispatched" "$(calls)"; fi
 reset "$INPUT_DELIVER"
 stranded_row
 run >/dev/null 2>&1; eq "stranded: dispatching the stranded topic itself is exit 3" 3 "$?"
 eq  "  ... and launches nothing" 0 "$(grep -c '^niwa dispatch' "$ST/calls.log")"
-reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "plugin-api-2" | .unit = "Feature 1"')" plugin-api-2
+reset "$(printf '%s' "$INPUT_DELIVER" | jq -c '.topic = "relaunch" | .unit = "Feature 1"')" relaunch
 stranded_row
 run >/dev/null 2>&1
-has "stranded: another unit's stranded row isn't named" "$(cat "$W/.niwa/dispatch-briefs/plugin-api-2.md")" "None beyond what the documents you read record."
+has "stranded: another unit's stranded row isn't named" "$(cat "$W/.niwa/dispatch-briefs/relaunch.md")" "None beyond what the documents you read record."
 [ -f "$ST/rows/plugin-api.json" ] && ok "  ... or retired" || bad "  ... or retired" ""
 
 # --- --releg-imported: a worker that moved here with the session (PRD R15) ------------------------------------
