@@ -295,8 +295,8 @@ tr -d '\r' < "$TEXTFILE" > "$WD/text"
 TEXT=$(awk '{ l[NR] = $0 } END { s = 1; while (s <= NR && l[s] ~ /^[ \t]*$/) s++
     e = NR; while (e >= s && l[e] ~ /^[ \t]*$/) e--; for (i = s; i <= e; i++) print l[i] }' "$WD/text")
 [ -n "$(printf '%s' "$TEXT" | tr -d ' \t\n')" ] || { echo "$PROG: refused: the entry is empty" >&2; exit 65; }
-if printf '%s' "$TEXT" | LC_ALL=C grep -q '[[:cntrl:]]' 2>/dev/null \
-    && printf '%s' "$TEXT" | LC_ALL=C tr -d '\n\t' | LC_ALL=C grep -q '[[:cntrl:]]'; then
+if LC_ALL=C grep -q '[[:cntrl:]]' <<<"$TEXT" 2>/dev/null \
+    && LC_ALL=C grep -q '[[:cntrl:]]' <<<"$(LC_ALL=C tr -d '\n\t' <<<"$TEXT")"; then
     echo "$PROG: refused: the entry holds a control character" >&2; exit 65
 fi
 

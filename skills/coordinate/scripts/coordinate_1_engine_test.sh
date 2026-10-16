@@ -264,7 +264,7 @@ if [ -n "$J" ] && [ -r "$J" ]; then
         if [ -n "$WANT" ] && [ "$GOT" = "$WANT" ] && [ "$TE" = 0 ]; then
             ok "9: event $ev reaches $WANT"
         else
-            bad "9: event $ev reaches ${WANT:-its spoke}" "got [$GOT], template_error lines $TE, response $(printf '%s' "$R" | head -c 300)"
+            bad "9: event $ev reaches ${WANT:-its spoke}" "got [$GOT], template_error lines $TE, response $(head -c 300 <<<"$R")"
         fi
     done
 else

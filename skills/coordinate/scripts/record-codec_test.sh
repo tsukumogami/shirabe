@@ -250,7 +250,7 @@ cp "$HERE/testdata/record/pre-decisions.md" "$T/pre.md"
 if bash "$P" "$T/pre.md" > "$T/pre.json" && ! jq -e 'has("decisions")' "$T/pre.json" > /dev/null \
    && jq 'del(.written)' "$T/pre.json" | bash "$R" --written "$(jq -r .written "$T/pre.json")" | cmp -s - "$T/pre.md"; then
     ok "a body main's codec wrote parses to no decisions and renders back byte for byte"
-else bad "a body main's codec wrote parses to no decisions and renders back byte for byte" "$(cat "$T/pre.json" 2>/dev/null | head -3)"; fi
+else bad "a body main's codec wrote parses to no decisions and renders back byte for byte" "$(head -3 "$T/pre.json" 2>/dev/null)"; fi
 { cat "$T/pre.md"; printf '\n## Decisions\n\nNext decision: 1\n\nNone.\n'; } > "$T/toggle.md"
 bash "$P" "$T/toggle.md" > /dev/null 2>&1; [ $? -eq 3 ] && ok "a Decisions section holding only Next decision: 1 is not canonical" || bad "a Decisions section holding only Next decision: 1 is not canonical"
 bash "$R" --written "$W" <(full_record | jq -c '.decisions = {next: 1, entries: []}') | grep -q '^## Decisions' \

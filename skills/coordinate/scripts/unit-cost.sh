@@ -261,7 +261,7 @@ uc_gh_ok() {
                 [ $# -ge 2 ] || return 1
                 case "$1" in
                     --branch) case "$2" in '' | -*) return 1 ;; esac
-                        printf '%s' "$2" | grep -Eq '^[A-Za-z0-9._/+-]{1,200}$' || return 1 ;;
+                        grep -Eq '^[A-Za-z0-9._/+-]{1,200}$' <<<"$2" || return 1 ;;
                     --commit) [[ $2 =~ $RE_SHA ]] || return 1 ;;
                     --json) [[ $2 =~ $fields_re ]] || return 1 ;;
                     --limit) [[ $2 =~ $RE_NUM ]] || return 1 ;;
@@ -275,7 +275,7 @@ uc_gh_ok() {
             [ $# -ge 4 ] && [ "$3" = GET ] || return 1
             case "$4" in repos/*) ;; *) return 1 ;; esac
             case "$4" in *..*) return 1 ;; esac
-            printf '%s' "$4" | grep -Eq '^repos/[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_.,=&?/-]*)?$' || return 1
+            grep -Eq '^repos/[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*(/[A-Za-z0-9_.,=&?/-]*)?$' <<<"$4" || return 1
             shift 4
             while [ $# -gt 0 ]; do
                 case "$1" in

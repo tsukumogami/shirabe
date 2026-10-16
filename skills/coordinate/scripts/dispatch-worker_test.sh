@@ -38,8 +38,8 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 eq()  { if [ "$2" = "$3" ]; then ok "$1"; else bad "$1" "want [$2], got [$3]"; fi; }
-has() { if printf '%s' "$2" | grep -Fq -- "$3"; then ok "$1"; else bad "$1" "missing [$3] in [$2]"; fi; }
-lacks() { if printf '%s' "$2" | grep -Fq -- "$3"; then bad "$1" "unexpected [$3]"; else ok "$1"; fi; }
+has() { if grep -Fq -- "$3" <<<"$2"; then ok "$1"; else bad "$1" "missing [$3] in [$2]"; fi; }
+lacks() { if grep -Fq -- "$3" <<<"$2"; then bad "$1" "unexpected [$3]"; else ok "$1"; fi; }
 
 # --- stand-ins ------------------------------------------------------------------------
 #

@@ -327,7 +327,7 @@ STATUS=""
 open_leg() {
     local entry=$1 pos=$2 why=$3 leg templates pinned inputs pair var src val left old data dispatcher out req
     leg=$(dc_entry_field "$entry" "$DC_F_LEG") || die 2 "no entry-point row for $entry"
-    [ "$leg" = - ] || printf '%s' "$leg" | grep -Eq "$DC_RE_LEG" || die 2 "entry-points.tsv names a malformed leg for $entry: $leg"
+    [ "$leg" = - ] || grep -Eq "$DC_RE_LEG" <<<"$leg" || die 2 "entry-points.tsv names a malformed leg for $entry: $leg"
     # /work-on answers its leg only for an issue or a task. Given a PLAN path
     # it never reaches the leg, which would then stay open with nothing to
     # resolve it, so that worker reports by message.
@@ -366,7 +366,7 @@ EOF
         die 2 "koto request list failed for $TOPIC"
     while IFS= read -r old; do
         [ -n "$old" ] || continue
-        printf '%s' "$old" | grep -Eq "$RE_REQ" || continue
+        grep -Eq "$RE_REQ" <<<"$old" || continue
         "$KOTO" request abandon-request "$old" --rationale "$why" </dev/null >/dev/null ||
             die 2 "could not abandon the open request $old for $TOPIC"
     done <<EOF
@@ -379,7 +379,7 @@ EOF
         --requested-by "$dispatcher" --coordinator-of-record "coordinate-$TOPIC" </dev/null) ||
         die 2 "koto request create failed for $TOPIC"
     req=$(printf '%s' "$out" | jq -r '.request_id // "" | strings')
-    printf '%s' "$req" | grep -Eq "$RE_REQ" || die 2 "koto request create printed no usable request id"
+    grep -Eq "$RE_REQ" <<<"$req" || die 2 "koto request create printed no usable request id"
     RETURN_PATH="$req:$leg"
 }
 
@@ -697,7 +697,7 @@ case "$HELP" in
         case "$HELP" in
             *--skill*)
                 LINEAGE=(--brief "$BRIEF")
-                printf '%s' "$ENTRY" | grep -Eq '^[a-z0-9][a-z0-9-]*$' && LINEAGE+=(--skill "shirabe:$ENTRY")
+                grep -Eq '^[a-z0-9][a-z0-9-]*$' <<<"$ENTRY" && LINEAGE+=(--skill "shirabe:$ENTRY")
                 ;;
         esac
         ;;

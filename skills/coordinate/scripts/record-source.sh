@@ -246,7 +246,9 @@ rs_session_read() {
 # rs_probe: the koto features the session store needs, read by feature.
 rs_probe() {
     local prefix=false import=false
-    "$KOTO" context list --help < /dev/null 2>/dev/null | grep -q -- '--prefix' && prefix=true
+    # grep without -q reads all of the help text: under pipefail, a grep -q
+    # that matched and quit could cut koto off and read the match as a miss.
+    "$KOTO" context list --help < /dev/null 2>/dev/null | grep -- '--prefix' >/dev/null && prefix=true
     "$KOTO" session import --help < /dev/null > /dev/null 2>&1 && import=true
     jq -nc --argjson p "$prefix" --argjson i "$import" '{context_list_prefix: $p, session_import: $i}'
 }
