@@ -748,11 +748,12 @@ else
   fail "--summary-out scenario_set, whole suite: $(cat "$SUM" 2>/dev/null)"
 fi
 rm -f "$SUM"
-run_runner grade --release-subset --summary-out "$SUM" subset
-if [ "$(summary_field "$SUM" subset scenario_set)" = "$(scenario_hash plan-a merge-a resume-a)" ]; then
-  pass "--summary-out: scenario_set hashes the release subset's names, not the suite's"
+EVAL_MODEL=opus run_runner grade --scenario pinned-scenario --summary-out "$SUM" pinned
+if [ "$RC" -eq 0 ] \
+  && [ "$(summary_field "$SUM" pinned scenario_set)" = "$(scenario_hash pinned-scenario)" ]; then
+  pass "--summary-out: scenario_set hashes only the selected names when a set narrows the run"
 else
-  fail "--summary-out scenario_set, release subset (rc=$RC): $(cat "$SUM" 2>/dev/null)"
+  fail "--summary-out scenario_set, narrowed (rc=$RC): $(cat "$SUM" 2>/dev/null)"
 fi
 
 rm -f "$SUM"
