@@ -87,7 +87,7 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 | Unit | Entry point | Mode | Phase | Dispatch status | Return path | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping, scoping-ahead, executing or held> | <dispatching, dispatched or dispatch-failed> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
+| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping, scoping-ahead, executing or held> | <dispatching, dispatched, dispatch-failed or stranded> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
 
 ## Deferrals
 

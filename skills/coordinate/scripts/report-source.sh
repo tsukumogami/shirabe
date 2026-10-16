@@ -6,8 +6,10 @@
 # send and the coordinator relays, so a message must never stand in for a
 # leg-bound worker's result, and a report claimed to come from a leg must be
 # the leg the record names. The gate reads the reporting topic's holding from
-# the record: a message report is admitted only for a holding whose return
-# path is `message`; a leg report only when the holding's return path is the
+# the record: a message report is admitted for a holding whose return path is
+# `message`, or whose leg is spent for reporting (its key reads taken or
+# unwatchable, or this host's store doesn't hold its request: PRD R16); a leg
+# report only when the holding's return path is the
 # leg the wait state read (wait_target), which wait_leg's gate admitted on a
 # promoted result, and only when koto's own record of the leg holds a
 # promoted result whose text is exactly worker_report.
@@ -27,8 +29,9 @@
 #
 # Exit codes (overridable: false on the gate):
 #   0  the report may stand for its worker
-#   1  refused message: a message for a leg-bound worker, or no holding for
-#      the topic (a progress report with no holding too)
+#   1  refused message: a message for a leg-bound worker whose leg is still
+#      watched here, or no holding for the topic (a progress report with no
+#      holding too)
 #   2  a read failed, the record refused the read, or an input is malformed
 #   3  refused leg report: no holding for the topic, a leg other than the
 #      one the record names, or a report that isn't the promoted result koto
@@ -81,6 +84,25 @@ RP=$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings'
 
 if [ "$SOURCE" = message ]; then
     [ "$RP" = message ] && exit 0
+    # A leg read once carries nothing more, so a later report from its worker
+    # can only come by message: once the leg's key reads taken (wait-target.sh
+    # took its result) or unwatchable, or when this host's request store
+    # doesn't hold its request (the coordinator moved here and hasn't
+    # re-legged it yet), the message stands for the worker (PRD R16).
+    REQ=${RP%%:*}
+    LEG=${RP#*:}
+    KEY=$(dc_leg_get "$SESSION" "$REQ" "$LEG")
+    case "$?" in
+        0) case "$(jq -r '.state // "" | strings' <<<"$KEY")" in taken | unwatchable) exit 0 ;; esac ;;
+        1) ;;
+        *) printf '%s: cannot read the leg key for %s\n' "$PROG" "$RP" >&2; exit 2 ;;
+    esac
+    "$KOTO" request get "$REQ" </dev/null >/dev/null 2>&1
+    case "$?" in
+        0) ;;
+        2) exit 0 ;;
+        *) printf '%s: cannot read request %s\n' "$PROG" "$REQ" >&2; exit 2 ;;
+    esac
     printf '%s: %s is bound to leg %s; its result comes through the leg, not a message\n' "$PROG" "$TOPIC" "$RP" >&2
     exit 1
 fi

@@ -107,6 +107,40 @@
 #       the two; every read and write of a single cell goes through them
 #       (wait-target.sh's jq filter over the whole list reads the same form).
 #
+#   dc_leg_key <request> <leg>
+#       Prints the context key that holds one worker leg in the coordinator's
+#       own koto session: legs/<request>/<leg> (PRD R13). The session holds it
+#       whichever store the record is on, so an import or a carry moves a
+#       run's legs with its session.
+#
+#   dc_leg_list <session>
+#       Prints every leg key's name, one per line. Returns 2 when the listing
+#       fails.
+#
+#   dc_leg_get <session> <request> <leg>
+#       Prints the leg key's JSON object. Returns 0 read, 1 no such key, 2 a
+#       failed read or a value that isn't a JSON object. Presence comes from
+#       a listing, so an absent key and a failed read stay apart.
+#
+#   dc_leg_put <session> <request> <leg> <json>
+#       Writes the leg key whole. Returns 0, or 2 when the value isn't a JSON
+#       object naming that request and leg, or the write fails.
+#
+#   A leg key is {request, leg, topic, state, templates, inputs}, and as they
+#   become known child (the bound session's name as koto reported it), result
+#   (koto's result for the leg, once read), new_request (a re-leg's new
+#   request) and from (the request a re-legged key replaced). templates and
+#   inputs are the leg's declaration at dispatch. state is one of:
+#     open           dispatched on this leg; no result read yet
+#     taken          wait-target.sh read its result, kept beside it
+#     spent          it ended with no result its worker promoted
+#     replaced       a new leg replaced it on this host (--releg, an
+#                    execution sent, a re-leg after an import)
+#     releg-pending  an import's re-leg opened new_request and hasn't finished
+#     relegged       the re-leg finished: the holding names new_request
+#     unwatchable    after an import its worker can't be watched from this
+#                    host, and the holding reports by message
+#
 #   dc_record_list <session>
 #       Prints every holding row as one JSON array, in record order. Returns
 #       0 (an empty array when there are none), 10 refused, 2 otherwise.
@@ -175,6 +209,8 @@ DC_F_INSTEAD=7
 # koto's request-id grammar, and its leg-name grammar.
 DC_RE_REQ='^[a-z0-9_][a-z0-9_-]{0,63}$'
 DC_RE_LEG='^[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$'
+# A koto session name, as a leg's bound child is recorded.
+DC_RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$'
 DC_ENTRY_POINTS="${DC_ENTRY_POINTS:-$DC_HERE/../references/entry-points.tsv}"
 DC_RECORD_HOLDING="${DC_RECORD_HOLDING:-$DC_HERE/record-holding.sh}"
 # The stored set's reader, for the pauses (record-state.sh --list); tests use
@@ -382,6 +418,39 @@ dc_rp_to_row() {
         message | '') printf '%s\n' "${1:-message}" ;;
         *) printf 'leg %s\n' "$1" ;;
     esac
+}
+
+DC_RE_LEG_STATE='^(open|taken|spent|replaced|releg-pending|relegged|unwatchable)$'
+
+dc_leg_key() { printf 'legs/%s/%s\n' "$1" "$2"; }
+
+dc_leg_list() {
+    local out
+    out=$("${KOTO:-koto}" context list "$1" --prefix legs/ </dev/null 2>/dev/null) || return 2
+    jq -r 'if type == "array" then .[] else error("not an array") end' <<<"$out" 2>/dev/null || return 2
+}
+
+dc_leg_get() {
+    local key out
+    key=$(dc_leg_key "$2" "$3")
+    out=$("${KOTO:-koto}" context list "$1" --prefix "$key" </dev/null 2>/dev/null) || return 2
+    jq -e --arg k "$key" 'type == "array" and index($k) != null' <<<"$out" >/dev/null 2>&1
+    case "$?" in
+        0) ;;
+        1) return 1 ;;
+        *) return 2 ;;
+    esac
+    out=$("${KOTO:-koto}" context get "$1" "$key" </dev/null 2>/dev/null) || return 2
+    jq -e 'type == "object"' <<<"$out" >/dev/null 2>&1 || return 2
+    printf '%s\n' "$out"
+}
+
+dc_leg_put() {
+    local key
+    key=$(dc_leg_key "$2" "$3")
+    jq -e --arg r "$2" --arg l "$3" --arg re "$DC_RE_LEG_STATE" \
+        'type == "object" and .request == $r and .leg == $l and ((.state // "") | test($re))' <<<"$4" >/dev/null 2>&1 || return 2
+    jq -c . <<<"$4" | "${KOTO:-koto}" context add "$1" "$key" >/dev/null 2>&1 || return 2
 }
 
 dc_record_present() {

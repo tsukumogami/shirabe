@@ -131,13 +131,40 @@
 # open, or one holding a promoted result (the worker reported), is not spent
 # early: exit 9 with nothing written.
 #
+# Every leg this script opens is written to the coordinator's own session as
+# the key legs/<request>/<leg> (dispatch-common.sh dc_leg_put), state `open`,
+# with the worker's topic and the leg's declaration (its templates and pinned
+# inputs), on either store (PRD R13). A leg a new one replaces (--releg, an
+# execution sent) is marked `replaced`, and a failed launch's leg `spent`.
+#
+# --releg-imported <topic> re-attaches a worker that moved here with the
+# coordinator's session (`koto session import`) to a new request on this host,
+# whose request store never held the old one (docs/designs/DESIGN-coordinator-
+# session-record.md, Decision 7). It reads no brief input and launches
+# nothing. The holding must be dispatched on a leg whose key names <topic>,
+# with the bound child's session name recorded (wait-target.sh writes it), and
+# that session must be on this host, bound to no open leg here, compiled from
+# one of the templates the holding's entry point admits, and holding the
+# pinned inputs the key declared. The template set and the pinned variables
+# are recomputed from the holding's entry point, never read from the key;
+# koto's `request attach` checks the child against the new request's
+# declaration again. The steps, each idempotent: open the new request and
+# write it into the old key as `releg-pending`; attach the child; write the
+# new key `open` (from the old request); rewrite the holding's return path;
+# mark the old key `relegged`. A re-run finds whichever step is missing and
+# finishes it, so a crash leaves no leg bound to nothing and never two
+# bindings. A refusal after the new request opened abandons it and sets the
+# old key back to `open`.
+#
 # Usage:
 #   dispatch-worker.sh --session <koto-session> [--rebrief | --releg]
+#   dispatch-worker.sh --session <koto-session> --releg-imported <topic>
 #
 # Output: `already-dispatched`, or `session=<name>` for a launched worker, or
 # `brief=<path>` for --rebrief, or `brief=<path>` and `leg=<request>:<leg>`
 # (and `session=<name>` when the listing finds it) for --releg and a sent
-# execution; reasons on stderr.
+# execution, or `leg=<request>:<leg>` and `child=<session>` for
+# --releg-imported; reasons on stderr.
 #
 # Exit codes:
 #   0  dispatched, confirmed, already dispatched, re-briefed, a leg
@@ -157,7 +184,13 @@
 #      worker's promoted result, or resolved by hand as a success), on a
 #      holding that links a pull request, or for an entry point that takes no
 #      leg; a send_execution whose scoping leg a worker is still bound to;
-#      nothing written
+#      nothing written. --releg-imported refused: the holding isn't
+#      dispatched on a leg, its leg key is missing, names another worker or
+#      is in no state to re-leg, its request is held on this host, no child
+#      is recorded, the child's name fails the grammar, it isn't on this
+#      host, it is bound to another leg, its template or pinned inputs differ
+#      from the declaration, or koto refused the attach; nothing is left
+#      half-done
 #   10 a new dispatch of a unit a pause holds, a decision parks or whose
 #      milestone verdict is owed, as pick
 #      marked it; nothing written (submit `dispatched: paused`)
@@ -177,21 +210,24 @@ DEADLINE="${DISPATCH_DEADLINE_SECS:-300}"
 RE_REQ="$DC_RE_REQ"
 
 die() { printf '%s: %s\n' "$PROG" "$2" >&2; exit "$1"; }
-usage() { die 2 "usage: $PROG --session <koto-session> [--rebrief | --releg]"; }
+usage() { die 2 "usage: $PROG --session <koto-session> [--rebrief | --releg | --releg-imported <topic>]"; }
 
 SESSION=""
 REBRIEF=0
 RELEG=0
+IMPORTED=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --session) [ $# -ge 2 ] || usage; SESSION="$2"; shift 2 ;;
         --rebrief) REBRIEF=1; shift ;;
         --releg) RELEG=1; shift ;;
+        --releg-imported) [ $# -ge 2 ] || usage; IMPORTED="$2"; shift 2 ;;
         *) usage ;;
     esac
 done
 [ -n "$SESSION" ] || usage
 [ "$REBRIEF$RELEG" != 11 ] || usage
+[ -z "$IMPORTED" ] || [ "$REBRIEF$RELEG" = 00 ] || usage
 command -v jq >/dev/null || die 2 "jq is not on PATH"
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-worker.XXXXXX") || die 2 "cannot make a scratch directory"
@@ -206,33 +242,45 @@ ctx() { "$KOTO" context get "$SESSION" "$1"; }
 
 # --- inputs ------------------------------------------------------------------------
 
-INPUT="$WORK/brief_input.json"
-ctx brief_input.json >"$INPUT" || die 2 "cannot read brief_input.json from the session's context"
-jq -e 'type == "object"' "$INPUT" >/dev/null || die 2 "brief_input.json is not a JSON object"
-IN_TOPIC=$(jq -r '.topic // "" | strings' "$INPUT")
+# read_inputs: the brief input, the topic and the address every brief gives.
+# --releg-imported renders no brief, so it reads none of them.
+read_inputs() {
+    INPUT="$WORK/brief_input.json"
+    ctx brief_input.json >"$INPUT" || die 2 "cannot read brief_input.json from the session's context"
+    jq -e 'type == "object"' "$INPUT" >/dev/null || die 2 "brief_input.json is not a JSON object"
+    IN_TOPIC=$(jq -r '.topic // "" | strings' "$INPUT")
 
-if [ "$REBRIEF" = 1 ] || [ "$RELEG" = 1 ]; then
-    TOPIC=$(ctx report_topic) || die 2 "cannot read report_topic from the session's context"
+    if [ "$REBRIEF" = 1 ] || [ "$RELEG" = 1 ]; then
+        TOPIC=$(ctx report_topic) || die 2 "cannot read report_topic from the session's context"
+    else
+        TOPIC=$(ctx dispatch_topic) || die 2 "cannot read dispatch_topic from the session's context"
+    fi
+    dc_valid_topic "$TOPIC" || die 2 "the topic in context isn't a valid topic: $TOPIC"
+    [ "$IN_TOPIC" = "$TOPIC" ] || die 2 "brief_input.json names topic [$IN_TOPIC], not [$TOPIC]"
+
+    # The address the brief tells the worker to report to is the record's:
+    # its Run section's `coordinator`, the address messages to this
+    # coordinator reach (shirabe#610). The koto session name in
+    # dispatcher_session is no address. It is written into the input every
+    # brief renders from, over any value the input gave; a record that names
+    # no address refuses the dispatch.
+    bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>"$WORK/state.err" ||
+        die 2 "cannot read the record's Run section: $(head -1 "$WORK/state.err")"
+    ADDRESS=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // empty' "$WORK/state.json") ||
+        die 2 "the record's Run section is not record-state.sh's JSON"
+    if [ -z "$ADDRESS" ]; then
+        printf '%s: refused: the record names no coordinator address for the brief to give the worker; set it with record-state.sh --session %s --run coordinator <address> --by <who>\n' "$PROG" "$SESSION" >&2
+        exit 1
+    fi
+    jq --arg a "$ADDRESS" '.reports_to = $a' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
+}
+
+if [ -n "$IMPORTED" ]; then
+    TOPIC=$IMPORTED
+    dc_valid_topic "$TOPIC" || die 2 "--releg-imported names no valid topic: $TOPIC"
 else
-    TOPIC=$(ctx dispatch_topic) || die 2 "cannot read dispatch_topic from the session's context"
+    read_inputs
 fi
-dc_valid_topic "$TOPIC" || die 2 "the topic in context isn't a valid topic: $TOPIC"
-[ "$IN_TOPIC" = "$TOPIC" ] || die 2 "brief_input.json names topic [$IN_TOPIC], not [$TOPIC]"
-
-# The address the brief tells the worker to report to is the record's: its
-# Run section's `coordinator`, the address messages to this coordinator
-# reach (shirabe#610). The koto session name in dispatcher_session is no
-# address. It is written into the input every brief renders from, over any
-# value the input gave; a record that names no address refuses the dispatch.
-bash "$DC_RECORD_STATE" --list --session "$SESSION" >"$WORK/state.json" 2>"$WORK/state.err" ||
-    die 2 "cannot read the record's Run section: $(head -1 "$WORK/state.err")"
-ADDRESS=$(jq -r '[(.run // [])[] | select(.key == "coordinator") | .value][0] // empty' "$WORK/state.json") ||
-    die 2 "the record's Run section is not record-state.sh's JSON"
-if [ -z "$ADDRESS" ]; then
-    printf '%s: refused: the record names no coordinator address for the brief to give the worker; set it with record-state.sh --session %s --run coordinator <address> --by <who>\n' "$PROG" "$SESSION" >&2
-    exit 1
-fi
-jq --arg a "$ADDRESS" '.reports_to = $a' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" || die 2 "jq failed"
 
 ROOT=$(dc_workspace_root) || die 2 "no workspace root found from $(pwd)"
 BRIEFS="$ROOT/.niwa/dispatch-briefs"
@@ -381,6 +429,28 @@ EOF
     req=$(printf '%s' "$out" | jq -r '.request_id // "" | strings')
     printf '%s' "$req" | grep -Eq "$RE_REQ" || die 2 "koto request create printed no usable request id"
     RETURN_PATH="$req:$leg"
+    # The leg as a key of the coordinator's own session (PRD R13), before any
+    # holding names it. A failed write leaves the request open with no row
+    # naming it, which the next dispatch of the topic abandons above.
+    dc_leg_put "$SESSION" "$req" "$leg" "$(jq -nc --arg r "$req" --arg l "$leg" --arg t "$TOPIC" \
+        --arg tp "$templates" --argjson in "$inputs" \
+        '{request: $r, leg: $l, topic: $t, state: "open", templates: ($tp | split(",")), inputs: $in}')" ||
+        die 2 "could not write the leg key for $TOPIC's leg $RETURN_PATH"
+}
+
+# mark_leg <return-path> <state>: set the state of the leg key a return path
+# names, when it has one. A leg opened before leg keys existed has none, and a
+# failed write is reported, never fatal: the holding already says what
+# happened, and the key only adds to it.
+mark_leg() {
+    local rp=$1 st=$2 key
+    case "$rp" in message | '') return 0 ;; esac
+    key=$(dc_leg_get "$SESSION" "${rp%%:*}" "${rp#*:}")
+    case "$?" in
+        0) dc_leg_put "$SESSION" "${rp%%:*}" "${rp#*:}" "$(jq -c --arg s "$st" '.state = $s' <<<"$key")" && return 0 ;;
+        1) return 0 ;;
+    esac
+    printf '%s: could not mark the leg key for %s %s\n' "$PROG" "$rp" "$st" >&2
 }
 
 # leg_state <request> <leg>: how koto holds a worker's leg, one word: open
@@ -434,11 +504,193 @@ rebind() {
         *) die 2 "rendering the brief failed" ;;
     esac
     write_row "$(printf '%s' "$ROW" | jq -c --arg rp "$(dc_rp_to_row "$RETURN_PATH")" --arg ep "$ep" --arg mode "$mode" --arg d "$TODAY" "$rowjq")"
+    mark_leg "$(dc_rp_from_row "$(printf '%s' "$ROW" | jq -r '.return_path // "" | strings')")" replaced
     printf 'brief=%s\n' "$brief"
     [ "$RETURN_PATH" = message ] || printf 'leg=%s\n' "$RETURN_PATH"
     if name=$(find_session); then printf 'session=%s\n' "$name"; fi
     exit 0
 }
+
+# --- --releg-imported -------------------------------------------------------------------------
+
+# request_view <request>: koto's record of a request on this host. Returns 0
+# read, 1 this host's store doesn't hold it, 2 a failed read.
+request_view() {
+    local rc
+    VIEW=$("$KOTO" request get "$1" </dev/null 2>/dev/null)
+    rc=$?
+    [ "$rc" = 0 ] && return 0
+    [ "$rc" = 2 ] && return 1
+    return 2
+}
+
+# child_facts <session>: the child session's template file and variables, from
+# the header and the first initialization of its own log, as one JSON object
+# {template, variables}. Returns 2 when the log can't be read.
+child_facts() {
+    local dir log
+    dir=$("$KOTO" session dir "$1" </dev/null 2>/dev/null) || return 2
+    log="$dir/koto-$1.state.jsonl"
+    [ -r "$log" ] || return 2
+    jq -sc '{template: (.[0].template_source_file // ""),
+             variables: ([.[] | select(.type == "workflow_initialized")][0].payload.variables // {})}' "$log" 2>/dev/null
+}
+
+# bound_elsewhere <session> <except-request>: 0 when the session is bound to an
+# open leg of any open request on this host other than <except-request>.
+bound_elsewhere() {
+    local list r v
+    list=$("$KOTO" request list --state open </dev/null 2>/dev/null) || die 2 "koto request list failed"
+    while IFS= read -r r; do
+        [ -n "$r" ] && [ "$r" != "$2" ] || continue
+        v=$("$KOTO" request get "$r" </dev/null 2>/dev/null) || continue
+        jq -e --arg c "$1" '(.request // .) | [.legs[]? | select(.disposition == "open" and .bound_child == $c)] | length > 0' <<<"$v" >/dev/null 2>&1 &&
+            return 0
+    done <<EOF
+$(jq -r '(.requests // [])[] | .request_id' <<<"$list" 2>/dev/null)
+EOF
+    return 1
+}
+
+if [ -n "$IMPORTED" ]; then
+    [ "$HAVE_ROW" = 1 ] || die 9 "no holding for $TOPIC to re-leg"
+    [ "$STATUS" = dispatched ] || die 9 "the holding for $TOPIC is $STATUS, not dispatched"
+    RP=$(dc_rp_from_row "$(jq -r '.return_path // "" | strings' <<<"$ROW")")
+    case "$RP" in message | '') die 9 "the holding for $TOPIC reports by message: it has no leg to re-leg" ;; esac
+    REQ=${RP%%:*}
+    LEG=${RP#*:}
+    KEY=$(dc_leg_get "$SESSION" "$REQ" "$LEG")
+    case "$?" in
+        0) ;;
+        1) die 9 "the leg $RP of $TOPIC has no leg key: no child was recorded, so it can't be re-legged" ;;
+        *) die 2 "cannot read the leg key for $RP" ;;
+    esac
+    [ "$(jq -r '.topic // "" | strings' <<<"$KEY")" = "$TOPIC" ] ||
+        die 9 "the leg key for $RP names worker [$(jq -r '.topic // ""' <<<"$KEY")], not the holding's $TOPIC"
+    KSTATE=$(jq -r '.state // "" | strings' <<<"$KEY")
+    CHILD=$(jq -r '.child // "" | strings' <<<"$KEY")
+
+    FROM=$(jq -r '.from // "" | strings' <<<"$KEY")
+    case "$KSTATE" in
+        open)
+            request_view "$REQ"
+            case "$?" in
+                0)
+                    # This host holds the leg's request. Either the holding
+                    # was never moved, or a re-run finds the holding already
+                    # on the new leg, whose key says where it came from: then
+                    # only the old key's mark is left.
+                    [ -n "$FROM" ] || die 9 "this host holds the request of $RP: $TOPIC is watched as before, not re-legged"
+                    if OLD=$(dc_leg_get "$SESSION" "$FROM" "$LEG"); then
+                        [ "$(jq -r '.state // ""' <<<"$OLD")" = relegged ] ||
+                            dc_leg_put "$SESSION" "$FROM" "$LEG" "$(jq -c --arg n "$REQ" '.state = "relegged" | .new_request = $n' <<<"$OLD")" ||
+                            die 2 "could not mark the leg key for $FROM:$LEG relegged"
+                    fi
+                    printf 'leg=%s\nchild=%s\n' "$RP" "$CHILD"
+                    exit 0
+                    ;;
+                1) ;;
+                *) die 2 "cannot read request $REQ" ;;
+            esac
+            NEW=""
+            ;;
+        releg-pending) NEW=$(jq -r '.new_request // "" | strings' <<<"$KEY") ;;
+        *) die 9 "the leg key for $RP is $KSTATE: there is no leg to re-attach" ;;
+    esac
+
+    [ -n "$CHILD" ] || die 9 "no child session was recorded for $RP: $TOPIC can't be re-legged"
+    [[ $CHILD =~ $DC_RE_SESSION ]] || die 9 "the child recorded for $RP isn't a koto session name"
+    "$KOTO" session list </dev/null 2>/dev/null >"$WORK/sessions.json" || die 2 "koto session list failed"
+    jq -e --arg c "$CHILD" 'any(.[]; .id == $c)' "$WORK/sessions.json" >/dev/null 2>&1 ||
+        die 9 "the child $CHILD of $RP isn't on this host: $TOPIC can't be re-legged"
+
+    # The declaration, recomputed from the holding's entry point: the leg it
+    # answers, the templates it admits and the inputs it pins. Only the pinned
+    # values come from the key, which recorded them at dispatch; the child's
+    # own variables must equal them.
+    EP=$(jq -r '.entry_point // "" | strings' <<<"$ROW")
+    EP_LEG=$(dc_entry_field "$EP" "$DC_F_LEG") || die 9 "the holding's entry point $EP has no entry-point row"
+    [ "$EP_LEG" = "$LEG" ] || die 9 "the holding's entry point $EP answers leg [$EP_LEG], not [$LEG]"
+    TEMPLATES=$(dc_entry_field "$EP" "$DC_F_TEMPLATES") || die 2 "no templates for $EP"
+    PINNED=$(dc_entry_field "$EP" "$DC_F_PINNED") || die 2 "no pinned inputs for $EP"
+    INPUTS='{}'
+    if [ "$PINNED" != - ]; then
+        IFS=, read -r -a PAIRS <<<"$PINNED"
+        for pair in "${PAIRS[@]}"; do
+            var=${pair%%=*}
+            val=$(jq -r --arg v "$var" '.inputs[$v] // "" | strings' <<<"$KEY")
+            [ -n "$val" ] || die 9 "the leg key for $RP records no $var for the declaration"
+            INPUTS=$(jq -c --arg k "$var" --arg v "$val" '.[$k] = $v' <<<"$INPUTS")
+        done
+    fi
+    FACTS=$(child_facts "$CHILD") || die 2 "cannot read the log of $CHILD"
+    CT=$(jq -r '.template' <<<"$FACTS")
+    case ",$TEMPLATES," in
+        *",$CT,"*) ;;
+        *) die 9 "the child $CHILD runs template [$CT], which $EP's leg doesn't admit ($TEMPLATES)" ;;
+    esac
+    jq -e --argjson in "$INPUTS" '.variables as $v | all($in | to_entries[]; $v[.key] == .value)' <<<"$FACTS" >/dev/null ||
+        die 9 "the child $CHILD's variables differ from the declaration $INPUTS"
+    if bound_elsewhere "$CHILD" "$NEW"; then
+        die 9 "the child $CHILD is bound to another leg on this host: $TOPIC can't be re-legged"
+    fi
+
+    # refuse_after_open <reason>: a refusal once the new request exists. The
+    # request is abandoned and the old key goes back to open, so nothing is
+    # left half-done and the classification can send the worker to message.
+    refuse_after_open() {
+        "$KOTO" request abandon-request "$NEW" --rationale "the re-leg of $TOPIC was refused" </dev/null >/dev/null 2>&1 ||
+            printf '%s: could not abandon request %s\n' "$PROG" "$NEW" >&2
+        dc_leg_put "$SESSION" "$REQ" "$LEG" "$(jq -c '.state = "open" | del(.new_request)' <<<"$KEY")" ||
+            printf '%s: could not set the leg key for %s back to open\n' "$PROG" "$RP" >&2
+        die 9 "$1"
+    }
+
+    # 1. The new request, written into the old key before anything is bound.
+    # A pending one this host no longer holds is opened again.
+    if [ -n "$NEW" ]; then
+        request_view "$NEW"
+        case "$?" in
+            0) ;;
+            1) NEW="" ;;
+            *) die 2 "cannot read the pending request $NEW" ;;
+        esac
+    fi
+    if [ -z "$NEW" ]; then
+        DATA=$(jq -nc --arg leg "$LEG" --arg t "$TEMPLATES" --argjson in "$INPUTS" \
+            '{legs: [{name: $leg, role: $leg, template: ($t | split(",") | if length == 1 then .[0] else . end), inputs: $in}]}')
+        OUT=$("$KOTO" request create --with-data "$DATA" --requested-by "$SESSION" \
+            --coordinator-of-record "coordinate-$TOPIC" </dev/null) || die 2 "koto request create failed for $TOPIC"
+        NEW=$(jq -r '.request_id // "" | strings' <<<"$OUT")
+        [[ $NEW =~ $RE_REQ ]] || die 2 "koto request create printed no usable request id"
+        KEY=$(jq -c --arg n "$NEW" '.state = "releg-pending" | .new_request = $n' <<<"$KEY")
+        dc_leg_put "$SESSION" "$REQ" "$LEG" "$KEY" || {
+            "$KOTO" request abandon-request "$NEW" --rationale "the re-leg of $TOPIC could not be recorded" </dev/null >/dev/null 2>&1
+            die 2 "could not write the leg key for $RP"
+        }
+        request_view "$NEW" || die 2 "cannot read the new request $NEW"
+    fi
+
+    # 2. The child attached, unless an earlier run already did.
+    BOUND=$(jq -r --arg l "$LEG" '(.request // .) | .legs[$l].bound_child // "" | strings' <<<"$VIEW")
+    if [ -z "$BOUND" ]; then
+        "$KOTO" request attach --session "$CHILD" "$NEW" "$LEG" </dev/null >"$WORK/attach.out" 2>&1 ||
+            refuse_after_open "koto refused to attach $CHILD to $NEW:$LEG: $(head -c 300 "$WORK/attach.out")"
+    elif [ "$BOUND" != "$CHILD" ]; then
+        refuse_after_open "the new request $NEW is bound to $BOUND, not $CHILD"
+    fi
+
+    # 3. The new leg's key, naming where it came from.
+    dc_leg_put "$SESSION" "$NEW" "$LEG" "$(jq -c --arg n "$NEW" --arg f "$REQ" --argjson in "$INPUTS" --arg t "$TEMPLATES" \
+        '{request: $n, leg, topic, state: "open", templates: ($t | split(",")), inputs: $in, child, from: $f}' <<<"$KEY")" ||
+        die 2 "could not write the leg key for $NEW:$LEG"
+    # 4. The holding's return path, then 5. the old key marked.
+    write_row "$(jq -c --arg rp "$(dc_rp_to_row "$NEW:$LEG")" '.return_path = $rp' <<<"$ROW")"
+    dc_leg_put "$SESSION" "$REQ" "$LEG" "$(jq -c '.state = "relegged"' <<<"$KEY")" ||
+        die 2 "could not mark the leg key for $RP relegged"
+    printf 'leg=%s:%s\nchild=%s\n' "$NEW" "$LEG" "$CHILD"
+    exit 0
+fi
 
 # --- --releg ----------------------------------------------------------------------------------
 
@@ -555,6 +807,9 @@ case "$STATUS" in
     dispatch-failed)
         die 3 "the dispatch of $TOPIC already failed; dispatch the unit under a new topic"
         ;;
+    stranded)
+        die 3 "$TOPIC is stranded; dispatch the unit under a new topic"
+        ;;
 esac
 
 ENTRY=$(jq -r '.entry_point // "" | strings' "$INPUT")
@@ -563,8 +818,25 @@ REPO=$(jq -r '.repo // "" | strings' "$INPUT")
 confirm() {
     write_row "$(with_status "$ROW" dispatched)"
     clear_rework "$(printf '%s' "$ROW" | jq -r '.unit // ""')"
+    retire_stranded
     printf 'session=%s\n' "$1"
     exit 0
+}
+# retire_stranded: remove the stranded rows this dispatch replaced. The new
+# worker is already launched, so a failed removal is reported, not fatal: the
+# row stays stranded, which nothing dispatches or watches, and the next
+# dispatch of the unit retires it.
+retire_stranded() {
+    local old
+    [ -n "${STRANDED:-}" ] && [ "$STRANDED" != '[]' ] || return 0
+    while IFS= read -r old; do
+        [ -n "$old" ] || continue
+        bash "$DC_RECORD_HOLDING" --session "$SESSION" --topic "$old" --retire >/dev/null 2>"$WORK/retire.err" ||
+            printf '%s: %s is dispatched, but the stranded row %s stands (%s); remove it with record-holding.sh --session %s --topic %s --retire\n' \
+                "$PROG" "$TOPIC" "$old" "$(head -1 "$WORK/retire.err")" "$SESSION" "$old" >&2
+    done <<EOF
+$(jq -r '.[].worker' <<<"$STRANDED")
+EOF
 }
 # clear_rework <unit cell>: a milestone a changes-needed verdict or a reopen sent back
 # carries a rework row until a worker is dispatched for it, whose brief
@@ -580,6 +852,32 @@ clear_rework() {
         printf '%s: %s is dispatched, but its rework row stands (%s); remove it with record-state.sh --session %s --done "%s" --kind rework\n' \
             "$PROG" "$TOPIC" "$(head -1 "$WORK/rework.err")" "$SESSION" "$item" >&2
 }
+
+# A unit whose earlier worker was stranded (record-holding.sh --strand) goes
+# out again under this new topic. Its brief names the stranded row's branch
+# and last pushed head, so the new worker continues from what was pushed, and
+# the stranded row is retired once this one is dispatched (PRD R15;
+# shirabe#732). A report from the retired topic then matches no holding.
+ALL_ROWS=$(dc_record_list "$SESSION")
+case "$?" in
+    0) ;;
+    10) die 8 "the record refused the read for $TOPIC (no open record, or a directed transition in the run log)" ;;
+    *) die 2 "reading the holdings failed" ;;
+esac
+STRANDED=$(jq -c --arg u "$(jq -r '.unit // ""' "$INPUT")" --arg t "$TOPIC" \
+    '[.[] | select(.dispatch_status == "stranded" and .unit == $u and .worker != $t)]' <<<"$ALL_ROWS") ||
+    die 2 "the holdings are not JSON"
+if [ "$STRANDED" != '[]' ]; then
+    jq --argjson s "$STRANDED" '.decisions = ((.decisions // []) + [$s[]
+        | ((.pushed_head // "") | if . == "" then null else . end) as $p
+        | ((.verified_head // "") | if . == "" then null else . end) as $v
+        | {decision: ("This unit was held by worker " + .worker + ", which was stranded: continue from its branch "
+            + (if (.branch // "") == "" then "(it recorded none)" else "`" + .branch + "`" end)
+            + (if ($p // $v) != null then ", last pushed head `" + ($p // $v) + "`" else ", with no pushed head recorded" end)
+            + ", rather than starting over."),
+           by: "the coordinator'"'"'s record"}])' "$INPUT" >"$WORK/in.json" && mv "$WORK/in.json" "$INPUT" ||
+        die 2 "cannot add the stranded worker's branch to the brief input"
+fi
 
 if [ "$STATUS" = dispatching ]; then
     NAME=$(find_session)
@@ -727,6 +1025,7 @@ case "$?" in
                 "$KOTO" request abandon-request "${RETURN_PATH%%:*}" \
                     --rationale "the dispatch of $TOPIC failed" </dev/null >/dev/null ||
                     printf '%s: could not abandon request %s\n' "$PROG" "${RETURN_PATH%%:*}" >&2
+                mark_leg "$RETURN_PATH" spent
                 ;;
         esac
         die 4 "niwa dispatch failed for $TOPIC (exit $RC)"
