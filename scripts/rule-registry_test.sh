@@ -410,7 +410,7 @@ cp "$REPO_ROOT/scripts/lib/rule-findings.sh" "$L/scripts/lib/rule-findings.sh"
 cat > "$L/probe.sh" <<'PROBE'
 #!/usr/bin/env bash
 undecided() { echo "undecided: $*" >&2; exit 2; }
-RULE_IDS="t/multi t/single t/long t/docs"
+  RULE_IDS="t/multi t/single t/long t/docs"
 . "$(dirname "$0")/scripts/lib/rule-findings.sh" || undecided "no library"
 rf_require t/multi t/single t/long t/docs
 for id in "$@"; do rf_finding "$id" "detail for $id"; done
