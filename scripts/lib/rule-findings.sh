@@ -55,10 +55,43 @@
 #                              not resolved, whose rule_ref differs from the
 #                              resolved one, or whose message lacks the summary
 #                              prefix
+#   rf_deliver                 the escalation ladder, below; called once, right
+#                              before the script's non-zero exit that follows
+#                              its findings
 #
 # Every printed finding also goes to `scripts/rule-registry.sh log-finding`,
 # which appends it to $SHIRABE_FINDINGS_LOG when that names a safe file; the
 # gate scripts' test suites use the log to verify what they printed.
+#
+# The escalation ladder. rf_emit records every rule id it prints in RF_REPORTED.
+# rf_deliver then reads, from the koto session's own log, how many times koto has
+# recorded this gate failing on each of those rules in the current state, and
+# escalates on the count this failure will get (koto's rule_counts[id].session,
+# plus one):
+#
+#   count 1                    nothing more: the finding's summary is rung 1
+#   count >= RF_FULL_TEXT_AT   `rule-registry.sh release <id>`, the rule's full
+#                              text; when release refuses it, its refusal line
+#                              and then one line giving the rule's rule_ref
+#   count >= RF_EXIT_AT        one ::shirabe-check-exit::{json} line, when the
+#                              current state has a named exit, naming the rule,
+#                              its count and the evidence that takes the exit
+#
+# The ladder runs only when the koto template supplies its context on the gate
+# command, as environment assignments written the same in every state that
+# shares the command:
+#
+#   SHIRABE_GATE_LOG    the session log, {{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl
+#   SHIRABE_GATE_NAME   the gate's name in the template
+#   SHIRABE_GATE_EXITS  "<state>:<status field> ...", the states with a named exit
+#
+# The state is read from the log (the last transition's `to`), never from the
+# command. Without SHIRABE_GATE_LOG and SHIRABE_GATE_NAME, rf_deliver does
+# nothing and the script prints what it always printed. With them, a log the
+# ladder can't read puts every reported rule at count 2 and offers no exit.
+# rf_deliver writes only to standard error and always returns 0, so it never
+# changes a gate's exit status, its standard output or the findings koto records.
+# DESIGN-validate-and-return.md has the reasoning.
 #
 # Written for the bash 3.2 floor: no associative arrays, so the resolved refs
 # and summaries are kept as tab-separated lines.
@@ -66,6 +99,10 @@
 RF_HELPER="$(CDPATH='' cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)/rule-registry.sh"
 RF_CACHE=""
 RF_TAB=$(printf '\t')
+RF_REPORTED=""
+RF_DELIVERED=""
+RF_FULL_TEXT_AT=2
+RF_EXIT_AT=3
 
 rf_require() {
     local id ref summary
@@ -132,6 +169,118 @@ rf_emit() {
     line="::koto-finding::$json"
     printf '%s\n' "$line"
     "$RF_HELPER" log-finding "$line" </dev/null >/dev/null 2>&1 || true
+    case " $RF_REPORTED " in
+        *" $id "*) ;;
+        *) RF_REPORTED="${RF_REPORTED:+$RF_REPORTED }$id" ;;
+    esac
+}
+
+# rf_ladder_active: whether the template supplied the ladder's context.
+rf_ladder_active() {
+    [ -n "${SHIRABE_GATE_LOG:-}" ] || [ -n "${SHIRABE_GATE_NAME:-}" ]
+}
+
+# rf_exit_field <state>: the status field SHIRABE_GATE_EXITS names for the
+# state, or nothing. Entries are split on spaces with globbing off and matched
+# on the whole state name.
+rf_exit_field() {
+    local state=$1 entry field
+    set -f
+    # shellcheck disable=SC2086
+    set -- ${SHIRABE_GATE_EXITS:-}
+    set +f
+    for entry in "$@"; do
+        case "$entry" in
+            "$state:"*)
+                field=${entry#*:}
+                case "$field" in
+                    ''|*[!a-z_]*) return 0 ;;
+                esac
+                printf '%s' "$field"
+                return 0
+                ;;
+        esac
+    done
+    return 0
+}
+
+# rf_ladder_counts: one pass over SHIRABE_GATE_LOG. Prints `state<TAB><name>`,
+# then `<id><TAB><count>` for each id in RF_REPORTED, where count is 1 plus the
+# highest rule_counts[id].session on gate_evaluated events of this state and
+# SHIRABE_GATE_NAME. Returns non-zero, printing nothing, when the log can't be
+# read: missing, not a schema-version-1 koto log, or no transition to name the
+# state. jq's own message can quote the log, so it is discarded with its file.
+rf_ladder_counts() {
+    local log=${SHIRABE_GATE_LOG:-} err out rc
+    [ -n "$log" ] && [ -n "${SHIRABE_GATE_NAME:-}" ] && [ -f "$log" ] && [ -r "$log" ] || return 1
+    err=$(mktemp "${TMPDIR:-/tmp}/rule-findings.XXXXXX") || return 1
+    out=$(jq -R -n -r --arg gate "$SHIRABE_GATE_NAME" --arg ids "$RF_REPORTED" '
+        [inputs | fromjson?] as $ev
+        | if ($ev | length) == 0 or ($ev[0] | type) != "object"
+             or $ev[0].schema_version != 1 or ($ev[0] | has("seq"))
+          then error("not a koto session log") else . end
+        | ([$ev[] | select(type == "object"
+                           and (.type == "transitioned" or .type == "directed_transition"
+                                or .type == "rewound"))
+               | .payload.to | select(type == "string")] | last) as $state
+        | if $state == null then error("no transition names the state") else . end
+        | ("state\t\($state)"),
+          (($ids | split(" ")[] | select(length > 0)) as $id
+           | "\($id)\t\(1 + ([0] + [$ev[] | select(type == "object" and .type == "gate_evaluated"
+                                                and .payload.state == $state
+                                                and .payload.gate == $gate)
+                                  | (.payload.rule_counts[$id].session // 0)
+                                  | select(type == "number")] | max))")
+        ' < "$log" 2> "$err")
+    rc=$?
+    rm -f "$err"
+    [ "$rc" -eq 0 ] && [ -n "$out" ] || return 1
+    printf '%s\n' "$out"
+}
+
+# rf_deliver: the ladder (see the header). Once per process; stderr only;
+# returns 0.
+rf_deliver() {
+    local counts state field id count released top_id="" top=0 notice
+    [ -z "$RF_DELIVERED" ] || return 0
+    RF_DELIVERED=1
+    [ -n "$RF_REPORTED" ] || return 0
+    rf_ladder_active || return 0
+    if counts=$(rf_ladder_counts); then
+        state=$(printf '%s\n' "$counts" | awk -F'\t' '$1 == "state" { print $2; exit }')
+        counts=$(printf '%s\n' "$counts" | awk -F'\t' '$1 != "state"')
+    else
+        echo "rule-findings: could not read koto's counts from ${SHIRABE_GATE_LOG:-<no log>}; releasing every reported rule" >&2
+        state=""
+        counts=$(for id in $RF_REPORTED; do printf '%s\t%s\n' "$id" "$RF_FULL_TEXT_AT"; done)
+    fi
+    while IFS="$RF_TAB" read -r id count; do
+        [ -n "$id" ] || continue
+        case "$count" in ''|*[!0-9]*) continue ;; esac
+        if [ "$count" -gt "$top" ]; then
+            top=$count
+            top_id=$id
+        fi
+        [ "$count" -ge "$RF_FULL_TEXT_AT" ] || continue
+        released=$("$RF_HELPER" release "$id" 2>&1 </dev/null)
+        [ -z "$released" ] || printf '%s\n' "$released" >&2
+        case "$released" in
+            "::shirabe-rule::"*) ;;
+            *) echo "rule-findings: $id's full text is at $(rf_field "$id" 2)" >&2 ;;
+        esac
+    done <<EOF
+$counts
+EOF
+    [ -n "$state" ] && [ -n "$top_id" ] && [ "$top" -ge "$RF_EXIT_AT" ] || return 0
+    field=$(rf_exit_field "$state")
+    [ -n "$field" ] || return 0
+    notice=$(jq -cn --arg id "$top_id" --argjson n "$top" --arg state "$state" --arg field "$field" '
+        {rule_id: $id, count: $n, state: $state,
+         submit: {($field): "check_unsatisfiable",
+                  check_exit_reason: "<why the check cannot be satisfied>"},
+         ends_at: "done_blocked"}') || return 0
+    printf '::shirabe-check-exit::%s\n' "$notice" >&2
+    return 0
 }
 
 rf_finding() {
