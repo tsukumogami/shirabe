@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Current
+status: Planned
 problem: |
   shirabe's rules that guard an irreversible action (opening or editing a
   pull request, pushing) are checked after the action. The one pre-action
@@ -43,7 +43,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Current
+Planned
 
 ## Context and Problem Statement
 

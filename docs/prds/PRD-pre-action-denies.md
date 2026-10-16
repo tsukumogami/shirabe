@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Done
+status: In Progress
 problem: |
   shirabe's rules that guard an irreversible action are checked after it:
   the /work-on gate reads the pull request GitHub already has, CI reads
@@ -20,7 +20,7 @@ absorbed:
 
 ## Status
 
-Done
+In Progress
 
 Absorbed [BRIEF-pre-action-denies](docs/briefs/BRIEF-pre-action-denies.md); carried in Absorbed Brief.
 
