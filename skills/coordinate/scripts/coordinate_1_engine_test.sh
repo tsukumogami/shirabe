@@ -252,13 +252,14 @@ echo "== 9. every wait event reaches its spoke =="
 #   failure     milestone-verdict_engine_test.sh ("failure reaches milestone_reopen")
 #   resume      pause_engine_test.sh, milestone-verdict_engine_test.sh
 #   redispatch  pause_engine_test.sh ("taken up through the failure branch")
+#   moved       handover_engine_test.sh ("the moved tick takes it through a full reconcile")
 # evidence and raise stay here: coordinate-template-structure_engine_test.sh
 # pins their wait edges and decisions-replay_engine_test.sh drives them inside
 # its replay loop, but no test ticks one from wait and asserts the state it
 # lands in. deferral and end have no other driver at all. An event wait gains
 # later is in neither list and fails until it is put in one.
 KEEP="deferral end evidence raise"
-COVERED="report progress leg quiet decision merged retire answer landed failure resume redispatch"
+COVERED="report progress leg quiet decision merged retire answer landed failure resume redispatch moved"
 J=$(koto template compile "$TPL" 2>/dev/null)
 if [ -n "$J" ] && [ -r "$J" ]; then
     ALL=$(jq -r '.states.wait.accepts.event.values[]' "$J")
