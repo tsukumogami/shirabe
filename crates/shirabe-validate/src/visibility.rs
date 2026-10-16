@@ -204,6 +204,9 @@ pub fn resolve_prose_vocabulary_from_dir(dir: &Path) -> Vec<String> {
 mod tests {
     use super::*;
 
+    use std::fs;
+    use std::path::PathBuf;
+
     #[test]
     fn vocabulary_from_dir_starts_at_the_directory_and_stops_at_its_repo() {
         let root =
@@ -225,8 +228,6 @@ mod tests {
         assert!(resolve_prose_vocabulary_from_dir(&nested).is_empty());
         let _ = std::fs::remove_dir_all(&root);
     }
-    use std::fs;
-    use std::path::PathBuf;
 
     fn unique_dir(tag: &str) -> PathBuf {
         // Derive a per-test directory name without Date/Random (unavailable in

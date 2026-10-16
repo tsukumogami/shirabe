@@ -381,7 +381,8 @@ struct ValidateArgs {
     /// document: code, table cells, link destinations, bare URLs and HTML
     /// comments are not prose, and the declared `## Prose Vocabulary:` of
     /// the repository containing the working directory is honored. The file
-    /// is loaded as named, never resolved: one that is missing, unreadable,
+    /// is loaded as named, with no `SHIRABE_RULES` lookup and no ancestor
+    /// walk to fall back on: one that is missing, unreadable,
     /// malformed or lists no banned word is a tool error. Opt-in, so callers
     /// that don't pass it (the reusable CI workflow, the pr-body hook) see
     /// exactly what they saw before. Only meaningful with `--pr-body`.
@@ -1009,6 +1010,14 @@ fn run_coordination_body_mode(file: &str, format: Format) -> ExitCode {
 /// `::error::` form because the body lives in a temp file with no path in the
 /// checked-out tree — a file-anchored annotation would point at a nonexistent
 /// source line.
+///
+/// With `writing_style` (`--writing-style <rules-file>`) it first loads that
+/// rules file, failing as a tool error with no envelope when it can't, then
+/// adds the PB5 banned-term findings of
+/// [`check_pr_writing_style`](shirabe_validate::check_pr_writing_style) after
+/// the PB1 to PB4 ones, honoring the declared prose vocabulary of the
+/// repository containing the working directory and naming on stderr the
+/// terms it suppressed.
 fn run_pr_body_mode(
     file: &str,
     title: Option<&str>,
@@ -1101,8 +1110,10 @@ fn run_pr_body_mode(
 /// why it can't be used. A file with no banned word counts as unusable: a
 /// check that loads an empty list passes everything.
 fn load_writing_style_rules(path: &str) -> Result<Rules, String> {
-    let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let resolved = resolve_rules_path(Some(path), &cwd).map_err(|e| e.to_string())?;
+    // An explicit path is used as given or refused; the walk's start
+    // directory is never consulted for it.
+    let resolved =
+        resolve_rules_path(Some(path), std::path::Path::new(".")).map_err(|e| e.to_string())?;
     let rules = load_rules(&resolved).map_err(|e| e.to_string())?;
     if rules.all_terms().is_empty() {
         return Err(format!(

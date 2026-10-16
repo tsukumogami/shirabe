@@ -384,6 +384,9 @@ pub fn check_pr_writing_style(
         }
     }
 
+    // The body gets whatever room the title left. With none left the matcher
+    // still runs with a cap of 0, so a body hit reports the truncation and a
+    // clean body reports nothing.
     if !truncated {
         let lines: Vec<String> = body.lines().map(str::to_string).collect();
         let spans = crate::prose::prose_spans(&lines, 1);
@@ -1055,9 +1058,24 @@ words:
             .iter()
             .map(|e| (e.line, e.message.split('"').nth(1).unwrap().to_string()))
             .collect();
-        let pb5 = pb5_terms(&check_pr_writing_style(&body, None, &rules, &[]));
-        assert_eq!(pb5, fc10);
-        assert!(!pb5.is_empty());
+        let pr = pb5_terms(&check_pr_writing_style(&body, None, &rules, &[]));
+        assert_eq!(pr, fc10);
+        assert!(!pr.is_empty());
+    }
+
+    #[test]
+    fn pb5_a_title_that_fills_the_cap_leaves_the_body_none() {
+        let title = format!("feat: {}", "leverage ".repeat(50));
+        // A body hit past the cap is the truncation, not a finding...
+        let f = pb5("Body leverage.\n", Some(&title));
+        assert_eq!(f.len(), PB5_FINDING_CAP + 1, "{}", f.len());
+        assert!(f[..PB5_FINDING_CAP]
+            .iter()
+            .all(|x| x.message.contains("in the title")));
+        assert!(f.last().unwrap().message.contains("truncated at 50"));
+        // ...and a clean body adds nothing.
+        let f = pb5("Clean body.\n", Some(&title));
+        assert_eq!(f.len(), PB5_FINDING_CAP);
     }
 
     #[test]
