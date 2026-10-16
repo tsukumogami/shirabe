@@ -932,7 +932,7 @@ sel = {n for n in os.environ.get('EVAL_SCENARIO_SET', '').split(',') if n}
 evals = json.load(open('$evals_file'))['evals']
 if os.environ.get('EVAL_SCENARIO_SET', ''):
     evals = [e for e in evals if e.get('name', 'eval-%s' % e.get('id')) in sel]
-sys.exit(0 if any(e.get('tier', 1) == 2 for e in evals) else 1)
+sys.exit(0 if any(e.get('tier', 1) != 1 for e in evals) else 1)
 " 2>/dev/null
 }
 
@@ -1398,7 +1398,7 @@ for ev in data["evals"]:
                      f"scripts/skill-preflight.sh yourself — the point is the skill load, not the "
                      f"script.'" + model_text)
         continue
-    if tier == 2:
+    if tier != 1:
         scenario = ev.get("scenario", "")
         # An eval may declare extra environment for its run (a call log for the
         # gh shim, a CI wait limit), as a flat map of names to string values.
