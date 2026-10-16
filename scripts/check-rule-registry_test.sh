@@ -33,7 +33,7 @@ GIT_ID="-c user.name=test -c user.email=test@example.com -c commit.gpgsign=false
 S="$WORK/s"
 mkdir -p "$S/docs/designs/current" "$S/docs/measurement/offload-baseline" "$S/.github/workflows" \
     "$S/.claude-plugin"
-for d in references skills scripts docs/guides; do
+for d in references skills scripts hooks docs/guides; do
     cp -R "$REPO_ROOT/$d" "$S/$d"
 done
 for f in CLAUDE.md .claude-plugin/plugin.json docs/designs/current/DESIGN-output-gates.md \
@@ -57,7 +57,7 @@ MUTABLE="references/rule-registry.json references/rule-registry.md references/pr
 docs/measurement/offload-baseline/template-pin.json .github/workflows/check-rule-registry.yml
 docs/designs/current/DESIGN-output-gates.md skills/execute/koto-templates/execute.md
 skills/work-on/scripts/check-pr-output.sh skills/execute/scripts/adopt-or-create-pr.sh
-skills/work-on/scripts/panel-scope.sh"
+skills/work-on/scripts/panel-scope.sh hooks/pre-action-deny.sh"
 mkdir -p "$WORK/orig"
 for f in $MUTABLE; do
     mkdir -p "$WORK/orig/$(dirname "$f")"
@@ -143,6 +143,9 @@ expect_problem "a duplicate alias" "alias PB1 is used more than once"
 
 reg "$(sel $TK).aliases = [\"$G\"]"
 expect_problem "an alias equal to an id" "$TK: alias $G is also an id"
+
+reg "$(sel $RS).guards = [\"deploy\"]"
+expect_problem "a guard outside the vocabulary" "$RS: guard \"deploy\" is not in the vocabulary"
 
 reg "$(sel $RS).guards = [\"none\", \"push\"]"
 expect_problem "none mixed with another guard" "$RS: none is mixed with other guards"
@@ -278,6 +281,53 @@ expect_problem "an rf_require_any call with no marker" "calls rf_require_any wit
 
 { sed '/^RULE_IDS_ANY_ACTIVE=/d' "$WORK/orig/$PS"; echo 'RULE_IDS_ANY_ACTIVE=yes'; } > "$S/$PS"
 expect_problem "a malformed any-active marker" "malformed RULE_IDS_ANY_ACTIVE line"
+
+# The hook's RULE_IDS line is read like a gate script's. Its suite's own
+# RULE_IDS=$(...) line is not a declaration: the unaltered copy carries it and
+# passes.
+HK=hooks/pre-action-deny.sh
+sed 's#^\(RULE_IDS="pr-body/conventional-title\)#\1 pr-body/not-registered#' "$WORK/orig/$HK" > "$S/$HK"
+expect_problem "an unregistered RULE_IDS id in a hook script" "$HK:42: RULE_IDS names pr-body/not-registered, which is not"
+
+# ---------------------------------------------------------------- hook links
+
+P=commit/no-ai-trailer
+
+reg "$(sel $G).deny = \"$HK\""
+expect_problem "a deny that is not an object" "$G: deny is not an object"
+
+reg "$(sel $G).deny = {\"before\": [\"pr-create\"]}"
+expect_problem "a deny with no hook" "$G: deny.hook is not a path"
+
+reg "$(sel $G).deny.hook = \"../outside.sh\""
+expect_problem "a deny naming an unsafe path" "$G: deny.hook [../outside.sh] is unsafe"
+
+reg "$(sel $G).deny.hook = \"hooks/no-such-hook.sh\""
+expect_problem "a deny naming a missing file" "$G: deny.hook hooks/no-such-hook.sh does not exist"
+
+reg "$(sel $P).deny.before = []"
+expect_problem "a deny with an empty before" "$P: deny.before is not a non-empty list"
+
+reg "$(sel $P).deny.before = \"push\""
+expect_problem "a deny whose before is not a list" "$P: deny.before is not a non-empty list"
+
+reg "$(sel $P).deny.before = [\"push\", \"deploy\"]"
+expect_problem "a deny before an unprotected action" "$P: deny.before \"deploy\" is not a protected action"
+
+reg "$(sel $P).deny.before = [\"none\"]"
+expect_problem "a deny before none" "$P: deny.before \"none\" is not a protected action"
+
+reg "del($(sel $P).deny)"
+expect_problem "a hook's RULE_IDS id with no deny" "$HK:42: RULE_IDS names $P, whose registry entry has no deny naming $HK"
+
+reg "$(sel $P).deny.hook = \"skills/work-on/scripts/check-branch-output.sh\""
+expect_problem "a deny naming another script" "$HK:42: RULE_IDS names $P, whose registry entry has no deny naming $HK"
+
+reg "$(sel commit/conventional-subject).deny = {\"hook\": \"$HK\", \"before\": [\"push\"]}"
+expect_problem "a deny whose script does not list the id" "commit/conventional-subject: deny names $HK, whose RULE_IDS line does not list it"
+
+sed 's#^RULE_IDS="\(.*\) commit/no-ai-trailer"$#RULE_IDS="\1"#' "$WORK/orig/$HK" > "$S/$HK"
+expect_problem "an id dropped from the hook's RULE_IDS line" "$P: deny names $HK, whose RULE_IDS line does not list it"
 
 # ---------------------------------------------------------------- releasable
 

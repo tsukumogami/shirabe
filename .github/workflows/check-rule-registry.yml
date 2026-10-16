@@ -10,6 +10,9 @@ name: Check rule registry
 # The paths filter is broad on purpose. A rule's text can live in any of
 # these, and scripts/check-rule-registry.sh fails when an active entry's
 # text.path falls outside them, so an edit to a rule always runs the check.
+# hooks/ holds the plugin hook's RULE_IDS line, which the registry's `deny`
+# fields are checked against, and crates/ the evaluator that reads the
+# registry at run time.
 # Keep the filter to literal paths and a trailing /**: the check matches
 # globs as a path or a directory prefix, not with GitHub's full syntax.
 
@@ -19,6 +22,8 @@ on:
       - 'references/**'
       - 'skills/**'
       - 'scripts/**'
+      - 'hooks/**'
+      - 'crates/**'
       - 'docs/guides/**'
       - 'docs/designs/current/DESIGN-output-gates.md'
       - 'docs/measurement/offload-baseline/template-pin.json'

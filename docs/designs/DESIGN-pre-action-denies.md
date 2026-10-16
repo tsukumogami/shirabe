@@ -251,7 +251,9 @@ closed), takes the remote from the first positional word or
 `--branches`, `--tags` or `--mirror`, or from the current branch. It
 resolves the remote when none is given from `branch.<b>.pushRemote`,
 `remote.pushDefault`, `branch.<b>.remote`, then `origin`, through `git
-config --get`. A source word starting with `-` fails closed; each
+config --get`. A push word holding an expansion, a glob character or a
+brace list fails closed, since the shell would rewrite it before git
+saw it. A source word starting with `-` fails closed; each
 other source is resolved with `git rev-parse --verify --quiet
 --end-of-options <src>^{commit}`, and only a 40- or 64-character
 hexadecimal answer is accepted. The commits come from two plumbing
@@ -266,9 +268,12 @@ with `--remotes` alone when the remote has no tracking refs (`git
 for-each-ref --count=1 refs/remotes/<remote>/` prints nothing) or isn't
 a configured remote. The ids on `rev-list`'s command line are the
 hexadecimal ids `rev-parse` returned, never the words the agent typed,
-so nothing there can be read as an option. A remote name outside
-`^[A-Za-z0-9._-]+$` fails closed rather than reach `--remotes=`, where it
-would be a glob. 1,001 ids means the bound is passed. `cat-file
+so nothing there can be read as an option. A remote word outside
+`^[A-Za-z0-9._-]+$` never reaches `--remotes=`, where it would be a glob:
+it is read as a URL or a path and checked against every remote with
+`--remotes` alone, and it fails closed only when `remote.<word>.url` is
+configured, a named remote whose name the check can't pass on. 1,001 ids
+means the bound is passed. `cat-file
 --batch` returns each raw commit object with its length in a header, so
 no byte in a message can break the framing, and the check splits the
 message from the headers at the first blank line and caps the total at
@@ -411,7 +416,9 @@ pr-body/conformance commit/no-ai-trailer"`. The checker gains a check:
 file and whose `before` is a non-empty list of protected actions; every
 id on a hook script's RULE_IDS line has a `deny` naming that script; and
 every `deny` names a script whose line lists the id. Its RULE_IDS scan
-extends to `hooks/`. A Rust test reads the script's RULE_IDS line and
+extends to `hooks/`, leaving out the hooks' `*_test.sh` suites, whose
+own `RULE_IDS=$(...)` line reads the script's rather than declaring
+one. A Rust test reads the script's RULE_IDS line and
 asserts it equals the evaluator's rule table, so the code, the script
 and the registry can't drift apart. `references/rule-registry.md`
 documents the field.
@@ -625,10 +632,13 @@ niwa host, in parallel:
   entries or at `~/.shirabe/bin/shirabe`, pipes the saved input into
   `shirabe pre-action-hook --plugin-root <root> --rules "<its RULE_IDS
   line>"`, and checks its exit status and that its output is empty or
-  one line starting with the exact deny prefix. The binary is started
-  as a background job beside a 26-second watchdog that kills it, so a
-  binary that hangs before its own deadline starts still ends inside
-  Claude Code's 30 seconds; a killed binary is one that can't run. The
+  one line starting with the exact deny prefix and ending with `"}}`.
+  The binary is started as a background job beside a 26-second watchdog,
+  both under `set -m` so each runs in its own process group, and the
+  watchdog kills the binary's whole group, so a binary that hangs before
+  its own deadline starts still ends inside Claude Code's 30 seconds and
+  no child it started can hold the output pipe open past that; a killed
+  binary is one that can't run. The
   `--rules` value is the version handshake: a binary that doesn't check
   every rule listed there exits non-zero, so a binary older than the
   plugin fails closed even when it knows the subcommand. On anything
@@ -637,14 +647,18 @@ niwa host, in parallel:
   characters by `sed` and a backslash-newline turned into a space (a
   newline in the command reaches the script as the two characters
   `\n`, which would otherwise glue `git` to the word before it),
-  lowercased, matched with `grep -E`
-  for `(^|[^a-z0-9_-])gh([^a-z0-9_-].*)?[^a-z0-9_-]pr[^a-z0-9_-](.*[^a-z0-9_-])?(create|edit)([^a-z0-9_-]|$)`
-  and the `git` ... `push` equivalent. On a match it prints a constant
+  lowercased and split one word per line by `tr` on every character
+  outside `[a-z0-9_-]`, then read by `awk` for `gh`, a later `pr` and a
+  later `create` or `edit`, or `git` and a later `push`. That is the
+  binary's own reading and takes time linear in the input; a single
+  `grep -E` with `.*` between the words is quadratic on a few megabytes
+  of `gh` and `pr`, and `hooks/testdata/coarse-cases.tsv` holds the two
+  readings to the same answers. On a match it prints a constant
   deny built with `printf`, naming the binary as missing or older than
   the plugin, the install command, the ids from its `RULE_IDS` line, and
   asking the agent to ask the user; else nothing. It always exits 0.
   Declares `RULE_IDS="..."` (Decision 5).
-- **`crates/shirabe/src/pre_action/mod.rs`.** `run_plugin(root)` and
+- **`crates/shirabe/src/pre_action/mod.rs`.** `run_plugin(root, rules)` and
   `run_legacy()` entry points; `evaluate(input, ctx) -> Option<String>`
   (the deny reason) with `ctx` carrying the rule set, the registry
   source, the canary probe, the settings probe, the environment and the
@@ -675,8 +689,9 @@ niwa host, in parallel:
   drives so a `cd` inside `( )` ends when the group closes), skips
   `NAME=value`, redirection and reserved words before the head, and
   returns each
-  guarded segment as `Gh { words_after_action, action, dir }` or `Git {
-  words_after_push, dir, git_c_dirs }`, or a fail-closed case for an
+  guarded segment as `Gh(GhSegment { action, words, dir, index })` or
+  `Push(PushSegment { words, dir, index })`, with `-C` paths already
+  applied to a push's `dir`, or a fail-closed case for an
   unlisted global option, a wrapped guarded command, or an earlier
   segment that changes what the guarded one checks (Decision 6). Heads
   compare by their last path component.
@@ -738,19 +753,33 @@ pub struct PrBodyFinding { pub line: usize, pub code: &'static str, pub message:
 pub fn is_attribution_line(line: &str) -> bool;
 
 // shirabe::pre_action
-pub enum RuleSet { All, PrBodyOnly }
+pub enum RuleSet { All, PrBodyOnly, PushOnly }
 pub enum RegistrySource { PluginRoot(PathBuf), Embedded }
 pub struct Ctx<'a> {
     pub rules: RuleSet,
     pub registry: RegistrySource,
     pub canary_opted_in: &'a dyn Fn() -> bool,
-    pub legacy_wired: &'a dyn Fn(&Path) -> bool,
+    pub legacy_wired: &'a dyn Fn() -> bool,
     pub git: &'a dyn GitRunner,
     pub git_budget: Duration,
 }
 pub fn evaluate(input: &str, ctx: &Ctx) -> Option<String>; // the reason
-const RULES: &[&str] = &[ /* equals the script's RULE_IDS line */ ];
+pub const RULES: &[&str] = &[ /* equals the script's RULE_IDS line */ ];
+
+// shirabe::pre_action::classify
+pub struct PushSegment { pub words: Vec<Word>, pub dir: PathBuf, pub index: usize }
+
+// shirabe::pre_action::reason
+pub fn render(actions: &[Action], broken: &[Broken], fails: &[FailClosed]) -> String;
 ```
+
+`PushOnly` is the plugin hook's set when it leaves the PR-body rules to
+another entry point (`PR_BODY_HOOK_DISABLE`, or a host whose settings
+wire `shirabe pr-body-hook`). `legacy_wired` takes no argument: the
+probe reads only the environment. `PushSegment.words` keeps each word's
+quoting so the push check can refuse one the shell would rewrite, and
+`render` takes every guarded action in the command so one header names
+them all.
 
 Reason text, per broken rule and per fail-closed case:
 

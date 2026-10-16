@@ -913,3 +913,19 @@ fn the_rule_table_is_the_pr_rules_then_the_push_rules() {
         reg.range(reg.entry(id).unwrap()).unwrap();
     }
 }
+
+/// The plugin script passes its `RULE_IDS` line as `--rules`, and
+/// scripts/check-rule-registry.sh holds that line to the registry's `deny`
+/// fields; this holds it to the table, so the three can't drift apart.
+#[test]
+fn the_rule_table_is_the_hook_scripts_rule_ids_line() {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../hooks/pre-action-deny.sh");
+    let script = std::fs::read_to_string(&path).expect("hooks/pre-action-deny.sh");
+    let lines: Vec<&str> = script
+        .lines()
+        .filter_map(|l| l.strip_prefix("RULE_IDS=\""))
+        .collect();
+    assert_eq!(lines.len(), 1, "one RULE_IDS line in {}", path.display());
+    let ids = lines[0].strip_suffix('"').expect("a closing quote");
+    assert_eq!(ids.split(' ').collect::<Vec<_>>(), RULES);
+}

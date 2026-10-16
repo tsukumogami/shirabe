@@ -49,6 +49,13 @@ PB3 there, and it denies PB4 on every other host. The koto gate holds the
 run on a PB4 finding, and the PR-body CI check, a required status check on
 shirabe's `main`, keeps the pull request from merging while it fails.
 
+The same exception holds in the plugin's own pre-action hook,
+`hooks/pre-action-deny.sh`, which runs `shirabe pre-action-hook` and shares
+the evaluator with `shirabe pr-body-hook`. It reads the same opt-in file, so
+on an opted-in host it lets a `gh pr create` or `gh pr edit` through on PB4
+alone and still denies it for PB1 to PB3; on every other host it denies PB4
+too.
+
 ## Turning it on for a host
 
 Create the opt-in file with `on` as its first line:
