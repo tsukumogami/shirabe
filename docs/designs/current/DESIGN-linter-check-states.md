@@ -276,13 +276,12 @@ What counts as prose is decided once, for both checks. PB5 does no span
 filtering of its own: it hands the body's `prose::prose_spans` to the same
 span-level matcher FC10 calls, so any exclusion added to that path applies to
 documents and pull requests alike. Quoted text is the case in view: a pull
-request body quotes rulings and review comments, and shirabe#869 proposes
-that FC10 skip blockquotes and double-quoted text, because a quotation can't
-honestly be reworded. That change, made in the shared path, covers PB5 with
-no PB5 change. A parity test pins it: for the same body, PB5's term hits and
-FC10's are the same, blockquoted and double-quoted words included, so the
-two can't drift apart. Until #869 lands, a quoted banned word is reported in
-both, and putting the quotation in inline code is the way through.
+request body quotes rulings and review comments, and shirabe#869 made FC10
+skip blockquotes and double-quoted text, because a quotation can't honestly
+be reworded. That change, made in the shared path, covers PB5 with no PB5
+change. A parity test pins it: for the same body, PB5's term hits and FC10's
+are the same, blockquoted and double-quoted words included, so the two can't
+drift apart.
 
 Both parts of the body are checked, on purpose: Part 2 is still prose
 shirabe publishes on the pull request. A reviewer note that needs to quote a

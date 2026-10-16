@@ -51,8 +51,9 @@
 //! count only when they pair on one source line: a straight `"` with the
 //! next straight `"`, or a curly opening quote with the next curly closing
 //! one. Pairing runs over the line's spans joined, so a quote around
-//! emphasis or a code span still pairs, and a lone mark (an inch sign, a
-//! quote left open) quotes nothing.
+//! emphasis or a code span still pairs. A straight mark right after a letter
+//! or digit (an inch sign) never opens a quote, and a quote left open quotes
+//! nothing. Single quotes don't count, because `'` is also the apostrophe.
 //!
 //! ## Two selections over one parse
 //!
@@ -266,6 +267,13 @@ fn mark_double_quotes(spans: &mut [ProseSpan]) {
 /// quotes: a straight `"` closed by the next straight `"`, or a curly `“`
 /// closed by the next `”`. An opening mark with no close after it is skipped.
 ///
+/// A straight `"` right after a letter or digit doesn't open a quote: that is
+/// an inch or seconds mark (`a 5" screen`), and taking it as an opener would
+/// pair it with the next real quote and exempt the author's own words in
+/// between. Single quotes are left out on purpose: `'` is also the
+/// apostrophe, and pairing two of them would exempt the text between two
+/// contractions.
+///
 /// Linear in `s`: once a search for a closing mark fails, no later opening
 /// mark of that kind can find one either, so it is not searched for again. A
 /// line of a million unclosed curly quotes would otherwise rescan the rest of
@@ -278,11 +286,14 @@ fn double_quoted_ranges(s: &str) -> Vec<Range<usize>> {
     let mut ranges = Vec::new();
     let mut straight_unclosed = false;
     let mut curly_unclosed = false;
+    let mut prev: Option<char> = None;
     let mut i = 0;
     while let Some(c) = s[i..].chars().next() {
         let after_open = i + c.len_utf8();
+        let after_word = prev.is_some_and(char::is_alphanumeric);
+        prev = Some(c);
         let (close, unclosed) = match c {
-            STRAIGHT if !straight_unclosed => (STRAIGHT, &mut straight_unclosed),
+            STRAIGHT if !straight_unclosed && !after_word => (STRAIGHT, &mut straight_unclosed),
             CURLY_OPEN if !curly_unclosed => (CURLY_CLOSE, &mut curly_unclosed),
             _ => {
                 i = after_open;
@@ -294,6 +305,7 @@ fn double_quoted_ranges(s: &str) -> Vec<Range<usize>> {
                 let end = after_open + rel + close.len_utf8();
                 ranges.push(i..end);
                 i = end;
+                prev = Some(close);
             }
             None => {
                 *unclosed = true;
@@ -732,6 +744,17 @@ mod tests {
         assert!(seen.contains("robust"), "got: {seen}");
         assert!(seen.contains("tier"), "got: {seen}");
         assert!(seen.contains("facilitate"), "got: {seen}");
+    }
+
+    #[test]
+    fn an_inch_mark_does_not_pair_with_a_later_quote() {
+        // The inch mark follows a digit, so it opens nothing: the author's
+        // own word after it stays checked and the real quote still pairs.
+        let body = lines("A 5\" screen is robust and \"tier\" here.");
+        let spans = prose_spans(&body, 1);
+        let seen = unquoted(&spans);
+        assert!(seen.contains("robust"), "got: {seen}");
+        assert!(!seen.contains("tier"), "got: {seen}");
     }
 
     #[test]
