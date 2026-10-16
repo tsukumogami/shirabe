@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '**/*.sh'
+      - 'scripts/check-pipe-readers.cases'
       - '.github/workflows/check-pipe-readers.yml'
 
 jobs:

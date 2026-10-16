@@ -27,9 +27,14 @@
 # sourced into shells that do, and a script gains it later.
 #
 # Not seen, and left to review: a writer whose arguments hold a `|`, `;`, `&&`
-# or a command substitution (`echo "$(cmd)" | grep -q x`), a reader reached
-# through a variable or a function, and writers other than the three (git, jq,
-# sed and the like).
+# or a command substitution (`echo "$(cmd)" | grep -q x`); a line that ends
+# in `|` with the reader on the next; a reader behind a prefix
+# (`LC_ALL=C grep -q`, `command grep`, `/usr/bin/grep`) or reached through a
+# variable or a function; a writer in a `{ ...; }` group; a grep whose quiet
+# flag comes after a pattern holding `|`, `;`, `&` or `)`; and writers other
+# than the three (git, jq, sed and the like). A quiet flag's spelling inside
+# a quoted pattern (`grep -c "a -m"`) can be read as the flag; that errs
+# toward a finding.
 #
 # Usage:
 #   scripts/check-pipe-readers.sh             every tracked *.sh in the repository
