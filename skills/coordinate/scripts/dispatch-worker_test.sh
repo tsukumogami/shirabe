@@ -965,6 +965,14 @@ eq  "imported: no launch, no brief" "0 none" "$(grep -c '^niwa dispatch' "$ST/ca
 run --releg-imported plugin-api >/dev/null 2>&1; eq "imported: a re-run after it finished exits 0" 0 "$?"
 eq  "  ... and attaches nothing again" 0 "$(attaches)"
 
+# Killed after the request opened but before the key named it: the re-run
+# abandons that stray request and opens its own.
+imp_setup
+printf '{"requests":[{"request_id":"req_7","coordinator_of_record":"coordinate-plugin-api","request_state":"open"}]}\n' >"$ST/open_requests.json"
+run --releg-imported plugin-api >/dev/null 2>&1; eq "crash: killed before releg-pending, a re-run finishes: exit 0" 0 "$?"
+has "  ... abandoning the request the interrupted run left" "$(calls)" "koto request abandon-request req_7"
+eq  "  ... and attaching once, to its own" 1 "$(attaches)"
+
 # Killed after the pending request was written: a re-run attaches it once.
 imp_setup
 jq -nc '{request_id: "req_1", request_state: "open", legs: {deliver: {name: "deliver", disposition: "open", bound_child: null}}}' >"$ST/requests/req_1.json"

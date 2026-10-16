@@ -145,10 +145,13 @@
 # with the bound child's session name recorded (wait-target.sh writes it), and
 # that session must be on this host, bound to no open leg here, compiled from
 # one of the templates the holding's entry point admits, and holding the
-# pinned inputs the key declared. The template set and the pinned variables
-# are recomputed from the holding's entry point, never read from the key;
-# koto's `request attach` checks the child against the new request's
-# declaration again. The steps, each idempotent: open the new request and
+# pinned inputs the key declared. The leg's name, its template set and the
+# names of its pinned variables are recomputed from the holding's entry
+# point, never read from the key. The pinned values do come from the key,
+# which recorded them at dispatch: they were taken from the brief's
+# positional argument (a topic slug or a PLAN's slug), which no holding cell
+# carries. The child's own variables must equal them, and koto's `request
+# attach` checks the child against the new request's declaration again. The steps, each idempotent: open the new request and
 # write it into the old key as `releg-pending`; attach the child; write the
 # new key `open` (from the old request); rewrite the holding's return path;
 # mark the old key `relegged`. A re-run finds whichever step is missing and
@@ -657,6 +660,18 @@ if [ -n "$IMPORTED" ]; then
         esac
     fi
     if [ -z "$NEW" ]; then
+        # A request an earlier run opened under this topic and was stopped
+        # before it recorded is named by no key: abandon it, so the one this
+        # run opens is the topic's only open request here.
+        LEFT=$("$KOTO" request list --coordinator-of-record "coordinate-$TOPIC" --state open </dev/null) ||
+            die 2 "koto request list failed for $TOPIC"
+        while IFS= read -r old; do
+            [[ $old =~ $RE_REQ ]] || continue
+            "$KOTO" request abandon-request "$old" --rationale "left by an interrupted re-leg of $TOPIC" </dev/null >/dev/null ||
+                die 2 "could not abandon the open request $old for $TOPIC"
+        done <<EOF
+$(jq -r --arg c "coordinate-$TOPIC" '(.requests // [])[] | select(.coordinator_of_record == $c and .request_state == "open") | .request_id' <<<"$LEFT")
+EOF
         DATA=$(jq -nc --arg leg "$LEG" --arg t "$TEMPLATES" --argjson in "$INPUTS" \
             '{legs: [{name: $leg, role: $leg, template: ($t | split(",") | if length == 1 then .[0] else . end), inputs: $in}]}')
         OUT=$("$KOTO" request create --with-data "$DATA" --requested-by "$SESSION" \
