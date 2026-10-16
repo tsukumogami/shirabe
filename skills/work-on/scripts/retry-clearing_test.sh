@@ -313,11 +313,15 @@ to_qa() {
 # its poll gate waits for the result, re-checking every 15 seconds. Starting
 # the runner for the session first, and waiting for its result, lets the tick
 # that enters the state settle at once.
+# The wait is bounded by wall time, not a count of sleeps (shirabe#866):
+# on a loaded host the detached runner can take longer than the 200 short
+# sleeps a quiet one needed, and the tick that enters verification then finds
+# its gate pending.
 prestart_verification() {
-    local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f i=0
+    local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f end=$((SECONDS + ${VERIFY_WAIT_SECS:-180}))
     "$rv" --start --session "$1" >/dev/null 2>&1
     f=$("$rv" --locate --session "$1" 2>/dev/null | sed -n 3p)
-    while [ -n "$f" ] && [ ! -f "$f" ] && [ "$i" -lt 200 ]; do sleep 0.1; i=$((i + 1)); done
+    while [ -n "$f" ] && [ ! -f "$f" ] && [ "$SECONDS" -lt "$end" ]; do sleep 0.2; done
 }
 
 # A passed QA round enters verification, which koto settles and routes on: to

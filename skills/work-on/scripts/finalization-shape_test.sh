@@ -129,15 +129,36 @@ pass_panel() {
 # waits for the result, re-checking every 15 seconds. Starting the runner for
 # the session before the tick that enters the state, and waiting for its
 # result, lets that tick settle at once.
+#
+# The waits are bounded by wall time, not by a count of sleeps (shirabe#866).
+# A count of 200 short sleeps came to about 20 seconds on a quiet host; on a
+# loaded one the detached runner could take longer to write its result, the
+# tick then found the gate pending, and the run stayed at verification.
+# VERIFY_WAIT_SECS is the budget for each wait: generous, since a quiet host
+# never comes near it.
+VERIFY_WAIT_SECS=${VERIFY_WAIT_SECS:-180}
 prestart_verification() {
-    local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f i=0
+    local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f end=$((SECONDS + VERIFY_WAIT_SECS))
     "$rv" --start --session "$1" >/dev/null 2>&1
     f=$("$rv" --locate --session "$1" 2>/dev/null | sed -n 3p)
-    while [ -n "$f" ] && [ ! -f "$f" ] && [ "$i" -lt 200 ]; do sleep 0.1; i=$((i + 1)); done
+    while [ -n "$f" ] && [ ! -f "$f" ] && [ "$SECONDS" -lt "$end" ]; do sleep 0.2; done
 }
 
-# Walk a fresh session to finalization. The overrides skip gates that read a
-# real GitHub issue and a real baseline.
+# settle_verification <session>: while the run still waits at verification
+# (its result came after the tick that entered the state), tick again until it
+# moves on or the budget runs out. The gate's own 15-second re-check is never
+# waited on: each tick reads the result as it now stands.
+settle_verification() {
+    local end=$((SECONDS + VERIFY_WAIT_SECS))
+    while [ "$NEXT_STATE" = verification ] && [ "$SECONDS" -lt "$end" ]; do
+        sleep 1
+        NEXT_RESPONSE=$(koto next "$1" 2>/dev/null)
+        NEXT_STATE=$(printf '%s' "$NEXT_RESPONSE" | sed -n 's/.*"state":"\([^"]*\)".*/\1/p')
+    done
+}
+
+# to_finalization <session> [late]: walk a fresh session to finalization. The
+# overrides skip gates that read a real GitHub issue and a real baseline.
 to_finalization() {
     koto init "$1" --template "$TEMPLATE" \
         --var ARTIFACT_PREFIX=issue_42 \
@@ -160,8 +181,11 @@ to_finalization() {
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$1" '{"issue_type":"code"}'
     pass_panel "$1" scrutiny completeness justification intent
     pass_panel "$1" review pragmatic architect maintainer
-    prestart_verification "$1"
+    # late: skip the prestart, so the result comes after the tick that enters
+    # verification, as on a loaded host.
+    [ "${2:-}" = late ] || prestart_verification "$1"
     pass_panel "$1" qa tester
+    settle_verification "$1"
     [ "$NEXT_STATE" = finalization ] || { fail "$1: could not reach finalization; landed at [$NEXT_STATE]"; return 1; }
 }
 
@@ -322,6 +346,12 @@ if to_finalization reject; then
     else
         fail "rejected: expected done_blocked, got [$NEXT_STATE]"
     fi
+fi
+# The verification result arriving after the tick that enters the state, as it
+# does on a loaded host (shirabe#866): the run waits there, and re-ticking
+# reaches finalization once the result is in.
+if to_finalization late late; then
+    pass "a verification result after the entering tick still reaches finalization"
 fi
 
 echo "--- Case 7/8: the early gates match the backstop, which still routes to done_blocked"
