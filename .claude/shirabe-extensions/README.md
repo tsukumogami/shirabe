@@ -53,7 +53,7 @@ and **fails closed** (never reads as "verified").
 ### `--changed`: the suites a change touches
 
 A skill opts in with a `check-skill.tsv` beside its `SKILL.md`; a skill without one runs
-every suite under `--changed` too. `skills/coordinate/check-skill.tsv` is the only one
+every suite under `--changed` too, short of a change only to `evals/` (below). `skills/coordinate/check-skill.tsv` is the only one
 today. For an opted-in skill, `--changed` diffs the branch against its merge-base with the
 default branch, the gate's own base, and classifies each changed path:
 
@@ -63,12 +63,17 @@ default branch, the gate's own base, and classifies each changed path:
   skill's other scripts that name it. Engine suites (`*_engine_test.sh`) run only when no
   unit suite names any of them, so a script that only an engine suite tests still gets
   tested;
+- a path under any skill's `evals/` runs the suites that can read it: those that name
+  `evals`, directly or through one of the skill's scripts that does, and those that list
+  files (`find`, `grep -r`, `git ls-files`). The eval harness is what reads `evals/`, so
+  a change to it alone runs few suites or none. This holds for a skill without
+  `check-skill.tsv` too, when every changed path is under an `evals/`;
 - everything else runs every suite: a shared script, anything under a subdirectory of
   `scripts/` (testdata and the test libraries), a koto template, the skill's Markdown and
-  data files, `check-skill.tsv` itself, a deleted file, and any path outside the skill,
-  `scripts/check-skill.sh` included. So do a change with no merge-base and a branch with
-  no changes. Markdown and data files run everything because suites read them by glob as
-  well as by name (`references/`, `SKILL.md`, `requires.tsv`, `evals.json`), which name
+  data files, `check-skill.tsv` itself, a deleted file, and any other path outside the
+  skill, `scripts/check-skill.sh` included. So do a change with no merge-base and a
+  branch with no changes. Markdown and data files run everything because suites read them
+  by glob as well as by name (`references/`, `SKILL.md`, `requires.tsv`), which name
   matching can't see.
 
 Callers are followed one level only. A suite that reaches a changed script only through

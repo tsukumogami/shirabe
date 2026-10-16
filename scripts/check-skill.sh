@@ -47,10 +47,17 @@
 # --no-renames <merge-base>` plus untracked files, where the merge-base is
 # HEAD's with the default branch (origin/HEAD's target, else origin/main,
 # else main), as the verification gate computes it. Selection is opt-in: a
-# skill with no check-skill.tsv runs every suite. Otherwise each changed path
-# is classified, and any path that selects every suite settles the run:
+# skill with no check-skill.tsv runs every suite, unless every changed path is
+# under an evals/ (the rule below). Otherwise each changed path is classified,
+# and any path that selects every suite settles the run:
 #   - nothing changed, or no merge-base: every suite;
-#   - a path outside skills/<skill>/: every suite;
+#   - a path under any skill's evals/ (skills/<name>/evals/): the suites
+#     that can read it, which are those that name evals, directly or through
+#     one of the skill's scripts/*.sh and *.jq files that does, and those
+#     that list files (find, grep -r, git ls-files). The eval harness reads
+#     evals/, the script suites mostly don't, so a change to it alone runs
+#     few suites, or none;
+#   - any other path outside skills/<skill>/: every suite;
 #   - a path under a subdirectory of scripts/ (testdata, test libraries):
 #     every suite;
 #   - scripts/<name>_test.sh: that suite;
@@ -306,13 +313,36 @@ callers_of() {
     done
 }
 
+# evals_readers: the suites that can read a skill's evals/ (shirabe#851), one
+# per line: those that name evals, directly or through one of the skill's
+# scripts/*.sh and *.jq files that does, and those that list files (find,
+# grep -r, git ls-files), which read whatever the tree holds.
+evals_readers() {
+    local helpers
+    helpers=$(grep -lF evals "$SKILL_DIR"/scripts/*.sh "$SKILL_DIR"/scripts/*.jq 2>/dev/null \
+        | grep -v '_test\.sh$' | sed 's|.*/||')
+    {
+        grep -lE 'evals|find |grep -[A-Za-z]*r|ls-files' "${suites[@]}"
+        [ -z "$helpers" ] || grep -lF -f - "${suites[@]}" <<<"$helpers"
+    } | sort -u
+}
+
 # select_suites: sets SELECTED (suite paths, newline-separated, possibly with
 # repeats) or ALL_REASON, which means every suite runs.
 SELECTED=""
 ALL_REASON=""
+READERS=""
+READERS_DONE=""
 select_suites() {
     local paths p name rows sourced shared names hits units engines s
     if [ ! -f "$MAP" ]; then
+        # Without the file, a change only to evals/ still selects, since the
+        # rule needs none of its rows.
+        if [ ${#suites[@]} -gt 0 ] && paths=$(changed_paths) && [ -n "$paths" ] \
+            && ! grep -qv '^skills/[^/]*/evals/' <<<"$paths"; then
+            SELECTED=$(evals_readers)
+            return
+        fi
         ALL_REASON="$SKILL_DIR has no check-skill.tsv"
         return
     fi
@@ -341,6 +371,13 @@ select_suites() {
                 fi
                 SELECTED="$SELECTED
 $p" ;;
+            skills/*/evals/*)
+                if ! grep -q '^skills/[^/]*/evals/' <<<"$p"; then
+                    ALL_REASON="$p is not one of $SKILL_DIR's scripts"; return
+                fi
+                [ -n "$READERS_DONE" ] || { READERS=$(evals_readers); READERS_DONE=1; }
+                SELECTED="$SELECTED
+$READERS" ;;
             "$SKILL_DIR"/scripts/*)
                 name=${p#"$SKILL_DIR"/scripts/}
                 if [ ! -f "$p" ]; then

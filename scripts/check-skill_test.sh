@@ -652,6 +652,39 @@ skills/demo/scripts/two_test.sh"
 expect_listed "selections from several paths add up" \
     "skills/demo/scripts/caller_test.sh skills/demo/scripts/two_test.sh"
 
+# evals/ (shirabe#851): the suites that can read it, none in select_tree.
+select_tree
+run_list "skills/demo/evals/evals.json
+skills/demo/evals/fixtures/plan.md"
+expect_listed "an evals-only change selects no suite when none reads evals/" "" \
+    "selects 0 of 4 suites"
+
+select_tree
+run_list "skills/demo/evals/evals.json
+skills/demo/scripts/caller.sh"
+expect_listed "an evals change beside a script change selects what the script change does" \
+    "skills/demo/scripts/caller_test.sh"
+
+select_tree
+run_list skills/other/evals/evals.json
+expect_listed "another skill's evals/ is classified the same way" "" "selects 0 of 4 suites"
+
+# evals_tree: select_tree plus a suite naming evals/, one that lists files,
+# and one that names fixtures.sh, a script that names evals/.
+evals_tree() {
+    select_tree
+    local d="$ROOT/skills/demo/scripts"
+    printf 'cat "$HERE/../evals/fixtures/plan.md"\n' > "$d/fixtures.sh"
+    printf '# ../evals/fixtures\nexit 0\n' > "$d/reader_test.sh"
+    printf 'find "$HERE/.." -name "*.md"\nexit 0\n' > "$d/lister_test.sh"
+    printf '# fixtures.sh\nexit 0\n' > "$d/uses_test.sh"
+}
+evals_tree
+run_list skills/demo/evals/fixtures/plan.md
+expect_listed "an evals change selects the suites that name evals, list files, or call a script that names evals" \
+    "skills/demo/scripts/lister_test.sh skills/demo/scripts/reader_test.sh skills/demo/scripts/uses_test.sh" \
+    "selects 3 of 7 suites"
+
 # Every way to reach every suite. Each case's reason must be printed too.
 for c in \
     "skills/demo/scripts/lib.sh|is sourced by 2 files" \
@@ -661,6 +694,7 @@ for c in \
     "skills/demo/SKILL.md|is not one of skills/demo's scripts" \
     "scripts/check-skill.sh|is not one of skills/demo's scripts" \
     "skills/other/x.sh|is not one of skills/demo's scripts" \
+    "skills/other/scripts/evals/x.sh|is not one of skills/demo's scripts" \
     "skills/demo/scripts/orphan.sh|no suite names" \
     "skills/demo/scripts/gone.sh|is deleted" \
     "skills/demo/scripts/gone_test.sh|is deleted"; do
@@ -679,6 +713,12 @@ select_tree
 rm "$ROOT/skills/demo/check-skill.tsv"
 run_list skills/demo/scripts/one.sh
 expect_listed "a skill with no check-skill.tsv runs every suite" "$ALL_DEMO" "has no check-skill.tsv"
+run_list skills/demo/evals/evals.json
+expect_listed "  ... but an evals-only change still selects its readers" "" "selects 0 of 4 suites"
+run_list "skills/demo/evals/evals.json
+skills/demo/scripts/caller.sh"
+expect_listed "  ... and an evals change beside any other runs every suite" "$ALL_DEMO" \
+    "has no check-skill.tsv"
 
 new_tree
 run_check_args() {
