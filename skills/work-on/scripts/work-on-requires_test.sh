@@ -68,7 +68,9 @@ done
 
 # A koto without the --koto-leg entry flags: `init --help` knows --template,
 # --var and --attach-live (which every run needs, and which predates the
-# floor); every other subcommand answers with the flags /work-on always needs.
+# floor); every other subcommand answers with the flags /work-on always needs,
+# `decider answer` and its flags included, so the only gap it shows is the
+# entry flags.
 # Its `version` prints $KOTO_STUB_VERSION, so one stand-in covers the surface
 # cases at the minimum and the minimum case below it.
 MINIMUM=$(bash "$REPO/scripts/assert-koto-floor.sh" --print-floor)

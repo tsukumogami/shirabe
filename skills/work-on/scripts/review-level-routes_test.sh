@@ -36,9 +36,9 @@
 #                       shadow the check waits on level_fits_facts, its finding
 #                       and the directive give `koto decider answer`, and the
 #                       agent's pass lets it into scrutiny; at auto the agent's
-#                       fail holds it, a plain raise is asked about afresh, and
-#                       the ledger has no veto line; the log never holds a
-#                       decider verdict for an answer
+#                       fail holds it, a plain raise is asked about afresh, an
+#                       unclear lets it on, and the ledger has no veto line;
+#                       the log never holds a decider verdict for an answer
 #   clearing sites      every retry clearing loop that removes the panels'
 #                       results removes light_results.json too, and none
 #                       names review_level.jsonl
@@ -131,6 +131,9 @@ trap cleanup EXIT
 
 export HOME="$WORKDIR/home"
 mkdir -p "$HOME"
+# No decider unless a case opts in: the level check then behaves as if its
+# decider check weren't declared, which every case but the fallback ones relies on.
+unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT
 export GIT_CONFIG_NOSYSTEM=1
 git config --global user.email t@example.com
 git config --global user.name t
@@ -484,7 +487,7 @@ fi
 
 # Veto (a user at auto): the agent's fail holds the run as a decider's would.
 # The raise it calls for is a plain one, not a veto, and the raised level is a
-# new slice the decider is asked about afresh.
+# new slice the decider is asked about afresh; an unclear answer lets it on.
 S=fallback-veto
 if new_case "$S" "$SMALL"; then
     decider_on auto
@@ -505,9 +508,9 @@ if new_case "$S" "$SMALL"; then
         [ "$(fits status)|$(fits output.awaiting)" = 'pending|["level_fits_facts"]' ] \
             && pass "the raised level is asked about afresh and falls back again" \
             || fail "level_fits_facts is [$(fits status)|$(fits output.awaiting)]"
-        answer "$S" pass
+        answer "$S" unclear
         tick "$S"
-        expect_state "the tick after the agent answered pass at full" scrutiny
+        expect_state "the tick after the agent answered unclear at full" scrutiny
         [ "$(events "$S")" = "bound choose check raise check" ] \
             && pass "the ledger reads bound, choose, check, raise, check: no veto line" \
             || fail "ledger events are [$(events "$S")]"
