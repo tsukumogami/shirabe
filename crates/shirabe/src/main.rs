@@ -104,6 +104,26 @@ enum Commands {
     /// it can't check; nothing otherwise. Always exits 0. Registered via
     /// dot-niwa; the CI `pr-body.yml` gate remains the backstop.
     PrBodyHook,
+    /// The shirabe plugin's PreToolUse hook: deny a `gh pr create` / `gh pr
+    /// edit` breaking a PR-body rule and a `git push` breaking a commit rule
+    /// before it runs, naming each rule from the plugin's registry, and deny a
+    /// guarded command it can't check. Leaves the PR-body rules to `pr-body-hook`
+    /// when the host's settings wire it. Reads a Claude Code hook JSON on
+    /// stdin; exits 0, or 3 when `--rules` names a rule this binary doesn't
+    /// check. Run by the plugin's `hooks/pre-action-deny.sh`.
+    PreActionHook(PreActionHookArgs),
+}
+
+#[derive(clap::Args)]
+struct PreActionHookArgs {
+    /// The plugin's root directory, whose `references/rule-registry.json`
+    /// supplies the rules' summaries and text locations.
+    #[arg(long = "plugin-root", value_name = "DIR")]
+    plugin_root: std::path::PathBuf,
+    /// The rule ids the calling script expects checked, separated by
+    /// whitespace. Naming a rule this binary doesn't check exits 3.
+    #[arg(long = "rules", value_name = "IDS")]
+    rules: String,
 }
 
 #[derive(clap::Args)]
@@ -421,6 +441,9 @@ fn main() -> ExitCode {
         Some(Commands::InstallHooks(args)) => run_install_hooks_cmd(&args),
         Some(Commands::WorkSummary(args)) => work_summary::run(&args.command),
         Some(Commands::PrBodyHook) => pr_body_hook::run(),
+        Some(Commands::PreActionHook(args)) => {
+            pre_action::run_plugin(&args.plugin_root, &args.rules)
+        }
         // Bare invocation: print the long help to stdout and exit 0,
         // matching cobra's behavior for a command with no `Run`. clap would
         // otherwise leave `command` as `None` and exit 0 silently.

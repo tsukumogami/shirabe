@@ -38,17 +38,28 @@ fn evaluate_with(input: &str, canary: impl Fn() -> bool) -> Option<String> {
             rules: RuleSet::PrBodyOnly,
             registry: RegistrySource::Embedded,
             canary_opted_in: &canary,
+            legacy_wired: &|| panic!("the legacy set never asks"),
         },
     )
 }
 
 fn evaluate_all(input: &str, registry: RegistrySource) -> Option<String> {
+    evaluate_plugin(input, registry, || false)
+}
+
+/// The plugin's evaluation, with `wired` as the settings probe.
+fn evaluate_plugin(
+    input: &str,
+    registry: RegistrySource,
+    wired: impl Fn() -> bool,
+) -> Option<String> {
     super::evaluate(
         input,
         &Ctx {
             rules: RuleSet::All,
             registry,
             canary_opted_in: &|| false,
+            legacy_wired: &wired,
         },
     )
 }
@@ -684,6 +695,169 @@ fn a_panic_or_a_hang_fails_closed_on_a_guarded_command_only() {
         decide(plain, RuleSet::PrBodyOnly, Duration::from_millis(100), slow),
         None
     );
+}
+
+#[test]
+fn the_deadline_runner_keeps_the_plugins_rule_sets() {
+    let boom = |_: &str| -> Option<String> { panic!("boom") };
+    let slow = |_: &str| -> Option<String> {
+        std::thread::sleep(Duration::from_secs(5));
+        None
+    };
+    let short = Duration::from_millis(100);
+    let push = hook("git push");
+    let pr = hook("gh pr create --title t --body b");
+    for eval in [boom, slow] {
+        let r = decide(push.clone(), RuleSet::All, short, eval).expect("denies");
+        assert!(r.contains("`git push`"), "{r}");
+        assert!(r.contains("commit/no-ai-trailer"), "{r}");
+        let r = decide(pr.clone(), RuleSet::All, short, eval).expect("denies");
+        assert!(r.contains("pr-body/one-separator"), "{r}");
+        // Under PR_BODY_HOOK_DISABLE the pull request isn't the plugin's.
+        assert_eq!(decide(pr.clone(), RuleSet::PushOnly, short, eval), None);
+        assert!(decide(push.clone(), RuleSet::PushOnly, short, eval).is_some());
+        assert_eq!(decide(hook("ls"), RuleSet::All, short, eval), None);
+    }
+}
+
+// --- the plugin's yield to the legacy entry point (PRD R12) ----------------
+
+/// Every input of the yield tests, a broken rule or a fail-closed case each.
+const YIELD_CASES: &[&str] = &[
+    "gh pr create --title 'feat: x' --body 'Adds x.'",
+    "gh pr create --fill",
+    "gh pr edit 3 --body \"$(date)\"",
+    "sudo gh pr create --title 'feat: x' --body 'Adds x.'",
+];
+
+#[test]
+fn wired_the_plugin_gives_no_decision_on_a_pull_request() {
+    for cmd in YIELD_CASES {
+        let input = hook_in(cmd, Path::new("/r"));
+        assert!(
+            evaluate_plugin(&input, RegistrySource::Embedded, || false).is_some(),
+            "unwired: {cmd}"
+        );
+        assert_eq!(
+            evaluate_plugin(&input, RegistrySource::Embedded, || true),
+            None,
+            "wired: {cmd}"
+        );
+    }
+    // Segment-less cases naming only a pull request.
+    for input in [
+        "not json: gh pr create".to_string(),
+        hook("gh pr create --title 'oops"),
+    ] {
+        assert!(evaluate_plugin(&input, RegistrySource::Embedded, || false).is_some());
+        assert_eq!(
+            evaluate_plugin(&input, RegistrySource::Embedded, || true),
+            None,
+            "{input}"
+        );
+    }
+}
+
+#[test]
+fn wired_the_plugin_still_reports_the_push_cases() {
+    for (cmd, word) in [
+        ("sudo git push", "wrapped"),
+        ("git commit -m x && git push", "same command"),
+        ("git --git-dir=x push", "--git-dir=x"),
+        ("gh pr create --fill && sudo git push", "wrapped"),
+    ] {
+        let r = evaluate_plugin(
+            &hook_in(cmd, Path::new("/r")),
+            RegistrySource::Embedded,
+            || true,
+        )
+        .unwrap_or_else(|| panic!("{cmd} should deny"));
+        assert_fail_closed(&r, word);
+        assert!(r.contains("commit/no-ai-trailer"), "{r}");
+        assert!(!r.contains("pr-body/"), "{cmd}: {r}");
+        assert!(!r.contains("`gh pr"), "{cmd}: {r}");
+    }
+    // A segment-less case naming both keeps only the push.
+    for input in [
+        "not json: gh pr create && git push".to_string(),
+        hook("gh pr create --title x && git push 'oops"),
+    ] {
+        let r = evaluate_plugin(&input, RegistrySource::Embedded, || true).expect("denies");
+        assert!(r.contains("`git push`"), "{r}");
+        assert!(!r.contains("pr-body/"), "{r}");
+    }
+}
+
+#[test]
+fn the_two_entry_points_report_a_broken_rule_once_between_them() {
+    let inputs = [
+        hook(&create("feat: x", BAD)),
+        hook_in(
+            &format!("{} && sudo git push", create("Add x", BAD)),
+            Path::new("/r"),
+        ),
+        "not json: gh pr create && git push".to_string(),
+    ];
+    for input in &inputs {
+        let legacy = evaluate(input).unwrap_or_default();
+        let plugin = evaluate_plugin(input, RegistrySource::Embedded, || true).unwrap_or_default();
+        // A rule is named in a broken-rule block or a fail-closed
+        // paragraph's `guarded by:` line, by one entry point only.
+        for id in RULES {
+            assert!(
+                !(legacy.contains(id) && plugin.contains(id)),
+                "{id} in both:\n{legacy}\n---\n{plugin}"
+            );
+        }
+        assert!(!legacy.is_empty(), "{input}");
+    }
+    let both = evaluate(&inputs[1]).unwrap()
+        + &evaluate_plugin(&inputs[1], RegistrySource::Embedded, || true).unwrap();
+    for id in ["pr-body/conventional-title", "pr-body/one-separator"] {
+        assert_eq!(both.matches(&format!("{id}:")).count(), 1, "{both}");
+    }
+    assert!(both.contains("commit/no-ai-trailer"), "{both}");
+}
+
+#[test]
+fn the_settings_are_read_only_for_a_pull_request_under_the_full_set() {
+    let asked = std::cell::Cell::new(0);
+    let probe = || {
+        asked.set(asked.get() + 1);
+        true
+    };
+    for cmd in [
+        "ls",
+        "echo gh pr create",
+        "git push",
+        "sudo git push",
+        "git commit -m x && git push",
+    ] {
+        let _ = evaluate_plugin(
+            &hook_in(cmd, Path::new("/r")),
+            RegistrySource::Embedded,
+            probe,
+        );
+        assert_eq!(asked.get(), 0, "{cmd}");
+    }
+    let _ = evaluate_plugin(
+        &hook(&create("feat: x", BAD)),
+        RegistrySource::Embedded,
+        probe,
+    );
+    assert_eq!(asked.get(), 1, "asked once per call");
+    // The push-only set (PR_BODY_HOOK_DISABLE) has nothing to yield.
+    let r = super::evaluate(
+        &hook(&create("feat: x", BAD)),
+        &Ctx {
+            rules: RuleSet::PushOnly,
+            registry: RegistrySource::Embedded,
+            canary_opted_in: &|| false,
+            legacy_wired: &probe,
+        },
+    );
+    assert_eq!(r, None);
+    assert_eq!(asked.get(), 1);
 }
 
 #[test]

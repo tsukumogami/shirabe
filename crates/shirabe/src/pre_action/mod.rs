@@ -5,8 +5,10 @@
 //!
 //! Both entry points run it. `shirabe pr-body-hook`, the one niwa wires into
 //! a host's settings, calls [`run_legacy`]: the PR-body rules only, with the
-//! registry compiled into the binary. The plugin's own hook runs it with every
-//! rule and the registry the plugin ships.
+//! registry compiled into the binary. `shirabe pre-action-hook`, the plugin's
+//! own hook, calls [`run_plugin`]: every rule and the registry the plugin
+//! ships, yielding the PR-body rules to the legacy entry point when the
+//! host's settings wire it ([`settings`]).
 //!
 //! The flow, for one hook call: read the input, tokenize the command
 //! ([`tokenize`]), classify its segments ([`classify`]); for each guarded
@@ -26,6 +28,7 @@ pub mod body;
 pub mod classify;
 pub mod reason;
 pub mod registry;
+pub mod settings;
 pub mod tokenize;
 
 use std::io::Read;
@@ -55,8 +58,7 @@ pub const PUSH_RULES: &[&str] = &["commit/no-ai-trailer"];
 
 /// Every rule the evaluator checks, in the order the plugin script's
 /// `RULE_IDS` line lists them. The plugin's entry point compares its
-/// `--rules` list with it; until that entry point exists only tests read it.
-#[allow(dead_code)]
+/// `--rules` list with it.
 pub const RULES: &[&str] = &[
     "pr-body/conventional-title",
     "pr-body/one-separator",
@@ -79,14 +81,17 @@ pub const DEADLINE: Duration = Duration::from_secs(25);
 /// Which rules an entry point checks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuleSet {
-    /// The plugin hook's set; until that entry point exists only tests
-    /// build it.
-    #[allow(dead_code)]
+    /// The plugin hook's set.
     All,
     /// The legacy entry point: every fail-closed case attached to a `gh pr`
     /// segment, and the segment-less cases (malformed input, an unterminated
     /// quote, an oversize input) when the text names a `gh pr` action.
     PrBodyOnly,
+    /// The plugin hook when it leaves the PR-body rules to someone else:
+    /// under `PR_BODY_HOOK_DISABLE`, and on a call where the host wires the
+    /// legacy entry point (PRD R12). The push cases, and the segment-less
+    /// cases when the text names `git` ... `push`.
+    PushOnly,
 }
 
 impl RuleSet {
@@ -94,13 +99,13 @@ impl RuleSet {
         match self {
             RuleSet::All => true,
             RuleSet::PrBodyOnly => matches!(a, Action::Pr(_)),
+            RuleSet::PushOnly => a == Action::Push,
         }
     }
 }
 
 /// What an evaluation reads besides its input, so tests inject each. The
-/// design's settings probe and git runner join it with the plugin's entry
-/// point and the push check.
+/// design's git runner joins it with the push check.
 pub struct Ctx<'a> {
     pub rules: RuleSet,
     pub registry: RegistrySource,
@@ -108,6 +113,27 @@ pub struct Ctx<'a> {
     /// only when there is a PB4 finding to drop, so the common path reads no
     /// file.
     pub canary_opted_in: &'a dyn Fn() -> bool,
+    /// Whether the host's settings wire `shirabe pr-body-hook` (PRD R12).
+    /// Asked only under [`RuleSet::All`] and only when a pull-request action
+    /// is in play, so an unguarded command or a lone push reads no settings.
+    pub legacy_wired: &'a dyn Fn() -> bool,
+}
+
+impl Ctx<'_> {
+    /// The rules this call checks. The plugin's set yields the PR-body rules
+    /// and their fail-closed cases when a pull-request action is in play and
+    /// the legacy entry point, the same evaluator, will report them.
+    fn rules_for(&self, pr_in_play: bool) -> RuleSet {
+        if self.rules == RuleSet::All && pr_in_play && (self.legacy_wired)() {
+            RuleSet::PushOnly
+        } else {
+            self.rules
+        }
+    }
+
+    fn segment_less(&self, named: Named, case: Case) -> Option<String> {
+        segment_less(named, self.rules_for(named.pr), case)
+    }
 }
 
 /// Entry point for `shirabe pr-body-hook`, after its off switches. Always
@@ -121,6 +147,48 @@ pub fn run_legacy() -> ExitCode {
                 rules: RuleSet::PrBodyOnly,
                 registry: RegistrySource::Embedded,
                 canary_opted_in: &canary_opted_in,
+                legacy_wired: &|| false,
+            },
+        )
+    });
+    if let Some(reason) = reason {
+        emit_deny(&reason);
+    }
+    ExitCode::SUCCESS
+}
+
+/// Entry point for `shirabe pre-action-hook --plugin-root <root> --rules
+/// <ids>`, the plugin's hook. `rules` is the plugin script's `RULE_IDS` line
+/// and the version handshake: when it names a rule this binary doesn't
+/// check, the binary is older than the plugin, and it exits 3 so the script
+/// fails closed. Otherwise it exits 0, a block being a `deny` decision on
+/// stdout.
+pub fn run_plugin(root: &Path, rules: &str) -> ExitCode {
+    if hook_off() {
+        return ExitCode::SUCCESS;
+    }
+    if let Some(id) = rules.split_whitespace().find(|id| !RULES.contains(id)) {
+        eprintln!("shirabe pre-action-hook: this binary doesn't check {id}; update shirabe");
+        return ExitCode::from(3);
+    }
+    let rules = if pr_body_disabled() {
+        RuleSet::PushOnly
+    } else {
+        RuleSet::All
+    };
+    let registry = RegistrySource::PluginRoot(root.to_path_buf());
+    let input = read_stdin();
+    // The crash and deadline fallback keeps `rules` and reads no settings: a
+    // host that wires the legacy entry point may then see a fail-closed
+    // paragraph twice, the duplicate R12 prefers to a missing one.
+    let reason = decide(input, rules, DEADLINE, move |input| {
+        evaluate(
+            input,
+            &Ctx {
+                rules,
+                registry,
+                canary_opted_in: &canary_opted_in,
+                legacy_wired: &settings::legacy_wired,
             },
         )
     });
@@ -201,29 +269,37 @@ fn segment_less(named: Named, rules: RuleSet, case: Case) -> Option<String> {
 /// decision.
 pub fn evaluate(input: &str, ctx: &Ctx) -> Option<String> {
     if input.len() > MAX_INPUT {
-        return segment_less(named_in_raw_input(input), ctx.rules, Case::Oversize);
+        return ctx.segment_less(named_in_raw_input(input), Case::Oversize);
     }
     let Ok(v) = serde_json::from_str::<serde_json::Value>(input) else {
-        return segment_less(named_in_raw_input(input), ctx.rules, Case::HookInput);
+        return ctx.segment_less(named_in_raw_input(input), Case::HookInput);
     };
     let Some(command) = v.pointer("/tool_input/command").and_then(|c| c.as_str()) else {
-        return segment_less(named_in_raw_input(input), ctx.rules, Case::HookInput);
+        return ctx.segment_less(named_in_raw_input(input), Case::HookInput);
     };
     let cwd = v.get("cwd").and_then(|c| c.as_str()).map(Path::new);
     let Ok(tok) = tokenize::tokenize(command) else {
-        return segment_less(named_in_text(command), ctx.rules, Case::Quote);
+        return ctx.segment_less(named_in_text(command), Case::Quote);
     };
     let classified = classify(&tok, cwd);
+    let rules = ctx.rules_for(classified.items.iter().any(|i| match i {
+        Item::Gh(_) => true,
+        Item::Fail(f) => matches!(f.action, Action::Pr(_)),
+        Item::Push(_) => false,
+    }));
 
     let mut fails: Vec<FailClosed> = Vec::new();
     let mut checks: Vec<(PrAction, body::Submitted)> = Vec::new();
     for item in &classified.items {
         match item {
             Item::Fail(f) => {
-                if ctx.rules.keeps(f.action) {
+                if rules.keeps(f.action) {
                     fails.push(f.clone());
                 }
             }
+            // A `gh pr` segment left to the legacy entry point: not even its
+            // body file is read.
+            Item::Gh(g) if !rules.keeps(Action::Pr(Some(g.action))) => {}
             Item::Gh(g) => match body::read(g, &tok, &classified) {
                 Ok(s) if s.title.is_none() && s.body.is_none() => {}
                 Ok(s) => checks.push((g.action, s)),
