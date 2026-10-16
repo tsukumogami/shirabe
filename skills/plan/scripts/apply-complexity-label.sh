@@ -108,7 +108,7 @@ main() {
     fi
 
     # Check if failure is due to missing label
-    if echo "$output" | grep -qi "label.*not found\|no such label"; then
+    if grep -qi "label.*not found\|no such label" <<<"$output"; then
         log "Label not found, creating it..."
 
         set +e
@@ -118,7 +118,7 @@ main() {
 
         if [[ $exit_code -eq 0 ]]; then
             log "Label created, retrying application..."
-        elif echo "$output" | grep -q "already exists\|422"; then
+        elif grep -q "already exists\|422" <<<"$output"; then
             # Race condition: another process created the label
             log "Label already exists (race condition), retrying application..."
         else

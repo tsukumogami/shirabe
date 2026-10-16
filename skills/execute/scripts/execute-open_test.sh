@@ -271,7 +271,7 @@ log_len_without_reads() {
     printf '%s\n' "$n" | tr -d ' '
 }
 exists() { k status "$1" >/dev/null 2>&1; }
-line() { printf '%s\n' "$OUT" | grep -qx "$1"; }
+line() { grep -qx "$1" <<<"$OUT"; }
 
 # A fresh run, no flags.
 run_open '["docs/plans/PLAN-fresh.md"]'
@@ -321,7 +321,7 @@ refusal "--merge=yes" '["docs/plans/PLAN-yes.md","--merge=yes"]' invalid_var exe
 refusal "both mode flags" '["docs/plans/PLAN-modes.md","--auto","--interactive"]' duplicate_var execute-modes
 refusal "a slug outside ^[a-z0-9-]+\$" '["docs/plans/PLAN-Bad_Slug.md"]' invalid_var execute-unnamed
 run_open '["docs/plans/PLAN-yes.md","--merge=yes"]'
-if printf '%s' "$ERR" | grep -q 'MERGE'; then
+if grep -q 'MERGE' <<<"$ERR"; then
     pass "the invalid_var wording names the variable"
 else
     fail "invalid_var wording: [$ERR]"
@@ -436,7 +436,7 @@ REQ2=$(k request create --with-data '{"legs":[{"name":"execute","role":"execute"
     --requested-by execute-open-test --coordinator-of-record execute-open-test 2>/dev/null \
     | jq -r 'if type == "object" then (.id // .request_id // .request // "") else . end' 2>/dev/null)
 run_open '["docs/plans/PLAN-legged.md","--koto-leg='"$REQ2"':execute"]'
-if [ "$RC" -eq 0 ] && line 'opened=new' && printf '%s\n' "$OUT" | grep -q '^leg='; then
+if [ "$RC" -eq 0 ] && line 'opened=new' && grep -q '^leg=' <<<"$OUT"; then
     pass "an accepted run under --koto-leg is bound to the leg"
 else
     fail "--koto-leg accepted: exit $RC, out [$OUT]; $ERR"
@@ -520,7 +520,7 @@ if [ "$RC" -eq 2 ] && line 'refused=template_mismatch' && line 'outcome=error' &
 else
     fail "template mismatch: exit $RC, out [$OUT], log $LOG_BEFORE -> $LOG_AFTER; $ERR"
 fi
-if printf '%s' "$OUT" | grep -q "outcome=""refused"; then
+if grep -q "outcome=""refused" <<<"$OUT"; then
     fail "the refusal printed the refused token after outcome="
 else
     pass "the refusal never prints the refused token after outcome="

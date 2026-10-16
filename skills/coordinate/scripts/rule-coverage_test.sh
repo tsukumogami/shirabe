@@ -27,7 +27,7 @@ DTOTAL=16
 MTOTAL=20
 # The record's store and its one reader
 # (docs/designs/DESIGN-coordinator-session-record.md): S1..S$STOTAL.
-STOTAL=7
+STOTAL=15
 PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }
