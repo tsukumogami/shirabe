@@ -519,18 +519,12 @@ else
     fail "pr_status: shared with SHARED_BRANCH unset: want pr_creation, got $STATE ($(head -c 300 <<<"$RESP"))"
 fi
 
-
 # The named check exit (DESIGN-validate-and-return.md): pr_creation,
 # finalization and pr_precheck accept check_unsatisfiable only while their
 # registry gate exits 1, route it to check_exit (a stub terminal here), and set
 # failure_reason on that edge. With the gate at 0 or 2 the submission holds.
-# exit_case <label> <state> <script><arg> <evidence> <want state> [<gate=exit>...]
-exit_case() {
-    local label=$1 state=$2 key=$3 data=$4 want=$5
-    shift 5
-    drive "$state" "" "$data" "$@"
-    expect "$label" "$want"
-}
+# drive names each session og-$N, which is how the failure_reason reads below
+# find the session the case just drove.
 SEED_SUMMARY=1
 for spec in \
     "finalization|check-branch-output.sh--commits|commit_convention|finalization_status" \
@@ -541,16 +535,16 @@ $spec
 EOF
     data="{\"$field\":\"check_unsatisfiable\",\"check_exit_reason\":\"the rule is wrong for this change\"}"
     reset_rc; set_rc "$key" 1
-    exit_case "check_unsatisfiable at $st with $gate at 1" "$st" "$key" "$data" check_exit \
-        on_feature_branch_pr=0 closing_keyword=0
+    drive "$st" "" "$data" on_feature_branch_pr=0 closing_keyword=0
+    expect "check_unsatisfiable at $st with $gate at 1" check_exit
     reason=$(cd "$REPO" && koto context get "og-$N" failure_reason 2>/dev/null)
     [ "$reason" = "check_exit at $st: $gate could not be satisfied: the rule is wrong for this change" ] \
         && pass "check_unsatisfiable at $st sets failure_reason naming the state, the gate and the reason" \
         || fail "check_unsatisfiable at $st: failure_reason [$reason]"
     reset_rc; set_rc "$key" 1
-    exit_case "check_unsatisfiable at $st with an empty reason" "$st" "$key" \
-        "{\"$field\":\"check_unsatisfiable\",\"check_exit_reason\":\"\"}" check_exit \
+    drive "$st" "" "{\"$field\":\"check_unsatisfiable\",\"check_exit_reason\":\"\"}" \
         on_feature_branch_pr=0 closing_keyword=0
+    expect "check_unsatisfiable at $st with an empty reason" check_exit
     reason=$(cd "$REPO" && koto context get "og-$N" failure_reason 2>/dev/null)
     case "$reason" in
         "check_exit at $st: $gate could not be satisfied: "*) pass "an empty reason at $st still names the state and the gate" ;;
@@ -622,6 +616,8 @@ mkdir -p "$LAD_ROOT/skills/work-on/scripts"
 cat > "$LAD_ROOT/skills/work-on/scripts/check-pr-output.sh" <<EOF
 #!/usr/bin/env bash
 undecided() { echo "undecided: \$*" >&2; exit 2; }
+# Indented so check-rule-registry.sh, which reads RULE_IDS lines that start a
+# line, doesn't take this stub for a real gate script.
   RULE_IDS="pr-body/no-heading-in-part1"
 . "$SKILL_DIR/../../scripts/lib/rule-findings.sh" || undecided "no library"
 rf_require pr-body/no-heading-in-part1

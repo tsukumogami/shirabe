@@ -1964,11 +1964,9 @@ states:
   # The named exit's marker state. It passes straight through to done_blocked;
   # its name is what carries a run that took the exit to an exporter such as
   # Datadog (koto's state_entered event has it in koto.state, and no evidence
-  # value is ever exported). failure_reason was set on the edge into it. koto's
-  # compiler warns (W5) that this edge into done_blocked writes no
-  # failure_reason; that is expected: an assignment here would resolve to an
-  # empty value and overwrite the reason the edge in set, as the warning's own
-  # remedy says for a path through an auto-advancing state.
+  # value is ever exported). failure_reason is set on the edge into this state,
+  # so koto's W5 warning that this edge writes none is expected: an assignment
+  # here would resolve to an empty value and overwrite it.
   check_exit:
     transitions:
       - target: done_blocked
@@ -2885,9 +2883,10 @@ lines, not just the one that failed.
 
 **`commit_convention`'s output escalates.** The first time a rule fails here,
 its finding carries the rule's summary. From the second failed evaluation of
-the same rule, the gate's output also carries the rule's full text; from the
-third, a `::shirabe-check-exit::` line says this state's exit is open. koto's
-own count decides each step, not anything you submit. When a commit rule can't
+the same rule, the gate's output also carries the rule's full text, or, where
+that text can't be printed, the file and line range to read; from the third, a
+`::shirabe-check-exit::` line says this state's exit is open. koto's own count
+decides each step, not anything you submit. When a commit rule can't
 be satisfied, take the exit rather than looping: submit
 `finalization_status: check_unsatisfiable` with `check_exit_reason` set to one
 sentence saying why. It is accepted only while `commit_convention` fails on a
