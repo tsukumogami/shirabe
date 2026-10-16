@@ -235,9 +235,12 @@ Claude Code session:
 - The `shirabe` binary -- skills call `shirabe validate` during ordinary runs,
   so install it before you use them (see [Local install](#local-install))
 - [koto](https://github.com/tsukumogami/koto): `/scope`, `/execute`,
-  `/deliver`, `/work-on`, and `/coordinate` require koto 0.15.0 or later.
+  `/deliver`, `/work-on`, and `/coordinate` require koto 0.20.0 or later.
   `.tsuku.toml` tracks the newest koto 0.x rather than pinning a release, so
-  `tsuku install` never downgrades a newer koto you already have. 0.15.0 routes
+  `tsuku install` never downgrades a newer koto you already have. 0.20.0 hands
+  a decider-check criterion the decider couldn't answer back to the agent, who
+  answers it with `koto decider answer`, where an older koto passed it
+  unjudged; `/work-on`'s review-level check relies on it. 0.15.0 routes
   on a template variable's value and runs veto-only decider checks, which
   `/work-on`'s review level uses. 0.14.1 accepts
   `+` in `--var` values, so a plugin or checkout under a directory whose name

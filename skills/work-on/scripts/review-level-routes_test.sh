@@ -32,6 +32,13 @@
 #                       routes until `set` puts the ledger's level back
 #   unset               a session with no level at the check takes all three
 #                       panels and its ledger has an `unset` line
+#   the fallback        an opted-in user whose decider can't answer: in
+#                       shadow the check waits on level_fits_facts, its finding
+#                       and the directive give `koto decider answer`, and the
+#                       agent's pass lets it into scrutiny; at auto the agent's
+#                       fail holds it, a plain raise is asked about afresh, and
+#                       the ledger has no veto line; the log never holds a
+#                       decider verdict for an answer
 #   clearing sites      every retry clearing loop that removes the panels'
 #                       results removes light_results.json too, and none
 #                       names review_level.jsonl
@@ -413,6 +420,103 @@ if new_case "$S" "$SMALL" && choose_and_implement "$S" standard task; then
     expect_visits "$S" review_level_check 0
     [ "$(ledger "$S" | jq -r 'select(.event == "choose") | .to')" = standard ] && pass "the task run recorded its level" \
         || fail "task ledger is [$(ledger "$S")]"
+fi
+
+# ==============================================================================
+echo "--- engine: a decider that can't answer the level check"
+
+# An opted-in user whose decider can't be reached: the endpoint is a port
+# nothing listens on, so every consultation fails and level_fits_facts falls
+# back to the agent (koto 0.20.0). The routing deciders upstream fail the same
+# way and take the agent's evidence, as they always have.
+decider_on() {
+    export KOTO_DECIDER="$1" KOTO_DECIDER_API_KEY=routes-test-key \
+        KOTO_DECIDER_ENDPOINT="http://127.0.0.1:9/v1/systemone"
+}
+decider_off() { unset KOTO_DECIDER KOTO_DECIDER_API_KEY KOTO_DECIDER_ENDPOINT; }
+# fits <field>: the level_fits_facts blocking condition's <field> as a string
+fits() {
+    printf '%s' "$NEXT_RESPONSE" | jq -r --arg f "$1" \
+        '[.blocking_conditions[]? | select(.name == "level_fits_facts")][0] // {} | getpath($f | split(".")) // "" | tostring'
+}
+answer() {
+    koto decider answer "$1" --gate level_fits_facts --criterion level_fits_facts --answer "$2" \
+        >/dev/null 2>"$WORKDIR/answer.err" \
+        || fail "$1: koto decider answer $2 failed: $(cat "$WORKDIR/answer.err")"
+}
+slog() { printf '%s' "$HOME/.koto/sessions/$1/koto-$1.state.jsonl"; }
+
+# Shadow: the check never fails the run, but a criterion with no verdict now
+# waits on the agent instead of passing, so the run holds until it answers.
+S=fallback-shadow
+if new_case "$S" "$SMALL"; then
+    decider_on shadow
+    if choose_and_implement "$S" standard code; then
+        expect_state "a shadow user whose decider can't answer" review_level_check
+        [ "$(fits status)|$(fits category)|$(fits output.awaiting)" = 'pending|corrective|["level_fits_facts"]' ] \
+            && pass "the check is pending and corrective, waiting on level_fits_facts" \
+            || fail "level_fits_facts is [$(fits status)|$(fits category)|$(fits output.awaiting)]"
+        case "$(fits failure.findings)" in
+            *"koto decider answer $S --gate level_fits_facts --criterion level_fits_facts"*)
+                pass "the warning finding gives the answer command" ;;
+            *) fail "findings are [$(fits failure.findings)]" ;;
+        esac
+        case "$(printf '%s' "$NEXT_RESPONSE" | jq -r '.directive // ""')" in
+            *"koto decider answer $S --gate level_fits_facts --criterion level_fits_facts --answer <pass|fail|unclear>"*)
+                pass "the directive gives the answer command" ;;
+            *) fail "the directive does not give the answer command" ;;
+        esac
+        tick "$S"
+        expect_state "a tick with no answer" review_level_check
+        answer "$S" pass
+        tick "$S"
+        expect_state "the tick after the agent answered pass" scrutiny
+        GOT=$(jq -rs '[.[] | select(.type == "decider_checked" and .payload.gate == "level_fits_facts")
+                       | .payload.outcome] | unique | join(",")' "$(slog "$S")")
+        [ "$GOT" = unanswered ] && pass "the log holds no decider verdict for the agent's answer" \
+            || fail "level_fits_facts decider_checked outcomes are [$GOT]"
+        GOT=$(jq -rs '[.[] | select(.type == "decider_check_answered" and .payload.gate == "level_fits_facts")
+                       | .payload.answer] | join(",")' "$(slog "$S")")
+        [ "$GOT" = pass ] && pass "the answer is recorded as the agent's" || fail "decider_check_answered answers are [$GOT]"
+    fi
+    decider_off
+fi
+
+# Veto (a user at auto): the agent's fail holds the run as a decider's would.
+# The raise it calls for is a plain one, not a veto, and the raised level is a
+# new slice the decider is asked about afresh.
+S=fallback-veto
+if new_case "$S" "$SMALL"; then
+    decider_on auto
+    if choose_and_implement "$S" standard code; then
+        expect_state "an auto user whose decider can't answer" review_level_check
+        [ "$(fits status)|$(fits output.awaiting)" = 'pending|["level_fits_facts"]' ] \
+            && pass "the veto check is pending on level_fits_facts" \
+            || fail "level_fits_facts is [$(fits status)|$(fits output.awaiting)]"
+        answer "$S" fail
+        tick "$S"
+        expect_state "the tick after the agent answered fail" review_level_check
+        [ "$(fits status)|$(fits output.failed)|$(fits output.agent_answered)" = 'failed|["level_fits_facts"]|["level_fits_facts"]' ] \
+            && pass "the agent's fail fails the veto check, marked as the agent's" \
+            || fail "level_fits_facts is [$(fits status)|$(fits output.failed)|$(fits output.agent_answered)]"
+        setlevel "$S" full
+        tick "$S"
+        expect_state "the tick after a plain raise" review_level_check
+        [ "$(fits status)|$(fits output.awaiting)" = 'pending|["level_fits_facts"]' ] \
+            && pass "the raised level is asked about afresh and falls back again" \
+            || fail "level_fits_facts is [$(fits status)|$(fits output.awaiting)]"
+        answer "$S" pass
+        tick "$S"
+        expect_state "the tick after the agent answered pass at full" scrutiny
+        [ "$(events "$S")" = "bound choose check raise check" ] \
+            && pass "the ledger reads bound, choose, check, raise, check: no veto line" \
+            || fail "ledger events are [$(events "$S")]"
+        GOT=$(jq -rs '[.[] | select(.type == "decider_checked" and .payload.gate == "level_fits_facts")
+                       | .payload.outcome] | unique | join(",")' "$(slog "$S")")
+        [ "$GOT" = unanswered ] && pass "the log holds no decider verdict for either answer" \
+            || fail "level_fits_facts decider_checked outcomes are [$GOT]"
+    fi
+    decider_off
 fi
 
 # ==============================================================================

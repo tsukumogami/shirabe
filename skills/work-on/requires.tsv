@@ -101,9 +101,12 @@
 #not-a-call-site	skills/work-on/scripts/check-pr-output.sh	shirabe	-n	The -n is tail's, in an error message quoting the validator's stderr; the validator itself is called without it.
 #not-a-call-site	skills/work-on/scripts/check-branch-output.sh	shirabe	-n	The -n is tail's, in an error message quoting the validator's stderr; the validator itself is called without it.
 #
-# The koto floor. /work-on needs koto 0.15.0, shirabe's koto minimum
-# (scripts/assert-koto-floor.sh), the release whose value routing and decider
-# checks the review level states use. 0.14.0 is the release from which a child's
+# The koto floor. /work-on needs koto 0.20.0, shirabe's koto minimum
+# (scripts/assert-koto-floor.sh). 0.15.0 is the release whose value routing and
+# decider checks the review level states use, and 0.20.0 the one whose decider
+# check hands a criterion the decider couldn't answer back to the agent: the
+# review_level_check directive tells the agent to answer it with
+# `koto decider answer`, declared below. 0.14.0 is the release from which a child's
 # result reaches its parent whether or not its tick carried --no-cleanup, which
 # is what lets every tick carry the flag. That is behaviour, not a flag, so no
 # record below can declare it. The preflight compares koto's version with the
@@ -140,6 +143,7 @@ koto	context remove	-	always
 koto	decisions record	--with-data	always
 koto	overrides list	-	always
 koto	overrides record	--gate,--rationale	always
+koto	decider answer	--gate,--criterion,--answer	always
 shirabe	validate	--lifecycle-chain,--format,--mode,--allow-untracked-acs,--pr-body,--pr-title,--visibility	always
 shirabe	finalize-chain	-	always
 shirabe	transition	-	always
