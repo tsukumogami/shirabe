@@ -190,7 +190,8 @@ These terms mean the same thing everywhere below.
   `sudo`, `time`, `nohup`, `timeout`, `nice`, `ssh`, `docker`,
   `podman`, `mise`, `nix`, `python`, `python3`, `perl`, `ruby` or
   `node`, and whose text names a guarded action; a segment whose head
-  starts with `$` and that has a later word `push`, or `pr` followed by
+  starts with `$` or a backquote and that has a later word `push`, or
+  `pr` followed by
   `create`, `new` or `edit`; or a command substitution (`$(...)` or backquotes, outside
   single quotes) anywhere in the command whose own text, split into
   segments the same way, holds a guarded or wrapped guarded segment. A
@@ -232,7 +233,10 @@ These terms mean the same thing everywhere below.
   case and names Claude or Anthropic, or a line containing `Generated
   with Claude Code`. That is PB3's predicate, applied to commit messages.
   - *What it pushes.* With no refspec, the current branch; a detached
-    HEAD with no refspec fails closed under R7. With refspecs, each
+    HEAD with no refspec fails closed under R7, and so does a push with
+    no refspec when `push.default` is `matching` or the remote has a
+    `remote.<name>.push` refspec configured, since it may send more than
+    the current branch. With refspecs, each
     refspec's source: the part before `:`, with a leading `+` removed;
     an empty source is a deletion and sends nothing, except that `:` or
     `+:` (an empty source and destination) pushes the matching branches
@@ -318,8 +322,9 @@ These terms mean the same thing everywhere below.
      (`-F -`), `--fill`, `--fill-first`, `--fill-verbose`, `--web`,
      `--editor`, `--template`, a command or variable expansion, `$'...'`,
      a `--body-file` that doesn't exist, isn't a regular file (a FIFO,
-     a device, a directory), is larger than 1 MiB or can't be read, or,
-     on `gh pr create`, no body at all;
+     a device, a directory), is larger than 1 MiB or can't be read, a
+     word combining short flags (`-dt`), or, on `gh pr create`, no body
+     at all;
   5. a `gh pr create` with no title;
   6. the registry can't be read, or lacks an active entry for a rule
      the hook guards, or that entry's text anchors don't resolve;
@@ -329,14 +334,20 @@ These terms mean the same thing everywhere below.
      crashes, or the repository is a partial clone and git is older
      than 2.44 (which can't be stopped from fetching);
   9. a guarded segment carries a global option the Definitions don't
-     list;
+     list; since such an option may take any number of words as its
+     value, a `push` anywhere after one on a `git` segment, or a `pr`
+     and a later action word anywhere after one on a `gh` segment, is
+     this case;
   10. a wrapped guarded command;
   11. an earlier segment of the same command could change what the
       guarded segment checks: it names the `--body-file` path as a word
       or after `>` or `>>`; or, before a push, it runs `git` with any
       subcommand other than `status`, `log`, `diff`, `show`, `add`,
       `rev-parse`, `describe`, `ls-files`, `grep`, `blame` or `fetch`,
-      or its head is one a wrapped guarded command can have;
+      runs `gh pr checkout` (or `gh pr co`), or its head is one a
+      wrapped guarded command can have. A segment inside a command
+      substitution, at any depth, that starts before the guarded segment
+      ends counts as earlier, since the shell runs it first;
   12. the hook input is larger than 4 MiB while its raw text names a
       guarded action.
 
@@ -348,8 +359,9 @@ These terms mean the same thing everywhere below.
   reason that names it invites the agent to turn the check off. The
   case is named by these words: 1 `binary`; 2 `hook input`; 3 `quote` or `nested`;
   4 the body form (`--fill`, `stdin`, the path, `regular file`, `1 MiB`,
-  `no body`); 5 `title`; 6 the rule id; 7 `HEAD`, the unresolved
-  source, `1000 commits`, `directory`, `work tree` or the option; 8
+  the combined flag, `no body`); 5 `title`; 6 the rule id; 7 `HEAD`,
+  the unresolved source, `1000 commits`, `directory`, `work tree`, the
+  option, or the setting (`push.default`, `remote.<name>.push`); 8
   `git` or `25 seconds`; 9 the option; 10 `wrapped`; 11 `same command`;
   12 `4 MiB`. For a body it can't read the reason also names the forms
   R6 reads.
@@ -685,7 +697,9 @@ whose message ends `Co-Authored-By: Claude <noreply@anthropic.com>`.
   `ssh host <<'EOF'`), in a shell function defined earlier in the
   command, or behind a `cd` in a brace group that's part of a pipeline
   (the group runs in a subshell, which the hook doesn't track). An
-  arithmetic `((... << ...))` is read as a here-document. The coarse
+  arithmetic `((... << ...))` is read as a here-document, and a `case`
+  pattern's `)` inside a double-quoted `$(...)` closes the substitution
+  early, so what follows it is misread. The coarse
   test treats a backslash inside a word as a separator, so `g\it push`
   isn't named in the text.
 - The hook guards against an agent's mistakes, not against an agent set

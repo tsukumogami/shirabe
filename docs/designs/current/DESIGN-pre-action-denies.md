@@ -484,7 +484,12 @@ with `status`, `log`, `diff`, `show`, `add`, `rev-parse`, `describe`,
 `ls-files`, `grep`, `blame` or `fetch` (none of which changes what the
 push would send, except `fetch`, which can only shrink it), so `git
 checkout other && git push` or `git commit ... && git push` fail closed,
-and so does any earlier segment with a wrapper head.
+and so does any earlier segment with a wrapper head or a `gh pr
+checkout`. The segments inside a command substitution, at any depth and
+in an unquoted here-document too, count as earlier when the
+substitution starts before the guarded segment ends, since the shell
+runs it first: `echo $(git commit ...) && git push` fails closed the
+same way.
 
 Every read is bounded. A `--body-file` must not be a symlink (`lstat`),
 is opened with `O_NONBLOCK | O_NOFOLLOW` so a FIFO or a symlink swapped
