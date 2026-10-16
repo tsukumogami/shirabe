@@ -193,6 +193,29 @@ case "$OUT" in
 esac
 BASE_REF_OUT=$OUT
 BASE_REF_RC=$RC
+
+# The escalation ladder: with the template's context and a session log where
+# koto already recorded this gate failing once on the rule, the rule's text is
+# released on stderr and nothing else about the run changes.
+LADDER_LOG="$WORKDIR/ladder.jsonl"
+rf_test_ladder_log "$LADDER_LOG" finalization commit_convention commit/conventional-subject 1
+OUT=$(cd "$REPO" && SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME=commit_convention \
+    SHIRABE_GATE_EXITS="finalization:finalization_status" "$CHECK" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
+RC=$?
+if [ "$RC" = "$BASE_REF_RC" ] && [ "$OUT" = "$BASE_REF_OUT" ] \
+    && [ "$(grep -c '^::shirabe-rule::{"rule_id":"commit/conventional-subject"' "$WORKDIR/stderr")" -eq 1 ] \
+    && ! grep -q '^::shirabe-check-exit::' "$WORKDIR/stderr"; then
+    pass "--commits ladder: a second failure releases the rule's text and changes nothing else"
+else
+    fail "--commits ladder: rc $RC, stderr $(cat "$WORKDIR/stderr")"
+fi
+rf_test_ladder_log "$LADDER_LOG" finalization commit_convention commit/conventional-subject 2
+OUT=$(cd "$REPO" && SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME=commit_convention \
+    SHIRABE_GATE_EXITS="finalization:finalization_status" "$CHECK" --commits --base-ref origin/main 2>"$WORKDIR/stderr")
+grep -q '^::shirabe-check-exit::.*"finalization_status":"check_unsatisfiable"' "$WORKDIR/stderr" \
+    && pass "--commits ladder: a third failure at finalization offers its exit" \
+    || fail "--commits ladder: count 3: stderr $(cat "$WORKDIR/stderr")"
+
 set_impl_base s-subjects "$BASE"
 run --commits --session s-subjects
 if [ "$RC" = "$BASE_REF_RC" ] && [ "$OUT" = "$BASE_REF_OUT" ]; then

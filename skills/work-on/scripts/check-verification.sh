@@ -159,4 +159,7 @@ done <<EOF
 $LINES
 EOF
 
+# The escalation ladder (scripts/lib/rule-findings.sh): nothing without the
+# template's context, or when no finding was printed.
+rf_deliver
 exit "$VERDICT"

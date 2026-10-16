@@ -250,13 +250,17 @@ check_pr_body() {
             "shirabe validate --pr-body reported violations it did not list; run it on the PR body for the detail"
     fi
     # PB4 is the rule the offload canary may leave out of a run's preloaded
-    # text (DESIGN-offload-live-canary.md), so when it is
-    # broken its full text is released here, once, in every run. release
-    # prints on stderr, which koto returns to the agent with the gate's output,
-    # and always exits 0, so it never changes this gate's result.
-    if [ "$pb4" -eq 1 ]; then
+    # text (DESIGN-offload-live-canary.md). When the template supplies the
+    # escalation ladder's context, PB4 is delivered by the ladder like every
+    # rule (its text from its second failure, rf_deliver below). Without it --
+    # /execute's gate, a test, an agent's own shell -- its full text is
+    # released here on every PB4 failure, as before the ladder. release prints
+    # on stderr, which koto returns to the agent with the gate's output, and
+    # always exits 0, so neither path changes this gate's result.
+    if [ "$pb4" -eq 1 ] && ! rf_ladder_active; then
         "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null
     fi
+    rf_deliver
     echo "check-pr-output: $VIOLATIONS PR title/body violation(s)" >&2
     exit 1
 }

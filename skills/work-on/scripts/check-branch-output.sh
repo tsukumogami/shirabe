@@ -217,6 +217,7 @@ check_commits() {
     done
     if [ "$VIOLATIONS" -gt 0 ]; then
         echo "check-branch-output: $VIOLATIONS commit violation(s) in $RANGE" >&2
+        rf_deliver
         exit 1
     fi
     echo "check-branch-output: $count commit(s) in $RANGE pass" >&2
@@ -281,6 +282,7 @@ EOF
     done < "$WORK/hits"
     if [ "$VIOLATIONS" -gt 0 ]; then
         echo "check-branch-output: $VIOLATIONS visibility violation(s) in changed documents (visibility: ${vis:-detected})" >&2
+        rf_deliver
         exit 1
     fi
     echo "check-branch-output: $n changed document(s) pass the visibility checks (visibility: ${vis:-detected})" >&2
@@ -311,6 +313,7 @@ check_synced() {
     fi
     if [ "$VIOLATIONS" -gt 0 ]; then
         echo "check-branch-output: the branch is not current with $BASE_REF" >&2
+        rf_deliver
         exit 1
     fi
     echo "check-branch-output: the branch is current with $BASE_REF" >&2
