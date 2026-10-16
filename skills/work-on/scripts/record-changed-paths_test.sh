@@ -461,10 +461,8 @@ at_verification() {
 # prestart_verification <session>: start the runner for the session and wait
 # for its result, so the tick that enters verification settles at once rather
 # than on the poll gate's 15-second interval.
-# The wait is bounded by wall time, not a count of sleeps (shirabe#866):
-# on a loaded host the detached runner can take longer than the 200 short
-# sleeps a quiet one needed, and the tick that enters verification then finds
-# its gate pending.
+# The wait is bounded by wall time (VERIFY_WAIT_SECS, default 180), not by a
+# count of sleeps; finalization-shape_test.sh says why (shirabe#866).
 prestart_verification() {
     local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f end=$((SECONDS + ${VERIFY_WAIT_SECS:-180}))
     (cd "$FX/repo" && "$rv" --start --session "$1") >/dev/null 2>&1

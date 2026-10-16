@@ -130,12 +130,15 @@ pass_panel() {
 # the session before the tick that enters the state, and waiting for its
 # result, lets that tick settle at once.
 #
-# The waits are bounded by wall time, not by a count of sleeps (shirabe#866).
-# A count of 200 short sleeps came to about 20 seconds on a quiet host; on a
-# loaded one the detached runner could take longer to write its result, the
-# tick then found the gate pending, and the run stayed at verification.
-# VERIFY_WAIT_SECS is the budget for each wait: generous, since a quiet host
-# never comes near it.
+# On a loaded host the run could stop at verification (shirabe#866). A single
+# tick holds on the gate for up to 480 seconds re-checking, so a merely slow
+# result isn't enough to strand it; the likelier path is the gate's command
+# itself, check-verification.sh, running past koto's per-command limit under
+# load (shirabe#840 saw that limit trip this poll), which leaves the run at
+# verification for that tick. So the prestart's wait for the result is bounded
+# by wall time rather than by 200 short sleeps, and settle_verification below
+# ticks again while the run is still there. VERIFY_WAIT_SECS is the budget for
+# each wait: generous, since a quiet host never comes near it.
 VERIFY_WAIT_SECS=${VERIFY_WAIT_SECS:-180}
 prestart_verification() {
     local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f end=$((SECONDS + VERIFY_WAIT_SECS))
@@ -144,10 +147,10 @@ prestart_verification() {
     while [ -n "$f" ] && [ ! -f "$f" ] && [ "$SECONDS" -lt "$end" ]; do sleep 0.2; done
 }
 
-# settle_verification <session>: while the run still waits at verification
-# (its result came after the tick that entered the state), tick again until it
-# moves on or the budget runs out. The gate's own 15-second re-check is never
-# waited on: each tick reads the result as it now stands.
+# settle_verification <session>: while the run is still at verification after
+# the tick that entered it (NEXT_STATE, as pass_panel left it), tick again
+# until it moves on or the budget runs out. Each tick evaluates the gate
+# afresh, so a gate command cut short under load gets another try.
 settle_verification() {
     local end=$((SECONDS + VERIFY_WAIT_SECS))
     while [ "$NEXT_STATE" = verification ] && [ "$SECONDS" -lt "$end" ]; do
@@ -181,8 +184,8 @@ to_finalization() {
     [ "$NEXT_STATE" = issue_type_routing ] && submit "$1" '{"issue_type":"code"}'
     pass_panel "$1" scrutiny completeness justification intent
     pass_panel "$1" review pragmatic architect maintainer
-    # late: skip the prestart, so the result comes after the tick that enters
-    # verification, as on a loaded host.
+    # late: skip the prestart, so the tick that enters verification starts the
+    # runner and waits on the gate for the result itself.
     [ "${2:-}" = late ] || prestart_verification "$1"
     pass_panel "$1" qa tester
     settle_verification "$1"
@@ -347,11 +350,11 @@ if to_finalization reject; then
         fail "rejected: expected done_blocked, got [$NEXT_STATE]"
     fi
 fi
-# The verification result arriving after the tick that enters the state, as it
-# does on a loaded host (shirabe#866): the run waits there, and re-ticking
-# reaches finalization once the result is in.
-if to_finalization late late; then
-    pass "a verification result after the entering tick still reaches finalization"
+# With no prestart (shirabe#866) the entering tick starts the runner and holds
+# on the gate for the result; whether it settles there or the run is still at
+# verification for settle_verification, the walk must reach finalization.
+if to_finalization late-result late; then
+    pass "a run whose result comes after the entering tick starts still reaches finalization"
 fi
 
 echo "--- Case 7/8: the early gates match the backstop, which still routes to done_blocked"

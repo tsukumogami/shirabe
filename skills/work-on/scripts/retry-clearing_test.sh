@@ -313,10 +313,8 @@ to_qa() {
 # its poll gate waits for the result, re-checking every 15 seconds. Starting
 # the runner for the session first, and waiting for its result, lets the tick
 # that enters the state settle at once.
-# The wait is bounded by wall time, not a count of sleeps (shirabe#866):
-# on a loaded host the detached runner can take longer than the 200 short
-# sleeps a quiet one needed, and the tick that enters verification then finds
-# its gate pending.
+# The wait is bounded by wall time (VERIFY_WAIT_SECS, default 180), not by a
+# count of sleeps; finalization-shape_test.sh says why (shirabe#866).
 prestart_verification() {
     local rv="$PLUGIN_ROOT/skills/work-on/scripts/run-verification.sh" f end=$((SECONDS + ${VERIFY_WAIT_SECS:-180}))
     "$rv" --start --session "$1" >/dev/null 2>&1
