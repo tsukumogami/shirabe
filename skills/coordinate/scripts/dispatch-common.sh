@@ -426,22 +426,22 @@ dc_leg_key() { printf 'legs/%s/%s\n' "$1" "$2"; }
 
 dc_leg_list() {
     local out
-    out=$("${KOTO:-koto}" context list "$1" --prefix legs/ </dev/null 2>/dev/null) || return 2
-    jq -r 'if type == "array" then .[] else error("not an array") end' <<<"$out" 2>/dev/null || return 2
+    out=$("${KOTO:-koto}" context list "$1" --prefix legs/ </dev/null) || return 2
+    jq -r 'if type == "array" then .[] else error("not an array") end' <<<"$out" || return 2
 }
 
 dc_leg_get() {
     local key out
     key=$(dc_leg_key "$2" "$3")
-    out=$("${KOTO:-koto}" context list "$1" --prefix "$key" </dev/null 2>/dev/null) || return 2
-    jq -e --arg k "$key" 'type == "array" and index($k) != null' <<<"$out" >/dev/null 2>&1
+    out=$("${KOTO:-koto}" context list "$1" --prefix "$key" </dev/null) || return 2
+    jq -e --arg k "$key" 'type == "array" and index($k) != null' <<<"$out" >/dev/null
     case "$?" in
         0) ;;
         1) return 1 ;;
         *) return 2 ;;
     esac
-    out=$("${KOTO:-koto}" context get "$1" "$key" </dev/null 2>/dev/null) || return 2
-    jq -e 'type == "object"' <<<"$out" >/dev/null 2>&1 || return 2
+    out=$("${KOTO:-koto}" context get "$1" "$key" </dev/null) || return 2
+    jq -e 'type == "object"' <<<"$out" >/dev/null || return 2
     printf '%s\n' "$out"
 }
 
@@ -449,8 +449,8 @@ dc_leg_put() {
     local key
     key=$(dc_leg_key "$2" "$3")
     jq -e --arg r "$2" --arg l "$3" --arg re "$DC_RE_LEG_STATE" \
-        'type == "object" and .request == $r and .leg == $l and ((.state // "") | test($re))' <<<"$4" >/dev/null 2>&1 || return 2
-    jq -c . <<<"$4" | "${KOTO:-koto}" context add "$1" "$key" >/dev/null 2>&1 || return 2
+        'type == "object" and .request == $r and .leg == $l and ((.state // "") | test($re))' <<<"$4" >/dev/null || return 2
+    jq -c . <<<"$4" | "${KOTO:-koto}" context add "$1" "$key" >/dev/null || return 2
 }
 
 dc_record_present() {

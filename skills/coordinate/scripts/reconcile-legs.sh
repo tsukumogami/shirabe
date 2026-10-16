@@ -91,7 +91,7 @@ LEG=${SPEC#*:}
 [[ $REQ =~ $DC_RE_REQ ]] && [[ $LEG =~ $DC_RE_LEG ]] || nv "unreadable return path in the record row"
 
 # koto exits 2 for a request its store doesn't hold.
-"$KOTO" request get "$REQ" < /dev/null > /dev/null 2>&1
+"$KOTO" request get "$REQ" < /dev/null > /dev/null
 case $? in
     0) fact watched "$RP" "this host's store holds the request" ;;
     2) ;;
@@ -113,10 +113,10 @@ esac
 
 # Unwatchable: the holding reports by message from here on.
 jq -c '.return_path = "message"' "$T/row.json" > "$T/new.json" || nv "the row could not be rewritten"
-bash "$HOLDING" --session "$SESSION" --topic "$TOPIC" --row-file "$T/new.json" > /dev/null 2> "$T/err"
+# dc_record_write retries a record another writer changed under it.
+DC_RECORD_HOLDING=$HOLDING dc_record_write "$SESSION" "$TOPIC" "$T/new.json" 2> "$T/err"
 case $? in
     0) ;;
-    12) nv "the record changed under the write; the next pass reads it again" ;;
     10) nv "the record refused the write" ;;
     *) nv "writing the holding failed" ;;
 esac

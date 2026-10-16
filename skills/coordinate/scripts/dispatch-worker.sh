@@ -517,7 +517,7 @@ rebind() {
 # read, 1 this host's store doesn't hold it, 2 a failed read.
 request_view() {
     local rc
-    VIEW=$("$KOTO" request get "$1" </dev/null 2>/dev/null)
+    VIEW=$("$KOTO" request get "$1" </dev/null)
     rc=$?
     [ "$rc" = 0 ] && return 0
     [ "$rc" = 2 ] && return 1
@@ -529,25 +529,25 @@ request_view() {
 # {template, variables}. Returns 2 when the log can't be read.
 child_facts() {
     local dir log
-    dir=$("$KOTO" session dir "$1" </dev/null 2>/dev/null) || return 2
+    dir=$("$KOTO" session dir "$1" </dev/null) || return 2
     log="$dir/koto-$1.state.jsonl"
     [ -r "$log" ] || return 2
     jq -sc '{template: (.[0].template_source_file // ""),
-             variables: ([.[] | select(.type == "workflow_initialized")][0].payload.variables // {})}' "$log" 2>/dev/null
+             variables: ([.[] | select(.type == "workflow_initialized")][0].payload.variables // {})}' "$log"
 }
 
 # bound_elsewhere <session> <except-request>: 0 when the session is bound to an
 # open leg of any open request on this host other than <except-request>.
 bound_elsewhere() {
     local list r v
-    list=$("$KOTO" request list --state open </dev/null 2>/dev/null) || die 2 "koto request list failed"
+    list=$("$KOTO" request list --state open </dev/null) || die 2 "koto request list failed"
     while IFS= read -r r; do
         [ -n "$r" ] && [ "$r" != "$2" ] || continue
-        v=$("$KOTO" request get "$r" </dev/null 2>/dev/null) || continue
-        jq -e --arg c "$1" '(.request // .) | [.legs[]? | select(.disposition == "open" and .bound_child == $c)] | length > 0' <<<"$v" >/dev/null 2>&1 &&
+        v=$("$KOTO" request get "$r" </dev/null) || continue
+        jq -e --arg c "$1" '(.request // .) | [.legs[]? | select(.disposition == "open" and .bound_child == $c)] | length > 0' <<<"$v" >/dev/null &&
             return 0
     done <<EOF
-$(jq -r '(.requests // [])[] | .request_id' <<<"$list" 2>/dev/null)
+$(jq -r '(.requests // [])[] | .request_id' <<<"$list")
 EOF
     return 1
 }
@@ -600,8 +600,8 @@ if [ -n "$IMPORTED" ]; then
 
     [ -n "$CHILD" ] || die 9 "no child session was recorded for $RP: $TOPIC can't be re-legged"
     [[ $CHILD =~ $DC_RE_SESSION ]] || die 9 "the child recorded for $RP isn't a koto session name"
-    "$KOTO" session list </dev/null 2>/dev/null >"$WORK/sessions.json" || die 2 "koto session list failed"
-    jq -e --arg c "$CHILD" 'any(.[]; .id == $c)' "$WORK/sessions.json" >/dev/null 2>&1 ||
+    "$KOTO" session list </dev/null >"$WORK/sessions.json" || die 2 "koto session list failed"
+    jq -e --arg c "$CHILD" 'any(.[]; .id == $c)' "$WORK/sessions.json" >/dev/null ||
         die 9 "the child $CHILD of $RP isn't on this host: $TOPIC can't be re-legged"
 
     # The declaration, recomputed from the holding's entry point: the leg it
@@ -639,7 +639,7 @@ if [ -n "$IMPORTED" ]; then
     # request is abandoned and the old key goes back to open, so nothing is
     # left half-done and the classification can send the worker to message.
     refuse_after_open() {
-        "$KOTO" request abandon-request "$NEW" --rationale "the re-leg of $TOPIC was refused" </dev/null >/dev/null 2>&1 ||
+        "$KOTO" request abandon-request "$NEW" --rationale "the re-leg of $TOPIC was refused" </dev/null >/dev/null ||
             printf '%s: could not abandon request %s\n' "$PROG" "$NEW" >&2
         dc_leg_put "$SESSION" "$REQ" "$LEG" "$(jq -c '.state = "open" | del(.new_request)' <<<"$KEY")" ||
             printf '%s: could not set the leg key for %s back to open\n' "$PROG" "$RP" >&2
@@ -665,7 +665,8 @@ if [ -n "$IMPORTED" ]; then
         [[ $NEW =~ $RE_REQ ]] || die 2 "koto request create printed no usable request id"
         KEY=$(jq -c --arg n "$NEW" '.state = "releg-pending" | .new_request = $n' <<<"$KEY")
         dc_leg_put "$SESSION" "$REQ" "$LEG" "$KEY" || {
-            "$KOTO" request abandon-request "$NEW" --rationale "the re-leg of $TOPIC could not be recorded" </dev/null >/dev/null 2>&1
+            "$KOTO" request abandon-request "$NEW" --rationale "the re-leg of $TOPIC could not be recorded" </dev/null >/dev/null ||
+                printf '%s: could not abandon request %s\n' "$PROG" "$NEW" >&2
             die 2 "could not write the leg key for $RP"
         }
         request_view "$NEW" || die 2 "cannot read the new request $NEW"
@@ -674,8 +675,10 @@ if [ -n "$IMPORTED" ]; then
     # 2. The child attached, unless an earlier run already did.
     BOUND=$(jq -r --arg l "$LEG" '(.request // .) | .legs[$l].bound_child // "" | strings' <<<"$VIEW")
     if [ -z "$BOUND" ]; then
-        "$KOTO" request attach --session "$CHILD" "$NEW" "$LEG" </dev/null >"$WORK/attach.out" 2>&1 ||
-            refuse_after_open "koto refused to attach $CHILD to $NEW:$LEG: $(head -c 300 "$WORK/attach.out")"
+        if ! "$KOTO" request attach --session "$CHILD" "$NEW" "$LEG" </dev/null >"$WORK/attach.out" 2>&1; then
+            WHY=$(cut -c1-300 "$WORK/attach.out" | head -n 3)
+            refuse_after_open "the attach of $CHILD to $NEW:$LEG was refused: $WHY"
+        fi
     elif [ "$BOUND" != "$CHILD" ]; then
         refuse_after_open "the new request $NEW is bound to $BOUND, not $CHILD"
     fi

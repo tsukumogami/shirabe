@@ -135,8 +135,8 @@ die() { echo "reconcile-pass: $1" >&2; exit 1; }
 HAVE=" "
 list_keys() {
     local out names
-    out=$(koto context list "$SESSION" --prefix reconcile/ < /dev/null 2>/dev/null) || die "koto context list failed"
-    names=$(jq -r '.[]' <<< "$out" 2>/dev/null) || die "koto context list printed no JSON array"
+    out=$(koto context list "$SESSION" --prefix reconcile/ < /dev/null) || die "koto context list failed"
+    names=$(jq -r '.[]' <<< "$out") || die "koto context list printed no JSON array"
     HAVE=" $(printf '%s ' $names)"
 }
 has_key() { case "$HAVE" in *" $1 "*) return 0 ;; esac; return 1; }
@@ -146,7 +146,7 @@ ctx_put() {
 }
 ctx_rm() {
     has_key "$1" || return 0
-    koto context remove "$SESSION" "$1" >/dev/null 2>&1 || true
+    koto context remove "$SESSION" "$1" >/dev/null || die "koto context remove $1 failed"
     HAVE=${HAVE/ $1 / }
 }
 ctx_rm_all() { local k; for k in progress refusal report.json report.md reasoning.md; do ctx_rm "reconcile/$k"; done; }
@@ -369,6 +369,8 @@ collect() {
 }
 
 running() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do [ "$x" = "$1" ] && return 0; done; return 1; }
+# writing: a settle or a legs classification, one of the pass's writes, is running.
+writing() { local x; for x in ${RUN_IDS[@]+"${RUN_IDS[@]}"}; do case "$x" in *.settle | *.legs) return 0 ;; esac; done; return 1; }
 
 # launch SPEC LEFT -- start one re-check in the background with its deadline
 # clipped to LEFT seconds.
@@ -431,10 +433,14 @@ while :; do
         left=$((READS_END - el))
         # A write is never clipped: the settle and the legs classification
         # start only when their whole budget fits, else in a later pass,
-        # which starts with them.
+        # which starts with them. And one write runs at a time: two would
+        # each rewrite the record, and the second would find it changed.
         whole=1
         case "$(printf '%s' "$spec" | jq -r .sub)" in
-            settle | legs) [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0 ;;
+            settle | legs)
+                [ "$left" -lt "$(printf '%s' "$spec" | jq -r .natural)" ] && whole=0
+                writing && whole=0
+                ;;
         esac
         if [ "$el" -lt "$CUTOFF" ] && [ "${#RUN_IDS[@]}" -lt "$PARALLEL" ] && [ "$left" -ge 2 ] && [ "$whole" = 1 ]; then
             launch "$spec" "$left"

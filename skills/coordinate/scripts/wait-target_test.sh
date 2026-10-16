@@ -305,6 +305,11 @@ legkey req_g execute unwatchable
 eq  "source: a message for a worker whose leg is unwatchable is admitted" 0 "$(src gamma message)"
 legkey req_g execute open
 eq  "source: a message for a worker whose leg is open here is refused" 1 "$(src gamma message)"
+printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"promoted","result":{"status":"success"}}}}\n' >"$ST/req/req_g.json"
+eq  "source: a message for a worker whose leg holds its promoted result, the key not yet marked, is admitted" 0 "$(src gamma message)"
+printf '{"request_id":"req_g","legs":{"execute":{"name":"execute","disposition":"resolved","result_source":"explicit","result":{"status":"failure"}}}}\n' >"$ST/req/req_g.json"
+eq  "source: one whose leg was spent without its result is refused" 1 "$(src gamma message)"
+req req_g execute open
 : >"$ST/req/req_g.gone"
 eq  "source: a message for a worker whose request this host doesn't hold is admitted" 0 "$(src gamma message)"
 rm -f "$ST/req/req_g.gone" "$ST/req/req_g.json"

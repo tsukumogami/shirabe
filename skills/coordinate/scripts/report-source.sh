@@ -97,9 +97,15 @@ if [ "$SOURCE" = message ]; then
         1) ;;
         *) printf '%s: cannot read the leg key for %s\n' "$PROG" "$RP" >&2; exit 2 ;;
     esac
-    "$KOTO" request get "$REQ" </dev/null >/dev/null 2>&1
+    # koto's own record of the leg settles it too: a result the worker's
+    # session promoted is the leg's one result, whether or not wait-target.sh
+    # has marked the key yet (an evidence tick at wait_leg doesn't run its
+    # action, so a leg that resolved between two ticks is marked at the next
+    # pick).
+    VIEW=$("$KOTO" request get "$REQ" </dev/null)
     case "$?" in
-        0) ;;
+        0) jq -e --arg l "$LEG" '(.request // .) | .legs[$l] // {} | .disposition == "resolved" and .result_source == "promoted"' \
+               <<<"$VIEW" >/dev/null && exit 0 ;;
         2) exit 0 ;;
         *) printf '%s: cannot read request %s\n' "$PROG" "$REQ" >&2; exit 2 ;;
     esac

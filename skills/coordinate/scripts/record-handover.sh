@@ -107,7 +107,7 @@ fi
 : > "$WD/unclassified"
 while IFS='	' read -r w rp; do
     [ -n "$w" ] || continue
-    "${KOTO:-${KOTO_BIN:-koto}}" request get "${rp%%:*}" < /dev/null > /dev/null 2>&1
+    "${KOTO:-${KOTO_BIN:-koto}}" request get "${rp%%:*}" < /dev/null > /dev/null
     case $? in
         0) ;;
         2) printf '%s\t%s\n' "$w" "$rp" >> "$WD/unclassified" ;;
