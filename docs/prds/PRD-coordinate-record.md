@@ -23,6 +23,18 @@ upstream: docs/briefs/BRIEF-coordinate-record.md
 
 Done
 
+> **Note (2026-10-11).** `docs/prds/PRD-coordinator-session-record.md` amends this
+> PRD. The record defined here is now one of two state sources: a record whose Run
+> section carries a `store session` row, written by its owner, keeps its state in
+> the coordinator's own koto session, under one key per section, and its GitHub
+> issue keeps only the entries read outside the loop and a body with no state
+> tables. Every record without that row stays as this PRD defines it. The four
+> checks (R7 to R11) hold on both sources, and R17's rule that finding the record
+> is a read the workflow runs is unchanged. R26 and the Single host for legs
+> limitation stand for records on GitHub; for a moved coordinator the amending PRD
+> gives every leg a defined end after a host move (its R15), since koto still
+> doesn't carry requests between hosts.
+
 ## Problem Statement
 
 A coordinator is the longest-running session in a workspace: it hands units of work to
