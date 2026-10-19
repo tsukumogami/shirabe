@@ -1,0 +1,90 @@
+workflow: .github/workflows/check-work-on-scripts.yml
+# Drives real koto sessions to assert that a cleared context key
+# holds its phase, which cannot be checked without the engine that
+# evaluates the gate. Skips cleanly when koto is absent, which it is
+# on the macOS runner; it is in this suite for the floor's own sake,
+# since a developer running it locally has koto and the cases
+# genuinely execute on 3.2 there.
+skills/work-on/scripts/retry-clearing_test.sh
+# Also drives real koto sessions, and skips cleanly without them
+# for the same reason retry-clearing_test.sh does.
+skills/work-on/scripts/cascade-chaining_test.sh
+# Needs no engine at all: it builds repositories and reads commits,
+# so every case genuinely executes on the floor.
+skills/work-on/scripts/verify-cascade-commit_test.sh
+# Drives real koto sessions, and skips cleanly without them. Its
+# engine-free case invokes the discriminator it carries.
+skills/work-on/scripts/ci-monitor-role_test.sh
+# Needs no engine: it runs the gate expression against stubbed gh.
+skills/work-on/scripts/closing-keyword-gate_test.sh
+# Drives real koto sessions, and skips cleanly without them.
+skills/work-on/scripts/pre-pr-evidence_test.sh
+# Drives real koto sessions, and skips cleanly without them.
+skills/work-on/scripts/finalization-shape_test.sh
+# Holds pre_pr.md in a real koto session, and skips cleanly
+# without one.
+skills/work-on/scripts/check-pre-pr-referents_test.sh
+# Its rule-text cases need no engine; its engine cases skip without
+# koto.
+skills/work-on/scripts/terminal-retention_test.sh
+# Its script cases write through a koto stand-in and need only git,
+# so they run on the floor; its engine cases skip without koto.
+skills/work-on/scripts/record-changed-paths_test.sh
+# Same shape: its script cases run real clones through a koto
+# stand-in; its engine cases skip without koto.
+skills/work-on/scripts/has-commits_test.sh
+# Its script cases run git fixtures through a koto stand-in and
+# need only jq; its engine cases skip without koto.
+skills/work-on/scripts/panel-scope_test.sh
+# Its script cases run git fixtures through a koto stand-in and
+# need only jq; its engine cases skip without koto.
+skills/work-on/scripts/review-level_test.sh
+# Its clearing-site greps read shipped files; its engine cases
+# skip without koto.
+skills/work-on/scripts/review-level-routes_test.sh
+# Its script cases need only jq, git and a stubbed gh, so they run
+# on the floor; its engine cases skip without koto.
+skills/work-on/scripts/check-staleness_test.sh
+# The --koto-leg entry: its own refusals run on a koto stub, so they
+# execute on the floor; its engine cases skip without koto.
+skills/work-on/scripts/work-on-open_test.sh
+# Preflight against a stand-in koto; the at-floor case skips
+# without a real one.
+skills/work-on/scripts/work-on-requires_test.sh
+# Reads shipped files only; every case runs on the floor.
+skills/work-on/scripts/settled-policy_test.sh
+# Its rule and fail-closed cases run the panel retry budget through
+# a koto stand-in, so they execute on the floor; its real-session
+# case skips without koto.
+skills/work-on/scripts/panel-retry-budget_test.sh
+# The output gate scripts against git fixtures and stand-ins; no
+# engine. The --docs-visibility cases need the real validator and
+# skip without it, so they run on the Linux leg.
+skills/work-on/scripts/check-branch-output_test.sh
+skills/work-on/scripts/check-pr-output_test.sh
+# The live offload canary: the draw script's suite needs no engine;
+# the route suite skips its koto cases when koto is absent.
+skills/work-on/scripts/offload-canary_test.sh
+skills/work-on/scripts/offload-canary-routes_test.sh
+# Reads the committed verification map with jq and the files that
+# document it; no engine.
+skills/work-on/scripts/verification-map-schema_test.sh
+# The verification runner and verdict against git fixtures and a
+# koto stand-in; its real-koto case skips without koto.
+skills/work-on/scripts/run-verification_test.sh
+# The output gates' routes need koto and skip without it; the
+# removed-value counts, the routing gates' stdout and the kept
+# directive lines run on the floor.
+skills/work-on/scripts/output-gates-routing_test.sh
+# extract-context.sh with no session and with no koto: needs only
+# bash and jq, so every case runs on the floor.
+skills/work-on/scripts/extract-context_test.sh
+# The step detail check against git fixtures and a shirabe it
+# builds (or $SHIRABE_BIN); its plan_validation cases skip without
+# koto.
+skills/work-on/scripts/step-detail-check_test.sh
+# session-role.sh is deliberately NOT listed. Every entry here is
+# run with no arguments and a nonzero status is a failure, and the
+# discriminator exits 2 on a missing session name by design. It
+# reaches the floor through ci-monitor-role_test.sh, whose
+# engine-free case runs without koto and invokes it.

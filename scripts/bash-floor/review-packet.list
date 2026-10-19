@@ -1,0 +1,5 @@
+workflow: .github/workflows/check-review-packet.yml
+# The review seats' input packet. Its suite builds a throwaway
+# repository with stand-in koto and gh and needs only bash and
+# git, so every case runs on 3.2.
+scripts/review-packet_test.sh

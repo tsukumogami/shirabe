@@ -25,6 +25,7 @@ on:
       - 'scripts/koto-open.sh'
       - 'scripts/assert-koto-floor.sh'
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/explore.list'
       - '.tsuku.toml'
       - '.github/workflows/check-explore-scripts.yml'
 
