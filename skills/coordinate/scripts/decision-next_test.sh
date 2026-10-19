@@ -120,10 +120,15 @@ pairs() {
 }
 eq "every adjacent pair routes to the higher rule" 10 "$(pairs "$DN")"
 # The same suite against a copy with withdraw and reply swapped must fail.
-SW="$T/swapped"; mkdir -p "$SW"; cp "$HERE"/*.sh "$HERE"/*.jq "$SW/"; cp -R "$HERE/../references" "$T/"
-awk '/elif lowest\(.owed == "withdrawal"\)/ { w = $0; getline r1; print r1; print w; next } { print }' "$DN" > "$SW/decision-next.sh"
-if cmp -s "$DN" "$SW/decision-next.sh"; then bad "the swapped copy differs from the script"
-else [ "$(pairs "$SW/decision-next.sh")" -lt 10 ] && ok "a copy with two adjacent rules swapped fails the order" || bad "a copy with two adjacent rules swapped fails the order"; fi
+# That checks the pair test can fail, not the script, so it runs in CI only
+# (CI is set there), where its ten extra pairs don't slow a local gate
+# (shirabe#841).
+if [ -n "${CI:-}" ]; then
+    SW="$T/swapped"; mkdir -p "$SW"; cp "$HERE"/*.sh "$HERE"/*.jq "$SW/"; cp -R "$HERE/../references" "$T/"
+    awk '/elif lowest\(.owed == "withdrawal"\)/ { w = $0; getline r1; print r1; print w; next } { print }' "$DN" > "$SW/decision-next.sh"
+    if cmp -s "$DN" "$SW/decision-next.sh"; then bad "the swapped copy differs from the script"
+    else [ "$(pairs "$SW/decision-next.sh")" -lt 10 ] && ok "a copy with two adjacent rules swapped fails the order" || bad "a copy with two adjacent rules swapped fails the order"; fi
+fi
 
 echo "== the entry read fails closed =="
 # The script reads its entry seqs in one `coord-log.sh entries` call. A copy

@@ -97,7 +97,7 @@ PAYLOAD=$(printf '%s' "$JSON" | jq -c '.result.payload // {} | if type == "objec
 get() {
     local v
     v=$(printf '%s' "$PAYLOAD" | jq -r --arg k "$1" '.[$k] // "" | strings') || v=""
-    if [ -n "$v" ] && printf '%s' "$v" | LC_ALL=C grep -q '[[:cntrl:]]'; then v=""; fi
+    if [ -n "$v" ] && LC_ALL=C grep -q '[[:cntrl:]]' <<<"$v"; then v=""; fi
     if [ -n "$v" ] && [[ "$v" =~ $2 ]]; then printf '%s' "$v"; fi
 }
 

@@ -212,7 +212,7 @@ eq "once the re-read is done the report is sealed and the workflow moves to reco
 ctx reconcile/report.md | grep -q 'not found on this read' && pass "the sealed report says the worker was not found on this read" || fail "the sealed report says the worker was not found on this read" "$(ctx reconcile/report.md)"
 # koto's run start carries milliseconds; the deferral read takes it.
 RS=$(bash "$SC/coord-log.sh" run-start --session "$S" 2>/dev/null)
-printf '%s' "$RS" | grep -Eq '\.[0-9]+Z$' \
+grep -Eq '\.[0-9]+Z$' <<<"$RS" \
     && pass "the session's run start carries milliseconds" || fail "the session's run start carries milliseconds" "$RS"
 ctx reconcile/report.json | jq -e '[.deferrals[] | {deferral, why}] == [{deferral: "open one", why: "empty"}]' >/dev/null \
     && pass "an open deferral is reported undisposed, with why" || fail "an open deferral is reported undisposed, with why" "$(ctx reconcile/report.json | jq -c '.deferrals, .not_verified')"

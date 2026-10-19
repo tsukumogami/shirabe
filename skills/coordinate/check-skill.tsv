@@ -30,6 +30,7 @@ cost	coordinate_4_engine_test.sh	200
 cost	decision-next_test.sh	196
 cost	deferral-check_test.sh	195
 cost	pick-facts_test.sh	193
+cost	decision-archive_test.sh	191
 cost	record-decision_test.sh	186
 cost	decisions-replay_engine_test.sh	176
 cost	unit-cost_test.sh	164

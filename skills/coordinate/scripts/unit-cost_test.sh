@@ -137,7 +137,7 @@ eq "example-entry.json holds the hand-computed figures (expected-plan.json)" sam
 TEXT=$(printf '%s\n' "$BODY" | sed '1,3d')
 eq "the text is a summary line, a blank line and one fenced json block" "Cost|blank|fence|{|fence|5" \
     "$(printf '%s\n' "$TEXT" | awk 'NR==1{a=substr($0,1,4)} NR==2{b=($0==""?"blank":$0)} NR==3{c=($0=="```json"?"fence":$0)} NR==4{d=substr($0,1,1)} NR==5{e=($0=="```"?"fence":$0)} END{print a"|"b"|"c"|"d"|"e"|"NR}')"
-eq "  ... the summary line" "Cost of feat-x ($KEY): 5 sessions, 110 output tokens, dispatch to merge 150.0 min." "$(printf '%s\n' "$TEXT" | head -n 1)"
+eq "  ... the summary line" "Cost of feat-x ($KEY): 5 sessions, 110 output tokens, dispatch to merge 150.0 min." "$(head -n 1 <<<"$TEXT")"
 printf '%s\n' "$TEXT" | sed -n 4p | jq -e 'type == "object"' >/dev/null && ok "  ... the json line is one compact object" || bad "  ... the json line is one compact object" "$TEXT"
 E=$(jq -c . "$A/unit-cost.json")
 eq "the record's facts and the Unit's tag" '{"scope":"roadmap","name":"x","repo":"acme/widgets","ref":"7"}|Feature 4' "$(q "$E" '"\(.record | tojson)|\(.unit)"')"
@@ -225,7 +225,7 @@ eq "a value is null unless measured or bound" true "$(q "$OUT" '[.figures[], .se
 eq "complete is false while any figure is missing" false "$(q "$OUT" .complete)"
 eq "without the record's facts the milestone is not recoverable" "null|not recoverable|no source" \
     "$(q "$OUT" '"\(.record)|\(.milestone.state)|\([.missing[] | select(.figure == "milestone") | .reason][0])"')"
-printf '%s' "$OUT" | grep -q 'execute-x\|deliver-x\|scope-x\|issue-1\|/work/inst\|work-inst\|r_dispatch_x\|0a1b2c3d-77aa\|0f9e8d7c\|5b6c7d8e\|feat/x' \
+grep -q 'execute-x\|deliver-x\|scope-x\|issue-1\|/work/inst\|work-inst\|r_dispatch_x\|0a1b2c3d-77aa\|0f9e8d7c\|5b6c7d8e\|feat/x' <<<"$OUT" \
     && bad "no session name, request id, session id, branch or path is in the entry" "$OUT" || ok "no session name, request id, session id, branch or path is in the entry"
 printf 'acme/widgets#21 %s\n' "$MERGE" >"$T/prs"
 bash "$UC" compute --archive "$A" --topic feat-y --prs-file "$T/prs" >/dev/null 2>&1; eq "an archive not named for the topic is refused" 65 $?

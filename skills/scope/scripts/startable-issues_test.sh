@@ -78,7 +78,7 @@ if grep -q '^outcome=' <<<"$OUT"; then
 else
     ok "no line starts with outcome="
 fi
-if printf '%s' "$OUT" | LC_ALL=C grep -q "$CR"; then bad "no carriage return survives" ""; else ok "no carriage return survives"; fi
+if LC_ALL=C grep -q "$CR" <<<"$OUT"; then bad "no carriage return survives" ""; else ok "no carriage return survives"; fi
 
 # A title carrying a line feed cannot live in one table row, but the cell
 # parser is not the only way a title arrives: the outline form reads a

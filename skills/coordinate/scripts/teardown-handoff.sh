@@ -207,7 +207,7 @@ stopped_mode() {
     [ "$(printf '%s' "$MATCH" | jq length)" = 1 ] || refuse "niwa lists $(printf '%s' "$MATCH" | jq length) instances at $IPATH, not one"
     INAME=$(printf '%s' "$MATCH" | jq -r '.[0].name // ""')
     NSESS=$(printf '%s' "$MATCH" | jq -r '.[0].session_name // ""')
-    printf '%s' "$INAME" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]*$' || refuse "niwa's name for the instance is not a plain instance name"
+    grep -Eq '^[A-Za-z0-9][A-Za-z0-9._+-]*$' <<<"$INAME" || refuse "niwa's name for the instance is not a plain instance name"
     line "instance $INAME $IPATH"
     # niwa's dispatch id for the instance, for the cost entry: the value only
     # when it has the shape of an id, so nothing else reaches the archive.
@@ -229,8 +229,8 @@ stopped_mode() {
     SID=$(printf '%s' "$JOBS" | jq -r '.[0].sessionId // ""')
     JSTATE=$(printf '%s' "$JOBS" | jq -r '.[0].state // ""')
     JNAME=$(printf '%s' "$JOBS" | jq -r '.[0].name // ""')
-    printf '%s' "$JOB" | grep -Eq '^[0-9a-f]{6,64}$' || refuse "the job id [$JOB] is not a job id"
-    printf '%s' "$SID" | grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' || refuse "the job's session id is not a session id"
+    grep -Eq '^[0-9a-f]{6,64}$' <<<"$JOB" || refuse "the job id [$JOB] is not a job id"
+    grep -Eq '^[0-9a-f][0-9a-f-]{7,63}$' <<<"$SID" || refuse "the job's session id is not a session id"
     # Only a state known to be finished passes: a job whose state is missing,
     # renamed or new to this script is treated as possibly running, because
     # `claude rm` on a running job is the one thing this must never set up.
@@ -290,7 +290,7 @@ candidate() {
 # `...:05Z`, since `.` sorts before `Z`. Returns 1 for any other shape.
 sort_key() {
     local base frac
-    printf '%s' "$1" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$' || return 1
+    grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$' <<<"$1" || return 1
     base=${1%Z} frac=""
     case "$base" in *.*) frac=${base#*.} base=${base%%.*} ;; esac
     printf '%s.%s\n' "$base" "$(printf '%-9.9s' "$frac" | tr ' ' 0)"
@@ -362,7 +362,7 @@ removed_mode() {
     for f in "$d"/*.jsonl; do
         [ -f "$f" ] && [ ! -L "$f" ] || continue
         sid=$(basename "$f" .jsonl)
-        printf '%s' "$sid" | grep -Eq '^[0-9a-f]{8}[0-9a-f-]{0,56}$' || continue
+        grep -Eq '^[0-9a-f]{8}[0-9a-f-]{0,56}$' <<<"$sid" || continue
         ts=$(jq -R -r 'fromjson? | objects | .timestamp | strings' "$f" 2>>"$T/jq.err" | head -n 1)
         key=$(sort_key "$ts") || continue
         if [ -z "$best" ] || [[ $key > $best_ts ]]; then
@@ -420,7 +420,7 @@ case $? in 0) ;; 1) refuse "the record has no holding for $TOPIC" ;; *) die2 "th
 REPO=$(printf '%s' "$ROW" | jq -r '.repo // ""')
 BRANCH=$(printf '%s' "$ROW" | jq -r '.branch // ""')
 UNIT=$(printf '%s' "$ROW" | jq -r '.unit // ""')
-printf '%s' "$REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || refuse "the holding names no repository"
+grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' <<<"$REPO" || refuse "the holding names no repository"
 [ -n "$BRANCH" ] || refuse "the holding names no branch"
 dc_with_deadline "$FETCH_SECS" "$GH" pr list --repo "$REPO" --head "$BRANCH" --state merged --limit 100 \
     --json number,mergeCommit,headRepositoryOwner >"$T/prs" 2>"$T/gh.err" || die2 "the merged pull requests could not be read: $(tail -1 "$T/gh.err")"

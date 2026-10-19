@@ -299,7 +299,7 @@ FLAGS=$(jq -r 'if (.entry_args | type) == "array" and (.run_mode | type) == "str
     ((.run_mode | split(" ") | map(select(. != ""))) + .entry_args[1:])[] else empty end' "$INPUT")
 DUP=$(printf '%s\n' "$FLAGS" | sed '/^$/d' | sort | uniq -d | head -1)
 [ -n "$DUP" ] && refuse "run_mode and entry_args: $DUP is given twice"
-if printf '%s\n' "$FLAGS" | grep -qx -- --auto && printf '%s\n' "$FLAGS" | grep -qx -- --interactive; then
+if grep -qx -- --auto <<<"$FLAGS" && grep -qx -- --interactive <<<"$FLAGS"; then
     refuse "run_mode and entry_args: --auto and --interactive together"
 fi
 if jq -e '(.entry_args | type) == "array" and ((.entry_args[0] // "") | test("[\"`$\\\\]"))' "$INPUT" >/dev/null; then
@@ -371,7 +371,7 @@ if [ -n "$UNITS" ]; then
 fi
 case "$RETURN_PATH" in
     message) ;;
-    *) printf '%s' "$RETURN_PATH" | grep -Eq '^[a-z0-9_][a-z0-9_-]{0,63}:[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$' ||
+    *) grep -Eq '^[a-z0-9_][a-z0-9_-]{0,63}:[A-Za-z0-9_][A-Za-z0-9_-]{0,63}$' <<<"$RETURN_PATH" ||
         refuse "--return-path: not message or <request-id>:<leg>: $RETURN_PATH" ;;
 esac
 
