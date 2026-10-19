@@ -148,8 +148,8 @@ mark_if_done() {
     local t="$1" req leg view disp taken
     req=$(printf '%s' "$t" | jq -r '.request // "" | strings')
     leg=$(printf '%s' "$t" | jq -r '.leg // "" | strings')
-    printf '%s' "$req" | grep -Eq "$RE_REQ" || { printf '%s: wait_target holds a malformed request\n' "$PROG" >&2; return 2; }
-    printf '%s' "$leg" | grep -Eq "$RE_LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; return 2; }
+    grep -Eq "$RE_REQ" <<<"$req" || { printf '%s: wait_target holds a malformed request\n' "$PROG" >&2; return 2; }
+    grep -Eq "$RE_LEG" <<<"$leg" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; return 2; }
     view=$("$KOTO" request get "$req" </dev/null) || { printf '%s: cannot read request %s\n' "$PROG" "$req" >&2; return 2; }
     disp=$(printf '%s' "$view" | jq -r --arg l "$leg" "$LEG_DISP")
     [ "$disp" = open ] && return 0
@@ -165,7 +165,7 @@ if [ "$MODE" = leg ]; then
     LEG=$(printf '%s' "$T" | jq -r 'select(.path == "leg") | .leg // "" | strings')
     TOPIC=$(printf '%s' "$T" | jq -r 'select(.path == "leg") | .topic // "" | strings')
     [ -n "$LEG" ] || { printf '%s: wait_target names no leg\n' "$PROG" >&2; exit 1; }
-    printf '%s' "$LEG" | grep -Eq "$RE_LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; exit 2; }
+    grep -Eq "$RE_LEG" <<<"$LEG" || { printf '%s: wait_target holds a malformed leg\n' "$PROG" >&2; exit 2; }
     dc_valid_topic "$TOPIC" || { printf '%s: wait_target holds a malformed topic\n' "$PROG" >&2; exit 2; }
     put report_topic "$TOPIC"
     # The leg's disposition now, not the one select saw: koto re-runs this
@@ -224,10 +224,10 @@ candidates() {
         grep -Fqx -- "$topic" "$WORK/paused" && continue
         req=${rp%%:*}
         leg=${rp#*:}
-        printf '%s' "$req" | grep -Eq "$RE_REQ" || continue
-        printf '%s' "$leg" | grep -Eq "$RE_LEG" || continue
+        grep -Eq "$RE_REQ" <<<"$req" || continue
+        grep -Eq "$RE_LEG" <<<"$leg" || continue
         dc_valid_topic "$topic" || continue
-        printf '%s\n' "$taken" | grep -Fqx -- "$rp" && continue
+        grep -Fqx -- "$rp" <<<"$taken" && continue
         if view=$("$KOTO" request get "$req" </dev/null); then
             disp=$(printf '%s' "$view" | jq -r --arg l "$leg" "$LEG_DISP")
         else

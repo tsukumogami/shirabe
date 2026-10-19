@@ -118,7 +118,7 @@ eq  "select: wait_target topic" gamma "$(target .topic)"
 eq  "select: wait_target leg" execute "$(target .leg)"
 # Both captures (WAIT_REQ from select, WAIT_LEG from leg) must be characters
 # koto admits in a capture.
-safe() { if printf '%s' "$2" | grep -Eq '^[A-Za-z0-9 :/_.@-]+$'; then ok "$1"; else bad "$1" "$2"; fi; }
+safe() { if grep -Eq '^[A-Za-z0-9 :/_.@-]+$' <<<"$2"; then ok "$1"; else bad "$1" "$2"; fi; }
 safe "capture: select's request id is capture-safe" "$(sel)"
 safe "capture: leg's leg name is capture-safe" "$(bash "$S" leg --session coord)"
 reset '[]'

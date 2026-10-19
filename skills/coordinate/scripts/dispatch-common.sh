@@ -258,7 +258,7 @@ dc_unit_matches() {
     forms=$(dc_unit_forms "$2") || return 2
     case "$1" in '' | *'
 '*) return 1 ;; esac
-    printf '%s\n' "$forms" | grep -Fxq -- "$1"
+    grep -Fxq -- "$1" <<<"$forms"
 }
 
 dc_niwa_slug() {
@@ -276,7 +276,7 @@ dc_session_matches() {
         "$slug"-*) ;;
         *) return 1 ;;
     esac
-    printf '%s' "${2#"$slug"-}" | grep -Eq '^[0-9a-f]{8}$'
+    grep -Eq '^[0-9a-f]{8}$' <<<"${2#"$slug"-}"
 }
 
 DC_JQ_TOKENS='
@@ -515,7 +515,7 @@ dc_seal() {
     dc_coord_log_present || return 2
     local token
     token=$(bash "$DC_COORD_LOG" seal --session "$1" --state "$2" --file "$3" --key "$4") || return 2
-    printf '%s' "$token" | grep -Eq '^sealed:[0-9]+:[0-9a-f]{64}$' || return 2
+    grep -Eq '^sealed:[0-9]+:[0-9a-f]{64}$' <<<"$token" || return 2
     printf '%s\n' "$token"
 }
 

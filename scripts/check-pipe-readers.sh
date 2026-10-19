@@ -22,15 +22,18 @@
 #   - piped straight into a reader that can stop before the end of its input:
 #     grep given -q, -l, -L or -m (alone or in a flag cluster), --quiet,
 #     --silent, --files-with-matches, --files-without-match or --max-count,
-#     or head.
+#     or head, with or without variable assignments in front of it
+#     (`LC_ALL=C grep -q`).
 # The rule applies whether or not the file sets pipefail: a function is
 # sourced into shells that do, and a script gains it later.
 #
 # Not seen, and left to review: a writer whose arguments hold a `|`, `;`, `&&`
 # or a command substitution (`echo "$(cmd)" | grep -q x`); a line that ends
-# in `|` with the reader on the next; a reader behind a prefix
-# (`LC_ALL=C grep -q`, `command grep`, `/usr/bin/grep`) or reached through a
-# variable or a function; a writer in a `{ ...; }` group; a grep whose quiet
+# in `|` with the reader on the next; a reader after a middle stage
+# (`printf ... | tr -d x | grep -q`), which cuts off that stage the same way;
+# a reader behind an assignment whose value holds a space (`X="a b" grep -q`),
+# behind a command prefix (`command grep`, `env X=1 grep`, `/usr/bin/grep`)
+# or reached through a variable or a function; a writer in a `{ ...; }` group; a grep whose quiet
 # flag comes after a pattern holding `|`, `;`, `&` or `)`; and writers other
 # than the three (git, jq, sed and the like). A quiet flag's spelling inside
 # a quoted pattern (`grep -c "a -m"`) can be read as the flag; that errs
@@ -74,10 +77,6 @@ files() {
 }
 
 LIST=$(files "$@") || exit 2
-# skills/coordinate/'s sites are fixed in a pull request of their own
-# (shirabe#875), held until another coordinate change lands; until it does,
-# the scan skips that directory. That pull request removes this filter.
-LIST=$(grep -v -e "^$REPO_ROOT/skills/coordinate/" -e '^skills/coordinate/' <<<"$LIST")
 [ -n "$LIST" ] || exit 0
 
 # One awk over every file. A writer is a command word: at the start of the
@@ -94,7 +93,7 @@ SITES=$(printf '%s\n' "$LIST" | tr '\n' '\0' | xargs -0 awk '
     if (line ~ /\\$/) { held = substr(line, 1, length(line) - 1); next }
     held = ""
     if (line ~ /^[ \t]*#/) next
-    if (line ~ /(^|[;&|(){!`])[ \t]*((then|do|else|if|elif|while|until)[ \t]+)*(![ \t]*)?(printf|echo|cat)([ \t]([^|;&$`]|&[0-9-]|\$[^(|])*)?\|[ \t]*(head([ \t)]|$)|grep[ \t]([^|;&)]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) {
+    if (line ~ /(^|[;&|(){!`])[ \t]*((then|do|else|if|elif|while|until)[ \t]+)*(![ \t]*)?(printf|echo|cat)([ \t]([^|;&$`]|&[0-9-]|\$[^(|])*)?\|[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t|;&]*[ \t]+)*(head([ \t)]|$)|grep[ \t]([^|;&)]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) {
       sub(/^[ \t]+/, "", line)
       printf "%s:%d: %s\n", FILENAME, start, line
     }

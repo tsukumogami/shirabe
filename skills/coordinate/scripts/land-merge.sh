@@ -72,7 +72,7 @@ bash "$HERE/coord-log.sh" provenance --session "$SESSION" >/dev/null 2>&1 \
 DIRECTED=$(bash "$HERE/coord-log.sh" directed-since --session "$SESSION" --from 0 2>/dev/null)
 case $? in
     0) ;;
-    1) refuse "the run has a directed transition ($(printf '%s' "$DIRECTED" | head -1)); restart the run" ;;
+    1) refuse "the run has a directed transition ($(head -1 <<<"$DIRECTED")); restart the run" ;;
     *) refuse "the session log can't be read" ;;
 esac
 

@@ -49,7 +49,7 @@ fi
 [ $# -ge 1 ] || usage
 REPO=$1
 shift
-printf '%s' "$REPO" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || usage
+grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' <<<"$REPO" || usage
 case "/$REPO/" in */./* | */../* | /-*) usage ;; esac
 for p in "$@"; do case "$p" in -*) usage ;; esac; done
 

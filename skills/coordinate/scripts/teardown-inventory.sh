@@ -230,7 +230,7 @@ github_repo() {
         *) return 1 ;;
     esac
     r=${r%.git}
-    printf '%s' "$r" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || return 1
+    grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' <<<"$r" || return 1
     case "/$r/" in */./* | */../*) return 1 ;; esac
     printf '%s' "$r"
 }

@@ -236,8 +236,8 @@ ctx() { cat "$CASE/ctx/$(printf '%s' "$1" | sed 's#/#%#g')" 2>/dev/null; }
 has_ctx() { [ -f "$CASE/ctx/$(printf '%s' "$1" | sed 's#/#%#g')" ]; }
 tick() { echo $(( $(cat "$CASE/clock") + $1 )) > "$CASE/clock"; }
 lines_ok() {  # every line the pass printed is one of the three grammars and capturable
-    printf '%s\n' "$1" | grep -Eq '^(pending:[0-9]+:[0-9]+:[0-9a-f]{64}|blocked:(none|unreadable)|reconciled [0-9a-f]{64} sealed:[0-9]+:[0-9a-f]{64})$' \
-        && printf '%s' "$1" | grep -Eq '^[A-Za-z0-9 :/_.@-]*$' && [ "$(printf '%s\n' "$1" | wc -l | tr -d ' ')" = 1 ]
+    grep -Eq '^(pending:[0-9]+:[0-9]+:[0-9a-f]{64}|blocked:(none|unreadable)|reconciled [0-9a-f]{64} sealed:[0-9]+:[0-9a-f]{64})$' <<<"$1" \
+        && grep -Eq '^[A-Za-z0-9 :/_.@-]*$' <<<"$1" && [ "$(printf '%s\n' "$1" | wc -l | tr -d ' ')" = 1 ]
 }
 
 SHA1=1111111111111111111111111111111111111111

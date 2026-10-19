@@ -271,7 +271,7 @@ lib_write_guard() {
     rc=$?
     case $rc in
         0) ;;
-        1) echo "$PROG: refused: the run has a directed transition ($(printf '%s' "$out" | head -1)); restart the run" >&2; exit 10 ;;
+        1) echo "$PROG: refused: the run has a directed transition ($(head -1 <<<"$out")); restart the run" >&2; exit 10 ;;
         *) lib_die2 "cannot read the session log" ;;
     esac
 }

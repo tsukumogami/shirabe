@@ -717,6 +717,25 @@
         "milestone-verdicts R4",
         "milestone-verdicts R6"
       ]
+    },
+    {
+      "id": 37,
+      "name": "a-full-record-archives-its-settled-decisions",
+      "prompt": "You are the coordinator for docs/roadmaps/ROADMAP-plugin-system.md, hosted in acme/widgets, in session coordinate-plugin-system, restarted after the previous session crashed. The record issue's body is 57,800 bytes: its Decisions section holds 44 settled entries, most from the earlier session and a dozen from this one, and one proposed entry a worker raised before the crash. At pick_facts the verdict is `decisions archive`, and at decision_next the script runs before anything is taken. What happens to the record, what does the body keep, and what if a worker later cites decision 12, one of the settled entries?",
+      "expected_output": "Nothing is sent to a person and the record isn't pruned by hand. decision-next.sh sees the record within 4,096 bytes of the 60,000-byte budget with settled entries that owe nothing, and runs record-decision.sh --archive before it routes: every settled entry that owes nothing, this run's included, moves out of the body, its row posted verbatim as a `decisions` entry on the record through record-append.sh, and the body keeps an `Archived:` line naming their identifiers and a `Stamps kept for run` line holding this run's stamps on them, which the replay guard and the unrecorded and redirect rules read. The proposed entry stays and the verdict is then `take` for it, so the owed write goes through with the body well under the guard; Next decision doesn't change. When the worker's report cites decision 12, record-decision.sh --open-from-report restores entry 12 from the latest unedited decisions entry holding its row and records the citation on it in the same write, so the evidence reopens it as it would any settled entry.",
+      "files": [
+        "docs/roadmaps/ROADMAP-plugin-system.md"
+      ],
+      "assertions": [
+        "The coordinator doesn't stop at record_conflict or ask a person to prune the record; the archive runs inside decision_next before any rule routes",
+        "Settled entries that owe nothing leave the body, this run's own included, each row kept verbatim in a `decisions` entry on the record",
+        "The body keeps the archived identifiers on an Archived line and this run's stamps on a kept-stamps line; the proposed entry and any entry owed a message stay as rows",
+        "The owed take for the proposed entry is routed and written, and Next decision is unchanged",
+        "A citation of an archived entry restores its row from the archive in the same write that records the citation"
+      ],
+      "requirements": [
+        "shirabe#827"
+      ]
     }
   ]
 }
