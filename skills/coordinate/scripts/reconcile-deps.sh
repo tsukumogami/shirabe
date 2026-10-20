@@ -115,11 +115,13 @@ rd_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # from one shell reuse a name, which is safe only because each call removes its
 # files before it returns and the next one starts. A background subshell that
 # calls this while its parent can also must first set RD_SHELL to a tag of its
-# own and RD_N to 0: inventory-common.sh's pool jobs do.
+# own and RD_N to 0: reconcile-check.sh's inventory pool jobs (rc_job) do.
 #
 # A read that can't be started because rd_idle failed (no mkfifo, no
-# directory) returns 2 without running CMD, a failed read like any other,
-# which every caller already treats as not verified.
+# directory) returns 125 without running CMD: a failed read, which every
+# caller treats as not verified. 125 is no reader's own code, so a caller
+# that gives one of CMD's codes a meaning (koto's 2, "not found") never
+# mistakes this for it.
 RD_SHELL=m
 RD_N=0
 RD_IDLE=""
@@ -140,9 +142,16 @@ rd_deadline() {
     local secs=$1 pid watcher rc out
     shift
     rd_valid_secs "$secs" || secs=8
-    [ -n "$RD_IDLE" ] || return 2
+    [ -n "$RD_IDLE" ] || return 125
     RD_N=$((RD_N + 1))
     out="$RD_DIR/read.$RD_SHELL.$RD_N"
+    # A name an interrupted call left files under is passed over, by builtin
+    # tests so it costs no process: a stale .done would disable the deadline,
+    # and a stale .late would force 124.
+    while [ -e "$out" ] || [ -e "$out.done" ] || [ -e "$out.late" ]; do
+        RD_N=$((RD_N + 1))
+        out="$RD_DIR/read.$RD_SHELL.$RD_N"
+    done
     "$@" > "$out" &
     pid=$!
     (

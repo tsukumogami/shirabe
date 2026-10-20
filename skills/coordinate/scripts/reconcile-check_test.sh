@@ -368,6 +368,14 @@ expect "a message return path makes no request-store read" '.status == "not_veri
 new_case leg-bad
 expect "an invalid request id reaches no command" '.status == "not_verified"' "$(run leg --return-path 'leg ../x:deliver')"
 [ -s "$CASE/log" ] && bad "an invalid request id makes no call" || ok "an invalid request id makes no call"
+# No private directory for the reads (TMPDIR can't be written to): every read
+# fails closed with rd_deadline's own code, never as koto's "not found", and
+# no command runs.
+new_case leg-no-tmp
+serve koto-request 1 "$REQ_JSON"
+out=$(TMPDIR="$CASE/no-such-dir" run leg --return-path 'leg req1:deliver' 2>/dev/null)
+expect "with no private directory a read fails closed, not as not found" '.status == "not_verified" and (.reason | test("exit 125"))' "$out"
+[ -s "$CASE/log" ] && bad "with no private directory no read runs" "$(cat "$CASE/log")" || ok "with no private directory no read runs"
 
 echo "== inventory =="
 # A real clone in a temp instance. ls-remote is served; every other git call
