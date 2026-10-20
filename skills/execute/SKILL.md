@@ -132,8 +132,8 @@ Two more flags, on both paths:
     other start setup stops `adopt-run-refused` and changes nothing.
   - `--follow-up <node>=<url>`, with `--remove` — not usable yet: koto
     refuses the `--follow-up` value at init (`invalid_var`) and nothing
-    changes. `--remove` is accepted and reported `ignored=remove` by setup,
-    changing nothing, until follow-ups land.
+    changes. `--remove` only goes with `--follow-up`, so it can't be used yet
+    either.
 - `--koto-leg=<request-id>:<leg>` — attach this run's session to a koto request
   leg, so its terminal result reaches whoever waits on that leg (`/deliver`
   passes it). The request id must match koto's request-id pattern
