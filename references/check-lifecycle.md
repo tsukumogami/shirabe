@@ -5,7 +5,7 @@ Every deterministic check shirabe runs from a koto gate (a registry entry whose
 treats the rule's finding, the figures say when the stage should change, and a
 reviewed change to `references/rule-registry.json` is the only way it changes.
 The registry fields are described in `references/rule-registry.md`; the design
-behind all of this is `docs/designs/DESIGN-check-lifecycle.md`.
+behind all of this is `docs/designs/current/DESIGN-check-lifecycle.md`.
 
 Entries checked any other way (the `rs-*` review-shadow criteria, which a model
 grades, and prose rules nothing checks) have no stage. A stage never changes
