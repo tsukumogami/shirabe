@@ -116,9 +116,11 @@
 #   `recovered` context key (the URL; the opener removes it at every
 #   invocation's start). No head the body names is ever recorded.
 #
-# --follow-up <node>=<url> records a follow-up PR against a node, after the
-# record is loaded or recovered and before any write. The node must be a PR
-# node of the run with a recorded node PR, and the URL none of the run's node
+# --follow-up <node> <url> records a follow-up PR against a node, after the
+# record is loaded or recovered and before any write. The template hands it
+# FOLLOW_UP, which carries the space form because koto's value allowlist has
+# no `=`; <node>=<url>, the form the user types, is accepted too. The node
+# must be a PR node of the run with a recorded node PR, and the URL none of the run's node
 # PRs, not the coordination PR and not a follow-up recorded under another
 # node (else follow-up-node; a new run has no node PR, so it is always
 # follow-up-node there); the PR must be in the node's repository
@@ -141,7 +143,7 @@
 #
 # Usage: record-coord-setup.sh --session <koto-session> --plan <path>
 #            [--store <github|session>] [--coordination-pr <url>]
-#            [--follow-up <node>=<url> [--follow-up-remove true]]
+#            [--follow-up "<node> <url>" [--follow-up-remove true]]
 #            [--adopt-run <id>]
 #
 # Each optional value may be empty (the template passes its rebind variables
@@ -189,14 +191,14 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 RE_SESSION='^[A-Za-z0-9][A-Za-z0-9._-]*$'
 RE_STORE='^(github|session)?$'
 RE_URL_OPT='^(https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?$'
-RE_FOLLOW_UP='^([a-z][a-z0-9-]*=https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?$'
+RE_FOLLOW_UP='^([a-z][a-z0-9-]*[ =]https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?$'
 RE_REMOVE='^(true)?$'
 RE_ADOPT='^([0-9a-f]{32})?$'
 RE_LOGIN='^[A-Za-z0-9](-?[A-Za-z0-9]){0,38}$'
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: record-coord-setup.sh --session <koto-session> --plan <path> [--store <github|session>] [--coordination-pr <url>] [--follow-up <node>=<url> [--follow-up-remove true]] [--adopt-run <id>]" >&2
+    echo "usage: record-coord-setup.sh --session <koto-session> --plan <path> [--store <github|session>] [--coordination-pr <url>] [--follow-up \"<node> <url>\" [--follow-up-remove true]] [--adopt-run <id>]" >&2
     exit 64
 }
 
@@ -234,19 +236,19 @@ case "$PLAN" in *"
 "*) usage_error "the PLAN path holds a newline" ;; esac
 [[ $STORE =~ $RE_STORE ]] || usage_error "--store [$STORE] is not github or session"
 [[ $CPR =~ $RE_URL_OPT ]] || usage_error "--coordination-pr [$CPR] is not a pull request URL"
-[[ $FOLLOW_UP =~ $RE_FOLLOW_UP ]] || usage_error "--follow-up [$FOLLOW_UP] is not <node>=<pull request URL>"
+[[ $FOLLOW_UP =~ $RE_FOLLOW_UP ]] || usage_error "--follow-up [$FOLLOW_UP] is not <node> <pull request URL> or <node>=<pull request URL>"
 [[ $REMOVE =~ $RE_REMOVE ]] || usage_error "--follow-up-remove [$REMOVE] is not true"
 [[ $ADOPT =~ $RE_ADOPT ]] || usage_error "--adopt-run [$ADOPT] is not a run id"
 # The opener refuses --remove without --follow-up too; this script doesn't
 # rely on it.
-[ -n "$REMOVE" ] && [ -z "$FOLLOW_UP" ] && usage_error "--follow-up-remove true needs --follow-up <node>=<url>"
+[ -n "$REMOVE" ] && [ -z "$FOLLOW_UP" ] && usage_error "--follow-up-remove true needs --follow-up \"<node> <url>\""
 
-# The follow-up, split: its node, the URL as given, its owner/repo and its
-# number.
+# The follow-up, split at its first space or `=` (a node id holds neither):
+# its node, the URL as given, its owner/repo and its number.
 FU_NODE=""; FU_URL_IN=""; FU_REPO_IN=""; FU_NUM=""
 if [ -n "$FOLLOW_UP" ]; then
-    FU_NODE="${FOLLOW_UP%%=*}"
-    FU_URL_IN="${FOLLOW_UP#*=}"
+    FU_NODE="${FOLLOW_UP%%[ =]*}"
+    FU_URL_IN="${FOLLOW_UP#*[ =]}"
     FU_REPO_IN=$(printf '%s' "$FU_URL_IN" | sed -E 's#^https://[^/]+/([^/]+/[^/]+)/pull/[0-9]+$#\1#')
     FU_NUM="${FU_URL_IN##*/}"
     coord_valid_repo "$FU_REPO_IN" || usage_error "--follow-up's URL [$FU_URL_IN] names no usable owner/repo"

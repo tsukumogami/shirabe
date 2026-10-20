@@ -20,6 +20,8 @@
 #   record-merged      #22 MERGED: recorded with its live head, and the render
 #                      observes its merge commit as merged_head
 #   re-record          #21's head moved: recording it again updates the head
+#   space-form         `--follow-up "<node> <url>"`, the form the template
+#                      hands setup from FOLLOW_UP, records the same key
 #   refusals           each exits 71 with only stop=<code>, changes no key, and
 #                      posts nothing: follow-up-node (a node with no recorded
 #                      PR, a gate node, an unknown node, the coordination PR's
@@ -159,6 +161,17 @@ follow_up 21
 [ "$RC" -eq 0 ] && [ "$(val "$KEY" | jq -r '[.head, .removed] | join(" ")')" = "$CT_OTHER false" ] \
     && pass "recording a follow-up again updates its head" \
     || fail "re-record: rc=$RC key=[$(val "$KEY")]"
+
+# The form the template hands setup: FOLLOW_UP carries `<node> <url>`, since
+# koto's own value allowlist has no `=`. It records the same key.
+live_edit '(.prs[] | select(.number == 21) | .headRefOid) = "'"$CT_HEAD"'"'
+run_setup --follow-up "$CT_CORE $(fu_url 21)"
+if [ "$RC" -eq 0 ] && grep -qx "follow-up=recorded:$(fu_url 21)" <<<"$OUT" \
+    && [ "$(val "$KEY" | jq -r '[.head, .removed] | join(" ")')" = "$CT_HEAD false" ]; then
+    pass "--follow-up \"<node> <url>\", as the template passes FOLLOW_UP, records the follow-up"
+else
+    fail "space form: rc=$RC out=[$OUT] key=[$(val "$KEY")] stderr=[$(tail -2 "$CASE/stderr" | tr '\n' ' ')]"
+fi
 
 held_case record-merged
 ct_follow_up_pr "$CT_REPO" 22 'state="MERGED"' "merge_sha=\"$MERGE_SHA\""

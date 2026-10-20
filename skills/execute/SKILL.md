@@ -148,7 +148,10 @@ Two more flags, on both paths:
     renders the coordination PR's body. One follow-up per invocation: a
     repeated `--follow-up` is koto's `duplicate_var`. It applies only on a
     start that reaches setup; a live session past it refuses the flag
-    (`error=flag-needs-setup`, below).
+    (`error=flag-needs-setup`, below). koto's own value allowlist has no
+    `=`, so `FOLLOW_UP` carries the value as `<node> <url>`: the opener turns
+    its first `=` into a space, and refuses a value with no `=`
+    (`error=usage`) before koto sees it.
 - `--koto-leg=<request-id>:<leg>` — attach this run's session to a koto request
   leg, so its terminal result reaches whoever waits on that leg (`/deliver`
   passes it). The request id must match koto's request-id pattern
@@ -162,9 +165,9 @@ own before `koto init` for anything a koto variable can express: the merge flag,
 the mode, and the PLAN slug are all constrained variables, so under `--koto-leg`
 every argument refusal is koto's and koto records it on the leg. `/execute`'s own
 pre-init refusals are only those where no koto call can be built at all: a
-malformed `--koto-leg` value, a coordinated flag with no value or a `--remove`
-without `--follow-up` (`error=usage`), an args file inside the work tree, or a
-missing `koto` binary. One routing refusal joins them: a `multi-pr` PLAN, which
+malformed `--koto-leg` value, a coordinated flag with no value, a `--remove`
+without `--follow-up`, or a `--follow-up` value with no `=` (`error=usage`), an
+args file inside the work tree, or a missing `koto` binary. One routing refusal joins them: a `multi-pr` PLAN, which
 `execute-open.sh` refuses with `error=multi-pr` (exit 64) and a message naming
 `/work-on <PLAN>` as the entry point (per
 `docs/decisions/DECISION-contradiction-multi-pr-plan-routing-2026-09-28.md`).

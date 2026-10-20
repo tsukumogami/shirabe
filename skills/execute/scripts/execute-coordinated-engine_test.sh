@@ -168,8 +168,8 @@ open_run() {
     shift
     # $KOTO_LEGACY_ENV_ARG: #483.
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
-        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
-        || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
+        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >"$CASE/init.out" 2>&1 \
+        || { fail "koto init $s: $(cat "$CASE/init.out")"; return 1; }
     # The node PRs the case added (ct_pr, on impl/ branches) reach the model
     # only once setup has sealed the record, as in a real run, where
     # node-push.sh opens them after setup: an owned PR on a node branch at
@@ -444,7 +444,8 @@ fixture blocked
 ct_write_db
 # $KOTO_LEGACY_ENV_ARG: #483.
 k init execute-blocked $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-blocked.md --var PLAN_SLUG=blocked \
-    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
+    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >"$CASE/init.out" 2>&1 \
+    || fail "koto init execute-blocked: $(cat "$CASE/init.out")"
 k next execute-blocked --with-data '{"setup_status":"blocked","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
 expect_terminal blocked done_error outcome=error step=execute:coord_setup
 body_posts blocked 0
@@ -455,7 +456,8 @@ fixture stop
 ct_write_db
 # $KOTO_LEGACY_ENV_ARG: #483.
 k init execute-stop $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-stop.md --var PLAN_SLUG=stop \
-    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
+    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >"$CASE/init.out" 2>&1 \
+    || fail "koto init execute-stop: $(cat "$CASE/init.out")"
 k next execute-stop --with-data '{"setup_status":"store-mismatch","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
 expect_terminal stop done_error outcome=error step=execute:coord_setup reason=store-mismatch
 body_posts stop 0
@@ -471,11 +473,14 @@ ct_case fu-stop
 fixture fustop
 # No follow-up PR in the model: the stop comes before any read of it.
 ct_write_db
-FU_VAL="$CT_CORE=https://github.com/acme/repo-a/pull/21"
+# FOLLOW_UP carries `<node> <url>`, as execute-open.sh builds it from
+# --follow-up <node>=<url> (koto's own value allowlist has no `=`), and the
+# directive hands it to setup verbatim.
+FU_VAL="$CT_CORE https://github.com/acme/repo-a/pull/21"
 # $KOTO_LEGACY_ENV_ARG: #483.
 k init execute-fustop $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/plans/PLAN-fustop.md --var PLAN_SLUG=fustop \
-    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false --var FOLLOW_UP="$FU_VAL" >/dev/null 2>"$CASE/init.err" \
-    || fail "koto init execute-fustop: $(cat "$CASE/init.err")"
+    --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false --var FOLLOW_UP="$FU_VAL" >"$CASE/init.out" 2>&1 \
+    || fail "koto init execute-fustop: $(cat "$CASE/init.out")"
 FU_SETUP=$(cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session execute-fustop --plan docs/plans/PLAN-fustop.md \
     --follow-up "$FU_VAL" 2>"$CASE/setup.err"); FU_RC=$?
 if [ "$FU_RC" -eq 71 ] && [ "$FU_SETUP" = stop=follow-up-node ]; then
@@ -760,8 +765,8 @@ open_recovering() { # open_recovering <slug> <merge> [extra init args]
     shift
     # $KOTO_LEGACY_ENV_ARG: #483.
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
-        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
-        || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
+        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >"$CASE/init.out" 2>&1 \
+        || { fail "koto init $s: $(cat "$CASE/init.out")"; return 1; }
     [ -n "${CARRIED_ID:-}" ] && printf '%s' "$CARRIED_ID" | k context add "$s" run_id >/dev/null 2>&1
     (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
         ${STORE_FLAG:+--store "$STORE_FLAG"} >"$CASE/setup.out" 2>"$CASE/setup.err")
