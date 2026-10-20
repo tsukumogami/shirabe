@@ -14,9 +14,14 @@ shirabe's declarations for `/shirabe:release`, imported by
 ## The macOS floor run
 
 Pull requests merge without waiting for their macOS legs, so a commit on
-main may never have run every suite on the bash 3.2 floor. Before dispatching
-the release workflow, run all of them on the commit the release is cut from
-and wait for the result:
+main may never have run every suite on the bash 3.2 floor. When a pull
+request merges or closes, `cancel-closed-pr-macos-runs.yml` cancels its
+macOS floor runs that are still queued or running, so a merged change's
+own macOS result is often never reported. The `macos-floor.yml` run is the
+only macOS check after merge.
+
+Before dispatching the release workflow, run every floor suite on the
+commit the release is cut from and wait for the result:
 
 ```bash
 git fetch origin main

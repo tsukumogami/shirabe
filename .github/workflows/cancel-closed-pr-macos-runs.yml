@@ -1,0 +1,81 @@
+name: Cancel a closed pull request's macOS runs
+
+# When a pull request merges or closes, nothing new is pushed to it, so the
+# per-PR cancel-in-progress groups never reach its runs, and its queued macOS
+# jobs keep their place in the hosted macOS queue (shirabe#944). This cancels
+# the closed PR's unfinished runs of the macOS floor workflows, merged PRs
+# included. A merged PR's own macOS result is given up on purpose:
+# macos-floor.yml, run on main daily and on the commit a release is cut from,
+# is the post-merge macOS check.
+#
+# The workflows it covers are the ones scripts/check-macos-floor-setup.sh
+# --workflows lists, the same parse that gives macos-floor.yml its suites, so
+# a new floor workflow is covered without an edit here. The guards (only
+# pull_request runs of this PR's branch and commits, never main, never
+# macos-floor.yml, never another PR's run, never this run) are in
+# scripts/cancel-closed-pr-runs.sh, and its harness pins each one.
+#
+# pull_request, not pull_request_target: a fork PR's token is read-only, so
+# its runs can't be cancelled from here, and the script skips a fork with a
+# log line rather than going red. The checkout is the event's ref, the PR's
+# last test merge, the commit its latest pull_request runs ran from, so the
+# floor workflows listed are the ones those runs came from, and the script it
+# runs is there even before this workflow reaches main. GitHub runs no
+# pull_request workflow for a PR with merge conflicts, this one included, so
+# a PR closed while conflicted keeps whatever runs it still has queued.
+#
+# The job is one job rather than two. A split would list the floor workflows
+# in a job with contents: read and cancel in a job with actions: write and no
+# checkout, but it would gain nothing here: the code the job runs is the
+# PR's own, from a branch of this repository (fork PRs are skipped), and that
+# branch's author can already push a workflow with any permission.
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+      # The PR's commits, which the script matches each run's head against.
+      pull-requests: read
+    # yq is pinned, as in macos-floor.yml, so the image moving to another yq
+    # can't change which workflows the list finds.
+    env:
+      YQ_VERSION: v4.47.1
+      YQ_SHA256: 0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install pinned mikefarah yq
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/yq-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $dir/yq" | sha256sum -c -
+          chmod +x "$dir/yq"
+          out=$("$dir/yq" --version)
+          case "$out" in
+            *mikefarah/yq*" version ${YQ_VERSION}") ;;
+            *) echo "unexpected yq version: $out" >&2; exit 1 ;;
+          esac
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Cancel the PR's unfinished macOS floor runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: scripts/cancel-closed-pr-runs.sh

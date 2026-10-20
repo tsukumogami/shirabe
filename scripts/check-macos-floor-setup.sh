@@ -35,13 +35,21 @@
 # check-macos-floor-legs.sh can't read such a suite either.
 #
 # The same parse gives macos-floor.yml its matrix (--suites), so the suites
-# it runs and the suites this checks can't disagree.
+# it runs and the suites this checks can't disagree, and gives
+# cancel-closed-pr-macos-runs.yml the workflows whose runs it cancels when a
+# pull request closes (--workflows), so a new floor workflow is covered there
+# without an edit too.
 #
 # Usage:
 #   scripts/check-macos-floor-setup.sh            check macos-floor.yml
 #   scripts/check-macos-floor-setup.sh --suites   print the floor suites as a
 #                                                 JSON array (macos-floor.yml's
 #                                                 matrix)
+#   scripts/check-macos-floor-setup.sh --workflows
+#                                                 print the file names of the
+#                                                 workflows that run them, as a
+#                                                 JSON array (macos-floor.yml
+#                                                 itself is never one)
 #
 # Environment:
 #   CHECK_MACOS_FLOOR_SETUP_DIR   the workflows directory to read (the tests);
@@ -50,7 +58,8 @@
 # Requires mikefarah yq v4 (to read the YAML) and python3.
 #
 # Exit codes:
-#   0 -- the setups match (or, with --suites, the list was printed)
+#   0 -- the setups match (or, with --suites or --workflows, the list was
+#        printed)
 #   1 -- one or more mismatches, each printed with the suite and the steps
 #   2 -- a workflow could not be read, no floor suite was found, or a
 #        prerequisite is missing
@@ -65,7 +74,8 @@ MODE=check
 case "${1:-}" in
     "") ;;
     --suites) MODE=suites ;;
-    *) echo "usage: check-macos-floor-setup.sh [--suites]" >&2; exit 2 ;;
+    --workflows) MODE=workflows ;;
+    *) echo "usage: check-macos-floor-setup.sh [--suites|--workflows]" >&2; exit 2 ;;
 esac
 
 command -v yq >/dev/null 2>&1 || { echo "check-macos-floor-setup: yq (mikefarah v4) is required" >&2; exit 2; }
@@ -173,6 +183,8 @@ def env_of(wf, job, step):
 
 # Every floor suite outside macos-floor.yml, with the setup its own job gives it.
 suites = {}
+# The workflows those suites run in.
+floor_workflows = set()
 problems = []
 for wf_name, wf in workflows.items():
     if wf_name == NET:
@@ -210,6 +222,7 @@ for wf_name, wf in workflows.items():
                     problems.append((suite, f"runs in {prior['where']} and in {entry['where']} "
                                      "with different setups; macos-floor.yml can copy only one"))
                 suites.setdefault(suite, entry)
+                floor_workflows.add(wf_name)
 
 if not suites:
     print("check-macos-floor-setup: no workflow runs a macOS floor suite", file=sys.stderr)
@@ -217,6 +230,9 @@ if not suites:
 
 if mode == "suites":
     print(json.dumps(sorted(suites)))
+    sys.exit(0)
+if mode == "workflows":
+    print(json.dumps(sorted(floor_workflows)))
     sys.exit(0)
 
 net = workflows.get(NET)
