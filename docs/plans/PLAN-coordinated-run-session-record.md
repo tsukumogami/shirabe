@@ -126,15 +126,17 @@ and 6; PRD R5, R15, R17, R18, R21, R23).
   post skips the post with `body=stale`.
 - [ ] A state read the stub fails renders `unknown`; a post the stub fails reports
   `body=stale`, leaves the record unchanged, and the next transition posts; a render the
-  stub fails just before the coordination merge makes no merge call and reports
-  `merge-refused:body-stale`; a body over 60,000 bytes reports `body=full`.
+  stub fails just before the coordination merge makes no merge call, reports
+  `merge-refused:body-stale`, records it in the merge attempts and ends at
+  `ready_awaiting_merge` without printing `evaluate-coordination` again; a body over 60,000
+  bytes reports `body=full` and, at the coordination step, `merge-refused:body-full`.
 - [ ] Each merge (node, follow-up, coordination, single-pr home) passes a message file whose
   subject is the title and whose body is Part 1; an empty Part 1, a multi-line title or AI
   attribution makes no merge call and reports `merge-refused:squash-message`; `rebase`
   passes no message.
 - [ ] `/coordinate`'s land step (`land-merge.sh` and `land-check.sh`) uses
   `scripts/lib/squash-message.sh` and its suites pass unchanged.
-- [ ] `coord-merge.sh` no longer reads the body, the index-entry grammar lives only in the
+- [ ] No script under `skills/execute/` calls the index-entry grammar; it lives only in the
   codec, and the execute eval fixtures' coordination bodies are rendered bodies.
 - [ ] A private node under a public coordination pull request is refused with
   `execute:visibility` without naming the repository.
@@ -158,7 +160,7 @@ parse the rendering with `cb_parse`, take the node list, resolve identity (carri
 node pull requests' markers and recovered follow-ups against R16's checks (dropping and
 reporting one that fails), re-read heads live, set the cascade from the PLAN's presence,
 write `run/recovered`; add `--adopt-run`; recover pre-feature runs once; add the structure
-test that bans body parsing from `skills/execute/` (design Decision 4; PRD R3, R6, R8-R11,
+test that bans body parsing from `skills/execute/` (design Decision 4; PRD R3, R6, R8-R11, R18,
 R22).
 
 **Acceptance Criteria**:
@@ -179,9 +181,13 @@ R22).
 - [ ] With the PLAN on the branch the node list comes from it and the cascade is `not-run`;
   with the PLAN gone the cascade is `pushed` at the live coordination head, which the
   readiness check examines before the coordination merge.
-- [ ] A recovered follow-up from another author is dropped and reported
-  `follow-up-dropped:<url>`; one passing R16's checks is kept without a marker; with
-  `--adopt-run <id>` and a carried `run_id`, `<id>` wins and becomes the session's `run_id`.
+- [ ] With `--adopt-run <id>` and a carried `run_id`, `<id>` wins and becomes the session's
+  `run_id`; for a coordinated PLAN the opener seeds a carried id and mints none, and setup
+  mints only when recovery finds no identity and no node pull request.
+- [ ] Recovery reads follow-up lines but keeps none of them until Issue 4 adds the
+  follow-up checks (no follow-up can be recorded before Issue 4).
+- [ ] The structure test also fails when a `run-record.sh` verb is called from a script other
+  than its owner.
 - [ ] No coordination pull request stops with `coordination-pr-missing`, two with
   `coordination-pr-ambiguous`; a body with no index line recovers an empty map when no PLAN
   node's branch has an owned pull request and stops with `coordination-index-missing` when
@@ -211,6 +217,8 @@ hold the merge-last gate until they merge (design Decision 7; PRD R16).
 
 **Acceptance Criteria**:
 - [ ] Recording a follow-up posts a body.
+- [ ] Recovery keeps a recovered follow-up that passes these checks, without a marker, and
+  drops one that fails, reporting `follow-up-dropped:<url>`.
 - [ ] An open and a merged follow-up are recorded with their live heads; recording again
   updates the head; `follow-up-node`, `follow-up-repo`, `follow-up-base`,
   `follow-up-author` and `follow-up-closed` refuse the five cases, each changing nothing.

@@ -220,7 +220,9 @@ the body. The trouble is that the same text is also the run's memory.
     rendered index, ignoring any line that names the coordination pull request itself (an
     earlier release wrote one), read by the shared codec that renders it (R17), which lives outside
     `skills/execute/`;
-  - takes the run's identity from the session when it holds one (a carried `run_id`);
+  - takes the run's identity from a `run_id` the opener carried from a replaced session (for
+    a coordinated PLAN the opener carries an id but never mints one; setup mints, and only
+    when nothing below supplies one);
     otherwise from the body's rendered run line; otherwise from the run markers on the
     map's node pull requests. `/execute` stamps a marker on every node pull request it
     opens, so every node pull request in the map must carry that identity: one that
@@ -300,7 +302,9 @@ the body. The trouble is that the same text is also the run's memory.
   tried again at the next transition, and never changes a node's merge decision. The
   coordination pull request is the exception, since CI's gate reads the posted body: it's
   evaluated and merged only after a render that posted or found nothing to change, and
-  otherwise the run reports `merge-refused:body-stale`.
+  otherwise the run reports `merge-refused:body-stale` (`merge-refused:body-full` for an
+  oversize body), records that in the invocation's merge attempts so it isn't tried again in
+  the same loop, and ends at `ready_awaiting_merge`.
 - **R16. A follow-up can be recorded.** `/execute --follow-up <node>=<pull request URL>` on a
   coordinated PLAN records a follow-up pull request against an existing node, with the head
   it reads live at that moment. It's refused, changing nothing, with `follow-up-node` when
@@ -449,7 +453,7 @@ the body. The trouble is that the same text is also the run's memory.
   continues. `--adopt-run` on a start whose session holds a record, or with a malformed id, is
   refused. A node pull request with no marker is stamped the same way.
 - [ ] Recovery with no rendered run line and all marked nodes agreeing takes their id; with no
-  run line and no marked node it mints a new id; with a session holding a carried `run_id` it
+  run line and no node pull request in the map it mints a new id; with a session holding a carried `run_id` it
   keeps that id; with a rendered run line it takes the line's id.
 - [ ] Recovery with the PLAN still on the branch takes the node list from the PLAN and sets the
   cascade verdict to `not-run`; a recovered follow-up is merged only after the readiness
@@ -564,6 +568,10 @@ the body. The trouble is that the same text is also the run's memory.
 
 ## Known Limitations
 
+- A node pull request someone pushes to after the run's own push reports
+  `awaiting:head-moved` until the run pushes it again, as it does today; this feature adds no
+  node re-record step. A review fix belongs on a follow-up pull request (R16), whose head can
+  be recorded again.
 - On the `github` store, recovery with the PLAN gone trusts the rendered index as the list of
   nodes. A hand edit that drops a node hides it from a recovered run until a person records it
   again; the identity check catches a node that's there under another run, not one that's

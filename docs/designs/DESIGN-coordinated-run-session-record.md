@@ -258,9 +258,8 @@ posting and skips the post (`body=stale`) when its Part 1 changed since the rend
 posts with `gh pr edit --body-file` only on a difference. A failed read or post prints `body=stale` and exits 0, so it never changes a
 node's loop decision. The coordination pull request is the exception, because CI's
 merge-last gate reads the posted body: `evaluate-coordination` and `merge-coordination`
-run the renderer first and proceed only on `body=posted` or `body=unchanged`, otherwise
-reporting `merge-refused:body-stale`, so the gate never reads an index older than the
-record. The recorded `merged_head` is what the index shows for a merged pull request; the
+run the renderer first and proceed only on `body=posted` or `body=unchanged`, so the gate
+never reads an index older than the record. On a refused render the step records `coordination:body-stale` (or `body-full`) in the invocation's merge attempts, so `coord_compute` doesn't print the step again, and the run ends at `ready_awaiting_merge` with reason `merge-refused:body-stale` (or `merge-refused:body-full`); the next invocation starts with empty attempts and tries again. The recorded `merged_head` is what the index shows for a merged pull request; the
 renderer is its reader. A coordination pull request already merged gets no further post:
 its body is final at the merge.
 
@@ -340,7 +339,9 @@ GitHub call; otherwise it runs recovery:
    request itself dropped. A body with no index line is read as an empty map only when no PLAN node's branch (`impl/<slug>-<node>`) has an owned pull request; when one does, the index was lost (a `/scope` republish, a hand edit) and it stops with `coordination-index-missing` rather than re-dispatch a node that already has a pull request. With the PLAN
    gone as well, nothing names the nodes and it stops with `coordination-index-missing`;
 3. the node list from the PLAN when the branch has it, otherwise from the map;
-4. identity: the session's `run_id` when it holds one, else the rendered `run=` line, else
+4. identity: a `run_id` the opener carried from a replaced session (for a coordinated PLAN
+   `execute-open.sh` seeds a carried id but no longer mints one, so a `run_id` present at
+   setup was carried), else the rendered `run=` line, else
    the run marker every node pull request in the map agrees on, else, when the map holds no
    node pull request at all, a minted one. Every pull request in the map must be in a repository
    the PLAN or the map's own node names, pass the ownership lookup on its node's branch
@@ -554,7 +555,8 @@ execute-open.sh ... [--store github|session] [--coordination-pr <url>]
 skill-session.sh import execute|deliver <topic> --from <workspace>
 ```
 
-New report tokens and stops: `store-mismatch`, `session-absent`, `coordination-pr-missing`,
+New report tokens and stops: `not-owner` (exit 65), `follow-up-author`, `follow-up-dropped`,
+`merge-refused:body-full`, `store-mismatch`, `session-absent`, `coordination-pr-missing`,
 `coordination-index-missing`,
 `coordination-pr-ambiguous`, `coordination-pr-mismatch`, `coordination-pr-closed`,
 `recovery-unproven`, `recovered=<url>`, `body=stale`, `body=full`,
