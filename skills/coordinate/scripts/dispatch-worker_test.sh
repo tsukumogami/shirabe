@@ -35,9 +35,9 @@ G="$HERE/holding-recorded.sh"
 
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-worker-test.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-worker-test.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+trap 'case "$T" in */dispatch-worker-test.*) rm -rf "$T" ;; esac' EXIT
 
 PASS=0
 FAIL=0

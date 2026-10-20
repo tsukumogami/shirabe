@@ -45,7 +45,7 @@ doc() {
 
 # new_repo — a repo mid-run: the chain exists, nothing cascaded yet.
 new_repo() {
-    local d; d=$(mktemp -d); TMPS+=("$d")
+    local d; d=$(mktemp -d) || exit 1; TMPS+=("$d")
     (
         cd "$d" || exit 1
         git init -q .
@@ -95,15 +95,15 @@ expect() {
 }
 
 # Case 1 — the correct cascade verifies.
-T=$(new_repo); cascade "$T" full
+T=$(new_repo) || exit 1; cascade "$T" full
 expect "a fully staged cascade verifies" 0 "$T"
 
 # Case 2 — the PLAN is still on disk.
-T=$(new_repo)
+T=$(new_repo) || exit 1
 expect "an undeleted PLAN is distinguished" 2 "$T"
 
 # Case 3 — the PLAN was removed but never committed. The tree looks finished.
-T=$(new_repo)
+T=$(new_repo) || exit 1
 (cd "$T" && rm "$PLAN") >/dev/null 2>&1
 expect "an uncommitted deletion is distinguished" 3 "$T"
 
@@ -116,7 +116,7 @@ expect "an uncommitted deletion is distinguished" 3 "$T"
 # tree sees a finished cascade; reading the commit's own paths is what catches
 # it, and the exit code says which of the five things went wrong.
 # ---------------------------------------------------------------------------
-T=$(new_repo); cascade "$T" unstaged
+T=$(new_repo) || exit 1; cascade "$T" unstaged
 expect "a document transitioned on disk but absent from the commit is caught" 5 "$T"
 
 # Case 4b — and the tree really does look finished, so Case 4 is not passing
@@ -129,7 +129,7 @@ else
 fi
 
 # Case 5 — a document left at its pre-terminal status.
-T=$(new_repo)
+T=$(new_repo) || exit 1
 (
     cd "$T" || exit 1
     rm "$PLAN"
@@ -142,7 +142,7 @@ expect "a document left at its pre-terminal status is distinguished" 4 "$T"
 # Case 6 — R4: an anchor with no upstream chain. The cascade commits and pushes
 # its own deletion alone. Facts 1 and 2 carry the run; there is no chain to
 # check, and that must verify rather than read as an empty failure.
-T=$(new_repo)
+T=$(new_repo) || exit 1
 (
     cd "$T" || exit 1
     doc Active > "$PLAN"
@@ -153,11 +153,11 @@ T=$(new_repo)
 expect "an anchor with no upstream chain verifies on its own deletion" 0 "$T"
 
 # Case 7 — outside a git repository, undecided rather than failed or passed.
-T=$(mktemp -d); TMPS+=("$T")
+T=$(mktemp -d) || exit 1; TMPS+=("$T")
 expect "a non-repository cannot be decided" 6 "$T"
 
 # Case 8 — no argument.
-T=$(new_repo)
+T=$(new_repo) || exit 1
 expect "a missing plan argument cannot be decided" 6 "$T" ""
 
 echo
