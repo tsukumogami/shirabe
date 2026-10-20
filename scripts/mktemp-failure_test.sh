@@ -55,7 +55,7 @@ run_from() {
 
 echo "== a suite that resolves its directory with cd and pwd (#924) =="
 copy "$T/tree924"
-SHAPE='^[A-Za-z_]+=\$\(cd (-P )?"\$[A-Za-z_]+" && pwd -P\)'
+SHAPE='^[A-Za-z_]+="?\$\(cd (-P )?"\$[A-Za-z_]+" && pwd -P\)'
 # The suites with the shape, and every suite that sources a shared test
 # library making a directory at its top level or resolving it the same way
 # (coordinate's testdata/test-lib.sh and coordinate-engine-lib.sh, which hand
@@ -67,7 +67,8 @@ SUITES=$(
         grep -l -E "^[[:space:]]*(\\.|source)[[:space:]].*/${lib##*/}\"?\$" $(find . -name '*_test.sh')
     done
 )
-SUITES=$(printf '%s\n' "$SUITES" | LC_ALL=C sort -u)
+# This suite has the shape too; it is left out rather than run inside itself.
+SUITES=$(printf '%s\n' "$SUITES" | grep -vx './scripts/mktemp-failure_test.sh' | LC_ALL=C sort -u)
 n=0
 for s in $SUITES; do
     n=$((n + 1))
