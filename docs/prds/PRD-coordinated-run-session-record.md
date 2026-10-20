@@ -123,11 +123,14 @@ the body. The trouble is that the same text is also the run's memory.
 
 - **R1. The record is session keys.** A coordinated run keeps these facts as keys in its
   execute session, on either store:
-  - for each PR node: its repository, its pull request number and the head the run last
-    pushed to it;
-  - for each follow-up pull request: the node it belongs to, its repository, its number and
-    the head recorded with it (R16);
-  - the coordination pull request's number (R17) and, once the cascade has pushed, its head;
+  - for each PR node: its repository, its pull request number, the head the run last
+    pushed to it, whether that head has been verified (R10), and once the node is observed
+    merged, the head it merged at;
+  - for each follow-up pull request: the node it belongs to, its repository, its number,
+    the head recorded with it (R16), whether that head has been verified, and its merged head
+    once merged;
+  - the coordination pull request's number (R19) and, once the cascade has pushed, its head
+    and whether that head has been verified;
   - the cascade's verdict: `not-run`, `pushed` with the head, or `failed` with the step that
     failed;
   - the node list as the PLAN gave it, recorded at setup, which the run keeps reading after
@@ -137,9 +140,12 @@ the body. The trouble is that the same text is also the run's memory.
   The keys join `/execute`'s closed write-target set in `skills/execute/SKILL.md`.
 - **R2. One writer per fact.** Each key in R1 has one owning step: a node's pull request
   and pushed head, the step that pushes the node, after its push succeeds; the coordination
-  pull request's head and the cascade verdict, the cascade step; a follow-up, the follow-up
-  step (R16); the coordination pull request's number, the node list and the store, setup;
-  the recovery marker, recovery. A write by any other step is refused with exit 65
+  pull request's head and the cascade verdict, the cascade step; a follow-up and its head,
+  the follow-up step (R16); a merged head, the step that first observes the merge, from a
+  live read; a head's verified flag, the step that pushed it (verified) or recovery
+  (unverified), and the readiness check that then passes at it (verified); the coordination
+  pull request's number, the node list and the store, setup; the recovery marker and the
+  adopt record, recovery and the adopt step. A write by any other step is refused with exit 65
   (`not-owner`) and changes no key, and a failed push writes nothing. Each step writes its
   keys before the body is rendered from them.
 - **R3. One way in.** Every `/execute` script that needs a node's pull request, a head, a
@@ -148,7 +154,7 @@ the body. The trouble is that the same text is also the run's memory.
   pull request body: a structure test fails when any non-test file under `skills/execute/`
   defines or calls the index-entry grammar or a function that parses it (today
   `RE_COORD_ENTRY`, `coord_index_entries`, `coord_parse_entry`, `coord_find_entry`), or
-  matches `head=` against text read from a pull request body.
+  holds a regular expression or `grep`, `sed` or `awk` pattern containing `head=`.
 - **R4. A merge's pinned head.** Every merge `/execute` makes of a node, a follow-up or the
   coordination pull request passes `--match-head-commit` with the head the run record holds
   for it. When the pull request's live head differs from the recorded one, the merge isn't
@@ -160,9 +166,9 @@ the body. The trouble is that the same text is also the run's memory.
 ### The store
 
 - **R6. What each store means.** On both stores the session is the record and the body is
-  its rendering (R13). On `github`, a start that finds no run record recovers from the
+  its rendering (R15, R17). On `github`, a start that finds no run record recovers from the
   rendering (R9). On `session`, it doesn't: a start on a host with no session of the topic
-  stops with `session-absent`, naming the import that would bring the session (R10), and
+  stops with `session-absent`, naming the import that would bring the session (R12), and
   makes no GitHub write (no body edit, comment or merge).
 - **R7. A store per run, sealed at its start.** A new run's store is `github` unless the
   invocation passes `--store session`; setup seals it into the run record and it never
@@ -183,7 +189,8 @@ the body. The trouble is that the same text is also the run's memory.
     `coordination-pr-ambiguous`;
   - takes the node list from the PLAN when the checked-out branch still has it, otherwise
     from the body's rendered index, and the node-to-pull-request map and follow-ups from the
-    rendered index, read by the shared codec that renders it (R13), which lives outside
+    rendered index, ignoring any line that names the coordination pull request itself (an
+    earlier release wrote one), read by the shared codec that renders it (R17), which lives outside
     `skills/execute/`;
   - takes the run's identity from the session when it holds one (a carried `run_id`);
     otherwise from the body's rendered run line; otherwise from the run markers on the
@@ -197,6 +204,8 @@ the body. The trouble is that the same text is also the run's memory.
     to `pushed` with the coordination pull request's live head, also unverified;
   - writes the recovery marker naming the pull request it recovered from.
   The run's report carries `recovered=<pull request URL>` on the invocation that recovered.
+  A cascade verdict of `failed`, recovered or recorded, makes the next invocation run the
+  cascade again.
 - **R10. A recovered head is re-verified before a merge.** A node, follow-up or coordination
   pull request whose recorded head came from recovery is evaluated at that head by the same
   readiness check the loop applies before any merge (required checks green, review state,
@@ -233,8 +242,10 @@ the body. The trouble is that the same text is also the run's memory.
     its request, which the host's request store still holds and whose leg still names the
     execute session, so the result is promoted there;
   - a `/deliver` session resumed in place on a host whose request store doesn't hold its
-    request opens a new request for its execute leg before running `/execute`.
-  Where `/execute` can't be bound to the leg, `/deliver` resolves the leg itself with
+    request can't reach that leg: it ends at its error terminal with `reason:
+    execute-leg-lost:request_not_found`, naming the execute session's state, and a `/deliver`
+    run started after it binds as in the first case.
+  Where `/execute` can't be bound to a leg this host's store holds, `/deliver` resolves the leg itself with
   `outcome: error`, `step: deliver:child-absent` and `reason: execute-leg-lost:<koto code>`,
   and its report names the execute session's state, so no leg stays open after `/deliver`
   returns.
@@ -263,19 +274,20 @@ the body. The trouble is that the same text is also the run's memory.
   `follow-up-closed:<url>` until a person records a replacement or removes it with
   `--follow-up <node>=<url> --remove`.
 - **R17. What the rendering shows.** The rendered body is:
-  - Part 1: the live body's Part 1, kept as it is, when the body has a top-level `---`;
-    otherwise (a body `/scope` or an earlier release wrote) a Part 1 composed from a fixed
-    template over the topic and the number of PR nodes. Part 1 holds no heading, list item,
-    table row, code fence, HTML comment, `key=value` run line, declaration marker or
-    `owner/repo:path#N` reference;
+  - Part 1: the live body's Part 1, kept byte for byte, when the body has a top-level `---`;
+    a person may edit it, and the renderer never rewrites it. Otherwise (a body `/scope` or an
+    earlier release wrote) the composed Part 1, exactly `Coordination pull request for
+    <topic>. It carries the planning documents for <n> node pull requests and merges after
+    all of them.`, with `<n>` the number of PR nodes;
   - exactly one top-level `---`;
   - Part 2: the declaration marker; the run lines `topic=`, `exit=`, `outcome=`, `intent=`,
     `mode=` as `/scope` published them, and `store=` and `run=` from the record; the PR Index;
     the merge-order block as today.
   The PR Index has one line per PR node, `- <node> | <repo>:docs/plans/PLAN-<topic>.md#<n> |
-  <live state> | head=<recorded head>` (the merged head once merged, read live), and one line
-  per follow-up, `- <node>/follow-up | <repo>:docs/plans/PLAN-<topic>.md#<n> | <live state> |
-  head=<recorded head>`, after its node's line. The reference field is the form
+  <live state> | head=<head>`, and one line per follow-up, `- <node>/follow-up |
+  <repo>:docs/plans/PLAN-<topic>.md#<n> | <live state> | head=<head>`, after its node's line,
+  where `<head>` is the recorded merged head once merged and the recorded pushed head
+  before. The reference field is the form
   `scripts/coordination-gate-refs.sh` extracts, so the gate counts every line. No line names
   the coordination pull request itself. A public coordination pull request never indexes a
   node in a private repository: the push of such a node is refused with `execute:visibility`,
@@ -345,8 +357,10 @@ the body. The trouble is that the same text is also the run's memory.
   request's number; after the cascade deletes the PLAN, the loop still lists every node.
 - [ ] The cascade verdict reads `not-run` before the cascade, `pushed` with the coordination
   head after it, and `failed` with the step when the stub fails the cascade's push.
-- [ ] Writing a node's head from the cascade step, or the cascade verdict from the push step,
-  exits 65 `not-owner` and leaves the key unchanged; a push the stub rejects writes no head.
+- [ ] For every key in R1, a write from a step other than its owner (R2) exits 65 `not-owner`
+  and leaves the key unchanged; a push the stub rejects writes no head; in the stub's request
+  log every body post comes after the koto write of the keys it shows.
+- [ ] After a cascade verdict of `failed`, the next invocation runs the cascade again.
 - [ ] The record holds no key for a pull request's state, checks, review or mergeability; a
   node the stub closes between transitions shows `closed` at the next render.
 - [ ] The structure test fails when a non-test file under `skills/execute/` contains
@@ -365,7 +379,10 @@ the body. The trouble is that the same text is also the run's memory.
   message file whose first line is the title and whose body is Part 1; the coordination merge's
   message contains no `PR Index`, `merge-order`, `topic=`, `run=` or declaration-marker text.
 - [ ] A body with no top-level `---` passes the whole body as the message; a body whose Part 1
-  is empty after stripping makes no merge call and reports `merge-refused:squash-message`.
+  is empty after stripping, a multi-line title, or AI attribution in Part 1 makes no merge call
+  and reports `merge-refused:squash-message`.
+- [ ] A merge whose verdict method is `merge` passes the same message file; one whose method is
+  `rebase` passes none.
 
 ### The store
 
@@ -388,7 +405,13 @@ the body. The trouble is that the same text is also the run's memory.
   re-stamps them, records the GitHub login and time, and the run continues. `--adopt-run` on a
   run not stopped there, or with a malformed id, is refused.
 - [ ] Recovery with no rendered run line and all marked nodes agreeing takes their id; with no
-  run line and no marked node it mints a new id.
+  run line and no marked node it mints a new id; with a session holding a carried `run_id` it
+  keeps that id; with a rendered run line it takes the line's id.
+- [ ] Recovery with the PLAN still on the branch takes the node list from the PLAN and sets the
+  cascade verdict to `not-run`; every recovered head, a follow-up's included, is recorded
+  unverified, and a recovered follow-up is re-verified before its merge.
+- [ ] Recovery over an old-format body that carries a line for the coordination pull request
+  itself ignores that line.
 - [ ] Recovery with no coordination pull request found stops with `coordination-pr-missing`,
   with two found with `coordination-pr-ambiguous`, and with a body whose index a `/scope`
   republish dropped with `coordination-pr-missing`.
@@ -406,15 +429,20 @@ the body. The trouble is that the same text is also the run's memory.
   the same `run_id`, recorded heads and map, with the stub serving a body with no index; its
   merge attempts start empty.
 - [ ] `skill-session.sh import execute <topic> --from <ws>` and `import deliver <topic> --from
-  <ws>` import the named session under its own name; an unknown set is refused; an import onto
-  a host with a live session of that name is refused and leaves both sessions unchanged.
+  <ws>` compile the shipped templates on the importing host and import the named session under
+  its own name; an unknown set is refused; an import onto a host with a live session of that
+  name is refused and leaves both sessions unchanged.
 - [ ] After `execute-<topic>` is imported to a second workspace on the same host, a new
   `/deliver` run's execute leg resolves with `result_source: promoted` and `/execute`'s outcome,
   and the earlier request reads `abandoned`.
 - [ ] A `/deliver` session imported with the run and resumed in place on the same host gets
   `/execute`'s result on its original leg.
 - [ ] When the execute leg can't be bound (the stub koto refuses the attach), `/deliver` returns
-  with the leg resolved `outcome: error`, `reason: execute-leg-lost:<code>`, and no open leg.
+  with the leg resolved `outcome: error`, `reason: execute-leg-lost:<code>`, its report naming
+  the execute session's state, and no open leg.
+- [ ] A `/deliver` session imported between two simulated hosts with separate request stores and
+  resumed in place ends with `reason: execute-leg-lost:request_not_found`, naming the execute
+  session's state; a new `/deliver` run there then gets `/execute`'s promoted result.
 
 ### The rendering
 
@@ -423,12 +451,18 @@ the body. The trouble is that the same text is also the run's memory.
 - [ ] A post the stub fails leaves the record unchanged, the report carries `body=stale`, the
   next transition posts the body, and the merge decisions in between are the same as with the
   post succeeding.
-- [ ] Every body the renderer posts in the suites has exactly one top-level `---`, a Part 1
-  with none of the forbidden line kinds (R17), the declaration marker, the run lines including
-  `store=` and `run=`, and passes `shirabe validate --coordination-body`, for node states open,
-  merged and closed, and with and without follow-ups.
-- [ ] A body `/scope` wrote (no top-level `---`) gets the fixed-template Part 1 on the first
-  render; a body with a Part 1 keeps it byte for byte.
+- [ ] A renderer test over records with nodes open, merged and closed, with zero, one and two
+  follow-ups, checks every body it produces has exactly one top-level `---`, the declaration
+  marker and the run lines (`store=` and `run=` included) below it, no line naming the
+  coordination pull request's number, passes `shirabe validate --coordination-body`, and that
+  `coordination-gate-refs.sh` over it lists exactly the nodes and follow-ups.
+- [ ] A body `/scope` wrote (no top-level `---`) gets exactly the composed Part 1 of R17 on
+  the first render; a body with a Part 1, including one a person edited to hold a list, keeps
+  it byte for byte.
+- [ ] A state read the stub fails renders that line's state as `unknown`.
+- [ ] Each of these posts a body in its own test case: a node's pull request opened, a node
+  pushed, a node observed merged, a follow-up recorded, the cascade pushed, the cascade
+  failed, the coordination pull request pushed, and each of the five terminals.
 - [ ] A node in a private repository under a public coordination pull request is refused
   with `execute:visibility` at its push, and the renderer refuses a record holding one, without
   naming the private repository in either message.
@@ -442,7 +476,11 @@ the body. The trouble is that the same text is also the run's memory.
 - [ ] With an open follow-up recorded, the merge-last gate fails until it merges; with
   `--merge` the run merges it after its node; without `--merge` it doesn't.
 - [ ] A recorded follow-up closed unmerged holds the gate and is reported as
-  `follow-up-closed:<url>`; `--remove` drops it and the gate passes.
+  `follow-up-closed:<url>`; `--remove` drops it and the gate passes; recording a replacement
+  follow-up for the node and removing the closed one lets the gate pass once the replacement
+  merges.
+- [ ] A follow-up recorded against a node already merged is merged with `--merge` on the next
+  invocation; with node and follow-up both open, the node merges first.
 - [ ] `/deliver` passes `/scope`'s pull request as `--coordination-pr`; setup records its
   number; a handed pull request from another author, another branch, without the marker, or
   differing from the lookup's, is refused with `coordination-pr-mismatch`; a direct
@@ -470,8 +508,8 @@ the body. The trouble is that the same text is also the run's memory.
   removal touches, including the coordinator's own leg to `/deliver`, which the coordinate
   skill already re-legs after a move.
 - Exercising a move between hosts. The acceptance moves a run between workspaces on one host
-  over the same import a move between hosts uses; R14's third case is specified but proved
-  only with a stub request store.
+  over the same import a move between hosts uses; R14's third case is proved on two simulated
+  hosts with separate request stores, not on two machines.
 - Concurrent `/execute` invocations on one topic (R24).
 
 ## Known Limitations
@@ -518,8 +556,10 @@ the body. The trouble is that the same text is also the run's memory.
   import the source copy refuses with `session_migrated`, the old request's leg stays bound to
   the session's name, and a new request's `koto init --attach-live --koto-leg` binds the
   imported session, whose terminal result is then promoted to the new leg while the old
-  request is abandoned. So the leg needs no new mechanism on one host; R14's third case covers
-  a request store that doesn't hold the request, and the named loss covers the rest.
+  request is abandoned. So the leg needs no new mechanism on one host. A request store that
+  doesn't hold the request can't be written at all, so R14's third case reports the loss and
+  leaves the re-leg to the next `/deliver` run rather than inventing a second request inside a
+  resumed one.
 - **The handed-over number is verified, not trusted.** The ownership lookup is what rejects a
   fork's or another author's pull request, so a number from `/scope`'s result is checked
   against it rather than taken alone.
