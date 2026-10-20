@@ -828,7 +828,7 @@ if [ "$MODE" = "--record" ]; then
     jq -r '$imp[0][] | .decider | "\(.state)|\(.visit_seq)|\(.gate)|\(.rule_id)|\(.declaration_hash)"' \
         --slurpfile imp "$WORK/imported" -n >> "$WORK/decider_events" || die 65 "could not read the imported decider events"
     for rid in $(jq -r '.[] | .decider.rule_id' "$WORK/imported" | sort -u); do
-        "$REGISTRY" ref "$rid" >/dev/null 2>&1 || die 65 "koto's log has a decider verdict on [$rid], which is not an active registry entry"
+        "$REGISTRY" ref "$rid" >/dev/null || die 65 "koto's log has a decider verdict on [$rid], which is not an active registry entry"
     done
     ROUND_FILE="$WORK/round"
 
