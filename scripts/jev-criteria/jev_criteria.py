@@ -15,7 +15,7 @@ Subcommands:
       run.
   declared-hash RULE_ID [--root DIR]
       Print a decider entry's declaration as canonical JSON, then its SHA-256.
-  measure sessions --dir DIR
+  measure sessions --dir DIR [--dir DIR]... [--slice review-facts|criteria-plan|design-context]
   measure prs --repo OWNER/REPO --limit N --kind pr-summary|code-hunks|doc-pairs [--git-dir DIR]
   measure records --dir DIR --kind KIND
       Measure whole-run slice sizes on real artifacts, with no call to Jev,
@@ -735,22 +735,70 @@ def cmd_declared_hash(args):
 
 # --- measure ------------------------------------------------------------------
 
+# The session keys a lower-bound slice is the byte length of: what a /work-on
+# session keeps of the part of a slice a script could build without the diff.
+# The full slice of the question these stand for also carries the diff, so it
+# can only be larger (references/jev-criteria.md, rs-019 and rs-020).
+SESSION_KEY_SLICES = {
+    "criteria-plan": ("review_level_criteria.txt", "plan.md"),
+    "design-context": ("context.md",),
+}
+SESSION_SLICES = ("review-facts",) + tuple(SESSION_KEY_SLICES)
+
+
+def work_on_sessions(dirs):
+    """Each /work-on session directory under the given roots: the ones that
+    recorded review facts."""
+    out = []
+    for d in dirs:
+        out += sorted(glob.glob(os.path.join(d, "*", "ctx", "review_facts.json")))
+    return out
+
+
+def key_bytes(ctx, names):
+    """The summed byte length of the named context keys, or why a session
+    can't be measured: a key that is missing, or one that is a symlink and so
+    may not be the session's own."""
+    total = 0
+    for name in names:
+        p = os.path.join(ctx, name)
+        if os.path.islink(p):
+            return None, "symlink"
+        if not os.path.isfile(p):
+            return None, "missing"
+        total += os.path.getsize(p)
+    return total, ""
+
+
 def measure_sessions(args):
     root = os.path.realpath(args.root)
-    script = os.path.join(root, REVIEW_LEVEL_SH)
-    sizes, skipped = [], 0
-    for path in sorted(glob.glob(os.path.join(args.dir, "*", "ctx", "review_facts.json"))):
-        # "standard" is the longest level name, so the size is an upper bound.
-        r = run([script, "project", path, "standard"])
-        if r.returncode != 0:
-            skipped += 1
-            continue
-        sizes.append(len(r.stdout.encode("utf-8")))
-    if skipped:
+    dirs = args.dir
+    sizes, skipped = [], {}
+    if args.slice == "review-facts":
+        script = os.path.join(root, REVIEW_LEVEL_SH)
+        for path in work_on_sessions(dirs):
+            # "standard" is the longest level name, so the size is an upper bound.
+            r = run([script, "project", path, "standard"])
+            if r.returncode != 0:
+                skipped["facts that didn't project"] = skipped.get("facts that didn't project", 0) + 1
+                continue
+            sizes.append(len(r.stdout.encode("utf-8")))
+        slice_arg = ""
+    else:
+        for path in work_on_sessions(dirs):
+            n, why = key_bytes(os.path.dirname(path), SESSION_KEY_SLICES[args.slice])
+            if n is None:
+                why = "a %s key" % why
+                skipped[why] = skipped.get(why, 0) + 1
+                continue
+            sizes.append(n)
+        slice_arg = " --slice %s" % args.slice
+    for why, n in sorted(skipped.items()):
         # Said out loud, so a short run count is never mistaken for the corpus.
-        print("%s: skipped %d session(s) whose facts didn't project" % (PROG, skipped), file=sys.stderr)
+        print("%s: skipped %d session(s) with %s" % (PROG, n, why), file=sys.stderr)
     return figures(sizes, args.budget, "koto-sessions",
-                   "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions> --budget %d" % args.budget)
+                   "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions>%s --budget %d"
+                   % (slice_arg, args.budget))
 
 
 def load_review_shadow(root):
@@ -1163,7 +1211,8 @@ def main(argv=None):
     m = sub.add_parser("measure", help="measure whole-run slice sizes on real artifacts")
     msub = m.add_subparsers(dest="population", required=True)
     ms = msub.add_parser("sessions")
-    ms.add_argument("--dir", required=True)
+    ms.add_argument("--dir", required=True, action="append")
+    ms.add_argument("--slice", default="review-facts", choices=SESSION_SLICES)
     mp = msub.add_parser("prs")
     mp.add_argument("--repo", required=True, action="append")
     mp.add_argument("--limit", type=int, default=40)

@@ -82,6 +82,32 @@ state's command whose directive runs `rule-registry.sh release <id>`, and
 refuses the script's name anywhere else under `skills/`, `koto-templates/` or
 `hooks/`.
 
+## Replacing a seat
+
+A `/work-on` panel seat is a reviewer subagent, and a batch of trusted Jev
+criteria could one day stand in for one. No seat qualifies today: every
+question the scrutiny seats ask is `rejected` (`rs-015`, `rs-018`, `rs-019`,
+`rs-020`), because its slice needs more than 2,560 bytes or more than a script
+can hand over. Nothing in shirabe leaves a seat unspawned, and the pull request
+that first does must build all of these, for that seat:
+
+1. **Every question the seat asks is trusted.** Each has a `trusted` contract
+   declared on the panel's state in `veto`, so a batch stands in for the whole
+   seat and never for part of it.
+2. **The decider is active for the session.** For each of those criteria,
+   every condition `scripts/jev-withhold.sh` checks before it withholds a rule
+   holds for the session, so a user whose decider would not judge the result
+   still gets the seat.
+3. **An unanswered criterion brings the seat back.** When any of those criteria
+   is unanswered in the panel state's current visit (no `decider_checked`
+   event with outcome `pass` or `fail`), `panel-scope.sh --plan` gives the seat
+   `full` for that round, so a missing verdict never stands in for a review.
+4. **The batch's findings take the seat's place.** Its blocking findings stand
+   in the findings ledger and the panel's verdict gate where the seat's would,
+   and close by the same rules.
+5. **Each condition is tested.** The change ships a test for each of
+   conditions 1 to 4.
+
 ## work-on/review-level-fits-facts
 
 `/work-on`'s `review_level_check` asks Jev whether the chosen review level is
@@ -226,3 +252,46 @@ change?
 
 **Sources**, **slice**, **completeness** and **figures** as `rs-010`.
 **State.** `rejected`, for the same measurement.
+
+## rs-018
+
+Can every claim a change makes about meeting its acceptance criteria be
+verified from the diff? The completeness seat's second question.
+
+**Sources.** The agent's own claims that its work meets each criterion, and
+the diff. **Slice.** None: nothing records the claims anywhere a script can
+read, so no slicer exists. **Completeness.** The claims are the agent's words
+about its own work, which no slice may carry, since the agent would then
+choose what the classifier sees. The verdict is `insufficient`. **Figures.**
+None: `not_measured: no-real-run-record`. **State.** `rejected`.
+
+## rs-019
+
+Does every place where a change departs from its acceptance criteria or its
+plan carry a reason that reflects a real trade-off? The justification seat's
+question.
+
+**Sources.** The criteria (`review_level_criteria.txt`, which
+`review-level.sh` writes), the plan the run wrote (`plan.md`) and the diff.
+**Slice.** The criteria, the plan and the hunks. **Completeness.** A
+departure is visible only against the criteria and the plan, and whether its
+reason is real needs the code it explains, so all three are what the question
+reads. The verdict is `sufficient`. **Figures.** The criteria and the plan
+alone, over 180 `/work-on` sessions: largest 40,003, p90 10,458, 154 over
+2,560. These figures are a lower bound: the full slice also carries the diff.
+**State.** `rejected`: over the budget on 86% of runs before the diff is
+counted.
+
+## rs-020
+
+Does a change do what its design context describes, rather than only what its
+criteria literally say? The intent seat's question.
+
+**Sources.** The design context (`context.md`) and the diff. **Slice.** The
+design context and the hunks. **Completeness.** The behaviour a design
+describes and the code that implements it are what the question compares.
+The verdict is `sufficient`. **Figures.** The design context alone, over 172
+`/work-on` sessions that kept one: largest 37,777, p90 5,888, 91 over 2,560.
+These figures are a lower bound: the full slice also carries the diff.
+**State.** `rejected`: over the budget on 53% of runs before the diff is
+counted.

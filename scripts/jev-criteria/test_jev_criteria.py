@@ -741,8 +741,66 @@ class MeasureTest(unittest.TestCase):
             self.assertEqual((got["runs"], got["max"], got["p90"], got["over_budget"], got["population"]),
                              (2, want[1], want[1], 0, "koto-sessions"))
             self.assertIn("--budget 2048", got["command"])
+            self.assertNotIn("--slice", got["command"])
         finally:
             shutil.rmtree(d)
+
+    def measure_slice(self, dirs, slice_name):
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["measure", "sessions", "--slice", slice_name, "--root", REPO]
+        for d in dirs:
+            argv += ["--dir", d]
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = jc.main(argv)
+        return rc, json.loads(out.getvalue()), err.getvalue()
+
+    def test_key_slices(self):
+        # Two roots, as a live store and an older one would be. A session is
+        # one that recorded review facts; the slice is its keys' byte length.
+        a, b = tempfile.mkdtemp(), tempfile.mkdtemp()
+        try:
+            for root, name, crit, plan, ctx in ((a, "s1", 100, 200, 3000), (a, "s2", 2000, 700, 10),
+                                                (b, "s3", 1, 1, 2561)):
+                write(root, "%s/ctx/review_facts.json" % name, "{}")
+                write(root, "%s/ctx/review_level_criteria.txt" % name, "c" * crit)
+                write(root, "%s/ctx/plan.md" % name, "p" * plan)
+                write(root, "%s/ctx/context.md" % name, "x" * ctx)
+            # Not a /work-on session: no review facts.
+            write(b, "other/ctx/plan.md", "p" * 9000)
+            rc, got, _ = self.measure_slice([a, b], "criteria-plan")
+            self.assertEqual(rc, 0)
+            self.assertEqual((got["runs"], got["max"], got["p90"], got["over_budget"], got["population"]),
+                             (3, 2700, 2700, 1, "koto-sessions"))
+            self.assertIn("--slice criteria-plan --budget 2560", got["command"])
+            rc, got, _ = self.measure_slice([a, b], "design-context")
+            self.assertEqual((got["runs"], got["max"], got["over_budget"]), (3, 3000, 2))
+            self.assertIn("--slice design-context", got["command"])
+        finally:
+            shutil.rmtree(a)
+            shutil.rmtree(b)
+
+    def test_key_slices_skip_and_count(self):
+        d = tempfile.mkdtemp()
+        try:
+            write(d, "s1/ctx/review_facts.json", "{}")
+            write(d, "s1/ctx/context.md", "x" * 10)
+            write(d, "s2/ctx/review_facts.json", "{}")  # no context.md
+            write(d, "s3/ctx/review_facts.json", "{}")
+            write(d, "elsewhere.md", "x" * 9000)
+            os.symlink(os.path.join(d, "elsewhere.md"), os.path.join(d, "s3/ctx/context.md"))
+            rc, got, err = self.measure_slice([d], "design-context")
+            self.assertEqual(rc, 0)
+            self.assertEqual((got["runs"], got["max"]), (1, 10))
+            self.assertIn("skipped 1 session(s) with a missing key", err)
+            self.assertIn("skipped 1 session(s) with a symlink key", err)
+        finally:
+            shutil.rmtree(d)
+
+    def test_unknown_slice_is_refused(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as e:
+                jc.main(["measure", "sessions", "--dir", "x", "--slice", "nope"])
+        self.assertEqual(e.exception.code, 2)
 
     def test_prs(self):
         bodies = {"1": "Adds a thing.\n\n---\n\nreviewer notes", "2": "x" * 3000 + "\n\n---\n\nnotes"}
@@ -1161,6 +1219,47 @@ class GuideTest(unittest.TestCase):
                      "koto.decider.outcome", "koto.decider.reason", "koto.decider.input_bytes"):
             self.assertIn(attr, live)
         self.assertIn("jev_criteria.py figures", live)
+
+
+REFERENCE = os.path.join(REPO, "references", "jev-criteria.md")
+# Each condition of "Replacing a seat", by the phrase that opens it. The
+# phrases are the reference's own words; rewording them means updating them
+# here.
+SEAT_CONDITIONS = ("Every question the seat asks is trusted.",
+                   "The decider is active for the session.",
+                   "An unanswered criterion brings the seat back.",
+                   "The batch's findings take the seat's place.",
+                   "Each condition is tested.")
+
+
+def seat_problems(text):
+    """What "Replacing a seat" is missing: the section, or any condition."""
+    body = guide_section(text, "Replacing a seat")
+    if not body:
+        return ["missing section: Replacing a seat"]
+    return ["missing condition: %s" % c for c in SEAT_CONDITIONS if c not in body]
+
+
+class ReferenceTest(unittest.TestCase):
+    def setUp(self):
+        with open(REFERENCE, encoding="utf-8") as f:
+            self.text = f.read()
+
+    def test_the_seat_rule_states_every_condition(self):
+        self.assertEqual(seat_problems(self.text), [])
+
+    def test_a_missing_condition_or_section_fails(self):
+        for c in SEAT_CONDITIONS:
+            with self.subTest(condition=c):
+                self.assertIn("missing condition: %s" % c, seat_problems(self.text.replace(c, "")))
+        cut = self.text.replace("## Replacing a seat\n", "")
+        self.assertEqual(seat_problems(cut), ["missing section: Replacing a seat"])
+
+    def test_the_lower_bounds_say_so(self):
+        for rid in ("rs-019", "rs-020"):
+            with self.subTest(rule=rid):
+                self.assertIn("These figures are a lower bound: the full slice also carries the diff.",
+                              " ".join(guide_section(self.text, rid).split()))
 
 
 if __name__ == "__main__":

@@ -2131,6 +2131,175 @@
       }
     },
     {
+      "id": "rs-018",
+      "status": "active",
+      "summary": "An evidence claim the diff does not show",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+        "first": "- **Completeness reviewer**: Does every acceptance criterion have a corresponding implementation?"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-018"
+      },
+      "fixtures": [
+        "scripts/jev-criteria/test_jev_criteria.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key. Shares its text with rs-015: one reviewer instruction asks both of the completeness seat's questions.",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the agent's claims that its work meets each acceptance criterion",
+            "writer": "graded-artifact"
+          },
+          {
+            "what": "the change's diff",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-018",
+          "verdict": "insufficient"
+        },
+        "not_measured": "no-real-run-record",
+        "false_passes": []
+      }
+    },
+    {
+      "id": "rs-019",
+      "status": "active",
+      "summary": "A departure from the criteria or plan with no real reason",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+        "first": "- **Justification reviewer**: Are deviations genuinely explained?"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-019"
+      },
+      "fixtures": [
+        "scripts/jev-criteria/test_jev_criteria.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key.",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the acceptance criteria, review_level_criteria.txt",
+            "writer": "gate-script",
+            "script": "skills/work-on/scripts/review-level.sh"
+          },
+          {
+            "what": "the plan, plan.md, where the run states the approach whose departures the question judges",
+            "writer": "graded-artifact"
+          },
+          {
+            "what": "the change's diff",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/jev-criteria/jev_criteria.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-019",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "koto-sessions",
+          "runs": 180,
+          "max": 40003,
+          "p90": 10458,
+          "over_budget": 154,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions> --slice criteria-plan --budget 2560"
+        },
+        "false_passes": []
+      }
+    },
+    {
+      "id": "rs-020",
+      "status": "active",
+      "summary": "The change departs from the behaviour the design describes",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+        "first": "- **Intent reviewer**: Does the implementation match the design doc's described behavior"
+      },
+      "check": {
+        "kind": "review-shadow",
+        "criterion": "rs-020"
+      },
+      "fixtures": [
+        "scripts/jev-criteria/test_jev_criteria.py"
+      ],
+      "level": "shadow",
+      "timing": [
+        "pre-merge"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key.",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the design context, context.md",
+            "writer": "gate-script",
+            "script": "skills/work-on/references/scripts/extract-context.sh"
+          },
+          {
+            "what": "the change's diff",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/jev-criteria/jev_criteria.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-020",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "koto-sessions",
+          "runs": 172,
+          "max": 37777,
+          "p90": 5888,
+          "over_budget": 91,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions> --slice design-context --budget 2560"
+        },
+        "false_passes": []
+      }
+    },
+    {
       "id": "verification/bad-map",
       "status": "active",
       "summary": "The verification map does not parse",
