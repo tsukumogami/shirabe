@@ -373,7 +373,9 @@ paragraph with the same facts and command.
 2. Import: `jq` over the log selects `decider_checked` events whose `state` is the
    panel's state (`scrutiny` for `scrutiny`, `review`, `qa_validation` for `qa`,
    `light_review` for `light`), groups by `state|visit_seq|gate|rule_id|
-   declaration_hash`, keeps the last of each group, and removes keys already in the
+   declaration_hash`, keeps one event of each group (a `fail` if the group has
+   one, so the most severe outcome wins, and otherwise the last), passes every
+   name to `jq` with `--arg`, and removes keys already in the
    ledger's `decider_events` or named by a round-file entry. Each survivor becomes a
    `{"decider": {state, visit_seq, gate, rule_id, declaration_hash, input_sha256,
    outcome, mode}}` entry appended to the round's entries.
