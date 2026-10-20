@@ -174,8 +174,10 @@ made, and the choice and the reason are all it needs: the verdict is
 `sufficient`. The alternatives are left out. They don't bear on the question,
 since a reason can rule an alternative out in its own words, and
 `koto decisions record` requires a rationale but not alternatives. With them,
-5 of 88 graded sessions in the live store were over budget (5.7%), past the 5%
-line. Splitting the slice by state lowers no share and doubles the calls.
+5 of the live store's 88 graded sessions were over budget (5.7%), past the 5%
+line; that first measurement read the live store alone, before the archive
+was added to reach the 100-run minimum. Splitting the slice by state lowers
+no share and doubles the calls.
 
 **Figures.** Every session log the host kept, the live store and its archive,
 gzipped copies included, each session counted once by its `session_id`: 119
