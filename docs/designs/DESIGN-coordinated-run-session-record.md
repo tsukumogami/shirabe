@@ -80,7 +80,8 @@ The requirements this design answers, from `docs/prds/PRD-coordinated-run-sessio
   plus its node; the coordination pull request's number and pushed head; the cascade
   verdict (`not-run`, `pushed` with a head, `failed` with a step); the node list from setup;
   `run_id`; the store; a recovery marker (R1);
-- each fact has one owning step, any other write exits 65 `not-owner`, and keys are written
+- each fact has one owning step (a head's verified flag has the defined pair of setter and
+  flipper), any other write exits 65 `not-owner`, and keys are written
   before the body is rendered from them (R2);
 - no script under `skills/execute/` reads a PR Index entry or `head=` from a body, enforced
   by a structure test naming the forbidden symbols and any `head=` pattern (R3);
@@ -292,7 +293,7 @@ run=<32 hex>
 ## PR Index
 
 - <node> | <repo>:docs/plans/PLAN-<slug>.md#<n> | <open|merged|closed|unknown> | head=<sha>
-- <node>/follow-up-<n> | <repo>:docs/plans/PLAN-<slug>.md#<n> | <state> | head=<sha>
+- <node>/follow-up-<n> | <repo>:docs/plans/PLAN-<slug>.md#<n> | <state> | head=<sha>   (<n>: the follow-up's number)
 
 ## Merge Order
 
@@ -340,12 +341,12 @@ GitHub call; otherwise it runs recovery:
    several, or, with `--coordination-pr`, that pull request after the same check
    (`coordination-pr-mismatch` when they differ);
 2. `cb_parse` over its body: the map and follow-ups, any line naming the coordination pull
-   request itself dropped; a body with no index line and no PLAN stops with
-   `coordination-pr-missing`;
+   request itself dropped. A body with no index line is read as an empty map only when no PLAN node's branch (`impl/<slug>-<node>`) has an owned pull request; when one does, the index was lost (a `/scope` republish, a hand edit) and it stops with `coordination-index-missing` rather than re-dispatch a node that already has a pull request. With the PLAN
+   gone as well, nothing names the nodes and it stops with `coordination-index-missing`;
 3. the node list from the PLAN when the branch has it, otherwise from the map;
 4. identity: the session's `run_id` when it holds one, else the rendered `run=` line, else
-   the run marker every node pull request in the map agrees on, else (no index line at all
-   and nothing marked) a minted one. Every pull request in the map must be in a repository
+   the run marker every node pull request in the map agrees on, else, when the map holds no
+   node pull request at all, a minted one. Every pull request in the map must be in a repository
    the PLAN or the map's own node names, pass the ownership lookup on its node's branch
    (`impl/<slug>-<node>`), and carry a run marker equal to that identity; one with another
    marker, or none, stops the start with `recovery-unproven`, naming each;
@@ -554,6 +555,7 @@ skill-session.sh import execute|deliver <topic> --from <workspace>
 ```
 
 New report tokens and stops: `store-mismatch`, `session-absent`, `coordination-pr-missing`,
+`coordination-index-missing`,
 `coordination-pr-ambiguous`, `coordination-pr-mismatch`, `coordination-pr-closed`,
 `recovery-unproven`, `recovered=<url>`, `body=stale`, `body=full`,
 `merge-refused:squash-message`, `follow-up-node`, `follow-up-repo`, `follow-up-base`,

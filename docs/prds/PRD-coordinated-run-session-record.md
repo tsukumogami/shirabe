@@ -167,7 +167,9 @@ the body. The trouble is that the same text is also the run's memory.
   - the run's identity (`run_id`, as today), its store (R7), and whether and from which pull
     request the record was recovered (R9).
   The keys join `/execute`'s closed write-target set in `skills/execute/SKILL.md`.
-- **R2. One writer per fact.** Each key in R1 has one owning step: a node's pull request
+- **R2. One writer per fact.** Each fact in R1 has one owning step, except a head's
+  verified flag, which the step that records the head sets and the readiness check flips
+  (R10): a node's pull request
   and pushed head, the step that pushes the node, after its push succeeds; the coordination
   pull request's head and the cascade verdict, the cascade step; a follow-up and its head,
   the follow-up step (R16); a merged head, the step that first observes the merge, from a
@@ -223,10 +225,11 @@ the body. The trouble is that the same text is also the run's memory.
     `skills/execute/`;
   - takes the run's identity from the session when it holds one (a carried `run_id`);
     otherwise from the body's rendered run line; otherwise from the run markers on the
-    map's node pull requests. Every node pull request in the map that carries a run marker
-    must carry that identity: one that carries another stops the start with
-    `recovery-unproven`, naming every such node and the adopt step (`--adopt-run <id>`).
-    With no run line and no marked node pull request, a new identity is minted;
+    map's node pull requests. `/execute` stamps a marker on every node pull request it
+    opens, so every node pull request in the map must carry that identity: one that
+    carries another marker, or none, stops the start with `recovery-unproven`, naming every
+    such node and the adopt step (`--adopt-run <id>`). A new identity is minted only when the
+    map holds no node pull request at all;
   - re-reads every head live from GitHub, never from the body, and records it as a head
     the run hasn't verified;
   - sets the cascade verdict to `not-run` when the PLAN is still on the branch, otherwise
@@ -317,7 +320,7 @@ the body. The trouble is that the same text is also the run's memory.
     `mode=` as `/scope` published them, and `store=` and `run=` from the record; the PR Index;
     the merge-order block as today.
   The PR Index has one line per PR node, `- <node> | <repo>:docs/plans/PLAN-<topic>.md#<n> |
-  <live state> | head=<head>`, and one line per follow-up, `- <node>/follow-up-<n> |
+  <live state> | head=<head>`, and one line per follow-up (`<n>` its pull request number), `- <node>/follow-up-<n> |
   <repo>:docs/plans/PLAN-<topic>.md#<n> | <live state> | head=<head>`, after its node's line,
   where `<head>` is the recorded merged head once merged and the recorded pushed head
   before. The reference field is the form
@@ -328,8 +331,7 @@ the body. The trouble is that the same text is also the run's memory.
   posted and is reported as `body=full`.
 - **R18. `/scope`'s republish.** A `/scope` republish that rewrites the body after `/execute`
   has started may drop Part 2; the next `/execute` transition renders it again from the
-  record. Recovery between the two reads the republished body and, finding no index, stops
-  with `coordination-pr-missing` rather than recovering an empty map.
+  record. Recovery between the two reads the republished body. A body with no index line is read as an empty map only when no PLAN node's branch (`impl/<slug>-<node>`) has an owned pull request; when one does, the index was lost (a `/scope` republish, a hand edit) and recovery stops with `coordination-index-missing` rather than re-dispatch a node that already has a pull request.
 
 ### Handover and merge messages
 
@@ -445,9 +447,12 @@ the body. The trouble is that the same text is also the run's memory.
   unverified, and a recovered follow-up is re-verified before its merge.
 - [ ] Recovery over an old-format body that carries a line for the coordination pull request
   itself ignores that line.
-- [ ] Recovery with no coordination pull request found stops with `coordination-pr-missing`,
-  with two found with `coordination-pr-ambiguous`, and with a body whose index a `/scope`
-  republish dropped with `coordination-pr-missing`.
+- [ ] Recovery with no coordination pull request found stops with `coordination-pr-missing`
+  and with two found with `coordination-pr-ambiguous`; a body with no index line recovers an
+  empty map when no PLAN node's branch has an owned pull request, and stops with
+  `coordination-index-missing` when one does.
+- [ ] A node pull request in the map with no run marker stops recovery with
+  `recovery-unproven`, naming it.
 - [ ] Recovery with the PLAN gone from the branch sets the cascade verdict to `pushed` at the
   coordination pull request's live head and re-verifies it before the coordination merge.
 - [ ] A run whose session predates this feature (it holds `run_id` and none of R1's new keys,

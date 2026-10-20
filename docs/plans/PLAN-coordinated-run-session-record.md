@@ -57,7 +57,7 @@ rebind variables (`STORE`, `COORDINATION_PR`, `FOLLOW_UP`, `FOLLOW_UP_REMOVE`, `
 setup's store seal, node list and handed pull request, `node-push.sh` writing heads through
 the recorder, and `coord_compute` and `coord-merge.sh` reading the record, with every merge
 pinned to the recorded head and every unverified head routed through `evaluate` (and
-`run-record.sh verified`) before `merge` is ever printed for it (design Decisions 1 and 2; PRD R1-R4, R6 partly, R7, R13, R19,
+`run-record.sh verified`) before `merge` is ever printed for it (design Decisions 1 and 2; PRD R1-R4, R6's store seal and mismatch refusal (its recovery half is Issue 3), R7, R13, R19,
 R24).
 
 **Acceptance Criteria**:
@@ -124,8 +124,10 @@ and 6; PRD R5, R15, R17, R18, R21, R23).
   subject is the title and whose body is Part 1; an empty Part 1, a multi-line title or AI
   attribution makes no merge call and reports `merge-refused:squash-message`; `rebase`
   passes no message.
-- [ ] `/coordinate`'s land step uses `scripts/lib/squash-message.sh` and its suites pass
-  unchanged.
+- [ ] `/coordinate`'s land step (`land-merge.sh` and `land-check.sh`) uses
+  `scripts/lib/squash-message.sh` and its suites pass unchanged.
+- [ ] `coord-merge.sh` no longer reads the body, the index-entry grammar lives only in the
+  codec, and the execute eval fixtures' coordination bodies are rendered bodies.
 - [ ] A private node under a public coordination pull request is refused with
   `execute:visibility` without naming the repository.
 - [ ] `lifecycle.yml`'s merge-last step and `coordination-gate-refs.sh` are unchanged and
@@ -158,15 +160,16 @@ R22).
   continues; each recovered pull request's live head is read and the readiness check runs
   before any merge call, in that order in the stub's log.
 - [ ] Identity comes from a carried `run_id`, else the run line, else unanimous markers,
-  else a minted id; a node with another marker or none stops with `recovery-unproven`
+  else a minted id only when the map holds no node pull request; a node with another marker
+  or none stops with `recovery-unproven`
   naming every such node; `--adopt-run <id>` re-stamps only those, records the login and
   time, and is refused elsewhere or with a malformed id.
 - [ ] With the PLAN on the branch the node list comes from it and the cascade is `not-run`;
   with the PLAN gone the cascade is `pushed` at the live coordination head and re-verified.
 - [ ] No coordination pull request stops with `coordination-pr-missing`, two with
-  `coordination-pr-ambiguous`, a republished body with no index with
-  `coordination-pr-missing`; an old-format self row is ignored; a body over the cap is
-  refused.
+  `coordination-pr-ambiguous`; a body with no index line recovers an empty map when no PLAN
+  node's branch has an owned pull request and stops with `coordination-index-missing` when
+  one does; an old-format self row is ignored; a body over the cap is refused.
 - [ ] A pre-feature run recovers once keeping its `run_id` and records store `github`; the
   next invocation writes no recovery marker.
 - [ ] With a node removed from the rendered index by hand and the PLAN gone, a recovered run
@@ -185,7 +188,8 @@ R22).
 **Group**: follow-up-move
 
 **Goal**: Map `--follow-up <node>=<url> [--remove]` to the rebind variables, check and
-record follow-ups at setup with their live head unverified, add them to `coord_compute` as
+record follow-ups at setup with their live head unverified, call the renderer after
+recording one (Issue 2's renderer, wired here), add them to `coord_compute` as
 `<node>/follow-up-<n>` after their node, merge them with `--merge`, render their lines, and
 hold the merge-last gate until they merge (design Decision 7; PRD R16).
 
