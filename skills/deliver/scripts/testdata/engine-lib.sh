@@ -181,8 +181,8 @@ start() {
     REQ=$(k request list --coordinator-of-record "deliver-$TOPIC" --state open | jq -r '.requests[0].request_id // ""')
 }
 tick() { k next "deliver-$TOPIC" --no-cleanup "$@" >"$T/next.json" 2>&1; }
-state() { k status "deliver-$TOPIC" 2>/dev/null | jq -r '.current_state // "gone"'; }
-result() { k status "deliver-$TOPIC" 2>/dev/null | jq -r --arg k "$1" '.result.payload[$k] // ""'; }
+state() { k status "deliver-$TOPIC" 2>"$T/status.err" | jq -r '.current_state // "gone"'; }
+result() { k status "deliver-$TOPIC" 2>"$T/status.err" | jq -r --arg k "$1" '.result.payload[$k] // ""'; }
 ctx() { local v; v=$(k context get "deliver-$TOPIC" "$1" 2>/dev/null) && printf '%s' "$v"; }
 # child <scope|execute> <evidence-json> [extra init args] -- a stand-in child
 # attached to this run's leg, driven to its terminal.
@@ -213,7 +213,7 @@ child_attach() {
 child_finish() {
     local sess="scope-$TOPIC"
     [ "$1" = scope ] || sess="execute-$TOPIC"
-    k next "$sess" --no-cleanup --with-data "$(jq -c '. + {finish: "go"}' <<<"$2")" >/dev/null 2>&1
+    k next "$sess" --no-cleanup --with-data "$(jq -c '. + {finish: "go"}' <<<"$2")" >/dev/null 2>"$T/child-next.err"
 }
 expect() { # expect <label> <state> <key=value>...
     local label="$1" want="$2" kv key val got ok=1
