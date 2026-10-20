@@ -51,8 +51,10 @@ PROG=reconcile-check
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
-# Here, so pool jobs and command substitutions inherit it.
-rd_idle
+# rd_deadline's private directory, opened here so pool jobs and command
+# substitutions inherit it. Without one every read fails, as not verified.
+RD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-check.XXXXXX") && rd_idle "$RD_TMP"
+trap 'rm -rf "$RD_TMP"' EXIT
 # shellcheck source=inventory-common.sh
 . "$HERE/inventory-common.sh"
 
@@ -877,7 +879,7 @@ inventory)
     [ -d "$IPATH" ] && [ ! -L "$IPATH" ] || refuse inventory "instance directory not found on this host"
     IROOT=$(cd -P "$IPATH" 2>/dev/null && pwd -P) || refuse inventory "instance directory can't be read"
     ITEMS=$(mktemp "${TMPDIR:-/tmp}/reconcile-inv.XXXXXX")
-    trap 'rm -f "$ITEMS" "$ITEMS".*' EXIT
+    trap 'rm -f "$ITEMS" "$ITEMS".*; rm -rf "$RD_TMP"' EXIT
     TRUNC=false
     INV_N=0
     QUEUE=()

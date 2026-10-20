@@ -103,35 +103,46 @@ rd_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # A read is most of what the reconcile pass does, so this costs as few
 # processes as it can (shirabe#750): the watcher waits with `read -t` on a
 # FIFO nobody writes to rather than a sleep(1), the markers are made by
-# redirection, and the file's name is this script's pid, a tag for the shell
-# and a counter rather than a mktemp per call. Only `cat` and `rm` run on
-# every call, and pkill only when a deadline ends a command. A background
-# subshell that calls this while its parent can also must first set RD_SHELL
-# to a tag of its own and RD_N to 0, or the two would share names:
-# inventory-common.sh's pool jobs do.
+# redirection, and the file's name is a tag for the shell and a counter in the
+# caller's private directory rather than a mktemp per call. Only `cat` and
+# `rm` run on every call, and pkill only when a deadline ends a command.
+#
+# The names are simple, so they rest on two rules. The directory is the
+# caller's own, made by mktemp -d for this run (see rd_idle), so nothing
+# outside the run can plant a file or a symlink at a name, and nothing left by
+# an earlier run is found there. And no two calls running at once share a
+# name: a counter bumped inside `$(...)` is lost when it returns, so calls
+# from one shell reuse a name, which is safe only because each call removes its
+# files before it returns and the next one starts. A background subshell that
+# calls this while its parent can also must first set RD_SHELL to a tag of its
+# own and RD_N to 0: inventory-common.sh's pool jobs do.
+#
+# A read that can't be started because rd_idle failed (no mkfifo, no
+# directory) returns 2 without running CMD, a failed read like any other,
+# which every caller already treats as not verified.
 RD_SHELL=m
 RD_N=0
 RD_IDLE=""
-# rd_idle -- the idle FIFO on fd 7, opened once and inherited by every
-# subshell; its path is removed as soon as it is open. A script that calls
-# rd_deadline calls this in its main shell right after sourcing this file:
-# opened first inside a `$(...)`, the FIFO would be opened again by every call.
+RD_DIR=""
+# rd_idle DIR -- open the idle FIFO on fd 7 in DIR, once, so every subshell
+# inherits it, and keep DIR for rd_deadline's files. DIR is the calling
+# script's own private directory, which it removes on exit. A script that
+# calls rd_deadline calls this in its main shell before its first read: a
+# FIFO opened first inside a `$(...)` would be opened again by every call.
 rd_idle() {
     [ -n "$RD_IDLE" ] && return 0
-    local f="${TMPDIR:-/tmp}/reconcile-idle.$$.$RD_SHELL" rc
-    rm -f "$f"
-    mkfifo "$f" && exec 7<>"$f"
-    rc=$?
-    rm -f "$f"
-    [ "$rc" = 0 ] && RD_IDLE=1
+    [ -n "${1:-}" ] && [ -d "$1" ] || return 1
+    mkfifo "$1/idle" && exec 7<>"$1/idle" || return 1
+    RD_DIR=$1
+    RD_IDLE=1
 }
 rd_deadline() {
     local secs=$1 pid watcher rc out
     shift
     rd_valid_secs "$secs" || secs=8
-    rd_idle || return 2
+    [ -n "$RD_IDLE" ] || return 2
     RD_N=$((RD_N + 1))
-    out="${TMPDIR:-/tmp}/reconcile-read.$$.$RD_SHELL.$RD_N"
+    out="$RD_DIR/read.$RD_SHELL.$RD_N"
     "$@" > "$out" &
     pid=$!
     (

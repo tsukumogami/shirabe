@@ -73,8 +73,6 @@ PROG=reconcile-pass
 RUNBASH=("$BASH")
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
-# Here, so command substitutions inherit it.
-rd_idle
 
 # Only the final line reaches stdout.
 exec 3>&1 1>&2
@@ -159,6 +157,8 @@ WORK="$W/visit.json"
 mkdir -p "$W" || die "can't create the work directory"
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-pass.XXXXXX") || die "no temp directory"
 trap 'rm -rf "$T"' EXIT
+# Here, so command substitutions inherit it.
+rd_idle "$T"
 # This pass's reads and deferral rows: its own directory, gone when it ends.
 R="$T/reads"
 mkdir -p "$R" || die "can't create the reads directory"

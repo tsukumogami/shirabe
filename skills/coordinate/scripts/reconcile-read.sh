@@ -60,8 +60,6 @@ PROG=reconcile-read
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
-# Here, so command substitutions inherit it.
-rd_idle
 
 DEADLINE=${RECONCILE_READ_DEADLINE:-8}
 rd_valid_secs "$DEADLINE" && [ "$DEADLINE" -le 60 ] || DEADLINE=8
@@ -93,6 +91,8 @@ refuse() {  # refuse CODE STATUS REASON
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-read.XXXXXX")
 trap 'rm -rf "$T"' EXIT
+# Here, so command substitutions inherit it.
+rd_idle "$T"
 
 # The run's facts: from the session, or all four override flags in tests.
 if [ -n "$SCOPE$NAME$REPO$REF" ]; then
