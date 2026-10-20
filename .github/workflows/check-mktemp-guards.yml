@@ -23,7 +23,8 @@ jobs:
       - name: Check no unchecked mktemp feeds a cd, rm, mv or git
         run: bash scripts/check-mktemp-guards_test.sh
 
-      # The behaviour itself: every suite of either class, run with a mktemp
+      # The behaviour itself: the suites of either class (found by their shape,
+      # or named in the test for the fixture-repository class), run with a mktemp
       # that always fails, from a throwaway directory or repository that must
       # come through unchanged. The suites run from a copy of the tree.
       - name: Check the suites leave the caller alone when mktemp fails

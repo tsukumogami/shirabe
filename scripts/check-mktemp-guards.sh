@@ -18,8 +18,9 @@
 # What is refused, on each logical line (a line ending in `\` is joined to the
 # next) that is not a comment: an assignment whose value is a command
 # substitution that runs mktemp (`X=$(mktemp ...)`, `local X=$(mktemp ...)`,
-# `X=$(umask 077 && mktemp ...)`, or the backtick form), with no `||` after
-# it on the same logical line and not the condition of an `if`, `while` or
+# `X=$(umask 077 && mktemp ...)`, or the backtick form), with no `||` straight
+# after it (no `;`, `&` or `|` in between, so `X=$(mktemp); a || b` is
+# refused) on the same logical line, and not the condition of an `if`, `while` or
 # `until`, when the same file also passes $X to `cd` or `pushd`, to `rm`,
 # `rmdir` or `mv`, or to `git -C`.
 #
@@ -129,7 +130,9 @@ SITES=$(printf '%s\n' "$LIST" | tr '\n' '\0' | xargs -0 awk '
       aline[na] = nl
       aafter[na] = after
       amasked[na] = (pre ~ /(local|export|readonly|declare([ \t]+-[A-Za-z]+)*)[ \t]+$/)
-      achecked[na] = (after ~ /[|][|]/ || pre ~ /(^|[;&|({!][ \t]*)(if|while|until)[ \t]+(![ \t]+)?$/)
+      # Checked by a || that follows the substitution with no ;, & or single
+      # | before it: `T=$(mktemp); a || b` is not a check on the mktemp.
+      achecked[na] = (after ~ /^[^;&|]*[|][|]/ || pre ~ /(^|[;&|({!][ \t]*)(if|while|until)[ \t]+(![ \t]+)?$/)
     }
   }
   END { if (file != "") flush() }')

@@ -250,7 +250,7 @@ eq "  ... after the body was written" 3 "$(live | jq -r '.run[] | select(.key ==
 grep -q 'Run cap set to 3 by the human' "$T/err" && ok "  ... naming the entry to post" || bad "  ... naming the entry to post" "$(cat "$T/err")"
 db '.fail = []'
 
-echo "== a temporary file that can't be made (shirabe#924) =="
+echo "== a temporary file that can't be made (the #922 shape, found in #924's sweep) =="
 # The leaving lines' file is the last one made before the write. Unchecked,
 # its name was empty: the record was written anyway and the closing
 # `rm -f "$LEAVING_FILE" "$LEAVING_FILE.one"` removed .one from the caller's

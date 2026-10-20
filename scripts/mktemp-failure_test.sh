@@ -8,7 +8,8 @@
 #     with `X=$(cd "$X" && pwd -P)`: run from a throwaway directory, which must
 #     survive with its file in it (an unchecked failure made X that directory,
 #     and the suite's cleanup removed it);
-#   - the suites that build a fixture repository in a mktemp directory: run
+#   - the suites that build a fixture repository in a mktemp directory, named
+#     in the list below (a new such suite is added to it by hand): run
 #     from a throwaway repository, whose HEAD, branch, commit count, user.email
 #     and working tree must be unchanged (an unchecked failure ran their git
 #     init, config, add, commit, checkout and rm there).
