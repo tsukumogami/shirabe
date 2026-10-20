@@ -25,7 +25,8 @@
 #   cascade    node-push.sh coordination (pushed, with the head) and
 #              record-coordination-verdict.sh (failed, with the step); the one
 #              verb with two callers, both steps of the cascade
-#   follow-up  record-coord-setup.sh with --follow-up (a later change)
+#   follow-up  record-coord-setup.sh given --follow-up: a follow-up PR's repo,
+#              pr and live head, or removed with --follow-up-remove
 #   recover    record-coord-setup.sh rebuilding a lost record
 #   adopt      record-coord-setup.sh on a recovering start with --adopt-run
 #   carry      execute-open.sh, restoring a finished session's record into the

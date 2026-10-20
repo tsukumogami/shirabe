@@ -44,7 +44,8 @@
 #                                  readiness reads and the merge at the live
 #                                  head, in that order in the log), unanimous
 #                                  markers, and minted (a follow-up line
-#                                  alone, which is recorded nowhere); another
+#                                  alone, whose node has no node line: it is
+#                                  dropped, follow-up-dropped:<url>); another
 #                                  run's marker, none, or no identity stops
 #                                  recovery-unproven naming each, writing no
 #                                  run_id; a PR another author opened and a
@@ -85,8 +86,7 @@
 #                                  user); the recorded PR closed unmerged:
 #                                  coordination-pr-closed; a --coordination-pr
 #                                  other than the recorded one: mismatch
-#   inert flags                    --follow-up and --follow-up-remove print
-#                                  ignored= and change nothing else
+#   empty optional values          the same as leaving the flags out
 #   two repositories               repos sorted and comma-joined
 #   home_repo outside repos        recorded: a coordination PR whose
 #                                  repository holds no node (repos names only
@@ -361,22 +361,19 @@ rm -rf "$GH_CALL_LOG.d"
 run_setup --coordination-pr "$URL10"
 stopped "a handed closed PR without the marker is not this run's" coordination-pr-mismatch
 
-# --- the inert flags -----------------------------------------------------------------
+# --- empty optional values ---------------------------------------------------------
+#
+# The template passes its rebind variables verbatim, so an empty value is a
+# flag left out. (The follow-up cases are record-coord-follow-up_test.sh's.)
 
-setup_case inert
-run_setup --follow-up "pr-repo-a-core=https://github.com/acme/repo-a/pull/30" --follow-up-remove true
-INERT_SETUP=$(val run/setup)
-if [ "$RC" -eq 0 ] && grep -qx ignored=follow-up <<<"$OUT" && grep -qx ignored=remove <<<"$OUT" \
-    && ! grep -q '^ignored=adopt-run' <<<"$OUT" && [ -z "$(ls "$CASE/ctx/$S/run" | grep -vx setup)" ]; then
-    pass "--follow-up and --follow-up-remove are reported ignored= and write nothing of their own"
-else
-    fail "inert: rc=$RC out=[$OUT] run/=[$(ls "$CASE/ctx/$S/run" 2>/dev/null | tr '\n' ' ')]"
-fi
-setup_case inert-control
+setup_case empty-control
+run_setup
+CONTROL_SETUP=$(val run/setup)
+setup_case empty-flags
 run_setup --follow-up "" --follow-up-remove "" --adopt-run ""
-[ "$RC" -eq 0 ] && [ "$(val run/setup)" = "$INERT_SETUP" ] && ! grep -q '^ignored=' <<<"$OUT" \
-    && pass "the same run without them seals the same record and reports nothing ignored" \
-    || fail "inert control: rc=$RC out=[$OUT]"
+[ "$RC" -eq 0 ] && [ "$(val run/setup)" = "$CONTROL_SETUP" ] && ! grep -q '^follow-up' <<<"$OUT" \
+    && pass "empty --follow-up, --follow-up-remove and --adopt-run seal the record a run without them does" \
+    || fail "empty flags: rc=$RC out=[$OUT]"
 
 # --- recovery: whether a run had started ------------------------------------------
 
@@ -581,7 +578,8 @@ recovered_ok "no run line, both node PRs marked alike" markers
 [ "$(val run_id)" = "$RID" ] && pass "the markers' id becomes the session's run_id" || fail "markers run_id: [$(val run_id)]"
 
 # A follow-up line alone counts as started; with no node line and no
-# identity, the id is minted, and the follow-up is not recorded.
+# identity, the id is minted, and the follow-up, whose node has no node line,
+# is dropped and reported.
 setup_case follow-up-only
 CT_INDEX="- $CT_CORE/follow-up-14 | $CT_REPO:docs/plans/PLAN-t.md#14 | open
 "
@@ -590,9 +588,11 @@ run_setup
 recovered_ok "a follow-up line alone, nothing else started" minted
 [[ $(val run_id) =~ ^[0-9a-f]{32}$ ]] && pass "an empty map with no identity mints the run_id" || fail "minted run_id: [$(val run_id)]"
 [ -z "$(ls "$CASE/ctx/$S/run" | grep -v -e '^setup$' -e '^cascade$' -e '^recovered$')" ] \
-    && grep -q 'follow-up lines are not recovered yet' "$CASE/stderr" \
-    && pass "the follow-up line is read and no run/follow-up key is written" \
-    || fail "follow-up keys: [$(ls -R "$CASE/ctx/$S/run" | tr '\n' ' ')]"
+    && grep -qx "follow-up-dropped:https://github.com/acme/repo-a/pull/14" <<<"$OUT" \
+    && grep -q "dropped the follow-up .*: its node $CT_CORE is no node PR" "$CASE/stderr" \
+    && ! grep -q 'not recovered yet' "$CASE/stderr" \
+    && pass "the follow-up line is read, dropped with follow-up-dropped:<url>, and no run/follow-up key is written" \
+    || fail "follow-up-only: out=[$OUT] keys=[$(ls -R "$CASE/ctx/$S/run" | tr '\n' ' ')] stderr=[$(tail -2 "$CASE/stderr")]"
 
 # Markers that don't prove the run.
 setup_case unproven-one
@@ -785,7 +785,8 @@ setup_case usage
 [ "$rc" -eq 64 ] && pass "a missing --plan exits 64" || fail "usage: rc=$rc"
 (cd "$REPO" && bash "$SETUP" --session '-x' --plan docs/plans/PLAN-t.md >/dev/null 2>&1); rc=$?
 [ "$rc" -eq 64 ] && pass "a bad session name exits 64" || fail "usage session: rc=$rc"
-for bad in "--store s3" "--coordination-pr https://x/y" "--follow-up core" "--follow-up-remove yes" "--adopt-run XYZ"; do
+for bad in "--store s3" "--coordination-pr https://x/y" "--follow-up core" "--follow-up-remove yes" "--adopt-run XYZ" \
+    "--follow-up-remove true"; do
     # shellcheck disable=SC2086
     (cd "$REPO" && bash "$SETUP" --session "$S" --plan docs/plans/PLAN-t.md $bad >/dev/null 2>&1); rc=$?
     [ "$rc" -eq 64 ] && pass "[$bad] exits 64" || fail "usage [$bad]: rc=$rc"

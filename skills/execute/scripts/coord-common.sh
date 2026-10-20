@@ -356,7 +356,8 @@ coord_follow_up_check() {
     FU_DRAFT=$(printf '%s' "$view" | jq -r '.isDraft // false')
     FU_OID=$(printf '%s' "$view" | jq -r '.headRefOid // ""')
     base=$(printf '%s' "$view" | jq -r '.baseRefName // ""')
-    cross=$(printf '%s' "$view" | jq -r '.isCrossRepository // true')
+    # Not `// true`: jq's alternative treats false as missing.
+    cross=$(printf '%s' "$view" | jq -r 'if .isCrossRepository == false then "false" else "true" end')
     author=$(printf '%s' "$view" | jq -r '.author.login // ""')
     if [ "$FU_STATE" = MERGED ]; then
         FU_MOID=$(printf '%s' "$view" | jq -r '.mergeCommit.oid // ""')

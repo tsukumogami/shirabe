@@ -156,6 +156,7 @@ jobs:
           bash skills/execute/scripts/coordination-verdict_test.sh
           bash skills/execute/scripts/record-coordination-verdict_test.sh
           bash skills/execute/scripts/record-coord-setup_test.sh
+          bash skills/execute/scripts/record-coord-follow-up_test.sh
           bash skills/execute/scripts/node-cut_test.sh
           bash skills/execute/scripts/node-push_test.sh
           bash skills/execute/scripts/repo-visibility_test.sh
