@@ -486,7 +486,11 @@ rm -f "$T/FILTER-RAN"
 # turns fsmonitor off.
 printf '#!/bin/sh\ntouch %s/FSMONITOR-RAN\n' "$T" > "$T/fsmonitor.sh"; chmod +x "$T/fsmonitor.sh"
 git -C "$R3" config core.fsmonitor "$T/fsmonitor.sh"
-rm -f "$T/FSMONITOR-RAN"
+# A control: git status does run the hook, so its absence below means the
+# read turned it off.
+git -C "$R3" status >/dev/null 2>&1
+[ -e "$T/FSMONITOR-RAN" ] && ok "control: git status runs the clone's fsmonitor hook" || bad "control: git status runs the clone's fsmonitor hook" ""
+rm -f "$T/FSMONITOR-RAN" "$T/FILTER-RAN"
 new_case inventory-probe
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.1"
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.2"
@@ -500,6 +504,49 @@ expect "a detached HEAD's commit is unique" '[.items[] | select(.kind == "commit
 expect "a stash is listed" '[.items[] | .path] | any(startswith("stash ("))' "$out"
 expect "a worktree deep inside the instance is walked" '[.items[] | select(.clone | test("worktrees/deep")) | .path] | index("work.md") != null' "$out"
 expect "a nested repository is walked as a clone" '[.items[] | select(.clone | test("vendor/inner"))] | length > 0' "$out"
+
+# Clones are read by a pool of background jobs (shirabe#750): one job at a
+# time and the default eight list the same items in the same order, the
+# worktree and the nested repository found during the walk included.
+pool_case() {
+    new_case "$1"
+    for k in 1 2 3; do printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.$k"; done
+    mktree "$R3" "$M3"
+}
+pool_case inventory-serial
+SER=$(RECONCILE_INV_PARALLEL=1 run inventory --path "$I3" | jq -c 'del(.read_at)')
+pool_case inventory-pool
+POOL=$(run inventory --path "$I3" | jq -c 'del(.read_at)')
+if [ -n "$SER" ] && [ "$SER" = "$POOL" ]; then ok "the pool lists what a serial read does"; else bad "the pool lists what a serial read does" "serial: $SER | pool: $POOL"; fi
+
+# The default branch's tree is read only when something is compared with it
+# (shirabe#750): never for a clean clone, once for one with a changed file,
+# and a deleted file still counts as changed.
+I6="$T/inst6"; R6="$I6/clean"; mkdir -p "$R6"
+g6() { git -C "$R6" -c user.email=t@example.com -c user.name=t "$@" >/dev/null 2>&1 || echo "setup failed: git $*" >&2; }
+g6 init -q -b main; g6 remote add origin https://github.com/acme/widgets.git
+echo a > "$R6/a.txt"; echo b > "$R6/b.txt"; g6 add -A; g6 commit -qm a
+M6=$(git -C "$R6" rev-parse HEAD)
+lazy_case() {
+    new_case "$1"
+    printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M6" "$M6" > "$CASE/ls-remote.out.1"
+    mktree "$R6" "$M6"
+}
+tree_reads() { cat "$CASE/.n.tree" 2>/dev/null || echo 0; }
+lazy_case inventory-lazy-clean
+out=$(run inventory --path "$I6")
+expect "a clean clone lists nothing" '.status == "ok" and (.items | length) == 0' "$out"
+[ "$(tree_reads)" = 0 ] && ok "a clean clone: the default branch's tree is not read" || bad "a clean clone: the default branch's tree is not read" "$(tree_reads) reads"
+echo edited >> "$R6/a.txt"
+lazy_case inventory-lazy-dirty
+out=$(run inventory --path "$I6")
+expect "a modified file in it is unique" '[.items[] | .path] | index("a.txt") != null' "$out"
+[ "$(tree_reads)" = 1 ] && ok "a modified file: the tree is read once" || bad "a modified file: the tree is read once" "$(tree_reads) reads"
+g6 checkout -- a.txt; rm "$R6/b.txt"
+lazy_case inventory-lazy-deleted
+out=$(run inventory --path "$I6")
+expect "a deleted file in it is listed" '[.items[] | .path] | index("b.txt (deleted)") != null' "$out"
+[ "$(tree_reads)" = 1 ] && ok "a deleted file: the tree is read once" || bad "a deleted file: the tree is read once" "$(tree_reads) reads"
 
 # Truncation: more clones than the cap, the last one holding the only work.
 I4="$T/inst4"; mkdir -p "$I4"

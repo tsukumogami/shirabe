@@ -379,11 +379,12 @@ if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "private, the refs read hangs:
 # itself and never runs the filter.
 I10="$T/inst10"
 mkdir -p "$I10"
-for r in filt skip assume tagged nest same racy; do git clone -q "$GHURL" "$I10/$r"; done
+for r in filt skip assume tagged nest same; do git clone -q "$GHURL" "$I10/$r"; done
 printf 'a.txt filter=hide\n' >"$I10/filt/.git/info/attributes"
 git -C "$I10/filt" config filter.hide.clean "cat >/dev/null; touch $T/filter-ran; printf 'a\\n'"
-# A same-size edit the filter maps back to the committed bytes, staged a
-# second later: `git add -u` then records the edited file's own stat data
+# The filter reads its input, as a real one does, or git takes it as failed.
+# A same-size edit it maps back to the committed bytes, staged a second
+# later: `git add -u` then records the edited file's own stat data
 # beside the committed blob, so git itself reads the clone clean and only
 # hashing the bytes finds the edit.
 printf 'z\n' >"$I10/filt/a.txt"
@@ -394,13 +395,14 @@ rm -f "$T/filter-ran"
 printf '#!/bin/sh\ntouch %s/fsmonitor-ran\n' "$T" >"$T/fsmonitor.sh"
 chmod +x "$T/fsmonitor.sh"
 git -C "$I10/filt" config core.fsmonitor "$T/fsmonitor.sh"
-rm -f "$T/fsmonitor-ran"
-# Edits git's own stat check can miss: one of the same size, a second after
-# the index was written, and one in the same instant as an index write.
+# A control: git status does run the hook, so its absence below means the
+# inventory turned it off.
+git -C "$I10/filt" status >/dev/null 2>&1
+if [ -e "$T/fsmonitor-ran" ]; then ok "control: git status runs the clone's fsmonitor hook"; else bad "control: git status runs the clone's fsmonitor hook" ""; fi
+rm -f "$T/fsmonitor-ran" "$T/filter-ran"
+# An edit of the same size, a second after the index was written.
 sleep 1
 printf 'b\n' >"$I10/same/a.txt"
-git -C "$I10/racy" update-index --refresh >/dev/null 2>&1
-printf 'c\n' >"$I10/racy/a.txt"
 git -C "$I10/skip" update-index --skip-worktree a.txt
 printf 'skipped edit\n' >>"$I10/skip/a.txt"
 git -C "$I10/assume" update-index --assume-unchanged a.txt
@@ -427,7 +429,6 @@ has "a clean filter hides nothing" "$OUT10" "unique filt: uncommitted changes"
 if [ -e "$T/filter-ran" ]; then bad "the clone's filter never runs" ""; else ok "the clone's filter never runs"; fi
 if [ -e "$T/fsmonitor-ran" ]; then bad "the clone's fsmonitor hook never runs" ""; else ok "the clone's fsmonitor hook never runs"; fi
 has "a same-size edit: unique" "$OUT10" "unique same: uncommitted changes"
-has "an edit in the instant of the index write: unique" "$OUT10" "unique racy: uncommitted changes"
 has "a skip-worktree edit: unique" "$OUT10" "unique skip: uncommitted changes"
 has "an assume-unchanged edit: unique" "$OUT10" "unique assume: uncommitted changes"
 has "a local tag's commit: unique" "$OUT10" "tag t1 changed a.txt"

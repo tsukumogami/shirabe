@@ -10,14 +10,27 @@
 # no `wait -n`, so each job writes its id to a FIFO when it ends and the main
 # loop blocks reading it, rather than polling. The read times out after a
 # second, when a sweep with `kill -0` collects any job that ended without
-# writing (killed by a signal). Each caller owns its queue and its joins: it
-# opens the pool, starts a job with inv_pool_start, waits for a free slot
-# before the next start, and sets INV_POOL_REAP to a function that takes a
-# finished job's id, called once per job in the order the jobs end. The FIFO
-# is file descriptor 9.
+# writing (killed by a signal); an id read after such a sweep is ignored.
+#
+# The contract with a caller:
+#   - file descriptor 9 is the pool's: inv_pool_open opens it, and a caller
+#     must not use it for anything else;
+#   - job ids are the caller's queue indexes, 0, 1, 2 and on, each started
+#     once with inv_pool_start or passed over with inv_pool_skip;
+#   - INV_POOL_REAP, when set, is called with a job's id as soon as it is
+#     collected, in the order the jobs end, from inside whichever pool call
+#     was waiting (inv_pool_next, inv_pool_wait_slot, inv_pool_wait_for);
+#   - INV_POOL_JOIN, when set, is called with each id in id order, once that
+#     job and every job before it have been collected or skipped. Work whose
+#     order shows in the output, such as queueing the clones a job found,
+#     belongs here, so the output is a serial read's whatever order the jobs
+#     end in.
 INV_POOL_PIDS=()
 INV_POOL_IDS=()
 INV_POOL_REAP=:
+INV_POOL_JOIN=:
+INV_POOL_DONE=()
+INV_POOL_JOINED=0
 
 # inv_pool_open <fifo path>: the channel jobs report on. The path is removed
 # once it is open; the descriptor stays.
@@ -38,6 +51,19 @@ inv_pool_start() {
     INV_POOL_PIDS+=("$!")
 }
 
+# inv_pool_done <id>: mark <id> finished and run the joins it releases.
+inv_pool_done() {
+    INV_POOL_DONE[$1]=1
+    while [ "${INV_POOL_DONE[$INV_POOL_JOINED]:-}" = 1 ]; do
+        "$INV_POOL_JOIN" "$INV_POOL_JOINED"
+        INV_POOL_JOINED=$((INV_POOL_JOINED + 1))
+    done
+}
+
+# inv_pool_skip <id>: an id the caller didn't start a job for (a clone past
+# the budget), joined in its turn like any other.
+inv_pool_skip() { inv_pool_done "$1"; }
+
 # inv_pool_take <id>: collect job <id> if it is still listed.
 inv_pool_take() {
     local k=0 n=${#INV_POOL_IDS[@]} pids=() ids=() found=""
@@ -53,8 +79,9 @@ inv_pool_take() {
     done
     INV_POOL_PIDS=(${pids[@]+"${pids[@]}"})
     INV_POOL_IDS=(${ids[@]+"${ids[@]}"})
-    [ -n "$found" ] && "$INV_POOL_REAP" "$1"
-    return 0
+    [ -n "$found" ] || return 0
+    "$INV_POOL_REAP" "$1"
+    inv_pool_done "$1"
 }
 
 # inv_pool_next: block until a job ends and collect it.
@@ -79,8 +106,8 @@ inv_pool_wait_slot() {
     while [ "${#INV_POOL_PIDS[@]}" -ge "$1" ]; do inv_pool_next; done
 }
 
-# inv_pool_has <id>: whether job <id> is still running (not yet collected).
-inv_pool_has() {
+# inv_pool_listed <id>: whether job <id> is started and not yet collected.
+inv_pool_listed() {
     local i
     for i in ${INV_POOL_IDS[@]+"${INV_POOL_IDS[@]}"}; do [ "$i" = "$1" ] && return 0; done
     return 1
@@ -88,10 +115,5 @@ inv_pool_has() {
 
 # inv_pool_wait_for <id>: until job <id> has ended and been collected.
 inv_pool_wait_for() {
-    while inv_pool_has "$1"; do inv_pool_next; done
-}
-
-# inv_pool_drain: until every job has ended and been collected.
-inv_pool_drain() {
-    while [ "${#INV_POOL_PIDS[@]}" -gt 0 ]; do inv_pool_next; done
+    while inv_pool_listed "$1"; do inv_pool_next; done
 }

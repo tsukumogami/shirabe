@@ -239,19 +239,24 @@ inv_first_common() { # inv_first_common DIR [LOC], LOC the rev-parse below when 
 
 # inv_tree -- read the default branch's tree into $TREE unless it is there:
 # the first time a tip or a changed file has to be compared with it, not for
-# every clone (shirabe#750). A linked worktree reads the same file as its
-# repository; two worktrees may read it at once, so it lands by rename.
+# every clone (shirabe#750). A linked worktree reads its repository's file;
+# the pool never runs two clones of one repository at once, so one reader
+# writes it at a time. A read that fails lists the clone unchecked, as the
+# up-front read did, and sets TREE_FAIL, on which inv_clone stops reading the
+# clone.
 inv_tree() {
+    [ -n "${TREE_FAIL:-}" ] && return 1
     [ -s "$TREE" ] && return 0
-    rd_deadline "$DEADLINE" gh api "repos/$REPO/git/trees/$DEFAULT_SHA?recursive=1" \
+    if rd_deadline "$DEADLINE" gh api "repos/$REPO/git/trees/$DEFAULT_SHA?recursive=1" \
         --jq '{truncated: .truncated, blobs: ([.tree[] | select(.type == "blob") | {key: .path, value: .sha}] | from_entries)} | tojson' \
-        > "$TREE.$$.$RANDOM" 2> "$ITEMS.tree.err" || return 1
-    local t
-    for t in "$TREE".*.*; do
-        [ -f "$t" ] || continue
-        jq -e '.blobs | type == "object"' "$t" >/dev/null 2> "$ITEMS.tree.err" && mv -f "$t" "$TREE" && break
-    done
-    [ -s "$TREE" ]
+        > "$TREE.part" 2> "$ITEMS.tree.err" &&
+        jq -e '.blobs | type == "object"' "$TREE.part" >/dev/null 2>> "$ITEMS.tree.err"; then
+        mv -f "$TREE.part" "$TREE" && return 0
+    fi
+    rm -f "$TREE.part"
+    TREE_FAIL=1
+    inv_item "$REL" unchecked "the default branch's tree could not be read"
+    return 1
 }
 
 # default_blob PATH -- the default branch's blob sha for PATH, or "absent".
@@ -459,7 +464,7 @@ inv_files() {
     printf '{"truncated":true,"blobs":{}}' > "$ITEMS.notree"
     inv_cmp "$ITEMS.notree" || { inv_item "$REL" unchecked "the comparison could not be made"; return; }
     if [ -s "$ITEMS.cmp" ]; then
-        inv_tree || { inv_item "$REL" unchecked "the default branch's tree could not be read"; return; }
+        inv_tree || return
         inv_cmp "$TREE" || { inv_item "$REL" unchecked "the comparison could not be made"; return; }
     fi
     # "ask": GitHub truncated the tree and the path is in the part it left out.
@@ -527,7 +532,7 @@ inv_tips() {
             0) continue ;;
             2) inv_item "$REL" unchecked "$bname could not be compared with the remote"; continue ;;
         esac
-        inv_tree || { inv_item "$REL" unchecked "the default branch's tree could not be read"; return; }
+        inv_tree || return
         inv_landed "$C" "$tip" || inv_item "$REL" commit "$bname"
     done < "$ITEMS.tips"
 }
@@ -543,7 +548,7 @@ inv_detached() {
 # inv_clone DIR -- inventory one clone. Its checks before the SEEN_COMMON
 # append mirror inv_first_common's, which must stay in step with them.
 inv_clone() {
-    local C=$1 REL URL loc common top n line w wr k
+    local C=$1 REL URL loc common top n line w wr k TREE_FAIL=""
     REL=${C#"$IROOT"}; REL=${REL#/}; [ -n "$REL" ] || REL=.
     if [ -L "$C/.git" ]; then inv_item "$REL" unchecked "its .git is a symlink, not read"; return; fi
     loc=$(ig "$C" rev-parse --path-format=absolute --git-common-dir --show-toplevel 2>/dev/null) \
@@ -566,6 +571,7 @@ inv_clone() {
             TREE="$SHARED.tree.$k"; EXCLUDE="$SHARED.exclude.$k"
             inv_detached "$C" > "$ITEMS.tips"
             inv_tips "$C" "$REL"
+            [ -n "$TREE_FAIL" ] && return
             inv_files "$C" "$REL"
             return
         fi
@@ -605,6 +611,9 @@ inv_clone() {
         inv_detached "$C"
     } > "$ITEMS.tips"
     inv_tips "$C" "$REL"
+    # A default-branch tree that couldn't be read ends the clone's read, as
+    # the up-front read did.
+    [ -n "$TREE_FAIL" ] && return
 
     # A stash is local by nature: listed whenever it exists.
     if ig "$C" rev-parse --verify --quiet refs/stash >/dev/null 2>&1; then
@@ -613,6 +622,7 @@ inv_clone() {
     fi
 
     inv_files "$C" "$REL"
+    [ -n "$TREE_FAIL" ] && return
 
     # Worktrees: one inside the instance is walked like a clone; one outside
     # is listed, not read.
@@ -891,9 +901,10 @@ inventory)
     # Clones are read by up to INV_PARALLEL background jobs at once, each
     # writing its own items and scratch files under its own prefix, and a job
     # starts as soon as one ends (inventory-common.sh's pool; shirabe#750).
-    # The main loop joins the items in queue order once all have ended, so
-    # the fact lists them as a serial read would, and it owns the queue and
-    # the caps. Each job sees as read the git directories of the clones
+    # The main loop joins the items in queue order once all have ended, and
+    # queues the clones a job found once it and every job before it have
+    # ended, so the fact lists them as a serial read would; it owns the queue
+    # and the caps. Each job sees as read the git directories of the clones
     # launched before it, which is what a serial read sees. A linked worktree
     # reuses its repository's remote reads from those files, so a clone
     # doesn't start while another clone of its repository is still being read.
@@ -901,20 +912,29 @@ inventory)
     JOB_COMMON=()
     JOB_SHARE=()
     RESERVED=0
-    # rc_reap J -- a finished job's compare count and the clones it found.
+    # rc_reap J -- a finished job's compare count, as soon as it ends. A job
+    # that ended without its result (killed) is charged its whole share.
     rc_reap() {
-        local jt jc q
+        local jt jc
         RESERVED=$((RESERVED - ${JOB_SHARE[$1]:-0}))
         if read -r jt jc < "$SHARED.c$1.done" 2>/dev/null; then
             [ "$jt" = true ] && TRUNC=true
             INV_COMPARES=$((INV_COMPARES + ${jc:-0}))
+        else
+            INV_COMPARES=$((INV_COMPARES + ${JOB_SHARE[$1]:-0}))
         fi
+    }
+    # rc_join J -- the clones job J found, queued in job order, so they queue
+    # as a serial read would find them whatever order the jobs end in.
+    rc_join() {
+        local q
         [ -f "$SHARED.c$1.queued" ] || return 0
         while IFS= read -r q; do
             [ -n "$q" ] && inv_queue "$q"
         done < "$SHARED.c$1.queued"
     }
     INV_POOL_REAP=rc_reap
+    INV_POOL_JOIN=rc_join
     # rc_job J SHARE -- one clone's read, as a pool job.
     rc_job() {
         ITEMS="$SHARED.c$1" QUEUED_FILE="$SHARED.c$1.queued" TRUNC=false INV_N=0 INV_COMPARES=0 INV_COMPARE_CAP=$2

@@ -594,22 +594,24 @@ fi
 # (inventory-common.sh's pool; shirabe#750). Their lines are joined in queue
 # order once all have ended, so the verdict reads as a serial scan's would. A
 # clone a read finds (a submodule, a nested clone, a worktree) joins the queue
-# when the job that found it ends. Each job sees as already read the git
-# directories of every clone launched before it, which is what a serial scan
+# once the job that found it and every job before it have ended, so found
+# clones queue in the order a serial scan finds them. Each job sees as
+# already read the git directories of every clone launched before it, which
+# is what a serial scan
 # would have seen: a linked worktree after the first clone of its repository
 # reads only its own files and HEAD. (A clone launched earlier that failed
 # before reaching its refs makes the verdict an error anyway, so the worktree
 # reading less can't hide anything.)
 PARALLEL="${TEARDOWN_PARALLEL:-8}"
 case "$PARALLEL" in [1-8]) ;; *) PARALLEL=8 ;; esac
-# td_reap <j>: queue the clones job j found.
-td_reap() {
+# td_join <j>: queue the clones job j found, in job order (the pool's join).
+td_join() {
     local q
     while IFS= read -r q; do
         [ -n "$q" ] && queue "$q"
     done <"$WORK/c$1/queued"
 }
-INV_POOL_REAP=td_reap
+INV_POOL_JOIN=td_join
 # td_job <j> <dir> <rel>: one clone's read, as a pool job.
 td_job() {
     local C="$WORK/c$1"
@@ -636,6 +638,7 @@ while [ "$j" -lt "${#QUEUE[@]}" ] || [ "${#INV_POOL_PIDS[@]}" -gt 0 ]; do
     if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
         printf 'error %s: not inventoried; the scan ran out of its %ss budget\n' "$rel" "$TOTAL_SECS" >"$C/verdict"
         printf '2\n' >"$C/worst"
+        inv_pool_skip "$j"
         j=$((j + 1))
         continue
     fi

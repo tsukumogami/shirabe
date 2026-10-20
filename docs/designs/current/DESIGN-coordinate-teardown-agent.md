@@ -377,7 +377,9 @@ inventory`, change in two ways that leave what they prove untouched:
   per-clone results are merged in queue order once every job has ended, so
   the output is the same as a serial read's. Clones found during the walk
   (submodules, nested clones, worktrees) are reported back to the main loop,
-  which owns the queue and adds them when the job that found them ends. The
+  which owns the queue and adds them once the job that found them and every
+  job before it have ended, so they queue in the order a serial read finds
+  them. The
   main loop also settles, in queue order and before it launches a clone,
   which clone is the first of its git directory, since a clone and its
   linked worktree both enter the first queue: only the first reads the
