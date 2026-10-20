@@ -25,7 +25,7 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n     %s\n' "$1" "${2-}"; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/deliver-requires-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/deliver-requires-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 
 record() { # record <subcommand path> <flag...> -- the record declares each flag

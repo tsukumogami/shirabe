@@ -58,9 +58,9 @@ command -v git >/dev/null 2>&1 || {
 REAL_JQ=$(command -v jq)
 REAL_GIT=$(command -v git)
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/koto-open-test.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
+T=$(mktemp -d "${TMPDIR:-/tmp}/koto-open-test.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+cleanup() { case "${T:-}" in */koto-open-test.*) rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
 export HOME="$T/home"

@@ -24,9 +24,9 @@ if ! koto request --help >/dev/null 2>&1; then
     exit 0
 fi
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/deliver-open-request-test.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/deliver-open-request-test.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+trap 'case "$T" in */deliver-open-request-test.*) rm -rf "$T" ;; esac' EXIT
 export HOME="$T/home"
 mkdir -p "$HOME"
 

@@ -110,7 +110,7 @@ else
 fi
 [[ $REF =~ $RE_NUM ]] || usage
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/record-holding.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/record-holding.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 rs_record "$T/parsed.json" body --json body --jq .body
