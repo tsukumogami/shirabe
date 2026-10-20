@@ -381,9 +381,12 @@ paragraph with the same facts and command.
    `mode` into the entry.
 4. The existing registry check (every rule id an active registry entry) runs over
    imported entries too.
-5. In the entry builder: `fail` raises with severity `advisory` when
-   `mode == "shadow"`, `blocking` otherwise; `pass` adds a `reverified` record when
-   the finding exists; any other outcome adds nothing when `mode == "shadow"`, and
+5. In the entry builder: `fail` raises with severity `advisory` when `mode` is
+   exactly `shadow`, `blocking` otherwise (a missing or unknown mode included);
+   `pass` adds a `reverified` record when the finding exists, and that finding's
+   id is the one computed from this criterion, so a decider's pass can close only
+   its own criterion's finding, never a seat's; any other outcome adds nothing
+   when `mode` is `shadow`, and
    otherwise keeps today's `unverified` behavior. `raise`'s existing rule keeps a
    blocking finding blocking on a re-raise.
 
@@ -500,7 +503,54 @@ Deliverables: `references/jev-criteria.md`, `scripts/jev-criteria/test_jev_crite
 
 ## Security Considerations
 
-To be completed in Phase 5.
+**Agent-written text reaches a classifier.** The slice is built from reasons the
+agent under review wrote, so it can carry text aimed at steering the decider. The
+batch is in shadow: no route reads it, a `fail` is advisory, other non-pass outcomes
+add nothing, and a `pass` adds a `reverified` record only to the finding computed
+from the same criterion, so an injected pass can't close a seat's finding. The
+slice is capped at 2,560 bytes, each field's whitespace is collapsed so a field
+can't start a new entry or a role line, and the fixture file's adversarial cases
+(instruction, fake answer, role line) are what a later promotion is judged on.
+
+**The ledger trusts koto's log.** `--record` imports `decider_checked` events from
+the session log, as the round-file path already checks entries against it. The log
+sits in a directory the agent can write to, and events aren't signed, so the design
+relies on the filesystem boundary, as the existing path does. What a forged line can
+do is bounded: an imported event must name an active registry id, each (state,
+visit, gate, criterion, declaration hash) backs one entry, the most severe outcome of
+a group wins rather than the latest, and in shadow the worst it can add is an
+advisory finding.
+
+**Severity fails closed.** Only an event whose `mode` is exactly `shadow` gives an
+advisory finding; a missing or unrecognised mode keeps today's blocking behavior. A
+shadow check never holds the verdict gate. The one hold is koto's pending state when
+the decider can't answer, released by `koto decider answer`, whose answer never
+reaches the ledger.
+
+**Parsing.** The slice script and `--record` read the log with `jq` and pass state
+names and ids as `--arg` values, never by interpolating them into a program. A parse
+failure is a fallback (`extraction_failed`) or a refused round, never a pass. The
+slice script reads one path koto substituted, calls no koto and no network, and
+writes nothing.
+
+**Data leaving the machine.** For a user who opts into the decider, the slice (at
+most 2,560 bytes of the run's recorded decisions) goes to the decider endpoint on
+each scrutiny visit. koto passes every decider-check command's output through its
+capture redactor before anything reads it, which replaces known credential shapes
+but not a secret an agent wrote in plain words, so a rationale should never hold
+one. The session log and koto's decider ledger keep a hash and a byte count, not the
+text. A user whose decider is off sends nothing.
+
+**Supply chain and tests.** No new dependency or download is added. Tests and CI use
+stubbed logs or a loopback stub with a placeholder key, unset any inherited decider
+key first, and send nothing anywhere; fixtures are synthetic; measurement output is
+counts and byte lengths only.
+
+**Residual risk.** An agent with shell access can append events to its own log
+within the limits above, push its slice over budget to reach the fallback, or stall
+its own run by making the log unreadable. Each affects only advisory output or the
+agent's own run, and the fallback records are counted per reason where a maintainer
+reads them.
 
 ## Consequences
 
