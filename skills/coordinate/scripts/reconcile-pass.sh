@@ -63,6 +63,8 @@ PROG=reconcile-pass
 RUNBASH=("$BASH")
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
+# Here, so command substitutions inherit it.
+rd_idle
 
 # Only the final line reaches stdout.
 exec 3>&1 1>&2

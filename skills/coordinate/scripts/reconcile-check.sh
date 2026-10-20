@@ -51,6 +51,8 @@ PROG=reconcile-check
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
+# Here, so pool jobs and command substitutions inherit it.
+rd_idle
 # shellcheck source=inventory-common.sh
 . "$HERE/inventory-common.sh"
 

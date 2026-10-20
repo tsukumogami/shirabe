@@ -113,7 +113,9 @@ RD_SHELL=m
 RD_N=0
 RD_IDLE=""
 # rd_idle -- the idle FIFO on fd 7, opened once and inherited by every
-# subshell; its path is removed as soon as it is open.
+# subshell; its path is removed as soon as it is open. A script that calls
+# rd_deadline calls this in its main shell right after sourcing this file:
+# opened first inside a `$(...)`, the FIFO would be opened again by every call.
 rd_idle() {
     [ -n "$RD_IDLE" ] && return 0
     local f="${TMPDIR:-/tmp}/reconcile-idle.$$.$RD_SHELL" rc
