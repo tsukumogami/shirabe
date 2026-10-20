@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   An agent whose fix to a gate-checked rule doesn't land sees the same one-line
   registry summary on every failure. Only PB4 ever returns its full text, by a
@@ -21,7 +21,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 The completeness, clarity and testability reviewers passed it, completeness on
 a second round. The downstream DESIGN owns the approach.
