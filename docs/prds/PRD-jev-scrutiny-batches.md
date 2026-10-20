@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: In Progress
+status: Done
 problem: |
   /work-on's scrutiny panel spawns three reviewer subagents on every standard
   or full run, and no one has measured which of their questions a script-built
@@ -23,7 +23,7 @@ absorbed:
 
 ## Status
 
-In Progress
+Done
 
 The completeness, clarity and testability reviewers passed it over two rounds.
 The downstream DESIGN owns the approach.
