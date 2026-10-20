@@ -8,7 +8,8 @@ name: Check macOS floor legs
 #
 # It also runs check-macos-floor-setup.sh, which fails when a suite's macOS
 # setup in its own workflow no longer matches the copy in macos-floor.yml, the
-# daily and pre-release run of every floor suite.
+# daily and pre-release run of every floor suite, and the harness of
+# cancel-closed-pr-runs.sh, which reads its workflows from the same parse.
 #
 # yq is pinned here rather than taken from the runner image, as in
 # check-templates.yml, so the image moving to another yq can't change what the
@@ -24,6 +25,8 @@ on:
       - 'scripts/check-macos-floor-setup.sh'
       - 'scripts/check-macos-floor-setup_test.sh'
       - 'scripts/check-macos-floor-setup/**'
+      - 'scripts/cancel-closed-pr-runs.sh'
+      - 'scripts/cancel-closed-pr-runs_test.sh'
       # The lint reads the floor suites from this runner's --list, to check
       # each Linux step's harnesses are in the suite its macOS leg runs.
       - 'scripts/check-bash-floor.sh'
@@ -66,3 +69,8 @@ jobs:
 
       - name: Check macos-floor.yml's setup matches each suite's workflow
         run: bash scripts/check-macos-floor-setup.sh
+
+      # cancel-closed-pr-macos-runs.yml cancels a closed pull request's
+      # unfinished floor runs; this pins each run it must never cancel.
+      - name: Run cancel-closed-pr-runs tests
+        run: bash scripts/cancel-closed-pr-runs_test.sh

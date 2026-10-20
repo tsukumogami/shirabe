@@ -162,6 +162,11 @@ mktempdir() {
 #       only. None of them belongs to a skill, so none reaches a macOS
 #       /bin/bash. Three also shell out to python3, so a floor run would
 #       mostly exercise that rather than bash.
+#   scripts/cancel-closed-pr-runs.sh (cancel-closed-pr-macos-runs.yml),
+#   scripts/cancel-closed-pr-runs_test.sh (check-macos-floor-legs.yml)
+#       CI automation that cancels a closed pull request's floor runs through
+#       gh, on ubuntu runners only. No skill invokes it, so it never reaches
+#       a macOS /bin/bash.
 #   scripts/check-koto-release.sh (check-koto-entry-floor.yml)
 #       The decider check on the koto minimum. It runs for real only on the
 #       ubuntu runner that installs exactly that release, and no skill invokes
