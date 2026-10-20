@@ -245,8 +245,9 @@ rendered or old-format body back into a map for recovery only. `skills/execute/s
 is the one caller that posts: it reads the coordination pull request (`gh pr view --json
 body,state,headRefOid`), reads each indexed pull request's state and, for one newly seen
 `MERGED`, its merge head, records that through `run-record.sh observe`, renders, refuses a
-body over 60,000 bytes (`body=full`), compares bytes, and posts with `gh pr edit
---body-file` only on a difference. A failed read or post prints `body=stale` and exits 0,
+body over 60,000 bytes (`body=full`), compares bytes, re-reads the body just before
+posting and skips the post (`body=stale`) when its Part 1 changed since the render, and
+posts with `gh pr edit --body-file` only on a difference. A failed read or post prints `body=stale` and exits 0,
 so it never changes a loop decision.
 
 It's called by `node-push.sh` after a node's pull request opens or is pushed (replacing
@@ -327,9 +328,11 @@ GitHub call; otherwise it runs recovery:
    `coordination-pr-missing`;
 3. the node list from the PLAN when the branch has it, otherwise from the map;
 4. identity: the session's `run_id` when it holds one, else the rendered `run=` line, else
-   the run marker every marked node pull request in the map agrees on, else a minted one;
-   any marked node pull request with another id stops the start with `recovery-unproven`,
-   naming each;
+   the run marker every node pull request in the map agrees on, else (no index line at all
+   and nothing marked) a minted one. Every pull request in the map must be in a repository
+   the PLAN or the map's own node names, pass the ownership lookup on its node's branch
+   (`impl/<slug>-<node>`), and carry a run marker equal to that identity; one with another
+   marker, or none, stops the start with `recovery-unproven`, naming each;
 5. each pull request's head from `gh pr view --json headRefOid` (a merged one's merge head
    for `merged_head`), all written with `verified: false` through `run-record.sh recover`;
 6. the cascade: `not-run` with the PLAN on the branch, otherwise `pushed` at the
@@ -342,7 +345,9 @@ action for that pull request is `evaluate:<node>` (or `evaluate-coordination`), 
 `merge:<node>` is never printed for an unverified head. A `failed` cascade prints `cascade`
 again. `--adopt-run <id>`, a rebind variable, is honoured only when the last result was
 `recovery-unproven`: setup re-stamps each disagreeing marker with `run-id.sh restamp`,
-seeds `<id>`, and writes `run/adopted` with `gh api user --jq .login` and the time.
+seeds `<id>`, and writes `run/adopted` with `gh api user --jq .login` and the time. It re-stamps
+only pull requests the recovery step named, in the PLAN's repositories, on their node's
+branch and authored by the invoking login, the same set the ownership lookup admits.
 
 #### Alternatives Considered
 
@@ -431,8 +436,8 @@ Resolved inline.
 `execute-open.sh` maps the flag to a rebind variable, `FOLLOW_UP`. Setup, after the record
 is loaded or recovered, checks it (the node in `run/setup`, the pull request in the node's
 repository, based on its default branch, not closed unmerged) and records it through
-`run-record.sh follow-up` with its live head and `verified: true`, the person who passed the
-flag having vouched for it; `--remove` sets `removed`. `coord_compute` adds each live
+`run-record.sh follow-up` with its live head and `verified: false`, so the loop's evaluate
+step checks it before any merge, as it does a recovered head; `--remove` sets `removed`. `coord_compute` adds each live
 follow-up as a pull request after its node: `merge:<node>/follow-up` only after the node is
 merged, and the coordination pull request's merge-last gate counts its index line through
 `coordination-gate-refs.sh` unchanged. A follow-up closed unmerged is reported
@@ -596,34 +601,63 @@ criteria describe.
 Deliverables: `scripts/skill-session.sh`, `deliver.md`, `deliver-probe.sh`, an engine test
 under `skills/execute/scripts/` over `skills/coordinate/scripts/testdata/cloud-hosts.sh`.
 
-The dated amendments to `references/coordination-strategy.md` and
-`docs/designs/current/DESIGN-scope-then-execute.md` land with this design on the
-coordination pull request, which merges after every phase.
+The dated amendments land with the phase whose behavior they describe: Phase 1 rewrites
+`skills/execute/SKILL.md`'s statement of where the run's state lives and its closed
+write-target set; Phase 2 amends `references/coordination-strategy.md` (the state lives in
+the run's session and the body is its rendering, replacing "no session file is the source of
+truth") and adds a dated amendment to the sixth decision of
+`docs/designs/current/DESIGN-scope-then-execute.md`, keeping its logic and recording that
+the machine-local objection no longer holds.
 
 ## Security Considerations
 
-The record holds only what the body held before (pull request numbers, repositories,
-heads, the run id) plus the store and the adopt record's GitHub login, all local to the
-session store; nothing new reaches GitHub, and the renderer posts only what the index
-already showed. Three properties need care in the build:
+The record holds what the body held before (pull request numbers, repositories, heads, the
+run id) plus the store and the adopt record's GitHub login. It stays in the session store;
+the renderer posts only what the index already showed, and never on a `session`-store start
+that found no session.
 
-- **Untrusted input in the body.** The body is editable by anyone with write access, and
-  recovery is now the only reader of it. `cb_parse` keeps today's grammar (node ids,
-  `owner/repo`, the plan path with `..` and `//` refused, 40-hex heads it ignores), every
-  value reaches `run-record.sh` as JSON data, never as shell text, and a recovered pull
-  request must still pass the ownership lookup and carry an agreeing run marker before it
-  is adopted. No head is ever read from the body.
-- **Where a merge's head comes from.** A merge is pinned to a head the run pushed and
-  verified, or one re-read live and re-verified by the same readiness check; the editable
-  page can no longer pin one. An adopt that re-stamps another run's markers is a recorded
-  act naming the login that ran it.
-- **What reaches public text.** The squash message is Part 1 through the land step's
-  builder, which strips HTML comments and refuses AI attribution; the rendered body keeps
-  the F1 rule that a public coordination pull request never names a private node; the
-  report lines name pull request URLs and koto codes, not paths or session stores.
+**Untrusted input.** The coordination body and the run markers are editable by anyone with
+write access, and after this change only recovery reads the body. `cb_parse` keeps today's
+grammar (node ids `^[a-z][a-z0-9-]*$`, `owner/repo`, plan paths with `..` and `//`
+refused, 40-hex heads ignored) and reads at most the renderer's 60,000-byte cap. Recovered
+values reach `run-record.sh` as JSON data, never as shell text. A recovered pull request is
+adopted only when it's in a repository the PLAN or its node names, passes the ownership
+lookup on its node's branch, and carries a run marker equal to the run's identity; anything
+else stops the start with `recovery-unproven`. No head is read from the body.
 
-The leg change adds no capability: `/execute` attaches its own session to a leg its caller
-opened, which it does today.
+**Carried and imported keys.** `carry` treats keys as data: names are matched against the
+fixed `run/` layout before use, every field is validated again by `run-record.sh`, and
+`carry` writes only into a session holding no `run/` key. An imported session supplies keys
+only; templates and scripts always come from the importing host's plugin root, compiled
+there by the import step. A follow-up's head, given by whoever passed the flag, is recorded
+unverified and checked like a recovered one. A carried head keeps its verified flag: the
+carry and the import move this run's own record, which koto's import checks, and the merge
+still passes `--match-head-commit`, so a head that moved since stops with
+`awaiting:head-moved`.
+
+**Merges.** A merge is pinned to a head this run pushed and verified, or one re-read live
+and re-verified by the same readiness check. The editable page can no longer pin one.
+
+**Adoption.** `--adopt-run` is the one operation that edits another run's markers. It's
+honoured only on an invocation after a `recovery-unproven` stop, re-stamps only the pull
+requests that stop named, in the PLAN's repositories, on their node's branch and authored by
+the invoking login, and records the login and time in `run/adopted`.
+
+**Posting.** The renderer re-reads the body just before posting and skips the post when
+Part 1 changed since it rendered, so a person's concurrent edit to the description isn't
+overwritten; the next transition renders again.
+
+**Public text.** The squash message is Part 1 through the shared builder, which strips HTML
+comments and refuses AI attribution. A public coordination pull request never names a
+private node: the visibility check fails closed, and its refusal names the node, never the
+private repository. Rendered bodies and report lines carry pull request URLs, heads and koto
+codes, never workspace paths, session-store locations or tokens, and the renderer's tests
+check that.
+
+**Residual risk.** A person with write access can still edit the body to make a recovery
+stop (`recovery-unproven`, a denial rather than an adoption) or edit the rendered region,
+which the next transition overwrites. The CI merge-last gate still reads the body and is
+unchanged, so its existing trust model, recomputing every state live, applies.
 
 ## Consequences
 
