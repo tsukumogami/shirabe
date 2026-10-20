@@ -323,17 +323,18 @@ outlines, and the run makes no `gh issue` call.
 
 **The coordination PR's body is the record's rendering.** `coord-render.sh`
 renders it through `scripts/lib/coordination-body.sh` after every transition it
-shows (a node PR opened or pushed, a node seen merged, the cascade pushed or
+shows (a node PR opened or pushed, a node PR GitHub reports MERGED, the cascade pushed or
 failed) and before every terminal, and posts it only when it differs from the
 live body, so a change in live state alone (checks finishing, a ready toggle)
 posts nothing. The body keeps the live Part 1 (everything above its first
 top-level `---`) byte for byte, or composes one sentence when there is none
 (`/scope`'s body is replaced whole), then carries the declaration marker, the
 run lines with `store=` and `run=`, one PR Index line per recorded node and
-follow-up (`- <node>[/follow-up-<n>] | <repo>:<path>#<n> | <open|merged|closed|unknown> | head=<sha>`),
+follow-up (`- <node>[/follow-up-<n>] | <repo>:<path>#<n> | <state> | head=<sha>`,
+where `<state>` is `open`, `merged`, `closed` or `unknown`),
 and the merge-order block from `run/setup`'s node list, so the block outlives
 the PLAN. The coordination PR never indexes itself. A merge it sees is recorded
-first (`run-record.sh observe`, the PR's merge commit as `merged_head`), so the
+first (`run-record.sh observe` records the PR's merge commit), so the
 body never shows a head the record doesn't hold. A body over 60,000 bytes is
 `body=full`; a post that fails, or a Part 1 a person edited between the render
 and the post, is `body=stale`. Neither changes a node's decision, and the next
@@ -600,7 +601,7 @@ against its chain shape:
      the default branch.
    - **`head=` fields** on the coordination PR's index, rendered only by the
      codec (`scripts/lib/coordination-body.sh`) from the run record: a node's
-     pushed head, which only `node-push.sh` records, or its merged head, which
+     pushed head, which only `node-push.sh` records, or its merge commit, which
      only `coord-render.sh` records. No script under `skills/execute/` builds
      one.
    - **The run record**, a coordinated run's store: the `run/` keys in
@@ -654,7 +655,7 @@ against its chain shape:
    `gh pr review` is outside the set: `/execute` never approves or reviews a PR,
    its own or anyone's. One default action writes to GitHub: `coord_verdict`'s
    posts the coordination PR's rendered body through `coord-render.sh`, only on
-   a difference and never once that PR merged. The others koto runs
+   a difference and never once GitHub reports that PR MERGED. The others koto runs
    (`write_set_record`, `settled_branch_record`, `drift_facts`, `worktree_sync`,
    `merge_readiness`, `merge_confirm`, `coord_merge_confirm`) read GitHub and
    write local state or koto context only. The repository write set is
