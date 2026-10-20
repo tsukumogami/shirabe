@@ -1,7 +1,6 @@
 ---
 schema: design/v1
 status: Proposed
-upstream: docs/prds/PRD-jev-scrutiny-batches.md
 problem: |
   /work-on's scrutiny panel has no measured answer to which of its seats' questions a
   2,560-byte Jev slice could decide, so none of them has a slice contract, and the
@@ -27,6 +26,7 @@ rationale: |
   of what the ledger says about a decider, and a mode-aware severity is the smallest
   change that stops a shadow check from blocking a panel. Building seat replacement
   would ship code with nothing eligible to run on.
+upstream: docs/prds/PRD-jev-scrutiny-batches.md
 decision_provenance: inline-resolved
 ---
 
@@ -179,7 +179,11 @@ ones the agent's round file names, and with blocking severity.
 Key assumptions:
 
 - `--record` runs at aggregation, after the round's gate evaluations, so the current
-  visit's `decider_checked` events are in the log.
+  visit's `decider_checked` events are in the log: the agent reaches the round only
+  through the `koto next` that entered `scrutiny`, and that tick evaluated the gate.
+  An event a visit writes after the round is recorded (a later tick in the same
+  visit) is picked up by the next `--record` of the panel, or never if no round is
+  recorded again; in shadow such an event could only have been advisory.
 - Within one scrutiny visit the slice doesn't change, since it reads only `analysis`
   and `implementation` decisions.
 
@@ -403,7 +407,8 @@ paragraph with the same facts and command.
   `decision-reasons` (runs `decision-reasons.sh slice` on each session's
   `koto-*.state.jsonl`, counting an empty slice as a run of 0 bytes),
   `criteria-plan` (the byte lengths of `ctx/review_level_criteria.txt` plus
-  `ctx/plan.md`) and `design-context` (`ctx/context.md`), over every session
+  `ctx/plan.md`) and `design-context` (`ctx/context.md`), reading regular files
+  only (a symlink is skipped and counted on stderr), over every session
   directory under `--dir` that has `ctx/review_facts.json`. The recorded `command`
   names the slice.
 
@@ -454,11 +459,13 @@ exported decider events ──▶ live figures (not-graded left out) ─▶ a la
 
 ## Implementation Approach
 
-### Phase 1: Contracts for the questions nothing can run
+### Phase 1: Contracts for the questions nothing can run, and the seat rule
 
-Add `--slice` to `measure sessions` (with `criteria-plan` and `design-context`), the
-three `local-change` slice kinds, the `rs-018` to `rs-020` rows and registry entries,
-their sections in `references/jev-criteria.md`, and the registry-count updates.
+Add `--slice` to `measure sessions` with the two byte-length slices
+(`criteria-plan`, `design-context`) beside the default `review-facts`, the three
+`local-change` slice kinds, the `rs-018` to `rs-020` rows and registry entries,
+their sections in `references/jev-criteria.md`, the registry-count updates, and the
+"Replacing a seat" section with its doc test, which edits the same reference.
 
 Deliverables: `scripts/jev-criteria/jev_criteria.py`,
 `scripts/jev-criteria/test_jev_criteria.py`, `scripts/review-shadow/review-shadow.py`,
@@ -467,16 +474,18 @@ Deliverables: `scripts/jev-criteria/jev_criteria.py`,
 
 ### Phase 2: Leave not-graded evaluations out of the live bar
 
-Change `live_figures` and `check_promotion`, add the figures and bar tests, and state
-the rule in both Jev-criteria documents with a doc test.
+Change `live_figures` and `check_promotion`, add the figures and bar tests (mixed
+evaluations named: not-graded with a fallback, with `escape`, with a later `pass`),
+and state the rule in both Jev-criteria documents with a doc test. Independent of
+Phase 1; it can land first or beside it.
 
 Deliverables: `scripts/jev-criteria/jev_criteria.py`, its tests,
 `references/jev-criteria.md`, `docs/guides/jev-criteria.md`.
 
 ### Phase 3: The batch
 
-Add `decision-reasons.sh` and its test, the `decision-reasons` measurement, the
-fixture file, the `scrutiny_decider` gate, the registry entry and its section, the
+Add `decision-reasons.sh` and its test, the `decision-reasons` slice of
+`measure sessions` (which runs the script), the fixture file, the `scrutiny_decider` gate, the registry entry and its section, the
 directive and phase-file text, the mermaid note, the comment rewrites, a koto-level
 routes test (pending holds a carried round; answer releases; empty slice doesn't
 hold; 2,560 versus 2,561 bytes; decider off unchanged), and an eval scenario for a
@@ -491,17 +500,13 @@ Deliverables: `skills/work-on/scripts/decision-reasons.sh`,
 
 ### Phase 4: Batch verdicts in the ledger
 
-Change `--record`'s decider path and add its tests. Depends on Phase 3's registry
-entry for the criterion id the tests record under.
+Change `--record`'s decider path and add its tests, including one import for the
+`qa` panel's state (`qa_validation`) from a fixture event, so the panel-to-state
+mapping is exercised beyond `scrutiny`. Depends on Phase 3's registry entry for the
+criterion id the tests record under.
 
 Deliverables: `skills/work-on/scripts/panel-scope.sh`,
 `skills/work-on/scripts/panel-scope_test.sh`.
-
-### Phase 5: The seat-replacement rule
-
-Write "Replacing a seat" with its doc test.
-
-Deliverables: `references/jev-criteria.md`, `scripts/jev-criteria/test_jev_criteria.py`.
 
 ## Security Considerations
 
@@ -510,9 +515,11 @@ agent under review wrote, so it can carry text aimed at steering the decider. Th
 batch is in shadow: no route reads it, a `fail` is advisory, other non-pass outcomes
 add nothing, and a `pass` adds a `reverified` record only to the finding computed
 from the same criterion, so an injected pass can't close a seat's finding. The
-slice is capped at 2,560 bytes, each field's whitespace is collapsed so a field
-can't start a new entry or a role line, and the fixture file's adversarial cases
-(instruction, fake answer, role line) are what a later promotion is judged on.
+slice is capped at 2,560 bytes, and each field's whitespace is collapsed so a field
+can't start a new line, though it can still mimic the layout inline (`... reason:
+...`). The fixture file's adversarial cases cover an instruction, a fake answer, a
+role line and inline layout mimicry, and they are what a later promotion is judged
+on.
 
 **The ledger trusts koto's log.** `--record` imports `decider_checked` events from
 the session log, as the round-file path already checks entries against it. The log
@@ -548,11 +555,32 @@ stubbed logs or a loopback stub with a placeholder key, unset any inherited deci
 key first, and send nothing anywhere; fixtures are synthetic; measurement output is
 counts and byte lengths only.
 
-**Residual risk.** An agent with shell access can append events to its own log
-within the limits above, push its slice over budget to reach the fallback, or stall
-its own run by making the log unreadable. Each affects only advisory output or the
-agent's own run, and the fallback records are counted per reason where a maintainer
-reads them.
+**Gate command arguments.** The command substitutes `{{SESSION_DIR}}` and
+`{{SESSION_NAME}}` inside double quotes, as `scrutiny_verdict`'s command already
+does; koto refuses a session name outside its own name pattern at `koto init`, so
+neither value can carry shell syntax. `--record`'s session argument is the one the
+agent already passes for every ledger write, and the import reads that session's
+log only.
+
+**Residual risk.** An agent with shell access can write to its own session log.
+Three things follow, and none is new in kind, since the round-file path already
+trusts the same log:
+
+- It can append a forged `decider_checked` event, or set a real event's `mode` to
+  `shadow`, and so add an advisory finding or turn a blocking batch finding
+  advisory in the ledger. It can't get past a veto fail that way: koto's own
+  `decider-check` gate blocks the state on a veto fail from its evaluation, not from
+  the ledger, and only an override record moves past it.
+- It can leave its decisions unrecorded, which gives the batch nothing to grade, or
+  push its slice over budget, which falls back. The second counts against the live
+  bar outright (no over-budget fallback is allowed). The first is outside what the
+  criterion judges, and a promotion's `live` record carries the not-graded count so
+  its reviewer can weigh how much of the evidence the agent shaped.
+- It can stall its own run by making the log unreadable.
+
+Opting into the decider is per user, so a user who opts in sends the decisions of
+every repository they run `/work-on` in, private ones included, under the same
+redaction; that is the user's choice and is unchanged by this design.
 
 ## Consequences
 
