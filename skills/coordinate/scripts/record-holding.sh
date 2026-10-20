@@ -9,6 +9,8 @@
 #                                                           set its pushed head
 #   record-holding.sh --session S --topic T --read          print the row
 #   record-holding.sh --session S --list                    print every row
+#   record-holding.sh --session S --topic T --strand        mark it stranded
+#   record-holding.sh --session S --topic T --retire        remove a stranded row
 #   ... [--scope roadmap|discipline --name N --repo O/R --ref N
 #        --skip-session-checks]                             (tests)
 #
@@ -37,6 +39,17 @@
 # empty SHA, and changes nothing else; a row file may carry it as `pushed_head`.
 # --read and --list print it on the session store. On a GitHub record either
 # is refused (65).
+#
+# --strand marks a holding `stranded`: the coordinator's choice to dispatch its
+# unit again when the worker reports by message and the quiet checks reached
+# the failure branch (PRD R15; shirabe#732). Only a `dispatched` holding whose
+# Return path is `message` may be stranded; any other is refused (65), since a
+# leg-bound worker's end still arrives on its leg. dispatch-worker.sh treats a
+# stranded topic as it treats a failed one: the unit goes out again under a
+# new topic, whose brief names this row's branch and last pushed head, and
+# --retire removes the stranded row once the new worker is dispatched. A report
+# that later arrives from the retired topic matches no holding and is refused.
+# --retire refuses (65) a row that isn't stranded.
 #
 # Exit codes: 0 written (prints the URL) or printed; 1 no row for the topic
 # (--read only); 2 a read failed; 10 refused (the target isn't an open record
@@ -68,13 +81,15 @@ while [ $# -gt 0 ]; do
         --pushed-head) [ $# -ge 2 ] || usage; [ -z "$MODE" ] || usage; MODE=pushed; PUSHED=$2; shift 2 ;;
         --read) [ -z "$MODE" ] || usage; MODE=read; shift ;;
         --list) [ -z "$MODE" ] || usage; MODE=list; shift ;;
+        --strand) [ -z "$MODE" ] || usage; MODE=strand; shift ;;
+        --retire) [ -z "$MODE" ] || usage; MODE=retire; shift ;;
         --skip-session-checks) SKIP_CHECKS=1; shift ;;
         *) usage ;;
     esac
 done
 case "$MODE" in
     write) [ -n "$TOPIC" ] && [ -r "$ROWFILE" ] || usage ;;
-    pushed|read) [ -n "$TOPIC" ] || usage ;;
+    pushed|read|strand|retire) [ -n "$TOPIC" ] || usage ;;
     list) [ -z "$TOPIC" ] || usage ;;
     *) usage ;;
 esac
@@ -129,6 +144,21 @@ pushed)
     jq -e --arg t "$TOPIC" 'any(.holdings[]; .worker == $t)' "$T/parsed.json" > /dev/null \
         || { echo "$PROG: refused: no holding's Worker is $TOPIC" >&2; exit 65; }
     jq 'del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    ;;
+strand|retire)
+    ROW=$(jq -c --arg t "$TOPIC" '[.holdings[] | select(.worker == $t)][0] // empty' "$T/parsed.json")
+    [ -n "$ROW" ] || { echo "$PROG: refused: no holding's Worker is $TOPIC" >&2; exit 65; }
+    ST=$(jq -r '.dispatch_status' <<< "$ROW")
+    if [ "$MODE" = strand ]; then
+        [ "$ST" = dispatched ] || { echo "$PROG: refused: only a dispatched holding is stranded; $TOPIC is $ST" >&2; exit 65; }
+        [ "$(jq -r '.return_path' <<< "$ROW")" = message ] \
+            || { echo "$PROG: refused: only a holding on the message path is stranded; $TOPIC reports on $(jq -r '.return_path' <<< "$ROW")" >&2; exit 65; }
+        jq --arg t "$TOPIC" '.holdings |= map(if .worker == $t then .dispatch_status = "stranded" else . end) | del(.written)' \
+            "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    else
+        [ "$ST" = stranded ] || { echo "$PROG: refused: only a stranded holding is retired; $TOPIC is $ST" >&2; exit 65; }
+        jq --arg t "$TOPIC" '.holdings |= map(select(.worker != $t)) | del(.written)' "$T/parsed.json" > "$T/next.json" || lib_die2 "jq failed"
+    fi
     ;;
 write)
     jq -e 'type == "object"' "$ROWFILE" > /dev/null 2>&1 || { echo "$PROG: refused: the row file is not a JSON object" >&2; exit 65; }

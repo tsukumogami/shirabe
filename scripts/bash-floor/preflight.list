@@ -1,0 +1,15 @@
+workflow: .github/workflows/check-preflight-scripts.yml
+# Runs on the system backend only. In the docker container one
+# case fails for a reason unrelated to bash: the image carries no
+# koto, gh or shirabe to satisfy the shipped declarations. Its
+# floor run is the macOS leg.
+scripts/skill-preflight_test.sh
+scripts/lib/preflight-probe_test.sh
+scripts/lib/preflight-report_test.sh
+scripts/lib/preflight-minimum_test.sh
+scripts/check-skill-requires_test.sh
+# The scan on its own, against the committed tree: the verdict the
+# macOS leg reports, not only a case inside the harness above.
+scripts/check-skill-requires.sh
+scripts/check-skill-injection_test.sh
+scripts/check-tool-diagnostic-discards_test.sh

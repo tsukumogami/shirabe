@@ -6,8 +6,9 @@
 # state log there as koto-S.state.jsonl, in the shape real koto writes (a
 # header line, then events with seq, timestamp, type and payload). Context
 # keys are files under $KOTO_STORE/context/S/, and a request R's view (what
-# `request get R` prints) is $KOTO_STORE/requests/R.json. Every call is appended to
-# $KOTO_STORE/calls.
+# `request get R` prints) is $KOTO_STORE/requests/R.json; a file R.gone there
+# makes it a request this host's store doesn't hold (koto's exit 2). Every
+# call is appended to $KOTO_STORE/calls.
 #
 # Served: `session dir S`, `session list` (a JSON array of {id,
 # parent_workflow} for every session directory; parent_workflow is null unless
@@ -103,6 +104,8 @@ case "${1:-} ${2:-}" in
         fi
         ;;
     "request get")
+        # A request this host's store doesn't hold is answered with koto's 2.
+        [ -e "$KOTO_STORE/requests/${3:-none}.gone" ] && { echo "koto stub: request_not_found ${3:-}" >&2; exit 2; }
         cat "$KOTO_STORE/requests/${3:-none}.json" 2>/dev/null || { echo "koto stub: no request ${3:-}" >&2; exit 1; }
         ;;
     "template compile")

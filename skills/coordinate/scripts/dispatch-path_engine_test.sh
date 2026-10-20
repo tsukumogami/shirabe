@@ -91,7 +91,9 @@ done
 case "$MODE" in
     list) cat "$ST/rows.json" ;;
     write) jq -c --arg t "$TOPIC" --slurpfile r "$ROWF" '[.[] | select(.worker != $t)] + $r' "$ST/rows.json" >"$ST/rows.tmp" && mv "$ST/rows.tmp" "$ST/rows.json" ;;
-    read) jq -ce --arg t "$TOPIC" '.[] | select(.worker == $t)' "$ST/rows.json" || exit 1 ;;
+    # $ST/read.fail fails a single row's read, as a record that can't be read
+    # does, which holds take_report.
+    read) [ -e "$ST/read.fail" ] && exit 2; jq -ce --arg t "$TOPIC" '.[] | select(.worker == $t)' "$ST/rows.json" || exit 1 ;;
     *) exit 64 ;;
 esac
 EOF
@@ -312,6 +314,11 @@ put coord/pick.json '{"scope":"roadmap","name":"vault","host":"acme/widgets","un
 (cd "$W" && bash "$S/dispatch-worker.sh" --session "$SESS" >/dev/null 2>&1)
 [ "$(requests w13)" -ge 1 ] && pass "control: a unit pick reads gets past the check and its request is seen" \
     || fail "control: a unit pick reads gets past the check and its request is seen" "$(requests w13)"
+# The leg the dispatch opened is a key of the coordinator's own session (PRD
+# R13), written through real koto; the stand-in launch failed, so it reads spent.
+W13REQ=$( (cd "$W" && koto request list --coordinator-of-record coordinate-w13) | jq -r '.requests[0].request_id')
+eq  "control: the dispatch wrote the leg's key, with its worker, marked spent by the failed launch" "w13 spent deliver.md" \
+    "$(ctx "legs/$W13REQ/deliver" | jq -r '"\(.topic) \(.state) \(.templates | join(","))"')"
 
 # --- the leg path ----------------------------------------------------------------------------------
 
@@ -374,6 +381,32 @@ case "$(ctx worker_report)" in
 esac
 eq  "leg: report_source is leg" leg "$(ctx report_source)"
 eq  "leg: report_topic is the worker" w1 "$(ctx report_topic)"
+
+# The leg's key (PRD R13): the bound child recorded when the leg is picked,
+# and the result with state taken written by wait_leg's own action, so a run
+# stopped at take_report (here by a record that can't be read) already finds
+# it there.
+REQ5=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w5"}' \
+    --requested-by coord --coordinator-of-record coordinate-w5 | jq -r .request_id)
+SAVED_ROWS=$(cat "$ST/rows.json")
+rows "[{\"worker\":\"w5\",\"dispatch_status\":\"dispatched\",\"return_path\":\"leg $REQ5:scope\"}]"
+start
+put "legs/$REQ5/scope" "{\"request\":\"$REQ5\",\"leg\":\"scope\",\"topic\":\"w5\",\"state\":\"open\",\"templates\":[\"scope.md\"],\"inputs\":{\"TOPIC\":\"w5\"}}"
+(cd "$T" && koto init scope-w5 --template "$T/tpl/scope.md" --var TOPIC=w5 --koto-leg "$REQ5:scope" >/dev/null 2>"$T/child.err") ||
+    fail "the second stand-in worker attaches to its leg" "$(cat "$T/child.err")"
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"leg"}'
+eq  "legkey: an open leg holds at wait_leg" wait_leg "$(at)"
+eq  "legkey: the pick recorded the bound child in the key, still open" "scope-w5 open" "$(ctx "legs/$REQ5/scope" | jq -r '"\(.child) \(.state)"')"
+tick --with-data '{"watch":"back"}'
+(cd "$T" && koto next scope-w5 --with-data '{"finish":"go"}' >/dev/null 2>&1)
+: >"$ST/read.fail"
+tick --with-data '{"event":"leg"}'
+eq  "legkey: the run stops at take_report" take_report "$(at)"
+eq  "legkey: the key already reads taken, with the result the worker promoted" "taken promoted scoped https://github.com/acme/widgets/pull/7" \
+    "$(ctx "legs/$REQ5/scope" | jq -r '"\(.state) \(.result.source) \(.result.payload.outcome) \(.result.payload.pr)"')"
+rm -f "$ST/read.fail"
+rows "$SAVED_ROWS"
 
 start
 tick --with-data '{"go":"wait"}'
@@ -552,10 +585,24 @@ tick --with-data '{"event":"report","unit":"w3","report":"PR #9 is ready; CI is 
 eq  "message: a message-path worker's report reaches report_facts" report_facts "$(at)"
 eq  "message: its text is the report" "PR #9 is ready; CI is green." "$(ctx worker_report)"
 
+# A leg-bound worker whose leg is still open here reports through it, so its
+# message goes back to the hub; one whose leg already holds its promoted
+# result (w1's, read above) can only report by message now, and it stands
+# (PRD R16).
+REQ6=$(koto request create --role scope --template scope.md --inputs '{"TOPIC":"w6"}' \
+    --requested-by coord --coordinator-of-record coordinate-w6 | jq -r .request_id)
+SAVED_ROWS=$(cat "$ST/rows.json")
+rows "$(jq -c --arg r "leg $REQ6:scope" '. + [{worker: "w6", dispatch_status: "dispatched", return_path: $r}]' <<<"$SAVED_ROWS")"
 start
 tick --with-data '{"go":"wait"}'
-tick --with-data '{"event":"report","unit":"w1","report":"done, trust me"}'
-eq  "message: a message for a leg-bound worker goes back to wait" wait "$(at)"
+tick --with-data '{"event":"report","unit":"w6","report":"done, trust me"}'
+eq  "message: a message for a leg-bound worker whose leg is open goes back to wait" wait "$(at)"
+start
+tick --with-data '{"go":"wait"}'
+tick --with-data '{"event":"report","unit":"w1","report":"one more thing.\n\nQuestions:\n1. Should the loader pin v2?"}'
+eq  "message: a message for a worker whose leg holds its result reaches report_facts" report_facts "$(at)"
+eq  "  ... as a message report" message "$(ctx report_source)"
+rows "$SAVED_ROWS"
 
 start
 tick --with-data '{"go":"wait"}'

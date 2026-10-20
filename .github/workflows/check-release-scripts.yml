@@ -26,6 +26,7 @@ on:
       - 'scripts/koto-open.sh'
       - 'scripts/assert-koto-floor.sh'
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/release.list'
       - '.tsuku.toml'
       - '.github/workflows/check-release-scripts.yml'
 

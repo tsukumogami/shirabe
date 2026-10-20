@@ -1,0 +1,8 @@
+workflow: .github/workflows/check-coordinate-reconcile-scripts.yml
+# /coordinate's reconcile scripts: bash, jq and git only, with
+# stand-ins for gh, niwa and koto, so every case runs on 3.2.
+skills/coordinate/scripts/reconcile-report_test.sh
+skills/coordinate/scripts/reconcile-check_test.sh
+skills/coordinate/scripts/reconcile-read_test.sh
+skills/coordinate/scripts/reconcile-pass_test.sh
+skills/coordinate/scripts/reconcile-settle_test.sh

@@ -87,7 +87,7 @@ Written: <YYYY-MM-DDTHH:MM:SSZ>
 
 | Unit | Entry point | Mode | Phase | Dispatch status | Return path | Worker | Repo | Branch | Verified head | Dispatched | Pull request |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping, scoping-ahead, executing or held> | <dispatching, dispatched or dispatch-failed> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
+| <feature, issue, question or choice> | <skill> | <--auto and flags> | <scoping, scoping-ahead, executing or held> | <dispatching, dispatched, dispatch-failed or stranded> | <message, or leg <request-id>:<leg>> | <dispatch topic> | <owner/repo> | <branch, blank until known> | <full sha once verified, else blank> | <YYYY-MM-DD> | <[#n](URL), blank for none yet> |
 
 ## Deferrals
 
@@ -117,7 +117,10 @@ holding a verified pull request whose merge a hold in the record stops (`held`).
 A row leaves Side effects in flight once confirmed. Reversals only grow.
 A Holdings row outlives its pull request's merge: a confirmed merge blanks
 its Pull request cell and keeps its Verified head, and the row goes when the
-worker is torn down.
+worker is torn down. A message-path worker whose unit you dispatch again
+after it went quiet is `stranded` (`record-holding.sh --strand`); its row
+goes once the unit's new worker is dispatched (`--retire`, which
+dispatch-worker.sh runs).
 
 A deferral is disposed of when its Disposition reads `filed #<n>`,
 `closed: <reason>`, or `carried <time>: <reason>` with a time at or after the
@@ -456,6 +459,19 @@ links a pull request and by the report check when a report reads a new head;
 the rendered body never shows it. The keys move with the session: a resume
 keeps them, a carry copies every `record/` and `legs/` key into the new run,
 and an import brings them all from the other host.
+
+Each worker leg is a key of the coordinator's session on either store,
+`legs/<request>/<leg>`: the worker's topic, the leg's templates and pinned
+inputs, the bound session's name once one attaches, and its result once read.
+`dispatch-worker.sh` writes it at dispatch (`open`) and when a new leg
+replaces it (`replaced`) or a launch fails (`spent`); `wait-target.sh` adds
+the child and the end (`taken` with the result, or `spent`). After an import,
+a leg whose request this host's store doesn't hold gets its end from
+`reconcile-legs.sh`: re-legged by `dispatch-worker.sh --releg-imported`, which
+marks the old key `releg-pending` and then `relegged`, naming the new request,
+and writes the new request's key `open` with `from` naming the old one; or
+`unwatchable`, its holding moved to message. dispatch-common.sh lists the
+states and their meaning. A record on GitHub never shows them.
 
 A coordinator's state lives outside its session and outside any directory the
 workspace manager converges, and what must outlive the host lives on GitHub,

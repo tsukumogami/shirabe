@@ -20,6 +20,7 @@ on:
       # The lint reads the floor suites from this runner's --list, to check
       # each Linux step's harnesses are in the suite its macOS leg runs.
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/**'
 
 jobs:
   check-macos-floor-legs:

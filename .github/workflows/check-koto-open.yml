@@ -23,6 +23,7 @@ on:
       - 'scripts/check-koto-release.sh'
       - 'scripts/check-koto-release_test.sh'
       - 'scripts/check-bash-floor.sh'
+      - 'scripts/bash-floor/koto-open.list'
       - '.tsuku.toml'
       - '.github/workflows/check-koto-open.yml'
 
