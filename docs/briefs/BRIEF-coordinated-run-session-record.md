@@ -2,14 +2,13 @@
 schema: brief/v1
 status: Draft
 problem: |
-  A coordinated `/execute` run keeps the facts it runs on, which node went to which pull
-  request, the head each merge is pinned to, whether the cascade ran and whose run it is,
-  as lines in the coordination pull request's body. Anyone with write access can edit
-  them, they go stale, they land on the default branch, and a run that moves can't adopt
-  its own merged nodes.
+  A coordinated `/execute` run keeps the facts it runs on (node to pull request, the head
+  each merge is pinned to, the cascade's verdict, whose run it is) as editable lines in the
+  coordination pull request's body, which go stale, land on the default branch, and can't
+  bring a moved run back to its own merged nodes.
 outcome: |
-  Whoever runs a coordinated effort can stop it, move it to another workspace and resume
-  it through its merge-last gate from the run's own record. The person reviewing the
+  Whoever runs a coordinated effort can stop it, move it to another workspace and resume it
+  through its merge-last gate from the run's own record. The person reviewing the
   coordination pull request reads an index that is current at every step, and the default
   branch's history carries the description and nothing else.
 motivating_context: |
@@ -86,8 +85,7 @@ that the leg won't finish.
 The person reviewing the coordination pull request reads an index that matches what has
 happened: every node with its current state and head, follow-up pull requests listed under
 the node they belong to, and no row for the coordination pull request itself. It stays that
-way through the cascade, because the run re-renders the page from its record at every step.
-Editing the page by hand changes what the page says, not what the run believes.
+way through the cascade. Editing the page by hand changes what the page says, not what the run believes.
 
 A maintainer reading the default branch's history after a coordinated effort lands finds the
 coordination pull request's description and nothing from the run's bookkeeping.
@@ -104,12 +102,14 @@ pushes and lands the rest, and reaches the merge-last gate with every node accou
 coordinator reads the run's result from its leg, or a clear report that the leg was lost and
 what state the run reached.
 
-### A worker resumes after its execute session is gone
+### A maintainer restarts a run whose execute session was removed
 
-A worker resuming a coordinated run finds the execute session that opened it was removed
-with its host directory. The run's record survives wherever the run's chosen store keeps it,
-so the worker resumes as the same run, adopts the merged nodes and continues, without a
-hand-set run id.
+A maintainer re-invokes `/deliver` on a coordinated topic after the workspace that held its
+execute session was torn down and the session cleaned up by name, with no import made first.
+Two nodes had already merged. The restarted run comes back as the run that opened them, from
+whatever the run's store kept, and adopts them; where nothing survived to prove that, it
+stops and names the one recorded step that adopts them, instead of leaving the maintainer to
+copy a run id into a session by hand.
 
 ### A reviewer reads the coordination pull request at the end
 
@@ -133,15 +133,20 @@ index, heads or run lines.
 - The run's control-plane facts as its record: the node-to-pull-request map, each node's
   pushed head, follow-up pull requests recorded against a node, the cascade's verdict, the
   coordination pull request's number as `/scope` hands it over, and the run's identity.
+- `/scope`'s result as `/deliver` reads it to start `/execute`, taken from where `/scope`
+  recorded it rather than from the `intent=` line on the page.
 - The coordination pull request's body as a rendering of that record, re-rendered at every
   transition including the cascade, without the self row.
 - The squash message `/execute` passes when it merges: the body's first part only.
 - A run that moves between workspaces keeping its identity and adopting its own merged
   nodes, and what happens to `/deliver`'s inner leg to `/execute` after the move.
 - The choice of where a run's record lives, made once at the run's start, with GitHub the
-  default.
-- Reuse of the pieces the coordinator session record built for the same job: its read seam,
-  its per-run store choice, and its resume, carry-across and import opener.
+  default. On either choice the run's facts live in its session first; the page is a
+  rendering of them, read back only to recover a run on a host that has no session, and a
+  merge never takes its pinned head from the page.
+- Reuse of what the coordinator session record built for the same job: one place every
+  script reads the run's facts through, the store chosen once per run, and the way a start
+  resumes, carries forward or imports a session.
 
 **Out of scope:**
 
@@ -154,17 +159,8 @@ index, heads or run lines.
 - The single-pr path, which already keeps its pushed head in koto.
 - Removing the coordinator's GitHub issue record, and anything in the coordinate skill that
   removal touches. That is separate later work.
-- Proving a move between hosts. The journeys above move a run between workspaces on one
+- Proving a move between hosts. The scenarios above move a run between workspaces on one
   host; a move to another host rides the same import, and exercising it is later work.
-
-## Open Questions
-
-- With GitHub as the default store, what does a default run read its facts from: the body,
-  as today, behind the shared seam, or its session with the body as the fallback a host
-  without the session reads? The PRD settles it against the requirement that no `/execute`
-  script parses a head or a node line off a pull request body.
-
-None of these questions block the brief.
 
 ## References
 
