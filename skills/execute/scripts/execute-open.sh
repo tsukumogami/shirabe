@@ -21,12 +21,18 @@
 # nothing of its own that koto could: a repeated --merge is koto's
 # duplicate_var, `--merge=yes` is invalid_var, a slug outside ^[a-z0-9-]+$ is
 # invalid_var on PLAN_SLUG, a live session from another template, worktree, or
-# store is template_mismatch or origin_mismatch. Under --koto-leg every one of
-# those refusals is recorded on the leg by koto itself. This script's own
-# refusals are only the ones where no koto call can be built at all: a
-# malformed --koto-leg value, a tokens file it cannot read, or a multi-pr PLAN,
-# which /work-on runs rather than /execute (`error=multi-pr`). koto-open.sh
-# adds the other two: an args file inside the work tree, and no koto binary.
+# store is template_mismatch or origin_mismatch, and a coordinated flag on a
+# single-pr PLAN is unknown_var. Under --koto-leg every one of those refusals
+# is recorded on the leg by koto itself. This script's own refusals are only
+# the ones where no koto call can be built at all, or would change a run it
+# must not: a malformed --koto-leg value, a coordinated flag with no value or
+# a --remove with no --follow-up, a tokens file it cannot read, a multi-pr
+# PLAN, which /work-on runs rather than /execute (`error=multi-pr`), a
+# setup-only flag on a live coordinated session past coord_setup
+# (`error=flag-needs-setup`), a session another opener holds
+# (`error=session-busy`), and a run record it could not read or carry
+# (`failed=carry`). koto-open.sh adds the other two: an args file inside the
+# work tree, and no koto binary.
 #
 # Usage: execute-open.sh <tokens-file>
 #
@@ -37,7 +43,8 @@
 #
 # The pairs, one per occurrence, so a repeat survives to be refused:
 #
-#   PLAN_DOC               the first token ending in .md that isn't a flag
+#   PLAN_DOC               the first token ending in .md that isn't a flag or
+#                          a flag's separate value
 #   PLAN_SLUG              its basename without PLAN- and .md
 #   PLUGIN_ROOT            $CLAUDE_PLUGIN_ROOT, else this plugin's root
 #   MERGE                  `--merge` -> true, `--merge=<v>` -> <v>, one pair per
@@ -55,6 +62,11 @@
 #                          occurrence (a bare --review-floor is the literal
 #                          token, which the pattern refuses); none -> no pair.
 #   REVIEW_CEILING         `--review-ceiling=<level>`, the same way.
+#   STORE                  `--store <v>` or `--store=<v>`
+#   COORDINATION_PR        `--coordination-pr <url>`
+#   FOLLOW_UP              `--follow-up <node>=<url>`
+#   FOLLOW_UP_REMOVE       `--remove` -> true
+#   ADOPT_RUN              `--adopt-run <id>`
 #
 # The two review-level bound variables are passed only when their flag is, so a
 # run without the flags initialises exactly the variables it did before they
@@ -64,26 +76,70 @@
 # a value outside light, standard and full (invalid_var) and a repeat
 # (duplicate_var).
 #
+# The five coordinated variables (STORE through ADOPT_RUN) are passed on every
+# coordinated invocation, one pair per occurrence, and `""` when the flag is
+# absent: all five are rebind in execute-coordinated.md, so an attach without
+# the flag resets it, and a value from an earlier invocation never persists.
+# On a single-pr PLAN a pair is passed only when its flag was given, and koto
+# refuses it (unknown_var). Each flag takes `--flag <value>` or
+# `--flag=<value>`; the separate value is never read as the PLAN.
+#
 # `--koto-leg=<request-id>:<leg>` (or `--koto-leg <request-id>:<leg>`) is passed
 # through once. The leg must be `execute`, the one leg /execute answers; the
 # request id is checked by koto-open.sh against koto's pattern. The flag changes
 # nothing but where the result goes.
 #
+# A coordinated PLAN, before `koto init`:
+#
+#   the lock      `<carry root>/<session>.lock`, a directory holding the
+#                 holder's pid, taken with mkdir (retried every 0.2 s, 25
+#                 times; a lock whose pid is gone is removed), released on
+#                 exit. Still held: `error=session-busy`, exit 64. The carry
+#                 root is $SHIRABE_STATE_DIR/execute-carry, else
+#                 ${XDG_STATE_HOME:-$HOME/.local/state}/shirabe/execute-carry,
+#                 mode 0700.
+#   the status    one `koto status` read. A live session (not terminal, not
+#                 removed) past coord_setup given --store, --coordination-pr,
+#                 --follow-up or --adopt-run is refused `error=flag-needs-setup`
+#                 (exit 64, no koto init): those flags take effect only at
+#                 setup.
+#   the snapshot  a finished session holding `run/` keys has its run record
+#                 (and its run_id) written to `<carry root>/<session>/`
+#                 before koto replaces it. A read that fails is
+#                 `failed=carry`, exit 70, nothing replaced.
+#
+# And after the open (any `opened=`): the session's `run_id` is seeded from
+# the snapshot, else from the finished session it replaced; a coordinated
+# open never mints one (record-coord-setup.sh mints when it seals a new run
+# record). A snapshot is carried into a session that has no run/setup yet
+# (`run-record.sh carry`) and removed once the carry succeeds
+# (`carried=<key-count>`); a carry that fails keeps it for the next open
+# (`carry=pending`, `failed=carry`, exit 70; stderr names the snapshot). A
+# session that already has run/setup makes the snapshot stale, and it is
+# removed. `merge_attempts` is removed, so every invocation starts with no
+# merge attempts. A single-pr open seeds the prior run_id and mints one when
+# the session still has none.
+#
 # The run identity. A session this script opens always has a `run_id`
-# (`run-id.sh mint`), the identity every owned-PR lookup of the run carries. When
+# (`run-id.sh mint`) on a single-pr PLAN, the identity every owned-PR lookup of
+# the run carries; a coordinated session has one once its setup ran. When
 # koto replaces a finished session, the finished one's `run_id` is read first
 # and seeded into the replacement, so a re-invocation of the same PLAN in the
 # same place still owns the PR the earlier run opened.
 #
 # Output: koto-open.sh's lines (opened=..., refused=..., failed=...), then
-# `session=execute-<slug>` when a session was opened, or, on a refusal, the exit
-# lines print-exit.sh --refused prints (outcome=error, step=execute:refused).
-# This script's own refusals print `error=usage`, or `error=multi-pr` for a
-# multi-pr PLAN, with the reason on stderr and no koto call.
-# koto's refusal wording goes to stderr, from execute-open-wording.tsv.
+# `carried=<n>` after a carry and `session=execute-<slug>` when a session was
+# opened, or, on a refusal, the exit lines print-exit.sh --refused prints
+# (outcome=error, step=execute:refused). This script's own refusals print
+# `error=usage`, `error=multi-pr`, `error=flag-needs-setup`,
+# `error=session-busy`, or `failed=carry`, with the reason on stderr. No line
+# names a local path; the snapshot's path goes to stderr only. koto's refusal
+# wording goes to stderr, from execute-open-wording.tsv.
 #
 # Exit codes: koto-open.sh's (0 opened, 2 refused, 127 no koto or jq, koto's
-# own code otherwise), or 64 for this script's own refusals (usage, multi-pr).
+# own code otherwise), 64 for this script's own refusals (usage, multi-pr,
+# flag-needs-setup, session-busy), or 70 for a run record it could not
+# snapshot or carry.
 #
 # Requires: bash 3.2+, jq, koto.
 set -uo pipefail
@@ -97,6 +153,8 @@ TEMPLATE="$SKILL_DIR/koto-templates/execute.md"
 KOTO_OPEN="$PLUGIN_DIR/scripts/koto-open.sh"
 WORDING="$SELF_DIR/execute-open-wording.tsv"
 PRINT_EXIT="$SELF_DIR/print-exit.sh"
+# shellcheck source=run-record-lib.sh
+. "$SELF_DIR/run-record-lib.sh"
 
 TOKENS_FILE="${1:-}"
 own_refusal() {
@@ -137,11 +195,35 @@ elif [ "$LEG_COUNT" -eq 1 ]; then
     esac
 fi
 
-# The PLAN: the first non-flag token ending in .md that is not --koto-leg's
+# The coordinated flags, each `--flag <value>` or `--flag=<value>`. A separate
+# value that is missing, or is itself a flag, is a usage error: there is no
+# value to hand koto. FLAGS is {"<flag>": [values in order], ...}, plus
+# "--remove": [one "true" per occurrence].
+FLAGS=$(printf '%s' "$TOKENS" | jq -c '. as $t
+    | def vals($f): [range(0; $t | length) as $i
+        | if $t[$i] == $f then
+            (if ($t[$i + 1] // null) == null or ($t[$i + 1] | startswith("-")) then {bad: $f}
+             else {v: $t[$i + 1]} end)
+          elif ($t[$i] | startswith($f + "=")) then {v: ($t[$i] | ltrimstr($f + "="))}
+          else empty end];
+    {"--store": vals("--store"), "--coordination-pr": vals("--coordination-pr"),
+     "--follow-up": vals("--follow-up"), "--adopt-run": vals("--adopt-run"),
+     "--remove": [$t[] | select(. == "--remove") | {v: "true"}]}')
+BAD_FLAG=$(printf '%s' "$FLAGS" | jq -r '[.[][] | .bad // empty][0] // ""')
+[ -z "$BAD_FLAG" ] || own_refusal "$BAD_FLAG needs a value (--flag <value> or --flag=<value>)"
+if [ "$(printf '%s' "$FLAGS" | jq '(."--remove" | length) > 0 and (."--follow-up" | length) == 0')" = true ]; then
+    own_refusal "--remove applies only with --follow-up <node>=<url>"
+fi
+# setup_flags_given -- the flags that take effect only at coord_setup, as one
+# space-separated list (empty when none was given).
+SETUP_FLAGS_GIVEN=$(printf '%s' "$FLAGS" | jq -r '[to_entries[] | select(.key != "--remove" and (.value | length) > 0) | .key] | join(" ")')
+
+# The PLAN: the first non-flag token ending in .md that is not a flag's
 # separate value.
 PLAN=$(printf '%s' "$TOKENS" | jq -r '. as $t | [range(0; length) as $i
     | select(($t[$i] | startswith("-") | not) and ($t[$i] | endswith(".md"))
-             and ($i == 0 or $t[$i - 1] != "--koto-leg"))
+             and ($i == 0 or (["--koto-leg", "--store", "--coordination-pr", "--follow-up", "--adopt-run"]
+                              | index($t[$i - 1])) == null))
     | $t[$i]][0] // ""')
 SLUG=$(basename -- "$PLAN" .md)
 SLUG=${SLUG#PLAN-}
@@ -165,8 +247,12 @@ if [ -n "$PLAN" ] && [ -f "$PLAN" ]; then
             exit
         }' "$PLAN")
 fi
+COORDINATED=0
 case "$MODE" in
-    coordinated) TEMPLATE="$SKILL_DIR/koto-templates/execute-coordinated.md" ;;
+    coordinated)
+        TEMPLATE="$SKILL_DIR/koto-templates/execute-coordinated.md"
+        COORDINATED=1
+        ;;
     multi-pr)
         # A multi-pr PLAN lands one pull request per issue, through /work-on.
         # Refused before any koto call, so nothing is recorded on a --koto-leg.
@@ -183,16 +269,110 @@ case "$SLUG" in
     ""|*[!a-z0-9-]*) SESSION="execute-unnamed" ;;
     *) SESSION="execute-$SLUG" ;;
 esac
+HAVE_KOTO=0
+command -v koto >/dev/null && HAVE_KOTO=1
+NAMED=0
+[ "$SESSION" != "execute-unnamed" ] && [ "$HAVE_KOTO" -eq 1 ] && NAMED=1
 
-# A retained paused_for_review session means this invocation resumes a paused
-# run: the finalize invocation. From koto 0.17.0 (koto#355) `koto status` also
-# answers for a session koto removed at its terminal, with "removed": true and
-# the same state, so a removed pause has nothing to resume and is read as none.
+# The coordinated run's lock, before the session is read: one opener at a time
+# reads, replaces, and carries a session's record.
+CR="${SHIRABE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/shirabe}/execute-carry"
+LOCK=""
+release_lock() { [ -n "$LOCK" ] && rm -rf -- "$LOCK"; return 0; }
+if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
+    mkdir -p "$CR" && chmod 700 "$CR" || {
+        printf 'failed=carry\n'
+        echo "$PROG: could not make the carry directory for $SESSION" >&2
+        exit 70
+    }
+    tries=0
+    while :; do
+        if mkdir "$CR/$SESSION.lock" 2>/dev/null; then
+            printf '%s\n' "$$" > "$CR/$SESSION.lock/pid"
+            LOCK="$CR/$SESSION.lock"
+            trap release_lock EXIT
+            break
+        fi
+        holder=$(cat -- "$CR/$SESSION.lock/pid" 2>/dev/null) || holder=""
+        # A holder that is gone left its lock behind: take it over. A lock
+        # with no pid yet is a holder that just took it, unless it stays so
+        # for the whole wait.
+        if [ -n "$holder" ] && ! kill -0 "$holder" 2>/dev/null; then
+            rm -rf -- "$CR/$SESSION.lock"
+            continue
+        fi
+        tries=$((tries + 1))
+        if [ "$tries" -ge 25 ]; then
+            if [ -z "$holder" ]; then
+                rm -rf -- "$CR/$SESSION.lock"
+                tries=0
+                continue
+            fi
+            printf 'error=session-busy\n'
+            echo "$PROG: another /execute holds $SESSION (pid $holder); try again once it finishes" >&2
+            exit 64
+        fi
+        sleep 0.2
+    done
+fi
+
+# One status read for the session the invocation names. A retained
+# paused_for_review session means this invocation resumes a paused run: the
+# finalize invocation. From koto 0.17.0 (koto#355) `koto status` also answers
+# for a session koto removed at its terminal, with "removed": true and the same
+# state, so a removed pause has nothing to resume and is read as none.
+STATUS=""
+if [ "$NAMED" -eq 1 ]; then
+    STATUS=$(koto status "$SESSION" 2>/dev/null) || STATUS=""
+    printf '%s' "$STATUS" | jq -e 'type == "object" and has("current_state")' >/dev/null 2>&1 || STATUS=""
+fi
 RESUMING_PAUSE=0
-if [ "$SESSION" != "execute-unnamed" ] && command -v koto >/dev/null; then
-    if koto status "$SESSION" \
-        | jq -e '.removed != true and .is_terminal == true and .current_state == "paused_for_review"' >/dev/null; then
-        RESUMING_PAUSE=1
+if [ -n "$STATUS" ] && printf '%s' "$STATUS" \
+    | jq -e '.removed != true and .is_terminal == true and .current_state == "paused_for_review"' >/dev/null; then
+    RESUMING_PAUSE=1
+fi
+FINISHED=0
+if [ -n "$STATUS" ] && printf '%s' "$STATUS" | jq -e '.removed != true and .is_terminal == true' >/dev/null; then
+    FINISHED=1
+fi
+
+if [ "$COORDINATED" -eq 1 ] && [ "$NAMED" -eq 1 ]; then
+    # The setup-only flags on a live session past coord_setup: setup has run,
+    # so the flag would be accepted and then never applied.
+    if [ -n "$SETUP_FLAGS_GIVEN" ] && [ -n "$STATUS" ] \
+        && printf '%s' "$STATUS" | jq -e '.removed != true and .is_terminal != true and .current_state != "coord_setup"' >/dev/null; then
+        printf 'error=flag-needs-setup\n'
+        echo "$PROG: $SESSION is a live run at $(printf '%s' "$STATUS" | jq -r .current_state), past coord_setup; $SETUP_FLAGS_GIVEN take effect only at coord_setup. Run without them, or finish this run first." >&2
+        exit 64
+    fi
+    # The snapshot: a finished session's run record, kept before koto
+    # replaces it.
+    if [ "$FINISHED" -eq 1 ]; then
+        KEYS=$(rr_keys "$SESSION" 2>/dev/null) || {
+            printf 'failed=carry\n'
+            echo "$PROG: could not list $SESSION's run record; nothing was replaced" >&2
+            exit 70
+        }
+        if [ -n "$KEYS" ]; then
+            SNAP_TMP=$(mktemp -d "$CR/.$SESSION.XXXXXX") || SNAP_TMP=""
+            if [ -z "$SNAP_TMP" ] || ! rr_record "$SESSION" > "$SNAP_TMP/record.json" 2>/dev/null; then
+                [ -n "$SNAP_TMP" ] && rm -rf -- "$SNAP_TMP"
+                printf 'failed=carry\n'
+                echo "$PROG: could not read $SESSION's run record into a snapshot; nothing was replaced" >&2
+                exit 70
+            fi
+            SNAP_ID=$(koto context get "$SESSION" run_id 2>/dev/null) || SNAP_ID=""
+            [[ $SNAP_ID =~ ^[0-9a-f]{32}$ ]] && printf '%s' "$SNAP_ID" > "$SNAP_TMP/run_id"
+            # The finished session is newer than any snapshot an earlier open
+            # left behind.
+            rm -rf -- "$CR/$SESSION"
+            mv "$SNAP_TMP" "$CR/$SESSION" || {
+                rm -rf -- "$SNAP_TMP"
+                printf 'failed=carry\n'
+                echo "$PROG: could not keep $SESSION's run record snapshot; nothing was replaced" >&2
+                exit 70
+            }
+        fi
     fi
 fi
 
@@ -204,8 +384,7 @@ fi
 # failure just skips the carry, and a live session attached below keeps its
 # own id anyway); the strict read is `run-id.sh get`, which runs after the open.
 PRIOR_RUN_ID=""
-if [ "$SESSION" != "execute-unnamed" ] && command -v koto >/dev/null \
-    && koto context exists "$SESSION" run_id >/dev/null; then
+if [ "$NAMED" -eq 1 ] && koto context exists "$SESSION" run_id >/dev/null; then
     PRIOR_RUN_ID=$(koto context get "$SESSION" run_id) || PRIOR_RUN_ID=""
     [[ $PRIOR_RUN_ID =~ ^[0-9a-f]{32}$ ]] || PRIOR_RUN_ID=""
 fi
@@ -221,11 +400,17 @@ ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 PAIRS_FILE="$DIR/execute-vars.json"
 printf '%s' "$TOKENS" | jq -c \
     --arg plan "$PLAN" --arg slug "$SLUG" --arg root "$ROOT" \
-    --arg header "$HEADER_MODE" --argjson resuming "$RESUMING_PAUSE" '
+    --arg header "$HEADER_MODE" --argjson resuming "$RESUMING_PAUSE" \
+    --argjson coordinated "$COORDINATED" --argjson flags "$FLAGS" '
     def pause_of($m): if $resuming == 1 then "false" elif $m == "auto" then "false" else "true" end;
     def bound($flag; $var):
         [ .[] | select(. == $flag or startswith($flag + "="))
           | [$var, (if . == $flag then . else ltrimstr($flag + "=") end)] ];
+    # coord($flag; $var): one pair per occurrence; on a coordinated PLAN one
+    # empty pair when the flag is absent.
+    def coord($flag; $var):
+        ($flags[$flag] | map([$var, .v])) as $p
+        | if ($p | length) == 0 and $coordinated == 1 then [[$var, ""]] else $p end;
     bound("--review-floor"; "REVIEW_FLOOR") as $floors
     | bound("--review-ceiling"; "REVIEW_CEILING") as $ceilings
     | [ .[] | select(. == "--merge" or startswith("--merge=")) ] as $merges
@@ -237,6 +422,9 @@ printf '%s' "$TOKENS" | jq -c \
       + (if ($modes | length) == 0 then [["PAUSE_BEFORE_FINALIZE", pause_of($header)]]
          else [ $modes[] | ["PAUSE_BEFORE_FINALIZE", pause_of(ltrimstr("--"))] ] end)
       + $floors + $ceilings
+      + coord("--store"; "STORE") + coord("--coordination-pr"; "COORDINATION_PR")
+      + coord("--follow-up"; "FOLLOW_UP") + coord("--remove"; "FOLLOW_UP_REMOVE")
+      + coord("--adopt-run"; "ADOPT_RUN")
     ' > "$PAIRS_FILE" || own_refusal "could not write the variables file"
 
 set -- "$SESSION" "$TEMPLATE" "$PAIRS_FILE" --attach-live --replace-terminal --wording "$WORDING"
@@ -248,18 +436,65 @@ RC=$?
 
 case "$OUT" in
     opened=*)
-        # Carry the prior run's identity into a replacement (seed writes only
-        # when the session has none, so an attached live session keeps its
-        # own), then mint one if the session still has none. This is one of
-        # the three places a run identity is minted; every later caller only
-        # reads it. A failure here is not a refusal, but the run's later
-        # lookups then fail on the missing run_id rather than adopt anything.
-        if [ -n "$PRIOR_RUN_ID" ]; then
-            bash "$SELF_DIR/run-id.sh" seed "$SESSION" "$PRIOR_RUN_ID" </dev/null \
-                || echo "$PROG: could not carry the prior run's identity into $SESSION" >&2
+        if [ "$COORDINATED" -eq 1 ]; then
+            # The identity: the snapshot's, else the replaced session's. seed
+            # writes only when the session has none, so an attached live
+            # session keeps its own. No mint here: record-coord-setup.sh mints
+            # when it seals a new run record.
+            SEED_ID=""
+            [ -f "$CR/$SESSION/run_id" ] && SEED_ID=$(cat -- "$CR/$SESSION/run_id" 2>/dev/null)
+            [[ $SEED_ID =~ ^[0-9a-f]{32}$ ]] || SEED_ID="$PRIOR_RUN_ID"
+            if [ -n "$SEED_ID" ]; then
+                bash "$SELF_DIR/run-id.sh" seed "$SESSION" "$SEED_ID" </dev/null \
+                    || echo "$PROG: could not carry the prior run's identity into $SESSION" >&2
+            fi
+            # The record: carried into a session that has none yet.
+            if [ -f "$CR/$SESSION/record.json" ]; then
+                rr_setup "$SESSION" >/dev/null 2>&1
+                case $? in
+                    0)
+                        # The session already holds its record: the snapshot
+                        # is stale.
+                        rm -rf -- "$CR/$SESSION"
+                        ;;
+                    1)
+                        N=$(jq 'length' "$CR/$SESSION/record.json" 2>/dev/null) || N=""
+                        if CARRY_OUT=$(bash "$SELF_DIR/run-record.sh" carry --session "$SESSION" \
+                            --json "$CR/$SESSION/record.json" </dev/null 2>/dev/null); then
+                            rm -rf -- "$CR/$SESSION"
+                            printf 'carried=%s\n' "$N"
+                        else
+                            printf 'carry=pending\nfailed=carry\n'
+                            echo "$PROG: could not carry the run record into $SESSION ($(printf '%s' "$CARRY_OUT" | tail -1)); the snapshot is kept at $CR/$SESSION, and invoking /execute again retries the carry" >&2
+                            exit 70
+                        fi
+                        ;;
+                    *)
+                        printf 'carry=pending\nfailed=carry\n'
+                        echo "$PROG: could not read $SESSION's run record; the snapshot is kept at $CR/$SESSION, and invoking /execute again retries the carry" >&2
+                        exit 70
+                        ;;
+                esac
+            fi
+            # Every invocation starts with no merge attempts (an earlier
+            # invocation's are not carried).
+            koto context remove "$SESSION" merge_attempts >/dev/null 2>&1 \
+                || echo "$PROG: could not clear merge_attempts in $SESSION" >&2
+        else
+            # Carry the prior run's identity into a replacement (seed writes
+            # only when the session has none, so an attached live session
+            # keeps its own), then mint one if the session still has none.
+            # This is one of the places a run identity is minted; every later
+            # caller only reads it. A failure here is not a refusal, but the
+            # run's later lookups then fail on the missing run_id rather than
+            # adopt anything.
+            if [ -n "$PRIOR_RUN_ID" ]; then
+                bash "$SELF_DIR/run-id.sh" seed "$SESSION" "$PRIOR_RUN_ID" </dev/null \
+                    || echo "$PROG: could not carry the prior run's identity into $SESSION" >&2
+            fi
+            bash "$SELF_DIR/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
+                || echo "$PROG: could not record a run identity in $SESSION; its PR lookups will fail until it has one" >&2
         fi
-        bash "$SELF_DIR/run-id.sh" mint "$SESSION" </dev/null >/dev/null \
-            || echo "$PROG: could not record a run identity in $SESSION; its PR lookups will fail until it has one" >&2
         printf 'session=%s\n' "$SESSION"
         ;;
     refused=*) bash "$PRINT_EXIT" --refused ;;
