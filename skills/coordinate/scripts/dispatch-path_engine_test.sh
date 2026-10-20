@@ -45,9 +45,9 @@ done
 # koto accepts it (scripts/lib/koto-legacy-env.sh; temporary, #483).
 . "$HERE/../../../scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
-T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-path-engine.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/dispatch-path-engine.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+trap 'case "$T" in */dispatch-path-engine.*) rm -rf "$T" ;; esac' EXIT
 export HOME="$T/home" GIT_CEILING_DIRECTORIES="$T"
 mkdir -p "$HOME"
 cd "$T" || exit 1

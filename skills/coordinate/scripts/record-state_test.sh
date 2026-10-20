@@ -18,7 +18,8 @@
 # entry after the body; refusals (a holding row for no holding, a malformed
 # cap, a session-shaped address, a private repository on a public host); the
 # one-writer rule (record-write.sh changing a section refused); a failed entry
-# post after a written body (14); an assignment (an issue or a release a
+# post after a written body (14); a temporary file that can't be made (2,
+# nothing written, the caller's .one left); an assignment (an issue or a release a
 # person assigned) and its refusals; a verdict-owed row (a milestone's
 # verdict owed) listed and kept by every write, --done leaving it and
 # --done --kind verdict-owed and --work --kind verdict-owed refused; a rework
@@ -248,6 +249,21 @@ bash "$RS" "${W[@]}" --run cap 3 --by "the human" >/dev/null 2>"$T/err"; eq "a f
 eq "  ... after the body was written" 3 "$(live | jq -r '.run[] | select(.key == "cap") | .value')"
 grep -q 'Run cap set to 3 by the human' "$T/err" && ok "  ... naming the entry to post" || bad "  ... naming the entry to post" "$(cat "$T/err")"
 db '.fail = []'
+
+echo "== a temporary file that can't be made (shirabe#924) =="
+# The leaving lines' file is the last one made before the write. Unchecked,
+# its name was empty: the record was written anyway and the closing
+# `rm -f "$LEAVING_FILE" "$LEAVING_FILE.one"` removed .one from the caller's
+# directory.
+mkdir -p "$T/mkt-bin" "$T/mkt-cwd"
+printf '#!/bin/sh\ncase "$*" in *record-state-leaving*) exit 1 ;; esac\nexec "%s" "$@"\n' "$(command -v mktemp)" > "$T/mkt-bin/mktemp"
+chmod +x "$T/mkt-bin/mktemp"
+printf 'keep\n' > "$T/mkt-cwd/.one"
+BEFORE=$(live | jq -c '.run')
+(cd "$T/mkt-cwd" && PATH="$T/mkt-bin:$PATH" bash "$RS" "${W[@]}" --run cap 4 --by "the human" >/dev/null 2>"$T/err")
+eq "a temporary file that can't be made is a failed read (2)" 2 $?
+eq "  ... before the body is written" "$BEFORE" "$(live | jq -c '.run')"
+eq "  ... and the caller's .one is left" keep "$(cat "$T/mkt-cwd/.one" 2>/dev/null)"
 
 echo "== a session name as the address (shirabe#610) =="
 seed "$TWO"

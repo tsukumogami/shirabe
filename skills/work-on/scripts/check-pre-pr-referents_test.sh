@@ -35,7 +35,7 @@ command -v koto >/dev/null 2>&1 || { echo "SKIP: koto not on PATH -- no case ran
 command -v git  >/dev/null 2>&1 || { echo "SKIP: git not on PATH -- no case ran"; exit 0; }
 [ -x "$SUT" ] || { echo "FAIL: $SUT is not executable" >&2; exit 1; }
 
-WORKDIR=$(mktemp -d)
+WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 

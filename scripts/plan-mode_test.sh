@@ -9,7 +9,7 @@ set -uo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 SCRIPT="$HERE/plan-mode.sh"
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/plan-mode-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/plan-mode-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 
 PASS=0

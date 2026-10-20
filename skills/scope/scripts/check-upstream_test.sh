@@ -7,7 +7,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/check-upstream.sh"
-T="$(mktemp -d "${TMPDIR:-/tmp}/check-upstream-test.XXXXXX")"
+T="$(mktemp -d "${TMPDIR:-/tmp}/check-upstream-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 # The scratch directory may itself sit inside a checkout (TMPDIR pointed into

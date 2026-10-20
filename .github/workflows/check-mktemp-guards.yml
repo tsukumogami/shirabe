@@ -1,0 +1,30 @@
+name: Check mktemp guards
+
+on:
+  pull_request:
+    paths:
+      - '**/*.sh'
+      - 'scripts/check-mktemp-guards.cases'
+      - '.github/workflows/check-mktemp-guards.yml'
+
+jobs:
+  check-mktemp-guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A failed mktemp leaves its variable empty, and `cd ""` succeeds and
+      # stays put. Unchecked, `T=$(cd "$T" && pwd -P)` made T the caller's
+      # directory and a cleanup removed it (shirabe#924), and a fixture's
+      # git init, add and commit ran in the caller's repository (shirabe#925).
+      #
+      # The test harness runs the check against the tree as its first case, so
+      # this one step covers both the scan and its own regression suite.
+      - name: Check no unchecked mktemp feeds a cd, rm, mv or git
+        run: bash scripts/check-mktemp-guards_test.sh
+
+      # The behaviour itself: every suite of either class, run with a mktemp
+      # that always fails, from a throwaway directory or repository that must
+      # come through unchanged. The suites run from a copy of the tree.
+      - name: Check the suites leave the caller alone when mktemp fails
+        run: bash scripts/mktemp-failure_test.sh

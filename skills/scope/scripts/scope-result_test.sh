@@ -47,7 +47,7 @@ done
 . "$HERE/../../../scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/scope-result-test.XXXXXX")"
+T="$(mktemp -d "${TMPDIR:-/tmp}/scope-result-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 export GIT_CEILING_DIRECTORIES="$T"

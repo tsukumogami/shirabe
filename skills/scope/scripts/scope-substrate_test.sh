@@ -42,7 +42,7 @@ done
 
 PASS=0
 FAIL=0
-SANDBOX="$(mktemp -d)"
+SANDBOX="$(mktemp -d)" || exit 1
 
 # Every session below passes this checkout as PLUGIN_ROOT, and koto validates a
 # --var value against ^[a-zA-Z0-9._/:@ \-]*$ before it stores anything. A

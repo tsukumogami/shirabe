@@ -75,7 +75,7 @@ else
 fi
 lib_log_readable || lib_die2 "no readable log for $SESSION"
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/holding-link.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/holding-link.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 refuse() { echo "$PROG: refused: $*" >&2; exit 65; }

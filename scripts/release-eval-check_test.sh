@@ -40,9 +40,9 @@ FAIL_COUNT=0
 pass() { printf 'PASS: %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/release-eval-check-test.XXXXXX")
-T=$(cd "$T" && pwd -P)
-cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
+T=$(mktemp -d "${TMPDIR:-/tmp}/release-eval-check-test.XXXXXX") || exit 1
+T=$(cd "$T" && pwd -P) || exit 1
+cleanup() { case "${T:-}" in */release-eval-check-test.*) rm -rf "$T" ;; esac; return 0; }
 trap cleanup EXIT
 
 BIN="$T/bin"

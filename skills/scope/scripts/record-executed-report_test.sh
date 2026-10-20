@@ -21,7 +21,7 @@ for bin in git jq; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH"; exit 0; }
 done
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/executed-report-test.XXXXXX")"
+T="$(mktemp -d "${TMPDIR:-/tmp}/executed-report-test.XXXXXX")" || exit 1
 T="$(cd -P "$T" && pwd -P)"
 trap 'rm -rf "$T"' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
