@@ -34,9 +34,12 @@ Each decider event carries these attributes:
 
 The definitions, over events of every mode from every host:
 
-- **Window.** From the later of the entry's `declared.since` and the day after
-  the latest recorded false pass's `evaluated` date, to the day the figures are
-  read. Both ends are included, in UTC by event timestamp.
+Field names below are paths in the rule's registry entry: `check` and
+`withhold` sit at the top of the entry, and everything else sits under `jev`.
+
+- **Window.** From the later of the entry's `jev.declared.since` and the day
+  after the latest recorded false pass's `evaluated` date, to the day the
+  figures are read. Both ends are included, in UTC by event timestamp.
 - **Evaluation.** A distinct (`koto.session.id`, `koto.visit.seq`,
   `koto.check`, `koto.rule.id`) tuple with at least one `decider_checked` or
   `decider_fallback` event in the window, filtered to the entry's gate and
@@ -69,17 +72,20 @@ As queries over the exported events, for one criterion:
 
 The bar is met with at least 30 evaluations across at least 5 sessions, at
 least 95% of them answered, no over-budget fallback, and no input over the
-entry's `budget`.
+entry's `jev.budget`. `references/jev-criteria.md` owns these numbers; if the
+two ever disagree, the reference is right.
 
 `jev_criteria.py figures` computes the same figures from local koto session
 logs and prints the `live` JSON a promotion records:
 
 ```bash
-python3 scripts/jev-criteria/jev_criteria.py figures <rule-id> --sessions <koto sessions directory> [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--bar]
+python3 scripts/jev-criteria/jev_criteria.py figures <rule-id> --sessions <dir> [--from YYYY-MM-DD] [--to YYYY-MM-DD] [--bar]
 ```
 
-Without `--from` and `--to` it uses the window above. It skips and counts any
-line it can't read. It is a tested reference for the definitions: use it to
+`--sessions` is the directory holding koto's session logs on this machine.
+Without `--from` and `--to` it uses the window above. With `--bar` it also
+prints each way the figures miss the bar and exits 1 unless they meet it. It
+skips and counts any line it can't read. It is a tested reference for the definitions: use it to
 check a query, and to see what a promotion's `live` record looks like. The
 figures a promotion records are the ones read from the exported events.
 
@@ -104,13 +110,13 @@ declares it in `veto` mode, and both bars are met.
 3. **Edit the entry** in `references/rule-registry.json`:
    - `jev.state` to `trusted`, and the rule's `withhold` to `eligible`;
    - `jev.promotion`: `trusted_since` (the window's end date), the
-     `fixture_run` record as printed, the `live` figures with `from` and `to`,
-     and `slice_script_blob`, the git blob hash of the slice script as
+     `fixture_run` record as printed, `live` (the figures, with the window's
+     dates as `live.from` and `live.to`), and `slice_script_blob`, the git blob hash of the slice script as
      committed (`git hash-object --no-filters -- <slice script>`).
 4. **Open the pull request.** CI runs `jev_criteria.py check`, which refuses
    the change when a field is missing, the fixture counts don't add up to the
    fixture file, either bar isn't met, the live window starts on or before a
-   recorded false pass or before `declared.since`, `trusted_since` isn't the
+   recorded false pass or before `jev.declared.since`, `trusted_since` isn't the
    window's end, the declaration, slice script or fixture file changed since
    the figures were taken, the template mode isn't `veto`, or the rule isn't
    `withhold: eligible`.

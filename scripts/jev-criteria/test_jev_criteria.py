@@ -1118,13 +1118,19 @@ GUIDE = os.path.join(REPO, "docs", "guides", "jev-criteria.md")
 GUIDE_SECTIONS = ("Reading the live figures", "Promoting a criterion", "Demoting a criterion")
 
 
+def guide_section(text, name):
+    """The body of the guide's `## <name>` section, or "" when it has none."""
+    parts = re.split(r"^## ", text, flags=re.M)
+    return next((p for p in parts if p.startswith(name + "\n")), "")
+
+
 def guide_problems(text):
     """The guide's missing sections, and the promotion review step if the
-    promotion section doesn't name it."""
+    promotion section doesn't name it. The phrases are the criterion's words;
+    rewording the guide's sentences means updating them here."""
     found = re.findall(r"^## (.+?)\s*$", text, re.M)
     out = ["missing section: %s" % s for s in GUIDE_SECTIONS if s not in found]
-    parts = re.split(r"^## ", text, flags=re.M)
-    promo = next((p for p in parts if p.startswith("Promoting a criterion")), "")
+    promo = guide_section(text, "Promoting a criterion")
     for phrase in ("figures --bar", "fixtures", "doesn't merge their own"):
         if phrase not in promo:
             out.append("promotion section doesn't name %r" % phrase)
@@ -1150,8 +1156,7 @@ class GuideTest(unittest.TestCase):
         self.assertIn("promotion section doesn't name 'figures --bar'", guide_problems(cut))
 
     def test_the_live_figures_name_the_exported_attributes(self):
-        parts = re.split(r"^## ", self.text, flags=re.M)
-        live = next(p for p in parts if p.startswith("Reading the live figures"))
+        live = guide_section(self.text, "Reading the live figures")
         for attr in ("koto.session.id", "koto.visit.seq", "koto.check", "koto.rule.id",
                      "koto.decider.outcome", "koto.decider.reason", "koto.decider.input_bytes"):
             self.assertIn(attr, live)
