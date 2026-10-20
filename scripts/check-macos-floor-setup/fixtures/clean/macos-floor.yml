@@ -1,0 +1,30 @@
+# The safety net for floor-a and floor-b: demo gets brew's jq, other gets
+# nothing, and the job's env carries floor-a's token.
+name: macos-floor
+on: workflow_dispatch
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+jobs:
+  suites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: scripts/check-macos-floor-setup.sh --suites
+  floor:
+    strategy:
+      matrix:
+        suite: [demo, other]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install jq
+        if: matrix.suite == 'demo'
+        run: brew install jq
+      - name: Run the suite on the floor
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: scripts/check-bash-floor.sh --backend system "$SUITE"
+      - name: After the floor call, not setup
+        run: echo done
