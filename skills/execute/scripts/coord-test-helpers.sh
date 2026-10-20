@@ -260,6 +260,34 @@ ct_pr() {
     CT_PRS=$(printf '%s' "$CT_PRS" | jq -c --argjson o "$obj" '. + [$o]')
 }
 
+# ct_marked_body <id> -- ct_pr's default node PR body carrying <id>'s run
+# marker (run-id.sh's line), as the JSON string ct_pr's body= takes.
+ct_marked_body() {
+    jq -cn --arg id "$1" '"Implements the node.\n\n---\n\nCoordinated node.\n\n<!-- shirabe-run: \($id) -->\n"'
+}
+
+# ct_rendered_body <file> <run> <store> [<node>=<pr> ...] -- the coordination
+# PR's body as coord-render.sh renders it, through the codec's own cb_render:
+# the default PLAN's nodes, run=<run> (left out when empty), store=<store>,
+# and an index line for each <node>=<pr> given, in acme/repo-a with head
+# CT_OTHER, which is never a live head in the model.
+ct_rendered_body() {
+    local f="$1" run="$2" store="$3" recs='{}' kv
+    shift 3
+    for kv in "$@"; do
+        recs=$(jq -cn --argjson m "$recs" --arg n "${kv%%=*}" --argjson p "${kv#*=}" --arg h "$CT_OTHER" \
+            '$m + {($n): {repo: "acme/repo-a", pr: $p, head: $h}}')
+    done
+    jq -cn --arg run "$run" --arg store "$store" --argjson nodes "$CT_NODES_DEFAULT" --argjson recs "$recs" '
+        {topic: "t", part1: null, run_lines: {topic: "t"}, store: $store, run: $run, nodes: $nodes,
+         records: $recs, follow_ups: {}, states: {},
+         home: {repo: "acme/repo-a", pr: 10, visibility: "public"}, visibility: {}}' > "$CASE/render-doc.json"
+    (
+        # shellcheck source=../../../scripts/lib/coordination-body.sh
+        . "$SCRIPT_DIR/../../../scripts/lib/coordination-body.sh" && cb_render "$CASE/render-doc.json"
+    ) > "$f"
+}
+
 # ct_write_db [body-file] -- write the case's gh/db.json: the model
 # repository, the coordination PR (#10 on CT_CB, whose body is /scope's shape
 # carrying the marker and CT_INDEX, or the given file's bytes), and the PRs
@@ -295,11 +323,12 @@ ct_write_db() {
         > "$CASE/scenario/gh/db.json"
 }
 
-# ct_plan <dir> [two-repo|gated|remote] -- write docs/plans/PLAN-t.md into
-# <dir>: an issue-carrying coordinated PLAN (no tracking_level, so
+# ct_plan <dir> [two-repo|gated|remote|three] -- write docs/plans/PLAN-t.md
+# into <dir>: an issue-carrying coordinated PLAN (no tracking_level, so
 # plan-to-tasks.sh's table path, which needs no shirabe binary). One
 # repository, groups core (issues 1, 2) and cli (issue 3, blocked by 1); with
-# `gated`, the same plus a gate node publish-core after core and before cli;
+# `three`, the same plus an independent group docs (issue 4, pr-repo-a-docs);
+# with `gated`, the same plus a gate node publish-core after core and before cli;
 # with `two-repo`, two independent roots in acme/repo-a and acme/repo-b, Group
 # default; or, with `remote`, the one-repository shape with every node in
 # acme/repo-b (pr-repo-b-core, then pr-repo-b-cli), so a coordination PR in
@@ -309,6 +338,13 @@ ct_plan() {
     if [ "${2:-}" = remote ]; then
         ct_plan "$1"
         sed -i.bak 's#acme/repo-a#acme/repo-b#' "$1/docs/plans/PLAN-t.md" && rm -f "$1/docs/plans/PLAN-t.md.bak"
+        return
+    fi
+    if [ "${2:-}" = three ]; then
+        ct_plan "$1"
+        sed -i.bak 's#^issue_count: 3$#issue_count: 4#' "$1/docs/plans/PLAN-t.md" && rm -f "$1/docs/plans/PLAN-t.md.bak"
+        printf '%s\n' '| [#4: docs](https://example.com/4) | None | testable |' \
+            '| ^_Repo: acme/repo-a \| Group: docs_ | | |' >> "$1/docs/plans/PLAN-t.md"
         return
     fi
     if [ "${2:-}" = gated ]; then

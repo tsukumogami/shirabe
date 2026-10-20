@@ -50,11 +50,22 @@
 #                           keys carried byte-equal, the same run_id, and no
 #                           merge_attempts; a carry that fails after the
 #                           replacement keeps its snapshot, and the next open
-#                           carries from it
+#                           carries from it; with the PLAN deleted before the
+#                           re-invocation, the opener still picks
+#                           execute-coordinated.md and setup reads repos from
+#                           run/setup into coord_loop
+#   recovery                no record, a carried run_id, store session:
+#                           done_error with reason=session-absent and no body
+#                           edit; no record on github, the rendered run line
+#                           matching the node PR's marker: setup recovers,
+#                           the run pauses with recovered=<coordination PR>
+#                           in the result, and print-exit.sh prints it
 #
 # Setup runs the real record-coord-setup.sh, which seals the run record; each
 # case then seeds the node PRs and heads the run recorded up to its moment
-# through the test helper (run-record.sh itself, on the real koto).
+# through the test helper (run-record.sh itself, on the real koto). The
+# case's fixed run_id is written after setup: one written before it would be
+# a carried id, which makes the start a recovery.
 #   overrides               koto refuses `koto overrides record` on
 #                           coord_verdict's and coord_merge_confirm's gates,
 #                           with and without --with-data
@@ -143,10 +154,12 @@ open_run() {
     k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
         --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
         || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
-    # A run identity the opener carried in, which setup's mint keeps.
-    printf '00112233445566778899aabbccddeeff' | k context add "$s" run_id >/dev/null 2>&1
     (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
         >/dev/null 2>"$CASE/setup.err") || { fail "record-coord-setup.sh: $(cat "$CASE/setup.err")"; return 1; }
+    # The case's fixed run identity, written over the one setup minted: one
+    # written before setup would be a carried id, which makes the start a
+    # recovery rather than a new run.
+    printf '00112233445566778899aabbccddeeff' | k context add "$s" run_id >/dev/null 2>&1
     k next "$s" --no-cleanup >/dev/null 2>&1
     st=$(k status "$s" | jq -r '.current_state')
     [ "$st" = coord_loop ] || { fail "$s stopped at $st, not coord_loop"; return 1; }
@@ -601,6 +614,89 @@ STUB
 else
     fail "could not end a run at paused_awaiting_merges (at $(state_of pcrash)): $(head -c 600 "$CASE/next.json")"
 fi
+
+# The same pause, with the cascade having deleted the PLAN before the
+# re-invocation: the opener reads the mode from the record, and setup reads
+# repos from run/setup.
+ct_case carry-plan-gone
+fixture pgone
+if paused_run pgone; then
+    BEFORE=$(record_of pgone)
+    (cd "$REPO" && git rm -q "docs/plans/PLAN-pgone.md" && git commit -q -m "chore: cascade")
+    opener pgone
+    if [ "$RC" -eq 0 ] && grep -qx 'opened=replaced' <<<"$OUT" && grep -qx 'carried=2' <<<"$OUT" \
+        && [ "$(state_of pgone)" = coord_setup ] && [ "$(record_of pgone)" = "$BEFORE" ]; then
+        pass "a paused run whose PLAN is gone re-invokes on the coordinated template, its record carried"
+    else
+        fail "plan gone: exit $RC, out [$OUT], state $(state_of pgone); $(cat "$CASE/open.err")"
+    fi
+    SOUT=$(cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session execute-pgone --plan docs/plans/PLAN-pgone.md 2>"$CASE/setup.err")
+    SRC=$?
+    k next execute-pgone --no-cleanup >/dev/null 2>&1
+    if [ "$SRC" -eq 0 ] && grep -qx record=existing <<<"$SOUT" && grep -qx repos=acme/repo-a <<<"$SOUT" \
+        && [ "$(state_of pgone)" = coord_loop ]; then
+        pass "setup over the carried record with the PLAN gone reads repos from run/setup and reaches coord_loop"
+    else
+        fail "setup with the PLAN gone: exit $SRC, out [$SOUT], state $(state_of pgone); $(cat "$CASE/setup.err")"
+    fi
+else
+    fail "could not end a run at paused_awaiting_merges (at $(state_of pgone)): $(head -c 600 "$CASE/next.json")"
+fi
+
+# --- recovery ----------------------------------------------------------------------------
+#
+# A session with no record. open_recovering inits the session, runs setup with
+# no run_id written by the harness, and ticks; setup's own stdout is kept in
+# $CASE/setup.out and its exit in SETUP_RC.
+open_recovering() { # open_recovering <slug> <merge> [extra init args]
+    local s="execute-$1"
+    shift
+    local merge="$1"
+    shift
+    # $KOTO_LEGACY_ENV_ARG: #483.
+    k init "$s" $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC="docs/plans/PLAN-$CT_SLUG.md" --var PLAN_SLUG="$CT_SLUG" \
+        --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE="$merge" "$@" >/dev/null 2>"$CASE/init.err" \
+        || { fail "koto init $s: $(cat "$CASE/init.err")"; return 1; }
+    [ -n "${CARRIED_ID:-}" ] && printf '%s' "$CARRIED_ID" | k context add "$s" run_id >/dev/null 2>&1
+    (cd "$REPO" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$s" --plan "docs/plans/PLAN-$CT_SLUG.md" \
+        ${STORE_FLAG:+--store "$STORE_FLAG"} >"$CASE/setup.out" 2>"$CASE/setup.err")
+    SETUP_RC=$?
+    return 0
+}
+REC_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+# On session, a start with no record and a carried run_id stops session-absent
+# and ends at done_error naming it, with no body edit.
+ct_case session-absent
+fixture sabs
+ct_write_db
+CARRIED_ID="$REC_ID" STORE_FLAG=session open_recovering sabs false --var STORE=session
+if [ "$SETUP_RC" -eq 71 ] && [ "$(cat "$CASE/setup.out")" = stop=session-absent ]; then
+    k next execute-sabs --with-data '{"setup_status":"session-absent","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
+fi
+expect_terminal sabs done_error outcome=error step=execute:coord_setup reason=session-absent
+if ct_calls | grep -q '^pr edit '; then fail "session-absent: a body was edited"; else pass "session-absent: no gh pr edit"; fi
+
+# On github, a rendered run line every node PR's marker matches recovers; the
+# run continues with the live head, and the result says it recovered.
+ct_case recovered
+fixture rec
+ct_pr "$CT_REPO" 11 "impl/rec-$CT_CORE" "body=$(ct_marked_body "$REC_ID")"
+ct_rendered_body "$CASE/body.md" "$REC_ID" github "$CT_CORE=11"
+ct_write_db "$CASE/body.md"
+open_recovering rec false
+if [ "$SETUP_RC" -eq 0 ] && grep -qx "recovered=$COORD_URL" "$CASE/setup.out"; then
+    pass "setup recovers the run from its rendering (recovered=$COORD_URL)"
+    k next execute-rec --no-cleanup >/dev/null 2>&1
+    finish rec "pause"
+else
+    fail "recovery setup: exit $SETUP_RC, out [$(cat "$CASE/setup.out")]; $(cat "$CASE/setup.err")"
+fi
+expect_terminal rec paused_awaiting_merges outcome=paused-awaiting-merges "recovered=$COORD_URL"
+[ "$(k context get execute-rec run_id 2>/dev/null)" = "$REC_ID" ] && pass "the recovered run's run_id is the run line's" \
+    || fail "recovered run_id: [$(k context get execute-rec run_id 2>/dev/null)]"
+OUT=$(k status execute-rec | bash "$SCRIPT_DIR/print-exit.sh")
+grep -qx "recovered=$COORD_URL" <<<"$OUT" && pass "print-exit.sh prints recovered=" || fail "recovered exit lines: [$OUT]"
 
 # --- --koto-leg -----------------------------------------------------------------------
 

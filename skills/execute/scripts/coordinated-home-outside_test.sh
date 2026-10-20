@@ -82,11 +82,17 @@ ctx() { cat "$CASE/ctx/$S/$1" 2>/dev/null; }
 
 # --- coord_setup ------------------------------------------------------------------
 
+# A new run's session has no run_id before setup (one there would be a
+# carried id, which makes the start a recovery); the case's fixed id is
+# written over the minted one after it.
+rm -f "$CASE/ctx/$S/run_id"
 (cd "$HOMEDIR" && bash "$SCRIPT_DIR/record-coord-setup.sh" --session "$S" --plan docs/plans/PLAN-t.md \
     >"$CASE/setup.out" 2>"$CASE/setup.err")
 RC=$?
-if [ "$RC" -eq 0 ] && [ "$(ctx repos)" = "$NODE_REPO" ] && [ "$(ctx home_repo)" = "$HOME_REPO" ]; then
-    pass "coord_setup records repos=$NODE_REPO and home_repo=$HOME_REPO"
+printf '%s' "$RUN" > "$CASE/ctx/$S/run_id"
+if [ "$RC" -eq 0 ] && [ "$(ctx repos)" = "$NODE_REPO" ] && [ "$(ctx home_repo)" = "$HOME_REPO" ] \
+    && grep -qx record=new "$CASE/setup.out"; then
+    pass "coord_setup records repos=$NODE_REPO and home_repo=$HOME_REPO on a new run"
 else
     fail "coord_setup: rc=$RC repos=[$(ctx repos)] home=[$(ctx home_repo)] err=[$(cat "$CASE/setup.err")]"
     echo
