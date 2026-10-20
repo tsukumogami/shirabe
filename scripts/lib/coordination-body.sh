@@ -33,7 +33,7 @@
 #   ## Merge Order
 #
 #   ```merge-order
-#   # Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.
+#   # Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.
 #   # One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
 #   <node-id> | <pr|gate> | after: <node-ids joined ", ", or ->
 #   ```
@@ -75,24 +75,32 @@
 #       its output to a file: $(...) strips trailing newlines.
 #
 #   cb_parse <body-file> [<self-repo> <self-number>]
-#       Read a rendered or an older body back into a map, for recovery only.
-#       Prints one JSON object:
-#         {"index": <a `## PR Index` section exists>,
+#       Read a rendered or an older body back into a map. Its callers are
+#       record-coord-setup.sh's new-run and recovery paths, the one place a
+#       coordination PR's body is read. Prints one JSON object:
+#         {"index": <a `## PR Index` section exists in the region>,
 #          "nodes": {<node>: {repo, pr, state}},
 #          "follow_ups": {<node>: [{repo, pr, state}, ...]},
-#          "run": <the first ^run=<32 hex>$ line above the first `## `
-#                  heading, or null>}
-#       A line for node `coordination` (an older body's self row) is dropped,
-#       and so is a line whose ref is <self-repo>#<self-number> when given
-#       (the repository compared case-insensitively). Heads are never
-#       returned: a head on a page is never trusted. Returns 0; 2 the file
-#       can't be read; 3 the body is over CB_MAX_BYTES (nothing read); 4 an
-#       entry-shaped line outside the grammar, a bad repository or path, or a
-#       node named twice (the line number on stderr).
-#
-#   cb_index_entries <body-file>
-#       The `## PR Index` section's entry-shaped lines (CB_RE_ENTRY_LIKE),
-#       one per line, a trailing \r dropped.
+#          "run": <the first ^run=<32 hex>$ line's id, or null>,
+#          "store": <the first ^store=(github|session)$ line's value, or null>,
+#          "run_lines": {topic?, exit?, outcome?, intent?, mode?}}
+#       The region. A body with a top-level `---` (cb_part1's rule: a line
+#       matching ^[ \t]*---[ \t\r]*$ outside a ``` fence) is read only below
+#       the first one, so nothing in Part 1 (a `## ` heading, a `run=` line,
+#       a section someone titled `## PR Index`) is read as the record's. A
+#       body with none (/scope's, or one from before the render) is read
+#       whole, and its `run` is null: only a render writes `run=`. `run=`,
+#       `store=` and the run lines come from the region above its first `## `
+#       heading, the first well-formed line of each key (a run line's value
+#       ^[A-Za-z0-9._-]{1,64}$, as run/setup holds it); the entries come from
+#       the region's `## PR Index` section. A line for node `coordination`
+#       (an older body's self row) is dropped, and so is a line whose ref is
+#       <self-repo>#<self-number> when given (the repository compared
+#       case-insensitively). Heads are never returned: a head on a page is
+#       never trusted. Returns 0; 2 the file can't be read; 3 the body is
+#       over CB_MAX_BYTES (nothing read); 4 an entry-shaped line outside the
+#       grammar, a bad repository or path, or a node named twice (the line
+#       number on stderr).
 #
 #   cb_parse_entry <line>
 #       Set CB_E_NODE, CB_E_FU (the follow-up's number, or empty), CB_E_REPO,
@@ -107,9 +115,11 @@
 # Requires: jq (1.6+), awk.
 
 CB_MAX_BYTES=60000
-CB_MARKER='This is a **coordination PR**'
 CB_RE_ENTRY='^- ([a-z][a-z0-9-]*)(/follow-up-([1-9][0-9]*))? \| ([A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+):([^ |#]+)#([1-9][0-9]*) \| (open|merged|closed|unknown)( \| head=[0-9a-f]{40})?[[:space:]]*$'
 CB_RE_ENTRY_LIKE='^- [^|]+\|'
+# The run lines cb_parse reads, with the value pattern run/setup holds them to.
+CB_RE_RUN_LINE='^(topic|exit|outcome|intent|mode)=([A-Za-z0-9._-]{1,64})$'
+CB_RE_STORE_LINE='^store=(github|session)$'
 
 # The render, as one jq program: `check` reports {code[, node]}, `body` is the
 # text. Both run over the same definitions, so what is checked is what renders.
@@ -171,7 +181,7 @@ def body:
          else ($es | map("- \(.id) | \(.repo):docs/plans/PLAN-\($d.topic).md#\(.pr) | \($d.states["\(.repo)#\(.pr)"] // "unknown") | head=\(.head)\n") | join("")) + "\n"
          end)
       + "## Merge Order\n\n```merge-order\n"
-      + "# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.\n"
+      + "# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.\n"
       + "# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>\n"
       + ($d.nodes | map("\(.name) | \(.kind) | after: \(if (.waits_on | length) == 0 then "-" else (.waits_on | join(", ")) end)\n") | join(""))
       + "```\n";
@@ -222,14 +232,6 @@ cb_part1() {
     ' "$1"
 }
 
-cb_index_entries() {
-    awk '
-        { sub(/\r$/, "") }
-        /^## / { insec = ($0 ~ /^## PR Index[[:space:]]*$/); next }
-        insec && /^- [^|]+\|/ { print }
-    ' "$1"
-}
-
 cb_parse_entry() {
     CB_E_NODE=""; CB_E_FU=""; CB_E_REPO=""; CB_E_PATH=""; CB_E_NUM=""; CB_E_STATE=""
     [[ $1 =~ $CB_RE_ENTRY ]] || return 1
@@ -246,7 +248,7 @@ cb_parse_entry() {
 
 cb_parse() {
     local file="$1" self_repo="${2:-}" self_num="${3:-}" size line lineno=0 insec=0 seen_heading=0
-    local index=false run="" rows="" seen=" " key self_lc
+    local index=false run="" store="" lines="" rows="" seen=" " key val self_lc sep
     [ -r "$file" ] && [ -f "$file" ] || {
         echo "${PROG:-coordination-body}: can't read the body file [$file]" >&2
         return 2
@@ -257,9 +259,18 @@ cb_parse() {
         echo "${PROG:-coordination-body}: the body is $size bytes, over the $CB_MAX_BYTES-byte cap; not reading it" >&2
         return 3
     fi
+    # The region: below the first top-level `---` (cb_part1's rule), else the
+    # whole body. sep is that line's number, 0 when there is none.
+    sep=$(awk '
+        { line = $0; sub(/\r$/, "", line) }
+        line ~ /^[ \t]*```/ { fence = !fence; next }
+        !fence && line ~ /^[ \t]*---[ \t]*$/ { print NR; found = 1; exit }
+        END { if (!found) print 0 }
+    ' "$file") || return 2
     self_lc=$(printf '%s' "$self_repo" | tr 'A-Z' 'a-z')
     while IFS= read -r line || [ -n "$line" ]; do
         lineno=$((lineno + 1))
+        [ "$lineno" -le "$sep" ] && continue
         line="${line%$'\r'}"
         case "$line" in
             "## "*)
@@ -268,8 +279,21 @@ cb_parse() {
                 continue
                 ;;
         esac
-        if [ "$seen_heading" -eq 0 ] && [ -z "$run" ] && [[ $line =~ ^run=[0-9a-f]{32}$ ]]; then
-            run="${line#run=}"
+        if [ "$seen_heading" -eq 0 ]; then
+            # Above the region's first heading: the run lines, the first
+            # well-formed one of each key. Only a render writes run=, below
+            # its separator.
+            if [ "$sep" -gt 0 ] && [ -z "$run" ] && [[ $line =~ ^run=[0-9a-f]{32}$ ]]; then
+                run="${line#run=}"
+            elif [ -z "$store" ] && [[ $line =~ $CB_RE_STORE_LINE ]]; then
+                store="${line#store=}"
+            elif [[ $line =~ $CB_RE_RUN_LINE ]]; then
+                key="${BASH_REMATCH[1]}"; val="${BASH_REMATCH[2]}"
+                case " $lines" in
+                    *" $key="*) ;;
+                    *) lines="$lines$key=$val " ;;
+                esac
+            fi
             continue
         fi
         [ "$insec" -eq 1 ] || continue
@@ -294,12 +318,16 @@ cb_parse() {
         rows="$rows$CB_E_NODE	$CB_E_FU	$CB_E_REPO	$CB_E_NUM	$CB_E_STATE
 "
     done < "$file"
-    printf '%s' "$rows" | jq -RncS --argjson index "$index" --arg run "$run" '
+    printf '%s' "$rows" | jq -RncS --argjson index "$index" --arg run "$run" --arg store "$store" \
+        --arg lines "$lines" '
         [inputs | select(length > 0) | split("\t")
          | {node: .[0], fu: .[1], v: {repo: .[2], pr: (.[3] | tonumber), state: .[4]}}] as $rs
         | {index: $index,
            nodes: ([$rs[] | select(.fu == "") | {(.node): .v}] | add // {}),
            follow_ups: (reduce ($rs[] | select(.fu != "")) as $r ({}; .[$r.node] += [$r.v])
                         | map_values(sort_by(.pr))),
-           run: (if $run == "" then null else $run end)}'
+           run: (if $run == "" then null else $run end),
+           store: (if $store == "" then null else $store end),
+           run_lines: ([$lines | split(" ")[] | select(length > 0) | capture("^(?<k>[a-z]+)=(?<v>.*)$")
+                        | {(.k): .v}] | add // {})}'
 }

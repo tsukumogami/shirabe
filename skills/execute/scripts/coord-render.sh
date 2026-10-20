@@ -227,6 +227,10 @@ fi
 # 4. Visibility, only when some indexed repository is not the home.
 HOME_LC=$(coord_lower "$HOME_REPO")
 OTHERS=$(printf '%s\n' "$ROWS" | awk -F'\t' -v h="$HOME_LC" 'NF >= 3 && tolower($3) != h { print $3 }' | LC_ALL=C sort -u)
+# With no other repository every indexed line is in the home repository, whose
+# lines cb_render resolves through home.visibility, so a private-under-public
+# refusal can't arise. The value is only the valid placeholder cb_render's
+# document schema requires.
 HOME_VIS=public
 VIS='{}'
 if [ -n "$OTHERS" ]; then

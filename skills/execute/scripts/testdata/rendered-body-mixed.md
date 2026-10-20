@@ -25,7 +25,7 @@ run=00112233445566778899aabbccddeeff
 ## Merge Order
 
 ```merge-order
-# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.
+# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.
 # One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
 pr-repo-a-core | pr | after: -
 gate-publish-core | gate | after: pr-repo-a-core

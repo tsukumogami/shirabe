@@ -21,8 +21,12 @@
 #     named, the repository not, nothing printed); a render over 60,000 bytes
 #     (4); an invalid document and an indexed repository with no visibility
 #     under a public home (2)
-#   - cb_parse: a render read back (no heads returned), an older body's self
-#     row and self ref dropped, /scope's body has no index, and the over-cap,
+#   - cb_parse: a render read back (no heads returned; its run, store and
+#     run lines), an older body's self row and self ref dropped, /scope's
+#     body has no index, the pre-render index grammar parsed whole (a pin),
+#     the region rule (nothing above the first top-level `---` is read, a
+#     fenced `---` is not the separator, a body without one has no run), the
+#     first well-formed run line of each key, and the over-cap,
 #     malformed-entry, `..` path and duplicate-node refusals
 #
 # Usage: coordination-body_test.sh
@@ -227,7 +231,7 @@ else fail "a 60,000-byte render is under the cap" "exit $rc, $(wc -c < "$T/cap.o
 
 # --- cb_parse ---
 out=$(cb_parse "$T/mixed.md" acme/repo-a 10); rc=$?
-want='{"follow_ups":{"pr-repo-a-cli":[{"pr":7,"repo":"acme/repo-b","state":"unknown"}],"pr-repo-a-core":[{"pr":21,"repo":"acme/repo-a","state":"open"},{"pr":22,"repo":"acme/repo-a","state":"merged"}]},"index":true,"nodes":{"pr-repo-a-cli":{"pr":5,"repo":"acme/repo-b","state":"closed"},"pr-repo-a-core":{"pr":11,"repo":"acme/repo-a","state":"merged"}},"run":"'"$RUN"'"}'
+want='{"follow_ups":{"pr-repo-a-cli":[{"pr":7,"repo":"acme/repo-b","state":"unknown"}],"pr-repo-a-core":[{"pr":21,"repo":"acme/repo-a","state":"open"},{"pr":22,"repo":"acme/repo-a","state":"merged"}]},"index":true,"nodes":{"pr-repo-a-cli":{"pr":5,"repo":"acme/repo-b","state":"closed"},"pr-repo-a-core":{"pr":11,"repo":"acme/repo-a","state":"merged"}},"run":"'"$RUN"'","run_lines":{"exit":"published","intent":"ship","mode":"coordinated","outcome":"planned","topic":"t"},"store":"github"}'
 if [ "$rc" -eq 0 ] && [ "$out" = "$want" ]; then pass "cb_parse reads a render back"; else fail "cb_parse reads a render back" "exit $rc: $out"; fi
 case "$out" in *head*|*"$H1"*|*"$M1"*) fail "cb_parse returns no head" ;; *) pass "cb_parse returns no head" ;; esac
 
@@ -249,13 +253,85 @@ Some prose in the section.
 ## Merge Order
 EOF
 out=$(cb_parse "$T/old.md" acme/repo-a 10); rc=$?
-want='{"follow_ups":{},"index":true,"nodes":{"pr-repo-a-core":{"pr":11,"repo":"acme/repo-a","state":"open"}},"run":"'"$RUN"'"}'
-if [ "$rc" -eq 0 ] && [ "$out" = "$want" ]; then pass "cb_parse: an older body's coordination row and a self ref are dropped"
-else fail "cb_parse: an older body's coordination row and a self ref are dropped" "exit $rc: $out"; fi
+want='{"follow_ups":{},"index":true,"nodes":{"pr-repo-a-core":{"pr":11,"repo":"acme/repo-a","state":"open"}},"run":null,"run_lines":{"topic":"t"},"store":null}'
+if [ "$rc" -eq 0 ] && [ "$out" = "$want" ]; then pass "cb_parse: an older body's coordination row and a self ref are dropped, and with no separator its run is null"
+else fail "cb_parse: an older body's coordination row and a self ref are dropped, and with no separator its run is null" "exit $rc: $out"; fi
 printf '# Coordination PR: t\n\n> This is a **coordination PR**\n\ntopic=t\n\n## Artifact Chain\n\n- x\n' > "$T/scope.md"
 out=$(cb_parse "$T/scope.md"); rc=$?
-if [ "$rc" -eq 0 ] && [ "$out" = '{"follow_ups":{},"index":false,"nodes":{},"run":null}' ]; then pass "cb_parse: /scope's body has no index"
+if [ "$rc" -eq 0 ] && [ "$out" = '{"follow_ups":{},"index":false,"nodes":{},"run":null,"run_lines":{"topic":"t"},"store":null}' ]; then pass "cb_parse: /scope's body has no index"
 else fail "cb_parse: /scope's body has no index" "exit $rc: $out"; fi
+
+# The body node-push.sh wrote before the render existed: its exact line shape
+# (`- <node> | <repo>:docs/plans/PLAN-<slug>.md#<n> | open | head=<sha>`), its
+# `- coordination | ... | open` self row with no head, /scope's placeholder
+# line, and no top-level `---`. Every line of that grammar parses as an entry.
+cat > "$T/pre.md" <<EOF
+# Coordination PR: t
+
+> This is a **coordination PR** for a coordinated effort.
+
+topic=t
+store=session
+
+## PR Index
+
+No node PR is open yet; /execute adds one line per node PR as it opens it.
+- coordination | acme/repo-a:docs/plans/PLAN-t.md#10 | open
+- pr-repo-a-core | acme/repo-a:docs/plans/PLAN-t.md#11 | open | head=$H1
+- pr-repo-a-cli | acme/repo-a:docs/plans/PLAN-t.md#12 | merged
+EOF
+out=$(cb_parse "$T/pre.md" acme/repo-a 10); rc=$?
+want='{"follow_ups":{},"index":true,"nodes":{"pr-repo-a-cli":{"pr":12,"repo":"acme/repo-a","state":"merged"},"pr-repo-a-core":{"pr":11,"repo":"acme/repo-a","state":"open"}},"run":null,"run_lines":{"topic":"t"},"store":"session"}'
+if [ "$rc" -eq 0 ] && [ "$out" = "$want" ]; then pass "cb_parse: the pre-render index grammar parses whole, its self row dropped"
+else fail "cb_parse: the pre-render index grammar parses whole, its self row dropped" "exit $rc: $out"; fi
+
+# The region rule: a Part 1 holding its own heading, a run= line, a store=
+# line, run lines and a fake `## PR Index` entry is never read; the run lines
+# and the index below the first top-level `---` are. A `---` inside a fence
+# is not the separator.
+cat > "$T/region.md" <<EOF
+## Notes
+
+run=ffffffffffffffffffffffffffffffff
+store=session
+topic=part1
+\`\`\`
+---
+\`\`\`
+
+## PR Index
+
+- fake | acme/repo-a:docs/plans/PLAN-t.md#99 | open
+---
+
+> This is a **coordination PR** for a coordinated effort.
+
+topic=t
+store=github
+run=$RUN
+
+## PR Index
+
+- pr-repo-a-core | acme/repo-a:docs/plans/PLAN-t.md#11 | open | head=$H1
+EOF
+out=$(cb_parse "$T/region.md" acme/repo-a 10); rc=$?
+want='{"follow_ups":{},"index":true,"nodes":{"pr-repo-a-core":{"pr":11,"repo":"acme/repo-a","state":"open"}},"run":"'"$RUN"'","run_lines":{"topic":"t"},"store":"github"}'
+if [ "$rc" -eq 0 ] && [ "$out" = "$want" ]; then pass "cb_parse reads only below the first top-level ---: Part 1's heading, run, store, run lines and index are ignored"
+else fail "cb_parse reads only below the first top-level ---: Part 1's heading, run, store, run lines and index are ignored" "exit $rc: $out"; fi
+# A Part 1 index section alone is no index: the region holds none.
+printf -- '## PR Index\n\n- pr-a | acme/repo-a:docs/plans/PLAN-t.md#11 | open\n---\n\n> This is a **coordination PR**\n\nstore=github\n\n## Merge Order\n' > "$T/region2.md"
+out=$(cb_parse "$T/region2.md"); rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = '{"follow_ups":{},"index":false,"nodes":{},"run":null,"run_lines":{},"store":"github"}' ]; then
+    pass "cb_parse: a PR Index section in Part 1 is not the region's index"
+else fail "cb_parse: a PR Index section in Part 1 is not the region's index" "exit $rc: $out"; fi
+# The run lines: the first well-formed one of each key, a value over 64
+# characters or a store outside the enum skipped.
+LONG=$(printf 'x%.0s' $(seq 1 65))
+printf 'topic=%s\ntopic=t\nstore=s3\nstore=session\nintent=a b\nintent=deliver\nexit=x\nexit=y\n\n## PR Index\n' "$LONG" > "$T/lines.md"
+out=$(cb_parse "$T/lines.md"); rc=$?
+if [ "$rc" -eq 0 ] && [ "$out" = '{"follow_ups":{},"index":true,"nodes":{},"run":null,"run_lines":{"exit":"x","intent":"deliver","topic":"t"},"store":"session"}' ]; then
+    pass "cb_parse: the first well-formed run line of each key, and the first store in the enum"
+else fail "cb_parse: the first well-formed run line of each key, and the first store in the enum" "exit $rc: $out"; fi
 awk -v n="$CB_MAX_BYTES" 'BEGIN { s = "## PR Index\n"; while (length(s) < n) s = s "x"; printf "%s\n", s }' > "$T/over.md"
 cb_parse "$T/over.md" > "$T/over.out" 2>/dev/null; rc=$?
 if [ "$rc" -eq 3 ] && [ ! -s "$T/over.out" ]; then pass "cb_parse refuses a body over the cap (3)"; else fail "cb_parse refuses a body over the cap (3)" "exit $rc"; fi

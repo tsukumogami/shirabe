@@ -797,7 +797,7 @@ ct_calls | grep -q '^pr create' && fail "coordination mode created a PR" || pass
     && pass "coordination mode records run/cascade {verdict: pushed, head=<the pushed sha>}" \
     || fail "run/cascade after the coordination push: [$(cat "$CASE/ctx/$S/run/cascade" 2>/dev/null)]"
 WANT_DEFAULT=$(printf '## Merge Order\n\n```merge-order\n%s\n%s\n%s | pr | after: -\n%s | pr | after: %s\n```' \
-    "# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate." \
+    "# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate." \
     "# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>" \
     "$CT_CORE" "$CT_CLI" "$CT_CORE")
 [ "$(merge_order_section)" = "$WANT_DEFAULT" ] \

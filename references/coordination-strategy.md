@@ -206,7 +206,7 @@ coordination PR with; the amendment after the slot rules gives the shape
 ## Merge Order
 
 ```merge-order
-# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.
+# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.
 # One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
 <node-id> | pr | after: -
 <node-id> | gate | after: <node-id>
@@ -263,7 +263,7 @@ run=<32 hex>
 ## Merge Order
 
 ```merge-order
-# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate.
+# Rendered by /execute from the node list the run sealed at setup; not read by the merge gate.
 # One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>
 <node-id> | pr | after: -
 ```
