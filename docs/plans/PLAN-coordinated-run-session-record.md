@@ -76,7 +76,14 @@ R24).
   recovered from the retained snapshot on the next open.
 - [ ] A new run records store `github` without `--store` and `session` with `--store
   session`; a later invocation with the other value exits `store-mismatch` and changes no
-  key.
+  key; a later invocation with no `--store` reads the sealed value and is not refused.
+- [ ] `execute-open.sh` passes all five rebind variables on every invocation, empty when the
+  flag is absent, so a value from an earlier invocation never persists in an attached
+  session.
+- [ ] `coord_compute` prints `evaluate:<node>` for an open pull request whose recorded head is
+  unverified; the `evaluate` directive runs `merge-verdict.sh` at the recorded head and, on a
+  pass, `run-record.sh verified`, after which the same loop prints `merge:<node>` with
+  `--merge`; a head the check fails stays unverified.
 - [ ] `--coordination-pr` is verified through the ownership lookup and its number recorded;
   a pull request from another author or branch, without the marker, or differing from the
   lookup's is refused with `coordination-pr-mismatch`; a later invocation reads the number
@@ -100,13 +107,16 @@ index-entry grammar) and `coord-render.sh`, called after every listed transition
 every terminal; observe merges there and record merged heads; keep a live Part 1 byte for
 byte or compose the fixed sentence; drop the self row; cap at 60,000 bytes; re-read before
 posting; require a fresh render before evaluating or merging the coordination pull request;
-remove `node-push.sh`'s body surgery; move `squash-message.sh` to `scripts/lib/` and pass
+remove `node-push.sh`'s body surgery (its `order` mode becomes a render call, and the
+merge-order block renders from `run/setup`'s `waits_on`, so it survives the PLAN's deletion);
+move `squash-message.sh` to `scripts/lib/` and pass
 its output on every `/execute` merge; amend `references/coordination-strategy.md` and the
 sixth decision of `docs/designs/current/DESIGN-scope-then-execute.md` (design Decisions 3
 and 6; PRD R5, R15, R17, R18, R21, R23).
 
 **Acceptance Criteria**:
-- [ ] Each listed transition and each terminal posts a body in its own test case; a
+- [ ] Each listed transition but the follow-up one (Issue 4 tests it) and each terminal posts a
+  body in its own test case; a
   live-state change alone posts nothing; two renders of an unchanged record and live state
   post once.
 - [ ] A renderer test over nodes open, merged and closed with zero, one and two follow-ups
@@ -162,8 +172,11 @@ R22).
 - [ ] Identity comes from a carried `run_id`, else the run line, else unanimous markers,
   else a minted id only when the map holds no node pull request; a node with another marker
   or none stops with `recovery-unproven`
-  naming every such node; `--adopt-run <id>` re-stamps only those, records the login and
-  time, and is refused elsewhere or with a malformed id.
+  naming every such node; a recovering start with `--adopt-run <id>` re-stamps or stamps only
+  those, records the login and time, and is refused on a start whose session holds a record or
+  with a malformed id; `run-id.sh restamp` and `stamp` are first checked to work on a merged
+  pull request's body.
+- [ ] A body with no index line and the PLAN gone stops with `coordination-index-missing`.
 - [ ] With the PLAN on the branch the node list comes from it and the cascade is `not-run`;
   with the PLAN gone the cascade is `pushed` at the live coordination head and re-verified.
 - [ ] No coordination pull request stops with `coordination-pr-missing`, two with
@@ -194,6 +207,7 @@ recording one (Issue 2's renderer, wired here), add them to `coord_compute` as
 hold the merge-last gate until they merge (design Decision 7; PRD R16).
 
 **Acceptance Criteria**:
+- [ ] Recording a follow-up posts a body.
 - [ ] An open and a merged follow-up are recorded with their live heads; recording again
   updates the head; `follow-up-node`, `follow-up-repo`, `follow-up-base`,
   `follow-up-author` and `follow-up-closed` refuse the five cases, each changing nothing.
@@ -214,9 +228,11 @@ hold the merge-last gate until they merge (design Decision 7; PRD R16).
 
 **Group**: follow-up-move
 
-**Goal**: Add the `execute` and `deliver` import sets (compiling the shipped templates
-first), pass `--coordination-pr` and `--store` from `/deliver` to `/execute`, read
-`/scope`'s intent and pull request from its leg in `deliver-probe.sh scoped`, route a
+**Goal**: Add the `execute` and `deliver` import sets (extending `IMPORT_SETS`,
+`import_names` and the usage text, compiling the shipped templates first), pass
+`--coordination-pr` and `--store` from `/deliver` to `/execute`, copy `/scope`'s leg `intent`
+into `/deliver`'s context beside `pr` and hand both to `deliver-probe.sh scoped` as arguments
+instead of its body read, route a
 missing request or a refused attach to `execute-leg-lost:<code>`, and add the end-to-end
 engine test of a run stopped after its first node merges, imported into a second workspace
 on the same host and resumed to its merge (design Decision 5; PRD R12, R14, R19, R20).

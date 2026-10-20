@@ -199,7 +199,8 @@ the body. The trouble is that the same text is also the run's memory.
 - **R6. What each store means.** On both stores the session is the record and the body is
   its rendering (R15, R17). On `github`, a start that finds no run record recovers from the
   rendering (R9). On `session`, it doesn't: a start on a host with no session of the topic
-  stops with `session-absent`, naming the import that would bring the session (R12), and
+  stops with `session-absent`, naming the import that would bring the session (R12), as does
+  a start whose finished session was replaced and whose carry was lost, and
   makes no GitHub write (no body edit, comment or merge).
 - **R7. A store per run, sealed at its start.** A new run's store is `github` unless the
   invocation passes `--store session`; setup seals it into the run record and it never
@@ -243,12 +244,15 @@ the body. The trouble is that the same text is also the run's memory.
   readiness check the loop applies before any merge (required checks green, review state,
   mergeability, from `merge-verdict.sh`) and is merged only when that check passes. Its head
   then counts as verified.
-- **R11. The adopt step.** `/execute --adopt-run <id>` on a run stopped at
-  `recovery-unproven` takes `<id>` as the run's identity, re-stamps the run marker on every
-  node pull request in the map that carries another one, and records the step in the run
-  record with the authenticated GitHub login and the time. It's refused on a run not stopped
-  at `recovery-unproven`, and for an id outside `^[0-9a-f]{32}$`. It's separate from the
-  single-pr `--take-over`, which re-stamps one open pull request on `impl/<slug>`.
+- **R11. The adopt step.** `/execute --adopt-run <id>` is honoured on a start that
+  recovers (R8), and refused on one whose session already holds a record. It supplies the
+  run's identity and authorizes recovery to mark, through `run-id.sh`, every node pull request
+  in the map that carries another marker (`restamp`) or none (`stamp`), limited to the PLAN's
+  repositories, each node's branch and the invoking login as author; it records the step in
+  the run record with that login and the time. An id outside `^[0-9a-f]{32}$` is refused. It
+  needs no record of an earlier `recovery-unproven` stop: the stop is only what tells a
+  person to pass it. It's separate from the single-pr `--take-over`, which re-stamps one open
+  pull request on `impl/<slug>`.
 
 ### Moves and pauses
 
@@ -263,8 +267,9 @@ the body. The trouble is that the same text is also the run's memory.
 - **R13. A pause keeps the record.** A run that stops to wait for a merge or a review keeps
   its record readable and resumable: the next `/execute` on the topic, on this host or after
   an import, continues with the same `run_id` and every key in R1, reading none of them from
-  the body. The merge attempts already made start empty on each invocation; nothing else in
-  the record does.
+  the body. The merge attempts already made start empty on each invocation, and every head
+  carried across a finished session's replacement comes back unverified, so the readiness
+  check passes at it again before a merge; nothing else in the record changes.
 - **R14. `/deliver`'s inner leg after a move.** The leg `/deliver` opens for `/execute` ends
   with `/execute`'s terminal result in each of these cases:
   - a `/deliver` run started after the import opens a fresh request, as every run does, and
@@ -331,7 +336,7 @@ the body. The trouble is that the same text is also the run's memory.
   posted and is reported as `body=full`.
 - **R18. `/scope`'s republish.** A `/scope` republish that rewrites the body after `/execute`
   has started may drop Part 2; the next `/execute` transition renders it again from the
-  record. Recovery between the two reads the republished body. A body with no index line is read as an empty map only when no PLAN node's branch (`impl/<slug>-<node>`) has an owned pull request; when one does, the index was lost (a `/scope` republish, a hand edit) and recovery stops with `coordination-index-missing` rather than re-dispatch a node that already has a pull request.
+  record. Recovery between the two reads the republished body. A body with no index line is read as an empty map only when no PLAN node's branch (`impl/<slug>-<node>`) has an owned pull request; when one does, the index was lost (a `/scope` republish, a hand edit) and recovery stops with `coordination-index-missing` rather than re-dispatch a node that already has a pull request. With the PLAN also gone from the branch, nothing names the nodes and recovery stops with `coordination-index-missing` too.
 
 ### Handover and merge messages
 
@@ -350,7 +355,8 @@ the body. The trouble is that the same text is also the run's memory.
   disagrees with the result is ignored.
 - **R21. Merges pass Part 1.** Every squash merge `/execute` makes, coordinated or single-pr,
   passes the pull request's title as the subject and its Part 1 as the body, built by the same
-  script `/coordinate`'s land step uses (`skills/coordinate/scripts/squash-message.sh`, which
+  script `/coordinate`'s land step uses (`scripts/lib/squash-message.sh`, moved there from
+  the coordinate skill, which
   strips markdown and HTML comments and refuses an empty Part 1, a multi-line title and AI
   attribution). A body with no top-level `---` passes all of it. When no message can be built,
   the merge isn't attempted and the run reports `merge-refused:squash-message`. A `merge`
@@ -436,9 +442,10 @@ the body. The trouble is that the same text is also the run's memory.
   before any merge call, in that order in the stub's request log; a node whose readiness check
   fails isn't merged.
 - [ ] A node pull request carrying another run's marker stops recovery with
-  `recovery-unproven` naming it (two such nodes: both named); `--adopt-run <id>` then
-  re-stamps them, records the GitHub login and time, and the run continues. `--adopt-run` on a
-  run not stopped there, or with a malformed id, is refused.
+  `recovery-unproven` naming it (two such nodes: both named); a recovering start with
+  `--adopt-run <id>` then re-stamps them, records the GitHub login and time, and the run
+  continues. `--adopt-run` on a start whose session holds a record, or with a malformed id, is
+  refused. A node pull request with no marker is stamped the same way.
 - [ ] Recovery with no rendered run line and all marked nodes agreeing takes their id; with no
   run line and no marked node it mints a new id; with a session holding a carried `run_id` it
   keeps that id; with a rendered run line it takes the line's id.

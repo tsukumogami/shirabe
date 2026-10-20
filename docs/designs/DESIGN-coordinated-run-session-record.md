@@ -155,7 +155,7 @@ Keys in `execute-<topic>`:
 | Key | Holds | Owner (verb of `run-record.sh`) |
 |---|---|---|
 | `run/setup` | `store`, `coordination_pr`, the node list from the PLAN (`name`, `kind`, `repo`, `waits_on`), `/scope`'s run lines | `setup` (record-coord-setup.sh) |
-| `run/node/<node>` | `repo`, `pr`, `head`, `verified`, `merged_head` | `push` (node-push.sh node), `observe` (coord-render.sh), `verified` (record-coordination-verdict.sh), `recover` |
+| `run/node/<node>` | `repo`, `pr`, `head`, `verified`, `merged_head` | `push` (node-push.sh node), `observe` (coord-render.sh), `verified` (the loop's evaluate step), `recover` |
 | `run/follow-up/<node>/<n>` (`<n>` the pull request number) | `repo`, `pr`, `head`, `verified`, `merged_head`, `removed` | `follow-up` (setup), `observe`, `verified`, `recover` |
 | `run/cascade` | `verdict`, `head`, `verified`, `step` | `cascade` (node-push.sh coordination and the cascade's failure path), `verified`, `recover` |
 | `run/recovered` | the pull request recovered from, the identity source | `recover` |
@@ -292,7 +292,7 @@ run=<32 hex>
 
 ## PR Index
 
-- <node> | <repo>:docs/plans/PLAN-<slug>.md#<n> | <open|merged|closed|unknown> | head=<sha>
+- <node> | <repo>:docs/plans/PLAN-<slug>.md#<n> | <open|merged|closed|unknown> | head=<sha>   (<n>: the node's number)
 - <node>/follow-up-<n> | <repo>:docs/plans/PLAN-<slug>.md#<n> | <state> | head=<sha>   (<n>: the follow-up's number)
 
 ## Merge Order
@@ -357,14 +357,22 @@ GitHub call; otherwise it runs recovery:
 7. `run/recovered`, and `recovered=<url>` on the invocation's report.
 
 In the loop, `coord_compute` treats an unverified head as needing evaluation: the next
-action for that pull request is `evaluate:<node>` (or `evaluate-coordination`), which runs
-`merge-verdict.sh` at the recorded head and, when it passes, `run-record.sh verified`.
+action for that pull request is `evaluate:<node>` (or `evaluate-coordination`), printed for
+any open pull request whose recorded head is unverified, not only a draft as today. The
+`evaluate` directive in `execute-coordinated.md` gains its second half: after the checks
+settle and `gh pr ready`, it runs `merge-verdict.sh` at the recorded head and, when that
+passes, `run-record.sh verified`, so the next `coord_compute` pass in the same loop can print
+`merge`. A head the readiness check fails stays unverified and the loop reports it as today
+(`awaiting:<reason>`).
 `merge:<node>` is never printed for an unverified head. A `failed` cascade prints `cascade`
-again. `--adopt-run <id>`, a rebind variable, is honoured only when the last result was
-`recovery-unproven`: setup re-stamps each disagreeing marker with `run-id.sh restamp`,
-seeds `<id>`, and writes `run/adopted` with `gh api user --jq .login` and the time. It re-stamps
-only pull requests the recovery step named, in the PLAN's repositories, on their node's
-branch and authored by the invoking login, the same set the ownership lookup admits.
+again. `--adopt-run <id>`, a rebind variable, is honoured on a start that recovers and
+refused on one whose session holds a record; it needs no memory of an earlier
+`recovery-unproven` stop, which only tells a person to pass it. Recovery then takes `<id>` as
+the identity, marks each node pull request whose marker disagrees with `run-id.sh restamp`
+and each unmarked one with `run-id.sh stamp`, and writes `run/adopted` with `gh api user --jq
+.login` and the time. It marks only pull requests in the PLAN's repositories, on their node's
+branch and authored by the invoking login, the same set the ownership lookup admits. That
+`restamp` and `stamp` work on a merged pull request's body is the first thing Phase 3 checks.
 
 #### Alternatives Considered
 
@@ -671,9 +679,9 @@ write the store already runs as the user.
 and re-verified by the same readiness check. The editable page can no longer pin one.
 
 **Adoption.** `--adopt-run` is the one operation that edits another run's markers. It's
-honoured only on an invocation after a `recovery-unproven` stop, re-stamps only the pull
-requests that stop named, in the PLAN's repositories, on their node's branch and authored by
-the invoking login, and records the login and time in `run/adopted`.
+honoured only on a start that recovers, marks only node pull requests in the PLAN's
+repositories, on their node's branch and authored by the invoking login, and records the
+login and time in `run/adopted`.
 
 **Posting.** The renderer re-reads the body just before posting and skips the post when
 Part 1 changed since it rendered, so a person's concurrent edit to the description isn't
