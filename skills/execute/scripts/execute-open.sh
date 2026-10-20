@@ -282,6 +282,12 @@ elif [ -n "$PLAN" ] && [ "$NAMED" -eq 1 ]; then
         && [ "$(jq -r '(.["run/setup"] // {}).mode // ""' "$CR/$SESSION/record.json")" = coordinated ]; then
         MODE=coordinated
     else
+        # The fallback's limits: it finds only the latest commit reachable
+        # from HEAD that deleted exactly this path, and follows no rename. A
+        # shallow clone, or a checkout without that commit, finds nothing and
+        # stays on execute.md. A relative PLAN path is resolved against the
+        # current directory. Only the frontmatter of the version just before
+        # that deletion is read.
         GONE_AT=$(git log -1 --diff-filter=D --format=%H -- "$PLAN") || GONE_AT=""
         if [[ $GONE_AT =~ ^[0-9a-f]{40}$ ]]; then
             case "$PLAN" in

@@ -98,8 +98,8 @@
 #       <self-repo>#<self-number> when given (the repository compared
 #       case-insensitively). A follow-up's `fu` is the number its id names
 #       (<node>/follow-up-<fu>), kept beside the ref's `pr` so a reader can
-#       refuse a line whose two numbers differ. Heads are never returned: a head on a page is
-#       never trusted. Returns 0; 2 the file can't be read; 3 the body is
+#       refuse a line whose two numbers differ. Heads are never returned: a
+#       head on a page is never trusted. Returns 0; 2 the file can't be read; 3 the body is
 #       over CB_MAX_BYTES (nothing read); 4 an entry-shaped line outside the
 #       grammar, a bad repository or path, or a node named twice (the line
 #       number on stderr).

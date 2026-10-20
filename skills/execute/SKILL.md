@@ -128,11 +128,27 @@ Two more flags, on both paths:
   - `--adopt-run <id>` — honoured only on a start that recovers a lost
     record (see **Recovery**): `<id>` becomes the run's identity, outranking a
     carried `run_id`, and setup stamps its marker on the node PRs that carry
-    another run's or none, recording who adopted the run and when. On any
-    other start setup stops `adopt-run-refused` and changes nothing.
-  - `--follow-up <node>=<url>`, with `--remove` — accepted and reported
-    `ignored=follow-up` and `ignored=remove` by setup until follow-ups land;
-    they change nothing yet.
+    another run's or none, recording who adopted the run and when. On a
+    start that doesn't recover, setup stops first with `session-absent` or
+    `recovery-plan-gone` when one of those applies, and with
+    `adopt-run-refused` otherwise; each changes nothing.
+  - `--follow-up <node>=<url>`, with `--remove` — record a follow-up PR
+    against a node, so the run merges it after that node and the
+    coordination PR waits for it. Setup checks it once the record is loaded
+    or recovered, and each refusal changes nothing: `follow-up-node` when the
+    node has no recorded PR in this run or the URL is a node PR, the
+    coordination PR, or a follow-up of another node; `follow-up-repo` when it
+    is in another repository than the node's; `follow-up-base` when it isn't
+    based on that repository's default branch; `follow-up-author` for a fork
+    or another author than the invoking login; `follow-up-closed` for one
+    closed unmerged. An open or GitHub-MERGED PR is recorded with its live
+    head (`follow-up=recorded:<url>`), and recording it again updates the
+    head. `--remove` marks a recorded follow-up removed with no live check,
+    since a closed one is the usual removal (`follow-up=removed:<url>`). Each
+    renders the coordination PR's body. One follow-up per invocation: a
+    repeated `--follow-up` is koto's `duplicate_var`. It applies only on a
+    start that reaches setup; a live session past it refuses the flag
+    (`error=flag-needs-setup`, below).
 - `--koto-leg=<request-id>:<leg>` — attach this run's session to a koto request
   leg, so its terminal result reaches whoever waits on that leg (`/deliver`
   passes it). The request id must match koto's request-id pattern
@@ -306,8 +322,10 @@ control-plane facts as `run/` keys in its own session, `execute-<plan-slug>`,
 beside its `run_id`: `run/setup` (the store, the coordination PR's number,
 `repos`, the mode, the PLAN's node list, and `/scope`'s run lines, sealed at the
 run's first setup), `run/node/<node>` (each node's repository, PR, and pushed
-head), and `run/cascade` (the cascade's verdict: `not-run`, `pushed` with its
-head, or `failed` with its step). `run-record.sh` is the one writer, refusing a
+head), `run/follow-up/<node>/<n>` (a follow-up PR recorded against a node: its
+repository, number, and live head at recording, or removed), and `run/cascade`
+(the cascade's verdict: `not-run`, `pushed` with its head, or `failed` with its
+step). `run-record.sh` is the one writer, refusing a
 field the calling verb doesn't own (`not-owner`), and `run-record-lib.sh` the one
 reader. The loop reads the node map, each node's head, the cascade's verdict,
 and the coordination PR's number from the record, never from the coordination
@@ -323,9 +341,9 @@ outlines, and the run makes no `gh issue` call.
 
 **The coordination PR's body is the record's rendering.** `coord-render.sh`
 renders it through `scripts/lib/coordination-body.sh` after every transition it
-shows (a node PR opened or pushed, a node PR GitHub reports MERGED, the cascade pushed or
-failed) and before every terminal, and posts it only when it differs from the
-live body, so a change in live state alone (checks finishing, a ready toggle)
+shows (a node PR opened or pushed, a node or follow-up PR GitHub reports
+MERGED, a follow-up recorded or removed, the cascade pushed or failed) and
+before every terminal, and posts it only when it differs from the live body, so a change in live state alone (checks finishing, a ready toggle)
 posts nothing. The body keeps the live Part 1 (everything above its first
 top-level `---`) byte for byte, or composes one sentence when there is none
 (`/scope`'s body is replaced whole), then carries the declaration marker, the
@@ -355,6 +373,19 @@ alike. An empty Part 1, a title spanning lines, or an attribution line makes no
 merge call and reports `merge-refused:squash-message`. Every refused merge is
 recorded as `<node>:merge-refused` in `merge_attempts`, so the loop doesn't try
 it again, and the run ends `ready_awaiting_merge`.
+
+**A follow-up merges after its node.** Each recorded follow-up that isn't
+removed is a unit right after its node, named `<node>/follow-up-<n>` by its
+number, so two on one node stay distinct in the index, in `merge_attempts`
+and in the merge-last gate's refs. The loop merges it (`merge:<node>/follow-up-<n>`)
+only with `--merge`, only after GitHub reports its node MERGED, and at the head
+the record holds for it, through the same `coord-merge.sh` and readiness check
+a node's merge takes; while its checks run the loop only waits, and it never
+readies or pushes to a follow-up. While any follow-up is unmerged, the cascade
+and both coordination steps wait. A draft follow-up waits on a human
+(`merge-state:DRAFT`), and one closed unmerged ends the run
+`ready_awaiting_merge` with `reason=follow-up-closed:<url>` until a replacement
+is recorded or it is removed with `--remove`.
 
 **Nothing lands on the coordination branch except the scoping documents and the
 finalization cascade.** A node branch is cut from the default branch, never from
@@ -467,7 +498,13 @@ stampable. An index with no node line beside an owned node PR stops
 `coordination-body-full`. The recovered record holds `run/setup`, each node's
 `run/node/<node>`, the cascade `not-run`, and `run/recovered` (the coordination
 PR and the identity's source); the run continues from it, and the exit lines
-carry `recovered=<url>`. Follow-up lines are read but not recorded yet. A run
+carry `recovered=<url>`. Each follow-up line is kept or dropped: kept, with
+its live head and no marker asked of it, when its node is one the recovery
+rebuilt, it is in that node's repository, its id names the number its ref
+does, and a live read finds it based on the default branch, by the invoking
+login and not a fork, and not closed unmerged; dropped otherwise, which setup
+reports as `follow-up-dropped:<url>`. A failed read of one stops the start
+(a GitHub read failed) rather than dropping it. A run
 from before the record existed (a session holding only its `run_id`, an
 old-format index with its `coordination` self row) recovers this way once,
 keeping its `run_id`, and every later invocation finds the record.
@@ -610,7 +647,9 @@ against its chain shape:
      `run/setup` (verb `setup`, from `record-coord-setup.sh` on a new run, or
      `recover` on a recovering start),
      `run/node/<node>` (`push`, from `node-push.sh` after a successful push),
-     `run/follow-up/<node>/<n>` (`follow-up`, not written yet),
+     `run/follow-up/<node>/<n>` (`follow-up`, from `record-coord-setup.sh`
+     given `--follow-up`; `recover` on a recovering start, for each
+     follow-up line it keeps),
      `run/cascade` (`cascade`: `pushed` from `node-push.sh` coordination mode,
      `failed` from `record-coordination-verdict.sh`), `run/recovered` and
      `run/adopted` (`recover` and `adopt`, from `record-coord-setup.sh` on a
@@ -637,7 +676,8 @@ against its chain shape:
      `expected_head` (only after a successful push), `cascade_result.json`
      (only `run-cascade.sh --session`'s own verdict), `merge_verdict`,
      `confirm_verdict`, `reason`, and `step`; on coordinated, `home_repo`,
-     `coord_branch`, `plan_abs`, `merge_attempts` (`<node>:<result>` entries,
+     `coord_branch`, `plan_abs`, `merge_attempts` (`<id>:<result>` entries,
+     the id a node, a follow-up's `<node>/follow-up-<n>` or `coordination`:
      merge-not-observed, merge-call-failed or merge-refused from
      `coord-merge.sh`, and `coordination:body-stale` or `coordination:body-full`
      from `coord-render.sh --before-coordination`; the opener removes it at
