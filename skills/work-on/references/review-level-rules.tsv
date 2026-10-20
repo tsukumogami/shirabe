@@ -112,6 +112,7 @@ class	engine	skills/work-on/scripts/check-pr-output.sh
 class	engine	skills/work-on/scripts/check-pre-pr-referents.sh
 class	engine	skills/work-on/scripts/check-staleness.sh
 class	engine	skills/work-on/scripts/check-verification.sh
+class	engine	skills/work-on/scripts/decision-reasons.sh
 class	engine	skills/work-on/scripts/find-anchor-plan.sh
 class	engine	skills/work-on/scripts/has-commits.sh
 class	engine	skills/work-on/scripts/offload-canary.sh

@@ -166,7 +166,8 @@ ANSWER='koto decider answer {{SESSION_NAME}} --gate scrutiny_decider --criterion
 for where in directive phase; do
     if [ "$where" = directive ]; then text="$DIRECTIVE"; else text=$(cat "$PHASE"); fi
     for phrase in "beside the seats" "decider is on" "advisory while" "awaiting" "carried round" "$ANSWER"; do
-        if printf '%s' "$text" | tr '\n' ' ' | grep -qF -- "$phrase"; then
+        flat=$(printf '%s' "$text" | tr '\n' ' ')
+        if grep -qF -- "$phrase" <<<"$flat"; then
             pass "the $where says [$phrase]"
         else
             fail "the $where lost [$phrase]"

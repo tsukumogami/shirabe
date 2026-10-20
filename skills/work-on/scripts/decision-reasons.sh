@@ -41,7 +41,7 @@ die() {
 
 [ "$#" -eq 2 ] && [ "$1" = slice ] || die 64 "usage: decision-reasons.sh slice <session-log>"
 LOG="$2"
-command -v jq >/dev/null 2>&1 || die 127 "jq is not on PATH"
+command -v jq >/dev/null || die 127 "jq is not on PATH"
 [ -f "$LOG" ] && [ -r "$LOG" ] || die 66 "cannot read session log [$LOG]"
 
 # Every input is read before anything is printed, so a line jq can't parse

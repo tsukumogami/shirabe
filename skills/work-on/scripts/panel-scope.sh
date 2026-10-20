@@ -791,7 +791,7 @@ if [ "$MODE" = "--record" ]; then
     esac
     printf '[]' > "$WORK/imported"
     printf '{}' > "$WORK/modes"
-    sdir=$(koto session dir "$SESSION" 2>/dev/null) || sdir=""
+    sdir=$(koto session dir "$SESSION") || sdir=""
     if [ -n "$sdir" ] && [ -e "$sdir/koto-$SESSION.state.jsonl" ]; then
         slog="$sdir/koto-$SESSION.state.jsonl"
         [ -r "$slog" ] || die 65 "koto's session log [$slog] can't be read"
