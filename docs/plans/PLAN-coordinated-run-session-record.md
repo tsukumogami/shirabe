@@ -52,12 +52,12 @@ the end-to-end engine test, which needs everything before it.
 
 **Goal**: Add the `run/` keys, `run-record.sh` with its verb-to-field ownership table,
 `run-record-lib.sh`, a shared test helper that seeds a record, the opener's carry of `run/`
-across `--replace-terminal` (lock, retained snapshot, verified flags cleared), the five
+across `--replace-terminal` (lock, retained snapshot), the five
 rebind variables (`STORE`, `COORDINATION_PR`, `FOLLOW_UP`, `FOLLOW_UP_REMOVE`, `ADOPT_RUN`),
-setup's store seal, node list and handed pull request, `node-push.sh` writing heads through
+setup's store seal, node list, `/scope`'s run lines and handed pull request, `node-push.sh` writing heads through
 the recorder, and `coord_compute` and `coord-merge.sh` reading the record, with every merge
-pinned to the recorded head and every unverified head routed through `evaluate` (and
-`run-record.sh verified`) before `merge` is ever printed for it (design Decisions 1 and 2; PRD R1-R4, R6's store seal and mismatch refusal (its recovery half is Issue 3), R7, R13, R19,
+pinned to the recorded head and made only after the loop's existing readiness check passes
+at it on the same pass (design Decisions 1 and 2; PRD R1-R4, R6's store seal and mismatch refusal (its recovery half is Issue 3), R7, R13, R19,
 R24).
 
 **Acceptance Criteria**:
@@ -71,8 +71,7 @@ R24).
   to `--match-head-commit`; a live head that differs from the recorded one makes no merge
   call and reports `awaiting:head-moved`.
 - [ ] A run stopped at `paused_awaiting_merges` and re-invoked continues with the same
-  `run_id`, map and heads, every carried head unverified until the readiness check passes
-  again, and its merge attempts empty; a crash between the replacement and the carry is
+  `run_id`, map and heads, and its merge attempts empty; a crash between the replacement and the carry is
   recovered from the retained snapshot on the next open.
 - [ ] A new run records store `github` without `--store` and `session` with `--store
   session`; a later invocation with the other value exits `store-mismatch` and changes no
@@ -80,10 +79,9 @@ R24).
 - [ ] `execute-open.sh` passes all five rebind variables on every invocation, empty when the
   flag is absent, so a value from an earlier invocation never persists in an attached
   session.
-- [ ] `coord_compute` prints `evaluate:<node>` for an open pull request whose recorded head is
-  unverified; the `evaluate` directive runs `merge-verdict.sh` at the recorded head and, on a
-  pass, `run-record.sh verified`, after which the same loop prints `merge:<node>` with
-  `--merge`; a head the check fails stays unverified.
+- [ ] A carried head whose readiness check refuses it is reported `awaiting:<reason>` and the
+  run pauses or ends with that reason, never looping; one that passes merges with `--merge` in
+  the same loop.
 - [ ] `--coordination-pr` is verified through the ownership lookup and its number recorded;
   a pull request from another author or branch, without the marker, or differing from the
   lookup's is refused with `coordination-pr-mismatch`; a later invocation reads the number
@@ -156,9 +154,10 @@ and 6; PRD R5, R15, R17, R18, R21, R23).
 **Goal**: In `record-coord-setup.sh`, when `run/setup` is absent: stop with
 `session-absent` on the `session` store; otherwise find the coordination pull request,
 parse the rendering with `cb_parse`, take the node list, resolve identity (carried
-`run_id`, rendered run line, unanimous markers, minted), re-read heads live as unverified,
-set the cascade from the PLAN's presence, write `run/recovered`, relying on Issue 1's
-routing of unverified heads through `evaluate`; add `--adopt-run`; recover pre-feature runs once; add the structure
+`run_id`, rendered run line, unanimous markers, minted; `--adopt-run` outranks them), check
+node pull requests' markers and recovered follow-ups against R16's checks (dropping and
+reporting one that fails), re-read heads live, set the cascade from the PLAN's presence,
+write `run/recovered`; add `--adopt-run`; recover pre-feature runs once; add the structure
 test that bans body parsing from `skills/execute/` (design Decision 4; PRD R3, R6, R8-R11,
 R22).
 
@@ -178,7 +177,11 @@ R22).
   pull request's body.
 - [ ] A body with no index line and the PLAN gone stops with `coordination-index-missing`.
 - [ ] With the PLAN on the branch the node list comes from it and the cascade is `not-run`;
-  with the PLAN gone the cascade is `pushed` at the live coordination head and re-verified.
+  with the PLAN gone the cascade is `pushed` at the live coordination head, which the
+  readiness check examines before the coordination merge.
+- [ ] A recovered follow-up from another author is dropped and reported
+  `follow-up-dropped:<url>`; one passing R16's checks is kept without a marker; with
+  `--adopt-run <id>` and a carried `run_id`, `<id>` wins and becomes the session's `run_id`.
 - [ ] No coordination pull request stops with `coordination-pr-missing`, two with
   `coordination-pr-ambiguous`; a body with no index line recovers an empty map when no PLAN
   node's branch has an owned pull request and stops with `coordination-index-missing` when
@@ -201,7 +204,7 @@ R22).
 **Group**: follow-up-move
 
 **Goal**: Map `--follow-up <node>=<url> [--remove]` to the rebind variables, check and
-record follow-ups at setup with their live head unverified, call the renderer after
+record follow-ups at setup with their live head, call the renderer after
 recording one (Issue 2's renderer, wired here), add them to `coord_compute` as
 `<node>/follow-up-<n>` after their node, merge them with `--merge`, render their lines, and
 hold the merge-last gate until they merge (design Decision 7; PRD R16).

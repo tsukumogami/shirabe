@@ -119,8 +119,8 @@ the body. The trouble is that the same text is also the run's memory.
 - After each transition's render, the reviewer reading the coordination pull request sees
   each node's state and head, follow-ups under their node, and no self row, through the
   cascade.
-- A merge is pinned only to a head the run recorded, or one re-read live and re-verified;
-  never to the page.
+- A merge is pinned only to a head the run recorded, and made only after the readiness
+  check passes at that head on the same pass; never to the page.
 - The default branch's history carries each merged pull request's title and Part 1 only.
 - A coordinator running `/deliver` gets `/execute`'s result on the leg `/deliver` opened
   for it after a move, or a named loss with the state the run reached.
@@ -153,13 +153,10 @@ the body. The trouble is that the same text is also the run's memory.
 - **R1. The record is session keys.** A coordinated run keeps these facts as keys in its
   execute session, on either store:
   - for each PR node: its repository, its pull request number, the head the run last
-    pushed to it, whether that head has been verified (R10), and once the node is observed
-    merged, the head it merged at;
+    pushed to it, and once the node is observed merged, the head it merged at;
   - for each follow-up pull request: the node it belongs to, its repository, its number,
-    the head recorded with it (R16), whether that head has been verified, and its merged head
-    once merged;
-  - the coordination pull request's number (R19) and, once the cascade has pushed, its head
-    and whether that head has been verified;
+    the head recorded with it (R16), and its merged head once merged;
+  - the coordination pull request's number (R19) and, once the cascade has pushed, its head;
   - the cascade's verdict: `not-run`, `pushed` with the head, or `failed` with the step that
     failed;
   - the node list as the PLAN gave it, recorded at setup, which the run keeps reading after
@@ -167,16 +164,15 @@ the body. The trouble is that the same text is also the run's memory.
   - the run's identity (`run_id`, as today), its store (R7), and whether and from which pull
     request the record was recovered (R9).
   The keys join `/execute`'s closed write-target set in `skills/execute/SKILL.md`.
-- **R2. One writer per fact.** Each fact in R1 has one owning step, except a head's
-  verified flag, which the step that records the head sets and the readiness check flips
-  (R10): a node's pull request
+- **R2. One writer per fact.** Each fact in R1 has one owning step: a node's pull request
   and pushed head, the step that pushes the node, after its push succeeds; the coordination
   pull request's head and the cascade verdict, the cascade step; a follow-up and its head,
   the follow-up step (R16); a merged head, the step that first observes the merge, from a
-  live read; a head's verified flag, the step that pushed it (verified) or recovery
-  (unverified), and the readiness check that then passes at it (verified); the coordination
-  pull request's number, the node list and the store, setup; the recovery marker and the
-  adopt record, recovery and the adopt step. A write by any other step is refused with exit 65
+  live read; the coordination
+  pull request's number, the node list, the store and `/scope`'s run lines, setup; on a start
+  that recovers, every fact recovery rebuilds (map, heads, node list, cascade), recovery,
+  together with the recovery marker and the adopt record; and the opener's carry, which copies
+  every key into a replacement session holding none. A write by any other step is refused with exit 65
   (`not-owner`) and changes no key, and a failed push writes nothing. Each step writes its
   keys before the body is rendered from them.
 - **R3. One way in.** Every `/execute` script that needs a node's pull request, a head, a
@@ -230,23 +226,28 @@ the body. The trouble is that the same text is also the run's memory.
     opens, so every node pull request in the map must carry that identity: one that
     carries another marker, or none, stops the start with `recovery-unproven`, naming every
     such node and the adopt step (`--adopt-run <id>`). A new identity is minted only when the
-    map holds no node pull request at all;
-  - re-reads every head live from GitHub, never from the body, and records it as a head
-    the run hasn't verified;
+    map holds no node pull request at all. A follow-up in the map is exempt from the node-branch lookup and the run marker, since a person opens it on any branch; it must pass the follow-up checks of R16 instead (the node's repository and base, no fork, the invoking login as author, not closed unmerged), or recovery drops it and reports `follow-up-dropped:<url>`. An index line is any line that parses
+    as a node or follow-up entry; a self row doesn't count;
+  - re-reads every head live from GitHub, never from the body;
   - sets the cascade verdict to `not-run` when the PLAN is still on the branch, otherwise
-    to `pushed` with the coordination pull request's live head, also unverified;
+    to `pushed` with the coordination pull request's live head;
   - writes the recovery marker naming the pull request it recovered from.
   The run's report carries `recovered=<pull request URL>` on the invocation that recovered.
   A cascade verdict of `failed`, recovered or recorded, makes the next invocation run the
   cascade again.
-- **R10. A recovered head is re-verified before a merge.** A node, follow-up or coordination
-  pull request whose recorded head came from recovery is evaluated at that head by the same
-  readiness check the loop applies before any merge (required checks green, review state,
-  mergeability, from `merge-verdict.sh`) and is merged only when that check passes. Its head
-  then counts as verified.
+- **R10. Every merge passes the readiness check at the recorded head.** Before any merge of
+  a node, follow-up or the coordination pull request, the loop runs the readiness check
+  (`merge-verdict.sh`: required checks green, review state, mergeability) at the recorded
+  head on that same pass, as it does for a node today, and merges only when it passes. A
+  recovered or carried head gets no other treatment: the check at merge time is what
+  re-verifies it. A head the check refuses is reported with its reason (`awaiting:<reason>`,
+  `awaiting:head-moved` when the pull request has moved on) and the run pauses or ends as it
+  does today; a new push through the run, or recording a follow-up again, records the new
+  head.
 - **R11. The adopt step.** `/execute --adopt-run <id>` is honoured on a start that
   recovers (R8), and refused on one whose session already holds a record. It supplies the
-  run's identity and authorizes recovery to mark, through `run-id.sh`, every node pull request
+  run's identity, outranking a carried `run_id` and the rendered run line, sets the session's
+  `run_id` to it, and authorizes recovery to mark, through `run-id.sh`, every node pull request
   in the map that carries another marker (`restamp`) or none (`stamp`), limited to the PLAN's
   repositories, each node's branch and the invoking login as author; it records the step in
   the run record with that login and the time. An id outside `^[0-9a-f]{32}$` is refused. It
@@ -267,9 +268,8 @@ the body. The trouble is that the same text is also the run's memory.
 - **R13. A pause keeps the record.** A run that stops to wait for a merge or a review keeps
   its record readable and resumable: the next `/execute` on the topic, on this host or after
   an import, continues with the same `run_id` and every key in R1, reading none of them from
-  the body. The merge attempts already made start empty on each invocation, and every head
-  carried across a finished session's replacement comes back unverified, so the readiness
-  check passes at it again before a merge; nothing else in the record changes.
+  the body. The merge attempts already made start empty on each invocation; nothing else in
+  the record does.
 - **R14. `/deliver`'s inner leg after a move.** The leg `/deliver` opens for `/execute` ends
   with `/execute`'s terminal result in each of these cases:
   - a `/deliver` run started after the import opens a fresh request, as every run does, and
@@ -322,7 +322,9 @@ the body. The trouble is that the same text is also the run's memory.
     all of them.`, with `<n>` the number of PR nodes;
   - exactly one top-level `---`;
   - Part 2: the declaration marker; the run lines `topic=`, `exit=`, `outcome=`, `intent=`,
-    `mode=` as `/scope` published them, and `store=` and `run=` from the record; the PR Index;
+    `mode=` as `/scope` published them, recorded at setup from the body it found (and, after a
+    republish that lost them, from the republished body's own lines), and `store=` and `run=`
+    from the record; the PR Index (a node line's `<n>` is its pull request number);
     the merge-order block as today.
   The PR Index has one line per PR node, `- <node> | <repo>:docs/plans/PLAN-<topic>.md#<n> |
   <live state> | head=<head>`, and one line per follow-up (`<n>` its pull request number), `- <node>/follow-up-<n> |
@@ -450,8 +452,8 @@ the body. The trouble is that the same text is also the run's memory.
   run line and no marked node it mints a new id; with a session holding a carried `run_id` it
   keeps that id; with a rendered run line it takes the line's id.
 - [ ] Recovery with the PLAN still on the branch takes the node list from the PLAN and sets the
-  cascade verdict to `not-run`; every recovered head, a follow-up's included, is recorded
-  unverified, and a recovered follow-up is re-verified before its merge.
+  cascade verdict to `not-run`; a recovered follow-up is merged only after the readiness
+  check passes at its recovered head.
 - [ ] Recovery over an old-format body that carries a line for the coordination pull request
   itself ignores that line.
 - [ ] Recovery with no coordination pull request found stops with `coordination-pr-missing`
