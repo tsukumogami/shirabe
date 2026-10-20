@@ -399,7 +399,10 @@ dates, `YYYY-MM-DD`.
       at `shadow`, an `info` finding and exit 0; at `retired`, no finding and
       exit 0.
 - [ ] `check-verification.sh --verdict` with a block-stage `command-failed`
-      and a warn-stage `needs-person` exits 1, not 4.
+      and a warn-stage route-4 cause (`timed-out`) exits 1, not 4; the
+      reverse exits 4; and a warn-stage `needs-person` alone exits 0.
+      (`needs-person` comes only from an attended result, which runs no
+      command, so it never appears beside `command-failed`.)
 - [ ] `check-pr-output.sh --pr-body`, given a validator result whose only
       listed finding maps to a warn-stage rule, exits 0 and prints no
       `pr-body/conformance` finding; given a validator result listing no

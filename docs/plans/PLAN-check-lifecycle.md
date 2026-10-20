@@ -157,7 +157,8 @@ handled as the design says, and print the dispute hint before failing.
       route); at `warn` a `warning` finding and exit 0; at `shadow` an `info`
       finding and exit 0; at `retired` no finding and exit 0.
 - [ ] `check-verification.sh --verdict` with a block-stage `command-failed`
-      and a warn-stage `needs-person` exits 1.
+      and a warn-stage `timed-out` exits 1, the reverse exits 4, and a
+      warn-stage `needs-person` alone exits 0.
 - [ ] `check-pr-output.sh --pr-body` whose only listed finding is warn-stage
       exits 0 with no `pr-body/conformance` finding; with no listed finding it
       still prints the fallback and exits 1; PB4 at `shadow` releases no text,
