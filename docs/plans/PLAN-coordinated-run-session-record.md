@@ -56,7 +56,8 @@ across `--replace-terminal` (lock, retained snapshot, verified flags cleared), t
 rebind variables (`STORE`, `COORDINATION_PR`, `FOLLOW_UP`, `FOLLOW_UP_REMOVE`, `ADOPT_RUN`),
 setup's store seal, node list and handed pull request, `node-push.sh` writing heads through
 the recorder, and `coord_compute` and `coord-merge.sh` reading the record, with every merge
-pinned to the recorded head (design Decisions 1 and 2; PRD R1-R4, R6 partly, R7, R13, R19,
+pinned to the recorded head and every unverified head routed through `evaluate` (and
+`run-record.sh verified`) before `merge` is ever printed for it (design Decisions 1 and 2; PRD R1-R4, R6 partly, R7, R13, R19,
 R24).
 
 **Acceptance Criteria**:
@@ -129,6 +130,8 @@ and 6; PRD R5, R15, R17, R18, R21, R23).
   `execute:visibility` without naming the repository.
 - [ ] `lifecycle.yml`'s merge-last step and `coordination-gate-refs.sh` are unchanged and
   their tests pass against rendered bodies.
+- [ ] In the stub's request log every body post comes after the koto write of the keys it
+  shows.
 
 **Dependencies**: Blocked by Issue 1
 
@@ -142,8 +145,8 @@ and 6; PRD R5, R15, R17, R18, R21, R23).
 `session-absent` on the `session` store; otherwise find the coordination pull request,
 parse the rendering with `cb_parse`, take the node list, resolve identity (carried
 `run_id`, rendered run line, unanimous markers, minted), re-read heads live as unverified,
-set the cascade from the PLAN's presence, write `run/recovered`; route unverified heads
-through `evaluate`; add `--adopt-run`; recover pre-feature runs once; add the structure
+set the cascade from the PLAN's presence, write `run/recovered`, relying on Issue 1's
+routing of unverified heads through `evaluate`; add `--adopt-run`; recover pre-feature runs once; add the structure
 test that bans body parsing from `skills/execute/` (design Decision 4; PRD R3, R6, R8-R11,
 R22).
 
@@ -166,6 +169,8 @@ R22).
   refused.
 - [ ] A pre-feature run recovers once keeping its `run_id` and records store `github`; the
   next invocation writes no recovery marker.
+- [ ] With a node removed from the rendered index by hand and the PLAN gone, a recovered run
+  doesn't list that node (the PRD's Known Limitation, pinned).
 - [ ] The structure test fails on any non-test file under `skills/execute/` that defines or
   calls `RE_COORD_ENTRY`, `coord_index_entries`, `coord_parse_entry` or `coord_find_entry`,
   holds a pattern containing `head=`, or adds or removes a `run/` key outside

@@ -102,7 +102,7 @@ The requirements this design answers, from `docs/prds/PRD-coordinated-run-sessio
   reset (R13); the inner leg ends with the result or `execute-leg-lost:<code>` (R14);
 - a render after each listed transition and every terminal, byte-stable, posted only when
   changed, a failed post reported as `body=stale` and retried (R15); `--follow-up
-  <node>=<url> [--remove]` with four refusals and the gate held until it merges (R16); the
+  <node>=<url> [--remove]` with five refusals and the gate held until it merges (R16); the
   rendered body's exact shape, Part 1 kept byte for byte or composed from a fixed sentence,
   no self row, refusal of a private node in a public body, 60,000-byte cap (R17); a `/scope`
   republish re-rendered at the next transition (R18);
