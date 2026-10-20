@@ -206,8 +206,11 @@ for job_name, job in (wf.get("jobs") or {}).items():
                 rest = parts[2].strip() if len(parts) > 2 and parts[1] != "#" else ""
                 # A floor step allowed to fail proves nothing when it does.
                 if FLOOR_SYSTEM.search(args) and not step.get("continue-on-error"):
-                    for a in args.split():
-                        if a.startswith("-") or a == "system":
+                    # A suite named at run time ("$SUITE", ${{ matrix.suite }})
+                    # can't be read here. macos-floor.yml is the one that does
+                    # it; check-macos-floor-setup.sh checks its suites.
+                    for a in re.sub(r"\$\{\{.*?\}\}", "$", args).split():
+                        if a.startswith("-") or a == "system" or "$" in a:
                             continue
                         if a == "all":
                             floor_suites.update(s for s in registry if s != "all")

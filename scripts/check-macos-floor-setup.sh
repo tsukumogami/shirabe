@@ -1,0 +1,243 @@
+#!/usr/bin/env bash
+# check-macos-floor-setup.sh -- keep macos-floor.yml's per-suite setup the
+# same as each suite's own workflow, and list the suites it runs.
+#
+# macos-floor.yml runs every macOS floor suite on main once a day, and on any
+# ref when dispatched, because pull requests merge without waiting for their
+# macOS legs (shirabe#940). It runs each suite in a matrix job, so it has to
+# give each one the setup its own workflow's macOS leg gives it: the preflight
+# suite needs a shirabe build, koto and niwa, the plan suite a Rust toolchain.
+# Those steps are copies, and a copy drifts when someone changes the original.
+# This check fails the pull request that lets them drift.
+#
+# A floor workflow is any workflow but macos-floor.yml with a job that can run
+# on macOS and a step that can run there calling
+# scripts/check-bash-floor.sh --backend system <suite>. The rules for "can run
+# on macOS" are check-macos-floor-legs.sh's. A suite's setup is the steps of
+# that job that can run on macOS and come before its floor call, less any
+# actions/checkout step, compared by everything but their name and condition.
+#
+# In macos-floor.yml's floor job (the one whose floor call names its suite at
+# run time), a setup step with no `if` applies to every suite, and a step whose
+# `if` is `matrix.suite == '<suite>'` clauses joined by `||` applies to those
+# suites. Any other condition fails the check, since it can't be mapped to
+# suites. For every suite, the steps that apply to it must equal its own
+# setup, in order, and the floor job's env (with the workflow's) must hold
+# every variable the suite's own job sees. macos-floor.yml checks out with
+# full history for every suite, which covers a suite whose own checkout asks
+# for it, so checkout steps are left out on both sides.
+#
+# Usage:
+#   scripts/check-macos-floor-setup.sh            check macos-floor.yml
+#   scripts/check-macos-floor-setup.sh --suites   print the floor suites as a
+#                                                 JSON array (macos-floor.yml's
+#                                                 matrix)
+#
+# Environment:
+#   CHECK_MACOS_FLOOR_SETUP_DIR   the workflows directory to read (the tests);
+#                                 default .github/workflows
+#
+# Requires mikefarah yq v4 (to read the YAML) and python3.
+#
+# Exit codes:
+#   0 -- the setups match (or, with --suites, the list was printed)
+#   1 -- one or more mismatches, each printed with the suite and the steps
+#   2 -- a workflow could not be read, no floor suite was found, or a
+#        prerequisite is missing
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+WF_DIR="${CHECK_MACOS_FLOOR_SETUP_DIR:-$REPO_ROOT/.github/workflows}"
+
+MODE=check
+case "${1:-}" in
+    "") ;;
+    --suites) MODE=suites ;;
+    *) echo "usage: check-macos-floor-setup.sh [--suites]" >&2; exit 2 ;;
+esac
+
+command -v yq >/dev/null 2>&1 || { echo "check-macos-floor-setup: yq (mikefarah v4) is required" >&2; exit 2; }
+command -v python3 >/dev/null 2>&1 || { echo "check-macos-floor-setup: python3 is required" >&2; exit 2; }
+[ -d "$WF_DIR" ] || { echo "check-macos-floor-setup: no workflows directory: $WF_DIR" >&2; exit 2; }
+
+T=$(mktemp -d "${TMPDIR:-/tmp}/check-macos-floor-setup.XXXXXX") || exit 2
+trap 'rm -rf "$T"' EXIT
+
+mkdir "$T/json" || exit 2
+for wf in "$WF_DIR"/*.yml "$WF_DIR"/*.yaml; do
+    [ -f "$wf" ] || continue
+    base=$(basename "$wf")
+    if ! yq -o=json '.' "$wf" >"$T/json/$base.json" 2>"$T/yq.err"; then
+        echo "check-macos-floor-setup: could not read $wf: $(cat "$T/yq.err")" >&2
+        exit 2
+    fi
+done
+
+python3 - "$MODE" "$T/json" <<'PY'
+import json, os, re, sys
+
+mode, json_dir = sys.argv[1], sys.argv[2]
+NET = "macos-floor.yml"
+
+workflows = {}
+for name in sorted(os.listdir(json_dir)):
+    with open(os.path.join(json_dir, name)) as fh:
+        workflows[name[: -len(".json")]] = json.load(fh) or {}
+
+# The same reading of "can run on macOS" as check-macos-floor-legs.sh.
+LINUX_ONLY = re.compile(
+    r"^\s*(?:\$\{\{\s*)?(?:"
+    r"runner\.os\s*==\s*['\"]Linux['\"]"
+    r"|runner\.os\s*!=\s*['\"]macOS['\"]"
+    r"|matrix\.os\s*==\s*['\"]ubuntu[\w.-]*['\"]"
+    r"|startsWith\(\s*matrix\.os\s*,\s*['\"]ubuntu['\"]\s*\)"
+    r")(?:\s*\}\})?\s*$")
+FLOOR = re.compile(r"(?:^|&&|\|\||;)\s*(?:\./)?scripts/check-bash-floor\.sh\b([^#;&|]*)")
+FLOOR_SYSTEM = re.compile(r"--backend(?:\s+|=)system\b")
+SUITE_CLAUSE = r"matrix\.suite\s*==\s*'([a-z0-9-]+)'"
+SUITE_IF = re.compile(r"^\s*(?:\$\{\{\s*)?" + SUITE_CLAUSE
+                      + r"(?:\s*\|\|\s*" + SUITE_CLAUSE + r")*(?:\s*\}\})?\s*$")
+COMPARED = ("uses", "run", "with", "env", "shell", "working-directory",
+            "continue-on-error", "timeout-minutes")
+
+
+def macos_job(job):
+    where = json.dumps([job.get("runs-on"), (job.get("strategy") or {}).get("matrix")]).lower()
+    return "macos" in where
+
+
+def can_run_on_macos(step):
+    cond = str(step.get("if") or "")
+    return not (cond and LINUX_ONLY.match(cond))
+
+
+def floor_suites(step):
+    """The suites a step's floor calls name, or None when it makes none. A
+    suite named at run time comes back as "$"."""
+    if not step.get("run") or step.get("continue-on-error"):
+        return None
+    found = None
+    for line in re.sub(r"\\\n", " ", str(step["run"])).splitlines():
+        m = FLOOR.search(line.strip())
+        if not m or not FLOOR_SYSTEM.search(m.group(1)):
+            continue
+        found = found or []
+        for a in re.sub(r"\$\{\{.*?\}\}", "$", m.group(1)).split():
+            if a.startswith("-") or a == "system":
+                continue
+            found.append("$" if "$" in a else a)
+    return found
+
+
+def is_checkout(step):
+    return str(step.get("uses") or "").startswith("actions/checkout@")
+
+
+def norm(step):
+    return {k: step[k] for k in COMPARED if k in step}
+
+
+def env_of(wf, job):
+    env = dict(wf.get("env") or {})
+    env.update(job.get("env") or {})
+    return env
+
+
+# Every floor suite outside macos-floor.yml, with the setup its own job gives it.
+suites = {}
+problems = []
+for wf_name, wf in workflows.items():
+    if wf_name == NET:
+        continue
+    for job_name, job in (wf.get("jobs") or {}).items():
+        if not isinstance(job, dict) or not macos_job(job):
+            continue
+        setup = []
+        for step in job.get("steps") or []:
+            if not isinstance(step, dict) or not can_run_on_macos(step):
+                continue
+            named = floor_suites(step)
+            if named is None:
+                if not is_checkout(step):
+                    setup.append(norm(step))
+                continue
+            for suite in named:
+                if suite == "$" or suite == "all":
+                    continue
+                entry = {"where": f"{wf_name} job {job_name}", "setup": list(setup),
+                         "env": env_of(wf, job)}
+                prior = suites.get(suite)
+                if prior and (prior["setup"], prior["env"]) != (entry["setup"], entry["env"]):
+                    problems.append((suite, f"runs in {prior['where']} and in {entry['where']} "
+                                     "with different setups; macos-floor.yml can copy only one"))
+                suites.setdefault(suite, entry)
+
+if not suites:
+    print("check-macos-floor-setup: no workflow runs a macOS floor suite", file=sys.stderr)
+    sys.exit(2)
+
+if mode == "suites":
+    print(json.dumps(sorted(suites)))
+    sys.exit(0)
+
+net = workflows.get(NET)
+if net is None:
+    print(f"check-macos-floor-setup: {NET} is missing, so no suite runs after merge")
+    sys.exit(1)
+
+floor_jobs = []
+for job_name, job in (net.get("jobs") or {}).items():
+    if not isinstance(job, dict):
+        continue
+    for i, step in enumerate(job.get("steps") or []):
+        if isinstance(step, dict) and "$" in (floor_suites(step) or []):
+            floor_jobs.append((job_name, job, i))
+            break
+if len(floor_jobs) != 1:
+    print(f"check-macos-floor-setup: {NET} must have exactly one job whose floor call "
+          f"names its suite at run time; found {len(floor_jobs)}")
+    sys.exit(1)
+job_name, job, floor_at = floor_jobs[0]
+
+# Which suites each of the floor job's setup steps applies to.
+net_steps = []
+for step in (job.get("steps") or [])[:floor_at]:
+    if not isinstance(step, dict) or is_checkout(step):
+        continue
+    label = step.get("name") or json.dumps(norm(step))[:60]
+    cond = step.get("if")
+    if cond is None:
+        applies = set(suites)
+    else:
+        m = SUITE_IF.match(str(cond))
+        if not m:
+            problems.append(("(any)", f"step \"{label}\": condition {cond!r} is not "
+                             "matrix.suite == '<suite>' clauses joined by ||"))
+            continue
+        applies = set(re.findall(SUITE_CLAUSE, str(cond)))
+        for stale in sorted(applies - set(suites)):
+            problems.append((stale, f"step \"{label}\" names a suite no workflow runs on "
+                             "the macOS floor"))
+    net_steps.append((applies, norm(step)))
+
+net_env = env_of(net, job)
+for suite in sorted(suites):
+    own = suites[suite]
+    have = [s for applies, s in net_steps if suite in applies]
+    if have != own["setup"]:
+        problems.append((suite, f"setup differs from {own['where']}\n"
+                         f"      own:         {json.dumps(own['setup'])}\n"
+                         f"      macos-floor: {json.dumps(have)}"))
+    for key, value in sorted(own["env"].items()):
+        if net_env.get(key) != value:
+            problems.append((suite, f"{own['where']} sets env {key}={value!r}; "
+                             f"{NET} job {job_name} does not"))
+
+for suite, why in problems:
+    print(f"{NET}: suite {suite}: {why}")
+if problems:
+    sys.exit(1)
+print(f"check-macos-floor-setup: {NET} gives all {len(suites)} floor suites their own setup")
+PY

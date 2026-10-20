@@ -111,6 +111,13 @@ else
     fail "not-macos fixture (rc=$RC): $OUT"
 fi
 
+lint "$FIXTURES/runtime-suite.yml"
+if [ "$RC" -eq 0 ]; then
+    pass "a floor call naming its suite at run time (env var or matrix expression) passes"
+else
+    fail "runtime-suite fixture (rc=$RC): $OUT"
+fi
+
 lint "$FIXTURES/clean.yml" "$FIXTURES/plain-bash.yml"
 if [ "$RC" -eq 1 ] && has "plain-bash.yml" && ! has "clean.yml:"; then
     pass "several workflows at once: only the failing one is named"

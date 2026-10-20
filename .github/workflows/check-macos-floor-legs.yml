@@ -17,6 +17,9 @@ on:
       - 'scripts/check-macos-floor-legs.sh'
       - 'scripts/check-macos-floor-legs_test.sh'
       - 'scripts/check-macos-floor-legs/**'
+      - 'scripts/check-macos-floor-setup.sh'
+      - 'scripts/check-macos-floor-setup_test.sh'
+      - 'scripts/check-macos-floor-setup/**'
       # The lint reads the floor suites from this runner's --list, to check
       # each Linux step's harnesses are in the suite its macOS leg runs.
       - 'scripts/check-bash-floor.sh'
@@ -51,3 +54,11 @@ jobs:
 
       - name: Check every workflow's macOS legs
         run: bash scripts/check-macos-floor-legs.sh
+
+      # macos-floor.yml copies each suite's macOS setup from the suite's own
+      # workflow, and this fails the pull request that lets a copy drift.
+      - name: Run check-macos-floor-setup tests
+        run: bash scripts/check-macos-floor-setup_test.sh
+
+      - name: Check macos-floor.yml's setup matches each suite's workflow
+        run: bash scripts/check-macos-floor-setup.sh
