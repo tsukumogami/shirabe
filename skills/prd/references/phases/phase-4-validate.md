@@ -190,18 +190,6 @@ rm -rf -- <inputs-dir>
 stderr anything it skipped. A verdict that did not become a key counts as a
 FAIL with reason "verdict missing".
 
-Then, before processing any feedback, run the decider shadow once:
-
-```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/review-shadow/review-shadow.py" site prd --topic <topic> >/dev/null 2>&1 || true
-```
-
-It reads the PRD and the clarity and testability verdict keys itself, asks the
-decider whether each acceptance criterion answers yes or no when the user has
-opted in, and records both verdicts side by side outside the repository.
-Nothing reads its result: it changes no verdict, step or file here, and a
-failure or a missing key changes nothing either.
-
 ### 4.3 Process Feedback
 
 **Reference**: Full review details are in keys `research/phase4_*.md` in `prd-<topic>`.

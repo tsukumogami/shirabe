@@ -651,7 +651,7 @@ main() {
     targets=("$REPO_ROOT/skills")
   fi
 
-  WORK=$(mktemp -d)
+  WORK=$(mktemp -d) || usage_error "cannot make a temporary directory"
   : > "$WORK/live.raw"
   : > "$WORK/enum.keys"
 

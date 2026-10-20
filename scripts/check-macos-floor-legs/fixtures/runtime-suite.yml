@@ -1,0 +1,19 @@
+# Passes: a floor call whose suite is named at run time, through an env var
+# or a matrix expression, the way macos-floor.yml runs every suite. The lint
+# can't read the suite; check-macos-floor-setup.sh checks those.
+name: runtime-suite
+on: workflow_dispatch
+jobs:
+  floor:
+    strategy:
+      matrix:
+        suite: [demo, other]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the suite on the floor
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: scripts/check-bash-floor.sh --backend system "$SUITE"
+      - name: Run it again by expression
+        run: scripts/check-bash-floor.sh --backend system ${{ matrix.suite }}

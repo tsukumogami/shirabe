@@ -214,7 +214,7 @@ else
   fail "credential line missing: $OUT"
 fi
 HOST_AT=$(printf '%s\n' "$OUT" | grep -n '^Eval check host:' | cut -d: -f1)
-FIRST_EVAL_AT=$(printf '%s\n' "$OUT" | grep -n '^== brief' | head -n 1 | cut -d: -f1)
+FIRST_EVAL_AT=$(grep -n '^== brief' <<<"$OUT" | cut -d: -f1); FIRST_EVAL_AT=${FIRST_EVAL_AT%%$'\n'*}
 if [ -n "$HOST_AT" ] && [ -n "$FIRST_EVAL_AT" ] && [ "$HOST_AT" -lt "$FIRST_EVAL_AT" ]; then
   pass "the notice comes before any eval runs"
 else

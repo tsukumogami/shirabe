@@ -611,8 +611,8 @@ case "$PH1" in
     *'skill-session.sh" open release'*) pass "Phase 1 opens release-<topic>" ;;
     *) fail "Phase 1 does not open release-<topic>" ;;
 esac
-L_OPEN=$(printf '%s\n' "$PH1" | grep -n 'skill-session.sh" open release' | head -1 | cut -d: -f1)
-L_MEM=$(printf '%s\n' "$PH1" | grep -nF "\"$CALL\" membership" | head -1 | cut -d: -f1)
+L_OPEN=$(grep -n -m1 'skill-session.sh" open release' <<<"$PH1" | cut -d: -f1)
+L_MEM=$(grep -n -m1 -F "\"$CALL\" membership" <<<"$PH1" | cut -d: -f1)
 if [ -n "$L_OPEN" ] && [ -n "$L_MEM" ] && [ "$L_OPEN" -lt "$L_MEM" ]; then
     pass "Phase 1 opens the session before it writes the membership"
 else

@@ -118,6 +118,24 @@ expect_problem() {
     reset_copy
 }
 
+# expect_clean <label>: exit 0 on an altered copy. The copy is restored
+# afterwards.
+expect_clean() {
+    local label=$1
+    if ! altered; then
+        fail "$label" "the case altered nothing"
+        reset_copy
+        return
+    fi
+    run_check
+    if [ "$RC" = 0 ]; then
+        pass "$label"
+    else
+        fail "$label" "rc=$RC, want 0; got: $(head -n 5 <<<"$OUT" | tr '\n' '|')"
+    fi
+    reset_copy
+}
+
 G=pr-body/no-heading-in-part1
 G2=pr-body/one-separator
 RS=rs-004
@@ -220,10 +238,37 @@ expect_problem "a backstop on a review-shadow entry" "$RS: a backstop needs leve
 reg "$(sel $TK).check = {\"kind\": \"script\", \"path\": \"skills/execute/scripts/adopt-or-create-pr.sh\"}"
 expect_problem "a prose entry with a check" "$TK: a prose entry must have check.kind none"
 
+# A decider check: a koto decider-check gate's criterion. It guards nothing,
+# so check 2's guard rule doesn't apply to it, while a script gate with the
+# same fields still fails ("a gate entry guarding none" above). The lifecycle
+# fields belong to script entries only, so the converted entry drops them.
+DECIDER='{"kind": "decider", "template": "skills/work-on/koto-templates/work-on.md", "state": "review_level_check", "gate": "level_fits_facts", "criterion": "level_fits_facts"}'
+reg "$(sel $G2).check = $DECIDER | $(sel $G2).guards = [\"none\"] | $(sel $G2).withhold = \"never\"
+     | del($(sel $G2).stage, $(sel $G2).stage_since, $(sel $G2).gates, $(sel $G2).stage_backstops)"
+expect_clean "a decider entry guarding none"
+
+reg "$(sel $RS).jev = {\"state\": \"rejected\"}"
+expect_clean "a jev object on an entry"
+
+reg "$(sel $G2).check = ($DECIDER | del(.gate))"
+expect_problem "a decider check with no gate" "$G2: a decider check has no gate"
+
+reg "$(sel $G2).check = ($DECIDER | .criterion = \"\")"
+expect_problem "a decider check with an empty criterion" "$G2: a decider check has no criterion"
+
+reg "$(sel $RS).jev = []"
+expect_problem "a jev that is not an object" "$RS: jev is not an object"
+
+reg "$(sel $G2).check = {\"kind\": \"jev\"}"
+expect_problem "an unknown check kind" "check.kind \"jev\" is not script, review-shadow, decider or none"
+
 # ---------------------------------------------------------------- paths
 
 reg "$(sel $G).check.path = \"skills/work-on/scripts/no-such-check.sh\""
 expect_problem "a missing check path" "$G: check path skills/work-on/scripts/no-such-check.sh does not exist"
+
+reg "$(sel $G2).check = ($DECIDER | .template = \"skills/work-on/koto-templates/no-such.md\") | $(sel $G2).guards = [\"none\"] | $(sel $G2).withhold = \"never\""
+expect_problem "a decider check naming a missing template" "$G2: template path skills/work-on/koto-templates/no-such.md does not exist"
 
 reg "$(sel $G).fixtures = [\"scripts/no-such_test.sh\"]"
 expect_problem "a missing fixture" "$G: fixture path scripts/no-such_test.sh does not exist"

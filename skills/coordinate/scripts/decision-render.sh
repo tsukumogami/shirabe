@@ -89,7 +89,7 @@ SCOPE= NAME= REPO=
 . "$HERE/record-common.sh"
 lib_run_stamp
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/decision-render.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/decision-render.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 seal_token() { # seal_token <token>: print it sealed to this state's visit

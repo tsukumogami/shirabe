@@ -144,6 +144,8 @@ FLOOR = re.compile(POS + r"(?:\./)?scripts/check-bash-floor\.sh\b(.*)")
 FLOOR_SYSTEM = re.compile(r"--backend(?:\s+|=)system\b")
 SEPARATOR = re.compile(r"(&&|\|\||;|\||#)")
 
+# check-macos-floor-setup.sh copies LINUX_ONLY and the floor-call reading;
+# a change here belongs there too.
 # A condition limits a step to Linux only in these simple forms. Anything
 # compound or negated is read as able to run on macOS: a false alarm on an odd
 # condition is cheap, a missed macOS step is the defect this check exists for.
@@ -206,8 +208,11 @@ for job_name, job in (wf.get("jobs") or {}).items():
                 rest = parts[2].strip() if len(parts) > 2 and parts[1] != "#" else ""
                 # A floor step allowed to fail proves nothing when it does.
                 if FLOOR_SYSTEM.search(args) and not step.get("continue-on-error"):
-                    for a in args.split():
-                        if a.startswith("-") or a == "system":
+                    # A suite named at run time ("$SUITE", ${{ matrix.suite }})
+                    # can't be read here. check-macos-floor-setup.sh allows it
+                    # only in macos-floor.yml, and checks that one's suites.
+                    for a in re.sub(r"\$\{\{.*?\}\}", "$", args).split():
+                        if a.startswith("-") or a == "system" or "$" in a:
                             continue
                         if a == "all":
                             floor_suites.update(s for s in registry if s != "all")

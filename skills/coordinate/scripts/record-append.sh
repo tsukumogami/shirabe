@@ -138,7 +138,7 @@ ENTRY_BUDGET=60000
 lib_facts
 lib_run_ref || { echo "$PROG: refused: the run has no found record" >&2; exit 10; }
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-append.XXXXXX")
+WD=$(mktemp -d "${TMPDIR:-/tmp}/record-append.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 
 # The store this record's entries are on, and the session that holds them.

@@ -327,16 +327,17 @@ EVALS_PATH_RE='^skills/[^/]*/evals/'
 # third-level helper, a path built at run time) is left out. Matching errs
 # toward selecting more.
 evals_readers() {
-    local walk h1 h2
+    local walk h1 h2 pats
     walk='evals|(^|[^A-Za-z0-9_-])(find|rg|git grep)[[:space:]]|(^|[^A-Za-z0-9_-])grep([[:space:]]+-[A-Za-z]+)*[[:space:]]+-[A-Za-z]*[rR][A-Za-z]*([[:space:]]|$)|grep[[:space:]].*--recursive|ls-files|(^|[^A-Za-z0-9_-])ls[[:space:]]+-[A-Za-z]*R|(^|[^A-Za-z0-9_-])cp[[:space:]]+-[A-Za-z]*[rRa]'
     h1=$(find "$SKILL_DIR/scripts" -type f ! -name '*_test.sh' -exec grep -lF evals {} + 2>/dev/null \
         | sed 's|.*/||' | sort -u)
     h2=""
     [ -z "$h1" ] || h2=$(find "$SKILL_DIR/scripts" -type f ! -name '*_test.sh' \
         -exec grep -lF -f <(printf '%s\n' "$h1") {} + 2>/dev/null | sed 's|.*/||' | sort -u)
+    pats=$(printf '%s\n%s\n' "$h1" "$h2" | sed '/^$/d')
     {
         grep -lE "$walk" "${suites[@]}"
-        [ -z "$h1$h2" ] || printf '%s\n%s\n' "$h1" "$h2" | sed '/^$/d' | grep -lF -f - "${suites[@]}"
+        [ -z "$pats" ] || grep -lF -f - "${suites[@]}" <<<"$pats"
     } | sort -u
 }
 

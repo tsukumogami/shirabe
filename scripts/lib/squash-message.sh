@@ -67,6 +67,7 @@ PART1=$(printf '%s\n' "$PART1" | awk 'NF { if (seen && blank) print ""; print; s
 [ -n "$PART1" ] || { echo "squash-message: refused: Part 1 is empty" >&2; exit 1; }
 
 MSG=$(printf '%s\n\n%s\n' "$TITLE" "$PART1")
-BAD=$(printf '%s' "$MSG" | grep -Eio 'co-authored-by|generated with \[?claude|claude-session|https?://(www\.)?claude\.ai|anthropic\.com' | head -1)
+BADALL=$(printf '%s' "$MSG" | grep -Eio 'co-authored-by|generated with \[?claude|claude-session|https?://(www\.)?claude\.ai|anthropic\.com')
+BAD=${BADALL%%$'\n'*}
 [ -z "$BAD" ] || { echo "squash-message: refused: attribution or link in the message: $BAD" >&2; exit 1; }
 printf '%s\n' "$MSG"

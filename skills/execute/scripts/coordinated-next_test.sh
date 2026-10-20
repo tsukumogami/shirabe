@@ -114,7 +114,7 @@ expect() {
 # wrote_nothing <label> -- no write-shaped gh call and no koto context write.
 wrote_nothing() {
     if ct_calls | grep -Eq '^(pr (create|edit|ready|merge|close)|api -X|api --method)'; then
-        fail "$1 made a GitHub write: $(ct_calls | grep -E '^pr (create|edit|ready|merge|close)' | head -1)"
+        fail "$1 made a GitHub write: $(ct_calls | grep -m1 -E '^pr (create|edit|ready|merge|close)')"
     elif [ -n "$(ct_ctx_writes)" ]; then
         fail "$1 wrote koto context: $(ct_ctx_writes | head -1)"
     else

@@ -26,6 +26,14 @@ on:
       - 'scripts/check-bash-floor.sh'
       - 'scripts/bash-floor/plan.list'
 
+# A newer push to the same pull request supersedes this run, so it is
+# cancelled rather than left holding a macOS runner. The group is this
+# workflow plus the pull request; any other event groups on its own commit
+# and is never cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   test-plan-scripts:
     strategy:

@@ -187,7 +187,7 @@ command -v jq >/dev/null 2>&1 || {
     exit 0
 }
 
-WORKDIR=$(mktemp -d)
+WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 

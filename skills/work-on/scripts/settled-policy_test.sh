@@ -193,7 +193,8 @@ if tr '\n' ' ' <"$ROOT/$PHASE3" | grep -qF 'never poll or re-read a summary in a
 else
     fail "analysis does not say each summary is read once, never in a loop"
 fi
-if directive_of analysis | tr '\n' ' ' | grep -qF 'summary.md` through `koto context get`'; then
+ANALYSIS_FLAT=$(directive_of analysis | tr '\n' ' ')
+if grep -qF 'summary.md` through `koto context get`' <<<"$ANALYSIS_FLAT"; then
     pass "the analysis directive names the summary read"
 else
     fail "the analysis directive does not name the summary read"

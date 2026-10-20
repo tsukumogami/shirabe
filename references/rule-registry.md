@@ -22,9 +22,9 @@ only when its `rule_id` is a registered rule, until koto's routing-gate declarat
 
 Every entry has every field below except `backstop`, which only an eligible gate rule carries,
 `deny`, which only a rule the plugin's pre-action hook denies carries, `stage`, `stage_since`
-and `gates`, which every script-checked entry carries and no other entry does, and
-`stage_backstops`, which only a script-checked entry may carry; `fixtures`, `baseline_keys`
-and `aliases` may be empty lists.
+and `gates`, which every script-checked entry carries and no other entry does,
+`stage_backstops`, which only a script-checked entry may carry, and `jev`, which only a rule
+Jev grades carries; `fixtures`, `baseline_keys` and `aliases` may be empty lists.
 
 | Field | Meaning |
 |---|---|
@@ -32,7 +32,7 @@ and `aliases` may be empty lists.
 | `status` | `active`, or `retired` for a rule that no longer applies. A retired entry keeps its id so old records still join; its text needn't resolve and no script may print it. Entries are never deleted. |
 | `summary` | The short text an agent sees when the rule is broken. Gate scripts print it at the start of a finding's `message`, then `: ` and their own detail. One line, no control characters, no `::`. |
 | `text` | Where the rule's full text is: `path` (a repository-relative file), `first` (a substring of the rule's first line, found on exactly one line of the file) and, for a rule longer than one line, `last` (a substring of its last line, the first line at or after `first` that contains it). A review-shadow entry's `path` is its criterion's `rule_ref`; where that file states no sentence for the rule, the anchors frame the nearest passage and `notes` says so, and the criterion's question is the precise statement. |
-| `check` | What enforces it: `{"kind": "script", "path": ..., "mode": ...}`, `{"kind": "review-shadow", "criterion": "rs-NNN"}`, or `{"kind": "none"}`. |
+| `check` | What enforces it: `{"kind": "script", "path": ..., "mode": ...}`, `{"kind": "review-shadow", "criterion": "rs-NNN"}`, `{"kind": "decider", "template": ..., "state": ..., "gate": ..., "criterion": ...}` (a koto `decider-check` gate's criterion, which Jev grades), or `{"kind": "none"}`. A `decider` entry guards no protected action, so it needs no backstop to sit at `level: gate`. |
 | `fixtures` | Tests and fixture files that exercise the check. |
 | `level` | `gate` (a koto gate holds or reroutes the run on it), `shadow` (graded and recorded beside a panel, never blocking) or `prose` (stated in a skill or template, checked by nothing). |
 | `timing` | Where it applies: `<skill>:<state>` naming a `## <state>` section of that skill's koto template, or `pre-merge` (the review-shadow trial's point, before a pull request's panel). Never empty. |
@@ -47,6 +47,7 @@ and `aliases` may be empty lists.
 | `baseline_keys` | The offload baseline's source-location keys (`<path>#L<start>-L<end>` at the pinned commit in `docs/measurement/offload-baseline/template-pin.json`) where the rule's text was at that commit. Entries whose texts shared a range there share the key and say so in `notes`. An empty list says why in `notes`. |
 | `aliases` | Other codes the rule is known by, such as the validator's `PB3` or `R7`. Unique across the registry, never an id, never printed as a `rule_id`. |
 | `notes` | Why a key list is empty, which entries share a key, and anything else a reviewer needs. |
+| `jev` | Only on a rule Jev grades: a `decider` entry, or a review-shadow criterion whose observer is Jev. Its slice contract and trust record: the sources the slice is built from, the script that builds it, its budget, its completeness case, its measured size on real runs, its fixture file, its state (`rejected`, `blocked`, `untrusted` or `trusted`) and any promotion or false-pass record. `check-rule-registry.sh` checks only that it is an object; `scripts/jev-criteria/jev_criteria.py check` holds its contents to the contract `references/jev-criteria.md` describes. |
 
 `stage`, `status` and `level` answer different questions. `status` says whether the rule
 applies at all: a `status: retired` entry leaves every `RULE_IDS` line and no script prints it.

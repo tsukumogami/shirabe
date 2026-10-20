@@ -1,16 +1,15 @@
 name: Check review shadow
 
-# The review-shadow trial tool (scripts/review-shadow/) grades pull requests
-# with closed criteria beside their review panels. Every script criterion has
-# its own job, so a broken check is named by its rule id; the last job runs
-# the rest of the offline suite. Nothing here calls Jev or needs a key: the
-# Jev client is tested against a stub transport.
+# The review-shadow tool (scripts/review-shadow/) keeps the six script
+# criteria that `scan` runs and the slicers the Jev criteria contracts name.
+# Every script criterion has its own job, so a broken check is named by its
+# rule id; the last job runs the rest of the offline suite. Nothing here calls
+# Jev or needs a key.
 
 on:
   pull_request:
     paths:
       - 'scripts/review-shadow/**'
-      - 'skills/work-on/scripts/panel-scope.sh'
       - '.github/workflows/check-review-shadow.yml'
 
 permissions:

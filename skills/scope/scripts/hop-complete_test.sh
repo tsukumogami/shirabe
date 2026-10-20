@@ -14,7 +14,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
 S="$HERE/hop-complete.sh"
 T="demo"
-BASE="$(mktemp -d)"
+BASE="$(mktemp -d)" || exit 1
 trap 'rm -rf "$BASE"' EXIT
 
 # The predicate runs `shirabe validate` from PATH. A plan/v2 PLAN needs a

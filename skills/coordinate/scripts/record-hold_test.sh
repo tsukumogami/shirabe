@@ -60,7 +60,8 @@ bash "$RH" "${W_RM[@]}" --add --row-file "$T/h5.json" >/dev/null 2>"$T/err"; eq 
 
 echo "== lift =="
 bash "$RH" "${W_RM[@]}" --lift --hold go-signal --by "the human" >/dev/null 2>"$T/err"; eq "a lifted hold is lifted" 0 $?
-live | jq -r '.holds[] | select(.hold == "go-signal") | .lifted' | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z by the human$' \
+lifted=$(live | jq -r '.holds[] | select(.hold == "go-signal") | .lifted')
+grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z by the human$' <<<"$lifted" \
     && ok "  ... stamped with the minute and who" || bad "  ... stamped with the minute and who" "$(live | jq -c .holds)"
 bash "$RH" "${W_RM[@]}" --lift --hold go-signal --by "the human" >/dev/null 2>"$T/err"; eq "lifting it twice is refused" 65 $?
 bash "$RH" "${W_RM[@]}" --lift --hold after-346 --by "the human" >/dev/null 2>"$T/err"; eq "a merged condition isn't lifted by hand" 65 $?

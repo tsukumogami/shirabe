@@ -49,7 +49,7 @@ fail() { echo -e "${RED}FAIL${NC}: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 WORK=""
 cleanup() { [ -n "$WORK" ] && rm -rf "$WORK"; }
 trap cleanup EXIT
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || exit 1
 
 TAB=$(printf '\t')
 
@@ -458,6 +458,29 @@ awk -F'\t' '!($1 == "koto" && $2 == "next")' "$REPO_ROOT/skills/coordinate/requi
   > "$FIXTURE/skills/coordinate/requires.tsv"
 scan_fixture
 expect_fail "a copy of /coordinate without its koto next record fails" "'koto --no-cleanup' is used in skills/coordinate/"
+
+# ===========================================================================
+# 12. A work directory that can't be made (shirabe#926)
+# ===========================================================================
+# Unchecked, WORK was empty, every work file went to the filesystem root, and
+# the scan reported its own failed writes as findings. It's a usage error now,
+# raised before any write. The scan runs from a throwaway directory with a
+# mktemp that always fails first on PATH.
+
+mkdir -p "$WORK/mkt-bin" "$WORK/mkt-cwd"
+printf '#!/bin/sh\nexit 1\n' > "$WORK/mkt-bin/mktemp"
+chmod +x "$WORK/mkt-bin/mktemp"
+new_fixture mktemp-fails
+record gh - - always
+add_file SKILL.md 'Nothing here.'
+OUT=$(cd "$WORK/mkt-cwd" && PATH="$WORK/mkt-bin:$PATH" bash "$CHECK" --skills "$FIXTURE/skills" --routes "$ROUTES" --policy "$POLICY" 2>&1)
+RC=$?
+if [ "$RC" -eq 2 ]; then pass "a failed mktemp is a usage error (2)"; else fail "a failed mktemp exited $RC, expected 2: $OUT"; fi
+case "$OUT" in
+  *"cannot make a temporary directory"*) pass "  ... that says so" ;;
+  *) fail "  ... that says so: $OUT" ;;
+esac
+if [ -z "$(ls -A "$WORK/mkt-cwd")" ]; then pass "  ... and writes nothing where it ran"; else fail "  ... and writes nothing where it ran: $(ls -A "$WORK/mkt-cwd")"; fi
 
 # ===========================================================================
 

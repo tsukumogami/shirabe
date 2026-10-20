@@ -106,8 +106,9 @@ REPOS=$(ctx repos)
 TASKS=$(bash "$PLAN_TO_TASKS" "$PLAN" 2>/dev/null)
 node_issues() { printf '%s' "$TASKS" | jq -r --arg n "$1" '.[] | select(.name == $n) | .vars.ISSUES'; }
 index_number() { # index_number <node> -- the PR number the coordination PR's index names
-    jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .body' "$DB" \
-        | sed -n "s/^- $1 | [^:]*:[^#]*#\\([0-9]*\\) .*/\\1/p" | head -1
+    local body
+    body=$(jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .body' "$DB")
+    sed -n "/^- $1 | [^:]*:[^#]*#\\([0-9]*\\) .*/{s//\\1/p;q;}" <<<"$body"
 }
 
 ACTIONS=""
@@ -201,7 +202,7 @@ HOME_WRITES=$(printf '%s\n' "$WRITES" | grep -F -- "--repo $HOME_REPO" || true)
 if [ -z "$HOME_WRITES" ]; then
     fail "no write reached the home repository; the coordination PR was never edited"
 elif grep -Eqv '^pr (edit|ready|merge) 10 ' <<<"$HOME_WRITES"; then
-    fail "a write to the home repository other than the coordination PR's: $(printf '%s\n' "$HOME_WRITES" | grep -Ev '^pr (edit|ready|merge) 10 ' | head -1)"
+    fail "a write to the home repository other than the coordination PR's: $(grep -Ev -m1 '^pr (edit|ready|merge) 10 ' <<<"$HOME_WRITES")"
 else
     pass "every write to $HOME_REPO is an edit, ready, or merge of the coordination PR ($(printf '%s\n' "$HOME_WRITES" | grep -c .) calls)"
 fi

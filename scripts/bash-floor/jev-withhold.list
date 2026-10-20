@@ -1,0 +1,5 @@
+workflow: .github/workflows/check-jev-criteria.yml
+# The Jev withholding script. Its suite builds a scratch plugin root and
+# session directory and puts a stub koto on PATH; it needs only bash, jq, awk,
+# sed and the base tools, so every case runs on 3.2.
+scripts/jev-withhold_test.sh

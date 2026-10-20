@@ -27,7 +27,7 @@ ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
 check() { if [ "$2" = 0 ]; then ok "$1"; else bad "$1" "${3-}"; fi; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-pass-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-pass-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 # The pass makes its working directory under TMPDIR, and the planting cases
 # glob TMPDIR for it: a TMPDIR of the suite's own keeps both away from another
@@ -349,7 +349,8 @@ tick 25; pass
 t1=$(awk '$2 == "host" {print $1}' "$CASE/checks" | sed -n 1p); t2=$(awk '$2 == "host" {print $1}' "$CASE/checks" | sed -n 2p)
 [ -n "$t2" ] && [ $((t2 - t1)) -ge 30 ]; check "the second listing read comes at least 30 seconds after the first" $? "$t1 $t2"
 ctx reconcile/report.md | grep -q 'not found on this read'; check "two misses read as not found on this read" $?
-ctx reconcile/report.md | grep -A2 '^## Exists nowhere else' | grep -q 'quiet-one'; check "and the worker is listed under Exists nowhere else" $?
+exnw=$(ctx reconcile/report.md | grep -A2 '^## Exists nowhere else')
+grep -q 'quiet-one' <<<"$exnw"; check "and the worker is listed under Exists nowhere else" $?
 ctx reconcile/report.md | grep -q 'inventory could not be taken'; check "with an inventory that couldn't be taken" $?
 ctx reconcile/report.md | grep -Eiq '\b(gone|dead|lost)\b.*worker|worker.*\b(gone|dead)\b' && bad "never gone, dead or lost" "$(ctx reconcile/report.md)" || ok "never gone, dead or lost"
 new_case missed-then-found
@@ -377,7 +378,8 @@ record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_
 pass
 case "$LINE" in "reconciled "*) ok "a dispatching row with its worker found is reconciled in one pass" ;; *) bad "a dispatching row with its worker found is reconciled in one pass" "$LINE $(cat "$CASE/stderr")" ;; esac
 [ "$(cat "$CASE/settles" 2>/dev/null)" = "--session $SESSION --topic stuck --return-path message" ]; check "the pass settles it, naming the session, topic and return path" $? "$(cat "$CASE/settles" 2>/dev/null)"
-ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p' | grep -q '`stuck`: settled: record said dispatching'
+chg=$(ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p')
+grep -q '`stuck`: settled: record said dispatching' <<<"$chg"
 check "the settle is reported under Changed since then" $? "$(ctx reconcile/report.md)"
 new_case settle-leg-open
 record "[$(hold legged "" '{dispatch_status: "dispatching", branch: "", verified_head: "", return_path: "leg req1:work-on"}')]"
@@ -418,8 +420,10 @@ new_case settle-refused
 record "[$(hold stuck "" '{dispatch_status: "dispatching", branch: "", verified_head: ""}')]"
 echo '{"kind":"settle","status":"not_verified","reason":"the record refused the write","read_at":"t"}' > "$CASE/settle.out"
 pass
-ctx reconcile/report.md | sed -n '/^## Not verified/,$p' | grep -q 'the record refused the write'; check "a refused settle is listed as not verified" $? "$(ctx reconcile/report.md)"
-ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p' | grep -q 'settled' && bad "and not reported as changed" || ok "and not reported as changed"
+nv=$(ctx reconcile/report.md | sed -n '/^## Not verified/,$p')
+grep -q 'the record refused the write' <<<"$nv"; check "a refused settle is listed as not verified" $? "$(ctx reconcile/report.md)"
+chg=$(ctx reconcile/report.md | sed -n '/^## Changed since then/,/^## /p')
+grep -q 'settled' <<<"$chg" && bad "and not reported as changed" || ok "and not reported as changed"
 
 echo "== the work file =="
 new_case edited

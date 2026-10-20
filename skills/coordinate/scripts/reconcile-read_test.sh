@@ -27,7 +27,7 @@ FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n%s\n' "$1" "${2-}"; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-read-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-read-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 
 mkdir -p "$T/tree/skills/coordinate/scripts" "$T/tree/skills/execute/scripts" "$T/bin"
