@@ -14,6 +14,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
+
+
+# A local run must leave the tree clean: work-on's panels refuse a dirty one.
+sys.dont_write_bytecode = True
 
 
 def _refuse(*_a, **_k):
@@ -28,6 +33,16 @@ REPO = os.path.dirname(os.path.dirname(HERE))
 spec = importlib.util.spec_from_file_location("jev_criteria", os.path.join(HERE, "jev_criteria.py"))
 jc = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(jc)
+
+
+class _RefusingOpener:
+    def open(self, req, timeout=None):
+        raise AssertionError("a test reached the network opener: %s" % req.full_url)
+
+
+# Every test starts from an opener that refuses; a test that wants answers
+# swaps in a stub and puts this back.
+jc.build_opener = _RefusingOpener
 
 RULE = "demo/fits-facts"
 TEMPLATE = "skills/demo/koto-templates/demo.md"
@@ -679,6 +694,268 @@ class MeasureTest(unittest.TestCase):
         patches = {"a.py": "@@ -0,0 +1,2 @@\n+# why: it's needed\n+x = 1"}
         self.assertGreater(jc.pr_slice_size(rs, "pr-summary", meta, patches, {}), 0)
         self.assertGreater(jc.pr_slice_size(rs, "code-hunks", meta, patches, {}), 0)
+
+
+class StubOpener:
+    """Answers each request from `answer_for(slice)`: a (pass, fail, unclear)
+    probability triple, or a status code to fail with."""
+
+    def __init__(self, answer_for):
+        self.answer_for = answer_for
+        self.requests = []
+
+    def open(self, req, timeout=None):
+        body = json.loads(req.data)
+        self.requests.append((req, body))
+        (label, text), = body["state"].items()
+        got = self.answer_for(text)
+        if isinstance(got, int):
+            raise urllib.error.HTTPError(req.full_url, got, "stub", {}, None)
+        p, f, u = got
+        cid, = body["questions"]
+        raw = json.dumps({"model": "jev-stub-1", "answers": {cid: {
+            "type": "choice", "probabilities": {"pass": p, "fail": f, "unclear": u}}}}).encode()
+        return _Resp(raw)
+
+
+class _Resp:
+    status = 200
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    def read(self):
+        return self.raw
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+PASS, FAIL = (0.97, 0.02, 0.01), (0.02, 0.97, 0.01)
+
+
+def answers(overrides=None):
+    """Every case answered as its kind expects, except `overrides` {slice: answer}."""
+    overrides = overrides or {}
+
+    def answer_for(text):
+        if text in overrides:
+            return overrides[text]
+        return PASS if text.startswith("good") else FAIL
+    return answer_for
+
+
+class FixturesTest(unittest.TestCase):
+    def setUp(self):
+        self.t = Tree()
+        self.env = dict(os.environ)
+        os.environ["KOTO_DECIDER_API_KEY"] = "test-key"
+        os.environ.pop("KOTO_DECIDER_ENDPOINT", None)
+        self.real = jc.build_opener
+
+    def tearDown(self):
+        jc.build_opener = self.real
+        os.environ.clear()
+        os.environ.update(self.env)
+        self.t.close()
+
+    def run_fixtures(self, answer_for, *extra):
+        stub = StubOpener(answer_for)
+        jc.build_opener = lambda: stub
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                rc = jc.main(["fixtures", RULE, "--root", self.t.root] + list(extra))
+            except SystemExit as e:
+                rc = e.code
+        return rc, out.getvalue() + err.getvalue(), stub
+
+    def test_bar_met(self):
+        rc, out, stub = self.run_fixtures(answers())
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(stub.requests), 35)
+        req, body = stub.requests[0]
+        self.assertEqual(body["model"], "jev-latest")
+        self.assertEqual(list(body["state"]), ["facts"])
+        q = body["questions"]["fits"]
+        self.assertEqual((q["type"], q["instructions"]), ("choice", "Is it fine?"))
+        self.assertEqual(q["criteria"], {"pass": "It is fine.", "fail": "It is not fine.", "unclear": "Can't tell."})
+        # The key rides only in the unredirected headers, so a redirect can't carry it.
+        self.assertNotIn("Authorization", req.headers)
+        self.assertEqual(req.unredirected_hdrs.get("Authorization"), "Bearer test-key")
+        self.assertNotIn("test-key", out)
+        run = json.loads(out.strip().splitlines()[-1])["fixture_run"]
+        self.assertEqual(run["model"], "jev-stub-1")
+        self.assertEqual(run["counts"]["good"]["pass"], 10)
+        self.assertEqual(run["declared_sha256"], self.t.entry(RULE)["jev"]["declared"]["sha256"])
+        self.assertEqual(run["fixtures_blob"], jc.git_blob(self.t.root, FIXTURES))
+
+    def test_threshold_makes_a_low_win_unclear(self):
+        rc, out, _ = self.run_fixtures(answers({"good 0": (0.85, 0.1, 0.05)}))
+        self.assertEqual(rc, 0, out)
+        self.assertIn("good: pass=9 fail=0 unclear=1 error=0", out)
+
+    def test_bar_failures(self):
+        cases = {"one seeded-bad pass": {"bad 3": PASS},
+                 "one adversarial pass": {"adv 1": PASS},
+                 "seven good passes": {"good 0": FAIL, "good 1": FAIL, "good 2": FAIL},
+                 "one error": {"bad 0": 400}}
+        for name, overrides in cases.items():
+            with self.subTest(name):
+                rc, out, _ = self.run_fixtures(answers(overrides))
+                self.assertEqual(rc, 1, out)
+                self.assertIn("bar not met", out)
+
+    def test_eight_good_passes_meet_the_bar(self):
+        rc, out, _ = self.run_fixtures(answers({"good 0": FAIL, "good 1": (0.4, 0.3, 0.3)}))
+        self.assertEqual(rc, 0, out)
+
+    def test_retries_a_5xx_once(self):
+        seen = []
+
+        def answer_for(text):
+            seen.append(text)
+            if text == "good 0" and seen.count(text) == 1:
+                return 503
+            return answers()(text)
+        rc, out, stub = self.run_fixtures(answer_for)
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(stub.requests), 36)
+
+    def test_refusals_send_nothing(self):
+        def refuse(*_):
+            raise AssertionError("nothing may be sent")
+
+        with self.subTest("no key"):
+            os.environ.pop("KOTO_DECIDER_API_KEY")
+            rc, out, stub = self.run_fixtures(refuse)
+            self.assertEqual((rc, stub.requests), (2, []))
+            os.environ["KOTO_DECIDER_API_KEY"] = "test-key"
+        for url in ("http://example.com/v1", "https://user:pw@example.com/v1", "ftp://example.com"):
+            with self.subTest(url):
+                rc, out, stub = self.run_fixtures(refuse, "--endpoint", url)
+                self.assertEqual((rc, stub.requests), (2, []), out)
+        with self.subTest("an undeclared criterion"):
+            self.t.entry(RULE)["check"]["criterion"] = "missing"
+            self.t.save()
+            rc, out, stub = self.run_fixtures(refuse)
+            self.assertEqual((rc, stub.requests), (2, []), out)
+            self.t.entry(RULE)["check"]["criterion"] = "fits"
+            self.t.save()
+        with self.subTest("fixtures below the minimums"):
+            write(self.t.root, FIXTURES, "\n".join(json.dumps(c) for c in fixture_lines()[:-1]) + "\n")
+            rc, out, stub = self.run_fixtures(refuse)
+            self.assertEqual((rc, stub.requests), (2, []), out)
+
+    def test_loopback_http_is_allowed(self):
+        for url in ("http://localhost:8080/v1", "http://127.0.0.1/v1", "http://[::1]:9/v1"):
+            with self.subTest(url):
+                rc, out, _ = self.run_fixtures(answers(), "--endpoint", url)
+                self.assertEqual(rc, 0, out)
+
+    def test_every_request_failing(self):
+        rc, out, _ = self.run_fixtures(lambda _t: 500)
+        self.assertEqual(rc, 2, out)
+        self.assertIn("every request failed", out)
+
+
+def event(seq, ts, type_, **payload):
+    p = {"state": "check_state", "gate": "fits", "rule_id": "fits", "visit_seq": 1, "mode": "veto"}
+    p.update(payload)
+    return json.dumps({"seq": seq, "timestamp": ts + "T10:00:00Z", "type": type_, "payload": p})
+
+
+class FiguresTest(unittest.TestCase):
+    def setUp(self):
+        self.t = Tree()
+        self.dir = os.path.realpath(tempfile.mkdtemp(prefix="jev-figures-test."))
+
+    def tearDown(self):
+        self.t.close()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+    def log(self, name, *events, header=None):
+        head = header if header is not None else json.dumps({"schema_version": 1, "session_id": "sid-" + name})
+        write(self.dir, "%s/koto-%s.state.jsonl" % (name, name), "\n".join((head,) + events) + "\n")
+
+    def figures(self, *extra):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                rc = jc.main(["figures", RULE, "--root", self.t.root, "--sessions", self.dir] + list(extra))
+            except SystemExit as e:
+                rc = e.code
+        lines = out.getvalue().strip().splitlines()
+        live = json.loads(lines[0])["live"] if lines and lines[0].startswith("{") else None
+        return rc, live, out.getvalue() + err.getvalue()
+
+    def test_counts_by_evaluation(self):
+        self.log("a",
+                 # visit 1: a fallback written twice, then a pass: one answered evaluation
+                 event(2, "2026-10-21", "decider_fallback", reason="provider_error", input_bytes=200),
+                 event(3, "2026-10-21", "decider_fallback", reason="provider_error", input_bytes=200),
+                 event(4, "2026-10-21", "decider_checked", outcome="pass", input_bytes=210),
+                 # visit 5: over budget, answered by the agent: unanswered
+                 event(6, "2026-10-22", "decider_fallback", visit_seq=5, reason="over_budget", input_bytes=3000),
+                 event(7, "2026-10-22", "decider_fallback", visit_seq=5, reason="over_budget", input_bytes=3000),
+                 event(8, "2026-10-22", "decider_check_answered", visit_seq=5, answer="pass"),
+                 # another criterion of the same gate: ignored
+                 event(9, "2026-10-22", "decider_checked", rule_id="other", outcome="pass"),
+                 "not json")
+        rc, live, out = self.figures("--from", "2026-10-21", "--to", "2026-10-22")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((live["evaluations"], live["sessions"], live["answered"],
+                          live["over_budget_fallbacks"], live["max_input_bytes"]), (2, 1, 1, 1, 3000))
+        self.assertIn("skipped 1", out)
+
+    def test_window_edges(self):
+        self.log("a", event(2, "2026-10-20", "decider_checked", outcome="pass", visit_seq=1),
+                 event(3, "2026-10-21", "decider_checked", outcome="pass", visit_seq=2),
+                 event(4, "2026-10-25", "decider_checked", outcome="pass", visit_seq=3),
+                 event(5, "2026-10-26", "decider_checked", outcome="pass", visit_seq=4))
+        rc, live, out = self.figures("--from", "2026-10-21", "--to", "2026-10-25")
+        self.assertEqual(live["evaluations"], 2, out)
+
+    def test_default_window_follows_a_false_pass(self):
+        self.t.entry(RULE)["jev"]["false_passes"] = [{"evaluated": "2026-10-22", "recorded": "2026-10-23",
+                                                     "oracle": "review", "evidence": "https://github.com/o/r/pull/1"}]
+        self.t.save()
+        self.log("a", event(2, "2026-10-22", "decider_checked", outcome="pass", visit_seq=1),
+                 event(3, "2026-10-23", "decider_checked", outcome="pass", visit_seq=2))
+        rc, live, out = self.figures("--to", "2026-10-30")
+        self.assertEqual((live["from"], live["evaluations"]), ("2026-10-23", 1), out)
+
+    def bar_log(self, sessions, per_session, answered_total, over=0, max_bytes=300):
+        n = 0
+        for s in range(sessions):
+            evs = []
+            for v in range(per_session):
+                n += 1
+                ok = n <= answered_total
+                evs.append(event(v + 2, "2026-10-21", "decider_checked", visit_seq=v + 1,
+                                 outcome="pass" if ok else "unanswered", input_bytes=max_bytes))
+            self.log("s%d" % s, *evs)
+        for i in range(over):
+            self.log("o%d" % i, event(2, "2026-10-21", "decider_fallback", reason="over_budget", input_bytes=10))
+
+    def test_bar(self):
+        cases = [("29 evaluations", dict(sessions=1, per_session=29, answered_total=29), 1),
+                 ("4 sessions", dict(sessions=4, per_session=10, answered_total=40), 1),
+                 ("94.9% answered", dict(sessions=5, per_session=79, answered_total=374), 1),
+                 ("an over_budget fallback", dict(sessions=5, per_session=6, answered_total=30, over=1), 1),
+                 ("an input one byte over", dict(sessions=5, per_session=6, answered_total=30, max_bytes=2049), 1),
+                 ("30, 5 and 95%", dict(sessions=5, per_session=6, answered_total=30), 0),
+                 ("95% exactly", dict(sessions=5, per_session=20, answered_total=95), 0)]
+        for name, kw, want in cases:
+            with self.subTest(name):
+                shutil.rmtree(self.dir)
+                os.makedirs(self.dir)
+                self.bar_log(**kw)
+                rc, live, out = self.figures("--from", "2026-10-21", "--to", "2026-10-21", "--bar")
+                self.assertEqual(rc, want, out)
 
 
 class RepositoryTest(unittest.TestCase):

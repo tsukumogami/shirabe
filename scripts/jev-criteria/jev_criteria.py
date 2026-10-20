@@ -20,6 +20,16 @@ Subcommands:
   measure records --dir DIR --kind KIND
       Measure whole-run slice sizes on real artifacts, with no call to Jev,
       and print the figures as the `measured` JSON a contract records.
+  fixtures RULE_ID [--endpoint URL]
+      Send each fixture case to Jev under the template's declaration and
+      print counts by kind and answer and the `fixture_run` JSON. Exit 0 when
+      the fixture bar is met, 1 when not, 2 when it could not run. The key
+      comes from KOTO_DECIDER_API_KEY and is never printed.
+  figures RULE_ID --sessions DIR [--from D] [--to D] [--bar]
+      Compute the live figures from local koto session logs and print the
+      `live` JSON; with --bar exit 0 when they meet the bar, 1 when not. A
+      reference for the definitions only: the figures that decide a
+      promotion are read from koto's exported decider events.
 
 Reads templates with mikefarah yq v4 and shells out to git, gh (measure prs
 only) and scripts/rule-registry.sh (the release check). Standard library only.
@@ -39,6 +49,9 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
+import urllib.parse
+import urllib.request
 
 PROG = "jev_criteria"
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -767,6 +780,271 @@ def cmd_measure(args):
     return 0
 
 
+# --- fixtures: the Jev client -------------------------------------------------
+
+JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"  # koto's default decider endpoint
+JEV_MODEL = "jev-latest"
+JEV_TIMEOUT = 30
+LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse every redirect, so the key never reaches a second host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, "redirect refused", headers, fp)
+
+
+# Where an operating system keeps its own trust roots, for a Python that ships
+# without any (the python.org installer on macOS, until its "Install
+# Certificates" step runs): without them every send fails a certificate check.
+OS_TRUST_BUNDLES = ("/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt")
+
+
+def tls_context():
+    import ssl
+    ctx = ssl.create_default_context()
+    if ctx.get_ca_certs() or os.environ.get("SSL_CERT_FILE") or os.environ.get("SSL_CERT_DIR"):
+        return ctx
+    for path in OS_TRUST_BUNDLES:
+        if os.path.isfile(path):
+            try:
+                ctx.load_verify_locations(cafile=path)
+                break
+            except (ssl.SSLError, OSError):
+                continue
+    return ctx
+
+
+def build_opener():
+    """The network opener. Tests replace it with one that refuses every call."""
+    return urllib.request.build_opener(_NoRedirect, urllib.request.HTTPSHandler(context=tls_context()))
+
+
+def check_endpoint(url):
+    """None when `url` may receive the key, else why not: https anywhere, http
+    only to loopback, never with user information."""
+    try:
+        u = urllib.parse.urlsplit(url)
+        host = u.hostname
+    except ValueError:
+        return "the endpoint is not a URL"
+    if u.username is not None or u.password is not None or "@" in u.netloc:
+        return "the endpoint carries user information"
+    if u.scheme == "https" and host:
+        return None
+    if u.scheme == "http" and host in LOOPBACK:
+        return None
+    return "the endpoint must be https, or http to localhost, 127.0.0.1 or ::1"
+
+
+def transport(endpoint, key, opener_factory=None):
+    """send(body) -> (status, raw). The key goes in an unredirected
+    Authorization header and nowhere else; nothing from a failure is kept,
+    since an error can echo request headers."""
+    import http.client
+    opener = []
+
+    def send(body):
+        if not opener:
+            opener.append((opener_factory or build_opener)())
+        req = urllib.request.Request(endpoint, data=json.dumps(body).encode("utf-8"), method="POST",
+                                     headers={"Content-Type": "application/json"})
+        req.add_unredirected_header("Authorization", "Bearer " + key)
+        try:
+            with opener[0].open(req, timeout=JEV_TIMEOUT) as resp:
+                return resp.status, resp.read()
+        except urllib.error.HTTPError as e:
+            return e.code, b""
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException, ValueError):
+            return None, b""
+    return send
+
+
+def ask(send, body):
+    """One request, retried once on a transport failure, a 5xx or an unreadable
+    answer, as koto does. The parsed answer, or None."""
+    for _ in (1, 2):
+        status, raw = send(body)
+        if status is None:
+            continue
+        if status != 200:
+            if status < 500:
+                return None
+            continue
+        try:
+            answer = json.loads(raw)
+        except ValueError:
+            continue
+        if isinstance(answer, dict) and isinstance(answer.get("answers"), dict):
+            return answer
+    return None
+
+
+def map_answer(answer, cid, threshold):
+    """koto's threshold rule: a value wins only with the highest probability
+    and at least the threshold; anything else is unclear. `error` when the
+    answer can't be read."""
+    if answer is None:
+        return "error"
+    a = answer["answers"].get(cid)
+    probs = a.get("probabilities") if isinstance(a, dict) else None
+    if not isinstance(probs, dict) or set(probs) != {"pass", "fail", "unclear"} or \
+            not all(isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v <= 1 for v in probs.values()):
+        return "error"
+    win = max(probs, key=probs.get)
+    if win == "unclear" or probs[win] < threshold:
+        return "unclear"
+    return win
+
+
+def cmd_fixtures(args, opener_factory=None):
+    root = os.path.realpath(args.root)
+    try:
+        registry = read_json(os.path.join(root, REGISTRY))
+        e = next((e for e in registry.get("rules", []) if isinstance(e, dict) and e.get("id") == args.rule_id), None)
+        if not e or (e.get("check") or {}).get("kind") != "decider":
+            fail2("%s is not a decider entry" % args.rule_id)
+        gate, crit = find_gate(root, e["check"], {})
+        if gate is None or crit is None:
+            fail2("%s: no template declares its criterion, so there is no declaration to run" % args.rule_id)
+        rel = (e.get("jev") or {}).get("fixtures")
+        if not safe_rel(root, rel):
+            fail2("%s has no fixture file" % args.rule_id)
+        cases, problems = load_fixtures(os.path.join(root, rel))
+        if problems:
+            fail2("%s's fixtures: %s" % (rel, "; ".join(problems)))
+        blob = git_blob(root, rel)
+    except CannotRun as x:
+        fail2(str(x))
+    key = os.environ.get("KOTO_DECIDER_API_KEY", "").strip()
+    if not key or any(ord(ch) < 33 or ord(ch) == 127 for ch in key):
+        # The message names no part of the key.
+        fail2("KOTO_DECIDER_API_KEY is unset, empty or holds whitespace")
+    endpoint = args.endpoint or os.environ.get("KOTO_DECIDER_ENDPOINT") or JEV_ENDPOINT
+    why = check_endpoint(endpoint)
+    if why:
+        fail2(why)
+    decl = declaration(gate, crit)
+    cid = e["check"]["criterion"]
+    send = transport(endpoint, key, opener_factory)
+    counts = {k: {a: 0 for a in ANSWERS} for k in KINDS}
+    models = set()
+    for c in cases:
+        body = {"model": JEV_MODEL, "state": {decl["label"]: c["slice"]},
+                "questions": {cid: {"type": "choice", "instructions": decl["question"],
+                                    "criteria": {"pass": decl["pass"], "fail": decl["fail"],
+                                                 "unclear": decl["escape"]}}}}
+        answer = ask(send, body)
+        if answer is not None and isinstance(answer.get("model"), str):
+            models.add(answer["model"][:128])
+        counts[c["kind"]][map_answer(answer, cid, decl["threshold"])] += 1
+    if all(counts[k]["error"] == sum(counts[k].values()) for k in KINDS):
+        fail2("every request failed")
+    met, reasons = fixture_bar(counts)
+    run_record = {"on": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d"),
+                  "model": ",".join(sorted(models)) or "unknown",
+                  "declared_sha256": declared_sha256(decl), "fixtures_blob": blob, "counts": counts}
+    for k in KINDS:
+        print("%s: %s" % (k, " ".join("%s=%d" % (a, counts[k][a]) for a in ANSWERS)))
+    for r in reasons:
+        print("bar not met: %s" % r)
+    print(json.dumps({"fixture_run": run_record}, sort_keys=True))
+    return 0 if met else 1
+
+
+# --- figures: the reference reader --------------------------------------------
+#
+# The live figures that decide a promotion are read from koto's exported
+# decider events in a log backend. This reader computes the same figures from
+# local koto session logs; it is a fixture-tested reference for those
+# definitions, not the tool that decides a promotion.
+
+def window(jev, start, end):
+    if not start:
+        start = (jev.get("declared") or {}).get("since") or "0000-00-00"
+        fps = [fp.get("evaluated") for fp in jev.get("false_passes") or [] if isinstance(fp, dict)
+               and isinstance(fp.get("evaluated"), str) and DATE.match(fp["evaluated"])]
+        if fps:
+            after = (datetime.date.fromisoformat(max(fps)) + datetime.timedelta(days=1)).isoformat()
+            start = max(start, after)
+    if not end:
+        end = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d")
+    return start, end
+
+
+def live_figures(sessions_dir, gate, cid, start, end):
+    # An evaluation is (session, visit, gate, criterion): koto re-writes a
+    # fallback on each tick of a held visit, and those count once.
+    evals, sessions, over = {}, set(), set()
+    max_in, unread = 0, 0
+    for path in sorted(glob.glob(os.path.join(sessions_dir, "*", "koto-*.state.jsonl"))):
+        try:
+            lines = read_text(path).splitlines()
+        except OSError:
+            unread += 1
+            continue
+        try:
+            sid = json.loads(lines[0]).get("session_id") if lines else None
+        except (ValueError, AttributeError):
+            sid = None
+        if not isinstance(sid, str) or not sid:
+            unread += 1
+            continue
+        for line in lines[1:]:
+            if not line.strip():
+                continue
+            try:
+                ev = json.loads(line)
+                t, p, ts = ev["type"], ev["payload"], ev["timestamp"][:10]
+            except (ValueError, KeyError, TypeError):
+                unread += 1
+                continue
+            if t not in ("decider_checked", "decider_fallback") or not isinstance(p, dict):
+                continue
+            if p.get("gate") != gate or p.get("rule_id") != cid or not (start <= ts <= end):
+                continue
+            k = (sid, p.get("visit_seq"), gate, cid)
+            evals.setdefault(k, False)
+            sessions.add(sid)
+            if t == "decider_checked" and p.get("outcome") in ("pass", "fail"):
+                evals[k] = True
+            if t == "decider_fallback" and p.get("reason") == "over_budget":
+                over.add(k)
+            b = p.get("input_bytes")
+            if isinstance(b, int) and not isinstance(b, bool):
+                max_in = max(max_in, b)
+    return {"from": start, "to": end, "evaluations": len(evals), "sessions": len(sessions),
+            "answered": sum(1 for v in evals.values() if v), "over_budget_fallbacks": len(over),
+            "max_input_bytes": max_in}, unread
+
+
+def cmd_figures(args):
+    root = os.path.realpath(args.root)
+    try:
+        registry = read_json(os.path.join(root, REGISTRY))
+    except CannotRun as x:
+        fail2(str(x))
+    e = next((e for e in registry.get("rules", []) if isinstance(e, dict) and e.get("id") == args.rule_id), None)
+    if not e or (e.get("check") or {}).get("kind") != "decider":
+        fail2("%s is not a decider entry" % args.rule_id)
+    jev = e.get("jev") or {}
+    for d in (args.from_, args.to):
+        if d and not DATE.match(d):
+            fail2("%s is not a YYYY-MM-DD date" % d)
+    start, end = window(jev, args.from_, args.to)
+    live, unread = live_figures(args.sessions, e["check"]["gate"], e["check"]["criterion"], start, end)
+    if unread:
+        print("%s: skipped %d line(s) or log(s) it couldn't read" % (PROG, unread), file=sys.stderr)
+    print(json.dumps({"live": live}, sort_keys=True))
+    if args.bar:
+        met, reasons = live_bar(live, jev.get("budget", BUDGET_CEILING))
+        for r in reasons:
+            print("bar not met: %s" % r)
+        return 0 if met else 1
+    return 0
+
+
 # --- main ---------------------------------------------------------------------
 
 def main(argv=None):
@@ -790,11 +1068,23 @@ def main(argv=None):
     mr = msub.add_parser("records")
     mr.add_argument("--dir", required=True)
     mr.add_argument("--kind", required=True)
+    fx = sub.add_parser("fixtures", help="run a criterion's fixture file against Jev")
+    fx.add_argument("rule_id")
+    fx.add_argument("--endpoint", default="")
+    fx.add_argument("--root", default=DEFAULT_ROOT)
+    fg = sub.add_parser("figures", help="compute live figures from koto session logs (a reference reader)")
+    fg.add_argument("rule_id")
+    fg.add_argument("--sessions", required=True)
+    fg.add_argument("--from", dest="from_", default="")
+    fg.add_argument("--to", default="")
+    fg.add_argument("--bar", action="store_true")
+    fg.add_argument("--root", default=DEFAULT_ROOT)
     for p in (ms, mp, mr):
         p.add_argument("--root", default=DEFAULT_ROOT)
         p.add_argument("--budget", type=int, default=BUDGET_CEILING)
     args = ap.parse_args(argv)
-    return {"check": cmd_check, "declared-hash": cmd_declared_hash, "measure": cmd_measure}[args.cmd](args)
+    return {"check": cmd_check, "declared-hash": cmd_declared_hash, "measure": cmd_measure,
+            "fixtures": cmd_fixtures, "figures": cmd_figures}[args.cmd](args)
 
 
 if __name__ == "__main__":
