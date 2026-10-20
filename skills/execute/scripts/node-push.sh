@@ -1,50 +1,64 @@
 #!/usr/bin/env bash
 # node-push.sh — for /execute: push a coordinated node (or the coordination
-# branch) and record the pushed commit on the coordination PR's index; or,
-# in the order mode, only render the PLAN's merge order into that PR's body.
+# branch) and record the pushed commit in the run record and on the
+# coordination PR's index; or, in the order mode, only render the PLAN's merge
+# order into that PR's body.
 #
 # Three modes.
 #
-#   node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo>
-#                     --issues <ids> --home-repo <owner/repo>
-#                     --coord-branch <branch> --plan <path> [--remote <name>]
-#                     [--run-id <id>]
+#   node-push.sh node --session <S> --slug <slug> --node <node-id>
+#                     --repo <owner/repo> --issues <ids>
+#                     --home-repo <owner/repo> --coord-branch <branch>
+#                     --plan <path> [--remote <name>] [--run-id <id>]
 #
 #     Run inside the node's worktree (node-cut.sh), on impl/<slug>-<node-id>,
-#     after the node's work items committed there. It pushes,
-#     finds the node's owned PR or opens a draft one, writes the node's index
-#     line with `head=<sha>`, and renders the merge order into the body's
-#     `## Merge Order` section. --plan is the PLAN in the coordination
-#     checkout (the recorded plan_abs), since the node branch doesn't carry it.
+#     after the node's work items committed there. It pushes, finds the
+#     node's owned PR or opens a draft one, records the node's PR and pushed
+#     head in the run record (`run/node/<node>` through `run-record.sh push`),
+#     writes the node's index line with `head=<sha>`, and renders the merge
+#     order into the body's `## Merge Order` section. --plan is the PLAN in
+#     the coordination checkout (the recorded plan_abs), since the node branch
+#     doesn't carry it.
 #
-#   node-push.sh coordination --slug <slug> --home-repo <owner/repo>
-#                             --coord-branch <branch> [--remote <name>]
-#                             [--run-id <id>]
+#   node-push.sh coordination --session <S> --slug <slug>
+#                             --home-repo <owner/repo> --coord-branch <branch>
+#                             [--remote <name>] [--run-id <id>]
 #
 #     Run in the coordination checkout after the finalization cascade. It
-#     pushes the coordination branch, and writes the coordination
-#     PR's own index line (`- coordination | ... | head=<sha>`), the expected
-#     head its merge is checked against. The cascade has deleted the PLAN by
-#     then, so this mode leaves the merge-order block as it was.
+#     pushes the coordination branch, records the cascade's pushed head in
+#     the run record (`run/cascade` {verdict: pushed, head} through
+#     `run-record.sh cascade`), the expected head its merge is checked
+#     against, and writes the coordination PR's own index line
+#     (`- coordination | ... | head=<sha>`). The cascade has deleted the PLAN
+#     by then, so this mode leaves the merge-order block as it was.
 #
-#   node-push.sh order --slug <slug> --home-repo <owner/repo>
+#   node-push.sh order --session <S> --slug <slug> --home-repo <owner/repo>
 #                      --coord-branch <branch> --plan <path> [--run-id <id>]
 #
 #     Run in the coordination checkout just before the finalization cascade
-#     deletes the PLAN. It pushes nothing and records no index line: it only
+#     deletes the PLAN. It pushes nothing and records nothing: it only
 #     renders the PLAN's merge order into the coordination PR's body, so the
 #     block matches the PLAN the effort finished with even when the PLAN
 #     changed after the last node push.
 #
+# --session is the run's koto session, ^[A-Za-z0-9][A-Za-z0-9._-]*$: the
+# coordination PR is the one its run record names (run/setup's
+# coordination_pr), read by number with no lookup, and the node and
+# coordination modes write the run record there.
+#
 # --run-id is this run's identity (`run-id.sh get <session>`, ^[0-9a-f]{32}$).
-# Both lookups carry it, so a PR another run opened is never adopted, and a
-# node PR this script opens carries the run's marker line (`run-id.sh stamp`).
-# Omitted only on a hand run: the lookups then match by login and branch
-# alone, and a new node PR carries no marker.
+# The node branch's lookups carry it, so a PR another run opened is never
+# adopted, and a node PR this script opens carries the run's marker line
+# (`run-id.sh stamp`). Omitted only on a hand run: the lookups then match by
+# login and branch alone, and a new node PR carries no marker.
 #
 # The expected head of every coordinated PR is recorded here and nowhere else:
-# no other script, template, or directive writes a `head=` field. It is the
-# commit this script just pushed, never a value read off the live PR.
+# no other script, template, or directive writes a node's or the cascade's
+# pushed head, in the run record or as a `head=` field. It is the commit this
+# script just pushed, never a value read off the live PR, and it is recorded
+# only after the push succeeded: a rejected push records nothing. The run
+# record is written before the body is posted, so a failed body edit still
+# leaves the head recorded.
 #
 # The merge-order block. The node and order modes replace the body's whole
 # `## Merge Order` section with one fenced ```merge-order block listing every
@@ -80,9 +94,9 @@
 #      one, and the remote's default branch; in node mode, for a node whose
 #      repository is not the coordination PR's, refuse a worktree that
 #      shares the coordination checkout's git directory or origin URL;
-#   3. before any push, find the coordination PR (owned-pr.sh on home repo
-#      and coordination branch, carrying the `This is a **coordination PR**`
-#      marker) and, in node mode, check the node branch's PR: another run's
+#   3. before any push, read the coordination PR the run record names (open,
+#      carrying the `This is a **coordination PR**` marker; a session with no
+#      run record is 73) and, in node mode, check the node branch's PR: another run's
 #      PR there, or several, stops with 73 and nothing pushed. Before those
 #      reads, in node mode, read the home repository's and the node
 #      repository's visibility live (coord_node_visibility): a private node
@@ -105,8 +119,14 @@
 #      repository is public and the coordination PR's is private, so a public
 #      PR never points into a private one. `shirabe validate --pr-body` with
 #      --pr-title checks the body and title first, and a refusal creates
-#      nothing. Unless the index already names a PR for this node, which must
-#      then be adopted, and zero survivors refuse;
+#      nothing. Unless the run record already names a PR for this node
+#      (`run/node/<node>`), which must then be the one adopted: zero
+#      survivors, or a survivor other than the recorded PR, refuse;
+#   5b. record the pushed commit in the run record: node mode
+#      `run/node/<node>` {repo, pr, head} (`run-record.sh push`, which keeps a
+#      recorded merged_head), coordination mode `run/cascade` {verdict:
+#      pushed, head} (`run-record.sh cascade`). A refused or failed write is
+#      exit 70, and nothing is posted;
 #   6. rewrite the body's `## PR Index` line for the node (replacing it, or
 #      adding it) and keep every other line, the run marker included; in the
 #      node and order modes replace the `## Merge Order` section with the
@@ -124,11 +144,17 @@
 #   65  HEAD is detached
 #   66  the checked-out branch is not the expected one, or its name is refused
 #   67  the branch is the remote's default branch
-#   68  the push failed
+#   68  the push failed; nothing was recorded
 #   69  HEAD, read back after the push, is not a commit id
-#   72  a GitHub read failed (the caller's execute:status-read)
-#   73  no single owned PR where one must be adopted: the coordination PR, or
-#       an indexed node PR; or the node branch's PR is another run's, or one of
+#   70  the run record write failed or was refused; the push happened, and
+#       the coordination PR's body was not edited (the caller's
+#       execute:push)
+#   72  a GitHub read failed, or the run record could not be read (the
+#       caller's execute:status-read)
+#   73  no single owned PR where one must be adopted: the recorded
+#       coordination PR is not open, has lost its marker, or the session has
+#       no run record; or the node's recorded PR is not the one owned PR on
+#       its branch; or the node branch's PR is another run's, or one of
 #       several (checked before the push, so nothing is pushed then) (the
 #       caller's execute:pr-adopt)
 #   74  shirabe validate --coordination-body refused the new body, nothing
@@ -157,7 +183,7 @@
 #
 # A failed visibility read is a 72, like any other GitHub read.
 #
-# Requires: bash 3.2+, git, gh, jq, shirabe.
+# Requires: bash 3.2+, git, gh, jq, koto, shirabe.
 set -uo pipefail
 
 PROG=node-push
@@ -168,9 +194,9 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: node-push.sh node --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>] [--run-id <id>]" >&2
-    echo "       node-push.sh coordination --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>] [--run-id <id>]" >&2
-    echo "       node-push.sh order --slug <slug> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--run-id <id>]" >&2
+    echo "usage: node-push.sh node --session <koto-session> --slug <slug> --node <node-id> --repo <owner/repo> --issues <ids> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--remote <name>] [--run-id <id>]" >&2
+    echo "       node-push.sh coordination --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> [--remote <name>] [--run-id <id>]" >&2
+    echo "       node-push.sh order --session <koto-session> --slug <slug> --home-repo <owner/repo> --coord-branch <branch> --plan <path> [--run-id <id>]" >&2
     exit 64
 }
 
@@ -178,16 +204,17 @@ usage_error() {
 MODE="$1"; shift
 case "$MODE" in node|coordination|order) ;; *) usage_error "mode must be node, coordination, or order, got [$MODE]" ;; esac
 
-SLUG=""; NODE=""; REPO=""; ISSUES=""; HOME_REPO=""; CB=""; PLAN=""; REMOTE="origin"
+SESSION=""; SLUG=""; NODE=""; REPO=""; ISSUES=""; HOME_REPO=""; CB=""; PLAN=""; REMOTE="origin"
 SEEN=" "
 while [ $# -gt 0 ]; do
     case "$1" in
-        --slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote|--run-id)
+        --session|--slug|--node|--repo|--issues|--home-repo|--coord-branch|--plan|--remote|--run-id)
             [ $# -ge 2 ] || usage_error "$1 needs a value"
             case "$SEEN" in *" $1 "*) usage_error "$1 given more than once" ;; esac
             SEEN="$SEEN$1 "
             case "$1" in
                 --run-id) COORD_RUN_ID="$2" ;;
+                --session) SESSION="$2" ;;
                 --slug) SLUG="$2" ;;
                 --node) NODE="$2" ;;
                 --repo) REPO="$2" ;;
@@ -203,6 +230,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 
+case "$SEEN" in *" --session "*) ;; *) usage_error "--session is required" ;; esac
+[[ $SESSION =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || usage_error "--session [$SESSION] is not a koto session name"
 [[ $SLUG =~ $RE_COORD_SLUG ]] || usage_error "--slug [$SLUG] is outside ^[a-z0-9-]+\$"
 coord_valid_repo "$HOME_REPO" || usage_error "--home-repo [$HOME_REPO] is not a single owner/repo"
 coord_valid_branch "$CB" || usage_error "--coord-branch [$CB] is not an allowed branch name"
@@ -455,11 +484,11 @@ if [ "$MODE" = node ]; then
     fi
 fi
 
-# 3b. Ownership, before anything is pushed: the coordination PR, and in node
-# mode whose PR (if any) is already on the node branch. A branch whose PR
-# another run opened is never pushed to, so a run can't move another run's
-# PR head.
-coord_find_pr "$HOME_REPO" "$CB" open
+# 3b. Ownership, before anything is pushed: the coordination PR the run
+# record names, and in node mode whose PR (if any) is already on the node
+# branch. A branch whose PR another run opened is never pushed to, so a run
+# can't move another run's PR head.
+coord_recorded_pr "$SESSION" "$HOME_REPO" open
 case $? in
     0) ;;
     2) exit 72 ;;
@@ -468,12 +497,20 @@ esac
 BODY=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/node-push.XXXXXX") || exit 72
 trap 'rm -rf "$WORK"' EXIT
+REC_PR=""
 if [ "$MODE" = node ]; then
     coord_owned "$REPO" "$BRANCH" open >/dev/null
     case $? in
         0) ;;
         2) exit 72 ;;
         *) echo "$PROG: no single PR this run owns on $REPO $BRANCH; nothing pushed" >&2; exit 73 ;;
+    esac
+    # The PR the run record already names for this node, if any.
+    REC_NODE=$(rr_node "$SESSION" "$NODE")
+    case $? in
+        0) REC_PR=$(printf '%s' "$REC_NODE" | jq -r '.pr // ""') ;;
+        1) ;;
+        *) echo "$PROG: could not read node $NODE's run record; nothing pushed" >&2; exit 72 ;;
     esac
 fi
 
@@ -555,14 +592,9 @@ if [ "$MODE" = order ]; then
     exit 0
 fi
 
-ENTRIES=$(coord_index_entries "$BODY")
-OLD_LINE=$(coord_find_entry "$ENTRIES" "$ENTRY_NODE")
-case $? in
-    0|1) ;;
-    *) echo "$PROG: the index lists $ENTRY_NODE more than once" >&2; exit 73 ;;
-esac
-
-# 5. The PR this line indexes.
+# 5. The node's PR. The run record (REC_PR, read before the push), not the
+# body, says whether one was already recorded for this node, which must then
+# be the one adopted.
 if [ "$MODE" = node ]; then
     OUT=$(coord_owned "$REPO" "$BRANCH" open)
     case $? in
@@ -571,8 +603,8 @@ if [ "$MODE" = node ]; then
         *) exit 73 ;;
     esac
     if [ -z "$OUT" ]; then
-        if [ -n "$OLD_LINE" ]; then
-            echo "$PROG: the index names a PR for $NODE, and no owned open PR is on $REPO $BRANCH to adopt" >&2
+        if [ -n "$REC_PR" ]; then
+            echo "$PROG: the run record names #$REC_PR for $NODE, and no owned open PR is on $REPO $BRANCH to adopt" >&2
             exit 73
         fi
         REPO_JSON=""
@@ -616,8 +648,8 @@ if [ "$MODE" = node ]; then
             exit 75
         }
         OUT=$(printf '%s\n' "$OUT" | grep -E "$RE_COORD_URL" | tail -1)
-    elif [ -n "$OLD_LINE" ] && coord_parse_entry "$OLD_LINE" && [ "$E_NUM" != "${OUT##*/}" ]; then
-        echo "$PROG: the index names #$E_NUM for $NODE, not the owned PR $OUT" >&2
+    elif [ -n "$REC_PR" ] && [ "$REC_PR" != "${OUT##*/}" ]; then
+        echo "$PROG: the run record names #$REC_PR for $NODE, not the owned PR $OUT" >&2
         exit 73
     fi
     [[ $OUT =~ $RE_COORD_URL ]] || { echo "$PROG: no usable PR URL for $NODE [$OUT]" >&2; exit 72; }
@@ -631,6 +663,22 @@ else
     PR_URL="$C_URL"
 fi
 PR_NUM="${PR_URL##*/}"
+
+# 5b. The pushed commit, in the run record, before the body is posted: a
+# body edit that fails after this leaves the head recorded, and a write that
+# fails here posts nothing.
+if [ "$MODE" = node ]; then
+    jq -cn --arg k "run/node/$NODE" --arg r "$REPO" --argjson p "$PR_NUM" --arg h "$SHA" \
+        '{($k): {repo: $r, pr: $p, head: $h}}' > "$WORK/record.json"
+    RR_VERB=push
+else
+    jq -cn --arg h "$SHA" '{"run/cascade": {verdict: "pushed", head: $h}}' > "$WORK/record.json"
+    RR_VERB=cascade
+fi
+if ! "$BASH" "$COORD_SELF_DIR/run-record.sh" "$RR_VERB" --session "$SESSION" --json "$WORK/record.json" </dev/null >&2; then
+    echo "$PROG: the run record write failed; the push happened, and the coordination PR was not edited" >&2
+    exit 70
+fi
 
 # 6. The new index line, validated before it is posted.
 NEW_LINE="- $ENTRY_NODE | $ENTRY_REPO:docs/plans/PLAN-$SLUG.md#$PR_NUM | open | head=$SHA"

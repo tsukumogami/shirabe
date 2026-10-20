@@ -9,6 +9,11 @@ stateDiagram-v2
     coord_merge_confirm --> ready_awaiting_merge : gates.confirmed_merged.matches: false
     coord_setup --> coord_loop : gates.coord_branch_recorded.matches: true, gates.home_repo_recorded.matches: true, gates.repos_recorded.matches: true
     coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: blocked
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: store-mismatch
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: coordination-pr-missing
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: coordination-pr-ambiguous
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: coordination-pr-mismatch
+    coord_setup --> done_error : gates.repos_recorded.matches: false, setup_status: coordination-pr-closed
     coord_verdict --> coord_merge_confirm : gates.verdict_dirty.matches: false, gates.verdict_error.matches: false, gates.verdict_merged.matches: true, gates.verdict_paused.matches: false, gates.verdict_ready.matches: false
     coord_verdict --> ready_awaiting_merge : gates.verdict_dirty.matches: false, gates.verdict_error.matches: false, gates.verdict_merged.matches: false, gates.verdict_paused.matches: false, gates.verdict_ready.matches: true
     coord_verdict --> paused_awaiting_merges : gates.verdict_dirty.matches: false, gates.verdict_error.matches: false, gates.verdict_merged.matches: false, gates.verdict_paused.matches: true, gates.verdict_ready.matches: false

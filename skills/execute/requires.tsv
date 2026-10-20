@@ -88,9 +88,13 @@
 # `ls-remote --symref` and the explicit-refspec push in push-and-record.sh. All
 # of those fall under the gh, git, and jq records.
 #
-# The coordinated envelope (execute-coordinated.md) adds no koto verb or flag:
-# record-coord-setup.sh, record-coordination-verdict.sh, and coord-merge.sh
-# read and write context with `koto context get/add/remove`. Its scripts add gh
+# The coordinated envelope (execute-coordinated.md) adds one koto verb: the run
+# record's reader (run-record-lib.sh, sourced by coord-common.sh,
+# run-record.sh, and execute-open.sh) lists a session's `run/` keys with
+# `koto context list --prefix run/`, a coordinated-mode record below.
+# record-coord-setup.sh, record-coordination-verdict.sh, coord-merge.sh, and
+# run-record.sh otherwise read and write context with
+# `koto context get/add/remove/exists`. Its scripts add gh
 # and git calls under the same records: node-push.sh's node-PR
 # `gh pr create --draft`, the coordination body's `gh pr edit --body-file`, and
 # `gh pr ready`; node-cut.sh's `git worktree add` and `git fetch`. The
@@ -116,3 +120,4 @@ git	-	-	always
 jq	-	-	always
 python3	-	-	always
 shirabe	validate	--coordination-body,--merge-gate,--pr-body,--pr-title	mode:coordinated
+koto	context list	--prefix	mode:coordinated

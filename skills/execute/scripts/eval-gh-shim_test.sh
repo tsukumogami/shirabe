@@ -24,8 +24,9 @@
 #     merged (or left open by a stays-open merge), the merge gate's state
 #     read, no issue call, and the unlogged mark-merged hook
 #   the first action each coordinated scenario makes the real
-#     coordinated-next.sh print (skipped without a shirabe binary that has
-#     `plan outlines`, which the outline PLANs need)
+#     coordinated-next.sh print, over a run record seeded from the
+#     scenario's PLAN and its index lines (skipped without a shirabe binary
+#     that has `plan outlines`, which the outline PLANs need)
 #
 # Usage: eval-gh-shim_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -471,13 +472,67 @@ if [ -n "$SHIRABE_FOR_OUTLINES" ] && "$SHIRABE_FOR_OUTLINES" plan outlines --hel
     (cd "$COORD" && git init -q . && git -c user.email=t@example.com -c user.name=t add docs \
         && git -c user.email=t@example.com -c user.name=t commit -q -m plan && git checkout -q -b docs/coord) >/dev/null 2>&1
     SCENARIO_LOGS=""
+    # The loop reads the run record in its session, never the coordination
+    # PR's body. A koto context stub (the shim's koto answers no context
+    # list) holds the record each case seeds through run-record.sh: the
+    # run/setup coord_setup seals (the PLAN's nodes, the coordination PR #10,
+    # the write set plus any repository the index names) and, standing in for
+    # what the run recorded up to the scenario's moment, one run/node key per
+    # index line that carries a head=. @HEAD_SHA@ is the coordination
+    # checkout's commit, as the shim seeds it.
+    KSTUB="$WORK/koto-stub"
+    mkdir -p "$KSTUB"
+    cat > "$KSTUB/koto" <<'STUB'
+#!/usr/bin/env bash
+[ "$1" = context ] || exit 9
+if [ "$2" = list ]; then
+    shift 2; p=""; s=""
+    while [ $# -gt 0 ]; do case "$1" in --prefix) p="$2"; shift 2 ;; *) s="$1"; shift ;; esac; done
+    d="${KOTO_STORE:?}/$s"
+    [ -d "$d" ] || { printf '[]\n'; exit 0; }
+    (cd "$d" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) \
+        | while IFS= read -r k; do case "$k" in "$p"*) printf '%s\n' "$k" ;; esac; done | jq -R . | jq -sc .
+    exit 0
+fi
+d="${KOTO_STORE:?}/$3"
+case "$2" in
+    add) mkdir -p "$(dirname "$d/$4")"; cat > "$d/$4" ;;
+    get) [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
+    exists) [ -f "$d/$4" ] ;;
+    remove) rm -f "$d/$4" ;;
+    *) exit 9 ;;
+esac
+STUB
+    chmod +x "$KSTUB/koto"
+    COORD_HEAD=$(git -C "$COORD" rev-parse HEAD)
+    seed_record() { # seed_record <scenario> <plan-slug> <repos> -- into KOTO_STORE, session execute-eval
+        local nodes index repos doc
+        export KOTO_STORE="$WORK/kstore.$LOGN"
+        rm -rf "$KOTO_STORE"
+        nodes=$(env SHIRABE_BIN="$SHIRABE_FOR_OUTLINES" bash "$SCRIPT_DIR/../../plan/scripts/plan-to-tasks.sh" \
+            "$COORD/docs/plans/PLAN-$2.md" 2>/dev/null </dev/null \
+            | jq -c '[.[] | {name, kind: (.vars.NODE_KIND // "pr"), repo: (.vars.REPO // ""), waits_on}]') || return 1
+        index=$(jq -r '.prs[] | select(.number == 10) | .body' "$FIXTURES/scenarios/$1/gh/db.json" \
+            | jq -Rc --arg h "$COORD_HEAD" '[inputs | capture("^- (?<node>[a-z][a-z0-9-]*) \\| (?<repo>[^:]+):[^#]*#(?<pr>[0-9]+) \\| (open|merged) \\| head=(?<head>[^ ]+)$")
+                | .head |= (if . == "@HEAD_SHA@" then $h else . end) | .pr |= tonumber]')
+        repos=$(jq -cn --arg r "$3" --argjson i "$index" '($r | split(",")) + [$i[].repo] | unique')
+        doc="$WORK/record.json"
+        jq -cn --argjson n "$nodes" --argjson r "$repos" \
+            '{"run/setup": {store: "github", coordination_pr: 10, repos: $r, mode: "coordinated", nodes: $n, run_lines: {}}}' > "$doc"
+        PATH="$KSTUB:$PATH" bash "$SCRIPT_DIR/run-record.sh" setup --session execute-eval --json "$doc" >/dev/null 2>&1 || return 1
+        printf '%s' "$index" | jq -c '.[] | {("run/node/" + .node): {repo, pr, head}}' | while IFS= read -r one; do
+            printf '%s' "$one" > "$doc"
+            PATH="$KSTUB:$PATH" bash "$SCRIPT_DIR/run-record.sh" push --session execute-eval --json "$doc" >/dev/null 2>&1 || exit 1
+        done
+    }
     scenario_next() { # scenario_next <scenario> <plan-slug> <repos> <merge> <want>
         new_log
         SCENARIO_LOGS="$SCENARIO_LOGS $LOG"
         local out
-        out=$(cd "$COORD" && env EVAL_SCENARIO="$1" GH_CALL_LOG="$LOG" PATH="$SHIM_BIN:$PATH" \
+        seed_record "$1" "$2" "$3" || { fail "$1: the run record could not be seeded"; return; }
+        out=$(cd "$COORD" && env EVAL_SCENARIO="$1" GH_CALL_LOG="$LOG" PATH="$KSTUB:$SHIM_BIN:$PATH" \
             SHIRABE_BIN="$SHIRABE_FOR_OUTLINES" MERGE_CONFIRM_WAIT_SECS=0 \
-            bash "$SCRIPT_DIR/coordinated-next.sh" --plan "docs/plans/PLAN-$2.md" --slug "$2" --repos "$3" \
+            bash "$SCRIPT_DIR/coordinated-next.sh" --session execute-eval --plan "docs/plans/PLAN-$2.md" --slug "$2" --repos "$3" \
             --home-repo eval-org/eval-repo --coord-branch docs/coord --merge "$4" 2>/dev/null)
         if [ "$out" = "$5" ]; then
             pass "$1: coordinated-next.sh prints $5"
@@ -490,7 +545,11 @@ if [ -n "$SHIRABE_FOR_OUTLINES" ] && "$SHIRABE_FOR_OUTLINES" plan outlines --hel
     scenario_next coord-merge-not-observed coord-outline-test eval-org/eval-repo true dispatch:pr-eval-repo-core
     scenario_next coord-coordination-not-observed coord-outline-test eval-org/eval-repo true cascade
     scenario_next coord-head-moved coord-outline-test eval-org/eval-repo true pause
-    scenario_next coord-head-missing coord-outline-test eval-org/eval-repo true pause
+    # coord-head-missing seeds an index line with no head=, a pushed node
+    # whose head was never recorded. The run record can't hold a node PR
+    # without its pushed head, so that state has no record to seed, and the
+    # case waits for the recovery that reads a record back from the body.
+    echo "SKIP: coord-head-missing: an index line with no head= has no run record to stand for it"
     scenario_next coord-index-foreign-author coord-outline-test eval-org/eval-repo true error:execute:pr-adopt
     scenario_next coord-index-wrong-branch coord-outline-test eval-org/eval-repo true error:execute:pr-adopt
     scenario_next coord-index-out-of-set coord-outline-test eval-org/eval-repo true error:execute:write-set

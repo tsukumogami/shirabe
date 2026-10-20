@@ -3,42 +3,56 @@
 # Part of the execute skill
 #
 # coordinated-next.sh is stateless and read-only: from the PLAN's nodes, the
-# coordination PR's index, and live gh, it prints one action. Each case builds
-# a GitHub model for the eval gh shim (see coord-test-helpers.sh), runs the
+# run record in the session, and live gh, it prints one action. Each case
+# seeds a run record through the test helper (run-record.sh itself), builds a
+# GitHub model for the eval gh shim (see coord-test-helpers.sh), runs the
 # script, and asserts the one line it printed, and that it wrote nothing: no
-# gh call that edits, readies, creates, merges, or closes, and no koto call.
+# gh call that edits, readies, creates, merges, or closes, and no koto
+# context write.
 #
 # Cases:
-#   usage: missing --merge, --merge yes, a bad slug
-#   error:execute:pr-adopt   no coordination PR
-#   error:execute:status-read a failing gh read
+#   usage: missing --merge, --merge yes, a bad slug, a missing --session
+#   error:execute:status-read no run record; the recorded coordination PR
+#                            unreadable; a failing gh read
 #   done:merged              the coordination PR is MERGED
-#   dispatch:<root>          nothing indexed yet
+#   dispatch:<root>          nothing recorded yet; a body index line alone
+#                            records nothing
 #   evaluate:<root>          a draft root PR with passing checks
 #   error:execute:ci         a draft root PR with a failing check
 #   evaluate:<root>          a ready root PR whose checks are pending
-#   merge:<root>             a ready, mergeable root with --merge true
+#   merge:<root>             a ready, mergeable root with --merge true, at the
+#                            recorded head; a body index head= that differs
+#                            changes nothing
 #   pause                    the same root with --merge false (its successor
 #                            waits); never a merge action
 #   done:ready-awaiting-merge two independent mergeable roots, --merge false
 #   dispatch:<successor>     the root is MERGED
 #   pause                    the root's merge was called (merge-not-observed)
 #                            and it is still OPEN: its successor stays blocked
-#   pause                    a head that moved: the verdict is awaiting
-#   cascade                  every node MERGED, the PLAN still present
-#   evaluate-coordination    the PLAN gone, the coordination PR a draft
-#   merge-coordination       the coordination PR ready and mergeable, --merge
+#   pause / ready            a recorded head the live PR moved off: the
+#                            verdict is awaiting, and a second run prints the
+#                            same line (never a loop)
+#   cascade                  every node MERGED, the PLAN still present; the
+#                            PLAN gone with no run/cascade; the PLAN gone
+#                            with a failed cascade
+#   evaluate-coordination    the PLAN gone, the cascade pushed, the
+#                            coordination PR a draft: every node from
+#                            run/setup is read; one with no run/node key is
+#                            status-read
+#   merge-coordination       the coordination PR ready and mergeable, --merge,
+#                            at run/cascade's head; a head that moved is
+#                            ready-awaiting-merge
 #   done:ready-awaiting-merge the coordination merge was not observed
-#   error:execute:pr-adopt   an index entry by another author
-#   error:execute:pr-adopt   an index entry on the wrong head branch
-#   error:execute:write-set  an index entry naming a repository outside repos
-#   error:execute:write-set  the coordination entry naming a repository other
-#                            than --home-repo, even one in --repos
+#   error:execute:pr-adopt   a recorded PR by another author, another run, on
+#                            the wrong head branch, or not the owned PR; a
+#                            record naming another repository than the PLAN
+#   error:execute:write-set  a recorded node naming a repository outside
+#                            repos; a PLAN node outside repos
 #   home outside --repos     a coordination PR in acme/repo-a over a PLAN whose
 #                            nodes are all in acme/repo-b: dispatch, evaluate,
 #                            cascade, evaluate-coordination, merge-coordination,
-#                            done:merged, with the coordination entry naming
-#                            the home; a node entry naming the home is refused
+#                            done:merged; a node recorded in the home is
+#                            refused
 #   first-match order        an error beats a merge; a merge beats a dispatch
 #
 # Usage: coordinated-next_test.sh
@@ -60,18 +74,22 @@ command -v git >/dev/null 2>&1 || { echo "FAIL: git is required" >&2; exit 1; }
 # shellcheck source=coord-test-helpers.sh
 . "$SCRIPT_DIR/coord-test-helpers.sh"
 
+S=execute-t
 PLANDIR="$CT_WORK/plan"
 ct_plan "$PLANDIR"
 PLAN2DIR="$CT_WORK/plan2"
 ct_plan "$PLAN2DIR" two-repo
 GONEDIR="$CT_WORK/gone"
 mkdir -p "$GONEDIR"
+NODES2=$(ct_nodes_of "$PLAN2DIR/docs/plans/PLAN-t.md")
 
-# run_next <dir> [args...] -- run from <dir> with the standard arguments.
+# run_next <dir> [args...] -- run from <dir> with the standard arguments. The
+# koto call log starts empty, so what the run itself called is what's there.
 run_next() {
     local dir="$1"
     shift
-    (cd "$dir" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" \
+    : > "$CASE/koto-calls.log"
+    (cd "$dir" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" \
         --repos "acme/repo-a,acme/repo-b" --home-repo "$CT_REPO" --coord-branch "$CT_CB" "$@" 2>"$CASE/stderr")
 }
 
@@ -85,12 +103,12 @@ expect() {
     fi
 }
 
-# wrote_nothing <label> -- no write-shaped gh call and no koto call.
+# wrote_nothing <label> -- no write-shaped gh call and no koto context write.
 wrote_nothing() {
     if ct_calls | grep -Eq '^(pr (create|edit|ready|merge|close)|api -X|api --method)'; then
         fail "$1 made a GitHub write: $(ct_calls | grep -E '^pr (create|edit|ready|merge|close)' | head -1)"
-    elif [ -s "$CASE/koto-calls.log" ]; then
-        fail "$1 called koto"
+    elif [ -n "$(ct_ctx_writes)" ]; then
+        fail "$1 wrote koto context: $(ct_ctx_writes | head -1)"
     else
         pass "$1 wrote nothing"
     fi
@@ -100,7 +118,7 @@ wrote_nothing() {
 
 ct_case usage
 ct_write_db
-out=$(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug t --repos "$CT_REPO" \
+out=$(cd "$PLANDIR" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug t --repos "$CT_REPO" \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" 2>/dev/null); rc=$?
 if [ "$rc" -eq 64 ] && [ -z "$out" ] && [ ! -s "$GH_CALL_LOG" ]; then
     pass "a missing --merge is a usage error with no output and no gh call"
@@ -109,7 +127,7 @@ else
 fi
 for bad in "--merge yes" "--merge TRUE" "--merge"; do
     # shellcheck disable=SC2086
-    out=$(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug t --repos "$CT_REPO" \
+    out=$(cd "$PLANDIR" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug t --repos "$CT_REPO" \
         --home-repo "$CT_REPO" --coord-branch "$CT_CB" $bad 2>/dev/null); rc=$?
     if [ "$rc" -eq 64 ] && [ -z "$out" ]; then
         pass "[$bad] is a usage error"
@@ -117,21 +135,36 @@ for bad in "--merge yes" "--merge TRUE" "--merge"; do
         fail "[$bad]: rc=$rc out=[$out]"
     fi
 done
-out=$(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug 'T;x' --repos "$CT_REPO" \
+out=$(cd "$PLANDIR" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug 'T;x' --repos "$CT_REPO" \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge false 2>/dev/null); rc=$?
 [ "$rc" -eq 64 ] && pass "a slug outside ^[a-z0-9-]+\$ is a usage error" || fail "bad slug: rc=$rc"
+out=$(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug t --repos "$CT_REPO" \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge false 2>/dev/null); rc=$?
+[ "$rc" -eq 64 ] && [ -z "$out" ] && pass "a missing --session is a usage error" || fail "missing --session: rc=$rc out=[$out]"
 [ -s "$GH_CALL_LOG" ] && fail "a usage error made a gh call" || pass "no usage error made a gh call"
 
 # --- the coordination PR ----------------------------------------------------------
 
-ct_case no-coord
+ct_case no-record
 ct_write_db
-out=$(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug t --repos "$CT_REPO" \
-    --home-repo "$CT_REPO" --coord-branch docs/elsewhere --merge false 2>"$CASE/stderr")
-expect "no owned coordination PR" "error:execute:pr-adopt" "$out"
+out=$(run_next "$PLANDIR" --merge false)
+expect "no run record in the session" "error:execute:status-read" "$out"
+if ct_calls | grep -q '^pr list'; then
+    fail "with no record the coordination PR was looked up"
+else
+    pass "with no record no ownership lookup of the coordination PR is made"
+fi
+
+ct_case recorded-unreadable
+ct_record_setup github 99
+ct_write_db
+out=$(run_next "$PLANDIR" --merge false)
+expect "the recorded coordination PR can't be read" "error:execute:status-read" "$out"
 
 ct_case read-fails
-CT_LOGIN=null
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
 ct_write_db
 # A login the ownership filter can't use is a failed read.
 jq '.login = null' "$CASE/scenario/gh/db.json" > "$CASE/db" && mv "$CASE/db" "$CASE/scenario/gh/db.json"
@@ -139,21 +172,37 @@ out=$(run_next "$PLANDIR" --merge false)
 expect "a gh read failure" "error:execute:status-read" "$out"
 
 ct_case coord-merged
+ct_record_setup
 CT_COORD_STATE=MERGED
 ct_write_db
 out=$(run_next "$PLANDIR" --merge false)
 expect "the coordination PR is MERGED" "done:merged" "$out"
+if ct_calls | grep -q '^pr list'; then
+    fail "the coordination PR was found by a lookup, not by its recorded number"
+else
+    pass "the coordination PR is read by its recorded number, with no lookup"
+fi
 
 # --- nodes ------------------------------------------------------------------------
 
 ct_case fresh
+ct_record_setup
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
-expect "nothing indexed" "dispatch:$CT_CORE" "$out"
+expect "nothing recorded" "dispatch:$CT_CORE" "$out"
 wrote_nothing "the fresh case"
 
-ct_case root-draft
+ct_case index-only
+ct_record_setup
 ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "a body index line with no run/node key records nothing" "dispatch:$CT_CORE" "$out"
+
+ct_case root-draft
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true'
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
@@ -161,29 +210,42 @@ expect "a draft root PR with passing checks" "evaluate:$CT_CORE" "$out"
 wrote_nothing "the evaluate case"
 
 ct_case root-draft-failing
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'isDraft=true' 'checks=[{"name":"build","bucket":"fail"}]'
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
 expect "a draft root PR with a failing check" "error:execute:ci" "$out"
 
 ct_case root-pending
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'checks=[{"name":"build","bucket":"pending"}]'
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
 expect "a ready root PR with a pending check" "evaluate:$CT_CORE" "$out"
 
 ct_case root-mergeable
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
-expect "a mergeable root with --merge true" "merge:$CT_CORE" "$out"
+expect "a carried head the readiness check passes, with --merge true" "merge:$CT_CORE" "$out"
 wrote_nothing "the merge case"
 
+ct_case body-head-edited
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_OTHER"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "a body index head= that differs from the record changes nothing" "merge:$CT_CORE" "$out"
+
 ct_case root-mergeable-no-merge
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
 ct_write_db
 out=$(run_next "$PLANDIR" --merge false)
@@ -191,8 +253,9 @@ expect "the same root with --merge false (its successor waits)" "pause" "$out"
 case "$out" in merge*) fail "--merge false printed a merge action" ;; *) pass "--merge false printed no merge action" ;; esac
 
 ct_case two-roots-no-merge
-ct_index_line pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
-ct_index_line pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
 ct_pr acme/repo-a 11 impl/t-pr-repo-a-default
 ct_pr acme/repo-b 21 impl/t-pr-repo-b-default
 ct_write_db
@@ -200,8 +263,9 @@ out=$(run_next "$PLAN2DIR" --merge false)
 expect "two independent mergeable roots, --merge false" "done:ready-awaiting-merge" "$out"
 
 ct_case two-roots-merge
-ct_index_line pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
-ct_index_line pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
 ct_pr acme/repo-a 11 impl/t-pr-repo-a-default
 ct_pr acme/repo-b 21 impl/t-pr-repo-b-default
 ct_write_db
@@ -209,69 +273,97 @@ out=$(run_next "$PLAN2DIR" --merge true)
 expect "two roots in two repositories, --merge true" "merge:pr-repo-a-default" "$out"
 
 ct_case root-merged
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
 expect "the root is MERGED" "dispatch:$CT_CLI" "$out"
 
 ct_case merge-called-not-merged
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true --attempts "$CT_CORE:merge-not-observed")
 expect "a predecessor whose merge was called but is still OPEN" "pause" "$out"
 
+# A carried head the readiness check refuses: reported, and the run stops
+# there on every pass, never looping back into a merge.
 ct_case head-moved
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_OTHER"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_OTHER"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
-expect "an index head= that differs from the live head" "pause" "$out"
+expect "a recorded head the live PR moved off (its successor waits)" "pause" "$out"
+out=$(run_next "$PLANDIR" --merge true)
+expect "the same recorded head on a second run" "pause" "$out"
+ct_calls | grep -q '^pr merge' && fail "a moved head reached a merge call" || pass "a moved head made no merge call"
 
-ct_case no-head
-ct_index_line "$CT_CORE" "$CT_REPO" 11
-ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_case head-moved-ready
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-a-default acme/repo-a 11 "$CT_OTHER"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_OTHER"
+ct_pr acme/repo-a 11 impl/t-pr-repo-a-default
+ct_pr acme/repo-b 21 impl/t-pr-repo-b-default
 ct_write_db
-out=$(run_next "$PLANDIR" --merge true)
-expect "an index entry with no head= field" "pause" "$out"
+out=$(run_next "$PLAN2DIR" --merge true)
+expect "two roots whose recorded heads both moved" "done:ready-awaiting-merge" "$out"
+out=$(run_next "$PLAN2DIR" --merge true)
+expect "the same, on a second run" "done:ready-awaiting-merge" "$out"
 
 # --- after every node merged ------------------------------------------------------
 
-ct_case cascade
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
-ct_index_line "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
-ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
-ct_pr "$CT_REPO" 12 "impl/t-$CT_CLI" 'state="MERGED"'
+# both_merged <case> -- a case with both default nodes recorded and MERGED.
+both_merged() {
+    ct_case "$1"
+    ct_record_setup
+    ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+    ct_record_node "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
+    ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
+    ct_pr "$CT_REPO" 12 "impl/t-$CT_CLI" 'state="MERGED"'
+}
+
+both_merged cascade
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
 expect "every node MERGED, the PLAN present" "cascade" "$out"
 
-ct_case evaluate-coordination
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
-ct_index_line "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
-ct_index_line coordination "$CT_REPO" 10 "$CT_HEAD"
-ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
-ct_pr "$CT_REPO" 12 "impl/t-$CT_CLI" 'state="MERGED"'
+both_merged evaluate-coordination
+ct_record_cascade pushed "$CT_HEAD"
 ct_write_db
 out=$(run_next "$GONEDIR" --merge true)
-expect "the PLAN gone, the coordination PR a draft" "evaluate-coordination" "$out"
+expect "the PLAN gone, the cascade pushed, the coordination PR a draft" "evaluate-coordination" "$out"
+if ct_calls | grep -q "pr view 11 --repo $CT_REPO" && ct_calls | grep -q "pr view 12 --repo $CT_REPO"; then
+    pass "with the PLAN gone, every node of run/setup's list was read"
+else
+    fail "with the PLAN gone, not every node was read: $(ct_calls | grep '^pr view' | tr '\n' ';')"
+fi
+wrote_nothing "the evaluate-coordination case"
 
-ct_case gone-no-record
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
-ct_index_line "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
+ct_case gone-node-unrecorded
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_cascade pushed "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
-ct_pr "$CT_REPO" 12 "impl/t-$CT_CLI" 'state="MERGED"'
 ct_write_db
 out=$(run_next "$GONEDIR" --merge true)
-expect "the PLAN gone, but no coordination head= record" "cascade" "$out"
+expect "the PLAN gone and a run/setup node with no run/node key" "error:execute:status-read" "$out"
 
-ct_case merge-coordination
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
-ct_index_line "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
-ct_index_line coordination "$CT_REPO" 10 "$CT_HEAD"
-ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
-ct_pr "$CT_REPO" 12 "impl/t-$CT_CLI" 'state="MERGED"'
+both_merged gone-no-cascade
+ct_write_db
+out=$(run_next "$GONEDIR" --merge true)
+expect "the PLAN gone, but no run/cascade (not-run)" "cascade" "$out"
+
+both_merged gone-cascade-failed
+ct_record_cascade failed execute:cascade
+ct_write_db
+out=$(run_next "$GONEDIR" --merge true)
+expect "the PLAN gone, a failed cascade: the cascade runs again" "cascade" "$out"
+
+both_merged merge-coordination
+ct_record_cascade pushed "$CT_HEAD"
 CT_COORD_DRAFT=false
 ct_write_db
 out=$(run_next "$GONEDIR" --merge true)
@@ -281,28 +373,38 @@ expect "the same, --merge false" "done:ready-awaiting-merge" "$out"
 out=$(run_next "$GONEDIR" --merge true --attempts "coordination:merge-not-observed")
 expect "the coordination merge was not observed" "done:ready-awaiting-merge" "$out"
 
-# --- index control ----------------------------------------------------------------
+both_merged coordination-head-moved
+ct_record_cascade pushed "$CT_OTHER"
+CT_COORD_DRAFT=false
+ct_write_db
+out=$(run_next "$GONEDIR" --merge true)
+expect "the coordination PR moved off run/cascade's head" "done:ready-awaiting-merge" "$out"
+
+# --- ownership and the write set --------------------------------------------------
 
 ct_case foreign-author
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'author="someone-else"'
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
-expect "an index entry authored by someone else" "error:execute:pr-adopt" "$out"
+expect "a recorded PR authored by someone else" "error:execute:pr-adopt" "$out"
 wrote_nothing "the foreign-author case"
 
 MINE=0123456789abcdef0123456789abcdef
 OTHER=fedcba9876543210fedcba9876543210
 ct_case foreign-run
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "body=\"x\\n<!-- shirabe-run: $OTHER -->\""
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true --run-id "$MINE")
-expect "--run-id: an index entry whose PR another run opened" "error:execute:pr-adopt" "$out"
+expect "--run-id: a recorded PR another run opened" "error:execute:pr-adopt" "$out"
 wrote_nothing "the foreign-run case"
 
 ct_case own-run
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "body=\"x\\n<!-- shirabe-run: $MINE -->\""
 ct_write_db
 out_own=$(run_next "$PLANDIR" --merge true --run-id "$MINE")
@@ -311,24 +413,43 @@ expect "--run-id: the run's own marked node PR reads as it does by hand" "$out_h
 
 ct_case bad-run-id
 ct_write_db
-(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" --repos "acme/repo-a,acme/repo-b" \
+(cd "$PLANDIR" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" --repos "acme/repo-a,acme/repo-b" \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge false --run-id XYZ >/dev/null 2>&1)
 [ $? -eq 64 ] && pass "a malformed --run-id is a usage error" || fail "a malformed --run-id was accepted"
 
 ct_case wrong-branch
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "feature/elsewhere"
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
-expect "an index entry whose head branch is not impl/<slug>-<node-id>" "error:execute:pr-adopt" "$out"
+expect "a recorded PR whose head branch is not impl/<slug>-<node-id>" "error:execute:pr-adopt" "$out"
 
-ct_case out-of-set
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
-ct_index_line pr-stranger-default acme/stranger 31 "$CT_HEAD"
+ct_case not-the-owned-pr
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 12 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
 ct_write_db
 out=$(run_next "$PLANDIR" --merge true)
-expect "an index entry naming a repository outside the write set" "error:execute:write-set" "$out"
+expect "a recorded PR number that isn't the owned PR on the branch" "error:execute:pr-adopt" "$out"
+
+ct_case record-repo-differs
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-a-default acme/repo-b 11 "$CT_HEAD"
+ct_pr acme/repo-b 11 impl/t-pr-repo-a-default
+ct_write_db
+out=$(run_next "$PLAN2DIR" --merge true)
+expect "a record naming another repository than the PLAN's for the node" "error:execute:pr-adopt" "$out"
+
+ct_case out-of-set
+CT_RECORD_REPOS="acme/repo-a,acme/stranger"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_node pr-stranger-default acme/stranger 31 "$CT_HEAD"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "a recorded node naming a repository outside the write set" "error:execute:write-set" "$out"
 if ct_calls | grep -q 'acme/stranger'; then
     fail "the out-of-set repository was read"
 else
@@ -336,92 +457,81 @@ else
 fi
 
 ct_case out-of-set-plan
+ct_record_setup
 ct_write_db
-out=$(cd "$PLANDIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug t --repos "acme/repo-a" \
+out=$(cd "$PLANDIR" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug t --repos "acme/repo-a" \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge true 2>"$CASE/stderr")
 expect "a PLAN whose nodes are all in --repos (control)" "dispatch:$CT_CORE" "$out"
-out=$(cd "$PLAN2DIR" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug t --repos "acme/repo-a" \
+out=$(cd "$PLAN2DIR" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug t --repos "acme/repo-a" \
     --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge true 2>"$CASE/stderr")
 expect "a PLAN **Repo** outside --repos" "error:execute:write-set" "$out"
-
-ct_case coord-entry-elsewhere
-ct_index_line pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
-ct_index_line pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
-ct_index_line coordination acme/repo-b 10 "$CT_HEAD"
-ct_pr acme/repo-a 11 impl/t-pr-repo-a-default 'state="MERGED"'
-ct_pr acme/repo-b 21 impl/t-pr-repo-b-default 'state="MERGED"'
-ct_write_db
-out=$(run_next "$GONEDIR" --merge true)
-expect "a coordination entry naming a repository in --repos but not --home-repo" "error:execute:write-set" "$out"
 
 # --- the coordination PR's home outside the write set -------------------------------
 #
 # The coordination PR (#10) lives in acme/repo-a, and every node of the PLAN
 # lands in acme/repo-b: --repos is acme/repo-b alone. The loop drives the nodes
-# and then the coordination PR, whose own index entry names the home.
+# and then the coordination PR, which the record holds by number.
 
 REMOTEDIR="$CT_WORK/remote"
 ct_plan "$REMOTEDIR" remote
+NODESR=$(ct_nodes_of "$REMOTEDIR/docs/plans/PLAN-t.md")
 RCORE=pr-repo-b-core
 RCLI=pr-repo-b-cli
 run_remote() {
     local dir="$1"
     shift
-    (cd "$dir" && bash "$NEXT" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" \
+    : > "$CASE/koto-calls.log"
+    (cd "$dir" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" \
         --repos acme/repo-b --home-repo "$CT_REPO" --coord-branch "$CT_CB" "$@" 2>"$CASE/stderr")
 }
 
 ct_case home-outside-fresh
+ct_record_setup github 10 "$NODESR"
 ct_write_db
 out=$(run_remote "$REMOTEDIR" --merge true)
-expect "home outside --repos, nothing indexed" "dispatch:$RCORE" "$out"
+expect "home outside --repos, nothing recorded" "dispatch:$RCORE" "$out"
 wrote_nothing "the home-outside dispatch"
 
 ct_case home-outside-draft
-ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
+ct_record_setup github 10 "$NODESR"
+ct_record_node "$RCORE" acme/repo-b 21 "$CT_HEAD"
 ct_pr acme/repo-b 21 "impl/t-$RCORE" 'isDraft=true'
 ct_write_db
 out=$(run_remote "$REMOTEDIR" --merge true)
 expect "home outside --repos, a draft node PR" "evaluate:$RCORE" "$out"
 
 ct_case home-outside-merge-node
-ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
+ct_record_setup github 10 "$NODESR"
+ct_record_node "$RCORE" acme/repo-b 21 "$CT_HEAD"
 ct_pr acme/repo-b 21 "impl/t-$RCORE"
 ct_write_db
 out=$(run_remote "$REMOTEDIR" --merge true)
 expect "home outside --repos, a mergeable node PR" "merge:$RCORE" "$out"
 
-ct_case home-outside-cascade
-ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
-ct_index_line "$RCLI" acme/repo-b 22 "$CT_HEAD"
-ct_pr acme/repo-b 21 "impl/t-$RCORE" 'state="MERGED"'
-ct_pr acme/repo-b 22 "impl/t-$RCLI" 'state="MERGED"'
+# home_outside_done <case> -- both remote nodes recorded and MERGED, in a fresh
+# case (the shim seeds its model once per case).
+home_outside_done() {
+    ct_case "$1"
+    ct_record_setup github 10 "$NODESR"
+    ct_record_node "$RCORE" acme/repo-b 21 "$CT_HEAD"
+    ct_record_node "$RCLI" acme/repo-b 22 "$CT_HEAD"
+    ct_pr acme/repo-b 21 "impl/t-$RCORE" 'state="MERGED"'
+    ct_pr acme/repo-b 22 "impl/t-$RCLI" 'state="MERGED"'
+}
+home_outside_done home-outside-cascade
 ct_write_db
 out=$(run_remote "$REMOTEDIR" --merge true)
 expect "home outside --repos, every node MERGED" "cascade" "$out"
 
-ct_case home-outside-coordination
-ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
-ct_index_line "$RCLI" acme/repo-b 22 "$CT_HEAD"
-ct_index_line coordination "$CT_REPO" 10 "$CT_HEAD"
-ct_pr acme/repo-b 21 "impl/t-$RCORE" 'state="MERGED"'
-ct_pr acme/repo-b 22 "impl/t-$RCLI" 'state="MERGED"'
+home_outside_done home-outside-coordination
+ct_record_cascade pushed "$CT_HEAD"
 ct_write_db
 out=$(run_remote "$GONEDIR" --merge true)
-expect "home outside --repos, the coordination entry naming the home, a draft" "evaluate-coordination" "$out"
+expect "home outside --repos, the cascade pushed, a draft" "evaluate-coordination" "$out"
 wrote_nothing "the home-outside evaluate-coordination"
 
-# home_outside_done <case> -- the same index, both nodes MERGED, in a fresh
-# case (the shim seeds its model once per case).
-home_outside_done() {
-    ct_case "$1"
-    ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
-    ct_index_line "$RCLI" acme/repo-b 22 "$CT_HEAD"
-    ct_index_line coordination "$CT_REPO" 10 "$CT_HEAD"
-    ct_pr acme/repo-b 21 "impl/t-$RCORE" 'state="MERGED"'
-    ct_pr acme/repo-b 22 "impl/t-$RCLI" 'state="MERGED"'
-}
 home_outside_done home-outside-coord-ready
+ct_record_cascade pushed "$CT_HEAD"
 CT_COORD_DRAFT=false
 ct_write_db
 out=$(run_remote "$GONEDIR" --merge true)
@@ -433,27 +543,20 @@ out=$(run_remote "$GONEDIR" --merge true)
 expect "home outside --repos, the coordination PR MERGED" "done:merged" "$out"
 
 ct_case home-outside-node-in-home
-ct_index_line "$RCORE" "$CT_REPO" 21 "$CT_HEAD"
+CT_RECORD_REPOS="acme/repo-a,acme/repo-b"
+ct_record_setup github 10 "$NODESR"
+ct_record_node "$RCORE" "$CT_REPO" 21 "$CT_HEAD"
 ct_pr "$CT_REPO" 21 "impl/t-$RCORE"
 ct_write_db
 out=$(run_remote "$REMOTEDIR" --merge true)
-expect "home outside --repos, a node entry naming the home" "error:execute:write-set" "$out"
-
-ct_case home-outside-coord-elsewhere
-ct_index_line "$RCORE" acme/repo-b 21 "$CT_HEAD"
-ct_index_line "$RCLI" acme/repo-b 22 "$CT_HEAD"
-ct_index_line coordination acme/repo-b 10 "$CT_HEAD"
-ct_pr acme/repo-b 21 "impl/t-$RCORE" 'state="MERGED"'
-ct_pr acme/repo-b 22 "impl/t-$RCLI" 'state="MERGED"'
-ct_write_db
-out=$(run_remote "$GONEDIR" --merge true)
-expect "home outside --repos, the coordination entry naming a node repository" "error:execute:write-set" "$out"
+expect "home outside --repos, a node recorded in the home" "error:execute:write-set" "$out"
 
 # --- first-match order ------------------------------------------------------------
 
 ct_case order-error-first
-ct_index_line pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
-ct_index_line pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
 ct_pr acme/repo-a 11 impl/t-pr-repo-a-default
 ct_pr acme/repo-b 21 impl/t-pr-repo-b-default 'author="someone-else"'
 ct_write_db
@@ -461,14 +564,16 @@ out=$(run_next "$PLAN2DIR" --merge true)
 expect "an error on a later node beats a merge on an earlier one" "error:execute:pr-adopt" "$out"
 
 ct_case order-merge-before-dispatch
-ct_index_line pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
 ct_pr acme/repo-b 21 impl/t-pr-repo-b-default
 ct_write_db
 out=$(run_next "$PLAN2DIR" --merge true)
 expect "a merge beats a dispatch" "merge:pr-repo-b-default" "$out"
 
 ct_case order-dispatch-before-evaluate
-ct_index_line pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
 ct_pr acme/repo-b 21 impl/t-pr-repo-b-default 'isDraft=true'
 ct_write_db
 out=$(run_next "$PLAN2DIR" --merge true)

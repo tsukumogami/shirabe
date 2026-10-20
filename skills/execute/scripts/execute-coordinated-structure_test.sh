@@ -41,10 +41,18 @@
 #   coord_loop's dispatch step hands the review-level bound to every child,
 #     naming both variables, only when not empty
 #   no default_action command holds ${context.
+#   STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE and ADOPT_RUN are
+#     optional and rebind, each with its pattern admitting empty; coord_setup
+#     accepts blocked and the five typed stops, each stop's edge assigning its
+#     own code as a literal reason; its directive passes all five variables to
+#     record-coord-setup.sh; every coordinated-next.sh and node-push.sh call in
+#     coord_loop's directive passes --session
 #
 # and, engine-free, over the source and the skill's tree:
 #   `outcome=` followed by `refused` appears nowhere under skills/execute/
 #   the only line that builds a `head=` field is in node-push.sh
+#   SKILL.md names the run record as the run's store, and its closed
+#     write-target set lists the six run/ keys and run-record.sh
 #
 # and that each structural check bites on a mutated copy: a second edge into
 # merged, a command gate on coord_merge_confirm, an overridable coord_verdict
@@ -91,6 +99,25 @@ if [ -n "$HEAD_WRITES" ] && [ -z "$(printf '%s\n' "$HEAD_WRITES" | grep -v '/nod
     pass "the only line that builds a head= field is in node-push.sh"
 else
     fail "head= is built outside node-push.sh (or nowhere): $HEAD_WRITES"
+fi
+
+# SKILL.md names the run record as a coordinated run's store, and its closed
+# write-target set lists every run/ key.
+SKILL_MD="$SKILL_DIR/SKILL.md"
+if grep -q 'The run record is the run.s store' "$SKILL_MD"; then
+    pass "SKILL.md names the run record as the run's store"
+else
+    fail "SKILL.md does not name the run record as the run's store"
+fi
+WTS=$(awk '/Closed write-target set/ { f = 1 } f && /^3\. / { exit } f' "$SKILL_MD")
+missing=""
+for key in 'run/setup' 'run/node/<node>' 'run/follow-up/<node>/<n>' 'run/cascade' 'run/recovered' 'run/adopted' 'run-record.sh'; do
+    grep -qF -- "\`$key\`" <<<"$WTS" || missing="$missing $key"
+done
+if [ -n "$WTS" ] && [ -z "$missing" ]; then
+    pass "SKILL.md's closed write-target set lists every run/ key, each written through run-record.sh"
+else
+    fail "SKILL.md's closed write-target set lacks:$missing"
 fi
 
 if ! command -v koto >/dev/null 2>&1; then
@@ -140,6 +167,12 @@ CHECKS=(
 "PLAN_DOC and PLAN_SLUG are not rebindable|(.variables.PLAN_DOC.rebind // false) == false and (.variables.PLAN_SLUG.rebind // false) == false"
 "PLAN_SLUG carries ^[a-z0-9-]+\$|.variables.PLAN_SLUG.pattern == \"^[a-z0-9-]+\$\""
 "PLUGIN_ROOT is rebindable|.variables.PLUGIN_ROOT.rebind == true"
+"STORE, COORDINATION_PR, FOLLOW_UP, FOLLOW_UP_REMOVE, ADOPT_RUN are optional and rebind|[.variables.STORE, .variables.COORDINATION_PR, .variables.FOLLOW_UP, .variables.FOLLOW_UP_REMOVE, .variables.ADOPT_RUN] | all(. != null and (.required // false) == false and .rebind == true)"
+"the five coordinated variables carry their patterns, each admitting empty|.variables.STORE.pattern == \"^(github|session)?\$\" and .variables.COORDINATION_PR.pattern == \"^(https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP.pattern == \"^([a-z][a-z0-9-]*=https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)?\$\" and .variables.FOLLOW_UP_REMOVE.pattern == \"^(true)?\$\" and .variables.ADOPT_RUN.pattern == \"^([0-9a-f]{32})?\$\""
+"coord_setup's typed stops each assign their own code as a literal reason|[.states.coord_setup.transitions[] | select((.when.setup_status // \"blocked\") != \"blocked\") | .target == \"done_error\" and .context_assignments.reason == .when.setup_status and .context_assignments.step == \"execute:coord_setup\"] | length == 5 and all"
+"coord_setup accepts blocked and the five typed stops|.states.coord_setup.accepts.setup_status.values == [\"blocked\",\"store-mismatch\",\"coordination-pr-missing\",\"coordination-pr-ambiguous\",\"coordination-pr-mismatch\",\"coordination-pr-closed\"]"
+"coord_setup's directive passes all five variables to record-coord-setup.sh|(.states.coord_setup.directive // \"\") | (contains(\"record-coord-setup.sh --session {{SESSION_NAME}} --plan {{PLAN_DOC}}\") and contains(\"--store \\\"{{STORE}}\\\" --coordination-pr \\\"{{COORDINATION_PR}}\\\" --follow-up \\\"{{FOLLOW_UP}}\\\"\") and contains(\"--follow-up-remove \\\"{{FOLLOW_UP_REMOVE}}\\\" --adopt-run \\\"{{ADOPT_RUN}}\\\"\"))"
+"every coordinated-next.sh and node-push.sh call in coord_loop passes --session|(.states.coord_loop.directive // \"\") | ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh [a-z]* *--session \\\\{\\\\{SESSION_NAME\\\\}\\\\}\")] | length) == ([scan(\"scripts/(coordinated-next|node-push)\\\\.sh \")] | length)"
 )
 
 run_checks() { # run_checks <compiled json> -> prints the labels that fail

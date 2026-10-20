@@ -1,26 +1,31 @@
 #!/usr/bin/env bash
 # coord-merge_test.sh — a coordinated PR merges only through merge-exec.sh, at
-# the index's head=, and a merge that didn't land is recorded
+# the head the run record holds, and a merge that didn't land is recorded
 # Part of the execute skill
 #
 # Each case runs coord-merge.sh against the eval gh shim's repository model,
 # the koto stub, and a shirabe stub (see coord-test-helpers.sh), with the real
-# merge-exec.sh and merge-verdict.sh behind it.
+# merge-exec.sh and merge-verdict.sh behind it, and a run record seeded
+# through the test helper.
 #
 # Cases:
 #   a mergeable node                     one pr merge with --match-head-commit
-#     <index head=>, no --admin or --auto; the confirm read prints merged;
-#     nothing recorded
+#     <the recorded head>, no --admin or --auto; the confirm read prints
+#     merged; nothing recorded
+#   the body's head= edited              the merge still passes the recorded
+#     head to --match-head-commit
 #   a merge accepted but still OPEN      not-merged:merge-not-observed;
 #     merge_attempts records <node>:merge-not-observed
 #   a merge call that fails              merge-refused:not-merged:merge-call-failed,
 #     recorded; exactly one pr merge
-#   no head= on the node's line          refused before any merge call
-#   an index head= the PR no longer has  merge-exec.sh refuses: no pr merge
-#   an index entry by another author     exit 73, no pr merge
-#   the coordination PR                  the merge-last gate runs first, over
-#     every indexed PR but the coordination PR itself; a gate that doesn't
-#     pass refuses the merge
+#   no run/node key for the node         exit 73 before any merge call
+#   a recorded head the PR no longer has merge-refused:awaiting:head-moved,
+#     no pr merge
+#   a recorded PR by another author      exit 73, no pr merge
+#   the coordination PR                  pinned to run/cascade's head; the
+#     merge-last gate runs first, over every indexed PR but the coordination
+#     PR itself; a gate that doesn't pass refuses the merge; no pushed
+#     cascade (absent or failed) is refused head-moved with no merge
 #   the coordination PR's own visibility, read live: a public home's gate
 #     runs without --visibility, a private home's with --visibility private,
 #     and a failed read exits 72 with no gate call and no merge
@@ -59,7 +64,8 @@ node_case() { # node_case <name> [pr key=json ...]
     local name="$1"
     shift
     ct_case "$name"
-    ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+    ct_record_setup
+    ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
     ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" "$@"
     ct_write_db
 }
@@ -76,12 +82,28 @@ else
     fail "mergeable: rc=$RC out=[$OUT]"; tail -3 "$CASE/stderr"
 fi
 if [ "$(merges)" -eq 1 ] && [ "$MLINE" = "pr merge 11 --repo $CT_REPO --squash --match-head-commit $CT_HEAD" ]; then
-    pass "exactly one pr merge, with --match-head-commit equal to the index head="
+    pass "exactly one pr merge, with --match-head-commit equal to the recorded head"
 else
     fail "the merge calls: [$MLINE]"
 fi
 if grep -Eq -- '--admin|--auto' <<<"$MLINE"; then fail "the merge carries --admin or --auto"; else pass "no --admin or --auto"; fi
 [ -z "$(attempts)" ] && pass "a landed merge records no attempt" || fail "recorded [$(attempts)]"
+
+# --- the body's head= edited -----------------------------------------------------------
+
+ct_case body-head-edited
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_OTHER"
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_write_db
+run_merge "$CT_CORE"
+MLINE=$(ct_calls | grep '^pr merge')
+if [ "$RC" -eq 0 ] && [ "$MLINE" = "pr merge 11 --repo $CT_REPO --squash --match-head-commit $CT_HEAD" ]; then
+    pass "with the body's head= edited, the merge passes the recorded head to --match-head-commit"
+else
+    fail "body-head-edited: rc=$RC merge=[$MLINE] out=[$OUT]"
+fi
 
 # --- accepted but still OPEN ------------------------------------------------------
 
@@ -117,24 +139,26 @@ run_merge "$CT_CORE"
 
 # --- the head -----------------------------------------------------------------------
 
-ct_case no-head
-ct_index_line "$CT_CORE" "$CT_REPO" 11
+ct_case no-record
+ct_record_setup
+ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
 ct_write_db
 run_merge "$CT_CORE"
-if [ "$OUT" = "merge-refused:awaiting:head-moved" ] && [ "$(merges)" -eq 0 ]; then
-    pass "a line with no head= is refused before any merge call"
+if [ "$RC" -eq 73 ] && [ "$(merges)" -eq 0 ]; then
+    pass "a node with no run/node key exits 73 before any merge call (a body line is not a record)"
 else
-    fail "no-head: out=[$OUT] merges=$(merges)"
+    fail "no-record: rc=$RC out=[$OUT] merges=$(merges)"
 fi
 
 ct_case head-moved
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_OTHER"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_OTHER"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
 ct_write_db
 run_merge "$CT_CORE"
 if [ "$OUT" = "merge-refused:awaiting:head-moved" ] && [ "$(merges)" -eq 0 ]; then
-    pass "an index head= the PR no longer has: merge-exec.sh refuses, no pr merge"
+    pass "a live head that differs from the recorded one: awaiting:head-moved, no pr merge"
 else
     fail "head-moved: out=[$OUT] merges=$(merges)"
 fi
@@ -144,16 +168,26 @@ fi
 node_case foreign 'author="someone-else"'
 run_merge "$CT_CORE"
 if [ "$RC" -eq 73 ] && [ "$(merges)" -eq 0 ] && [ -z "$OUT" ]; then
-    pass "an index entry by another author exits 73 with no pr merge"
+    pass "a recorded PR by another author exits 73 with no pr merge"
 else
     fail "foreign: rc=$RC out=[$OUT] merges=$(merges)"
 fi
 
 # --- the coordination PR -------------------------------------------------------------
 
-coord_case() { # coord_case <name> [home visibility]
+# coord_case <name> [home visibility] [cascade: pushed|failed|none] -- both
+# nodes merged and recorded, the cascade pushed at CT_HEAD unless told
+# otherwise. The body still carries the index the merge-last gate reads.
+coord_case() {
     ct_case "$1"
     CT_VIS_A="${2:-public}"
+    ct_record_setup
+    ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+    ct_record_node "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
+    case "${3:-pushed}" in
+        pushed) ct_record_cascade pushed "$CT_HEAD" ;;
+        failed) ct_record_cascade failed execute:cascade ;;
+    esac
     ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
     ct_index_line "$CT_CLI" "$CT_REPO" 12 "$CT_HEAD"
     ct_index_line coordination "$CT_REPO" 10 "$CT_HEAD"
@@ -181,6 +215,28 @@ case "$GATE" in
         ;;
     *) fail "the merge gate call: [$GATE]" ;;
 esac
+
+MLINE=$(ct_calls | grep '^pr merge')
+[ "$MLINE" = "pr merge 10 --repo $CT_REPO --squash --match-head-commit $CT_HEAD" ] \
+    && pass "the coordination merge is pinned to run/cascade's pushed head" || fail "coordination merge call: [$MLINE]"
+
+coord_case coord-head-moved public pushed
+jq --arg o "$CT_OTHER" '(.prs[] | select(.number == 10) | .headRefOid) = $o' "$CASE/scenario/gh/db.json" > "$CASE/db" \
+    && mv "$CASE/db" "$CASE/scenario/gh/db.json"
+run_merge coordination
+[ "$OUT" = "merge-refused:awaiting:head-moved" ] && [ "$(merges)" -eq 0 ] \
+    && pass "a coordination PR moved off run/cascade's head is refused with no merge call" \
+    || fail "coord head moved: out=[$OUT] merges=$(merges)"
+
+for v in none failed; do
+    coord_case "coord-cascade-$v" public "$v"
+    run_merge coordination
+    if [ "$OUT" = "merge-refused:awaiting:head-moved" ] && [ "$(merges)" -eq 0 ]; then
+        pass "no pushed cascade ($v): the coordination merge is refused head-moved, no merge call"
+    else
+        fail "cascade $v: out=[$OUT] merges=$(merges)"
+    fi
+done
 
 coord_case coord-gate-fails
 export CT_GATE_FAIL=1
