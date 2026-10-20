@@ -1,8 +1,9 @@
 # coord-test-helpers.sh — shared fixtures for the coordinated scripts' tests.
 #
-# Sourced by coordinated-next_test.sh, coordination-verdict_test.sh,
-# record-coordination-verdict_test.sh, node-push_test.sh, node-cut_test.sh,
-# coord-merge_test.sh, record-coord-setup_test.sh, repo-visibility_test.sh,
+# Sourced by run-record_test.sh, coordinated-next_test.sh,
+# coordination-verdict_test.sh, record-coordination-verdict_test.sh,
+# node-push_test.sh, node-cut_test.sh, coord-merge_test.sh,
+# record-coord-setup_test.sh, repo-visibility_test.sh,
 # coordinated-visibility_test.sh, execute-coordinated-engine_test.sh, and
 # coordinated-home-outside_test.sh. Not a test itself.
 #
@@ -39,13 +40,31 @@ cat > "$CT_BIN/koto" <<'STUB'
 store="${KOTO_STORE:?}"
 printf '%s\n' "$*" >> "$store/koto-calls.log"
 [ "$1" = context ] || { echo "koto stub: only context is served" >&2; exit 9; }
+if [ "$2" = list ]; then
+    # list [--prefix <p>] <session>, the flag on either side.
+    shift 2
+    prefix=""; s=""
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --prefix) prefix="$2"; shift 2 ;;
+            *) s="$1"; shift ;;
+        esac
+    done
+    [ -n "${KOTO_FAIL_LIST:-}" ] && exit 3
+    d="$store/ctx/$s"
+    [ -d "$d" ] || { printf '[]\n'; exit 0; }
+    (cd "$d" && find . -type f | sed 's#^\./##' | LC_ALL=C sort) \
+        | while IFS= read -r k; do case "$k" in "$prefix"*) printf '%s\n' "$k" ;; esac; done \
+        | jq -R . | jq -sc .
+    exit 0
+fi
 d="$store/ctx/$3"
 mkdir -p "$d"
 case "$2" in
-    add) [ "${KOTO_FAIL_ADD:-}" = "$4" ] && exit 3; cat > "$d/$4" ;;
-    get) [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
+    add) [ "${KOTO_FAIL_ADD:-}" = "$4" ] && exit 3; mkdir -p "$(dirname "$d/$4")"; cat > "$d/$4" ;;
+    get) [ "${KOTO_FAIL_GET:-}" = "$4" ] && exit 3; [ -f "$d/$4" ] || exit 3; cat "$d/$4" ;;
     remove) rm -f "$d/$4" ;;
-    exists) [ -f "$d/$4" ] ;;
+    exists) [ "${KOTO_FAIL_EXISTS:-}" = "$4" ] && exit 2; [ -f "$d/$4" ] ;;
     *) exit 9 ;;
 esac
 STUB
@@ -103,15 +122,17 @@ ct_case() {
     CASE="$CT_WORK/cases/$1"
     rm -rf "$CASE"
     mkdir -p "$CASE/scenario/gh" "$CASE/ctx/execute-t"
-    # The run identity execute-open.sh mints at the session's birth, for the
-    # execute-t session the tests drive; the scripts under test only read it.
+    # The run identity record-coord-setup.sh mints when it seals a new run,
+    # for the execute-t session the tests drive; the other scripts under test
+    # only read it.
     printf '%s' 00112233445566778899aabbccddeeff > "$CASE/ctx/execute-t/run_id"
     : > "$CASE/koto-calls.log"
     : > "$CASE/shirabe-calls.log"
     export EVAL_SCENARIO_DIR="$CASE/scenario"
     export GH_CALL_LOG="$CASE/gh.log"
     export KOTO_STORE="$CASE"
-    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD
+    unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD KOTO_FAIL_GET KOTO_FAIL_EXISTS KOTO_FAIL_LIST
+    unset CT_RECORD_REPOS
     CT_PRS='[]'
     CT_INDEX=""
     CT_COORD_STATE=OPEN
@@ -121,6 +142,65 @@ ct_case() {
     CT_VIS_A=public
     CT_VIS_B=public
 }
+
+# The run record (run-record-lib.sh's layout), seeded through run-record.sh
+# itself so the record's shape and its checks are defined once. Each helper
+# writes into CT_RECORD_SESSION (execute-t unless a caller sets it) in the
+# case's koto store, and returns nonzero, with run-record.sh's refusal on
+# stderr, when the write is refused.
+CT_RECORD_SESSION=execute-t
+# The default PLAN fixture's nodes, as record-coord-setup.sh seals them.
+CT_NODES_DEFAULT='[{"name":"pr-repo-a-core","kind":"pr","repo":"acme/repo-a","waits_on":[]},{"name":"pr-repo-a-cli","kind":"pr","repo":"acme/repo-a","waits_on":["pr-repo-a-core"]}]'
+
+# ct_nodes_of <plan-file> -- the PLAN's nodes in the run/setup shape.
+ct_nodes_of() {
+    bash "$SCRIPT_DIR/../../plan/scripts/plan-to-tasks.sh" "$1" 2>/dev/null </dev/null \
+        | jq -c '[.[] | {name, kind: (.vars.NODE_KIND // "pr"), repo: (.vars.REPO // ""), waits_on}]'
+}
+
+# ct_record <verb> <json> -- one run-record.sh write.
+ct_record() {
+    local f="$CASE/record-doc.json"
+    printf '%s' "$2" > "$f"
+    bash "$SCRIPT_DIR/run-record.sh" "$1" --session "$CT_RECORD_SESSION" --json "$f" >/dev/null </dev/null \
+        || { echo "ct_record: run-record.sh $1 refused [$2]" >&2; rm -f "$f"; return 1; }
+    rm -f "$f"
+}
+
+# ct_record_setup [store] [coord-pr] [nodes-json] -- seal run/setup: store
+# github, coordination PR #10, and the default PLAN fixture's nodes unless
+# given. repos is CT_RECORD_REPOS (comma-joined) when set, else the PR nodes'
+# repositories.
+ct_record_setup() {
+    local store="${1:-github}" cpr="${2:-10}" nodes="${3:-$CT_NODES_DEFAULT}" repos
+    if [ -n "${CT_RECORD_REPOS:-}" ]; then
+        repos=$(jq -cn --arg r "$CT_RECORD_REPOS" '$r | split(",") | unique')
+    else
+        repos=$(printf '%s' "$nodes" | jq -c '[.[] | select(.kind == "pr") | .repo] | unique')
+    fi
+    ct_record setup "$(jq -cn --arg s "$store" --argjson c "$cpr" --argjson r "$repos" --argjson n "$nodes" \
+        '{"run/setup": {store: $s, coordination_pr: $c, repos: $r, mode: "coordinated", nodes: $n, run_lines: {}}}')"
+}
+
+# ct_record_node <node> <repo> <pr> [head] -- a node's recorded PR and pushed
+# head (CT_HEAD unless given), as node-push.sh records them.
+ct_record_node() {
+    ct_record push "$(jq -cn --arg k "run/node/$1" --arg r "$2" --argjson p "$3" --arg h "${4:-$CT_HEAD}" \
+        '{($k): {repo: $r, pr: $p, head: $h}}')"
+}
+
+# ct_record_cascade pushed <sha> | failed <step> -- the cascade's verdict.
+ct_record_cascade() {
+    case "$1" in
+        pushed) ct_record cascade "$(jq -cn --arg h "$2" '{"run/cascade": {verdict: "pushed", head: $h}}')" ;;
+        failed) ct_record cascade "$(jq -cn --arg s "$2" '{"run/cascade": {verdict: "failed", step: $s}}')" ;;
+        *) echo "ct_record_cascade: pushed <sha> or failed <step>" >&2; return 1 ;;
+    esac
+}
+
+# ct_ctx_writes -- the case's koto context writes (add and remove), one per
+# line, from the stub's call log.
+ct_ctx_writes() { grep -E '^context (add|remove) ' "$CASE/koto-calls.log" 2>/dev/null; return 0; }
 
 # ct_index_line <node> <repo> <number> [head] -- append one PR index line.
 ct_index_line() {

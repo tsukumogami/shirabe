@@ -41,6 +41,7 @@ skills/execute/scripts/drift-facts_test.sh
 # repository model, a koto context stub, and real git, so every
 # case runs on 3.2; the envelope's structure test compiles with
 # koto and its engine test runs it, each skipping without koto.
+skills/execute/scripts/run-record_test.sh
 skills/execute/scripts/coordinated-next_test.sh
 skills/execute/scripts/coordination-verdict_test.sh
 skills/execute/scripts/record-coordination-verdict_test.sh
