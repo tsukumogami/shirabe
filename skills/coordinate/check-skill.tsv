@@ -38,6 +38,7 @@ cost	teardown-inventory_test.sh	154
 cost	land-check_test.sh	141
 cost	record-confirm_test.sh	139
 cost	roadmap-status_test.sh	135
+cost	legs-move_engine_test.sh	130
 cost	pause_engine_test.sh	118
 cost	reconcile-check_test.sh	113
 cost	record-state_test.sh	112
@@ -75,6 +76,7 @@ cost	rotation-close_test.sh	14
 cost	coord-log_test.sh	13
 cost	roadmap-features_test.sh	13
 cost	posture-read_test.sh	11
+cost	reconcile-legs_test.sh	11
 cost	merge-confirm_test.sh	10
 cost	record-open_test.sh	10
 cost	skill-hygiene_test.sh	10
