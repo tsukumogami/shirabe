@@ -338,7 +338,7 @@ eq "under --koto-leg: exit 0" 0 "$RC"
 has "under --koto-leg: prints session=" "session=deliver-t-leg" "$STDOUT"
 eq "the leg value is not part of TOPIC" '["t-leg"]' "$(var TOPIC)"
 has "the open carried --koto-leg" "--koto-leg $REQ:deliver" "$(grep '^init ' "$T/koto.argv" | tail -1)"
-if grep '^init ' "$T/koto.argv" | head -1 | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
+if grep -m1 '^init ' "$T/koto.argv" | grep -q -- '--koto-leg'; then bad "the probe carries no leg" "$(cat "$T/koto.argv")"; else ok "the probe carries no leg"; fi
 eq "the leg is bound to deliver-t-leg" '"deliver-t-leg"' "$(leg "$REQ" .bound_child)"
 KDIR="$OTHER" to_terminal t-leg
 eq "the run ends at done_error" done_error "$(KDIR="$OTHER" state_of t-leg)"

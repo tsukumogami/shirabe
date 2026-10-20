@@ -43,7 +43,7 @@ fail() { echo "FAIL: $*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
 command -v jq >/dev/null 2>&1 || { echo "FAIL: jq is required" >&2; exit 1; }
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/eval-koto-shim-test.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/eval-koto-shim-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
 WF=execute-diamond-test
@@ -252,8 +252,9 @@ LOG4="$WORK/inf/koto-calls.log"
 mkdir -p "$WORK/inf"
 k drift-informational "$LOG4" next "$WF" --no-cleanup >/dev/null
 resp=$(k drift-informational "$LOG4" next "$WF" --with-data '{"impact":"informational"}' --no-cleanup)
+directive=$(printf '%s' "$resp" | jq -r .directive) || directive=
 if [ "$(printf '%s' "$resp" | jq -r .state)" = spawn_and_await ] \
-    && printf '%s' "$resp" | jq -r .directive | grep -q 'PLAN-diamond-test.md'; then
+    && grep -q 'PLAN-diamond-test.md' <<<"$directive"; then
     pass "drift-informational: impact informational answers spawn_and_await for the diamond PLAN"
 else
     fail "drift-informational answered [$(head -c 200 <<<"$resp")]"

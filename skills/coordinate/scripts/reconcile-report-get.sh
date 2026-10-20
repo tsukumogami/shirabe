@@ -65,7 +65,7 @@ esac
     || fail 1 "the latest capture is not a sealed reconcile report"
 WANT=${BASH_REMATCH[1]}
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-report-get.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-report-get.XXXXXX") || fail 2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 koto context get "$SESSION" "$KEY" > "$T/report.json" 2>/dev/null || fail 2 "context key $KEY can't be read"
 [ "$(rd_sha256 < "$T/report.json")" = "$WANT" ] || fail 1 "$KEY does not match the sealed report"

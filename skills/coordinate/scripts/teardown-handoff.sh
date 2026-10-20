@@ -132,7 +132,8 @@ if [ "$MODE" = read ]; then
         *) printf '%s: the TEARDOWN_HANDOFF capture holds no verdict\n' "$PROG" >&2; exit 3 ;;
     esac
     STATE_SEAL=$(printf '%s' "$CAP" | grep -Eo 'sealed:[0-9]+:[0-9a-f]{64}' | tail -1)
-    KS=$(printf '%s' "$CAP" | grep -Eo 'keyseal:[0-9]+:[0-9a-f]{64}' | head -1)
+    KSALL=$(printf '%s' "$CAP" | grep -Eo 'keyseal:[0-9]+:[0-9a-f]{64}')
+    KS=${KSALL%%$'\n'*}
     [ -n "$STATE_SEAL" ] && [ -n "$KS" ] || { printf '%s: the capture is not sealed\n' "$PROG" >&2; exit 3; }
     # The capture is this visit's: the engine wrote it, and its seal names the
     # latest entry into teardown_handoff.
@@ -141,7 +142,7 @@ if [ "$MODE" = read ]; then
     VERDICT=$(dc_seal_check "$SESSION" teardown_handoff "sealed:${KS#keyseal:}" teardown_handoff)
     case $? in 0) ;; 1) printf '%s: the stored verdict does not match its key seal\n' "$PROG" >&2; exit 3 ;; *) die2 "the stored verdict can't be read" ;; esac
     [ "$(printf '%s\n' "$VERDICT" | sed -n 1p)" = ready ] || { printf '%s: the stored verdict is not ready\n' "$PROG" >&2; exit 3; }
-    VT=$(printf '%s\n' "$VERDICT" | sed -n 's/^topic //p' | head -1)
+    VT=$(sed -n '/^topic /{s///p;q;}' <<<"$VERDICT")
     NOW=$("$KOTO" context get "$SESSION" teardown_topic) || die2 "cannot read teardown_topic"
     if [ -z "$VT" ] || [ "$VT" != "$NOW" ]; then
         printf '%s: the verdict covers [%s], but teardown_topic is [%s]\n' "$PROG" "$VT" "$NOW" >&2
@@ -198,7 +199,7 @@ agents_list() {
 # stopped_mode: the instance by the inventory's path in niwa's listing, and
 # the one finished Claude Code job in it, with its transcript.
 stopped_mode() {
-    IPATH=$(printf '%s\n' "$INV" | sed -n 's/^instance //p' | head -1)
+    IPATH=$(sed -n '/^instance /{s///p;q;}' <<<"$INV")
     case "$IPATH" in /*) ;; *) refuse "the sealed inventory names no instance path" ;; esac
 
     # The instance, by its path, in niwa's listing.

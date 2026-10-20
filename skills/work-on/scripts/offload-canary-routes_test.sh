@@ -300,7 +300,8 @@ for d in "$PDIR" "$SHARED" "$FAILED" "$MISSING"; do [ "$d" = "$OFF" ] || same=0;
 [ $same -eq 1 ] && pass "preloaded, shared, failed and missing-script runs render pr_creation byte for byte as a canary-off run" \
     || fail "a pr_creation directive differs from the canary-off one"
 
-RENDERED=$(printf '%s' "$WDIR" | grep -oE "$KOTO_SESSIONS_BASE/[^ \`]*/pr-rules/pr-body-conformance\.md" | head -n 1)
+RENDERED=$(printf '%s' "$WDIR" | grep -oE "$KOTO_SESSIONS_BASE/[^ \`]*/pr-rules/pr-body-conformance\.md")
+RENDERED=${RENDERED%%$'\n'*}
 FIRST=$(jq -r --arg id "$RULE" '.rules[] | select(.id == $id) | .text.first' "$REAL_ROOT/references/rule-registry.json")
 if [ -n "$RENDERED" ] && [ -f "$RENDERED" ]; then
     pass "a withheld run's pr_creation directive names its session's rendering"

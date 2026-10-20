@@ -41,7 +41,7 @@ HARNESS="skills/work-on/scripts/terminal-retention_test.sh"
 
 # new_tree — a temp copy of the four files the check reads.
 new_tree() {
-    local d; d=$(mktemp -d); TMPS+=("$d")
+    local d; d=$(mktemp -d) || exit 1; TMPS+=("$d")
     mkdir -p "$d/scripts" "$d/$(dirname "$TEMPLATE")" "$d/$(dirname "$EXECUTE_TEMPLATE")"
     cp "$CHECK" "$d/scripts/"
     cp "$REPO_ROOT/$TEMPLATE" "$d/$TEMPLATE"
@@ -79,23 +79,23 @@ drop_nth_occurrence() {
 
 # Case 1 — the unmutated copy passes. Without this, a check that always failed
 # would satisfy every case below.
-T=$(new_tree)
+T=$(new_tree) || exit 1
 expect "unmutated copy passes" 0 "$T"
 
 # Case 2 — the issue-backed init block in SKILL.md forgets the variable.
-T=$(new_tree)
+T=$(new_tree) || exit 1
 drop_nth_occurrence "$T/$SKILL_DOC" "var PLUGIN_ROOT=" 1
 expect "first SKILL.md init site missing PLUGIN_ROOT is caught" 1 "$T" "init site 1 does not pass required variable PLUGIN_ROOT"
 
 # Case 3 — the free-form init block forgets it. The distinct site number is the
 # point: the check reports which one drifted, not merely that one did.
-T=$(new_tree)
+T=$(new_tree) || exit 1
 drop_nth_occurrence "$T/$SKILL_DOC" "var PLUGIN_ROOT=" 2
 expect "second SKILL.md init site missing PLUGIN_ROOT is caught" 1 "$T" "init site 2 does not pass required variable PLUGIN_ROOT"
 
 # Case 4 — the spawn tick in execute.md stops injecting into child vars. It is
 # the only task build: the complete tick advances bare and submits no tasks.
-T=$(new_tree)
+T=$(new_tree) || exit 1
 # python3 rather than `sed -i '0,/re/s///'`: that address form and in-place
 # flag are GNU extensions, and this suite also runs under the bash 3.2 floor.
 python3 - "$T/$EXECUTE_TEMPLATE" <<'PY'
@@ -111,7 +111,7 @@ expect "child task build missing PLUGIN_ROOT is caught" 1 "$T" "injects .vars.PL
 
 # Case 6 — a SECOND tick is added later and forgets the injection entirely. This
 # is the drift the counting exists for: the existing site is still correct.
-T=$(new_tree)
+T=$(new_tree) || exit 1
 printf 'TASKS=$(${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/plan-to-tasks.sh {{PLAN_DOC}})\n' >> "$T/$EXECUTE_TEMPLATE"
 expect "a new task build with no injection is caught" 1 "$T" "builds 2 task array(s)"
 
@@ -119,7 +119,7 @@ expect "a new task build with no injection is caught" 1 "$T" "builds 2 task arra
 # variable. This category was missed by the first version of this check, and the
 # omission cost two suites: every case in them failed at init, reporting a
 # missing session rather than a missing variable.
-T=$(new_tree)
+T=$(new_tree) || exit 1
 python3 - "$T/$HARNESS" <<'PYMUT'
 import sys
 p = sys.argv[1]
@@ -133,7 +133,7 @@ expect "a harness init missing PLUGIN_ROOT is caught" 1 "$T" "inits the shipped 
 # Case 10 — and the harness scan must not report zero sites. A scan that matches
 # nothing reports OK forever, which is the failure mode of every check that
 # looks for something by pattern.
-T=$(new_tree)
+T=$(new_tree) || exit 1
 python3 - "$T/$HARNESS" <<'PYMUT'
 import sys
 p = sys.argv[1]
@@ -144,12 +144,12 @@ expect "a harness scan matching nothing is caught" 1 "$T" "covering nothing"
 
 # Case 7 — the check must not silently pass when it can no longer see the init
 # sites it is supposed to cover.
-T=$(new_tree)
+T=$(new_tree) || exit 1
 sed -i 's/koto init/koto start/g' "$T/$SKILL_DOC"
 expect "init blocks moving out of SKILL.md is caught" 1 "$T" "no 'koto init'"
 
 # Case 8 — nor when a file it reads is gone.
-T=$(new_tree)
+T=$(new_tree) || exit 1
 rm "$T/$EXECUTE_TEMPLATE"
 expect "a missing input file is caught" 1 "$T" "missing file"
 

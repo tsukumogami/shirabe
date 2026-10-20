@@ -77,7 +77,7 @@ done
 lib_facts
 lib_log_readable || lib_die2 "no readable log for $SESSION"
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/report-facts.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 TOPIC=- ROW=null PRJ=null PRVIEW='{}' PROGRESS=0

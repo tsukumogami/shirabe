@@ -54,7 +54,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-WORK=$(mktemp -d); TMPS+=("$WORK")
+WORK=$(mktemp -d) || exit 1; TMPS+=("$WORK")
 SESSIONS_FILE="$WORK/sessions"
 # koto's session store lives under HOME: a HOME of the suite's own keeps its
 # sessions out of the user's store and away from suites running beside it.
@@ -337,7 +337,7 @@ else
     # mutation control below.
     drive() {
         local how="$1" data="$2" block="${3:-$BLOCK}" dir session cmd timeout_line=""
-        dir=$(mktemp -d); TMPS+=("$dir")
+        dir=$(mktemp -d) || exit 1; TMPS+=("$dir")
         session="staleness-state-$$-$RANDOM"
         if [ "$how" = timeout ]; then
             cmd='sleep 5'; timeout_line='        timeout: 1'

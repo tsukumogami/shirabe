@@ -50,7 +50,8 @@ bash "$RA" "${RM[@]}" --kind entry --text-file "$T/entry2.txt" >/dev/null 2>"$T/
 L=$(list "${RM[@]}" 2>"$T/err"); eq "the list reads" 0 $?
 eq "both entries, oldest first" "1001 1002" "$(printf '%s' "$L" | jq -r 'map(.id | tostring) | join(" ")')"
 eq "  ... with GitHub's creation times" "2026-10-07T23:00:00Z 2026-10-07T23:05:00Z" "$(printf '%s' "$L" | jq -r 'map(.created) | join(" ")')"
-printf '%s' "$L" | jq -r '.[].stamp' | grep -Evq "$STAMP_RE" && bad "  ... each with a host-clock stamp to the second" "$L" || ok "  ... each with a host-clock stamp to the second"
+stamps=$(printf '%s' "$L" | jq -r '.[].stamp')
+grep -Evq "$STAMP_RE" <<<"$stamps" && bad "  ... each with a host-clock stamp to the second" "$L" || ok "  ... each with a host-clock stamp to the second"
 eq "  ... the author and kind" "coord entry coord entry" "$(printf '%s' "$L" | jq -r 'map("\(.author) \(.kind)") | join(" ")')"
 eq "  ... the text as written" "Dispatched Feature 2 to worker-f2; the brief names the cap of two." "$(printf '%s' "$L" | jq -r '.[0].text')"
 eq "  ... a multi-line text kept whole, @ decoded" "$(printf 'Asked @alice about the release.\n\nShe said go.')" "$(printf '%s' "$L" | jq -r '.[1].text')"
@@ -62,7 +63,8 @@ eq "blank-only edge lines are trimmed, and & and @ come back exactly" "keep &#64
 jq -r '.comments[1].body' "$GH_DB" | grep -q '&#64;alice' && ! jq -r '.comments[1].body' "$GH_DB" | grep -q '@alice' \
     && ok "an @ is posted encoded, so the entry mentions no one" || bad "an @ is posted encoded, so the entry mentions no one" "$(jq -r '.comments[1].body' "$GH_DB")"
 eq "the comment opens with the marker" "<!-- coordinator-record-entry v1 kind=entry -->" "$(jq -r '.comments[0].body' "$GH_DB" | head -1)"
-jq -r '.comments[0].body' "$GH_DB" | sed -n 2p | grep -Eq '^\*\*[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\*\* \(host clock\) entry$' \
+stamp_line=$(jq -r '.comments[0].body' "$GH_DB" | sed -n 2p)
+grep -Eq '^\*\*[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z\*\* \(host clock\) entry$' <<<"$stamp_line" \
     && ok "  ... then the stamp line" || bad "  ... then the stamp line" "$(jq -r '.comments[0].body' "$GH_DB")"
 
 echo "== history: what the list counts =="

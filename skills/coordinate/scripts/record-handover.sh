@@ -78,7 +78,7 @@ else
 fi
 [[ $REF =~ $RE_NUM ]] || lib_die2 "the record number is not a number"
 
-WD=$(mktemp -d "${TMPDIR:-/tmp}/record-handover.XXXXXX")
+WD=$(mktemp -d "${TMPDIR:-/tmp}/record-handover.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$WD"' EXIT
 rs_record "$WD/parsed.json" body --json body --jq .body
 case $? in

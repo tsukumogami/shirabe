@@ -74,7 +74,7 @@ if ! command -v koto >/dev/null 2>&1; then
     exit 0
 fi
 
-WORK=$(mktemp -d "${TMPDIR:-/tmp}/execute-structure-test.XXXXXX")
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/execute-structure-test.XXXXXX") || exit 1
 trap 'rm -rf "$WORK"' EXIT
 export HOME="$WORK/home"
 mkdir -p "$HOME"

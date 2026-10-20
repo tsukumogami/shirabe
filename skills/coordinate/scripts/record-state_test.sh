@@ -60,7 +60,8 @@ bash "$RS" "${W[@]}" --run arguments "--roadmap docs/roadmaps/ROADMAP-plugin-sys
 eq "arguments are set" 0 $?
 bash "$RS" "${W[@]}" --run cap 2 --by "the human" >/dev/null 2>"$T/err"; eq "a cap is set" 0 $?
 bash "$RS" "${W[@]}" --run cap 1 --by "the human, via the process owner" >/dev/null 2>"$T/err"; eq "a cap is changed" 0 $?
-eq "  ... one cap row, the new one" "1 the human, via the process owner" "$(live | jq -r '[.run[] | select(.key == "cap")] | "\(.[0].value) \(.[0].set_by)", length' | head -1)"
+cap_rows=$(live | jq -r '[.run[] | select(.key == "cap")] | "\(.[0].value) \(.[0].set_by)", length')
+eq "  ... one cap row, the new one" "1 the human, via the process owner" "${cap_rows%%$'\n'*}"
 eq "  ... and only one" 1 "$(live | jq '[.run[] | select(.key == "cap")] | length')"
 bash "$RS" "${W[@]}" --run cap two --by x >/dev/null 2>"$T/err"; eq "a cap that isn't a number is refused" 65 $?
 bash "$RS" "${W[@]}" --run told worker-f2 --by x >/dev/null 2>"$T/err"; eq "--run doesn't take told" 64 $?
@@ -325,7 +326,8 @@ mkdir -p "$KOTO_STORE/requests"
 echo '{"request_id":"req_2","legs":{"deliver":{"disposition":"open"}}}' > "$KOTO_STORE/requests/req_2.json"
 eq "a leg whose request isn't here is leg-unclassified; one held here isn't" "leg-unclassified worker-f2" \
     "$(bash "$RH" "${RM[@]}" | jq -r '[.gaps[].gap | select(startswith("leg-"))] | join(" ")')"
-bash "$RH" "${RM[@]}" | jq -r '.gaps[] | select(.gap == "leg-unclassified worker-f2") | .fix' | grep -q 'reconcile-legs.sh --session <this run> --topic worker-f2 --return-path "leg req_1:deliver"' \
+fix=$(bash "$RH" "${RM[@]}" | jq -r '.gaps[] | select(.gap == "leg-unclassified worker-f2") | .fix')
+grep -q 'reconcile-legs.sh --session <this run> --topic worker-f2 --return-path "leg req_1:deliver"' <<<"$fix" \
     && ok "  ... naming the fix" || bad "  ... naming the fix" "$(bash "$RH" "${RM[@]}" | jq -c .gaps)"
 rm -f "$KOTO_STORE/requests/req_1.gone" "$KOTO_STORE/requests/req_2.json"
 bash "$RH" "${RM[@]}" >/dev/null 2>&1; eq "a leg whose request can't be read fails the read" 2 $?

@@ -48,7 +48,7 @@ command -v git  >/dev/null 2>&1 || { echo "SKIP: git not on PATH -- no case ran"
 command -v jq   >/dev/null 2>&1 || { echo "SKIP: jq not on PATH -- no case ran"; exit 0; }
 [ -f "$TEMPLATE" ] || { echo "FAIL: template not found at $TEMPLATE" >&2; exit 1; }
 
-WORKDIR=$(mktemp -d)
+WORKDIR=$(mktemp -d) || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 

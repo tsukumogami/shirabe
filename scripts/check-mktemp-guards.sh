@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # check-mktemp-guards.sh - refuse an unchecked mktemp whose value a later
-# cd, rm, mv or git acts on
+# cd, rm, mv, git or write acts on
 #
 # `T=$(mktemp -d)` leaves T empty when mktemp fails (a missing or unwritable
 # TMPDIR, a full disk), and a script that doesn't notice goes on with "".
@@ -9,7 +9,8 @@
 # it is, so `T=$(cd "$T" && pwd -P)` turns T into the caller's directory and
 # a cleanup's `rm -rf "$T"` removes it (shirabe#924); `cd "$T" && git init &&
 # git commit` commits in the caller's repository, as does `git -C "$T"`
-# (shirabe#925); and `rm -f "$T" "$T".*` becomes `rm -f .*` (shirabe#922).
+# (shirabe#925); `rm -f "$T" "$T".*` becomes `rm -f .*` (shirabe#922); and
+# `: > "$T/list"` writes at the filesystem root (shirabe#926).
 #
 # The fix is to stop when mktemp fails, before anything uses the value:
 #     T=$(mktemp -d "${TMPDIR:-/tmp}/name.XXXXXX") || { echo "mktemp failed" >&2; exit 1; }
@@ -21,8 +22,11 @@
 # `X=$(umask 077 && mktemp ...)`, or the backtick form), with no `||` straight
 # after it (no `;`, `&` or `|` in between, so `X=$(mktemp); a || b` is
 # refused) on the same logical line, and not the condition of an `if`, `while` or
-# `until`, when the same file also passes $X to `cd` or `pushd`, to `rm`,
-# `rmdir` or `mv`, or to `git -C`.
+# `until`, when the same file also passes $X to `cd`, `pushd` or `git -C`, or
+# names a path under or built from it (`"$X/f"`, `"$X".*`, `${X}.tmp`) in an
+# `rm`, `rmdir` or `mv`, a redirection (`>`, `>>`, `2>`), or a `mkdir`, `cp`,
+# `touch`, `tee`, `ln` or `install`. A plain `rm -rf "$X"` is not a use: on
+# an empty value it removes nothing.
 #
 # An assignment in a file that sets errexit (`set -e`, `set -euo pipefail`,
 # `set -o errexit`) passes, since a failing mktemp then stops the script,
@@ -33,8 +37,9 @@
 # runs (a function called inside `$(...)`, after `||` or `&&`, or as an `if`
 # condition, where bash ignores -e); a value passed on through another name
 # (`D=$T`) or a function's output (`root=$(mk_tmp)`); a use reached through
-# eval; and a check on a later line (`[ -n "$T" ] || exit 1`), which errs
-# toward a finding.
+# eval; a write by a program's own flag (`sort -o "$T/f"`, `curl -o`); and a
+# check on a later line (`[ -n "$T" ] || exit 1`), or a `|`, `;` or `&` in the
+# mktemp's own arguments before its `||`, which err toward a finding.
 #
 # Usage:
 #   scripts/check-mktemp-guards.sh             every tracked *.sh in the repository
@@ -94,9 +99,13 @@ SITES=$(printf '%s\n' "$LIST" | tr '\n' '\0' | xargs -0 awk '
       for (j = 1; j <= nl; j++) {
         # On the line of the assignment, only what follows it.
         text = (j == aline[i]) ? aafter[i] : ltext[j]
+        # Each use is one pattern; a new kind of use is one more line here,
+        # with refused and fine rows for it in check-mktemp-guards.cases.
         if (text ~ ("(^|[^A-Za-z0-9_])(cd|pushd)[ \t]+(-[LP][ \t]+)?\"?" v) ||
             text ~ ("(^|[^A-Za-z0-9_.-])(rm|rmdir|mv)[ \t][^;|&]*" under) ||
-            text ~ ("(^|[^A-Za-z0-9_])git[ \t]+-C[ \t]+\"?" v)) { use = 1; break }
+            text ~ ("(^|[^A-Za-z0-9_])git[ \t]+-C[ \t]+\"?" v) ||
+            text ~ ("[0-9&]?>>?[ \t]*\"?" under) ||
+            text ~ ("(^|[^A-Za-z0-9_.-])(mkdir|cp|touch|tee|ln|install)[ \t][^;|&]*" under)) { use = 1; break }
       }
       if (use) {
         rest = ltext[aline[i]]

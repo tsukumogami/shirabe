@@ -10,7 +10,7 @@ set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 S="$HERE/check-plan-mode.sh"
-T="$(mktemp -d "${TMPDIR:-/tmp}/check-plan-mode-test.XXXXXX")"
+T="$(mktemp -d "${TMPDIR:-/tmp}/check-plan-mode-test.XXXXXX")" || exit 1
 trap 'rm -rf "$T"' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
 

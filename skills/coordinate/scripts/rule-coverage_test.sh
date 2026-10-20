@@ -32,7 +32,7 @@ PASS=0 FAIL=0
 ok()  { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
 bad() { FAIL=$((FAIL + 1)); printf 'FAIL %s\n' "$1"; [ -n "${2-}" ] && printf '     %s\n' "$2"; return 0; }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/rule-coverage.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/rule-coverage.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 
 # The template body: everything after the frontmatter's closing `---`.

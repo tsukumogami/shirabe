@@ -255,7 +255,7 @@ koto_legacy_env_enable
 # installs both so the cases genuinely run where it matters.
 command -v jq >/dev/null 2>&1 || skip_engine_cases "jq not on PATH"
 
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/terminal-retention.XXXXXX")
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/terminal-retention.XXXXXX") || exit 1
 cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
 trap cleanup EXIT
 

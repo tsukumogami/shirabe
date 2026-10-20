@@ -96,7 +96,8 @@ fi
 
 # The remote's default branch: its own answer first, then the local symref.
 DEFAULT=$(git ls-remote --symref origin HEAD </dev/null \
-    | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p' | head -1)
+    | sed -n 's#^ref: refs/heads/\([^[:space:]]*\)[[:space:]]*HEAD$#\1#p')
+DEFAULT=${DEFAULT%%$'\n'*}
 if [ -z "$DEFAULT" ]; then
     DEFAULT=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD || true)
     DEFAULT=${DEFAULT#origin/}

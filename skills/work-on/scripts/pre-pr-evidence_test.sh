@@ -82,7 +82,7 @@ PRE_PR=$(extract_state pre_pr_evidence)
 PLUGIN_ROOT=$(cd "$SKILL_DIR/../.." && pwd)
 case "$PLUGIN_ROOT" in
     *[!a-zA-Z0-9._/:@\ -]*)
-        link_dir=$(mktemp -d); TMPS+=("$link_dir")
+        link_dir=$(mktemp -d) || exit 1; TMPS+=("$link_dir")
         ln -s "$PLUGIN_ROOT" "$link_dir/plugin"
         PLUGIN_ROOT="$link_dir/plugin"
         ;;
@@ -308,7 +308,7 @@ referent_case() {
     if ! grep -q "\"state\":\"$want\"" <<<"$OUT"; then
         fail "$label: expected $want, got: $(head -c 300 <<<"$OUT")"
     elif [[ "$why" != - ]] && ! grep -qF "$why" <<<"$OUT"; then
-        fail "$label: reached $want on another rung; expected a failure_reason naming [$why], got: $(echo "$OUT" | tail -n 1 | head -c 300)"
+        fail "$label: reached $want on another rung; expected a failure_reason naming [$why], got: $(tail -n 1 <<<"$OUT" | head -c 300)"
     else
         pass "$label: reaches $want"
     fi

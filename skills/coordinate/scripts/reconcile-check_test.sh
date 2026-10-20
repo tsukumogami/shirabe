@@ -428,7 +428,8 @@ expect "a worktree outside the instance is listed, not read" '[.items[] | select
 expect "paths are clone-relative" '[.items[] | .clone, .path] | all(startswith("/") | not)' "$out"
 ALOG="$CASE/log"
 grep -qE '^git .* (fetch|pull|push|checkout|commit|reset|add|stash|gc|update-index|update-ref|config [^-]|config --(add|unset|replace))( |$)' "$ALOG" && bad "the inventory never writes in the clone" "$(grep -E ' (fetch|pull|push|checkout|commit|reset|add) ' "$ALOG")" || ok "the inventory never writes in the clone"
-grep -E '^git ' "$ALOG" | grep -vE -- '--no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never' | grep -q . && bad "every in-clone git call is lock-free and hook-free" "$(grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks')" || ok "every in-clone git call is lock-free and hook-free"
+unlocked=$(grep -E '^git ' "$ALOG" | grep -vE -- '--no-optional-locks -c core\.fsmonitor= -c core\.hooksPath=/dev/null -c protocol\.allow=never')
+grep -q . <<<"$unlocked" && bad "every in-clone git call is lock-free and hook-free" "$(grep -E '^git ' "$ALOG" | grep -v -- '--no-optional-locks')" || ok "every in-clone git call is lock-free and hook-free"
 grep -q 'hash-object --no-filters --stdin-paths' "$ALOG" && ! grep -qE 'hash-object.* -w( |$)' "$ALOG" && ok "hash-object runs unfiltered and never writes" || bad "hash-object runs unfiltered and never writes"
 grep -qE '^git .* status( |$)' "$ALOG" && bad "git status is never run" || ok "git status is never run"
 [ "$(cat "$T/idx-before")" = "$(od -An -tx1 < "$RP/.git/index")" ] && ok "the clone's index is untouched" || bad "the clone's index is untouched"

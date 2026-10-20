@@ -91,7 +91,7 @@ esac
 
 # The sealed verdict opens with the word, `instance <path>` and `topic <t>`.
 WORD=$(printf '%s\n' "$VERDICT" | sed -n 1p)
-SEALED_TOPIC=$(printf '%s\n' "$VERDICT" | sed -n 's/^topic //p' | head -1)
+SEALED_TOPIC=$(sed -n '/^topic /{s///p;q;}' <<<"$VERDICT")
 # The verdict covers the topic it was taken for: teardown_topic rewritten
 # after the seal can't point the destroy at another worker.
 NOW_TOPIC=$("$KOTO" context get "$SESSION" teardown_topic) || { printf '%s: cannot read teardown_topic\n' "$PROG" >&2; exit 2; }
