@@ -13,7 +13,10 @@
 #   merge_attempt has no default_action and carries the merge_intent gate,
 #     `test "{{MERGE}}" = true`, overridable: false, whose failure edge
 #     (exit_code 1) targets ready_awaiting_merge and whose other edges all
-#     require it to pass
+#     require it to pass; its merge_exec enum adds squash-message, whose edge
+#     (gated on merge_intent 0) ends ready_awaiting_merge with the literal
+#     reason merge-refused:squash-message; its directive builds the message
+#     with merge-message.sh and passes it as merge-exec.sh's fourth argument
 #   every merge_route and merge_confirm gate is a context-matches gate declared
 #     overridable: false, and merge_confirm has no command gate
 #   no transition targets the legacy `done`
@@ -94,6 +97,9 @@ CHECKS=(
 "merge_attempt carries the non-overridable merge_intent gate|.states.merge_attempt.gates.merge_intent == {type: \"command\", command: \"test \\\"{{MERGE}}\\\" = true\", overridable: false}"
 "merge_intent's failure edge targets ready_awaiting_merge|[.states.merge_attempt.transitions[] | select(.when == {\"gates.merge_intent.exit_code\": 1})] | length == 1 and .[0].target == \"ready_awaiting_merge\""
 "every other merge_attempt edge requires merge_intent to pass|[.states.merge_attempt.transitions[] | select(.when != {\"gates.merge_intent.exit_code\": 1}) | .when[\"gates.merge_intent.exit_code\"] == 0] | length > 0 and all"
+"merge_attempt's squash-message edge, gated on merge_intent 0, ends ready_awaiting_merge with the literal reason|[.states.merge_attempt.transitions[] | select(.when == {\"gates.merge_intent.exit_code\": 0, \"merge_exec\": \"squash-message\"})] | length == 1 and .[0].target == \"ready_awaiting_merge\" and .[0].context_assignments.reason == \"merge-refused:squash-message\" and .[0].context_assignments.outcome == \"ready-awaiting-merge\""
+"merge_exec accepts called, refused and squash-message|.states.merge_attempt.accepts.merge_exec.values == [\"called\",\"refused\",\"squash-message\"]"
+"merge_attempt's directive builds the message with merge-message.sh and passes it as merge-exec.sh's fourth argument|.states.merge_attempt.directive | (contains(\"scripts/merge-message.sh \\\"\$REPO\\\" \\\"\${HOME_PR##*/}\\\"\") and contains(\"scripts/merge-exec.sh \\\"\$REPO\\\" \\\"\${HOME_PR##*/}\\\" \\\"\$EXPECTED\\\" \\\"\$MSG\\\"\") and contains(\"LINE=merge-refused:squash-message\"))"
 "every merge_route gate is a non-overridable context-matches gate|[.states.merge_route.gates[] | (.type == \"context-matches\" and .overridable == false)] | length > 0 and all"
 "every merge_confirm gate is a non-overridable context-matches gate|[.states.merge_confirm.gates[] | (.type == \"context-matches\" and .overridable == false)] | length > 0 and all"
 "merge_confirm has no command gate|[.states.merge_confirm.gates[] | select(.type == \"command\")] | length == 0"

@@ -31,7 +31,7 @@
 #     ${gates.<g>.<path>} (there is no command gate whose output could hold a
 #     script's)
 #   every terminal declares the result map (outcome, step, reason, pr, repos,
-#     resume, waiting), step and reason read from context
+#     resume, waiting, body), step, reason and body read from context
 #   PLAN_DOC's pattern admits a path with `+` and refuses `..`, spaces and `$(`
 #   the variables: PLAN_DOC and PLAN_SLUG not rebindable (PLAN_SLUG pattern
 #     ^[a-z0-9-]+$), MERGE and PAUSE_BEFORE_FINALIZE values [true, false]
@@ -50,9 +50,14 @@
 #
 # and, engine-free, over the source and the skill's tree:
 #   `outcome=` followed by `refused` appears nowhere under skills/execute/
-#   the only line that builds a `head=` field is in node-push.sh
+#   no non-test file under skills/execute/ builds a `head=` field; the codec
+#     (scripts/lib/coordination-body.sh) does
+#   no file under skills/execute/ names the index-entry grammar or its
+#     parsers by their old coord-common.sh names (the entry pattern and the
+#     entries, parse and find functions); the codec holds CB_RE_ENTRY
 #   SKILL.md names the run record as the run's store, and its closed
-#     write-target set lists the six run/ keys and run-record.sh
+#     write-target set lists the six run/ keys, run-record.sh, and
+#     coord-render.sh
 #
 # and that each structural check bites on a mutated copy: a second edge into
 # merged, a command gate on coord_merge_confirm, an overridable coord_verdict
@@ -93,12 +98,22 @@ fi
 # regex group, a sed) and tests don't build one.
 HEAD_WRITES=$(grep -rn 'head=\$' "$SKILL_DIR/scripts" "$SKILL_DIR/koto-templates" "$SKILL_DIR/SKILL.md" 2>/dev/null \
     | grep -v '_test\.sh:' | grep -v '/coord-test-helpers\.sh:' \
-    | grep -v '^[^:]*:[0-9]*:[[:space:]]*#' \
-    | grep -v "printf 'pr=%s\\\\nhead=%s" || true)
-if [ -n "$HEAD_WRITES" ] && [ -z "$(printf '%s\n' "$HEAD_WRITES" | grep -v '/node-push\.sh:')" ]; then
-    pass "the only line that builds a head= field is in node-push.sh"
+    | grep -v '^[^:]*:[0-9]*:[[:space:]]*#' || true)
+CODEC="$SKILL_DIR/../../scripts/lib/coordination-body.sh"
+if [ -z "$HEAD_WRITES" ] && grep -q 'head=\\(' "$CODEC"; then
+    pass "no non-test file under skills/execute/ builds a head= field; the codec does"
 else
-    fail "head= is built outside node-push.sh (or nowhere): $HEAD_WRITES"
+    fail "head= is built under skills/execute/ (or not in the codec): $HEAD_WRITES"
+fi
+
+# The index-entry grammar lives in the codec alone. The names are built from
+# halves so this file doesn't carry them either.
+GRAMMAR=$(grep -rn -e "RE_COORD""_ENTRY" -e "coord_index""_entries" -e "coord_parse""_entry" -e "coord_find""_entry" \
+    "$SKILL_DIR" 2>/dev/null || true)
+if [ -z "$GRAMMAR" ] && grep -q '^CB_RE_ENTRY=' "$CODEC"; then
+    pass "no file under skills/execute/ names the index-entry grammar; the codec holds it"
+else
+    fail "the index-entry grammar is named under skills/execute/: $GRAMMAR"
 fi
 
 # SKILL.md names the run record as a coordinated run's store, and its closed
@@ -111,11 +126,11 @@ else
 fi
 WTS=$(awk '/Closed write-target set/ { f = 1 } f && /^3\. / { exit } f' "$SKILL_MD")
 missing=""
-for key in 'run/setup' 'run/node/<node>' 'run/follow-up/<node>/<n>' 'run/cascade' 'run/recovered' 'run/adopted' 'run-record.sh'; do
+for key in 'run/setup' 'run/node/<node>' 'run/follow-up/<node>/<n>' 'run/cascade' 'run/recovered' 'run/adopted' 'run-record.sh' 'coord-render.sh'; do
     grep -qF -- "\`$key\`" <<<"$WTS" || missing="$missing $key"
 done
 if [ -n "$WTS" ] && [ -z "$missing" ]; then
-    pass "SKILL.md's closed write-target set lists every run/ key, each written through run-record.sh"
+    pass "SKILL.md's closed write-target set lists every run/ key, each written through run-record.sh, and coord-render.sh"
 else
     fail "SKILL.md's closed write-target set lacks:$missing"
 fi
@@ -157,8 +172,9 @@ CHECKS=(
 "every edge into a terminal assigns a literal outcome|[.states as \$all | .states[] | (.transitions // [])[] | select(\$all[.target].terminal == true) | ((.context_assignments.outcome // \"\") | (length > 0 and (contains(\"\${\") | not) and (contains(\"{{\") | not)))] | length > 0 and all"
 "step and reason are assigned only as literals|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | to_entries[] | select(.key == \"step\" or .key == \"reason\") | .value | (contains(\"\${\") or contains(\"{{\"))] | any | not"
 "no assignment reads \${context. or \${gates.|[.states[] | (.transitions // [])[] | (.context_assignments // {}) | .[] | (contains(\"\${context.\") or contains(\"\${gates.\"))] | any | not"
-"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"outcome\",\"pr\",\"reason\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length == 5 and all"
+"every terminal declares the full result map|[.states[] | select(.terminal == true) | (.result // {}) | keys == [\"body\",\"outcome\",\"pr\",\"reason\",\"repos\",\"resume\",\"step\",\"waiting\"]] | length == 5 and all"
 "every terminal reads step and reason from context|[.states[] | select(.terminal == true) | .result.step == \"\${context.step}\" and .result.reason == \"\${context.reason}\"] | all"
+"every terminal reads body from context|[.states[] | select(.terminal == true) | .result.body == \"\${context.body}\"] | all"
 "no default_action command holds \${context.|[.states[] | (.default_action.command // \"\") | contains(\"\${context.\")] | any | not"
 "MERGE is values [true, false], default false, rebind|.variables.MERGE | (.values == [\"true\",\"false\"] and .default == \"false\" and .rebind == true)"
 "REVIEW_FLOOR and REVIEW_CEILING are optional, the level pattern, rebind|[.variables.REVIEW_FLOOR, .variables.REVIEW_CEILING] | all((.required // false) == false and .pattern == \"^(light|standard|full)?\$\" and .rebind == true)"

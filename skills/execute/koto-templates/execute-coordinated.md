@@ -2,11 +2,12 @@
 # The coordinated envelope. A coordinated PLAN runs, in one repository or
 # several, as a loop over its PR nodes whose decisions live in scripts, not
 # prose: coordinated-next.sh prints the one next action, node-cut.sh and
-# node-push.sh own each node's branch and PR, coord-merge.sh merges, and
-# coordination-verdict.sh decides where the run ended. This template is the
-# thin koto envelope around that loop, so a coordinated run ends in the same
-# result-declaring terminals a single-pr run does and a /deliver leg can read
-# it. A full coordinated template with a state per action and a child per node
+# node-push.sh own each node's branch and PR, coord-merge.sh merges,
+# coord-render.sh keeps the coordination PR's body the rendering of the run's
+# record, and coordination-verdict.sh decides where the run ended. This
+# template is the thin koto envelope around that loop, so a coordinated run
+# ends in the same result-declaring terminals a single-pr run does and a
+# /deliver leg can read it. A full coordinated template with a state per action and a child per node
 # waits for its own design.
 #
 # It shares the execute-<topic> session name with execute.md: koto-open.sh's
@@ -31,8 +32,10 @@
 # the store) live as `run/` keys in this session, written only through
 # run-record.sh by each fact's owning verb and read through
 # run-record-lib.sh. The loop reads them from there, never from the
-# coordination PR's body; node-push.sh still writes the body's index for
-# reviewers and the merge-last gate. execute-open.sh carries the keys into the
+# coordination PR's body. The body is the record's rendering, for reviewers
+# and CI's merge-last gate: coord-render.sh renders it after every transition
+# it shows and before every terminal (the coord_verdict default action), and
+# posts it only when it differs. execute-open.sh carries the keys into the
 # session koto replaces a finished one with.
 name: execute-coordinated
 version: "1.0"
@@ -296,20 +299,28 @@ states:
   coord_verdict:
     # The verdict, recorded by koto, not by the agent.
     # record-coordination-verdict.sh clears coord_verdict, pr, waiting, resume,
-    # reason, and step; runs coordination-verdict.sh; and writes each field
-    # only when every one matches its closed pattern. It reads GitHub and writes
-    # koto context, nothing else: a failed cascade goes to run/cascade through
-    # run-record.sh before the verdict's keys. koto substitutes declared variables into a
-    # default_action command, never context keys, so the script reads the
-    # recorded write set and coordination branch itself.
+    # reason, step, and body; runs coordination-verdict.sh; and writes each
+    # field only when every one matches its closed pattern. It reads GitHub,
+    # writes koto context, and posts the coordination PR's rendered body: a
+    # failed cascade goes to run/cascade through run-record.sh, then
+    # coord-render.sh records any merged head it sees and posts the body when
+    # it differs (nothing once the coordination PR merged), all before the
+    # verdict's keys, `body` among them. A render refused for a private
+    # repository under a public coordination PR turns the verdict into an
+    # error with step execute:visibility. koto substitutes declared variables
+    # into a default_action command, never context keys, so the script reads
+    # the recorded write set and coordination branch itself.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/execute/scripts/record-coordination-verdict.sh --session "execute-{{PLAN_SLUG}}" --merge "{{MERGE}}" --plan "{{PLAN_DOC}}" --slug "{{PLAN_SLUG}}"'
       fallback: >-
         koto could not record the coordinated verdict. Read the command's own
         output above: exit 1 means coordination-verdict.sh failed or printed a
         field outside its pattern, 64 a missing coord_setup record, 70 a
-        context write, and a timeout means the reads took longer than koto
-        allows. The keys were cleared first, so nothing stale is read as
+        context write, and a timeout means the reads (the verdict's and the
+        body render's) took longer than koto allows. A render that refused a
+        private repository under a public coordination PR is not a failure
+        here: it is recorded as an error verdict with step execute:visibility,
+        which ends the run at done_blocked. The keys were cleared first, so nothing stale is read as
         current. Fix the cause and tick again to re-run it. There is no
         evidence to submit here and no override: the run leaves this state
         only on a verdict the script recorded.
@@ -465,6 +476,7 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      body: "${context.body}"
 
   ready_awaiting_merge:
     # Nothing is left to start, and something is unmerged: a node PR or the
@@ -478,6 +490,7 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      body: "${context.body}"
 
   paused_awaiting_merges:
     # A node waits on an unmerged predecessor. The run record stays in the
@@ -492,6 +505,7 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      body: "${context.body}"
 
   done_blocked:
     terminal: true
@@ -504,6 +518,7 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      body: "${context.body}"
 
   done_error:
     terminal: true
@@ -516,6 +531,7 @@ states:
       repos: "${context.repos}"
       resume: "${context.resume}"
       waiting: "${context.waiting}"
+      body: "${context.body}"
 ---
 
 ## coord_setup
@@ -551,12 +567,12 @@ RUN_ID=$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get {{SESSION_NAME}})
 
 `--merge {{MERGE}}` is this invocation's own merge intent; don't change it. `--session {{SESSION_NAME}}` is where the run's record lives: the script reads the node map, each node's PR and pushed head, the cascade's verdict, and the coordination PR's number from the session's `run/` keys, never from the coordination PR's body. `--run-id "$RUN_ID"` is this run's identity, the session's `run_id`: every owned-PR lookup carries it, so a node PR another run opened is never adopted or pushed to, and the node PRs this run opens are stamped with it. (The coordination PR is `/scope`'s and carries no marker; setup found it once and recorded its number.) Pass the same `--session {{SESSION_NAME}}` and `RUN_ID` to every `node-push.sh` call below; if a later shell no longer has `RUN_ID`, read it again with `RUN_ID=$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get {{SESSION_NAME}})`. The actions:
 
-- `dispatch:<node>` — the node's predecessors are all merged and it has no PR yet. Take its `REPO` and `ISSUES` from `plan-to-tasks.sh {{PLAN_DOC}}` (the entry named `<node>`). Check the node against its own target first: `{{PLUGIN_ROOT}}/skills/execute/scripts/repo-visibility.sh --home-repo "$HOME_REPO" --repo <REPO> --node <node>`. An exit 77 means the node's repository is private and the coordination PR's is public, which a public coordination PR can never index: stop with `loop_exit: error` and `loop_line: error:execute:visibility`, and relay its message, which says what to change. An exit 72 means a visibility read failed: stop with `loop_line: error:execute:status-read`. Any other nonzero exit: stop with `loop_line: error:execute:dispatch`. Cut its branch from the default branch in its own worktree: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-cut.sh {{PLAN_SLUG}} <node>` (add `--repo-dir <clone>`, a local clone of the node's `REPO`, whenever that repository isn't this checkout's; when `home_repo` isn't in `repos`, that is every node, and a node cut here would branch from the coordination PR's repository instead. /execute makes no clone: use one already on disk, or make one with `gh repo clone <REPO> <dir>` outside this checkout). In that worktree, dispatch the node's work items, in `ISSUES` order, each as a `/work-on` plan-backed child on the node branch: `ISSUE_SOURCE` from the node entry, `SHARED_BRANCH=impl/{{PLAN_SLUG}}-<node>`, and, for `plan_outline`, `ISSUE_NUMBER=<item>` and `PLAN_DOC` set to the `plan_abs` value (`koto context get {{SESSION_NAME}} plan_abs`), the PLAN in this coordination checkout, since the node branch doesn't carry it; for `github`, the child reads its issue as usual. This run's review-level bound is floor `{{REVIEW_FLOOR}}` and ceiling `{{REVIEW_CEILING}}`: give every child `REVIEW_FLOOR` set to the floor and `REVIEW_CEILING` set to the ceiling, leaving out whichever is empty. Each child commits to the node branch and submits `pr_status: shared`; no child opens a PR. Then push the node and record it: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-push.sh node --session {{SESSION_NAME}} --slug {{PLAN_SLUG}} --node <node> --repo <REPO> --issues <ISSUES> --home-repo "$HOME_REPO" --coord-branch "$CB" --plan "$(koto context get {{SESSION_NAME}} plan_abs)" --run-id "$RUN_ID"`, run in the node worktree. It pushes, opens the node's draft PR (or adopts the one owned PR on the branch), records the node's PR and pushed head in the run record (`run/node/<node>`) and writes its index line, and renders the PLAN's merge order into the coordination PR's `## Merge Order` block. An exit 70 means the push happened but the run record write failed, and the body was not edited: stop with `loop_exit: error` and `loop_line: error:execute:push`. An exit 76 means the PLAN couldn't be read or doesn't name this node, and nothing was pushed: stop with `loop_exit: error` and `loop_line: error:execute:dispatch`. An exit 79 means the node's `REPO` is another repository but its worktree pushes to this coordination checkout's (cut without `--repo-dir`, or from a clone of this repository), or the check couldn't read either git directory; nothing was pushed, and the node's work sits on a local branch in that worktree, to be redone in a clone of `REPO`: stop with `loop_exit: error` and `loop_line: error:execute:dispatch`, and relay its message. It repeats the visibility check before its push (a resumed run can reach the push without this dispatch step), with the same exits: 77 is `error:execute:visibility`, 72 `error:execute:status-read`. For a public node under a private coordination PR it also scans the commits it would publish for the public-content markers (a `private/` path, a `Repo Visibility: Private` line): an exit 78 means a hit, or a scan that couldn't run, and nothing was pushed: stop with `loop_line: error:execute:visibility`, and relay its message. A node PR it opens in a public repository links the coordination PR only when that PR is public too. If a child fails and can't be resolved, stop the loop with `loop_exit: error` and `loop_line: error:execute:dispatch`.
+- `dispatch:<node>` — the node's predecessors are all merged and it has no PR yet. Take its `REPO` and `ISSUES` from `plan-to-tasks.sh {{PLAN_DOC}}` (the entry named `<node>`). Check the node against its own target first: `{{PLUGIN_ROOT}}/skills/execute/scripts/repo-visibility.sh --home-repo "$HOME_REPO" --repo <REPO> --node <node>`. An exit 77 means the node's repository is private and the coordination PR's is public, which a public coordination PR can never index: stop with `loop_exit: error` and `loop_line: error:execute:visibility`, and relay its message, which says what to change. An exit 72 means a visibility read failed: stop with `loop_line: error:execute:status-read`. Any other nonzero exit: stop with `loop_line: error:execute:dispatch`. Cut its branch from the default branch in its own worktree: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-cut.sh {{PLAN_SLUG}} <node>` (add `--repo-dir <clone>`, a local clone of the node's `REPO`, whenever that repository isn't this checkout's; when `home_repo` isn't in `repos`, that is every node, and a node cut here would branch from the coordination PR's repository instead. /execute makes no clone: use one already on disk, or make one with `gh repo clone <REPO> <dir>` outside this checkout). In that worktree, dispatch the node's work items, in `ISSUES` order, each as a `/work-on` plan-backed child on the node branch: `ISSUE_SOURCE` from the node entry, `SHARED_BRANCH=impl/{{PLAN_SLUG}}-<node>`, and, for `plan_outline`, `ISSUE_NUMBER=<item>` and `PLAN_DOC` set to the `plan_abs` value (`koto context get {{SESSION_NAME}} plan_abs`), the PLAN in this coordination checkout, since the node branch doesn't carry it; for `github`, the child reads its issue as usual. This run's review-level bound is floor `{{REVIEW_FLOOR}}` and ceiling `{{REVIEW_CEILING}}`: give every child `REVIEW_FLOOR` set to the floor and `REVIEW_CEILING` set to the ceiling, leaving out whichever is empty. Each child commits to the node branch and submits `pr_status: shared`; no child opens a PR. Then push the node and record it: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-push.sh node --session {{SESSION_NAME}} --slug {{PLAN_SLUG}} --node <node> --repo <REPO> --issues <ISSUES> --home-repo "$HOME_REPO" --coord-branch "$CB" --plan "$(koto context get {{SESSION_NAME}} plan_abs)" --run-id "$RUN_ID"`, run in the node worktree. It pushes, opens the node's draft PR (or adopts the one owned PR on the branch), records the node's PR and pushed head in the run record (`run/node/<node>`), and renders the coordination PR's body from the record (`coord-render.sh`): the node's index line, the merge order from the node list setup sealed, and any merge it sees recorded first. Its last line is `body=<posted|unchanged|stale|full>`; a `stale` or `full` body changes nothing here, and the next step renders again. An exit 70 means the push happened but the run record write failed, and the body was not rendered: stop with `loop_exit: error` and `loop_line: error:execute:push`. An exit 76 means the PLAN couldn't be read or doesn't name this node, and nothing was pushed: stop with `loop_exit: error` and `loop_line: error:execute:dispatch`. An exit 79 means the node's `REPO` is another repository but its worktree pushes to this coordination checkout's (cut without `--repo-dir`, or from a clone of this repository), or the check couldn't read either git directory; nothing was pushed, and the node's work sits on a local branch in that worktree, to be redone in a clone of `REPO`: stop with `loop_exit: error` and `loop_line: error:execute:dispatch`, and relay its message. It repeats the visibility check before its push (a resumed run can reach the push without this dispatch step), with the same exits: 77 is `error:execute:visibility`, 72 `error:execute:status-read`. An exit 77 after the push (its message says the push happened) is the render refusing a record that would name a private repository in a public coordination PR's body: stop the same way, with `loop_line: error:execute:visibility`. For a public node under a private coordination PR it also scans the commits it would publish for the public-content markers (a `private/` path, a `Repo Visibility: Private` line): an exit 78 means a hit, or a scan that couldn't run, and nothing was pushed: stop with `loop_line: error:execute:visibility`, and relay its message. A node PR it opens in a public repository links the coordination PR only when that PR is public too. If a child fails and can't be resolved, stop the loop with `loop_exit: error` and `loop_line: error:execute:dispatch`.
 - `evaluate:<node>` — the node's PR is a draft, or its checks are still running. Wait for its checks. Mark it ready only once every check passed: `gh pr ready <n> --repo <REPO>`. A check that fails comes back from the script as `error:execute:ci`.
-- `merge:<node>` — only ever printed with `--merge true`. Run `{{PLUGIN_ROOT}}/skills/execute/scripts/coord-merge.sh --session {{SESSION_NAME}} --slug {{PLAN_SLUG}} --home-repo "$HOME_REPO" --coord-branch "$CB" --node <node>`. It merges only through `merge-exec.sh`, at the head the run record holds (the commit the node's push recorded, never the body's `head=`), and confirms with a live read (an exit 72 is a GitHub read that failed, the coordination PR's visibility read included: stop with `loop_exit: error` and `loop_line: error:execute:status-read`); a merge it did not see land is recorded so it isn't called again.
-- `cascade` — every node PR reports `MERGED`. While the PLAN still exists, render its final merge order into the coordination PR's body: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-push.sh order --session {{SESSION_NAME}} --slug {{PLAN_SLUG}} --home-repo "$HOME_REPO" --coord-branch "$CB" --plan "$(koto context get {{SESSION_NAME}} plan_abs)" --run-id "$RUN_ID"` (it pushes nothing). Skip it when no file exists at the `plan_abs` path: a resumed run whose cascade already ran has no PLAN left to render, and the block holds the render made before that cascade. If it exits nonzero, the coordination PR's body is unchanged: stop with `loop_exit: error`, before the cascade deletes the PLAN, and `loop_line` set by the exit code: `error:execute:status-read` for 72, `error:execute:pr-adopt` for 73, `error:execute:cascade` for any other. In this checkout, run the finalization cascade once, on the coordination branch: `{{PLUGIN_ROOT}}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}` (skip it when the PLAN is already gone), then record the cascade's pushed head: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-push.sh coordination --session {{SESSION_NAME}} --slug {{PLAN_SLUG}} --home-repo "$HOME_REPO" --coord-branch "$CB" --run-id "$RUN_ID"`. It pushes the coordination branch, records the cascade's pushed head in the run record (`run/cascade`), the head the coordination PR's merge is pinned to, and writes the coordination PR's own index line; an exit 70 means the record write failed: stop with `loop_exit: error` and `loop_line: error:execute:push`. If the cascade fails, or this push exits with any other nonzero code, stop with `loop_exit: error` and `loop_line: error:execute:cascade`: the verdict records the failed cascade in the run record (`run/cascade`), and the next invocation runs the cascade again.
-- `evaluate-coordination` — run the merge-last gate over every indexed PR except the coordination PR itself, then mark the coordination PR ready: `gh pr view <n> --repo "$HOME_REPO" --json body --jq .body | {{PLUGIN_ROOT}}/scripts/coordination-gate-refs.sh "$HOME_REPO" <n>` gives the refs; pass each as `--pr <ref>` to `shirabe validate --merge-gate --mode=ready`, adding `--visibility private` when `{{PLUGIN_ROOT}}/skills/execute/scripts/repo-visibility.sh --home-repo "$HOME_REPO"` prints `home=private` (a private coordination PR may index private nodes; without the flag the gate treats it as public and refuses them), and only when it passes, `gh pr ready <n> --repo "$HOME_REPO"`. If that read exits 72, stop with `loop_exit: error` and `loop_line: error:execute:status-read`.
-- `merge-coordination` — only with `--merge true`: `coord-merge.sh` as above with `--node coordination`. It runs the merge-last gate itself before merging.
+- `merge:<node>` — only ever printed with `--merge true`. Run `{{PLUGIN_ROOT}}/skills/execute/scripts/coord-merge.sh --session {{SESSION_NAME}} --slug {{PLAN_SLUG}} --home-repo "$HOME_REPO" --coord-branch "$CB" --node <node>`. It merges only through `merge-exec.sh`, at the head the run record holds (the commit the node's push recorded, never the body's `head=`), with a squash message built from the PR's title and Part 1, and confirms with a live read (an exit 72 is a GitHub read that failed, the coordination PR's visibility read included: stop with `loop_exit: error` and `loop_line: error:execute:status-read`). A merge it did not see land, and a `merge-refused:<...>` line (no recorded head, the merge-last gate, or `merge-refused:squash-message`: a message it couldn't build), are recorded so the merge isn't tried again in this run; run `coordinated-next.sh` again. After a node's `merged` it renders the body (its `body=` line). An exit 77 is the render refusing a record that would name a private repository in a public coordination PR: stop with `loop_exit: error` and `loop_line: error:execute:visibility`.
+- `cascade` — every node PR reports `MERGED`. First bring the coordination PR's body up to date: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-push.sh order --session {{SESSION_NAME}} --slug {{PLAN_SLUG}} --home-repo "$HOME_REPO" --coord-branch "$CB" --run-id "$RUN_ID"` (it pushes nothing, records nothing, and takes no PLAN: the merge order renders from the node list setup sealed, so it survives the cascade's deletion of the PLAN). If it exits nonzero, stop with `loop_exit: error`, before the cascade, and `loop_line` set by the exit code: `error:execute:status-read` for 72, `error:execute:pr-adopt` for 73, `error:execute:visibility` for 77, `error:execute:cascade` for any other. In this checkout, run the finalization cascade once, on the coordination branch: `{{PLUGIN_ROOT}}/skills/work-on/scripts/run-cascade.sh --push {{PLAN_DOC}}` (skip it when the PLAN is already gone), then record the cascade's pushed head: `{{PLUGIN_ROOT}}/skills/execute/scripts/node-push.sh coordination --session {{SESSION_NAME}} --slug {{PLAN_SLUG}} --home-repo "$HOME_REPO" --coord-branch "$CB" --run-id "$RUN_ID"`. It pushes the coordination branch, records the cascade's pushed head in the run record (`run/cascade`), the head the coordination PR's merge is pinned to, and renders the body (the coordination PR has no index line of its own); an exit 70 means the record write failed: stop with `loop_exit: error` and `loop_line: error:execute:push`, and an exit 77 `loop_line: error:execute:visibility`. If the cascade fails, or this push exits with any other nonzero code, stop with `loop_exit: error` and `loop_line: error:execute:cascade`: the verdict records the failed cascade in the run record (`run/cascade`), and the next invocation runs the cascade again.
+- `evaluate-coordination` — first bring the body CI's merge-last gate reads up to date with the record: `{{PLUGIN_ROOT}}/skills/execute/scripts/coord-render.sh --session {{SESSION_NAME}} --slug {{PLAN_SLUG}} --home-repo "$HOME_REPO" --coord-branch "$CB" --before-coordination`. When it prints a `merge-refused:` line (`merge-refused:body-stale` or `merge-refused:body-full`: the body couldn't be posted, and it has recorded that), skip the gate and the ready call and run `coordinated-next.sh` again, which then won't print `evaluate-coordination` in this run. An exit 77 means the record would name a private repository in a public coordination PR: stop with `loop_exit: error` and `loop_line: error:execute:visibility`; an exit 70 is a context write that failed: stop with `loop_line: error:execute:coord-loop`. Otherwise run the merge-last gate over every indexed PR (the body never indexes the coordination PR itself), then mark the coordination PR ready: `gh pr view <n> --repo "$HOME_REPO" --json body --jq .body | {{PLUGIN_ROOT}}/scripts/coordination-gate-refs.sh "$HOME_REPO" <n>` gives the refs; pass each as `--pr <ref>` to `shirabe validate --merge-gate --mode=ready`, adding `--visibility private` when `{{PLUGIN_ROOT}}/skills/execute/scripts/repo-visibility.sh --home-repo "$HOME_REPO"` prints `home=private` (a private coordination PR may index private nodes; without the flag the gate treats it as public and refuses them), and only when it passes, `gh pr ready <n> --repo "$HOME_REPO"`. If that read exits 72, stop with `loop_exit: error` and `loop_line: error:execute:status-read`.
+- `merge-coordination` — only with `--merge true`: `coord-merge.sh` as above with `--node coordination`. It renders the body first (with `--before-coordination`; a `merge-refused:body-stale` or `merge-refused:body-full` line means no merge was called, and it is recorded) and runs the merge-last gate itself before merging; its squash message is the coordination PR's title and Part 1, never its index or run lines.
 
 When it prints a stopping line, submit it: `loop_exit: done` for `done:<outcome>`, `pause` for `pause`, `error` for `error:<step>`, with the line as `loop_line`. What you submit doesn't pick the ending; `coord_verdict` recomputes it from GitHub.
 
@@ -572,7 +588,7 @@ Recording where the coordinated run ended. koto runs the record script itself on
 
 <!-- details -->
 
-The command is `record-coordination-verdict.sh`. It clears `coord_verdict`, `pr`, `waiting`, `resume`, `reason`, and `step`; runs `coordination-verdict.sh`, which recomputes the run's position from the session's run record and live `gh`; and writes the verdict and its fields only when every one matches its pattern. When the loop stopped with the cascade still to run, it also records the failed cascade in the run record (`run/cascade`), so the next invocation runs it again. It writes nothing to GitHub. A recorded `merged` goes to `coord_merge_confirm`; `ready` to `ready_awaiting_merge`; `paused` to `paused_awaiting_merges`; `dirty` and `error` to `done_blocked`; a key that holds no verdict from that set to `done_blocked` with `step=execute:status-read`.
+The command is `record-coordination-verdict.sh`. It clears `coord_verdict`, `pr`, `waiting`, `resume`, `reason`, `step`, and `body`; runs `coordination-verdict.sh`, which recomputes the run's position from the session's run record and live `gh`; and writes the verdict and its fields only when every one matches its pattern. When the loop stopped with the cascade still to run, it also records the failed cascade in the run record (`run/cascade`), so the next invocation runs it again. Then it renders the coordination PR's body (`coord-render.sh`), recording any merged head it sees first, and posts it only when it differs; a merged coordination PR gets no post. It records the render's token as `body` (`posted`, `unchanged`, `stale`, `full`); a render refused for a private repository under a public coordination PR records an error verdict with `step=execute:visibility`. A recorded `merged` goes to `coord_merge_confirm`; `ready` to `ready_awaiting_merge`; `paused` to `paused_awaiting_merges`; `dirty` and `error` to `done_blocked`; a key that holds no verdict from that set to `done_blocked` with `step=execute:status-read`.
 
 You are here because the script failed; the response above carries its exit code and stderr. Fix the cause and tick again to re-run it. There is no evidence to submit and no override: only a verdict the script records moves the run on.
 
@@ -599,7 +615,7 @@ koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit
 
 ## ready_awaiting_merge
 
-Nothing is left to start, and a node PR or the coordination PR is still unmerged: it waits on a human, or on a later `/execute --merge`. The result's `reason` names why (the merge wasn't requested, a review or protection rule, a moved head, a merge call that failed, or a merge that wasn't observed yet and may still land). Render the exit lines from the terminal result:
+Nothing is left to start, and a node PR or the coordination PR is still unmerged: it waits on a human, or on a later `/execute --merge`. The result's `reason` names why (the merge wasn't requested, a review or protection rule, a moved head, a merge call that failed, a merge this run refused (`merge-refused`, or `merge-refused:squash-message` for a message it couldn't build), a coordination body it couldn't bring up to date before the coordination PR's evaluation or merge (`merge-refused:body-stale` or `merge-refused:body-full`), or a merge that wasn't observed yet and may still land). Render the exit lines from the terminal result; a `body=stale` or `body=full` line among them says the coordination PR's body is behind the record, and the next invocation renders it again:
 
 ```bash
 koto status {{SESSION_NAME}} | {{PLUGIN_ROOT}}/skills/execute/scripts/print-exit.sh

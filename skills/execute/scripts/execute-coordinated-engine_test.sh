@@ -31,6 +31,20 @@
 #   done_error              coord_setup blocked: outcome=error,
 #                           step=execute:coord_setup; a typed setup stop
 #                           (store-mismatch) assigns its code as the reason
+#   the body at each terminal  coord_verdict's default action renders the
+#                           coordination PR's body: ready_awaiting_merge,
+#                           paused_awaiting_merges, done_blocked (DIRTY) and
+#                           done_blocked (error) each post it once, in their
+#                           own case, with body=posted in the result; merged
+#                           posts nothing (body=unchanged); a setup stop
+#                           (done_error) posts nothing
+#   a render refusal        a record naming a private repository under a
+#                           public coordination PR ends at done_blocked with
+#                           step=execute:visibility and nothing posted
+#   a coordination body that couldn't be posted   coordination:body-stale in
+#                           the attempts, the coordination PR a draft: the run
+#                           ends ready_awaiting_merge with
+#                           reason=merge-refused:body-stale
 #   the record across a pause  a run at paused_awaiting_merges re-invoked
 #                           through execute-open.sh is replaced with its run/
 #                           keys carried byte-equal, the same run_id, and no
@@ -160,6 +174,18 @@ record() {
 state_of() { k status "execute-$1" 2>/dev/null | jq -r '.current_state // "gone"'; }
 payload() { k status "execute-$1" 2>/dev/null | jq -r --arg k "$2" '.result.payload[$k] // ""'; }
 
+# body_posts <slug> <count> -- the case made <count> posts of the coordination
+# PR's body (pr edit 10), and the result's body says what the last render did.
+body_posts() {
+    local n
+    n=$(ct_calls | grep -c '^pr edit 10 ')
+    if [ "$n" = "$2" ]; then
+        pass "$1: the coordination PR's body was posted $2 time(s), result body=$(payload "$1" body)"
+    else
+        fail "$1: $n posts of the coordination PR's body, expected $2 (result body=[$(payload "$1" body)])"
+    fi
+}
+
 # expect_terminal <slug> <state> <key=value>... -- the session is retained at
 # <state> and its result payload holds each value (a value of `+` means
 # "non-empty").
@@ -190,7 +216,8 @@ fixture merged two-repo
 CT_COORD_STATE=MERGED
 ct_write_db
 open_run merged true && finish merged "done:merged"
-expect_terminal merged merged outcome=merged "pr=$COORD_URL" "repos=acme/repo-a,acme/repo-b"
+expect_terminal merged merged outcome=merged "pr=$COORD_URL" "repos=acme/repo-a,acme/repo-b" body=unchanged
+body_posts merged 0
 if ct_calls | grep -q -- '--head docs/t --state all' && ! ct_calls | grep -q 'acme/repo-a,acme/repo-b'; then
     pass "the confirm read looked up the coordination branch in home_repo, never the comma-joined repos"
 else
@@ -224,7 +251,8 @@ if open_run ready false; then
     finish ready "done:ready-awaiting-merge"
 fi
 expect_terminal ready ready_awaiting_merge outcome=ready-awaiting-merge "pr=$COORD_URL" waiting=+ \
-    reason=merge-not-requested "repos=acme/repo-a,acme/repo-b"
+    reason=merge-not-requested "repos=acme/repo-a,acme/repo-b" body=posted
+body_posts ready 1
 if ct_calls | grep -q '^pr merge'; then fail "a run without --merge called pr merge"; else pass "no pr merge without --merge"; fi
 
 # --- paused_awaiting_merges -------------------------------------------------------
@@ -238,7 +266,8 @@ if open_run paused false; then
     finish paused "pause"
 fi
 expect_terminal paused paused_awaiting_merges outcome=paused-awaiting-merges "pr=$COORD_URL" waiting=+ \
-    "resume=/execute docs/plans/PLAN-paused.md" reason=merge-not-requested
+    "resume=/execute docs/plans/PLAN-paused.md" reason=merge-not-requested body=posted
+body_posts paused 1
 if ct_calls | grep -Eq '^pr (close|create)'; then fail "the pause closed or opened a PR"; else pass "the pause leaves the coordination PR open and opens nothing"; fi
 
 ct_case paused-merge
@@ -271,7 +300,8 @@ if open_run dirty true; then
     record dirty ct_record_node "$CT_CORE" "$CT_REPO" 11
     finish dirty "pause"
 fi
-expect_terminal dirty done_blocked outcome=ready-awaiting-merge reason=merge-state:DIRTY "pr=$COORD_URL"
+expect_terminal dirty done_blocked outcome=ready-awaiting-merge reason=merge-state:DIRTY "pr=$COORD_URL" body=posted
+body_posts dirty 1
 
 ct_case error
 fixture error
@@ -281,7 +311,8 @@ if open_run error true; then
     record error ct_record_node "$CT_CORE" "$CT_REPO" 11
     finish error "error:execute:pr-adopt"
 fi
-expect_terminal error done_blocked outcome=error step=execute:pr-adopt
+expect_terminal error done_blocked outcome=error step=execute:pr-adopt body=posted
+body_posts error 1
 OUT=$(k status execute-error | bash "$SCRIPT_DIR/print-exit.sh")
 if grep -qx 'outcome=error' <<<"$OUT" && grep -qx 'step=execute:pr-adopt' <<<"$OUT"; then
     pass "print-exit.sh renders outcome=error with its step= line"
@@ -323,6 +354,40 @@ else
     fail "the exit lines lack the may-still-be-queued note: [$OUT]"
 fi
 
+# --- a render refusal, and a body that couldn't be posted -------------------------
+
+ct_case render-refused
+fixture refused two-repo
+ct_pr acme/repo-a 11 impl/refused-pr-repo-a-default
+ct_pr acme/repo-b 21 impl/refused-pr-repo-b-default
+CT_VIS_B=private
+ct_write_db
+CT_VIS_B=public
+if open_run refused false; then
+    record refused ct_record_node pr-repo-a-default acme/repo-a 11
+    record refused ct_record_node pr-repo-b-default acme/repo-b 21
+    finish refused "done:ready-awaiting-merge"
+fi
+expect_terminal refused done_blocked outcome=error step=execute:visibility body=refused:execute:visibility
+body_posts refused 0
+
+ct_case body-stale
+fixture bstale
+ct_pr "$CT_REPO" 11 "impl/bstale-$CT_CORE" 'state="MERGED"'
+ct_pr "$CT_REPO" 12 "impl/bstale-$CT_CLI" 'state="MERGED"'
+ct_write_db
+if open_run bstale true; then
+    record bstale ct_record_node "$CT_CORE" "$CT_REPO" 11
+    record bstale ct_record_node "$CT_CLI" "$CT_REPO" 12
+    record bstale ct_record_cascade pushed "$CT_HEAD"
+    (cd "$REPO" && git rm -q "docs/plans/PLAN-bstale.md" && git commit -q -m "chore: cascade")
+    # The render before evaluate-coordination couldn't post, and recorded it.
+    printf '%s' "coordination:body-stale" | k context add execute-bstale merge_attempts
+    finish bstale "done:ready-awaiting-merge"
+fi
+expect_terminal bstale ready_awaiting_merge outcome=ready-awaiting-merge reason=merge-refused:body-stale \
+    "pr=$COORD_URL" waiting=+
+
 # --- done_error -------------------------------------------------------------------
 
 ct_case setup-blocked
@@ -333,6 +398,7 @@ k init execute-blocked $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=doc
     --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
 k next execute-blocked --with-data '{"setup_status":"blocked","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
 expect_terminal blocked done_error outcome=error step=execute:coord_setup
+body_posts blocked 0
 
 # A typed setup stop ends at done_error with its code as the literal reason.
 ct_case setup-stop
@@ -343,6 +409,7 @@ k init execute-stop $KOTO_LEGACY_ENV_ARG --template "$TPL" --var PLAN_DOC=docs/p
     --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >/dev/null 2>&1
 k next execute-stop --with-data '{"setup_status":"store-mismatch","detail":"probe"}' --no-cleanup >"$CASE/next.json" 2>&1
 expect_terminal stop done_error outcome=error step=execute:coord_setup reason=store-mismatch
+body_posts stop 0
 OUT=$(k status execute-stop | bash "$SCRIPT_DIR/print-exit.sh")
 grep -qx 'reason=store-mismatch' <<<"$OUT" && pass "print-exit.sh renders the setup stop's reason" \
     || fail "the setup stop's exit lines: [$OUT]"
