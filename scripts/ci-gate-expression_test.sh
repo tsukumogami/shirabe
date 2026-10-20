@@ -37,6 +37,13 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PASS=0
 FAIL=0
 
+# work-on.md's command ends in `|| ci-cancel-after-merge.sh ... || exit 1`, a fallback
+# reached only when the filter below says not green: it passes a MERGED pull
+# request whose only non-green checks are cancelled macOS floor runs (#952).
+# It carries no --json or --jq, so the last-of-kind extraction still lands on
+# the `gh pr checks` call, and the "cancel gates" case stays true of the
+# filter. skills/work-on/scripts/ci-cancel-after-merge_test.sh pins the fallback.
+#
 # Every koto template carrying a CI-green gate belongs here, as
 # "<template>:<gate>". work-on.md's is ci_passing. execute.md's is
 # owned_ci_passing: it resolves the PR through owned-pr.sh rather than the first
