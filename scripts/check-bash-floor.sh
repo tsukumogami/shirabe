@@ -237,6 +237,45 @@ suite_needs_shirabe() {
     grep -Eq '^[[:space:]]*needs:[[:space:]]*shirabe[[:space:]]*$' "$list"
 }
 
+# run_harnesses <suite> <label> <command>...: runs each of the suite's
+# harnesses as `<command>... <script>`, one `--- bash 3.2 (<label>): <script>`
+# line before each, and returns 1 if any of them failed.
+#
+# A harness gets /dev/null for stdin and never sees fd 3, which carries the
+# list. When the list was the loop's stdin, every harness inherited it, and
+# one that read stdin, even through a command it ran, swallowed the rest:
+# the loop ended and the suite passed having run only the harnesses before it
+# (shirabe#962; the execute suite's macOS leg ran 1 of its harnesses that
+# way). The count check is the backstop for any path to the list this leaves
+# open: a suite that starts fewer harnesses than it lists fails, naming the
+# ones that never ran.
+run_harnesses() {
+    local suite="$1" label="$2"
+    shift 2
+    local scripts script listed ran=0 status=0
+
+    scripts=$(suite_scripts "$suite") || return 1
+    listed=$(printf '%s\n' "$scripts" | grep -c .) || listed=0
+    while read -r script <&3; do
+        [ -n "$script" ] || continue
+        ran=$((ran + 1))
+        echo "--- bash 3.2 ($label): $script"
+        if ! "$@" "$script" </dev/null 3<&-; then
+            status=1
+        fi
+    done 3<<EOF
+$scripts
+EOF
+
+    echo "check-bash-floor: $suite: ran $ran of $listed listed harnesses"
+    if [ "$ran" -ne "$listed" ]; then
+        echo "check-bash-floor: $suite: never ran:" \
+            $(printf '%s\n' "$scripts" | grep . | sed -n "$((ran + 1)),\$p") >&2
+        status=1
+    fi
+    return $status
+}
+
 list_suites() {
     local suite script
     echo "Suites (scripts/check-bash-floor.sh <suite>):"
@@ -508,7 +547,7 @@ bind_ro() {
 
 run_suite_docker() {
     local suite="$1"
-    local script status shirabe_bin stub_dir d
+    local shirabe_bin stub_dir d
     # Always non-empty, so `set -u` never meets an empty array expansion -
     # which is itself a bash 3.2 trap, and this script runs on the floor too.
     local args
@@ -571,19 +610,9 @@ EOF
 
     args=("${args[@]}" -w "$REPO_ROOT" "$FLOOR_IMAGE")
 
-    status=0
-    while read -r script; do
-        [ -n "$script" ] || continue
-        echo "--- bash 3.2 (docker): $script"
-        # Plain `bash` on purpose: inside this container every bash is 3.2, so
-        # a nested `bash` or a /usr/bin/env bash shebang stays on the floor.
-        if ! docker run "${args[@]}" bash "$script"; then
-            status=1
-        fi
-    done <<EOF
-$(suite_scripts "$suite")
-EOF
-    return $status
+    # Plain `bash` on purpose: inside this container every bash is 3.2, so a
+    # nested `bash` or a /usr/bin/env bash shebang stays on the floor.
+    run_harnesses "$suite" docker docker run "${args[@]}" bash
 }
 
 # -- system backend -----------------------------------------------------------
@@ -595,7 +624,7 @@ system_bash_is_floor() {
 
 run_suite_system() {
     local suite="$1"
-    local script status shim
+    local shim
 
     system_bash_is_floor || die "/bin/bash is not 3.2 here ($(/bin/bash -c 'echo $BASH_VERSION' 2>/dev/null || echo absent)); use --backend docker"
     # The full version, once, so a leg that goes red later shows at a glance
@@ -611,17 +640,13 @@ run_suite_system() {
     shim="$MKTEMP_RESULT"
     ln -s /bin/bash "$shim/bash"
 
-    status=0
-    while read -r script; do
-        [ -n "$script" ] || continue
-        echo "--- bash 3.2 (/bin/bash): $script"
-        if ! ( cd "$REPO_ROOT" && PATH="$shim:$PATH" /bin/bash "$script" ); then
-            status=1
-        fi
-    done <<EOF
-$(suite_scripts "$suite")
-EOF
-    return $status
+    run_harnesses "$suite" /bin/bash in_repo env "PATH=$shim:$PATH" /bin/bash
+}
+
+# in_repo <command>...: runs the command from the checkout's root, in a
+# subshell, so the runner's own directory is left alone.
+in_repo() {
+    ( cd "$REPO_ROOT" && "$@" )
 }
 
 # -- main ---------------------------------------------------------------------
