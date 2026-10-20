@@ -73,6 +73,14 @@ under its own name: `skill-session.sh import execute <topic> --from
 `${CLAUDE_PLUGIN_ROOT}/scripts/skill-session.sh`; the execute and deliver sets
 compile their own templates first). Stop the run on the source first.
 
+On one machine the two workspaces share one session store, so session names
+are the machine's, not a workspace's. Import `deliver-<topic>` along with
+`execute-<topic>`, or remove the source's: while the source's
+`deliver-<topic>` still holds the name, a new `/deliver <topic>` in the second
+workspace is refused with `origin_mismatch`. After a same-machine import, a
+`koto status` from the source workspace reaches the moved copy, and ticking it
+there is refused with `execution_anchor_mismatch`.
+
 A new `/deliver <topic>` after the import opens a request of its own, which
 abandons the old one, and binds the moved execute session to its new
 `execute` leg when `/execute` runs again, so the new run gets `/execute`'s
