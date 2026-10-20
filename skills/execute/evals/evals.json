@@ -1326,7 +1326,7 @@
       "id": 71,
       "name": "coordinated-head-moved",
       "tier": 2,
-      "behaviour": "coordinated-merge-refused",
+      "behaviour": "coordinated-recovery",
       "mode": "execute",
       "scenario": "coord-head-moved",
       "requirements": [
@@ -1336,19 +1336,20 @@
       "env": {
         "GH_CALL_LOG": "gh-calls.log"
       },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The core node's PR (#11) is ready and green, but its index head= is not its live head. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
-      "expected_output": "The merge verdict for #11 is awaiting:head-moved, so no merge is called; the cli node waits and the run pauses with #11's line reading reason=head-moved.",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --auto -- The core node's PR (#11) is ready and green, but the coordination PR's index line for it records a head= that is not its live head. The session holds no run record (no earlier /execute ran here), so setup must rebuild it from the coordination PR. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "Setup recovers the run from the coordination PR: the run line names the run and #11's marker matches it. The body's head= is ignored: the recorded head is #11's live headRefOid. Without --merge nothing is merged; the cli node waits on core and the run pauses, with recovered=<the coordination PR> among the exit lines. No head the body names is ever passed to --match-head-commit.",
       "files": [],
       "expectations": [
-        "gh-calls.log has no `pr merge 11`",
-        "The printed exit lines include #11's `pr=` line with `reason=head-moved`"
+        "gh-calls.log has no `pr merge`",
+        "The printed exit lines include `outcome=paused-awaiting-merges` and `recovered=https://github.com/eval-org/eval-repo/pull/10`",
+        "No gh call in gh-calls.log carries `aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`, the head the body's index line names"
       ]
     },
     {
       "id": 72,
       "name": "coordinated-head-missing",
       "tier": 2,
-      "behaviour": "coordinated-merge-refused",
+      "behaviour": "coordinated-recovery",
       "mode": "execute",
       "scenario": "coord-head-missing",
       "requirements": [
@@ -1358,19 +1359,19 @@
       "env": {
         "GH_CALL_LOG": "gh-calls.log"
       },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The core node's PR (#11) is ready and green, but its index line carries no head= field. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
-      "expected_output": "With no recorded head the verdict is awaiting:head-moved: no merge is called, and #11's line reads reason=head-moved.",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --auto -- The core node's PR (#11) is ready and green, but the coordination PR's index line for it carries no head= field. The session holds no run record (no earlier /execute ran here), so setup must rebuild it from the coordination PR. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "Setup recovers the run from the coordination PR and records #11's live head, which the index never named. Without --merge nothing is merged; the cli node waits on core and the run pauses, with recovered=<the coordination PR> among the exit lines.",
       "files": [],
       "expectations": [
-        "gh-calls.log has no `pr merge 11`",
-        "The printed exit lines include #11's `pr=` line with `reason=head-moved`"
+        "gh-calls.log has no `pr merge`",
+        "The printed exit lines include `outcome=paused-awaiting-merges` and `recovered=https://github.com/eval-org/eval-repo/pull/10`"
       ]
     },
     {
       "id": 73,
       "name": "coordinated-index-foreign-author",
       "tier": 2,
-      "behaviour": "coordinated-merge-refused",
+      "behaviour": "coordinated-recovery",
       "mode": "execute",
       "scenario": "coord-index-foreign-author",
       "requirements": [
@@ -1380,19 +1381,21 @@
       "env": {
         "GH_CALL_LOG": "gh-calls.log"
       },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The coordination PR's index names #11 for the core node, and #11 was opened by another author. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
-      "expected_output": "The ownership filter finds no owned PR for the indexed entry; the run ends outcome=error with step=execute:pr-adopt and never edits, readies, merges, or closes #11.",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The coordination PR's index names #11 for the core node, and #11 was opened by another author. The session holds no run record (no earlier /execute ran here), so setup must rebuild it from the coordination PR. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "Recovery can't prove #11 is this run's: the ownership lookup on impl/coord-outline-test-pr-eval-repo-core finds no PR this user owns. Setup stops recovery-unproven naming pr-eval-repo-core, and the run ends outcome=error with step=execute:coord_setup and reason=recovery-unproven, never editing, readying, merging, or closing #11.",
       "files": [],
       "expectations": [
-        "The printed exit lines include `outcome=error` and a `step=` line (`step=execute:pr-adopt`)",
+        "The printed exit lines include `outcome=error`, `step=execute:coord_setup`, and `reason=recovery-unproven`",
+        "The run's output names pr-eval-repo-core as the node recovery could not prove",
         "gh-calls.log has no `pr edit`, `pr ready`, `pr merge`, or `pr close` naming 11"
-      ]
+      ],
+      "release": true
     },
     {
       "id": 74,
       "name": "coordinated-index-wrong-head-branch",
       "tier": 2,
-      "behaviour": "coordinated-merge-refused",
+      "behaviour": "coordinated-recovery",
       "mode": "execute",
       "scenario": "coord-index-wrong-branch",
       "requirements": [
@@ -1402,11 +1405,12 @@
       "env": {
         "GH_CALL_LOG": "gh-calls.log"
       },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The coordination PR's index names #11 for the core node, but #11's head branch is feature/elsewhere. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
-      "expected_output": "#11 is not the owned PR on impl/coord-outline-test-pr-eval-repo-core, so the run ends outcome=error with step=execute:pr-adopt and touches nothing.",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The coordination PR's index names #11 for the core node, but #11's head branch is feature/elsewhere. The session holds no run record (no earlier /execute ran here), so setup must rebuild it from the coordination PR. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "#11 is not the owned PR on impl/coord-outline-test-pr-eval-repo-core, so setup stops recovery-unproven naming pr-eval-repo-core; the run ends outcome=error with step=execute:coord_setup and reason=recovery-unproven, and touches nothing.",
       "files": [],
       "expectations": [
-        "The printed exit lines include `outcome=error` and a `step=` line (`step=execute:pr-adopt`)",
+        "The printed exit lines include `outcome=error`, `step=execute:coord_setup`, and `reason=recovery-unproven`",
+        "The run's output names pr-eval-repo-core as the node recovery could not prove",
         "gh-calls.log has no `pr edit`, `pr ready`, `pr merge`, or `pr close` naming 11"
       ]
     },
@@ -1414,7 +1418,7 @@
       "id": 75,
       "name": "coordinated-index-out-of-set-repository",
       "tier": 2,
-      "behaviour": "coordinated-merge-refused",
+      "behaviour": "coordinated-recovery",
       "mode": "execute",
       "scenario": "coord-index-out-of-set",
       "requirements": [
@@ -1423,12 +1427,12 @@
       "env": {
         "GH_CALL_LOG": "gh-calls.log"
       },
-      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The coordination PR's index names a PR in eval-org/stranger, a repository outside the run's write set. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
-      "expected_output": "The run refuses the entry: outcome=error with step=execute:write-set, and nothing in eval-org/stranger is read or written.",
+      "prompt": "/execute skills/execute/evals/fixtures/plans/PLAN-coord-outline-test.md --merge --auto -- The coordination PR's index names a PR in eval-org/stranger, a repository outside the run's write set. The session holds no run record (no earlier /execute ran here), so setup must rebuild it from the coordination PR. The shim logs every gh call to gh-calls.log; koto is the real engine. Drive the run to its terminal and print the exit lines.",
+      "expected_output": "The index entry is outside the PLAN: the PLAN's core node lands in eval-org/eval-repo, not eval-org/stranger. Setup stops recovery-unproven before any read of that repository, and the run ends outcome=error with step=execute:coord_setup and reason=recovery-unproven.",
       "files": [],
       "expectations": [
-        "The printed exit lines include `outcome=error` and a `step=` line (`step=execute:write-set`)",
-        "gh-calls.log has no `pr edit`, `pr ready`, `pr merge`, or `pr close` naming eval-org/stranger"
+        "The printed exit lines include `outcome=error`, `step=execute:coord_setup`, and `reason=recovery-unproven`",
+        "No gh call in gh-calls.log names eval-org/stranger"
       ]
     },
     {

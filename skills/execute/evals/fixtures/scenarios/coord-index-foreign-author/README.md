@@ -1,6 +1,6 @@
 # coord-index-foreign-author
 
-The index names #11 for the `core` node, and #11 is on the node's branch, but another author opened it. The ownership filter finds no owned PR, so the run ends `outcome=error` with `step=execute:pr-adopt` and touches nothing.
+The index names #11 for the `core` node, and #11 is on the node's branch, but another author opened it. The run starts with no record in its session, so setup tries to recover it from the body; the ownership lookup finds no owned PR on the node's branch, so setup stops `recovery-unproven` naming `pr-eval-repo-core`, and the run ends `outcome=error` with `step=execute:coord_setup` and touches nothing.
 
 Served by `fixtures/bin/gh` from `gh/db.json`, the shim's repository model
 (see the shim's header): the database is copied beside `GH_CALL_LOG` on the

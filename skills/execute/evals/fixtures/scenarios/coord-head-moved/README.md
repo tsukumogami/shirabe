@@ -1,6 +1,6 @@
 # coord-head-moved
 
-The `core` node PR (#11) is ready and green, but its index line records `head=` a commit that is not its live head. The merge verdict is `awaiting:head-moved` and no merge is called.
+The `core` node PR (#11) is ready and green, but its index line records `head=` a commit that is not its live head. The run starts with no record in its session, so setup recovers it from the body: the run line names the run, #11 carries that run's marker (`<!-- shirabe-run: 5e7a1c0d9b8f4e3a2c1b0a9f8e7d6c5b -->`), and the head recorded is #11's live one, never the body's. Without `--merge` nothing is merged; the `cli` node waits on `core`, and the run pauses with `recovered=` in its exit lines.
 
 Served by `fixtures/bin/gh` from `gh/db.json`, the shim's repository model
 (see the shim's header): the database is copied beside `GH_CALL_LOG` on the
