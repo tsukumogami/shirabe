@@ -829,9 +829,11 @@ states:
       - target: execute_run
 
   execute_lost:
-    # The execute leg was refused or its request is missing: the edge in
-    # assigned the error, step deliver:child-absent and the
-    # execute-leg-lost:<code> reason. deliver-execute-leg.sh lost reads
+    # The execute leg was refused or its request is missing. The edge into
+    # this state has already assigned outcome error, step
+    # deliver:child-absent and the execute-leg-lost:<code> reason; the step
+    # is shared with a child that returned no result, so the reason is what
+    # tells the causes apart. deliver-execute-leg.sh lost reads
     # `koto status execute-<topic>` (read only) and writes its state as
     # execute_state, which the result names, then the run ends.
     default_action:

@@ -12,10 +12,10 @@
 # The PR is always found here, through the shared ownership filter
 # skills/execute/scripts/owned-pr.sh (same repository, the authenticated
 # author, the expected base, the head branch), and never taken from a leg: the
-# PR it finds is written both as `checked_pr` and as the result key `pr`,
-# replacing whatever a leg copied. A lookup that fails leaves both empty. The
-# scoped re-check also reads /scope's own result, which scope_run copied from
-# the scope leg, and requires the PR it names to be the one found here.
+# PR it finds is written both as `checked_pr` and as the result key `pr`. A
+# lookup that fails leaves both empty. The scoped re-check also reads /scope's
+# own result, which scope_run copied from the scope leg, and refuses unless the
+# PR it names is the one found here, so a leg's copy is checked, never trusted.
 #
 # Every lookup carries this run's identity (`run-id.sh get <session>`, stored
 # as the session's `run_id`), so a PR another run opened on the topic branch

@@ -42,8 +42,9 @@
 #
 # On one host the koto cache is shared, so the import in B finds the templates
 # A compiled; skill-session_test.sh is what shows the import compiles them
-# first. Engine tests here open node PRs in the model only after setup sealed
-# the record. When neither this checkout's path nor a link under TMPDIR passes
+# first. Like every engine test here, it adds node PRs to the stub's model only
+# after setup has sealed the record, as node-push.sh does in a real run, so
+# setup never reads them as a started run. When neither this checkout's path nor a link under TMPDIR passes
 # koto's --var allowlist, execute-open.sh can't name a PLUGIN_ROOT koto admits,
 # and the suite SKIPs.
 #
