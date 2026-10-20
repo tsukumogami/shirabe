@@ -188,6 +188,14 @@
 #       stop within about five seconds: the watcher is then killed and the
 #       call returns, leaving the watcher's sleep to run out. `timeout` isn't
 #       on macOS, whose /bin/bash is the floor these scripts target.
+#       The deadline's TERM reaches only the command's own pid; a command
+#       whose children must stop with it runs through dc_tree.
+#
+#   dc_tree <command...>
+#       Runs the command in a process group of its own and waits for it. A
+#       TERM to dc_tree (dc_with_deadline's) is passed to the whole group, so
+#       `dc_with_deadline <secs> dc_tree <command...>` stops the command's
+#       children too, such as the remote helper `git ls-remote` starts.
 
 #   Exit codes across the dispatch scripts. A condition keeps its meaning
 #   everywhere; the number a gate script uses is the one its state routes on:
@@ -623,4 +631,19 @@ dc_with_deadline() {
         [ "$rc" -eq 0 ] || return 124
     fi
     return "$rc"
+}
+
+# dc_with_deadline TERMs only its direct child, which would leave the
+# command's own children running; `set -m` is here only to give the command
+# its own process group, so `kill -- -<pid>` reaches all of it. The trap kills
+# and returns; it never waits on a child.
+# shellcheck disable=SC2329 # run through dc_with_deadline's "$@"
+dc_tree() {
+    local p
+    set -m 2>/dev/null
+    "$@" &
+    p=$!
+    set +m 2>/dev/null
+    trap 'kill -TERM -- "-$p" >/dev/null 2>&1; kill -TERM "$p" >/dev/null 2>&1; exit 143' TERM
+    wait "$p"
 }

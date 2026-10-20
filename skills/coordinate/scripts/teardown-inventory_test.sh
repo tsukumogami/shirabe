@@ -320,6 +320,9 @@ cat >"$PRIVBIN/git" <<EOF
 case " \$* " in
     *" ls-remote "*"https://github.com/acme/secret"*)
         [ "\${GIT_LS_HANG:-}" = 1 ] && exec sleep 30
+        # A read that hangs in a child, as git's https remote helper does. The
+        # helper writes to a pipe of git's own, never to git's stdout.
+        if [ "\${GIT_LS_HANG:-}" = 2 ]; then sleep 30 >/dev/null & echo \$! >"$T/ls-child"; wait; exit 128; fi
         cfg=(); prev=""
         for a in "\$@"; do [ "\$prev" = -c ] && cfg+=(-c "\$a"); prev=\$a; done
         cred=\$(printf 'protocol=https\nhost=github.com\n\n' | GIT_TERMINAL_PROMPT=0 GIT_ASKPASS= SSH_ASKPASS= "$REAL_GIT" \${cfg[@]+"\${cfg[@]}"} credential fill 2>&1) \\
@@ -373,6 +376,22 @@ OUT13=$(GIT_LS_HANG=1 TEARDOWN_FETCH_SECS=1 PATH="$PRIVBIN:$PATH" bash "$S" --to
 eq  "private, the refs read hangs: exit 2" 2 "$RC"
 has "private, the refs read hangs: an error naming the timeout" "$OUT13" "error private: origin's refs could not be read: the read timed out after 1s"
 if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "private, the refs read hangs: stops at the deadline"; else bad "private, the refs read hangs: stops at the deadline" ""; fi
+# git runs an https read in a remote helper of its own, which the deadline's
+# TERM to git alone would leave waiting on the network.
+rm -f "$T/ls-child"
+START=$(date +%s)
+OUT14=$(GIT_LS_HANG=2 TEARDOWN_FETCH_SECS=1 PATH="$PRIVBIN:$PATH" bash "$S" --topic plugin-api --instance "$I11" 2>&1); RC=$?
+has "private, the refs read hangs in a child: an error naming the timeout" "$OUT14" "error private: origin's refs could not be read: the read timed out after 1s"
+if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "private, the refs read hangs in a child: stops at the deadline"; else bad "private, the refs read hangs in a child: stops at the deadline" ""; fi
+CHILD=$(cat "$T/ls-child" 2>/dev/null)
+if [ -z "$CHILD" ]; then
+    bad "private, the refs read hangs in a child: the child is stopped too" "the stand-in never started its child"
+elif kill -0 "$CHILD" 2>/dev/null; then
+    kill -KILL "$CHILD" 2>/dev/null
+    bad "private, the refs read hangs in a child: the child is stopped too" "pid $CHILD still running"
+else
+    ok "private, the refs read hangs in a child: the child is stopped too"
+fi
 
 # What git status can't see. A clean filter that maps any content back to the
 # committed bytes hides an edit from status; the inventory hashes the bytes

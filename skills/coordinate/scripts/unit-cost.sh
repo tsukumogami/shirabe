@@ -193,31 +193,16 @@ reg() { [ -f "$1" ] && [ ! -L "$1" ]; }
 # ---------------------------------------------------------------------------
 # Bounded commands.
 
-# uc_tree <command...>: run the command in a process group of its own and
-# wait for it; a TERM (dc_with_deadline's, or this script's own trap) stops
-# the whole group, so a hung gh under record-append.sh dies with it.
-# dc_with_deadline TERMs only its direct child, which would leave such a
-# grandchild running; `set -m` is here only to give the command its own
-# process group, so `kill -- -<pid>` reaches all of it. The trap kills and
-# returns; it never waits on a child.
-# shellcheck disable=SC2329 # run through dc_with_deadline's "$@"
-uc_tree() {
-    local p
-    set -m 2>/dev/null
-    "$@" &
-    p=$!
-    set +m 2>/dev/null
-    trap 'kill -TERM -- "-$p" >/dev/null 2>&1; kill -TERM "$p" >/dev/null 2>&1; exit 143' TERM
-    wait "$p"
-}
-
 # uc_run <secs> <out-file> <command...>: the command bounded, its stdout in
 # the file (never a pipe, so nothing left running holds a caller open), its
 # stderr discarded and its stdin empty. Returns its status, 124 on timeout.
+# dc_tree runs it in a process group of its own, so the deadline's TERM (or
+# this script's own trap) stops the whole group, and a hung gh under
+# record-append.sh dies with it.
 uc_run() {
     local secs=$1 out=$2
     shift 2
-    dc_with_deadline "$secs" uc_tree "$@" </dev/null >"$out" 2>/dev/null
+    dc_with_deadline "$secs" dc_tree "$@" </dev/null >"$out" 2>/dev/null
 }
 
 # uc_left: the seconds left of the reads' budget (0 when spent).
@@ -346,7 +331,7 @@ WD=$(cd "$WD" && pwd -P) || exit 1
 cp "$PRS_FILE" "$WD/prs" 2>/dev/null || { say "the pull request file can't be read"; exit 64; }
 [ -z "$UNIT_JSON" ] || cp "$UNIT_JSON" "$WD/unit.json" 2>/dev/null || { say "the unit file can't be read"; exit 64; }
 # A TERM (the pass's deadline) stops every job still running, which stops
-# each one's process group through uc_tree's own trap, and leaves.
+# each one's process group through dc_tree's own trap, and leaves.
 # shellcheck disable=SC2329 # the TERM trap's handler
 uc_stop() {
     local j
