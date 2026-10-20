@@ -447,12 +447,14 @@ program:
    `koto.check.outcome`, `koto.visit.seq` and `koto.check.findings_truncated`.
 3. Fires: those evaluations with a `check_finding` record for the rule at the
    same session and `koto.seq`, counted once per evaluation and by
-   `koto.finding.level`. A finding only counts at the rule's own gates, so a
-   review panel's finding citing a rule counts for `panel/open-finding`, whose
-   gates the panel gates are, and not for the cited rule.
-4. Disputes: `check_disputed` records naming the rule at one of its gates, by
-   `koto.dispute.source`, counted at most once per session per rule, so one
-   session repeating a dispute moves the figure once.
+   `koto.finding.level`. A finding only counts at the rule's own gates (its
+   `koto.state` and `koto.check.name`), so a review panel's finding citing a
+   rule counts for `panel/open-finding`, whose gates the panel gates are, and
+   not for the cited rule.
+4. Disputes: `check_disputed` records naming the rule at one of its gates
+   (`koto.state` and `koto.check.name`), by `koto.dispute.source`, counted at
+   most once per session per rule, so one session repeating a dispute moves
+   the figure once.
 5. Unconverged visits: (`koto.session.id`, `koto.visit.seq`) pairs with an
    `error` fire for the rule and no `passed` evaluation of the same gate in
    that visit.
@@ -479,8 +481,9 @@ a shell string.
 behaviour, the transitions, the safety rule, the thresholds and the dispute
 path, and defines each figure field by field in the exported names: the
 record kind, the fields it filters and groups on, and the join, in both the
-flat form and the nested form a log backend shows (`koto.check.name` on
-`check_evaluated`, `koto.check` on `check_finding`). Those definitions are
+flat form and the nested form a log backend shows (`koto.check` nesting as
+`koto.check.name` on `check_evaluated`, and `koto.check.name` as written on
+`check_finding` and `check_disputed`). Those definitions are
 what the measurement owners turn into log queries, and the figures a
 stage-change pull request quotes come from those queries. It names
 `rule-lifecycle.sh figures` as the definitions' tested reference, for spot
@@ -520,21 +523,27 @@ fields and links it.
 
 ### Key Interfaces
 
-**Journal records** (koto's line format; names provisional until the
-measurement owners' review):
+**Journal records** (koto's line format, as the measurement owners reviewed
+them):
 
 | Kind | Fields beyond the identity fields |
 |---|---|
-| `check_finding` | `koto.seq`, `koto.visit.seq`, `koto.state`, `koto.check`, `koto.attempt`, `koto.visit_attempt`, `koto.rule.id`, `koto.finding.level`, `koto.finding.count` |
+| `check_finding` | `koto.seq`, `koto.visit.seq`, `koto.state`, `koto.check.name`, `koto.attempt`, `koto.visit_attempt`, `koto.rule.id`, `koto.finding.level`, `koto.finding.count` |
 | `check_evaluated` (added) | `koto.check.finding_count` (always), `koto.check.findings_truncated` (when true) |
-| `check_disputed` | `koto.seq`, `koto.visit.seq`, `koto.state`, `koto.check`, `koto.rule.id`, `koto.dispute.source` |
+| `check_disputed` | `koto.seq`, `koto.visit.seq`, `koto.state`, `koto.check.name`, `koto.rule.id`, `koto.dispute.source`, and the disputed evaluation's `koto.attempt` and `koto.visit_attempt` (absent when that evaluation predates attempt numbers) |
 
 `koto.rule.id` follows the existing rule for ids outside the name shape (a
-`sha256:` digest). `koto.check` stays a scalar on both new kinds, as on
-`check_rule`, since neither carries a `koto.check.*` field.
+`sha256:` digest). Both new kinds write the gate as `koto.check.name`, the
+path a log backend already gives the gate on `check_evaluated` (whose flat
+`koto.check` nests under its `koto.check.*` fields), so a join between an
+evaluation and its findings or disputes names one path. `check_rule` keeps
+its scalar `koto.check`. A finding joins its evaluation on the session id and
+`koto.seq`; a dispute joins its evaluation on the session id, `koto.state`,
+`koto.check.name` and `koto.attempt`.
 
 **Session event** `finding_disputed`: `state`, `gate`, `rule_id`, `reason`,
-`source`.
+`source`, and the disputed evaluation's `attempt` and `visit_attempt` when it
+has them.
 
 **Response field** `advisories`: `[{"state": ..., "gate": ..., "findings":
 [<finding object>, ...]}]`, finding objects in koto's existing shape.
