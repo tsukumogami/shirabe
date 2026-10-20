@@ -41,9 +41,11 @@
 #
 # Usage: scripts/cancel-closed-pr-runs.sh
 #
-# Environment (cancel-closed-pr-macos-runs.yml sets each from the event):
+# Environment (the runner sets the GITHUB_ ones; cancel-closed-pr-macos-runs.yml
+# sets the rest from the event and its token):
 #   GITHUB_REPOSITORY   owner/repo the PR was opened against
 #   GITHUB_RUN_ID       this run's id, never cancelled
+#   GH_TOKEN            the job's token, for gh
 #   PR_NUMBER           the closed PR's number
 #   PR_HEAD_REF         its head branch
 #   PR_HEAD_SHA         its head commit when it closed
@@ -64,6 +66,8 @@
 #   2 -- the environment is incomplete, or the floor workflows could not be
 #        listed
 
+# No -e: every API call's status is read by hand, since a 403 or 409 is a
+# warning rather than a failure.
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

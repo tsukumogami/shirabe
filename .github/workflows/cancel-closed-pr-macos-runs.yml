@@ -18,15 +18,17 @@ name: Cancel a closed pull request's macOS runs
 # pull_request, not pull_request_target: a fork PR's token is read-only, so
 # its runs can't be cancelled from here, and the script skips a fork with a
 # log line rather than going red. The checkout is the event's ref, the PR's
-# merge commit, which is also what each of its pull_request runs ran from, so
-# its floor workflows are the ones those runs came from. GitHub runs no
+# last test merge, the commit its latest pull_request runs ran from, so the
+# floor workflows listed are the ones those runs came from, and the script it
+# runs is there even before this workflow reaches main. GitHub runs no
 # pull_request workflow for a PR with merge conflicts, this one included, so
 # a PR closed while conflicted keeps whatever runs it still has queued.
 #
-# One job, not a listing job with contents: read beside a cancelling job with
-# no checkout: the script's guards need the floor list and the run listing
-# side by side, and the code it runs is the PR's own, from a branch of this
-# repository whose author can already push a workflow with any permission.
+# The job is one job rather than two. A split would list the floor workflows
+# in a job with contents: read and cancel in a job with actions: write and no
+# checkout, but it would gain nothing here: the code the job runs is the
+# PR's own, from a branch of this repository (fork PRs are skipped), and that
+# branch's author can already push a workflow with any permission.
 
 on:
   pull_request:

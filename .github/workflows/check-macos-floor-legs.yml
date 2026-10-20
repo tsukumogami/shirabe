@@ -8,8 +8,10 @@ name: Check macOS floor legs
 #
 # It also runs check-macos-floor-setup.sh, which fails when a suite's macOS
 # setup in its own workflow no longer matches the copy in macos-floor.yml, the
-# daily and pre-release run of every floor suite, and the harness of
-# cancel-closed-pr-runs.sh, which reads its workflows from the same parse.
+# daily and pre-release run of every floor suite.
+#
+# And it runs the harness of cancel-closed-pr-runs.sh, which takes the
+# workflows it cancels from that script's parse (--workflows).
 #
 # yq is pinned here rather than taken from the runner image, as in
 # check-templates.yml, so the image moving to another yq can't change what the

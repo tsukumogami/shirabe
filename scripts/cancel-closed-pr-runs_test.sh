@@ -204,6 +204,25 @@ guard "a push run is never cancelled" event=push
 guard "a schedule run is never cancelled" event=schedule
 guard "a workflow_dispatch run is never cancelled" event=workflow_dispatch
 guard "a run on main is never cancelled" branch=main
+
+fresh
+add queued 1 branch=feature/x
+add queued 2 branch=trunk
+run DEFAULT_BRANCH=trunk
+if [ "$RC" -eq 0 ] && [ "$(cancelled)" = "1" ]; then
+    pass "a run on a default branch other than main is never cancelled"
+else
+    fail "default branch trunk (rc=$RC, cancelled: $(cancelled)): $OUT"
+fi
+
+fresh
+add queued 1 branch=trunk
+run DEFAULT_BRANCH=trunk PR_HEAD_REF=trunk
+if [ "$RC" -eq 0 ] && has "runs there are never cancelled" && [ ! -f "$CASE/calls" ]; then
+    pass "a PR whose head branch is the default branch cancels nothing, before any API call"
+else
+    fail "head branch is the default branch (rc=$RC): $OUT"
+fi
 guard "a run on another branch is never cancelled" branch=feature/y
 guard "a macos-floor.yml run is never cancelled" path=.github/workflows/macos-floor.yml
 guard "a run of a workflow that isn't a floor workflow is never cancelled" path=.github/workflows/lint.yml
