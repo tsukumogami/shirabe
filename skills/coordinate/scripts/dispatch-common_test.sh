@@ -227,6 +227,10 @@ OUT=$(dc_with_deadline 1 dc_tree "$T/forks.sh"); RC=$?
 eq  "deadline under dc_tree: a command past it is 124" 124 "$RC"
 if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "deadline under dc_tree: returns at the deadline"; else bad "deadline under dc_tree: returns at the deadline" ""; fi
 CHILD=$(cat "$T/child" 2>/dev/null)
+# A child the TERM reached may not be reaped yet; one that outlived the TERM
+# runs its whole 30 seconds, so a second's grace still catches it.
+i=0
+while [ -n "$CHILD" ] && [ "$i" -lt 20 ] && kill -0 "$CHILD" 2>/dev/null; do sleep 0.05; i=$((i + 1)); done
 if [ -z "$CHILD" ]; then
     bad "deadline under dc_tree: the command's child is stopped too" "the command never started its child"
 elif kill -0 "$CHILD" 2>/dev/null; then

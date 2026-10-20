@@ -384,6 +384,10 @@ OUT14=$(GIT_LS_HANG=2 TEARDOWN_FETCH_SECS=1 PATH="$PRIVBIN:$PATH" bash "$S" --to
 has "private, the refs read hangs in a child: an error naming the timeout" "$OUT14" "error private: origin's refs could not be read: the read timed out after 1s"
 if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "private, the refs read hangs in a child: stops at the deadline"; else bad "private, the refs read hangs in a child: stops at the deadline" ""; fi
 CHILD=$(cat "$T/ls-child" 2>/dev/null)
+# A child the TERM reached may not be reaped yet; one that outlived the TERM
+# runs its whole 30 seconds, so a second's grace still catches it.
+i=0
+while [ -n "$CHILD" ] && [ "$i" -lt 20 ] && kill -0 "$CHILD" 2>/dev/null; do sleep 0.05; i=$((i + 1)); done
 if [ -z "$CHILD" ]; then
     bad "private, the refs read hangs in a child: the child is stopped too" "the stand-in never started its child"
 elif kill -0 "$CHILD" 2>/dev/null; then
