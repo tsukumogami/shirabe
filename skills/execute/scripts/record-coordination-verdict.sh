@@ -10,12 +10,21 @@
 # gates over `coord_verdict`.
 #
 # It reads GitHub (through coordination-verdict.sh) and writes koto context,
-# and nothing else: it pushes nothing, merges nothing, and writes nothing to
-# GitHub. Besides the verdict's context keys it writes one run record key:
+# and posts the coordination PR's rendered body: it pushes nothing and merges
+# nothing. Besides the verdict's context keys it writes one run record key:
 # when coordination-verdict.sh reports `cascade=failed` (the loop stopped
 # with the cascade still the next action), `run/cascade` becomes
 # {verdict: failed, step: <step>} through `run-record.sh cascade`, so the next
-# invocation runs the cascade again.
+# invocation runs the cascade again. Then, before any verdict key, it runs
+# coord-render.sh, so every terminal the verdict reaches leaves the body the
+# record's rendering: posted only on a difference, nothing at all once the
+# coordination PR merged, and any merged head it observed recorded first
+# (`run-record.sh observe`). A render that can't post (`body=stale`, or
+# `body=full` over the size cap) changes no verdict; a render refused for a
+# private repository under a public coordination PR
+# (`body=refused:execute:visibility`) turns the verdict into an error with
+# step execute:visibility, which ends the run at done_blocked. The token is
+# recorded as `body`.
 #
 # Usage:
 #   record-coordination-verdict.sh --session <koto-session> --merge true|false
@@ -32,7 +41,7 @@
 # with `koto context get`, each checked against its pattern before use.
 #
 # In order:
-#   1. clear coord_verdict, pr, waiting, resume, reason, and step, so an action
+#   1. clear coord_verdict, pr, waiting, resume, reason, step, and body, so an action
 #      that fails or times out part-way leaves nothing from an earlier entry
 #      for the gates or the result map to read as current;
 #   2. read and check the recorded coord_setup values and this run's identity
@@ -46,8 +55,10 @@
 #      merge-not-observed, and the pause conditions; step ^execute:[a-z-]+$
 #      from the closed step set; cascade only `failed`, with an error and its
 #      step;
-#   4. only when every field passed: record a failed cascade in run/cascade,
-#      then write the non-empty fields, coord_verdict last.
+#   4. only when every field passed: record a failed cascade in run/cascade;
+#   5. render the body (coord-render.sh with the recorded home_repo and
+#      coord_branch and --slug), applying a visibility refusal to the verdict;
+#   6. write the non-empty fields, body among them, coord_verdict last.
 #
 # Exit codes:
 #   0   recorded
@@ -58,6 +69,9 @@
 #   70  a koto context clear or write failed, the run's identity could not
 #       be read, or the failed cascade could not be recorded in run/cascade
 #       (no context key written)
+#
+# A render that exits outside its contract (a usage error) is recorded as
+# body=stale and changes nothing else.
 #
 # Requires: bash 3.2+, jq, gh, koto.
 set -uo pipefail
@@ -73,9 +87,11 @@ RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*
 RE_VERDICT='^(merged|ready|paused|dirty|error)$'
 RE_WAITING_ENTRY='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*:(human|predecessor)$'
 RE_RESUME='^/execute [A-Za-z0-9._/-]+\.md( --merge)?$'
-RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|predecessor-unmerged|gate-unverified)$'
-RE_STEP='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|coord-loop)$'
-RE_ATTEMPTS='^([a-z][a-z0-9-]*:(merge-not-observed|merge-call-failed))(,[a-z][a-z0-9-]*:(merge-not-observed|merge-call-failed))*$'
+RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|merge-refused|merge-refused:(body-stale|body-full|squash-message)|predecessor-unmerged|gate-unverified)$'
+RE_STEP='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|visibility|coord-loop)$'
+RE_ATTEMPT_VALUE='(merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full)'
+RE_ATTEMPTS="^([a-z][a-z0-9-]*:$RE_ATTEMPT_VALUE)(,[a-z][a-z0-9-]*:$RE_ATTEMPT_VALUE)*\$"
+RE_BODY='^(posted|unchanged|stale|full|refused:execute:visibility)$'
 RE_LOOP_LINE='^[a-z:-]+$'
 
 usage_error() {
@@ -139,7 +155,7 @@ ctx_write() { # ctx_write <key> <value>
     }
 }
 
-ctx_clear coord_verdict pr waiting resume reason step
+ctx_clear coord_verdict pr waiting resume reason step body
 
 REPOS=$(ctx_get repos)
 HOME_REPO=$(ctx_get home_repo)
@@ -216,11 +232,32 @@ if [ "$CASCADE" = failed ]; then
     fi
 fi
 
+# The body, rendered from the record after its last write here and before
+# the verdict's keys, so every terminal leaves it current.
+RENDER=$("$BASH" "$SELF_DIR/coord-render.sh" --session "$SESSION" --slug "$SLUG" \
+    --home-repo "$HOME_REPO" --coord-branch "$CB" </dev/null)
+RENDER_RC=$?
+BODY=$(printf '%s\n' "$RENDER" | sed -n 's/^body=//p' | tail -1)
+case "$RENDER_RC" in
+    0) [[ $BODY =~ $RE_BODY ]] && [ "$BODY" != refused:execute:visibility ] || BODY=stale ;;
+    77)
+        # A record that would index a private repository in a public body:
+        # the run stops on it, whatever the loop reached.
+        BODY=refused:execute:visibility
+        V=error; STEP=execute:visibility; WAITING=""; RESUME=""; REASON=""
+        ;;
+    *)
+        echo "$PROG: coord-render.sh exited $RENDER_RC; the body is recorded as stale" >&2
+        BODY=stale
+        ;;
+esac
+
 [ -n "$PR" ] && ctx_write pr "$PR"
 [ -n "$WAITING" ] && ctx_write waiting "$WAITING"
 [ -n "$RESUME" ] && ctx_write resume "$RESUME"
 [ -n "$REASON" ] && ctx_write reason "$REASON"
 [ -n "$STEP" ] && ctx_write step "$STEP"
+ctx_write body "$BODY"
 # Last, so a gate never sees a verdict whose companion keys are missing.
 ctx_write coord_verdict "$V"
 echo "$PROG: recorded coord_verdict=$V" >&2

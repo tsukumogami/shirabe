@@ -15,17 +15,9 @@
 # coord_compute and coord-merge.sh read them from there, never from the
 # coordination PR's body.
 #
-# The PR index. Each node's line in the coordination PR body's `## PR Index`
-# section has the shape
-#
-#   - <node-id> | <owner/repo>:<path>#<number> | <open|merged> | head=<sha>
-#
-# node-push.sh still writes it, for reviewers and the merge-last gate, from
-# the same pushed commit it records in the run record; nothing in the loop
-# reads it back for a head or the node map. The coordination PR's own line
-# uses the node id `coordination`. A line in the section that starts
-# `- <word> |` is an entry and must parse; any other line (prose, a blank) is
-# ignored. The grammar and its parser stay here for node-push.sh's body edit.
+# The coordination PR's body is the record's rendering, built and posted by
+# coord-render.sh through scripts/lib/coordination-body.sh, the one codec of
+# its PR index. Nothing here reads or writes the index.
 #
 # Callers set COORD_SELF_DIR (this directory) before sourcing.
 #
@@ -62,10 +54,13 @@ RE_COORD_SLUG='^[a-z0-9-]+$'
 RE_COORD_NODE='^[a-z][a-z0-9-]*$'
 RE_COORD_SHA='^[0-9a-f]{40}$'
 RE_COORD_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
-RE_COORD_ENTRY='^- ([a-z][a-z0-9-]*) \| ([A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9._-]+):([^ |#]+)#([1-9][0-9]*) \| (open|merged)( \| head=([0-9a-f]{40}))?[[:space:]]*$'
-RE_COORD_ENTRY_LIKE='^- [^|]+\|'
-# merge_attempts: <node>:<result> entries, comma-joined.
-RE_COORD_ATTEMPTS='^([a-z][a-z0-9-]*:(merge-not-observed|merge-call-failed))(,[a-z][a-z0-9-]*:(merge-not-observed|merge-call-failed))*$'
+# merge_attempts: <node>:<result> entries, comma-joined. merge-not-observed,
+# merge-call-failed and merge-refused come from coord-merge.sh; body-stale and
+# body-full only for node `coordination`, from coord-render.sh
+# --before-coordination, when the body CI's merge-last gate reads could not
+# be brought up to date with the record.
+RE_COORD_ATTEMPT_VALUE='(merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full)'
+RE_COORD_ATTEMPTS="^([a-z][a-z0-9-]*:$RE_COORD_ATTEMPT_VALUE)(,[a-z][a-z0-9-]*:$RE_COORD_ATTEMPT_VALUE)*\$"
 
 coord_valid_repo() {
     [[ $1 =~ $RE_COORD_REPO ]] || return 1
@@ -196,52 +191,6 @@ coord_node_visibility() {
     return 0
 }
 
-# coord_index_entries <body> -- print the PR Index section's entry lines, one
-# per line. Lines outside the section, and lines inside it that are not
-# entry-shaped, are dropped here; entry-shaped lines that fail the full
-# grammar are kept so the caller can refuse them.
-coord_index_entries() {
-    printf '%s\n' "$1" | awk '
-        /^## / { insec = ($0 ~ /^## PR Index[[:space:]]*$/); next }
-        insec && /^- [^|]+\|/ { sub(/\r$/, ""); print }
-    '
-}
-
-# coord_parse_entry <line> -- set E_NODE, E_REPO, E_PATH, E_NUM, E_STATE,
-# E_HEAD (empty when absent). Returns 1 when the line is outside the grammar.
-coord_parse_entry() {
-    E_NODE=""; E_REPO=""; E_PATH=""; E_NUM=""; E_STATE=""; E_HEAD=""
-    [[ $1 =~ $RE_COORD_ENTRY ]] || return 1
-    E_NODE="${BASH_REMATCH[1]}"
-    E_REPO="${BASH_REMATCH[2]}"
-    E_PATH="${BASH_REMATCH[3]}"
-    E_NUM="${BASH_REMATCH[4]}"
-    E_STATE="${BASH_REMATCH[5]}"
-    E_HEAD="${BASH_REMATCH[7]:-}"
-    coord_valid_repo "$E_REPO" || return 1
-    case "/$E_PATH/" in */../*|//*) return 1 ;; esac
-    return 0
-}
-
-# coord_find_entry <entries> <node> -- print the one entry line for <node>.
-# Returns 1 when there is none, 2 when there are several.
-coord_find_entry() {
-    local line found="" count=0
-    while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        case "$line" in
-            "- $2 |"*)
-                count=$((count + 1))
-                found="$line"
-                ;;
-        esac
-    done <<<"$1"
-    [ "$count" -eq 0 ] && return 1
-    [ "$count" -gt 1 ] && return 2
-    printf '%s\n' "$found"
-    return 0
-}
-
 # coord_owned <repo> <head> <state> -- owned-pr.sh, carrying COORD_RUN_ID.
 # Prints its output and returns its exit code.
 coord_owned() {
@@ -256,7 +205,7 @@ coord_owned() {
 # coord_find_pr <home-repo> <coord-branch> <state> -- the coordination PR,
 # by the ownership lookup. Only record-coord-setup.sh calls it, once, on a new
 # run; every later step reads the number the run recorded (coord_recorded_pr).
-# Sets C_URL, C_NUM, C_JSON (state,isDraft,body,headRefOid,url), and C_WHY to
+# Sets C_URL, C_NUM, C_JSON (state,isDraft,body,title,headRefOid,url), and C_WHY to
 # why it failed: none (no owned PR), several (several, or an ambiguous
 # lookup), foreign (another run's PR), marker (the declaration marker
 # missing), or read (a failed read). Returns 0 on success, 2 on a failed
@@ -283,7 +232,7 @@ coord_find_pr() {
 # check it is a PR object carrying the declaration marker. Returns 2 on a
 # failed read (C_WHY read), 3 when the marker is missing (C_WHY marker).
 coord_view_pr() {
-    coord_gh_read C_JSON pr view "$C_NUM" --repo "$1" --json url,state,isDraft,body,headRefOid \
+    coord_gh_read C_JSON pr view "$C_NUM" --repo "$1" --json url,state,isDraft,body,title,headRefOid \
         || { C_WHY=read; echo "$PROG: gh pr view of the coordination PR failed" >&2; return 2; }
     printf '%s' "$C_JSON" | jq -e 'type == "object" and (.state | type) == "string"' >/dev/null \
         || { C_WHY=read; echo "$PROG: the coordination PR read is not a PR object" >&2; return 2; }
@@ -330,7 +279,7 @@ coord_recorded_pr() {
 }
 
 # coord_attempt_of <attempts> <node> -- print the recorded merge result for
-# <node> (merge-not-observed or merge-call-failed), or nothing.
+# <node> (one of RE_COORD_ATTEMPT_VALUE's), or nothing.
 coord_attempt_of() {
     local rest e
     rest="$1"
@@ -339,6 +288,32 @@ coord_attempt_of() {
         if [ "$e" = "$rest" ]; then rest=""; else rest="${rest#*,}"; fi
         case "$e" in "$2":*) printf '%s' "${e#*:}"; return 0 ;; esac
     done
+    return 0
+}
+
+# coord_record_attempt <session> <node> <result> -- record <node>:<result> in
+# the session's merge_attempts context key, replacing an earlier result for
+# <node> and keeping every other node's: the one writer of that key, called
+# by coord-merge.sh and by coord-render.sh --before-coordination. A stored
+# value outside RE_COORD_ATTEMPTS is dropped rather than kept. Returns 70,
+# with a diagnostic, when the write fails.
+coord_record_attempt() {
+    local old new rest e
+    old=$(koto context get "$1" merge_attempts </dev/null) || old=""
+    [[ $old =~ $RE_COORD_ATTEMPTS ]] || old=""
+    new=""
+    rest="$old"
+    while [ -n "$rest" ]; do
+        e="${rest%%,*}"
+        if [ "$e" = "$rest" ]; then rest=""; else rest="${rest#*,}"; fi
+        case "$e" in "$2":*) continue ;; esac
+        if [ -z "$new" ]; then new="$e"; else new="$new,$e"; fi
+    done
+    if [ -z "$new" ]; then new="$2:$3"; else new="$new,$2:$3"; fi
+    printf '%s' "$new" | koto context add "$1" merge_attempts >/dev/null || {
+        echo "$PROG: could not record merge_attempts in session $1" >&2
+        return 70
+    }
     return 0
 }
 
@@ -358,7 +333,8 @@ coord_attempt_of() {
 #   CC_BLOCKED     1 when some PR node cannot start because a predecessor is
 #                  not satisfied
 #   CC_BLOCK_REASON  the first such predecessor's condition
-#   CC_COORD_ATTEMPT the recorded result of a coordination merge call
+#   CC_COORD_ATTEMPT the recorded result of a coordination merge call, or of
+#                  the render before it (body-stale, body-full)
 # Never writes anything. Returns 0 whenever CC_ACTION is set.
 coord_compute() {
     CC_ACTION=""; CC_COORD_URL=""; CC_UNMERGED=""; CC_BLOCKED=0; CC_BLOCK_REASON=""
@@ -550,7 +526,9 @@ coord_compute() {
                 fi
                 ;;
             awaiting:*)
-                if [ -n "$attempt" ]; then
+                # A refused merge keeps the verdict's own reason (a moved
+                # head stays head-moved); any other recorded result names it.
+                if [ -n "$attempt" ] && [ "$attempt" != merge-refused ]; then
                     CC_UNMERGED="$CC_UNMERGED$url human $attempt
 "
                 else
@@ -590,6 +568,17 @@ coord_compute() {
         if [ "$plan_present" -eq 1 ] || [ "$c_verdict" != pushed ] || [ -z "$c_sha" ]; then
             CC_ACTION="cascade"; return 0
         fi
+        # The body CI's merge-last gate reads could not be brought up to date
+        # with the record this invocation (coord-render.sh
+        # --before-coordination recorded it): neither the coordination PR's
+        # evaluation nor its merge runs again until the next invocation.
+        case "$CC_COORD_ATTEMPT" in
+            body-stale|body-full)
+                CC_UNMERGED="$CC_UNMERGED$CC_COORD_URL human merge-refused:$CC_COORD_ATTEMPT
+"
+                CC_ACTION="done:ready-awaiting-merge"; return 0
+                ;;
+        esac
         if [ "$c_draft" = "true" ]; then
             CC_ACTION="evaluate-coordination"; return 0
         fi
@@ -613,7 +602,7 @@ coord_compute() {
                 fi
                 ;;
             awaiting:*)
-                if [ -n "$CC_COORD_ATTEMPT" ]; then
+                if [ -n "$CC_COORD_ATTEMPT" ] && [ "$CC_COORD_ATTEMPT" != merge-refused ]; then
                     CC_UNMERGED="$CC_UNMERGED$CC_COORD_URL human $CC_COORD_ATTEMPT
 "
                 else

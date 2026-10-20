@@ -4,8 +4,9 @@
 # coordination-verdict_test.sh, record-coordination-verdict_test.sh,
 # node-push_test.sh, node-cut_test.sh, coord-merge_test.sh,
 # record-coord-setup_test.sh, repo-visibility_test.sh,
-# coordinated-visibility_test.sh, execute-coordinated-engine_test.sh, and
-# coordinated-home-outside_test.sh. Not a test itself.
+# coordinated-visibility_test.sh, execute-coordinated-engine_test.sh,
+# coordinated-home-outside_test.sh, coord-render_test.sh, and
+# merge-message_test.sh. Not a test itself.
 #
 # GitHub is the eval gh shim (skills/execute/evals/fixtures/bin/gh) in its
 # repository-model mode: each case writes a gh/db.json seed into its own
@@ -34,11 +35,27 @@ git config --global user.name t
 git config --global init.defaultBranch main
 git config --global advice.detachedHead false
 
-ln -s "$CT_FIXTURES/bin/gh" "$CT_BIN/gh"
+# gh is a wrapper around the shim: it appends `gh <args>` to the case's
+# order.log, which the koto stub appends to as well, so a test can check that
+# a body post came after the koto write of the keys it shows (ct_order). With
+# CT_GH_HOOK set, it runs that script with gh's arguments first: a case's way
+# to change the model between two calls (a person editing the body).
+cat > "$CT_BIN/gh" <<STUB
+#!/usr/bin/env bash
+# A command koto runs may not see KOTO_STORE (the engine suites' real koto):
+# the call then goes unlogged here, and still reaches the shim.
+if [ -n "\${KOTO_STORE:-}" ]; then printf 'gh %s\\n' "\$*" >> "\$KOTO_STORE/order.log"; fi
+if [ -n "\${CT_GH_HOOK:-}" ]; then
+    bash "\$CT_GH_HOOK" "\$@" || exit 1
+fi
+exec "$CT_FIXTURES/bin/gh" "\$@"
+STUB
+chmod +x "$CT_BIN/gh"
 cat > "$CT_BIN/koto" <<'STUB'
 #!/usr/bin/env bash
 store="${KOTO_STORE:?}"
 printf '%s\n' "$*" >> "$store/koto-calls.log"
+printf 'koto %s\n' "$*" >> "$store/order.log"
 [ "$1" = context ] || { echo "koto stub: only context is served" >&2; exit 9; }
 if [ "$2" = list ]; then
     # list [--prefix <p>] <session>, the flag on either side.
@@ -128,11 +145,12 @@ ct_case() {
     printf '%s' 00112233445566778899aabbccddeeff > "$CASE/ctx/execute-t/run_id"
     : > "$CASE/koto-calls.log"
     : > "$CASE/shirabe-calls.log"
+    : > "$CASE/order.log"
     export EVAL_SCENARIO_DIR="$CASE/scenario"
     export GH_CALL_LOG="$CASE/gh.log"
     export KOTO_STORE="$CASE"
     unset CT_GATE_FAIL CT_BODY_FAIL KOTO_FAIL_ADD KOTO_FAIL_GET KOTO_FAIL_EXISTS KOTO_FAIL_LIST
-    unset CT_RECORD_REPOS
+    unset CT_RECORD_REPOS GH_SHIM_FAIL CT_GH_HOOK
     CT_PRS='[]'
     CT_INDEX=""
     CT_COORD_STATE=OPEN
@@ -189,6 +207,19 @@ ct_record_node() {
         '{($k): {repo: $r, pr: $p, head: $h}}')"
 }
 
+# ct_record_follow_up <node> <repo> <pr> [head] [removed] -- a follow-up PR
+# recorded against <node> (run/follow-up/<node>/<pr>), as setup's follow-up
+# step records it; `removed` true marks it removed.
+ct_record_follow_up() {
+    ct_record follow-up "$(jq -cn --arg k "run/follow-up/$1/$3" --arg r "$2" --argjson p "$3" \
+        --arg h "${4:-$CT_HEAD}" --arg rm "${5:-}" \
+        '{($k): ({repo: $r, pr: $p, head: $h} + (if $rm == "true" then {removed: true} else {} end))}')"
+}
+
+# ct_order -- the case's gh and koto calls, interleaved in the order they
+# were made, one per line.
+ct_order() { [ -f "$CASE/order.log" ] && cat "$CASE/order.log"; return 0; }
+
 # ct_record_cascade pushed <sha> | failed <step> -- the cascade's verdict.
 ct_record_cascade() {
     case "$1" in
@@ -211,13 +242,16 @@ ct_index_line() {
 }
 
 # ct_pr <repo> <number> <head-branch> [key=json ...] -- add a PR to the model.
-# Defaults: owned, open, ready, CLEAN, one passing check, head CT_HEAD.
+# Defaults: owned, open, ready, CLEAN, one passing check, head CT_HEAD, titled
+# `feat(t): <head-branch>` with a two-part body (a Part 1, one top-level
+# `---`, the fixed fields), the shape a squash message is built from.
 ct_pr() {
     local repo="$1" n="$2" head="$3" kv obj
     shift 3
     obj=$(jq -nc --arg r "$repo" --argjson n "$n" --arg h "$head" --arg sha "$CT_HEAD" --arg login "$CT_LOGIN" '{
         repo: $r, number: $n, headRefName: $h, baseRefName: "main", author: $login,
-        isCrossRepository: false, state: "OPEN", isDraft: false, title: "t", body: "",
+        isCrossRepository: false, state: "OPEN", isDraft: false, title: ("feat(t): " + $h),
+        body: "Implements the node.\n\n---\n\nCoordinated node.\n",
         headRefOid: $sha, mergeStateStatus: "CLEAN", reviewDecision: "",
         checks: [{name: "build", bucket: "pass"}], files: ["src/x.go"], merge: "ok"}')
     for kv in "$@"; do
@@ -226,15 +260,21 @@ ct_pr() {
     CT_PRS=$(printf '%s' "$CT_PRS" | jq -c --argjson o "$obj" '. + [$o]')
 }
 
-# ct_write_db -- write the case's gh/db.json: the model repository, the
-# coordination PR (#10 on CT_CB carrying the marker and CT_INDEX), and the PRs
+# ct_write_db [body-file] -- write the case's gh/db.json: the model
+# repository, the coordination PR (#10 on CT_CB, whose body is /scope's shape
+# carrying the marker and CT_INDEX, or the given file's bytes), and the PRs
 # ct_pr added. CT_VIS_A and CT_VIS_B are the two repositories' `visibility`
 # (public by default); `none` leaves the repository out of the model, so a
 # read of it fails.
 ct_write_db() {
     local body
-    body=$(printf '# Coordination PR: %s\n\n> This is a **coordination PR** for a coordinated effort.\n\n## PR Index\n\n%s\n## Merge Order\n\n```merge-order\n%s | open\n%s | open\n```\n' \
-        "$CT_SLUG" "$CT_INDEX" "$CT_CORE" "$CT_CLI")
+    if [ -n "${1:-}" ]; then
+        body=$(cat -- "$1"; printf x)
+        body="${body%x}"
+    else
+        body=$(printf '# Coordination PR: %s\n\n> This is a **coordination PR** for a coordinated effort.\n\n## PR Index\n\n%s\n## Merge Order\n\n```merge-order\n%s | open\n%s | open\n```\n' \
+            "$CT_SLUG" "$CT_INDEX" "$CT_CORE" "$CT_CLI")
+    fi
     jq -n --arg login "$CT_LOGIN" --argjson prs "$CT_PRS" --arg body "$body" --arg cb "$CT_CB" \
         --arg state "$CT_COORD_STATE" --argjson draft "$CT_COORD_DRAFT" --arg cmerge "$CT_COORD_MERGE" \
         --arg sha "$CT_HEAD" --arg va "$CT_VIS_A" --arg vb "$CT_VIS_B" '

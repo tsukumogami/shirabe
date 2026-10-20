@@ -3,7 +3,7 @@
 #
 # The agent never composes /execute's exit summary. The template's terminal
 # states declare a `result:` map (outcome, step, reason, pr, repos, resume,
-# waiting), koto resolves it on the tick that lands in the terminal, and this
+# waiting, and on the coordinated envelope body), koto resolves it on the tick that lands in the terminal, and this
 # script prints the human-facing lines from it. Every value is checked against
 # a closed pattern first, and anything that fails its pattern is dropped rather
 # than printed, so a value an agent or a stale key smuggled into context never
@@ -37,6 +37,12 @@
 #                                          and no PR line to put it on (a
 #                                          coordinated setup stop such as
 #                                          store-mismatch)
+#   body=<stale|full>                      a coordinated run whose last render
+#                                          of the coordination PR's body
+#                                          could not post it (stale) or found
+#                                          it over the size cap (full);
+#                                          nothing for a posted or unchanged
+#                                          body
 #   resume=<command>                       on a pause
 #   note=the PR may still be queued and may merge later
 #                                          on reason merge-not-observed
@@ -56,9 +62,9 @@ RE_OUTCOME='^(merged|ready-awaiting-merge|paused-for-review|paused-awaiting-merg
 RE_STEP='^execute:[a-z][a-z0-9_-]*$'
 RE_REPO_LIST='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(,[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)*$'
 RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*$'
-# The merge decision table's conditions, the two merge-step outcomes, the
-# coordinated pause conditions, and coord_setup's typed stops.
-RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|predecessor-unmerged|gate-unverified|store-mismatch|coordination-pr-missing|coordination-pr-ambiguous|coordination-pr-mismatch|coordination-pr-closed)$'
+# The merge decision table's conditions, the merge step's outcomes and
+# refusals, the coordinated pause conditions, and coord_setup's typed stops.
+RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|merge-refused|merge-refused:(body-stale|body-full|squash-message)|predecessor-unmerged|gate-unverified|store-mismatch|coordination-pr-missing|coordination-pr-ambiguous|coordination-pr-mismatch|coordination-pr-closed)$'
 RE_ROLE='^(human|predecessor)$'
 RE_RESUME='^/execute [A-Za-z0-9._/-]+\.md( --[a-z][a-z-]*)*$'
 
@@ -105,6 +111,7 @@ PR=$(field pr)
 REPOS=$(field repos)
 RESUME=$(field resume)
 WAITING=$(field waiting)
+BODY=$(field body)
 
 [ "$OUTCOME" = "refused" ] && refused
 
@@ -174,6 +181,13 @@ else
         printf 'reason=%s\n' "$REASON"
     fi
 fi
+
+# The coordination PR's body behind the record (a post that failed, or a
+# render over the cap): the index a reviewer and the merge-last gate read is
+# older than the run. A posted or unchanged body says nothing.
+case "$BODY" in
+    stale|full) printf 'body=%s\n' "$BODY" ;;
+esac
 
 case "$OUTCOME" in
     paused-for-review|paused-awaiting-merges)

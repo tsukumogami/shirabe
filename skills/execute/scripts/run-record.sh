@@ -20,7 +20,8 @@
 #
 #   setup      record-coord-setup.sh, sealing a new run's run/setup
 #   push       node-push.sh node: a node's repo, pr, and pushed head
-#   observe    the body renderer (a later change): a merged head
+#   observe    coord-render.sh, the coordination body's renderer: a merged
+#              head it read live (the merge commit GitHub reports)
 #   cascade    node-push.sh coordination (pushed, with the head) and
 #              record-coordination-verdict.sh (failed, with the step); the one
 #              verb with two callers, both steps of the cascade

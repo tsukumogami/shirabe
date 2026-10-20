@@ -273,12 +273,24 @@ mshim gh pr view 10 --repo "$R" --json body --jq .body
 [ "$OUT" = edited ] && pass "model: pr edit --body-file replaces the body" || fail "model: edit [$OUT]"
 mshim gh api "repos/$R/issues/11"
 [ "$(printf '%s' "$OUT" | jq -r .state)" = open ] && pass "model: the merge gate's state read is open before a merge" || fail "model: issues [$OUT]"
+mshim gh pr view 11 --repo "$R" --json state,mergeCommit
+if [ "$(printf '%s' "$OUT" | jq -c .mergeCommit)" = null ]; then
+    pass "model: an open PR's mergeCommit is null"
+else
+    fail "model: an open PR's mergeCommit [$OUT]"
+fi
 mshim gh pr merge 11 --repo "$R" --squash --match-head-commit "$HEAD_SHA"
-mshim gh pr view 11 --repo "$R" --json state
+mshim gh pr view 11 --repo "$R" --json state,mergeCommit
+WANT_MERGE_SHA=$(printf 'merge %s#%s' "$R" 11 | git hash-object --stdin)
 if [ "$RC" -eq 0 ] && [ "$(printf '%s' "$OUT" | jq -r .state)" = MERGED ]; then
     pass "model: a merge with merge ok leaves the PR MERGED"
 else
     fail "model: merge [$OUT]"
+fi
+if [ "$(printf '%s' "$OUT" | jq -r '.mergeCommit.oid')" = "$WANT_MERGE_SHA" ]; then
+    pass "model: a merged PR's mergeCommit.oid is the merge commit the model gave it"
+else
+    fail "model: a merged PR's mergeCommit [$OUT]"
 fi
 mshim gh api "repos/$R/issues/11"
 [ "$(printf '%s' "$OUT" | jq -r .state)" = closed ] && pass "model: ... and the merge gate's state read closed" || fail "model: issues after merge [$OUT]"
@@ -292,6 +304,18 @@ if [ "$OUT" = MERGED ] && [ "$BEFORE" = "$AFTER" ]; then
     pass "model: shim-mark-merged marks a PR MERGED and is not logged"
 else
     fail "model: mark-merged [$OUT], log $BEFORE -> $AFTER"
+fi
+mshim gh pr view 10 --repo "$R" --json mergeCommit --jq .mergeCommit.oid
+if [ "$OUT" = "$(printf 'merge %s#%s' "$R" 10 | git hash-object --stdin)" ]; then
+    pass "model: shim-mark-merged gives the PR a merge commit too"
+else
+    fail "model: mark-merged mergeCommit [$OUT]"
+fi
+GH_SHIM_FAIL='^pr view 10 ' mshim gh pr view 10 --repo "$R" --json state
+if [ "$RC" -ne 0 ] && [ -z "$OUT" ] && [ "$(tail -1 "$LOG")" = "pr view 10 --repo $R --json state" ]; then
+    pass "model: a call matching GH_SHIM_FAIL fails after it is logged"
+else
+    fail "model: GH_SHIM_FAIL rc=$RC out=[$OUT]"
 fi
 
 new_log

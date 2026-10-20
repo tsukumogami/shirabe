@@ -43,6 +43,14 @@
 #                            at run/cascade's head; a head that moved is
 #                            ready-awaiting-merge
 #   done:ready-awaiting-merge the coordination merge was not observed
+#   --attempts               accepts merge-refused, body-stale, body-full
+#   done:ready-awaiting-merge every mergeable root's merge refused
+#                            (merge-refused), none printed as merge:<node>
+#                            again; a coordination body the render couldn't
+#                            post (body-stale on a draft, body-full on a
+#                            mergeable one) prints neither
+#                            evaluate-coordination nor merge-coordination; a
+#                            live-state change alone writes nothing
 #   error:execute:pr-adopt   a recorded PR by another author, another run, on
 #                            the wrong head branch, or not the owned PR; a
 #                            record naming another repository than the PLAN
@@ -379,6 +387,52 @@ CT_COORD_DRAFT=false
 ct_write_db
 out=$(run_next "$GONEDIR" --merge true)
 expect "the coordination PR moved off run/cascade's head" "done:ready-awaiting-merge" "$out"
+
+# --- refused merges and a coordination body that couldn't be posted ---------------
+
+ct_case attempts-values
+ct_record_setup
+ct_write_db
+for v in merge-refused body-stale body-full; do
+    (cd "$PLANDIR" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" --repos "acme/repo-a,acme/repo-b" \
+        --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge true --attempts "coordination:$v" >/dev/null 2>&1)
+    [ $? -eq 0 ] && pass "--attempts accepts coordination:$v" || fail "--attempts refused coordination:$v"
+done
+
+# Two independent roots, so neither has a successor waiting on it: a refused
+# merge is not printed again, and the run ends ready-awaiting-merge.
+ct_case merge-refused
+ct_record_setup github 10 "$NODES2"
+ct_record_node pr-repo-a-default acme/repo-a 11 "$CT_HEAD"
+ct_record_node pr-repo-b-default acme/repo-b 21 "$CT_HEAD"
+ct_pr acme/repo-a 11 impl/t-pr-repo-a-default
+ct_pr acme/repo-b 21 impl/t-pr-repo-b-default
+ct_write_db
+out=$(run_next "$PLAN2DIR" --merge true --attempts "pr-repo-a-default:merge-refused")
+expect "a root whose merge was refused is not merged again; the other root is" "merge:pr-repo-b-default" "$out"
+out=$(run_next "$PLAN2DIR" --merge true --attempts "pr-repo-a-default:merge-refused,pr-repo-b-default:merge-refused")
+expect "every mergeable node refused, none waited on" "done:ready-awaiting-merge" "$out"
+wrote_nothing "the merge-refused case"
+
+both_merged coordination-body-stale
+ct_record_cascade pushed "$CT_HEAD"
+ct_write_db
+out=$(run_next "$GONEDIR" --merge true --attempts "coordination:body-stale")
+expect "a draft coordination PR whose body the render couldn't post: no evaluate-coordination again" "done:ready-awaiting-merge" "$out"
+CT_COORD_DRAFT=false
+ct_write_db
+rm -rf "$GH_CALL_LOG.d"
+out=$(run_next "$GONEDIR" --merge true --attempts "coordination:body-full")
+expect "a mergeable coordination PR whose body is over the cap: no merge-coordination" "done:ready-awaiting-merge" "$out"
+out=$(run_next "$GONEDIR" --merge true --attempts "coordination:merge-refused")
+expect "a coordination merge that was refused is not called again" "done:ready-awaiting-merge" "$out"
+# A live change the body doesn't show (checks finishing) makes no write: the
+# loop never posts the body; the renderer does, and only on a difference.
+jq '(.prs[] | select(.number == 10) | .checks) = [{name: "build", bucket: "pass"}, {name: "lint", bucket: "pass"}]' \
+    "$GH_CALL_LOG.d/db.json" > "$CASE/db.tmp" && mv "$CASE/db.tmp" "$GH_CALL_LOG.d/db.json"
+out=$(run_next "$GONEDIR" --merge true)
+expect "after a live-state change alone" "merge-coordination" "$out"
+wrote_nothing "a live-state change alone"
 
 # --- ownership and the write set --------------------------------------------------
 

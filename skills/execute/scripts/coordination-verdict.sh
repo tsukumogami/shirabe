@@ -51,10 +51,14 @@
 # reason is drawn from the merge decision table's conditions
 # (merge-not-requested, head-moved, no-checks, base-unprotected, review,
 # workflow-change, merge-method-unresolved, merge-state:<S>[:review=<R>]),
-# merge-call-failed and merge-not-observed, and the pause conditions
-# predecessor-unmerged and gate-unverified. step is one of execute:pr-closed,
-# ready, ci, ci-timeout, status-read, pr-adopt, write-set, dispatch, push,
-# cascade, merge-gate, coord-loop.
+# merge-call-failed, merge-not-observed and merge-refused (a merge
+# coord-merge.sh refused: the merge-last gate, a missing head, or a squash
+# message it couldn't build), merge-refused:body-stale and
+# merge-refused:body-full (a coordination body the render before the
+# coordination PR's evaluation or merge couldn't post), and the pause
+# conditions predecessor-unmerged and gate-unverified. step is one of
+# execute:pr-closed, ready, ci, ci-timeout, status-read, pr-adopt, write-set,
+# dispatch, push, cascade, merge-gate, visibility, coord-loop.
 #
 # Exit codes: 0 the verdict is on stdout; 64 usage error.
 #
@@ -67,7 +71,7 @@ COORD_SELF_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 6
 # shellcheck source=coord-common.sh
 . "$COORD_SELF_DIR/coord-common.sh"
 
-RE_STEP_SET='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|coord-loop)$'
+RE_STEP_SET='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|visibility|coord-loop)$'
 
 usage_error() {
     echo "$PROG: $*" >&2
@@ -115,7 +119,7 @@ coord_valid_branch "$CC_CB" || usage_error "--coord-branch [$CC_CB] is not an al
 case "/$CC_PLAN/" in */../*) usage_error "--plan [$CC_PLAN] has a .. segment" ;; esac
 case "$CC_PLAN" in *[!A-Za-z0-9._/-]*) usage_error "--plan [$CC_PLAN] holds a character outside [A-Za-z0-9._/-]" ;; esac
 if [ -n "$CC_ATTEMPTS" ] && ! [[ $CC_ATTEMPTS =~ $RE_COORD_ATTEMPTS ]]; then
-    usage_error "--attempts [$CC_ATTEMPTS] is outside <node>:<merge-not-observed|merge-call-failed>,..."
+    usage_error "--attempts [$CC_ATTEMPTS] is outside <node>:<merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full>,..."
 fi
 case "$SEEN" in
     *" --run-id "*) [[ $COORD_RUN_ID =~ $RE_COORD_RUN_ID ]] || usage_error "--run-id [$COORD_RUN_ID] is not a run id" ;;
