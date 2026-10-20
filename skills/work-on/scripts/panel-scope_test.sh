@@ -456,7 +456,8 @@ expect_rc "--verdict with an untouched open finding and no run" 1
 # the finding's rule, so the template's context releases that rule's text and
 # changes nothing else about the verdict.
 PLAIN_OUT=$OUT; PLAIN_RC=$RC
-LADDER_RULE=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '.rule_id' | head -n 1)
+LADDER_RULE=$(printf '%s\n' "$OUT" | sed -n 's/^::koto-finding:://p' | jq -r '.rule_id')
+LADDER_RULE=${LADDER_RULE%%$'\n'*}
 LADDER_LOG="$WORKDIR/ladder.jsonl"
 rf_test_ladder_log "$LADDER_LOG" review review_verdict "$LADDER_RULE" 1
 OUT=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" SHIRABE_GATE_LOG="$LADDER_LOG" SHIRABE_GATE_NAME=review_verdict \

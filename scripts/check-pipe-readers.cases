@@ -23,3 +23,27 @@ fine	grep to /dev/null reads everything	printf '%s' "$OUT" | grep x >/dev/null
 fine	another writer	jq -r .x "$f" | grep -q y
 fine	a comment	# printf '%s' "$OUT" | grep -q x
 fine	the pipe of a command substitution in the writer's arguments	echo "against $(koto version | head -1)"
+refused	head after a middle stage (#906)	t=$(printf '%s\n' "$v" | sed -n 's/^topic //p' | head -1)
+refused	grep -q after a middle stage, any writer	ctx report.md | grep -A2 '^## x' | grep -q y
+refused	head in the middle, then cut	b=$(tail -n "+$a" "$f" | grep -n -F -- "$x" | head -n 1 | cut -d: -f1)
+refused	a lone read after a middle stage	jq -r .x "$f" | tr -d x | read -r y
+refused	inside a command substitution in double quotes	fail "got $(ct_calls | grep -E '^pr' | head -1)"
+refused	after an or-list	[ -n "$x" ] || jq -r .a "$f" | sed 1d | grep -q b
+refused	grep -m after a middle stage	v=$(jq -r .x "$f" | tr -d y | grep -m 1 z)
+refused	a middle stage that redirects stderr	v=$(jq -r .x "$f" | tr -d y 2>&1 | head -1)
+refused	a middle stage piped with |&	jq -r .x "$f" | tr -d y |& grep -q z
+fine	a pipe inside a single-quoted pattern	v=$(grep -E 'a|b|head' "$f" | sort)
+fine	a pipe inside a double-quoted message	bad "x | y | head" "$(jq -r .x "$f")"
+fine	a case pattern list	jq|grep|egrep|head|read) n=1 ;;
+fine	the middle stage captured, then a here-string	m=$(ctx r.md | grep -A2 x); grep -q y <<<"$m"
+fine	sed quits by itself	t=$(sed -n '/^topic /{s///p;q;}' <<<"$v")
+fine	while read reads to the end	jq -r .x "$f" | tr -d y | while read -r l; do :; done
+fine	two stages from a program	jq -r .x "$f" | head -1
+fine	grep -c after a middle stage	n=$(jq -r .x "$f" | tr -d y | grep -c z)
+fine	the reader's own status read from PIPESTATUS on the next line	jq -r .x "$f" | tr -d y | grep -q z<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS read at another stage's index	jq -r .x "$f" | tr -d y | grep -q z<NL>rc=${PIPESTATUS[0]}
+refused	PIPESTATUS read after a line in between	jq -r .x "$f" | tr -d y | grep -q z<NL>: other<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS after a reader that is not the last stage	jq -r .x "$f" | tr -d y | head -1 | cut -c1<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS after a pipeline inside an or-list	jq -r .x "$f" | tr -d y | grep -q z || true<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS after a pipeline in an if	if jq -r .x "$f" | tr -d y | grep -q z; then :; fi<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS after a comment line	jq -r .x "$f" | tr -d y | grep -q z<NL># read the status<NL>rc=${PIPESTATUS[2]}

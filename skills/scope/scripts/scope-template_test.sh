@@ -88,7 +88,8 @@ fi
 # --- the description's state count ------------------------------------------------------
 
 STATES=$(printf '%s\n' "$FRONT" | awk '/^states:/ { s = 1; next } s && /^  [a-z_][a-z_0-9]*:[[:space:]]*$/ { n++ } END { print n + 0 }')
-WORD=$(printf '%s\n' "$FRONT" | grep -oE '(Twenty|Thirty|Forty)(-[a-z]+)? states' | head -1 | sed 's/ states//')
+WORD_HITS=$(grep -oE '(Twenty|Thirty|Forty)(-[a-z]+)? states' <<<"$FRONT")
+WORD=$(sed 's/ states//' <<<"${WORD_HITS%%$'\n'*}")
 num() {
     local tens=0 unit=0 w
     w=$(printf '%s' "$1" | tr 'A-Z' 'a-z')
@@ -321,7 +322,7 @@ eq "exit_abandonment's marker gate never reads the PLAN's path" 'false' \
 FORCED=$(awk '/^forced_artifact\(\)/{f=1} f{print} f&&/^}/{exit}' "$HERE/print-scope-exit.sh")
 if [ -z "$FORCED" ]; then
     bad "print-scope-exit.sh never reports a PLAN as the abandoned artifact" "forced_artifact() not found"
-elif printf '%s\n' "$FORCED" | grep -v '^[[:space:]]*#' | grep -q 'docs/plans/'; then
+elif FORCED_CODE=$(grep -v '^[[:space:]]*#' <<<"$FORCED"); grep -q 'docs/plans/' <<<"$FORCED_CODE"; then
     bad "print-scope-exit.sh never reports a PLAN as the abandoned artifact" "forced_artifact() names docs/plans/"
 else
     ok "print-scope-exit.sh never reports a PLAN as the abandoned artifact"

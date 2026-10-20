@@ -528,7 +528,8 @@ printf 'not json' >"$T/garbage.json"
 eq "an args file that is not a JSON array: usage exit 64" "64" "$RC"
 if [ -e "$T/garbage.json" ]; then bad "a malformed args file is removed too"; else ok "a malformed args file is removed too"; fi
 
-if grep -n 'eval' "$OPEN" | grep -v '^[0-9]*:[[:space:]]*#' | grep -q .; then
+EVAL_HITS=$(grep -n 'eval' "$OPEN" | grep -v '^[0-9]*:[[:space:]]*#')
+if grep -q . <<<"$EVAL_HITS"; then
     bad "scope-open.sh uses eval" "$(grep -n eval "$OPEN")"
 else
     ok "scope-open.sh has no eval"

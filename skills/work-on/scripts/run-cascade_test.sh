@@ -1409,9 +1409,9 @@ scenario_deletion_idempotent_reinvoke() {
     " 2>&1)
 
     local rc_line steps_line failed_line
-    rc_line=$(echo "$out" | grep -E '^RC=' | head -1)
-    steps_line=$(echo "$out" | grep -E "^STEPS_JSON=" | head -1)
-    failed_line=$(echo "$out" | grep -E "^ANY_FAILED=" | head -1)
+    rc_line=$(grep -m1 -E '^RC=' <<<"$out")
+    steps_line=$(grep -m1 -E "^STEPS_JSON=" <<<"$out")
+    failed_line=$(grep -m1 -E "^ANY_FAILED=" <<<"$out")
 
     local ok=true
 

@@ -17,7 +17,7 @@ set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 CHECK="$HERE/check-pipe-readers.sh"
-T=$(mktemp -d "${TMPDIR:-/tmp}/check-pipe-readers-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/check-pipe-readers-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 PASS=0 FAIL=0
 ok() { PASS=$((PASS + 1)); printf 'ok   %s\n' "$1"; }
@@ -74,6 +74,24 @@ for i in 1 2 3; do
 done
 [ "$old" = 3 ] && ok "printf | grep -q misses the match under pipefail (3 of 3)" || bad "printf | grep -q misses the match under pipefail (3 of 3)" "missed $old of 3"
 [ "$new" = 0 ] && ok "grep -q <<< finds it (3 of 3)" || bad "grep -q <<< finds it (3 of 3)" "missed $new of 3"
+
+echo "== the hazard after a middle stage, with a value larger than a pipe holds (#906) =="
+# The same race one stage further in: the match is on the first line, so the
+# last reader exits while tr still has most of 256 KiB to write, tr takes
+# SIGPIPE, and pipefail fails the pipeline every time. The old shape lives in
+# a single-quoted string run by bash -c, which the check doesn't read as
+# code; the rewritten forms are written out as this repository writes them.
+OLD='printf "%s" "$BIG" | tr x y | grep -q done'
+old=0; capture=0; quit=0
+for i in 1 2 3; do
+    BIG=$BIG bash -o pipefail -c "$OLD" 2>/dev/null || old=$((old + 1))
+    m=$(printf '%s' "$BIG" | tr x y)
+    grep -q done <<<"$m" || capture=$((capture + 1))
+    [ "$(sed -n '/^done/{s/^done/found/p;q;}' <<<"$BIG")" = found ] || quit=$((quit + 1))
+done
+[ "$old" = 3 ] && ok "printf | tr | grep -q misses the match under pipefail (3 of 3)" || bad "printf | tr | grep -q misses the match under pipefail (3 of 3)" "missed $old of 3"
+[ "$capture" = 0 ] && ok "the middle stage captured, then grep -q <<< finds it (3 of 3)" || bad "the middle stage captured, then grep -q <<< finds it (3 of 3)" "missed $capture of 3"
+[ "$quit" = 0 ] && ok "sed -n '/re/{s///p;q;}' <<< finds it (3 of 3)" || bad "sed -n '/re/{...;q;}' <<< finds it (3 of 3)" "missed $quit of 3"
 
 echo
 echo "check-pipe-readers: $PASS passed, $FAIL failed"

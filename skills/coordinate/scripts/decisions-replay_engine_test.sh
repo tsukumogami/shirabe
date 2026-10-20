@@ -329,8 +329,8 @@ last_sent() { tail -1 "$T/$1.sent" | jq -r "$2"; }
 replay_check() {
     local order first_verdict first_render
     order=$(visits "$1" | grep -n .)
-    first_verdict=$(printf '%s\n' "$order" | grep ':decision_verdict$' | head -1 | cut -d: -f1)
-    first_render=$(printf '%s\n' "$order" | grep -E ':(escalate|decision_withdraw|decision_reply)$' | head -1 | cut -d: -f1)
+    first_verdict=$(grep -m1 ':decision_verdict$' <<<"$order" | cut -d: -f1)
+    first_render=$(grep -m1 -E ':(escalate|decision_withdraw|decision_reply)$' <<<"$order" | cut -d: -f1)
     [ -n "$first_verdict" ] || return 1
     [ -z "$first_render" ] || [ "$first_verdict" -lt "$first_render" ] || return 1
     ! grep -q ':escalate$' <<<"$order" || return 1
@@ -455,7 +455,7 @@ R_BEFORE=$(wc -l < "$T/$LR.sent")
 arrive_evidence "$LR" 2 dispatcher "the release moved a week"
 back_to_wait "$LR"
 eq "levels: evidence on R's sent escalation renders a withdrawal" "withdrawal|Withdrawn: decision 2 round 1." \
-    "$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .kind)|$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .text | head -1)"
+    "$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .kind)|$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r '.text | split("\n")[0]')"
 eq "levels: R settles it itself afterwards, owing nothing" 'settled|' "$(field "$LR" 2 state)|$(field "$LR" 2 owed)"
 W_BEFORE=$(wc -l < "$T/$LW.sent")
 arrive_report "$LW" rr "$(sed -n "$((R_BEFORE + 1))p" "$T/$LR.sent" | jq -r .text)"

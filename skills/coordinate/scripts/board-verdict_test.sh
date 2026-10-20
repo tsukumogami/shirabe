@@ -19,7 +19,7 @@ set -uo pipefail
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq not on PATH"; exit 0; }
-T=$(mktemp -d "${TMPDIR:-/tmp}/board-verdict-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/board-verdict-test.XXXXXX") || exit 1
 trap 'rm -rf "$T"' EXIT
 . "$HERE/testdata/board/helpers.sh"
 bt_setup
@@ -131,7 +131,8 @@ GH_BOARD_DIR="$GH_BOARD_DIR" gh api graphql -f 'query=mutation { x }' >/dev/null
 
 echo "== the scripts' own reads =="
 for f in board-verdict.sh board-lib.sh record-common.sh record-source.sh board-record.sh land-check.sh merge-confirm.sh merged-facts.sh land-merge.sh; do
-    if grep -n 'gh api' "$HERE/$f" | grep -v '^[0-9]*:#' | grep -v -- '--method GET' | grep -v 'api graphql' | grep -q .; then
+    gh_calls=$(grep -n 'gh api' "$HERE/$f" | grep -v '^[0-9]*:#' | grep -v -- '--method GET' | grep -v 'api graphql')
+    if grep -q . <<<"$gh_calls"; then
         bad "$f: every gh api call is --method GET or GraphQL" "$(grep -n 'gh api' "$HERE/$f" | grep -v -- '--method GET')"
     else ok "$f: every gh api call is --method GET or GraphQL"; fi
     if grep -v '^ *#' "$HERE/$f" | grep -Eq 'gh pr merge|--method (POST|PATCH|PUT|DELETE)|mutation'; then

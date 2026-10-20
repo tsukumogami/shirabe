@@ -127,7 +127,7 @@ else
     lib_run_ref || lib_die2 "the run has no found record"
 fi
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/closeout-read.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/closeout-read.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 V= REASON= BLOCKER=null PRSTATE= DRAFT= HEAD= TITLE= BOARD=null

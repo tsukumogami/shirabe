@@ -72,7 +72,7 @@ while [ $# -gt 0 ]; do
 done
 . "$HERE/record-common.sh"
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/posture-read.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/posture-read.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 if [ "$GIVEN" = 0 ]; then

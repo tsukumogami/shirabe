@@ -119,7 +119,7 @@ run() {
 }
 calls() { grep -c "^pr $1" "$GHF/calls" 2>/dev/null | tr -d ' '; }
 remote_sha() { git -C "$R" ls-remote origin "refs/heads/$1" | awk '{print $1}'; }
-line() { printf '%s\n' "$OUT" | sed -n "s/^$1=//p" | head -1; }
+line() { sed -n "/^$1=/{s///p;q;}" <<<"$OUT"; }
 
 echo "== no PR on the branch =="
 setup single-pr

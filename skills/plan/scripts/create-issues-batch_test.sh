@@ -239,7 +239,7 @@ MANIFEST
 
     # Issue 1: only global labels
     local issue1_labels
-    issue1_labels=$(echo "$stderr_output" | grep -A5 'Creating issue 1:' | grep 'Labels:' | head -1)
+    issue1_labels=$(grep -A5 'Creating issue 1:' <<<"$stderr_output" | grep -m1 'Labels:')
     if grep -q 'Labels: repo:tsuku$' <<<"$issue1_labels"; then
         pass "$name (issue 1: global only)"
     else
@@ -248,7 +248,7 @@ MANIFEST
 
     # Issue 2: global + needs-design
     local issue2_labels
-    issue2_labels=$(echo "$stderr_output" | grep -A5 'Creating issue 2:' | grep 'Labels:' | head -1)
+    issue2_labels=$(grep -A5 'Creating issue 2:' <<<"$stderr_output" | grep -m1 'Labels:')
     if grep -q 'Labels: repo:tsuku,needs-design' <<<"$issue2_labels"; then
         pass "$name (issue 2: merged)"
     else
@@ -257,7 +257,7 @@ MANIFEST
 
     # Issue 3: global + needs-prd
     local issue3_labels
-    issue3_labels=$(echo "$stderr_output" | grep -A5 'Creating issue 3:' | grep 'Labels:' | head -1)
+    issue3_labels=$(grep -A5 'Creating issue 3:' <<<"$stderr_output" | grep -m1 'Labels:')
     if grep -q 'Labels: repo:tsuku,needs-prd' <<<"$issue3_labels"; then
         pass "$name (issue 3: merged)"
     else

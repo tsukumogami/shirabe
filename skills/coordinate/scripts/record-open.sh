@@ -101,7 +101,7 @@ else
 fi
 lib_write_guard
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/record-open.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/record-open.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 lib_parse "$BODY" "$T/parsed.json"

@@ -110,7 +110,7 @@ cp "$FIXTURES_DIR/COMP-draft-to-accepted.md" "$tmp_accept"
 check "Draft -> Accepted transitions cleanly (exit 0)" "$?" "0"
 fm_status=$(grep "^status:" "$tmp_accept" | sed 's/status: //')
 check "frontmatter status is Accepted after transition" "$fm_status" "Accepted"
-body_status=$(grep -A 3 '^## Status' "$tmp_accept" | grep -E '^(Draft|Accepted|Done)' | head -1)
+body_status=$(grep -A 3 '^## Status' "$tmp_accept" | grep -E '^(Draft|Accepted|Done)'); body_status=${body_status%%$'\n'*}
 check "body status is Accepted after transition" "$body_status" "Accepted"
 if [[ -f "$tmp_accept" ]]; then
     echo "  PASS  file remains at docs/competitive/ (no movement)"

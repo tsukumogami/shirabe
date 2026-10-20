@@ -70,7 +70,7 @@ MS=${RS_SESSION:-$SESSION}
 STAMP=${MS##*-}
 [[ $STAMP =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || lib_die2 "the session's name carries no run stamp: $MS"
 
-W=$(mktemp -d "${TMPDIR:-/tmp}/record-move.XXXXXX")
+W=$(mktemp -d "${TMPDIR:-/tmp}/record-move.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$W"' EXIT
 step() { printf 'step=%s %s\n' "$1" "$2"; }
 verdict() { # verdict <move-done|move-refused> <reason>

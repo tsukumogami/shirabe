@@ -24,7 +24,7 @@ FAIL_COUNT=0
 pass() { printf 'PASS: %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/check-macos-floor-legs-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/check-macos-floor-legs-test.XXXXXX") || exit 1
 cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
 trap cleanup EXIT
 
@@ -109,6 +109,13 @@ if [ "$RC" -eq 0 ]; then
     pass "a Linux-only job, and a macOS job that runs no suite (only names one in a comment), pass"
 else
     fail "not-macos fixture (rc=$RC): $OUT"
+fi
+
+lint "$FIXTURES/runtime-suite.yml"
+if [ "$RC" -eq 0 ]; then
+    pass "a floor call naming its suite at run time (env var or matrix expression) passes"
+else
+    fail "runtime-suite fixture (rc=$RC): $OUT"
 fi
 
 lint "$FIXTURES/clean.yml" "$FIXTURES/plain-bash.yml"

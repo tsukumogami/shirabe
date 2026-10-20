@@ -2,14 +2,15 @@
 # check-mktemp-guards_test.sh -- scripts/check-mktemp-guards.sh.
 #
 # Covers: the repository's own scripts pass; each refused shape is found (a
-# cd, pushd, git -C, or an rm or mv on a path built from an unchecked mktemp
-# value; the quoted, backtick, umask and continued forms; a use above the
-# assignment; local masking the status under errexit), named at the mktemp's
-# line; the shapes that are fine are not (a check with ||, an if condition,
-# errexit, a plain rm of the value alone, writes, another name, a comment, a
-# string); a named file and a directory; a missing path (2). And the hazard
-# itself: `cd ""` succeeds and stays put, so an unchecked empty value turns
-# into the current directory (shirabe#922, #924, #925).
+# cd, pushd, git -C, or an rm, mv, redirection, mkdir, cp, tee or touch on a
+# path built from an unchecked mktemp value; the quoted, backtick, umask and
+# continued forms; a use above the assignment; local masking the status under
+# errexit), named at the mktemp's line; the shapes that are fine are not (a
+# check with ||, an if condition, errexit, a plain rm of the value alone, a
+# read, another name, a comment, a string); a named file and a directory; a
+# missing path (2). And the hazard itself: `cd ""` succeeds and stays put, so
+# an unchecked empty value turns into the current directory (shirabe#922,
+# #924, #925, #926).
 #
 # Usage: bash scripts/check-mktemp-guards_test.sh
 set -uo pipefail

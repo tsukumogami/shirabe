@@ -1,0 +1,226 @@
+name: macOS floor
+
+# Pull requests merge without waiting for their macOS legs, and most of the
+# macOS floor workflows run only on pull requests, so a suite one merge breaks
+# on the bash 3.2 floor could stay broken on main unseen (shirabe#940). This
+# runs every macOS floor suite against main once a day, and against any ref
+# when dispatched; the release procedure dispatches it on the commit a release
+# is cut from (.claude/shirabe-extensions/release.md). A red run files an
+# issue, or comments on the open one, so nobody has to watch Actions to see it.
+#
+# The suite list comes from the workflows themselves: every
+# scripts/check-bash-floor.sh --backend system <suite> call in a job that can
+# run on macOS (scripts/check-macos-floor-setup.sh --suites), so a new floor
+# workflow joins this run without an edit here. Each suite gets the setup its
+# own workflow's macOS leg gives it; the steps below that carry an `if` are
+# copies, and check-macos-floor-setup.sh, run on every pull request that
+# touches a workflow, fails when one no longer matches its original. A copied
+# step's `if` names the suites it is for, as
+# `matrix.suite == 'a' || matrix.suite == 'b'` and in no other form, and the
+# steps for one suite keep the order of its own workflow. They are
+# copies because a job's steps can't be generated at run time, and calling the
+# floor workflows through workflow_call would put all of them in one
+# concurrency group: a called workflow sees the caller's github.workflow and
+# github.sha, so their groups would collide and GitHub would cancel all but
+# one pending run.
+
+# The ref is in the run's name so a dispatcher can find its own run.
+run-name: macOS floor on ${{ inputs.ref || github.ref_name }}
+
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or commit to run every macOS floor suite on'
+        required: false
+        default: 'main'
+
+# One group per run: nothing cancels this run, and no later run replaces it
+# while it waits. A floor workflow's own concurrency group can't reach it,
+# since groups are keyed on the workflow's name.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  # `tsuku install` calls the GitHub API; the token keeps shared runners from
+  # hitting the unauthenticated rate limit. Most floor workflows set it too.
+  GITHUB_TOKEN: ${{ github.token }}
+  TRACKING_TITLE: 'CI: the macOS floor run is red'
+
+jobs:
+  suites:
+    runs-on: ubuntu-latest
+    # yq is pinned, as in check-macos-floor-legs.yml, so the image moving to
+    # another yq can't change which suites the list finds.
+    env:
+      YQ_VERSION: v4.47.1
+      YQ_SHA256: 0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb
+    outputs:
+      sha: ${{ steps.list.outputs.sha }}
+      suites: ${{ steps.list.outputs.suites }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Install pinned mikefarah yq
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/yq-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $dir/yq" | sha256sum -c -
+          chmod +x "$dir/yq"
+          out=$("$dir/yq" --version)
+          case "$out" in
+            *mikefarah/yq*" version ${YQ_VERSION}") ;;
+            *) echo "unexpected yq version: $out" >&2; exit 1 ;;
+          esac
+          echo "$dir" >> "$GITHUB_PATH"
+
+      # The commit is resolved once, here, so every suite runs on the same one
+      # even if the branch moves while the run waits for macOS runners.
+      - name: List the floor suites
+        id: list
+        run: |
+          set -euo pipefail
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          suites=$(scripts/check-macos-floor-setup.sh --suites)
+          echo "suites=$suites" >> "$GITHUB_OUTPUT"
+          echo "Floor suites at $(git rev-parse HEAD): $suites"
+
+  floor:
+    needs: suites
+    # The report job finds the suites that failed by this prefix.
+    name: 'macOS floor: ${{ matrix.suite }}'
+    strategy:
+      fail-fast: false
+      # Leave hosted macOS runners free for pull requests while this runs.
+      max-parallel: 3
+      matrix:
+        suite: ${{ fromJSON(needs.suites.outputs.suites) }}
+    runs-on: macos-latest
+    steps:
+      # Full history for every suite: rule-registry's own checkout asks for it.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.suites.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Install jq
+        if: matrix.suite == 'comp' || matrix.suite == 'execute' || matrix.suite == 'explore' || matrix.suite == 'koto-open' || matrix.suite == 'plan' || matrix.suite == 'release' || matrix.suite == 'skill-session'
+        run: brew install jq
+
+      - name: Install Rust toolchain
+        if: matrix.suite == 'plan' || matrix.suite == 'preflight'
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8  # stable
+
+      - name: Cache cargo (plan)
+        if: matrix.suite == 'plan'
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Cache Cargo (preflight)
+        if: matrix.suite == 'preflight'
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684  # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build and install shirabe
+        if: matrix.suite == 'preflight'
+        run: |
+          cargo build --release --bin shirabe
+          mkdir -p "$HOME/.preflight-bin"
+          install -m 0755 target/release/shirabe "$HOME/.preflight-bin/shirabe"
+          echo "$HOME/.preflight-bin" >> "$GITHUB_PATH"
+
+      - name: Install tsuku
+        if: matrix.suite == 'preflight'
+        uses: tsukumogami/tsuku/.github/actions/setup-tsuku@d45bd520886554384942a6e017908bdf6b8cf0b9  # installs tsuku 0.15.2
+
+      - name: Install koto
+        if: matrix.suite == 'preflight'
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y
+
+      - name: Install niwa
+        if: matrix.suite == 'preflight'
+        env:
+          TSUKU_TELEMETRY: "0"
+        run: tsuku install -y tsukumogami/niwa
+
+      - name: Assert koto meets the floor
+        if: matrix.suite == 'preflight'
+        run: scripts/assert-koto-floor.sh
+
+      - name: Run the suite on the bash 3.2 floor (macOS, system bash)
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: scripts/check-bash-floor.sh --backend system "$SUITE"
+
+  # A red run files an issue under TRACKING_TITLE, or comments on the open one,
+  # with the run, the commit and the suites that failed. Closing it is left to
+  # whoever fixes the floor.
+  report:
+    needs: [suites, floor]
+    if: always() && (needs.suites.result != 'success' || needs.floor.result != 'success')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: File or update the tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_REF: ${{ inputs.ref || github.ref_name }}
+          RUN_SHA: ${{ needs.suites.outputs.sha }}
+          SUITES_RESULT: ${{ needs.suites.result }}
+        run: |
+          set -euo pipefail
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          failed=$(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+            --jq '.jobs[] | select(.name | startswith("macOS floor: ")) | select(.conclusion != "success")
+              | "- `" + (.name | ltrimstr("macOS floor: ")) + "`: " + (.conclusion // "unfinished")')
+          if [ -z "$failed" ]; then
+            # A ref older than scripts/check-macos-floor-setup.sh lands here too.
+            failed="- no suite ran: listing the suites ended $SUITES_RESULT (see the suites job's log)"
+          fi
+          body="$RUNNER_TEMP/body.md"
+          {
+            printf 'The macOS floor run on `%s` (%s, %s) is red: %s\n\n' \
+              "$RUN_REF" "${RUN_SHA:-commit unresolved}" "$GITHUB_EVENT_NAME" "$run_url"
+            printf 'Suites that did not pass:\n\n%s\n\n' "$failed"
+            printf 'Pull requests merge without waiting for their macOS legs, so this run is where a break on the bash 3.2 floor shows up. '
+            printf 'Rerun a suite locally with `scripts/check-bash-floor.sh <suite>`.\n'
+          } >"$body"
+          number=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open \
+            --search "\"$TRACKING_TITLE\" in:title" --json number,title \
+            | jq -r --arg t "$TRACKING_TITLE" '[.[] | select(.title == $t)][0].number // empty')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --repo "$GITHUB_REPOSITORY" --body-file "$body"
+            echo "Commented on #$number"
+          else
+            printf '\nLater red runs comment here while this issue is open.\n' >>"$body"
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TRACKING_TITLE" --body-file "$body"
+          fi
