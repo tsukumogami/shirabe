@@ -42,3 +42,6 @@ fine	the reader's own status read from PIPESTATUS on the next line	jq -r .x "$f"
 refused	PIPESTATUS read at another stage's index	jq -r .x "$f" | tr -d y | grep -q z<NL>rc=${PIPESTATUS[0]}
 refused	PIPESTATUS read after a line in between	jq -r .x "$f" | tr -d y | grep -q z<NL>: other<NL>rc=${PIPESTATUS[2]}
 refused	PIPESTATUS after a reader that is not the last stage	jq -r .x "$f" | tr -d y | head -1 | cut -c1<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS after a pipeline inside an or-list	jq -r .x "$f" | tr -d y | grep -q z || true<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS after a pipeline in an if	if jq -r .x "$f" | tr -d y | grep -q z; then :; fi<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS after a comment line	jq -r .x "$f" | tr -d y | grep -q z<NL># read the status<NL>rc=${PIPESTATUS[2]}

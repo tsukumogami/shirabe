@@ -96,8 +96,9 @@ REPOS=$(ctx repos)
 TASKS=$(bash "$PLAN_TO_TASKS" "$PLAN" 2>/dev/null)
 node_issues() { printf '%s' "$TASKS" | jq -r --arg n "$1" '.[] | select(.name == $n) | .vars.ISSUES'; }
 index_number() { # index_number <node> -- the PR number the coordination PR's index names
-    jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .body' "$DB" \
-        | sed -n "/^- $1 | [^:]*:[^#]*#\\([0-9]*\\) .*/{s//\\1/p;q;}"
+    local body
+    body=$(jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .body' "$DB")
+    sed -n "/^- $1 | [^:]*:[^#]*#\\([0-9]*\\) .*/{s//\\1/p;q;}" <<<"$body"
 }
 
 ACTIONS=""
