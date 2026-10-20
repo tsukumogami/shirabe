@@ -20,7 +20,8 @@
 #                       kept, and the batch still holds until it is answered
 #   no decision         an empty slice is not graded: the run passes scrutiny
 #                       without holding
-#   over budget         a 2,561-byte slice falls back for over_budget
+#   over budget         a 2,561-byte slice falls back for over_budget; a
+#                       2,560-byte one is sent to the decider
 #   the decider off     scrutiny passes as it did before the gate, and the log
 #                       holds no decider_checked event for it
 #
@@ -301,6 +302,26 @@ if to_scrutiny "$S" "{\"choice\":\"x\",\"rationale\":\"$REASON\"}"; then
     answer "$S" "$GATE" "$CRIT" pass
     tick "$S"
     expect_state "the over-budget batch after the agent answered" review
+fi
+decider_off
+
+# At the budget exactly, koto asks the decider: the stub refuses the
+# connection, so the batch falls back, but never for over_budget.
+REASON=$(printf '%*s' 2537 '' | tr ' ' r)
+S=at-budget
+decider_on
+if to_scrutiny "$S" "{\"choice\":\"x\",\"rationale\":\"$REASON\"}"; then
+    N=$("$PLUGIN_ROOT/skills/work-on/scripts/decision-reasons.sh" slice "$(slog "$S")" | wc -c | tr -d ' ')
+    [ "$N" = 2560 ] && pass "the slice is 2,560 bytes" || fail "the slice is $N bytes"
+    record_round "$S" scrutiny "$CLEAN_SCRUTINY"
+    tick "$S"
+    GOT=$(jq -rs --arg g "$GATE" '[.[] | select(((.type // "") | startswith("decider_")) and .payload.gate? == $g)
+                                   | "\(.type):\(.payload.reason // .payload.outcome // "")"] | unique | join(",")' "$(slog "$S")")
+    case ",$GOT," in
+        *over_budget*) fail "a 2,560-byte slice fell back for over_budget: [$GOT]" ;;
+        ,,) fail "a 2,560-byte slice left no decider event for the batch" ;;
+        *) pass "a 2,560-byte slice is sent to the decider, which can't answer: [$GOT]" ;;
+    esac
 fi
 decider_off
 
