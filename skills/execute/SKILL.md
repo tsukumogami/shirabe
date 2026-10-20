@@ -534,8 +534,9 @@ against its chain shape:
      `run/follow-up/<node>/<n>` (`follow-up`, not written yet),
      `run/cascade` (`cascade`: `pushed` from `node-push.sh` coordination mode,
      `failed` from `record-coordination-verdict.sh`), `run/recovered` and
-     `run/adopted` (`recover` and `adopt`, not written yet); a node's or
-     follow-up's `merged_head` belongs to `observe`, not written yet. `carry`,
+     `run/adopted` (`recover` and `adopt`, not written yet); the head a
+     node's or follow-up's merge landed at belongs to `observe`, not written
+     yet. `carry`,
      from `execute-open.sh`, restores a finished session's keys into its
      replacement. The opener's snapshot of them sits under the per-user state
      directory (`$SHIRABE_STATE_DIR`, else `$XDG_STATE_HOME/shirabe` or
