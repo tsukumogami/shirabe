@@ -1,6 +1,6 @@
 ---
 schema: design/v1
-status: Proposed
+status: Accepted
 problem: |
   /work-on's scrutiny panel has no measured answer to which of its seats' questions a
   2,560-byte Jev slice could decide, so none of them has a slice contract, and the
@@ -34,7 +34,7 @@ decision_provenance: inline-resolved
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context and Problem Statement
 
