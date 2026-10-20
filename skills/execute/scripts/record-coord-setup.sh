@@ -666,7 +666,9 @@ $hint"
         while IFS=$'\t' read -r n r p fu; do
             [ -n "$n" ] || continue
             durl="$C_HOST/$r/pull/$p"
-            node_row=$(printf '%s' "$PASS3" | awk -F'\t' -v n="$n" '$1 == n { print $2 "\t" $3; exit }')
+            # Here-strings, not pipes: an awk that exits early would SIGPIPE
+            # its producer under pipefail.
+            node_row=$(awk -F'\t' -v n="$n" '$1 == n { print $2 "\t" $3; exit }' <<<"$PASS3")
             why=""
             if [ -z "$node_row" ]; then
                 why="its node $n is no node PR this recovery rebuilt"
@@ -674,8 +676,8 @@ $hint"
                 why="it is not in its node's repository ${node_row%%	*}"
             elif [ "$fu" != "$p" ]; then
                 why="its id names follow-up-$fu and its ref #$p"
-            elif printf '%s' "$PASS3" | awk -F'\t' -v r="$(coord_lower "$r")" -v p="$p" \
-                    'tolower($2) == r && $3 == p { found = 1 } END { exit !found }'; then
+            elif awk -F'\t' -v r="$(coord_lower "$r")" -v p="$p" \
+                    'tolower($2) == r && $3 == p { found = 1 } END { exit !found }' <<<"$PASS3"; then
                 why="it is one of the run's node PRs"
             fi
             if [ -z "$why" ]; then

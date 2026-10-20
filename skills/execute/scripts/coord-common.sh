@@ -332,8 +332,7 @@ coord_record_attempt() {
 # record-coord-setup.sh calls it when it records a follow-up and when its
 # recovery keeps or drops one, and coord-merge.sh before a follow-up's merge,
 # so a follow-up is judged by the same rule at all three points. Sets FU_URL,
-# FU_STATE (OPEN, MERGED or CLOSED), FU_DRAFT (true or false), FU_OID (the
-# live head), FU_MOID (the merge commit when MERGED, else empty) and
+# FU_STATE (OPEN, MERGED or CLOSED), FU_OID (the live head), FU_MOID (the merge commit when MERGED, else empty) and
 # FU_FAULT: empty when the PR passes, else the first rule it fails, in this
 # order: base (its base is not the default branch), author (a fork, or
 # another author), closed (CLOSED). Returns 0 when the reads succeeded,
@@ -341,7 +340,7 @@ coord_record_attempt() {
 # carried no usable URL, state or head.
 coord_follow_up_check() {
     local view repo_json def base cross author
-    FU_URL=""; FU_STATE=""; FU_DRAFT=""; FU_OID=""; FU_MOID=""; FU_FAULT=""
+    FU_URL=""; FU_STATE=""; FU_OID=""; FU_MOID=""; FU_FAULT=""
     coord_gh_read view pr view "$2" --repo "$1" \
         --json url,number,state,isDraft,baseRefName,isCrossRepository,author,headRefOid,mergeCommit || {
         echo "$PROG: could not read the follow-up PR #$2 in $1" >&2
@@ -353,7 +352,6 @@ coord_follow_up_check() {
     }
     FU_URL=$(printf '%s' "$view" | jq -r '.url // ""')
     FU_STATE=$(printf '%s' "$view" | jq -r '.state // ""')
-    FU_DRAFT=$(printf '%s' "$view" | jq -r '.isDraft // false')
     FU_OID=$(printf '%s' "$view" | jq -r '.headRefOid // ""')
     base=$(printf '%s' "$view" | jq -r '.baseRefName // ""')
     # Not `// true`: jq's alternative treats false as missing.
