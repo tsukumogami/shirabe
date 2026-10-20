@@ -45,10 +45,11 @@
 #                   never adopted. Omitted only on a hand run, where the
 #                   lookups match by login and branch alone.
 #   --attempts      the session's `merge_attempts` record:
-#                   `<node>:merge-not-observed` or `<node>:merge-call-failed`
+#                   `<id>:merge-not-observed` or `<id>:merge-call-failed`
 #                   for a merge this run already called and did not see land,
-#                   `<node>:merge-refused` for one coord-merge.sh refused
-#                   before or at the call (node `coordination` for the
+#                   `<id>:merge-refused` for one coord-merge.sh refused
+#                   before or at the call (<id> a node, a follow-up's
+#                   `<node>/follow-up-<n>`, or `coordination` for the
 #                   coordination PR), and `coordination:body-stale` or
 #                   `coordination:body-full` for a coordination body
 #                   coord-render.sh could not bring up to date before the
@@ -72,14 +73,23 @@
 #   merge:<node>              a node PR whose verdict is mergeable at the head
 #                             the run record holds (only with --merge true);
 #                             run coord-merge.sh on it
+#   merge:<node>/follow-up-<n>  a follow-up PR recorded against a node GitHub
+#                             reports MERGED, mergeable at the head the run
+#                             record holds for it (only with --merge true);
+#                             run coord-merge.sh on that id
 #   dispatch:<node>           a node with no recorded PR whose predecessors
 #                             are all satisfied: cut it, run its work items,
 #                             push
 #   evaluate:<node>           a node PR that is still a draft (mark it ready
 #                             once its checks pass) or whose checks are pending
-#   cascade                   every node PR MERGED, and the finalization
-#                             cascade has not run, or run/cascade holds no
-#                             `pushed` verdict (absent, or `failed`)
+#   evaluate:<node>/follow-up-<n>  a follow-up PR whose checks are pending:
+#                             wait for them only (the run never readies or
+#                             pushes to a follow-up)
+#   cascade                   every node PR and every live follow-up (one
+#                             recorded and not removed) MERGED, and the
+#                             finalization cascade has not run, or
+#                             run/cascade holds no `pushed` verdict (absent,
+#                             or `failed`)
 #   evaluate-coordination     the coordination PR is a draft after the cascade,
 #                             or its checks are pending
 #   merge-coordination        the coordination PR is mergeable (only with
@@ -151,7 +161,7 @@ coord_valid_branch "$CC_CB" || usage_error "--coord-branch [$CC_CB] is not an al
 case "/$CC_PLAN/" in */../*) usage_error "--plan [$CC_PLAN] has a .. segment" ;; esac
 case "$CC_PLAN" in *[!A-Za-z0-9._/-]*) usage_error "--plan [$CC_PLAN] holds a character outside [A-Za-z0-9._/-]" ;; esac
 if [ -n "$CC_ATTEMPTS" ] && ! [[ $CC_ATTEMPTS =~ $RE_COORD_ATTEMPTS ]]; then
-    usage_error "--attempts [$CC_ATTEMPTS] is outside <node>:<merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full>,..."
+    usage_error "--attempts [$CC_ATTEMPTS] is outside <node|node/follow-up-n|coordination>:<merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full>,..."
 fi
 case "$SEEN" in
     *" --run-id "*) [[ $COORD_RUN_ID =~ $RE_COORD_RUN_ID ]] || usage_error "--run-id [$COORD_RUN_ID] is not a run id" ;;

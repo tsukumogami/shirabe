@@ -62,6 +62,18 @@
 #                            done:merged; a node recorded in the home is
 #                            refused
 #   first-match order        an error beats a merge; a merge beats a dispatch
+#   follow-ups               one whose node is open waits (the node merges
+#                            first); one whose node is MERGED merges next
+#                            (merge:<node>/follow-up-<n>), only with --merge;
+#                            an open one holds the cascade and, with the PLAN
+#                            gone, both coordination steps; MERGED, it lets
+#                            them run; --attempts takes a follow-up id
+#                            (follow-up-0 is a usage error); pending checks
+#                            are evaluate:<id>; a draft or a closed one waits
+#                            on a human without ending the run; removed, it
+#                            is not read; a replacement holds the run until
+#                            it merges; one in another repository than its
+#                            node's is error:execute:write-set
 #
 # Usage: coordinated-next_test.sh
 # Exit codes: 0 all pass, 1 a failure
@@ -632,6 +644,123 @@ ct_pr acme/repo-b 21 impl/t-pr-repo-b-default 'isDraft=true'
 ct_write_db
 out=$(run_next "$PLAN2DIR" --merge true)
 expect "a dispatch beats an evaluate" "dispatch:pr-repo-a-default" "$out"
+
+# --- follow-ups ----------------------------------------------------------------------
+
+FU21="$CT_CORE/follow-up-21"
+
+# A follow-up waits on its node: with the node open and mergeable, the node
+# merges first.
+ct_case fu-node-open
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE"
+ct_follow_up_pr "$CT_REPO" 21
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "a follow-up whose node is open: the node merges first" "merge:$CT_CORE" "$out"
+
+# One recorded against a node GitHub reports MERGED merges next, before the
+# next node's dispatch, and only with --merge.
+ct_case fu-mergeable
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
+ct_follow_up_pr "$CT_REPO" 21
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "a follow-up whose node is MERGED, --merge true" "merge:$FU21" "$out"
+wrote_nothing "the follow-up merge case"
+
+both_merged fu-no-merge
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_follow_up_pr "$CT_REPO" 21
+ct_write_db
+out=$(run_next "$PLANDIR" --merge false)
+expect "every node MERGED, an open follow-up, --merge false: no cascade" "done:ready-awaiting-merge" "$out"
+out=$(run_next "$PLANDIR" --merge true)
+expect "the same with --merge true, the PLAN present: the follow-up, never the cascade" "merge:$FU21" "$out"
+ct_record_cascade pushed "$CT_HEAD"
+out=$(run_next "$GONEDIR" --merge true)
+expect "the PLAN gone and the cascade pushed: the follow-up, before any coordination step" "merge:$FU21" "$out"
+out=$(run_next "$GONEDIR" --merge false)
+expect "the same with --merge false: no evaluate-coordination" "done:ready-awaiting-merge" "$out"
+out=$(run_next "$GONEDIR" --merge true --attempts "$FU21:merge-refused")
+expect "--attempts with a follow-up id: a refused follow-up merge is not printed again" "done:ready-awaiting-merge" "$out"
+out=$(cd "$PLANDIR" && bash "$NEXT" --session "$S" --plan docs/plans/PLAN-t.md --slug "$CT_SLUG" --repos "$CT_REPO" \
+    --home-repo "$CT_REPO" --coord-branch "$CT_CB" --merge true --attempts "$CT_CORE/follow-up-0:merge-refused" 2>/dev/null); rc=$?
+[ "$rc" -eq 64 ] && [ -z "$out" ] && pass "--attempts with follow-up-0 is a usage error" || fail "follow-up-0 attempts: rc=$rc out=[$out]"
+
+both_merged fu-merged
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_follow_up_pr "$CT_REPO" 21 'state="MERGED"'
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "every node and the follow-up MERGED, the PLAN present" "cascade" "$out"
+ct_record_cascade pushed "$CT_HEAD"
+out=$(run_next "$GONEDIR" --merge true)
+expect "the same, the cascade pushed" "evaluate-coordination" "$out"
+
+both_merged fu-pending
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_follow_up_pr "$CT_REPO" 21 'checks=[{"name":"build","bucket":"pending"}]'
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "a follow-up whose checks are pending: a wait" "evaluate:$FU21" "$out"
+
+both_merged fu-draft
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_follow_up_pr "$CT_REPO" 21 'isDraft=true'
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "a draft follow-up waits on a human, never error:execute:ready" "done:ready-awaiting-merge" "$out"
+
+both_merged fu-closed
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21
+ct_follow_up_pr "$CT_REPO" 21 'state="CLOSED"'
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "a follow-up closed unmerged holds the cascade, never error:execute:pr-closed" "done:ready-awaiting-merge" "$out"
+ct_record_cascade pushed "$CT_HEAD"
+out=$(run_next "$GONEDIR" --merge true)
+expect "the same with the cascade pushed: no coordination step" "done:ready-awaiting-merge" "$out"
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21 "$CT_HEAD" true
+out=$(run_next "$GONEDIR" --merge true)
+expect "the closed follow-up removed: the coordination step runs" "evaluate-coordination" "$out"
+: > "$GH_CALL_LOG"
+out=$(run_next "$GONEDIR" --merge true)
+ct_calls | grep -q "pr view 21 " && fail "a removed follow-up was read" || pass "a removed follow-up is not read"
+
+# A replacement recorded and the closed one removed: the run holds while the
+# replacement is open and passes once it merges.
+both_merged fu-replaced
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 21 "$CT_HEAD" true
+ct_record_follow_up "$CT_CORE" "$CT_REPO" 22
+ct_follow_up_pr "$CT_REPO" 21 'state="CLOSED"'
+ct_follow_up_pr "$CT_REPO" 22
+ct_write_db
+out=$(run_next "$PLANDIR" --merge false)
+expect "the replacement open, --merge false" "done:ready-awaiting-merge" "$out"
+out=$(run_next "$PLANDIR" --merge true)
+expect "the replacement open, --merge true" "merge:$CT_CORE/follow-up-22" "$out"
+jq '(.prs[] | select(.number == 22) | .state) = "MERGED"' "$CASE/scenario/gh/db.json" > "$CASE/db" \
+    && mv "$CASE/db" "$CASE/scenario/gh/db.json"
+rm -rf "$GH_CALL_LOG.d"
+out=$(run_next "$PLANDIR" --merge true)
+expect "the replacement MERGED" "cascade" "$out"
+
+ct_case fu-write-set
+CT_RECORD_REPOS="acme/repo-a,acme/repo-b"
+ct_record_setup
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_follow_up "$CT_CORE" acme/repo-b 21
+ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
+ct_follow_up_pr acme/repo-b 21
+ct_write_db
+out=$(run_next "$PLANDIR" --merge true)
+expect "a follow-up in another repository than its node's" "error:execute:write-set" "$out"
 
 echo
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"

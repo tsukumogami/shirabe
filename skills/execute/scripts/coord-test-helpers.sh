@@ -3,10 +3,10 @@
 # Sourced by run-record_test.sh, coordinated-next_test.sh,
 # coordination-verdict_test.sh, record-coordination-verdict_test.sh,
 # node-push_test.sh, node-cut_test.sh, coord-merge_test.sh,
-# record-coord-setup_test.sh, repo-visibility_test.sh,
-# coordinated-visibility_test.sh, execute-coordinated-engine_test.sh,
-# coordinated-home-outside_test.sh, coord-render_test.sh, and
-# merge-message_test.sh. Not a test itself.
+# record-coord-setup_test.sh, record-coord-follow-up_test.sh,
+# repo-visibility_test.sh, coordinated-visibility_test.sh,
+# execute-coordinated-engine_test.sh, coordinated-home-outside_test.sh,
+# coord-render_test.sh, and merge-message_test.sh. Not a test itself.
 #
 # GitHub is the eval gh shim (skills/execute/evals/fixtures/bin/gh) in its
 # repository-model mode: each case writes a gh/db.json seed into its own
@@ -258,6 +258,15 @@ ct_pr() {
         obj=$(printf '%s' "$obj" | jq -c --arg k "${kv%%=*}" --argjson v "${kv#*=}" '.[$k] = $v')
     done
     CT_PRS=$(printf '%s' "$CT_PRS" | jq -c --argjson o "$obj" '. + [$o]')
+}
+
+# ct_follow_up_pr <repo> <number> [key=json ...] -- add a follow-up PR to the
+# model: ct_pr's defaults on head branch fix/<number> (a person's branch, not
+# a node's impl/ one), titled `fix(t): follow-up <number>`.
+ct_follow_up_pr() {
+    local repo="$1" n="$2"
+    shift 2
+    ct_pr "$repo" "$n" "fix/$n" "title=\"fix(t): follow-up $n\"" "$@"
 }
 
 # ct_marked_body <id> -- ct_pr's default node PR body carrying <id>'s run

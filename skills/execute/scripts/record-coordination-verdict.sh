@@ -52,7 +52,9 @@
 #      ^(merged|ready|paused|dirty|error)$; pr a PR URL; waiting comma-joined
 #      <url>:<human|predecessor>; resume `/execute <plan>[ --merge]`; reason
 #      the decision table's conditions plus merge-call-failed,
-#      merge-not-observed, and the pause conditions; step ^execute:[a-z-]+$
+#      merge-not-observed, merge-refused and its body and squash-message
+#      forms, the pause conditions, and follow-up-closed:<url> (a follow-up
+#      closed unmerged); step ^execute:[a-z-]+$
 #      from the closed step set; cascade only `failed`, with an error and its
 #      step;
 #   4. only when every field passed: record a failed cascade in run/cascade;
@@ -87,10 +89,15 @@ RE_URL='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*
 RE_VERDICT='^(merged|ready|paused|dirty|error)$'
 RE_WAITING_ENTRY='^https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*:(human|predecessor)$'
 RE_RESUME='^/execute [A-Za-z0-9._/-]+\.md( --merge)?$'
-RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|merge-refused|merge-refused:(body-stale|body-full|squash-message)|predecessor-unmerged|gate-unverified)$'
+RE_REASON='^(merge-not-requested|head-moved|no-checks|base-unprotected|review|workflow-change|merge-method-unresolved|merge-state:[A-Z_]+(:review=(REVIEW_REQUIRED|CHANGES_REQUESTED))?|merge-call-failed|merge-not-observed|merge-refused|merge-refused:(body-stale|body-full|squash-message)|predecessor-unmerged|gate-unverified|follow-up-closed:https://[A-Za-z0-9.-]+/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*)$'
 RE_STEP='^execute:(pr-closed|ready|ci|ci-timeout|status-read|pr-adopt|write-set|dispatch|push|cascade|merge-gate|visibility|coord-loop)$'
+# coord-common.sh's RE_COORD_ATTEMPTS, kept in step with it: an id is a node,
+# a follow-up's <node>/follow-up-<n>, or coordination. A value outside it is
+# dropped, and a dropped follow-up refusal would make the verdict recompute a
+# merge: action and end the run in a coord-loop error.
 RE_ATTEMPT_VALUE='(merge-not-observed|merge-call-failed|merge-refused|body-stale|body-full)'
-RE_ATTEMPTS="^([a-z][a-z0-9-]*:$RE_ATTEMPT_VALUE)(,[a-z][a-z0-9-]*:$RE_ATTEMPT_VALUE)*\$"
+RE_ATTEMPT_ID='[a-z][a-z0-9-]*(/follow-up-[1-9][0-9]*)?'
+RE_ATTEMPTS="^($RE_ATTEMPT_ID:$RE_ATTEMPT_VALUE)(,$RE_ATTEMPT_ID:$RE_ATTEMPT_VALUE)*\$"
 RE_BODY='^(posted|unchanged|stale|full|refused:execute:visibility)$'
 RE_LOOP_LINE='^[a-z:-]+$'
 

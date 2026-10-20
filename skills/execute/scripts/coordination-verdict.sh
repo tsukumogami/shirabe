@@ -55,8 +55,13 @@
 # coord-merge.sh refused: the merge-last gate, a missing head, or a squash
 # message it couldn't build), merge-refused:body-stale and
 # merge-refused:body-full (a coordination body the render before the
-# coordination PR's evaluation or merge couldn't post), and the pause
-# conditions predecessor-unmerged and gate-unverified. step is one of
+# coordination PR's evaluation or merge couldn't post), the pause
+# conditions predecessor-unmerged and gate-unverified, and two a follow-up
+# PR waits on: follow-up-closed:<url> (one recorded against a node and closed
+# unmerged; it holds the coordination PR until it is replaced or removed)
+# and merge-state:DRAFT (one still a draft, which the run never readies). A
+# closed follow-up's reason is the one reported even behind an earlier
+# human-waiting PR, since nothing else names it. step is one of
 # execute:pr-closed, ready, ci, ci-timeout, status-read, pr-adopt, write-set,
 # dispatch, push, cascade, merge-gate, visibility, coord-loop.
 #
@@ -147,6 +152,7 @@ coord_compute
 # PRs in merge order.
 WAITING=""
 FIRST_HUMAN_REASON=""
+FU_CLOSED_REASON=""
 DIRTY=0
 while IFS= read -r line; do
     [ -n "$line" ] || continue
@@ -160,8 +166,13 @@ while IFS= read -r line; do
     if [ "$role" = human ] && [ -z "$FIRST_HUMAN_REASON" ]; then
         FIRST_HUMAN_REASON="$reason"
     fi
+    # Only one reason is reported, and a closed follow-up is a PR nobody
+    # will merge: behind an earlier merge-not-requested it would never be
+    # named, so its reason comes first.
+    case "$reason" in follow-up-closed:*) [ -n "$FU_CLOSED_REASON" ] || FU_CLOSED_REASON="$reason" ;; esac
     case "$reason" in merge-state:DIRTY|merge-state:DIRTY:*) DIRTY=1 ;; esac
 done <<<"$CC_UNMERGED"
+FIRST_HUMAN_REASON="${FU_CLOSED_REASON:-$FIRST_HUMAN_REASON}"
 
 RESUME="/execute $CC_PLAN"
 [ "$CC_MERGE" = true ] && RESUME="$RESUME --merge"
