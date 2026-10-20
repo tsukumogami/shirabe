@@ -27,6 +27,22 @@
 #                              Returns 1, with the reason on stderr, when a
 #                              file can't be copied or the copy's reader
 #                              doesn't give <id> that stage
+#   rf_test_stages <label> <id> <block-exit> <stage-source> <runner> <path>...
+#                              the gate's answer at each of <id>'s four stages:
+#                              for block, warn, shadow and retired, a
+#                              rf_test_stage_copy with <id> at that stage
+#                              (linking <path>...), then `<runner> <copy>`, a
+#                              function the suite defines that runs the gate
+#                              script under <copy> on input breaking only rules
+#                              that take <id>'s stage. At block every finding
+#                              prints at error, the exit is <block-exit> and
+#                              stderr carries the dispute hint; at warn and
+#                              shadow every finding prints at warning or info,
+#                              the exit is 0 and there is no hint; at retired
+#                              nothing prints or logs and the exit is 0. Each
+#                              printed finding is verified against the copy's
+#                              registry, with <stage-source> (empty for none)
+#                              as --stage-source
 #   rf_test_verify_copy <label> <copy> <log> [<stage-source>]
 #                              verify-findings on <log> with <copy>'s own
 #                              reader, so findings a copy printed are checked
@@ -144,6 +160,55 @@ EOF
         echo "rf_test_stage_copy: the copy's reader has no stage for $id: $got" >&2; return 1; }
     [ "$got" = "$stage" ] || {
         echo "rf_test_stage_copy: the copy's reader gives $id stage [$got], not [$stage]" >&2; return 1; }
+}
+
+# The line rf_dispute_hint prints, as far as a suite needs to find it.
+RF_TEST_HINT='to dispute a finding you believe is wrong, run '
+
+rf_test_stages() {
+    local label=$1 id=$2 block_rc=$3 source=$4 runner=$5 stage want_rc want_level
+    local d="$RF_TEST_DIR/stages.$$" log="$RF_TEST_DIR/stages.$$.log"
+    local out="$RF_TEST_DIR/stages.$$.out" err="$RF_TEST_DIR/stages.$$.err" rc levels hints
+    shift 5
+    for stage in block warn shadow retired; do
+        case "$stage" in
+            block) want_rc=$block_rc; want_level=error ;;
+            warn) want_rc=0; want_level=warning ;;
+            shadow) want_rc=0; want_level=info ;;
+            retired) want_rc=0; want_level="" ;;
+        esac
+        if ! rf_test_stage_copy "$d" "$id" "$stage" "$@" 2>"$err"; then
+            fail "$label: could not make a plugin copy with $id at $stage: $(cat "$err")"
+            continue
+        fi
+        : > "$log"
+        ( SHIRABE_FINDINGS_LOG="$log"; export SHIRABE_FINDINGS_LOG; "$runner" "$d" ) >"$out" 2>"$err"
+        rc=$?
+        levels=$(sed -n 's/^::koto-finding:://p' "$out" | jq -r '.level' 2>/dev/null | sort -u | tr '\n' ' ')
+        hints=$(grep -c -F -- "$RF_TEST_HINT" "$err")
+        if [ -z "$want_level" ]; then
+            if [ -z "$levels" ] && [ ! -s "$log" ] && [ "$rc" -eq 0 ] && [ "$hints" -eq 0 ]; then
+                pass "$label: with $id at retired nothing prints or logs, and the gate passes (exit 0) with no dispute hint"
+            else
+                fail "$label: with $id at retired: exit $rc, levels [$levels], hints $hints, log [$(cat "$log")], stderr: $(head -c 400 "$err")"
+            fi
+        else
+            if [ "$levels" = "$want_level " ] && [ "$rc" -eq "$want_rc" ]; then
+                pass "$label: with $id at $stage every finding prints at $want_level and the gate exits $want_rc"
+            else
+                fail "$label: with $id at $stage: exit $rc (want $want_rc), levels [$levels] (want [$want_level ]), stderr: $(head -c 400 "$err")"
+            fi
+            if [ "$stage" = block ]; then
+                [ "$hints" -eq 1 ] && pass "$label: failing at block prints the dispute hint once on stderr" \
+                    || fail "$label: at block the dispute hint printed $hints times: $(head -c 400 "$err")"
+            else
+                [ "$hints" -eq 0 ] && pass "$label: passing at $stage prints no dispute hint" \
+                    || fail "$label: at $stage the dispute hint printed: $(head -c 400 "$err")"
+            fi
+            rf_test_verify_copy "$label at $stage" "$d" "$log" "$source"
+        fi
+    done
+    rm -rf "$d" "$log" "$out" "$err"
 }
 
 rf_test_expected_range() {

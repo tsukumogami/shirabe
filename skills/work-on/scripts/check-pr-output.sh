@@ -22,7 +22,10 @@
 #       owned-pr.sh resolves from the
 #       arguments that follow, and anything but exactly one owned pull request
 #       is exit 2.
-#       Validator exit 0 -> 0, 2 -> 1, and 1, 3, 4 -> 2. An installed shirabe
+#       Validator exit 0 -> 0, and 1, 3, 4 -> 2. Exit 2 prints one finding
+#       per listed message, at its rule's stage, and maps to 1 when one of
+#       them is of a rule at `block`, else 0. An exit 2 that lists no message
+#       prints the pr-body/conformance finding instead. An installed shirabe
 #       older than --writing-style rejects the flag with exit 1, so the gate
 #       holds (2) and says to upgrade; preflight (requires.tsv) reports the
 #       same gap when the skill loads.
@@ -47,8 +50,10 @@
 #
 # Exit status (the gate scripts' shared convention):
 #   0  the output passes (--owned-pr: exactly one owned pull request)
-#   1  at least one violation; one `::koto-finding::` line per violation on
-#      stdout (--pr-body only)
+#   1  at least one violation of a rule at the `block` stage; one
+#      `::koto-finding::` line per violation on stdout, and a line on stderr
+#      saying how to dispute one (--pr-body only). Findings of rules below
+#      block print at their stage's level and leave the exit at 0
 #   2  could not decide: a usage error, a missing tool, a read that failed, a
 #      validator that failed to run
 #   3  --owned-pr only: the lookup answered, and the answer is not one PR
@@ -62,7 +67,7 @@
 #   PB5 (banned word)        pr-body/banned-word
 #   anything else            pr-body/conformance
 # The rules are entries of references/rule-registry.json; scripts/lib/rule-findings.sh
-# resolves each one's reference and summary through scripts/rule-registry.sh.
+# resolves each one's reference, summary and stage through scripts/rule-registry.sh.
 #
 # Written for the bash 3.2 floor and deliberately without `set -e`.
 
@@ -97,11 +102,8 @@ require_rules() {
     rf_require "$@"
 }
 
-VIOLATIONS=0
-
 # finding <rule_id> <detail>
 finding() {
-    VIOLATIONS=$((VIOLATIONS + 1))
     rf_finding "$1" "$2"
 }
 
@@ -236,29 +238,44 @@ check_pr_body() {
             ;;
     esac
     pb4=0
+    listed=0
     if jq -r '.findings[].message' "$WORK/out" > "$WORK/messages" \
         && [ -s "$WORK/messages" ]; then
         while IFS= read -r msg; do
             [ -n "$msg" ] || continue
+            listed=$((listed + 1))
             rule=$(rule_for_message "$msg")
             [ "$rule" != pr-body/no-heading-in-part1 ] || pb4=1
             finding "$rule" "$msg"
         done < "$WORK/messages"
     fi
-    if [ "$VIOLATIONS" -eq 0 ]; then
+    # The fallback stands in for a violation the validator didn't list, so it
+    # prints only when nothing was listed: a listed finding below block is
+    # still a listed finding, and the run passes on it.
+    if [ "$listed" -eq 0 ]; then
         finding pr-body/conformance \
             "shirabe validate --pr-body reported violations it did not list; run it on the PR body for the detail"
     fi
     # PB4 is the rule the offload canary may leave out of a run's preloaded
     # text (DESIGN-offload-live-canary.md), so when it is
-    # broken its full text is released here, once, in every run. release
-    # prints on stderr, which koto returns to the agent with the gate's output,
-    # and always exits 0, so it never changes this gate's result.
+    # broken its full text is released here, once, in every run where its
+    # finding is shown as something to act on: at warn or block, not at shadow
+    # (an info line) or retired (nothing printed). release prints on stderr,
+    # which koto returns to the agent with the gate's output, and always exits
+    # 0, so it never changes this gate's result.
     if [ "$pb4" -eq 1 ]; then
-        "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null
+        pb4_stage=$(rf_stage pr-body/no-heading-in-part1) || exit 2
+        case "$pb4_stage" in
+            warn|block) "$RF_HELPER" release pr-body/no-heading-in-part1 </dev/null ;;
+        esac
     fi
-    echo "check-pr-output: $VIOLATIONS PR title/body violation(s)" >&2
-    exit 1
+    if [ "$RF_BLOCKING" -gt 0 ]; then
+        echo "check-pr-output: $RF_BLOCKING PR title/body violation(s)" >&2
+        rf_dispute_hint
+        exit 1
+    fi
+    echo "check-pr-output: the PR title and body break no rule at block; the findings above are of rules below it" >&2
+    exit 0
 }
 
 check_owned_pr() {

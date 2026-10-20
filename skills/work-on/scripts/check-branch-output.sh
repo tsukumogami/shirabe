@@ -35,9 +35,10 @@
 #                    merge-base(<ref>, HEAD) for --docs-visibility.
 #
 # Exit status (the gate scripts' shared convention):
-#   0  the output passes
-#   1  at least one violation; one `::koto-finding::` line per violation on
-#      stdout
+#   0  the output passes: no finding, or findings only of rules below the
+#      `block` stage
+#   1  at least one finding of a rule at `block`; one `::koto-finding::` line
+#      per violation on stdout, and a line on stderr saying how to dispute one
 #   2  the check could not decide: a usage error, a missing tool (git, jq,
 #      koto, shirabe), a range or ref that does not resolve, a validator that
 #      failed to run. No finding is printed; the reason goes to stderr.
@@ -46,7 +47,10 @@
 #   ::koto-finding::{"rule_id":"<name>","level":"error","message":"<summary>: ...",
 #                    "rule_ref":"<path>#L<a>-L<b>@<revision>"[,"path":"..."[,"line":N]]}
 # The rules are entries of references/rule-registry.json; scripts/lib/rule-findings.sh
-# resolves each one's reference and summary through scripts/rule-registry.sh.
+# resolves each one's reference, summary and stage through scripts/rule-registry.sh.
+# A finding prints at its rule's stage (error at block, warning at warn, info at
+# shadow, nothing at retired), and only a block finding fails the gate: the
+# library's RF_BLOCKING is the count each mode exits on.
 #
 # Runs from anywhere inside the repository's working tree. Written for the
 # bash 3.2 floor and deliberately without `set -e`: an unexpected failure must
@@ -86,12 +90,18 @@ require_rules() {
     rf_require "$@"
 }
 
-VIOLATIONS=0
-
 # finding <rule_id> <detail> [<path> [<line>]]
 finding() {
-    VIOLATIONS=$((VIOLATIONS + 1))
     rf_finding "$@"
+}
+
+# blocked <message>: when a block finding printed, the message and the dispute
+# hint on stderr, then exit 1. Otherwise returns, and the mode passes.
+blocked() {
+    [ "$RF_BLOCKING" -gt 0 ] || return 0
+    echo "check-branch-output: $1" >&2
+    rf_dispute_hint
+    exit 1
 }
 
 # --- arguments ----------------------------------------------------------------
@@ -215,10 +225,7 @@ check_commits() {
                 "commit $short carries an AI-attribution line (a Co-Authored-By: trailer naming Claude or Anthropic, or a \"Generated with Claude Code\" line); reword the commit without it"
         fi
     done
-    if [ "$VIOLATIONS" -gt 0 ]; then
-        echo "check-branch-output: $VIOLATIONS commit violation(s) in $RANGE" >&2
-        exit 1
-    fi
+    blocked "$RF_BLOCKING commit violation(s) in $RANGE"
     echo "check-branch-output: $count commit(s) in $RANGE pass" >&2
     exit 0
 }
@@ -279,10 +286,7 @@ EOF
         msg=$(printf '%s' "$hit" | jq -r '.message // ""')
         finding "$id" "$code: $msg" "$file" "$line"
     done < "$WORK/hits"
-    if [ "$VIOLATIONS" -gt 0 ]; then
-        echo "check-branch-output: $VIOLATIONS visibility violation(s) in changed documents (visibility: ${vis:-detected})" >&2
-        exit 1
-    fi
+    blocked "$RF_BLOCKING visibility violation(s) in changed documents (visibility: ${vis:-detected})"
     echo "check-branch-output: $n changed document(s) pass the visibility checks (visibility: ${vis:-detected})" >&2
     exit 0
 }
@@ -309,10 +313,7 @@ check_synced() {
         finding branch/current-with-main \
             "a merge is in progress (MERGE_HEAD exists): finish or abort it before going on"
     fi
-    if [ "$VIOLATIONS" -gt 0 ]; then
-        echo "check-branch-output: the branch is not current with $BASE_REF" >&2
-        exit 1
-    fi
+    blocked "the branch is not current with $BASE_REF"
     echo "check-branch-output: the branch is current with $BASE_REF" >&2
     exit 0
 }

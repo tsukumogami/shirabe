@@ -254,12 +254,16 @@
 # old id in its message, so a retirement neither prints an inactive id nor
 # wedges the gate. Rules resolve through scripts/lib/rule-findings.sh, which
 # exits 2 when panel/open-finding itself can't be; `path` and `line` only when
-# the finding names them.
+# the finding names them. Every finding prints at panel/open-finding's stage,
+# whichever rule it names (error at block, warning at warn, info at shadow,
+# nothing at retired), and --verdict fails the panel only while that stage is
+# block, after a line on stderr saying how to dispute a finding.
 #
 # Exit codes:
 #   0   -- --plan/--record/--mark-fixed: written. --carried: the panel carries.
 #          --recorded: every planned run was recorded, or there is no scope or
-#          ledger to check. --verdict: every blocking finding is closed.
+#          ledger to check. --verdict: every blocking finding is closed, or
+#          panel/open-finding is below the block stage.
 #          --open-count: the count is printed.
 #   1   -- --carried: something has to run, a blocking finding is unclosed,
 #          the working tree is dirty, or the scope is missing, stale,
@@ -576,11 +580,16 @@ if [ "$MODE" = "--verdict" ] || [ "$MODE" = "--open-count" ]; then
              else {} end)
           + {rule_ref: $rule.ref}') \
         || refuse 2 "could not read the unclosed findings in $LEDGER"
+    # Every finding takes panel/open-finding's stage, whatever rule it cites:
+    # the gate is the panel's, and a cited rule's own stage is about the
+    # script that checks it, not about a reviewer's finding.
     while IFS= read -r f; do
-        [ -n "$f" ] && rf_emit "$f"
+        [ -n "$f" ] && rf_emit "$f" panel/open-finding
     done <<EOF
 $findings
 EOF
+    [ "$RF_BLOCKING" -gt 0 ] || exit 0
+    rf_dispute_hint
     exit 1
 fi
 

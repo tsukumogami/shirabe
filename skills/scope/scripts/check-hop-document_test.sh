@@ -321,6 +321,14 @@ else
     fail "null line: rc=$RC out=[$(cat "$OUT")]"
 fi
 
+# The same violation against plugin copies with its rule at each stage: it
+# prints at the stage's level, and only at block does it hold the hop.
+hop_in_copy() { # <copy>
+    cd "$REPO" && PATH="$STUB_BIN:$ORIG_PATH" "$1/skills/scope/scripts/check-hop-document.sh" --topic t --hop prd
+}
+rf_test_stages "--hop prd" docs/required-sections 1 "" hop_in_copy \
+    skills/scope/scripts/check-hop-document.sh skills/writing-style/rules.yaml
+
 LONG=$(awk 'BEGIN { for (i = 0; i < 60; i++) printf "0123456789" }')
 stub_json "{\"schema_version\":\"shirabe-validate/v1\",\"summary\":{\"outcome\":\"violations\",\"errors\":1,\"notices\":0},\"findings\":[{\"code\":\"R6\",\"severity\":\"error\",\"message\":\"[R6] $LONG\",\"file\":\"docs/prds/PRD-t.md\",\"line\":4}]}"
 STUB_RC=2
