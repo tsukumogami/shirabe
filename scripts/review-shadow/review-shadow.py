@@ -41,7 +41,11 @@ SLICE_KINDS_BY_ARTIFACT = {
     "brief": ("brief-journey", "summary-pair"),
     "prd": ("prd-ac",),
     "plan": ("plan-ac-block",),
-    "local-change": ("ac-hunks", "code-hunks"),
+    # ac-claims, plan-hunks and design-hunks name the slices the scrutiny
+    # seats' questions would need (rs-018 to rs-020). No slicer builds them:
+    # their contracts are rejected and the rows ship with `enabled: false`
+    # (references/jev-criteria.md).
+    "local-change": ("ac-hunks", "code-hunks", "ac-claims", "plan-hunks", "design-hunks"),
 }
 SLICE_KINDS = tuple(dict.fromkeys(k for kinds in SLICE_KINDS_BY_ARTIFACT.values() for k in kinds))
 CLASSES = ("covered", "closed-uncovered", "open-judgment")

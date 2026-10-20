@@ -296,6 +296,9 @@ stateDiagram-v2
         gate: scrutiny_carried
     end note
     note left of scrutiny
+        gate: scrutiny_decider
+    end note
+    note left of scrutiny
         gate: scrutiny_recorded
     end note
     note left of scrutiny

@@ -15,11 +15,21 @@
 #   author.login == the login `gh api user` reports
 #   baseRefName == the expected base
 #   headRefName == the expected head branch
-#   state is OPEN (--state open), or OPEN or MERGED (--state all)
+#   state is OPEN (--state open), or OPEN or MERGED (--state all and
+#   --state open-else-merged)
 #
 # `--state all` drops CLOSED-unmerged pull requests on purpose: a PR the user
 # closed is never a survivor, so it can't stand beside the open one that
 # replaced it and turn one answer into "several".
+#
+# `--state open-else-merged` is for a reader that follows one PR from open to
+# merged: /execute's ci_monitor gates, which keep reading the run's PR after
+# it merges (#958). When the five checks leave any OPEN pull request, only the
+# OPEN ones are kept, so the answer is the `--state open` answer; only on a
+# branch with no open candidate are the MERGED ones kept. So an earlier run's
+# MERGED PR on a reused head never stands beside the open one and turns the
+# answer ambiguous, as it would under `--state all`, and a branch with neither
+# (a CLOSED-unmerged PR only) answers zero survivors, as `--state open` does.
 #
 # Those five can't tell two runs apart: two sessions resuming the same PLAN
 # slug under one account share the author and the head branch. So a PR also
@@ -57,7 +67,8 @@
 # writes to GitHub.
 #
 # Usage:
-#   owned-pr.sh --repo <owner/repo> --head <branch> --state open|all
+#   owned-pr.sh --repo <owner/repo> --head <branch>
+#               --state open|all|open-else-merged
 #               [--base <branch>] [--run-id <id>]
 #
 # Flags may come in any order, each at most once, as `--flag value`. Closed
@@ -67,7 +78,7 @@
 #   --base    the same pattern as --head. When omitted, the repository's
 #             default branch (read from `gh api repos/<repo>`) is the base,
 #             checked against the same pattern.
-#   --state   exactly `open` or `all`
+#   --state   exactly `open`, `all` or `open-else-merged`
 #   --run-id  ^[0-9a-f]{32}$, the caller's run identity (run-id.sh get)
 #   --take-over  needs --run-id and --state open; takes no value
 #
@@ -100,6 +111,7 @@
 #   gh api user
 #   gh api repos/<repo>                                  (only without --base)
 #   gh pr list --repo <repo> --head <branch> --state <open|all>
+#       (`all` for --state open-else-merged)
 #       --json url,state,isCrossRepository,author,baseRefName,headRefName,body
 #       --limit 100
 #   gh pr edit <number> --repo <repo> --body-file <file>   (only a --take-over)
@@ -118,7 +130,7 @@ RE_RUN_ID='^[0-9a-f]{32}$'
 
 usage_error() {
     echo "$PROG: $*" >&2
-    echo "usage: owned-pr.sh --repo <owner/repo> --head <branch> --state open|all [--base <branch>] [--run-id <id> [--take-over]]" >&2
+    echo "usage: owned-pr.sh --repo <owner/repo> --head <branch> --state open|all|open-else-merged [--base <branch>] [--run-id <id> [--take-over]]" >&2
     exit 64
 }
 
@@ -175,8 +187,8 @@ case "$SEEN" in
     *" --base "*) valid_branch "$BASE" || usage_error "[$BASE] is not an allowed base branch name" ;;
 esac
 case "$STATE" in
-    open|all) ;;
-    *) usage_error "--state must be open or all, got [$STATE]" ;;
+    open|all|open-else-merged) ;;
+    *) usage_error "--state must be open, all or open-else-merged, got [$STATE]" ;;
 esac
 case "$SEEN" in
     *" --run-id "*) [[ $RUN_ID =~ $RE_RUN_ID ]] || usage_error "--run-id [$RUN_ID] is not a run id" ;;
@@ -217,13 +229,18 @@ if [ -z "$BASE" ]; then
     valid_branch "$BASE" || read_error "the default branch of $REPO is unusable [$BASE]"
 fi
 
+# gh pr list knows no open-else-merged: it lists every state, and the jq below
+# makes the choice.
+GH_STATE="$STATE"
+[ "$STATE" = open-else-merged ] && GH_STATE=all
+
 # list_candidates -- read the branch's PRs and keep the ones that pass the five
 # checks, one line each: `<mark> <url>`. The mark is `none` (no marker line),
 # `mine` (every marker line names --run-id), `foreign` (a marker line names
 # another run, or is malformed), or, without --run-id, `marked`.
 list_candidates() {
     LIST_JSON=""
-    gh_read LIST_JSON pr list --repo "$REPO" --head "$HEAD" --state "$STATE" \
+    gh_read LIST_JSON pr list --repo "$REPO" --head "$HEAD" --state "$GH_STATE" \
         --json url,state,isCrossRepository,author,baseRefName,headRefName,body --limit 100 \
         || read_error "gh pr list failed for $REPO head $HEAD"
 
@@ -240,6 +257,10 @@ list_candidates() {
             and (if $state == "open" then .state == "OPEN"
                  else (.state == "OPEN" or .state == "MERGED") end)
           ))
+        # open-else-merged took the `all` arm above; this narrows it to the
+        # OPEN candidates whenever there is one.
+        | if $state == "open-else-merged" and any(.[]; .state == "OPEN")
+          then map(select(.state == "OPEN")) else . end
         | .[]
         | [(.body // "") | tostring | split("\n")[]
            | select(test("^\\s*<!--\\s*shirabe-run:"))] as $marks

@@ -1455,6 +1455,180 @@ record scrutiny "[$(dent 5 rs-007 pass)]"
 led -e --arg id "$D1" '.findings[$id].records[-1] | .kind == "reverified" and .writer.kind == "decider"' >/dev/null \
     && pass "a decider pass closes its own finding" || fail "rs-007 last $(led -c --arg id "$D1" '.findings[$id].records[-1]')"
 
+echo "--- script: a decider batch's verdicts, imported from koto's log by mode"
+
+BCRIT=work-on/scrutiny-decision-reasons
+BNAME="scrutiny_decider/$BCRIT"
+# bfix <name>: a fixture with a planned scrutiny round and an empty session log.
+bfix() {
+    fixture "$1"
+    run --plan scrutiny "$SESSION"
+    mkdir -p "$SHIM_STORE/$SESSION/sessiondir"
+    LOG="$SHIM_STORE/$SESSION/sessiondir/koto-$SESSION.state.jsonl"
+    : > "$LOG"
+    BN=0
+}
+# bc <visit_seq> <outcome> <mode|-> [<state>] [<rule_id>]: a decider_checked
+# event for the batch; mode `-` leaves the field out.
+bc() {
+    jq -nc --argjson v "$1" --arg o "$2" --arg m "$3" --arg st "${4:-scrutiny}" --arg r "${5:-$BCRIT}" \
+        '{type: "decider_checked", payload: ({state: $st, visit_seq: $v, gate: "scrutiny_decider", rule_id: $r,
+          declaration_hash: "abcd1234", outcome: $o, input_sha256: "ef01"} + (if $m == "-" then {} else {mode: $m} end))}' >> "$LOG"
+}
+# seats [<panel>]: records every seat of the panel's round clean, under fresh
+# run ids, so the round names no decider entry.
+seats() {
+    local p=${1:-scrutiny} s round='['
+    BN=$((BN + 1))
+    mint "$p" "b$BN"
+    case "$p" in
+        qa) round='[{"seat":"tester","findings":[]}]' ;;
+        *) round='[{"seat":"completeness","findings":[]},{"seat":"justification","findings":[]},{"seat":"intent","findings":[]}]' ;;
+    esac
+    record "$p" "$round"
+}
+bfind() { led -c --arg n "${1:-$BNAME}" '[.findings[] | select(.raiser.kind == "decider" and .raiser.name == $n)]'; }
+
+# A fail's severity is the event's mode: advisory only for shadow.
+for m in shadow veto -; do
+    bfix "batch-fail-$m"
+    bc 1 fail "$m"
+    seats
+    want=blocking; [ "$m" = shadow ] && want=advisory
+    [ "$(bfind | jq -r --arg r "$BCRIT" '[.[] | select(.rule_id == $r) | .severity] | join(",")')" = "$want" ] \
+        && pass "a $m fail from the log, with no entry naming it, raises a $want finding under $BCRIT" \
+        || fail "a $m fail raised $(bfind)"
+done
+
+# A veto fail, then a pass: reverified, and the panel passes.
+bfix batch-veto-pass
+bc 1 fail veto
+seats
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict with the batch's veto fail open" 1
+bc 2 pass veto
+seats
+[ "$(bfind | jq -r '.[0].records | map(.kind) | join(",")')" = "raised,reverified" ] \
+    && pass "a later veto pass adds a decider reverified record" || fail "records $(bfind)"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict after the batch's pass, nothing else open" 0
+
+# A shadow fail, then a pass: reverified, still advisory.
+bfix batch-shadow-pass
+bc 1 fail shadow
+seats
+bc 2 pass shadow
+seats
+[ "$(bfind | jq -r '.[0] | "\(.severity)|\(.records | map(.kind) | join(","))"')" = "advisory|raised,reverified" ] \
+    && pass "a later shadow pass adds reverified and the finding stays advisory" || fail "finding $(bfind)"
+
+# A pass with no earlier finding adds nothing; shadow non-verdicts add nothing.
+bfix batch-quiet
+bc 1 pass veto
+bc 2 escape shadow
+bc 3 unanswered shadow
+bc 4 not_graded shadow
+seats
+[ "$(bfind | jq length)" = 0 ] \
+    && pass "a pass with no finding, and a shadow escape, unanswered and not_graded, add no finding" \
+    || fail "findings $(bfind)"
+[ "$(led '.decider_events | length')" = 4 ] && pass "each of the four events is marked used" \
+    || fail "decider_events $(led -c '.decider_events')"
+
+# A veto escape with no earlier finding: blocking, only unverified.
+bfix batch-veto-escape
+bc 1 escape veto
+seats
+[ "$(bfind | jq -r '.[0] | "\(.severity)|\(.records | map(.kind) | join(","))"')" = "blocking|unverified" ] \
+    && pass "a veto escape with no finding raises a blocking finding whose only record is unverified" \
+    || fail "finding $(bfind)"
+
+# One group: a fail wins over the passes beside it. An earlier visit's unused
+# events come in with the next record; another state's never do.
+bfix batch-group
+bc 1 pass veto
+bc 1 fail veto
+bc 1 pass veto
+bc 2 fail veto
+bc 1 fail veto review_level_check
+seats
+[ "$(bfind | jq -r '.[0].records | map(.kind) | join(",")')" = "raised,raised" ] \
+    && pass "of one group's events the fail is recorded, and visit 2's fail beside it" || fail "records $(bfind)"
+[ "$(led -c '.decider_events | sort')" = '["scrutiny|1|scrutiny_decider|work-on/scrutiny-decision-reasons|abcd1234","scrutiny|2|scrutiny_decider|work-on/scrutiny-decision-reasons|abcd1234"]' ] \
+    && pass "one event per group is imported, and none of another state" || fail "decider_events $(led -c '.decider_events')"
+snap
+seats
+[ "$(led '.decider_events | length')" = 2 ] && [ "$(bfind | jq -r '.[0].records | length')" = 2 ] \
+    && pass "a second record over the same log imports nothing again" || fail "after a second record $(led -c '.decider_events') $(bfind)"
+refused "a round file naming an event the log already backed" scrutiny \
+    '[{"decider":{"state":"scrutiny","visit_seq":2,"gate":"scrutiny_decider","rule_id":"work-on/scrutiny-decision-reasons","declaration_hash":"abcd1234","input_sha256":"ef01","outcome":"fail"}}]'
+
+# A round file's own fail entry takes the matched event's mode.
+bfix batch-named-shadow
+bc 1 fail shadow
+record scrutiny '[{"decider":{"state":"scrutiny","visit_seq":1,"gate":"scrutiny_decider","rule_id":"work-on/scrutiny-decision-reasons","declaration_hash":"abcd1234","input_sha256":"ef01","outcome":"fail","mode":"veto"}}]'
+[ "$(bfind | jq -r '.[0].severity')" = advisory ] \
+    && pass "a named fail matching a shadow event is advisory, whatever the round file says" || fail "finding $(bfind)"
+
+# The qa panel imports its own state's events.
+bfix batch-qa
+run --plan qa "$SESSION"
+bc 1 fail veto qa_validation
+bc 1 fail veto scrutiny
+seats qa
+[ "$(led -r --arg n "$BNAME" '[.findings[] | select(.raiser.name == $n) | .panel] | join(",")')" = qa ] \
+    && pass "--record qa imports qa_validation's event and not scrutiny's" || fail "findings $(led -c '.findings')"
+
+# The agent's answer backs nothing; a missing log imports nothing; an
+# unreadable one refuses the round.
+bfix batch-answered
+printf '%s\n' '{"type":"decider_check_answered","payload":{"state":"scrutiny","visit_seq":1,"gate":"scrutiny_decider","rule_id":"work-on/scrutiny-decision-reasons","declaration_hash":"abcd1234","input_sha256":"ef01","answer":"fail"}}' >> "$LOG"
+seats
+[ "$(bfind | jq length)|$(led '.decider_events // [] | length')" = "0|0" ] \
+    && pass "a decider_check_answered event creates no ledger entry" || fail "findings $(bfind)"
+rm -f "$LOG"
+seats
+[ "$RC" = 0 ] && [ "$(bfind | jq length)" = 0 ] && pass "a missing session log imports nothing" || fail "rc $RC findings $(bfind)"
+if [ "$(id -u)" -ne 0 ]; then
+    bc 1 fail veto
+    chmod 000 "$LOG"
+    BN=$((BN + 1)); mint scrutiny "b$BN"
+    refused "an existing session log that can't be read" scrutiny "[{\"seat\":\"completeness\",\"run\":\"b$BN-completeness\",\"findings\":[]}]"
+    chmod 644 "$LOG"
+else
+    echo "SKIP: running as root, an unreadable file is readable"
+fi
+
+# One blocking and one advisory batch finding: only the blocking one counts.
+bfix batch-count
+bc 1 fail shadow
+bc 1 fail veto scrutiny rs-007
+seats
+run --open-count scrutiny "$SESSION"
+[ "$RC" = 0 ] && [ "$OUT" = 1 ] && pass "--open-count counts the blocking finding only" || fail "--open-count rc $RC out [$OUT]"
+run --verdict scrutiny "$SESSION"
+expect_rc "--verdict with one blocking and one advisory batch finding" 1
+case "$OUT" in
+    *rs-007*) case "$OUT" in *"$BCRIT"*) fail "--verdict printed the advisory finding: $OUT" ;; *) pass "--verdict prints only the blocking finding" ;; esac ;;
+    *) fail "--verdict did not print the blocking finding: $OUT" ;;
+esac
+RB=$(cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" "$SCRIPT_DIR/panel-retry-budget.sh" "$SESSION" scrutiny 2>"$WORKDIR/rb.err")
+RBRC=$?
+[ "$RBRC" = 0 ] && [ "$(cat "$SHIM_STORE/$SESSION/panel_retries" 2>/dev/null)" = "scrutiny 1" ] \
+    && pass "panel-retry-budget.sh reads a count of 1" || fail "retry budget rc $RBRC out [$RB] err [$(cat "$WORKDIR/rb.err")]"
+
+# --plan never reads the log: its decisions are the same with batch events of
+# every outcome in it.
+bfix batch-plan
+seats
+run --plan scrutiny "$SESSION"
+jq -S '.decisions' "$SHIM_STORE/$SESSION/scrutiny_scope.json" > "$WORKDIR/plan.before"
+for o in pass fail escape unanswered not_graded; do bc 3 "$o" shadow; bc 4 "$o" veto; done
+run --plan scrutiny "$SESSION"
+jq -S '.decisions' "$SHIM_STORE/$SESSION/scrutiny_scope.json" > "$WORKDIR/plan.after"
+cmp -s "$WORKDIR/plan.before" "$WORKDIR/plan.after" \
+    && pass "--plan writes the same decisions with batch events in the log" || fail "--plan decisions changed: $(diff "$WORKDIR/plan.before" "$WORKDIR/plan.after")"
+
 # --- engine cases -------------------------------------------------------------
 
 if ! command -v koto >/dev/null 2>&1; then

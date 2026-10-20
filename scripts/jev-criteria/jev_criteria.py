@@ -15,7 +15,7 @@ Subcommands:
       run.
   declared-hash RULE_ID [--root DIR]
       Print a decider entry's declaration as canonical JSON, then its SHA-256.
-  measure sessions --dir DIR
+  measure sessions --dir DIR [--dir DIR]... [--slice review-facts|decision-reasons|criteria-plan|design-context]
   measure prs --repo OWNER/REPO --limit N --kind pr-summary|code-hunks|doc-pairs [--git-dir DIR]
   measure records --dir DIR --kind KIND
       Measure whole-run slice sizes on real artifacts, with no call to Jev,
@@ -43,13 +43,16 @@ in the order their inputs become available, not in that numbering.
 import argparse
 import datetime
 import glob
+import gzip
 import hashlib
 import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -548,9 +551,13 @@ def check_promotion(root, jev, promo, fps, budget):
     if not isinstance(live, dict):
         out.append("promotion has no live record")
     else:
-        for k in ("from", "to", "evaluations", "sessions", "answered", "over_budget_fallbacks", "max_input_bytes"):
+        for k in ("from", "to", "evaluations", "sessions", "answered", "over_budget_fallbacks", "max_input_bytes",
+                  "not_graded"):
             if k not in live:
                 out.append("promotion.live has no %s" % k)
+        ng = live.get("not_graded")
+        if "not_graded" in live and (not isinstance(ng, int) or isinstance(ng, bool) or ng < 0):
+            out.append("promotion.live.not_graded is not a non-negative integer")
         out += ["the live figures miss the bar: %s" % r for r in live_bar(live, budget)[1]]
         frm, to = live.get("from", ""), live.get("to", "")
         d = jev.get("declared") if isinstance(jev.get("declared"), dict) else {}
@@ -735,22 +742,139 @@ def cmd_declared_hash(args):
 
 # --- measure ------------------------------------------------------------------
 
+# The session keys a lower-bound slice is the byte length of: what a /work-on
+# session keeps of the part of a slice a script could build without the diff.
+# The full slice of the question these stand for also carries the diff, so it
+# can only be larger (references/jev-criteria.md, rs-019 and rs-020).
+SESSION_KEY_SLICES = {
+    "criteria-plan": ("review_level_criteria.txt", "plan.md"),
+    "design-context": ("context.md",),
+}
+DECISION_REASONS_SH = "skills/work-on/scripts/decision-reasons.sh"
+SESSION_SLICES = ("review-facts", "decision-reasons") + tuple(SESSION_KEY_SLICES)
+
+
+def work_on_sessions(dirs):
+    """Each /work-on session directory under the given roots: the ones that
+    recorded review facts."""
+    out = []
+    for d in dirs:
+        out += sorted(glob.glob(os.path.join(d, "*", "ctx", "review_facts.json")))
+    return out
+
+
+def key_bytes(ctx, names):
+    """The summed byte length of the named context keys, or the reason a
+    session can't be measured: "missing" for a key that isn't there, "symlink"
+    for one that is a symlink and so may not be the session's own."""
+    total = 0
+    for name in names:
+        p = os.path.join(ctx, name)
+        if os.path.islink(p):
+            return None, "symlink"
+        if not os.path.isfile(p):
+            return None, "missing"
+        total += os.path.getsize(p)
+    return total, ""
+
+
+def session_logs(dirs):
+    """Every koto session log under the given roots, gzipped copies included."""
+    out = []
+    for d in dirs:
+        for pattern in ("koto-*.state.jsonl", "koto-*.state.jsonl.gz"):
+            out += sorted(glob.glob(os.path.join(d, "**", pattern), recursive=True))
+    return out
+
+
+def log_session_id(path):
+    """The session_id on a log's header line, or None when it has none."""
+    opener = gzip.open if path.endswith(".gz") else open
+    try:
+        with opener(path, "rt", encoding="utf-8", errors="replace") as f:
+            head = json.loads(f.readline())
+    except (OSError, EOFError, ValueError):
+        return None
+    sid = head.get("session_id") if isinstance(head, dict) else None
+    return sid if isinstance(sid, str) and sid else None
+
+
+def decision_slice_bytes(script, path):
+    """The byte length of decision-reasons.sh's slice of one log, or None when
+    the script can't read it. A gzipped log goes through a temporary file, so
+    the script reads every log the way the gate does."""
+    if not path.endswith(".gz"):
+        r = run([script, "slice", path])
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".jsonl") as t:
+            try:
+                with gzip.open(path, "rb") as f:
+                    shutil.copyfileobj(f, t)
+            except (OSError, EOFError):
+                return None
+            t.flush()
+            r = run([script, "slice", t.name])
+    if r.returncode != 0:
+        return None
+    return len(r.stdout.encode("utf-8"))
+
+
+# How each skip reason is said on stderr.
+SKIP_MESSAGES = {
+    "unprojected": "skipped %d session(s) whose facts didn't project",
+    "missing": "skipped %d session(s) with a missing key",
+    "symlink": "skipped %d session(s) with a symlink key",
+    "unsliced": "skipped %d log(s) the slice script couldn't read",
+    "no-id": "skipped %d log(s) with no session_id",
+}
+
+
 def measure_sessions(args):
     root = os.path.realpath(args.root)
-    script = os.path.join(root, REVIEW_LEVEL_SH)
-    sizes, skipped = [], 0
-    for path in sorted(glob.glob(os.path.join(args.dir, "*", "ctx", "review_facts.json"))):
-        # "standard" is the longest level name, so the size is an upper bound.
-        r = run([script, "project", path, "standard"])
-        if r.returncode != 0:
-            skipped += 1
-            continue
-        sizes.append(len(r.stdout.encode("utf-8")))
-    if skipped:
+    sizes, skipped = [], {}
+    if args.slice == "review-facts":
+        script = os.path.join(root, REVIEW_LEVEL_SH)
+        for path in work_on_sessions(args.dir):
+            # "standard" is the longest level name, so the size is an upper bound.
+            r = run([script, "project", path, "standard"])
+            if r.returncode != 0:
+                skipped["unprojected"] = skipped.get("unprojected", 0) + 1
+                continue
+            sizes.append(len(r.stdout.encode("utf-8")))
+        slice_arg = ""
+    elif args.slice == "decision-reasons":
+        # A run is a graded session: one per session_id, however many roots
+        # or copies hold its log, and only when its slice isn't empty, since
+        # koto grades nothing for an empty one. Copies of one session take
+        # the largest slice, the latest log being the longest.
+        script = os.path.join(root, DECISION_REASONS_SH)
+        by_id = {}
+        for path in session_logs(args.dir):
+            sid = log_session_id(path)
+            if sid is None:
+                skipped["no-id"] = skipped.get("no-id", 0) + 1
+                continue
+            n = decision_slice_bytes(script, path)
+            if n is None:
+                skipped["unsliced"] = skipped.get("unsliced", 0) + 1
+                continue
+            by_id[sid] = max(n, by_id.get(sid, 0))
+        sizes = [n for n in by_id.values() if n]
+        slice_arg = " --slice decision-reasons"
+    else:
+        for path in work_on_sessions(args.dir):
+            n, why = key_bytes(os.path.dirname(path), SESSION_KEY_SLICES[args.slice])
+            if n is None:
+                skipped[why] = skipped.get(why, 0) + 1
+                continue
+            sizes.append(n)
+        slice_arg = " --slice %s" % args.slice
+    for why, n in sorted(skipped.items()):
         # Said out loud, so a short run count is never mistaken for the corpus.
-        print("%s: skipped %d session(s) whose facts didn't project" % (PROG, skipped), file=sys.stderr)
+        print("%s: %s" % (PROG, SKIP_MESSAGES[why] % n), file=sys.stderr)
     return figures(sizes, args.budget, "koto-sessions",
-                   "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions> --budget %d" % args.budget)
+                   "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions>%s --budget %d"
+                   % (slice_arg, args.budget))
 
 
 def load_review_shadow(root):
@@ -1085,8 +1209,16 @@ def window(jev, start, end):
 
 def live_figures(sessions_dir, gate, cid, start, end):
     # An evaluation is (session, visit, gate, criterion): koto re-writes a
-    # fallback on each tick of a held visit, and those count once.
-    evals, sessions, over = {}, set(), set()
+    # fallback on each tick of a held visit, and those count once. One whose
+    # every event is a decider_checked with outcome not_graded (koto's outcome
+    # for an empty slice, which only the slice script's output decides) had
+    # nothing to grade: it is left out of the evaluations, the sessions and
+    # the answered share, and counted as not_graded. Any other event makes it
+    # graded, so a fallback or an escape beside a not_graded still counts
+    # against the bar. `evals` holds every tuple, its value whether it was
+    # answered; `graded` is the subset the figures count, so len(evals) is
+    # never the evaluation count.
+    evals, graded, over = {}, set(), set()
     max_in, unread = 0, 0
     for path in sorted(glob.glob(os.path.join(sessions_dir, "*", "koto-*.state.jsonl"))):
         try:
@@ -1116,7 +1248,8 @@ def live_figures(sessions_dir, gate, cid, start, end):
                 continue
             k = (sid, p.get("visit_seq"), gate, cid)
             evals.setdefault(k, False)
-            sessions.add(sid)
+            if not (t == "decider_checked" and p.get("outcome") == "not_graded"):
+                graded.add(k)
             if t == "decider_checked" and p.get("outcome") in ("pass", "fail"):
                 evals[k] = True
             if t == "decider_fallback" and p.get("reason") == "over_budget":
@@ -1124,9 +1257,10 @@ def live_figures(sessions_dir, gate, cid, start, end):
             b = p.get("input_bytes")
             if isinstance(b, int) and not isinstance(b, bool):
                 max_in = max(max_in, b)
-    return {"from": start, "to": end, "evaluations": len(evals), "sessions": len(sessions),
-            "answered": sum(1 for v in evals.values() if v), "over_budget_fallbacks": len(over),
-            "max_input_bytes": max_in}, unread
+    sessions = {k[0] for k in graded}
+    return {"from": start, "to": end, "evaluations": len(graded), "sessions": len(sessions),
+            "answered": sum(1 for k in graded if evals[k]), "over_budget_fallbacks": len(over),
+            "max_input_bytes": max_in, "not_graded": len(evals) - len(graded)}, unread
 
 
 def cmd_figures(args):
@@ -1163,7 +1297,8 @@ def main(argv=None):
     m = sub.add_parser("measure", help="measure whole-run slice sizes on real artifacts")
     msub = m.add_subparsers(dest="population", required=True)
     ms = msub.add_parser("sessions")
-    ms.add_argument("--dir", required=True)
+    ms.add_argument("--dir", required=True, action="append")
+    ms.add_argument("--slice", default="review-facts", choices=SESSION_SLICES)
     mp = msub.add_parser("prs")
     mp.add_argument("--repo", required=True, action="append")
     mp.add_argument("--limit", type=int, default=40)

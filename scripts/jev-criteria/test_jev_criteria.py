@@ -4,6 +4,7 @@
 
 import contextlib
 import copy
+import gzip
 import importlib.util
 import io
 import json
@@ -440,7 +441,7 @@ def trust(t):
         "fixture_run": {"on": "2026-11-01", "model": "jev-1", "declared_sha256": j["declared"]["sha256"],
                         "fixtures_blob": jc.git_blob(t.root, FIXTURES), "counts": counts},
         "live": {"from": "2026-10-21", "to": "2026-11-20", "evaluations": 30, "sessions": 5, "answered": 29,
-                 "over_budget_fallbacks": 0, "max_input_bytes": 300}}
+                 "over_budget_fallbacks": 0, "max_input_bytes": 300, "not_graded": 0}}
     t.save()
 
 
@@ -574,6 +575,16 @@ class PromotionTest(unittest.TestCase):
         self.promo()["fixture_run"]["counts"]["seeded-bad"] = {"pass": 1, "fail": 19, "unclear": 0, "error": 0}
         self.t.save()
         self.assertProblem("1 seeded-bad case(s) answered pass")
+
+    def test_live_record_carries_not_graded(self):
+        del self.promo()["live"]["not_graded"]
+        self.t.save()
+        self.assertProblem("promotion.live has no not_graded")
+        for bad in (-1, "3", True):
+            with self.subTest(value=bad):
+                self.promo()["live"]["not_graded"] = bad
+                self.t.save()
+                self.assertProblem("promotion.live.not_graded is not a non-negative integer")
 
     def test_live_bar_evaluations(self):
         self.promo()["live"]["evaluations"] = 29
@@ -741,8 +752,108 @@ class MeasureTest(unittest.TestCase):
             self.assertEqual((got["runs"], got["max"], got["p90"], got["over_budget"], got["population"]),
                              (2, want[1], want[1], 0, "koto-sessions"))
             self.assertIn("--budget 2048", got["command"])
+            self.assertNotIn("--slice", got["command"])
         finally:
             shutil.rmtree(d)
+
+    def measure_slice(self, dirs, slice_name):
+        out, err = io.StringIO(), io.StringIO()
+        argv = ["measure", "sessions", "--slice", slice_name, "--root", REPO]
+        for d in dirs:
+            argv += ["--dir", d]
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = jc.main(argv)
+        return rc, json.loads(out.getvalue()), err.getvalue()
+
+    def test_key_slices(self):
+        # Two roots, as a live store and an older one would be. A session is
+        # one that recorded review facts; the slice is its keys' byte length.
+        a, b = tempfile.mkdtemp(), tempfile.mkdtemp()
+        try:
+            for root, name, crit, plan, ctx in ((a, "s1", 100, 200, 3000), (a, "s2", 2000, 700, 10),
+                                                (b, "s3", 1, 1, 2561)):
+                write(root, "%s/ctx/review_facts.json" % name, "{}")
+                write(root, "%s/ctx/review_level_criteria.txt" % name, "c" * crit)
+                write(root, "%s/ctx/plan.md" % name, "p" * plan)
+                write(root, "%s/ctx/context.md" % name, "x" * ctx)
+            # Not a /work-on session: no review facts.
+            write(b, "other/ctx/plan.md", "p" * 9000)
+            rc, got, _ = self.measure_slice([a, b], "criteria-plan")
+            self.assertEqual(rc, 0)
+            self.assertEqual((got["runs"], got["max"], got["p90"], got["over_budget"], got["population"]),
+                             (3, 2700, 2700, 1, "koto-sessions"))
+            self.assertIn("--slice criteria-plan --budget 2560", got["command"])
+            rc, got, _ = self.measure_slice([a, b], "design-context")
+            self.assertEqual((got["runs"], got["max"], got["over_budget"]), (3, 3000, 2))
+            self.assertIn("--slice design-context", got["command"])
+        finally:
+            shutil.rmtree(a)
+            shutil.rmtree(b)
+
+    def test_key_slices_skip_and_count(self):
+        d = tempfile.mkdtemp()
+        try:
+            write(d, "s1/ctx/review_facts.json", "{}")
+            write(d, "s1/ctx/context.md", "x" * 10)
+            write(d, "s2/ctx/review_facts.json", "{}")  # no context.md
+            write(d, "s3/ctx/review_facts.json", "{}")
+            write(d, "elsewhere.md", "x" * 9000)
+            os.symlink(os.path.join(d, "elsewhere.md"), os.path.join(d, "s3/ctx/context.md"))
+            rc, got, err = self.measure_slice([d], "design-context")
+            self.assertEqual(rc, 0)
+            self.assertEqual((got["runs"], got["max"]), (1, 10))
+            self.assertIn("skipped 1 session(s) with a missing key", err)
+            self.assertIn("skipped 1 session(s) with a symlink key", err)
+        finally:
+            shutil.rmtree(d)
+
+    def test_decision_reasons_slice(self):
+        # Two roots, as a live store and its archive would be: a gzipped log,
+        # a session whose log is in both (counted once, at its longer slice),
+        # a session with no decision (an empty slice, so not a graded run),
+        # and a log with no session_id (skipped and counted).
+        def log(sid, decisions):
+            lines = [json.dumps({"schema_version": 1, "session_id": sid} if sid else {"schema_version": 1})]
+            for state, choice, reason in decisions:
+                lines.append(json.dumps({"type": "decision_recorded", "payload": {
+                    "state": state, "decision": {"choice": choice, "rationale": reason,
+                                                 "alternatives_considered": ["a" * 5000]}}}))
+            return "\n".join(lines) + "\n"
+
+        def size(decisions):
+            return sum(len(("- choice: %s\n  reason: %s\n" % (c, r)).encode())
+                       for s, c, r in decisions if s in ("analysis", "implementation"))
+
+        one = [("analysis", "c" * 40, "r" * 60)]
+        both = [("analysis", "c" * 10, "r" * 10), ("implementation", "c" * 1500, "r" * 1500)]
+        gz = [("implementation", "z" * 100, "y" * 100), ("verification", "v" * 9000, "w")]
+        a, b = tempfile.mkdtemp(), tempfile.mkdtemp()
+        try:
+            write(a, "s1/koto-s1.state.jsonl", log("id-1", one))
+            write(a, "s2/koto-s2.state.jsonl", log("id-2", both[:1]))
+            write(b, "s2/koto-s2.state.jsonl", log("id-2", both))
+            write(a, "s3/koto-s3.state.jsonl", log("id-3", [("verification", "x", "y")]))
+            write(a, "s4/koto-s4.state.jsonl", log(None, one))
+            os.makedirs(os.path.join(b, "s5"))
+            with gzip.open(os.path.join(b, "s5", "koto-s5.state.jsonl.gz"), "wt", encoding="utf-8") as f:
+                f.write(log("id-5", gz))
+            rc, got, err = self.measure_slice([a, b], "decision-reasons")
+            self.assertEqual(rc, 0, err)
+            sizes = sorted([size(one), size(both), size(gz)])
+            self.assertEqual((got["runs"], got["max"], got["over_budget"], got["population"]),
+                             (3, sizes[-1], 1, "koto-sessions"))
+            self.assertGreater(size(both), 2560)
+            self.assertIn("--slice decision-reasons --budget 2560", got["command"])
+            self.assertIn("skipped 1 log(s) with no session_id", err)
+        finally:
+            shutil.rmtree(a)
+            shutil.rmtree(b)
+
+    def test_unknown_slice_is_refused(self):
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit) as e:
+                jc.main(["measure", "sessions", "--dir", "x", "--slice", "nope"])
+        self.assertEqual(e.exception.code, 2)
 
     def test_prs(self):
         bodies = {"1": "Adds a thing.\n\n---\n\nreviewer notes", "2": "x" * 3000 + "\n\n---\n\nnotes"}
@@ -1033,6 +1144,52 @@ class FiguresTest(unittest.TestCase):
                           live["over_budget_fallbacks"], live["max_input_bytes"]), (2, 1, 1, 1, 3000))
         self.assertIn("skipped 1", out)
 
+    def test_not_graded_evaluations_are_left_out(self):
+        self.log("a",
+                 # visit 1: only not_graded, written twice: left out
+                 event(2, "2026-10-21", "decider_checked", outcome="not_graded"),
+                 event(3, "2026-10-21", "decider_checked", outcome="not_graded"),
+                 # visit 2: not_graded, then a pass on a changed slice: answered
+                 event(4, "2026-10-21", "decider_checked", visit_seq=2, outcome="not_graded"),
+                 event(5, "2026-10-21", "decider_checked", visit_seq=2, outcome="pass", input_bytes=90),
+                 # visit 3: not_graded beside a fallback: graded and unanswered
+                 event(6, "2026-10-21", "decider_checked", visit_seq=3, outcome="not_graded"),
+                 event(7, "2026-10-21", "decider_fallback", visit_seq=3, reason="provider_error", input_bytes=90),
+                 # visit 4: not_graded beside an escape: graded and unanswered
+                 event(8, "2026-10-21", "decider_checked", visit_seq=4, outcome="not_graded"),
+                 event(9, "2026-10-21", "decider_checked", visit_seq=4, outcome="escape", input_bytes=90))
+        # A session whose only evaluation had nothing to grade isn't a session.
+        self.log("b", event(2, "2026-10-21", "decider_checked", outcome="not_graded"))
+        rc, live, out = self.figures("--from", "2026-10-21", "--to", "2026-10-21")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual((live["evaluations"], live["sessions"], live["answered"], live["not_graded"]),
+                         (3, 1, 1, 2), out)
+
+    def not_graded_log(self, name, n):
+        self.log(name, *[event(v + 2, "2026-10-21", "decider_checked", visit_seq=v + 1, outcome="not_graded")
+                         for v in range(n)])
+
+    def test_the_bar_counts_graded_evaluations_only(self):
+        cases = [("29 graded beside 50 not graded", dict(sessions=29, per_session=1, answered_total=29), 50, 0, 1),
+                 ("4 graded sessions beside 10 not-graded ones",
+                  dict(sessions=4, per_session=10, answered_total=40), 0, 10, 1),
+                 ("28 of 30 graded answered (93.3%), beside not-graded runs that would lift it",
+                  dict(sessions=5, per_session=6, answered_total=28), 40, 10, 1),
+                 ("30 graded across 5 sessions all answered, beside not-graded runs",
+                  dict(sessions=5, per_session=6, answered_total=30), 40, 10, 0)]
+        for name, kw, extra_evals, extra_sessions, want in cases:
+            with self.subTest(name):
+                shutil.rmtree(self.dir)
+                os.makedirs(self.dir)
+                self.bar_log(**kw)
+                if extra_evals:
+                    self.not_graded_log("ng-many", extra_evals)
+                for i in range(extra_sessions):
+                    self.not_graded_log("ng-%d" % i, 1)
+                rc, live, out = self.figures("--from", "2026-10-21", "--to", "2026-10-21", "--bar")
+                self.assertEqual(rc, want, out)
+                self.assertEqual(live["not_graded"], extra_evals + extra_sessions, out)
+
     def test_window_edges(self):
         self.log("a", event(2, "2026-10-20", "decider_checked", outcome="pass", visit_seq=1),
                  event(3, "2026-10-21", "decider_checked", outcome="pass", visit_seq=2),
@@ -1093,25 +1250,33 @@ class RepositoryTest(unittest.TestCase):
         # A case's slice must be what the slice script prints for its input,
         # or a fixture run would grade a slice no live run can produce.
         registry = jc.read_json(os.path.join(REPO, jc.REGISTRY))
-        checked = 0
+        checked = {}
         for e in registry["rules"]:
             jev = e.get("jev") or {}
-            if jev.get("slice_script") != jc.REVIEW_LEVEL_SH or not jev.get("fixtures"):
+            script = jev.get("slice_script")
+            if script not in (jc.REVIEW_LEVEL_SH, jc.DECISION_REASONS_SH) or not jev.get("fixtures"):
                 continue
             cases, problems = jc.load_fixtures(os.path.join(REPO, jev["fixtures"]))
             self.assertEqual(problems, [], e["id"])
             for c in cases:
-                with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as t:
-                    json.dump(c["input"]["facts"], t)
+                with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as t:
+                    if script == jc.REVIEW_LEVEL_SH:
+                        json.dump(c["input"]["facts"], t)
+                        argv = ["project", t.name, c["input"]["level"]]
+                    else:
+                        # A session log: its header, then the case's events.
+                        t.write(json.dumps({"schema_version": 1, "session_id": "fixture"}) + "\n")
+                        for ev in c["input"]["events"]:
+                            t.write(json.dumps(ev, ensure_ascii=False) + "\n")
+                        argv = ["slice", t.name]
                 try:
-                    r = subprocess.run([os.path.join(REPO, jc.REVIEW_LEVEL_SH), "project", t.name,
-                                        c["input"]["level"]], capture_output=True, text=True)
+                    r = subprocess.run([os.path.join(REPO, script)] + argv, capture_output=True, text=True)
                 finally:
                     os.unlink(t.name)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(r.stdout, c["slice"], "%s case %s" % (e["id"], c["id"]))
-                checked += 1
-        self.assertGreater(checked, 0)
+                checked[script] = checked.get(script, 0) + 1
+        self.assertEqual(sorted(checked), sorted([jc.REVIEW_LEVEL_SH, jc.DECISION_REASONS_SH]))
 
 
 GUIDE = os.path.join(REPO, "docs", "guides", "jev-criteria.md")
@@ -1161,6 +1326,57 @@ class GuideTest(unittest.TestCase):
                      "koto.decider.outcome", "koto.decider.reason", "koto.decider.input_bytes"):
             self.assertIn(attr, live)
         self.assertIn("jev_criteria.py figures", live)
+
+
+REFERENCE = os.path.join(REPO, "references", "jev-criteria.md")
+# Each condition of "Replacing a seat", by the phrase that opens it. The
+# phrases are the reference's own words; rewording them means updating them
+# here.
+SEAT_CONDITIONS = ("Every question the seat asks is trusted.",
+                   "The decider is active for the session.",
+                   "An unanswered criterion brings the seat back.",
+                   "The batch's findings take the seat's place.",
+                   "Each condition is tested.")
+
+
+def seat_problems(text):
+    """What "Replacing a seat" is missing: the section, or any condition."""
+    body = guide_section(text, "Replacing a seat")
+    if not body:
+        return ["missing section: Replacing a seat"]
+    return ["missing condition: %s" % c for c in SEAT_CONDITIONS if c not in body]
+
+
+class ReferenceTest(unittest.TestCase):
+    def setUp(self):
+        with open(REFERENCE, encoding="utf-8") as f:
+            self.text = f.read()
+
+    def test_the_seat_rule_states_every_condition(self):
+        self.assertEqual(seat_problems(self.text), [])
+
+    def test_a_missing_condition_or_section_fails(self):
+        for c in SEAT_CONDITIONS:
+            with self.subTest(condition=c):
+                self.assertIn("missing condition: %s" % c, seat_problems(self.text.replace(c, "")))
+        cut = self.text.replace("## Replacing a seat\n", "")
+        self.assertEqual(seat_problems(cut), ["missing section: Replacing a seat"])
+
+    def test_both_documents_state_the_not_graded_rule(self):
+        with open(GUIDE, encoding="utf-8") as f:
+            guide = guide_section(f.read(), "Reading the live figures")
+        bars = guide_section(self.text, "The bars")
+        for name, body in (("reference", bars), ("guide", guide)):
+            with self.subTest(document=name):
+                flat = " ".join(body.split())
+                self.assertIn("`koto.decider.outcome` `not_graded`", flat)
+                self.assertIn("graded evaluations only", flat)
+
+    def test_the_lower_bounds_say_so(self):
+        for rid in ("rs-019", "rs-020"):
+            with self.subTest(rule=rid):
+                self.assertIn("These figures are a lower bound: the full slice also carries the diff.",
+                              " ".join(guide_section(self.text, rid).split()))
 
 
 if __name__ == "__main__":

@@ -298,6 +298,60 @@
         "unclear": "The hunks have no comment or are unreadable, so it can't be judged."
       },
       "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-018",
+      "rule_ref": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+      "group": "evidence-claims",
+      "artifact_kind": "local-change",
+      "slice_kind": "ac-claims",
+      "observer": "jev",
+      "enabled": false,
+      "question": "Can every claim this change makes about meeting its acceptance criteria be verified from the diff?",
+      "values": {
+        "pass": "Each claim names something the diff shows.",
+        "fail": "At least one claim names something the diff does not show."
+      },
+      "escape": {
+        "unclear": "There are no claims, or they can't be read, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-019",
+      "rule_ref": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+      "group": "deviation-reasons",
+      "artifact_kind": "local-change",
+      "slice_kind": "plan-hunks",
+      "observer": "jev",
+      "enabled": false,
+      "question": "Does every place where this change departs from its acceptance criteria or its plan carry a reason that reflects a real trade-off?",
+      "values": {
+        "pass": "Each departure the hunks show has a stated reason that names a real constraint or trade-off.",
+        "fail": "At least one departure has no stated reason, or its reason is only a shortcut."
+      },
+      "escape": {
+        "unclear": "The change makes no departure, or the hunks can't be read, so it can't be judged."
+      },
+      "threshold": 0.9
+    },
+    {
+      "rule_id": "rs-020",
+      "rule_ref": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+      "group": "design-fit",
+      "artifact_kind": "local-change",
+      "slice_kind": "design-hunks",
+      "observer": "jev",
+      "enabled": false,
+      "question": "Does this change do what the design context describes, rather than only what its criteria literally say?",
+      "values": {
+        "pass": "The hunks implement the behaviour the design context describes.",
+        "fail": "The hunks depart from the behaviour the design context describes."
+      },
+      "escape": {
+        "unclear": "There is no design context, or the hunks can't be read, so it can't be judged."
+      },
+      "threshold": 0.9
     }
   ]
 }

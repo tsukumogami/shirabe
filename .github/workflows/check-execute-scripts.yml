@@ -121,6 +121,12 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/owned-pr-callers_test.sh
 
+      # ci_monitor's gates extracted from execute.md, and the MERGED-PR
+      # fallback they share with /work-on, through gh and koto stubs.
+      - name: Run owned CI cancel tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/execute/scripts/owned-ci-cancel_test.sh
+
       - name: Run push-and-record tests (Linux)
         if: runner.os == 'Linux'
         run: bash skills/execute/scripts/push-and-record_test.sh
