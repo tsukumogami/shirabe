@@ -79,11 +79,8 @@ ANSWERS = ("pass", "fail", "unclear", "error")
 KINDS = tuple(FIXTURE_MINIMUMS)
 
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-SHA256 = re.compile(r"^[0-9a-f]{64}$")
-BLOB = re.compile(r"^[0-9a-f]{40}$")
 PATH_SHAPE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/-]*$")
 LOCAL_PATH = re.compile(r"(^|[\s\"'=])(/Users/|/home/|/root/|/private/|/var/|~/|\$HOME)")
-RULE_ID = re.compile(r"^([a-z0-9-]+/[a-z0-9-]+|rs-[0-9]{3})$")
 
 
 class CannotRun(Exception):
@@ -217,25 +214,6 @@ def canonical(obj):
 
 def declared_sha256(decl):
     return hashlib.sha256(canonical(decl).encode("utf-8")).hexdigest()
-
-
-def template_directive(root, rel, state):
-    """The body text under `## <state>` in a template, up to the next `## `."""
-    try:
-        text = read_text(os.path.join(root, rel))
-    except OSError:
-        return ""
-    body = text.split("\n---\n", 1)[-1] if text.startswith("---") else text
-    out, on = [], False
-    for line in body.split("\n"):
-        if line.startswith("## "):
-            if on:
-                break
-            on = line.strip() == "## " + state
-            continue
-        if on:
-            out.append(line)
-    return "\n".join(out)
 
 
 # --- Fixtures -----------------------------------------------------------------
