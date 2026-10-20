@@ -51,6 +51,11 @@ PROG=reconcile-check
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
+# rd_deadline's private directory, opened here so pool jobs and command
+# substitutions inherit it. Without one every read fails, as not verified.
+RD_TMP=$(mktemp -d "${TMPDIR:-/tmp}/reconcile-check.XXXXXX") && rd_idle "$RD_TMP"
+# A mode that sets its own EXIT trap removes RD_TMP in it too (inventory does).
+trap 'rm -rf "$RD_TMP"' EXIT
 # shellcheck source=inventory-common.sh
 . "$HERE/inventory-common.sh"
 
@@ -874,8 +879,11 @@ inventory)
     case "$IPATH" in /*) ;; *) refuse inventory "instance path is not absolute" ;; esac
     [ -d "$IPATH" ] && [ ! -L "$IPATH" ] || refuse inventory "instance directory not found on this host"
     IROOT=$(cd -P "$IPATH" 2>/dev/null && pwd -P) || refuse inventory "instance directory can't be read"
-    ITEMS=$(mktemp "${TMPDIR:-/tmp}/reconcile-inv.XXXXXX")
-    trap 'rm -f "$ITEMS" "$ITEMS".*' EXIT
+    # Refused before the trap names it: an empty ITEMS would make the trap's
+    # "$ITEMS".* every dotfile in the caller's directory.
+    ITEMS=$(mktemp "${TMPDIR:-/tmp}/reconcile-inv.XXXXXX") || refuse inventory "no temporary file could be made"
+    # This replaces the EXIT trap set at the top, so it removes RD_TMP too.
+    trap 'rm -f "$ITEMS" "$ITEMS".*; rm -rf "$RD_TMP"' EXIT
     TRUNC=false
     INV_N=0
     QUEUE=()
@@ -937,6 +945,8 @@ inventory)
     INV_POOL_JOIN=rc_join
     # rc_job J SHARE -- one clone's read, as a pool job.
     rc_job() {
+        # Its own names for rd_deadline's files: it runs beside its siblings.
+        RD_SHELL="j$1" RD_N=0
         ITEMS="$SHARED.c$1" QUEUED_FILE="$SHARED.c$1.queued" TRUNC=false INV_N=0 INV_COMPARES=0 INV_COMPARE_CAP=$2
         : > "$ITEMS"; : > "$QUEUED_FILE"
         inv_clone "${QUEUE[$1]}"
