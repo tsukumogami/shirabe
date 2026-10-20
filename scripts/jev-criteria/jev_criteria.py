@@ -15,7 +15,7 @@ Subcommands:
       run.
   declared-hash RULE_ID [--root DIR]
       Print a decider entry's declaration as canonical JSON, then its SHA-256.
-  measure sessions --dir DIR [--dir DIR]... [--slice review-facts|criteria-plan|design-context]
+  measure sessions --dir DIR [--dir DIR]... [--slice review-facts|decision-reasons|criteria-plan|design-context]
   measure prs --repo OWNER/REPO --limit N --kind pr-summary|code-hunks|doc-pairs [--git-dir DIR]
   measure records --dir DIR --kind KIND
       Measure whole-run slice sizes on real artifacts, with no call to Jev,
@@ -43,13 +43,16 @@ in the order their inputs become available, not in that numbering.
 import argparse
 import datetime
 import glob
+import gzip
 import hashlib
 import json
 import math
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -747,7 +750,8 @@ SESSION_KEY_SLICES = {
     "criteria-plan": ("review_level_criteria.txt", "plan.md"),
     "design-context": ("context.md",),
 }
-SESSION_SLICES = ("review-facts",) + tuple(SESSION_KEY_SLICES)
+DECISION_REASONS_SH = "skills/work-on/scripts/decision-reasons.sh"
+SESSION_SLICES = ("review-facts", "decision-reasons") + tuple(SESSION_KEY_SLICES)
 
 
 def work_on_sessions(dirs):
@@ -774,11 +778,54 @@ def key_bytes(ctx, names):
     return total, ""
 
 
+def session_logs(dirs):
+    """Every koto session log under the given roots, gzipped copies included."""
+    out = []
+    for d in dirs:
+        for pattern in ("koto-*.state.jsonl", "koto-*.state.jsonl.gz"):
+            out += sorted(glob.glob(os.path.join(d, "**", pattern), recursive=True))
+    return out
+
+
+def log_session_id(path):
+    """The session_id on a log's header line, or None when it has none."""
+    opener = gzip.open if path.endswith(".gz") else open
+    try:
+        with opener(path, "rt", encoding="utf-8", errors="replace") as f:
+            head = json.loads(f.readline())
+    except (OSError, EOFError, ValueError):
+        return None
+    sid = head.get("session_id") if isinstance(head, dict) else None
+    return sid if isinstance(sid, str) and sid else None
+
+
+def decision_slice_bytes(script, path):
+    """The byte length of decision-reasons.sh's slice of one log, or None when
+    the script can't read it. A gzipped log goes through a temporary file, so
+    the script reads every log the way the gate does."""
+    if not path.endswith(".gz"):
+        r = run([script, "slice", path])
+    else:
+        with tempfile.NamedTemporaryFile(suffix=".jsonl") as t:
+            try:
+                with gzip.open(path, "rb") as f:
+                    shutil.copyfileobj(f, t)
+            except (OSError, EOFError):
+                return None
+            t.flush()
+            r = run([script, "slice", t.name])
+    if r.returncode != 0:
+        return None
+    return len(r.stdout.encode("utf-8"))
+
+
 # How each skip reason is said on stderr.
 SKIP_MESSAGES = {
     "unprojected": "skipped %d session(s) whose facts didn't project",
     "missing": "skipped %d session(s) with a missing key",
     "symlink": "skipped %d session(s) with a symlink key",
+    "unsliced": "skipped %d log(s) the slice script couldn't read",
+    "no-id": "skipped %d log(s) with no session_id",
 }
 
 
@@ -795,6 +842,25 @@ def measure_sessions(args):
                 continue
             sizes.append(len(r.stdout.encode("utf-8")))
         slice_arg = ""
+    elif args.slice == "decision-reasons":
+        # A run is a graded session: one per session_id, however many roots
+        # or copies hold its log, and only when its slice isn't empty, since
+        # koto grades nothing for an empty one. Copies of one session take
+        # the largest slice, the latest log being the longest.
+        script = os.path.join(root, DECISION_REASONS_SH)
+        by_id = {}
+        for path in session_logs(args.dir):
+            sid = log_session_id(path)
+            if sid is None:
+                skipped["no-id"] = skipped.get("no-id", 0) + 1
+                continue
+            n = decision_slice_bytes(script, path)
+            if n is None:
+                skipped["unsliced"] = skipped.get("unsliced", 0) + 1
+                continue
+            by_id[sid] = max(n, by_id.get(sid, 0))
+        sizes = [n for n in by_id.values() if n]
+        slice_arg = " --slice decision-reasons"
     else:
         for path in work_on_sessions(args.dir):
             n, why = key_bytes(os.path.dirname(path), SESSION_KEY_SLICES[args.slice])
@@ -1149,8 +1215,10 @@ def live_figures(sessions_dir, gate, cid, start, end):
     # nothing to grade: it is left out of the evaluations, the sessions and
     # the answered share, and counted as not_graded. Any other event makes it
     # graded, so a fallback or an escape beside a not_graded still counts
-    # against the bar.
-    evals, graded, sessions, over = {}, set(), set(), set()
+    # against the bar. `evals` holds every tuple, its value whether it was
+    # answered; `graded` is the subset the figures count, so len(evals) is
+    # never the evaluation count.
+    evals, graded, over = {}, set(), set()
     max_in, unread = 0, 0
     for path in sorted(glob.glob(os.path.join(sessions_dir, "*", "koto-*.state.jsonl"))):
         try:

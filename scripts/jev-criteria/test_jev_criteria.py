@@ -4,6 +4,7 @@
 
 import contextlib
 import copy
+import gzip
 import importlib.util
 import io
 import json
@@ -806,6 +807,48 @@ class MeasureTest(unittest.TestCase):
         finally:
             shutil.rmtree(d)
 
+    def test_decision_reasons_slice(self):
+        # Two roots, as a live store and its archive would be: a gzipped log,
+        # a session whose log is in both (counted once, at its longer slice),
+        # a session with no decision (an empty slice, so not a graded run),
+        # and a log with no session_id (skipped and counted).
+        def log(sid, decisions):
+            lines = [json.dumps({"schema_version": 1, "session_id": sid} if sid else {"schema_version": 1})]
+            for state, choice, reason in decisions:
+                lines.append(json.dumps({"type": "decision_recorded", "payload": {
+                    "state": state, "decision": {"choice": choice, "rationale": reason,
+                                                 "alternatives_considered": ["a" * 5000]}}}))
+            return "\n".join(lines) + "\n"
+
+        def size(decisions):
+            return sum(len(("- choice: %s\n  reason: %s\n" % (c, r)).encode())
+                       for s, c, r in decisions if s in ("analysis", "implementation"))
+
+        one = [("analysis", "c" * 40, "r" * 60)]
+        both = [("analysis", "c" * 10, "r" * 10), ("implementation", "c" * 1500, "r" * 1500)]
+        gz = [("implementation", "z" * 100, "y" * 100), ("verification", "v" * 9000, "w")]
+        a, b = tempfile.mkdtemp(), tempfile.mkdtemp()
+        try:
+            write(a, "s1/koto-s1.state.jsonl", log("id-1", one))
+            write(a, "s2/koto-s2.state.jsonl", log("id-2", both[:1]))
+            write(b, "s2/koto-s2.state.jsonl", log("id-2", both))
+            write(a, "s3/koto-s3.state.jsonl", log("id-3", [("verification", "x", "y")]))
+            write(a, "s4/koto-s4.state.jsonl", log(None, one))
+            os.makedirs(os.path.join(b, "s5"))
+            with gzip.open(os.path.join(b, "s5", "koto-s5.state.jsonl.gz"), "wt", encoding="utf-8") as f:
+                f.write(log("id-5", gz))
+            rc, got, err = self.measure_slice([a, b], "decision-reasons")
+            self.assertEqual(rc, 0, err)
+            sizes = sorted([size(one), size(both), size(gz)])
+            self.assertEqual((got["runs"], got["max"], got["over_budget"], got["population"]),
+                             (3, sizes[-1], 1, "koto-sessions"))
+            self.assertGreater(size(both), 2560)
+            self.assertIn("--slice decision-reasons --budget 2560", got["command"])
+            self.assertIn("skipped 1 log(s) with no session_id", err)
+        finally:
+            shutil.rmtree(a)
+            shutil.rmtree(b)
+
     def test_unknown_slice_is_refused(self):
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as e:
@@ -1207,25 +1250,33 @@ class RepositoryTest(unittest.TestCase):
         # A case's slice must be what the slice script prints for its input,
         # or a fixture run would grade a slice no live run can produce.
         registry = jc.read_json(os.path.join(REPO, jc.REGISTRY))
-        checked = 0
+        checked = {}
         for e in registry["rules"]:
             jev = e.get("jev") or {}
-            if jev.get("slice_script") != jc.REVIEW_LEVEL_SH or not jev.get("fixtures"):
+            script = jev.get("slice_script")
+            if script not in (jc.REVIEW_LEVEL_SH, jc.DECISION_REASONS_SH) or not jev.get("fixtures"):
                 continue
             cases, problems = jc.load_fixtures(os.path.join(REPO, jev["fixtures"]))
             self.assertEqual(problems, [], e["id"])
             for c in cases:
-                with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as t:
-                    json.dump(c["input"]["facts"], t)
+                with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as t:
+                    if script == jc.REVIEW_LEVEL_SH:
+                        json.dump(c["input"]["facts"], t)
+                        argv = ["project", t.name, c["input"]["level"]]
+                    else:
+                        # A session log: its header, then the case's events.
+                        t.write(json.dumps({"schema_version": 1, "session_id": "fixture"}) + "\n")
+                        for ev in c["input"]["events"]:
+                            t.write(json.dumps(ev, ensure_ascii=False) + "\n")
+                        argv = ["slice", t.name]
                 try:
-                    r = subprocess.run([os.path.join(REPO, jc.REVIEW_LEVEL_SH), "project", t.name,
-                                        c["input"]["level"]], capture_output=True, text=True)
+                    r = subprocess.run([os.path.join(REPO, script)] + argv, capture_output=True, text=True)
                 finally:
                     os.unlink(t.name)
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(r.stdout, c["slice"], "%s case %s" % (e["id"], c["id"]))
-                checked += 1
-        self.assertGreater(checked, 0)
+                checked[script] = checked.get(script, 0) + 1
+        self.assertEqual(sorted(checked), sorted([jc.REVIEW_LEVEL_SH, jc.DECISION_REASONS_SH]))
 
 
 GUIDE = os.path.join(REPO, "docs", "guides", "jev-criteria.md")

@@ -2630,6 +2630,73 @@
         },
         "false_passes": []
       }
+    },
+    {
+      "id": "work-on/scrutiny-decision-reasons",
+      "status": "active",
+      "summary": "A decision recorded in analysis or implementation gives no reason beyond restating its choice",
+      "text": {
+        "path": "skills/work-on/references/phases/phase-4a-scrutiny.md",
+        "first": "The batch runs beside the seats"
+      },
+      "check": {
+        "kind": "decider",
+        "template": "skills/work-on/koto-templates/work-on.md",
+        "state": "scrutiny",
+        "gate": "scrutiny_decider",
+        "criterion": "work-on/scrutiny-decision-reasons"
+      },
+      "fixtures": [
+        "scripts/jev-criteria/fixtures/work-on-scrutiny-decision-reasons.jsonl",
+        "scripts/jev-criteria/test_jev_criteria.py",
+        "skills/work-on/scripts/decision-reasons_test.sh"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:scrutiny"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key. Shadow: it replaces no scrutiny seat.",
+      "jev": {
+        "state": "untrusted",
+        "sources": [
+          {
+            "what": "decision_recorded events in koto's session log",
+            "writer": "graded-artifact"
+          },
+          {
+            "what": "the slice",
+            "writer": "slice-script"
+          }
+        ],
+        "slice_script": "skills/work-on/scripts/decision-reasons.sh",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "work-on/scrutiny-decision-reasons",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "koto-sessions",
+          "runs": 119,
+          "max": 3549,
+          "p90": 1761,
+          "over_budget": 3,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions> --dir <archived koto sessions> --slice decision-reasons --budget 2560"
+        },
+        "fixtures": "scripts/jev-criteria/fixtures/work-on-scrutiny-decision-reasons.jsonl",
+        "declared": {
+          "sha256": "de2c282e923f6837360d343086bacd05ccdab634e9ebba08779275bcb7ab7da7",
+          "since": "2026-10-20"
+        },
+        "false_passes": []
+      }
     }
   ]
 }

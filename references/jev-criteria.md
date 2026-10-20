@@ -150,6 +150,50 @@ longest level name, largest 246, p90 229, none over the 2,048-byte budget
 in `auto`, and no fixture run or live window has been recorded. Its rule's text
 isn't preloaded in any directive, so nothing is withheld when it earns trust.
 
+## work-on/scrutiny-decision-reasons
+
+`/work-on`'s `scrutiny` asks Jev, beside the seats, whether every decision the
+run recorded in `analysis` and `implementation` gives, in its reason, why the
+choice was made rather than restating it. It is the closed part of the
+justification seat's question; the rest of that question is `rs-019`.
+
+**Sources.** The `decision_recorded` events koto writes to the session log when
+the agent runs `koto decisions record`, each with its state and its decision's
+`choice`, `rationale` and optional `alternatives_considered`. The agent writes
+the decisions, which are what the criterion grades; it never writes the slice.
+
+**Slice.** `decision-reasons.sh slice` over the session log the gate passes
+prints each matching decision, any visit, in log order, as a `- choice:` line
+and a `  reason:` line, every field's whitespace collapsed to single spaces so
+no field can start a line of its own. It reads no other file and no context
+key. A run with no decision in those states has an empty slice, which koto
+records as not graded.
+
+**Completeness.** The question is whether a reason says why its choice was
+made, and the choice and the reason are all it needs: the verdict is
+`sufficient`. The alternatives are left out. They don't bear on the question,
+since a reason can rule an alternative out in its own words, and
+`koto decisions record` requires a rationale but not alternatives. With them,
+5 of 88 graded sessions in the live store were over budget (5.7%), past the 5%
+line. Splitting the slice by state lowers no share and doubles the calls.
+
+**Figures.** Every session log the host kept, the live store and its archive,
+gzipped copies included, each session counted once by its `session_id`: 119
+graded sessions (with a decision to grade) of 1,502, largest 3,549, p90 1,761,
+3 over the 2,560-byte budget (the gate's `max_bytes`). That is 2.5% of graded
+runs, and 0.2% of all 1,502 sessions. The graded share is the one the contract
+is held to, since the live bar counts graded evaluations only. The fit is
+marginal: 119 graded runs is just past the 100-run minimum, and the live
+figures, not this measurement, decide whether the criterion earns trust. A run
+over budget falls back for `over_budget` and the agent answers it.
+
+**State.** `untrusted`: it runs in shadow for a user whose decider is on, its
+answers are recorded and never block the panel, and no fixture run or live
+window has been recorded. The fixtures' adversarial cases include
+inline layout mimicry (labelled `vocabulary-mimicry`): a reason that carries a
+second decision's `- choice:` and `reason:` text, which the collapsed
+whitespace keeps on the reason's own line.
+
 ## rs-007
 
 Does Part 1 of the pull request body claim only changes the file list shows?

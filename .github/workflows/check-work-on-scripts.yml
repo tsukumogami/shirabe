@@ -277,6 +277,22 @@ jobs:
         if: runner.os == 'Linux'
         run: bash skills/work-on/scripts/review-level-routes_test.sh
 
+      # decision-reasons_test.sh pins the scrutiny_decider slice's bytes and
+      # exits, and the directive and phase-file text for a pending batch. jq
+      # only, so the macOS leg runs it on the floor through the work-on suite.
+      - name: Run decision reasons slice tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/decision-reasons_test.sh
+
+      # scrutiny-decider-routes_test.sh drives the shipped work-on.md through a
+      # real koto with the decider in shadow at an unreachable loopback
+      # endpoint: a pending batch on a full and a carried round, the agent's
+      # answer, no decision, an over-budget slice and the decider off. The
+      # engine cases skip without koto, so they run here.
+      - name: Run scrutiny decider route tests (Linux)
+        if: runner.os == 'Linux'
+        run: bash skills/work-on/scripts/scrutiny-decider-routes_test.sh
+
       # Reads the shipped files for the statements each contradiction-settlement
       # decision record settled: no force push, no rebase, and so on. No engine
       # needed; the macOS leg runs it on the floor through the work-on suite.

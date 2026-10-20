@@ -32,6 +32,10 @@ When nothing runs and no blocking finding of the panel is unclosed, you never se
 
 Spawn only the decisions that aren't `keep`. This holds for every round after a retry, whatever the Reviewers section above and the Retry Loop below say about spawning all three. The decisions are the script's, made from the ledger and git: don't add a seat because the fix looks risky, and don't drop one because it looks safe. If you think a kept seat should run anyway, that's a finding for whichever run is running, not a reason to override the scope.
 
+## Decider Batch
+
+The batch runs beside the seats for a user whose decider is on: the state's `scrutiny_decider` check asks Jev whether every decision the run recorded in `analysis` and `implementation` gives, in its reason, why the choice was made. Its slice is `scripts/decision-reasons.sh slice` over koto's session log, each decision as a `- choice:` and a `  reason:` line. It replaces no seat. Its findings are advisory while the criterion is untrusted: it runs in shadow, so no answer fails the panel or changes its route. When the check is `pending` with `work-on/scrutiny-decision-reasons` under its output's `awaiting` list, the decider gave no verdict: read the decisions with that slice command, judge each reason, and answer with `koto decider answer {{SESSION_NAME}} --gate scrutiny_decider --criterion work-on/scrutiny-decision-reasons --answer <pass|fail|unclear>`, the session's name in place of `{{SESSION_NAME}}`, then tick again with nothing submitted. This can hold a carried round too, when no seat runs. Answer only a criterion listed under `awaiting`, and never record an override to get past it. The criterion's contract and figures are in `references/jev-criteria.md`.
+
 ## Evidence Format
 
 Each reviewer writes full findings to a `mktemp`-produced file outside the repository and returns a compact JSON summary:

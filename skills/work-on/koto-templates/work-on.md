@@ -1003,19 +1003,25 @@ states:
     # ends the run, so it can't skip the panel, and a run whose round can't be
     # recorded must still have a way to stop.
     #
-    # The decider slot: a later `decider-check` gate named scrutiny_decider,
-    # in `mode: shadow`, goes on this state, carrying the trial's model-graded
-    # criteria (scripts/review-shadow/criteria.json, rs-007 to rs-010) with its
-    # slicers as extraction commands. koto lets no `when`, `skip_if` or
-    # context assignment read a decider check, and a shadow check is never
-    # failed, so adding it can't change which transition this state takes. It
-    # can hold the state, though: a criterion the decider can't answer is
-    # pending until the agent answers it with `koto decider answer` (koto
-    # 0.20.0), in shadow as in veto, so the slot's directive has to give that
-    # command, as review_level_check's does. Any answer then lets a shadow
-    # check through: a shadow fail, the agent's or the decider's, is only
-    # recorded. It is not built yet. The same holds for review,
-    # qa_validation and light_review.
+    # The decider batch: scrutiny_decider, a `decider-check` gate in
+    # `mode: shadow`, asks Jev one closed question about the decisions this
+    # run recorded in analysis and implementation
+    # (work-on/scrutiny-decision-reasons, references/jev-criteria.md). Its
+    # slice is decision-reasons.sh's projection of koto's own session log,
+    # never a context key the agent writes. It runs beside the seats, which
+    # are all still spawned: the other scrutiny questions don't fit a
+    # 2,560-byte slice, and their contracts in the registry say so. koto lets
+    # no `when`, `skip_if` or context assignment read a decider check, and a
+    # shadow check is never failed, so the gate can't change which transition
+    # this state takes. It can hold the state, though: a criterion the
+    # decider can't answer is pending until the agent answers it with
+    # `koto decider answer` (koto 0.20.0), in shadow as in veto and on a
+    # carried round as on a full one, so the directive gives that command, as
+    # review_level_check's does. Any answer then lets the check through: a
+    # shadow fail, the agent's or the decider's, is only recorded. A run with
+    # no recorded decision has an empty slice, which koto records as
+    # not_graded without asking. Fixtures:
+    # scripts/jev-criteria/fixtures/work-on-scrutiny-decision-reasons.jsonl.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan scrutiny "{{SESSION_NAME}}"'
       fallback: >-
@@ -1055,6 +1061,19 @@ states:
       has_commits:
         type: command
         command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/has-commits.sh" "{{SESSION_NAME}}"'
+      scrutiny_decider:
+        type: decider-check
+        command: '"{{PLUGIN_ROOT}}/skills/work-on/scripts/decision-reasons.sh" slice "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"'
+        max_bytes: 2560
+        label: decisions
+        criteria:
+          work-on/scrutiny-decision-reasons:
+            rule_ref: "https://github.com/tsukumogami/shirabe/blob/main/references/jev-criteria.md"
+            question: "Does every decision listed here give, in its reason, why the choice was made: a constraint, a fact about the code or the system, or an alternative it rules out, rather than a restatement of the choice?"
+            pass: "Each decision's reason says why the choice was made, in terms other than the choice itself."
+            fail: "At least one decision's reason only restates or paraphrases its choice, or gives no reason at all."
+            escape: "The list can't be read as decisions, so it can't be judged."
+            mode: shadow
     accepts:
       scrutiny_outcome:
         type: enum
@@ -1105,8 +1124,10 @@ states:
 
   review:
     # The same seat decision as scrutiny's, for this panel, and the same
-    # verdict gate and decider slot: see the comments there. review_carried
-    # exit 0 advances with no spawn.
+    # verdict gate: see the comments there. review_carried exit 0 advances
+    # with no spawn. No decider batch is declared here: none of this panel's
+    # questions has a contract that fits the budget, and a later one would go
+    # on as scrutiny_decider did, with the same pending-answer directive.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan review "{{SESSION_NAME}}"'
       fallback: >-
@@ -1229,8 +1250,9 @@ states:
 
   qa_validation:
     # The same seat decision as scrutiny's, for this panel, and the same
-    # verdict gate and decider slot: see the comments there. qa_carried exit
-    # 0 advances with no spawn.
+    # verdict gate: see the comments there. qa_carried exit 0 advances with
+    # no spawn. No decider batch is declared here: the tester runs the
+    # change, which no closed question over a slice can do.
     default_action:
       command: '{{PLUGIN_ROOT}}/skills/work-on/scripts/panel-scope.sh --plan qa "{{SESSION_NAME}}"'
       fallback: >-
@@ -1309,7 +1331,9 @@ states:
     # scrutiny, review and QA. It is a fourth panel to panel-scope.sh, so its
     # retries are planned from the findings ledger exactly like the other
     # panels': see the comment on scrutiny. light_carried exit 0 advances with no spawn,
-    # and the verdict gate and decider slot are scrutiny's too.
+    # and the verdict gate is scrutiny's too. No decider batch is declared
+    # here: a `light` run never reaches scrutiny, so its decisions go
+    # ungraded.
     #
     # The verdict route also carries scrutiny's has_commits gate: at `light`
     # scrutiny never runs, and that gate is what stops a code run with no
@@ -2724,6 +2748,14 @@ koto decides whether the panel passed, from the ledger: the `scrutiny_verdict` g
 The `has_commits` gate also has to pass: the panel does not advance while this run has no commits since `impl_base`. If the work really has none, that is a blocking finding: record it with `severity: blocking`, retry it through the budget below, which reads its count of 1 from the ledger, and commit the work in implementation. It is recorded like any scrutiny round, so past the second retry a later scrutiny round is compared against that 1 and escalates unless it finds nothing; the rule errs toward stopping there on purpose. If it is committed and the panel still holds on `has_commits`, `impl_base` is missing or was recorded after the work (compare `koto context get {{SESSION_NAME}} impl_base` with `git log`): record the commit the run started from, the parent of its first commit, with `git rev-parse <commit> | koto context add {{SESSION_NAME}} impl_base`, and tick again.
 
 koto has already decided what this round runs: read `scrutiny_scope.json` and spawn only the decisions that aren't `keep`. In a full round every seat is `full` and is handed its own unclosed findings, which it answers by id. Any other round keeps every seat and plans at most one run, the panel's re-verifier (seat `reverifier`): it answers each due finding by id with `holds` or `reverified` and, when its decision carries `fix_review`, reviews the fix diff against every panel's criteria. It reads the `review-packet.sh recheck --seat reverifier` packet the phase file's commissioning line gives. After the round, record every run with `panel-scope.sh --record scrutiny` (the phase file has the command). When nothing runs and no blocking finding is unclosed, koto carries the verdict and advances without stopping here; a carried panel submits nothing, so it neither spends nor resets the retry count below, and koto's log still records its visit. When nothing runs but a blocking finding the fix didn't touch is still unclosed, `scrutiny_verdict` blocks the panel with no run spent. The `scrutiny_recorded` gate also holds the passing route and `blocking_retry` until the round is recorded.
+
+The decider batch runs beside the seats for a user whose decider is on: the `scrutiny_decider` check asks Jev whether every decision this run recorded in `analysis` and `implementation` gives, in its reason, why the choice was made. It replaces no seat, so spawn the seats as the scope says. Its findings are advisory while the criterion is untrusted: the check runs in shadow, so neither its verdict nor yours can fail the panel or change where it goes. When the `scrutiny_decider` check is `pending` with `work-on/scrutiny-decision-reasons` under its output's `awaiting` list, the decider gave no verdict and the question falls back to you. The check's warning finding gives the reason and the question; read the decisions it asked about with `"{{PLUGIN_ROOT}}/skills/work-on/scripts/decision-reasons.sh" slice "{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"` (`koto decisions list` shows only this state's), judge each reason, record your answer, and tick again with nothing submitted:
+
+```bash
+koto decider answer {{SESSION_NAME}} --gate scrutiny_decider --criterion work-on/scrutiny-decision-reasons --answer <pass|fail|unclear>
+```
+
+`pass` means every reason says why its choice was made, `fail` that one only restates its choice or gives none, and `unclear` that the list can't be judged; any of them lets the check through. This can hold a carried round too, where no seat runs, so answer it there the same way. Answer only a criterion the response lists under `awaiting`, and don't record an override to get past a waiting check. A run that recorded no decision has nothing to grade, and the check passes without asking.
 
 Submit nothing when the panel passes. While `scrutiny_verdict` exits 1, submit `scrutiny_outcome: blocking_retry` when the findings are correctable (it routes to `implementation`, where the coder agent addresses them), or `blocking_escalate` when the work cannot proceed without escalation. `blocking_escalate` is also taken while the gate exits 2, for a round that can't be recorded at all. Include `failure_reason` for `blocking_escalate`. Neither value is accepted while the gate exits 0, and no value advances the panel: only the recorded verdicts do, or a person's override of `scrutiny_verdict`.
 
