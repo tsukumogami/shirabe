@@ -331,7 +331,7 @@ if [ "$OUT" = "body=posted" ] && [ -f "$CASE/posted.md" ] && cmp -s "$CASE/poste
     && grep -qxF -- "- $CT_CORE | $CT_REPO:docs/plans/PLAN-t.md#11 | open | head=$CT_HEAD" "$CASE/posted.md"; then
     pass "--rendered-out: on body=posted it writes the exact bytes posted"
 else
-    fail "--rendered-out posted [$OUT] [$(cat "$CASE/posted.md" 2>/dev/null | head -3)]"
+    fail "--rendered-out posted [$OUT] [$(sed -n 1,3p "$CASE/posted.md" 2>/dev/null)]"
 fi
 # The live body with a trailing newline GitHub kept: the render finds it equal
 # and hands back the live bytes, not its own.
