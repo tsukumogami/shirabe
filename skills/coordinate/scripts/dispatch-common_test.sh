@@ -214,6 +214,32 @@ else
     bad "deadline: a watcher that won't stop is killed and the call returns" "status $RC after $(( $(date +%s) - START ))s"
 fi
 OUT=$(dc_with_deadline 30 echo hi); eq "deadline: output passes through a \$(...) promptly" hi "$OUT"
+# The deadline's TERM reaches only the command's own pid; under dc_tree it
+# reaches the command's children too. The child's stdout goes nowhere, as a
+# git remote helper's goes to git, so nothing holds the $(...) open.
+cat >"$T/forks.sh" <<EOF
+#!/usr/bin/env bash
+sleep 30 >/dev/null & echo \$! >"$T/child"; wait
+EOF
+chmod +x "$T/forks.sh"
+START=$(date +%s)
+OUT=$(dc_with_deadline 1 dc_tree "$T/forks.sh"); RC=$?
+eq  "deadline under dc_tree: a command past it is 124" 124 "$RC"
+if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "deadline under dc_tree: returns at the deadline"; else bad "deadline under dc_tree: returns at the deadline" ""; fi
+CHILD=$(cat "$T/child" 2>/dev/null)
+# A child the TERM reached may not be reaped yet; one that outlived the TERM
+# runs its whole 30 seconds, so a second's grace still catches it.
+i=0
+while [ -n "$CHILD" ] && [ "$i" -lt 20 ] && kill -0 "$CHILD" 2>/dev/null; do sleep 0.05; i=$((i + 1)); done
+if [ -z "$CHILD" ]; then
+    bad "deadline under dc_tree: the command's child is stopped too" "the command never started its child"
+elif kill -0 "$CHILD" 2>/dev/null; then
+    kill -KILL "$CHILD" 2>/dev/null
+    bad "deadline under dc_tree: the command's child is stopped too" "pid $CHILD still running"
+else
+    ok "deadline under dc_tree: the command's child is stopped too"
+fi
+( dc_tree sh -c 'exit 3' ); eq "dc_tree: the command's own status" 3 "$?"
 # The watcher writes its mark before it kills the command. A kill that pauses
 # after every TERM (the watcher's subshell inherits the function) holds the
 # command's end and the caller's TERM to the watcher wide apart, so with the
