@@ -78,7 +78,7 @@ CRIT=$(jq -r '.check.criterion // ""' <<<"$entry")
 [ -n "$GATE" ] && [ -n "$CRIT" ] || exit 0
 
 # 2 and 3. The user's decider, as koto resolves it (the KOTO_DECIDER variable
-# over ~/.koto/config.toml).
+# over the user's own koto configuration file).
 command -v koto >/dev/null 2>&1 || exit 0
 [ "$(koto config get decider.mode 2>/dev/null)" = auto ] || exit 0
 koto config get decider.api_key >/dev/null 2>&1 || exit 0
