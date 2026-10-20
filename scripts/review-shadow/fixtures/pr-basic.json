@@ -1,7 +1,6 @@
 {
   "pull": {
-    "base": {"ref": "main", "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "repo": {"private": false}},
-    "body": "Adds a retry to the fetch helper and documents the limit.\n\n---\n\n## Test plan\n\nRan the unit tests."
+    "body":"Adds a retry to the fetch helper and documents the limit.\n\n---\n\n## Test plan\n\nRan the unit tests."
   },
   "compare": {
     "files": [
@@ -24,9 +23,5 @@
   "raw": {
     "docs/guides/fetch.md": "# Fetch guide\n\nThe helper retries `fetch` up to 3 times.\n\nEach call to `fetch` waits 250 ms between attempts, and gives up after 3 tries.\n"
   },
-  "tree": ["lib/fetch.py", "docs/guides/fetch.md", "README.md"],
-  "edits": [
-    ["2026-09-01T10:00:00Z", "First version of the body.\n\n---\n\nplan"],
-    ["2026-09-02T10:00:00Z", "Adds a retry to the fetch helper and documents the limit.\n\n---\n\n## Test plan\n\nRan the unit tests."]
-  ]
+  "tree": ["lib/fetch.py", "docs/guides/fetch.md", "README.md"]
 }

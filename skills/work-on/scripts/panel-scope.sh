@@ -195,7 +195,7 @@
 # locations are kept beside it, as `finding_locations`. Both carry forward from
 # earlier rounds, so a seat's judged scope only grows; an earlier line range in
 # a file that has changed since is carried as the bare path, because its
-# numbers no longer name the same code. review-shadow.py reads them.
+# numbers no longer name the same code.
 #
 # Every finding carries a `severity`, `blocking` or `advisory`, and a seat is
 # recorded as blocking exactly while it raised an unclosed blocking finding. A
@@ -219,8 +219,7 @@
 #                          findings?}]}]}
 #                         Never cleared by a retry: it is what survives one.
 #                         The seat entries are summaries of the findings, kept
-#                         in the shape review-shadow.py and review-packet.sh
-#                         read.
+#                         in the shape review-packet.sh reads.
 #   <panel>_scope.json    this entry's decisions, for the agent to act on:
 #                         {panel, head, rev, ac_sha, round, full, reason,
 #                          decisions: [{seat, decision, reason, run?,
@@ -622,31 +621,6 @@ store_ledger() {
     put "$LEDGER" "$1"
 }
 
-
-# The decider shadow for the round just recorded: review-shadow.py's site
-# command reads these verdicts from the ledger and records the decider's beside
-# them (docs/designs/DESIGN-jev-closed-criteria.md). It runs in the background
-# with its output discarded, so --record's status, ledger and timing are what
-# they would be without it; it runs whether or not REVIEW_SHADOW_SITES opts in,
-# because the site command records an unset opt-in rather than staying silent.
-# REVIEW_SHADOW_SITE_CMD replaces the command, for tests.
-shadow_site() {
-    local cmd root
-    case "$PANEL" in scrutiny|review|light) ;; *) return 0 ;; esac
-    # This script lives at skills/work-on/scripts/ under the plugin root.
-    cmd="${REVIEW_SHADOW_SITE_CMD:-$(cd "$(dirname "$0")/../../.." && pwd)/scripts/review-shadow/review-shadow.py}"
-    [ -x "$cmd" ] || return 0
-    # A stand-in command needs no python3; the real script does.
-    [ -n "${REVIEW_SHADOW_SITE_CMD:-}" ] || command -v python3 >/dev/null 2>&1 || return 0
-    # HEAD resolved above, so this is a work tree and the call can't fail here.
-    root=$(git rev-parse --show-toplevel) || return 0
-    # The shadow's own output is discarded on purpose: nothing reads it, and its
-    # result is the record it writes.
-    ( "$cmd" site work-on --session "$SESSION" --panel "$PANEL" --head "$HEAD" --repo-path "$root" \
-        </dev/null >/dev/null 2>&1 & )
-    return 0
-}
-
 # ---------------------------------------------------------------- --mark-fixed
 
 # The agent's claim that it fixed findings, by id: one `fixed` record each,
@@ -910,8 +884,8 @@ if [ "$MODE" = "--record" ]; then
               end)
         # Every seat summary of the panel follows from the findings: a seat is
         # blocking exactly while it raised an unclosed blocking finding, and its
-        # findings are the unclosed blocking ones it raised, in the shape the readers of
-        # seat entries (review-shadow.py, review-packet.sh) expect.
+        # findings are the unclosed blocking ones it raised, in the shape
+        # review-packet.sh expects of seat entries.
         | . as $L
         | reduce ($seats | split(" "))[] as $s (.;
             ("\($panel)/\($s)") as $k
@@ -931,7 +905,6 @@ if [ "$MODE" = "--record" ]; then
             | .history[$h.key].spawned = (.history[$h.key].runs | length)
           else . end' > "$WORK/ledger" || die 65 "could not merge [$ROUND_FILE] into the ledger"
     store_ledger "$WORK/ledger"
-    shadow_site
     exit 0
 fi
 
