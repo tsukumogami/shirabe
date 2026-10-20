@@ -568,7 +568,7 @@ the body. The trouble is that the same text is also the run's memory.
   `github` or `session`; the store decides only whether the body's rendering may rebuild a lost
   record. The alternative, keeping today's body-as-store on the default `github` store, would
   ship neither of the feature's removals (the body as the store, the merge head read from an
-  editable body) on the default path. Decided by the effort's coordinator.
+  editable body) on the default path.
 - **Recovery reads the map, never a head.** A recovered run takes the node list and map from
   the rendering, re-reads every head live and re-verifies before merging. Taking heads from the
   body would put the editable page back in the merge decision.

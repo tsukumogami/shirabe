@@ -122,7 +122,7 @@ The requirements this design answers, from `docs/prds/PRD-coordinated-run-sessio
 - **The page stays CI's** (R23). The reusable merge-last gate reads the body; its marker,
   reference form and self-row rule can't change, and every rendered body has to pass
   `shirabe validate --coordination-body`.
-- **No head from the page** (R4, R9). The coordinator's ruling: on recovery a head is
+- **No head from the page** (R4, R9). On recovery a head is
   re-read live and re-verified, never taken from the body.
 - **Reuse before invention.** `merge-exec.sh`'s message file, the opener's `run_id` carry,
   `run-id.sh restamp`, `merge-verdict.sh`'s readiness check, the land step's message
@@ -373,7 +373,7 @@ branch and authored by the invoking login, the same set the ownership lookup adm
 - **Majority identity.** Recovers more runs unattended, but lets a run adopt a node another
   run opened; the adopt step makes that a recorded act instead.
 - **Heads from the rendered index.** Saves one read per pull request, but puts the editable
-  page back in the merge decision, which the coordinator ruled out.
+  page back in the merge decision, which this design rules out.
 
 ### Decision 5: Moves, the inner leg and the handover from `/scope`
 
