@@ -74,7 +74,7 @@ trap cleanup EXIT
 
 # koto's session store lives under HOME (KOTO_HOME is ignored; see the header of
 # scope-substrate_test.sh), so a HOME of the suite's own keeps every session out
-# of the user's ~/.koto, even on a run killed before its trap. This run's names
+# of the user's koto store, even on a run killed before its trap. This run's names
 # already in the real store are read first: a PID can repeat one an older run
 # leaked, and only names this run adds count against it. The check is on this
 # run's names alone, so a parallel run of the suite elsewhere can't move it.
