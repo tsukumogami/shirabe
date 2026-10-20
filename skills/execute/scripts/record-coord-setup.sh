@@ -413,7 +413,10 @@ else
         PR_NODES=$(printf '%s' "$NODES" | jq -r '.[] | select(.kind == "pr") | [.name, .repo] | @tsv') || exit 69
         while IFS=$'\t' read -r n r; do
             [ -n "$n" ] || continue
-            out=$("$BASH" "$COORD_SELF_DIR/owned-pr.sh" --repo "$r" --head "impl/$SLUG-$n" --state all </dev/null)
+            # coord_owned with no identity (its hand-run branch), in the
+            # subshell only: with --run-id a PR another run marked would be
+            # exit 5 here, and recovery has to read that marker to name it.
+            out=$(COORD_RUN_ID=""; coord_owned "$r" "impl/$SLUG-$n" all)
             rc=$?
             case "$rc" in
                 0) if [ -n "$out" ]; then st=owned; else st=none; fi ;;

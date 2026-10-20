@@ -26,7 +26,9 @@
 # own --run-id flag (coordinated-next.sh, coordination-verdict.sh,
 # node-push.sh), or from its session through run-id.sh (coord-merge.sh,
 # record-coordination-verdict.sh). Empty means a hand run, and owned-pr.sh then
-# matches by login and branch alone.
+# matches by login and branch alone. record-coord-setup.sh's recovery empties
+# it on purpose for its node-branch lookups, so a PR another run marked is
+# found and its marker read rather than refused.
 #
 # Requires: bash 3.2+, jq, gh (through owned-pr.sh and the reads below), koto
 # (the run record's reads).
