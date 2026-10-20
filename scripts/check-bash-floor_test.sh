@@ -302,6 +302,17 @@ case "${1:-}" in
     run)
         shift
         for a in "$@"; do printf '%s\n' "$a"; done >>"$STUB_LOG.run"
+        # With STUB_EXEC set it runs the harness as well, on this host's bash,
+        # in the container's working directory and with the stdin it was
+        # handed: a docker that forwards stdin, the worst case for the loop.
+        if [ -n "${STUB_EXEC:-}" ]; then
+            wd=.
+            while [ $# -gt 1 ]; do
+                [ "$1" = -w ] && wd="$2"
+                shift
+            done
+            cd "$wd" && bash "$1"
+        fi
         ;;
     *)
         echo "stub docker: unexpected $*" >&2
@@ -747,6 +758,129 @@ test_suite_name_is_not_a_path() {
     fi
 }
 
+# -- every harness runs, whatever it does with stdin (shirabe#962) -------------
+#
+# Both backends ran a suite's harnesses in a `while read` loop fed by a
+# heredoc, and each harness inherited that heredoc as its stdin. One that read
+# stdin swallowed the rest of the list, the loop ended, and the suite passed
+# having run only the harnesses before it. The fixture suite's first harness
+# drains stdin and fd 3; the two after it only leave a mark, so the marks say
+# which harnesses really ran.
+#
+# The system backend needs a /bin/bash that is 3.2, which the ubuntu runner
+# this test runs on doesn't have. Its copy of the runner has /bin/bash
+# rewritten to a stand-in that answers the runner's version probes as 3.2 and
+# runs everything else on this host's bash, so its loop runs here unchanged.
+
+STDIN_REPO="$STUB_ROOT/stdin"
+STDIN_MARKS="$STUB_ROOT/stdin-marks"
+FLOOR_STANDIN="$STUB_ROOT/floor-bash"
+HOST_BASH=$(command -v bash)
+mkdir -p "$STDIN_REPO/scripts/bash-floor"
+cat >"$FLOOR_STANDIN" <<EOF
+#!$HOST_BASH
+# Stand-in for a bash 3.2 /bin/bash, written by check-bash-floor_test.sh.
+if [ "\${1:-}" = -c ]; then
+    case "\${2:-}" in
+        *BASH_VERSION*) BASH_VERSION=3.2.57-standin; eval "\$2"; exit ;;
+    esac
+fi
+exec "$HOST_BASH" "\$@"
+EOF
+chmod +x "$FLOOR_STANDIN"
+cp "$RUNNER" "$STDIN_REPO/scripts/check-bash-floor.sh"
+sed "s#/bin/bash#$FLOOR_STANDIN#g" "$RUNNER" >"$STDIN_REPO/scripts/check-bash-floor-system.sh"
+chmod +x "$STDIN_REPO/scripts/check-bash-floor-system.sh"
+cat >"$STDIN_REPO/scripts/bash-floor/stdin.list" <<'EOF'
+workflow: .github/workflows/none.yml
+scripts/stdin-reader.sh
+scripts/stdin-second.sh
+scripts/stdin-third.sh
+EOF
+cat >"$STDIN_REPO/scripts/stdin-reader.sh" <<'EOF'
+cat >/dev/null
+cat 2>/dev/null <&3 >/dev/null || true
+echo reader >>"$FLOOR_STDIN_MARKS"
+EOF
+echo 'echo second >>"$FLOOR_STDIN_MARKS"' >"$STDIN_REPO/scripts/stdin-second.sh"
+echo 'echo third >>"$FLOOR_STDIN_MARKS"' >"$STDIN_REPO/scripts/stdin-third.sh"
+
+STDIN_OUT=""
+STDIN_RC=0
+# run_stdin_suite <runner> <backend>: runs the fixture suite through that copy
+# of the runner, leaving its output in STDIN_OUT and its exit status in
+# STDIN_RC. Its own stdin is /dev/null, so a harness that reaches past the
+# runner's isolation reads nothing rather than waiting on a terminal.
+run_stdin_suite() {
+    rm -f "$STDIN_MARKS" "$STUB_ROOT/log.run" "$STUB_ROOT/log.build"
+    STDIN_RC=0
+    STDIN_OUT=$(env -u SHIRABE_FLOOR_REQUIRE_ROOTLESS PATH="$STUB_BIN:$PATH" \
+        STUB_DAEMON=rootless STUB_LOG="$STUB_ROOT/log" STUB_EXEC=1 \
+        FLOOR_STDIN_MARKS="$STDIN_MARKS" \
+        "$STDIN_REPO/scripts/$1" --backend "$2" stdin </dev/null 2>&1) || STDIN_RC=$?
+}
+
+# The marks the fixture's harnesses left, on one line.
+stdin_marks() {
+    if [ -f "$STDIN_MARKS" ]; then
+        tr '\n' ' ' <"$STDIN_MARKS"
+    fi
+}
+
+assert_every_harness_ran() {
+    local name="$1" marks
+    marks=$(stdin_marks)
+    if [ "$marks" != "reader second third " ]; then
+        fail "$name" "harnesses that ran: ${marks:-none} (exit $STDIN_RC): $STDIN_OUT"
+        return
+    fi
+    if [ "$STDIN_RC" -ne 0 ]; then
+        fail "$name" "expected exit 0, got $STDIN_RC: $STDIN_OUT"
+        return
+    fi
+    case "$STDIN_OUT" in
+        *"stdin: ran 3 of 3 listed harnesses"*) pass "$name" ;;
+        *) fail "$name" "no 'ran 3 of 3' line: $STDIN_OUT" ;;
+    esac
+}
+
+test_system_backend_runs_every_harness_after_a_stdin_reader() {
+    run_stdin_suite check-bash-floor-system.sh system
+    assert_every_harness_ran "system backend: a harness that reads stdin doesn't stop the ones after it"
+}
+
+test_docker_backend_runs_every_harness_after_a_stdin_reader() {
+    run_stdin_suite check-bash-floor.sh docker
+    assert_every_harness_ran "docker backend: a harness that reads stdin doesn't stop the ones after it"
+}
+
+# The count check is the backstop for a path to the list this isolation
+# doesn't close. To reach it, this copy has the per-harness redirections
+# taken off the harness's command line, so the fixture's first harness drains
+# the list from fd 3 again; the suite must then fail and say how far it got.
+test_a_suite_that_runs_short_fails() {
+    local name="a suite that runs fewer harnesses than it lists fails, naming the gap"
+    local copy="$STDIN_REPO/scripts/check-bash-floor-unisolated.sh"
+
+    sed 's#"\$script" </dev/null 3<&-#"$script"#' \
+        "$STDIN_REPO/scripts/check-bash-floor-system.sh" >"$copy"
+    chmod +x "$copy"
+    if cmp -s "$copy" "$STDIN_REPO/scripts/check-bash-floor-system.sh"; then
+        fail "$name" "the runner no longer has the line this case edits ('\"\$script\" </dev/null 3<&-'); update the case"
+        return
+    fi
+    run_stdin_suite check-bash-floor-unisolated.sh system
+    if [ "$STDIN_RC" -ne 1 ]; then
+        fail "$name" "expected exit 1, got $STDIN_RC (marks: $(stdin_marks)): $STDIN_OUT"
+        return
+    fi
+    case "$STDIN_OUT" in
+        *"stdin: ran 1 of 3 listed harnesses"*"never ran: scripts/stdin-second.sh scripts/stdin-third.sh"*)
+            pass "$name" ;;
+        *) fail "$name" "the failure doesn't name the gap: $STDIN_OUT" ;;
+    esac
+}
+
 echo "Running check-bash-floor.sh tests..."
 echo ""
 
@@ -777,6 +911,9 @@ test_git_file_without_gitdir_is_refused
 test_broken_commondir_is_refused
 test_real_container_reads_a_worktree_and_cannot_write_it
 test_image_recipe
+test_system_backend_runs_every_harness_after_a_stdin_reader
+test_docker_backend_runs_every_harness_after_a_stdin_reader
+test_a_suite_that_runs_short_fails
 
 echo ""
 echo "Results: $PASS_COUNT passed, $FAIL_COUNT failed"
