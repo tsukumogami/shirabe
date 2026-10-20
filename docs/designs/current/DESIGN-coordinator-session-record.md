@@ -94,7 +94,7 @@ write and no append.
 **The other lane's readers.** Three readers outside the loop read a record on
 GitHub: a join on `cost` entries, which selects comments whose body starts with
 the exact marker `<!-- coordinator-record-entry v1 kind=cost -->`
-(`references/unit-cost.md`); a reviewer reading holdings, decisions and verdicts
+(`skills/coordinate/references/unit-cost.md`); a reviewer reading holdings, decisions and verdicts
 before a merge; and `roadmap-status.sh --verdict|--reopen|--confirm`, which reads
 a verdict or failure entry back by its comment URL and requires its text byte for
 byte.
@@ -320,10 +320,11 @@ the Spike below). The result decides the table.
   dispatch rather than reading it from the key, and refuses unless the holding's
   Worker is the leg key's topic and the child session's own template and `TOPIC`
   match that declaration, which koto's `request attach` checks again. It writes the new request id into
-  the leg key as state `releg-pending` before it attaches, then attaches, then
-  rewrites the holding's return path and sets the key `open` on the new request;
-  a re-run that finds `releg-pending` reads the new request and finishes whichever
-  step is missing, so a crash leaves no leg bound to nothing. Every other such
+  the leg key as state `releg-pending` before it attaches, then attaches, writes
+  the new request's key `open` with `from` naming the old request, rewrites the
+  holding's return path, and marks the old key `relegged`; a re-run that finds
+  `releg-pending` reads the new request and finishes whichever step is missing,
+  so a crash leaves no leg bound to nothing. Every other such
   leg is unwatchable: the holding's return path becomes `message`, and the
   handover gate's `told` rule makes the coordinator tell the worker its new
   address. A holding dispatched before leg keys existed has no key and no
@@ -331,8 +332,16 @@ the Spike below). The result decides the table.
   watched through its return path as today. `reconcile-pass.sh` launches the
   classification as a write job of its own, `reconcile-legs.sh`, beside the
   settle, and runs one record write at a time so the two can't refuse each
-  other as record-changed. The gate lists `leg-unclassified <topic>` until each
-  leg has its end.
+  other as record-changed. `reconcile-legs.sh` is the third writer of leg keys:
+  it sets a key `unwatchable`, first abandoning the new request a `releg-pending`
+  key names. The gate lists `leg-unclassified <topic>` until each leg has its
+  end.
+
+A leg key's state is one of `open` (dispatched, or re-legged onto this
+request), `replaced` (a new leg replaced it), `spent` (its launch failed, or it
+ended with no result its worker promoted), `taken` (its result was read), `releg-pending`,
+`relegged` and `unwatchable`; `dispatch-common.sh` holds the list every writer
+checks.
 - **Alternative: re-attach to the original request id.** Measured impossible:
   the new host's store answers `request_not_found`.
 - **Alternative: every moved leg to the message path.** Rejected: it gives up a
@@ -470,7 +479,8 @@ three idempotent steps.
 | `scripts/dispatch-worker.sh` | leg keys; `--releg-imported`; `stranded` like `dispatch-failed` |
 | `scripts/wait-target.sh` | leg key child and result |
 | `scripts/report-source.sh` | message after a taken or unwatchable leg |
-| `scripts/reconcile-pass.sh`, `scripts/reconcile-check.sh` | leg classification |
+| `scripts/reconcile-pass.sh` | launches the leg classification as a write job, one record write at a time |
+| `scripts/reconcile-legs.sh` (new) | leg classification: `--releg-imported`, or the message path and `unwatchable` |
 | `scripts/record-handover.sh` | `leg-unclassified`, `no-reports-to` |
 | readers switched to the seam | `board-lib.sh` (and through it `land-check.sh`, `land-merge.sh`), `deferral-check.sh`, `record-confirm.sh`, `closeout-read.sh`, `predecessor-handoff.sh`, `reconcile-read.sh`, `reconcile-deps.sh`, `roadmap-status.sh`, `decision-next.sh`, `rotation-close.sh`, `record-decision.sh` |
 | tests and harness | `record-source_test.sh` (with the structure test), `record-move_test.sh`, session cases in the writers' suites, `session-store_engine_test.sh`, `legs-move_engine_test.sh`, `handover_engine_test.sh`; `testdata/fake-s3.py`; `run-tests.sh` (the new suites, and `python3` for the engine suites); `rule-coverage.tsv`; `coordinate-open.wording.tsv`, `coordinate-open_engine_test.sh` and `coordinate-template-structure_engine_test.sh` for the new opener codes and state |
@@ -517,7 +527,7 @@ sentence for the session source.
 ## Implementation Approach
 
 Four pull requests, each a working deliverable, merged in this order; the seam
-merges before the writers move.
+merges before the writers move. All four shipped, as #773, #796, #852 and #911.
 
 1. **The seam.** `record-source.sh` with the GitHub backend, every reader switched
    to it, `record-find.sh` sealing the source and writing `coord/source.json`, the
@@ -544,7 +554,7 @@ merges before the writers move.
    `testdata/`, used only by the engine suites, which skip without `python3` the
    way they skip without koto), and runs its five cases.
 4. **Legs after a move.** Leg keys at dispatch and wait, the classification in
-   reconcile with `--releg-imported`, `leg-unclassified`, `stranded` and the
+   reconcile (`reconcile-legs.sh`) with `--releg-imported`, `leg-unclassified`, `stranded` and the
    redispatch, and the message route after a taken leg. An engine test moves a
    coordinator with one worker imported alongside and one left behind and checks
    every row of R15's table.

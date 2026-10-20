@@ -229,7 +229,7 @@ adds or pins:
   | `record/decisions` | Decisions | `record-decision.sh` |
   | `record/host` | host facts that never go to GitHub (R14, R17) | `record-state.sh` (`coordinate-open.sh` calls it after an import) |
   | `record/entries/<n>`, `record/posted/<n>` | one entry of the account; the GitHub comment an outward entry became | `record-append.sh` |
-  | `legs/<request-id>/<leg>` | one worker leg (R13) | `dispatch-worker.sh`, `wait-target.sh` |
+  | `legs/<request-id>/<leg>` | one worker leg (R13) | `dispatch-worker.sh`, `wait-target.sh`; state `unwatchable` only `reconcile-legs.sh` |
 
   A write by any other script to a key is refused (`not-owner`, exit 65, the
   code the write core uses today for a section another writer changed).
