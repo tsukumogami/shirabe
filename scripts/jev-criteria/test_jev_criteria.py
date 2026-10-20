@@ -8,6 +8,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -1111,6 +1112,50 @@ class RepositoryTest(unittest.TestCase):
                 self.assertEqual(r.stdout, c["slice"], "%s case %s" % (e["id"], c["id"]))
                 checked += 1
         self.assertGreater(checked, 0)
+
+
+GUIDE = os.path.join(REPO, "docs", "guides", "jev-criteria.md")
+GUIDE_SECTIONS = ("Reading the live figures", "Promoting a criterion", "Demoting a criterion")
+
+
+def guide_problems(text):
+    """The guide's missing sections, and the promotion review step if the
+    promotion section doesn't name it."""
+    found = re.findall(r"^## (.+?)\s*$", text, re.M)
+    out = ["missing section: %s" % s for s in GUIDE_SECTIONS if s not in found]
+    parts = re.split(r"^## ", text, flags=re.M)
+    promo = next((p for p in parts if p.startswith("Promoting a criterion")), "")
+    for phrase in ("figures --bar", "fixtures", "doesn't merge their own"):
+        if phrase not in promo:
+            out.append("promotion section doesn't name %r" % phrase)
+    return out
+
+
+class GuideTest(unittest.TestCase):
+    def setUp(self):
+        with open(GUIDE, encoding="utf-8") as f:
+            self.text = f.read()
+
+    def test_guide_has_its_sections(self):
+        self.assertEqual(guide_problems(self.text), [])
+
+    def test_a_missing_section_fails(self):
+        for s in GUIDE_SECTIONS:
+            with self.subTest(section=s):
+                cut = self.text.replace("## %s\n" % s, "")
+                self.assertIn("missing section: %s" % s, guide_problems(cut))
+
+    def test_the_review_step_is_required(self):
+        cut = self.text.replace("figures --bar", "figures")
+        self.assertIn("promotion section doesn't name 'figures --bar'", guide_problems(cut))
+
+    def test_the_live_figures_name_the_exported_attributes(self):
+        parts = re.split(r"^## ", self.text, flags=re.M)
+        live = next(p for p in parts if p.startswith("Reading the live figures"))
+        for attr in ("koto.session.id", "koto.visit.seq", "koto.check", "koto.rule.id",
+                     "koto.decider.outcome", "koto.decider.reason", "koto.decider.input_bytes"):
+            self.assertIn(attr, live)
+        self.assertIn("jev_criteria.py figures", live)
 
 
 if __name__ == "__main__":

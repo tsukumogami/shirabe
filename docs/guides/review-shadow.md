@@ -12,7 +12,9 @@ No skill or script writes to the store any more.
 and `scan`, which run the six script criteria (`rs-001` to `rs-006`), and the
 slicers that the Jev criteria contracts name as their slice script. Jev
 criteria, their slice contracts and pass trust are described in
-`references/jev-criteria.md`. The tool needs Python 3.8 or later and nothing
+`references/jev-criteria.md`, and `docs/guides/jev-criteria.md` says how to
+read a criterion's live figures and how to promote or demote one. The tool
+needs Python 3.8 or later and nothing
 outside the standard library.
 
 The trial's requirements and approach are in
