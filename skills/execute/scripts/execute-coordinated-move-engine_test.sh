@@ -11,6 +11,7 @@
 # Layout: one simulated host h with two workspaces, A (`work`) and B (`b`),
 # each a clone of one bare origin on docs/move holding PLAN-move.md (node
 # pr-repo-a-core, then pr-repo-a-cli waiting on it). One gh model serves both.
+# A second host, h2, holds only the session the refused import meets.
 # The coordination PR is #10, and a hook (CT_GH_HOOK) puts back the same body
 # before every gh call -- a Part 1 and the declaration marker, no index line
 # and no run= or store= line -- so every read the run makes is served a body
@@ -22,10 +23,17 @@
 # not seen landing; the loop pauses, and the run stops at
 # paused_awaiting_merges. The queue then lands #11.
 #
-# The move: an import onto a live execute-move session in B is refused with
-# koto's code and leaves both sessions as they were; then, with B's session
-# gone, `skill-session.sh import execute move --from <A>` imports the run, and
-# a tick in A answers session_migrated.
+# The move: an import onto a live execute-move session is refused with koto's
+# code and leaves both sessions as they were; then `skill-session.sh import
+# execute move --from <A>` in B imports the run, and a tick in A answers
+# session_migrated.
+#
+# The refused import runs on a second host, h2. koto keeps sessions by name
+# per machine ($HOME/.koto/sessions/<name>), so on one host B can't hold a
+# live execute-move of its own while A's exists: `koto init` there answers
+# "already exists", and an import in B moves A's own session rather than
+# colliding with another. A taken name (koto's import_name_taken) needs a
+# store that holds a different session under it, which is another host's.
 #
 # In B: follow-up #21 is opened against core; execute-open.sh replaces the
 # imported terminal session and carries its record (same run_id, no recovery
@@ -125,6 +133,7 @@ if ! s3_start; then
 fi
 host_make h
 ws_make h b
+host_make h2
 WS_A=$(ws_path h work)
 WS_B=$(ws_path h b)
 # The suite's git identity, for the host's HOME; one carry root for the host.
@@ -188,6 +197,7 @@ export CT_GH_HOOK="$CASE/hook.sh"
 
 A() { ws_on h work "$@"; }
 B() { ws_on h b "$@"; }
+C() { ws_on h2 work "$@"; }
 LIVE="$GH_CALL_LOG.d/db.json"
 # model_pr <ct_pr args...> | model_follow_up <repo> <n> -- one PR added to the
 # live model the shim built, as a run's own push or a person would open it.
@@ -284,20 +294,20 @@ gh shim-mark-merged "$HOME_REPO" 11
 # --- the move ------------------------------------------------------------------------------
 
 echo "== the import =="
-# A live execute-move in B: the import is refused, and both sessions stay.
-# $KOTO_LEGACY_ENV_ARG: #483.
-B koto init "$S" $KOTO_LEGACY_ENV_ARG --template "$TEMPLATE" --var PLAN_DOC="$PLAN" --var PLAN_SLUG=move \
+# A live execute-move on h2, whose store holds its own session under the
+# name: the import is refused, and both sessions stay. $KOTO_LEGACY_ENV_ARG: #483.
+C koto init "$S" $KOTO_LEGACY_ENV_ARG --template "$TEMPLATE" --var PLAN_DOC="$PLAN" --var PLAN_SLUG=move \
     --var PLUGIN_ROOT="$PLUGIN_ROOT_VAR" --var MERGE=false >"$CASE/init.out" 2>&1 \
-    || fail "B: koto init of a live $S: $(cat "$CASE/init.out")"
+    || fail "h2: koto init of a live $S: $(cat "$CASE/init.out")"
 REC_A=$(record_of A)
-CTX_B=$(B koto context list "$S" 2>/dev/null)
-IMP=$(B bash "$SS" import execute move --from "$WS_A" 2>"$CASE/import.err")
+CTX_C=$(C koto context list "$S" 2>/dev/null)
+IMP=$(C bash "$SS" import execute move --from "$WS_A" 2>"$CASE/import.err")
 IMP_RC=$?
 CODE=$(sed -n "s/^failed=$S code=//p" <<<"$IMP")
 if [ "$IMP_RC" -eq 1 ] && [[ $CODE =~ ^[a-z_]+$ ]] && [ "$CODE" != unparseable ]; then
-    pass "B: an import onto a live $S is refused with koto's code ($CODE)"
+    pass "h2: an import onto a live $S is refused with koto's code ($CODE)"
 else
-    fail "B: the import onto a live session: rc=$IMP_RC out=[$IMP] stderr=[$(cat "$CASE/import.err")]"
+    fail "h2: the import onto a live session: rc=$IMP_RC out=[$IMP] stderr=[$(cat "$CASE/import.err")]"
 fi
 [ "$(state_in A)" = paused_awaiting_merges ] && [ "$(record_of A)" = "$REC_A" ] \
     && pass "A: the refused import leaves A's session and record as they were" \
@@ -308,10 +318,9 @@ if A koto status "$S" > "$CASE/status-a.json" 2>&1 && ! grep -q session_migrated
 else
     fail "A: status after the refused import: $(head -c 300 "$CASE/status-a.json")"
 fi
-[ "$(state_in B)" = coord_setup ] && [ "$(B koto context list "$S" 2>/dev/null)" = "$CTX_B" ] \
-    && pass "B: the live session is unchanged, at coord_setup with the same context" \
-    || fail "B: the live session after the refused import: at $(state_in B)"
-B koto session cleanup "$S" >/dev/null 2>"$CASE/cleanup.err" || fail "B: cleanup of the live session: $(cat "$CASE/cleanup.err")"
+[ "$(state_in C)" = coord_setup ] && [ "$(C koto context list "$S" 2>/dev/null)" = "$CTX_C" ] \
+    && pass "h2: the live session is unchanged, at coord_setup with the same context" \
+    || fail "h2: the live session after the refused import: at $(state_in C)"
 
 IMP=$(B bash "$SS" import execute move --from "$WS_A" 2>"$CASE/import.err")
 IMP_RC=$?
