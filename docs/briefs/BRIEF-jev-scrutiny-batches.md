@@ -1,6 +1,6 @@
 ---
 schema: brief/v1
-status: Draft
+status: Accepted
 problem: |
   /work-on's scrutiny panel spawns three reviewer subagents on every
   standard or full run, and nobody has measured which of their questions a
@@ -20,7 +20,7 @@ outcome: |
 
 ## Status
 
-Draft
+Accepted
 
 ## Problem Statement
 
