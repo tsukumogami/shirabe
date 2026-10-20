@@ -41,7 +41,7 @@ fresh() { # a new copy of the clean workflows in $CASE
 edit() {
     sed -e "$2" "$CASE/$1" >"$CASE/$1.new" && mv "$CASE/$1.new" "$CASE/$1"
 }
-check() { # check [--suites]
+check() { # check [--suites|--workflows]
     RC=0
     OUT=$(CHECK_MACOS_FLOOR_SETUP_DIR="$CASE" "$CHECK" "$@" 2>&1) || RC=$?
 }
@@ -61,6 +61,14 @@ if [ "$RC" -eq 0 ] && [ "$OUT" = '["demo", "other"]' ]; then
     pass "--suites lists the macOS floor suites, not a docker-only one or macos-floor.yml's own"
 else
     fail "--suites (rc=$RC): $OUT"
+fi
+
+fresh
+check --workflows
+if [ "$RC" -eq 0 ] && [ "$OUT" = '["floor-a.yml", "floor-b.yml"]' ]; then
+    pass "--workflows lists the workflows that run the floor suites, not macos-floor.yml"
+else
+    fail "--workflows (rc=$RC): $OUT"
 fi
 
 fresh
