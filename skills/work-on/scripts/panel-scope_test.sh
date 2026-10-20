@@ -938,8 +938,8 @@ rm -f "$SHADOW_LOG"
 record scrutiny "$ALL_PASS"
 HEAD_SHA=$(cd "$FX/repo" && git rev-parse HEAD)
 TOP=$(cd "$FX/repo" && git rev-parse --show-toplevel)
-# This session's line only: a stand-in an earlier case started can still be
-# writing when the log is removed.
+# Here and below, each wait reads this case's line only: a stand-in an earlier
+# case started can still be writing when the log is removed.
 if wait_for_log 1 "--session shadow "; then
     GOT=$(grep -- "--session shadow " "$SHADOW_LOG")
     [ "$GOT" = "site work-on --session shadow --panel scrutiny --head $HEAD_SHA --repo-path $TOP" ] \
@@ -952,7 +952,7 @@ for p in review light; do
     rm -f "$SHADOW_LOG"
     seat=pragmatic; [ "$p" = light ] && seat=reviewer
     record "$p" "[{\"seat\":\"$seat\",\"blocking_count\":0}]"
-    wait_for_log 1 && grep -q -- "--panel $p " "$SHADOW_LOG" \
+    wait_for_log 1 "--session shadow --panel $p " \
         && pass "--record $p starts the shadow" || fail "--record $p: shadow log [$(cat "$SHADOW_LOG" 2>/dev/null)]"
 done
 for optin in "" 0 1; do
@@ -961,7 +961,7 @@ for optin in "" 0 1; do
     autorun "$WORKDIR/round.json"
     (cd "$FX/repo" && PATH="$SHIM_BIN:$PATH" REVIEW_SHADOW_SITES="$optin" "$SCRIPT" --record scrutiny "$SESSION" \
         "$WORKDIR/round.json" 2>"$WORKDIR/stderr")
-    wait_for_log 1 && pass "--record starts the shadow with REVIEW_SHADOW_SITES=[$optin]; the site command applies the opt-in" \
+    wait_for_log 1 "--session shadow --panel scrutiny " && pass "--record starts the shadow with REVIEW_SHADOW_SITES=[$optin]; the site command applies the opt-in" \
         || fail "--record skipped the shadow with REVIEW_SHADOW_SITES=[$optin]"
 done
 rm -f "$SHADOW_LOG"
