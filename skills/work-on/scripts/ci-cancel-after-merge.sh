@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# ci-cancel-after-merge.sh -- for /work-on: may a MERGED pull request's cancelled
-# macOS floor checks count as resolved?
+# ci-cancel-after-merge.sh -- for /work-on and /execute: may a MERGED pull
+# request's cancelled macOS floor checks count as resolved?
 # Part of the work-on skill
 #
 # When a pull request closes, MERGED included,
@@ -12,16 +12,27 @@
 # watching CI when its pull request MERGED could only end at done_blocked
 # (#952).
 #
-# koto runs this as the fallback of `ci_passing` in work-on.md, reached only
-# when the gate's own filter says not green; the agent never runs it. It
-# passes only when every one of these holds:
+# koto runs this as the fallback of `ci_passing` in work-on.md and of
+# `owned_ci_passing` in execute.md, reached only when the gate's own filter
+# says not green; the agent never runs it. The rule lives here alone, and both
+# templates call this copy (#958). It passes only when every one of these
+# holds:
 #
 #   - the repository has an executable scripts/check-macos-floor-setup.sh,
 #     the parse close-cancel and macos-floor.yml read their workflow lists
 #     from. A repository without one (tsuku, koto, niwa) gets a quiet exit 1,
 #     before any network call: its behaviour is unchanged.
-#   - GitHub reports the pull request MERGED. `gh pr list --head` lists open
-#     pull requests only, so a number from it means open, and exit 1.
+#   - GitHub reports the pull request MERGED. Which pull request depends on
+#     the caller:
+#       /work-on (no --owned): the current branch's. `gh pr list --head`
+#       lists open pull requests only, so a number from it means open, and
+#       exit 1; otherwise `gh pr view` on the branch finds the MERGED one.
+#       /execute (--owned <owned-pr.sh arguments>): the one owned-pr.sh
+#       resolves with those arguments, the run's own by its run-id marker and
+#       never just the branch's, since another run can hold a pull request on
+#       the same head. An empty or failed lookup is exit 1. owned-pr.sh is the
+#       execute skill's copy under the same plugin root, found the way
+#       check-pr-output.sh finds it.
 #   - every check outside the pass and skipping buckets is in the cancel
 #     bucket, and there is at least one. A pending or failed check blocks.
 #   - each such check's link is an Actions run of this pull request's own
@@ -41,13 +52,14 @@
 # one line naming the first blocking check on a MERGED pull request, which is
 # what the agent reads before choosing failing_unresolvable.
 #
-# Usage: ci-cancel-after-merge.sh <koto-session-name>
+# Usage: ci-cancel-after-merge.sh <koto-session-name> [--owned <owned-pr.sh arguments>...]
 #
 # Exit codes:
 #   0 -- MERGED, and every non-green check is a cancelled floor-workflow run;
 #        the note is recorded
-#   1 -- anything else, including a missing session argument. ci_monitor's
-#        edges match exit 0 and 1 only, so this script never exits otherwise.
+#   1 -- anything else, including a missing session argument or a malformed
+#        --owned. ci_monitor's edges match exit 0 and 1 only, so this script
+#        never exits otherwise.
 #
 # Bash 3.2: no associative arrays, no mapfile.
 set -uo pipefail
@@ -57,27 +69,50 @@ no() {
     exit 1
 }
 
+USAGE="usage: ci-cancel-after-merge.sh <koto-session-name> [--owned <owned-pr.sh arguments>...]"
 SESSION="${1:-}"
-[ -n "$SESSION" ] || no "usage: ci-cancel-after-merge.sh <koto-session-name>"
+[ -n "$SESSION" ] || no "$USAGE"
+shift
+OWNED=0
+if [ $# -gt 0 ]; then
+    [ "$1" = --owned ] && [ $# -gt 1 ] || no "$USAGE"
+    OWNED=1
+    shift
+fi
 
 TOP=$(git rev-parse --show-toplevel) || no
 FLOOR="$TOP/scripts/check-macos-floor-setup.sh"
 [ -x "$FLOOR" ] || no
 
-BRANCH=$(git rev-parse --abbrev-ref HEAD) || no
-OPEN=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number // empty') || no
-[ -z "$OPEN" ] || no
+if [ "$OWNED" = 1 ]; then
+    # The rest of the arguments are owned-pr.sh's, passed as given. Its answer
+    # is one URL or nothing, and its own diagnostics pass through.
+    HERE=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || no
+    OWNED_PR="$HERE/../../execute/scripts/owned-pr.sh"
+    [ -x "$OWNED_PR" ] || no "owned-pr.sh not found at $OWNED_PR"
+    SELECTOR=$("$OWNED_PR" "$@" </dev/null) || no
+    [ -n "$SELECTOR" ] || no
+    PR=$(gh pr view "$SELECTOR" --json number,state,url --jq '[.number, .state, .url] | @tsv' </dev/null) || no
+else
+    BRANCH=$(git rev-parse --abbrev-ref HEAD) || no
+    OPEN=$(gh pr list --head "$BRANCH" --json number --jq '.[0].number // empty') || no
+    [ -z "$OPEN" ] || no
 
-# The current-branch lookup, the one the gate's own `gh pr checks` falls back
-# to, finds a MERGED pull request.
-PR=$(gh pr view --json number,state,url --jq '[.number, .state, .url] | @tsv') || no
+    # The current-branch lookup, the one the gate's own `gh pr checks` falls
+    # back to, finds a MERGED pull request.
+    PR=$(gh pr view --json number,state,url --jq '[.number, .state, .url] | @tsv') || no
+fi
 IFS=$'\t' read -r NUMBER STATE URL <<<"$PR"
 [ "$STATE" = MERGED ] || no
 [ -n "$NUMBER" ] && [ -n "$URL" ] || no "could not read the pull request's number and URL"
 REPO_URL="${URL%/pull/*}"
 REPO="${REPO_URL#*://*/}"
+# /work-on reads the checks by number from the checked-out repository, as it
+# always has. /execute reads them by the URL its lookup answered, which names
+# the repository the run recorded.
+[ "$OWNED" = 1 ] || SELECTOR="$NUMBER"
 
-CHECKS=$(gh pr checks "$NUMBER" --json bucket,name,workflow,link \
+CHECKS=$(gh pr checks "$SELECTOR" --json bucket,name,workflow,link \
     --jq '.[] | select(.bucket != "pass" and .bucket != "skipping") | [.bucket, .name, .workflow, .link] | map(. // "" | tostring) | join("\u001f")') \
     || no "could not read the checks of #$NUMBER"
 [ -n "$CHECKS" ] || no

@@ -366,7 +366,11 @@ leg, since one leg answers one session.
   `ci_cancelled_after_merge.txt`; otherwise 1. It matches by workflow and the
   PR's state, not by when the cancel happened, and close-cancel cancels whole
   runs, so a Linux job of a floor workflow counts too; a failed one still
-  blocks. A repo without that script gets a quiet 1. `scripts/ci-cancel-after-merge_test.sh` is its harness.
+  blocks. A repo without that script gets a quiet 1. `/execute`'s
+  `owned_ci_passing` runs the same script with `--owned <owned-pr.sh arguments>`,
+  which judges the PR that run owns instead of the current branch's, so the
+  rule has one copy. `scripts/ci-cancel-after-merge_test.sh` is its harness, and
+  `skills/execute/scripts/owned-ci-cancel_test.sh` covers `--owned`.
 - `scripts/record-changed-paths.sh --base|--write <session-name>` — run by koto
   itself, never by the agent: `analysis` runs `--base` on entry to record
   `impl_base` once, and `changed_paths_record` runs `--write` to put

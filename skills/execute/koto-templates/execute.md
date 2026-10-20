@@ -752,16 +752,33 @@ states:
       # `run-id.sh get` only reads: the id was minted by execute-open.sh, and a
       # failed read fails the gate rather than giving the run a new identity.
       #
+      # All three gates look up with --state open-else-merged (#958): the open
+      # PR while there is one, exactly as --state open answers, and the run's
+      # MERGED PR once it has merged. With --state open, a PR that merged while
+      # the run watched CI was no PR at all, and monitor_owned_pr's exit 3 ended
+      # the run at execute:pr-adopt. A MERGED PR's merge state reads UNKNOWN,
+      # which owned_merge_state_clean passes.
+      #
+      # owned_ci_passing keeps the filter above and falls back, only when it
+      # says not green, to work-on's ci-cancel-after-merge.sh, the one copy of
+      # the rule work-on.md's ci_passing uses: since #950, closing a PR cancels
+      # its unfinished macOS floor runs, and a MERGED PR whose only non-green
+      # checks are those cancels passes, with them recorded in context as
+      # ci_cancelled_after_merge.txt. --owned hands it this same lookup, so it
+      # judges the run's own PR and never just the branch's. The trailing
+      # `|| exit 1` holds the gate to 0 or 1 even if the script can't run.
+      #   semantics: skills/execute/scripts/owned-ci-cancel_test.sh
+      #
       # owned_merge_state_clean exits 1 only when GitHub reports DIRTY, since
       # koto routes that answer to escalate_dirty_merge_state with no evidence.
       # A read that returned nothing (a failed lookup or gh call) is 2, which
       # matches no edge, so the run holds and the next tick reads again.
       owned_ci_passing:
         type: command
-        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr checks {} --json bucket --jq '[.[] | select(.bucket != \"pass\" and .bucket != \"skipping\")] | length == 0' | grep -q true || \"{{PLUGIN_ROOT}}/skills/work-on/scripts/ci-cancel-after-merge.sh\" execute-{{PLAN_SLUG}} --owned --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" || exit 1"
       owned_merge_state_clean:
         type: command
-        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk '$0 == \"DIRTY\" {dirty = 1} NF && $0 != \"DIRTY\" {ok = 1} END {exit ok ? 0 : (dirty ? 1 : 2)}'"
+        command: "{{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh --repo \"$(koto context get execute-{{PLAN_SLUG}} repos)\" --head \"$(koto context get execute-{{PLAN_SLUG}} settled_branch)\" --state open-else-merged --run-id \"$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get execute-{{PLAN_SLUG}})\" | xargs -r -I{} gh pr view {} --json mergeStateStatus --jq .mergeStateStatus | awk '$0 == \"DIRTY\" {dirty = 1} NF && $0 != \"DIRTY\" {ok = 1} END {exit ok ? 0 : (dirty ? 1 : 2)}'"
       # A routing gate (DESIGN-output-gates Decision 9): the same lookup the
       # two gates above run, through check-pr-output.sh --owned-pr, so its
       # answer routes. 0 is exactly one owned PR; 3 (none or several) and 2 (a
@@ -771,7 +788,7 @@ states:
       monitor_owned_pr:
         type: command
         overridable: false
-        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
+        command: 'test -x "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" || exit 2; "{{PLUGIN_ROOT}}/skills/work-on/scripts/check-pr-output.sh" --owned-pr --repo "$(koto context get execute-{{PLAN_SLUG}} repos)" --head "$(koto context get execute-{{PLAN_SLUG}} settled_branch)" --state open-else-merged --run-id "$("{{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh" get execute-{{PLAN_SLUG}})"'
     accepts:
       ci_outcome:
         type: enum
@@ -1621,11 +1638,13 @@ You see this state only while `owned_ci_passing` fails on a clean PR: a check fa
 ```bash
 PR=$({{PLUGIN_ROOT}}/skills/execute/scripts/owned-pr.sh \
   --repo "$(koto context get {{SESSION_NAME}} repos)" \
-  --head "$(koto context get {{SESSION_NAME}} settled_branch)" --state open \
+  --head "$(koto context get {{SESSION_NAME}} settled_branch)" --state open-else-merged \
   --run-id "$({{PLUGIN_ROOT}}/skills/execute/scripts/run-id.sh get {{SESSION_NAME}})")
 ```
 
 Empty output or a non-zero exit means no single owned PR this run can use, or a failed read; tick with nothing submitted, and `monitor_owned_pr` ends the run.
+
+The lookup follows the PR past its merge: once it is MERGED, the three gates read it rather than finding nothing. Since a closed PR's unfinished macOS floor runs are cancelled, a MERGED PR whose only non-green checks are those cancels passes `owned_ci_passing` and routes as green, and koto records the cancelled checks as `ci_cancelled_after_merge.txt`; name them in what you report. A MERGED PR with a failed check, or a cancel outside those workflows, still fails the gate here. You can't push a fix to a merged PR, so submit `ci_outcome: failing_unresolvable` naming the check.
 
 If the gate fails because a check failed, read which failed with `gh pr checks "$PR"` and its log with `gh run view <run-id> --log-failed`, fix what you can, push the fix, and submit `ci_outcome: failing_fixed`. **Every fix push goes through `push-and-record.sh`**, which records the pushed commit as the run's expected head. A bare `git push` would leave the record behind the PR's head, and the merge step would then refuse to merge (`head-moved`):
 
