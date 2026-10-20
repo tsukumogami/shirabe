@@ -3,9 +3,10 @@
 #
 # Every rule a gate script reports, every review-shadow criterion, and every
 # rule a script releases on a trigger has one entry in the registry. This script
-# is how scripts read an entry: the gate scripts call `ref` and `summary` for the
-# rule_ref and message prefix of each finding, a trigger calls `release`, and
-# the gate scripts' test suites call `verify-findings` on what they printed.
+# is how scripts read an entry: the gate scripts call `resolve` for the
+# rule_ref, message prefix and stage of each finding, a trigger calls
+# `release`, and the gate scripts' test suites call `verify-findings` on what
+# they printed.
 # references/rule-registry.md documents the fields; DESIGN-rule-registry.md
 # says why the reference is computed here rather than stored.
 #

@@ -80,12 +80,13 @@
 #                              placeholders the agent fills from the koto
 #                              response it holds
 #
-# Stages. A rule's stage (`scripts/rule-registry.sh stage`) decides how its
-# findings print, not whether the check runs: the check still runs and its
-# finding is still built and validated, then printed at the stage's level, or
-# not at all at `retired`. RF_BLOCKING counts the findings that printed at
-# `block`; it is the count for a gate script's exit to read, so a rule below
-# block can report without holding the gate. The counters live in the script's main shell, so
+# Stages. A rule's stage, read with its ref and summary in one
+# `scripts/rule-registry.sh resolve` call per rule, decides how its findings
+# print, not whether the check runs: the check still runs and its finding is
+# still built and validated, then printed at the stage's level, or not at all
+# at `retired`. RF_BLOCKING counts the findings that printed at `block`; it is
+# the count for a gate script's exit to read, so a rule below block can report
+# without holding the gate. The counters live in the script's main shell, so
 # findings must be printed from it, not from a subshell or a pipeline.
 #
 # Every printed finding also goes to `scripts/rule-registry.sh log-finding`,

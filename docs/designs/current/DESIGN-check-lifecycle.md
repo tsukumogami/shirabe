@@ -368,8 +368,7 @@ tab-separated, from one jq pass, so the library adds no registry call per rule
 `verify-findings [--stage-source <id>] <log>` also fails a finding whose level
 isn't the one its rule's stage maps to; with `--stage-source`, the stage is
 that rule's instead, which is how `panel-scope.sh`'s suite verifies findings
-printed under cited rules at `panel/open-finding`'s stage. `verify-findings` also fails a finding whose level isn't the
-one its rule's stage maps to.
+printed under cited rules at `panel/open-finding`'s stage.
 
 **`scripts/lib/rule-findings.sh`**:
 

@@ -42,8 +42,9 @@ Three details:
   `panel/open-finding`, whichever rule the finding cites: the stage governs a
   deterministic check, and a reviewer's finding isn't one.
 
-A gate script reads a rule's stage through `scripts/rule-registry.sh stage`
-(or `resolve`, which prints the reference, summary and stage on one line). The
+A gate script reads a rule's stage through `scripts/rule-registry.sh resolve`,
+which prints the reference, summary and stage on one line, one call per rule;
+`scripts/rule-registry.sh stage` prints the stage alone, for inspection. The
 plugin's pre-action hook (`hooks/pre-action-deny.sh`) ignores stage: a rule's
 `deny` keeps denying at every stage.
 
@@ -82,11 +83,14 @@ entry per protected action it guards, each naming the action (`before`) and a
 deterministic check (`check`, a repository path other than the rule's own
 check) that still blocks that action when the rule is broken, with `notes`
 saying why. This holds for every other stage, `retired` included. The registry
-check refuses the entry otherwise, and `scripts/rule-registry.sh stage` repeats
-the rule when a gate runs: a guarded rule below `block` without full backstops
-is read as `block`, so a registry edited without passing CI can't soften it.
-Whether a named check really blocks the action is the reviewer's call; the
-checks confirm only that the file exists and isn't the rule's own.
+check refuses the entry otherwise, and `scripts/rule-registry.sh` repeats the
+rule when a gate reads the stage: a guarded rule below `block` without full
+backstops is read as `block`, so a registry edited without passing CI can't
+soften it. At run time a backstop's `check` path must exist under the
+installed plugin's root, so a backstop the plugin doesn't ship leaves the rule
+read as `block`, the safe direction. Whether a named check really blocks the
+action is the reviewer's call; the checks confirm only that the file exists
+and isn't the rule's own.
 
 ## Figures
 
