@@ -25,8 +25,10 @@
 # Then the rule every follow-up is held to (coord_follow_up_check, read live:
 # the default branch as base, not a fork, the authenticated author, not
 # closed) refuses with `merge-refused:follow-up-<base|author|closed>`, and
-# one already MERGED prints `merged` with no call. No owned-branch lookup and
-# no merge-last gate apply to it; the merge itself is a node's.
+# a follow-up already MERGED (a person merged it) prints `merged` and the
+# render's lines with no merge call, as a merge it confirmed would. No
+# owned-branch lookup and no merge-last gate apply to it; the merge itself is
+# a node's.
 #
 # For the coordination PR it first brings the body up to date with the
 # record (`coord-render.sh --before-coordination`): CI's merge-last gate reads
@@ -34,8 +36,11 @@
 # the merge with no call, prints `merge-refused:body-stale` (or
 # `merge-refused:body-full`), and the render has recorded
 # `coordination:body-stale` (or `body-full`) in the session's merge_attempts.
-# Then it re-reads the coordination PR and runs the merge-last gate itself:
-# `shirabe validate --merge-gate --mode=ready` over the body index's refs, with
+# Then it re-reads the coordination PR for its state (it must still be open)
+# and runs the merge-last gate itself: `shirabe validate --merge-gate
+# --mode=ready` over the refs of the index in the body this run just rendered
+# and posted (or found already equal), which the render hands back through
+# `--rendered-out`, never over a re-read of the live body, with
 # any entry pointing at the coordination PR itself dropped (the coordination PR
 # can't wait on its own merge), and with `--visibility private` when the home
 # repository reads private live (repo-visibility.sh's read), so a private
@@ -79,14 +84,15 @@
 # date), `merge-refused:merge-gate`, `merge-refused:squash-message`, or, for a
 # follow-up, `merge-refused:predecessor-unmerged` or
 # `merge-refused:follow-up-<base|author|closed>`; a follow-up already MERGED
-# prints `merged` alone.
+# prints `merged` and the render's lines.
 #
 # Exit codes:
 #   0   a line was printed (a refusal included)
 #   64  usage error
 #   70  the merge_attempts write failed, or the run's identity could not be
 #       read (run-id.sh get)
-#   72  a GitHub read failed, or the run record could not be read
+#   72  a GitHub read failed, the run record could not be read, or there was
+#       no temporary directory for the coordination PR's rendered body
 #       (execute:status-read)
 #   73  the recorded PR is not the one owned PR on its branch, the run record
 #       has no PR for the node, holds no live follow-up of that number, or one
@@ -164,17 +170,28 @@ record_attempt() {
     coord_record_attempt "$SESSION" "$NODE" "$1" || exit 70
 }
 
-# render [--before-coordination] -- coord-render.sh over the record. Sets
+# render [--before-coordination [--rendered-out <file>]] -- coord-render.sh
+# over the record. Sets
 # RENDER_OUT (its stdout) and returns its exit code.
 render() {
     RENDER_OUT=$("$BASH" "$COORD_SELF_DIR/coord-render.sh" --session "$SESSION" --slug "$SLUG" \
         --home-repo "$HOME_REPO" --coord-branch "$CB" "$@" </dev/null)
 }
 
+SCRATCH=""
+cleanup() { [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"; return 0; }
+trap cleanup EXIT
 if [ "$NODE" = coordination ]; then
     # The body CI's merge-last gate reads, brought up to date first; a render
-    # that couldn't post it refuses the merge (and has recorded why).
-    render --before-coordination
+    # that couldn't post it refuses the merge (and has recorded why). The
+    # render hands back the bytes it posted or found equal, which are what the
+    # gate below reads.
+    SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/coord-merge.XXXXXX") || {
+        SCRATCH=""
+        echo "$PROG: no temporary directory for the rendered body; nothing was merged" >&2
+        exit 72
+    }
+    render --before-coordination --rendered-out "$SCRATCH/body.md"
     rc=$?
     printf '%s\n' "$RENDER_OUT" | grep -v '^merge-refused:' >&2
     case "$rc" in
@@ -192,7 +209,8 @@ if [ "$NODE" = coordination ]; then
         printf '%s\n' "$REFUSED"
         exit 0
     fi
-    # The body just rendered, for the gate's refs.
+    # The coordination PR again, for its state only: it must still be the
+    # recorded open PR. Its body is not read here.
     coord_recorded_pr "$SESSION" "$HOME_REPO" open
     case $? in
         0) ;;
@@ -200,8 +218,6 @@ if [ "$NODE" = coordination ]; then
         *) exit 73 ;;
     esac
 fi
-# The body is read only for the merge-last gate's refs below.
-BODY=$(printf '%s' "$C_JSON" | jq -r '.body // ""')
 
 if [ "$NODE" = coordination ]; then
     REPO="$HOME_REPO"; PR="$C_NUM"
@@ -255,8 +271,13 @@ elif [ -n "$FU_OF" ]; then
         exit 0
     fi
     if [ "$FU_STATE" = MERGED ]; then
-        # Already merged (a person merged it): nothing to call.
+        # Already merged (a person merged it): nothing to call, and the body
+        # records its merged head as after a merge this run confirmed.
         printf 'merged\n'
+        render
+        rc=$?
+        printf '%s\n' "$RENDER_OUT"
+        [ "$rc" -eq 77 ] && exit 77
         exit 0
     fi
 else
@@ -294,8 +315,14 @@ if ! [[ $HEAD =~ $RE_COORD_SHA ]]; then
 fi
 
 if [ "$NODE" = coordination ]; then
-    # The merge-last gate, over every indexed PR but the coordination PR itself.
-    REFS=$(printf '%s\n' "$BODY" | bash "$REPO_ROOT/scripts/coordination-gate-refs.sh" "$HOME_REPO" "$C_NUM") || REFS=""
+    # The merge-last gate, over every indexed PR but the coordination PR
+    # itself, read from the body the render just posted or found equal.
+    REFS=""
+    if [ -f "$SCRATCH/body.md" ]; then
+        REFS=$(bash "$REPO_ROOT/scripts/coordination-gate-refs.sh" "$HOME_REPO" "$C_NUM" < "$SCRATCH/body.md") || REFS=""
+    else
+        echo "$PROG: the render handed back no body for the merge-last gate" >&2
+    fi
     set --
     while IFS= read -r ref; do
         [ -n "$ref" ] && set -- "$@" --pr "$ref"
