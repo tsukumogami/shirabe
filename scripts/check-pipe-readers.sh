@@ -28,17 +28,23 @@
 # (the same grep flags, head, or a lone `read`) as the third or a later stage
 # of a pipeline, `... | sed ... | grep -q`, `... | grep ... | head -1 | cut`.
 # When it exits, the stage before it takes SIGPIPE in the same way. Capture
-# the middle stage first and match with a here-string, or let one command do
-# both: `sed -n '/re/{s///p;q;}' <<<"$v"`, `grep -m1`. A pipeline whose next
-# line reads the reader's status from PIPESTATUS is left alone: that status is
-# the reader's own, whatever the cut-off stage got.
+# the middle stage first and match with a here-string, take the first line of
+# a captured value with `${m%%$'\n'*}`, or let one command that reads a file
+# or here-string do both: `sed -n '/re/{s///p;q;}' <<<"$v"`,
+# `grep -m1 re file`. (A here-string is a temporary file in bash 3.2; one
+# that can't be made skips the command, which then reads as a no match.) One shape is left
+# alone: the reader is the last stage and the very next line reads its own
+# status, `rc=${PIPESTATUS[2]}` after a three-stage pipeline, since that
+# status is the reader's whatever the cut-off stage got.
 # The rules apply whether or not the file sets pipefail: a function is
 # sourced into shells that do, and a script gains it later.
 #
 # Not seen, and left to review: a writer whose arguments hold a `|`, `;`, `&&`
 # or a command substitution (`echo "$(cmd)" | grep -q x`); a line that ends
-# in `|` with the reader on the next; a two-stage `cmd | head` whose writer is
-# a program rather than printf, echo or cat; a pipeline written with no space
+# in `|` with the reader on the next; a reader in the second stage behind a
+# program rather than printf, echo or cat (`git ls-remote | head -1`,
+# `tail | grep -m1 x | cut`), which this sweep drains where it found one but
+# the check leaves to review; a pipeline written with no space
 # inside any stage (`a|b|head`), which reads as a case pattern list;
 # a reader behind an assignment whose value holds a space (`X="a b" grep -q`),
 # behind a command prefix (`command grep`, `env X=1 grep`, `/usr/bin/grep`)
@@ -138,13 +144,18 @@ SITES=$(printf '%s\n' "$LIST" | tr '\n' '\0' | xargs -0 awk '
       if (segs[j] !~ /[^ \t|][ \t]+[^ \t|]/) continue
       nst = split(segs[j], stages, "|")
       for (k = 3; k <= nst; k++)
-        if (stages[k] ~ /^[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*(head([ \t]|$)|read([ \t]|$)|grep[ \t]([^<>]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) return 1
+        if (stages[k] ~ /^[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t]*[ \t]+)*(head([ \t]|$)|read([ \t]|$)|grep[ \t]([^<>]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) {
+          # PIPESTATUS counts from 0; the reader is stage k.
+          late_idx = (k == nst) ? k - 1 : -1
+          return 1
+        }
     }
     return 0
   }
-  # A site of the second rule waits one line: when the next line reads the
-  # status from PIPESTATUS, the status the reader itself gave is taken and
-  # pipefail decides nothing, so the site is dropped.
+  # A site of the second rule waits one line. When the reader is the last
+  # stage and the very next line reads its own status, PIPESTATUS[<its
+  # index>], pipefail decides nothing and the site is dropped. Any other
+  # index, a reader before the last stage, or a line in between keeps it.
   function flush_pending() { if (pending != "") print pending; pending = "" }
   FNR == 1 { flush_pending(); held = ""; start = 0 }
   {
@@ -153,13 +164,15 @@ SITES=$(printf '%s\n' "$LIST" | tr '\n' '\0' | xargs -0 awk '
     if (line ~ /\\$/) { held = substr(line, 1, length(line) - 1); next }
     held = ""
     if (line ~ /^[ \t]*#/) next
-    if (pending != "") { if (line ~ /PIPESTATUS/) pending = ""; else flush_pending() }
+    if (pending != "") {
+      if (pending_idx >= 0 && index(line, "PIPESTATUS[" pending_idx "]") > 0) pending = ""; else flush_pending()
+    }
     if (line ~ /(^|[;&|(){!`])[ \t]*((then|do|else|if|elif|while|until)[ \t]+)*(![ \t]*)?(printf|echo|cat)([ \t]([^|;&$`]|&[0-9-]|\$[^(|])*)?\|[ \t]*([A-Za-z_][A-Za-z0-9_]*=[^ \t|;&]*[ \t]+)*(head([ \t)]|$)|grep[ \t]([^|;&)]*[ \t])?(-[A-Za-z]*[qlLm]|--(quiet|silent|files-with(out)?-match(es)?|max-count)))/) {
       sub(/^[ \t]+/, "", line)
       printf "%s:%d: %s\n", FILENAME, start, line
     } else if (late_reader(line)) {
       sub(/^[ \t]+/, "", line)
-      pending = sprintf("%s:%d: %s", FILENAME, start, line)
+      pending = sprintf("%s:%d: %s", FILENAME, start, line); pending_idx = late_idx
     }
   }
   END { flush_pending() }')

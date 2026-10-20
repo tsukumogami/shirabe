@@ -623,7 +623,8 @@ handle_roadmap() {
 
     # Find the line number of the Downstream: field referencing the plan slug
     local downstream_line
-    downstream_line=$(grep -n -F "$plan_slug" "$path" | grep -i -m1 "Downstream:" | cut -d: -f1) || true
+    downstream_line=$(grep -n -F "$plan_slug" "$path" | grep -i "Downstream:" | cut -d: -f1) || true
+    downstream_line=${downstream_line%%$'\n'*}
 
     if [[ -z "$downstream_line" ]]; then
         ANY_FAILED=true

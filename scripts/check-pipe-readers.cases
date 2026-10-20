@@ -38,4 +38,7 @@ fine	sed quits by itself	t=$(sed -n '/^topic /{s///p;q;}' <<<"$v")
 fine	while read reads to the end	jq -r .x "$f" | tr -d y | while read -r l; do :; done
 fine	two stages from a program	jq -r .x "$f" | head -1
 fine	grep -c after a middle stage	n=$(jq -r .x "$f" | tr -d y | grep -c z)
-fine	the reader's status read from PIPESTATUS	jq -r .x "$f" | tr -d y | grep -q z<NL>rc=${PIPESTATUS[2]}
+fine	the reader's own status read from PIPESTATUS on the next line	jq -r .x "$f" | tr -d y | grep -q z<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS read at another stage's index	jq -r .x "$f" | tr -d y | grep -q z<NL>rc=${PIPESTATUS[0]}
+refused	PIPESTATUS read after a line in between	jq -r .x "$f" | tr -d y | grep -q z<NL>: other<NL>rc=${PIPESTATUS[2]}
+refused	PIPESTATUS after a reader that is not the last stage	jq -r .x "$f" | tr -d y | head -1 | cut -c1<NL>rc=${PIPESTATUS[2]}
