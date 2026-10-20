@@ -15,7 +15,8 @@ goals: |
   state, its verdicts land in the findings ledger under a seat's closing
   rules, and an unanswered batch never passes. No seat changes, and the rule
   for replacing one is written down for the first promotion that needs it.
-upstream: docs/briefs/BRIEF-jev-scrutiny-batches.md
+absorbed:
+  - docs/briefs/BRIEF-jev-scrutiny-batches.md
 ---
 
 # PRD: Jev batches for scrutiny review
@@ -23,6 +24,41 @@ upstream: docs/briefs/BRIEF-jev-scrutiny-batches.md
 ## Status
 
 Accepted
+
+The completeness, clarity and testability reviewers passed it over two rounds.
+The downstream DESIGN owns the approach.
+
+Absorbed [BRIEF-jev-scrutiny-batches](docs/briefs/BRIEF-jev-scrutiny-batches.md); carried in Absorbed Brief.
+
+## Absorbed Brief
+
+The feature exists so a maintainer can say, with figures, which scrutiny
+reviewers a Jev check could stand in for, and so the one check that fits runs
+where its verdicts are counted and closed like a reviewer's without ever
+standing in for review it didn't do. The brief framed two gaps: nobody had
+measured the scrutiny seats' questions against jev-pass-trust's slice-contract
+test, and nothing said how a Jev verdict reaches the findings ledger or what a
+run does when the decider can't answer. The Problem Statement and Measured
+Context carry both, with the figures.
+
+The outcome it set: every scrutiny question on record with its contract and
+figures, rejected ones kept with the numbers that rejected them; the one that
+fits runs beside the three seats for users whose decider is on; its findings
+land where a seat's do, advisory until trusted; a missing verdict is never a
+pass; users see no change in which seats run; and the rule for replacing a seat
+is written before any seat qualifies. Goals and User Stories carry it.
+
+Its journeys were a maintainer asking which reviewers Jev could replace, a
+`/work-on` run with an active decider reaching scrutiny, the decider failing to
+answer, the batch failing a decision, and a maintainer promoting the batch.
+User Stories carry them, with the decider-off user added; R1, R7, R9 and R12
+make them testable.
+
+Its scope boundary put the contracts, one shadow batch, ledger reporting, the
+fallback, the live bar's not-graded rule and the written seat-replacement rule
+in; and seat replacement, larger budgets, the spike re-run, promotion,
+withholding, per-unit checks, other panels and juries, koto changes, offline
+evals and dashboards out. Requirements and Out of Scope carry it.
 
 ## Problem Statement
 
