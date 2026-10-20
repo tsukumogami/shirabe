@@ -125,8 +125,80 @@ The first trigger is `/execute`'s owned-PR lookup: when `adopt-or-create-pr.sh` 
 run's pull request on the plan's shared branch (its exit 6), it releases
 `execute/pr-takeover-needs-signal`.
 
-The second is `/work-on`'s PR-body gate: when `check-pr-output.sh` prints a
-`pr-body/no-heading-in-part1` finding, it releases that rule's text once.
+The second is `/work-on`'s PR-body gate, through the escalation ladder below: in a run
+whose template supplies the ladder's context, `pr-body/no-heading-in-part1` is released like
+every other rule, from its second failure. `check-pr-output.sh` run without that context
+(by `/execute`'s `pr_finalization`, by hand, or by a test) still releases it on every
+failure.
+
+## Escalating a rule's text
+
+A gate script prints each violation as a finding whose message starts with the rule's
+`summary`. When a fix doesn't land, the same rule fails again, and the gate hands over more of
+it each time. koto records, on every failed check event, how many times that check has failed
+on each rule in the state (`rule_counts[<id>].session`), and the gate reads that count rather
+than any number the agent supplies. `scripts/lib/rule-findings.sh` holds the ladder; a gate
+script that prints through it gets it from one call, `rf_deliver`, made just before the script
+exits non-zero. The design is `DESIGN-validate-and-return.md`.
+
+**The count.** For a rule the failing gate reports, the count is 1 plus the highest
+`rule_counts[<id>].session` on the `gate_evaluated` events already in the session's log whose
+`state` and `gate` are this gate's, which is the number koto then records for this failure. It
+counts failed evaluations, so a `koto next` that re-runs a failing gate without a change raises
+it like a failed fix does. The state is read from the log (the last `transitioned`,
+`directed_transition` or `rewound` event's `to`), never from the gate's command.
+
+**The rungs.**
+
+| Count | What the gate adds to its findings, on standard error |
+|---|---|
+| 1 | Nothing: the finding's summary is the first rung. |
+| 2 or more (`RF_FULL_TEXT_AT`) | `release <id>`, the rule's full text between its marker lines. For a rule `release` refuses, its refusal line and then `rule-findings: <id>'s full text is at <rule_ref>`, the file and line range to read. |
+| 3 or more (`RF_EXIT_AT`) | In a state with a named exit, one `::shirabe-check-exit::{json}` line naming the rule with the highest count (the first printed, on a tie), its count, the state and the exact evidence that takes the exit. |
+
+Both thresholds are defined once, at the top of `rule-findings.sh`.
+
+**The context.** The ladder runs only when the gate's command supplies it, as environment
+assignments written the same in every state that shares the command:
+
+```text
+SHIRABE_GATE_LOG="{{SESSION_DIR}}/koto-{{SESSION_NAME}}.state.jsonl"
+SHIRABE_GATE_NAME=<the gate's name>
+SHIRABE_GATE_EXITS="pr_creation:pr_status finalization:finalization_status pr_precheck:precheck_status"
+```
+
+`/work-on`'s template supplies it on its ten output gates. Without the log and the name,
+`rf_deliver` does nothing and the script prints what it always printed: a script run from an
+agent's shell, a test or `/execute` gets no ladder. With them, a log the ladder can't read
+(missing, not a schema-version-1 koto log, or no transition in it) releases every reported
+rule, prints one line naming the log, and offers no exit, since opening the exit needs a real
+count. `rf_deliver` writes only to standard error and returns 0, so a gate's exit status, its
+standard output and the findings koto records never change.
+
+**Rules `release` refuses.** Five rules a `/work-on` gate script can report have text `release`
+won't print, so their second rung is the refusal and the reference: `pr-body/banned-word` (its
+text is in `skills/writing-style/rules.yaml`), `pr-body/conformance` (over 60 lines), and
+`docs/private-only-type`, `docs/visibility-vision-sections` and
+`docs/visibility-strategy-sections` (in `docs/guides/doc-validation.md`). A test in
+`scripts/rule-registry_test.sh` pins that set.
+
+**The named exit.** `/work-on`'s `pr_creation`, `finalization` and `pr_precheck` hold the run
+on a violation. Each accepts `check_unsatisfiable` on its status field with a
+`check_exit_reason`, but only while its registry gate (`pr_body_conformant`,
+`commit_convention`, `branch_docs_visibility`) exits 1. The run goes through the marker state
+`check_exit` to `done_blocked`, its `failure_reason` reading `check_exit at <state>: <gate>
+could not be satisfied: <reason>`. The exit never moves a run past the gate it failed, so
+every rule that guards pull request creation, a push or a merge blocks as before. The count-3
+notice is when the gate offers it; the template doesn't refuse it earlier, since taking it
+gains nothing but a stopped run.
+
+**Counting it.** koto's run journal exports state names and rule counts but no evidence
+values. Runs that took the exit are its `state_entered` records with `koto.state` =
+`check_exit`; each is credited to the rules on the `check_rule` records of the same session at
+the exit's state with the highest `koto.seq` below it. Failures by rung are `check_rule`
+records split on `koto.rule.session_count`: 1 the summary, 2 or more the full text. Because
+submitting the exit re-runs the failing gate, the check just before `check_exit` carries one
+more than the count the notice showed.
 
 ## Leaving a rule out of a run
 
