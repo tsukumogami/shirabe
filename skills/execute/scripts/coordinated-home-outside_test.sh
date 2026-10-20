@@ -11,7 +11,8 @@
 # then coordinated-next.sh in a loop, performing each action it prints
 # (node-cut.sh and node-push.sh for a dispatch, `gh pr ready` for an evaluate,
 # coord-merge.sh for a merge, node-push.sh order and coordination around the
-# cascade). GitHub is the eval gh shim's repository model and koto the context
+# cascade, coord-render.sh --before-coordination before the coordination PR is
+# readied). GitHub is the eval gh shim's repository model and koto the context
 # stub (see coord-test-helpers.sh); both repositories' origins are local bare
 # repositories.
 #
@@ -27,8 +28,8 @@
 #   the home's branches   the home origin gains only the coordination branch,
 #                         never a node branch; the node origin gains both node
 #                         branches and never the coordination branch
-#   the index             the coordination entry names acme/repo-a, the node
-#                         entries acme/repo-b
+#   the index             the rendered body names acme/repo-b for both
+#                         nodes and carries no entry for the coordination PR
 #   visibility            neither public node PR links the private
 #                         coordination PR
 #   the run record        both run/node keys name acme/repo-b, run/cascade
@@ -140,7 +141,7 @@ while [ "$step" -lt 20 ]; do
             ;;
         cascade)
             (cd "$HOMEDIR" && bash "$SCRIPT_DIR/node-push.sh" order --session "$S" --slug "$CT_SLUG" --home-repo "$(ctx home_repo)" \
-                --coord-branch "$(ctx coord_branch)" --plan "$(ctx plan_abs)" --run-id "$RUN" >/dev/null 2>>"$CASE/push.err") \
+                --coord-branch "$(ctx coord_branch)" --run-id "$RUN" >/dev/null 2>>"$CASE/push.err") \
                 || { fail "node-push.sh order: $(tail -3 "$CASE/push.err")"; break; }
             # The finalization cascade's own commit and push, standing in for
             # run-cascade.sh --push (a plain push of the coordination branch
@@ -158,6 +159,9 @@ while [ "$step" -lt 20 ]; do
                 "$DB" > "$DB.tmp" && mv "$DB.tmp" "$DB"
             ;;
         evaluate-coordination)
+            out=$(cd "$HOMEDIR" && bash "$SCRIPT_DIR/coord-render.sh" --session "$S" --slug "$CT_SLUG" \
+                --home-repo "$(ctx home_repo)" --coord-branch "$(ctx coord_branch)" --before-coordination 2>>"$CASE/render.err")
+            case "$out" in *merge-refused:*) fail "the render before evaluate-coordination: [$out]"; break ;; esac
             gh pr ready 10 --repo "$(ctx home_repo)" >/dev/null || { fail "gh pr ready 10"; break; }
             ;;
         merge-coordination)
@@ -232,9 +236,9 @@ NODE_REFS=$(git ls-remote --heads "$NODEDIR.origin.git" | awk '{print $2}' | sor
 # --- the index --------------------------------------------------------------------
 
 BODY=$(jq -r '.prs[] | select(.repo == "acme/repo-a" and .number == 10) | .body' "$DB")
-if grep -Eq '^- coordination \| acme/repo-a:[^#]*#10 \| ' <<<"$BODY" \
+if ! grep -Eq '^- coordination \||acme/repo-a:[^#]*#10' <<<"$BODY" \
     && [ "$(printf '%s\n' "$BODY" | grep -Ec '^- pr-repo-b-(core|cli) \| acme/repo-b:')" -eq 2 ]; then
-    pass "the index names acme/repo-a for the coordination entry and acme/repo-b for both nodes"
+    pass "the index names acme/repo-b for both nodes and has no entry for the coordination PR"
 else
     fail "the index: $(printf '%s\n' "$BODY" | grep '^- ')"
 fi

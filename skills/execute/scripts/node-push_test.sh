@@ -3,8 +3,9 @@
 # Part of the execute skill
 #
 # node-push.sh is the one writer of a node's and the cascade's pushed head, in
-# the run record (run/node/<node>, run/cascade) and as `head=` fields on the
-# coordination PR's index. Each case runs it in a real git worktree
+# the run record (run/node/<node>, run/cascade); the coordination PR's body is
+# then rendered from that record by coord-render.sh, the one place a `head=`
+# field is built. Each case runs it in a real git worktree
 # (node-cut.sh) whose origin is a local bare repository, against the eval gh
 # shim's repository model, a shirabe stub, and the koto context stub, with a
 # sealed run record naming the coordination PR (see coord-test-helpers.sh).
@@ -12,9 +13,9 @@
 # The run record:
 #   a fresh push records run/node/<node> {repo, pr, head=<the pushed sha>};
 #   a second push records the new head; a push keeps a recorded merged_head;
-#   a push the remote rejects exits 68 and records nothing; a failed body edit
-#   (75) still leaves the head recorded; a record write that fails exits 70
-#   and posts nothing; adoption reads the record, not the body: a recorded
+#   a push the remote rejects exits 68 and records nothing; a failed body post
+#   is body=stale (exit 0) and still leaves the head recorded; a record write
+#   that fails exits 70 and posts nothing; adoption reads the record, not the body: a recorded
 #   PR with no owned PR to adopt, or other than the owned one, exits 73;
 #   coordination mode records run/cascade {verdict: pushed, head}; order mode
 #   records nothing; a session with no record, or a recorded coordination PR
@@ -27,9 +28,10 @@
 #   a detached HEAD, the wrong branch, the default branch   65, 66, 67
 #   a fresh node push                            the branch reaches origin; one
 #     draft PR titled feat(<slug>): <node-id> with the fixed fields (node id,
-#     work items, coordination link) through --body-file; the node's index
-#     line written with head=<the pushed sha>, after --coordination-body
-#     validation of the new body
+#     work items, coordination link) through --body-file; the rendered body's
+#     index line carries head=<the pushed sha>, after --coordination-body
+#     validation; a node PR opened posts a body, after the koto write of the
+#     head it shows (the request log)
 #   the node PR's title and body                 the body's first part is each
 #     work item's goal (an outline's Goal, else the table's summary row, else
 #     the title), then one top-level ---, the fixed fields, and the run marker
@@ -39,25 +41,28 @@
 #     docs/ and root Markdown is docs(<slug>), one changing a skill's
 #     Markdown is feat; a refused body exits 74 with no pr create or edit
 #   a second push                                the owned PR is adopted (no
-#     second pr create) and the node's line is replaced, not duplicated
+#     second pr create) and the node's line is replaced, not duplicated; a
+#     node pushed posts a body, after the koto write of its new head
 #   an indexed node with no owned PR to adopt    exit 73, no pr create
-#   a failing body validation                    exit 74, no pr edit, the posted
-#                                                body unchanged
+#   a failing body validation                    body=stale (exit 0), no pr
+#                                                edit, the posted body unchanged
 #   no coordination PR                           exit 73
 #   the merge order, on a PLAN with two PR nodes and a gate between them
-#     the `## Merge Order` section is replaced by the rendered block: every
-#     node, the gate included, after its predecessors, with its waits_on;
-#     a second push renders the same section; a PLAN whose waits_on changed
-#     re-renders it whole
+#     the `## Merge Order` section is the rendered block from run/setup's node
+#     list: every node, the gate included, after its predecessors, with its
+#     waits_on; a second push renders the same section; the block follows
+#     run/setup, not a PLAN edited since, and survives the PLAN's deletion
 #   a PLAN with no node named --node             exit 76, nothing pushed, no
 #                                                gh write
-#   order mode                                   renders the block into the
-#     coordination body with no push, no PR created, and the index untouched;
-#     a second render is the same; an unreadable PLAN, or one that isn't
-#     coordinated, exits 76 with no edit; usage errors exit 64
-#   coordination mode                            pushes the coordination branch
-#     and records the coordination PR's own line with head=, leaving the
-#     merge-order section as it was
+#   order mode                                   renders the body (pr= and
+#     body= lines) with no push, no PR created, and nothing recorded; a second
+#     render is unchanged; it takes no --plan (64), and a PLAN deleted before
+#     the render keeps the block; usage errors exit 64
+#   coordination mode                            pushes the coordination branch,
+#     records run/cascade, and renders the body with no self row
+#   a record naming a private repository under a public home
+#                                                77 after the push and the
+#                                                record write, nothing posted
 #   each node against its own target, home acme/repo-a over node acme/repo-b:
 #     public over public, private over private   pushed; the node PR links
 #                                                the coordination PR
@@ -262,12 +267,32 @@ if grep -q -- '--coordination-body' "$CASE/shirabe-calls.log" && [ "$(ct_calls |
 else
     fail "validation or edit missing: shirabe=[$(cat "$CASE/shirabe-calls.log")]"
 fi
+[ "$(printf '%s\n' "$OUT" | tail -1)" = "body=posted" ] && pass "node-push.sh prints the render's body=posted last" \
+    || fail "the render's line: [$OUT]"
+# order_after <koto-line> -- the koto write comes before the body post.
+order_after() {
+    local add edit
+    add=$(awk -v k="$1" '$0 == k && !n { n = NR } END { print n }' "$CASE/order.log")
+    edit=$(awk '/^gh pr edit 10 / && !n { n = NR } END { print n }' "$CASE/order.log")
+    [ -n "$add" ] && [ -n "$edit" ] && [ "$add" -lt "$edit" ]
+}
+if order_after "koto context add $S run/node/$CT_CORE"; then
+    pass "a node PR opened posts a body, after the koto write of the head it shows"
+else
+    fail "the request log's order: $(grep -n "run/node/$CT_CORE\|pr edit 10" "$CASE/order.log")"
+fi
 
 # --- a second push: adopt, replace the line ---------------------------------------
 
 (cd "$WT" && git commit -q --allow-empty -m "fix: more")
+: > "$CASE/order.log"
 push_node
 SHA2=$(git -C "$WT" rev-parse HEAD)
+if [ "$(printf '%s\n' "$OUT" | tail -1)" = "body=posted" ] && order_after "koto context add $S run/node/$CT_CORE"; then
+    pass "a node pushed again posts a body, after the koto write of its new head"
+else
+    fail "the second push's post: [$OUT] $(grep -n "run/node/$CT_CORE\|pr edit 10" "$CASE/order.log")"
+fi
 if [ "$RC" -eq 0 ] && [ "$(ct_calls | grep -c '^pr create')" -eq 1 ]; then
     pass "a second push adopts the owned PR (no second pr create)"
 else
@@ -344,21 +369,18 @@ fi
 np_case edit-fails
 ct_write_db
 fresh_repo edit-fails
-mkdir -p "$CASE/failedit-bin"
-cat > "$CASE/failedit-bin/gh" <<STUB
-#!/usr/bin/env bash
-[ "\$1 \$2" = "pr edit" ] && { printf '%s\n' "\$*" >> "\$GH_CALL_LOG"; exit 1; }
-exec "$CT_FIXTURES/bin/gh" "\$@"
-STUB
-chmod +x "$CASE/failedit-bin/gh"
-OLDPATH="$PATH"
-PATH="$CASE/failedit-bin:$PATH"
-push_node
-PATH="$OLDPATH"
+GH_SHIM_FAIL='^pr edit 10 ' push_node
 ESHA=$(git -C "$WT" rev-parse HEAD)
-[ "$RC" -eq 75 ] && [ "$(rec_node "$CT_CORE" | jq -r .head)" = "$ESHA" ] \
-    && pass "a failed body edit (75) leaves the pushed head recorded: the record is written first" \
-    || fail "edit-fails: rc=$RC record=[$(rec_node "$CT_CORE")]"
+if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | tail -1)" = "body=stale" ] \
+    && [ "$(rec_node "$CT_CORE" | jq -r .head)" = "$ESHA" ]; then
+    pass "a body post that fails reports body=stale (exit 0) and leaves the pushed head recorded"
+else
+    fail "edit-fails: rc=$RC out=[$OUT] record=[$(rec_node "$CT_CORE")]"
+fi
+(cd "$WT" && git commit -q --allow-empty -m "fix: after the failed post")
+push_node
+[ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | tail -1)" = "body=posted" ] \
+    && pass "the next push posts the body" || fail "after a failed post: rc=$RC out=[$OUT]"
 
 np_case record-fails
 ct_write_db
@@ -381,10 +403,11 @@ BEFORE=$(jq -r '.prs[] | select(.number == 10) | .body' "$CASE/scenario/gh/db.js
 export CT_BODY_FAIL=1
 push_node
 unset CT_BODY_FAIL
-if [ "$RC" -eq 74 ] && ! ct_calls | grep -q '^pr edit' && [ "$(db_body)" = "$BEFORE" ]; then
-    pass "a failing --coordination-body validation exits 74 and leaves the posted body untouched"
+if [ "$RC" -eq 0 ] && [ "$(printf '%s\n' "$OUT" | tail -1)" = "body=stale" ] && ! ct_calls | grep -q '^pr edit' \
+    && [ "$(db_body)" = "$BEFORE" ] && [ -n "$(rec_node "$CT_CORE")" ]; then
+    pass "a failing --coordination-body validation is body=stale: no edit, the posted body untouched, the head recorded"
 else
-    fail "body-invalid: rc=$RC edits=$(ct_calls | grep -c '^pr edit')"
+    fail "body-invalid: rc=$RC out=[$OUT] edits=$(ct_calls | grep -c '^pr edit')"
 fi
 
 # --- no coordination PR -------------------------------------------------------------
@@ -448,14 +471,14 @@ fi
 np_case marker-kept
 ct_write_db
 # The coordination PR carries a run marker after its merge-order block, as a
-# stamped body would; the index rewrite must keep that line.
+# stamped body would; the render must keep that line (run-id.sh carry).
 jq --arg m "<!-- shirabe-run: $MINE -->" '(.prs[] | select(.number == 10) | .body) += "\n" + $m + "\n"' \
     "$CASE/scenario/gh/db.json" > "$CASE/db.tmp" && mv "$CASE/db.tmp" "$CASE/scenario/gh/db.json"
 fresh_repo marker-kept
 push_node --run-id "$MINE"
 if [ "$RC" -eq 0 ] && db_body | grep -qxF "<!-- shirabe-run: $MINE -->" \
     && db_body | grep -q "^- $CT_CORE | .*head="; then
-    pass "the coordination PR's index rewrite keeps its run marker line"
+    pass "the coordination PR's render keeps its run marker line"
 else
     fail "marker-kept: rc=$RC; body [$(db_body)]"
 fi
@@ -630,9 +653,11 @@ fi
 # which waits on both. The seeded body's block lists two nodes with a merge
 # state; the push must replace it whole.
 
-np_case merge-order
-ct_write_db
+ct_case merge-order
+CT_RECORD_REPOS="acme/repo-a,acme/repo-b"
 fresh_repo merge-order gated
+ct_record_setup github 10 "$(ct_nodes_of "$PLAN")"
+ct_write_db
 push_node
 # The expected section is a golden file the Rust validator's tests also read
 # and check with the real parser (this suite runs against a shirabe stub), so a
@@ -664,15 +689,24 @@ push_node
     && pass "a second push renders the same merge-order section" \
     || fail "the section after a second push (rc=$RC): $(merge_order_section)"
 
-# The PLAN's waits_on changes (the gate is dropped): the block is re-rendered whole.
+# The block follows the node list run/setup sealed, not the PLAN: a PLAN
+# edited after setup (the gate dropped) leaves it as it was, and so does the
+# PLAN's deletion (order mode reads no PLAN).
 grep -v '_Gate:' "$PLAN" > "$PLAN.new" && mv "$PLAN.new" "$PLAN"
 (cd "$WT" && git commit -q --allow-empty -m "fix: once more")
 push_node
-WANT2=$(printf '%s\n' "$WANT" | grep -v '^gate-publish-core |' | sed 's/^pr-repo-a-cli | pr | after: .*/pr-repo-a-cli | pr | after: pr-repo-a-core/')
-if [ "$RC" -eq 0 ] && [ "$(merge_order_section)" = "$WANT2" ]; then
-    pass "a PLAN whose waits_on changed re-renders the whole block"
+if [ "$RC" -eq 0 ] && [ "$(merge_order_section)" = "$WANT" ]; then
+    pass "the block follows run/setup's waits_on, not a PLAN edited since"
 else
     fail "the section after the PLAN changed (rc=$RC): $(merge_order_section)"
+fi
+rm -f "$PLAN"
+gh shim-mark-merged "$CT_REPO" 50
+OUT=$(cd "$REPO" && bash "$PUSH" order --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" 2>"$CASE/stderr"); RC=$?
+if [ "$RC" -eq 0 ] && [ "$(merge_order_section)" = "$WANT" ] && db_body | grep -q "^- $CT_CORE | .* | merged | "; then
+    pass "the block survives the PLAN's deletion (and the merge shows in the index)"
+else
+    fail "after the PLAN's deletion (rc=$RC, out=[$OUT]): $(merge_order_section)"
 fi
 
 # --- a PLAN with no such node -----------------------------------------------------------
@@ -700,72 +734,40 @@ fi
 # Run in the coordination checkout before the cascade: renders the block from
 # the PLAN and edits the body, with no push and no index line.
 
-np_case order
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
-ct_write_db
+ct_case order
+CT_RECORD_REPOS="acme/repo-a,acme/repo-b"
 fresh_repo order gated
-INDEX_BEFORE=$(jq -r '.prs[] | select(.number == 10) | .body' "$CASE/scenario/gh/db.json" | grep '^- ')
+ct_record_setup github 10 "$(ct_nodes_of "$PLAN")"
+ct_write_db
 order_run() { # order_run [extra args]
     OUT=$(cd "$REPO" && bash "$PUSH" order --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" "$@" 2>"$CASE/stderr")
     RC=$?
 }
-order_run --plan "$PLAN"
-if [ "$RC" -eq 0 ] && [ "$(merge_order_section)" = "$WANT" ] && [ "$OUT" = "pr=https://github.com/acme/repo-a/pull/10" ]; then
-    pass "order mode renders the PLAN's merge order into the coordination body and prints pr="
+order_run
+if [ "$RC" -eq 0 ] && [ "$(merge_order_section)" = "$WANT" ] && [ "$OUT" = "pr=https://github.com/acme/repo-a/pull/10
+body=posted" ]; then
+    pass "order mode renders the body from run/setup and prints pr= and body="
 else
     fail "order mode (rc=$RC, out=[$OUT]): $(merge_order_section); $(tail -3 "$CASE/stderr")"
 fi
 if [ -z "$(git -C "$REPO" ls-remote origin "refs/heads/*" | grep -v 'refs/heads/main$')" ] \
     && ! ct_calls | grep -q '^pr create' && [ "$(ct_calls | grep -c '^pr edit 10')" -eq 1 ] \
-    && [ "$(db_body | grep '^- ')" = "$INDEX_BEFORE" ] \
     && [ -z "$(ls "$CASE/ctx/$S/run" | grep -vx setup)" ]; then
-    pass "order mode pushes nothing, creates no PR, records nothing, and leaves the PR index as it was"
+    pass "order mode pushes nothing, creates no PR, and records nothing"
 else
     fail "order mode side effects: $(ct_calls)"
 fi
-order_run --plan "$PLAN"
+order_run
+[ "$RC" -eq 0 ] && [ "$(merge_order_section)" = "$WANT" ] && [ "$(printf '%s\n' "$OUT" | tail -1)" = "body=unchanged" ] \
+    && [ "$(ct_calls | grep -c '^pr edit 10')" -eq 1 ] \
+    && pass "a second order render is unchanged and posts nothing" \
+    || fail "a second order render (rc=$RC, out=[$OUT]): $(merge_order_section)"
+rm -f "$PLAN"
+order_run
 [ "$RC" -eq 0 ] && [ "$(merge_order_section)" = "$WANT" ] \
-    && pass "a second order render leaves the section as it was" \
-    || fail "a second order render (rc=$RC): $(merge_order_section)"
-EDITS=$(ct_calls | grep -c '^pr edit 10')
-echo "not a plan" > "$CT_WORK/bad-plan.md"
-order_run --plan "$CT_WORK/bad-plan.md"
-if [ "$RC" -eq 76 ] && [ "$(ct_calls | grep -c '^pr edit 10')" -eq "$EDITS" ]; then
-    pass "order mode on a PLAN plan-to-tasks.sh can't read exits 76 with no edit"
-else
-    fail "order mode, unreadable PLAN: rc=$RC"
-fi
-# A PLAN that parses but isn't coordinated: its tasks carry no NODE_KIND, and
-# rendering them as PR nodes would put a wrong order on the record.
-cat > "$CT_WORK/multi-pr-plan.md" <<'PLAN'
----
-schema: plan/v1
-status: Active
-execution_mode: multi-pr
-milestone: "t"
-issue_count: 2
----
-
-# PLAN: t
-
-## Status
-
-Active
-
-## Implementation Issues
-
-| Issue | Dependencies | Complexity |
-|-------|--------------|------------|
-| [#1: feat parser](https://example.com/1) | None | testable |
-| [#2: test parser](https://example.com/2) | [#1](https://example.com/1) | testable |
-PLAN
-order_run --plan "$CT_WORK/multi-pr-plan.md"
-if [ "$RC" -eq 76 ] && [ "$(ct_calls | grep -c '^pr edit 10')" -eq "$EDITS" ]; then
-    pass "order mode on a PLAN that isn't coordinated exits 76 with no edit"
-else
-    fail "order mode, multi-pr PLAN: rc=$RC"
-fi
-for args in "" "--plan $PLAN --node $CT_CORE" "--plan $PLAN --remote origin" "--plan $CT_WORK/no-such-plan.md"; do
+    && pass "order mode with the PLAN deleted keeps the block" \
+    || fail "order mode with no PLAN (rc=$RC): $(merge_order_section)"
+for args in "--plan $CT_WORK/any-plan.md" "--node $CT_CORE" "--remote origin" "--issues 1"; do
     # shellcheck disable=SC2086
     order_run $args
     [ "$RC" -eq 64 ] && pass "order mode usage [$args] exits 64" || fail "order mode usage [$args]: rc=$RC"
@@ -774,29 +776,55 @@ done
 # --- coordination mode ------------------------------------------------------------------
 
 np_case coordination
-ct_index_line "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
+ct_record_node "$CT_CORE" "$CT_REPO" 11 "$CT_HEAD"
 ct_pr "$CT_REPO" 11 "impl/t-$CT_CORE" 'state="MERGED"'
 ct_write_db
 fresh_repo coordination
 (cd "$REPO" && git rm -q docs/plans/PLAN-t.md && git commit -q -m "chore: cascade")
-ORDER_BEFORE=$(jq -r '.prs[] | select(.number == 10) | .body' "$CASE/scenario/gh/db.json" \
-    | awk '/^## /{ s = ($0 ~ /^## Merge Order/) } s')
 OUT=$(cd "$REPO" && bash "$PUSH" coordination --session "$S" --slug t --home-repo "$CT_REPO" --coord-branch "$CT_CB" 2>"$CASE/stderr"); RC=$?
 CSHA=$(git -C "$REPO" rev-parse HEAD)
+MERGED_AT=$(rec_node "$CT_CORE" | jq -r '.merged_head // ""')
 if [ "$RC" -eq 0 ] && [ "$(git -C "$REPO" ls-remote origin "refs/heads/$CT_CB" | cut -f1)" = "$CSHA" ] \
-    && db_body | grep -qxF -- "- coordination | $CT_REPO:docs/plans/PLAN-t.md#10 | open | head=$CSHA" \
-    && db_body | grep -qxF -- "- $CT_CORE | $CT_REPO:docs/plans/PLAN-t.md#11 | open | head=$CT_HEAD"; then
-    pass "coordination mode pushes the coordination branch and records its own head= line"
+    && [ "$(printf '%s\n' "$OUT" | tail -1)" = "body=posted" ] \
+    && ! db_body | grep -q '^- coordination |' && ! db_body | grep -Eq '#10([^0-9]|$)' \
+    && [ -n "$MERGED_AT" ] && db_body | grep -qxF -- "- $CT_CORE | $CT_REPO:docs/plans/PLAN-t.md#11 | merged | head=$MERGED_AT"; then
+    pass "coordination mode pushes the coordination branch and renders the body with no self row"
 else
-    fail "coordination mode: rc=$RC; $(tail -3 "$CASE/stderr")"
+    fail "coordination mode: rc=$RC out=[$OUT]; $(db_body | grep '^- '); $(tail -3 "$CASE/stderr")"
 fi
 ct_calls | grep -q '^pr create' && fail "coordination mode created a PR" || pass "coordination mode creates no PR"
 [ "$(cat "$CASE/ctx/$S/run/cascade" 2>/dev/null)" = "{\"head\":\"$CSHA\",\"verdict\":\"pushed\"}" ] \
     && pass "coordination mode records run/cascade {verdict: pushed, head=<the pushed sha>}" \
     || fail "run/cascade after the coordination push: [$(cat "$CASE/ctx/$S/run/cascade" 2>/dev/null)]"
-[ -n "$ORDER_BEFORE" ] && [ "$(merge_order_section)" = "$ORDER_BEFORE" ] \
-    && pass "coordination mode, after the cascade deleted the PLAN, leaves the merge-order section as it was" \
-    || fail "coordination mode changed the merge-order section: $(merge_order_section)"
+WANT_DEFAULT=$(printf '## Merge Order\n\n```merge-order\n%s\n%s\n%s | pr | after: -\n%s | pr | after: %s\n```' \
+    "# Rendered by /execute from the PLAN's waits_on graph; not read by the merge gate." \
+    "# One node per line, after its predecessors: <node-id> | pr|gate | after: <node-ids>" \
+    "$CT_CORE" "$CT_CLI" "$CT_CORE")
+[ "$(merge_order_section)" = "$WANT_DEFAULT" ] \
+    && pass "coordination mode, after the cascade deleted the PLAN, renders the merge order from run/setup" \
+    || fail "coordination mode's merge-order section: $(merge_order_section)"
+
+# --- a record naming a private repository under a public home ---------------------------
+#
+# The node itself lands in the public home, so the check before the push
+# passes; another node's record names a private repository, which the render
+# refuses after the push and the record write.
+
+np_case vis-after-push
+ct_record_node "$CT_CLI" acme/repo-b 7 "$CT_HEAD"
+ct_pr acme/repo-b 7 "impl/t-$CT_CLI"
+CT_VIS_B=private
+ct_write_db
+CT_VIS_B=public
+fresh_repo vis-after-push
+push_node
+if [ "$RC" -eq 77 ] && [ -n "$(git -C "$REPO" ls-remote origin "refs/heads/impl/t-$CT_CORE")" ] \
+    && [ -n "$(rec_node "$CT_CORE")" ] && ! ct_calls | grep -q '^pr edit 10' \
+    && grep -q 'push happened' "$CASE/stderr" && ! grep -q 'acme/repo-b' "$CASE/stderr"; then
+    pass "a record naming a private repository under a public home: 77 after the push and the record, nothing posted, the repository unnamed"
+else
+    fail "vis-after-push: rc=$RC; $(tail -3 "$CASE/stderr")"
+fi
 
 # --- each node against its own target ---------------------------------------------
 #
