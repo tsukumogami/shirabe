@@ -539,8 +539,9 @@ against its chain shape:
      yet. `carry`,
      from `execute-open.sh`, restores a finished session's keys into its
      replacement. The opener's snapshot of them sits under the per-user state
-     directory (`$SHIRABE_STATE_DIR`, else `$XDG_STATE_HOME/shirabe` or
-     `~/.local/state/shirabe`, in `execute-carry/`, mode 0700) only until the
+     directory (`$SHIRABE_STATE_DIR`, else `$XDG_STATE_HOME/shirabe`, whose
+     default is `.local/state/shirabe` under the home directory, in
+     `execute-carry/`, mode 0700) only until the
      carry succeeds.
    - **koto context keys** this run's scripts write: `repos` (the write set,
      fixed at start), `home_pr` (only from `owned-pr.sh`'s output), `waiting`,
