@@ -18,6 +18,7 @@
 #   review-level.sh check  <session> <level>
 #   review-level.sh agree  <session> <level>
 #   review-level.sh slice  <session> <level>
+#   review-level.sh project <facts-file> <level>
 #   review-level.sh report [<session>...]
 #   review-level.sh level  <session>
 #   review-level.sh classify <path>...
@@ -66,9 +67,12 @@
 #           the unset route, and passes); holds otherwise, naming both, so a
 #           hand rebind made after the level check can't change where the run
 #           goes.
-#   slice   the decider check's command: a fixed projection of the facts
-#           (counts, class names, booleans, the floor) and a `level:` line.
-#           Never a path, a reason or criteria text.
+#   slice   the decider check's command: a typed projection of the facts
+#           (counts, class names, booleans, the floor), the order of the
+#           levels and a `level:` line. Never a path, a reason or criteria
+#           text.
+#   project the same slice for a facts file, for the Jev criteria fixtures
+#           and the slice measurement.
 #   report  one tab-separated row per /work-on session, after a header:
 #           session chosen final floor ceiling raises lowers floor_raises
 #           vetoes breaches overrides seats. With no session named, every
@@ -145,6 +149,7 @@ usage: review-level.sh init   <session> <floor> <ceiling>
        review-level.sh check  <session> <level>
        review-level.sh agree  <session> <level>
        review-level.sh slice  <session> <level>
+       review-level.sh project <facts-file> <level>
        review-level.sh report [<session>...]
        review-level.sh level  <session>
        review-level.sh classify <path>..."
@@ -837,20 +842,48 @@ cmd_level() {
 
 # ---------------------------------------------------------------- slice -------
 
-cmd_slice() {
-    local s="${1:-}" level="${2:-}"
+# project_slice <facts-file> <level>: the decider check's slice. Every value is
+# typed, so a hand-edited facts key can't carry free text to Jev: counts are
+# non-negative integers (anything else is 0), class names match [a-z0-9_] and
+# there are at most 16 of them, the booleans are booleans and the floor is a
+# level or `unknown`. The order line is what makes the slice complete: the
+# floor already applies review-level-rules.tsv, so the order of the levels is
+# all the question still needs (references/jev-criteria.md).
+project_slice() {
+    local facts=$1 level=$2
     valid_level "$level" || level=unset
-    if valid_session "$s" && ctx_get "$s" "$FACTS_KEY" "$WORK/facts" && [ -s "$WORK/facts" ]; then
-        jq -c '{lines: (.lines // 0), files: (.files // 0),
-                classes: ([.classes[]? | strings | select(test("^[a-z0-9_]+$"))]),
+    if [ -s "$facts" ]; then
+        jq -c 'def count: if type == "number" and . >= 0 and . == floor then . else 0 end;
+               {lines: (.lines | count), files: (.files | count),
+                classes: ([.classes[]? | strings | select(test("^[a-z0-9_]+$"))] | .[:16]),
                 tests_changed: (.tests_changed == true), criteria_changed: (.criteria_changed == true),
                 unclassified: (.unclassified == true),
                 floor: (.floor | if . == "light" or . == "standard" or . == "full" then . else "unknown" end)}' \
-            "$WORK/facts" || echo '{}'
+            "$facts" 2>/dev/null || echo '{}'
     else
         echo '{}'
     fi
+    echo "levels: light < standard < full"
     echo "level: $level"
+}
+
+cmd_slice() {
+    local s="${1:-}" level="${2:-}"
+    if valid_session "$s" && ctx_get "$s" "$FACTS_KEY" "$WORK/facts" && [ -s "$WORK/facts" ]; then
+        project_slice "$WORK/facts" "$level"
+    else
+        project_slice /dev/null "$level"
+    fi
+    exit 0
+}
+
+# project <facts-file> <level>: the slice for a facts file, the way `slice`
+# prints it for a session. The Jev criteria fixtures and the slice measurement
+# call it, so a fixture's slice is this script's output by construction.
+cmd_project() {
+    local facts="${1:-}" level="${2:-}"
+    [ -f "$facts" ] && [ -r "$facts" ] || die 64 "project: $facts is not a readable file"
+    project_slice "$facts" "$level"
     exit 0
 }
 
@@ -946,6 +979,7 @@ case "$SUB" in
     agree)  cmd_agree "$@" ;;
     classify) cmd_classify "$@" ;;
     slice)  cmd_slice "$@" ;;
+    project) cmd_project "$@" ;;
     report) cmd_report "$@" ;;
     level)  cmd_level "$@" ;;
     "")     usage "missing subcommand" ;;

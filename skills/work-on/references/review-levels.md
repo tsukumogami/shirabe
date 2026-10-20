@@ -155,10 +155,15 @@ override. With the level unset and no level in the ledger (a session from an
 earlier template), the check exits 3 and the run takes the full path.
 
 The level check also carries a veto-mode decider check whose command is
-`review-level.sh slice`: the counts, class names, booleans, the floor and the
-level, never a path, a reason or criteria text. It asks whether the level is
-too light for these facts under the definitions on this page. It can only
-hold the run, never route it or lower the level.
+`review-level.sh slice`: the counts, class names, booleans, the floor, the
+order of the three levels and the chosen level, never a path, a reason or
+criteria text. Every value is typed (counts are non-negative integers, at most
+16 class names), so a hand-edited facts key can't carry text to the decider. It
+asks whether the level is too light for these facts under the definitions on
+this page; since the floor already applies the rules above, the order is all
+the definitions add. Its slice contract is the `work-on/review-level-fits-facts`
+entry in `references/rule-registry.json`. It can only hold the run, never route
+it or lower the level.
 
 When the decider gives no verdict, the criterion falls back to the agent
 instead of passing (koto 0.20.0), for a user whose decider runs in shadow as
