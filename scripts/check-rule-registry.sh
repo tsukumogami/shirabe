@@ -10,16 +10,20 @@
 #      duplicate id or alias, no alias that is an id, `none` alone in guards,
 #      every <skill>:<state> timing names a `## <state>` section of one of
 #      that skill's koto templates, a one-line summary with no control
-#      character and no `::`
+#      character and no `::`; a `decider` check names its template, state,
+#      gate and criterion, and a `jev` contract is an object (its contents are
+#      scripts/jev-criteria/jev_criteria.py's to check)
 #   2  withhold safety: a guard other than `none`, or check.kind `none`,
-#      needs withhold `never`; a gate needs a guard, or a backstop: the
+#      needs withhold `never`; a gate that isn't a decider check needs a
+#      guard, or a backstop: the
 #      deterministic check that still blocks a protected action after the
 #      gate (backstop.before), for a rule whose harm a later edit undoes; a
 #      backstop needs level gate, guards ["none"], withhold `eligible` and
 #      notes; prose needs check `none`
-#   3  paths: text, check, backstop and fixture paths have a safe shape and
-#      stay in the repository; an active entry's check path, backstop check
-#      and fixtures exist; a review-shadow check names a criterion in
+#   3  paths: text, check, decider template, backstop and fixture paths have
+#      a safe shape and stay in the repository; an active entry's check path,
+#      decider template, backstop check and fixtures exist; a review-shadow
+#      check names a criterion in
 #      criteria.json
 #   4  pointers: every active entry's anchors resolve, through
 #      rule-registry.sh's own lookup, to a range with no marker line and no
@@ -186,8 +190,12 @@ jqf "$TMP/shape" -r --argjson protected "$PROTECTED" '
           | if type != "object" then "\($n): check is not an object"
             elif .kind == "script" then (select((.path | type) != "string") | "\($n): a script check has no path")
             elif .kind == "review-shadow" then (select((.criterion | type) != "string") | "\($n): a review-shadow check has no criterion")
+            elif .kind == "decider" then
+              (. as $c | ["template","state","gate","criterion"][] | select(($c[.] | type) != "string" or $c[.] == "")
+                 | "\($n): a decider check has no \(.)")
             elif .kind == "none" then empty
-            else "\($n): check.kind \(.kind | tojson) is not script, review-shadow or none" end),
+            else "\($n): check.kind \(.kind | tojson) is not script, review-shadow, decider or none" end),
+        (select($e | has("jev")) | select(($e.jev | type) != "object") | "\($n): jev is not an object"),
         ("fixtures","timing","guards","baseline_keys","aliases" | . as $f
           | select($e | has($f)) | select($e[$f] | strs | not) | "\($n): \($f) is not a list of strings"),
         (select($e | has("notes")) | select(($e.notes | type) != "string") | "\($n): notes is not a string"),
@@ -205,8 +213,11 @@ jqf "$TMP/shape" -r --argjson protected "$PROTECTED" '
           | "\($n): a protected guard requires withhold never"),
         (select(($e.check | type) == "object" and $e.check.kind == "none" and $e.withhold == "eligible")
           | "\($n): check.kind none requires withhold never"),
+        # A decider check guards no protected action; its withholding is
+        # governed by its jev contract (scripts/jev-criteria/jev_criteria.py).
         (select($e.level == "gate" and ($e.guards | strs) and all($e.guards[]; . == "none")
-                and ($e | has("backstop") | not))
+                and ($e | has("backstop") | not)
+                and ((($e.check | type) == "object" and $e.check.kind == "decider") | not))
           | "\($n): a gate entry needs a guard other than none, or a backstop"),
         (select($e | has("backstop")) | $e.backstop as $b
           | if ($b | type) != "object" then "\($n): backstop is not an object"
@@ -270,6 +281,7 @@ safe_rel() {
 jqf "$TMP/paths" -r '.rules[] | objects | .id as $id | (.status // "") as $s
        | ((.text | objects | .path | strings | "\($id)\t\($s)\ttext\t\(.)"),
           (.check | objects | select(.kind == "script") | .path | strings | "\($id)\t\($s)\tcheck\t\(.)"),
+          (.check | objects | select(.kind == "decider") | .template | strings | "\($id)\t\($s)\ttemplate\t\(.)"),
           (.backstop | objects | .check | strings | "\($id)\t\($s)\tbackstop\t\(.)"),
           (.fixtures | arrays | .[] | strings | "\($id)\t\($s)\tfixture\t\(.)"))' "$REG"
 while IFS='	' read -r id status what p; do
