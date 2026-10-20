@@ -48,7 +48,8 @@
 # and the suite SKIPs.
 #
 # Needs koto (with `session import`), jq, git and python3; SKIPs (exit 0)
-# without one.
+# without one. With CI set, a koto without `session import` or a path koto
+# won't admit fails instead, so the move criterion never passes unexercised.
 # Usage: execute-coordinated-move-engine_test.sh
 # Exit codes: 0 all pass (or SKIP); 1 a failure
 
@@ -75,6 +76,12 @@ for bin in koto jq git python3; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH -- the engine-backed cases did not run"; exit 0; }
 done
 if ! koto session import --help >/dev/null 2>&1; then
+    # On CI a koto without the import would let the move criterion pass
+    # untested, so it fails there; a local run skips.
+    if [ -n "${CI:-}" ]; then
+        echo "FAIL: this koto has no session import -- the move cases cannot run on CI"
+        exit 1
+    fi
     echo "SKIP: this koto has no session import -- no case ran"
     exit 0
 fi
@@ -99,6 +106,7 @@ else
     else
         echo "SKIP: neither this checkout's path nor a link under TMPDIR passes koto's --var allowlist,"
         echo "      so execute-open.sh can name no PLUGIN_ROOT koto admits -- no case ran"
+        [ -z "${CI:-}" ] || { echo "FAIL: a skip on CI would leave the move criterion untested"; exit 1; }
         exit 0
     fi
 fi

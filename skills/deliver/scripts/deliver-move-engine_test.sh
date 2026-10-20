@@ -269,6 +269,10 @@ if child_attach execute --attach-live; then
     child_finish execute "$READY"
     tick
     expect "mv-hosts: the new /deliver on q gets the result" done outcome=ready-awaiting-merge "pr=$URL"
+elif [ -n "${CI:-}" ]; then
+    # On CI the refusal fails the suite, so the criterion can't pass
+    # unexercised; the binding is koto's to provide and nothing re-legs it.
+    fail "mv-hosts: koto binds a session imported from another host's store to a new leg" "refused (koto's output is above)"
 else
     echo "  note: koto refused binding a session imported from another host's store to a new leg (above);"
     echo "        that binding is koto's to provide, and this suite adds no re-leg to work around it"
