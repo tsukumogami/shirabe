@@ -73,6 +73,9 @@ chmod +x "$T/bin/gh" || exit 1
 PR_SHA=1111111111111111111111111111111111111111
 OLD_SHA=2222222222222222222222222222222222222222
 OTHER_SHA=3333333333333333333333333333333333333333
+# The PR's head when it closed, which its commits list leaves out (as it does
+# past 250 commits).
+HEAD_SHA=4444444444444444444444444444444444444444
 
 N=0
 CASE=""
@@ -122,7 +125,7 @@ run() { # run [VAR=value...]: the script, over $CASE, with the PR's environment
     OUT=$(env PATH="$T/bin:$PATH" STUB_DIR="$CASE" \
         CHECK_MACOS_FLOOR_SETUP_DIR="$FIXTURES" \
         GITHUB_REPOSITORY=owner/repo GITHUB_RUN_ID=999 PR_NUMBER=7 \
-        PR_HEAD_REF=feature/x PR_HEAD_REPO=owner/repo DEFAULT_BRANCH=main \
+        PR_HEAD_REF=feature/x PR_HEAD_SHA=$HEAD_SHA PR_HEAD_REPO=owner/repo DEFAULT_BRANCH=main \
         "$@" bash "$SCRIPT" 2>&1) || RC=$?
 }
 has() { grep -qF -- "$1" <<<"$OUT"; }
@@ -157,6 +160,25 @@ if [ "$RC" -eq 0 ] && [ "$(cancelled)" = "1 2 3 4 5" ] && has "cancelled 5 run(s
     pass "queued, in-progress, waiting, pending and requested runs of every floor workflow are cancelled"
 else
     fail "clean (rc=$RC, cancelled: $(cancelled)): $OUT"
+fi
+
+fresh
+add queued 1 sha=$HEAD_SHA
+run
+if [ "$RC" -eq 0 ] && [ "$(cancelled)" = "1" ]; then
+    pass "a run at the PR's closing head is cancelled even when the commits list leaves it out"
+else
+    fail "closing head (rc=$RC, cancelled: $(cancelled)): $OUT"
+fi
+
+fresh
+add queued 1
+run
+if [ "$RC" -eq 0 ] && [ "$(grep -c -- '--paginate' "$CASE/calls")" -eq 6 ] \
+    && [ "$(grep -c '/actions/runs ' "$CASE/calls")" -eq 5 ]; then
+    pass "the commits listing and all five status listings are paginated"
+else
+    fail "pagination (rc=$RC, calls: $(cat "$CASE/calls")): $OUT"
 fi
 
 fresh

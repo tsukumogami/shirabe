@@ -22,14 +22,22 @@
 #   - its workflow is a floor workflow, and not macos-floor.yml;
 #   - its pull_requests list names no PR but this one (the list is empty once
 #     a merged PR's branch is gone, so it can't be required to name this one);
-#   - its head commit is one of this PR's commits, so a later PR that reuses
-#     the branch name never has its runs cancelled;
+#   - its head commit is the PR's head when it closed or one of the commits
+#     the PR lists, so a later PR that reuses the branch name never has its
+#     runs cancelled. The list stops at 250 commits, and a head that a force
+#     push replaced isn't in it; those runs are left alone, which is the safe
+#     side, and the cancel-in-progress groups cancel a replaced head's runs on
+#     the push that replaces it;
 #   - it is not this run.
 #
 # A fork PR's token is read-only, so for a head repository other than this one
 # it logs that it skips and exits 0. A cancel answered 409 (the run finished
-# meanwhile) or 403 (the token may not cancel), or a listing answered 403, is
-# logged and is not a failure; any other API failure is.
+# meanwhile) or 403 (the token may not cancel) is logged as a warning and is
+# not a failure, so a race or a token that can't cancel never turns a closed
+# PR's checks red. A listing answered 403 is the same token problem seen
+# earlier, and is a warning for the same reason: the warning shows on the
+# run's summary page, which is where a misconfigured token is noticed. Any
+# other API failure exits 1, so a broken cancel is visible.
 #
 # Usage: scripts/cancel-closed-pr-runs.sh
 #
@@ -38,6 +46,7 @@
 #   GITHUB_RUN_ID       this run's id, never cancelled
 #   PR_NUMBER           the closed PR's number
 #   PR_HEAD_REF         its head branch
+#   PR_HEAD_SHA         its head commit when it closed
 #   PR_HEAD_REPO        its head repository, owner/repo; empty when the fork
 #                       it came from was deleted
 #   DEFAULT_BRANCH      the repository's default branch
@@ -61,11 +70,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 die() { echo "cancel-closed-pr-runs: $*" >&2; exit 2; }
 
-for var in GITHUB_REPOSITORY GITHUB_RUN_ID PR_NUMBER PR_HEAD_REF DEFAULT_BRANCH; do
+for var in GITHUB_REPOSITORY GITHUB_RUN_ID PR_NUMBER PR_HEAD_REF PR_HEAD_SHA DEFAULT_BRANCH; do
     [ -n "${!var:-}" ] || die "$var is not set"
 done
 case "$PR_NUMBER" in ''|*[!0-9]*) die "PR_NUMBER is not a number: $PR_NUMBER" ;; esac
 case "$GITHUB_RUN_ID" in ''|*[!0-9]*) die "GITHUB_RUN_ID is not a number: $GITHUB_RUN_ID" ;; esac
+case "$PR_HEAD_SHA" in *[!0-9a-f]*) die "PR_HEAD_SHA is not a commit: $PR_HEAD_SHA" ;; esac
 command -v gh >/dev/null 2>&1 || die "gh is required"
 command -v jq >/dev/null 2>&1 || die "jq is required"
 
@@ -103,7 +113,7 @@ api() {
 rc=0
 api "$T/shas" --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[].sha' || rc=$?
 case $rc in
-    0) ;;
+    0) echo "$PR_HEAD_SHA" >>"$T/shas" ;;
     3) echo "::warning::could not list PR #$PR_NUMBER's commits (refused); nothing cancelled"; exit 0 ;;
     *) echo "cancel-closed-pr-runs: could not list PR #$PR_NUMBER's commits" >&2; exit 1 ;;
 esac

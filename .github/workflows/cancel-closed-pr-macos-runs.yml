@@ -17,8 +17,16 @@ name: Cancel a closed pull request's macOS runs
 #
 # pull_request, not pull_request_target: a fork PR's token is read-only, so
 # its runs can't be cancelled from here, and the script skips a fork with a
-# log line rather than going red. The checkout is the PR's merge ref, whose
-# floor workflows are the ones its runs came from.
+# log line rather than going red. The checkout is the event's ref, the PR's
+# merge commit, which is also what each of its pull_request runs ran from, so
+# its floor workflows are the ones those runs came from. GitHub runs no
+# pull_request workflow for a PR with merge conflicts, this one included, so
+# a PR closed while conflicted keeps whatever runs it still has queued.
+#
+# One job, not a listing job with contents: read beside a cancelling job with
+# no checkout: the script's guards need the floor list and the run listing
+# side by side, and the code it runs is the PR's own, from a branch of this
+# repository whose author can already push a workflow with any permission.
 
 on:
   pull_request:
@@ -33,6 +41,8 @@ jobs:
     permissions:
       actions: write
       contents: read
+      # The PR's commits, which the script matches each run's head against.
+      pull-requests: read
     # yq is pinned, as in macos-floor.yml, so the image moving to another yq
     # can't change which workflows the list finds.
     env:
@@ -63,6 +73,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: scripts/cancel-closed-pr-runs.sh
