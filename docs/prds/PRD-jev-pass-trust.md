@@ -1,6 +1,6 @@
 ---
 schema: prd/v1
-status: Accepted
+status: In Progress
 problem: |
   shirabe can grade an agent's work with Jev through koto decider checks, but
   no Jev criterion says what its slice holds, why that is enough, or how big
@@ -24,7 +24,7 @@ absorbed:
 
 ## Status
 
-Accepted
+In Progress
 
 The completeness, clarity and testability reviewers passed it over three
 rounds. The downstream DESIGN owns the approach.
@@ -265,8 +265,10 @@ at least 100 runs of its population.
 
 **R7. `level_fits_facts` carries what its question needs.** Its slice adds one
 line stating the three levels in increasing order (`light`, `standard`,
-`full`), next to the facts, the facts floor and the chosen level, and its
-budget stays the 2,048 bytes the gate declares today. Its completeness case
+`full`), next to the facts, the facts floor and the chosen level, and keeps
+only typed values (counts as non-negative integers, class names from
+`[a-z0-9_]`), so no free text reaches Jev. Its budget stays the 2,048 bytes
+the gate declares today. Its completeness case
 says why the question needs nothing else: the floor already applies the
 rules file, and the order is all the level definitions add. Its registry id is
 `work-on/review-level-fits-facts`.
