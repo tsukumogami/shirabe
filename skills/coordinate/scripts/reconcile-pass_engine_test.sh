@@ -57,7 +57,7 @@ PR="$T/plugin"
 SC="$PR/skills/coordinate/scripts"
 mkdir -p "$SC" "$PR/skills/execute/scripts"
 for f in reconcile-pass.sh reconcile-deps.sh reconcile-report.sh reconcile-report-get.sh coord-log.sh coord-verdict.sh \
-         deferral-check.sh record-common.sh record-source.sh dispatch-common.sh github-refs.sh; do
+         deferral-check.sh record-common.sh record-source.sh dispatch-common.sh github-refs.sh inventory-common.sh; do
     cp "$HERE/$f" "$SC/"
 done
 cp "$HERE/reconcile-check.sh" "$SC/reconcile-check.real.sh"
