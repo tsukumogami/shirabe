@@ -26,7 +26,7 @@ command -v git >/dev/null 2>&1 || { echo "SKIP: git not on PATH"; exit 0; }
 command -v koto >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || { echo "SKIP: koto or jq not on PATH -- no case ran"; exit 0; }
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/resume-probe-test.XXXXXX")" || exit 1
-T="$(cd -P "$T" && pwd -P)"
+T="$(cd -P "$T" && pwd -P)" || exit 1
 trap 'rm -rf "$T"' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
 export HOME="$T/home"

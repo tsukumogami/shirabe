@@ -61,7 +61,7 @@ STATES_FROM="$HERE/../koto-templates/coordinate.md"
 # It also puts testdata/ (the koto stand-in too) first on PATH; this suite
 # needs the real koto, so only the gh stand-in goes in front.
 . "$HERE/testdata/test-lib.sh"
-T=$(cd -P "$T" && pwd -P)
+T=$(cd -P "$T" && pwd -P) || exit 1
 # KEEP_T=1 keeps the scratch directory for a look after a failure.
 if [ -n "${KEEP_T-}" ]; then trap - EXIT; echo "keeping $T"; fi
 unset KOTO_STORE KOTO_COMPILED_HASH

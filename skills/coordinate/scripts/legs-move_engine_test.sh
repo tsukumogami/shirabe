@@ -50,7 +50,7 @@ ORIG_PATH=$PATH
 # puts testdata/ first on PATH, the koto stand-in included; this suite needs
 # the real koto, so PATH is rebuilt with only the gh stand-in in front.
 . "$HERE/testdata/test-lib.sh"
-T=$(cd -P "$T" && pwd -P)
+T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
 mkdir -p "$T/bin"
 printf '#!/bin/sh\nGH_DB=${GH_DB:-%s} exec "%s" "$@"\n' "$GH_DB" "$HERE/testdata/gh" > "$T/bin/gh"

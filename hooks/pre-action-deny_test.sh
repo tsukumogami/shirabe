@@ -47,7 +47,7 @@ fi
 SHIRABE="$(cd "$(dirname "$SHIRABE")" && pwd)/$(basename "$SHIRABE")"
 
 T=$(mktemp -d "${TMPDIR:-/tmp}/pre-action-deny-test.XXXXXX") || exit 1
-T=$(cd -P "$T" && pwd -P)
+T=$(cd -P "$T" && pwd -P) || exit 1
 cleanup() { rm -rf "$T"; return 0; }
 trap cleanup EXIT
 

@@ -42,7 +42,7 @@ if ! "$REAL_KOTO" init --help 2>/dev/null | grep -q -- '--vars-file'; then
 fi
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/scope-open-test.XXXXXX")" || exit 1
-T="$(cd -P "$T" && pwd -P)"
+T="$(cd -P "$T" && pwd -P)" || exit 1
 trap 'rm -rf "$T"' EXIT
 
 PASS=0

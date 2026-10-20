@@ -20,7 +20,7 @@ for bin in git jq; do
 done
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/scope-exit-test.XXXXXX")" || exit 1
-T="$(cd -P "$T" && pwd -P)"
+T="$(cd -P "$T" && pwd -P)" || exit 1
 trap 'rm -rf "$T"' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
 

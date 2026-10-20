@@ -104,7 +104,7 @@ for s in \
     if [ "$before" = "$after" ] && [ "$email" = victim@example.invalid ] && [ -z "$status" ]; then
         ok "$s leaves its caller's repository"
     else
-        bad "$s leaves its caller's repository" "head/count/branch $before -> $after; user.email $email; status: $(printf '%s' "$status" | head -3 | tr '\n' ' ')"
+        bad "$s leaves its caller's repository" "head/count/branch $before -> $after; user.email $email; status: $(head -3 <<<"$status" | tr '\n' ' ')"
     fi
 done
 
