@@ -91,7 +91,7 @@ done
 lib_facts
 if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u +%Y-%m-%d); fi
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/record-find.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/record-find.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 VERDICT= NUM= URL= REASON= CANDS='[]' DEFAULT_BRANCH= ROT_START= ROT_END= RECORD_STORE= FLAG_REFUSED= SESSION_STOP=

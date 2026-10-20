@@ -38,7 +38,7 @@ FAIL_COUNT=0
 pass() { printf 'PASS: %s\n' "$*"; PASS_COUNT=$((PASS_COUNT + 1)); }
 fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/run-evals-test.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/run-evals-test.XXXXXX") || exit 1
 cleanup() { [ -n "${T:-}" ] && rm -rf "$T"; return 0; }
 trap cleanup EXIT
 

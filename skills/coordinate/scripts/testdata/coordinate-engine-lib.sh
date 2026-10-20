@@ -30,7 +30,7 @@ ORIG_PATH=$PATH
 # first on PATH; these suites need the real koto, so PATH is rebuilt with only
 # the gh stand-in in front, and the stand-in koto's variables are dropped.
 . "$HERE/testdata/test-lib.sh"
-T=$(cd -P "$T" && pwd -P)
+T=$(cd -P "$T" && pwd -P) || exit 1
 unset KOTO_STORE KOTO_COMPILED_HASH
 # The board fixtures (bt_board, H, MOVED) for the land case.
 . "$HERE/testdata/board/helpers.sh"

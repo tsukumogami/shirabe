@@ -31,9 +31,9 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v jq >/dev/null 2>&1 || { echo "jq is required to run this suite" >&2; exit 2; }
 [ -x "$CHECK" ] || { echo "$CHECK is missing or not executable" >&2; exit 2; }
 
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-pr-output-test.XXXXXX")
-WORKDIR=$(cd -P "$WORKDIR" && pwd -P)
-cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-pr-output-test.XXXXXX") || exit 1
+WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
+cleanup() { case "${WORKDIR:-}" in */check-pr-output-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
 trap cleanup EXIT
 
 # A real validator for the PB5 cases near the end, found before the stand-ins

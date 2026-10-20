@@ -155,7 +155,7 @@ if [ -n "$TODAY" ]; then lib_valid_date "$TODAY" || usage; else TODAY=$(date -u 
 lib_run_ref || lib_die2 "the run has no found record"
 lib_bounds
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/pick-facts.XXXXXX")
+T=$(mktemp -d "${TMPDIR:-/tmp}/pick-facts.XXXXXX") || lib_die2 "cannot make a temporary directory"
 trap 'rm -rf "$T"' EXIT
 
 # The record, read and parsed once, as the listers read it (record-source.sh

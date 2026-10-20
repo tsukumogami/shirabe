@@ -70,9 +70,9 @@ fi
 . "$REPO_ROOT/scripts/lib/koto-legacy-env.sh"
 koto_legacy_env_enable
 
-T=$(mktemp -d "${TMPDIR:-/tmp}/deliver-engine-test.XXXXXX")
-T=$(cd -P "$T" && pwd -P)
-trap 'rm -rf "$T"' EXIT
+T=$(mktemp -d "${TMPDIR:-/tmp}/deliver-engine-test.XXXXXX") || exit 1
+T=$(cd -P "$T" && pwd -P) || exit 1
+trap 'case "$T" in */deliver-engine-test.*) rm -rf "$T" ;; esac' EXIT
 export HOME="$T/home"
 mkdir -p "$HOME"
 export GIT_CEILING_DIRECTORIES="$T"

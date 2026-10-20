@@ -39,7 +39,7 @@ fail() { printf 'FAIL: %s\n' "$*"; FAIL_COUNT=$((FAIL_COUNT + 1)); }
 command -v python3 >/dev/null || { echo "FAIL: python3 is required" >&2; exit 1; }
 command -v git >/dev/null || { echo "FAIL: git is required" >&2; exit 1; }
 
-WORK=$(mktemp -d)
+WORK=$(mktemp -d) || exit 1
 trap 'rm -rf "$WORK"' EXIT
 
 # Stubs: shirabe, koto, claude. A second directory holds the same stubs
@@ -98,7 +98,7 @@ RC=0
 # new_tree: a fresh root holding skills/demo with a SKILL.md and a sound
 # evals.json; each case then adds or breaks what it tests.
 new_tree() {
-    ROOT=$(mktemp -d "$WORK/root.XXXXXX")
+    ROOT=$(mktemp -d "$WORK/root.XXXXXX") || exit 1
     mkdir -p "$ROOT/skills/demo/evals"
     printf -- '---\nname: demo\ndescription: A demo skill.\n---\n\n# Demo\n' \
         > "$ROOT/skills/demo/SKILL.md"
@@ -395,7 +395,7 @@ else
     mkdir -p "$ROOT/skills/demo/scripts" "$WORK/caller-store"
     export REAL_KOTO_BIN
     cat > "$ROOT/skills/demo/scripts/store_test.sh" <<'SUITE'
-T=$(mktemp -d)
+T=$(mktemp -d) || exit 1
 export HOME="$T/home"; mkdir -p "$HOME"
 printf -- '---\nname: probe\nversion: "1.0"\ndescription: One state.\ninitial_state: done\nstates:\n  done:\n    terminal: true\n---\n\n## done\n\nDone.\n' > "$T/probe.md"
 (cd "$T" && "$REAL_KOTO_BIN" init store-probe --template "$T/probe.md" >/dev/null 2>&1) || { echo "koto init failed"; exit 1; }

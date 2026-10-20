@@ -27,9 +27,9 @@ for bin in git jq; do
     command -v "$bin" >/dev/null 2>&1 || { echo "SKIP: $bin not on PATH"; exit 0; }
 done
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/publish-test.XXXXXX")"
-T="$(cd -P "$T" && pwd -P)"
-trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/publish-test.XXXXXX")" || exit 1
+T="$(cd -P "$T" && pwd -P)" || exit 1
+trap 'case "$T" in */publish-test.*) rm -rf "$T" ;; esac' EXIT
 export GIT_CEILING_DIRECTORIES="$T"
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.invalid GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.invalid
 

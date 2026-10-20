@@ -41,9 +41,9 @@ if ! "$REAL_KOTO" init --help 2>/dev/null | grep -q -- '--vars-file'; then
     exit 0
 fi
 
-T="$(mktemp -d "${TMPDIR:-/tmp}/scope-open-test.XXXXXX")"
-T="$(cd -P "$T" && pwd -P)"
-trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/scope-open-test.XXXXXX")" || exit 1
+T="$(cd -P "$T" && pwd -P)" || exit 1
+trap 'case "$T" in */scope-open-test.*) rm -rf "$T" ;; esac' EXIT
 
 PASS=0
 FAIL=0

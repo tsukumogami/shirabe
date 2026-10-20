@@ -40,9 +40,9 @@ for tool in git jq; do
 done
 [ -x "$CHECK" ] || { echo "$CHECK is missing or not executable" >&2; exit 2; }
 
-WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-hop-document-test.XXXXXX")
-WORKDIR=$(cd -P "$WORKDIR" && pwd -P)
-cleanup() { [ -n "${WORKDIR:-}" ] && rm -rf "$WORKDIR"; return 0; }
+WORKDIR=$(mktemp -d "${TMPDIR:-/tmp}/check-hop-document-test.XXXXXX") || exit 1
+WORKDIR=$(cd -P "$WORKDIR" && pwd -P) || exit 1
+cleanup() { case "${WORKDIR:-}" in */check-hop-document-test.*) rm -rf "$WORKDIR" ;; esac; return 0; }
 trap cleanup EXIT
 
 REAL_SHIRABE=$(command -v shirabe 2>/dev/null || true)
