@@ -163,8 +163,11 @@ asks whether the level is too light for these facts under the definitions on
 this page; since the floor already applies the rules above, the order is all
 the definitions add. `review-level.sh project <facts-file> <level>` prints the
 same slice for a facts file, so a slice built outside a live session is the
-script's own output. The check can only hold the run, never route it or lower
-the level.
+script's own output. The slice's contract (its sources, completeness case,
+measured size and trust record) is the `work-on/review-level-fits-facts` entry
+in `references/rule-registry.json`, with its written case in
+`references/jev-criteria.md`. The check can only hold the run, never route it
+or lower the level.
 
 When the decider gives no verdict, the criterion falls back to the agent
 instead of passing (koto 0.20.0), for a user whose decider runs in shadow as

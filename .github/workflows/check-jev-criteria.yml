@@ -1,0 +1,66 @@
+name: Check Jev criteria
+
+# Every Jev criterion's entry in references/rule-registry.json carries a slice
+# contract and, once trusted, a promotion record. scripts/jev-criteria/
+# jev_criteria.py holds those records to the templates, the fixture files and
+# the slice scripts, and with --base to the registry as the pull request found
+# it, so a contract or a false pass can't be dropped quietly. Nothing here
+# calls Jev or the network, and the job reads files only, so a pull request
+# from a fork can't spend anyone's decider key.
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/jev-criteria/**'
+      - 'references/rule-registry.json'
+      - 'references/jev-criteria.md'
+      - 'scripts/rule-registry.sh'
+      - 'scripts/review-shadow/**'
+      - 'skills/*/koto-templates/**'
+      - 'skills/work-on/scripts/review-level.sh'
+      - 'skills/work-on/references/review-level-rules.tsv'
+      - '.github/workflows/check-jev-criteria.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    # yq is pinned rather than taken from the runner image, as in
+    # check-templates.yml: the download is checked against the SHA-256 the
+    # release records, and the version is checked before anything runs.
+    env:
+      YQ_VERSION: v4.47.1
+      YQ_SHA256: 0fb28c6680193c41b364193d0c0fc4a03177aecde51cfc04d506b1517158c2fb
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pinned mikefarah yq
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/yq-bin"
+          mkdir -p "$dir"
+          curl -fsSL -o "$dir/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+          echo "${YQ_SHA256}  $dir/yq" | sha256sum -c -
+          chmod +x "$dir/yq"
+          out=$("$dir/yq" --version)
+          case "$out" in
+            *mikefarah/yq*" version ${YQ_VERSION}") ;;
+            *) echo "unexpected yq version: $out" >&2; exit 1 ;;
+          esac
+          echo "$dir" >> "$GITHUB_PATH"
+
+      - name: Run the jev-criteria tests
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name ci
+          python3 scripts/jev-criteria/test_jev_criteria.py -v
+
+      - name: Check every Jev criterion against its contract and the base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: python3 scripts/jev-criteria/jev_criteria.py check --base "$BASE_SHA"

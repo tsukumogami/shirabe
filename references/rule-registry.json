@@ -1315,12 +1315,42 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "references/pr-body-conformance.md#L27-L28"
       ],
       "aliases": [],
-      "notes": "Shares its text and baseline key with rs-004 and rs-008."
+      "notes": "Shares its text and baseline key with rs-004 and rs-008.",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the pull request body",
+            "writer": "graded-artifact"
+          },
+          {
+            "what": "the pull request's file list",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-007",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "merged-prs",
+          "runs": 80,
+          "max": 13676,
+          "p90": 4152,
+          "over_budget": 32,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure prs --repo tsukumogami/shirabe --repo tsukumogami/koto --limit 40 --kind pr-summary --budget 2560"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "rs-008",
@@ -1345,12 +1375,42 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "references/pr-body-conformance.md#L27-L28"
       ],
       "aliases": [],
-      "notes": "Shares its text and baseline key with rs-004 and rs-007."
+      "notes": "Shares its text and baseline key with rs-004 and rs-007.",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the pull request body",
+            "writer": "graded-artifact"
+          },
+          {
+            "what": "the pull request's file list",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-008",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "merged-prs",
+          "runs": 80,
+          "max": 13676,
+          "p90": 4152,
+          "over_budget": 32,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure prs --repo tsukumogami/shirabe --repo tsukumogami/koto --limit 40 --kind pr-summary --budget 2560"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "rs-009",
@@ -1375,12 +1435,38 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "skills/design/references/phases/phase-6-final-review.md#L114-L119"
       ],
       "aliases": [],
-      "notes": "The cited file states no sentence for this rule; the anchor is the nearest passage, and the criterion's question in scripts/review-shadow/criteria.json is the precise statement."
+      "notes": "The cited file states no sentence for this rule; the anchor is the nearest passage, and the criterion's question in scripts/review-shadow/criteria.json is the precise statement.",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the changed documents at the merge commit",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-009",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "merged-prs",
+          "runs": 24,
+          "max": 54359,
+          "p90": 22939,
+          "over_budget": 16,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure prs --repo tsukumogami/shirabe --limit 40 --kind doc-pairs --budget 2560 --git-dir <a clone of the repository>"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "rs-010",
@@ -1405,12 +1491,38 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "skills/work-on/references/phases/phase-4-implementation.md#L32-L34"
       ],
       "aliases": [],
-      "notes": "The same question as rs-017, graded on a pull request's hunks; rs-017 grades a local change before a pull request exists."
+      "notes": "The same question as rs-017, graded on a pull request's hunks; rs-017 grades a local change before a pull request exists.",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the change's diff",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-010",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "review-shadow-records",
+          "runs": 469,
+          "max": 324298,
+          "p90": 89574,
+          "over_budget": 449,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind code-hunks --budget 2560"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "rs-011",
@@ -1435,12 +1547,38 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "skills/brief/references/phases/phase-4-validate.md#L129-L132"
       ],
       "aliases": [],
-      "notes": ""
+      "notes": "",
+      "jev": {
+        "state": "blocked",
+        "sources": [
+          {
+            "what": "the BRIEF under review",
+            "writer": "graded-artifact"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-011",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "review-shadow-records",
+          "runs": 23,
+          "max": 2353,
+          "p90": 1999,
+          "over_budget": 0,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind brief-journey --budget 2560"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "rs-012",
@@ -1465,12 +1603,38 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "skills/brief/references/phases/phase-4-validate.md#L235-L238"
       ],
       "aliases": [],
-      "notes": ""
+      "notes": "",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the BRIEF under review",
+            "writer": "graded-artifact"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-012",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "review-shadow-records",
+          "runs": 23,
+          "max": 3877,
+          "p90": 3709,
+          "over_budget": 23,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind summary-pair --budget 2560"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "rs-013",
@@ -1495,12 +1659,38 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "skills/prd/references/prd-format.md#L230-L231"
       ],
       "aliases": [],
-      "notes": ""
+      "notes": "",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the PRD under review",
+            "writer": "graded-artifact"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-013",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "review-shadow-records",
+          "runs": 21,
+          "max": 11332,
+          "p90": 8169,
+          "over_budget": 19,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind prd-ac --budget 2560"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "rs-014",
@@ -1525,12 +1715,30 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "skills/review-plan/references/templates/ac-discriminability-taxonomy.md#L121-L152"
       ],
       "aliases": [],
-      "notes": ""
+      "notes": "",
+      "jev": {
+        "state": "blocked",
+        "sources": [
+          {
+            "what": "the PLAN under review",
+            "writer": "graded-artifact"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-014",
+          "verdict": "sufficient"
+        },
+        "not_measured": "no-real-run-record",
+        "false_passes": []
+      }
     },
     {
       "id": "rs-015",
@@ -1554,12 +1762,42 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "skills/work-on/references/phases/phase-4a-scrutiny.md#L9-L9"
       ],
       "aliases": [],
-      "notes": ""
+      "notes": "",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the issue's acceptance criteria",
+            "writer": "git"
+          },
+          {
+            "what": "the change's diff",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-015",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "review-shadow-records",
+          "runs": 398,
+          "max": 99910,
+          "p90": 29328,
+          "over_budget": 382,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind ac-hunks --budget 2560"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "rs-016",
@@ -1583,12 +1821,38 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "skills/work-on/references/phases/phase-4b-review.md#L11-L11"
       ],
       "aliases": [],
-      "notes": "Shares its text and baseline key with rs-017: one reviewer instruction covers both comment rules."
+      "notes": "Shares its text and baseline key with rs-017: one reviewer instruction covers both comment rules.",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the change's diff",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-016",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "review-shadow-records",
+          "runs": 469,
+          "max": 324298,
+          "p90": 89574,
+          "over_budget": 449,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind code-hunks --budget 2560"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "rs-017",
@@ -1612,12 +1876,38 @@
       "guards": [
         "none"
       ],
-      "withhold": "eligible",
+      "withhold": "never",
       "baseline_keys": [
         "skills/work-on/references/phases/phase-4b-review.md#L11-L11"
       ],
       "aliases": [],
-      "notes": "Shares its text and baseline key with rs-016: one reviewer instruction covers both comment rules. The same question as rs-010, graded on a local change before a pull request exists."
+      "notes": "Shares its text and baseline key with rs-016: one reviewer instruction covers both comment rules. The same question as rs-010, graded on a local change before a pull request exists.",
+      "jev": {
+        "state": "rejected",
+        "sources": [
+          {
+            "what": "the change's diff",
+            "writer": "git"
+          }
+        ],
+        "slice_script": "scripts/review-shadow/review-shadow.py",
+        "budget": 2560,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "rs-017",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "review-shadow-records",
+          "runs": 469,
+          "max": 324298,
+          "p90": 89574,
+          "over_budget": 449,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure records --dir <review-shadow store> --kind code-hunks --budget 2560"
+        },
+        "false_passes": []
+      }
     },
     {
       "id": "verification/bad-map",
@@ -1842,6 +2132,74 @@
       "baseline_keys": [],
       "aliases": [],
       "notes": "The rule's text is not in this file at the baseline's pinned commit: its first anchor does not occur there."
+    },
+    {
+      "id": "work-on/review-level-fits-facts",
+      "status": "active",
+      "summary": "The chosen review level is lighter than the change's facts call for",
+      "text": {
+        "path": "skills/work-on/references/review-levels.md",
+        "first": "The rules:",
+        "last": "- `light` otherwise."
+      },
+      "check": {
+        "kind": "decider",
+        "template": "skills/work-on/koto-templates/work-on.md",
+        "state": "review_level_check",
+        "gate": "level_fits_facts",
+        "criterion": "level_fits_facts"
+      },
+      "fixtures": [
+        "scripts/jev-criteria/fixtures/work-on-review-level-fits-facts.jsonl",
+        "scripts/jev-criteria/test_jev_criteria.py"
+      ],
+      "level": "gate",
+      "timing": [
+        "work-on:review_level_check"
+      ],
+      "guards": [
+        "none"
+      ],
+      "withhold": "never",
+      "baseline_keys": [],
+      "aliases": [],
+      "notes": "Registered after the baseline pin, so it has no baseline key.",
+      "jev": {
+        "state": "untrusted",
+        "sources": [
+          {
+            "what": "review_facts.json",
+            "writer": "gate-script",
+            "script": "skills/work-on/scripts/review-level.sh"
+          },
+          {
+            "what": "REVIEW_LEVEL",
+            "writer": "graded-artifact"
+          }
+        ],
+        "slice_script": "skills/work-on/scripts/review-level.sh",
+        "budget": 2048,
+        "completeness": {
+          "path": "references/jev-criteria.md",
+          "heading": "work-on/review-level-fits-facts",
+          "verdict": "sufficient"
+        },
+        "measured": {
+          "population": "koto-sessions",
+          "runs": 166,
+          "max": 246,
+          "p90": 229,
+          "over_budget": 0,
+          "on": "2026-10-20",
+          "command": "python3 scripts/jev-criteria/jev_criteria.py measure sessions --dir <koto sessions> --budget 2048"
+        },
+        "fixtures": "scripts/jev-criteria/fixtures/work-on-review-level-fits-facts.jsonl",
+        "declared": {
+          "sha256": "b20868a8c8a5acc2163612136b18297e355910376a8b7e1c8fbf087817183dd8",
+          "since": "2026-10-20"
+        },
+        "false_passes": []
+      }
     }
   ]
 }
