@@ -70,7 +70,8 @@
 #   FOLLOW_UP              `--follow-up <node>=<url>` -> `<node> <url>`: the
 #                          first `=` becomes a space, since koto's own value
 #                          allowlist has no `=`; a value with no `=` is
-#                          refused here (error=usage)
+#                          refused here (error=usage) (the jq
+#                          `sub("="; " ")` in the pairs builder below)
 #   FOLLOW_UP_REMOVE       `--remove` -> true
 #   ADOPT_RUN              `--adopt-run <id>`
 #
@@ -472,6 +473,7 @@ fi
 
 ROOT="${CLAUDE_PLUGIN_ROOT:-$PLUGIN_DIR}"
 
+# FOLLOW_UP's first `=` becomes a space: see FOLLOW_UP in the header.
 PAIRS_FILE="$DIR/execute-vars.json"
 printf '%s' "$TOKENS" | jq -c \
     --arg plan "$PLAN" --arg slug "$SLUG" --arg root "$ROOT" \

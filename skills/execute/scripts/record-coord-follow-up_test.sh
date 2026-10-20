@@ -21,7 +21,8 @@
 #                      observes its merge commit as merged_head
 #   re-record          #21's head moved: recording it again updates the head
 #   space-form         `--follow-up "<node> <url>"`, the form the template
-#                      hands setup from FOLLOW_UP, records the same key
+#                      hands setup from FOLLOW_UP, records the same key; the
+#                      `<node>=<url>` form exits 64 with no koto or gh call
 #   refusals           each exits 71 with only stop=<code>, changes no key, and
 #                      posts nothing: follow-up-node (a node with no recorded
 #                      PR, a gate node, an unknown node, the coordination PR's
@@ -108,7 +109,7 @@ run_setup() { # run_setup [flags...]
     OUT=$(cd "$REPO" && bash "$SETUP" --session "$S" --plan docs/plans/PLAN-t.md "$@" 2>"$CASE/stderr")
     RC=$?
 }
-follow_up() { run_setup --follow-up "$CT_CORE=$(fu_url "$1")" "${@:2}"; }
+follow_up() { run_setup --follow-up "$CT_CORE $(fu_url "$1")" "${@:2}"; }
 
 # refused <label> <code> [flags...] -- run setup on a snapshot of the case,
 # and check exit 71, the one stop line, an unchanged store, no body post and
@@ -173,6 +174,18 @@ else
     fail "space form: rc=$RC out=[$OUT] key=[$(val "$KEY")] stderr=[$(tail -2 "$CASE/stderr" | tr '\n' ' ')]"
 fi
 
+# The `=` form is the user's, which execute-open.sh turns into the space form;
+# setup takes only the space form, so `<node>=<url>` is a usage error before
+# any koto or gh call.
+: > "$CASE/koto-calls.log"
+: > "$GH_CALL_LOG"
+run_setup --follow-up "$CT_CORE=$(fu_url 21)"
+if [ "$RC" -eq 64 ] && ! [ -s "$CASE/koto-calls.log" ] && ! [ -s "$GH_CALL_LOG" ]; then
+    pass "--follow-up \"<node>=<url>\" exits 64 with no koto or gh call"
+else
+    fail "= form: rc=$RC koto=[$(tr '\n' ';' < "$CASE/koto-calls.log")] gh=[$(tr '\n' ';' < "$GH_CALL_LOG")]"
+fi
+
 held_case record-merged
 ct_follow_up_pr "$CT_REPO" 22 'state="MERGED"' "merge_sha=\"$MERGE_SHA\""
 ct_write_db
@@ -191,44 +204,44 @@ held_case refuse-node gated
 ct_pr "$CT_REPO" 12 "impl/$CT_SLUG-$CT_CLI"
 ct_follow_up_pr "$CT_REPO" 21
 ct_write_db
-refused "a node with no recorded PR" follow-up-node --follow-up "$CT_CLI=$(fu_url 21)"
-refused "a gate node" follow-up-node --follow-up "publish-core=$(fu_url 21)"
-refused "a node outside the run" follow-up-node --follow-up "nope=$(fu_url 21)"
-refused "the coordination PR's URL" follow-up-node --follow-up "$CT_CORE=$URL10"
-refused "the node's own PR" follow-up-node --follow-up "$CT_CORE=$URL11"
-refused "--remove of a follow-up never recorded" follow-up-node --follow-up "$CT_CORE=$(fu_url 21)" --follow-up-remove true
+refused "a node with no recorded PR" follow-up-node --follow-up "$CT_CLI $(fu_url 21)"
+refused "a gate node" follow-up-node --follow-up "publish-core $(fu_url 21)"
+refused "a node outside the run" follow-up-node --follow-up "nope $(fu_url 21)"
+refused "the coordination PR's URL" follow-up-node --follow-up "$CT_CORE $URL10"
+refused "the node's own PR" follow-up-node --follow-up "$CT_CORE $URL11"
+refused "--remove of a follow-up never recorded" follow-up-node --follow-up "$CT_CORE $(fu_url 21)" --follow-up-remove true
 ct_record_node "$CT_CLI" "$CT_REPO" 12
 ct_record_follow_up "$CT_CLI" "$CT_REPO" 21
-refused "a follow-up already recorded under another node" follow-up-node --follow-up "$CT_CORE=$(fu_url 21)"
+refused "a follow-up already recorded under another node" follow-up-node --follow-up "$CT_CORE $(fu_url 21)"
 
 setup_case refuse-new
 ct_follow_up_pr "$CT_REPO" 21
 ct_write_db
-refused "a new run, which has no node PR" follow-up-node --follow-up "$CT_CORE=$(fu_url 21)"
+refused "a new run, which has no node PR" follow-up-node --follow-up "$CT_CORE $(fu_url 21)"
 [ -z "$(written)" ] && pass "the new run's refusal sealed no run/setup" || fail "a new run's refusal wrote [$(written | tr '\n' ' ')]"
 
 held_case refuse-repo
 ct_pr acme/repo-b 21 fix/21
 ct_write_db
 refused "a follow-up in another repository than its node's" follow-up-repo \
-    --follow-up "$CT_CORE=https://github.com/acme/repo-b/pull/21"
+    --follow-up "$CT_CORE https://github.com/acme/repo-b/pull/21"
 
 held_case refuse-base
 ct_follow_up_pr "$CT_REPO" 21 'baseRefName="release"'
 ct_write_db
-refused "a follow-up based on another branch" follow-up-base --follow-up "$CT_CORE=$(fu_url 21)"
+refused "a follow-up based on another branch" follow-up-base --follow-up "$CT_CORE $(fu_url 21)"
 
 held_case refuse-author
 ct_follow_up_pr "$CT_REPO" 21 'author="someone-else"'
 ct_follow_up_pr "$CT_REPO" 22 'isCrossRepository=true'
 ct_write_db
-refused "a follow-up another author opened" follow-up-author --follow-up "$CT_CORE=$(fu_url 21)"
-refused "a follow-up from a fork" follow-up-author --follow-up "$CT_CORE=$(fu_url 22)"
+refused "a follow-up another author opened" follow-up-author --follow-up "$CT_CORE $(fu_url 21)"
+refused "a follow-up from a fork" follow-up-author --follow-up "$CT_CORE $(fu_url 22)"
 
 held_case refuse-closed
 ct_follow_up_pr "$CT_REPO" 21 'state="CLOSED"'
 ct_write_db
-refused "a follow-up closed unmerged" follow-up-closed --follow-up "$CT_CORE=$(fu_url 21)"
+refused "a follow-up closed unmerged" follow-up-closed --follow-up "$CT_CORE $(fu_url 21)"
 grep -q -- "--remove" "$CASE/stderr" && pass "the closed stop names --remove" || fail "closed stderr: [$(cat "$CASE/stderr")]"
 
 # --- removal -------------------------------------------------------------------------------

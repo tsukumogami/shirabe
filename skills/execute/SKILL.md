@@ -144,7 +144,8 @@ Two more flags, on both paths:
     closed unmerged. An open or GitHub-MERGED PR is recorded with its live
     head (`follow-up=recorded:<url>`), and recording it again updates the
     head. `--remove` marks a recorded follow-up removed with no live check,
-    since a closed one is the usual removal (`follow-up=removed:<url>`). Each
+    since a closed one is the usual removal (`follow-up=removed:<url>`), and
+    a `--remove` of a follow-up never recorded stops `follow-up-node`. Each
     renders the coordination PR's body. One follow-up per invocation: a
     repeated `--follow-up` is koto's `duplicate_var`. It applies only on a
     start that reaches setup; a live session past it refuses the flag
@@ -484,7 +485,8 @@ node's `impl/<slug>-<node>` branch. Nothing started is a new run, sealed on
 either store. A started run on the `session` store stops `session-absent`: its
 record lives in an execute session that isn't here, so bring that session over
 (`skill-session.sh import execute <topic> --from <workspace>`) or run where it
-lives. On `github` setup rebuilds the record, reading the body only through the
+lives. After that import the next `/execute` continues the imported run with
+the same `run_id` and record, and no recovery runs. On `github` setup rebuilds the record, reading the body only through the
 codec's `cb_parse`: the node list comes from the PLAN (none left stops
 `recovery-plan-gone`, or `coordination-index-missing` when the body has no
 index line either), each indexed node must be one of the PLAN's PR nodes, the
