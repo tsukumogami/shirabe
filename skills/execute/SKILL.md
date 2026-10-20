@@ -125,10 +125,14 @@ Two more flags, on both paths:
     the ownership lookup and its number recorded; a PR by another author or on
     another branch, one without the marker, or one other than the lookup's
     stops `coordination-pr-mismatch`.
-  - `--follow-up <node>=<url>`, with `--remove`, and `--adopt-run <id>` —
-    accepted and reported `ignored=follow-up`, `ignored=remove`,
-    `ignored=adopt-run` by setup until follow-ups and recovery land; they
-    change nothing yet.
+  - `--adopt-run <id>` — honoured only on a start that recovers a lost
+    record (see **Recovery**): `<id>` becomes the run's identity, outranking a
+    carried `run_id`, and setup stamps its marker on the node PRs that carry
+    another run's or none, recording who adopted the run and when. On any
+    other start setup stops `adopt-run-refused` and changes nothing.
+  - `--follow-up <node>=<url>`, with `--remove` — accepted and reported
+    `ignored=follow-up` and `ignored=remove` by setup until follow-ups land;
+    they change nothing yet.
 - `--koto-leg=<request-id>:<leg>` — attach this run's session to a koto request
   leg, so its terminal result reaches whoever waits on that leg (`/deliver`
   passes it). The request id must match koto's request-id pattern
@@ -311,7 +315,11 @@ PR's index. After the cascade deletes the PLAN, the node list is the one
 `run/setup` sealed; a `failed` or absent cascade verdict runs the cascade
 again. A merge passes the recorded head to `--match-head-commit`, and only
 after the loop's readiness check passed at that head on the same pass; a live
-head that moved off it is reported `awaiting:head-moved`.
+head that moved off it is reported `awaiting:head-moved`. The PLAN comes from
+`plan-to-tasks.sh`, which gives every PR node its `REPO`, `PR_GROUP`, `ISSUES`,
+and `ISSUE_SOURCE`, so `/execute` never re-parses the PLAN. A coordinated PLAN
+at `tracking_level: none` carries no GitHub issue at all: its work items are
+outlines, and the run makes no `gh issue` call.
 
 **The coordination PR's body is the record's rendering.** `coord-render.sh`
 renders it through `scripts/lib/coordination-body.sh` after every transition it
@@ -345,10 +353,7 @@ none), for a node, a follow-up, the coordination PR, and a single-pr run's PR
 alike. An empty Part 1, a title spanning lines, or an attribution line makes no
 merge call and reports `merge-refused:squash-message`. Every refused merge is
 recorded as `<node>:merge-refused` in `merge_attempts`, so the loop doesn't try
-it again, and the run ends `ready_awaiting_merge`. The PLAN comes from `plan-to-tasks.sh`, which gives every PR
-node its `REPO`, `PR_GROUP`, `ISSUES`, and `ISSUE_SOURCE`, so `/execute` never
-re-parses the PLAN. A coordinated PLAN at `tracking_level: none` carries no GitHub
-issue at all: its work items are outlines, and the run makes no `gh issue` call.
+it again, and the run ends `ready_awaiting_merge`.
 
 **Nothing lands on the coordination branch except the scoping documents and the
 finalization cascade.** A node branch is cut from the default branch, never from
@@ -432,7 +437,39 @@ and heads, and with its merge attempts empty (the opener removes
 doesn't re-dispatch the work items of a node whose PR is `MERGED`, opens no PR
 for a node already recorded, and makes no scoping commit: nothing
 under `docs/briefs/`, `docs/prds/`, `docs/designs/`, or `docs/plans/` changes
-outside the cascade.
+outside the cascade. A run whose PLAN the cascade already deleted re-invokes on
+the coordinated template too: the opener reads the mode from the record's
+`run/setup` (in the session or its snapshot), and setup reads `repos` and the
+node list from it.
+
+**Recovery.** A start whose session holds no record (`run/setup` absent) first
+asks whether a run had started: a carried `run_id`, a `run=` line in the
+coordination PR's rendered body, a PR Index line, or an owned PR on a PLAN
+node's `impl/<slug>-<node>` branch. Nothing started is a new run, sealed on
+either store. A started run on the `session` store stops `session-absent`: its
+record lives in an execute session that isn't here, so bring that session over
+(`skill-session.sh import execute <topic> --from <workspace>`) or run where it
+lives. On `github` setup rebuilds the record, reading the body only through the
+codec's `cb_parse`: the node list comes from the PLAN (none left stops
+`recovery-plan-gone`, or `coordination-index-missing` when the body has no
+index line either), each indexed node must be one of the PLAN's PR nodes, the
+one owned PR on its branch, and carry the run's marker, and each head is read
+live, never taken from the body's `head=`. The identity is, in order,
+`--adopt-run`, the carried `run_id`, the body's `run=` line, the one id every
+node PR's marker names, and a freshly minted one only when the index holds no
+node PR. A node PR with another run's marker or none, or every node PR when no
+identity is found, stops `recovery-unproven` naming each with its reason and
+URL; `--adopt-run <id>` stamps exactly those instead, never one that failed
+the ownership lookup, and a stamp that fails stops naming that PR as not
+stampable. An index with no node line beside an owned node PR stops
+`coordination-index-missing`, and a body over the size cap
+`coordination-body-full`. The recovered record holds `run/setup`, each node's
+`run/node/<node>`, the cascade `not-run`, and `run/recovered` (the coordination
+PR and the identity's source); the run continues from it, and the exit lines
+carry `recovered=<url>`. Follow-up lines are read but not recorded yet. A run
+from before the record existed (a session holding only its `run_id`, an
+old-format index with its `coordination` self row) recovers this way once,
+keeping its `run_id`, and every later invocation finds the record.
 
 ### Abandonment (R20)
 
@@ -569,12 +606,16 @@ against its chain shape:
    - **The run record**, a coordinated run's store: the `run/` keys in
      `execute-<plan-slug>`, each written only through `run-record.sh`, by the
      verb that owns its fields (any other verb is refused `not-owner`):
-     `run/setup` (verb `setup`, from `record-coord-setup.sh` on a new run),
+     `run/setup` (verb `setup`, from `record-coord-setup.sh` on a new run, or
+     `recover` on a recovering start),
      `run/node/<node>` (`push`, from `node-push.sh` after a successful push),
      `run/follow-up/<node>/<n>` (`follow-up`, not written yet),
      `run/cascade` (`cascade`: `pushed` from `node-push.sh` coordination mode,
      `failed` from `record-coordination-verdict.sh`), `run/recovered` and
-     `run/adopted` (`recover` and `adopt`, not written yet); the head a
+     `run/adopted` (`recover` and `adopt`, from `record-coord-setup.sh` on a
+     recovering start, `adopt` only with `--adopt-run`; `recover` also writes
+     the rebuilt `run/setup`, `run/node/<node>` and `run/cascade`, all in one
+     call); the head a
      node's or follow-up's merge landed at belongs to `observe`, written only
      by `coord-render.sh` from the merge commit GitHub reports, before the
      body that shows it is posted. `carry`,
@@ -584,6 +625,12 @@ against its chain shape:
      default is `.local/state/shirabe` under the home directory, in
      `execute-carry/`, mode 0700) only until the
      carry succeeds.
+   - **Node PR marker edits** (`gh pr edit --body-file`), only from
+     `record-coord-setup.sh` on a recovering start given `--adopt-run`, after
+     every recovery check passed, and only on node PRs that passed the
+     ownership lookup: `run-id.sh` restamps or stamps the body with the
+     adopted id's marker, the rest of it kept, and a re-read must show the
+     id.
    - **koto context keys** this run's scripts write: `repos` (the write set,
      fixed at start), `home_pr` (only from `owned-pr.sh`'s output), `waiting`,
      `expected_head` (only after a successful push), `cascade_result.json`
@@ -594,9 +641,14 @@ against its chain shape:
      `coord-merge.sh`, and `coordination:body-stale` or `coordination:body-full`
      from `coord-render.sh --before-coordination`; the opener removes it at
      every invocation's start), `coord_verdict`, `pr`, `resume`, and `body`
-     (the last render's token), and
+     (the last render's token), `recovered` (the coordination PR's URL, from
+     `record-coord-setup.sh` when it recovered the record; the opener removes
+     it at every invocation's start), and
      `run_id`, minted by `record-coord-setup.sh` when it seals a new run record
-     (by `execute-open.sh` on single-pr); and the `outcome`, `step`, `reason`,
+     or recovers one with no identity (by `execute-open.sh` on single-pr),
+     seeded from the run line or the markers on a recovery, and overwritten
+     only by `run-id.sh adopt` on a recovery given `--adopt-run`; and the
+     `outcome`, `step`, `reason`,
      `loop_line`, and `waiting` keys the templates' own edges assign.
 
    `gh pr review` is outside the set: `/execute` never approves or reviews a PR,
@@ -620,7 +672,11 @@ against its chain shape:
    `run-record.sh` checks against a closed pattern on every write (and again on
    a carry), and every `coordinated-next.sh` read re-checks each recorded
    node's repository against the write set and its PR against the ownership
-   filter.
+   filter. The one read of the body is setup's on a start with no record,
+   through the codec: what it names is only a claim, which the PLAN's node
+   list, the ownership lookup, the run's marker and a live head read must each
+   bear out before anything is recorded, and a head the body shows is never
+   used.
 4. **Visibility boundary.** `/execute` runs in public and private repositories, and a
    PLAN in either may drive pull requests in both. Visibility is checked against
    each pull request's own target, never against where the PLAN lives. Placement
