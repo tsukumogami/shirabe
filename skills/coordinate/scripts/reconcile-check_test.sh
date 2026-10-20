@@ -30,7 +30,7 @@ trap 'rm -rf "$T"' EXIT
 # The copied tree: reconcile's scripts, /execute's validators, and the two
 # stand-in record-feature checks beside reconcile's scripts.
 mkdir -p "$T/tree/skills/coordinate/scripts" "$T/tree/skills/execute/scripts" "$T/bin"
-cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$HERE"/github-refs.sh "$T/tree/skills/coordinate/scripts/"
+cp "$HERE"/reconcile-check.sh "$HERE"/reconcile-deps.sh "$HERE"/inventory-common.sh "$HERE"/github-refs.sh "$T/tree/skills/coordinate/scripts/"
 # The record feature's merge check and what it sources, which the merge
 # subcommand calls rather than copies.
 cp "$HERE"/board-lib.sh "$HERE"/record-common.sh "$HERE"/record-source.sh "$T/tree/skills/coordinate/scripts/"
@@ -482,6 +482,11 @@ git -C "$R3" config filter.probe.clean "touch $T/FILTER-RAN; cat"
 git -C "$R3" config filter.probe.required true
 sleep 1; echo c > "$R3/a.txt"
 rm -f "$T/FILTER-RAN"
+# And an fsmonitor hook it names, which must never run either: every read
+# turns fsmonitor off.
+printf '#!/bin/sh\ntouch %s/FSMONITOR-RAN\n' "$T" > "$T/fsmonitor.sh"; chmod +x "$T/fsmonitor.sh"
+git -C "$R3" config core.fsmonitor "$T/fsmonitor.sh"
+rm -f "$T/FSMONITOR-RAN"
 new_case inventory-probe
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.1"
 printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3" > "$CASE/ls-remote.out.2"
@@ -489,6 +494,7 @@ printf 'ref: refs/heads/main\tHEAD\n%s\tHEAD\n%s\trefs/heads/main\n' "$M3" "$M3"
 mktree "$R3" "$M3"
 out=$(run inventory --path "$I3")
 [ ! -e "$T/FILTER-RAN" ] && ok "a clean filter the clone's config names never runs" || bad "a clean filter the clone's config names never runs" "$out"
+[ ! -e "$T/FSMONITOR-RAN" ] && ok "an fsmonitor hook the clone's config names never runs" || bad "an fsmonitor hook the clone's config names never runs" "$out"
 expect "a same-size edit under a filter is still found" '[.items[] | .path] | index("a.txt") != null' "$out"
 expect "a detached HEAD's commit is unique" '[.items[] | select(.kind == "commit") | .path] | index("detached HEAD") != null' "$out"
 expect "a stash is listed" '[.items[] | .path] | any(startswith("stash ("))' "$out"

@@ -30,7 +30,7 @@
 # `ls-remote` against the github.com URL under the coordinator's own git
 # config, authenticated by the gh login (github-refs.sh, the read reconcile
 # makes too), and the trees it compares against from GitHub, one read per
-# commit.
+# commit, made only when a tip needs it.
 #
 # Per repository (all its findings are listed):
 #
@@ -110,6 +110,8 @@ PROG=teardown-inventory
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=dispatch-common.sh
 . "$HERE/dispatch-common.sh"
+# shellcheck source=inventory-common.sh
+. "$HERE/inventory-common.sh"
 
 GH="${GH:-gh}"
 FETCH_SECS="${TEARDOWN_FETCH_SECS:-6}"
@@ -415,11 +417,16 @@ check_repo() {
             # this clone pushed it (its reflog says so). Any other tracking
             # ref is someone else's branch as last fetched; counting it would
             # read every clean clone in an active repository as unique.
-            ig "$d" for-each-ref refs/remotes/origin --format='%(objectname)	%(refname)	%(symref)' |
-                while IFS='	' read -r tsha tref tsym; do
-                    [ -z "$tsym" ] || continue
+            # The tracking refs whose branch is gone from origin, picked out in
+            # one pass: an awk per ref was most of the scan's processes in a
+            # clone that tracks hundreds of branches (shirabe#750).
+            awk '{ print $2 }' <<<"$live" >"$WORK/livenames"
+            ig "$d" for-each-ref refs/remotes/origin --format='%(objectname)	%(refname)	%(symref)' >"$WORK/trk"
+            awk -F'\t' 'FILENAME == ARGV[1] { live[$0] = 1; next }
+                $3 == "" { b = $2; sub(/^refs\/remotes\/origin\//, "", b); if (!(("refs/heads/" b) in live)) print $1 "\t" $2 }' \
+                "$WORK/livenames" "$WORK/trk" |
+                while IFS='	' read -r tsha tref; do
                     tb=${tref#refs/remotes/origin/}
-                    printf '%s\n' "$live" | awk -v r="refs/heads/$tb" '$2 == r { f = 1 } END { exit !f }' && continue
                     # Whether this clone pushed it is read from the ref's log.
                     # With ref logging off there's no log to read, so the
                     # clone can't be judged. A ref git clone created has no log
@@ -464,8 +471,6 @@ check_repo() {
         fi
     fi
     local sha name bname n base target label merge paths p want have differ
-    [ -f "$WORK/tree-$key-$dsha" ] || tree_map "$repo" "$dsha" "$WORK/tree-$key-$dsha" || {
-        note 2 "error $rel: the default branch's tree could not be read ($(tail -1 "$WORK/gh.err"))"; return; }
     while IFS='	' read -r sha name; do
         [ -n "$sha" ] || continue
         if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
@@ -498,6 +503,12 @@ check_repo() {
                 fi
                 ;;
         esac
+        # The default branch's tree is read the first time a tip is compared
+        # with it, not for every clone: most clones have no such tip.
+        if [ "$target" = "$dsha" ] && [ ! -f "$WORK/tree-$key-$dsha" ]; then
+            tree_map "$repo" "$dsha" "$WORK/tree-$key-$dsha" || {
+                note 2 "error $rel: the default branch's tree could not be read ($(tail -1 "$WORK/gh.err"))"; return; }
+        fi
         printf '%s\n' "$label" >>"$WORK/targets"
         # The paths the tip changed since it left the default branch, from
         # the newest default-branch commit this clone holds; an older base
@@ -578,61 +589,70 @@ done <"$WORK/heads"
 if [ "${#QUEUE[@]}" -eq 0 ] && [ "$WORST" -eq 0 ]; then
     note 0 "durable . (vs -): no git repositories"
 fi
-# Clones are read in waves of up to TEARDOWN_PARALLEL at once, each in its own
-# background job with its own scratch directory, and their lines are joined
-# in queue order, so the verdict reads as a serial scan's would. A clone a
-# read finds (a submodule, a nested clone, a worktree) joins a later wave.
-# Each job sees as already read the git directories of every clone queued
-# before it, which is what a serial scan would have seen: a linked worktree
-# after the first clone of its repository reads only its own files and HEAD.
-# (A clone queued earlier that failed before reaching its refs makes the
-# verdict an error anyway, so the worktree reading less can't hide anything.)
+# Clones are read by up to TEARDOWN_PARALLEL background jobs at once, each with
+# its own scratch directory, and a job starts as soon as one ends
+# (inventory-common.sh's pool; shirabe#750). Their lines are joined in queue
+# order once all have ended, so the verdict reads as a serial scan's would. A
+# clone a read finds (a submodule, a nested clone, a worktree) joins the queue
+# when the job that found it ends. Each job sees as already read the git
+# directories of every clone launched before it, which is what a serial scan
+# would have seen: a linked worktree after the first clone of its repository
+# reads only its own files and HEAD. (A clone launched earlier that failed
+# before reaching its refs makes the verdict an error anyway, so the worktree
+# reading less can't hide anything.)
 PARALLEL="${TEARDOWN_PARALLEL:-8}"
 case "$PARALLEL" in [1-8]) ;; *) PARALLEL=8 ;; esac
-i=0
-while [ "$i" -lt "${#QUEUE[@]}" ]; do
-    end=$((i + PARALLEL))
-    [ "$end" -gt "${#QUEUE[@]}" ] && end=${#QUEUE[@]}
-    j=$i
-    while [ "$j" -lt "$end" ]; do
-        dir=${QUEUE[$j]}
-        rel=${dir#"$INSTANCE"}
-        rel=${rel#/}
-        [ -n "$rel" ] || rel=.
-        C="$WORK/c$j"
-        mkdir "$C" || exit 2
-        : >"$C/verdict"
-        : >"$C/queued"
-        if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
-            printf 'error %s: not inventoried; the scan ran out of its %ss budget\n' "$rel" "$TOTAL_SECS" >"$C/verdict"
-            printf '2\n' >"$C/worst"
-            j=$((j + 1))
-            continue
-        fi
-        (
-            WORK=$C VERDICT="$C/verdict" QUEUED_FILE="$C/queued" WORST=0
-            check_repo "$dir" "$rel"
-            printf '%s\n' "$WORST" >"$C/worst"
-        ) &
-        # The clones after this one see its git directory as read.
-        common=$(ig "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
-            common=$(cd -P "$common" 2>/dev/null && pwd -P) && SEEN_COMMON+=("$common")
+# td_reap <j>: queue the clones job j found.
+td_reap() {
+    local q
+    while IFS= read -r q; do
+        [ -n "$q" ] && queue "$q"
+    done <"$WORK/c$1/queued"
+}
+INV_POOL_REAP=td_reap
+# td_job <j> <dir> <rel>: one clone's read, as a pool job.
+td_job() {
+    local C="$WORK/c$1"
+    WORK=$C VERDICT="$C/verdict" QUEUED_FILE="$C/queued" WORST=0
+    check_repo "$2" "$3"
+    printf '%s\n' "$WORST" >"$C/worst"
+}
+inv_pool_open "$WORK/pool.fifo" || exit 2
+j=0
+while [ "$j" -lt "${#QUEUE[@]}" ] || [ "${#INV_POOL_PIDS[@]}" -gt 0 ]; do
+    if [ "$j" -ge "${#QUEUE[@]}" ]; then
+        inv_pool_next
+        continue
+    fi
+    inv_pool_wait_slot "$PARALLEL"
+    dir=${QUEUE[$j]}
+    rel=${dir#"$INSTANCE"}
+    rel=${rel#/}
+    [ -n "$rel" ] || rel=.
+    C="$WORK/c$j"
+    mkdir "$C" || exit 2
+    : >"$C/verdict"
+    : >"$C/queued"
+    if [ $(( $(date +%s) - STARTED )) -ge "$TOTAL_SECS" ]; then
+        printf 'error %s: not inventoried; the scan ran out of its %ss budget\n' "$rel" "$TOTAL_SECS" >"$C/verdict"
+        printf '2\n' >"$C/worst"
         j=$((j + 1))
-    done
-    wait
-    j=$i
-    while [ "$j" -lt "$end" ]; do
-        C="$WORK/c$j"
-        cat "$C/verdict" >>"$VERDICT"
-        w=$(cat "$C/worst" 2>/dev/null) || w=
-        case "$w" in 0 | 1 | 2) ;; *) w=2; printf 'error %s: its read ended without a verdict\n' "${QUEUE[$j]#"$INSTANCE"/}" >>"$VERDICT" ;; esac
-        [ "$w" -gt "$WORST" ] && WORST=$w
-        while IFS= read -r q; do
-            [ -n "$q" ] && queue "$q"
-        done <"$C/queued"
-        j=$((j + 1))
-    done
-    i=$end
+        continue
+    fi
+    inv_pool_start "$j" td_job "$j" "$dir" "$rel"
+    # The clones after this one see its git directory as read.
+    common=$(ig "$dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) &&
+        common=$(cd -P "$common" 2>/dev/null && pwd -P) && SEEN_COMMON+=("$common")
+    j=$((j + 1))
+done
+j=0
+while [ "$j" -lt "${#QUEUE[@]}" ]; do
+    C="$WORK/c$j"
+    cat "$C/verdict" >>"$VERDICT"
+    w=$(cat "$C/worst" 2>/dev/null) || w=
+    case "$w" in 0 | 1 | 2) ;; *) w=2; printf 'error %s: its read ended without a verdict\n' "${QUEUE[$j]#"$INSTANCE"/}" >>"$VERDICT" ;; esac
+    [ "$w" -gt "$WORST" ] && WORST=$w
+    j=$((j + 1))
 done
 
 if [ "$SEAL" = 1 ]; then

@@ -85,6 +85,7 @@ mkdir -p "$ST/ctx" "$ST/merged"
 # answers from the local bare origin, in GitHub's shape.
 cat >"$BIN/gh" <<'EOF'
 #!/usr/bin/env bash
+[ -n "${GH_LOG:-}" ] && printf '%s\n' "$*" >>"$GH_LOG"
 if [ "$1" = api ]; then
     [ "${GH_HANG:-}" = 1 ] && sleep 30
     sha=${2##*/trees/}; sha=${sha%%\?*}
@@ -265,6 +266,22 @@ OUT4=$(bash "$S" --topic plugin-api --instance "$I4" 2>&1); RC=$?
 eq  "bare repository: exit 2" 2 "$RC"
 has "bare repository: named" "$OUT4" "error cache.git: a bare repository"
 
+# A clean clone has no tip to compare with the default branch, so its tree is
+# never read (shirabe#750); one with an unpushed branch reads it.
+IL="$T/instlazy"
+mkdir -p "$IL"
+git clone -q "$GHURL" "$IL/clean"
+: >"$T/gh.log"
+GH_LOG="$T/gh.log" bash "$S" --topic plugin-api --instance "$IL" >/dev/null 2>&1
+eq  "a clean clone: the default branch's tree is not read" 0 "$(grep -c 'git/trees' "$T/gh.log" 2>/dev/null || true)"
+git -C "$IL/clean" checkout -q -b local-only
+printf 'local\n' >"$IL/clean/local.txt"
+git -C "$IL/clean" add local.txt
+git -C "$IL/clean" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -qm local
+: >"$T/gh.log"
+GH_LOG="$T/gh.log" bash "$S" --topic plugin-api --instance "$IL" >/dev/null 2>&1
+eq  "an unpushed branch: the default branch's tree is read once" 1 "$(grep -c 'git/trees' "$T/gh.log" 2>/dev/null || true)"
+
 # A repository whose .git points nowhere is an error, never durable.
 I5="$T/inst5"
 mkdir -p "$I5/broken"
@@ -277,6 +294,12 @@ has "unreadable repository: named" "$OUT5" "error broken: not a readable git rep
 I6="$T/inst6"
 mkdir -p "$I6"
 git clone -q "$GHURL" "$I6/slow"
+# The default branch's tree is read only when a tip is compared with it
+# (shirabe#750), so the clone carries one: a branch on no remote ref.
+git -C "$I6/slow" checkout -q -b local-only
+printf 'local\n' >"$I6/slow/local.txt"
+git -C "$I6/slow" add local.txt
+git -C "$I6/slow" -c user.name=t -c user.email=t@example.invalid -c commit.gpgsign=false commit -qm local
 START=$(date +%s)
 OUT6=$(GH_HANG=1 TEARDOWN_FETCH_SECS=1 bash "$S" --topic plugin-api --instance "$I6" 2>&1); RC=$?
 eq  "hung read: exit 2" 2 "$RC"
@@ -356,12 +379,28 @@ if [ $(( $(date +%s) - START )) -lt 10 ]; then ok "private, the refs read hangs:
 # itself and never runs the filter.
 I10="$T/inst10"
 mkdir -p "$I10"
-for r in filt skip assume tagged nest; do git clone -q "$GHURL" "$I10/$r"; done
+for r in filt skip assume tagged nest same racy; do git clone -q "$GHURL" "$I10/$r"; done
 printf 'a.txt filter=hide\n' >"$I10/filt/.git/info/attributes"
-git -C "$I10/filt" config filter.hide.clean "touch $T/filter-ran; printf 'a\\n'"
-printf 'hidden edit\n' >>"$I10/filt/a.txt"
-git -C "$I10/filt" update-index --refresh >/dev/null 2>&1
+git -C "$I10/filt" config filter.hide.clean "cat >/dev/null; touch $T/filter-ran; printf 'a\\n'"
+# A same-size edit the filter maps back to the committed bytes, staged a
+# second later: `git add -u` then records the edited file's own stat data
+# beside the committed blob, so git itself reads the clone clean and only
+# hashing the bytes finds the edit.
+printf 'z\n' >"$I10/filt/a.txt"
+sleep 1
+git -C "$I10/filt" add -u
 rm -f "$T/filter-ran"
+# An fsmonitor hook the clone names must never run either.
+printf '#!/bin/sh\ntouch %s/fsmonitor-ran\n' "$T" >"$T/fsmonitor.sh"
+chmod +x "$T/fsmonitor.sh"
+git -C "$I10/filt" config core.fsmonitor "$T/fsmonitor.sh"
+rm -f "$T/fsmonitor-ran"
+# Edits git's own stat check can miss: one of the same size, a second after
+# the index was written, and one in the same instant as an index write.
+sleep 1
+printf 'b\n' >"$I10/same/a.txt"
+git -C "$I10/racy" update-index --refresh >/dev/null 2>&1
+printf 'c\n' >"$I10/racy/a.txt"
 git -C "$I10/skip" update-index --skip-worktree a.txt
 printf 'skipped edit\n' >>"$I10/skip/a.txt"
 git -C "$I10/assume" update-index --assume-unchanged a.txt
@@ -386,19 +425,22 @@ OUT10=$(bash "$S" --topic plugin-api --instance "$I10" 2>&1)
 eq  "a branch shared with a linked worktree is listed once" 1 "$(printf '%s\n' "$OUT10" | grep -c 'once changed a.txt')"
 has "a clean filter hides nothing" "$OUT10" "unique filt: uncommitted changes"
 if [ -e "$T/filter-ran" ]; then bad "the clone's filter never runs" ""; else ok "the clone's filter never runs"; fi
+if [ -e "$T/fsmonitor-ran" ]; then bad "the clone's fsmonitor hook never runs" ""; else ok "the clone's fsmonitor hook never runs"; fi
+has "a same-size edit: unique" "$OUT10" "unique same: uncommitted changes"
+has "an edit in the instant of the index write: unique" "$OUT10" "unique racy: uncommitted changes"
 has "a skip-worktree edit: unique" "$OUT10" "unique skip: uncommitted changes"
 has "an assume-unchanged edit: unique" "$OUT10" "unique assume: uncommitted changes"
 has "a local tag's commit: unique" "$OUT10" "tag t1 changed a.txt"
 
-# Clones are read in parallel waves; the verdict must be what a serial scan
-# prints, line for line, including a linked worktree read in the same wave as
+# Clones are read by a pool of background jobs; the verdict must be what a
+# serial scan prints, line for line, including a linked worktree read beside
 # its repository and clones found during the walk (nested, submodule).
 for inst in "$I" "$I3" "$I10"; do
     SER=$(TEARDOWN_PARALLEL=1 bash "$S" --topic plugin-api --instance "$inst" 2>&1)
     PAR2=$(TEARDOWN_PARALLEL=2 bash "$S" --topic plugin-api --instance "$inst" 2>&1)
     PARD=$(bash "$S" --topic plugin-api --instance "$inst" 2>&1)
-    eq "parallel waves of 2 print the serial verdict for ${inst#"$T"/}" "$SER" "$PAR2"
-    eq "the default waves print the serial verdict for ${inst#"$T"/}" "$SER" "$PARD"
+    eq "a pool of 2 prints the serial verdict for ${inst#"$T"/}" "$SER" "$PAR2"
+    eq "the default pool prints the serial verdict for ${inst#"$T"/}" "$SER" "$PARD"
 done
 eq "a bad TEARDOWN_PARALLEL falls back to the default" "$OUT10" "$(TEARDOWN_PARALLEL=x bash "$S" --topic plugin-api --instance "$I10" 2>&1)"
 eq "a TEARDOWN_PARALLEL above 8 falls back to the default" "$OUT10" "$(TEARDOWN_PARALLEL=16 bash "$S" --topic plugin-api --instance "$I10" 2>&1)"

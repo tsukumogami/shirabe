@@ -371,19 +371,32 @@ inventory`, change in two ways that leave what they prove untouched:
   the remote, so the per-tip `rev-list` is skipped for it. Only tips that
   differ (an unpushed branch, a moved tag, a detached HEAD) pay for the walk.
 - **Clones run in parallel.** Each clone's read runs as its own background
-  job with its own scratch files, at most eight at a time, and the per-clone
-  results are merged in queue order, so the output is the same as a serial
-  read's. Clones found during the walk (submodules, nested clones,
-  worktrees) are reported back to the main loop, which owns the queue and
-  adds them to a later wave. The main loop also settles, in queue order and
-  before it launches a clone, which clone is the first of its git directory,
-  since a clone and its linked worktree both enter the first queue: only the
-  first reads the shared branches, tags and stash. Where a linked worktree
-  reuses the first clone's remote reads (the reconcile read does), a wave
-  ends before a worktree whose repository is read in the same wave. The
-  reconcile read's per-run caps (clones, items, GitHub compare reads) stay
-  per run: the main loop applies the clone and item caps when it merges, and
-  splits what's left of the compare budget across a wave's jobs.
+  job with its own scratch files, at most eight at a time, from a pool that
+  starts the next clone as soon as a job ends rather than when a whole wave
+  has (shirabe#750; `inventory-common.sh`, which both reads share). The
+  per-clone results are merged in queue order once every job has ended, so
+  the output is the same as a serial read's. Clones found during the walk
+  (submodules, nested clones, worktrees) are reported back to the main loop,
+  which owns the queue and adds them when the job that found them ends. The
+  main loop also settles, in queue order and before it launches a clone,
+  which clone is the first of its git directory, since a clone and its
+  linked worktree both enter the first queue: only the first reads the
+  shared branches, tags and stash. Where a linked worktree reuses the first
+  clone's remote reads (the reconcile read does), a clone doesn't start
+  while another clone of its repository is still being read. The reconcile
+  read's per-run caps (clones, items, GitHub compare reads) stay per run: the
+  main loop applies the clone and item caps when it merges, and gives each
+  job an even share of the compare reads no finished or running job has
+  spent or reserved.
+- **The default branch's tree is read when something needs it.** A clone
+  with no unpushed tip and, for the reconcile read, no changed file has
+  nothing to compare with the default branch, so its recursive tree read,
+  one GitHub call per clone, is skipped. Most clones are like that.
+- **Gone tracking refs are picked out in one pass.** The teardown read
+  checks each origin tracking ref against origin's live branches in a
+  single awk over all of them, where it used to start one per ref: in a
+  clone tracking a few hundred branches that was most of the scan's
+  processes. Only the refs whose branch is gone go on to the ref-log read.
 
 The budgets stay (24 seconds for the teardown read, 20 for reconcile's), and
 a read the budget doesn't finish is still an error or not verified, never

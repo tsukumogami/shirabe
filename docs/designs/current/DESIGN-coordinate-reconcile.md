@@ -361,8 +361,8 @@ the read deadline:
   --exclude-standard`). A path is unique when its staged content (index
   against HEAD) or its working-tree content (file against index) differs
   from the default branch's blob for it, read from one recursive tree read
-  per clone (the contents API per path only where GitHub truncates the
-  tree). So a staged change whose file was put back, and an edit to a
+  per clone, made only when some path differs (shirabe#750; the contents API
+  per path only where GitHub truncates the tree). So a staged change whose file was put back, and an edit to a
   skip-worktree or assume-unchanged file, are found. Ignored files aren't
   listed.
 - **Worktrees, submodules and nested repositories.** `git worktree list`

@@ -66,7 +66,7 @@ PR="$T/plugin"
 S="$PR/skills/coordinate/scripts"
 mkdir -p "$S" "$PR/skills/coordinate/references" "$PR/skills/coordinate/koto-templates"
 for f in dispatch-common.sh holding-recorded.sh wait-target.sh report-source.sh \
-    teardown-inventory.sh github-refs.sh teardown-verdict.sh coord-log.sh dispatch-worker.sh render-brief.sh; do
+    teardown-inventory.sh inventory-common.sh github-refs.sh teardown-verdict.sh coord-log.sh dispatch-worker.sh render-brief.sh; do
     cp "$HERE/$f" "$S/$f"
 done
 cp "$HERE/../references/entry-points.tsv" "$PR/skills/coordinate/references/"

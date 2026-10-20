@@ -51,6 +51,8 @@ PROG=reconcile-check
 HERE=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=reconcile-deps.sh
 . "$HERE/reconcile-deps.sh"
+# shellcheck source=inventory-common.sh
+. "$HERE/inventory-common.sh"
 
 clamp_secs() { if rd_valid_secs "$1" && [ "$1" -le 60 ]; then echo "$1"; else echo "$2"; fi; }
 DEADLINE=$(clamp_secs "${RECONCILE_READ_DEADLINE:-8}" 8)
@@ -163,8 +165,12 @@ blob_at() {
 # hooks, no transport, no index lock) under the read deadline. A read that
 # fails or runs late marks the clone unchecked, never empty.
 #
-# The default branch's content comes from one recursive tree read per clone
-# (the contents API per file only when GitHub truncates that tree).
+# The default branch's content comes from one recursive tree read per clone,
+# made only when a tip or a changed file has to be compared with it (the
+# contents API per file only when GitHub truncates that tree).
+#
+# This inventory and teardown-inventory.sh's answer the same question with
+# two implementations; inventory-common.sh holds what they share so far.
 #
 # Globals inv_clone sets for the helpers it calls: REPO (the clone's github.com
 # origin), LIVE (its ls-remote read), DEFAULT (its default branch name),
@@ -218,10 +224,10 @@ inv_rel() { local r=${1#"$IROOT"}; r=${r#/}; printf '%s' "${r:-.}"; }
 # the index k under which the job writes, and later worktrees read, the
 # $SHARED.*.<k> files. A change to inv_clone's checks before its
 # SEEN_COMMON append belongs here too.
-inv_first_common() {
-    local loc common top s
+inv_first_common() { # inv_first_common DIR [LOC], LOC the rev-parse below when already read
+    local loc=${2-} common top s
     [ -L "$1/.git" ] && return 0
-    loc=$(ig "$1" rev-parse --path-format=absolute --git-common-dir --show-toplevel 2>/dev/null) || return 0
+    [ -n "$loc" ] || loc=$(ig "$1" rev-parse --path-format=absolute --git-common-dir --show-toplevel 2>/dev/null) || return 0
     common=$(printf '%s\n' "$loc" | sed -n 1p); top=$(printf '%s\n' "$loc" | sed -n 2p)
     common=$(cd -P "$common" 2>/dev/null && pwd -P) || return 0
     top=$(cd -P "$top" 2>/dev/null && pwd -P) || return 0
@@ -229,6 +235,23 @@ inv_first_common() {
     [ "$top" = "$1" ] || return 0
     for s in ${SEEN_COMMON[@]+"${SEEN_COMMON[@]}"}; do [ "$s" = "$common" ] && return 0; done
     printf '%s' "$common"
+}
+
+# inv_tree -- read the default branch's tree into $TREE unless it is there:
+# the first time a tip or a changed file has to be compared with it, not for
+# every clone (shirabe#750). A linked worktree reads the same file as its
+# repository; two worktrees may read it at once, so it lands by rename.
+inv_tree() {
+    [ -s "$TREE" ] && return 0
+    rd_deadline "$DEADLINE" gh api "repos/$REPO/git/trees/$DEFAULT_SHA?recursive=1" \
+        --jq '{truncated: .truncated, blobs: ([.tree[] | select(.type == "blob") | {key: .path, value: .sha}] | from_entries)} | tojson' \
+        > "$TREE.$$.$RANDOM" 2> "$ITEMS.tree.err" || return 1
+    local t
+    for t in "$TREE".*.*; do
+        [ -f "$t" ] || continue
+        jq -e '.blobs | type == "object"' "$t" >/dev/null 2> "$ITEMS.tree.err" && mv -f "$t" "$TREE" && break
+    done
+    [ -s "$TREE" ]
 }
 
 # default_blob PATH -- the default branch's blob sha for PATH, or "absent".
@@ -322,6 +345,39 @@ inv_hash() {
     awk 'NR == FNR { p[FNR] = $0; next } { print p[FNR] "\t" $0 }' "$2" "$3.h" > "$3"
 }
 
+# inv_cmp TREE -- one comparison into $ITEMS.cmp: a path is unique unless the
+# content that differs from HEAD (staged) or from the index (working tree) is
+# the default branch's in TREE.
+inv_cmp() {
+    jq -rn --rawfile idx "$ITEMS.idx" --rawfile head "$ITEMS.head" --rawfile wt "$ITEMS.wt" \
+        --rawfile del "$ITEMS.deleted" --rawfile oth "$ITEMS.othh" --slurpfile tree "$1" '
+        def lines($s): $s | split("\n") | map(select(length > 0));
+        # "meta<TAB>path": the path is everything after the first tab.
+        def metapath: split("\t") | {meta: (.[0] | split(" ")), path: (.[1:] | join("\t"))};
+        # "path<TAB>hash": the hash is the last field.
+        def pathhash: split("\t") | {key: (.[:-1] | join("\t")), value: .[-1]};
+        ($tree[0].blobs // {}) as $def | ($tree[0].truncated // false) as $trunc
+        | [lines($idx)[] | metapath | select(.meta[1] != "160000") | {key: .path, value: .meta[2]}] | from_entries as $index
+        | [lines($head)[] | metapath | select(.meta[0] != "160000") | {key: .path, value: .meta[2]}] | from_entries as $headmap
+        | [lines($wt)[] | pathhash] | from_entries as $work
+        # unique unless the content is on the default branch; "absent" means
+        # the path is gone, which the default branch may agree with.
+        # A truncated tree speaks only for the paths it holds; any other path
+        # is asked of the contents API, deletions included.
+        | def verdict($p; $sha): if ($def | has($p)) then (if $def[$p] == $sha then empty else "unique" end)
+                                 elif $trunc then "ask"
+                                 elif $sha == "absent" then empty
+                                 else "unique" end;
+          ( ($index | to_entries[] | .key as $p | .value as $i
+              | ((if ($headmap[$p] // "") != $i then verdict($p; $i) | "\(.)\tchange\t\($i)\t\($p)" else empty end),
+                 (if ($work | has($p)) and $work[$p] != $i then verdict($p; $work[$p]) | "\(.)\tchange\t\($work[$p])\t\($p)" else empty end))),
+            ($headmap | keys[] as $p | select(($index | has($p)) | not)
+              | verdict($p; "absent") | "\(.)\tdeleted\tabsent\t\($p)"),
+            (lines($del)[] | . as $p | verdict($p; "absent") | "\(.)\tdeleted\tabsent\t\($p)"),
+            ([lines($oth)[] | pathhash][] | .key as $p | .value as $h | verdict($p; $h) | "\(.)\tfile\t\($h)\t\($p)")
+          ) ' > "$ITEMS.cmp" 2>/dev/null
+}
+
 # inv_files CLONE REL -- tracked, staged, deleted and untracked changes.
 inv_files() {
     local C=$1 REL=$2 meta path tag mode sha line have nf=0
@@ -396,33 +452,16 @@ inv_files() {
 
     # One comparison: a path is unique unless the content that differs from
     # HEAD (staged) or from the index (working tree) is the default branch's.
-    jq -rn --rawfile idx "$ITEMS.idx" --rawfile head "$ITEMS.head" --rawfile wt "$ITEMS.wt" \
-        --rawfile del "$ITEMS.deleted" --rawfile oth "$ITEMS.othh" --slurpfile tree "$TREE" '
-        def lines($s): $s | split("\n") | map(select(length > 0));
-        # "meta<TAB>path": the path is everything after the first tab.
-        def metapath: split("\t") | {meta: (.[0] | split(" ")), path: (.[1:] | join("\t"))};
-        # "path<TAB>hash": the hash is the last field.
-        def pathhash: split("\t") | {key: (.[:-1] | join("\t")), value: .[-1]};
-        ($tree[0].blobs // {}) as $def | ($tree[0].truncated // false) as $trunc
-        | [lines($idx)[] | metapath | select(.meta[1] != "160000") | {key: .path, value: .meta[2]}] | from_entries as $index
-        | [lines($head)[] | metapath | select(.meta[0] != "160000") | {key: .path, value: .meta[2]}] | from_entries as $headmap
-        | [lines($wt)[] | pathhash] | from_entries as $work
-        # unique unless the content is on the default branch; "absent" means
-        # the path is gone, which the default branch may agree with.
-        # A truncated tree speaks only for the paths it holds; any other path
-        # is asked of the contents API, deletions included.
-        | def verdict($p; $sha): if ($def | has($p)) then (if $def[$p] == $sha then empty else "unique" end)
-                                 elif $trunc then "ask"
-                                 elif $sha == "absent" then empty
-                                 else "unique" end;
-          ( ($index | to_entries[] | .key as $p | .value as $i
-              | ((if ($headmap[$p] // "") != $i then verdict($p; $i) | "\(.)\tchange\t\($i)\t\($p)" else empty end),
-                 (if ($work | has($p)) and $work[$p] != $i then verdict($p; $work[$p]) | "\(.)\tchange\t\($work[$p])\t\($p)" else empty end))),
-            ($headmap | keys[] as $p | select(($index | has($p)) | not)
-              | verdict($p; "absent") | "\(.)\tdeleted\tabsent\t\($p)"),
-            (lines($del)[] | . as $p | verdict($p; "absent") | "\(.)\tdeleted\tabsent\t\($p)"),
-            ([lines($oth)[] | pathhash][] | .key as $p | .value as $h | verdict($p; $h) | "\(.)\tfile\t\($h)\t\($p)")
-          ) ' > "$ITEMS.cmp" 2>/dev/null || { inv_item "$REL" unchecked "the comparison could not be made"; return; }
+    # Against an empty tree marked truncated first, which lists every path
+    # that differs from HEAD or the index, deletions included: when none does,
+    # there is nothing to compare with the default branch and its tree isn't
+    # read. Otherwise the comparison runs again against the real tree.
+    printf '{"truncated":true,"blobs":{}}' > "$ITEMS.notree"
+    inv_cmp "$ITEMS.notree" || { inv_item "$REL" unchecked "the comparison could not be made"; return; }
+    if [ -s "$ITEMS.cmp" ]; then
+        inv_tree || { inv_item "$REL" unchecked "the default branch's tree could not be read"; return; }
+        inv_cmp "$TREE" || { inv_item "$REL" unchecked "the comparison could not be made"; return; }
+    fi
     # "ask": GitHub truncated the tree and the path is in the part it left out.
     local verdict kind p want have
     while IFS= read -r line; do
@@ -488,6 +527,7 @@ inv_tips() {
             0) continue ;;
             2) inv_item "$REL" unchecked "$bname could not be compared with the remote"; continue ;;
         esac
+        inv_tree || { inv_item "$REL" unchecked "the default branch's tree could not be read"; return; }
         inv_landed "$C" "$tip" || inv_item "$REL" commit "$bname"
     done < "$ITEMS.tips"
 }
@@ -547,11 +587,9 @@ inv_clone() {
     DEFAULT=$(printf '%s\n' "$LIVE" | awk '$1 == "ref:" && $3 == "HEAD" { sub("refs/heads/", "", $2); print $2; exit }')
     DEFAULT_SHA=$(printf '%s\n' "$LIVE" | awk -v r="refs/heads/$DEFAULT" 'length($1) == 40 && $1 ~ /^[0-9a-f]+$/ && $2 == r { print $1; exit }')
     rd_valid_sha "$DEFAULT_SHA" || { inv_item "$REL" unchecked "the default branch could not be resolved"; return; }
+    # The default branch's tree, read only when something is compared with it
+    # (inv_tree).
     TREE="$SHARED.tree.$k"
-    rd_deadline "$DEADLINE" gh api "repos/$REPO/git/trees/$DEFAULT_SHA?recursive=1" \
-        --jq '{truncated: .truncated, blobs: ([.tree[] | select(.type == "blob") | {key: .path, value: .sha}] | from_entries)} | tojson' \
-        > "$TREE" 2>/dev/null && jq -e '.blobs | type == "object"' "$TREE" >/dev/null 2>&1 \
-        || { inv_item "$REL" unchecked "the default branch's tree could not be read"; return; }
 
     # Commits: a tip (local branches, local tags, a detached HEAD) is pushed
     # when rev-list finds no commit of it outside the live shas this clone
@@ -850,64 +888,89 @@ inventory)
     while IFS= read -r gitpath; do
         [ -n "$gitpath" ] && inv_queue "$(dirname "$gitpath")"
     done < <(sort "$ITEMS.found")
-    # Clones are read in waves of up to INV_PARALLEL at once, each in its own
-    # background job writing its own items and scratch files under its own
-    # prefix; the main loop joins the items in queue order, so the fact lists
-    # them as a serial read would, and it owns the queue and the caps. Each
-    # job sees as read the git directories of the clones launched before it,
-    # which is what a serial read sees; a linked worktree reuses its
-    # repository's remote reads from those files, so a wave ends before a
-    # worktree whose repository is read in the same wave.
+    # Clones are read by up to INV_PARALLEL background jobs at once, each
+    # writing its own items and scratch files under its own prefix, and a job
+    # starts as soon as one ends (inventory-common.sh's pool; shirabe#750).
+    # The main loop joins the items in queue order once all have ended, so
+    # the fact lists them as a serial read would, and it owns the queue and
+    # the caps. Each job sees as read the git directories of the clones
+    # launched before it, which is what a serial read sees. A linked worktree
+    # reuses its repository's remote reads from those files, so a clone
+    # doesn't start while another clone of its repository is still being read.
     SHARED=$ITEMS
-    i=0
-    while [ "$i" -lt "${#QUEUE[@]}" ]; do
-        if [ "$i" -ge "$INV_CLONE_CAP" ]; then TRUNC=true; break; fi
-        WAVE_COMMONS=()
-        end=$i
-        while [ "$end" -lt "${#QUEUE[@]}" ] && [ "$end" -lt "$INV_CLONE_CAP" ] && [ $((end - i)) -lt "$INV_PARALLEL" ]; do
-            c=$(inv_first_common "${QUEUE[$end]}")
-            if [ -n "$c" ]; then
-                for w in ${WAVE_COMMONS[@]+"${WAVE_COMMONS[@]}"}; do [ "$w" = "$c" ] && break 2; done
-            fi
-            WAVE_COMMONS+=("$c")
-            end=$((end + 1))
-        done
-        # GitHub compare reads stay capped per run: a wave's jobs split what's left.
-        left=$((INV_COMPARE_CAP - INV_COMPARES))
+    JOB_COMMON=()
+    JOB_SHARE=()
+    RESERVED=0
+    # rc_reap J -- a finished job's compare count and the clones it found.
+    rc_reap() {
+        local jt jc q
+        RESERVED=$((RESERVED - ${JOB_SHARE[$1]:-0}))
+        if read -r jt jc < "$SHARED.c$1.done" 2>/dev/null; then
+            [ "$jt" = true ] && TRUNC=true
+            INV_COMPARES=$((INV_COMPARES + ${jc:-0}))
+        fi
+        [ -f "$SHARED.c$1.queued" ] || return 0
+        while IFS= read -r q; do
+            [ -n "$q" ] && inv_queue "$q"
+        done < "$SHARED.c$1.queued"
+    }
+    INV_POOL_REAP=rc_reap
+    # rc_job J SHARE -- one clone's read, as a pool job.
+    rc_job() {
+        ITEMS="$SHARED.c$1" QUEUED_FILE="$SHARED.c$1.queued" TRUNC=false INV_N=0 INV_COMPARES=0 INV_COMPARE_CAP=$2
+        : > "$ITEMS"; : > "$QUEUED_FILE"
+        inv_clone "${QUEUE[$1]}"
+        printf '%s %s\n' "$TRUNC" "$INV_COMPARES" > "$SHARED.c$1.done"
+    }
+    inv_pool_open "$SHARED.pool" || refuse inventory "the read's job channel could not be opened"
+    j=0
+    while { [ "$j" -lt "${#QUEUE[@]}" ] && [ "$j" -lt "$INV_CLONE_CAP" ]; } || [ "${#INV_POOL_PIDS[@]}" -gt 0 ]; do
+        if [ "$j" -ge "${#QUEUE[@]}" ] || [ "$j" -ge "$INV_CLONE_CAP" ]; then
+            inv_pool_next
+            continue
+        fi
+        inv_pool_wait_slot "$INV_PARALLEL"
+        # A clone of a repository another job is still reading waits for it.
+        loc=$(ig "${QUEUE[$j]}" rev-parse --path-format=absolute --git-common-dir --show-toplevel 2>/dev/null) || loc=""
+        c=""
+        [ -n "$loc" ] && c=$(cd -P "${loc%%$'\n'*}" 2>/dev/null && pwd -P)
+        if [ -n "$c" ]; then
+            for k in ${INV_POOL_IDS[@]+"${INV_POOL_IDS[@]}"}; do
+                [ "${JOB_COMMON[$k]}" = "$c" ] && inv_pool_wait_for "$k"
+            done
+        fi
+        JOB_COMMON[$j]=$c
+        first=""
+        [ -n "$loc" ] && first=$(inv_first_common "${QUEUE[$j]}" "$loc")
+        # GitHub compare reads stay capped per run: a job takes an even share
+        # of what no finished or running job has spent or reserved.
+        left=$((INV_COMPARE_CAP - INV_COMPARES - RESERVED))
         [ "$left" -lt 0 ] && left=0
-        share=$((left / (end - i)))
-        j=$i
-        while [ "$j" -lt "$end" ]; do
-            (
-                ITEMS="$SHARED.c$j" QUEUED_FILE="$SHARED.c$j.queued" TRUNC=false INV_N=0 INV_COMPARES=0 INV_COMPARE_CAP=$share
-                : > "$ITEMS"; : > "$QUEUED_FILE"
-                inv_clone "${QUEUE[$j]}"
-                printf '%s %s\n' "$TRUNC" "$INV_COMPARES" > "$SHARED.c$j.done"
-            ) &
-            c=${WAVE_COMMONS[$((j - i))]}
-            [ -n "$c" ] && SEEN_COMMON+=("$c")
-            j=$((j + 1))
-        done
-        wait
-        j=$i
-        while [ "$j" -lt "$end" ]; do
-            if read -r jt jc < "$SHARED.c$j.done" 2>/dev/null; then
-                [ "$jt" = true ] && TRUNC=true
-                INV_COMPARES=$((INV_COMPARES + ${jc:-0}))
-            else
-                inv_item "$(inv_rel "${QUEUE[$j]}")" unchecked "its read ended without a result"
-            fi
+        slots=$((INV_PARALLEL - ${#INV_POOL_PIDS[@]}))
+        [ $(( ${#QUEUE[@]} - j )) -lt "$slots" ] && slots=$(( ${#QUEUE[@]} - j ))
+        [ "$slots" -lt 1 ] && slots=1
+        share=$((left / slots))
+        JOB_SHARE[$j]=$share
+        RESERVED=$((RESERVED + share))
+        inv_pool_start "$j" rc_job "$j" "$share"
+        [ -n "$first" ] && SEEN_COMMON+=("$first")
+        j=$((j + 1))
+    done
+    [ "${#QUEUE[@]}" -gt "$INV_CLONE_CAP" ] && TRUNC=true
+    launched=$j
+    j=0
+    while [ "$j" -lt "$launched" ]; do
+        if [ ! -f "$SHARED.c$j.done" ]; then
+            inv_item "$(inv_rel "${QUEUE[$j]}")" unchecked "its read ended without a result"
+        fi
+        if [ -f "$SHARED.c$j" ]; then
             while IFS= read -r line; do
                 INV_N=$((INV_N + 1))
                 if [ "$INV_N" -gt "$INV_ITEM_CAP" ]; then TRUNC=true; break; fi
                 printf '%s\n' "$line" >> "$ITEMS"
             done < "$SHARED.c$j"
-            while IFS= read -r q; do
-                [ -n "$q" ] && inv_queue "$q"
-            done < "$SHARED.c$j.queued"
-            j=$((j + 1))
-        done
-        i=$end
+        fi
+        j=$((j + 1))
     done
     jq -sc --argjson tr "$TRUNC" --arg t "$(rd_now)" \
         '{kind: "inventory", status: "ok", taken: true, items: ., truncated: $tr, read_at: $t}' "$ITEMS"
