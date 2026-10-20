@@ -328,18 +328,23 @@ the Spike below). The result decides the table.
   handover gate's `told` rule makes the coordinator tell the worker its new
   address. A holding dispatched before leg keys existed has no key and no
   recorded child, so after a move its leg is unwatchable; on its own host it is
-  watched through its return path as today. The pass runs inside
-  `reconcile-pass.sh`, and the gate lists `leg-unclassified <topic>` until it has.
+  watched through its return path as today. `reconcile-pass.sh` launches the
+  classification as a write job of its own, `reconcile-legs.sh`, beside the
+  settle, and runs one record write at a time so the two can't refuse each
+  other as record-changed. The gate lists `leg-unclassified <topic>` until each
+  leg has its end.
 - **Alternative: re-attach to the original request id.** Measured impossible:
   the new host's store answers `request_not_found`.
 - **Alternative: every moved leg to the message path.** Rejected: it gives up a
   leg the measurement shows can be kept, for a worker that moved with the
   coordinator.
 
-`wait-target.sh` records the bound child's session name in the leg key whenever
-it reads the request (`koto request get` returns `bound_child`), and writes the
-result and state `taken` when it reads one, so a leg resolved before an import is
-readable after it.
+`wait-target.sh` records the bound child's session name in the leg key the first
+time it reads the request with a child bound (`koto request get` returns
+`bound_child`), keeping a list of the legs already recorded in the context key
+`leg_children` so later ticks don't re-read every key, and writes the result and
+state `taken` when it reads one, so a leg resolved before an import is readable
+after it.
 
 ### Decision 8: Stranded holdings and spent legs
 
