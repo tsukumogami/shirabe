@@ -363,8 +363,10 @@ leg, since one leg answers one session.
   only when GitHub reports the PR MERGED and every non-green check is a
   cancelled run of a workflow the repo's `scripts/check-macos-floor-setup.sh
   --workflows` lists, and then records those checks in context as
-  `ci_cancelled_after_merge.txt`; otherwise 1. A repo without that script gets
-  a quiet 1. `scripts/ci-cancel-after-merge_test.sh` is its harness.
+  `ci_cancelled_after_merge.txt`; otherwise 1. It matches by workflow and the
+  PR's state, not by when the cancel happened, and close-cancel cancels whole
+  runs, so a Linux job of a floor workflow counts too; a failed one still
+  blocks. A repo without that script gets a quiet 1. `scripts/ci-cancel-after-merge_test.sh` is its harness.
 - `scripts/record-changed-paths.sh --base|--write <session-name>` — run by koto
   itself, never by the agent: `analysis` runs `--base` on entry to record
   `impl_base` once, and `changed_paths_record` runs `--write` to put

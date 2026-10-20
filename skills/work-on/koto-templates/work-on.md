@@ -3169,6 +3169,10 @@ tell which shape you have; the verdict alone does not say.
 
 The workflow is complete. The PR has been created and CI is passing.
 
+If `koto context exists {{SESSION_NAME}} ci_cancelled_after_merge.txt` succeeds,
+CI passed on a MERGED pull request with cancelled macOS floor checks: read it
+with `koto context get` and name those checks in your final report.
+
 ## done_already_complete
 
 Analysis confirmed the issue goal is already satisfied by current code. All
