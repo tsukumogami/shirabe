@@ -123,7 +123,7 @@ done
 grep -q -- '--run-id "$RUN_ID"' skills/execute/scripts/record-coordination-verdict.sh \
     && pass "record-coordination-verdict.sh hands its identity to coordination-verdict.sh" \
     || fail "record-coordination-verdict.sh does not pass --run-id"
-grep -q -- '--verify --expect-intent continue --run-id "$RUN_ID"' skills/deliver/scripts/deliver-probe.sh \
+grep -q -- '--verify --run-id "$RUN_ID"' skills/deliver/scripts/deliver-probe.sh \
     && pass "deliver-probe.sh hands its identity to publish-scoping-pr.sh --verify" \
     || fail "deliver-probe.sh's --verify call carries no --run-id"
 VG=$(grep -c -- '--verify --expect-intent "{{RUN_INTENT}}"' skills/scope/koto-templates/scope.md)
