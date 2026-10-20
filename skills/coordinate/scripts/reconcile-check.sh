@@ -937,6 +937,8 @@ inventory)
     INV_POOL_JOIN=rc_join
     # rc_job J SHARE -- one clone's read, as a pool job.
     rc_job() {
+        # Its own names for rd_deadline's files: it runs beside its siblings.
+        RD_SHELL="j$1" RD_N=0
         ITEMS="$SHARED.c$1" QUEUED_FILE="$SHARED.c$1.queued" TRUNC=false INV_N=0 INV_COMPARES=0 INV_COMPARE_CAP=$2
         : > "$ITEMS"; : > "$QUEUED_FILE"
         inv_clone "${QUEUE[$1]}"

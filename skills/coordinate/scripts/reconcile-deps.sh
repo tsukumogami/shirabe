@@ -99,36 +99,58 @@ rd_now() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 # deadline; the file is printed once CMD has ended. At the deadline CMD and
 # its children get TERM, and KILL a second later. Exit status is CMD's, or
 # 124 when the deadline ended it. CMD's stderr passes through.
+#
+# A read is most of what the reconcile pass does, so this costs as few
+# processes as it can (shirabe#750): the watcher waits with `read -t` on a
+# FIFO nobody writes to rather than a sleep(1), the markers are made by
+# redirection, and the file's name is this script's pid, a tag for the shell
+# and a counter rather than a mktemp per call. Only `cat` and `rm` run on
+# every call, and pkill only when a deadline ends a command. A background
+# subshell that calls this while its parent can also must first set RD_SHELL
+# to a tag of its own and RD_N to 0, or the two would share names:
+# inventory-common.sh's pool jobs do.
+RD_SHELL=m
+RD_N=0
+RD_IDLE=""
+# rd_idle -- the idle FIFO on fd 7, opened once and inherited by every
+# subshell; its path is removed as soon as it is open.
+rd_idle() {
+    [ -n "$RD_IDLE" ] && return 0
+    local f="${TMPDIR:-/tmp}/reconcile-idle.$$.$RD_SHELL" rc
+    rm -f "$f"
+    mkfifo "$f" && exec 7<>"$f"
+    rc=$?
+    rm -f "$f"
+    [ "$rc" = 0 ] && RD_IDLE=1
+}
 rd_deadline() {
-    local secs=$1 pid watcher rc out mark done
+    local secs=$1 pid watcher rc out
     shift
     rd_valid_secs "$secs" || secs=8
-    out=$(mktemp "${TMPDIR:-/tmp}/reconcile-read.XXXXXX")
-    mark="$out.late"
-    done="$out.done"
+    rd_idle || return 2
+    RD_N=$((RD_N + 1))
+    out="${TMPDIR:-/tmp}/reconcile-read.$$.$RD_SHELL.$RD_N"
     "$@" > "$out" &
     pid=$!
     (
-        sleep "$secs"
+        read -r -t "$secs" _ <&7
         # CMD ended and the caller is stopping this watcher: nothing is late.
-        [ -e "$done" ] && exit 0
-        : > "$mark"
+        [ -e "$out.done" ] && exit 0
+        : > "$out.late"
         pkill -TERM -P "$pid" 2>/dev/null; kill -TERM "$pid" 2>/dev/null
-        sleep 1
+        read -r -t 1 _ <&7
         pkill -KILL -P "$pid" 2>/dev/null; kill -KILL "$pid" 2>/dev/null
     ) >/dev/null 2>&1 &
     watcher=$!
     wait "$pid"
     rc=$?
-    : > "$done"
-    # The watcher's own sleep too: left running, it would outlive this call
-    # holding whatever descriptors it inherited.
-    pkill -TERM -P "$watcher" 2>/dev/null
+    : > "$out.done"
+    # The watcher waits in a builtin, so stopping it stops everything it ran.
     kill "$watcher" 2>/dev/null
     wait "$watcher" 2>/dev/null
-    [ -e "$mark" ] && rc=124
+    [ -e "$out.late" ] && rc=124
     cat "$out"
-    rm -f "$out" "$mark" "$done"
+    rm -f "$out" "$out.done" "$out.late"
     return "$rc"
 }
 
